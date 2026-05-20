@@ -127,8 +127,8 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
     });
   });
 
-  describe("generator activation — Slice 4.5.C.α₃a active set is exactly 11", () => {
-    const ACTIVE_AFTER_4_5_C_ALPHA3A: ActionType[] = [
+  describe("generator activation — Slice 4.5.C.α₃b active set is exactly 12", () => {
+    const ACTIVE_AFTER_4_5_C_ALPHA3B: ActionType[] = [
       "edit_title",
       // Slice 4.5.B.α₀ (2026-05-19) — flipped paired with the
       // `missing-meta` trigger predicate.
@@ -140,39 +140,40 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       "add_h2_section",
       "add_faq",
       // Slice 4.5.C.α₁ (2026-05-20) — Tier-1 indexability flips.
-      //   • `sitemap-missing`           → `fix_sitemap`
-      //   • `robots-blocks-googlebot`   → `fix_robots`
-      //   • `bad-http-status`           → `fix_status_code`
-      //   • `canonical-mismatch`        → `fix_canonical`
       "fix_sitemap",
       "fix_robots",
       "fix_status_code",
       "fix_canonical",
       // Slice 4.5.C.α₂ (2026-05-20) — Tier-2 sensitive flip
-      // paired with the `noindex-on-indexable-page` predicate
-      // at confidence: "low" (routes to diagnostic_only).
+      // (noindex-on-indexable-page predicate at confidence: low).
       "fix_noindex",
       // Slice 4.5.C.α₃a (2026-05-20) — orphan-page cross-snapshot
-      // flip paired with the `orphan-page` predicate at
-      // confidence: "medium" (main candidates section).
+      // flip at confidence: medium (main candidates section).
       "add_internal_link",
+      // Slice 4.5.C.α₃b (2026-05-20) — missing-schema flip paired
+      // with the per-snapshot `missing-schema` predicate at
+      // confidence: "low" (routes to diagnostic_only via
+      // applyQueueRules). Tier-2 sensitive — schema-expectation
+      // map is local-service-tuned; diagnostic-only routing
+      // isolates operator validation.
+      "add_schema",
     ];
 
-    it("exactly 11 types are generatorActive=true (post-Slice 4.5.C.α₃a)", () => {
+    it("exactly 12 types are generatorActive=true (post-Slice 4.5.C.α₃b)", () => {
       const active = ACTION_TYPES.filter(
         (t) => ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      expect(active).toHaveLength(11);
-      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_4_5_C_ALPHA3A));
+      expect(active).toHaveLength(12);
+      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_4_5_C_ALPHA3B));
     });
 
-    it("listActiveActionTypes() returns the same eleven", () => {
+    it("listActiveActionTypes() returns the same twelve", () => {
       expect(new Set(listActiveActionTypes())).toEqual(
-        new Set(ACTIVE_AFTER_4_5_C_ALPHA3A),
+        new Set(ACTIVE_AFTER_4_5_C_ALPHA3B),
       );
     });
 
-    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; α₃b will activate `add_schema`; α₃+ will activate remaining types in later 4.5 slices)", () => {
+    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; 4.5.D+ will activate remaining types)", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
@@ -180,10 +181,11 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       // plus Section 7 C7b's 7 off-site/manual types,
       // plus Slice 4.5.B.α₀'s 3 new inactive types
       // (update_intro, add_h3_section, add_image_alt_text),
-      // minus 1 (`add_internal_link` flipped active in α₃a)
-      // → 26 total inactive.
-      expect(inactive).toHaveLength(26);
-      for (const t of ACTIVE_AFTER_4_5_C_ALPHA3A) {
+      // minus 2 (`add_internal_link` flipped active in α₃a;
+      // `add_schema` flipped active in α₃b)
+      // → 25 total inactive.
+      expect(inactive).toHaveLength(25);
+      for (const t of ACTIVE_AFTER_4_5_C_ALPHA3B) {
         expect(inactive).not.toContain(t);
       }
     });
@@ -192,8 +194,8 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       expect(ACTION_TYPE_REGISTRY.add_internal_link.generatorActive).toBe(true);
     });
 
-    it("(4.5.C.α₃a) `add_schema` STAYS INACTIVE in α₃a — deferred to α₃b", () => {
-      expect(ACTION_TYPE_REGISTRY.add_schema.generatorActive).toBe(false);
+    it("(4.5.C.α₃b) `add_schema` is ACTIVE — flipped in α₃b paired with `missing-schema` predicate at confidence: low", () => {
+      expect(ACTION_TYPE_REGISTRY.add_schema.generatorActive).toBe(true);
     });
   });
 

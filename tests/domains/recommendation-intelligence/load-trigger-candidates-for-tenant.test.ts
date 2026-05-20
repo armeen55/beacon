@@ -228,7 +228,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(14);
+    expect(result.meta.predicates_run).toBe(15);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -442,7 +442,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=14 in meta on the ok path (post-4.5.C.α₃a)", async () => {
+  it("reports predicates_run=15 in meta on the ok path (post-4.5.C.α₃b)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -452,7 +452,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(14);
+    expect(result.meta.predicates_run).toBe(15);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -1249,5 +1249,101 @@ describe("loadTriggerCandidatesForTenant", () => {
       ),
     ];
     expect(orphanRows).toEqual([]);
+  });
+
+  // ── Slice 4.5.C.α₃b — missing-schema predicate wiring ─────────────────
+
+  it("(4.5.C.α₃b) emits missing_schema candidate routed to diagnostic_only (NOT main candidates) for a service page with empty schema_types", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+        // Default makeSnapshot doesn't set schema_types; loader-test
+        // fixture's default IS already [] (verified). Explicit
+        // empty here for documentation clarity.
+        schema_types: [],
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    // Main candidates section: NO missing_schema row.
+    expect(
+      result.candidates.filter((r) => r.trigger_signal === "missing_schema"),
+    ).toEqual([]);
+    // Diagnostic-only bucket: exactly 1 missing_schema row.
+    const diag = result.diagnostic_only.filter(
+      (r) => r.trigger_signal === "missing_schema",
+    );
+    expect(diag).toHaveLength(1);
+    expect(diag[0]!.action_type).toBe("add_schema");
+    expect(diag[0]!.confidence).toBe("low");
+    expect(diag[0]!.impact_estimate).toBe("medium");
+  });
+
+  it("(4.5.C.α₃b) missing_schema does NOT fire when extraction_certainty is `uncertain`", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+        schema_types: [],
+        extraction_certainty: "uncertain",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const allMissingSchema = [
+      ...result.candidates.filter((r) => r.trigger_signal === "missing_schema"),
+      ...result.diagnostic_only.filter(
+        (r) => r.trigger_signal === "missing_schema",
+      ),
+    ];
+    expect(allMissingSchema).toEqual([]);
+  });
+
+  it("(4.5.C.α₃b) missing_schema does NOT fire when all required types are present", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+        // service_page required: FAQPage + BreadcrumbList + [Service|Offer]
+        schema_types: ["FAQPage", "BreadcrumbList", "Service"],
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const allMissingSchema = [
+      ...result.candidates.filter((r) => r.trigger_signal === "missing_schema"),
+      ...result.diagnostic_only.filter(
+        (r) => r.trigger_signal === "missing_schema",
+      ),
+    ];
+    expect(allMissingSchema).toEqual([]);
   });
 });

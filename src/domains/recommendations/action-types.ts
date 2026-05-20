@@ -11,17 +11,19 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * Slice 4.5.C.α₃a policy (2026-05-20): 37-type universe registered;
- * 11 have `generatorActive: true` (edit_title, edit_meta, change_h1,
+ * Slice 4.5.C.α₃b policy (2026-05-20): 37-type universe registered;
+ * 12 have `generatorActive: true` (edit_title, edit_meta, change_h1,
  * add_h2_section, add_faq, fix_sitemap, fix_robots, fix_status_code,
- * fix_canonical, fix_noindex, add_internal_link). 7 off-site
- * authority types are locked inactive per Section 7 C7b. The
- * remaining 19 ship as registered-but-inactive — Slice 4.5.C.α₃b
- * will activate `add_schema`. 4.5.C.α₃a flips `add_internal_link`
- * paired with the new cross-snapshot `orphan-page` predicate
- * (emits at `confidence: "medium"` → routes to the main candidates
- * section). Operator-only diagnostic surface; customer queue
- * UNCHANGED.
+ * fix_canonical, fix_noindex, add_internal_link, add_schema). 7
+ * off-site authority types are locked inactive per Section 7 C7b.
+ * The remaining 18 ship as registered-but-inactive. 4.5.C.α₃b
+ * flips `add_schema` paired with the new per-snapshot
+ * `missing-schema` predicate (emits at `confidence: "low"` →
+ * routes to `diagnostic_only` via `applyQueueRules`; the existing
+ * schema-expectation map is local-service-tuned so this Tier-2
+ * sensitive routing isolates the operator's first validation
+ * pass from any customer-queue impact). Operator-only diagnostic
+ * surface; customer queue UNCHANGED.
  *
  * This module is PURE TYPES + CONSTANTS. No DB writes. No extractors.
  * No UI. Safe to import from both server and client code.
@@ -351,7 +353,19 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Add schema",
-    generatorActive: false,
+    // Slice 4.5.C.α₃b (2026-05-20) — flipped paired with the
+    // per-snapshot `missing-schema` predicate. The predicate
+    // reuses `diffSchemaCoverage` + `EXPECTED_SCHEMA_BY_ASSET_TYPE`
+    // (Phase 1 substrate) and emits at `confidence: "low"` so its
+    // candidates route to `diagnostic_only` via `applyQueueRules`.
+    // The existing schema-expectation map is local-service-tuned;
+    // diagnostic-only routing isolates operator validation from
+    // any customer-queue impact. Three safety guards on the
+    // predicate: page-type allowlist (homepage / city / service /
+    // project / hub only — skip utility / other / technical_asset),
+    // skip `extraction_certainty="uncertain"`, fire only on
+    // `missing_required` (recommended-only gaps are evidence-only).
+    generatorActive: true,
   },
   fix_schema: {
     actionType: "fix_schema",

@@ -64,16 +64,21 @@ const AUDIT_DOC_PATH = resolve(
   "RECOMMENDATION_INTELLIGENCE_AUDIT.md",
 );
 
-/** Locked active set per Slice 4.5.C.α₃a audit (2026-05-20). α₃a
- *  adds 1 flip: `add_internal_link` paired with the cross-snapshot
- *  `orphan-page` deterministic predicate (`confidence: "medium"` →
- *  routes to main candidates section). Predicate uses strict
- *  inbound-orphan semantics (0 inbound owned-page links across the
- *  tenant's snapshots, self-links excluded). Page-type allowlist:
- *  homepage / city / service / project / hub. Global emptiness
- *  guard suppresses all emissions when no snapshot has usable
- *  internal_links data. Prior active set (post-4.5.C.α₂): 10
- *  entries. α₃b will activate `add_schema`. */
+/** Locked active set per Slice 4.5.C.α₃b audit (2026-05-20). α₃b
+ *  adds 1 flip: `add_schema` paired with the new per-snapshot
+ *  `missing-schema` deterministic predicate. The predicate reuses
+ *  the existing `diffSchemaCoverage()` + `EXPECTED_SCHEMA_BY_ASSET_TYPE`
+ *  substrate from `src/domains/pages/expected-schema.ts` (already
+ *  shipped as Phase 1 scanning-pipeline substrate). Emits at
+ *  `confidence: "low"` → routes to `diagnostic_only` via
+ *  `applyQueueRules` (NOT customer queue). Tier-2 sensitive
+ *  rationale: existing expectation map is local-service-tuned;
+ *  diagnostic-only routing isolates operator validation from
+ *  customer-queue impact. Page-type allowlist: homepage / city /
+ *  service / project / hub. Safety guards: skip
+ *  `extraction_certainty="uncertain"`; fire only when
+ *  `!coverage.satisfies_all_required`. Prior active set
+ *  (post-4.5.C.α₃a): 11 entries. */
 const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "edit_title",
   "edit_meta",
@@ -93,6 +98,11 @@ const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   // flip. Predicate emits at confidence: "medium" so candidates
   // surface in the main diagnostic section (not diagnostic_only).
   "add_internal_link",
+  // Slice 4.5.C.α₃b (2026-05-20) — missing-schema flip.
+  // Predicate emits at confidence: "low" → routes to
+  // diagnostic_only via applyQueueRules. Tier-2 sensitive
+  // (industry-tuning safety).
+  "add_schema",
 ];
 
 /** Locked total count per Slice 4.5.C.α₀ (2026-05-19). 4.5.C.α₀

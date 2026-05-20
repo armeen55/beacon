@@ -1,6 +1,6 @@
 /**
- * Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ + Slice 4.5.C.α₃a —
- * customer-copy-templates unit tests.
+ * Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ + Slice 4.5.C.α₃a +
+ * Slice 4.5.C.α₃b — customer-copy-templates unit tests.
  *
  * Behavioral assertions on the operator-locked phrasing. The
  * vocab-safety scan lives in
@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   addInternalLinkCopy,
+  addSchemaCopy,
   duplicateMetaCopy,
   duplicateTitleCopy,
   fixCanonicalCopy,
@@ -25,7 +26,7 @@ import {
   weakH1Copy,
 } from "@/domains/recommendation-intelligence/customer-copy-templates";
 
-describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀ + 4.5.C.α₃a)", () => {
+describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀ + 4.5.C.α₃a + 4.5.C.α₃b)", () => {
   it("missingTitleCopy returns the operator-locked phrasing", () => {
     expect(missingTitleCopy()).toBe(
       "Add a clear page title so AI search platforms can surface this page accurately.",
@@ -70,6 +71,7 @@ describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀ + 4.5.C.�
     expect(fixStatusCodeCopy()).toBe(fixStatusCodeCopy());
     expect(fixCanonicalCopy()).toBe(fixCanonicalCopy());
     expect(addInternalLinkCopy()).toBe(addInternalLinkCopy());
+    expect(addSchemaCopy()).toBe(addSchemaCopy());
   });
 
   // ── α₂ count-aware duplicate-metadata templates ─────────────────────
@@ -137,6 +139,14 @@ describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀ + 4.5.C.�
   it("addInternalLinkCopy returns the operator-locked phrasing (4.5.C.α₃a)", () => {
     expect(addInternalLinkCopy()).toBe(
       "This page has no internal links pointing to it from elsewhere on your site. Add links from related hub or detail pages so AI search platforms can discover it.",
+    );
+  });
+
+  // ── 4.5.C.α₃b structured-data template ──────────────────────────────
+
+  it("addSchemaCopy returns the operator-locked phrasing (4.5.C.α₃b)", () => {
+    expect(addSchemaCopy()).toBe(
+      "Add structured data so AI search platforms can extract this page's purpose more reliably.",
     );
   });
 });

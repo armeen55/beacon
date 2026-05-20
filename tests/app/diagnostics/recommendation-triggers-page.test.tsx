@@ -393,14 +393,14 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 14 (post-4.5.C.α₃a loader)", async () => {
+  it("predicates_run counter reads 15 (post-4.5.C.α₃b loader)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
-    // The font-mono span renders the integer 14; check via inclusion
-    // of the substring "predicates_run\">" + "14".
+    // The font-mono span renders the integer 15; check via inclusion
+    // of the substring "predicates_run\">" + "15".
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>14<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>15<\/span>/,
     );
   });
 
@@ -455,10 +455,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta.
-    // Post-4.5.C.α₃a: 14.
-    expect(html).toContain('data-description-predicates-run="14"');
+    // Post-4.5.C.α₃b: 15.
+    expect(html).toContain('data-description-predicates-run="15"');
     // And the prose body contains the same integer.
-    expect(html).toContain("14</span> active");
+    expect(html).toContain("15</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────
@@ -660,7 +660,14 @@ describe("/diagnostics/recommendation-triggers", () => {
 
   it("(4.5.C.α₂) renders the diagnostic_only_count counter alongside candidate_count", async () => {
     _snapshotsToReturn = [
-      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        // Slice 4.5.C.α₃b (2026-05-20) — service_page schema
+        // requirements satisfied so missing_schema does NOT fire;
+        // diagnostic_only_count stays at exactly 1 (only the
+        // noindex_on_indexable_page row).
+        schema_types: ["FAQPage", "BreadcrumbList", "Service"],
+      }),
     ];
     _indexabilityMap = buildIndexabilityMap([
       ["https://example.com/services/custom-homes", "noindex_meta"],
@@ -677,6 +684,13 @@ describe("/diagnostics/recommendation-triggers", () => {
       makeSnapshot({
         url: "https://example.com/services/custom-homes",
         title: null, // fires missing_title (high confidence → candidates)
+        // Slice 4.5.C.α₃b (2026-05-20) — service_page schema
+        // requirements (FAQPage + BreadcrumbList + [Service|Offer])
+        // satisfied so the new missing-schema predicate does NOT
+        // fire and the diagnostic-only bucket stays empty. Without
+        // this, missing_schema would route to diagnostic_only and
+        // invalidate the empty-bucket-suppression test premise.
+        schema_types: ["FAQPage", "BreadcrumbList", "Service"],
       }),
     ];
     _indexabilityMap = buildIndexabilityMap([
@@ -711,5 +725,77 @@ describe("/diagnostics/recommendation-triggers", () => {
     ]);
     const html = await renderPage();
     expect(html).not.toContain('data-row-trigger-signal="noindex_on_indexable_page"');
+  });
+
+  // ── Slice 4.5.C.α₃b — missing-schema render cases ─────────────────────
+
+  it("(4.5.C.α₃b) renders missing_schema row in the diagnostic-only section (low-confidence Tier-2)", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        // Empty schema_types → service_page's required FAQPage +
+        // BreadcrumbList + [Service|Offer] all missing.
+        schema_types: [],
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).toContain('data-diagnostic-section="diagnostic-only"');
+    expect(html).toContain('data-row-trigger-signal="missing_schema"');
+    expect(html).toContain('data-row-action-type="add_schema"');
+    expect(html).toContain('data-row-confidence="low"');
+  });
+
+  it("(4.5.C.α₃b) missing_schema does NOT appear in the main candidates section (Tier-2 sensitive routing)", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        schema_types: [],
+      }),
+    ];
+    const html = await renderPage();
+    // The main candidates section, if rendered, must NOT contain
+    // missing_schema. Diagnostic-only section IS where it lives.
+    const mainSectionMatch = html.match(
+      /data-diagnostic-section="candidates"[^>]*>([\s\S]*?)<\/section>/,
+    );
+    if (mainSectionMatch) {
+      expect(mainSectionMatch[1]!).not.toContain("missing_schema");
+    }
+    const diagSectionMatch = html.match(
+      /data-diagnostic-section="diagnostic-only"[^>]*>([\s\S]*?)<\/section>/,
+    );
+    expect(diagSectionMatch).not.toBeNull();
+    expect(diagSectionMatch![1]!).toContain("missing_schema");
+  });
+
+  it("(4.5.C.α₃b) (safety guard) missing_schema does NOT surface on utility / other / technical_asset pages", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/privacy-policy", // utility
+        schema_types: [],
+      }),
+      makeSnapshot({
+        url: "https://example.com/llms.txt", // technical_asset
+        schema_types: [],
+      }),
+      makeSnapshot({
+        url: "https://example.com/some-random-path", // other
+        schema_types: [],
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).not.toContain('data-row-trigger-signal="missing_schema"');
+  });
+
+  it("(4.5.C.α₃b) (safety guard) missing_schema does NOT fire when extraction_certainty is `uncertain`", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        schema_types: [],
+        extraction_certainty: "uncertain",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).not.toContain('data-row-trigger-signal="missing_schema"');
   });
 });

@@ -1,6 +1,7 @@
 /**
  * 2026-05-20 — Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 + α₂.2 +
- * Slice 4.5.C.α₀ + α₁ + α₂ + α₃a — recommendation-trigger loader.
+ * Slice 4.5.C.α₀ + α₁ + α₂ + α₃a + α₃b — recommendation-trigger
+ * loader.
  *
  * Server-side tenant-scoped loader. Reads `PageSnapshot[]` via
  * the repository pattern (`getRepository().forTenant(tenantId)
@@ -84,6 +85,7 @@ import { duplicateMeta } from "./triggers/duplicate-meta";
 import { duplicateTitle } from "./triggers/duplicate-title";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
+import { missingSchema } from "./triggers/missing-schema";
 import { missingTitle } from "./triggers/missing-title";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
 import { orphanPage } from "./triggers/orphan-page";
@@ -120,7 +122,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 14;
+const PREDICATE_COUNT = 15;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -229,6 +231,14 @@ export async function loadTriggerCandidatesForTenant(options: {
     // shared page-classifier (homepage / city / service
     // allowlist).
     all.push(...titleH1Mismatch({ tenantId, snapshot, businessConfig }));
+    // Slice 4.5.C.α₃b — `missing-schema` reuses the existing
+    // pure `diffSchemaCoverage()` + `EXPECTED_SCHEMA_BY_ASSET_TYPE`
+    // substrate and emits at `confidence: "low"` so candidates
+    // route to `diagnostic_only` (NOT customer queue). Tier-2
+    // sensitive — current expectation map is local-service-tuned
+    // so operator validates per-tenant before any future
+    // promotion.
+    all.push(...missingSchema({ tenantId, snapshot, businessConfig }));
 
     // Slice 4.5.C.α₁ — Tier-1 indexability predicates. Each
     // receives the pre-resolved `OwnedUrlIndexability` as a pure

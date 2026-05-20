@@ -98,6 +98,10 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // No-arg; paired with the cross-snapshot `orphan-page`
   // predicate which emits at confidence: medium.
   addInternalLinkCopy: [[]],
+  // Slice 4.5.C.α₃b (2026-05-20) — structured-data template.
+  // No-arg; paired with the per-snapshot `missing-schema`
+  // predicate which emits at confidence: low (diagnostic_only).
+  addSchemaCopy: [[]],
 };
 
 function scanForViolations(output: string): string[] {

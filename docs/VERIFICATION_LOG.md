@@ -7,6 +7,75 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.C.α₃b: missing-schema trigger predicate + `add_schema` flip
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** Second sub-slice of α₃ — closes Section 4.5.C with the structured-data family. **1 new pure per-snapshot predicate** (`missing-schema`) + **1 `generatorActive` flip** (`add_schema`) + **1 new customer-copy template** (`addSchemaCopy()`). **Customer queue UNCHANGED.**
+
+**Changes shipped.**
+
+**(1) NEW `src/domains/recommendation-intelligence/triggers/missing-schema.ts`.**
+- Per-snapshot predicate. Reuses the existing pure `diffSchemaCoverage()` + `EXPECTED_SCHEMA_BY_ASSET_TYPE` substrate from [`src/domains/pages/expected-schema.ts`](src/domains/pages/expected-schema.ts) (already shipped as Phase 1 scanning-pipeline substrate). No duplication of the schema expectations.
+- **Maps PageType → AssetType INLINE** (does NOT use the Ritz-tuned `classifyAssetType()` from `@/domains/pages/classify-asset-type`). The inline map: homepage→homepage, city→city_page, service→service_page, project→project_page, hub→hub_page. utility/other/technical_asset return null → predicate skips. This preserves the universal-pattern rule from α₂.2.
+- Three safety guards (in evaluation order):
+  - `isNonHtmlAsset(snapshot.url)` → skip.
+  - PageType allowlist (homepage / city / service / project / hub) → skip otherwise.
+  - `extraction_certainty === "uncertain"` → skip (missed JSON-LD could produce false positive).
+- Fires when `!coverage.satisfies_all_required`. Recommended-only gaps are evidence-only (mirrors the existing `schema_missing_for_page_type` findings-pipeline gate at [`detect-findings.ts:665`](src/domains/scanning/detect-findings.ts:665)).
+- One candidate per page (NOT one per missing type) — same shape as the findings pipeline. Per-type list lives in customer `detail` AND `operator_evidence`.
+- Emits `add_schema` at `confidence: "low"`, `impact_estimate: "medium"`. Customer copy: `addSchemaCopy()`. Evidence detail surfaces `asset_type` + `missing_required` + `present`. Operator evidence additionally surfaces `page_type`, `missing_recommended`, `extraction_certainty`, `fetched_at`.
+
+**(2) MODIFIED `src/domains/recommendation-intelligence/customer-copy-templates.ts`.**
+- Appended `addSchemaCopy()` with operator-locked phrasing: *"Add structured data so AI search platforms can extract this page's purpose more reliably."*
+
+**(3) MODIFIED `src/domains/recommendations/action-types.ts`.**
+- Flipped `add_schema.generatorActive: false → true`. Spec docstring documents the per-snapshot missing-schema pairing + Tier-2 safety routing.
+- Top-of-module docstring refreshed (11 → 12 active in v1).
+
+**(4) MODIFIED `src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts`.**
+- `PREDICATE_COUNT` 14 → 15.
+- `missingSchema` invoked in the per-snapshot loop alongside the existing α-family per-snapshot predicates. Synchronous; no I/O.
+
+**Architecture invariants (2 updated, 0 new).**
+1. **`recommendation-registry-active-set`** — `LOCKED_ACTIVE_SET` grows from 11 to 12 (adds `add_schema`). `LOCKED_REGISTRY_COUNT` UNCHANGED at 37. Comment + date stamp updated. **4.5.C closeout** noted: all in-scope indexability + linking + schema activations are now live.
+2. **`recommendation-intelligence-customer-copy-vocab`** — `PROBE_SETS` extended with `addSchemaCopy: [[]]`.
+
+**Auto-pass (5 invariants, no edits needed):**
+- `recommendation-trigger-predicates-purity` — auto-scans new predicate file. Imports types + sibling modules + page-classifier + customer-copy-templates + emitter helpers + `diffSchemaCoverage` from `@/domains/pages/expected-schema` (allowed; pure helper).
+- `recommendation-intelligence-no-queue-write` — no Supabase write paths.
+- `recommendation-intelligence-no-llm-decides` — regex auto-discovers `action_type: "add_schema"` literal in the new predicate.
+- `recommendation-triggers-page-classifier-applied` — predicate count auto-extends ≥ 14 → ≥ 15. Rules 1+4+5 auto-checked.
+- `recommendation-triggers-diagnostic-source-and-copy` — no diagnostic-page source edits beyond the dynamic-counter interpolation.
+
+**Tests added (~18 new + multiple mechanical updates).**
+- New: `tests/domains/recommendation-intelligence/triggers/missing-schema.test.ts` (~14 cases) — positive emission per allowed page type; negative when all required present; oneOf semantics (any-of satisfies; emits when all alternatives missing); skip `extraction_certainty="uncertain"`; skip utility/other/technical_asset; recommended-only gaps do NOT emit; `missing_recommended` in `operator_evidence` only; `confidence: "low"` assertion; customer-copy phrasing assertion; deterministic dedupe/cooldown keys.
+- Extended: loader test `+3` — Tier-2 wiring (low-confidence → diagnostic_only routing); uncertain-skip; all-present-no-fire.
+- Extended: customer-copy-templates test `+2` — purity round-trip + operator-locked phrasing.
+- Extended: diagnostic page test `+4` — missing-schema render in diagnostic-only section; main-section exclusion; safety-guard regression guards (utility/other/technical_asset skip; extraction_certainty=uncertain skip).
+- **Pre-existing fixture update**: the α₂ "empty diagnostic-only bucket suppression" test fixture now populates `schema_types: ["FAQPage", "BreadcrumbList", "Service"]` to satisfy service_page requirements. Without this, missing_schema would now fire on the previously schema-less service page and invalidate the empty-bucket assertion. Fixture comment documents the α₃b reason.
+- Updated: `action-types.test.ts` — active count 11 → 12; new `ACTIVE_AFTER_4_5_C_ALPHA3B` list with `add_schema` added; inactive count 26 → 25; new `add_schema.generatorActive === true` assertion (was previously `=== false`).
+- Updated: `specific-edit-evidence.test.ts` — `allowedActionTypes` explicit list 11 → 12.
+- Updated: `predicates_run` assertions in loader test 14 → 15 (2 places); diagnostic page test `predicates_run` counter + `data-description-predicates-run` 14 → 15.
+
+**Hard contracts honored (operator-locked).**
+- NO LLM call · NO paid API call · NO GSC fetch · NO Supabase mutation · NO migration · NO cron · NO workflow changes · NO customer queue write · NO `recommended_edits` mutation · NO `runProviderAndPersist` usage · NO Today / Changes / Prompts / Settings / Recommendations / Section 9 code changes · NO new BusinessConfig fields · NO per-industry schema-expectation map (deferred to a future slice if/when a second non-local-service customer onboards) · **NO use of `classifyAssetType()`** (Ritz-tuned; predicate uses universal `classifyPageType` + inline 5-entry mapping) · NO per-missing-type emission shape (one candidate per page) · NO `missing_schema` promotion to main candidates (stays at `confidence: "low"` → diagnostic_only) · NO duplication of `EXPECTED_SCHEMA_BY_ASSET_TYPE` (predicate consumes the existing map verbatim) · all 15 trigger signals pinned in source.
+
+**Net src/ delta**: **+209 lines.** Modified +72 / -37 (net +35); new file (missing-schema.ts) +174. Well under the +300 target; far under the +700 hard stop.
+
+**Quality gates.** _Pending operator review; gates run in next step._
+
+**4.5.C closeout note.** With α₃b shipped, Section 4.5.C's locked scope (indexability + internal linking + schema remediation families) is fully active:
+- α₀ — 5 inactive registry entries + 5 customer-copy templates
+- α₁ — 4 Tier-1 indexability flips (sitemap / robots-googlebot / status / canonical)
+- α₂ — 1 Tier-2 sensitive flip (`fix_noindex`) + 2 Tier-2 predicates + diagnostic-only render
+- α₃a — `add_internal_link` flip + cross-snapshot orphan predicate
+- α₃b — `add_schema` flip + per-snapshot missing-schema predicate
+
+The 7 α-family signals + 4 Tier-1 indexability + 2 Tier-2 sensitive + 1 orphan + 1 missing-schema = **15 trigger signals**, 12 active action types, 25 inactive. Customer queue UNCHANGED throughout. **Recommended next**: operator review → commit + push + verify CI + Vercel. Then **Slice 4.5.D preflight** — customer-queue promotion (the diagnostic-only validation surface is complete; operator decides per-tenant promotion calibration).
+
+---
+
 ## 2026-05-20 — Slice 4.5.C.α₃a: orphan-page cross-snapshot trigger predicate
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
