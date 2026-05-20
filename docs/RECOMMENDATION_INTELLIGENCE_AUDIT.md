@@ -3,6 +3,8 @@
 > **Slice 4.5.A — registry audit + activation plan (2026-05-19)**
 > **Slice 4.5.B.α₀ — first activation: registry expansion + 2 metadata
 > predicates + operator diagnostic shell (2026-05-19)**
+> **Slice 4.5.B.α₁ — H1 predicate family + `change_h1` activation
+> (2026-05-19)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
@@ -11,13 +13,15 @@
 > single source-of-truth for the action-type registry expansion plan +
 > activation order.
 >
-> **Current state (post-4.5.B.α₀)**: registry expanded to 32 action
-> types; 4 active (`edit_title`, `edit_meta`, `add_h2_section`,
-> `add_faq`). 2 deterministic trigger predicates landed
-> (`missing-title`, `missing-meta`). Operator-only diagnostic page
-> live at `/diagnostics/recommendation-triggers`. Customer queue
-> UNCHANGED (no `recommended_edits` write paths added; no surface
-> changes outside the operator diagnostic).
+> **Current state (post-4.5.B.α₁)**: registry holds 32 action types;
+> **5 active** (`edit_title`, `edit_meta`, `change_h1`,
+> `add_h2_section`, `add_faq`). **5 deterministic trigger predicates
+> landed** — `missing-title` + `missing-meta` (α₀) + `missing-h1` +
+> `weak-h1` + `title-h1-mismatch` (α₁). Operator-only diagnostic
+> page at `/diagnostics/recommendation-triggers` surfaces all 5
+> trigger signals. Customer queue UNCHANGED (no `recommended_edits`
+> write paths added; no surface changes outside the operator
+> diagnostic).
 >
 > **Slice 4.5.B.α split (2026-05-19)**: the master-plan §4.5.20 4.5.B
 > prompt was internally inconsistent — it proposed 5 `generatorActive`
@@ -61,16 +65,17 @@ Pre-α₀ count was 29; α₀ added 3 inactive entries (`update_intro`,
 
 ## B. Current `generatorActive` set
 
-**Exactly 4 action types currently have `generatorActive: true`** (post-4.5.B.α₀):
+**Exactly 5 action types currently have `generatorActive: true`** (post-4.5.B.α₁):
 
 | Action type | Category | Notes |
 |---|---|---|
 | `edit_title` | On-page copy edits | Sprint 6A.1 substrate |
 | `edit_meta` | On-page copy edits | **Flipped in Slice 4.5.B.α₀ (2026-05-19)** — paired with `missing-meta` trigger predicate |
+| `change_h1` | On-page copy edits | **Flipped in Slice 4.5.B.α₁ (2026-05-19)** — paired with `missing-h1` + `weak-h1` + `title-h1-mismatch` trigger predicates |
 | `add_h2_section` | On-page copy edits | Sprint 6A.1 substrate |
 | `add_faq` | On-page copy edits | Sprint 6A.1 substrate |
 
-**28 action types have `generatorActive: false`.** The OpenAI specific-
+**27 action types have `generatorActive: false`.** The OpenAI specific-
 edit provider (Sprint 6A.2) can still produce any of the 24 non-off-
 site inactive types when the LLM path activates per-rec — but only the
 4 above have a deterministic generator (or trigger predicate) wired in

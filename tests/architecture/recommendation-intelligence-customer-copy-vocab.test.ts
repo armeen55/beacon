@@ -65,12 +65,16 @@ const FORBIDDEN_SUBSTRINGS_CASE_INSENSITIVE: ReadonlyArray<string> = [
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
-/** Each template gets a probe set. α₀ templates are no-arg, so
+/** Each template gets a probe set. α₀+α₁ templates are no-arg, so
  *  the probes are an empty array — the template is invoked once. */
 type Probe = ReadonlyArray<unknown>;
 const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   missingTitleCopy: [[]],
   missingMetaCopy: [[]],
+  // Slice 4.5.B.α₁ (2026-05-19) — H1 family templates.
+  missingH1Copy: [[]],
+  weakH1Copy: [[]],
+  titleH1MismatchCopy: [[]],
 };
 
 function scanForViolations(output: string): string[] {

@@ -1,16 +1,16 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ — customer-safe copy templates.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₁ — customer-safe copy templates.
  *
  * Pure templating. LLM NEVER writes `customer_copy`. Each template
- * returns plain prose safe for customer surfaces — though α₀
+ * returns plain prose safe for customer surfaces — though α₀/α₁
  * candidates ONLY surface on the operator-only diagnostic page
  * (customer-queue flip is Slice 4.5.D), the
  * `recommendation-intelligence-customer-copy-vocab` invariant
  * scans every template for internal taxonomy, forbidden vocab
  * from Section 6 + 9, and UUID-shape strings.
  *
- * α₁ + α₂ extend this module with additional templates as
- * predicates land.
+ * α₂ extends this module with the duplicate-title + duplicate-meta
+ * templates.
  */
 
 export function missingTitleCopy(): string {
@@ -19,4 +19,16 @@ export function missingTitleCopy(): string {
 
 export function missingMetaCopy(): string {
   return "Add a meta description so AI search platforms have a clean snippet to extract.";
+}
+
+export function missingH1Copy(): string {
+  return "Add a clear H1 so the page anchors its main topic.";
+}
+
+export function weakH1Copy(): string {
+  return "Strengthen the H1 to include the right service or location so AI search platforms can anchor the page intent.";
+}
+
+export function titleH1MismatchCopy(): string {
+  return "Bring the page title and H1 into closer alignment so AI search platforms see consistent intent for this page.";
 }

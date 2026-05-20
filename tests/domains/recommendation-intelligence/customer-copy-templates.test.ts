@@ -1,5 +1,5 @@
 /**
- * Slice 4.5.B.α₀ — customer-copy-templates unit tests.
+ * Slice 4.5.B.α₀ + α₁ — customer-copy-templates unit tests.
  *
  * Behavioral assertions on the operator-locked phrasing. The
  * vocab-safety scan lives in
@@ -9,11 +9,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  missingH1Copy,
   missingMetaCopy,
   missingTitleCopy,
+  titleH1MismatchCopy,
+  weakH1Copy,
 } from "@/domains/recommendation-intelligence/customer-copy-templates";
 
-describe("customer-copy templates (α₀)", () => {
+describe("customer-copy templates (α₀ + α₁)", () => {
   it("missingTitleCopy returns the operator-locked phrasing", () => {
     expect(missingTitleCopy()).toBe(
       "Add a clear page title so AI search platforms can surface this page accurately.",
@@ -26,8 +29,29 @@ describe("customer-copy templates (α₀)", () => {
     );
   });
 
+  it("missingH1Copy returns the operator-locked phrasing (α₁)", () => {
+    expect(missingH1Copy()).toBe(
+      "Add a clear H1 so the page anchors its main topic.",
+    );
+  });
+
+  it("weakH1Copy returns the operator-locked phrasing (α₁)", () => {
+    expect(weakH1Copy()).toBe(
+      "Strengthen the H1 to include the right service or location so AI search platforms can anchor the page intent.",
+    );
+  });
+
+  it("titleH1MismatchCopy returns the operator-locked phrasing (α₁)", () => {
+    expect(titleH1MismatchCopy()).toBe(
+      "Bring the page title and H1 into closer alignment so AI search platforms see consistent intent for this page.",
+    );
+  });
+
   it("template outputs are pure (same call → same output)", () => {
     expect(missingTitleCopy()).toBe(missingTitleCopy());
     expect(missingMetaCopy()).toBe(missingMetaCopy());
+    expect(missingH1Copy()).toBe(missingH1Copy());
+    expect(weakH1Copy()).toBe(weakH1Copy());
+    expect(titleH1MismatchCopy()).toBe(titleH1MismatchCopy());
   });
 });

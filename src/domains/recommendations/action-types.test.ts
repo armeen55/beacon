@@ -115,28 +115,32 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
     });
   });
 
-  describe("generator activation — Slice 4.5.B.α₀ active set is exactly 4", () => {
-    const ACTIVE_AFTER_ALPHA0: ActionType[] = [
+  describe("generator activation — Slice 4.5.B.α₁ active set is exactly 5", () => {
+    const ACTIVE_AFTER_ALPHA1: ActionType[] = [
       "edit_title",
       // Slice 4.5.B.α₀ (2026-05-19) — flipped paired with the
-      // `missing-meta` trigger predicate under
-      // `src/domains/recommendation-intelligence/triggers/`.
+      // `missing-meta` trigger predicate.
       "edit_meta",
+      // Slice 4.5.B.α₁ (2026-05-19) — flipped paired with the
+      // `missing-h1` + `weak-h1` + `title-h1-mismatch` trigger
+      // predicates under `src/domains/recommendation-intelligence/
+      // triggers/`.
+      "change_h1",
       "add_h2_section",
       "add_faq",
     ];
 
-    it("exactly 4 types are generatorActive=true (post-Slice 4.5.B.α₀)", () => {
+    it("exactly 5 types are generatorActive=true (post-Slice 4.5.B.α₁)", () => {
       const active = ACTION_TYPES.filter(
         (t) => ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      expect(active).toHaveLength(4);
-      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_ALPHA0));
+      expect(active).toHaveLength(5);
+      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_ALPHA1));
     });
 
-    it("listActiveActionTypes() returns the same four", () => {
+    it("listActiveActionTypes() returns the same five", () => {
       expect(new Set(listActiveActionTypes())).toEqual(
-        new Set(ACTIVE_AFTER_ALPHA0),
+        new Set(ACTIVE_AFTER_ALPHA1),
       );
     });
 
@@ -144,13 +148,13 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      // 22 original − 4 ACTIVE_AFTER_ALPHA0 = 18 inactive,
+      // 22 original − 5 ACTIVE_AFTER_ALPHA1 = 17 inactive,
       // plus Section 7 C7b's 7 off-site/manual types,
       // plus Slice 4.5.B.α₀'s 3 new inactive types
       // (update_intro, add_h3_section, add_image_alt_text)
-      // → 28 total inactive.
-      expect(inactive).toHaveLength(28);
-      for (const t of ACTIVE_AFTER_ALPHA0) {
+      // → 27 total inactive.
+      expect(inactive).toHaveLength(27);
+      for (const t of ACTIVE_AFTER_ALPHA1) {
         expect(inactive).not.toContain(t);
       }
     });

@@ -11,14 +11,15 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * Slice 4.5.B.α₀ policy (2026-05-19): 32-type universe registered;
- * 4 have `generatorActive: true` (edit_title, edit_meta,
+ * Slice 4.5.B.α₁ policy (2026-05-19): 32-type universe registered;
+ * 5 have `generatorActive: true` (edit_title, edit_meta, change_h1,
  * add_h2_section, add_faq). 7 off-site authority types are locked
- * inactive per Section 7 C7b. The remaining 21 ship as registered-
+ * inactive per Section 7 C7b. The remaining 20 ship as registered-
  * but-inactive so the provider-adapter knows the space of valid
- * outputs from day one — slices 4.5.B.α₁ / 4.5.B.α₂ / 4.5.C+ flip
- * them on as paired deterministic trigger predicates land
- * (`change_h1` flips in 4.5.B.α₁ alongside the H1 predicates).
+ * outputs from day one — slices 4.5.B.α₂ / 4.5.C+ flip them on as
+ * paired deterministic trigger predicates land. (`change_h1`
+ * flipped in α₁ paired with `missing-h1` + `weak-h1` +
+ * `title-h1-mismatch`.)
  *
  * This module is PURE TYPES + CONSTANTS. No DB writes. No extractors.
  * No UI. Safe to import from both server and client code.
@@ -183,7 +184,10 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Change H1",
-    generatorActive: false,
+    // Slice 4.5.B.α₁ (2026-05-19) — paired with missing-h1 +
+    // weak-h1 + title-h1-mismatch deterministic trigger
+    // predicates.
+    generatorActive: true,
   },
   add_h2_section: {
     actionType: "add_h2_section",

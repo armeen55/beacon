@@ -52,6 +52,43 @@ vi.mock("@/domains/pages/snapshot-store", () => ({
   }),
 }));
 
+// α₁ — the loader resolves `getBusinessConfig` for the `weak-h1`
+// predicate. Mock returns a minimal config so the page renders.
+vi.mock("@/lib/business-config", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/business-config")>(
+    "@/lib/business-config",
+  );
+  return {
+    ...actual,
+    getBusinessConfig: () => ({
+      name: "Test",
+      domain: "test.com",
+      industry: "home-builder",
+      phone: "",
+      address: "",
+      yelpBusinessId: "",
+      houzzProfileUrl: "",
+      angiProfileUrl: "",
+      bbbProfileUrl: "",
+      industryDirectoryProfileUrl: "",
+      locations: ["Palo Alto"],
+      services: ["custom home"],
+      primaryCompetitors: [],
+      keyPages: [],
+      locationTerms: [],
+      serviceTerms: [],
+      directoryDomains: [],
+      scanSettings: {
+        preferredHour: 7,
+        timezone: "UTC",
+        scope: "priority" as const,
+        enabled: true,
+      },
+      urlPatterns: { city: "/locations/", service: "/services/" },
+    }),
+  };
+});
+
 function makeSnapshot(overrides: Partial<PageSnapshot>): PageSnapshot {
   return {
     id: "snap-1",
@@ -202,5 +239,48 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-counter="snapshot_count"');
     expect(html).toContain('data-counter="predicates_run"');
     expect(html).toContain('data-counter="candidate_count"');
+  });
+
+  // ── α₁ extensions ────────────────────────────────────────────────────
+
+  it("renders the H1-family trigger signals when the corresponding fixtures fire", async () => {
+    _snapshotsToReturn = [
+      // Missing H1 fixture.
+      makeSnapshot({
+        url: "https://example.com/missing-h1",
+        h1: null,
+      }),
+      // Weak H1 fixture on a city page (city term missing from H1).
+      makeSnapshot({
+        url: "https://example.com/locations/palo-alto",
+        h1: "Welcome to Excellence",
+      }),
+      // Title vs H1 mismatch fixture (Jaccard < 0.3 — no shared
+      // tokens after stopword strip).
+      makeSnapshot({
+        url: "https://example.com/mismatch",
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="missing_h1"');
+    expect(html).toContain('data-row-trigger-signal="weak_h1"');
+    expect(html).toContain('data-row-trigger-signal="title_h1_mismatch"');
+    // Paired emission on title_h1_mismatch — both edit_title AND
+    // change_h1 rows present (action_type column).
+    expect(html).toContain('data-row-action-type="change_h1"');
+    expect(html).toContain('data-row-action-type="edit_title"');
+  });
+
+  it("predicates_run counter reads 5 (post-α₁ loader)", async () => {
+    _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
+    const html = await renderPage();
+    expect(html).toContain('data-counter="predicates_run"');
+    // The font-mono span renders the integer 5; check via inclusion
+    // of the substring "predicates_run\">" + "5".
+    expect(html).toMatch(
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>5<\/span>/,
+    );
   });
 });

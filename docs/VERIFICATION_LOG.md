@@ -7,6 +7,115 @@
 
 ---
 
+## 2026-05-19 — Slice 4.5.B.α₁: H1 predicate family + `change_h1` activation
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** Second activation of Section 4.5 Recommendation Intelligence Expansion. Operator-validation surface only — the customer Recommendations queue is byte-unchanged. Rides the α₀ foundation: emitter scaffold, customer-copy templates module, loader, and operator diagnostic page all reused without modification beyond per-predicate wiring extensions.
+
+**Decision references (locked 2026-05-18 + 2026-05-19 sub-split + operator's locked α₁ copy adjustment).** O1–O12 from the master plan. Operator-locked copy: broader phrasing than the preflight's "service AND location" — city pages may need only a location term, service pages may need only a service term.
+
+**Final registry state (post-α₁).** 32 action types in `ACTION_TYPES`. **5** `generatorActive: true`: `edit_title` · `edit_meta` (α₀) · **`change_h1` (α₁ NEW)** · `add_h2_section` · `add_faq`. 27 inactive (20 in-queue-reachable when LLM path activates + 7 Section-7 off-site locked).
+
+**What was added.**
+
+1. **MODIFIED** [src/domains/recommendations/action-types.ts](src/domains/recommendations/action-types.ts) (~+8 net lines):
+   - Flipped `change_h1` from `generatorActive: false` → `true`. Inline comment notes the pairing with the 3 new H1 trigger predicates.
+   - Top-of-module docstring refreshed: "4 active in v1" → "5 active in v1".
+
+2. **NEW** `src/domains/recommendation-intelligence/triggers/missing-h1.ts` (~60 lines) — pure predicate mirroring `missing-meta` from α₀ exactly. Fires when `snapshot.h1` is null / empty / whitespace-only. Emits `change_h1` with `confidence: "high"`, `impact_estimate: "high"`, `topic_cluster_label: "H1 heading"`.
+
+3. **NEW** `src/domains/recommendation-intelligence/triggers/weak-h1.ts` (~140 lines) — **page-type-gated** pure predicate. Inlines a minimal `classifyForGate(url, config)` mirroring `section-analyzer.ts`'s `inferPageType` semantics, narrowed to return `"city"` / `"service"` / `"skip"`. Fires:
+   - On **city** pages when `h1.toLowerCase()` contains NO term from `businessConfig.locationTerms ?? businessConfig.locations` (after each term is lowercased).
+   - On **service** pages when `h1.toLowerCase()` contains NO term from `businessConfig.serviceTerms ?? businessConfig.services`.
+   - Skips homepage, project, about, contact, FAQ, blog, and all other page types entirely.
+   - Skips when the corresponding dimension is empty in `BusinessConfig` (no useful signal).
+   - Skips when `snapshot.h1` is null/empty/whitespace (those cases are owned by `missing-h1`).
+   
+   Emits `change_h1` with `confidence: "medium"`, `impact_estimate: "medium"`. `operator_evidence` carries `page_type` + `missing_dimension` for triage. Predicate is fully pure — no module-level state, no I/O, no LLM, no connector imports.
+
+4. **NEW** `src/domains/recommendation-intelligence/triggers/title-h1-mismatch.ts` (~170 lines) — pure predicate.
+   - **Stopword set inlined verbatim** from `section-analyzer.ts:44` `UNIVERSAL_STRIP_WORDS` (16 entries: `the`, `a`, `an`, `in`, `for`, `of`, `and`, `or`, `your`, `our`, `my`, `best`, `top`, `premier`, `leading`, `trusted`). Tenant-specific `BusinessConfig.stripWords` is **NOT merged** (those are operator-side theme-classification targets, not language stopwords; mixing categories would risk suppressing legitimate brand-name overlaps).
+   - **Tokenization:** lowercase → split on `/[^a-z0-9]+/` → keep tokens with `length >= 2` AND NOT in stopword set. Numeric tokens are kept (years / zips / phones count as alignment).
+   - **Jaccard threshold:** 0.3. `< 0.3` → fire. `>= 0.3` → suppress.
+   - Skips when title OR h1 is null/empty (`missing-title` and `missing-h1` own those cases). Also skips when either tokenization yields an empty set (defensive — no honest signal either way).
+   - **Paired emission:** emits BOTH an `edit_title` candidate AND a `change_h1` candidate. Distinct `dedupe_key`s via different `action_type` in the hash. Identical `confidence: "medium"`, `customer_copy`, `target_url`, and `operator_evidence` (which includes both strings + Jaccard score + shared-token count + per-side token counts).
+
+5. **EXTENDED** [src/domains/recommendation-intelligence/customer-copy-templates.ts](src/domains/recommendation-intelligence/customer-copy-templates.ts) — appended 3 operator-locked phrasings:
+   - `missingH1Copy()` → *"Add a clear H1 so the page anchors its main topic."*
+   - `weakH1Copy()` → *"Strengthen the H1 to include the right service or location so AI search platforms can anchor the page intent."*
+   - `titleH1MismatchCopy()` → *"Bring the page title and H1 into closer alignment so AI search platforms see consistent intent for this page."*
+
+6. **EXTENDED** [src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts](src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts):
+   - `PREDICATE_COUNT` 2 → 5.
+   - New `getBusinessConfig()` resolution at loader entry (`weak-h1` requires it).
+   - New `status: "config_unavailable"` soft-fail when business-config resolution throws (mirrors α₀'s `snapshots_unavailable` pattern).
+   - Per-snapshot loop now invokes all 5 predicates (`missing-title`, `missing-meta`, `missing-h1`, `weak-h1`, `title-h1-mismatch`).
+   - Dedupe by `dedupe_key` consolidated into a shared `dedupeByKey` helper.
+
+**Architecture invariants (2 updated, 0 new).**
+
+| Invariant | Change |
+|---|---|
+| `recommendation-registry-active-set` | `LOCKED_ACTIVE_SET` grows from 4 → 5 (adds `change_h1`). `LOCKED_REGISTRY_COUNT` stays at 32. Audit-doc references updated. |
+| `recommendation-intelligence-customer-copy-vocab` | `PROBE_SETS` map extended with 3 new no-arg probe entries (`missingH1Copy`, `weakH1Copy`, `titleH1MismatchCopy`). |
+
+The 4 other α₀ invariants auto-extend their coverage:
+- `recommendation-trigger-predicates-purity` scans every `.ts` file under `triggers/` (now 5 files; all 5 pass).
+- `recommendation-intelligence-no-queue-write` scans every `.ts` / `.tsx` file under `recommendation-intelligence/**` + the diagnostic page (no offending imports / writes).
+- `recommendation-intelligence-no-llm-decides` auto-discovers the new `change_h1` literal via the existing regex (`actionType = "change_h1" as const` shape in `missing-h1.ts` + `weak-h1.ts`; `action_type: "change_h1"` shape in `title-h1-mismatch.ts`).
+
+**Tests added (~50 across 6 files).**
+
+| Category | File | Count |
+|---|---|---|
+| Predicate — missing-h1 | `tests/domains/recommendation-intelligence/triggers/missing-h1.test.ts` | 6 |
+| Predicate — weak-h1 | `tests/domains/recommendation-intelligence/triggers/weak-h1.test.ts` | 18 |
+| Predicate — title-h1-mismatch | `tests/domains/recommendation-intelligence/triggers/title-h1-mismatch.test.ts` | 16 |
+| Loader extension | `tests/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.test.ts` | 6 new (+1 update) |
+| Customer-copy templates extension | `tests/domains/recommendation-intelligence/customer-copy-templates.test.ts` | 3 new + purity update |
+| Diagnostic page extension | `tests/app/diagnostics/recommendation-triggers-page.test.tsx` | 2 new |
+
+**Pre-existing pinning tests updated** (mechanical, mirrors α₀ pattern):
+- `src/domains/recommendations/action-types.test.ts` — `ACTIVE_AFTER_ALPHA0` → `ACTIVE_AFTER_ALPHA1` with `change_h1` added; active count 4 → 5; inactive count 28 → 27.
+- `src/domains/recommendations/specific-edit-evidence.test.ts` — default `allowedActionTypes` assertion adds `change_h1`.
+
+**Hard contracts honored.**
+- ✅ NO customer queue write.
+- ✅ NO `recommended_edits` mutation (insert/upsert/update/delete).
+- ✅ NO `runProviderAndPersist` invocation.
+- ✅ NO LLM (OpenAI / Anthropic) call site.
+- ✅ NO paid API call.
+- ✅ NO external HTTP call (`fetch(`).
+- ✅ NO Supabase mutation.
+- ✅ NO migration.
+- ✅ NO cron / `.github/workflows/*` change.
+- ✅ NO Today / Changes / Prompts / Settings code change.
+- ✅ NO Section 9 code change.
+- ✅ NO CallRail / GBP insights.
+- ✅ NO activation of `add_answer_block` / `add_internal_link` / `add_schema` (each remains `generatorActive: false`).
+- ✅ NO α₂ duplicate-title / duplicate-meta predicates introduced.
+
+**What was deferred from the preflight to α₂ / 4.5.C+.**
+- Cross-snapshot duplicate-title + duplicate-meta predicates → α₂.
+- Activation of `add_answer_block` / `add_internal_link` / `add_schema` → 4.5.C+.
+- `update_intro` / `add_h3_section` / `add_image_alt_text` flip-ups (each requires paired predicates that haven't shipped) → 4.5.C+.
+
+**Net src/ delta.** +397 net new src/ lines (well under +500 target; far under +700 hard stop).
+
+**Quality gates.**
+- `npm run typecheck` → CLEAN.
+- `npx vitest run` targeted α₁ suite (5 architecture invariants + 3 predicate tests + loader + customer-copy + diagnostic page) → 132/132 passed.
+- `npx vitest run tests/architecture/catalog-sync.test.ts` → 8/8 passed.
+- `npm run test` (full suite) → green.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` → green.
+
+**Verification.** The 4 architecture invariants from α₀ stay green automatically: `trigger-predicates-purity` confirms the 3 new H1 predicates have no connector / Supabase / LLM / cache / fetch / fs imports + no module-scope mutable state; `no-queue-write` confirms no `recommended-edits-persistence` import or `.from("recommended_edits").(insert|upsert|update|delete)(` call anywhere in the new code; `no-llm-decides` auto-discovers the new `change_h1` literal across all 3 new predicate files; `customer-copy-vocab` runs the 3 new templates against the probe set and confirms no internal taxonomy + no revenue/causal overclaim + no connector names + no UUID-shape + no literal `$`.
+
+**Next.** Operator review → commit + push + verify CI + Vercel green + manual smoke (visit `/diagnostics/recommendation-triggers` with `BEACON_OPERATOR_MODE=true`; confirm `missing_h1` / `weak_h1` / `title_h1_mismatch` trigger_signal values appear in the candidates table on populated Ritz snapshots; verify `weak-h1` only fires on city/service URLs; verify `title-h1-mismatch` emits paired rows). Then **Slice 4.5.B.α₂**: cross-snapshot duplicate-title + duplicate-meta predicates. Then 4.5.C (indexability + GSC family).
+
+---
+
 ## 2026-05-19 — Slice 4.5.B.α₀: first activation — metadata trigger diagnostics foundation
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

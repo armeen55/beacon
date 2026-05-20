@@ -64,13 +64,15 @@ const AUDIT_DOC_PATH = resolve(
   "RECOMMENDATION_INTELLIGENCE_AUDIT.md",
 );
 
-/** Locked active set per Slice 4.5.B.α₀ audit (2026-05-19). α₀
- *  flips `edit_meta` paired with the `missing-title` +
- *  `missing-meta` deterministic trigger predicates. `change_h1`
- *  flip moves to α₁; H1 predicates land in α₁ as well. */
+/** Locked active set per Slice 4.5.B.α₁ audit (2026-05-19). α₁
+ *  flips `change_h1` paired with the `missing-h1` + `weak-h1` +
+ *  `title-h1-mismatch` deterministic trigger predicates. α₀
+ *  previously flipped `edit_meta`. α₂ adds no flips; cross-snapshot
+ *  duplicate predicates only. */
 const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "edit_title",
   "edit_meta",
+  "change_h1",
   "add_h2_section",
   "add_faq",
 ];
