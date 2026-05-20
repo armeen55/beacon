@@ -55,6 +55,17 @@
 > split (α₀a.3a + α₀a.3b). U4 locked operator-review-only
 > auto-suppression at Gate 3 with `diagnostic_only_tier`
 > until α₂'s approve-to-promote affordance.
+> **Slice 4.5.D.α₀a.3b — promotion orchestrator + caps
+> (2026-05-20)**: 1 src module (`promote-to-queue.ts`) + 1
+> unit suite + 2 paired cap invariants
+> (`-max-rows-per-page` + `-max-rows-per-family`). Three-stage
+> pure orchestrator `selectPromotableCandidates(...)`. V2
+> locked caps at 5 + 10. V3 locked cap suppression reasons
+> in `PromotionResultSuppressionReason` (α₀a.3a `SuppressionReason`
+> UNCHANGED). V4 locked safety-suppressed rows do NOT count
+> against caps. V5 locked deterministic tiebreaker. +836
+> src+tests net (under ≤850 soft threshold by 14 lines).
+> **Pure promotion decision engine is now COMPLETE.**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved

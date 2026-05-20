@@ -7,6 +7,105 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.D.α₀a.3b: promotion orchestrator + caps
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per new workflow rule (operator-locked 2026-05-20).
+
+**Slice scope (locked, α₀a.3b only).** Closes the pure promotion decision engine. **1 NEW pure source module** + **1 NEW unit-test suite** + **2 NEW architecture invariants**. **NO orchestrator UI. NO caps preview. NO writes. NO LLM. NO Supabase mutation. NO customer-facing surface. NO diagnostic UI change.**
+
+**Changes shipped (locally).**
+
+**(1) NEW `src/domains/recommendation-intelligence/promote-to-queue.ts` (191 lines).** Pure thin three-stage composition over the 4 already-shipped primitives. Exports:
+- `MAX_ROWS_PER_PAGE = 5` (operator-locked O7)
+- `MAX_ROWS_PER_FAMILY = 10` (operator-locked O8)
+- `PromotionResultSuppressionReason = SuppressionReason | "max_rows_per_page" | "max_rows_per_family"` — extends α₀a.3a's locked 12-value `SuppressionReason` WITHOUT mutating it (per operator V3 lock + α₀a.3a invariant)
+- `PromotionResult` — `{ candidate, tier, eligible, suppression_reason, cooldown_expires_at, priority_score, promotion_dedupe_key, promotion_cooldown_key }`
+- `SelectPromotableCandidatesInput` — `{ tenantId, triggerCandidates, recommendedEdits, recommendationResponses, pageTypeByUrl: Map<string, PageType>, now }`
+- `selectPromotableCandidates(input): PromotionResult[]` — three-stage pure orchestrator.
+
+**(2) Algorithm (operator-locked).**
+- **Stage 1 (per-candidate)**: page-type lookup via `pageTypeByUrl.get(target_url) ?? null` (or null for null target_url) → `applyPromotionSafetyGates` → `priorityScore` → `buildPromotionDedupeKey` (with `targetElementKey: null` forward-compat slot) + `buildPromotionCooldownKey`.
+- **Stage 2 (partition + sort)**: split by `eligible`; sort eligibles desc by `priority_score`, ascending tiebreaker `promotion_dedupe_key.localeCompare(other)`; preserve ineligibles in input order.
+- **Stage 3 (caps in priority order)**: per-page check (key = `target_url ?? "no_url"`) runs BEFORE per-family check (key = `action_type`). Surplus rows flip to `eligible: false` with cap-specific suppression. Surplus rows are KEPT in output. Safety-suppressed rows do NOT count against caps (V4 lock).
+- **Output**: `[...capped, ...ineligible]` — ALL rows preserved.
+
+**(3) NEW `tests/domains/recommendation-intelligence/promote-to-queue.test.ts` (467 lines, 15 cases).**
+- 2 empty/happy-path.
+- 4 safety-gate passthrough (diagnostic-only · low-confidence · cooldown with `cooldown_expires_at` · accepted-ancestor).
+- 2 sort behavior (indexability outranks content; same-priority `promotion_dedupe_key.localeCompare()` ascending).
+- 4 caps (`max_rows_per_page` on 6 same-URL · `max_rows_per_family` on 11 same-family · surplus retained · safety-suppressed NOT counted against caps).
+- 3 determinism + output shape (same input → same sequence; both promotion keys 40-char hex; missing pageTypeByUrl fails closed via `missing_target_page_type`).
+
+**(4) NEW `tests/architecture/recommendation-intelligence-max-rows-per-page.test.ts` (100 lines).** Pins `MAX_ROWS_PER_PAGE = 5` + behavioral cap (6 → 5 eligible + 1 `max_rows_per_page`; surplus kept).
+
+**(5) NEW `tests/architecture/recommendation-intelligence-max-rows-per-family.test.ts` (78 lines).** Pins `MAX_ROWS_PER_FAMILY = 10` + behavioral cap (11 → 10 eligible + 1 `max_rows_per_family`; surplus kept).
+
+**Operator decisions honored.**
+- **V1** — 1-slice ship (no further split). Confirmed.
+- **V2** — `MAX_ROWS_PER_PAGE = 5` + `MAX_ROWS_PER_FAMILY = 10` locked. Both pinned via invariants.
+- **V3** — Cap suppression reasons live in `PromotionResultSuppressionReason` (orchestrator-only union). The α₀a.3a `SuppressionReason` (12-value, locked by `no-diagnostic-only-promotion` invariant) is UNCHANGED.
+- **V4** — Caps apply ONLY to rows that passed safety gates. Safety-suppressed rows are NOT counted against caps. Verified by the dedicated unit test: 5 eligible content edits + 1 low-confidence row on the same URL → 5 eligible + 1 `low_confidence` (no cap suppression, since safety-suppressed didn't consume a slot).
+- **V5** — Tiebreaker = `promotion_dedupe_key.localeCompare(other.promotion_dedupe_key)` ascending. Verified by the "same-priority tie-break" test: all-same-priority output is lexicographically ordered by key.
+- **V6** — Local-only workflow. No commit, no push, no CI/Vercel verification. Operator will explicitly authorize any push at a meaningful checkpoint.
+
+**Auto-pass (existing 13 α-family invariants).** `recommendation-registry-active-set` · `recommendation-intelligence-customer-copy-vocab` · `recommendation-intelligence-no-queue-write` (no persistence imports) · `recommendation-intelligence-no-llm-decides` · `recommendation-intelligence-promotion-eligibility-pin` · `recommendation-intelligence-priority-score-contract` · `recommendation-intelligence-dedupe-key-formula` · `recommendation-intelligence-cooldown-windows` · `recommendation-intelligence-no-diagnostic-only-promotion` · `recommendation-intelligence-confidence-low-stays-diagnostic` · `recommendation-intelligence-promotion-respects-already-accepted` · `recommendation-intelligence-page-classifier-applied-at-promotion` · `recommendation-intelligence-no-promotion-without-evidence`.
+
+**Catalog sync.** 2 new rows under "Section 4.5 / Slice 4.5.D.α₀a.3b — promotion orchestrator + caps". `catalog-sync.test.ts` green post-update.
+
+**Deferred to α₀b**: operator-only Promotion Preview UI section on `/diagnostics/recommendation-triggers` (DRY-RUN; no writes; consumes `selectPromotableCandidates`).
+
+**Deferred to α₁**: customer-queue writer pathway.
+
+**Hard contracts honored.**
+- NO writes to `recommended_edits`.
+- NO imports from `@/domains/recommendations/recommended-edits-persistence`.
+- NO imports from `@/domains/product/recommendation-response-store`.
+- NO `runProviderAndPersist`.
+- NO LLM / OpenAI / Anthropic / `fetch(` / external API.
+- NO Supabase mutation.
+- NO migrations / cron / workflow changes.
+- NO customer-facing route changes.
+- NO `/diagnostics/recommendation-triggers/page.tsx` edits.
+- NO Today / Changes / Prompts / Settings / Recommendations / Section 9 changes.
+- NO env flag.
+- α₀a.3a `SuppressionReason` UNCHANGED at 12 values.
+- α₀a.1 / α₀a.2 / α₀a.3a modules UNCHANGED.
+
+**Line accounting.**
+
+| File | Lines |
+|---|---|
+| `src/domains/recommendation-intelligence/promote-to-queue.ts` | 191 |
+| `tests/domains/recommendation-intelligence/promote-to-queue.test.ts` | 467 |
+| `tests/architecture/recommendation-intelligence-max-rows-per-page.test.ts` | 100 |
+| `tests/architecture/recommendation-intelligence-max-rows-per-family.test.ts` | 78 |
+| **Total src+tests** | **836** |
+
+**Under the ≤850 soft threshold by 14 lines.** Under +1,000 hard stop by 164 lines. 136 over the ≤700 target — within the operator-approved ~720 estimate (+16% margin). **No trim pass triggered** — first-pass under soft threshold.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` ✅
+- Targeted suite (3 files / 19 cases) ✅
+- `catalog-sync.test.ts` ✅
+- `npm run test` (full suite) — TO RUN before commit
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — TO RUN before commit
+- **NO** `gh workflow` / `gh run` / Vercel verification / production curl smoke.
+
+**Pure promotion decision engine — slice family status (post-α₀a.3b).**
+
+| Sub-slice | Status | Commit |
+|---|---|---|
+| α₀a.1 — eligibility + priority | 🟢 SHIPPED | `52d1ce6` |
+| α₀a.2 — dedupe + cooldown + `isInCooldown` | 🟢 SHIPPED | `16a81f1` |
+| α₀a.3a — safety-gates module + 5 gate invariants | 🟢 SHIPPED | `ebc06f6` |
+| α₀a.3b — orchestrator + caps + 2 cap invariants | 🟡 READY_TO_COMMIT (this slice) | — |
+
+The pure decision engine is now complete: `selectPromotableCandidates(...)` is the canonical entry point. Operator-only Promotion Preview UI (α₀b) and customer-queue writer (α₁) remain deferred.
+
+**Recommended next.** Operator review → optional commit (`feat(recommendations): add promotion orchestrator and caps`) + push at a meaningful checkpoint (e.g., before α₀b UI, before operator manual production smoke, or batched with α₀b). Then Slice 4.5.D.α₀b preflight: operator-only Promotion Preview UI on `/diagnostics/recommendation-triggers`.
+
+---
+
 ## 2026-05-20 — Slice 4.5.D.α₀a.3a: promotion safety-gates module
 
 **Status:** READY_TO_COMMIT (operator-approved 2-way split via U1; awaiting commit/push/verify approval).
