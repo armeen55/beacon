@@ -7,6 +7,101 @@
 
 ---
 
+## 2026-05-19 — Section 9 Today tile: "Edit outcomes (past 30 days)"
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+**Branch:** `claude/objective-davinci-c81e70`.
+**Builds on:** 9.A2β.1 (`297ca86`) + verified Section 9 A2 customer-facing wedge end-to-end (whole-home-remodel Changes detail renders "This page received 18 sessions in the 21 days since going live.").
+
+### Why this slice exists
+
+Section 9.5's locked surface design defines TWO customer-facing surfaces: the Changes detail Act 3 sub-line (shipped + verified in 9.A2β + 9.A2β.1) AND a Today tile titled "Edit outcomes (post-live)". This slice ships the second surface, closing the Section 9 customer-facing wedge per the master plan locked design.
+
+### Files changed
+
+**Source (NEW):**
+- `src/domains/outcome-attribution/load-outcomes-summary-for-tenant.ts` — server-side aggregator. Filters all tenant `recommended_edits` to `verified_live` / `verified_live_modified` / `partially_implemented` AND `live_at >= now - 30 days`. Canonicalizes each edit's target_url via `canonicalizeCitationUrl`. Builds a deduped URL candidate set (canonical + trailing-slash variant per edit). ONE Supabase admin SELECT `.eq("tenant_id", tenantId).in("url", urlCandidates)` (mirrors 9.A2β.1 URL-scoped SELECT pattern — never hits the 1,000-row default cap). Skips the SELECT entirely when no candidates. Per-edit Mode A compute with `qualifiedCallCount = 0` (CallRail K2-deferred). Aggregates per-edit Mode A discriminator into an `OutcomesSummary` shape (`status: "ok" | "data_unavailable"` + `total_recent_live_edits` + `eligible_edits` + `still_learning_edits` + `ineligible_edits` + `sum_post_live_sessions` + `sum_post_live_engaged_sessions` + `sum_post_live_qualified_calls` (v1 always 0) + `window_days: 30`). Cached via `unstable_cache` (6h TTL, key namespace `outcomes-summary-tenant:v1` + tenantId + window + today-UTC-date so 30-day window slides cleanly across day boundaries, tag `recommended_edits:${tenantId}`). Soft-fail to `data_unavailable` on every documented failure path (repo throws / non-array edits / admin throws / 42P01 / generic read error / non-array data).
+- `src/components/today/edit-outcomes-tile.tsx` — pure presentational React component. Type-only `OutcomesSummary` import. State machine: `null` summary → still-gathering · `status: "data_unavailable"` → still-gathering · `total === 0` → empty · `eligible === 0` AND total > 0 → still-gathering · defensive: eligible >= 1 AND sessions === 0 → still-gathering · eligible >= 1 AND sessions > 0 → healthy. Plural-aware (1 edit / N edits · 1 session / N sessions · 1 call / M calls forward-compat). Avoids nested template literals so the K5 vocab scan can reason about each literal independently (lesson learned from 9.A2β). CallRail calls clause source-present but runtime-suppressed when `sum_post_live_qualified_calls === 0` (per K2 operator lock — NEVER renders "0 calls" in v1). Locked title "Edit outcomes" + caption "past 30 days". Data attributes for E2E hooks: `data-today-edit-outcomes-tile="true"` · `data-edit-outcomes-state={"empty"|"still_gathering"|"healthy"}` · `data-edit-outcomes-total-edits={N}` · `data-edit-outcomes-eligible={N}` · `data-edit-outcomes-sessions={N}`.
+
+**Source (MODIFIED):**
+- `src/app/(shell)/today-v2-sections.tsx` — new `TodayV2EditOutcomesSection` server component awaiting `loadOutcomesSummaryForTenant({ tenantId })` and passing the result to `<EditOutcomesTile />`. Same try/catch fail-soft posture as Section 5 / Section 6 / Section 9 loaders — transient errors degrade to `null` summary + structured `console.warn("[section9-today-outcomes] summary load failed", ...)` for operator visibility. Component renders the calm still-gathering copy on `null` per the locked state machine.
+- `src/app/(shell)/today-v2-skeleton.tsx` — new `TodayV2EditOutcomesSkeleton` mirroring the Edit lifecycle skeleton shape (slightly shorter — single-paragraph body, no per-stage rows).
+- `src/app/(shell)/page.tsx` — added a new Suspense block between the existing `<TodayV2EditLifecycleSection />` (Phase A.1) and `<TodayV2DescriptorsSection />`. Each section continues to stream independently — slow loaders don't block fast ones.
+
+**Tests (NEW):**
+- `tests/components/today/edit-outcomes-tile.test.tsx` — 28 tests across 7 describe blocks: title + caption pins · empty state · still-gathering state (4 trigger paths: no eligible / all ineligible / data_unavailable / null summary / defensive 0-sessions) · healthy single edit (with Ritz-like 18 sessions / 21 days fixture) · healthy multiple edits (3 cases) · CallRail K2-deferred behavior (no "0 calls" in v1 + forward-compat for ≥ 1 calls + singular "1 call") · K5 forbidden-vocab + connector-name scan on rendered HTML across every variant (7 cases).
+- `tests/domains/outcome-attribution/load-outcomes-summary-for-tenant.test.ts` — 23 tests across 6 describe blocks: cache shape (namespace + window + today-UTC-date + revalidate 21600s + tag + `__testing.WINDOW_DAYS`) · empty / no-window-edits (no edits → skip Supabase entirely · 6 non-verified-live statuses excluded · 3 verified-live statuses included · 30-day window filter · null/empty/unparseable live_at excluded · future-dated excluded) · URL-scoped SELECT (`.eq()` + `.in()` chain + dedup across edits sharing canonical URL + exact column projection + canonicalizer-null edits counted as ineligible without contributing candidates) · soft-fail × 6 (repo throws / non-array edits / admin throws / 42P01 / generic error / non-array data) · aggregation correctness (sum across multiple eligible edits + still_learning classified separately + qualifiedCallCount=0 threading) · tenant scope (`forTenant` + `.eq("tenant_id", ...)`).
+
+**Architecture invariants (NEW):**
+- `tests/architecture/edit-outcomes-tile-vocab.test.ts` — K5 forbidden-vocab + connector-name (15 case-insensitive tokens incl. `Google Analytics` / `GA4` / `CallRail`) + literal `$` outside template interpolations + pure-component posture (no GA4 runtime import / no Supabase import / no next/cache or next/navigation / no `server-only` declaration / no `fetch(` / type-only `OutcomesSummary` + `ReactElement` imports + named export).
+- `tests/architecture/edit-outcomes-tile-suppression.test.ts` — behavioral state-machine pins × 6 (null → still-gathering · data_unavailable → still-gathering · total=0 → empty · eligible=0+total>0 → still-gathering · defensive 0-sessions → still-gathering · healthy) + data-attribute always-present checks × 2 (`data-today-edit-outcomes-tile="true"` + `data-edit-outcomes-state` ∈ {empty / still_gathering / healthy}).
+- `tests/architecture/edit-outcomes-loader-no-ga4-api.test.ts` — per-file no-GA4-API contract across two files: (1) loader: 6 forbidden runtime import paths × 6 + 4 forbidden GA4 identifiers + no `fetch(` + positive sanity (`getSupabaseAdmin` + `computeModeATrafficAttribution` + `canonicalizeCitationUrl` + `getRepository`) + type-only `Ga4UrlTrafficRow` allowed + no top-level `next/cache` import; (2) today-v2-sections.tsx: positive sanity (`loadOutcomesSummaryForTenant` + `EditOutcomesTile`) + no GA4 runtime imports + no bare GA4 identifiers.
+
+**Catalog:**
+- `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` — new "Section 9 / Today tile" section with 3 invariant rows. `catalog-sync` test green.
+
+### Quality gates
+
+- `npm run typecheck`: CLEAN.
+- Targeted suite (tile + loader + 3 new invariants + Mode A regression + 9.A2β invariants regression + catalog-sync) all green.
+- Full suite: green (see commit-time totals).
+- Build: `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — green.
+
+### Hard contracts honored
+
+- No change to Mode A compute (`mode-a-cited-here-traffic-here.ts` byte-unchanged).
+- No change to `canonicalize-url.ts`.
+- No change to GA4 substrate (`data-api.ts` / `client.ts` / `property-selection.ts` / `types.ts` / `persist-url-traffic.ts` / `normalize-page-path.ts` byte-unchanged).
+- No change to refresh action or operator diagnostic page.
+- No change to Changes detail page.tsx / change-detail-v2-client.tsx / outcome-attribution-act3.tsx / load-mode-a-for-changes-detail.ts.
+- No change to `today-v2-data.ts` — the new loader lives in `@/domains/outcome-attribution/*`, NOT in the existing today data file.
+- No change to other Today tiles (`ai-visibility-hero.tsx` / `edit-lifecycle-tile.tsx` / `today-v2-recent-wins.tsx` etc. byte-unchanged).
+- No new migration.
+- No cron / no scheduled job.
+- No LLM / no paid APIs.
+- No CallRail enablement (K2-deferred — calls clause is source-present but runtime-suppressed; will auto-fire when `sum_post_live_qualified_calls >= 1` in a future 9.B slice).
+- No DELETE of legacy zombie path-only rows in `ga4_url_traffic` (separate maintenance task; URL-scoped SELECT solves correctness without cleanup).
+- No causal/revenue/connector-name vocab leaks in customer copy (locked + pinned by 3 new architecture invariants).
+- No new customer surface beyond this one Today tile.
+
+### Locked customer copy (per Section 9.5 + Section 9 K5 + operator approval)
+
+- **Title (all states)**: "Edit outcomes" with "past 30 days" caption.
+- **Empty** (no verified-live edits in 30-day window): *"No post-live outcome evidence yet."*
+- **Still gathering** (verified-live edits exist but no eligible OR loader soft-failed): *"Beacon is still collecting post-live traffic evidence for recent edits."*
+- **Healthy, single edit** (calls = 0; CallRail K2-deferred): *"1 live edit received {N} sessions from changed pages."*
+- **Healthy, multiple edits** (calls = 0; CallRail K2-deferred): *"{X} live edits received {Y} sessions from changed pages."*
+- **Healthy with calls** (forward-compat for 9.B; auto-fires when `sum_post_live_qualified_calls >= 1`): *"{X} live edits received {Y} sessions and {M} calls from changed pages."*
+
+### Manual verification steps after deploy
+
+1. **Hard reload** `https://beacon-bice.vercel.app/?v2=1` (Cmd+Shift+R).
+2. **Confirm** the new "Edit outcomes (past 30 days)" tile appears between the existing Edit lifecycle tile and the Descriptors section.
+3. **Confirm body copy** matches Ritz's current state — per the 9.A2β.1 verification, the whole-home-remodel H2 edit has 18 post-live sessions across 21 days, AND is the only verified-live edit. Likely render:
+   - **Most likely**: *"1 live edit received 18 sessions from changed pages."*
+   - Alternative (if any other Ritz verified-live edits land in the 30-day window): *"{X} live edits received {Y} sessions from changed pages."* with X >= 2.
+4. **Inspect DOM**:
+   - `data-today-edit-outcomes-tile="true"` present.
+   - `data-edit-outcomes-state="healthy"` (most likely; could be `still_gathering` if Ritz's edits drop out of 30-day window).
+   - `data-edit-outcomes-total-edits="1"`, `data-edit-outcomes-eligible="1"`, `data-edit-outcomes-sessions="18"` (or matching aggregates for the current state).
+5. **Confirm no causal / revenue / connector wording** anywhere in the rendered DOM:
+   - NO `drove` / `caused` / `generated` / `revenue` / `dollars` / `$` / `ROI` / `sales` / `leads`
+   - NO `Mode A` / `Mode B` / `Mode C` / `primary recommendation`
+   - NO `Google Analytics` / `GA4` / `CallRail`
+6. **Confirm no Network tab requests** to `analyticsdata.googleapis.com` from the Today page render.
+7. If the verification PASSES, **Section 9 customer-facing wedge is fully shipped + verified end-to-end** (both Changes detail Mode A sub-line + Today outcomes tile).
+
+### Next slice
+
+Operator-discretion at the next checkpoint:
+- **GA4 zombie-row cleanup** (small maintenance slice).
+- **Operator diagnostic page 1,000-row cap fix** (small operator-substrate slice).
+- **Refresh UX reload polish** (operator-only polish).
+- **Non-Section-9 next** — pivot per master plan (Section 4.5 Recommendation Intelligence Expansion, Section 12 catalog consolidation, etc.).
+- **CallRail STAYS DEFERRED** (K2 lock; operator-confirmed).
+
+---
+
 ## 2026-05-19 — Slice 9.A2β.1: Mode A loader URL-scoped SELECT fix
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

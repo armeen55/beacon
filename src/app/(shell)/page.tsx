@@ -25,12 +25,14 @@ import {
   TodayV2ActionCardsSkeleton,
   TodayV2DescriptorsSkeleton,
   TodayV2EditLifecycleSkeleton,
+  TodayV2EditOutcomesSkeleton,
   TodayV2VisibilityGroupSkeleton,
 } from "./today-v2-skeleton";
 import {
   TodayV2ActionCardsSection,
   TodayV2DescriptorsSection,
   TodayV2EditLifecycleSection,
+  TodayV2EditOutcomesSection,
   TodayV2VisibilityGroupSection,
 } from "./today-v2-sections";
 import { loadTodayV2GateData } from "./today-v2-data";
@@ -188,6 +190,9 @@ async function TodayV2SectionedContent() {
       </Suspense>
       <Suspense fallback={<TodayV2EditLifecycleSkeleton />}>
         <TodayV2EditLifecycleSection />
+      </Suspense>
+      <Suspense fallback={<TodayV2EditOutcomesSkeleton />}>
+        <TodayV2EditOutcomesSection />
       </Suspense>
       <Suspense fallback={<TodayV2DescriptorsSkeleton />}>
         <TodayV2DescriptorsSection />

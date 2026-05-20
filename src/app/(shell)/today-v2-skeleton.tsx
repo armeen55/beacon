@@ -92,6 +92,29 @@ export function TodayV2EditLifecycleSkeleton() {
   );
 }
 
+/** Section 9 Today tile (2026-05-19) — "Edit outcomes (past 30
+ *  days)". One small section between the lifecycle tile and the
+ *  descriptors; shorter than the lifecycle skeleton because the
+ *  outcomes body is a single paragraph (no per-stage rows). */
+export function TodayV2EditOutcomesSkeleton() {
+  return (
+    <section
+      className="animate-pulse"
+      aria-busy="true"
+      aria-label="Loading edit outcomes"
+      data-today-v2-section-skeleton="edit-outcomes"
+    >
+      <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-4 py-3.5 space-y-2.5">
+        <div className="space-y-1">
+          <div className="h-3.5 w-32 rounded bg-muted/30" />
+          <div className="h-2.5 w-20 rounded bg-muted/20" />
+        </div>
+        <div className="h-3 w-full max-w-[320px] rounded bg-muted/20 mt-3" />
+      </div>
+    </section>
+  );
+}
+
 /** Descriptors / enrichment chip row. */
 export function TodayV2DescriptorsSkeleton() {
   return (

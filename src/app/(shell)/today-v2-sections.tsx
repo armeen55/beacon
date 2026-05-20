@@ -39,7 +39,9 @@ import { TodayV2RecentWins } from "@/components/today/v2/today-v2-recent-wins";
 import { EnrichmentV2 } from "@/components/today/enrichment-v2";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import { EditLifecycleTile } from "@/components/today/edit-lifecycle-tile";
+import { EditOutcomesTile } from "@/components/today/edit-outcomes-tile";
 import { loadLifecycleSummaryForTenant } from "@/domains/citation-lifecycle/load-lifecycle";
+import { loadOutcomesSummaryForTenant } from "@/domains/outcome-attribution/load-outcomes-summary-for-tenant";
 import { currentTenantId } from "@/lib/tenant-context";
 
 export async function TodayV2VisibilityGroupSection() {
@@ -94,6 +96,34 @@ export async function TodayV2EditLifecycleSection() {
       emptyStateBody={summary.tile_strings.empty_state_body}
     />
   );
+}
+
+/**
+ * Section 9 Today tile (2026-05-19) — "Edit outcomes (past 30
+ * days)". Streams independently from the action cards + lifecycle +
+ * descriptors. Reads tenant-scoped `recommended_edits` + cached
+ * `ga4_url_traffic` rows via `loadOutcomesSummaryForTenant`. Soft-
+ * fails to a calm "still gathering" message on transient errors —
+ * try/catch parity with the other Section 9 / Section 5 / Section 6
+ * loaders so a transient Supabase failure never blocks the page.
+ */
+export async function TodayV2EditOutcomesSection() {
+  const tenantId = await currentTenantId();
+  let summary;
+  try {
+    summary = await loadOutcomesSummaryForTenant({ tenantId });
+  } catch (error) {
+    // Mirrors the Changes detail Mode A loader's try/catch posture:
+    // a transient error degrades to `null` so the component renders
+    // the locked "still gathering" copy. Independent structured
+    // console.warn for operator visibility.
+    console.warn("[section9-today-outcomes] summary load failed", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    summary = null;
+  }
+  return <EditOutcomesTile summary={summary} />;
 }
 
 export async function TodayV2DescriptorsSection() {
