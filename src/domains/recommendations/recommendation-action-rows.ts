@@ -391,6 +391,16 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
     case "submit_to_industry_directory":
     case "pursue_local_pr":
       return "review_decision";
+    // Slice 4.5.B.α₀ (2026-05-19) — registry expansion. Dead-code
+    // exhaustiveness arms: every entry below has
+    // `generatorActive: false` in α₀, so no row builder path can
+    // reach these in production. Real row-type mapping lands
+    // alongside the matching deterministic predicates in later
+    // 4.5.B.x / 4.5.C+ slices.
+    case "update_intro":
+    case "add_h3_section":
+    case "add_image_alt_text":
+      return "review_decision";
   }
 }
 
@@ -542,6 +552,20 @@ export function composeEditRowTitle(args: {
       return "Submit to an industry directory";
     case "pursue_local_pr":
       return "Pursue local press coverage";
+    // Slice 4.5.B.α₀ (2026-05-19) — registry expansion. Dead-code
+    // arms; generatorActive is false on each, so the action-row
+    // builder never reaches these branches in production. Real
+    // verb composition lands when the paired predicates do.
+    case "update_intro":
+      return label
+        ? `Update the ${targetLabel} intro to ${q(label)}`
+        : `Update the ${targetLabel} intro`;
+    case "add_h3_section":
+      return label
+        ? `Add an H3 sub-section ${q(label)} to the ${targetLabel}`
+        : `Add an H3 sub-section to the ${targetLabel}`;
+    case "add_image_alt_text":
+      return `Add image alt text on the ${targetLabel}`;
   }
 }
 

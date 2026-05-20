@@ -28,17 +28,20 @@ import {
 
 describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
   describe("enum completeness", () => {
-    it("has exactly 22 action types", () => {
+    it("has exactly 32 action types", () => {
       // Section 7 C7b (2026-05-16): registry grew from 22 → 29 with
-      // the 7 off-site/manual action types (claim_gbp,
-      // optimize_gbp_profile, request_gbp_reviews,
-      // claim_or_optimize_houzz, claim_or_optimize_yelp,
-      // submit_to_industry_directory, pursue_local_pr). All seven
-      // ship `generatorActive: false` so the LLM never produces them.
-      expect(ACTION_TYPES).toHaveLength(29);
+      // the 7 off-site/manual action types. Slice 4.5.B.α₀
+      // (2026-05-19): registry grew from 29 → 32 with the 3
+      // inactive Section-4.5 expansion entries (`update_intro`,
+      // `add_h3_section`, `add_image_alt_text`). All three ship
+      // `generatorActive: false` (paired predicates land in later
+      // Section-4.5 slices; `add_image_alt_text` additionally
+      // requires a PageSnapshot extractor extension for the
+      // `images: { alt }[]` field).
+      expect(ACTION_TYPES).toHaveLength(32);
     });
 
-    it("contains every action type planned in Sprint 6A.1", () => {
+    it("contains every action type planned in Sprint 6A.1 + Section 7 C7b + Slice 4.5.B.α₀", () => {
       // Spelled out verbatim so the plan and the code stay pinned together.
       const expected: ActionType[] = [
         "edit_title",
@@ -63,6 +66,10 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
         "merge_pages",
         "create_page",
         "watch",
+        // Slice 4.5.B.α₀ (2026-05-19) — inactive registry expansion.
+        "update_intro",
+        "add_h3_section",
+        "add_image_alt_text",
         // Section 7 C7b (2026-05-16) — off-site / manual action types.
         // All seven carry `generatorActive: false` (LLM never produces
         // them) and `elementTypeDomain: []` (no on-page element target).
@@ -108,35 +115,42 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
     });
   });
 
-  describe("generator activation — v1 floor is exactly 3", () => {
-    const ACTIVE_V1: ActionType[] = [
+  describe("generator activation — Slice 4.5.B.α₀ active set is exactly 4", () => {
+    const ACTIVE_AFTER_ALPHA0: ActionType[] = [
       "edit_title",
+      // Slice 4.5.B.α₀ (2026-05-19) — flipped paired with the
+      // `missing-meta` trigger predicate under
+      // `src/domains/recommendation-intelligence/triggers/`.
+      "edit_meta",
       "add_h2_section",
       "add_faq",
     ];
 
-    it("exactly 3 types are generatorActive=true", () => {
+    it("exactly 4 types are generatorActive=true (post-Slice 4.5.B.α₀)", () => {
       const active = ACTION_TYPES.filter(
         (t) => ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      expect(active).toHaveLength(3);
-      expect(new Set(active)).toEqual(new Set(ACTIVE_V1));
+      expect(active).toHaveLength(4);
+      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_ALPHA0));
     });
 
-    it("listActiveActionTypes() returns the same three", () => {
-      expect(new Set(listActiveActionTypes())).toEqual(new Set(ACTIVE_V1));
+    it("listActiveActionTypes() returns the same four", () => {
+      expect(new Set(listActiveActionTypes())).toEqual(
+        new Set(ACTIVE_AFTER_ALPHA0),
+      );
     });
 
-    it("every other type is generatorActive=false (Sprint 6A.2 flips them; Section 7 C7b adds 7 off-site types)", () => {
+    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; α₀-added types flip with paired predicates in later 4.5 slices)", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      // 22 original − 3 ACTIVE_V1 = 19 inactive, plus Section 7 C7b's
-      // 7 off-site/manual types (all generatorActive: false) → 26.
-      // The off-site types are intentionally generator-inactive: they
-      // are operator-manual recommendations, not LLM-drafted edits.
-      expect(inactive).toHaveLength(26);
-      for (const t of ACTIVE_V1) {
+      // 22 original − 4 ACTIVE_AFTER_ALPHA0 = 18 inactive,
+      // plus Section 7 C7b's 7 off-site/manual types,
+      // plus Slice 4.5.B.α₀'s 3 new inactive types
+      // (update_intro, add_h3_section, add_image_alt_text)
+      // → 28 total inactive.
+      expect(inactive).toHaveLength(28);
+      for (const t of ACTIVE_AFTER_ALPHA0) {
         expect(inactive).not.toContain(t);
       }
     });
@@ -385,6 +399,17 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       "merge_pages",
       "create_page",
       "watch",
+      // Slice 4.5.B.α₀ (2026-05-19) — page-scoped or element-
+      // unscoped types added inactive in α₀.
+      //   • `update_intro` targets the page intro (no single
+      //     element_type today; α₁/α₂ may add an `intro_paragraph`
+      //     element if the extractor surfaces it).
+      //   • `add_image_alt_text` is image-element-scoped but the
+      //     `images` field on PageSnapshot is not yet populated;
+      //     when an extractor lands, this type moves out of the
+      //     allowlist and into the `image_alt` element domain.
+      "update_intro",
+      "add_image_alt_text",
       // Off-site / manual (Section 7 C7b)
       "claim_gbp",
       "optimize_gbp_profile",

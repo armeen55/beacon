@@ -726,10 +726,14 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
     expect(packet.allowedActionTypes).toEqual(expected);
   });
 
-  it("defaults are exactly: edit_title, add_h2_section, add_faq (sorted)", () => {
+  it("defaults are exactly: edit_title, edit_meta, add_h2_section, add_faq (sorted) — post-Slice 4.5.B.α₀", () => {
+    // Slice 4.5.B.α₀ (2026-05-19): `edit_meta` flipped to
+    // `generatorActive: true` paired with the `missing-meta`
+    // trigger predicate. Future α₁ adds `change_h1`; α₂ adds no
+    // flips; 4.5.C+ flips more types as their predicates ship.
     const packet = buildSpecificEditEvidencePacket(buildArgs());
     expect(packet.allowedActionTypes.sort()).toEqual(
-      ["add_faq", "add_h2_section", "edit_title"].sort(),
+      ["add_faq", "add_h2_section", "edit_meta", "edit_title"].sort(),
     );
   });
 

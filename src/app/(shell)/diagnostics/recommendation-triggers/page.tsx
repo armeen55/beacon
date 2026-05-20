@@ -1,0 +1,164 @@
+import "server-only";
+
+/**
+ * 2026-05-19 — Slice 4.5.B.α₀ — operator-only recommendation-trigger
+ * diagnostic page.
+ *
+ * Surfaces deterministic-trigger candidate rows for the tenant's
+ * owned pages. Operator validation surface only — no customer-
+ * facing recommendations are produced or persisted here. The
+ * customer-queue flip is deferred to Slice 4.5.D after operator
+ * validation on Ritz here.
+ *
+ * α₀ wires the 2 metadata predicates (`missing-title`,
+ * `missing-meta`). α₁ adds H1 predicates. α₂ adds cross-snapshot
+ * duplicate predicates.
+ *
+ * Operator-gated. Reads file-backed snapshots only. No write
+ * paths, no LLM, no paid APIs.
+ *
+ * Pinned by:
+ *   • tests/app/diagnostics/recommendation-triggers-page.test.tsx
+ *   • tests/architecture/recommendation-intelligence-no-queue-write.test.ts
+ *   • tests/architecture/recommendation-trigger-predicates-purity.test.ts
+ *   • tests/architecture/recommendation-intelligence-customer-copy-vocab.test.ts
+ *   • tests/architecture/recommendation-intelligence-no-llm-decides.test.ts
+ *   • tests/architecture/recommendation-registry-active-set.test.ts
+ */
+
+import { notFound } from "next/navigation";
+
+import { isOperatorModeServer } from "@/lib/operator-mode";
+import { currentTenantId } from "@/lib/tenant-context";
+import { loadTriggerCandidatesForTenant } from "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant";
+import type { TriggerCandidatesLoadStatus } from "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant";
+import type { RecommendationCandidateRow } from "@/domains/recommendation-intelligence/emitter/candidate-row";
+
+export const dynamic = "force-dynamic";
+
+function isAccessAllowed(): boolean {
+  return isOperatorModeServer() || process.env.NODE_ENV === "test";
+}
+
+function statusBanner(status: TriggerCandidatesLoadStatus): string | null {
+  if (status === "snapshots_unavailable") {
+    return "page-snapshots data unavailable. Run scripts/scan-owned-pages.ts to populate .data/page-snapshots.json.";
+  }
+  return null;
+}
+
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function RecommendationTriggersDiagnosticPage(
+  props: PageProps,
+) {
+  if (!isAccessAllowed()) {
+    notFound();
+  }
+  await (props.searchParams ?? Promise.resolve({}));
+
+  const tenantId = await currentTenantId();
+  const result = await loadTriggerCandidatesForTenant({ tenantId });
+  const banner = statusBanner(result.status);
+
+  return (
+    <div className="space-y-4 p-4" data-diagnostic="recommendation-triggers">
+      <header className="space-y-1">
+        <h1 className="text-[15px] font-semibold text-foreground">
+          Recommendation Trigger Diagnostic
+        </h1>
+        <p className="text-[12px] text-muted-foreground">
+          Slice 4.5.B.α₀ — operator validation surface for the 2
+          metadata deterministic trigger predicates. Customer queue
+          is NOT modified by this page. The customer-queue flip is
+          deferred to Slice 4.5.D after operator validation here.
+        </p>
+      </header>
+
+      {banner ? (
+        <section
+          className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+          data-diagnostic-section="status-banner"
+          data-load-status={result.status}
+        >
+          <p className="text-[12px] text-foreground">{banner}</p>
+        </section>
+      ) : null}
+
+      <section
+        className="rounded-md border border-border/40 bg-surface-inset/20 p-3"
+        data-diagnostic-section="counters"
+      >
+        <ul className="text-[12px] text-foreground space-y-1">
+          <li data-counter="snapshot_count">
+            Owned snapshots: <span className="font-mono">{result.meta.snapshot_count}</span>
+          </li>
+          <li data-counter="predicates_run">
+            Predicates run: <span className="font-mono">{result.meta.predicates_run}</span>
+          </li>
+          <li data-counter="candidate_count">
+            Candidates: <span className="font-mono">{result.meta.candidate_count}</span>
+          </li>
+        </ul>
+      </section>
+
+      {result.candidates.length === 0 ? (
+        <p
+          className="text-[12px] text-muted-foreground"
+          data-diagnostic-section="empty-candidates"
+        >
+          No candidate rows produced for this tenant.
+        </p>
+      ) : (
+        <CandidateTable rows={result.candidates} />
+      )}
+    </div>
+  );
+}
+
+function CandidateTable(props: {
+  rows: ReadonlyArray<RecommendationCandidateRow>;
+}) {
+  return (
+    <section
+      className="rounded-md border border-border/40"
+      data-diagnostic-section="candidates"
+      data-row-count={props.rows.length}
+    >
+      <table className="w-full text-[12px] text-foreground">
+        <thead className="border-b border-border/40 bg-surface-inset/10 text-left">
+          <tr>
+            <th className="px-3 py-2 font-medium">Trigger</th>
+            <th className="px-3 py-2 font-medium">Action type</th>
+            <th className="px-3 py-2 font-medium">Target URL</th>
+            <th className="px-3 py-2 font-medium">Confidence</th>
+            <th className="px-3 py-2 font-medium">Customer copy</th>
+            <th className="px-3 py-2 font-medium">Dedupe key</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.rows.map((row) => (
+            <tr
+              key={row.dedupe_key}
+              data-row-trigger-signal={row.trigger_signal}
+              data-row-action-type={row.action_type}
+              data-row-confidence={row.confidence}
+              data-row-dedupe-key={row.dedupe_key}
+            >
+              <td className="px-3 py-2 font-mono text-[11px]">{row.trigger_signal}</td>
+              <td className="px-3 py-2 font-mono text-[11px]">{row.action_type}</td>
+              <td className="px-3 py-2 font-mono text-[11px] break-all">{row.target_url}</td>
+              <td className="px-3 py-2 font-mono text-[11px]">{row.confidence}</td>
+              <td className="px-3 py-2 text-foreground/90">{row.customer_copy}</td>
+              <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                {row.dedupe_key.slice(0, 10)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}

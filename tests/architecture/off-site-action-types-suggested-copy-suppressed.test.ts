@@ -88,20 +88,27 @@ describe("Architecture — Section 7 C7b row-builder source pins 7 off-site case
   }
 
   it("the 7 off-site case arms route to `return \"review_decision\"`", () => {
-    // Slice from the first off-site case arm to the closing brace of
-    // the function. Within that slice there must be exactly one
-    // `return "review_decision";` AND no other `return` statements
-    // (no spillover into the existing arms above).
+    // Slice from the first off-site case arm (`case "claim_gbp":`)
+    // to the next non-off-site case arm (Slice 4.5.B.α₀ added 3
+    // dead-code arms — `update_intro` / `add_h3_section` /
+    // `add_image_alt_text` — AFTER the off-site block, each also
+    // returning "review_decision"). The off-site slice must
+    // contain exactly one `return "review_decision";`.
     const firstArmIdx = active.indexOf(`case "claim_gbp":`);
     expect(firstArmIdx).toBeGreaterThanOrEqual(0);
     const trailing = active.slice(firstArmIdx);
-    // The next `}` after the off-site block closes the switch.
+    // End the slice at the boundary: the next case arm after the
+    // off-site block (added in α₀) OR the closing brace, whichever
+    // comes first.
+    const nextCaseIdx = trailing.indexOf(`case "update_intro":`);
     const closeIdx = trailing.indexOf("}");
     expect(closeIdx).toBeGreaterThan(0);
-    const offSiteBlock = trailing.slice(0, closeIdx);
-    // Exactly one return inside the off-site block, returning
-    // "review_decision".
-    const returnMatches = offSiteBlock.match(/return\s+["']review_decision["']\s*;/g);
+    const sliceEnd =
+      nextCaseIdx > 0 && nextCaseIdx < closeIdx ? nextCaseIdx : closeIdx;
+    const offSiteBlock = trailing.slice(0, sliceEnd);
+    const returnMatches = offSiteBlock.match(
+      /return\s+["']review_decision["']\s*;/g,
+    );
     expect(returnMatches).not.toBeNull();
     expect(returnMatches!.length).toBe(1);
   });

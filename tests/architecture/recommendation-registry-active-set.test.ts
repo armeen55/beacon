@@ -64,15 +64,21 @@ const AUDIT_DOC_PATH = resolve(
   "RECOMMENDATION_INTELLIGENCE_AUDIT.md",
 );
 
-/** Locked active set per master plan §4.5.4 + Slice 4.5.A audit. */
+/** Locked active set per Slice 4.5.B.α₀ audit (2026-05-19). α₀
+ *  flips `edit_meta` paired with the `missing-title` +
+ *  `missing-meta` deterministic trigger predicates. `change_h1`
+ *  flip moves to α₁; H1 predicates land in α₁ as well. */
 const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "edit_title",
+  "edit_meta",
   "add_h2_section",
   "add_faq",
 ];
 
-/** Locked total count per master plan §4.5.4 (after Section 7 C7b). */
-const LOCKED_REGISTRY_COUNT = 29;
+/** Locked total count per Slice 4.5.B.α₀ (2026-05-19). α₀ adds 3
+ *  new inactive types (update_intro, add_h3_section,
+ *  add_image_alt_text). Prior count was 29 (Slice 4.5.A). */
+const LOCKED_REGISTRY_COUNT = 32;
 
 describe("Slice 4.5.A — registry inventory + active set", () => {
   it(`registers exactly ${LOCKED_REGISTRY_COUNT} action types`, () => {

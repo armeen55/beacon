@@ -390,10 +390,13 @@ describe("Phase 6A.1.10 — validateSpecificEdit (negative — actionType)", () 
 
   it("rejects actionType not in packet.allowedActionTypes", () => {
     const packet = buildPacket();
-    // edit_meta is a valid ACTION_TYPES member but not in the v1 allowed
-    // set (generatorActive=false).
+    // Slice 4.5.B.α₀ (2026-05-19): `edit_meta` flipped to
+    // generatorActive=true, so it's now in the default v1
+    // allowedActionTypes set. Use a still-inactive type for the
+    // negative case — `rewrite_h2` stays generatorActive=false in
+    // α₀ + α₁ + α₂.
     const bad = validEditTitleFixture(packet, {
-      actionType: "edit_meta",
+      actionType: "rewrite_h2",
     });
     const r = validateSpecificEdit(bad, packet);
     expect(r.ok).toBe(false);

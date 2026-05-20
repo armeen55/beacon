@@ -1,6 +1,8 @@
 # Recommendation Intelligence Audit
 
 > **Slice 4.5.A — registry audit + activation plan (2026-05-19)**
+> **Slice 4.5.B.α₀ — first activation: registry expansion + 2 metadata
+> predicates + operator diagnostic shell (2026-05-19)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
@@ -9,29 +11,41 @@
 > single source-of-truth for the action-type registry expansion plan +
 > activation order.
 >
-> **Status**: Slice 4.5.A ships docs + tests only. ZERO source-code
-> changes. ZERO `generatorActive` flag flips. ZERO new trigger
-> predicates. The registry pin invariant
-> (`recommendation-registry-active-set`) freezes the current state of
-> the registry against drift; any future slice that flips a flag MUST
-> update this audit doc in lockstep.
+> **Current state (post-4.5.B.α₀)**: registry expanded to 32 action
+> types; 4 active (`edit_title`, `edit_meta`, `add_h2_section`,
+> `add_faq`). 2 deterministic trigger predicates landed
+> (`missing-title`, `missing-meta`). Operator-only diagnostic page
+> live at `/diagnostics/recommendation-triggers`. Customer queue
+> UNCHANGED (no `recommended_edits` write paths added; no surface
+> changes outside the operator diagnostic).
+>
+> **Slice 4.5.B.α split (2026-05-19)**: the master-plan §4.5.20 4.5.B
+> prompt was internally inconsistent — it proposed 5 `generatorActive`
+> flips with only metadata/H1 predicates, which would violate the
+> `recommendation-intelligence-no-llm-decides` invariant on day 1.
+> Per operator decision (2026-05-19), 4.5.B.α is sub-split:
+>
+> - **α₀ (this slice — SHIPPED)**: registry expansion + emitter
+>   foundation + `missing-title` + `missing-meta` predicates +
+>   operator-only diagnostic page. Flipped: `edit_meta`. New (inactive):
+>   `update_intro`, `add_h3_section`, `add_image_alt_text`.
+> - **α₁ (next)**: H1 predicates (`missing-h1`, `weak-h1`,
+>   `title-h1-mismatch`). Flips: `change_h1`.
+> - **α₂ (after α₁)**: cross-snapshot duplicate predicates
+>   (`duplicate-title`, `duplicate-meta`). No new flips.
 >
 > **Locked by**: O1–O12 decisions in
 > `~/.claude/plans/enter-maximum-depth-planning-mode-twinkly-balloon.md`
-> §4.5 Decision Lock (2026-05-18).
+> §4.5 Decision Lock (2026-05-18) + sub-split decision 2026-05-19.
 
 ---
 
 ## A. Current registry inventory
 
-Total: **29 action types** in `ACTION_TYPES` / `ACTION_TYPE_REGISTRY`
-(`src/domains/recommendations/action-types.ts`).
-
-Note: the file's top-of-module docstring at line 14 still references
-"22-type universe" — that comment is stale (predates Section 7 C7b's
-seven off-site additions). Documentation drift only; behavior is
-correct. Slice 4.5.B will refresh that docstring in the same edit
-that adds the first new action types.
+Total (post-4.5.B.α₀): **32 action types** in `ACTION_TYPES` /
+`ACTION_TYPE_REGISTRY` (`src/domains/recommendations/action-types.ts`).
+Pre-α₀ count was 29; α₀ added 3 inactive entries (`update_intro`,
+`add_h3_section`, `add_image_alt_text`).
 
 ### Inventory by category
 
@@ -41,27 +55,37 @@ that adds the first new action types.
 | 2 | Technical / structural | 4 | `add_internal_link` · `add_schema` · `fix_schema` · `reorder_sections` |
 | 3 | Page-level lifecycle | 3 | `split_page` · `merge_pages` · `create_page` |
 | 4 | Passive | 1 | `watch` |
-| 5 | Off-site authority (Section 7 C7b — LOCKED detection-only) | 7 | `claim_gbp` · `optimize_gbp_profile` · `request_gbp_reviews` · `claim_or_optimize_houzz` · `claim_or_optimize_yelp` · `submit_to_industry_directory` · `pursue_local_pr` |
-| — | **TOTAL** | **29** | — |
+| 5 | Slice 4.5.B.α₀ additions (registered inactive) | 3 | `update_intro` · `add_h3_section` · `add_image_alt_text` |
+| 6 | Off-site authority (Section 7 C7b — LOCKED detection-only) | 7 | `claim_gbp` · `optimize_gbp_profile` · `request_gbp_reviews` · `claim_or_optimize_houzz` · `claim_or_optimize_yelp` · `submit_to_industry_directory` · `pursue_local_pr` |
+| — | **TOTAL** | **32** | — |
 
 ## B. Current `generatorActive` set
 
-**Exactly 3 action types currently have `generatorActive: true`:**
+**Exactly 4 action types currently have `generatorActive: true`** (post-4.5.B.α₀):
 
 | Action type | Category | Notes |
 |---|---|---|
 | `edit_title` | On-page copy edits | Sprint 6A.1 substrate |
+| `edit_meta` | On-page copy edits | **Flipped in Slice 4.5.B.α₀ (2026-05-19)** — paired with `missing-meta` trigger predicate |
 | `add_h2_section` | On-page copy edits | Sprint 6A.1 substrate |
 | `add_faq` | On-page copy edits | Sprint 6A.1 substrate |
 
-**26 action types have `generatorActive: false`.** The OpenAI specific-
-edit provider (Sprint 6A.2) can still produce any of the 22 non-off-
+**28 action types have `generatorActive: false`.** The OpenAI specific-
+edit provider (Sprint 6A.2) can still produce any of the 24 non-off-
 site inactive types when the LLM path activates per-rec — but only the
-3 above have a deterministic generator wired in production.
+4 above have a deterministic generator (or trigger predicate) wired in
+production.
 
 The 7 off-site types are operator-locked at `generatorActive: false`
 PERMANENTLY per Section 7 C7b's read-only/manual contract — Beacon
 recommends off-site work, it never performs it.
+
+The 3 α₀-added types (`update_intro`, `add_h3_section`,
+`add_image_alt_text`) are registered inactive: paired predicates land
+in later slices (α₁ for the H1 family does NOT cover them; α₂ does
+not cover them; they flip in **Slice 4.5.C+** when their predicates
+ship — and `add_image_alt_text` additionally requires an extractor
+extension to surface an `images: { alt }[]` field on `PageSnapshot`).
 
 ## C. Existing inactive / underused action types
 

@@ -11,11 +11,14 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * v1 policy: full 22-type universe registered; only 3 have
- * `generatorActive: true` (edit_title, add_h2_section, add_faq). The
- * rest ship as registered-but-inactive so the provider-adapter knows the
- * space of valid outputs from day one — the LLM path (6A.2) will flip
- * them on without changing any caller.
+ * Slice 4.5.B.α₀ policy (2026-05-19): 32-type universe registered;
+ * 4 have `generatorActive: true` (edit_title, edit_meta,
+ * add_h2_section, add_faq). 7 off-site authority types are locked
+ * inactive per Section 7 C7b. The remaining 21 ship as registered-
+ * but-inactive so the provider-adapter knows the space of valid
+ * outputs from day one — slices 4.5.B.α₁ / 4.5.B.α₂ / 4.5.C+ flip
+ * them on as paired deterministic trigger predicates land
+ * (`change_h1` flips in 4.5.B.α₁ alongside the H1 predicates).
  *
  * This module is PURE TYPES + CONSTANTS. No DB writes. No extractors.
  * No UI. Safe to import from both server and client code.
@@ -53,6 +56,14 @@ export const ACTION_TYPES = [
   "create_page",
   // Passive
   "watch",
+  // ── Slice 4.5.B.α additions (2026-05-19) — registered inactive ──────────
+  // These three are added to the universe of valid outputs but DO NOT
+  // flip `generatorActive: true` in this slice — paired deterministic
+  // trigger predicates land in Slice 4.5.C (or later for image alt
+  // text once PageSnapshot exposes the `images` field).
+  "update_intro",
+  "add_h3_section",
+  "add_image_alt_text",
   // ── Off-site authority (Section 7 C7b — locked invariants: read-only,
   //    no LLM generation, no Suggested Copy, no write paths to GBP /
   //    Yelp / Houzz / Angi / BBB / industry directories / press).
@@ -160,7 +171,9 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Edit meta description",
-    generatorActive: false,
+    // Slice 4.5.B.α (2026-05-19) — paired with missing-meta +
+    // duplicate-meta deterministic trigger predicates.
+    generatorActive: true,
   },
   change_h1: {
     actionType: "change_h1",
@@ -363,6 +376,43 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Watch — track without editing",
+    generatorActive: false,
+  },
+
+  // ── Slice 4.5.B.α additions (2026-05-19, inactive) ───────────────────────
+  // Registered so the LLM provider's enum-bound output schema knows
+  // these targets exist. Activation deferred to slices 4.5.C+ when
+  // paired deterministic trigger predicates land. `add_image_alt_text`
+  // also requires a PageSnapshot extractor extension before any
+  // predicate can fire.
+  update_intro: {
+    actionType: "update_intro",
+    elementTypeDomain: [],
+    signalType: "content",
+    requiresCurrentText: true,
+    requiresProposedText: true,
+    changelogAssetType: "service_page",
+    operatorLabel: "Update intro answer",
+    generatorActive: false,
+  },
+  add_h3_section: {
+    actionType: "add_h3_section",
+    elementTypeDomain: ["h3"],
+    signalType: "content",
+    requiresCurrentText: false,
+    requiresProposedText: true,
+    changelogAssetType: "service_page",
+    operatorLabel: "Add H3 sub-section",
+    generatorActive: false,
+  },
+  add_image_alt_text: {
+    actionType: "add_image_alt_text",
+    elementTypeDomain: [],
+    signalType: "technical",
+    requiresCurrentText: false,
+    requiresProposedText: true,
+    changelogAssetType: "service_page",
+    operatorLabel: "Add image alt text",
     generatorActive: false,
   },
 

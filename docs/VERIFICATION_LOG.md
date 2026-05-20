@@ -7,6 +7,119 @@
 
 ---
 
+## 2026-05-19 — Slice 4.5.B.α₀: first activation — metadata trigger diagnostics foundation
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** First real activation of Section 4.5 Recommendation Intelligence Expansion. Operator-validation surface only — the customer Recommendations queue is byte-unchanged. The master-plan §4.5.20 4.5.B prompt was internally inconsistent (5 flips with only metadata/H1 predicates would violate the `no-llm-decides-existence` invariant on day 1); operator sub-split 4.5.B.α into α₀ + α₁ + α₂. α₀ ships the operator-safe core: registry expansion + emitter foundation + 2 metadata predicates + operator-only diagnostic shell.
+
+**Decision references (locked 2026-05-18 + 2026-05-19 sub-split).** O1–O12 from the master plan; sub-split decision per 2026-05-19 operator approval of Option B.
+
+**Final registry state (post-α₀).** 32 action types in `ACTION_TYPES`. 4 `generatorActive: true`: `edit_title` · `edit_meta` (NEW in α₀) · `add_h2_section` · `add_faq`. 28 inactive (21 in-queue-reachable when LLM path activates + 7 Section-7 off-site locked).
+
+**What was added.**
+
+1. **MODIFIED** [src/domains/recommendations/action-types.ts](src/domains/recommendations/action-types.ts) (~+56 net lines):
+   - Top-of-module docstring refreshed: "29-type universe" → "32-type universe; 4 active in v1".
+   - Added 3 inactive specs: `update_intro` · `add_h3_section` · `add_image_alt_text` (each `generatorActive: false`, paired predicates land in later slices; `add_image_alt_text` also requires a future PageSnapshot extractor extension for an `images: { alt }[]` field).
+   - Flipped `edit_meta` to `generatorActive: true` (paired with the `missing-meta` trigger predicate this slice).
+   - `change_h1` remains `generatorActive: false` (flip moves to α₁ with the H1 predicate family).
+
+2. **MODIFIED** [src/domains/recommendations/recommendation-action-rows.ts](src/domains/recommendations/recommendation-action-rows.ts) (~+24 net lines):
+   - Added dead-code exhaustiveness arms in `actionRowTypeForEdit()` (routes the 3 new types to `"review_decision"` mirroring Section 7 C7b pattern) and `composeEditRowTitle()` (per-type verb composition).
+   - `generatorActive: false` on all 3 new types means no production path can reach the new arms — pure TypeScript exhaustiveness plumbing.
+   - **NO customer UI redesign. NO queue behavior changes.**
+
+3. **NEW** `src/domains/recommendation-intelligence/emitter/candidate-row.ts` (70 lines) — `RecommendationCandidateRow` type. Intentionally distinct from `RecommendedEditRow` to enforce the no-queue-write contract.
+
+4. **NEW** `src/domains/recommendation-intelligence/emitter/dedupe-key.ts` (39 lines) — pure SHA1 over `(tenantId, actionType, targetUrl, topicClusterLabel)`.
+
+5. **NEW** `src/domains/recommendation-intelligence/emitter/cooldown-key.ts` (31 lines) — pure SHA1 over `(tenantId, actionType, targetUrl)`. Coarser than dedupe-key.
+
+6. **NEW** `src/domains/recommendation-intelligence/emitter/apply-queue-rules.ts` (47 lines) — minimal 4-of-10 rules per master-plan §4.5.12:
+   - Rule 1 SPECIFIC — `target_url` non-null, non-empty, non-sentinel.
+   - Rule 2 EVIDENCE-BACKED — `evidence.length >= 1`.
+   - Rule 3 CONFIDENCE — `low` routes to `diagnostic_only`.
+   - Rule 4 SAFETY-FLAG-EMPTY — flagged rows route to `diagnostic_only`.
+   - Full 10-rule layer (vocab scan, accepted-ancestor suppression, dismissed cooldown, signal-stale, prerequisite-blocked, max-per-page, max-per-family) ships in Slice 4.5.D before customer-queue flip.
+
+7. **NEW** `src/domains/recommendation-intelligence/customer-copy-templates.ts` (22 lines) — 2 operator-locked functions:
+   - `missingTitleCopy()` → *"Add a clear page title so AI search platforms can surface this page accurately."*
+   - `missingMetaCopy()` → *"Add a meta description so AI search platforms have a clean snippet to extract."*
+
+8. **NEW** `src/domains/recommendation-intelligence/triggers/missing-title.ts` (60 lines) — pure predicate. Fires when `snapshot.title` is null/empty/whitespace. Emits `edit_title` candidate with `confidence: "high"`, `impact_estimate: "high"`.
+
+9. **NEW** `src/domains/recommendation-intelligence/triggers/missing-meta.ts` (60 lines) — pure predicate. Same shape for `meta_description`. Emits `edit_meta` candidate with `confidence: "high"`, `impact_estimate: "medium"`.
+
+10. **NEW** `src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts` (105 lines) — server-side tenant-scoped loader. Reads `getPageSnapshots()` (file-backed boundary); filters to `tenant_id`; invokes both predicates per snapshot; gates via `applyQueueRules`; dedupes by `dedupe_key`; returns `{ status, candidates, diagnostic_only, meta }`. Soft-fails to `status: "snapshots_unavailable"` on store throw / non-array. **NO `unstable_cache`** (operator wants freshest signal output every load).
+
+11. **NEW** `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx` (164 lines) — operator-only diagnostic page. Mirrors the Section 9 `/diagnostics/outcome-attribution` template: `isOperatorModeServer() || NODE_ENV === "test"` gate; `notFound()` for customer mode; `force-dynamic`; counters strip + candidate table with per-row data attributes (`data-row-trigger-signal`, `data-row-action-type`, `data-row-confidence`, `data-row-dedupe-key`). **NO write paths. NO server actions. NO LLM. NO paid APIs.**
+
+**Architecture invariants (4 new + 1 updated).**
+
+| Invariant | Slice | Status |
+|---|---|---|
+| `recommendation-registry-active-set` | 4.5.A (created), 4.5.B.α₀ (UPDATED) | Count 29 → 32; active set 3 → 4 |
+| `recommendation-trigger-predicates-purity` | 4.5.B.α₀ (NEW) | Source-text scan forbidding connectors / Supabase / next/cache / LLM / fetch / fs / module-scope mutable state across `triggers/*` |
+| `recommendation-intelligence-no-queue-write` | 4.5.B.α₀ (NEW) | No `recommended-edits-persistence` import or `.from("recommended_edits").(insert\|upsert\|update\|delete)(` across `src/domains/recommendation-intelligence/**` + the diagnostic page |
+| `recommendation-intelligence-no-llm-decides` | 4.5.B.α₀ (NEW) | Every `generatorActive: true` action type is either in the historical-deterministic set OR emitted as `action_type: "<val>"` (object-shape) / `actionType = "<val>" as const` (variable-shape) by at least one trigger predicate |
+| `recommendation-intelligence-customer-copy-vocab` | 4.5.B.α₀ (NEW) | Behavioral scan of every customer-copy template output for internal taxonomy, revenue/causal overclaim, connector names, UUID-shape, `$` — also fails if a new exported template lands without a paired probe-set entry |
+
+Catalog updated under new "Section 4.5 / Slice 4.5.B.α₀" section with 4 new rows + 1 row update.
+
+**Tests added (~85 across 12 files).**
+
+| Category | File(s) | Count |
+|---|---|---|
+| Emitter — dedupe-key | `tests/domains/recommendation-intelligence/emitter/dedupe-key.test.ts` | 7 |
+| Emitter — cooldown-key | `tests/domains/recommendation-intelligence/emitter/cooldown-key.test.ts` | 5 |
+| Emitter — apply-queue-rules | `tests/domains/recommendation-intelligence/emitter/apply-queue-rules.test.ts` | 9 |
+| Predicate — missing-title | `tests/domains/recommendation-intelligence/triggers/missing-title.test.ts` | 9 |
+| Predicate — missing-meta | `tests/domains/recommendation-intelligence/triggers/missing-meta.test.ts` | 6 |
+| Customer-copy templates | `tests/domains/recommendation-intelligence/customer-copy-templates.test.ts` | 3 |
+| Loader | `tests/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.test.ts` | 10 |
+| Diagnostic page render | `tests/app/diagnostics/recommendation-triggers-page.test.tsx` | 8 |
+| Architecture — registry-active-set (updated) | `tests/architecture/recommendation-registry-active-set.test.ts` | 9 (same shape, new locked values) |
+| Architecture — trigger-predicates-purity | `tests/architecture/recommendation-trigger-predicates-purity.test.ts` | 15 |
+| Architecture — no-queue-write | `tests/architecture/recommendation-intelligence-no-queue-write.test.ts` | 5 |
+| Architecture — no-llm-decides | `tests/architecture/recommendation-intelligence-no-llm-decides.test.ts` | 3 |
+| Architecture — customer-copy-vocab | `tests/architecture/recommendation-intelligence-customer-copy-vocab.test.ts` | 3 |
+
+**Hard contracts honored.**
+- ✅ NO customer queue write.
+- ✅ NO `recommended_edits` insert / update / upsert / delete from any new code.
+- ✅ NO `runProviderAndPersist` invocation.
+- ✅ NO LLM (OpenAI / Anthropic) call site.
+- ✅ NO paid API call.
+- ✅ NO external HTTP call (`fetch(`).
+- ✅ NO Supabase mutation.
+- ✅ NO migration.
+- ✅ NO cron / `.github/workflows/*` change.
+- ✅ NO customer surface change outside the new operator-only diagnostic page.
+- ✅ NO Section 9 code change.
+- ✅ NO CallRail / GBP insights.
+- ✅ `recommendation-action-rows.ts` modifications are pure TypeScript exhaustiveness plumbing — no customer UI redesign, no queue behavior change, no runtime path can reach the new arms.
+
+**What was removed / deferred from the over-ceiling worktree** (the operator interrupted at +1,533 src/ lines):
+- 5 H1 + duplicate predicates deferred to α₁ and α₂: `duplicate-title.ts` (α₂) · `duplicate-meta.ts` (α₂) · `missing-h1.ts` (α₁) · `weak-h1.ts` (α₁) · `title-h1-mismatch.ts` (α₁).
+- The `change_h1` flip reverted; moves to α₁.
+- 5 customer-copy template functions trimmed to 2 (`missingTitleCopy` + `missingMetaCopy` only); α₁/α₂ add the rest.
+- The full `diagnostic_only` second table in the operator diagnostic page; α₀ uses a single candidates table only.
+
+**Net src/ delta.** +678 lines (under +700 hard stop, above +500 target — foundational machinery includes emitter scaffold + loader + diagnostic page in this slice; subsequent α₁ / α₂ ride the foundation cheaply).
+
+**Quality gates.**
+- `npm run typecheck` → CLEAN.
+- `npx vitest run ...` targeted α₀ suite (5 architecture invariants + emitter + predicate + loader + customer-copy + diagnostic page) → 85/85 passed.
+- `npm run test` (full suite) → green.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` → green.
+
+**Verification.** Architecture invariant `recommendation-trigger-predicates-purity` fails LOUDLY if any future predicate introduces a connector / LLM / Supabase / cache / fetch import. `recommendation-intelligence-no-queue-write` blocks any future write path from the intelligence module tree. `recommendation-intelligence-no-llm-decides` ensures every `generatorActive: true` flip lands paired with a deterministic generator or predicate. `recommendation-intelligence-customer-copy-vocab` catches both static template leaks and "new template without probe set" drift.
+
+**Next.** Operator review → commit + push + verify CI + Vercel green + manual smoke (visit `/diagnostics/recommendation-triggers` with `BEACON_OPERATOR_MODE=true`; confirm operator gate + per-row data attributes + customer-vocab cleanliness). Then **Slice 4.5.B.α₁**: H1 predicate family (`missing-h1`, `weak-h1`, `title-h1-mismatch`) + `change_h1` flip. Then α₂ cross-snapshot duplicates. Then 4.5.C (indexability + GSC family).
+
+---
+
 ## 2026-05-19 — Slice 4.5.A: Recommendation Intelligence Expansion: registry audit + activation plan
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
