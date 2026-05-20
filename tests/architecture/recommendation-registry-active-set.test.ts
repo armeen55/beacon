@@ -64,18 +64,18 @@ const AUDIT_DOC_PATH = resolve(
   "RECOMMENDATION_INTELLIGENCE_AUDIT.md",
 );
 
-/** Locked active set per Slice 4.5.C.α₁ audit (2026-05-20). α₁
- *  flips the 4 Tier-1 indexability remediation action types
- *  (`fix_sitemap`, `fix_robots`, `fix_status_code`,
- *  `fix_canonical`) paired with the `sitemap-missing` +
- *  `robots-blocks-googlebot` + `bad-http-status` +
- *  `canonical-mismatch` deterministic trigger predicates over
- *  Section 4's `owned_url_indexability` verdict substrate.
- *  `fix_noindex` STAYS INACTIVE — Tier-2 sensitive; activation
- *  deferred to Slice 4.5.C.α₂ once additional safety analysis
- *  for legitimate noindex pages (staging / draft / preview) is
- *  in place. Prior active set (post-4.5.B.α₁): {edit_title,
- *  edit_meta, change_h1, add_h2_section, add_faq} (5 entries). */
+/** Locked active set per Slice 4.5.C.α₂ audit (2026-05-20). α₂
+ *  adds 1 Tier-2 flip: `fix_noindex` paired with the
+ *  `noindex-on-indexable-page` deterministic predicate
+ *  (`confidence: "low"` → routes to `diagnostic_only` via
+ *  `applyQueueRules` — NOT customer queue). α₂ also adds the
+ *  `robots-blocks-ai-bots` Tier-2 predicate which reuses the
+ *  existing α₁ `fix_robots` action type (also at
+ *  `confidence: "low"`). Three safety guards on `noindex-on-
+ *  indexable-page`: page-type allowlist (homepage / city /
+ *  service / project only), skip `extraction_certainty=
+ *  "uncertain"`, skip `has_canonical_mismatch=true`. Prior
+ *  active set (post-4.5.C.α₁): 9 entries. */
 const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "edit_title",
   "edit_meta",
@@ -87,6 +87,10 @@ const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "fix_robots",
   "fix_status_code",
   "fix_canonical",
+  // Slice 4.5.C.α₂ (2026-05-20) — Tier-2 sensitive flip.
+  // Predicate emits at confidence: "low"; never reaches the
+  // customer queue without operator-validated promotion.
+  "fix_noindex",
 ];
 
 /** Locked total count per Slice 4.5.C.α₀ (2026-05-19). 4.5.C.α₀

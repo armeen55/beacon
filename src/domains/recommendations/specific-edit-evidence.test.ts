@@ -726,17 +726,17 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
     expect(packet.allowedActionTypes).toEqual(expected);
   });
 
-  it("defaults are exactly the 9-type active set (sorted) — post-Slice 4.5.C.α₁", () => {
+  it("defaults are exactly the 10-type active set (sorted) — post-Slice 4.5.C.α₂", () => {
     // Slice 4.5.B.α₀ (2026-05-19): `edit_meta` flipped paired with
     // the `missing-meta` trigger predicate.
     // Slice 4.5.B.α₁ (2026-05-19): `change_h1` flipped paired with
     // `missing-h1` + `weak-h1` + `title-h1-mismatch` predicates.
     // α₂ adds no flips.
-    // Slice 4.5.C.α₁ (2026-05-20): 4 Tier-1 indexability flips
-    // paired with deterministic predicates over the Section 4
-    // `owned_url_indexability` verdict substrate — `fix_sitemap`,
-    // `fix_robots`, `fix_status_code`, `fix_canonical`.
-    // `fix_noindex` STAYS INACTIVE (Tier-2; α₂).
+    // Slice 4.5.C.α₁ (2026-05-20): 4 Tier-1 indexability flips —
+    // `fix_sitemap`, `fix_robots`, `fix_status_code`, `fix_canonical`.
+    // Slice 4.5.C.α₂ (2026-05-20): 1 Tier-2 sensitive flip —
+    // `fix_noindex` (paired with `noindex-on-indexable-page`
+    // predicate at confidence: low; routes to diagnostic_only).
     const packet = buildSpecificEditEvidencePacket(buildArgs());
     expect(packet.allowedActionTypes.sort()).toEqual(
       [
@@ -746,6 +746,7 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
         "edit_meta",
         "edit_title",
         "fix_canonical",
+        "fix_noindex",
         "fix_robots",
         "fix_sitemap",
         "fix_status_code",

@@ -134,4 +134,29 @@ describe("recommendation-triggers-diagnostic-source-and-copy", () => {
     // slice-version test above.
     expect(src).toContain("result.meta.predicates_run");
   });
+
+  // ── Slice 4.5.C.α₂ diagnostic-only bucket contract ─────────────────
+
+  it("(4.5.C.α₂) page source renders the diagnostic-only section so low-confidence Tier-2 candidates stay operator-visible", () => {
+    const src = stripComments(read(PAGE_PATH));
+    // The page MUST render a section with
+    // data-diagnostic-section="diagnostic-only" — otherwise
+    // Tier-2 sensitive predicates (which emit at
+    // confidence: "low" and route to result.diagnostic_only via
+    // applyQueueRules) would never appear on the operator
+    // diagnostic surface.
+    expect(src).toContain('data-diagnostic-section="diagnostic-only"');
+    // The page MUST reference result.diagnostic_only (not just
+    // result.candidates) — otherwise the bucket is dropped.
+    expect(src).toContain("result.diagnostic_only");
+    // The page MUST expose the diagnostic_only_count counter
+    // alongside candidate_count so the operator can see the
+    // bucket size at a glance.
+    expect(src).toContain('data-counter="diagnostic_only_count"');
+  });
+
+  it("(4.5.C.α₂) page source includes the operator-locked diagnostic-only header copy", () => {
+    const src = stripComments(read(PAGE_PATH));
+    expect(src).toContain("Diagnostic-only signals (low-confidence)");
+  });
 });

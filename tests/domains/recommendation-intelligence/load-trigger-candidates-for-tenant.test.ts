@@ -228,7 +228,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(11);
+    expect(result.meta.predicates_run).toBe(13);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -442,7 +442,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=11 in meta on the ok path (post-4.5.C.α₁)", async () => {
+  it("reports predicates_run=13 in meta on the ok path (post-4.5.C.α₂)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -452,7 +452,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(11);
+    expect(result.meta.predicates_run).toBe(13);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -965,5 +965,148 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(
       result.candidates.filter((r) => tier1Signals.has(r.trigger_signal)),
     ).toEqual([]);
+  });
+
+  // ── Slice 4.5.C.α₂ — Tier-2 sensitive predicate wiring ────────────────
+
+  it("(4.5.C.α₂) emits a `noindex_on_indexable_page` candidate routed to diagnostic_only (NOT candidates)", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        ["https://example.com/services/custom-homes", "noindex_meta"],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.status).toBe("ok");
+    // Low-confidence row goes to diagnostic_only, NOT candidates.
+    expect(
+      result.candidates.filter(
+        (r) => r.trigger_signal === "noindex_on_indexable_page",
+      ),
+    ).toEqual([]);
+    const diag = result.diagnostic_only.filter(
+      (r) => r.trigger_signal === "noindex_on_indexable_page",
+    );
+    expect(diag).toHaveLength(1);
+    expect(diag[0]!.action_type).toBe("fix_noindex");
+    expect(diag[0]!.confidence).toBe("low");
+  });
+
+  it("(4.5.C.α₂) emits a `robots_blocks_ai_bots` candidate routed to diagnostic_only", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        ["https://example.com/services/custom-homes", "blocked_by_robots_for_ai"],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.status).toBe("ok");
+    expect(
+      result.candidates.filter(
+        (r) => r.trigger_signal === "robots_blocks_ai_bots",
+      ),
+    ).toEqual([]);
+    const diag = result.diagnostic_only.filter(
+      (r) => r.trigger_signal === "robots_blocks_ai_bots",
+    );
+    expect(diag).toHaveLength(1);
+    expect(diag[0]!.action_type).toBe("fix_robots");
+    expect(diag[0]!.confidence).toBe("low");
+  });
+
+  it("(4.5.C.α₂) Tier-2 predicates skip silently when batch load throws (indexability_unavailable covers them)", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockRejectedValue(
+      new Error("substrate read failed"),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.status).toBe("indexability_unavailable");
+    const tier2Signals = new Set([
+      "noindex_on_indexable_page",
+      "robots_blocks_ai_bots",
+    ]);
+    expect(
+      result.candidates.filter((r) => tier2Signals.has(r.trigger_signal)),
+    ).toEqual([]);
+    expect(
+      result.diagnostic_only.filter((r) => tier2Signals.has(r.trigger_signal)),
+    ).toEqual([]);
+  });
+
+  it("(4.5.C.α₂) meta.diagnostic_only_count reflects the diagnostic-only bucket size", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    // Mock both Tier-2 verdicts in sequence (different URLs would
+    // emit both, but a single URL emits only one verdict due to
+    // computeIndexability precedence). Use noindex_meta here.
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        ["https://example.com/services/custom-homes", "noindex_meta"],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.meta.diagnostic_only_count).toBe(
+      result.diagnostic_only.length,
+    );
+    expect(result.meta.diagnostic_only_count).toBeGreaterThanOrEqual(1);
   });
 });

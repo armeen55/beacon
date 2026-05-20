@@ -11,20 +11,20 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * Slice 4.5.C.α₁ policy (2026-05-20): 37-type universe registered;
- * 9 have `generatorActive: true` (edit_title, edit_meta, change_h1,
+ * Slice 4.5.C.α₂ policy (2026-05-20): 37-type universe registered;
+ * 10 have `generatorActive: true` (edit_title, edit_meta, change_h1,
  * add_h2_section, add_faq, fix_sitemap, fix_robots, fix_status_code,
- * fix_canonical). 7 off-site authority types are locked inactive per
- * Section 7 C7b. The remaining 21 ship as registered-but-inactive so
- * the provider-adapter knows the space of valid outputs from day
- * one — Slice 4.5.C.α₂ activates `fix_noindex` (Tier-2 sensitive)
- * once additional safety checks land; Slice 4.5.C.α₃ activates
- * `add_internal_link` + `add_schema`. 4.5.C.α₀ added the 5
- * inactive indexability remediation types + customer-copy
- * templates; 4.5.C.α₁ flipped 4 of them on paired with the Tier-1
- * deterministic trigger predicates (`sitemap-missing`,
- * `robots-blocks-googlebot`, `bad-http-status`,
- * `canonical-mismatch`).
+ * fix_canonical, fix_noindex). 7 off-site authority types are locked
+ * inactive per Section 7 C7b. The remaining 20 ship as registered-
+ * but-inactive so the provider-adapter knows the space of valid
+ * outputs from day one — Slice 4.5.C.α₃ will activate
+ * `add_internal_link` + `add_schema`. 4.5.C.α₂ flips
+ * `fix_noindex` on paired with the Tier-2 sensitive predicate
+ * `noindex-on-indexable-page` (emits at `confidence: "low"` →
+ * routes to `diagnostic_only`, NOT customer queue). α₂ also
+ * adds the `robots-blocks-ai-bots` Tier-2 predicate which
+ * reuses the existing α₁ `fix_robots` action type (also at
+ * `confidence: "low"`).
  *
  * This module is PURE TYPES + CONSTANTS. No DB writes. No extractors.
  * No UI. Safe to import from both server and client code.
@@ -517,10 +517,15 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Remove the noindex tag from this page",
-    // Slice 4.5.C.α₂ — Tier-2 sensitive. Stays inactive in α₁
-    // because legitimate noindex on staging / draft / preview
-    // pages requires additional safety analysis before activation.
-    generatorActive: false,
+    // Slice 4.5.C.α₂ (2026-05-20) — Tier-2 sensitive. Flipped
+    // paired with the `noindex-on-indexable-page` predicate
+    // which emits at `confidence: "low"` so candidates route to
+    // `diagnostic_only` via `applyQueueRules` (NOT the customer
+    // queue). Three safety guards on the predicate: (1) page-type
+    // allowlist (homepage / city / service / project only),
+    // (2) skip extraction_certainty="uncertain", (3) skip when
+    // has_canonical_mismatch=true (paginated/duplicate signature).
+    generatorActive: true,
   },
   fix_status_code: {
     actionType: "fix_status_code",

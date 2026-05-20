@@ -393,14 +393,14 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 11 (post-4.5.C.α₁ loader)", async () => {
+  it("predicates_run counter reads 13 (post-4.5.C.α₂ loader)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
-    // The font-mono span renders the integer 11; check via inclusion
-    // of the substring "predicates_run\">" + "11".
+    // The font-mono span renders the integer 13; check via inclusion
+    // of the substring "predicates_run\">" + "13".
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>11<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>13<\/span>/,
     );
   });
 
@@ -455,10 +455,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta.
-    // Post-4.5.C.α₁: 11.
-    expect(html).toContain('data-description-predicates-run="11"');
+    // Post-4.5.C.α₂: 13.
+    expect(html).toContain('data-description-predicates-run="13"');
     // And the prose body contains the same integer.
-    expect(html).toContain("11</span> active");
+    expect(html).toContain("13</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────
@@ -597,5 +597,119 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).not.toContain('data-row-trigger-signal="robots_blocks_googlebot"');
     expect(html).not.toContain('data-row-trigger-signal="bad_http_status"');
     expect(html).not.toContain('data-row-trigger-signal="canonical_mismatch"');
+  });
+
+  // ── Slice 4.5.C.α₂ — Tier-2 sensitive render cases ────────────────────
+
+  it("(4.5.C.α₂) renders the diagnostic-only section with noindex_on_indexable_page row when verdict is `noindex_meta`", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "noindex_meta"],
+    ]);
+    const html = await renderPage();
+    // Row appears in the diagnostic-only section (low-confidence),
+    // NOT in the main candidates section.
+    expect(html).toContain('data-diagnostic-section="diagnostic-only"');
+    expect(html).toContain('data-row-trigger-signal="noindex_on_indexable_page"');
+    expect(html).toContain('data-row-action-type="fix_noindex"');
+    expect(html).toContain('data-row-confidence="low"');
+    // Header copy must appear.
+    expect(html).toContain("Diagnostic-only signals (low-confidence)");
+  });
+
+  it("(4.5.C.α₂) renders the diagnostic-only section with robots_blocks_ai_bots row when verdict is `blocked_by_robots_for_ai`", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "blocked_by_robots_for_ai"],
+    ]);
+    const html = await renderPage();
+    expect(html).toContain('data-diagnostic-section="diagnostic-only"');
+    expect(html).toContain('data-row-trigger-signal="robots_blocks_ai_bots"');
+    expect(html).toContain('data-row-action-type="fix_robots"');
+    expect(html).toContain('data-row-confidence="low"');
+  });
+
+  it("(4.5.C.α₂) Tier-2 rows do NOT appear in the main candidates section", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "noindex_meta"],
+    ]);
+    const html = await renderPage();
+    // The main candidates section header.
+    const mainSectionMatch = html.match(
+      /data-diagnostic-section="candidates"[^>]*>([\s\S]*?)<\/section>/,
+    );
+    // If a main candidates section is rendered, it must NOT
+    // include the noindex_on_indexable_page row.
+    if (mainSectionMatch) {
+      expect(mainSectionMatch[1]!).not.toContain("noindex_on_indexable_page");
+    }
+    // The diagnostic-only section MUST include it.
+    const diagSectionMatch = html.match(
+      /data-diagnostic-section="diagnostic-only"[^>]*>([\s\S]*?)<\/section>/,
+    );
+    expect(diagSectionMatch).not.toBeNull();
+    expect(diagSectionMatch![1]!).toContain("noindex_on_indexable_page");
+  });
+
+  it("(4.5.C.α₂) renders the diagnostic_only_count counter alongside candidate_count", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "noindex_meta"],
+    ]);
+    const html = await renderPage();
+    expect(html).toContain('data-counter="diagnostic_only_count"');
+    expect(html).toMatch(
+      /data-counter="diagnostic_only_count"[^>]*>[^<]*<span[^>]*>1<\/span>/,
+    );
+  });
+
+  it("(4.5.C.α₂) when no diagnostic-only rows exist, the section is NOT rendered (empty bucket suppression)", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        title: null, // fires missing_title (high confidence → candidates)
+      }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "ok"],
+    ]);
+    const html = await renderPage();
+    // Main candidates section appears for the missing_title row.
+    expect(html).toContain('data-row-trigger-signal="missing_title"');
+    // No diagnostic-only section (empty bucket).
+    expect(html).not.toContain('data-diagnostic-section="diagnostic-only"');
+    // Counter still renders (just with 0).
+    expect(html).toContain('data-counter="diagnostic_only_count"');
+  });
+
+  it("(4.5.C.α₂) (safety guard) noindex on a hub page does NOT surface in the diagnostic_only section", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/locations" }), // hub
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/locations", "noindex_meta"],
+    ]);
+    const html = await renderPage();
+    expect(html).not.toContain('data-row-trigger-signal="noindex_on_indexable_page"');
+  });
+
+  it("(4.5.C.α₂) (safety guard) noindex on a utility page does NOT surface in the diagnostic_only section", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/privacy-policy" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/privacy-policy", "noindex_meta"],
+    ]);
+    const html = await renderPage();
+    expect(html).not.toContain('data-row-trigger-signal="noindex_on_indexable_page"');
   });
 });

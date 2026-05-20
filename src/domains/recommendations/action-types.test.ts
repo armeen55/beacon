@@ -127,67 +127,70 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
     });
   });
 
-  describe("generator activation — Slice 4.5.C.α₁ active set is exactly 9", () => {
-    const ACTIVE_AFTER_4_5_C_ALPHA1: ActionType[] = [
+  describe("generator activation — Slice 4.5.C.α₂ active set is exactly 10", () => {
+    const ACTIVE_AFTER_4_5_C_ALPHA2: ActionType[] = [
       "edit_title",
       // Slice 4.5.B.α₀ (2026-05-19) — flipped paired with the
       // `missing-meta` trigger predicate.
       "edit_meta",
       // Slice 4.5.B.α₁ (2026-05-19) — flipped paired with the
       // `missing-h1` + `weak-h1` + `title-h1-mismatch` trigger
-      // predicates under `src/domains/recommendation-intelligence/
-      // triggers/`.
+      // predicates.
       "change_h1",
       "add_h2_section",
       "add_faq",
       // Slice 4.5.C.α₁ (2026-05-20) — Tier-1 indexability flips.
-      // Each paired with a deterministic trigger predicate over
-      // Section 4's `owned_url_indexability` verdict substrate:
       //   • `sitemap-missing`           → `fix_sitemap`
       //   • `robots-blocks-googlebot`   → `fix_robots`
       //   • `bad-http-status`           → `fix_status_code`
       //   • `canonical-mismatch`        → `fix_canonical`
-      // `fix_noindex` STAYS INACTIVE — Tier-2 sensitive (Slice
-      // 4.5.C.α₂).
       "fix_sitemap",
       "fix_robots",
       "fix_status_code",
       "fix_canonical",
+      // Slice 4.5.C.α₂ (2026-05-20) — Tier-2 sensitive flip
+      // paired with the `noindex-on-indexable-page` predicate.
+      // The predicate emits at confidence: "low" so its
+      // candidates route to `diagnostic_only` via
+      // `applyQueueRules`; the customer queue is NEVER reached
+      // until operator-validated promotion. α₂ also adds the
+      // `robots-blocks-ai-bots` predicate, which reuses the
+      // already-active `fix_robots` action type (no flip needed).
+      "fix_noindex",
     ];
 
-    it("exactly 9 types are generatorActive=true (post-Slice 4.5.C.α₁)", () => {
+    it("exactly 10 types are generatorActive=true (post-Slice 4.5.C.α₂)", () => {
       const active = ACTION_TYPES.filter(
         (t) => ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      expect(active).toHaveLength(9);
-      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_4_5_C_ALPHA1));
+      expect(active).toHaveLength(10);
+      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_4_5_C_ALPHA2));
     });
 
-    it("listActiveActionTypes() returns the same nine", () => {
+    it("listActiveActionTypes() returns the same ten", () => {
       expect(new Set(listActiveActionTypes())).toEqual(
-        new Set(ACTIVE_AFTER_4_5_C_ALPHA1),
+        new Set(ACTIVE_AFTER_4_5_C_ALPHA2),
       );
     });
 
-    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; 4.5.B.α₀ + 4.5.C.α₂/α₃ types flip with paired predicates in later 4.5 slices)", () => {
+    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; 4.5.B.α₀ + 4.5.C.α₃ types flip in later 4.5 slices)", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
       // 22 original − 5 historical-active = 17 inactive,
       // plus Section 7 C7b's 7 off-site/manual types,
       // plus Slice 4.5.B.α₀'s 3 new inactive types
-      // (update_intro, add_h3_section, add_image_alt_text),
-      // plus 1 remaining inactive indexability-remediation type
-      // (`fix_noindex` — deferred to Slice 4.5.C.α₂)
-      // → 28 total inactive.
-      expect(inactive).toHaveLength(28);
-      for (const t of ACTIVE_AFTER_4_5_C_ALPHA1) {
+      // (update_intro, add_h3_section, add_image_alt_text)
+      // → 27 total inactive (post-4.5.C.α₂, all 5 indexability
+      // remediation types are now active).
+      expect(inactive).toHaveLength(27);
+      for (const t of ACTIVE_AFTER_4_5_C_ALPHA2) {
         expect(inactive).not.toContain(t);
       }
     });
 
-    it("(4.5.C.α₁) `fix_noindex` STAYS INACTIVE in α₁ — Tier-2 sensitive, deferred to α₂", () => {
-      expect(ACTION_TYPE_REGISTRY.fix_noindex.generatorActive).toBe(false);
+    it("(4.5.C.α₂) `fix_noindex` is ACTIVE — flipped in α₂ paired with `noindex-on-indexable-page` predicate at confidence: low", () => {
+      expect(ACTION_TYPE_REGISTRY.fix_noindex.generatorActive).toBe(true);
     });
   });
 

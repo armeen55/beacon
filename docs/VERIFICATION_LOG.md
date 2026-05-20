@@ -7,6 +7,73 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.C.α₂: Tier-2 sensitive indexability predicates + diagnostic-only bucket render
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** Second α₂ slice of Section 4.5.C — activates the sensitive indexability remediation family. **2 new pure Tier-2 trigger predicates** emit at `confidence: "low"` so they route to `result.diagnostic_only` via the existing `applyQueueRules` gate. **1 `generatorActive` flip** (`fix_noindex` → active). **NEW diagnostic page section** renders `result.diagnostic_only` so low-confidence rows are operator-visible (without this, Tier-2 rows would be invisible). **Customer queue UNCHANGED.**
+
+**Changes shipped.**
+
+**(1) NEW `src/domains/recommendation-intelligence/triggers/noindex-on-indexable-page.ts`.**
+- Fires on verdict `noindex_meta` AND page type ∈ {homepage, city, service, project}. Skips hub/utility/other/technical_asset.
+- Three layered safety guards beyond the page-type allowlist:
+  - `extraction_certainty === "uncertain"` → skip (raw fetch may have hallucinated noindex)
+  - `has_canonical_mismatch === true` → skip (paginated/duplicate signature; legitimate noindex)
+- Emits `fix_noindex` at `confidence: "low"`, `impact_estimate: "high"`. Customer copy: `fixNoindexCopy()` (α₀-shipped operator-locked conditional language *"Remove it IF this page should be discoverable"*).
+- Evidence surfaces `composite_verdict=noindex_meta` + `noindex_detected=true` + `robots_meta` + `extraction_certainty` + `has_canonical_mismatch` + `page_type`. Operator evidence carries `fetched_at` + the same per-signal trace.
+
+**(2) NEW `src/domains/recommendation-intelligence/triggers/robots-blocks-ai-bots.ts`.**
+- Fires on verdict `blocked_by_robots_for_ai` AND page type ∈ {homepage, city, service, project, hub}. Skips utility/other/technical_asset.
+- Counts how many of the 4 AI bots (GPTBot / PerplexityBot / ClaudeBot / Google-Extended) are explicitly disallowed; surfaces per-bot booleans + `blocked_count=N/4` in evidence + operator_evidence so the operator can distinguish "1 bot blocked = misconfiguration" from "4 bots blocked = AI policy stance."
+- Emits the already-active `fix_robots` action type (no new flip — same as the α₁ `robots-blocks-googlebot` predicate). `confidence: "low"`, `impact_estimate: "high"`. Customer copy: `fixRobotsCopy()` (α₀-shipped; phrasing already covers both Googlebot and AI-bot cases).
+- Distinct `dedupe_key` from α₁'s googlebot variant via different `topic_cluster_label` ("Indexability — AI bot crawler access" vs "Robots crawler access"); same `cooldown_key` (coarser by formula — intentional).
+
+**(3) MODIFIED `src/domains/recommendations/action-types.ts`.**
+- Flipped `fix_noindex.generatorActive: false → true`. Spec docstring documents the locked Tier-2 safety-guard contract embedded in the paired predicate.
+- Top-of-module docstring refreshed: 9 → 10 active. `fix_noindex` no longer in the "deferred to α₂" comment trail.
+
+**(4) MODIFIED `src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts`.**
+- `PREDICATE_COUNT` 11 → 13.
+- Per-snapshot Tier-1 block now invokes both new Tier-2 predicates with the same `OwnedUrlIndexability` from the existing batch map. Existing `indexability_unavailable` soft-fail covers Tier-2 the same way it covered Tier-1 — when the batch helper throws, all 4 Tier-1 + 2 Tier-2 predicates skip silently and the 7 α-family predicates still run.
+
+**(5) MODIFIED `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx`.**
+- Added a `<DiagnosticOnlySection>` component below the existing `<CandidateTable>` rendering `result.diagnostic_only` rows when `length > 0`. Same column layout as the main candidates section; subtle warning border (`border-status-warning/40 bg-status-warning/[0.04]`) and an operator-locked header ("Diagnostic-only signals (low-confidence)") to visually distinguish from customer-facing candidates.
+- New `data-counter="diagnostic_only_count"` line in the counters strip (alongside `snapshot_count`, `predicates_run`, `candidate_count`).
+- Hidden when `result.diagnostic_only.length === 0` (empty bucket suppression).
+
+**Architecture invariants (2 updated, 0 new).**
+1. **`recommendation-registry-active-set`** — `LOCKED_ACTIVE_SET` grows from 9 to 10 (adds `fix_noindex`). `LOCKED_REGISTRY_COUNT` UNCHANGED at 37. Comment + date stamp updated to call out the Tier-2 sensitivity + `confidence: "low"` routing.
+2. **`recommendation-triggers-diagnostic-source-and-copy`** — extended with 2 positive assertions: page source MUST contain `data-diagnostic-section="diagnostic-only"`, MUST reference `result.diagnostic_only`, MUST expose `data-counter="diagnostic_only_count"`, AND MUST include the operator-locked header copy "Diagnostic-only signals (low-confidence)". Without these, low-confidence Tier-2 predicates that route to the `diagnostic_only` bucket would be invisible to operator validation.
+
+**Auto-pass (5 invariants, no edits needed):**
+- `recommendation-trigger-predicates-purity` — auto-scans the 2 new predicate files; they import only types + sibling modules + page-classifier + customer-copy-templates + emitter helpers.
+- `recommendation-intelligence-no-queue-write` — no new file imports `recommended-edits-persistence` / `runProviderAndPersist`; no Supabase write paths in the new section component.
+- `recommendation-intelligence-no-llm-decides` — regex auto-discovers `action_type: "fix_noindex"` in the new predicate AND `action_type: "fix_robots"` (already paired with α₁'s predicate; the AI-bot variant is an additional emission site).
+- `recommendation-triggers-page-classifier-applied` — predicate count assertion auto-extends ≥ 11 → ≥ 13. Rules 1+4+5 auto-checked on the 2 new files (both import `isNonHtmlAsset` + `classifyPageType`; no tenant slugs; no own utility blacklists).
+- `recommendation-intelligence-customer-copy-vocab` — no new templates (reusing α₀'s `fixNoindexCopy` and `fixRobotsCopy`). Existing PROBE_SETS unchanged.
+
+**Tests added (~45 new + multiple mechanical updates).**
+- New: `tests/domains/recommendation-intelligence/triggers/noindex-on-indexable-page.test.ts` — ~12 cases: positive (verdict=noindex_meta on each of 4 allowed page types); negative on each other verdict; skip hub/utility/other/technical_asset; skip extraction_certainty=uncertain; skip has_canonical_mismatch=true; evidence shape; operator_evidence content; deterministic dedupe/cooldown keys.
+- New: `tests/domains/recommendation-intelligence/triggers/robots-blocks-ai-bots.test.ts` — ~12 cases: positive (1 bot vs 4 bots blocked); negative on other verdicts; skip utility/other/technical_asset; per-bot evidence shape; blocked_count assertion; distinct dedupe_key from α₁ googlebot variant.
+- Extended: loader test `+4` — Tier-2 wiring tests for both predicates (verify low-confidence routes to diagnostic_only NOT candidates); `indexability_unavailable` soft-fail covers Tier-2; `meta.diagnostic_only_count` matches bucket size.
+- Extended: diagnostic page test `+6` — 2 Tier-2 render cases (verdicts produce rows in diagnostic-only section); section absence when bucket empty; `diagnostic_only_count` counter render; safety-guard regression guards (noindex on hub/utility does NOT surface).
+- Updated: `action-types.test.ts` — active count 9 → 10; new `ACTIVE_AFTER_4_5_C_ALPHA2` list with `fix_noindex` added; inactive count 28 → 27; new `fix_noindex.generatorActive === true` assertion (was previously `===false`).
+- Updated: `specific-edit-evidence.test.ts` — `allowedActionTypes` explicit list 9 → 10.
+- Updated: `predicates_run` assertions in loader + diagnostic-page tests 11 → 13.
+- Updated: `data-description-predicates-run` attribute assertion 11 → 13.
+
+**Hard contracts honored (operator-locked).**
+- NO LLM call · NO paid API call · NO GSC fetch (`enableGsc` never passed) · NO Supabase mutation · NO migration · NO cron · NO workflow changes · NO customer queue write · NO `recommended_edits` mutation · NO `runProviderAndPersist` usage · NO Today / Changes / Prompts / Settings / Recommendations / Section 9 code changes · NO new BusinessConfig fields · NO new copy templates (reuse `fixNoindexCopy` + `fixRobotsCopy`) · NO main-candidates promotion (Tier-2 rows are always `confidence: "low"` → `diagnostic_only`) · NO `add_internal_link` / `add_schema` activation (deferred to α₃) · all 13 trigger signals pinned in source (11 existing + 2 new) · 4.5.C.α₃ not started.
+
+**Net src/ delta**: **+401 lines.** Modified +176 / -59 (net +117); new files (2 predicates) +284. Well under the +500 target; far under the +700 hard stop.
+
+**Quality gates.** _Pending operator review; gates run in next step._
+
+**Recommended next.** Operator review → commit + push + verify CI + Vercel. Then Slice 4.5.C.α₃ preflight (internal linking + schema family — activate `add_internal_link` + `add_schema`).
+
+---
+
 ## 2026-05-20 — Slice 4.5.C.α₁: Tier-1 indexability trigger predicates
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

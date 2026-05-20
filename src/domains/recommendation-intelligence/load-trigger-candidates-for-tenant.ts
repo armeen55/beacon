@@ -1,13 +1,21 @@
 /**
  * 2026-05-20 — Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 + α₂.2 +
- * Slice 4.5.C.α₀ + α₁ — recommendation-trigger loader.
+ * Slice 4.5.C.α₀ + α₁ + α₂ — recommendation-trigger loader.
  *
  * Server-side tenant-scoped loader. Reads `PageSnapshot[]` via
  * the repository pattern (`getRepository().forTenant(tenantId)
- * .getPageSnapshots()`), invokes the 11 α-family + Tier-1
- * indexability predicates, applies the minimal queue-rules gate,
- * and returns a discriminated result for the operator-only
- * diagnostic page.
+ * .getPageSnapshots()`), invokes the 11 α-family + 4 Tier-1
+ * indexability + 2 Tier-2 sensitive indexability predicates,
+ * applies the minimal queue-rules gate, and returns a
+ * discriminated result for the operator-only diagnostic page.
+ *
+ * Slice 4.5.C.α₂ extension (2026-05-20): the 2 Tier-2 sensitive
+ * predicates (`noindex-on-indexable-page`, `robots-blocks-ai-bots`)
+ * emit at `confidence: "low"` so `applyQueueRules` routes their
+ * candidates to `diagnostic_only` (NOT the customer queue).
+ * Operator validates on the diagnostic page; promotion to
+ * `candidates` (and ultimately the customer queue in Slice
+ * 4.5.D) is deferred until false-positive rate is calibrated.
  *
  * Slice 4.5.C.α₁ extension (2026-05-20): the 4 Tier-1 indexability
  * predicates need `OwnedUrlIndexability` as a passed-in pure
@@ -77,6 +85,8 @@ import { duplicateTitle } from "./triggers/duplicate-title";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { missingTitle } from "./triggers/missing-title";
+import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
+import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
 import { sitemapMissing } from "./triggers/sitemap-missing";
 import { titleH1Mismatch } from "./triggers/title-h1-mismatch";
@@ -109,7 +119,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 11;
+const PREDICATE_COUNT = 13;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -248,6 +258,28 @@ export async function loadTriggerCandidatesForTenant(options: {
         );
         all.push(
           ...canonicalMismatch({
+            tenantId,
+            snapshot,
+            indexability,
+            businessConfig,
+          }),
+        );
+        // Slice 4.5.C.α₂ — Tier-2 sensitive indexability
+        // predicates. Both emit at `confidence: "low"` so
+        // `applyQueueRules` routes their candidates to
+        // `diagnostic_only` (NOT the customer queue). Same
+        // batch-map / indexability_unavailable soft-fail
+        // contract as the Tier-1 predicates.
+        all.push(
+          ...noindexOnIndexablePage({
+            tenantId,
+            snapshot,
+            indexability,
+            businessConfig,
+          }),
+        );
+        all.push(
+          ...robotsBlocksAiBots({
             tenantId,
             snapshot,
             indexability,
