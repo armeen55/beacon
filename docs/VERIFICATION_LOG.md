@@ -7,6 +7,99 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.D.α₀b: operator-only Promotion Preview UI
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₀b only).** First post-α₀a slice. Adds a DRY-RUN render-only visualization of the pure decision engine on the existing operator-only `/diagnostics/recommendation-triggers` page. **1 MODIFIED page** + **1 EXTENDED unit-test suite** + **1 NEW architecture invariant**. **NO writes. NO LLM. NO Supabase mutation. NO customer-facing surface. NO new top-level route.**
+
+**Changes shipped (locally).**
+
+**(1) MODIFIED `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx` (265 → 465 lines, +200 net).**
+- 4 new imports: `getRepository` from `@/lib/persistence/repositories`, `getBusinessConfig` from `@/lib/business-config`, `selectPromotableCandidates` + `PromotionResult` from α₀a.3b's `promote-to-queue`, `classifyPageType` + `PageType` from `page-classifier`, `getRecommendationResponses` from `@/domains/product/recommendation-response-store`.
+- 3 new read-only data loads after the existing `loadTriggerCandidatesForTenant` call: tenant's `recommended_edits` via the repository pattern, `recommendation_responses` via the cached store, business-config via the existing helper.
+- Inline `pageTypeByUrl` builder: iterates `[...result.candidates, ...result.diagnostic_only]`, dedupes unique non-null `target_url`s, calls `classifyPageType(url, businessConfig)`.
+- Single call to `selectPromotableCandidates(...)` with `triggerCandidates: [...main, ...diagnostic_only]`. Output partitioned into eligible / capped / safety-suppressed buckets.
+- NEW `<PromotionPreviewSection>` component renders below the existing main candidates + diagnostic-only sections. Always renders (even at 0 candidates). Operator-locked title: `Promotion Preview (DRY-RUN — no writes)`. Counter: `Eligible for promotion: N / M · Capped: K · Safety-suppressed: L`.
+- NEW `<PromotionPreviewSubsection>` component renders a 9-column table per subsection (Trigger · Action type · Target URL · Tier · Priority · Eligible · Suppression reason · Dedupe key (8-char hex + ellipsis) · Cooldown key (8-char hex + ellipsis)). Each row carries `data-row-trigger-signal`, `data-row-action-type`, `data-row-tier`, `data-row-eligible`, `data-row-suppression-reason`, `data-row-promotion-dedupe-key` for E2E hook stability.
+- Three subsection containers (`data-promotion-subsection="eligible|capped|safety-suppressed"`) rendered only when row count > 0 — no empty `<table>` elements (W6 lock).
+
+**(2) EXTENDED `tests/app/diagnostics/recommendation-triggers-page.test.tsx` (801 → 986 lines, +185 net, 35 → 43 cases).**
+- Extended `vi.mock("@/lib/persistence/repositories", ...)` to expose `getRecommendedEdits` on the `forTenant(tenantId)` shape.
+- NEW `vi.mock("@/domains/product/recommendation-response-store", ...)` returning a module-controlled array.
+- `beforeEach` resets the two new mock state vars.
+- 8 NEW α₀b cases: (a) empty input → Promotion Preview renders with 0/0 counter and no empty subsection tables; (b) one customer-queue-ready candidate renders under Eligible with tier + data-row attributes; (c) diagnostic-only candidate renders under Safety-suppressed with `diagnostic_only_tier`; (d) multi-signals-on-same-URL integration; (e) operator gate carries to preview section (rendering under NODE_ENV=test); (f) dedupe/cooldown keys truncated to 8-char hex + ellipsis; (g) mixed eligible + suppressed batch counter shows correct N/M.
+
+**(3) NEW `tests/architecture/recommendation-triggers-promotion-preview-no-writes.test.ts` (96 lines, 8 cases).** Defense-in-depth source-text scan of the diagnostic page:
+- **Negative assertions (3)**: no `.from("recommended_edits").{insert/upsert/update/delete}(` Supabase write shapes; no `runProviderAndPersist` reference; no `recommended-edits-persistence` substring (the latter duplicates the existing `recommendation-intelligence-no-queue-write` invariant for locality — both must stay green).
+- **Positive assertions (5)**: page imports `selectPromotableCandidates`; page source contains `data-diagnostic-section="promotion-preview"`; page source contains the operator-locked title `Promotion Preview (DRY-RUN — no writes)`; page source contains `data-counter="promotion-preview-counters"`; page source contains `Eligible for promotion:` counter literal. These pin the section's existence so future maintenance can't silently remove the operator-only render contract.
+
+**Operator decisions honored.**
+- **W1** — 1-slice ship (no further split). Confirmed.
+- **W2** — Read `recommended_edits` via `getRepository().forTenant(tenantId).getRecommendedEdits()` from `@/lib/persistence/repositories`. NO import from `recommended-edits-persistence` (confirmed by the existing `no-queue-write` invariant + the new `promotion-preview-no-writes` invariant).
+- **W3** — `getRecommendationResponses()` from `@/domains/product/recommendation-response-store` is read-only and acceptable in the operator-only diagnostic page.
+- **W4** — `pageTypeByUrl` built inline in the page from candidate target_urls via `classifyPageType()`. Loader unchanged.
+- **W5** — Three subsections rendered: Eligible · Capped · Safety-suppressed.
+- **W6** — Promotion Preview renders even when 0 candidates. Counter shows `0 / 0`. Empty subsection tables hidden.
+- **W7** — One NEW invariant (`promotion-preview-no-writes`) added. Existing `no-queue-write` invariant UNCHANGED and continues to scan the diagnostic page.
+- **W8** — Local-only workflow. No commit, no push, no CI/Vercel verification. Operator explicitly authorizes any push.
+
+**Auto-pass (existing 14 α-family invariants).** `recommendation-registry-active-set` · `recommendation-intelligence-customer-copy-vocab` · `recommendation-intelligence-no-queue-write` (scans diagnostic page — still green; no forbidden imports introduced) · `recommendation-intelligence-no-llm-decides` · `recommendation-intelligence-promotion-eligibility-pin` · `recommendation-intelligence-priority-score-contract` · `recommendation-intelligence-dedupe-key-formula` · `recommendation-intelligence-cooldown-windows` · `recommendation-intelligence-no-diagnostic-only-promotion` · `recommendation-intelligence-confidence-low-stays-diagnostic` · `recommendation-intelligence-promotion-respects-already-accepted` · `recommendation-intelligence-page-classifier-applied-at-promotion` · `recommendation-intelligence-no-promotion-without-evidence` · `recommendation-intelligence-max-rows-per-page` · `recommendation-intelligence-max-rows-per-family`.
+
+**Catalog sync.** 1 new row under "Section 4.5 / Slice 4.5.D.α₀b — operator-only Promotion Preview UI". `catalog-sync.test.ts` green post-update.
+
+**Deferred to α₁**: customer-queue writer pathway (first slice that crosses the customer-queue boundary; explicit operator authorization required).
+
+**Hard contracts honored.**
+- NO writes to `recommended_edits`.
+- NO imports from `@/domains/recommendations/recommended-edits-persistence`.
+- NO `runProviderAndPersist`.
+- NO LLM / OpenAI / Anthropic / `fetch(` / external API.
+- NO Supabase mutation.
+- NO migrations / cron / workflow changes.
+- NO customer-facing route changes (operator-only diagnostic only).
+- NO Today / Changes / Prompts / Settings / Recommendations / Section 9 changes.
+- NO env flag.
+- α₀a.1 / α₀a.2 / α₀a.3a / α₀a.3b modules UNCHANGED.
+- `SuppressionReason` union UNCHANGED at 12 values.
+- `selectPromotableCandidates` output is RENDER-ONLY; never passed to a write helper.
+
+**Line accounting.**
+
+| File | Lines (delta) |
+|---|---|
+| `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx` | +200 (265 → 465) |
+| `tests/app/diagnostics/recommendation-triggers-page.test.tsx` | +185 (801 → 986) |
+| `tests/architecture/recommendation-triggers-promotion-preview-no-writes.test.ts` | 96 (new) |
+| **Total src+tests delta** | **+481** |
+
+**219 UNDER the ≤700 target.** 369 under the ≤850 soft threshold. 519 under the +1,000 hard stop. **Cleanest landing of the α₀a chain.**
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` ✅
+- Targeted α₀b suite (2 files / 51 cases) ✅
+- `catalog-sync.test.ts` ✅
+- `npm run test` (full suite) — TO RUN before commit
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — TO RUN before commit
+- **NO** `gh workflow` / `gh run` / Vercel verification / production curl smoke.
+
+**Pure decision engine + operator preview surface — slice family status (post-α₀b).**
+
+| Sub-slice | Status |
+|---|---|
+| α₀a.1 — eligibility + priority | 🟢 SHIPPED `52d1ce6` |
+| α₀a.2 — dedupe + cooldown + `isInCooldown` | 🟢 SHIPPED `16a81f1` |
+| α₀a.3a — safety-gates module + 5 gate invariants | 🟢 SHIPPED `ebc06f6` |
+| α₀a.3b — orchestrator + caps + 2 cap invariants | 🟡 LOCAL COMMIT `77ae6a4` (not pushed) |
+| α₀b — operator-only Promotion Preview UI + 1 no-write invariant | 🟡 READY_TO_COMMIT (this slice — not committed yet) |
+| α₁ — customer-queue writer pathway | ⏳ Preflight pending |
+
+The operator can now visually validate the promotion engine's output (eligibility + caps + safety gates + cooldowns + accepted-ancestor suppression) against real production data on the diagnostic page BEFORE α₁ ever flips a customer queue.
+
+**Recommended next.** Operator review → optional commit (`feat(recommendations): add operator-only promotion preview UI`) → push at a meaningful checkpoint (e.g., batched with α₀a.3b + α₀b to amortize CI cost). Then Slice 4.5.D.α₁ preflight: customer-queue writer pathway.
+
+---
+
 ## 2026-05-20 — Slice 4.5.D.α₀a.3b: promotion orchestrator + caps
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per new workflow rule (operator-locked 2026-05-20).

@@ -66,6 +66,21 @@
 > against caps. V5 locked deterministic tiebreaker. +836
 > src+tests net (under ≤850 soft threshold by 14 lines).
 > **Pure promotion decision engine is now COMPLETE.**
+> **Slice 4.5.D.α₀b — operator-only Promotion Preview UI
+> (2026-05-20)**: 1 modified page + 1 extended unit suite +
+> 1 new no-write invariant (`-promotion-preview-no-writes`).
+> Render-only DRY-RUN visualization on the existing
+> operator-only diagnostic page. Three subsections
+> (Eligible · Capped · Safety-suppressed). +481 src+tests
+> net (219 UNDER the ≤700 target — cleanest landing of the
+> α₀a chain). W1 (1-slice ship) · W2 (repository read path,
+> no persistence imports) · W3 (response-store read OK) ·
+> W4 (inline `pageTypeByUrl`) · W5 (3 subsections) · W6
+> (always-render with 0/0; no empty tables) · W7 (1 new
+> invariant; existing `no-queue-write` unchanged) · W8
+> (local-only workflow, no CI minutes used). **Operator can
+> now visually validate the promotion engine's output BEFORE
+> α₁ ever flips a customer queue.**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved

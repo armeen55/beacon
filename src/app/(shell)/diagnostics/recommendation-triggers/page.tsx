@@ -34,9 +34,20 @@ import { notFound } from "next/navigation";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
+import { getRepository } from "@/lib/persistence/repositories";
+import { getBusinessConfig } from "@/lib/business-config";
 import { loadTriggerCandidatesForTenant } from "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant";
 import type { TriggerCandidatesLoadStatus } from "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant";
 import type { RecommendationCandidateRow } from "@/domains/recommendation-intelligence/emitter/candidate-row";
+import {
+  classifyPageType,
+  type PageType,
+} from "@/domains/recommendation-intelligence/page-classifier";
+import {
+  selectPromotableCandidates,
+  type PromotionResult,
+} from "@/domains/recommendation-intelligence/promote-to-queue";
+import { getRecommendationResponses } from "@/domains/product/recommendation-response-store";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +77,47 @@ export default async function RecommendationTriggersDiagnosticPage(
   const tenantId = await currentTenantId();
   const result = await loadTriggerCandidatesForTenant({ tenantId });
   const banner = statusBanner(result.status);
+
+  // ── α₀b Promotion Preview data flow (DRY-RUN, no writes) ──
+  // Read-only sources via the existing repository + response-store
+  // patterns. α₀a.2's PromotionEditAnchor + PromotionResponseAnchor
+  // are structurally compatible with the upstream row types so the
+  // orchestrator accepts these reads without an adapter.
+  const recommendedEdits = await getRepository()
+    .forTenant(tenantId)
+    .getRecommendedEdits();
+  const recommendationResponses = await getRecommendationResponses();
+  const businessConfig = getBusinessConfig();
+  const triggerCandidates = [...result.candidates, ...result.diagnostic_only];
+  const pageTypeByUrl = new Map<string, PageType>();
+  for (const c of triggerCandidates) {
+    if (c.target_url == null) continue;
+    if (pageTypeByUrl.has(c.target_url)) continue;
+    pageTypeByUrl.set(
+      c.target_url,
+      classifyPageType(c.target_url, businessConfig),
+    );
+  }
+  const promotion = selectPromotableCandidates({
+    tenantId,
+    triggerCandidates,
+    recommendedEdits,
+    recommendationResponses,
+    pageTypeByUrl,
+    now: new Date(),
+  });
+  const promotionEligible = promotion.filter((r) => r.eligible);
+  const promotionCapped = promotion.filter(
+    (r) =>
+      r.suppression_reason === "max_rows_per_page" ||
+      r.suppression_reason === "max_rows_per_family",
+  );
+  const promotionSafetySuppressed = promotion.filter(
+    (r) =>
+      !r.eligible &&
+      r.suppression_reason !== "max_rows_per_page" &&
+      r.suppression_reason !== "max_rows_per_family",
+  );
 
   return (
     <div className="space-y-4 p-4" data-diagnostic="recommendation-triggers">
@@ -148,6 +200,13 @@ export default async function RecommendationTriggersDiagnosticPage(
           ) : null}
         </>
       )}
+
+      <PromotionPreviewSection
+        totalCandidates={triggerCandidates.length}
+        eligible={promotionEligible}
+        capped={promotionCapped}
+        safetySuppressed={promotionSafetySuppressed}
+      />
     </div>
   );
 }
@@ -210,6 +269,147 @@ function CandidateTable(props: {
  * candidates today. Same column layout as `CandidateTable` for
  * scan-ability.
  */
+/**
+ * Slice 4.5.D.α₀b (2026-05-20) — Promotion Preview (DRY-RUN).
+ *
+ * Render-only visualization of what `selectPromotableCandidates`
+ * (α₀a.3b orchestrator) would promote if the customer-queue
+ * writer were active. NO writes happen here. The customer-queue
+ * flip is deferred to Slice 4.5.D.α₁.
+ *
+ * Three subsections: Eligible · Capped · Safety-suppressed.
+ * Counter at top: `Eligible for promotion: N / M · Capped: K ·
+ * Safety-suppressed: L`. Always renders (even at 0/0) so the
+ * operator can confirm the engine is active.
+ */
+function PromotionPreviewSection(props: {
+  totalCandidates: number;
+  eligible: ReadonlyArray<PromotionResult>;
+  capped: ReadonlyArray<PromotionResult>;
+  safetySuppressed: ReadonlyArray<PromotionResult>;
+}) {
+  return (
+    <section
+      className="rounded-md border border-border/40"
+      data-diagnostic-section="promotion-preview"
+    >
+      <header className="border-b border-border/40 px-3 py-2">
+        <h2 className="text-[13px] font-semibold text-foreground">
+          Promotion Preview (DRY-RUN — no writes)
+        </h2>
+        <p className="text-[11px] text-muted-foreground">
+          What WOULD promote to the customer recommendation queue if
+          the writer were active. No writes happen here. The
+          customer-queue flip is deferred to Slice 4.5.D.α₁.
+        </p>
+      </header>
+      <div
+        className="border-b border-border/40 px-3 py-2 text-[12px] text-foreground"
+        data-counter="promotion-preview-counters"
+      >
+        Eligible for promotion:{" "}
+        <span className="font-mono">{props.eligible.length}</span> /{" "}
+        <span className="font-mono">{props.totalCandidates}</span> ·{" "}
+        Capped: <span className="font-mono">{props.capped.length}</span> ·{" "}
+        Safety-suppressed:{" "}
+        <span className="font-mono">{props.safetySuppressed.length}</span>
+      </div>
+      {props.eligible.length > 0 ? (
+        <PromotionPreviewSubsection
+          subsection="eligible"
+          title="Eligible for promotion"
+          rows={props.eligible}
+        />
+      ) : null}
+      {props.capped.length > 0 ? (
+        <PromotionPreviewSubsection
+          subsection="capped"
+          title="Capped (over per-page or per-family limit)"
+          rows={props.capped}
+        />
+      ) : null}
+      {props.safetySuppressed.length > 0 ? (
+        <PromotionPreviewSubsection
+          subsection="safety-suppressed"
+          title="Suppressed by safety gates"
+          rows={props.safetySuppressed}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function PromotionPreviewSubsection(props: {
+  subsection: "eligible" | "capped" | "safety-suppressed";
+  title: string;
+  rows: ReadonlyArray<PromotionResult>;
+}) {
+  return (
+    <div
+      data-promotion-subsection={props.subsection}
+      data-row-count={props.rows.length}
+    >
+      <h3 className="px-3 py-2 text-[12px] font-semibold text-foreground">
+        {props.title}
+      </h3>
+      <table className="w-full text-[12px] text-foreground">
+        <thead className="border-y border-border/40 bg-surface-inset/10 text-left">
+          <tr>
+            <th className="px-3 py-2 font-medium">Trigger</th>
+            <th className="px-3 py-2 font-medium">Action type</th>
+            <th className="px-3 py-2 font-medium">Target URL</th>
+            <th className="px-3 py-2 font-medium">Tier</th>
+            <th className="px-3 py-2 font-medium">Priority</th>
+            <th className="px-3 py-2 font-medium">Eligible</th>
+            <th className="px-3 py-2 font-medium">Suppression reason</th>
+            <th className="px-3 py-2 font-medium">Dedupe key</th>
+            <th className="px-3 py-2 font-medium">Cooldown key</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.rows.map((row) => (
+            <tr
+              key={row.promotion_dedupe_key}
+              data-row-trigger-signal={row.candidate.trigger_signal}
+              data-row-action-type={row.candidate.action_type}
+              data-row-tier={row.tier}
+              data-row-eligible={row.eligible ? "true" : "false"}
+              data-row-suppression-reason={row.suppression_reason ?? ""}
+              data-row-promotion-dedupe-key={row.promotion_dedupe_key}
+            >
+              <td className="px-3 py-2 font-mono text-[11px]">
+                {row.candidate.trigger_signal}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px]">
+                {row.candidate.action_type}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px] break-all">
+                {row.candidate.target_url ?? "—"}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px]">{row.tier}</td>
+              <td className="px-3 py-2 font-mono text-[11px]">
+                {row.priority_score}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px]">
+                {row.eligible ? "✓" : "✗"}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px]">
+                {row.suppression_reason ?? "—"}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                {row.promotion_dedupe_key.slice(0, 8)}…
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                {row.promotion_cooldown_key.slice(0, 8)}…
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function DiagnosticOnlySection(props: {
   rows: ReadonlyArray<RecommendationCandidateRow>;
 }) {
