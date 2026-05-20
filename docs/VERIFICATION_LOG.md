@@ -7,6 +7,91 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.D.α₀a.2: dedupe + cooldown foundation
+
+**Status:** READY_TO_COMMIT (operator-approved at +928 src+tests; awaiting commit/push/verify approval).
+
+**Slice scope (locked, α₀a.2 only).** Second sub-slice of the de-scoped 4.5.D.α₀a chain. Pure dedupe + cooldown primitives. **1 NEW pure source module** + **1 NEW unit-test suite** + **2 NEW architecture invariants**. **NO safety gates yet. NO orchestrator yet. NO writes to `recommended_edits`. NO imports from `recommended-edits-persistence` or `recommendation-response-store`. NO LLM. NO Supabase mutation. NO customer-facing surface. NO diagnostic UI change.**
+
+**Changes shipped.**
+
+**(1) NEW `src/domains/recommendation-intelligence/dedupe-cooldown.ts` (266 lines).** Pure module exporting:
+- 4 local minimal anchor types — `PromotionEditStatus` (9 values matching the real `ImplementationStatus` enum), `PromotionEditAnchor` (structurally compatible with `RecommendedEditRow`), `PromotionResponseAnchor` (structurally compatible with `RecommendationResponse`), `CooldownResult`. NO imports from persistence stores.
+- `buildPromotionDedupeKey(...)` — 5-part `sha1(tenant::action::url|no_url::elementKey|no_key::topic|no_topic)`. Distinct from emitter 4-part dedupe; promotion adds `target_element_key` precision.
+- `buildPromotionCooldownKey(...)` — 3-part `sha1(tenant::action::url|no_url)`. Coarser than dedupe; survives across element/topic variants.
+- `COOLDOWN_WINDOW_DAYS` readonly record (operator-locked windows) + `getCooldownWindowForStatus(...)` accessor.
+- `promotionEditStatus(...)` — legacy fallback: missing `implementation_status` defaults to `"recommended"`.
+- `isInCooldown(...)` — walks priors at the same cooldown_key; picks the LATEST-EXPIRING binding window across `recommendedEdits` + `dismissed` `recommendationResponses` (with matching `targetPageUrl`). Anchor preference: `live_at > updated_at > created_at`. Skips cross-tenant rows + window=0 statuses + null/NaN dates. Pure; no I/O.
+
+**(2) NEW `tests/domains/recommendation-intelligence/dedupe-cooldown.test.ts` (465 lines, 22 cases).**
+- 3 dedupe-key cases (determinism + hex format, target_element_key differentiates, null sentinels stable).
+- 2 cooldown-key cases (determinism + hex, coarser than dedupe).
+- 11 window-table cases via `it.each` over 10 statuses + 1 keyset integrity + 1 `verified_live_decay_refire` absent.
+- 1 `promotionEditStatus` case (explicit + legacy-undefined fallback).
+- 11 `isInCooldown` cases — empty priors / dismissed-30d-fires / dismissed-100d-clears / verified_live-anchor-preference / latest-expiring-binding / cross-tenant-ignored / window=0-skip (recommended + not_found_after_7d) / invalid-anchors-skipped (null + malformed) / response-dismissed-fires / response-no-url-ignored / response-deferred-not-honored.
+
+**(3) NEW `tests/architecture/recommendation-intelligence-dedupe-key-formula.test.ts` (128 lines).** Locally recomputes both sha1 formulas; asserts byte-for-byte equality against the module exports. 5 cases.
+
+**(4) NEW `tests/architecture/recommendation-intelligence-cooldown-windows.test.ts` (69 lines).** Pins the 10-entry window table. Asserts: (a) every locked status maps to the locked value; (b) table key set is exactly the 10 entries (no extras, no missing); (c) `verified_live_decay_refire` is NOT present; (d) `not_found_after_7d = 0`.
+
+**Operator-locked α₀a.2 decisions honored.**
+- **Q1** — `not_found_after_7d` cooldown window = **0 days**. Reason: system verification state (scan failed), not user rejection; re-fire freely when the trigger predicate re-detects need. Pinned by the cooldown-windows invariant.
+- **Q2** — `verified_live_decay_refire` is **NOT** a real status today. No table entry. No mention in the local `PromotionEditStatus` union. Future stale/decay pathway is a separate slice; the cooldown-windows invariant explicitly negative-asserts the absence.
+- **Q3** — `deferred` `recommendationResponses` are **NOT** honored in cooldown. Only `dismissed` with non-null `targetPageUrl` contributes a 90-day window. The unit test "deferred response NOT honored even with matching targetPageUrl (α₀a.2 contract)" pins this.
+- **Q4** — Ship at +928 src+tests approved by operator after Option 1 explanation: `isInCooldown` is the load-bearing primitive (date math + multi-prior binding + response-store dismissal handling + invalid-date handling + locked cooldown behavior).
+
+**Auto-pass (existing 6 α-family invariants).** `recommendation-registry-active-set` (no flips) · `recommendation-intelligence-customer-copy-vocab` (no new templates) · `recommendation-intelligence-no-queue-write` (no `recommended-edits-persistence` import) · `recommendation-intelligence-no-llm-decides` (no `generatorActive` flips) · `recommendation-intelligence-promotion-eligibility-pin` (no eligibility-table change) · `recommendation-intelligence-priority-score-contract` (no formula change).
+
+**Catalog sync.** 2 new rows in [`docs/ARCHITECTURE_INVARIANTS_CATALOG.md`](ARCHITECTURE_INVARIANTS_CATALOG.md) under a new "Section 4.5 / Slice 4.5.D.α₀a.2 — dedupe + cooldown foundation" header. `catalog-sync.test.ts` green post-update.
+
+**Deferred to α₀a.3** (NOT in this slice):
+- `src/domains/recommendation-intelligence/safety-gates.ts` (11 sequenced gates)
+- `src/domains/recommendation-intelligence/promote-to-queue.ts` (`selectPromotableCandidates` orchestrator + `MAX_ROWS_PER_PAGE=5` + `MAX_ROWS_PER_FAMILY=10` caps)
+- 7 paired invariants: `no-diagnostic-only-promotion` · `confidence-low-stays-diagnostic` · `max-rows-per-page` · `max-rows-per-family` · `promotion-respects-already-accepted` · `page-classifier-applied-at-promotion` · `no-promotion-without-evidence`.
+
+**Deferred to α₀b**: operator-only Promotion Preview UI section on `/diagnostics/recommendation-triggers`.
+
+**Deferred to α₁**: customer-queue writer pathway.
+
+**Hard contracts honored.**
+- NO writes to `recommended_edits`.
+- NO imports from `@/domains/recommendations/recommended-edits-persistence`.
+- NO imports from `@/domains/product/recommendation-response-store`.
+- NO `runProviderAndPersist`.
+- NO LLM / OpenAI / Anthropic / `fetch(` / external API.
+- NO Supabase mutation.
+- NO migrations / cron / workflow changes.
+- NO customer-facing route changes.
+- NO `/diagnostics/recommendation-triggers/page.tsx` edits.
+- NO Today / Changes / Prompts / Settings / Recommendations / Section 9 changes.
+- NO new env flag.
+- NO `verified_live_decay_refire` or any other fake/future status.
+- NO safety-gates module yet.
+- NO `selectPromotableCandidates` orchestrator yet.
+
+**Line accounting.**
+
+| File | Lines |
+|---|---|
+| `src/domains/recommendation-intelligence/dedupe-cooldown.ts` | 266 |
+| `tests/domains/recommendation-intelligence/dedupe-cooldown.test.ts` | 465 |
+| `tests/architecture/recommendation-intelligence-dedupe-key-formula.test.ts` | 128 |
+| `tests/architecture/recommendation-intelligence-cooldown-windows.test.ts` | 69 |
+| **Total src+tests** | **928** |
+
+Above the ≤850 soft threshold by 78 lines. Under the +1,000 hard stop by 72 lines. **Why 928 was accepted**: `isInCooldown` is the densest pure primitive in the entire promotion engine — it encodes 11 distinct behaviors (anchor preference · cross-tenant filter · window=0 skip · null/NaN skip · multi-prior binding selection · response-store integration · status-specific reason strings · deferred-response exclusion). At ~290 test lines for 11 behaviors, that's ~26 lines/case — close to the floor for a behaviorally-pinned primitive with date math. One trim pass already removed 212 lines (1,140 → 928) by compressing JSDoc + consolidating 15 redundant cases without dropping any operator-locked contract.
+
+**Quality gates (status at READY_TO_COMMIT).**
+- `npm run typecheck` ✅
+- Targeted suite (3 files / 47 cases) ✅
+- `catalog-sync.test.ts` ✅
+- `npm run test` (full suite) — TO RUN before commit
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — TO RUN before commit
+
+**Recommended next.** Operator review → commit (`feat(recommendations): add promotion dedupe cooldown`) → push (FF-safe to `origin/main`) → verify CI + Vercel. Then Slice 4.5.D.α₀a.3 preflight: safety gates + `selectPromotableCandidates` orchestrator. Customer-queue flip remains deferred to 4.5.D.α₁.
+
+---
+
 ## 2026-05-20 — Slice 4.5.D.α₀a.1: promotion eligibility + priority scoring foundation
 
 **Status:** READY_TO_COMMIT (de-scoped from the rejected α₀a attempt; awaiting commit/push/verify approval).

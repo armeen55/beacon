@@ -31,6 +31,16 @@
 > suites + 2 invariants (`-promotion-eligibility-pin` +
 > `-priority-score-contract`). +725 src+tests net (within
 > +700 target with 25-line cushion).
+> **Slice 4.5.D.α₀a.2 — dedupe + cooldown foundation
+> (2026-05-20)**: 1 src module (`dedupe-cooldown.ts`) + 1 unit
+> suite + 2 invariants (`-dedupe-key-formula` +
+> `-cooldown-windows`). +928 src+tests net (above the ≤850
+> soft threshold by 78 lines but under the +1,000 hard stop
+> by 72 lines; operator approved Option 1 after explanation
+> that `isInCooldown` is the load-bearing primitive). Q1
+> locked `not_found_after_7d=0`. Q2 locked
+> `verified_live_decay_refire` excluded (not a real status).
+> Q3 locked `dismissed`-only response handling.
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
