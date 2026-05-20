@@ -41,6 +41,20 @@
 > locked `not_found_after_7d=0`. Q2 locked
 > `verified_live_decay_refire` excluded (not a real status).
 > Q3 locked `dismissed`-only response handling.
+> **Slice 4.5.D.α₀a.3a — promotion safety-gates module
+> (2026-05-20)**: 1 src module (`safety-gates.ts`) + 1 unit
+> suite + 5 paired gate-level invariants
+> (`-no-diagnostic-only-promotion` +
+> `-confidence-low-stays-diagnostic` +
+> `-promotion-respects-already-accepted` +
+> `-page-classifier-applied-at-promotion` +
+> `-no-promotion-without-evidence`). 13-step ordered gate
+> ladder; first failing gate wins. +961 src+tests net
+> (within 5% of the operator-approved ~915 estimate; under
+> the +1,000 hard stop by 39 lines). U1 locked the 2-way
+> split (α₀a.3a + α₀a.3b). U4 locked operator-review-only
+> auto-suppression at Gate 3 with `diagnostic_only_tier`
+> until α₂'s approve-to-promote affordance.
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved

@@ -7,6 +7,112 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.D.α₀a.3a: promotion safety-gates module
+
+**Status:** READY_TO_COMMIT (operator-approved 2-way split via U1; awaiting commit/push/verify approval).
+
+**Slice scope (locked, α₀a.3a only).** Third sub-slice of the de-scoped 4.5.D.α₀a chain. **1 NEW pure source module** + **1 NEW unit-test suite** + **5 NEW architecture invariants**. **NO orchestrator yet. NO caps yet. NO writes to `recommended_edits`. NO imports from `recommended-edits-persistence` or `recommendation-response-store`. NO LLM. NO Supabase mutation. NO customer-facing surface. NO diagnostic UI change.**
+
+**Changes shipped.**
+
+**(1) NEW `src/domains/recommendation-intelligence/safety-gates.ts` (249 lines).** Pure module exporting:
+- `SuppressionReason` — 12-value union: `blocked_tier` · `diagnostic_only_tier` · `low_confidence` · `safety_flags_set` · `no_evidence` · `missing_target_url` · `missing_target_page_type` · `skip_page_type` · `in_cooldown` · `accepted_ancestor_exists` · `signal_stale` · `prerequisite_unresolved`. Cap values (`max_rows_per_page` / `max_rows_per_family`) are NOT in this union — they belong to α₀a.3b's orchestrator result type.
+- `SafetyGateContext` — `{ tenantId, targetPageType: PageType | null, recommendedEdits, recommendationResponses, prerequisiteResolved, now }`.
+- `SafetyGateOutcome` — `{ eligible, tier, suppression_reason, cooldown_expires_at }`.
+- `applyPromotionSafetyGates(candidate, ctx)` — pure 13-step ordered ladder; first failing gate wins (single binding suppression).
+
+**(2) Gate ladder (13 steps).**
+1. Tier blocked → `blocked_tier`.
+2. Tier diagnostic-only → `diagnostic_only_tier`.
+3. Tier operator-review-only → `diagnostic_only_tier` (U4 lock: auto-promotion off until α₂ adds approve-to-promote).
+4. `confidence === "low"` → `low_confidence`.
+5. `safety_flags.length > 0` → `safety_flags_set`.
+6. `evidence.length === 0` → `no_evidence`.
+7. Content-edit families with `target_url == null` → `missing_target_url`.
+8. Content-edit families with `ctx.targetPageType == null` → `missing_target_page_type`.
+9. Content-edit families with targetPageType ∈ {`utility`, `technical_asset`, `other`} → `skip_page_type`. **fix_\* families BYPASS gates 7–9.**
+10. `isInCooldown(...).in_cooldown === true` → `in_cooldown` (carries `cooldown_expires_at`).
+11. Accepted ancestor at same dedupe-key (status ∈ {`accepted`, `verified_live`, `verified_live_modified`, `partially_implemented`}) → `accepted_ancestor_exists`. `recommended` ancestor does NOT suppress.
+12. `created_from_signal_at` > 90 days old OR malformed ISO → `signal_stale`.
+13. `ctx.prerequisiteResolved === false` → `prerequisite_unresolved`.
+
+**(3) NEW `tests/domains/recommendation-intelligence/safety-gates.test.ts` (304 lines, 22 cases).**
+- 1 happy path.
+- 3 tier suppressions (diagnostic-only, operator-review-only, blocked).
+- 3 confidence/safety/evidence gates.
+- 5 content-edit + fix_* bypass cases (`it.each` over 3 skip page types + bypass test).
+- 1 cooldown integration (carries `cooldown_expires_at: "2026-08-13T00:00:00.000Z"`).
+- 5 accepted-ancestor cases (`it.each` over 4 statuses + 1 negative `recommended` test).
+- 3 signal/prerequisite cases.
+
+**(4) NEW architecture invariants (5).**
+- `recommendation-intelligence-no-diagnostic-only-promotion` (77 lines) — parametric over live diagnostic-only pairs.
+- `recommendation-intelligence-confidence-low-stays-diagnostic` (61 lines) — parametric over 6 customer-queue-ready pairs at confidence: low.
+- `recommendation-intelligence-promotion-respects-already-accepted` (99 lines) — 4 accepted-state parametric + `recommended` negative.
+- `recommendation-intelligence-page-classifier-applied-at-promotion` (101 lines) — 3 content-edit families × 3 skip types = 9 suppression cases + 3 fix_* families × 3 skip types = 9 bypass cases.
+- `recommendation-intelligence-no-promotion-without-evidence` (70 lines) — empty evidence suppresses + non-empty proceeds.
+
+**Operator decisions honored.**
+- **U1** — 2-way split (α₀a.3a + α₀a.3b) approved. This slice ships α₀a.3a only.
+- **U2** — ~915 estimate approved; landed at 961 (within 5% of estimate; under hard stop by 39 lines).
+- **U3** — Trim/split fallback in place but unused — first-pass already under +1,000 hard stop.
+- **U4** — Operator-review-only candidates auto-suppressed at Gate 3 with `diagnostic_only_tier`. Manual approve-to-promote affordance deferred to α₂+.
+
+**Auto-pass (existing 8 α-family invariants).** `recommendation-registry-active-set` · `recommendation-intelligence-customer-copy-vocab` · `recommendation-intelligence-no-queue-write` (no persistence imports) · `recommendation-intelligence-no-llm-decides` · `recommendation-intelligence-promotion-eligibility-pin` · `recommendation-intelligence-priority-score-contract` · `recommendation-intelligence-dedupe-key-formula` · `recommendation-intelligence-cooldown-windows`.
+
+**Catalog sync.** 5 new rows in [`docs/ARCHITECTURE_INVARIANTS_CATALOG.md`](ARCHITECTURE_INVARIANTS_CATALOG.md) under a new "Section 4.5 / Slice 4.5.D.α₀a.3a — promotion safety-gates module" header. `catalog-sync.test.ts` green post-update.
+
+**Deferred to α₀a.3b** (NOT in this slice):
+- `src/domains/recommendation-intelligence/promote-to-queue.ts` (`selectPromotableCandidates(...)` orchestrator + `MAX_ROWS_PER_PAGE = 5` + `MAX_ROWS_PER_FAMILY = 10` caps).
+- 2 paired invariants: `recommendation-intelligence-max-rows-per-page` + `recommendation-intelligence-max-rows-per-family`.
+
+**Deferred to α₀b**: operator-only Promotion Preview UI section on `/diagnostics/recommendation-triggers`.
+
+**Deferred to α₁**: customer-queue writer pathway.
+
+**Hard contracts honored.**
+- NO writes to `recommended_edits`.
+- NO imports from `@/domains/recommendations/recommended-edits-persistence`.
+- NO imports from `@/domains/product/recommendation-response-store`.
+- NO `runProviderAndPersist`.
+- NO LLM / OpenAI / Anthropic / `fetch(` / external API.
+- NO Supabase mutation.
+- NO migrations / cron / workflow changes.
+- NO customer-facing route changes.
+- NO `/diagnostics/recommendation-triggers/page.tsx` edits.
+- NO Today / Changes / Prompts / Settings / Recommendations / Section 9 changes.
+- NO env flag.
+- NO `selectPromotableCandidates` symbol.
+- NO `MAX_ROWS_PER_PAGE` / `MAX_ROWS_PER_FAMILY` constants.
+- NO `max_rows_per_page` / `max_rows_per_family` values in the `SuppressionReason` union.
+- NO `promote-to-queue.ts` module.
+
+**Line accounting.**
+
+| File | Lines |
+|---|---|
+| `src/domains/recommendation-intelligence/safety-gates.ts` | 249 |
+| `tests/domains/recommendation-intelligence/safety-gates.test.ts` | 304 |
+| `tests/architecture/recommendation-intelligence-no-diagnostic-only-promotion.test.ts` | 77 |
+| `tests/architecture/recommendation-intelligence-confidence-low-stays-diagnostic.test.ts` | 61 |
+| `tests/architecture/recommendation-intelligence-promotion-respects-already-accepted.test.ts` | 99 |
+| `tests/architecture/recommendation-intelligence-page-classifier-applied-at-promotion.test.ts` | 101 |
+| `tests/architecture/recommendation-intelligence-no-promotion-without-evidence.test.ts` | 70 |
+| **Total src+tests** | **961** |
+
+Above the ≤850 soft threshold by 111 lines. Within 5% of the operator-approved ~915 estimate (46 lines over). Under the +1,000 hard stop by 39 lines. **No trim pass was applied** — first-pass implementation already landed under the hard stop; per the operator-locked rule "If first-pass > +1,000, trim", trimming was not triggered. The ~915 estimate was operator-pre-approved (U2).
+
+**Quality gates (status at READY_TO_COMMIT).**
+- `npm run typecheck` ✅
+- Targeted suite (6 files / 57 cases) ✅
+- `catalog-sync.test.ts` ✅
+- `npm run test` (full suite) — TO RUN before commit
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — TO RUN before commit
+
+**Recommended next.** Operator review → commit (`feat(recommendations): add promotion safety gates`) → push (FF-safe to `origin/main`) → verify CI + Vercel. Then Slice 4.5.D.α₀a.3b preflight: orchestrator + caps.
+
+---
+
 ## 2026-05-20 — Slice 4.5.D.α₀a.2: dedupe + cooldown foundation
 
 **Status:** READY_TO_COMMIT (operator-approved at +928 src+tests; awaiting commit/push/verify approval).
