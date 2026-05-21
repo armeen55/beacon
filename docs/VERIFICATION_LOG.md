@@ -7,6 +7,68 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.G-A.2: recommendation safety audit diagnostic page + read-only invariant
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, A.2 only).** Second half of Section 4.5.G-A. Completes the operator-facing safety-audit vertical — operator can now visit `/diagnostics/recommendation-safety-audit` and inspect historical safety violations on every `recommended_edits` row for the tenant. Consumes the A.1 scanner (`auditRecommendedEditRow`, locally committed at `506c6ae`) without modification. **Pure read-only operator diagnostic.** **NO mutations · NO writes · NO server action · NO `revalidatePath` · NO LLM calls · NO validator changes · NO brand-assertions changes · NO new BrandAssertionCategory · NO credentials category.**
+
+**Split context.** Original 4.5.G-A first pass came to 1,724 lines (+724 over +1,000 hard stop); operator approved Option 1 split. A.1 shipped scanner + scanner tests + coverage invariant in `506c6ae`. A.2 ships diagnostic page + page tests + read-only file-boundary invariant — this slice.
+
+**Files added (3) / modified (5 docs) / deleted (0). A.1 scanner UNCHANGED.**
+
+Added (1 src + 2 tests):
+- `src/app/(shell)/diagnostics/recommendation-safety-audit/page.tsx` (~287 lines) — operator-only diagnostic page. Operator gate `isOperatorModeServer() || NODE_ENV === "test"` else `notFound()` (per K5). Reads `recommended_edits` + `tracked_entities` via the existing repository pattern. Builds competitor-name list filtered to `entity_type === "competitor"` AND `is_active === true`. Audits every row via `auditRecommendedEditRow(...)` (per K6 + K7). Renders flat one-row-per-violation table with `data-safety-rec-id` + `data-safety-violation-kind` + `data-safety-violation-severity` + `data-safety-violation-field` attrs. Counter strip: scanned / rows-with-violations / total violations / high / medium / low. Empty success banner when audit clean. **NO action buttons. NO forms. NO mutations. NO `revalidatePath`. NO server action pragma.**
+- `tests/app/diagnostics/recommendation-safety-audit-page.test.tsx` (~269 lines, 10 cases) — non-operator notFound · operator/test env renders · empty state · clean rows · violation table render · multi-violation DOM rows · counter totals · active competitor entity flows into scanner · inactive competitor excluded · no action buttons / forms.
+- `tests/architecture/recommendation-safety-audit-read-only.test.ts` (~217 lines, 27 cases) — 2 file-exists pins + 8 scanner source-text negatives + 17 page contracts (14 negative + 3 positive: `isOperatorModeServer` + `notFound` + `auditRecommendedEditRow`). Pins read-only nature of both files (A.1 scanner + A.2 page) at the file-boundary; defense-in-depth alongside the existing A.1 coverage invariant.
+
+Doc syncs (5):
+- HANDOFF_VERIFIED_STATE.md (A.2 entry refreshed; A.1 entry preserved below)
+- NEXT_PHASE_EXECUTION_PLAN.md (A.2 entry refreshed)
+- VERIFICATION_LOG.md (this entry)
+- ARCHITECTURE_INVARIANTS_CATALOG.md (1 new row added: `recommendation-safety-audit-read-only`; existing coverage row cross-reference refined)
+- RECOMMENDATION_INTELLIGENCE_AUDIT.md (A.2 snapshot)
+
+**A.1 scanner unchanged.** `git diff HEAD -- src/domains/recommendation-intelligence/safety-audit.ts` is empty. Structural typing handles the call site — `RecommendedEditRow` rows from the repository are assignable to the scanner's local `AuditableEditRow` type without explicit cast.
+
+**Operator decisions honored (K1-K7).**
+1. K1 split — A.1 + A.2 together provide operator-reachable end-to-end vertical.
+2. K2 — NO `credentials` BrandAssertionCategory added.
+3. K3 — Architect/licensing terms are audit-only patterns (10 locked terms, set by A.1).
+4. K4 — Severity bands rendered per A.1 scanner output.
+5. K5 — Operator gate `isOperatorModeServer() || NODE_ENV === "test"` else `notFound()`.
+6. K6 — Audit ALL rows (page passes every row to scanner; no status filter).
+7. K7 — Include all lifecycle statuses (status rendered as a column in the table).
+
+**Auto-pass invariants.**
+- `recommendation-intelligence-no-queue-write` (auto-covers scanner via `walk(INTEL_DIR)` — A.1 unchanged).
+- `recommendation-intelligence-llm-draft-gateway-render-isolation` (unchanged — page does not import the gateway).
+- `recommendation-intelligence-promotion-live-write-guards` (unchanged).
+- `recommendation-intelligence-offsite-contract` (unchanged).
+- `specific-edit-target-constraint` (page does not invoke heavy packet builder).
+- `recommendation-safety-audit-coverage` (A.1 invariant; still green — scanner unchanged).
+- `llm-safety-invariants` (page does not import provider; no `runProviderAndPersist` reference in raw source).
+- `catalog-sync` (1 new row added; existing coverage row narrative refined; previous count + 1 = new count).
+
+**Hard contracts honored.** Page is pure read-only · NO writes · NO mutations · NO server action · NO `revalidatePath` · NO queue writes · NO live promotion · NO LLM calls · NO OpenAI provider import · NO llm-draft-gateway import · NO `recommended-edits-persistence` import · NO `persistRecommendedEditsLocal` / `syncRecommendedEdits` · NO `runProviderAndPersist` · NO direct Supabase `recommended_edits` write shape · NO brand-assertions.ts changes · NO new `BrandAssertionCategory` · NO `credentials` category · NO validator import · NO `action-types` registry import · NO display-guard changes · NO `generatorActive` flips · NO trigger predicate changes · NO customer-facing route changes · NO Today/Changes/Prompts/Settings/Recommendations/Section 9 changes · NO migrations · NO cron/workflows · NO env mutation in Vercel.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` → ✅ clean
+- Targeted A.2 suite: page (10) + read-only (27) → ✅ **37 cases**
+- Regression on A.1: scanner (31) + coverage (15) → ✅ **46 cases**
+- `catalog-sync` → ✅ 8 cases (existing pass after new row added)
+- Full architecture suite: TO RE-RUN
+- Full vitest suite: TO RUN
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`: TO RUN
+
+**Result.** READY_TO_COMMIT — not pushed. Proposed commit message: `feat(recommendations): add safety audit diagnostic`. Worktree state after commit: **2 commits ahead of `origin/main` (`a97affb`)**.
+
+**Section 4.5.G-A safety-audit vertical complete end-to-end:** A.1 scanner (`506c6ae`) + A.2 page (this slice). Operator can visit `/diagnostics/recommendation-safety-audit` post-deploy and see which historical `recommended_edits` rows carry violations across the 9 locked kinds. Read-only by design; no auto-rewrite.
+
+**Next phase.** Operator review → local commit only → decide whether to batch-push A.1 + A.2 as the Section 4.5.G-A checkpoint OR hold for 4.5.G-B (validator/category extensions, scope still TBD per audit findings).
+
+---
+
 ## 2026-05-21 — Slice 4.5.G-A.1: recommendation safety audit scanner + coverage invariant
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

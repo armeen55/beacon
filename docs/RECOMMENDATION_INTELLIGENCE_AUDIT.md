@@ -81,6 +81,88 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.G-A.2 — recommendation safety audit
+> diagnostic page + read-only invariant (2026-05-21)**:
+> Second half of Section 4.5.G-A. **Completes the
+> operator-facing safety-audit vertical** — operator can
+> now visit `/diagnostics/recommendation-safety-audit` and
+> inspect historical safety violations on every
+> `recommended_edits` row for the tenant. Consumes the A.1
+> scanner (`auditRecommendedEditRow`, locally committed at
+> `506c6ae`) without modification. Adds (1) NEW
+> `src/app/(shell)/diagnostics/recommendation-safety-audit/
+> page.tsx` (~287 lines) — operator-only diagnostic page.
+> Operator gate `isOperatorModeServer() || NODE_ENV ===
+> "test"` else `notFound()` (per K5). Reads
+> `recommended_edits` + `tracked_entities` via existing
+> repository pattern. Builds competitor-name list filtered
+> to active competitor entities. Audits every row via
+> `auditRecommendedEditRow(...)`. Renders flat one-row-per-
+> violation table with `data-safety-rec-id` /
+> `data-safety-violation-kind` / `data-safety-violation-
+> severity` / `data-safety-violation-field` attrs. Counter
+> strip (scanned / rows-with-violations / total / high /
+> medium / low) + empty-state success banner. **NO action
+> buttons. NO forms. NO mutations. NO `revalidatePath`. NO
+> server action pragma.** (2) NEW `tests/app/diagnostics/
+> recommendation-safety-audit-page.test.tsx` (~269 lines,
+> 10 cases) — non-operator notFound · operator/test env
+> renders · empty state · clean rows · violation table
+> render · multi-violation DOM rows · counter totals ·
+> active competitor entity flows into scanner · inactive
+> competitor excluded · no action buttons / forms.
+> (3) NEW `tests/architecture/recommendation-safety-audit-
+> read-only.test.ts` (~217 lines, 27 cases) — 2 file-exists
+> pins + 8 scanner source-text negatives + 17 page
+> contracts (14 negative + 3 positive:
+> `isOperatorModeServer` + `notFound` +
+> `auditRecommendedEditRow`). Pins read-only nature of
+> BOTH the A.1 scanner and A.2 page at the file boundary.
+> **A.1 scanner UNCHANGED** — `git diff HEAD --
+> src/domains/recommendation-intelligence/safety-audit.ts`
+> is empty; structural typing handles the call site.
+> **Locked decisions (K1-K7) honored**: K1 split (A.1
+> scanner + A.2 page = operator-reachable end-to-end) ·
+> K2 NO `credentials` BrandAssertionCategory · K3
+> architect/licensing audit-only patterns (10 locked terms
+> in A.1) · K4 3-band severity (rendered) · K5 standard
+> operator gate · K6 audit ALL rows · K7 include all
+> lifecycle statuses (status column rendered).
+> **Auto-pass invariants**: `no-queue-write` (A.1 scanner
+> unchanged); `llm-draft-gateway-render-isolation`
+> (unchanged — page does not import gateway);
+> `promotion-live-write-guards` (unchanged);
+> `offsite-contract` (unchanged); `specific-edit-target-
+> constraint` (page does not invoke heavy packet builder);
+> `recommendation-safety-audit-coverage` (A.1 invariant
+> still green); `llm-safety-invariants` (page does not
+> import provider); `catalog-sync` (1 new row added in
+> lockstep). **Hard contracts honored**: page is pure
+> read-only · NO writes · NO mutations · NO server action ·
+> NO `revalidatePath` · NO queue writes · NO LLM calls ·
+> NO OpenAI provider import · NO llm-draft-gateway import ·
+> NO `recommended-edits-persistence` import · NO
+> `persistRecommendedEditsLocal` / `syncRecommendedEdits` ·
+> NO `runProviderAndPersist` · NO Supabase
+> `recommended_edits` write shape · NO brand-assertions.ts
+> changes · NO new `BrandAssertionCategory` · NO
+> `credentials` category · NO validator import · NO
+> `action-types` registry import · NO display-guard
+> changes · NO registry changes · NO `generatorActive`
+> flips · NO trigger predicate changes · NO customer-
+> facing route changes · NO Today / Changes / Prompts /
+> Settings / Recommendations / Section 9 changes · NO
+> migrations · NO cron/workflows. **The safety-audit
+> vertical is now operator-reachable end-to-end** —
+> operator visits `/diagnostics/recommendation-safety-
+> audit`, sees the violations table for every
+> recommended_edits row across the 9 locked kinds, and
+> decides per-row whether to fix (manual edit / dismiss /
+> accept-as-is). Beacon does NOT auto-rewrite live rows
+> from this surface. Future 4.5.G-B (validator + category +
+> unlock extensions) remains gated on operator review of
+> audit results.
+
 > **Slice 4.5.G-A.1 — recommendation safety audit scanner +
 > coverage invariant (2026-05-21)**: First half of Section
 > 4.5.G-A (safety cleanup / defense-in-depth) after
