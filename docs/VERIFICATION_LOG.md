@@ -7,6 +7,76 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.G-A.1: recommendation safety audit scanner + coverage invariant
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Section 4.5.E closed.** Section 4.5.E LLM-draft preview vertical is production-verified at `origin/main = a97affb`. Section 4.5.G begins the safety cleanup / defense-in-depth phase before any further LLM-assisted activation.
+
+**Split context.** Original 4.5.G-A first pass combined scanner + scanner tests + diagnostic page + page tests + read-only file-boundary invariant + coverage invariant into a single slice. That came to 1,724 lines = +724 over the +1,000 hard stop. Operator approved Option 1 split: **A.1 = scanner + scanner tests + coverage invariant** (this slice); **A.2 = diagnostic page + page tests + read-only file-boundary invariant** (next slice). The already-green implementation was partitioned in place — A.2 files removed from the worktree via `rm`; A.1 files retained.
+
+**Slice scope (locked, A.1 only).** First half of 4.5.G-A. Pure read-only scanner substrate + coverage invariant. **NO diagnostic page surface yet · NO mutations · NO writes · NO LLM · NO server action · NO new env flag · NO validator changes · NO brand-assertions changes · NO new BrandAssertionCategory · NO credentials category.**
+
+**Files added (3) / modified (5 docs) / deleted (0).**
+
+Added (1 src + 2 tests):
+- `src/domains/recommendation-intelligence/safety-audit.ts` (413 lines) — pure scanner `auditRecommendedEditRow(row, context)`. Returns `SafetyAuditResult` with 9 violation kinds: placeholder, competitor_name, unsupported_claim, architect_overclaim (10 K3-locked terms exported as `ARCHITECT_OVERCLAIM_TOKENS`), causal_language (9 K3-locked terms exported as `CAUSAL_LANGUAGE_TOKENS`), em_dash (U+2014 literal), leading_superlative (Best / The best / #1 / Leading prefix), internal_token (10 internal taxonomy tokens), uuid_leak (UUID + 32+ hex hash). Per-violation severity per K4: high (placeholder / competitor / uuid) · medium (unsupported / architect / causal) · low (em-dash / leading-superlative / internal-token). Local `AuditableEditRow` interface — ZERO `recommended-edits-persistence` dependency (structural typing handles call-site with full `RecommendedEditRow`). Smart `\b` word-boundary handling for non-word-character tokens (`#1` and `architect-led` use one-sided boundary).
+- `tests/domains/recommendation-intelligence/safety-audit.test.ts` (401 lines, 31 cases) — every violation kind exercised + multi-violation row + context excerpt + field coverage (proposed_text / why / display_label / expected_impact / measurement_plan) + null/empty-field safety.
+- `tests/architecture/recommendation-safety-audit-coverage.test.ts` (167 lines, 15 cases) — all 9 `SafetyViolationKind` exercised in scanner test file + locked 10-token architect-overclaim set (exact match, no extras) + locked 9-token causal-language set (exact match, no extras) + scanner scans `proposed_text` + `why` at minimum.
+
+Doc syncs (5):
+- HANDOFF_VERIFIED_STATE.md (top entry refreshed)
+- NEXT_PHASE_EXECUTION_PLAN.md (top entry refreshed)
+- VERIFICATION_LOG.md (this entry)
+- ARCHITECTURE_INVARIANTS_CATALOG.md (1 new row added — coverage invariant only; the read-only file-boundary invariant catalog row lands with A.2)
+- RECOMMENDATION_INTELLIGENCE_AUDIT.md (A.1 snapshot)
+
+**Operator decisions honored (K1-K7).**
+1. K1 split — G-A only; G-B deferred; now further split into A.1 + A.2 per +1,000 hard-stop rule.
+2. K2 — NO `credentials` BrandAssertionCategory added.
+3. K3 — Architect/licensing terms are audit-only patterns (10 locked).
+4. K4 — Severity bands: high / medium / low per kind.
+5. K5 — Operator gate `isOperatorModeServer() || NODE_ENV === "test"` (will be applied in A.2's diagnostic page).
+6. K6 — Audit ALL rows, not only `verified_live` (scanner does not filter by status; A.2's page will pass all rows).
+7. K7 — Include all lifecycle statuses (scanner does not filter; same).
+
+**Auto-pass invariants.**
+- `recommendation-intelligence-no-queue-write` (auto-covers the new scanner via `walk(INTEL_DIR)` — verified zero new persistence imports, no `runProviderAndPersist`, no Supabase write shape).
+- `recommendation-intelligence-llm-draft-gateway-render-isolation` (unchanged — scanner does not import the gateway).
+- `recommendation-intelligence-promotion-live-write-guards` (unchanged).
+- `recommendation-intelligence-offsite-contract` (unchanged).
+- `specific-edit-target-constraint` (scanner does not invoke heavy packet builder).
+- `catalog-sync` (1 new row added in lockstep; A.2 will add the sibling read-only invariant row).
+
+**Hard contracts honored.** Scanner is pure / deterministic / no I/O / no LLM / no fetch / no Supabase / no persistence imports · NO `recommended-edits-persistence` import · NO `persistRecommendedEditsLocal` / `syncRecommendedEdits` · NO `runProviderAndPersist` · NO direct Supabase `recommended_edits` write shape · NO brand-assertions.ts changes · NO new `BrandAssertionCategory` · NO `credentials` category · NO validator changes · NO display-guard changes · NO registry changes · NO `generatorActive` flips · NO trigger predicate changes · NO customer-facing route changes · NO Today/Changes/Prompts/Settings/Recommendations/Section 9 changes · NO migrations · NO cron/workflows · NO env mutation in Vercel.
+
+**Line budget.** Target ≤700 · soft ≤850 · hard +1,000.
+- `src/domains/recommendation-intelligence/safety-audit.ts`: 413 lines
+- `tests/domains/recommendation-intelligence/safety-audit.test.ts`: 401 lines
+- `tests/architecture/recommendation-safety-audit-coverage.test.ts`: 167 lines
+- **Total src+tests: 981 lines**
+
+Under +1,000 hard stop by 19 lines. Over ≤850 soft cap by 131 — acceptable per locked rule (the soft-cap overage is in test depth, which the operator-locked policy forbids weakening).
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` → ✅ clean
+- Targeted A.1 suite: scanner (31) + coverage (15) → ✅ **46 cases**
+- `catalog-sync` → ✅ 8 cases
+- Full architecture suite: TO RE-RUN after A.2 files removed
+- Full vitest suite: TO RE-RUN
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`: TO RE-RUN
+
+**Result.** READY_TO_COMMIT — not pushed. Proposed commit message: `feat(recommendations): add safety audit scanner`. Worktree state after commit: **1 commit ahead of `origin/main` (`a97affb`)**.
+
+**Next phase.**
+- Operator review → local commit only.
+- Then decide whether to:
+  - (a) Push A.1 alone — safe (no surface; scanner module + tests + coverage invariant only).
+  - (b) Hold for A.2 — diagnostic page + page tests + read-only file-boundary invariant (~743 lines, well under hard stop).
+- After A.2 lands locally, Section 4.5.G-A becomes operator-reachable end-to-end.
+
+---
+
 ## 2026-05-21 — Slice 4.5.E.α₁b₂-B: LLM-draft preview UI + 8-state result banner
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

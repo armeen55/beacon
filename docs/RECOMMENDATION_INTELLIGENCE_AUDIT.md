@@ -81,6 +81,90 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.G-A.1 — recommendation safety audit scanner +
+> coverage invariant (2026-05-21)**: First half of Section
+> 4.5.G-A (safety cleanup / defense-in-depth) after
+> operator-approved split. **Section 4.5.E was production-
+> verified / closed** at `origin/main = a97affb` with
+> `BEACON_LLM_DRAFT_GATEWAY_ENABLED` unset; Section 4.5.G
+> begins the safety hardening phase before any further
+> LLM-assisted activation. Original 4.5.G-A first pass came
+> to 1,724 lines (+724 over the +1,000 hard stop); operator
+> approved Option 1 split into A.1 (scanner + scanner
+> tests + coverage invariant) and A.2 (diagnostic page +
+> page tests + read-only file-boundary invariant). **A.1
+> ships pure scanner substrate only — no operator surface
+> yet.** Adds (1) NEW `src/domains/recommendation-
+> intelligence/safety-audit.ts` (413 lines) — pure
+> `auditRecommendedEditRow(row, ctx)` scanner with 9
+> locked violation kinds (placeholder · competitor_name ·
+> unsupported_claim · architect_overclaim · causal_language ·
+> em_dash · leading_superlative · internal_token · uuid_leak).
+> Severity bands per K4: high (placeholder / competitor /
+> uuid) · medium (unsupported / architect / causal) · low
+> (em-dash / leading-superlative / internal-token). Local
+> `AuditableEditRow` type — ZERO dependency on
+> `recommended-edits-persistence` module (structural typing
+> handles the call site). Smart `\b` word-boundary handling
+> for non-word-character tokens (`#1` / `architect-led`).
+> Exports the locked token lists `ARCHITECT_OVERCLAIM_TOKENS`
+> (10 K3 terms) and `CAUSAL_LANGUAGE_TOKENS` (9 K3 terms).
+> Pure / deterministic / no I/O / no LLM / no Supabase / no
+> mutation. (2) NEW `tests/domains/recommendation-
+> intelligence/safety-audit.test.ts` (401 lines, 31 cases) —
+> every violation kind + multi-violation row + context
+> excerpt + field coverage (proposed_text / why /
+> display_label / expected_impact / measurement_plan) +
+> null/empty-field safety. (3) NEW `tests/architecture/
+> recommendation-safety-audit-coverage.test.ts` (167 lines,
+> 15 cases) — all 9 `SafetyViolationKind` exercised in
+> scanner test file + locked 10-token architect-overclaim
+> set (exact match, no extras) + locked 9-token causal-
+> language set (exact match, no extras) + scanner scans
+> `proposed_text` + `why` at minimum. **Locked decisions
+> (K1-K7) honored**: K1 split (G-A only; G-B deferred); now
+> further split into A.1 + A.2 per +1,000 hard-stop rule ·
+> K2 NO `credentials` BrandAssertionCategory · K3
+> architect/licensing audit-only patterns (10 locked terms) ·
+> K4 3-band severity · K5 standard operator gate (applied in
+> A.2's page) · K6 audit ALL rows (scanner does not filter
+> by status) · K7 include all lifecycle statuses (scanner
+> does not filter). **Auto-pass invariants**: `no-queue-
+> write` (auto-covers scanner via `walk(INTEL_DIR)`);
+> `llm-draft-gateway-render-isolation` (unchanged — scanner
+> does not import gateway); `promotion-live-write-guards`
+> (unchanged); `offsite-contract` (unchanged); `specific-
+> edit-target-constraint` (scanner does not invoke heavy
+> packet builder); `catalog-sync` (1 new row added in
+> lockstep; A.2 will add the sibling read-only invariant
+> row). **Hard contracts honored**: scanner is pure ·
+> NO I/O · NO LLM · NO fetch · NO Supabase · NO persistence
+> imports · NO `recommended-edits-persistence` import · NO
+> `persistRecommendedEditsLocal` / `syncRecommendedEdits` ·
+> NO `runProviderAndPersist` · NO direct Supabase
+> `recommended_edits` write shape · NO brand-assertions.ts
+> changes · NO new `BrandAssertionCategory` · NO
+> `credentials` category · NO validator changes · NO
+> display-guard changes · NO registry changes · NO
+> `generatorActive` flips · NO trigger predicate changes ·
+> NO customer-facing route changes · NO Today / Changes /
+> Prompts / Settings / Recommendations / Section 9 changes ·
+> NO migrations · NO cron/workflows. **Line budget**: src +
+> tests = 981 lines · under +1,000 hard stop by 19 lines ✅
+> (test depth is the dominant cost; operator-locked policy
+> forbids weakening tests to fit a tighter budget). **The
+> pure scanner substrate is in place** — any future operator
+> surface (A.2 diagnostic page, future cron, ad-hoc script)
+> can call `auditRecommendedEditRow(...)` to detect
+> violations across the 9 locked kinds. Read-only by design;
+> no auto-rewrite path. A.2 will add the operator-only
+> `/diagnostics/recommendation-safety-audit` page + the
+> sibling `recommendation-safety-audit-read-only`
+> architecture invariant that pins the no-mutation /
+> no-server-action / no-`revalidatePath` contract on both
+> files. Future 4.5.G-B (validator + category + unlock
+> extensions) remains gated on operator review of audit
+> results.
 > **Slice 4.5.E.α₁b₂-B — LLM-draft preview UI + 8-state
 > result banner (2026-05-21)**: Fifth slice of Section 4.5.E.
 > **Completes the operator-facing LLM-draft preview
