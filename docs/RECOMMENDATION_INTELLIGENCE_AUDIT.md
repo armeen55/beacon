@@ -81,6 +81,97 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.E.α₁b₂-B — LLM-draft preview UI + 8-state
+> result banner (2026-05-21)**: Fifth slice of Section 4.5.E.
+> **Completes the operator-facing LLM-draft preview
+> vertical** — operator can now click "Generate draft" on a
+> weak-H2 diagnostic row from the browser. Pure UI consumer
+> of α₁b₂-A's `generateLlmDraftAction`. Adds (1) MODIFIED
+> `src/app/(shell)/diagnostics/recommendation-triggers/
+> page.tsx` (+372 lines) — imports `generateLlmDraftAction`
+> from `./actions` as a Server Action function reference
+> (NOT a gateway import) + `isLlmDraftGatewayEnabled` from
+> `@/lib/llm-draft-gateway-flag`; threads
+> `llmDraftResult = parseLlmDraftResult(searchParams)` +
+> `llmDraftEnabled = isLlmDraftGatewayEnabled()` +
+> `weakH2DiagnosticRows = result.diagnostic_only.filter(
+> weak_h2 + rewrite_h2)` into the page render path; adds
+> 8-variant `LlmDraftResult` discriminated union +
+> `parseLlmDraftResult` parser (reads `llm_draft_result`
+> discriminator + per-state fields via existing `readParam`
+> helper; returns null for unknown) + `LlmDraftResultBanner`
+> (8 states + unknown→null; each emits `data-llm-draft-
+> result="<status>"` attr; drafted shows `proposed_text` in
+> `<pre>` + `cost_usd` + `bundle_size` + truncation notice
+> conditional + "Render-only · not persisted." footer) +
+> `LlmDraftPreviewSection` (between Diagnostic-only and
+> Promotion Preview; filtered `result.diagnostic_only` only;
+> calm empty state; env-off disabled button + locked
+> caption; env-on per-row `<form action={
+> generateLlmDraftAction} data-llm-draft-form>` with hidden
+> `candidate_dedupe_key` input + enabled `Generate draft`
+> submit; emits `data-diagnostic-section="llm-draft-
+> preview"` + `data-row-count` + `data-llm-draft-enabled`
+> attrs). **No bulk button. No confirmation phrase. Page
+> render NEVER invokes the gateway.** (2) NEW
+> `tests/app/diagnostics/recommendation-triggers-page-llm-
+> draft-section.test.tsx` (~415 lines, 18 cases) — section
+> render + 8 banner states + sanity carry-over (gateway
+> mock never invoked from page render). **Render-isolation
+> invariant UNCHANGED**: page.tsx satisfies all 6 source-
+> text negatives (no gateway import / no
+> `draftProposedTextForCandidate` reference / no
+> `openaiProvider` import or symbol / no
+> `openaiProvider.generate` / no `fetch(`); global
+> allowlist still finds EXACTLY ONE caller = actions.ts.
+> Catalog row's narrative refined to confirm "α₁b₂-B
+> unchanged-but-verified". **Locked decisions honored
+> (1-16)**: single UI-only slice · MODIFY page.tsx only ·
+> ADD page test file · NO action / gateway / build-thin-
+> packet / trigger / registry / queue-write / persistence /
+> `runProviderAndPersist` / Supabase-write / OpenAI-
+> provider changes · NO LLM call on page render · NO bulk
+> LLM calls · page imports ONLY `generateLlmDraftAction`
+> from `./actions` · page does NOT import gateway · page
+> does NOT reference `draftProposedTextForCandidate` ·
+> page does NOT import `openaiProvider`. **Auto-pass**
+> (existing α-family + α₀ + α₁a + α₁b₁ + α₁b₂-A + α₁c +
+> 4.5.F): `recommendation-intelligence-llm-draft-gateway-
+> render-isolation` UNCHANGED (page.tsx satisfies all 6
+> source-text negatives; global allowlist still finds
+> EXACTLY ONE caller); `no-queue-write` (auto-covers
+> page.tsx in scan set — verified zero new persistence
+> imports / no `runProviderAndPersist` / no Supabase write
+> shape); `llm-draft-gateway-contract` (α₀ gateway
+> unchanged); `promotion-live-write-guards` (α₁c
+> unchanged); `offsite-contract` (4.5.F unchanged);
+> `specific-edit-target-constraint` (page does not invoke
+> heavy packet builder); `catalog-sync` (existing render-
+> isolation row updated in-place). **Hard contracts
+> honored**: NO action changes · NO gateway changes · NO
+> build-thin-packet changes · NO trigger changes · NO
+> registry changes · NO `generatorActive` flips · NO queue
+> writes · NO persistence imports · NO `recommended-
+> edits-persistence` import · NO `runProviderAndPersist` ·
+> NO direct Supabase `recommended_edits` write shape · NO
+> OpenAI provider import in page · NO gateway import in
+> page · NO `draftProposedTextForCandidate` reference in
+> page · NO automatic LLM calls on page render · NO bulk
+> LLM calls · NO customer-facing route changes · NO Today
+> / Changes / Prompts / Settings / Recommendations /
+> Section 9 changes · NO migrations · NO cron/workflows.
+> **The Section 4.5.E LLM-draft preview vertical is now
+> complete end-to-end** behind
+> `BEACON_LLM_DRAFT_GATEWAY_ENABLED=true`: detection →
+> infrastructure → action → UI. Operator can visit
+> `/diagnostics/recommendation-triggers`, see weak-H2
+> diagnostic candidates in the new LLM-Draft Preview
+> section, click "Generate draft" on a row, and see the
+> result in one of 8 banners after the redirect. Page UI
+> button is the natural human-facing entry point; the
+> hand-crafted POST path landed in α₁b₂-A remains the
+> machine-facing entry point (same action, same gates,
+> same budget protection).
 > **Slice 4.5.E.α₁b₂-A — operator-only server action +
 > evolved render-isolation invariant (2026-05-21)**: Fourth
 > slice of Section 4.5.E. **First slice that activates the

@@ -34,6 +34,7 @@ import { notFound } from "next/navigation";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { isPromotionLiveWriteEnabled } from "@/lib/promotion-live-write";
+import { isLlmDraftGatewayEnabled } from "@/lib/llm-draft-gateway-flag";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getBusinessConfig } from "@/lib/business-config";
@@ -49,7 +50,10 @@ import {
   type PromotionResult,
 } from "@/domains/recommendation-intelligence/promote-to-queue";
 import { getRecommendationResponses } from "@/domains/product/recommendation-response-store";
-import { promoteEligibleCandidatesAction } from "./actions";
+import {
+  generateLlmDraftAction,
+  promoteEligibleCandidatesAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -78,9 +82,16 @@ export default async function RecommendationTriggersDiagnosticPage(
   const actionResult = parseActionResult(searchParams);
   const liveWriteEnabled = isPromotionLiveWriteEnabled();
 
+  const llmDraftResult = parseLlmDraftResult(searchParams);
+  const llmDraftEnabled = isLlmDraftGatewayEnabled();
+
   const tenantId = await currentTenantId();
   const result = await loadTriggerCandidatesForTenant({ tenantId });
   const banner = statusBanner(result.status);
+  const weakH2DiagnosticRows = result.diagnostic_only.filter(
+    (r) =>
+      r.trigger_signal === "weak_h2" && r.action_type === "rewrite_h2",
+  );
 
   // ── α₀b Promotion Preview data flow (DRY-RUN, no writes) ──
   // Read-only sources via the existing repository + response-store
@@ -126,6 +137,9 @@ export default async function RecommendationTriggersDiagnosticPage(
   return (
     <div className="space-y-4 p-4" data-diagnostic="recommendation-triggers">
       {actionResult ? <ActionResultBanner result={actionResult} /> : null}
+      {llmDraftResult ? (
+        <LlmDraftResultBanner result={llmDraftResult} />
+      ) : null}
       <header className="space-y-1">
         <h1 className="text-[15px] font-semibold text-foreground">
           Recommendation Trigger Diagnostic
@@ -205,6 +219,11 @@ export default async function RecommendationTriggersDiagnosticPage(
           ) : null}
         </>
       )}
+
+      <LlmDraftPreviewSection
+        rows={weakH2DiagnosticRows}
+        enabled={llmDraftEnabled}
+      />
 
       <PromotionPreviewSection
         totalCandidates={triggerCandidates.length}
@@ -683,6 +702,358 @@ function PromoteForm(props: {
           retry, but accepted rows cannot be unsent.
         </p>
       </form>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slice 4.5.E.α₁b₂-B (2026-05-21) — LLM-Draft Preview section + banner.
+//
+// Consumes `generateLlmDraftAction` (landed in α₁b₂-A) via Next.js
+// Server Action <form action={...}> wiring. Page render NEVER invokes
+// the gateway directly — only an explicit browser POST fires the
+// action. Pinned by the evolved `recommendation-intelligence-llm-
+// draft-gateway-render-isolation` invariant (unchanged in α₁b₂-B —
+// page.tsx imports the action function reference, NOT the gateway).
+// ---------------------------------------------------------------------------
+
+type LlmDraftResult =
+  | {
+      kind: "drafted";
+      candidate_dedupe_key: string;
+      cost_usd: string;
+      bundle_size: string;
+      proposed_text: string;
+      truncated: boolean;
+    }
+  | { kind: "abstained"; abstention_reason: string; cost_usd: string }
+  | {
+      kind: "validation_failed";
+      validation_errors: string;
+      cost_usd: string;
+    }
+  | { kind: "blocked_budget"; reason: string }
+  | { kind: "blocked_env" }
+  | { kind: "candidate_not_found" }
+  | { kind: "invalid_candidate"; reason: string }
+  | { kind: "error"; msg: string };
+
+function parseLlmDraftResult(
+  searchParams: Record<string, string | string[] | undefined>,
+): LlmDraftResult | null {
+  const raw = readParam(searchParams, "llm_draft_result");
+  if (raw === "drafted") {
+    return {
+      kind: "drafted",
+      candidate_dedupe_key:
+        readParam(searchParams, "candidate_dedupe_key") ?? "",
+      cost_usd: readParam(searchParams, "cost_usd") ?? "0",
+      bundle_size: readParam(searchParams, "bundle_size") ?? "0",
+      proposed_text: readParam(searchParams, "proposed_text") ?? "",
+      truncated:
+        readParam(searchParams, "proposed_text_truncated") === "true",
+    };
+  }
+  if (raw === "abstained") {
+    return {
+      kind: "abstained",
+      abstention_reason:
+        readParam(searchParams, "abstention_reason") ?? "",
+      cost_usd: readParam(searchParams, "cost_usd") ?? "0",
+    };
+  }
+  if (raw === "validation_failed") {
+    return {
+      kind: "validation_failed",
+      validation_errors:
+        readParam(searchParams, "validation_errors") ?? "",
+      cost_usd: readParam(searchParams, "cost_usd") ?? "0",
+    };
+  }
+  if (raw === "blocked_budget") {
+    return {
+      kind: "blocked_budget",
+      reason: readParam(searchParams, "reason") ?? "",
+    };
+  }
+  if (raw === "blocked_env") return { kind: "blocked_env" };
+  if (raw === "candidate_not_found") return { kind: "candidate_not_found" };
+  if (raw === "invalid_candidate") {
+    return {
+      kind: "invalid_candidate",
+      reason: readParam(searchParams, "reason") ?? "",
+    };
+  }
+  if (raw === "error") {
+    return { kind: "error", msg: readParam(searchParams, "msg") ?? "" };
+  }
+  return null;
+}
+
+function LlmDraftResultBanner(props: { result: LlmDraftResult }) {
+  const r = props.result;
+  if (r.kind === "drafted") {
+    return (
+      <section
+        className="rounded-md border border-status-success/40 bg-status-success/[0.06] px-3 py-2"
+        data-diagnostic-section="llm-draft-result"
+        data-llm-draft-result="drafted"
+      >
+        <p className="text-[12px] text-foreground">
+          ✓ Draft generated · cost ${" "}
+          <span className="font-mono" data-result-field="cost_usd">
+            {r.cost_usd}
+          </span>{" "}
+          · bundle{" "}
+          <span className="font-mono" data-result-field="bundle_size">
+            {r.bundle_size}
+          </span>
+        </p>
+        <pre
+          className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border/40 bg-surface-inset/10 px-2 py-2 text-[12px] text-foreground"
+          data-result-field="proposed_text"
+        >
+          {r.proposed_text}
+        </pre>
+        {r.truncated ? (
+          <p
+            className="mt-1 text-[11px] text-status-warning"
+            data-result-field="proposed_text_truncated"
+          >
+            Preview truncated to 500 characters.
+          </p>
+        ) : null}
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Render-only · not persisted.
+        </p>
+      </section>
+    );
+  }
+  if (r.kind === "abstained") {
+    return (
+      <section
+        className="rounded-md border border-border/40 bg-surface-inset/20 px-3 py-2"
+        data-diagnostic-section="llm-draft-result"
+        data-llm-draft-result="abstained"
+      >
+        <p className="text-[12px] text-foreground">
+          · Abstained:{" "}
+          <span
+            className="font-mono"
+            data-result-field="abstention_reason"
+          >
+            {r.abstention_reason}
+          </span>{" "}
+          · cost ${" "}
+          <span className="font-mono" data-result-field="cost_usd">
+            {r.cost_usd}
+          </span>
+        </p>
+      </section>
+    );
+  }
+  if (r.kind === "validation_failed") {
+    return (
+      <section
+        className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+        data-diagnostic-section="llm-draft-result"
+        data-llm-draft-result="validation_failed"
+      >
+        <p className="text-[12px] text-foreground">
+          ⚠ Validation failed · cost ${" "}
+          <span className="font-mono" data-result-field="cost_usd">
+            {r.cost_usd}
+          </span>{" "}
+          ·{" "}
+          <span
+            className="font-mono"
+            data-result-field="validation_errors"
+          >
+            {r.validation_errors}
+          </span>
+        </p>
+      </section>
+    );
+  }
+  if (r.kind === "blocked_budget") {
+    return (
+      <section
+        className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+        data-diagnostic-section="llm-draft-result"
+        data-llm-draft-result="blocked_budget"
+      >
+        <p className="text-[12px] text-foreground">
+          ⚠ Budget gate blocked ·{" "}
+          <span className="font-mono" data-result-field="reason">
+            {r.reason}
+          </span>
+        </p>
+      </section>
+    );
+  }
+  if (r.kind === "blocked_env") {
+    return (
+      <section
+        className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+        data-diagnostic-section="llm-draft-result"
+        data-llm-draft-result="blocked_env"
+      >
+        <p className="text-[12px] text-foreground">
+          LLM drafting blocked: BEACON_LLM_DRAFT_GATEWAY_ENABLED is not
+          {' "true"'}.
+        </p>
+      </section>
+    );
+  }
+  if (r.kind === "candidate_not_found") {
+    return (
+      <section
+        className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+        data-diagnostic-section="llm-draft-result"
+        data-llm-draft-result="candidate_not_found"
+      >
+        <p className="text-[12px] text-foreground">
+          Candidate not found. It may have changed between page load
+          and click.
+        </p>
+      </section>
+    );
+  }
+  if (r.kind === "invalid_candidate") {
+    return (
+      <section
+        className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+        data-diagnostic-section="llm-draft-result"
+        data-llm-draft-result="invalid_candidate"
+      >
+        <p className="text-[12px] text-foreground">
+          ⚠ Candidate did not pass action gate:{" "}
+          <span className="font-mono" data-result-field="reason">
+            {r.reason}
+          </span>
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section
+      className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+      data-diagnostic-section="llm-draft-result"
+      data-llm-draft-result="error"
+    >
+      <p className="text-[12px] text-foreground">
+        ⚠ Server action failed:{" "}
+        <span className="font-mono" data-result-field="msg">
+          {r.msg}
+        </span>
+      </p>
+    </section>
+  );
+}
+
+function LlmDraftPreviewSection(props: {
+  rows: ReadonlyArray<RecommendationCandidateRow>;
+  enabled: boolean;
+}) {
+  return (
+    <section
+      className="rounded-md border border-border/40"
+      data-diagnostic-section="llm-draft-preview"
+      data-row-count={props.rows.length}
+      data-llm-draft-enabled={props.enabled ? "true" : "false"}
+    >
+      <header className="border-b border-border/40 px-3 py-2">
+        <h2 className="text-[13px] font-semibold text-foreground">
+          LLM-Draft Preview
+        </h2>
+        <p className="text-[11px] text-muted-foreground">
+          Operator-only. Generate a render-only AI draft rewrite for a
+          single weak-H2 diagnostic candidate. One explicit per-row
+          click fires one LLM call.
+        </p>
+      </header>
+      {props.rows.length === 0 ? (
+        <p
+          className="px-3 py-2 text-[12px] text-muted-foreground"
+          data-diagnostic-section="llm-draft-preview-empty"
+        >
+          No weak-H2 diagnostic candidates available for LLM draft
+          preview.
+        </p>
+      ) : (
+        <>
+          {!props.enabled ? (
+            <p
+              className="px-3 py-2 text-[11px] text-status-warning"
+              data-llm-draft-disabled-caption
+            >
+              LLM drafting DISABLED. Set
+              BEACON_LLM_DRAFT_GATEWAY_ENABLED=true to enable.
+            </p>
+          ) : null}
+          <table className="w-full text-[12px] text-foreground">
+            <thead className="border-b border-border/40 bg-surface-inset/10 text-left">
+              <tr>
+                <th className="px-3 py-2 font-medium">Trigger</th>
+                <th className="px-3 py-2 font-medium">Action type</th>
+                <th className="px-3 py-2 font-medium">Target URL</th>
+                <th className="px-3 py-2 font-medium">Dedupe key</th>
+                <th className="px-3 py-2 font-medium">Generate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {props.rows.map((row) => (
+                <tr
+                  key={row.dedupe_key}
+                  data-llm-draft-row-trigger-signal={row.trigger_signal}
+                  data-llm-draft-row-action-type={row.action_type}
+                  data-llm-draft-row-dedupe-key={row.dedupe_key}
+                >
+                  <td className="px-3 py-2 font-mono text-[11px]">
+                    {row.trigger_signal}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[11px]">
+                    {row.action_type}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[11px] break-all">
+                    {row.target_url}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                    {row.dedupe_key.slice(0, 10)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <form
+                      action={generateLlmDraftAction}
+                      data-llm-draft-form
+                    >
+                      <input
+                        type="hidden"
+                        name="candidate_dedupe_key"
+                        value={row.dedupe_key}
+                      />
+                      <button
+                        type="submit"
+                        disabled={!props.enabled}
+                        aria-disabled={!props.enabled}
+                        className={
+                          props.enabled
+                            ? "rounded-md border border-border/40 bg-surface-inset/10 px-3 py-1 text-[12px] text-foreground"
+                            : "rounded-md border border-border/40 bg-surface-inset/20 px-3 py-1 text-[12px] text-muted-foreground"
+                        }
+                        data-llm-draft-button={
+                          props.enabled ? "enabled" : "disabled"
+                        }
+                      >
+                        Generate draft
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </section>
   );
 }

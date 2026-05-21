@@ -7,6 +7,72 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.E.α₁b₂-B: LLM-draft preview UI + 8-state result banner
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₁b₂-B only).** Fifth slice of Section 4.5.E LLM-assisted sub-chain. **Completes the operator-facing LLM-draft preview vertical** — operator can now click "Generate draft" on a weak-H2 diagnostic row from the browser. Pure UI consumer of α₁b₂-A's `generateLlmDraftAction`. **NO action changes. NO gateway changes. NO build-thin-packet changes. NO trigger changes. NO registry changes. NO domain module changes. NO render-isolation invariant changes (UNCHANGED-but-VERIFIED).** Page render NEVER invokes the gateway directly (Next.js Server Actions semantics: SSR embeds an encrypted action ID; the action fires only on explicit POST).
+
+**Files added (1) / modified (1 src + 5 docs) / deleted (0).**
+
+Modified (1 src):
+- `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx` — imports `generateLlmDraftAction` from `./actions` as a Server Action function reference (NOT a gateway import) + `isLlmDraftGatewayEnabled` from `@/lib/llm-draft-gateway-flag`. Threads `llmDraftResult = parseLlmDraftResult(searchParams)` + `llmDraftEnabled = isLlmDraftGatewayEnabled()` + `weakH2DiagnosticRows = result.diagnostic_only.filter(weak_h2 + rewrite_h2)` into the render path. Adds 8-variant `LlmDraftResult` discriminated union + `parseLlmDraftResult` parser (reads `llm_draft_result` discriminator + per-state fields via existing `readParam` helper; returns null for absent or unknown values) + `LlmDraftResultBanner` (8 banner branches; each emits `data-llm-draft-result="<status>"` attr; drafted shows `proposed_text` in `<pre>` + `cost_usd` + `bundle_size` + truncation notice conditional on `proposed_text_truncated=true` + "Render-only · not persisted." footer) + `LlmDraftPreviewSection` (filtered `diagnostic_only` rows; calm empty state; env-off disabled button + locked caption "LLM drafting DISABLED. Set BEACON_LLM_DRAFT_GATEWAY_ENABLED=true to enable."; env-on per-row `<form action={generateLlmDraftAction} data-llm-draft-form>` with hidden `candidate_dedupe_key` input + enabled `Generate draft` submit button). Section emits `data-diagnostic-section="llm-draft-preview"` + `data-row-count` + `data-llm-draft-enabled` attrs. Section inserted between `<DiagnosticOnlySection>` and `<PromotionPreviewSection>` per locked placement. Result banner inserted near the existing `<ActionResultBanner>` at the top of the page tree. **No bulk button. No confirmation phrase. Page render NEVER invokes the gateway.**
+
+Added (1 test file):
+- `tests/app/diagnostics/recommendation-triggers-page-llm-draft-section.test.tsx` (~415 lines, 18 cases) — section render with rows + empty state + non-weak-H2 exclusion (asserts non-weak-H2 dedupe_key NOT present + section data-row-count = 1) + env on/off (button enabled/disabled + caption visibility) + one form per row (form count = row count) + hidden input candidate_dedupe_key carries row dedupe_key + all 8 banner states render correct copy + data-attr + drafted truncation notice (conditional) + unknown-state-renders-no-banner + gateway mock never invoked from page render. Mocking strategy: `vi.mock()` at import boundary for every dependency (operator-mode + env helper + tenant + loader + repository + business config + response store + brand assertions + thin packet builder + gateway + promotion writer + indexability batch + next/cache + next/navigation). NO real LLM call.
+
+Doc syncs (5):
+- HANDOFF_VERIFIED_STATE.md (top entry refreshed)
+- NEXT_PHASE_EXECUTION_PLAN.md (top entry refreshed)
+- VERIFICATION_LOG.md (this entry)
+- ARCHITECTURE_INVARIANTS_CATALOG.md (existing render-isolation row narrative refined to confirm α₁b₂-B unchanged-but-verified)
+- RECOMMENDATION_INTELLIGENCE_AUDIT.md (α₁b₂-B snapshot row appended)
+
+**Locked decisions honored (1-16).**
+1. Single UI-only slice — under +1,000 hard stop.
+2. MODIFY page.tsx only for source.
+3. ADD one page render test file.
+4. No action changes.
+5. No gateway changes.
+6. No build-thin-packet changes.
+7. No render-isolation invariant changes (UNCHANGED — narrative refined only).
+8. No domain module changes.
+9. No registry changes.
+10. No queue writes.
+11. No automatic LLM call on page render.
+12. No bulk LLM calls.
+13. Page imports only `generateLlmDraftAction` from `./actions`.
+14. Page does NOT import llm-draft-gateway.
+15. Page does NOT reference draftProposedTextForCandidate.
+16. Page does NOT import openaiProvider.
+
+**Auto-pass invariants (existing α-family + α₀ + α₁a + α₁b₁ + α₁b₂-A + α₁c + 4.5.F).**
+- `recommendation-intelligence-llm-draft-gateway-render-isolation` UNCHANGED (page.tsx satisfies all 6 source-text negatives; global allowlist still finds EXACTLY ONE caller = actions.ts).
+- `recommendation-intelligence-no-queue-write` (page.tsx already in scan set; verified zero new persistence imports + no `runProviderAndPersist` + no Supabase write shape).
+- `recommendation-intelligence-llm-draft-gateway-contract` (α₀ gateway unchanged).
+- `recommendation-intelligence-promotion-live-write-guards` (α₁c unchanged).
+- `recommendation-intelligence-offsite-contract` (4.5.F unchanged).
+- `specific-edit-target-constraint` (page does not invoke heavy packet builder).
+- `catalog-sync` (existing render-isolation row updated in-place; no new file added; no drift).
+
+**Hard contracts honored.** NO action changes · NO gateway changes · NO build-thin-packet changes · NO trigger changes · NO registry changes · NO `generatorActive` flips · NO queue writes · NO persistence imports · NO `recommended-edits-persistence` import · NO `runProviderAndPersist` · NO direct Supabase `recommended_edits` write shape · NO OpenAI provider import in page · NO gateway import in page · NO `draftProposedTextForCandidate` reference in page · NO automatic LLM calls on page render · NO bulk LLM calls · NO customer-facing route changes · NO Today/Changes/Prompts/Settings/Recommendations/Section 9 changes · NO migrations · NO cron/workflows · NO env mutation in Vercel.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` → ✅ clean
+- Targeted α₁b₂-B page suite: 18 cases ✅
+- Regression on related test files: recommendation-triggers-page (39) + promote-action (21) + generate-llm-draft-action (22) + render-isolation invariant (19) = **101 cases ✅**
+- Full architecture suite → ✅ 217 files / 5241 tests (no new architecture invariants added)
+- Full vitest suite: TO RUN
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`: TO RUN
+
+**Result.** READY_TO_COMMIT — not pushed. Proposed commit message: `feat(recommendations): add llm draft preview UI`. Worktree state after commit: 5 commits ahead of `origin/main` (`2923f25` α₀ + `ee90111` α₁a + `5666639` α₁b₁ + `aa8072b` α₁b₂-A + new α₁b₂-B).
+
+**The Section 4.5.E LLM-draft preview vertical is now complete end-to-end** behind `BEACON_LLM_DRAFT_GATEWAY_ENABLED=true`: detection → infrastructure → action → UI. Operator can visit `/diagnostics/recommendation-triggers`, see weak-H2 diagnostic candidates in the new LLM-Draft Preview section, click "Generate draft" on a row, and see the result in one of 8 banners after the redirect.
+
+**Next phase.** Operator review → local commit only → batch-push Section 4.5.E checkpoint (all 5 commits together) OR continue with additional 4.5.E work first per operator preference.
+
+---
+
 ## 2026-05-21 — Slice 4.5.E.α₁b₂-A: operator-only server action + evolved render-isolation invariant
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
