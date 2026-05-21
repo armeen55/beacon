@@ -81,6 +81,87 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.E.α₁b₂-A — operator-only server action +
+> evolved render-isolation invariant (2026-05-21)**: Fourth
+> slice of Section 4.5.E. **First slice that activates the
+> LLM call path end-to-end** (server-action side; page UI
+> consumer deferred to α₁b₂-B). Adds (1) the operator-only
+> env-gated server action `generateLlmDraftAction(formData)`
+> in `src/app/(shell)/diagnostics/recommendation-triggers/
+> actions.ts` with an 11-step fail-closed gate ladder
+> (operator → env → tenant → FormData → fresh candidate
+> load → diagnostic_only-only resolution → shape validation
+> → snapshot exact-URL match → business config → brand
+> assertions (empty allowed) → build thin packet → invoke
+> gateway), `revalidatePath` + redirect with result params
+> on success and on every failure path; (2) EVOLVED the
+> render-isolation invariant from α₁b₁'s "no caller yet"
+> (7 cases) to α₁b₂-A's "exactly one allowlisted caller"
+> (19 cases) — pins 6 source-text negatives on page.tsx,
+> 9 source-text contracts on actions.ts (4 positive + 5
+> negative), 2 global allowlist scans, 2 file-exists pins.
+> Pattern mirrors `recommendation-intelligence-promotion-
+> live-write-guards`. **Split from oversized α₁b₂ first
+> pass**: original combined slice (α₁b₂-A + α₁b₂-B) was
+> 1,725 lines = +725 over the +1,000 hard stop; operator
+> approved Option 1 clean split; oversized changes were
+> reverted via `git restore` + untracked-file deletion
+> before α₁b₂-A implementation began. **NO page.tsx change.
+> NO UI section. NO LLM-Draft Preview visual surface yet.
+> NO automatic LLM call. NO bulk LLM call. NO queue write.
+> NO live promotion. NO confirmation phrase.** Action is
+> reachable only via hand-crafted POST (still operator +
+> env-flag gated). 1 MODIFIED src file + 1 EVOLVED
+> invariant + 1 NEW test file + 5 doc syncs. **Result-
+> param transport per P6 OVERRIDE**: drafted carries
+> `cost_usd` (6-decimal) + `bundle_size` + `proposed_text`
+> capped to 500 chars + `proposed_text_truncated=true`
+> flag when truncated + `candidate_dedupe_key` echo. Other
+> 7 states (abstained / validation_failed / blocked_budget
+> / blocked_env / candidate_not_found / invalid_candidate
+> / error) carry their respective truncated payloads.
+> **Locked decisions honored (1-10, all LOCKED after
+> split)**: single slice (after operator split decision) ·
+> FormData input · fresh re-read via
+> `loadTriggerCandidatesForTenant` · diagnostic_only-only
+> resolution (reject main bucket) · URL params transport ·
+> `proposed_text` in URL capped 500 chars + truncated flag
+> (operator OVERRIDE — no in-memory cache, no deferred
+> viewer) · action-contract pins folded into evolved
+> render-isolation invariant (no separate invariant file) ·
+> no confirmation phrase · no per-tenant rate limit ·
+> snapshot exact URL match via `getRepository`.
+> **Auto-pass** (existing α-family + α₀ + α₁a + α₁b₁ +
+> α₁c + 4.5.F): `no-queue-write` (auto-covers `actions.ts`
+> already in scan set — verified zero new persistence
+> imports / no `runProviderAndPersist` / no Supabase write
+> shape), `llm-draft-gateway-contract` (α₀ unchanged),
+> `promotion-live-write-guards` (α₁c unchanged),
+> `offsite-contract` (4.5.F unchanged), `specific-edit-
+> target-constraint` (action does not invoke heavy packet
+> builder), `catalog-sync` (existing render-isolation row
+> updated in-place). **Hard contracts honored**: NO
+> page.tsx change · NO UI section · NO LLM-Draft Preview
+> visual surface yet · NO bulk LLM calls · NO automatic
+> LLM calls on page render · NO queue write · NO live
+> promotion · NO persistence imports · NO `recommended-
+> edits-persistence` import · NO `runProviderAndPersist` ·
+> NO direct Supabase `recommended_edits` write shape · NO
+> OpenAI provider import in action (provider reached ONLY
+> through gateway) · NO registry changes · NO
+> `generatorActive` flips · NO trigger predicate changes ·
+> NO weak-h2 changes · NO llm-draft-gateway changes · NO
+> build-thin-packet changes · NO `rewrite_faq` activation ·
+> NO `refresh_stale_page` addition · NO customer-facing
+> route changes · NO Today / Changes / Prompts / Settings /
+> Recommendations / Section 9 changes · NO migrations · NO
+> cron/workflows. **The LLM call path is now operator-
+> reachable end-to-end via hand-crafted POST** behind
+> `BEACON_LLM_DRAFT_GATEWAY_ENABLED=true`. Page UI button
+> to expose the action to operators in the browser lands
+> in α₁b₂-B (no invariant changes expected — page.tsx
+> adds a button that POSTs to the existing action;
+> gateway is still imported by exactly one file).
 > **Slice 4.5.E.α₁b₁ — env flag + thin packet builder +
 > render-isolation invariant (2026-05-21)**: Third slice of
 > Section 4.5.E. Caller-side infrastructure ONLY. Adds (1) the

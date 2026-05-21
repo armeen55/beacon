@@ -7,6 +7,64 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.E.α₁b₂-A: operator-only server action + evolved render-isolation invariant
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₁b₂-A only).** Fourth slice of Section 4.5.E LLM-assisted sub-chain. **First slice that activates the LLM call path end-to-end** (server-action side; page UI consumer deferred to α₁b₂-B). Adds the operator-only env-gated server action `generateLlmDraftAction(formData)` with an 11-step fail-closed gate ladder, plus evolves the render-isolation invariant from "no caller yet" to "exactly one allowlisted caller = actions.ts" (mirrors `promotion-live-write-guards`). **NO page UI change. NO automatic LLM call. NO bulk LLM call. NO queue write. NO live promotion. NO confirmation phrase.** Action is reachable only via hand-crafted POST (still operator + env-flag gated). Page UI button to expose the action in the browser lands in α₁b₂-B.
+
+**Split context.** First pass of α₁b₂ combined α₁b₂-A (action + invariant + action tests) and α₁b₂-B (page UI + page tests) into a single slice. That came to 1,725 lines = +725 over the +1,000 hard stop. Per locked rule "If first pass >1,000, stop and propose split", I reported the overrun without committing. Operator approved Option 1 (clean split). Oversized changes were reverted cleanly via `git restore` + `rm` for untracked files. Worktree was confirmed clean + 3 commits ahead of `origin/main` before α₁b₂-A implementation began.
+
+**Files added (1) / modified (2 src+tests + 5 docs) / deleted (0).**
+
+Modified (2 src+tests):
+- `src/app/(shell)/diagnostics/recommendation-triggers/actions.ts` — adds `generateLlmDraftAction(formData): Promise<never>` alongside the existing `promoteEligibleCandidatesAction`. 11-step gate ladder: operator → env → tenant → FormData → fresh candidate load → diagnostic_only-only resolution → shape validation (5 fields) → snapshot resolution (exact URL match via `getRepository().forTenant(tenantId).getPageSnapshots()`) → `getBusinessConfig()` → `getBrandAssertions(tenantId)` (empty allowed) → `buildThinPacketForCandidate(...)` → `draftProposedTextForCandidate({packet})`. `revalidatePath` + redirect on success; `redirect` on every failure path (8 distinct `llm_draft_result` values). Result transport: URL params; `proposed_text` capped to 500 chars + `proposed_text_truncated=true` flag (P6 operator OVERRIDE).
+- `tests/architecture/recommendation-intelligence-llm-draft-gateway-render-isolation.test.ts` — evolved from α₁b₁'s 7 cases to α₁b₂-A's 19 cases. Adds 9 source-text pins on the allowlisted action file (4 positive imports + 5 negative imports) and changes the global scan from "ZERO importers" to "EXACTLY ONE allowlisted importer = actions.ts". Pattern mirrors `recommendation-intelligence-promotion-live-write-guards`.
+
+Added (1 test file):
+- `tests/app/diagnostics/recommendation-triggers-generate-llm-draft-action.test.ts` (~555 lines, 22 cases) — `vi.hoisted()` mockState pattern; all 11 gates exercised; drafted-truncated AND non-truncated paths; revalidatePath spy assertions; NO real LLM call (gateway mocked at import boundary).
+
+Doc syncs (5):
+- HANDOFF_VERIFIED_STATE.md (top entry refreshed)
+- NEXT_PHASE_EXECUTION_PLAN.md (top entry refreshed)
+- VERIFICATION_LOG.md (this entry)
+- ARCHITECTURE_INVARIANTS_CATALOG.md (existing render-isolation row updated in-place with α₁b₂-A evolution)
+- RECOMMENDATION_INTELLIGENCE_AUDIT.md (α₁b₂-A snapshot row appended)
+
+**Operator decisions honored (1-10, all LOCKED after split).**
+1. P1 single slice (after operator split decision).
+2. P2 FormData input with `candidate_dedupe_key`.
+3. P3 fresh re-read via `loadTriggerCandidatesForTenant`.
+4. P4 diagnostic_only-only resolution; reject candidates from main bucket.
+5. P5 redirect URL params for result transport.
+6. P6 OVERRIDE: `proposed_text` in URL capped 500 chars + truncated flag.
+7. P7 action-contract pins folded into render-isolation invariant.
+8. P8 no confirmation phrase.
+9. P9 no per-tenant rate limit.
+10. P10 snapshot resolution via `getRepository` with exact `target_url` match.
+
+**Auto-pass invariants (existing α-family + α₀ + α₁a + α₁b₁ + α₁c + 4.5.F).**
+- `recommendation-intelligence-no-queue-write` (auto-covers `actions.ts` already in its scan set).
+- `recommendation-intelligence-llm-draft-gateway-contract` (α₀ gateway unchanged).
+- `recommendation-intelligence-promotion-live-write-guards` (α₁c unchanged).
+- `recommendation-intelligence-offsite-contract` (4.5.F unchanged).
+- `specific-edit-target-constraint` (action does not invoke heavy packet builder).
+- `catalog-sync` (existing row updated in-place).
+
+**Hard contracts honored.** NO page.tsx change · NO UI section · NO LLM-Draft Preview visual surface yet · NO bulk LLM calls · NO automatic LLM calls on page render · NO queue write · NO live promotion · NO persistence imports · NO `recommended-edits-persistence` import · NO `runProviderAndPersist` · NO direct Supabase `recommended_edits` write shape · NO OpenAI provider import in action · NO registry changes · NO `generatorActive` flips · NO trigger predicate changes · NO weak-h2 changes · NO llm-draft-gateway changes · NO build-thin-packet changes · NO `rewrite_faq` activation · NO `refresh_stale_page` addition · NO customer-facing route changes · NO Today/Changes/Prompts/Settings/Recommendations/Section 9 changes · NO migrations · NO cron/workflows · NO env mutation in Vercel.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` → ✅ clean
+- Targeted α₁b₂-A suite: action (22 cases) + render-isolation (19 cases) → ✅ 41 cases
+- Full vitest suite: TO RUN
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`: TO RUN
+
+**Result.** READY_TO_COMMIT — not pushed. Proposed commit message: `feat(recommendations): add llm draft action`. Worktree state after commit: 4 commits ahead of `origin/main` (`2923f25` α₀ + `ee90111` α₁a + `5666639` α₁b₁ + new α₁b₂-A).
+
+**Next slice (α₁b₂-B).** Page UI section (LLM-Draft Preview + 8-state result banner) + page render tests under `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx`. Consumes the action shipped here via `<form action={generateLlmDraftAction}>` + hidden `candidate_dedupe_key` input. No invariant changes expected — page.tsx adds a button that POSTs to the existing action; the gateway is still imported by exactly one file (actions.ts).
+
+---
+
 ## 2026-05-21 — Slice 4.5.E.α₁b₁: env flag + thin packet builder + render-isolation invariant
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
