@@ -7,6 +7,111 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.G-B.2: write-time sanitizer forward-prevention
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, B.2 only).** Second half of Section 4.5.G-B safety hardening. **Forward-only complement to B.1's render-time guard.** B.1 (deployed at `origin/main = 25cb285` post-2026-05-21) blocks the 4 high-severity leak kinds at customer render. B.2 prevents NEW leaks from being persisted by extending the existing write-time sanitizer (`sanitizeOperatorEvidenceText` at `src/domains/recommendations/copy-sanitize.ts`) which already scrubs canonical UUIDs at row creation per the M2 (2026-05-05) operator audit.
+
+**Pre-edit inspection (operator step 1-4 honored).**
+- Sanitizer source: `src/domains/recommendations/copy-sanitize.ts` (the M2 implementation; pure UUID scrubber).
+- Write-time call site: `src/domains/recommendations/recommended-edits-persistence.ts:246-259` applies `sanitizeOperatorEvidenceText` to `why`, `expectedImpact`, `measurementPlan`, `displayLabel` before Supabase persistence. This IS the correct central point — confirmed; no need to add a new call site.
+- Render-time call sites: `recommendations-client.tsx:1446 / 1573 / 1582` apply the same sanitizer at render (legacy drawer; B.1 render-guard wraps these on the same code path). B.2 does NOT touch the render-time use.
+
+**Hard contracts honored.** Pure string transformation · NO production data mutations (forward-only; existing rows unchanged) · NO LLM call · NO paid API call · NO Supabase writes · NO migrations · NO env changes · NO validator changes (`specific-edit-validator` unchanged) · NO brand-assertions changes · NO `generatorActive` flips / no registry changes · NO new top-level routes · NO `revalidatePath` · NO server actions · NO Today/Changes/Prompts/Settings/Section 6/9 changes · NO `recommendation-intelligence` tree changes · **B.1 render-guard binary-untouched** (architecture invariant pins zero imports between `copy-sanitize.ts` and `why-display-guard.ts`).
+
+**Files modified (1 src + 1 unit test) / added (1 architecture invariant) / docs synced (5). B.1 render-guard UNCHANGED.**
+
+Modified (1 src + 1 test):
+
+1. `src/domains/recommendations/copy-sanitize.ts` — added two locked constants + one new exported helper + a 2-line evolution of the existing `sanitizeOperatorEvidenceText`:
+   - `LONG_HEX_HASH_PATTERN_GLOBAL = /\b[0-9a-f]{32,}\b/gi` — catches SHA-1 (40), SHA-256 (64), MD5 (32), and similar opaque identifiers. Runs AFTER UUID pass so canonical 8-4-4-4-12 hyphenated forms are already gone.
+   - `INTERNAL_TOKEN_REPLACEMENTS` — array of 10 [regex, replacement] pairs covering the 12 locked B.1 tokens (the 3 Mode labels share one `\bMode\s+[ABC]\b` regex). Order: ai/search-signal tokens → taxonomy tokens → mode labels → recommendation IDs (more-specific `source_rec_id` BEFORE `rec_id`) → bucket labels.
+   - `scrubInternalLeakagePatterns(text: string): string` — pure helper, exported for testability. Runs long-hex replacement then walks the token table.
+   - `sanitizeOperatorEvidenceText` — existing M2 entry point. Restructured the early-return so the new B.2 pipeline runs UNCONDITIONALLY (no longer gated by `UUID_PATTERN_SINGLE.test(text)`). UUID pass runs ONLY when at least one UUID is present; B.2 pass runs always.
+
+   Replacement style locked per operator instruction:
+   - `aiSearchSignal` → `search-intent signals`
+   - `actualSearchQueries` → `observed search-intent signals`
+   - `action_type` → `action type`
+   - `trigger_signal` → `signal`
+   - `evidence_tier` → `evidence`
+   - `Mode A` / `Mode B` / `Mode C` → `Beacon's evaluation mode`
+   - `source_rec_id` → `source recommendation`
+   - `rec_id` → `recommendation`
+   - `diagnostic_only` → `diagnostic`
+   - `customer-queue-ready` → `customer queue`
+   - Long-hex hashes → `prompt evidence` (mirrors UUID-fallback wording)
+
+2. `src/domains/recommendations/copy-sanitize.test.ts` — extended from 16 to 49 cases (+33 B.2 cases):
+   - Long-hex (4): 32-char (MD5-shape) / 40-char (SHA-1-shape) / 64-char (SHA-256-shape) / ≤31-char negative.
+   - ai-signal tokens (3): `aiSearchSignal` / `actualSearchQueries` / both combined.
+   - Taxonomy tokens (3): `action_type` / `trigger_signal` / `evidence_tier`.
+   - Mode labels (4): `Mode A` / `Mode B` / `Mode C` / "Mode of operation" non-blocking.
+   - Rec IDs (2): `rec_id` / `source_rec_id` (more-specific wins).
+   - Bucket labels (2): `diagnostic_only` / `customer-queue-ready`.
+   - Pass-through (5): `architect-led` / `architect-designed` / `best` / clean text / idempotent on dirty input.
+   - Multi-token rows (2): all 12 tokens in one string + hash+token combined.
+   - `sanitizeOperatorEvidenceText` B.2 integration (5): token without UUID / hash without UUID / UUID+token combined / clean text / idempotent.
+   - `sanitizeOperatorCopyFields` B.2 integration (1): all 4 write-time fields covered.
+
+Added (1 architecture invariant):
+
+3. `tests/architecture/recommendation-copy-sanitize-purity.test.ts` (~200 lines, 30 cases) — pins both module purity AND coverage contract:
+   - **Module purity (12 pins)**: file exists; no `fetch(`; no Supabase import; no LLM provider import; no `recommended-edits-persistence` import; no brand-assertions; no validator; no `why-display-guard` (B.1 render path stays separate); no `suggested-copy-display-guard`; no action-types registry; no Supabase `recommended_edits` write shape; exports `sanitizeOperatorEvidenceText` + `scrubInternalLeakagePatterns`.
+   - **Coverage contract (16 pins)**: source carries the long-hex pattern (`\b[0-9a-f]{32,}\b/gi`); uses `"prompt evidence"` fallback; per-token literal pins for the 9 word-boundary-friendly tokens (`aiSearchSignal`, `actualSearchQueries`, `action_type`, `trigger_signal`, `evidence_tier`, `rec_id`, `source_rec_id`, `diagnostic_only`, `customer-queue-ready`); 1 shared `Mode\s+[ABC]` regex pin covering Mode A/B/C; replacement-style spot-check (`"search-intent signals"` + `"observed search-intent signals"` + `"Beacon's evaluation mode"`).
+   - **Deferral pins (4)**: source does NOT match `architect-led` / `architect-designed` / `\bbest\b` replacement keys (B.4 deferral); source does NOT contain `validateCompetitorPublicCopy` / `competitorNames` (competitor scrubbing on separate validator path).
+
+**Locked decisions honored.**
+- Extend `sanitizeOperatorEvidenceText` (operator-confirmed correct central point — already wired at the persistence layer).
+- Pure string transformation only (no I/O, no Supabase, no LLM).
+- Idempotent (replacement strings contain none of the matched tokens).
+- Preserves M2 UUID-with-prompt-mapping behavior intact.
+- B.1 render-guard UNCHANGED — invariant pins zero imports between the two modules.
+- Forward-only: B.2 does NOT modify historical rows.
+- Deferred kinds (`unsupported_claim`, `architect_overclaim`, `best`, `architect-led`, `architect-designed`) intentionally NOT scrubbed; invariant locks the absence of their replacement keys in active source.
+- Competitor names NOT scrubbed by B.2 — handled on the separate `validateCompetitorPublicCopy` path.
+
+**Architecture invariants.**
+- 1 NEW: `recommendation-copy-sanitize-purity` (30 cases).
+- Auto-pass:
+  - `recommendation-why-render-guard` (B.1 unchanged).
+  - `recommendation-safety-audit-coverage` (A.1 scanner unchanged).
+  - `recommendation-safety-audit-read-only` (A.1/A.2 unchanged).
+  - `recommendation-intelligence-no-queue-write` (sanitizer lives under `src/domains/recommendations/`, NOT under `recommendation-intelligence/`; no new persistence imports under the scanned tree).
+  - `recommendation-intelligence-llm-draft-gateway-render-isolation` (unchanged).
+  - `llm-safety-invariants` (no provider imports / no `runProviderAndPersist`).
+  - `catalog-sync` (1 new row added in `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` in lockstep).
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck`: TO RUN
+- Targeted B.2 suite (sanitizer 49 + B.2 invariant 30 = 79 cases): **79/79 passing** ✅
+- Regression on B.1 (guard 33 + render-guard invariant 24 = 57 cases): TO RUN
+- Regression on A.1 scanner (31 cases): TO RUN
+- Regression on A.1 coverage (15 cases): TO RUN
+- Regression on A.2 read-only (27 cases): TO RUN
+- `catalog-sync` (with new B.2 row): TO RUN
+- Full architecture suite: TO RUN
+- Full vitest (`npm run test`): TO RUN
+- Tenant-env build (`BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`): TO RUN
+
+**Line budget.** src+tests delta ≤ +1,000 hard stop. Expected: ~430-500 lines (sanitizer extension + test extension + invariant). TO measure precisely.
+
+**Result.** Section 4.5.G-B safety floor for the 4 B.1-locked reason kinds is now end-to-end:
+- **A.1** (audit time) detects historical violations on every `recommended_edits` row.
+- **B.1** (render time) blocks customer-visible leakage at the 4 known render paths.
+- **B.2** (write time) prevents NEW leaks from being persisted at row creation.
+
+Defense-in-depth across the full lifecycle. The 2026-05-21 production audit findings (10 uuid_leak + 5 internal_token + 4 competitor_name leaks among the 73 violations) stay visible to the operator at `/diagnostics/recommendation-safety-audit` — B.2 does NOT mutate historical rows.
+
+**STOPPED AT READY_TO_COMMIT — not pushed.**
+
+Proposed commit message: `fix(recommendations): scrub internal tokens in reasoning copy`.
+
+**Next phase recommendation.** Operator review → local commit only → optional push for CI/Vercel verification (test-only sufficient since B.2 is write-time and historical rows are unchanged; production deploy is safe but customer-facing behavior is already covered by B.1 at render time), OR pivot to slice 4.5.G-B.4 (architect_overclaim + unsupported_claim addition with brand-assertion carve-out — higher risk, breaks current purity contract), OR pivot to Section 5 (repeat-citation classifier) / Section 6 (primary-recommendation Mode A/B) / Section 7 (off-site authority).
+
+---
+
 ## 2026-05-21 — Slice 4.5.G-B.1: recommendation `why` render-time guard
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

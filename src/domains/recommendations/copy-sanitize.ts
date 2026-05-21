@@ -122,6 +122,98 @@ function lookupPromptText(
   return rec[uuid.toLowerCase()] ?? rec[uuid];
 }
 
+// ---------------------------------------------------------------------------
+// Slice 4.5.G-B.2 — write-time prevention for the same high-severity
+// internal leakage patterns the B.1 render-guard catches at render time
+// (2026-05-21).
+// ---------------------------------------------------------------------------
+//
+// The 2026-05-21 production audit at /diagnostics/recommendation-safety-
+// audit surfaced 19 B.1-blocked violations across active rows: 10
+// canonical-UUID leaks, 5 internal-token leaks (`aiSearchSignal` et al.),
+// 4 competitor-name leaks. B.1 caught these at render. B.2 closes the
+// other half of the loop: prevent NEW leaks at row creation by scrubbing
+// generated reasoning/evidence copy BEFORE Supabase persistence.
+//
+// Scope discipline (mirrors B.1):
+//   • Handle: canonical UUIDs (already handled above), long 32+ hex/hash
+//     strings, the 12 locked internal taxonomy tokens.
+//   • Do NOT handle: unsupported_claim, architect_overclaim, "best",
+//     architect-led, architect-designed — those defer to slice 4.5.G-B.4
+//     pending the brand-assertion carve-out.
+//   • Do NOT mutate historical rows. B.2 is forward-only.
+//   • Do NOT replicate the B.1 competitor-name guard here — competitor
+//     scrubbing already lives on a separate validator path
+//     (`validateCompetitorPublicCopy`) and the existing sanitizer in this
+//     module does not have access to the per-tenant `competitorNames`
+//     list at the write-time call site.
+
+/**
+ * Long-hex / hash-like string (32+ contiguous hex chars), case-
+ * insensitive, word-boundary anchored. Catches SHA-1 (40), SHA-256 (64),
+ * MD5 (32), and similar opaque identifiers that B.1 blocks at render.
+ * Runs AFTER the UUID replacement so canonical 8-4-4-4-12 forms are
+ * already gone by the time this fires — avoids false matches on UUID
+ * substrings.
+ */
+const LONG_HEX_HASH_PATTERN_GLOBAL = /\b[0-9a-f]{32,}\b/gi;
+
+/**
+ * Internal taxonomy tokens — locked to mirror the B.1 render-guard's
+ * blocklist exactly. Each entry pairs a regex with a customer-safe
+ * replacement string per the operator-locked replacement style.
+ *
+ * Order matters slightly: more-specific tokens (`source_rec_id`) come
+ * BEFORE less-specific ones (`rec_id`) so the longer match wins. Each
+ * regex uses `\b` where word chars allow it and explicit non-alphanumeric
+ * lookarounds for hyphenated tokens (`customer-queue-ready`) and `Mode X`.
+ *
+ * Idempotency: replacements are designed so a second pass is a no-op
+ * (e.g., `"search-intent signals"` does not contain `aiSearchSignal`).
+ */
+const INTERNAL_TOKEN_REPLACEMENTS: ReadonlyArray<[RegExp, string]> = [
+  // ai/search signal tokens (replace with operator-approved neutral copy)
+  [/\baiSearchSignal\b/g, "search-intent signals"],
+  [/\bactualSearchQueries\b/g, "observed search-intent signals"],
+  // taxonomy tokens (collapse to plain English)
+  [/\baction_type\b/g, "action type"],
+  [/\btrigger_signal\b/g, "signal"],
+  [/\bevidence_tier\b/g, "evidence"],
+  // mode labels — operator vocabulary that must not appear customer-facing
+  [/\bMode\s+[ABC]\b/g, "Beacon's evaluation mode"],
+  // recommendation IDs — more-specific first
+  [/\bsource_rec_id\b/g, "source recommendation"],
+  [/\brec_id\b/g, "recommendation"],
+  // bucket labels
+  [/\bdiagnostic_only\b/g, "diagnostic"],
+  // hyphenated token: lookaround on non-alphanumerics (\b treats hyphens as boundaries)
+  [/(?<![A-Za-z0-9])customer-queue-ready(?![A-Za-z0-9])/g, "customer queue"],
+];
+
+/**
+ * Apply the B.2 forward-prevention scrubbers: long hex hashes and the
+ * 12 locked internal taxonomy tokens. Each pattern replaces with a
+ * customer-safe substitute; surrounding text is preserved.
+ *
+ * Pure. Deterministic. Idempotent — running on an already-scrubbed
+ * string is a no-op because the replacement strings contain none of
+ * the matched tokens.
+ *
+ * Exported for testability + so future call sites (e.g., a future cron
+ * that re-scrubs at scan time) can reuse the same logic without
+ * needing the `promptTextById` lookup that the UUID path requires.
+ */
+export function scrubInternalLeakagePatterns(text: string): string {
+  let out = text;
+  // Long hex hashes (post-UUID-replacement — canonical UUIDs are already gone)
+  out = out.replace(LONG_HEX_HASH_PATTERN_GLOBAL, "prompt evidence");
+  // 12 locked internal tokens
+  for (const [pattern, replacement] of INTERNAL_TOKEN_REPLACEMENTS) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
 /**
  * Strip prompt UUIDs from operator-visible copy and replace each with
  * a quoted snippet of the prompt text when the mapping is available,
@@ -129,8 +221,13 @@ function lookupPromptText(
  * an unknown prompt (e.g., a deleted prompt or a hand-typed UUID with
  * no prompt-row counterpart).
  *
+ * Slice 4.5.G-B.2 (2026-05-21): in addition to UUIDs, also scrubs the
+ * locked long-hex-hash + internal-taxonomy-token leakage patterns the
+ * B.1 render-guard catches. Forward-only: this sanitizer runs at
+ * persistence time; it does NOT mutate historical rows.
+ *
  * Preserves all surrounding text. Idempotent — running twice is a
- * no-op once the UUIDs are gone.
+ * no-op once the UUIDs/hashes/tokens are gone.
  *
  * Caller contract:
  *   • Pass `promptTextById` containing every prompt the operator might
@@ -147,22 +244,28 @@ export function sanitizeOperatorEvidenceText(
   promptTextById: PromptTextLookup | undefined,
 ): string | null | undefined {
   if (typeof text !== "string" || text.length === 0) return text;
-  if (!UUID_PATTERN_SINGLE.test(text)) return text;
+  let out = text;
+  // Phase 1 — UUID replacement (existing M2 behavior, 2026-05-05).
   // Use a fresh regex instance because /g state persists on the literal
   // when used with .test() / .exec() — a subtle source of bugs.
-  return text.replace(
-    new RegExp(UUID_PATTERN_GLOBAL.source, "gi"),
-    (_match, uuid: string) => {
-      const lookup = lookupPromptText(promptTextById, uuid);
-      if (typeof lookup === "string" && lookup.trim().length > 0) {
-        return `prompt: "${snippetForPrompt(lookup)}"`;
-      }
-      // Unknown UUID — replace with neutral fallback. Avoid emitting
-      // the raw ID; if a future operator wants the ID for debugging,
-      // they can read the underlying evidence array.
-      return "prompt evidence";
-    },
-  );
+  if (UUID_PATTERN_SINGLE.test(out)) {
+    out = out.replace(
+      new RegExp(UUID_PATTERN_GLOBAL.source, "gi"),
+      (_match, uuid: string) => {
+        const lookup = lookupPromptText(promptTextById, uuid);
+        if (typeof lookup === "string" && lookup.trim().length > 0) {
+          return `prompt: "${snippetForPrompt(lookup)}"`;
+        }
+        // Unknown UUID — replace with neutral fallback. Avoid emitting
+        // the raw ID; if a future operator wants the ID for debugging,
+        // they can read the underlying evidence array.
+        return "prompt evidence";
+      },
+    );
+  }
+  // Phase 2 — B.2 forward-prevention scrubbers (2026-05-21).
+  out = scrubInternalLeakagePatterns(out);
+  return out;
 }
 
 /**

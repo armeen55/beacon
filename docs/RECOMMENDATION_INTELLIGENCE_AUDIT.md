@@ -81,6 +81,98 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.G-B.2 — write-time sanitizer forward-prevention
+> (2026-05-21)**: Second half of Section 4.5.G-B safety
+> hardening. **Forward-only complement to B.1's render-time
+> guard.** B.1 (deployed at `origin/main = 25cb285`) blocks
+> the 4 high-severity leak kinds (uuid_leak / long_hex_hash /
+> internal_token / competitor_name) at customer render. B.2
+> prevents NEW leaks from being persisted at row creation —
+> extends the existing write-time sanitizer
+> (`sanitizeOperatorEvidenceText` at `src/domains/
+> recommendations/copy-sanitize.ts`) which already scrubs
+> canonical UUIDs per the M2 (2026-05-05) operator audit.
+> Pre-edit inspection confirmed the sanitizer IS the correct
+> central point — already wired at `recommended-edits-
+> persistence.ts:246-259` for `why` / `expectedImpact` /
+> `measurementPlan` / `displayLabel` before Supabase
+> persistence. B.2 adds two new pattern families to the SAME
+> pure-function pipeline: (a) long 32+ hex/hash strings
+> (SHA-1 / SHA-256 / MD5 / similar) replaced with
+> `"prompt evidence"`; (b) the 12 locked internal taxonomy
+> tokens (mirrors B.1's blocklist EXACTLY) replaced with
+> operator-approved customer-safe wording. **Pure string
+> transformation. NO production data mutations · NO LLM ·
+> NO Supabase writes · NO env changes · NO migrations · NO
+> validator changes · NO brand-assertions changes · NO
+> registry/action-types changes · NO B.1 render-guard
+> changes.** Inherits B.1 scope discipline:
+> `unsupported_claim` + `architect_overclaim` deferred to
+> slice 4.5.G-B.4; competitor-name scrubbing stays on the
+> separate `validateCompetitorPublicCopy` validator path.
+> Modifies (1) `src/domains/recommendations/copy-sanitize.
+> ts` — adds `LONG_HEX_HASH_PATTERN_GLOBAL` regex,
+> `INTERNAL_TOKEN_REPLACEMENTS` table (10 pattern→
+> replacement pairs; 3 Mode labels share one
+> `\bMode\s+[ABC]\b` regex), exports new helper
+> `scrubInternalLeakagePatterns(text)` that runs long-hex
+> THEN walks the token table, and 2-line evolution of
+> `sanitizeOperatorEvidenceText` to call the helper AFTER
+> the UUID-replacement phase (existing M2 early-return
+> restructured so B.2 runs unconditionally). Locked
+> replacement style: `aiSearchSignal` → `search-intent
+> signals`; `actualSearchQueries` → `observed search-intent
+> signals`; `action_type` → `action type`; `trigger_signal`
+> → `signal`; `evidence_tier` → `evidence`; `Mode A/B/C` →
+> `Beacon's evaluation mode`; `source_rec_id` → `source
+> recommendation`; `rec_id` → `recommendation`;
+> `diagnostic_only` → `diagnostic`; `customer-queue-ready`
+> → `customer queue`; long-hex → `prompt evidence`.
+> Idempotent. (2) `src/domains/recommendations/copy-
+> sanitize.test.ts` — extended from 16 to 49 cases
+> (+33 B.2 cases). Adds (3) NEW `tests/architecture/
+> recommendation-copy-sanitize-purity.test.ts` (30 cases)
+> — 1 file-exists + 12 module-purity pins (no fetch / no
+> Supabase / no LLM / no `recommended-edits-persistence` /
+> no brand-assertions / no validator / no `why-display-
+> guard` (B.1 stays separate) / no `suggested-copy-
+> display-guard` / no action-types / no Supabase write
+> shape; exports `sanitizeOperatorEvidenceText` +
+> `scrubInternalLeakagePatterns`) + 4 coverage pins
+> (long-hex pattern + `"prompt evidence"` fallback + 9
+> per-token literal pins + 1 shared `Mode\s+[ABC]` regex +
+> 1 replacement-style spot-check) + 4 deferral pins (no
+> `architect-led` / `architect-designed` / `\bbest\b`
+> replacement keys; no competitor scrubbing). **Locked
+> decisions honored**: extend `sanitizeOperatorEvidenceText`
+> (operator-confirmed correct central point); pure
+> transformation; idempotent; preserves M2 UUID-with-
+> prompt-mapping behavior; B.1 render-guard UNCHANGED
+> (invariant pins zero imports between the two modules);
+> forward-only (existing rows unchanged); deferred kinds
+> stay deferred. **Auto-pass invariants**:
+> `recommendation-why-render-guard` (B.1 unchanged);
+> `recommendation-safety-audit-coverage` (A.1 unchanged);
+> `recommendation-safety-audit-read-only` (A.1/A.2
+> unchanged); `recommendation-intelligence-no-queue-write`
+> (sanitizer lives under `src/domains/recommendations/`,
+> NOT under `recommendation-intelligence/`);
+> `llm-safety-invariants` (no provider imports);
+> `catalog-sync` (1 new row in lockstep). **Hard contracts
+> honored**: pure transformation · NO production data
+> mutations · NO LLM · NO paid APIs · NO Supabase writes ·
+> NO migrations · NO env changes · NO validator changes ·
+> NO brand-assertions changes · NO `generatorActive`
+> flips · NO new top-level routes · NO `revalidatePath` ·
+> NO server actions · NO Today / Changes / Prompts /
+> Settings / Section 6 / Section 9 changes · NO
+> `recommendation-intelligence` tree changes · forward-only.
+> **Section 4.5.G-B safety floor is now complete for the 4
+> B.1-locked reason kinds end-to-end** — A.1 detects
+> historical violations at audit time, B.1 catches them at
+> customer render, B.2 prevents new ones at row
+> persistence. Defense-in-depth across the full lifecycle.
+
 > **Slice 4.5.G-B.1 — recommendation `why` render-time
 > guard (2026-05-21)**: First half of Section 4.5.G-B
 > (defense-in-depth follow-up to the production audit at
