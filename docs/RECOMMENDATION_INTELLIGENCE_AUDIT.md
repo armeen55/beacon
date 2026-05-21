@@ -81,6 +81,53 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.D.α₁b — promotion writer + idempotent persistence
+> (2026-05-20)**: First slice that actually crosses the customer-
+> queue write boundary. The α₀a pure decision engine + α₀b
+> operator preview + α₁a mapper all stayed write-free. α₁b is
+> the SINGLE allowlisted importer of `recommended-edits-persistence`
+> in the recommendation-intelligence tree — pinned via the
+> EVOLVED `recommendation-intelligence-no-queue-write` invariant
+> (refactored in-place, 2 tests → 5 tests, added
+> `ALLOWED_PERSISTENCE_IMPORT_FILES` Set + positive importer
+> pin). 1 NEW server-only src module (`promotion-writer.ts`,
+> 193 lines) exporting `promoteEligibleCandidates(input)`. 1 NEW
+> unit suite (13 cases, all passing via `vi.hoisted()` mockState
+> pattern). 1 catalog refresh on the no-queue-write entry.
+> **Default-safe**: `dryRun` defaults to `true`; live-write
+> requires explicit `dryRun: false` (Y2). **Recompute-don't-trust**:
+> writer ALWAYS recomputes `selectPromotableCandidates` at write
+> time from fresh `loadTriggerCandidatesForTenant` + repository
+> `getRecommendedEdits` + `getRecommendationResponses` reads (3
+> parallel `Promise.all`); does NOT consume α₀b's render-time
+> preview cache (Y3). **Idempotency (3 layers)**: α₁a `rec_id =
+> promotion-${cooldown_key.slice(0, 16)}` + `persistRecommendedEditsLocal`
+> `Map<row.id, row>` dedupe + Supabase `(tenant_id, rec_id,
+> action_type, target_element_key)` unique index `NULLS NOT
+> DISTINCT`. **Error handling (Y4)**: local write throws →
+> propagate (source-of-truth failure, fail-loud); Supabase sync
+> throws → catch + `log.warn` + return `sync_warning` in result;
+> next run re-syncs from local. Mirrors `markRecommendedEditsAccepted`
+> at lines 360–368. **Result shape (Y8)**: ALWAYS returns
+> `mapped_rows` so the caller can inspect what WOULD or DID get
+> written across BOTH dryRun modes. **Hard contract**: NO
+> `runProviderAndPersist` import or call — the LLM-orchestrator
+> path STAYS forbidden; even the writer uses persistence
+> helpers directly. Y1 (one slice) · Y2 (dryRun default) · Y3
+> (always recompute) · Y4 (local-fail-loud + sync-best-effort)
+> · Y5 (in-place invariant evolution with single-file allowlist)
+> · Y6 (no env flag — α₁c) · Y7 (no UI gesture — α₁c) · Y8
+> (always return `mapped_rows`). +786 src+tests net (writer
+> src 193 · writer test 541 · invariant in-place evolution
+> +52 net) — under ≤850 soft threshold by 64 lines ✅; 214-line
+> cushion to +1,000 hard stop; 86 over the ≤700 target but
+> within the operator's "above 700 / under 850" approval
+> envelope.
+> **Customer-queue writer pathway is now COMPLETE locally
+> (α₀a + α₀b + α₁a + α₁b).** Next: α₁c — operator-only UI
+> gesture on `/diagnostics/recommendation-triggers` that calls
+> `promoteEligibleCandidates({ dryRun: false })`.
+>
 > **Slice 4.5.D.α₁a — promotion row mapper (2026-05-20)**:
 > First slice on the customer-queue boundary chain. 1 NEW
 > pure mapper module (`promotion-result-to-edit-row.ts`) +

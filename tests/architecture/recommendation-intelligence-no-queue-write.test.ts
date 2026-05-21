@@ -1,25 +1,38 @@
 /**
  * Architecture invariant — Slice 4.5.B.α₀ recommendation-
- * intelligence no-queue-write (2026-05-19).
+ * intelligence no-queue-write (2026-05-19); EVOLVED in
+ * Slice 4.5.D.α₁b (2026-05-20).
  *
- * The Recommendation Intelligence pipeline produces candidate
- * rows IN MEMORY ONLY. The customer-queue flip is deferred to
- * Slice 4.5.D. Until then:
+ * Original contract (4.5.B.α₀): the Recommendation Intelligence
+ * pipeline produces candidate rows IN MEMORY ONLY. Customer-
+ * queue flip deferred to Slice 4.5.D.
  *
- *   • No file under `src/domains/recommendation-intelligence/**`
- *     may import `recommended-edits-persistence` (or any
- *     persisting helper from that module).
- *   • No file under that tree may call a Supabase write
- *     against `.from("recommended_edits")` —
+ * α₁b evolution: the customer-queue flip lands as a SINGLE
+ * allowlisted file —
+ * `src/domains/recommendation-intelligence/promotion-writer.ts`
+ * — which legitimately imports `recommended-edits-persistence`
+ * to call `persistRecommendedEditsLocal` +
+ * `syncRecommendedEdits`. Every OTHER file in the tree + the
+ * operator-only diagnostic page STAYS write-forbidden.
+ *
+ * Current contract:
+ *   • Only `promotion-writer.ts` may import
+ *     `recommended-edits-persistence` (positive importer pin).
+ *   • `runProviderAndPersist` STAYS GLOBALLY FORBIDDEN — the
+ *     writer uses persistence helpers directly, NOT the LLM
+ *     orchestrator path.
+ *   • No file in scope may call a Supabase write against
+ *     `.from("recommended_edits")` —
  *     `.insert(` / `.upsert(` / `.update(` / `.delete(`.
+ *     (The writer uses `syncRecommendedEdits`, which uses
+ *     a different code path via `dualWriteUpsertScoped`.)
  *   • The operator-only diagnostic page at
- *     `/diagnostics/recommendation-triggers/page.tsx` is also
- *     scanned (same contract: it must consume the loader's
- *     in-memory output, never persist).
+ *     `/diagnostics/recommendation-triggers/page.tsx` is
+ *     scanned (same write-forbidden contract).
  *
  * Defense-in-depth alongside `recommendation-trigger-predicates-
- * purity` (which forbids connector / LLM / Supabase entirely
- * inside predicates).
+ * purity`, `-no-llm-decides`, and the α₁a mapper-eligibility +
+ * source-pin invariants.
  */
 
 import { describe, expect, it } from "vitest";
@@ -67,11 +80,25 @@ function stripComments(src: string): string {
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-const FORBIDDEN_IMPORTS: ReadonlyArray<string> = [
+/** α₁b allowlist: the SINGLE file under
+ *  src/domains/recommendation-intelligence/ permitted to import
+ *  `recommended-edits-persistence`. Every other file in the tree
+ *  + the diagnostic page STAYS write-forbidden. */
+const ALLOWED_PERSISTENCE_IMPORT_FILES: ReadonlySet<string> = new Set([
+  resolve(INTEL_DIR, "promotion-writer.ts"),
+]);
+
+/** Tokens that signal an import of `recommended-edits-persistence`
+ *  (either alias `@/domains/recommendations/...` or the bare
+ *  trailing path). Subject to allowlist. */
+const PERSISTENCE_IMPORT_TOKENS: ReadonlyArray<string> = [
   "@/domains/recommendations/recommended-edits-persistence",
   "recommended-edits-persistence",
-  "runProviderAndPersist",
 ];
+
+/** GLOBALLY FORBIDDEN. No file under the tree may import this
+ *  LLM-orchestrator symbol, even the α₁b writer. */
+const GLOBALLY_FORBIDDEN_TOKEN = "runProviderAndPersist";
 
 /** Match any `.from("recommended_edits").<write>(` shape in
  *  comment-stripped source. Whitespace-tolerant. */
@@ -88,11 +115,12 @@ describe("recommendation-intelligence-no-queue-write", () => {
     expect(files.length).toBeGreaterThanOrEqual(2);
   });
 
-  it.each(FORBIDDEN_IMPORTS)(
-    "no file under recommendation-intelligence imports `%s`",
+  it.each(PERSISTENCE_IMPORT_TOKENS)(
+    "no file under recommendation-intelligence imports `%s` except allowlisted",
     (token) => {
       const offenders: string[] = [];
       for (const file of files) {
+        if (ALLOWED_PERSISTENCE_IMPORT_FILES.has(file)) continue;
         const active = stripComments(read(file));
         if (active.includes(token)) {
           offenders.push(file.replace(REPO_ROOT + "/", ""));
@@ -100,10 +128,47 @@ describe("recommendation-intelligence-no-queue-write", () => {
       }
       expect(
         offenders,
-        `Customer-queue write path is forbidden in recommendation-intelligence. Offenders: ${offenders.join(", ")}`,
+        `Customer-queue persistence imports are forbidden outside the α₁b allowlist. Offenders: ${offenders.join(", ")}`,
       ).toEqual([]);
     },
   );
+
+  it("`promotion-writer.ts` IS the single allowlisted importer of `recommended-edits-persistence`", () => {
+    const writerPath = resolve(INTEL_DIR, "promotion-writer.ts");
+    expect(
+      files,
+      "promotion-writer.ts must exist under src/domains/recommendation-intelligence/",
+    ).toContain(writerPath);
+    const active = stripComments(read(writerPath));
+    expect(
+      active.includes(
+        "@/domains/recommendations/recommended-edits-persistence",
+      ),
+      "promotion-writer.ts must import `@/domains/recommendations/recommended-edits-persistence` — the α₁b customer-queue writer contract pins this positive importer.",
+    ).toBe(true);
+    expect(
+      active.includes("persistRecommendedEditsLocal"),
+      "promotion-writer.ts must call `persistRecommendedEditsLocal` (local fail-loud write).",
+    ).toBe(true);
+    expect(
+      active.includes("syncRecommendedEdits"),
+      "promotion-writer.ts must call `syncRecommendedEdits` (dual-write best-effort).",
+    ).toBe(true);
+  });
+
+  it("no file under recommendation-intelligence imports `runProviderAndPersist` (globally forbidden)", () => {
+    const offenders: string[] = [];
+    for (const file of files) {
+      const active = stripComments(read(file));
+      if (active.includes(GLOBALLY_FORBIDDEN_TOKEN)) {
+        offenders.push(file.replace(REPO_ROOT + "/", ""));
+      }
+    }
+    expect(
+      offenders,
+      `\`runProviderAndPersist\` is the LLM-orchestrator write path and STAYS globally forbidden — even the α₁b writer uses persistence helpers directly. Offenders: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
 
   it("no file performs a Supabase write against `recommended_edits`", () => {
     const offenders: string[] = [];
