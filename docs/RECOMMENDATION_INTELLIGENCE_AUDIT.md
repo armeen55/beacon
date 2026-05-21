@@ -81,6 +81,27 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.D.α₁a — promotion row mapper (2026-05-20)**:
+> First slice on the customer-queue boundary chain. 1 NEW
+> pure mapper module (`promotion-result-to-edit-row.ts`) +
+> 1 enum extension (`SpecificEditSource` += `"deterministic_promotion"`)
+> + 1 unit suite + 2 paired invariants
+> (`-promotion-writer-source-pin` + `-promotion-writer-eligibility-pin`).
+> 5 defensive null-returns belt-and-suspenders the α₀a.3a
+> safety gates. `rec_id = promotion-${cooldown_key.slice(0, 16)}`
+> leverages existing unique index for idempotency. `source =
+> "deterministic_promotion"` distinct from legacy
+> `"deterministic"`. `evidence_hash = sha1(dedupe::cooldown::priority)`
+> for traceability. X1 (3-way split α₁a + α₁b + α₁c) · X2
+> (mapper-only) · X3 (new source value) · X4 (rec_id format) ·
+> X5 (traceability via existing fields; `SpecificEditEvidenceRef`
+> UNCHANGED — only `SpecificEditSource` extended per
+> operator restriction) · X6 (local minimal type) · X7 (5
+> defensive rejections) · X8 (`difficulty: "low"` v1). +722
+> src+tests net (128 UNDER the ≤850 soft threshold; 22 over
+> the ≤700 target but within the operator's "above 700 /
+> under 850" approval envelope). **NO writes — mapper-only;
+> the writer + UI ship in α₁b + α₁c.**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved

@@ -48,6 +48,12 @@ export type SpecificEditConfidence = "low" | "medium" | "high";
  */
 export type SpecificEditSource =
   | "deterministic"
+  // Slice 4.5.D.α₁a (2026-05-20) — α₀a-trigger-engine-promoted
+  // rows. Distinct from "deterministic" (which labels rows from the
+  // legacy deterministic specific-edit provider — different
+  // pipeline). Pinned by
+  // `recommendation-intelligence-promotion-writer-source-pin`.
+  | "deterministic_promotion"
   | "openai"
   | "anthropic"
   | "operator_edited";

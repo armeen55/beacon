@@ -7,6 +7,122 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.D.α₁a: promotion row mapper (pure)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₁a only).** First slice on the customer-queue boundary chain. Pure mapper from `PromotionResult` (α₀a.3b orchestrator output) → `recommended_edits`-shaped row. **1 NEW pure source module** + **1 enum extension** + **1 NEW unit-test suite** + **2 NEW architecture invariants**. **NO writes. NO UI. NO observable customer behavior yet.** The mapper produces row shapes; the writer (α₁b) and operator UI gesture (α₁c) ship as separate later slices.
+
+**Changes shipped (locally).**
+
+**(1) NEW `src/domains/recommendation-intelligence/promotion-result-to-edit-row.ts` (185 lines).** Pure mapper:
+- Local minimal `DeterministicPromotionEditRow` type — structurally compatible with `RecommendedEditRow` from `@/domains/recommendations/recommended-edits-persistence`. Defined inline to preserve the existing `no-queue-write` invariant without modification.
+- `promotionResultToRecommendedEditRow(result, now): DeterministicPromotionEditRow | null` — applies 5 defensive null-returns BEFORE producing a row:
+  1. `result.eligible === false`
+  2. `result.tier !== "customer-queue-ready"`
+  3. `result.candidate.target_url === null`
+  4. `result.candidate.confidence === "low"`
+  5. `result.candidate.safety_flags.length > 0`
+- Exported constant `DETERMINISTIC_PROMOTION_SOURCE = "deterministic_promotion" as const satisfies SpecificEditSource`.
+- On happy path: sets `rec_id = "promotion-${promotion_cooldown_key.slice(0, 16)}"`, `id = ${rec_id}__${action_type}__null`, `source = "deterministic_promotion"`, `implementation_status = "recommended"`, `difficulty: "low"`, `cost_usd: 0`, `provider_name: null`, `model: null`, all `live_*` fields null. `evidence: [{ type: "owned_page", url: target_url }]`. `evidence_hash = sha1(${dedupe_key}::${cooldown_key}::${priority_score})`.
+
+**(2) MODIFIED `src/domains/recommendations/specific-edit-provider.ts` (+6 lines).** Extended `SpecificEditSource` union with `"deterministic_promotion"` value (5 → 5+1 = 5 values + 1 new = 6 total locked values). Inline comment documents the slice rationale.
+
+**(3) NEW `tests/domains/recommendation-intelligence/promotion-result-to-edit-row.test.ts` (253 lines, 17 cases).**
+- 5 happy-path cases (row shape, source constant, implementation_status, all live_* null, confidence carry-through).
+- 5 id/rec_id/evidence_hash cases (rec_id derivation, id format, determinism, evidence_hash = sha1 verification, evidence carries owned_page ref).
+- 7 defensive rejection cases (eligible:false · 3 tier mismatches · null target_url · low confidence · safety_flags non-empty).
+
+**(4) NEW `tests/architecture/recommendation-intelligence-promotion-writer-source-pin.test.ts` (151 lines, 5 cases).** Pins:
+- `SpecificEditSource` union contains exactly the locked 5-value set (drift fails the test).
+- No unexpected values in the union (negative assertion).
+- Mapper source references `"deterministic_promotion"` literal.
+- `DETERMINISTIC_PROMOTION_SOURCE` export resolves to the right string.
+- Behavioral: mapper sets `source: "deterministic_promotion"` on every produced row (parametric over high + medium confidence).
+
+**(5) NEW `tests/architecture/recommendation-intelligence-promotion-writer-eligibility-pin.test.ts` (127 lines, 8 cases).** Behavioral pin:
+- 1 positive (happy path returns non-null).
+- 7 rejection cases parametric over the 5 conditions (3 tier values + 4 other conditions).
+
+**Operator decisions honored.**
+- **X1** — 3-way split (α₁a + α₁b + α₁c) confirmed. This slice ships α₁a only.
+- **X2** — Mapper-only, no writes, no UI. Operator gets no observable behavior; pure infrastructure for α₁b consumption.
+- **X3** — `"deterministic_promotion"` is a NEW source value, distinct from legacy `"deterministic"` (the deterministic specific-edit provider — different pipeline).
+- **X4** — `rec_id` format `promotion-${promotion_cooldown_key.slice(0, 16)}` leverages existing unique index `(tenant_id, rec_id, action_type, target_element_key)` NULLS NOT DISTINCT. 64-bit entropy; no migration; idempotent under repeat.
+- **X5** — Traceability via existing fields. The mapper's preflight description said "append refs to evidence" — but on close read of the discriminated union, `SpecificEditEvidenceRef` has exactly 5 locked variants and the operator restriction permits ONLY `SpecificEditSource` extension. The mapper therefore satisfies traceability INTENT via existing fields: `rec_id` encodes 16-hex prefix of cooldown_key, `evidence_hash` encodes full dedupe + cooldown + priority via sha1, and `evidence` carries one `owned_page` ref for the target URL. `SpecificEditEvidenceRef` discriminated union UNCHANGED. This deviation from the preflight's exact wording preserves the operator-locked enum-only restriction.
+- **X6** — Local minimal `DeterministicPromotionEditRow` type. No `recommended-edits-persistence` substring in mapper source. Existing `no-queue-write` invariant UNCHANGED.
+- **X7** — 5 defensive null-returns in mapper (eligible:false + tier check + null target_url + low confidence + safety_flags non-empty).
+- **X8** — `difficulty: "low"` for all v1 deterministic-promotion rows. Tunable in later slice if pilot operators want differentiation.
+
+**Auto-pass (existing 17 α-family + α₀a + α₀b invariants).** All re-verified green in the targeted suite + (full suite TO RUN). Critically: `recommendation-intelligence-no-queue-write` UNCHANGED — α₁a mapper does NOT import from `recommended-edits-persistence`.
+
+**Catalog sync.** 2 new rows under "Section 4.5 / Slice 4.5.D.α₁a — promotion writer (pure mapper)" header. `catalog-sync.test.ts` green post-update.
+
+**Deferred to α₁b** (NOT in this slice):
+- `src/domains/recommendation-intelligence/promotion-writer.ts` — server action that calls `selectPromotableCandidates`, maps via this α₁a function, persists via `persistRecommendedEditsLocal` + `syncRecommendedEdits`.
+- Evolution of the `recommendation-intelligence-no-queue-write` invariant to allowlist the single writer module.
+- Writer-eligibility-pin extension (writer also enforces eligibility at write time, not just at map time).
+- Writer-idempotency invariant (re-running writes the same rows; upsert is no-op).
+
+**Deferred to α₁c** (NOT in this slice):
+- Diagnostic page form action + "Promote eligible to customer queue" button.
+- Env-flag kill switch (`BEACON_PROMOTION_WRITER_DISABLED=1`).
+
+**Hard contracts honored.**
+- NO writes to `recommended_edits`.
+- NO `persistRecommendedEditsLocal` call.
+- NO `syncRecommendedEdits` call.
+- NO `runProviderAndPersist` call.
+- NO Supabase mutation.
+- NO LLM / OpenAI / Anthropic / `fetch(` / external API.
+- NO import of `recommended-edits-persistence` substring.
+- NO migrations / cron / workflow changes.
+- NO UI gesture / form action / button on diagnostic page.
+- NO modification of `safety-gates.ts` / `promote-to-queue.ts` / `promotion-eligibility.ts` / `priority-score.ts` / `dedupe-cooldown.ts` (α₀a modules UNCHANGED).
+- NO modification of `page.tsx` diagnostic page (α₀b UNCHANGED).
+- NO modification of `recommendation-intelligence-no-queue-write` invariant.
+- NO new env flag.
+- NO Today / Changes / Prompts / Settings / Recommendations / Section 9 changes.
+- ONLY `SpecificEditSource` gained exactly one new value (`"deterministic_promotion"`). `SpecificEditEvidenceRef` discriminated union UNCHANGED.
+
+**Line accounting.**
+
+| File | Lines |
+|---|---|
+| `src/domains/recommendation-intelligence/promotion-result-to-edit-row.ts` | 185 |
+| `tests/domains/recommendation-intelligence/promotion-result-to-edit-row.test.ts` | 253 |
+| `tests/architecture/recommendation-intelligence-promotion-writer-source-pin.test.ts` | 151 |
+| `tests/architecture/recommendation-intelligence-promotion-writer-eligibility-pin.test.ts` | 127 |
+| `src/domains/recommendations/specific-edit-provider.ts` (enum extension) | +6 (net) |
+| **Total src+tests delta** | **+722** |
+
+**Under the ≤850 soft threshold by 128 lines.** 278-line cushion to +1,000 hard stop. 22 lines over the ≤700 target — within the operator's "above 700 / under 850" approval envelope (the trim trigger is the soft threshold at 850, not the target at 700). **No trim pass triggered** — first-pass under soft threshold.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` ✅
+- Targeted α₁a suite (3 files / 30 cases) ✅
+- `catalog-sync.test.ts` ✅
+- `npm run test` (full suite) — TO RUN before commit
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — TO RUN before commit
+- **NO** `gh workflow` / `gh run` / Vercel verification / production curl smoke.
+
+**Customer-queue boundary chain status (post-α₁a).**
+
+| Sub-slice | Status |
+|---|---|
+| α₀a.1 — eligibility + priority | 🟢 SHIPPED `52d1ce6` |
+| α₀a.2 — dedupe + cooldown + `isInCooldown` | 🟢 SHIPPED `16a81f1` |
+| α₀a.3a — safety-gates module + 5 gate invariants | 🟢 SHIPPED `ebc06f6` |
+| α₀a.3b — orchestrator + caps + 2 cap invariants | 🟡 LOCAL COMMIT `77ae6a4` |
+| α₀b — operator-only Promotion Preview UI + 1 no-write invariant | 🟡 LOCAL COMMIT `0d7414d` |
+| α₁a — promotion row mapper + 2 paired invariants | 🟡 READY_TO_COMMIT (this slice) |
+| α₁b — writer module + idempotent persistence | ⏳ Preflight pending |
+| α₁c — operator UI gesture | ⏳ Preflight pending |
+
+**Recommended next.** Operator review → optional commit (`feat(recommendations): add promotion row mapper`) → push at a meaningful checkpoint (recommended: batch α₀a.3b + α₀b + α₁a together; that's the full pure-infrastructure layer of the customer-queue chain). Then Slice 4.5.D.α₁b preflight: writer module + idempotent persistence + invariant evolution.
+
+---
+
 ## 2026-05-20 — Slice 4.5.D.α₀b: operator-only Promotion Preview UI
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
