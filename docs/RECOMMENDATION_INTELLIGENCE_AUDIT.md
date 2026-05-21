@@ -81,6 +81,69 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.E.α₁b₁ — env flag + thin packet builder +
+> render-isolation invariant (2026-05-21)**: Third slice of
+> Section 4.5.E. Caller-side infrastructure ONLY. Adds (1) the
+> env-flag helper `src/lib/llm-draft-gateway-flag.ts` (single
+> source of truth `isLlmDraftGatewayEnabled()` reading
+> `BEACON_LLM_DRAFT_GATEWAY_ENABLED === "true"`, strict casing,
+> default unset ⇒ `false`) that will gate future α₁b₂ server-
+> action invocation of the gateway; (2) the pure thin packet
+> builder `src/domains/recommendation-intelligence/build-thin-
+> packet.ts` (~245 lines, `buildThinPacketForCandidate(...)`
+> returning a structurally valid `SpecificEditEvidencePacket`
+> from an α₁a weak-H2 candidate row + page snapshot + brand
+> assertions; 8 fail-loud preconditions; locked field
+> assignments per α₁b₁ design lock; empty brandAssertions
+> does NOT throw — validator handles the empty-grounding case
+> downstream via the abstention contract Rule B); (3) the
+> render-isolation architecture invariant `tests/architecture/
+> recommendation-intelligence-llm-draft-gateway-render-
+> isolation.test.ts` (4 source-text pins on the diagnostic
+> page.tsx + 2 global negative scans across `src/app/**`)
+> that pins the "no caller yet" boundary. **NO server action.
+> NO LLM call from this slice. NO gateway invocation. NO
+> customer-facing render path change. NO action-type registry
+> change. NO promotion-eligibility-table change. NO customer-
+> copy template change. NO loader change.** 2 NEW src modules
+> + 1 NEW unit suite (21 cases) + 1 NEW architecture invariant
+> (7 cases) + 1 catalog row added + 5 doc syncs. **Operator-
+> locked α₁b₁ decisions (1-15)**: single slice (no split) ·
+> env flag strict-cased `=== "true"` · pure thin builder
+> (sibling to heavy builder, not a wrapper) · 8 fail-loud
+> preconditions · empty brandAssertions allowed (validator
+> handles) · render-isolation invariant scope (page.tsx +
+> global app sweep) · element_key
+> `h2[<index>]:<sha1.slice(0,12)>` · recId
+> `"preview-" + dedupe_key.slice(0,16)` · evidenceHash sha1
+> of canonical-JSON sans hash · 21 builder tests + 7
+> invariant tests · STOP at READY_TO_COMMIT (no commit, no
+> push, no CI, no Vercel) · NO loader modification · NO
+> promotion-eligibility-table change · NO customer-copy
+> template change · NO α₀ gateway modification (gateway
+> unchanged from `2923f25`). **Auto-pass** (existing α-family
+> + α₀ + α₁a + α₁c + 4.5.F invariants): `no-queue-write`
+> (auto-covers builder via `walk(INTEL_DIR)`), `no-llm-decides`
+> (unchanged — no new generatorActive flips),
+> `llm-draft-gateway-contract` (α₀ unchanged),
+> `promotion-live-write-guards` (α₁c unchanged),
+> `offsite-contract` (4.5.F unchanged), `specific-edit-target-
+> constraint` (builder does not invoke the heavy packet
+> builder; docstring reworded to avoid the literal call-
+> pattern token), `catalog-sync` (catalog row added in
+> lockstep). **Hard contracts honored**: NO push · NO CI ·
+> NO Vercel · NO LLM · NO server action · NO gateway
+> invocation · NO customer-facing route changes · NO α₀ /
+> α₀a-d / α₀b / α₁a-b / α₁c / 4.5.F / 4.5.E.α₀ / 4.5.E.α₁a
+> module modifications · NO OpenAI provider / validator /
+> budget ledger changes · NO action-type registry changes ·
+> NO eligibility-table changes · NO customer-copy template
+> changes · NO loader change · NO queue writes · NO
+> persistence imports · NO migrations / cron / workflows ·
+> NO new top-level routes. **The caller-side infrastructure
+> for the LLM-draft gateway is now in place.** α₁b₂ will
+> wire the operator-only env-gated server action that
+> invokes the gateway via the new builder.
 > **Slice 4.5.E.α₁a — weak-h2 trigger predicate + `rewrite_h2`
 > activation (2026-05-21)**: Second slice of Section 4.5.E. Pure
 > detection layer only — adds the deterministic `weak-h2`

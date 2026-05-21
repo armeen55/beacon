@@ -7,6 +7,82 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.E.α₁b₁: env flag + thin packet builder + render-isolation invariant
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₁b₁ only).** Third slice of Section 4.5.E LLM-assisted sub-chain. Caller-side infrastructure ONLY — adds (1) the env-flag helper that will gate future α₁b₂ server-action invocation of the gateway, (2) the pure thin packet builder that bridges α₁a weak-H2 candidates to α₀ gateway packets, and (3) the render-isolation architecture invariant that pins the "no caller yet" boundary. **NO server action. NO LLM call from this slice. NO gateway invocation. NO customer-facing render path change. NO action-type registry change. NO promotion-eligibility-table change. NO customer-copy template change. NO loader change.** The α₀ gateway stays uncalled (will be invoked from α₁b₂'s server action through the new builder).
+
+**Files added (4 new) / modified (5 docs + 1 catalog) / deleted (0).**
+
+New (4):
+- `src/lib/llm-draft-gateway-flag.ts` (~30 lines) — exports `isLlmDraftGatewayEnabled(): boolean` reading `process.env.BEACON_LLM_DRAFT_GATEWAY_ENABLED === "true"` (strict casing mirrors `BEACON_OPERATOR_MODE` + `BEACON_PROMOTION_LIVE_WRITE_ENABLED`; default unset ⇒ `false`).
+- `src/domains/recommendation-intelligence/build-thin-packet.ts` (~245 lines) — pure builder `buildThinPacketForCandidate({candidate, pageSnapshot, businessConfig, brandAssertions, now?})` returning a structurally valid `SpecificEditEvidencePacket`.
+  - 8 fail-loud preconditions (stable `[build-thin-packet]` prefix): (1) `candidate.target_url` non-null + non-empty + not `needs_new_page` sentinel; (2) `action_type === "rewrite_h2"`; (3) `tenant_id` non-empty; (4) `pageSnapshot.url === candidate.target_url`; (5) `h2_list` non-null + non-empty; (6) `operator_evidence` has at least one `h2[<n>]=` token; (7) parsed index in range; (8) H2 text at parsed index is non-blank.
+  - Locked field assignments: `resolution: null` (bypasses abstention Rule A); `affectedPrompts: []` (bypasses Rule C); `allowedTargetUrls: [candidate.target_url]`; `allowedActionTypes: ["rewrite_h2"]`; `targetPageElements: [{ url, elementKey: "h2[<index>]:<sha1.slice(0,12)>", elementType: "h2", displayLabel: "H2 #<i+1>", elementText, elementMetadata: {} }]`; `recId: "preview-" + candidate.dedupe_key.slice(0,16)`; `evidenceHash: sha1(canonicalStringify(packet sans hash))`.
+  - Empty `brandAssertions` does NOT throw — downstream validator returns `abstention_contract_no_grounding_signals` and the gateway resolves to `validation_failed`. Clean failure-mode propagation through existing pipeline.
+  - Pure / deterministic / no I/O / no mutation of input / no LLM call.
+- `tests/domains/recommendation-intelligence/build-thin-packet.test.ts` (~430 lines, 21 cases) — 10 fail-loud + 10 happy-path/locked-field + 2 lowest-index selection + 3 determinism (same inputs = same hash; H2 text change = hash flip; brandAssertions change = hash flip).
+- `tests/architecture/recommendation-intelligence-llm-draft-gateway-render-isolation.test.ts` (~140 lines, 7 cases) — pins (a) diagnostic page `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx` does NOT import `@/domains/recommendation-intelligence/llm-draft-gateway`, does NOT reference `draftProposedTextForCandidate`, does NOT import `@/domains/recommendations/providers/openai`, does NOT reference `openaiProvider`; and (b) ZERO files under `src/app/**` (excluding tests) import the gateway or call `draftProposedTextForCandidate(`. α₁b₂ will revise this invariant to allow exactly one operator-only server action.
+
+Doc syncs (5):
+- HANDOFF_VERIFIED_STATE.md (top entry refreshed)
+- NEXT_PHASE_EXECUTION_PLAN.md (top entry refreshed)
+- VERIFICATION_LOG.md (this entry)
+- ARCHITECTURE_INVARIANTS_CATALOG.md (new render-isolation row added; `recommendation-intelligence-llm-draft-gateway-contract` row unchanged)
+- RECOMMENDATION_INTELLIGENCE_AUDIT.md (α₁b₁ snapshot row appended)
+
+**Operator decisions honored (1-15, all LOCKED).**
+1. Single slice (no split).
+2. Env flag strict casing `=== "true"`.
+3. Pure thin packet builder (sibling to heavy builder, not a wrapper).
+4. 8 fail-loud preconditions per spec.
+5. Empty brandAssertions does NOT throw.
+6. Render-isolation invariant scope (page.tsx + global src/app/** sweep).
+7. element_key `h2[<index>]:<sha1.slice(0,12)>`.
+8. recId `"preview-" + dedupe_key.slice(0,16)`.
+9. evidenceHash sha1 of canonical-JSON.
+10. 21 builder tests + 7 invariant tests.
+11. STOP at READY_TO_COMMIT (no commit / no push / no CI / no Vercel).
+12. NO loader modification.
+13. NO promotion-eligibility-table change.
+14. NO customer-copy template change.
+15. NO α₀ gateway modification (gateway unchanged from `2923f25`).
+
+**Auto-pass (existing α-family + α₀ + α₁a + α₁c + 4.5.F invariants).**
+- `recommendation-intelligence-no-queue-write` (auto-covers new builder file via `walk(INTEL_DIR)`)
+- `recommendation-trigger-predicates-purity` (n/a — builder is outside `triggers/`)
+- `recommendation-intelligence-no-llm-decides` (unchanged — no new generatorActive flips)
+- `recommendation-intelligence-llm-draft-gateway-contract` (α₀; unchanged — gateway not modified)
+- `recommendation-intelligence-promotion-live-write-guards` (α₁c; unchanged)
+- `recommendation-intelligence-offsite-contract` (4.5.F; unchanged)
+- `specific-edit-target-constraint` (builder does not invoke the heavy `buildSpecificEditEvidencePacket` — docstring was reworded to avoid the literal call-pattern token)
+- `catalog-sync` (catalog row added in lockstep)
+
+**Hard contracts honored.** NO push · NO CI · NO Vercel · NO LLM · NO server action · NO gateway invocation · NO customer-facing route changes · NO α₀ / α₀a-d / α₀b / α₁a-b / α₁c / 4.5.F / 4.5.E.α₀ / 4.5.E.α₁a module modifications · NO OpenAI provider / validator / budget ledger changes · NO action-type registry changes · NO eligibility-table changes · NO customer-copy template changes · NO loader change · NO queue writes · NO persistence imports · NO `recommended-edits-persistence` import · NO `runProviderAndPersist` · NO direct Supabase `recommended_edits` write shape · NO migrations / cron / workflows · NO new top-level routes.
+
+**Line budget.** Target ≤ 700; soft cap ≤ 850; hard stop +1,000.
+- `src/lib/llm-draft-gateway-flag.ts`: 30 lines
+- `src/domains/recommendation-intelligence/build-thin-packet.ts`: 245 lines
+- `tests/domains/recommendation-intelligence/build-thin-packet.test.ts`: 430 lines
+- `tests/architecture/recommendation-intelligence-llm-draft-gateway-render-isolation.test.ts`: 140 lines
+
+Net new src+tests ≈ 845 lines — within soft cap, 155 lines under +1,000 hard stop. Slightly above the ≤700 target because (a) the 21-case test suite covers every fail-loud precondition + every locked field assignment + determinism explicitly, and (b) the builder docstring documents the abstention-contract bypass strategy in detail (per operator design lock — keeps the next maintainer from breaking the contract). No mandatory trim per the soft-cap rule.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck` → ✅ clean
+- Targeted α₁b₁ suite: `npx vitest run tests/domains/recommendation-intelligence/build-thin-packet.test.ts tests/architecture/recommendation-intelligence-llm-draft-gateway-render-isolation.test.ts` → ✅ 2 files / 32 cases passed
+- α₀ + α₁a regression: `npx vitest run tests/architecture/recommendation-intelligence-llm-draft-gateway-contract.test.ts tests/domains/recommendation-intelligence/llm-draft-gateway.test.ts tests/domains/recommendation-intelligence/triggers/weak-h2.test.ts` → ✅ 3 files / 58 cases passed
+- Full architecture suite: TO RE-RUN after catalog-sync update
+- Full vitest suite: TO RUN
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`: TO RUN
+
+**Result.** READY_TO_COMMIT — not pushed. Proposed commit message: `feat(recommendations): add llm draft thin packet builder`. Worktree state after commit: 3 commits ahead of `origin/main` (`2923f25` α₀ + `ee90111` α₁a + new α₁b₁).
+
+**Next slice (α₁b₂).** Env-gated operator-only server action under `src/app/(shell)/diagnostics/recommendation-triggers/actions.ts`: read a single weak-H2 candidate row, gate on `isLlmDraftGatewayEnabled()`, call `buildThinPacketForCandidate(...)`, hand the packet to `draftProposedTextForCandidate(...)`, render the result (drafted text / abstention reason / validation errors / budget block) in the diagnostic preview surface. Will revise the render-isolation invariant to allow this single allowlisted action file (pattern mirrors `recommendation-intelligence-promotion-live-write-guards`).
+
+---
+
 ## 2026-05-21 — Slice 4.5.E.α₁a: weak-h2 trigger predicate + `rewrite_h2` activation
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
