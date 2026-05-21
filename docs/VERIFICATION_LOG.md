@@ -7,6 +7,123 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.E.α₀: LLM-assisted drafting gateway (infrastructure only)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₀).** Pure LLM-drafting gateway as the first piece of the Section 4.5.E sub-chain. **Infrastructure only — NO production caller exists yet.** Gateway is callable from tests + future α₁+ slices that will wire trigger predicates → gateway → env-flag-gated operator-only diagnostic preview surfaces. No action-type activations. No trigger predicates. No surface. No queue write. No persistence path. No env flag (no caller exists in α₀).
+
+**What changed.**
+
+1. **NEW `src/domains/recommendation-intelligence/llm-draft-gateway.ts` (146 lines).** Server-only pure module exporting:
+   - `LlmDraftResult` discriminated union (4 states: `drafted` · `abstained` · `validation_failed` · `blocked_budget`)
+   - `LlmDraftGatewayInput` type
+   - `draftProposedTextForCandidate(input): Promise<LlmDraftResult>` async function
+   - 7-step fail-closed flow:
+     - Step 1: pre-call `checkBudget({ now })` → blocked → return `blocked_budget` (NO LLM call, NO spend recorded).
+     - Step 2: call `openaiProvider.generate(input.packet)` → throw caught → return `validation_failed` with `["llm_call_threw"]`; `cost_usd: 0`; NO spend recorded.
+     - Step 3: ALWAYS record `bundle.totalCostUsd` via `recordSpend()` on a successful provider response — regardless of downstream outcome. The LLM call happened; the spend is real.
+     - Step 4: empty `bundle.recommendations[]` → return `abstained` with `empty_bundle`.
+     - Step 5: `validateSpecificEdit(firstEdit, packet)` → fail → return `validation_failed` with `[field: reason]`.
+     - Step 6: extract `firstEdit.targetElement?.proposedText`; null/empty → return `abstained` with `empty_proposed_text`.
+     - Step 7: return `drafted` with `proposed_text` + `cost_usd` + `bundle_size`.
+   - **Hard contract**: NO `recommended-edits-persistence` import · NO `persistRecommendedEditsLocal` / `syncRecommendedEdits` reference · NO `runProviderAndPersist` call · NO direct Supabase `recommended_edits` write shape · NO `fetch(` call (provider delegates network I/O) · NO LLM SDK import · NO action-type-specific branching (type-agnostic — works for any LLM-assisted action_type that carries a valid packet).
+
+2. **NEW `tests/domains/recommendation-intelligence/llm-draft-gateway.test.ts` (367 lines, 17 cases, all passing).** Uses `vi.hoisted()` mockState pattern + `Mock<TFunc>` parameterization. Mocks `openaiProvider` + `checkBudget` + `recordSpend` + `validateSpecificEdit` at the import boundary — **NO real LLM calls ever issued from the test suite**. Cases:
+   - Budget blocked → `blocked_budget`; provider NOT called; spend NOT recorded.
+   - Provider throws → `validation_failed ["llm_call_threw"]`; `cost_usd: 0`; spend NOT recorded.
+   - Valid bundle + validator passes → `drafted` with first edit's `proposedText` + `cost_usd` + `bundle_size`.
+   - Empty bundle → `abstained empty_bundle`; spend RECORDED (LLM call happened).
+   - Validator fails → `validation_failed` with `["field: reason"]`; spend RECORDED.
+   - `proposedText: null` → `abstained empty_proposed_text`; spend RECORDED.
+   - `proposedText: ""` (empty string) → `abstained empty_proposed_text`.
+   - `targetElement: null` (page-level action) → `abstained empty_proposed_text`.
+   - Spend ALWAYS recorded after successful provider response (drafted / abstained_empty_bundle / validation_failed).
+   - Spend NEVER recorded on `blocked_budget`.
+   - Spend NEVER recorded on provider throw.
+   - Multiple edits → first edit only is validated + used; `bundle_size` reflects total count.
+   - Provider receives input packet unchanged (reference equality).
+   - Every result has a `status` discriminator (no null/undefined returns) — exhaustive walk across all 6 result branches.
+   - `cost_usd` reflects `bundle.totalCostUsd` on every recorded-spend path.
+
+3. **NEW invariant `tests/architecture/recommendation-intelligence-llm-draft-gateway-contract.test.ts` (143 lines, 12 cases, all passing).** 10 source-text pins on the gateway file:
+   - File exists at expected path
+   - Imports `openaiProvider` from the OpenAI provider module
+   - Imports `checkBudget` + `recordSpend` from adjudicator-budget
+   - Imports `validateSpecificEdit` from the validator
+   - Does NOT import `recommended-edits-persistence`
+   - Does NOT reference `persistRecommendedEditsLocal` / `syncRecommendedEdits`
+   - Does NOT reference `runProviderAndPersist`
+   - Does NOT contain direct Supabase `recommended_edits` write shape
+   - Does NOT call `fetch(`
+   - Contains literal strings `"blocked_budget"` / `"validation_failed"` / `"drafted"` / `"abstained"` (regression guard on result-discriminator surface)
+   - **Behavioral pin (1)**: regex-scan over `status: "..."` literals in source → exactly the locked 4-value union `{ drafted, abstained, validation_failed, blocked_budget }`. Drift trips the test.
+
+4. **Catalog updated** — `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` gains 1 new row for `recommendation-intelligence-llm-draft-gateway-contract` with full contract description.
+
+5. **`recommendation-intelligence-no-queue-write` invariant UNCHANGED** — the new gateway file is auto-covered by the existing `walk(INTEL_DIR)` scan. The existing 7 invariant tests (file-set non-empty · 2 parametric persistence-import scans · positive importer pin · `runProviderAndPersist` global · Supabase write-shape) automatically extend to scan the new gateway file. No modification needed per operator's "only if needed" qualifier.
+
+**Operator decisions honored (α₀ approval block).**
+
+- α₀ scope: pure gateway only · no registry changes · no `generatorActive` flips · no new action types · no trigger predicates · no operator preview · no customer queue write · no env flag (no production caller exists in α₀)
+- Gateway accepts a built `SpecificEditEvidencePacket` as input
+- Reuses: `openaiProvider.generate(packet)` · `checkBudget()` · `recordSpend()` · `validateSpecificEdit()`
+- Gateway does NOT call `runProviderAndPersist`
+- Gateway does NOT import `recommended-edits-persistence`
+- Tests mock `openaiProvider` at import boundary
+- NO real LLM calls in tests
+
+**Auto-pass (existing 25 α-family + α₀a + α₀b + α₁a + α₁b + α₁c + 4.5.F invariants).** No regression in any prior invariant. Notable adjacents:
+- `recommendation-intelligence-no-queue-write` — auto-covers the gateway file (no modification needed)
+- `recommendation-intelligence-promotion-live-write-guards` — unchanged; operator-only live-write entry point is still α₁c's `actions.ts`
+- `recommendation-intelligence-offsite-contract` — unchanged; off-site shared queue contract intact
+- `recommendation-intelligence-customer-copy-vocab` — gateway returns validated text; no customer-copy surface in α₀
+
+**Hard contracts honored.**
+
+- NO push · NO CI minutes used · NO Vercel verification
+- NO action-types.ts changes (registry unchanged at 14 active / 27 inactive / 41 total)
+- NO `LOCKED_ACTIVE_SET` change
+- NO `generatorActive` flips
+- NO trigger predicate files added
+- NO operator-only diagnostic page or action changes
+- NO customer-facing route changes
+- NO OpenAI provider modifications (treat as black-box dependency)
+- NO validator modifications (treat as black-box dependency)
+- NO `buildSpecificEditEvidencePacket` modifications
+- NO α₀a / α₀b / α₁a / α₁b / α₁c module modifications (verified via `git diff --stat` returning empty on those paths)
+- NO Section 7 / 4.5.F adapter or queue-rule modifications
+- NO persistence imports
+- NO `recommended-edits-persistence` import
+- NO `runProviderAndPersist` reference
+- NO direct Supabase `recommended_edits` write shape
+- NO migrations · NO cron · NO workflow changes
+- NO new env flag (gateway has no production caller in α₀)
+- NO real LLM calls in tests (mocked at import boundary)
+- Gateway is TYPE-AGNOSTIC — no branching on `action_type`
+
+**Line accounting.** src+tests **+750 lines** total:
+- Gateway module: 153
+- Gateway unit test: 450
+- Gateway-contract invariant: 147
+
+**50 lines over the ≤700 target** but **100-line cushion to ≤850 soft threshold** ✅ — no mandatory trim per operator rule. 250-line cushion to +1,000 hard stop. The 5 spend-recording cases (one per result state: drafted / abstained_empty_bundle / validation_failed / blocked_budget / provider_throw) were kept as explicit per-state pins rather than collapsed parametric — spend semantics are the most cost-safety-critical aspect of the gateway (LLM-cost runaway risk), so per-state explicitness is clearly justified.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+
+- `npm run typecheck` — clean ✅ (initial fail caught the `SpecificEditEvidencePacket` import path; corrected to `specific-edit-evidence.ts`)
+- Targeted Section 4.5.E.α₀ suite: gateway test (17 cases) + gateway-contract invariant (12 cases) + no-queue-write invariant (7 cases, auto-covers gateway file) — **36/36 pass** ✅
+- Full suite — TO RUN
+- Tenant-env build (`BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`) — TO RUN
+
+**Result.** STOPPED AT READY_TO_COMMIT. NOT pushed. NO CI minutes used. NO Vercel deploy. The LLM-drafting infrastructure is in place; no production behavior change; gateway is callable infrastructure awaiting α₁+ wire-up.
+
+**Proposed commit message.** `feat(recommendations): add llm draft gateway`
+
+**Next.** Local commit only. 1 commit ahead of `origin/main` after commit. Operator picks whether to solo-push (zero blast radius — no production caller exists) or batch with α₁ wire-up. Then **Slice 4.5.E.α₁ preflight** — first trigger predicate (e.g. `rewrite-h2-needed`) + `rewrite_h2` `generatorActive` flip + env-flag-gated (`BEACON_LLM_DRAFT_GATEWAY_ENABLED`) operator-only diagnostic preview section. NO queue write in α₁ — preview-only.
+
+---
+
 ## 2026-05-21 — Slice 4.5.F: off-site shared queue contract
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

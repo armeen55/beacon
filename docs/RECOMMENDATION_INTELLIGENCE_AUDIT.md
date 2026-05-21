@@ -81,6 +81,49 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.E.α₀ — LLM-assisted drafting gateway
+> (infrastructure only, 2026-05-21)**: First slice of Section
+> 4.5.E sub-chain. **Pure infrastructure ONLY.** Gateway module
+> `src/domains/recommendation-intelligence/llm-draft-gateway.ts`
+> (146 lines, server-only) wires `openaiProvider.generate()`
+> through the existing budget + validator gates and returns a
+> discriminated-union draft result with locked 4-value `status`
+> union: `drafted` / `abstained` / `validation_failed` /
+> `blocked_budget`. **No production caller exists in α₀** —
+> gateway is callable from tests + future α₁+ slices that wire
+> trigger predicates → gateway → env-gated operator preview.
+> 1 NEW src module + 1 NEW unit suite (17 cases, all passing,
+> mocks at import boundary — NO real LLM calls) + 1 NEW
+> invariant `recommendation-intelligence-llm-draft-gateway-
+> contract` (12 cases) + 1 catalog row added. **α₀ scope
+> honored**: no registry changes · no `generatorActive` flips ·
+> no new action types · no trigger predicates · no operator
+> preview · no customer queue write · no env flag (no caller
+> yet) · gateway is type-agnostic. **Hard contracts
+> honored**: NO `recommended-edits-persistence` import · NO
+> `runProviderAndPersist` reference · NO direct Supabase
+> `recommended_edits` write shape · NO `fetch(` call · NO LLM
+> SDK import · NO α₀a / α₀b / α₁a / α₁b / α₁c module
+> modifications · NO Section 7 / 4.5.F adapter or queue-rule
+> modifications. 7-step fail-closed flow: pre-call
+> `checkBudget()` → `openaiProvider.generate(packet)` → on
+> success ALWAYS `recordSpend(bundle.totalCostUsd)` →
+> `validateSpecificEdit()` → extract
+> `targetElement?.proposedText` → return discriminated result.
+> Spend NEVER recorded on `blocked_budget` or pre-call provider
+> throw (the LLM never charged). 25 existing α-family
+> invariants auto-pass; `recommendation-intelligence-no-queue-
+> write` auto-covers the gateway file via `walk(INTEL_DIR)`.
+> +750 src+tests net (gateway 153 · gateway test 450 ·
+> invariant 147) — 50 over the ≤700 target; **100-line cushion
+> to ≤850 soft threshold** ✅; 250-line cushion to +1,000 hard
+> stop. **LLM-drafting infrastructure
+> is in place; no production behavior change yet.** Next:
+> Slice 4.5.E.α₁ — first trigger predicate (e.g. `rewrite-h2-
+> needed`) + `rewrite_h2` activation + env-flag-gated
+> (`BEACON_LLM_DRAFT_GATEWAY_ENABLED`) operator-only
+> diagnostic preview. No queue write in α₁ — preview-only.
+>
 > **Slice 4.5.F — off-site shared queue contract (2026-05-21)**:
 > First slice in the Section 4.5 post-4.5.D sequence (operator
 > chose 4.5.F-first). Pure type-level + plumbing slice. Defines
