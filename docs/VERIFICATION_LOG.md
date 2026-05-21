@@ -7,6 +7,105 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.F: off-site shared queue contract
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, 4.5.F).** Pure type-level + plumbing. Defines the adapter from Section 7's `OffSiteCandidateAction` → Section 4.5's `RecommendationCandidateRow` carrier. Extends `applyQueueRules` with an off-site carve-out that ALWAYS routes off-site rows to `diagnostic_only` (NEVER to `candidates`). No Section 7 wire-up. No customer surface change. No persistence path. No `generatorActive` flips. Triple defense-in-depth on the customer-queue boundary: α₀a.1 eligibility → `"blocked"` + α₀a.3a Gate 1 → `blocked_tier` + new `applyQueueRules` routing → always `diagnostic_only`.
+
+**What changed.**
+
+1. **NEW `src/domains/off-site-authority/to-candidate-row.ts` (107 lines).** Pure mapper `offSiteCandidateToCandidateRow(action, ctx): RecommendationCandidateRow`. F-block locked field mappings:
+   - `tenant_id = ctx.tenant_id`
+   - `trigger_signal = "off_site:${action.channel}"`
+   - `action_type = action.actionType`
+   - `generator_kind = "human_task"` (LITERAL)
+   - `target_url = null` (LITERAL)
+   - `topic_cluster_label = "off-site:${action.channel}"`
+   - `evidence = [{ kind: "business_config", ref: action.id }]` (reuses existing `CandidateEvidenceRef` variant — no new enum value)
+   - `confidence = action.confidence`
+   - `impact_estimate` locked per F5: `"medium"` for claim_*/optimize_*/houzz/yelp/industry; `"low"` for `request_gbp_reviews` / `pursue_local_pr`
+   - `customer_copy = action.title`
+   - `operator_evidence = "${action.rationale} (source: ${action.source_note})"`
+   - `dedupe_key = sha1("${tenant}::${action_type}::off_site::${action.id}")`
+   - `cooldown_key = sha1("${tenant}::${action_type}::off_site")` (coarser; survives across `action.id` variants)
+   - `created_from_signal_at = ctx.generated_at`
+   - `safety_flags = action.policy_risk ? ["unsupported_claim_risk"] : []` (reuses existing `CandidateSafetyFlag` enum — no new value)
+
+   **Hard contract**: NO imports from `recommended-edits-persistence` / `runProviderAndPersist` / connectors / Supabase / LLM providers / `fetch(`. Pure mapper, deterministic.
+
+2. **MODIFIED `src/domains/recommendation-intelligence/emitter/apply-queue-rules.ts` (+39 / −7 net = +32).** Two changes:
+   - **Detection helper** `isOffSiteAction(actionType)` reads `ACTION_TYPE_REGISTRY[actionType].signalType === "off_page_seo"`. **No modification of `promotion-eligibility.ts`** — the operator-locked safer-correction. Off-site detection is derived from the existing registry's `signalType` field.
+   - **Rule 1 carve-out**: off-site rows bypass the `target_url` non-null requirement (off-site targets a channel, not a URL). On-page rows still drop on `target_url: null` / `"needs_new_page"` (regression guard).
+   - **NEW Rule 3 (OFF-SITE ROUTE)**: off-site rows ALWAYS route to `diagnostic_only`, regardless of confidence + safety flags. Customer-queue customer-queue-readiness for off-site stays permanently blocked.
+
+3. **NEW `tests/domains/off-site-authority/to-candidate-row.test.ts` (188 lines, 17 cases).** All passing. Covers: pure-deterministic output · `generator_kind: "human_task"` LITERAL · `target_url: null` LITERAL · action_type carry-through · `customer_copy === action.title` exact · `operator_evidence` includes both `rationale` + `source_note` · dedupe + cooldown key sha1 formulas (different from each other) · `policy_risk: true` → `["unsupported_claim_risk"]` · `policy_risk: false` → `[]` · parametric `impact_estimate` across all 7 action types · `trigger_signal === "off_site:${channel}"` · `topic_cluster_label === "off-site:${channel}"` · evidence shape · `created_from_signal_at === ctx.generated_at` · `tenant_id` from ctx (not action) · confidence carry-through.
+
+4. **EXTENDED `tests/domains/recommendation-intelligence/emitter/apply-queue-rules.test.ts` (+93 lines, +14 new cases).** All passing. Covers: off-site high-confidence → `diagnostic_only` · off-site low-confidence → `diagnostic_only` · off-site with safety flag → `diagnostic_only` · ON-PAGE row with `target_url: null` STILL DROPS (regression guard) · ON-PAGE `target_url: "needs_new_page"` STILL DROPS · off-site WITH non-null URL still `diagnostic_only` (carve-out is generous on inputs, locked on routing) · parametric across all 7 off-site action types · mixed batch (1 on-page + 1 off-site → correct routing per action type).
+
+5. **NEW invariant `tests/architecture/recommendation-intelligence-offsite-contract.test.ts` (174 lines, 27 cases).** All passing. Three contract layers:
+   - **Source-text pins on the adapter file (10):** file exists · contains LITERAL `"human_task"` · sets `target_url: null` LITERAL · imports `OffSiteCandidateAction` from Section 7's `recommendation-rules` · imports `RecommendationCandidateRow` from the emitter contract · does NOT import `recommended-edits-persistence` · does NOT reference `runProviderAndPersist` · no `fetch(` call · no connector/Supabase/persistence imports · no LLM provider imports · no Supabase `recommended_edits` write shape.
+   - **Behavioral pins (per action type + registry consistency):** for every 1 of 7 off-site action types, the adapter's emitted `(trigger_signal, action_type)` returns `"blocked"` from `eligibilityForTrigger(...)` (defense-in-depth regression guard against future re-classification) · every off-site action_type in `ACTION_TYPE_REGISTRY` carries `signalType: "off_page_seo"` (the detection pivot) · adapter output is `human_task` + `target_url: null`.
+   - **Routing pin:** for all 7 off-site action types, an adapter-produced row at high-confidence + no safety flags is routed by `applyQueueRules` to `diagnostic_only`, NEVER to `candidates`.
+
+6. **Catalog updated.** `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` gains 1 new row for `recommendation-intelligence-offsite-contract` with full contract description.
+
+**Operator decisions honored.**
+
+- F1: extend `applyQueueRules` with off-site-always-diagnostic_only routing.
+- F2: adapter lives at `src/domains/off-site-authority/to-candidate-row.ts`.
+- F3: `target_url: null` for v1.
+- F4: trigger_signal namespace `off_site:${channel}`.
+- F5: `impact_estimate` locked per action type.
+- F6: `policy_risk: true` → `unsupported_claim_risk` (reuses existing flag).
+- F7: evidence kind reuses `business_config`.
+- F8: no loader wire-up (adapter exists but is UNWIRED; Section 7's preview surface stays unchanged).
+- F9/F10: full architecture invariant pin set.
+
+**Locked safer-correction honored.** Off-site detection inside `applyQueueRules` reads `ACTION_TYPE_REGISTRY[actionType].signalType === "off_page_seo"` from the existing registry. Did NOT modify `promotion-eligibility.ts`. Did NOT modify or rename `OFF_SITE_ACTION_TYPES`. Did NOT flip any `generatorActive` flag.
+
+**Auto-pass (existing 24 α-family + α₀a + α₀b + α₁a + α₁b + α₁c invariants).** No regression in any prior invariant.
+
+**Hard contracts honored.**
+
+- NO push · NO CI minutes used · NO Vercel verification · NO production curl smoke
+- NO LLM call · NO external API · NO `fetch(`
+- NO Supabase migration · NO cron / workflow changes
+- NO customer-facing route changes
+- NO Section 7 row-builder (`recommendation-rules.ts` / `load-recommendation-candidates.ts` / `compute-snapshot.ts`) modifications
+- NO `/diagnostics/off-site-authority` page modification
+- NO `/diagnostics/recommendation-triggers` page or action modification
+- NO `generatorActive` flip for any off-site action type
+- NO persistence path · NO promotion-writer modification · NO live-write guard modification
+- α₀a / α₀b / α₁a / α₁b / α₁c src modules UNCHANGED (verified via `git diff --stat` on those paths returning empty)
+- NO new evidence-kind value (reuses `business_config`)
+- NO new safety-flag value (reuses `unsupported_claim_risk`)
+- NO modification of `OFF_SITE_ACTION_TYPES` allowlist contents
+
+**Line accounting.** src+tests **+677 insertions / +673 net** total:
+- Adapter: 145
+- Adapter test: 184
+- `applyQueueRules` modifications: +45 / −4 (net +41)
+- `applyQueueRules` test extension: +100
+- Offsite-contract invariant: 203
+
+**Under ≤700 target by 23 lines (insertions) / 27 lines (net)** ✅. 173-line cushion to ≤850 soft. 327-line cushion to +1,000 hard stop.
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+
+- `npm run typecheck` — clean ✅
+- Targeted suite: `npx vitest run` over adapter test + extended emitter test + new invariant + catalog-sync — **73 pass / 73 total** ✅
+- Full suite — TO RUN
+- Tenant-env build (`BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`) — TO RUN
+
+**Result.** STOPPED AT READY_TO_COMMIT. NOT pushed. NO CI minutes used. NO Vercel deploy. The shared queue language is now formalized: deterministic-promotion rows + off-site rows + (future) LLM-assisted rows all use the `RecommendationCandidateRow` carrier; routing differences live in `applyQueueRules` + downstream safety gates; the customer-queue boundary stays protected by the triple-gate defense.
+
+**Proposed commit message.** `feat(recommendations): add off-site shared queue contract`
+
+**Next.** Local commit only. After commit: 1 commit ahead of origin/main. Operator picks whether to push immediately (single small CI run) or batch with future 4.5.E / 4.5.G slices. Then 4.5.E (LLM-assisted gateway, independent of Section 10 per O11) OR 4.5.G (safety cleanup).
+
+---
+
 ## 2026-05-20 — Slice 4.5.D.α₁c: operator-only live-write gesture + env-flag guard
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

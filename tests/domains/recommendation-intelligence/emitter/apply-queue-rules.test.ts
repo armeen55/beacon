@@ -98,4 +98,104 @@ describe("applyQueueRules", () => {
     expect(result.candidates).toHaveLength(1);
     expect(result.diagnostic_only).toHaveLength(0);
   });
+
+  // ─────────────────────────────────────────────────────────────
+  // Slice 4.5.F (2026-05-21) — off-site shared queue carve-out.
+  // ─────────────────────────────────────────────────────────────
+
+  function makeOffSiteRow(
+    overrides: Partial<RecommendationCandidateRow> = {},
+  ): RecommendationCandidateRow {
+    return makeRow({
+      trigger_signal: "off_site:gbp",
+      action_type: "claim_gbp",
+      generator_kind: "human_task",
+      target_url: null,
+      topic_cluster_label: "off-site:gbp",
+      ...overrides,
+    });
+  }
+
+  it("(α₂.4.5.F) off-site row with target_url=null + high confidence → diagnostic_only (NOT candidates)", () => {
+    const result = applyQueueRules([
+      makeOffSiteRow({ confidence: "high", safety_flags: [] }),
+    ]);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.diagnostic_only).toHaveLength(1);
+    expect(result.diagnostic_only[0]!.action_type).toBe("claim_gbp");
+  });
+
+  it("(α₂.4.5.F) off-site row with target_url=null + low confidence → diagnostic_only", () => {
+    const result = applyQueueRules([
+      makeOffSiteRow({ confidence: "low" }),
+    ]);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.diagnostic_only).toHaveLength(1);
+  });
+
+  it("(α₂.4.5.F) off-site row with target_url=null + safety_flag set → diagnostic_only", () => {
+    const result = applyQueueRules([
+      makeOffSiteRow({ safety_flags: ["unsupported_claim_risk"] }),
+    ]);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.diagnostic_only).toHaveLength(1);
+  });
+
+  it("(α₂.4.5.F) ON-PAGE row with target_url=null STILL DROPS (regression guard — only off-site rows bypass Rule 1)", () => {
+    const result = applyQueueRules([
+      makeRow({ target_url: null, action_type: "edit_title" }),
+    ]);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.diagnostic_only).toHaveLength(0);
+  });
+
+  it("(α₂.4.5.F) ON-PAGE row with target_url='needs_new_page' STILL DROPS (sentinel forbidden for non-off-site)", () => {
+    const result = applyQueueRules([
+      makeRow({ target_url: "needs_new_page", action_type: "edit_title" }),
+    ]);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.diagnostic_only).toHaveLength(0);
+  });
+
+  it("(α₂.4.5.F) off-site row WITH a non-null URL also routes to diagnostic_only (carve-out is generous on inputs, locked on routing)", () => {
+    const result = applyQueueRules([
+      makeOffSiteRow({ target_url: "https://example.com/whatever" }),
+    ]);
+    expect(result.candidates).toHaveLength(0);
+    expect(result.diagnostic_only).toHaveLength(1);
+  });
+
+  it.each([
+    "claim_gbp",
+    "optimize_gbp_profile",
+    "request_gbp_reviews",
+    "claim_or_optimize_houzz",
+    "claim_or_optimize_yelp",
+    "submit_to_industry_directory",
+    "pursue_local_pr",
+  ] as const)(
+    "(α₂.4.5.F) all 7 off-site action types route to diagnostic_only, never candidates [%s]",
+    (actionType) => {
+      const result = applyQueueRules([
+        makeOffSiteRow({ action_type: actionType, confidence: "high", safety_flags: [] }),
+      ]);
+      expect(result.candidates).toHaveLength(0);
+      expect(result.diagnostic_only).toHaveLength(1);
+    },
+  );
+
+  it("(α₂.4.5.F) mixed batch: 1 on-page candidate + 1 off-site → on-page in candidates, off-site in diagnostic_only", () => {
+    const onPage = makeRow({
+      target_url: "https://example.com/onpage",
+      dedupe_key: "onpage-dk",
+      action_type: "edit_title",
+    });
+    const offSite = makeOffSiteRow({
+      dedupe_key: "offsite-dk",
+      confidence: "high",
+    });
+    const result = applyQueueRules([onPage, offSite]);
+    expect(result.candidates.map((r) => r.dedupe_key)).toEqual(["onpage-dk"]);
+    expect(result.diagnostic_only.map((r) => r.dedupe_key)).toEqual(["offsite-dk"]);
+  });
 });

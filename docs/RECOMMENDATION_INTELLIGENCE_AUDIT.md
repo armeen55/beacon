@@ -81,6 +81,42 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.F — off-site shared queue contract (2026-05-21)**:
+> First slice in the Section 4.5 post-4.5.D sequence (operator
+> chose 4.5.F-first). Pure type-level + plumbing slice. Defines
+> the adapter `offSiteCandidateToCandidateRow` (Section 7's
+> `OffSiteCandidateAction` → Section 4.5's
+> `RecommendationCandidateRow` carrier) + extends
+> `applyQueueRules` with an off-site carve-out routing off-site
+> rows ALWAYS to `diagnostic_only` (NEVER to `candidates`). 1 NEW
+> adapter (107 lines) + 1 MODIFIED emitter (+32 net) + 1 NEW
+> adapter test (17 cases) + 1 EXTENDED emitter test (+14 cases)
+> + 1 NEW invariant `recommendation-intelligence-offsite-
+> contract` (27 cases) + 1 catalog row. **F-block locked**: F1
+> off-site→diagnostic_only routing · F2 adapter location · F3
+> `target_url: null` · F4 `off_site:${channel}` namespace · F5
+> `impact_estimate` mapping · F6 reuse `unsupported_claim_risk`
+> · F7 reuse `business_config` evidence kind · F8 no loader wire-
+> up · F9/F10 full invariant pin set. **Operator-locked safer
+> correction**: off-site detection inside `applyQueueRules`
+> reads `ACTION_TYPE_REGISTRY[actionType].signalType ===
+> "off_page_seo"` from the existing registry; did NOT modify
+> `promotion-eligibility.ts` or any α₀a module. Triple defense-
+> in-depth on the customer-queue boundary: α₀a.1 eligibility →
+> `"blocked"` + α₀a.3a Gate 1 → `blocked_tier` + new routing
+> carve-out → always `diagnostic_only`. **No Section 7 wire-up,
+> no customer surface change, no persistence path, no
+> `generatorActive` flips, no new evidence-kind/safety-flag
+> values.** 24 existing α-family invariants auto-pass. +677
+> insertions / +673 net src+tests (under ≤700 target by 23–27
+> lines ✅; 327-line cushion to +1,000 hard stop). **The shared
+> queue language is
+> now formalized**: deterministic-promotion + off-site + (future)
+> LLM-assisted rows all carry the `RecommendationCandidateRow`
+> shape; routing differences live in `applyQueueRules` +
+> downstream safety gates. Next: 4.5.E (LLM-assisted gateway,
+> independent of Section 10 per O11) OR 4.5.G (safety cleanup).
+>
 > **Slice 4.5.D.α₁c — operator-only live-write gesture + env-flag
 > guard (2026-05-20)**: First slice that wires a UI-reachable code
 > path to `promoteEligibleCandidates({ dryRun: false })`. Triple-
