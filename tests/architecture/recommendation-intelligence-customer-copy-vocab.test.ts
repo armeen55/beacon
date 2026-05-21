@@ -102,6 +102,11 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // No-arg; paired with the per-snapshot `missing-schema`
   // predicate which emits at confidence: low (diagnostic_only).
   addSchemaCopy: [[]],
+  // Slice 4.5.E.α₁a (2026-05-21) — H2-rewrite template. No-arg.
+  // Paired with the new `weak-h2` predicate which emits at
+  // confidence: low → diagnostic_only routing. The LLM gateway
+  // drafts the actual replacement text in α₁b.
+  rewriteH2Copy: [[]],
 };
 
 function scanForViolations(output: string): string[] {

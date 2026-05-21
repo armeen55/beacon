@@ -11,10 +11,12 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * Slice 4.5.C.α₃b policy (2026-05-20): 37-type universe registered;
- * 12 have `generatorActive: true` (edit_title, edit_meta, change_h1,
+ * Slice 4.5.E.α₁a policy (2026-05-21): 37-type universe registered;
+ * 13 have `generatorActive: true` (edit_title, edit_meta, change_h1,
  * add_h2_section, add_faq, fix_sitemap, fix_robots, fix_status_code,
- * fix_canonical, fix_noindex, add_internal_link, add_schema). 7
+ * fix_canonical, fix_noindex, add_internal_link, add_schema, plus
+ * `rewrite_h2` flipped in α₁a paired with the new `weak-h2`
+ * predicate at `confidence: "low"` → diagnostic_only routing). 7
  * off-site authority types are locked inactive per Section 7 C7b.
  * The remaining 18 ship as registered-but-inactive. 4.5.C.α₃b
  * flips `add_schema` paired with the new per-snapshot
@@ -235,7 +237,14 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Rewrite H2",
-    generatorActive: false,
+    // Slice 4.5.E.α₁a (2026-05-21) — flipped paired with the new
+    // `weak-h2` trigger predicate which emits at `confidence: "low"`
+    // (routes to diagnostic_only via applyQueueRules; never reaches
+    // the customer queue without operator validation). The LLM
+    // gateway (α₀, locally committed) drafts the proposed text in a
+    // future α₁b slice via operator-only action; this slice ships
+    // the detection layer only.
+    generatorActive: true,
   },
   add_faq: {
     actionType: "add_faq",

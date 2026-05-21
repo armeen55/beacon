@@ -22,6 +22,7 @@ import {
   missingH1Copy,
   missingMetaCopy,
   missingTitleCopy,
+  rewriteH2Copy,
   titleH1MismatchCopy,
   weakH1Copy,
 } from "@/domains/recommendation-intelligence/customer-copy-templates";
@@ -72,6 +73,7 @@ describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀ + 4.5.C.�
     expect(fixCanonicalCopy()).toBe(fixCanonicalCopy());
     expect(addInternalLinkCopy()).toBe(addInternalLinkCopy());
     expect(addSchemaCopy()).toBe(addSchemaCopy());
+    expect(rewriteH2Copy()).toBe(rewriteH2Copy());
   });
 
   // ── α₂ count-aware duplicate-metadata templates ─────────────────────
@@ -148,5 +150,17 @@ describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀ + 4.5.C.�
     expect(addSchemaCopy()).toBe(
       "Add structured data so AI search platforms can extract this page's purpose more reliably.",
     );
+  });
+
+  // ── 4.5.E.α₁a H2 rewrite template ───────────────────────────────────
+
+  it("rewriteH2Copy returns the operator-locked phrasing (4.5.E.α₁a)", () => {
+    expect(rewriteH2Copy()).toBe(
+      "Rewrite this H2 to include the page's target topic so AI search platforms can understand the section more clearly.",
+    );
+  });
+
+  it("rewriteH2Copy is no-arg / pure (4.5.E.α₁a)", () => {
+    expect(rewriteH2Copy()).toBe(rewriteH2Copy());
   });
 });

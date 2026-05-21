@@ -102,6 +102,11 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // to fix_robots (NOT fix_noindex). The remediation is a
   // robots.txt edit, not a meta-robots edit.
   ["robots_blocks_ai_bots::fix_robots", "diagnostic-only"],
+  // Slice 4.5.E.α₁a (2026-05-21) — first LLM-assisted pair.
+  // `weak_h2::rewrite_h2` stays diagnostic-only by operator lock —
+  // the α₀ gateway will draft proposed text via the α₁b server
+  // action; no customer-queue path until operator validates.
+  ["weak_h2::rewrite_h2", "diagnostic-only"],
 ]);
 
 /**

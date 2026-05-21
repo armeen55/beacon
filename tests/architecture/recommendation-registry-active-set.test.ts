@@ -103,6 +103,14 @@ const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   // diagnostic_only via applyQueueRules. Tier-2 sensitive
   // (industry-tuning safety).
   "add_schema",
+  // Slice 4.5.E.α₁a (2026-05-21) — first LLM-assisted flip,
+  // paired with the new `weak-h2` predicate at
+  // `confidence: "low"` → diagnostic_only routing. NO LLM call
+  // from the predicate itself (pure detection layer). The
+  // α₀ LLM gateway (locally committed) is callable but NOT
+  // invoked by α₁a — gateway invocation lands in α₁b via
+  // operator-only env-gated server action.
+  "rewrite_h2",
 ];
 
 /** Locked total count per Slice 4.5.C.α₀ (2026-05-19). 4.5.C.α₀

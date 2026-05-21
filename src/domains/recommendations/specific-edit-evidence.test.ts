@@ -726,7 +726,7 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
     expect(packet.allowedActionTypes).toEqual(expected);
   });
 
-  it("defaults are exactly the 12-type active set (sorted) — post-Slice 4.5.C.α₃b", () => {
+  it("defaults are exactly the 13-type active set (sorted) — post-Slice 4.5.E.α₁a", () => {
     // Slice 4.5.B.α₀ (2026-05-19): `edit_meta` flipped paired with
     // the `missing-meta` trigger predicate.
     // Slice 4.5.B.α₁ (2026-05-19): `change_h1` flipped paired with
@@ -743,6 +743,11 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
     // Slice 4.5.C.α₃b (2026-05-20): `add_schema` flipped paired
     // with the per-snapshot `missing-schema` predicate at
     // confidence: low (routes to diagnostic_only).
+    // Slice 4.5.E.α₁a (2026-05-21): `rewrite_h2` flipped paired
+    // with the new `weak-h2` predicate at confidence: low
+    // (routes to diagnostic_only via applyQueueRules). First
+    // LLM-assisted activation though the gateway is NOT invoked
+    // in α₁a — gateway wire-up lands in α₁b.
     const packet = buildSpecificEditEvidencePacket(buildArgs());
     expect(packet.allowedActionTypes.sort()).toEqual(
       [
@@ -758,6 +763,7 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
         "fix_robots",
         "fix_sitemap",
         "fix_status_code",
+        "rewrite_h2",
       ].sort(),
     );
   });

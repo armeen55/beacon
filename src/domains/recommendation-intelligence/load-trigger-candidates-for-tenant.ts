@@ -94,6 +94,7 @@ import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
 import { sitemapMissing } from "./triggers/sitemap-missing";
 import { titleH1Mismatch } from "./triggers/title-h1-mismatch";
 import { weakH1 } from "./triggers/weak-h1";
+import { weakH2 } from "./triggers/weak-h2";
 
 export type TriggerCandidatesLoadStatus =
   | "ok"
@@ -122,7 +123,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 15;
+const PREDICATE_COUNT = 16;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -227,6 +228,12 @@ export async function loadTriggerCandidatesForTenant(options: {
     all.push(...missingMeta({ tenantId, snapshot }));
     all.push(...missingH1({ tenantId, snapshot }));
     all.push(...weakH1({ tenantId, snapshot, businessConfig }));
+    // Slice 4.5.E.α₁a (2026-05-21) — `weak-h2` mirrors `weak-h1`
+    // detection on city/service pages but emits `rewrite_h2` at
+    // `confidence: "low"` (diagnostic_only routing). Pure
+    // detection layer; no LLM call. Gateway invocation deferred
+    // to α₁b's operator-only env-gated server action.
+    all.push(...weakH2({ tenantId, snapshot, businessConfig }));
     // α₂.2: title-h1-mismatch requires businessConfig for the
     // shared page-classifier (homepage / city / service
     // allowlist).

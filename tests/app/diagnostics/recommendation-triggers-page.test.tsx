@@ -443,14 +443,14 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 15 (post-4.5.C.α₃b loader)", async () => {
+  it("predicates_run counter reads 16 (post-4.5.E.α₁a loader)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
     // The font-mono span renders the integer 15; check via inclusion
     // of the substring "predicates_run\">" + "15".
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>15<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>16<\/span>/,
     );
   });
 
@@ -505,10 +505,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta.
-    // Post-4.5.C.α₃b: 15.
-    expect(html).toContain('data-description-predicates-run="15"');
+    // Post-4.5.E.α₁a: 16.
+    expect(html).toContain('data-description-predicates-run="16"');
     // And the prose body contains the same integer.
-    expect(html).toContain("15</span> active");
+    expect(html).toContain("16</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────

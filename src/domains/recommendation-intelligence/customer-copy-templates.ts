@@ -97,3 +97,15 @@ export function addInternalLinkCopy(): string {
 export function addSchemaCopy(): string {
   return "Add structured data so AI search platforms can extract this page's purpose more reliably.";
 }
+
+// ── Slice 4.5.E.α₁a (2026-05-21) — H2 rewrite copy ───────────────────────
+// Operator-locked phrasing — do not edit without operator approval.
+// Paired with the new `weak-h2` trigger predicate which emits
+// `rewrite_h2` candidates at `confidence: "low"` (routes to
+// diagnostic_only via applyQueueRules — never to customer queue
+// without operator validation). LLM-drafted replacement text
+// lands in a later α₁b slice via the operator-only LLM gateway.
+
+export function rewriteH2Copy(): string {
+  return "Rewrite this H2 to include the page's target topic so AI search platforms can understand the section more clearly.";
+}

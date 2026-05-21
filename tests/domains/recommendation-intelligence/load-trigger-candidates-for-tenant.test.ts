@@ -228,7 +228,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(15);
+    expect(result.meta.predicates_run).toBe(16);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -394,6 +394,43 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(weakH1Rows[0]!.confidence).toBe("medium");
   });
 
+  it("(4.5.E.α₁a) loader invokes weak-h2; routes the emitted rewrite_h2 candidate to diagnostic_only (confidence: low)", async () => {
+    // City detail page with a weak H2 (no location-term overlap).
+    // Predicate emits at confidence: "low" → applyQueueRules routes
+    // it to diagnostic_only, never to candidates.
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        locations: ["Palo Alto"],
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/locations/palo-alto",
+        h1: "Palo Alto Custom Home",
+        h2_list: ["Why Choose Us", "Our Process"],
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const inCandidates = result.candidates.filter(
+      (r) => r.trigger_signal === "weak_h2",
+    );
+    const inDiagnostic = result.diagnostic_only.filter(
+      (r) => r.trigger_signal === "weak_h2",
+    );
+    expect(inCandidates).toEqual([]);
+    expect(inDiagnostic).toHaveLength(1);
+    expect(inDiagnostic[0]!.action_type).toBe("rewrite_h2");
+    expect(inDiagnostic[0]!.confidence).toBe("low");
+    expect(inDiagnostic[0]!.generator_kind).toBe("llm_assisted");
+  });
+
   it("emits PAIRED edit_title + change_h1 candidates when title and h1 mismatch (Jaccard < 0.3)", async () => {
     // α₂.2 requires the snapshot URL to classify as homepage /
     // city / service for title_h1_mismatch to fire. Use a city
@@ -442,7 +479,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=15 in meta on the ok path (post-4.5.C.α₃b)", async () => {
+  it("reports predicates_run=16 in meta on the ok path (post-4.5.E.α₁a)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -452,7 +489,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(15);
+    expect(result.meta.predicates_run).toBe(16);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────

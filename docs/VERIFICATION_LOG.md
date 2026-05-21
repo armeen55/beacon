@@ -7,6 +7,103 @@
 
 ---
 
+## 2026-05-21 — Slice 4.5.E.α₁a: weak-h2 trigger predicate + `rewrite_h2` activation
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₁a only).** Second slice of Section 4.5.E LLM-assisted sub-chain. Pure detection layer only — adds the deterministic `weak-h2` trigger predicate that emits `rewrite_h2` candidates at `confidence: "low"` → routes to `diagnostic_only` via `applyQueueRules`. **NO env flag. NO server action. NO LLM call from this slice. NO gateway invocation. NO queue write. NO UI.** The α₀ LLM gateway (locally committed at `2923f25`) stays infrastructure-only and dormant; α₁b will wire the env-gated server action that invokes it.
+
+**What changed.**
+
+1. **NEW `src/domains/recommendation-intelligence/triggers/weak-h2.ts` (~185 lines).** Mirrors `weak-h1.ts` page-type-gating + modifier-overlap detection. Pure function. No I/O. No persistence import. Page-type ∈ {city, service}. Skips non-HTML assets, empty `h2_list`, `extraction_certainty === "uncertain"`, and pages where the relevant business-config dimension is empty. **Per-page emission** — multiple weak H2s on one page produce exactly ONE candidate, with all weak H2s encoded in `operator_evidence` as `h2[<index>]=<text>` separated by ` | `. Candidate fields:
+   - `trigger_signal: "weak_h2"`
+   - `action_type: "rewrite_h2"`
+   - `generator_kind: "llm_assisted"` (first LLM-assisted predicate in the family)
+   - `confidence: "low"` (forces `diagnostic_only` routing via `applyQueueRules`)
+   - `impact_estimate: "medium"`
+   - `customer_copy: rewriteH2Copy()`
+   - `evidence: [page_snapshot, business_config]`
+   - `safety_flags: []`
+
+2. **NEW `tests/domains/recommendation-intelligence/triggers/weak-h2.test.ts` (~370 lines, 29 cases, all passing).** Coverage:
+   - Page-type gating (5): city fires, service fires, homepage skips, project skips, hub `/locations` skips.
+   - Modifier-overlap detection (5): city H2 with location term skips, service H2 with service term skips, mixed weak/strong H2s yield one candidate with weak-only evidence, multi-weak emission produces one candidate with all weak indices.
+   - Skip conditions (6): empty h2_list, extraction_certainty uncertain, non-HTML asset, blank entries, empty locations, empty services.
+   - Candidate-row shape (12 incl. signal / action / generator-kind / confidence / impact / customer-copy / operator-evidence / evidence-shape / target-url / safety-flags / keys / topic-cluster).
+   - Service-page service-term resolution (1).
+
+3. **MODIFIED `src/domains/recommendations/action-types.ts`** — flipped `rewrite_h2.generatorActive: false → true` with α₁a docstring rationale. Top-of-module slice-policy refreshed (12 → 13 active).
+
+4. **MODIFIED `src/domains/recommendations/action-types.test.ts`** — renamed `ACTIVE_AFTER_4_5_C_ALPHA3B` → `ACTIVE_AFTER_4_5_E_ALPHA1A`; list extended to 13 entries (added `rewrite_h2` with paired rationale comment); active-count assertion 12 → 13; inactive-count assertion 25 → 24; new test pinning `ACTION_TYPE_REGISTRY.rewrite_h2.generatorActive === true`.
+
+5. **MODIFIED `tests/architecture/recommendation-registry-active-set.test.ts`** — `LOCKED_ACTIVE_SET` extended to 13 entries with α₁a rationale comment.
+
+6. **MODIFIED `src/domains/recommendation-intelligence/promotion-eligibility.ts`** — added single entry `["weak_h2::rewrite_h2", "diagnostic-only"]` to `PROMOTION_ELIGIBILITY_TABLE`. **Operator-locked**: diagnostic-only tier blocks customer-queue promotion; gateway invocation deferred to α₁b. **No other change to this file.**
+
+7. **MODIFIED `tests/architecture/recommendation-intelligence-promotion-eligibility-pin.test.ts`** — `LOCKED_TABLE` extended with the new pair; table size 16 → 17.
+
+8. **MODIFIED `src/domains/recommendation-intelligence/customer-copy-templates.ts`** — appended `rewriteH2Copy()` returning the operator-locked phrasing: *"Rewrite this H2 to include the page's target topic so AI search platforms can understand the section more clearly."*
+
+9. **MODIFIED `tests/architecture/recommendation-intelligence-customer-copy-vocab.test.ts`** — `PROBE_SETS` extended with `rewriteH2Copy: [[]]` (15 templates total).
+
+10. **MODIFIED `src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts`** — `PREDICATE_COUNT` 15 → 16; `weakH2` imported and invoked per snapshot inside the existing per-snapshot loop alongside `weakH1`.
+
+11. **MODIFIED `tests/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.test.ts`** — `predicates_run=15 → 16` in 2 places + new α₁a wiring test asserting `rewrite_h2` candidate routes to `diagnostic_only` (NOT to `candidates`) with `confidence: "low"` + `generator_kind: "llm_assisted"`.
+
+12. **MODIFIED `tests/app/diagnostics/recommendation-triggers-page.test.tsx`** — `predicates_run` references 15 → 16 in 3 places.
+
+13. **MODIFIED `tests/domains/recommendation-intelligence/customer-copy-templates.test.ts`** — added 2 new α₁a phrasing-pin cases + reused-purity assertion line for `rewriteH2Copy`.
+
+14. **Catalog updated** — 3 row dates bumped to 2026-05-21 (registry-active-set, customer-copy-vocab, promotion-eligibility-pin) with α₁a extension notes.
+
+**Operator decisions honored.**
+
+- α₁a scope: pure detection layer only; no env flag, no server action, no UI, no LLM call path, no gateway invocation, no queue write.
+- Activate `rewrite_h2` only — NOT `rewrite_faq` (α₂), NOT `refresh_stale_page` (α₃).
+- `weak_h2::rewrite_h2 = "diagnostic-only"` eligibility tier (operator-locked).
+- `weak-h2` emits at `confidence: "low"` LITERAL (forces `diagnostic_only` routing).
+- `generator_kind: "llm_assisted"` LITERAL (distinct from `weak-h1`'s `"deterministic"` since the LLM gateway in α₁b will draft the replacement text).
+- Page-snapshot-only signal — NO observations, NO GSC, NO fan-out queries, NO provider output, NO external APIs.
+- Per-page emission (NOT per-H2) — operator picks which H2 to rewrite from the per-page `operator_evidence` trail.
+- `rewriteH2Copy()` returns the exact operator-locked phrasing.
+
+**Auto-pass (existing α-family + α₀ + α₁c + 4.5.F + 4.5.E.α₀ invariants).**
+
+- `recommendation-intelligence-no-queue-write` auto-covers the new `weak-h2.ts` file via `walk(INTEL_DIR)` (7/7 cases green).
+- `recommendation-trigger-predicates-purity` auto-covers the new predicate (no forbidden imports).
+- `recommendation-intelligence-no-llm-decides` auto-discovers the `action_type: "rewrite_h2"` literal in `weak-h2.ts` paired with the flipped `generatorActive: true`.
+- `recommendation-intelligence-llm-draft-gateway-contract` (α₀) — unchanged; gateway not invoked.
+- `recommendation-intelligence-promotion-live-write-guards` (α₁c) — unchanged; live-write entry point unchanged.
+- `recommendation-intelligence-offsite-contract` (4.5.F) — unchanged.
+
+**Hard contracts honored.**
+
+- NO push · NO CI minutes used · NO Vercel verification
+- NO env flag · NO server action · NO UI
+- NO LLM call · NO gateway invocation
+- NO customer-queue write · NO persistence imports · NO `recommended-edits-persistence` import · NO `runProviderAndPersist` · NO direct Supabase write shape
+- NO `rewrite_faq` activation · NO `refresh_stale_page` registry addition
+- NO OpenAI provider / validator / budget ledger / packet-builder changes
+- NO α₀ / α₀a-d / α₀b / α₁a-b / α₁c / 4.5.F / 4.5.E.α₀ src module modifications (verified via git diff returning empty on those paths)
+- NO customer-facing route changes
+- NO migrations · NO cron / workflow changes · NO new env var
+- weak-h2 predicate is PURE (no I/O, no persistence import, no LLM call)
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+
+- `npm run typecheck` — clean ✅
+- Targeted Section 4.5.E.α₁a suite (11 files: weak-h2 test + customer-copy-templates + loader + action-types + 4 architecture invariants + 2 other invariants + catalog-sync) — **204/204 pass** ✅
+- Full suite — TO RUN
+- Tenant-env build (`BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`) — TO RUN
+
+**Result.** STOPPED AT READY_TO_COMMIT. NOT pushed. NO CI minutes used. NO Vercel deploy. The first LLM-assisted detection predicate is in place; gateway stays dormant. After deploy (whenever the operator pushes), operator can visit `/diagnostics/recommendation-triggers` and see `weak_h2 → rewrite_h2` candidates in the diagnostic-only bucket; NO LLM call fires from the diagnostic page.
+
+**Proposed commit message.** `feat(recommendations): activate weak h2 llm diagnostic trigger`
+
+**Next.** Local commit only. After commit: 2 local commits ahead of `origin/main` (`2923f25` α₀ + new α₁a). Operator picks whether to solo-push α₁a, batch-push α₀ + α₁a, or hold for α₁b₁ batch. Then **Slice 4.5.E.α₁b₁ preflight** — `BEACON_LLM_DRAFT_GATEWAY_ENABLED` env helper + thin packet builder + render-isolation invariant.
+
+---
+
 ## 2026-05-21 — Slice 4.5.E.α₀: LLM-assisted drafting gateway (infrastructure only)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

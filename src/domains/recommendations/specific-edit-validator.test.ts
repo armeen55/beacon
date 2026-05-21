@@ -392,11 +392,12 @@ describe("Phase 6A.1.10 — validateSpecificEdit (negative — actionType)", () 
     const packet = buildPacket();
     // Slice 4.5.B.α₀ (2026-05-19): `edit_meta` flipped to
     // generatorActive=true, so it's now in the default v1
-    // allowedActionTypes set. Use a still-inactive type for the
-    // negative case — `rewrite_h2` stays generatorActive=false in
-    // α₀ + α₁ + α₂.
+    // allowedActionTypes set. Slice 4.5.E.α₁a (2026-05-21):
+    // `rewrite_h2` flipped active. Use a still-inactive type
+    // for the negative case — `rewrite_faq` stays
+    // `generatorActive: false` until Slice 4.5.E.α₂.
     const bad = validEditTitleFixture(packet, {
-      actionType: "rewrite_h2",
+      actionType: "rewrite_faq",
     });
     const r = validateSpecificEdit(bad, packet);
     expect(r.ok).toBe(false);

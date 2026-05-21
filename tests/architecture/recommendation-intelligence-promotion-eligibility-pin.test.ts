@@ -36,10 +36,15 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],
 
-  // diagnostic-only (3)
+  // diagnostic-only (4)
   ["missing_schema::add_schema", "diagnostic-only"],
   ["noindex_on_indexable_page::fix_noindex", "diagnostic-only"],
   ["robots_blocks_ai_bots::fix_robots", "diagnostic-only"],
+  // Slice 4.5.E.α₁a (2026-05-21) — first LLM-assisted pair.
+  // Operator-locked to diagnostic-only; α₀ gateway drafts proposed
+  // text via the α₁b env-gated server action; no customer-queue
+  // path in α₁a.
+  ["weak_h2::rewrite_h2", "diagnostic-only"],
 ] as const;
 
 describe("recommendation-intelligence-promotion-eligibility-pin", () => {

@@ -122,8 +122,10 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (16)", () => {
-    // 6 customer-queue-ready + 7 operator-review-only + 3 diagnostic-only = 16
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(16);
+  it("table size matches the locked entry count (17 post-4.5.E.α₁a)", () => {
+    // 6 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 17
+    // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2` at
+    // the operator-locked diagnostic-only tier.
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(17);
   });
 });

@@ -127,8 +127,8 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
     });
   });
 
-  describe("generator activation — Slice 4.5.C.α₃b active set is exactly 12", () => {
-    const ACTIVE_AFTER_4_5_C_ALPHA3B: ActionType[] = [
+  describe("generator activation — Slice 4.5.E.α₁a active set is exactly 13", () => {
+    const ACTIVE_AFTER_4_5_E_ALPHA1A: ActionType[] = [
       "edit_title",
       // Slice 4.5.B.α₀ (2026-05-19) — flipped paired with the
       // `missing-meta` trigger predicate.
@@ -157,35 +157,38 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       // map is local-service-tuned; diagnostic-only routing
       // isolates operator validation.
       "add_schema",
+      // Slice 4.5.E.α₁a (2026-05-21) — first LLM-assisted flip,
+      // paired with the new `weak-h2` predicate at
+      // `confidence: "low"` → diagnostic_only routing. The α₀
+      // LLM gateway (locally committed) is callable but NOT
+      // invoked by α₁a — the predicate is the pure detection
+      // layer; gateway invocation lands in α₁b via operator-only
+      // env-gated server action.
+      "rewrite_h2",
     ];
 
-    it("exactly 12 types are generatorActive=true (post-Slice 4.5.C.α₃b)", () => {
+    it("exactly 13 types are generatorActive=true (post-Slice 4.5.E.α₁a)", () => {
       const active = ACTION_TYPES.filter(
         (t) => ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      expect(active).toHaveLength(12);
-      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_4_5_C_ALPHA3B));
+      expect(active).toHaveLength(13);
+      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_4_5_E_ALPHA1A));
     });
 
-    it("listActiveActionTypes() returns the same twelve", () => {
+    it("listActiveActionTypes() returns the same thirteen", () => {
       expect(new Set(listActiveActionTypes())).toEqual(
-        new Set(ACTIVE_AFTER_4_5_C_ALPHA3B),
+        new Set(ACTIVE_AFTER_4_5_E_ALPHA1A),
       );
     });
 
-    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; 4.5.D+ will activate remaining types)", () => {
+    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; 4.5.E.α₁b+ wires the gateway invocation path for the active llm-assisted types)", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      // 22 original − 5 historical-active = 17 inactive,
-      // plus Section 7 C7b's 7 off-site/manual types,
-      // plus Slice 4.5.B.α₀'s 3 new inactive types
-      // (update_intro, add_h3_section, add_image_alt_text),
-      // minus 2 (`add_internal_link` flipped active in α₃a;
-      // `add_schema` flipped active in α₃b)
-      // → 25 total inactive.
-      expect(inactive).toHaveLength(25);
-      for (const t of ACTIVE_AFTER_4_5_C_ALPHA3B) {
+      // Prior post-4.5.C.α₃b inactive count was 25.
+      // 4.5.E.α₁a flips `rewrite_h2` → inactive count drops to 24.
+      expect(inactive).toHaveLength(24);
+      for (const t of ACTIVE_AFTER_4_5_E_ALPHA1A) {
         expect(inactive).not.toContain(t);
       }
     });
@@ -196,6 +199,10 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
 
     it("(4.5.C.α₃b) `add_schema` is ACTIVE — flipped in α₃b paired with `missing-schema` predicate at confidence: low", () => {
       expect(ACTION_TYPE_REGISTRY.add_schema.generatorActive).toBe(true);
+    });
+
+    it("(4.5.E.α₁a) `rewrite_h2` is ACTIVE — flipped paired with `weak-h2` predicate at confidence: low (diagnostic_only routing; NO customer queue write in this slice)", () => {
+      expect(ACTION_TYPE_REGISTRY.rewrite_h2.generatorActive).toBe(true);
     });
   });
 

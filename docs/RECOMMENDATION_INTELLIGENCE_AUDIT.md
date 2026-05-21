@@ -81,6 +81,53 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.E.α₁a — weak-h2 trigger predicate + `rewrite_h2`
+> activation (2026-05-21)**: Second slice of Section 4.5.E. Pure
+> detection layer only — adds the deterministic `weak-h2`
+> trigger predicate that emits `rewrite_h2` candidates at
+> `confidence: "low"` → routes to `diagnostic_only` via
+> `applyQueueRules`. **NO env flag, NO server action, NO LLM
+> call from this slice, NO gateway invocation, NO queue write,
+> NO UI.** The α₀ LLM gateway (locally committed at `2923f25`)
+> stays infrastructure-only and dormant; α₁b wires the env-
+> gated server action that invokes it. 1 NEW src predicate
+> (~185 lines, mirrors `weak-h1.ts` page-type-gating + modifier-
+> overlap detection; per-page emission, not per-H2) + 1 NEW
+> unit suite (29 cases) + 6 modified files (registry flip:
+> `rewrite_h2.generatorActive: false → true` · eligibility
+> entry: `weak_h2::rewrite_h2 = "diagnostic-only"` ·
+> `rewriteH2Copy()` template · loader `PREDICATE_COUNT` 15 → 16
+> + invocation · 4 paired test updates) + 4 architecture
+> invariants extended (active-set 12 → 13; eligibility-pin
+> table 16 → 17; customer-copy-vocab 14 → 15 templates;
+> no-llm-decides auto-discovers the new `action_type` literal)
+> + 5 doc syncs. **Operator-locked α₁a decisions**: activate
+> `rewrite_h2` only (NOT `rewrite_faq`, NOT `refresh_stale_page`)
+> · `weak_h2::rewrite_h2` operator-locked to `diagnostic-only`
+> tier · `confidence: "low"` LITERAL forces `diagnostic_only`
+> routing · `generator_kind: "llm_assisted"` LITERAL (first
+> non-deterministic predicate) · page-snapshot-only signal (no
+> observations, no GSC, no fan-out queries, no provider output)
+> · per-page emission (not per-H2) · operator-locked
+> `rewriteH2Copy()` phrasing. **Auto-pass** (existing α-family
+> + α₀ + α₁c + 4.5.F + 4.5.E.α₀ invariants): `no-queue-write`
+> (auto-covers new predicate file via `walk(INTEL_DIR)`),
+> `trigger-predicates-purity`, `no-llm-decides` (auto-discovers
+> the new `action_type: "rewrite_h2"` literal),
+> `llm-draft-gateway-contract` (α₀ gateway unchanged + not
+> invoked), `promotion-live-write-guards` (α₁c unchanged),
+> `offsite-contract` (4.5.F unchanged). **Hard contracts
+> honored**: NO push · NO CI · NO Vercel · NO LLM · NO gateway
+> invocation · NO customer-facing route changes · NO α₀ / α₀a-d /
+> α₀b / α₁a-b / α₁c / 4.5.F / 4.5.E.α₀ module modifications ·
+> NO OpenAI provider / validator / budget ledger changes · NO
+> queue writes · NO persistence imports · NO migrations / cron
+> / workflows. **The first LLM-assisted detection predicate is
+> now in place.** Gateway invocation deferred to α₁b. Operator
+> can visit `/diagnostics/recommendation-triggers` after deploy
+> and see `weak_h2 → rewrite_h2` candidates in the diagnostic-
+> only bucket; NO LLM call fires.
+>
 > **Slice 4.5.E.α₀ — LLM-assisted drafting gateway
 > (infrastructure only, 2026-05-21)**: First slice of Section
 > 4.5.E sub-chain. **Pure infrastructure ONLY.** Gateway module
