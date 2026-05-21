@@ -37,6 +37,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { buildCopyTile } from "@/domains/recommendations/suggested-copy-adapters";
+import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { cn } from "@/lib/utils";
 import { RecommendationDetailActions } from "./recommendation-detail-actions";
 import { SuggestedCopyAct } from "./suggested-copy-act";
@@ -98,17 +99,34 @@ export type RecommendationDetailClientProps = {
   row: RecommendationActionRow;
   changelogId: string | null;
   promptTextById: Record<string, string>;
+  /** Slice 4.5.G-B.1 — active tracked-entity competitor names for
+   *  the render-time `why`-display guard. Optional; when omitted or
+   *  empty, competitor-name detection is inactive but UUID + long-
+   *  hex + internal-token detection still fires. */
+  competitorNames?: ReadonlyArray<string>;
 };
 
 export function RecommendationDetailClient({
   row,
   changelogId,
   promptTextById,
+  competitorNames,
 }: RecommendationDetailClientProps) {
   const target =
     row.targetUrl && row.targetUrl !== "needs_new_page" ? row.targetUrl : null;
   const targetLabel = row.targetLabel;
-  const why = row.evidenceSummary?.trim() || row.detail.why?.trim() || null;
+  // Slice 4.5.G-B.1 — render-time guard on the customer-visible
+  // `why` field. Replaces unguarded `evidenceSummary || detail.why`
+  // with a guarded sibling; blocked inputs render the calm fallback
+  // instead of the raw leaked text.
+  const rawWhy =
+    row.evidenceSummary?.trim() || row.detail.why?.trim() || null;
+  const whyGuard = checkWhyDisplaySafe(rawWhy, { competitorNames });
+  const why = rawWhy === null
+    ? null
+    : whyGuard.ok
+      ? whyGuard.text
+      : whyGuard.fallback;
   const measurementPlan = row.detail.measurementPlan?.trim() || null;
   const competitor = row.detail.topCompetitor;
   const observationCount = row.detail.observationCount;
@@ -380,7 +398,11 @@ export function RecommendationDetailClient({
           display-safety guard). When suppressed, Measurement keeps its
           original Act 4 numbering via `measurementIndex`. */}
       {showSuggestedCopy && (
-        <SuggestedCopyAct row={row} index={4} />
+        <SuggestedCopyAct
+          row={row}
+          index={4}
+          competitorNames={competitorNames}
+        />
       )}
 
       {/* Act 5 — Measurement plan (Act 4 when Suggested copy is suppressed). */}

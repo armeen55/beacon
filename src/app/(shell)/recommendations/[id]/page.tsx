@@ -28,6 +28,7 @@ export const fetchCache = "force-no-store";
 import { unstable_noStore as noStore } from "next/cache";
 
 import { currentTenantId } from "@/lib/tenant-context";
+import { getRepository } from "@/lib/persistence/repositories";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
 import { getChangelogEntries as _getChangelogEntriesUnused } from "@/lib/seed-data.server";
 import { buildChangelogIdByRecId } from "@/domains/recommendations/changelog-link";
@@ -109,6 +110,25 @@ export default async function RecommendationDetailPage({
       promptTextById[p.id] = p.text;
     }
 
+    // Slice 4.5.G-B.1 — load active tracked competitor entities for
+    // the render-time `why`-display guard. Soft-fail to [] when the
+    // read errors so the page still renders (the guard's UUID +
+    // internal-token detection runs regardless of competitorNames).
+    let competitorNames: string[] = [];
+    try {
+      const entities = await getRepository()
+        .forTenant(tenantId)
+        .getTrackedEntities();
+      competitorNames = entities
+        .filter(
+          (e) => e.entity_type === "competitor" && e.is_active === true,
+        )
+        .map((e) => e.name)
+        .filter((n) => typeof n === "string" && n.length > 0);
+    } catch {
+      competitorNames = [];
+    }
+
     const changelogIdByRecId = buildChangelogIdByRecId(
       persisted.changelogEntries,
     );
@@ -179,6 +199,7 @@ export default async function RecommendationDetailPage({
               changelogIdByRecId[resolution.row.sourceRecommendationId] ?? null
             }
             promptTextById={promptTextById}
+            competitorNames={competitorNames}
           />
         </>
       );

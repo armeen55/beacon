@@ -146,6 +146,25 @@ export async function RecommendationsAsyncContent({
     const tenantId = await currentTenantId();
     trace.data("use_v2", useV2 ? "true" : "false");
 
+    // Slice 4.5.G-B.1 — load active tracked competitor entities once
+    // for the render-time `why`-display guard. Soft-fail to [] so the
+    // page still renders if the read errors; the guard's UUID +
+    // internal-token detection runs regardless of competitorNames.
+    let competitorNames: string[] = [];
+    try {
+      const entities = await getRepository()
+        .forTenant(tenantId)
+        .getTrackedEntities();
+      competitorNames = entities
+        .filter(
+          (e) => e.entity_type === "competitor" && e.is_active === true,
+        )
+        .map((e) => e.name)
+        .filter((n) => typeof n === "string" && n.length > 0);
+    } catch {
+      competitorNames = [];
+    }
+
     if (useV2) {
       const persisted = await trace.time(
         "loadPersistedRecommendationQueueForPage",
@@ -176,6 +195,7 @@ export async function RecommendationsAsyncContent({
             watchlist={persisted.watchlist}
             matrixDate={persisted.matrixDateLabel}
             promptTextById={promptTextById}
+            competitorNames={competitorNames}
           />
           {debugResolver && (
             <RecsResolverDebugPanel
@@ -278,6 +298,7 @@ export async function RecommendationsAsyncContent({
           matrixDate={matrix.date}
           promptTextById={promptTextById}
           changelogIdByRecId={changelogIdByRecId}
+          competitorNames={competitorNames}
         />
       </div>
     );

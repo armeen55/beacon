@@ -98,6 +98,10 @@ export type RecommendationsV2ClientProps = {
   watchlist?: RecommendationWatchRow[];
   matrixDate: string;
   promptTextById: Record<string, string>;
+  /** Slice 4.5.G-B.1 — active tracked-entity competitor names for the
+   *  render-time `why`-display guard on each `<RecommendationV2Card>`.
+   *  Threaded from the server page; optional. */
+  competitorNames?: ReadonlyArray<string>;
 };
 
 export function RecommendationsV2Client({
@@ -106,6 +110,7 @@ export function RecommendationsV2Client({
   watchlist: _watchlist = [],
   matrixDate,
   promptTextById,
+  competitorNames,
 }: RecommendationsV2ClientProps) {
   // 2026-05-13 follow-up — "See full list" used to link to
   // `/recommendations?legacy=1`, pushing customers out of v2 every time
@@ -185,7 +190,11 @@ export function RecommendationsV2Client({
             aria-label="Suggested recommendations"
           >
             {suggested.map((row) => (
-              <RecommendationV2Card key={row.id} row={row} />
+              <RecommendationV2Card
+                key={row.id}
+                row={row}
+                competitorNames={competitorNames}
+              />
             ))}
 
             {hasMoreActionable && (

@@ -81,6 +81,135 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.G-B.1 — recommendation `why` render-time
+> guard (2026-05-21)**: First half of Section 4.5.G-B
+> (defense-in-depth follow-up to the production audit at
+> A.2). Operator-side visual smoke of
+> `/diagnostics/recommendation-safety-audit` (deployed
+> against `origin/main = 450a3f2`) surfaced **73 violations
+> across 25 of 28 rows**: **10 uuid_leak (high)**, **5
+> internal_token (medium, e.g., `aiSearchSignal`)**, **4
+> competitor_name (high)**, 40 architect_overclaim
+> (medium — many legitimate Ritz brand-assert phrasing per
+> K3 audit-only patterns), 14 unsupported_claim, 0
+> placeholder/causal/em_dash/leading_superlative.
+> **Operator-locked decision: render-guard + future
+> prevention, NO production data mutation.** B.1 scope:
+> render-time guard for the customer-visible `why` field
+> ONLY, blocking the 4 high-confidence non-overclaim kinds
+> (uuid_leak / long_hex_hash / internal_token /
+> competitor_name). **unsupported_claim and
+> architect_overclaim INTENTIONALLY DEFERRED to slice
+> 4.5.G-B.4** to preserve Ritz's brand-asserted
+> "architect-led design-build" positioning until the
+> brand-assertion carve-out lands. Adds (1) NEW
+> `src/domains/recommendations/why-display-guard.ts`
+> (~200 lines) — pure `checkWhyDisplaySafe(why, context?)`
+> returning discriminated `{ ok: true, text } | { ok:
+> false, fallback, reasons }`. 4 reasons via
+> `WhyDisplayGuardReason` union. 12 locked internal
+> tokens: `aiSearchSignal`, `actualSearchQueries`,
+> `action_type`, `trigger_signal`, `evidence_tier`,
+> `Mode A`, `Mode B`, `Mode C`, `rec_id`, `source_rec_id`,
+> `diagnostic_only`, `customer-queue-ready`. UUID-shape
+> regex + 32+ char hex regex. Competitor names via
+> case-insensitive whole-word match on passed-in
+> `context.competitorNames`. Locked fallback copy
+> verbatim: `"Beacon has additional context for this
+> recommendation, but it needs review before showing
+> here."` Null / undefined / empty-string handled
+> gracefully (returns `{ ok: true, text: "" }`). **ZERO
+> dependency on**: validator (`specific-edit-validator` /
+> `validateSpecificEdit`), brand-assertions
+> (`@/domains/recommendations/brand-assertions`),
+> suggested-copy-display-guard, action-types registry
+> (`ACTION_TYPE_REGISTRY`), persistence
+> (`recommended-edits-persistence`), Supabase, LLM
+> provider (`openaiProvider`), HTTP (`fetch(`). (2) NEW
+> `tests/domains/recommendations/why-display-guard.test.ts`
+> (~250 lines, 33 cases) — clean / null / undefined /
+> empty + uuid_leak (2) + long_hex_hash (2) + 12
+> internal-token cases (one per locked token) +
+> competitor_name (4 cases) + multi-reason + 5 intentional
+> non-blocking (architect-led / architect-designed / best
+> / em-dash / leading Best — per B.1 scope discipline) +
+> fallback shape. (3) NEW `tests/architecture/
+> recommendation-why-render-guard.test.ts` (~200 lines,
+> 24 cases) — pins BOTH the guard module's purity AND the
+> 4 customer-facing render sites' adoption. Module-level:
+> 1 file-exists + 11 source-text negatives (no fetch / no
+> Supabase / no LLM / no validator / no brand-assertions /
+> no suggested-copy-display-guard / no action-types
+> registry / no Supabase write shape / no
+> recommended-edits-persistence) + 1 positive on locked
+> fallback string + 1 positive on `checkWhyDisplaySafe`
+> export. Site-level: 12 pins across 4 render sites
+> (`recommendation-detail-client.tsx`,
+> `suggested-copy-act.tsx`, `recommendations-client.tsx`
+> legacy drawer, `recommendation-v2-card.tsx` v2 card) ×
+> 3 pins each (file-exists + `@/domains/recommendations/
+> why-display-guard` import + ≥2 `checkWhyDisplaySafe`
+> occurrences). **Files modified (8)**: 2 server pages
+> (`src/app/(shell)/recommendations/page.tsx` +
+> `src/app/(shell)/recommendations/[id]/page.tsx`) load
+> `tracked_entities` once via
+> `getRepository().forTenant(tenantId).getTrackedEntities()`,
+> filter to active competitors (`entity_type ===
+> "competitor"` AND `is_active === true`; mirrors the A.2
+> diagnostic page pattern), thread `competitorNames` down
+> with `[]` soft-fail on error. 6 render path files
+> (`recommendations-v2-client.tsx` +
+> `recommendations-client.tsx` legacy +
+> `recommendation-v2-card.tsx` +
+> `recommendation-detail-client.tsx` +
+> `suggested-copy-act.tsx` + plumbing through 3 hops in
+> the legacy client: `RecommendationsClient` →
+> `ActionTable` → `ActionRow` → `RowDrawer`) call
+> `checkWhyDisplaySafe(...)` before rendering `why`. In
+> the legacy drawer, the guard wraps the existing
+> `sanitizeOperatorEvidenceText(...)` chain — catches
+> leaks the write-time sanitizer missed.
+> **Locked decisions honored**: 4-reason scope
+> (uuid_leak / long_hex_hash / internal_token /
+> competitor_name); unsupported_claim + architect_overclaim
+> deferred to B.4; competitor source =
+> `tracked_entities` filtered to active competitors;
+> fallback copy locked verbatim and pinned by architecture
+> invariant; guard module purity (zero I/O / zero LLM /
+> zero validator+brand-assertions+registry imports).
+> **Auto-pass invariants**:
+> `recommendation-safety-audit-coverage` (A.1 unchanged);
+> `recommendation-safety-audit-read-only` (A.1/A.2
+> unchanged); `recommendation-intelligence-no-queue-write`
+> (guard lives under `src/domains/recommendations/`, NOT
+> under `recommendation-intelligence/`; no new persistence
+> imports under the scanned tree);
+> `llm-draft-gateway-render-isolation` (unchanged);
+> `llm-safety-invariants` (no provider imports / no
+> `runProviderAndPersist`); `catalog-sync` (1 new row
+> added in lockstep). **Hard contracts honored**: pure
+> render-time guard · NO production data mutations · NO
+> LLM call on render · NO paid API · NO Supabase writes ·
+> NO migrations · NO env changes · NO validator changes ·
+> NO brand-assertions changes · NO `generatorActive`
+> flips · NO new top-level routes · NO `revalidatePath` ·
+> NO server actions · NO Today / Changes / Prompts /
+> Settings / Section 6 / Section 9 changes · NO
+> `recommendation-intelligence` tree changes · original
+> render text preserved when guard returns `{ ok: true }`
+> (only the fallback path swaps content). **Customer-
+> visible `why` field is now end-to-end guarded across
+> all 4 known render paths** — uuid_leak / long_hex_hash /
+> internal_token / competitor_name leaks now resolve to
+> the locked fallback at render time. Defense-in-depth
+> alongside the existing audit scanner (A.1 captures at
+> audit time) and the `suggested-copy-display-guard`
+> (which guards `proposed_text` at render time on a
+> separate code path). Future slice 4.5.G-B.2 will extend
+> the write-time sanitizer to prevent future
+> internal_token / uuid leaks at row creation,
+> complementing this render-time guard.
+
 > **Slice 4.5.G-A.2 — recommendation safety audit
 > diagnostic page + read-only invariant (2026-05-21)**:
 > Second half of Section 4.5.G-A. **Completes the

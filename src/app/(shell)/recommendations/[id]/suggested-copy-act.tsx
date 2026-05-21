@@ -34,6 +34,7 @@ import {
   META_DESCRIPTION_MAX_CHARS,
   type CopyTile,
 } from "@/domains/recommendations/suggested-copy-adapters";
+import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_MESSAGE =
@@ -51,17 +52,30 @@ export type SuggestedCopyActProps = {
    *  numbering stays sane when other acts are conditional. Defaults to
    *  4 if not provided (the documented position when this act renders). */
   index?: number;
+  /** Slice 4.5.G-B.1 — active tracked-entity competitor names for the
+   *  render-time `why`-display guard. Propagated from the parent
+   *  detail client. Optional; when omitted the guard still catches
+   *  UUID / long-hex / internal-token leaks. */
+  competitorNames?: ReadonlyArray<string>;
 };
 
 export function SuggestedCopyAct({
   row,
   index = 4,
+  competitorNames,
 }: SuggestedCopyActProps) {
   const tile = buildCopyTile(row);
   if (tile === null) return null;
 
+  // Slice 4.5.G-B.1 — render-time guard on the `why` hint. Replaces
+  // unguarded `evidenceSummary || detail.why` with a guarded sibling;
+  // blocked inputs fall back to the existing neutral hint.
+  const rawWhy =
+    row.evidenceSummary?.trim() || row.detail.why?.trim() || null;
+  const whyGuard = checkWhyDisplaySafe(rawWhy, { competitorNames });
+  const guardedWhy = whyGuard.ok ? whyGuard.text : whyGuard.fallback;
   const why =
-    firstSentence(row.evidenceSummary?.trim() || row.detail.why?.trim() || "") ||
+    firstSentence(guardedWhy ?? "") ||
     "Beacon weighed this against the evidence above.";
 
   return (

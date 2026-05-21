@@ -47,6 +47,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { sanitizeOperatorEvidenceText } from "@/domains/recommendations/copy-sanitize";
+import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { changeLinkHrefForRow } from "@/domains/recommendations/changelog-link";
 import { RecommendationEvidencePanel } from "@/components/recommendations/recommendation-evidence-panel";
 import { WhyRankedHere } from "@/components/recommendations/why-ranked-here";
@@ -69,6 +70,10 @@ type Props = {
    *  shipped rows. Optional; missing entry → no link rendered (calm
    *  fallback). Built server-side from changelog_entries.source_rec_id. */
   changelogIdByRecId?: Record<string, string>;
+  /** Slice 4.5.G-B.1 — active tracked-entity competitor names for the
+   *  render-time `why`-display guard inside the legacy drawer. Optional;
+   *  UUID + long-hex + internal-token detection still fires when empty. */
+  competitorNames?: ReadonlyArray<string>;
 };
 
 /**
@@ -105,6 +110,7 @@ export function RecommendationsClient({
   matrixDate,
   promptTextById,
   changelogIdByRecId = {},
+  competitorNames,
 }: Props) {
   const allRows = useMemo(
     () => buildRecommendationActionRows({ queue, promptTextById }),
@@ -208,6 +214,7 @@ export function RecommendationsClient({
           setFeedback={setFeedback}
           promptTextById={promptTextById}
           changelogIdByRecId={changelogIdByRecId}
+          competitorNames={competitorNames}
         />
       )}
 
@@ -420,6 +427,7 @@ function ActionTable({
   setFeedback,
   promptTextById,
   changelogIdByRecId,
+  competitorNames,
 }: {
   rows: RecommendationActionRow[];
   expandedId: string | null;
@@ -434,6 +442,9 @@ function ActionTable({
   ) => void;
   promptTextById: Record<string, string>;
   changelogIdByRecId: Record<string, string>;
+  /** Slice 4.5.G-B.1 — competitor names threaded to the per-row
+   *  drawer for `why` render guard. */
+  competitorNames?: ReadonlyArray<string>;
 }) {
   const topPickId = useMemo(() => selectTopPickId(rows), [rows]);
   return (
@@ -472,6 +483,7 @@ function ActionTable({
               setFeedback={setFeedback}
               promptTextById={promptTextById}
               changelogIdByRecId={changelogIdByRecId}
+              competitorNames={competitorNames}
             />
           ))}
         </tbody>
@@ -491,6 +503,7 @@ function ActionRow({
   setFeedback,
   promptTextById,
   changelogIdByRecId,
+  competitorNames,
 }: {
   row: RecommendationActionRow;
   /** UX.5B.2 (2026-05-07) — true when this is the highest-priority
@@ -512,6 +525,9 @@ function ActionRow({
   /** 2026-05-10 — rec→changelog link map for the inline "Open this
    *  change →" CTA. Empty when not provided (no link rendered). */
   changelogIdByRecId: Record<string, string>;
+  /** Slice 4.5.G-B.1 — competitor names threaded to the drawer's
+   *  `why`-display guard. */
+  competitorNames?: ReadonlyArray<string>;
 }) {
   const [pending, startTransition] = useTransition();
   const showFeedback = feedback && feedback.rowId === row.id;
@@ -761,6 +777,7 @@ function ActionRow({
               feedback={feedback}
               pending={pending}
               handle={handle}
+              competitorNames={competitorNames}
             />
           </td>
         </tr>
@@ -1264,6 +1281,7 @@ function RowDrawer({
   feedback,
   pending,
   handle,
+  competitorNames,
 }: {
   row: RecommendationActionRow;
   promptTextById: Record<string, string>;
@@ -1278,6 +1296,9 @@ function RowDrawer({
     action: () => Promise<RecommendationActionResponse>,
     successMsg: string,
   ) => void;
+  /** Slice 4.5.G-B.1 — competitor names for the `why`-display guard
+   *  inside the legacy drawer's "Why Beacon recommends it" section. */
+  competitorNames?: ReadonlyArray<string>;
 }) {
   const d = row.detail;
   const hasExactCopy =
@@ -1412,14 +1433,27 @@ function RowDrawer({
         </DrawerSection>
       )}
 
-      {/* Section: Why */}
+      {/* Section: Why
+        *  Slice 4.5.G-B.1 — render-time guard runs AFTER the existing
+        *  sanitizer chain (stripBracketedDiagnostics + sanitizeOperator
+        *  EvidenceText). Catches UUID / long-hex / internal-token /
+        *  competitor-name leaks that the write-time sanitizer missed
+        *  (per the 4.5.G-A production audit findings). */}
       {d.why && d.why.trim().length > 0 && (
         <DrawerSection title="Why Beacon recommends it">
           <p className="text-foreground/90 leading-relaxed">
-            {sanitizeOperatorEvidenceText(
-              stripBracketedDiagnostics(d.why),
-              promptTextById,
-            )}
+            {(() => {
+              const sanitized = sanitizeOperatorEvidenceText(
+                stripBracketedDiagnostics(d.why),
+                promptTextById,
+              );
+              const sanitizedText =
+                typeof sanitized === "string" ? sanitized : "";
+              const guarded = checkWhyDisplaySafe(sanitizedText, {
+                competitorNames,
+              });
+              return guarded.ok ? guarded.text : guarded.fallback;
+            })()}
           </p>
         </DrawerSection>
       )}

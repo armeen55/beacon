@@ -35,6 +35,7 @@ import {
   type ActionRowStatus,
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
+import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { cn } from "@/lib/utils";
 import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
@@ -162,12 +163,18 @@ export type RecommendationV2CardProps = {
    *  which renders the 5-act brief for this row. */
   reviewHref?: string;
   className?: string;
+  /** Slice 4.5.G-B.1 — active tracked-entity competitor names for the
+   *  render-time `why`-display guard. Threaded from the parent
+   *  list/v2 client. Optional; UUID + long-hex + internal-token
+   *  detection still fires when this is empty or omitted. */
+  competitorNames?: ReadonlyArray<string>;
 };
 
 export function RecommendationV2Card({
   row,
   reviewHref,
   className,
+  competitorNames,
 }: RecommendationV2CardProps) {
   const chips = deriveEvidenceChips(row);
   const target = row.targetUrl && row.targetUrl !== "needs_new_page"
@@ -185,10 +192,19 @@ export function RecommendationV2Card({
   // (already a clean one-liner produced by the action-row builder).
   // Fall back to the cleaned `why` when present. Never displays raw
   // confidence-reason paragraphs.
-  const why =
+  //
+  // Slice 4.5.G-B.1 — render-time guard. Blocked inputs fall back
+  // to the calm operator-readable string from `why-display-guard`.
+  const rawWhy =
     row.evidenceSummary?.trim() ||
     row.detail.why?.trim() ||
     null;
+  const whyGuard = checkWhyDisplaySafe(rawWhy, { competitorNames });
+  const why = rawWhy === null
+    ? null
+    : whyGuard.ok
+      ? whyGuard.text
+      : whyGuard.fallback;
 
   return (
     <article
