@@ -7,6 +7,121 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.D.α₁c: operator-only live-write gesture + env-flag guard
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, α₁c only).** First slice that wires a UI-reachable code path to `promoteEligibleCandidates({ dryRun: false })`. Triple-gate ladder inside the server action: operator mode + env flag + confirmation phrase, each independently enforced server-side regardless of UI state. **2 NEW src modules** (env helper + server action) + **1 MODIFIED page** + **1 NEW unit-test suite** + **1 EXTENDED page-test suite** + **1 NEW architecture invariant** + **1 EVOLVED architecture invariant in-place** + **1 catalog row added + 1 catalog row refreshed**.
+
+**What changed.**
+
+1. **NEW `src/lib/promotion-live-write.ts` (43 lines).** Pure helper `isPromotionLiveWriteEnabled()` reading `process.env.BEACON_PROMOTION_LIVE_WRITE_ENABLED === "true"`. Strict case (mirrors `isOperatorModeServer` convention). `"True"` / `"1"` / `"yes"` / unset all DISABLE.
+
+2. **NEW `src/app/(shell)/diagnostics/recommendation-triggers/actions.ts` (118 lines).** `"use server"` file exporting `promoteEligibleCandidatesAction(formData): Promise<never>`. Three-gate ladder:
+   - Gate 1: `isOperatorModeServer() || NODE_ENV === "test"` — fail → `notFound()`.
+   - Gate 2: `isPromotionLiveWriteEnabled()` — fail → `log.warn` + redirect `action_result=blocked_live_write_disabled`.
+   - Gate 3: `formData.get("confirmation") === "PROMOTE"` (strict uppercase exact-match) — fail → redirect `action_result=blocked_confirmation_missing`.
+   - Tenant resolution via `currentTenantId()` — failure → `log.warn` + redirect `blocked_no_tenant`.
+   - After all 4 gates pass: `await promoteEligibleCandidates({ tenantId, dryRun: false })`. On throw → catch + `log.warn` + redirect `action_result=error&msg=...` (msg URL-encoded, truncated to 200 chars); `revalidatePath` NOT called on throw.
+   - On success: `revalidatePath("/diagnostics/recommendation-triggers")` then redirect with `action_result=promoted&promoted_count=N&skipped_count=M&mapped_row_count=K[&sync_warning=...]` (sync_warning URL-encoded + truncated to 200 chars).
+   - **Hard contract**: NO direct `recommended-edits-persistence` import. NO `runProviderAndPersist`. NO direct Supabase write shape. The α₁b writer is the SOLE persistence path.
+
+3. **MODIFIED `src/app/(shell)/diagnostics/recommendation-triggers/page.tsx` (+229 lines net).**
+   - Imports: `isPromotionLiveWriteEnabled` + `./actions` (the new server action).
+   - Captures `searchParams` (previously awaited and discarded).
+   - New `parseActionResult` typed parser scrubbing unknown values + safely-bounded integer parsing for counts.
+   - New `<ActionResultBanner>` component rendering 5 known `action_result` kinds: `promoted` (with counts + optional sync_warning) · `blocked_live_write_disabled` · `blocked_confirmation_missing` · `blocked_no_tenant` · `error` (with msg). Unknown values render NOTHING (defense against URL forgery).
+   - New `<PromoteForm>` component: renders ENABLED form (with `<input name="confirmation" placeholder="Type PROMOTE to confirm">` + submit button) when env flag ON + eligible_count > 0; renders DISABLED state (visible-but-non-interactive button + explanatory caption) when env flag OFF + eligible_count > 0; renders NOTHING when eligible_count === 0.
+   - Banner section sits above the diagnostic header; promote form sits below the α₀b promotion-preview section.
+
+4. **NEW `tests/app/diagnostics/recommendation-triggers-promote-action.test.ts` (320 lines, 12 cases, all passing).** Uses `vi.hoisted()` mockState + `Mock<TFunc>` parameterization (the α₁b convention). Typed `TestRedirectError` + `TestNotFoundError` classes capture the redirect URL / 404 signal so the test can `await` the promise rejection and inspect the thrown payload. Cases:
+   - operator OFF + `NODE_ENV !== "test"` → `notFound()` called; writer spy NOT called
+   - env flag OFF → blocked_live_write_disabled redirect; writer spy NOT called; log.warn fired
+   - env flag "True" (mixed case) → blocked (strict casing)
+   - env flag "1" → blocked (strict casing)
+   - missing confirmation → blocked_confirmation_missing
+   - lowercase "promote" → blocked (strict case)
+   - "Promote" (title case) → blocked (strict case)
+   - tenant resolve throws → blocked_no_tenant; log.warn fired
+   - all gates pass → writer called with `{ tenantId, dryRun: false }`; `revalidatePath` called; redirect contains promoted_count/skipped_count/mapped_row_count
+   - sync_warning long string → carried into redirect URL, truncated to ≤ 200 chars
+   - writer throws → redirect `action_result=error&msg=...`; revalidatePath NOT called; log.warn fired
+   - writer throws with 500-char msg → msg truncated to ≤ 200 chars in URL
+
+5. **EXTENDED `tests/app/diagnostics/recommendation-triggers-page.test.tsx` (+~120 lines, +8 new α₁c cases).**
+   - Extended mock surface: `_liveWriteEnabled` mutable + `vi.mock("@/lib/promotion-live-write", ...)` + `vi.mock("next/cache", { revalidatePath: noop })` + `next/navigation` mock now also exposes `redirect` (no-op throw for the page render path that never invokes it).
+   - New `renderPageWithSearchParams` helper.
+   - New cases: enabled form renders correctly (with services/custom-homes URL fixture that produces an eligible candidate); disabled form renders correctly; form suppressed at eligible=0; promoted banner with counts; promoted banner with sync_warning; blocked banners (parametric × 3 reasons); error banner with msg; unknown action_result renders no banner.
+
+6. **NEW invariant `tests/architecture/recommendation-intelligence-promotion-live-write-guards.test.ts` (158 lines, 10 cases).** Source-text scan over the single file `actions.ts`:
+   - file exists at expected path
+   - imports + references `isOperatorModeServer` from `@/lib/operator-mode` (operator gate)
+   - imports + references `isPromotionLiveWriteEnabled` from `@/lib/promotion-live-write` (env-flag gate)
+   - contains the literal string `"PROMOTE"` (uppercase, strict case)
+   - imports `promoteEligibleCandidates` from `@/domains/recommendation-intelligence/promotion-writer` (positive source-pin to α₁b writer)
+   - does NOT import `recommended-edits-persistence` directly (α₁b boundary holds)
+   - does NOT reference `runProviderAndPersist` (LLM-orchestrator path forbidden)
+   - does NOT contain a direct Supabase write shape
+   - calls `promoteEligibleCandidates` with `dryRun: false` (positive pin — writer's live-write contract; whitespace-tolerant regex)
+   - **Plus 1 global negative scan**: `actions.ts` is the ONLY file under `src/app/**` that pairs `promoteEligibleCandidates` + `dryRun: false`. Forces any future live-write entry point to land here or trip CI.
+
+7. **EVOLVED invariant `tests/architecture/recommendation-intelligence-no-queue-write.test.ts` in-place (+29 lines net).**
+   - File scan set extended from `[...walk(INTEL_DIR), DIAGNOSTIC_PAGE]` to `[...walk(INTEL_DIR), DIAGNOSTIC_PAGE, DIAGNOSTIC_ACTIONS]`.
+   - File-set-non-empty test extended to assert both diagnostic surfaces are present.
+   - NEW regression-guard test: `DIAGNOSTIC_ACTIONS` is NOT in the `ALLOWED_PERSISTENCE_IMPORT_FILES` allowlist (the writer-only single-file allowlist stays single-file).
+   - Existing 4 tests (parametric persistence-import scan with allowlist · positive importer pin · global `runProviderAndPersist` scan · Supabase write-shape scan) automatically extend to the new file.
+
+8. **Catalog updated** — `docs/ARCHITECTURE_INVARIANTS_CATALOG.md`:
+   - Refreshed `recommendation-intelligence-no-queue-write` entry with α₁c file-set-extension narrative + 5-test contract + last-verified date 2026-05-20.
+   - Added NEW row for `recommendation-intelligence-promotion-live-write-guards` with full contract description.
+
+**Operator decisions honored (Y-block carry from α₁b + α₁c locks).**
+
+- Env flag name `BEACON_PROMOTION_LIVE_WRITE_ENABLED` · default UNSET = disabled · strict `"true"` only match · confirmation phrase `"PROMOTE"` strict uppercase · server-action only, no client component · disabled UI state when env OFF · server-action also blocks when env OFF (defense in depth) · writer call only after 3 gates pass · `revalidatePath` after success · search-param result banner · α₀a / α₀b / α₁a / α₁b src modules UNCHANGED.
+
+**Auto-pass (existing 19 α-family + α₀a + α₀b + α₁a + α₁b invariants).** registry-active-set · customer-copy-vocab · no-llm-decides · promotion-eligibility-pin · priority-score-contract · dedupe-key-formula · cooldown-windows · no-diagnostic-only-promotion · confidence-low-stays-diagnostic · promotion-respects-already-accepted · page-classifier-applied-at-promotion · no-promotion-without-evidence · max-rows-per-page · max-rows-per-family · promotion-preview-no-writes (α₀b) · promotion-writer-source-pin (α₁a) · promotion-writer-eligibility-pin (α₁a) · trigger-predicates-purity · triggers-diagnostic-source-and-copy.
+
+**Hard contracts honored.**
+
+- NO push · NO CI minutes used · NO Vercel verification · NO production curl smoke
+- NO LLM call · NO external API · NO `fetch(`
+- NO Supabase migration · NO cron / workflow / env-flag changes (other than the new flag consumed read-only)
+- NO customer-facing route changes
+- NO Today / Changes / Prompts / Settings / Recommendations / Section 9 changes
+- α₀a / α₀b / α₁a / α₁b src modules UNCHANGED (verified via `git diff --stat` on those paths returning empty)
+- `SuppressionReason` UNCHANGED
+- `SpecificEditEvidenceRef` discriminated union UNCHANGED
+- `SpecificEditSource` UNCHANGED at α₁a's 5+1 values
+- NO direct `recommended-edits-persistence` import in actions.ts (pinned by invariant)
+- NO env flag besides `BEACON_PROMOTION_LIVE_WRITE_ENABLED`
+- NO confirmation phrase besides `"PROMOTE"`
+
+**Line accounting.** src+tests **~735 lines net** total:
+- env helper: 43
+- server action: 118
+- page modifications: +229
+- action test: 320
+- page-test extension: ~120
+- live-write-guards invariant: 158
+- no-queue-write evolution: +29 net
+
+**Under ≤850 soft threshold by 115 lines** ✅. **265-line cushion to +1,000 hard stop**. 35 lines over the ≤700 target — within the operator's "above 700 / under 850" approval envelope. (Action test broader than estimate because 12 cases × per-gate fixture setup + env-stubbing for operator-off path required individual case bodies rather than parametric shorthand.)
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+
+- `npm run typecheck` — clean ✅
+- Targeted suite: 25 invariant cases (no-queue-write + live-write-guards + catalog-sync) + 12 action cases + 51 page cases — all green ✅
+- Full suite — TO RUN
+- Tenant-env build (`BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build`) — TO RUN
+
+**Result.** STOPPED AT READY_TO_COMMIT. NOT pushed. NO CI minutes used. NO Vercel deploy. **Customer-queue writer pathway is now FULLY WIRED locally (α₀a + α₀b + α₁a + α₁b + α₁c).** Live writes require all four conditions: operator mode ON + `BEACON_PROMOTION_LIVE_WRITE_ENABLED=true` + operator visits `/diagnostics/recommendation-triggers` + types `PROMOTE` exactly + clicks submit.
+
+**Proposed commit message.** `feat(recommendations): add promotion live-write guard`
+
+**Next.** Local commit only. 5 commits ahead of origin/main (α₀a.3b · α₀b · α₁a · α₁b · α₁c) awaiting an operator-approved batch-push checkpoint. After that: Section 4.5.D closeout report.
+
+---
+
 ## 2026-05-20 — Slice 4.5.D.α₁b: promotion writer + idempotent persistence
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

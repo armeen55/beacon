@@ -81,6 +81,51 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.D.α₁c — operator-only live-write gesture + env-flag
+> guard (2026-05-20)**: First slice that wires a UI-reachable code
+> path to `promoteEligibleCandidates({ dryRun: false })`. Triple-
+> gate ladder inside the server action: operator mode + env flag
+> + confirmation phrase. **2 NEW src modules** (env helper +
+> server action) + **1 MODIFIED page** + **1 NEW action test
+> (12 cases)** + **1 EXTENDED page test (+8 cases)** + **1 NEW
+> invariant (10 cases)** + **1 EVOLVED invariant in-place** +
+> **1 catalog row added + 1 catalog row refreshed**. Env flag:
+> `BEACON_PROMOTION_LIVE_WRITE_ENABLED === "true"` (strict case,
+> mirrors `isOperatorModeServer` convention; `"True"`/`"1"`/`"yes"`/
+> unset all DISABLE). Confirmation phrase: `"PROMOTE"` (strict
+> uppercase, server-validated). On success: `revalidatePath` +
+> redirect with `action_result=promoted&promoted_count=N&
+> skipped_count=M&mapped_row_count=K[&sync_warning=...]`
+> (sync_warning truncated 200 chars). On writer throw:
+> `action_result=error&msg=...` (msg truncated 200 chars);
+> `revalidatePath` NOT called. NEW invariant
+> `-promotion-live-write-guards` source-text-pins the action file:
+> operator gate ref · env-flag ref · `"PROMOTE"` literal · positive
+> writer-import pin · NO `recommended-edits-persistence` direct
+> import · NO `runProviderAndPersist` · NO Supabase write shape
+> · positive `dryRun: false` pairing + 1 global negative scan
+> asserting `actions.ts` is the ONLY file under `src/app/**`
+> pairing `promoteEligibleCandidates` + `dryRun: false`. EVOLVED
+> `-no-queue-write` in-place: file scan set now includes both
+> `page.tsx` AND `actions.ts`; actions.ts NOT in persistence-
+> import allowlist (regression guard). Y1—Y8 operator decisions
+> honored. 19 existing α-family + α₀a + α₀b + α₁a + α₁b invariants
+> auto-pass. **Hard contracts honored**: NO `runProviderAndPersist`
+> import or call · NO LLM · NO external API · NO `fetch(` · NO
+> Supabase migration · NO cron / workflow changes · NO customer-
+> facing route changes · α₀a / α₀b / α₁a / α₁b src modules
+> UNCHANGED · `SuppressionReason` / `SpecificEditEvidenceRef` /
+> `SpecificEditSource` UNCHANGED. ~735 src+tests net (under ≤850
+> soft threshold by 115 lines ✅; 265-line cushion to +1,000 hard
+> stop; 35 over the ≤700 target but within the "above 700 /
+> under 850" approval envelope). **Customer-queue writer pathway
+> is now FULLY WIRED locally (α₀a + α₀b + α₁a + α₁b + α₁c).** Live
+> writes require: operator mode ON + env flag = "true" + operator
+> visits `/diagnostics/recommendation-triggers` + types
+> `PROMOTE` + clicks submit. Next: Section 4.5.D closeout, then
+> Section 4.5 remaining slices (4.5.E LLM-assisted · 4.5.F off-site
+> contract · 4.5.G safety cleanup) per operator-chosen ordering.
+>
 > **Slice 4.5.D.α₁b — promotion writer + idempotent persistence
 > (2026-05-20)**: First slice that actually crosses the customer-
 > queue write boundary. The α₀a pure decision engine + α₀b

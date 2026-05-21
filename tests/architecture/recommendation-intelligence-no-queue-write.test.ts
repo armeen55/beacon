@@ -1,7 +1,8 @@
 /**
  * Architecture invariant — Slice 4.5.B.α₀ recommendation-
  * intelligence no-queue-write (2026-05-19); EVOLVED in
- * Slice 4.5.D.α₁b (2026-05-20).
+ * Slice 4.5.D.α₁b (2026-05-20); FILE-SET EXTENDED in
+ * Slice 4.5.D.α₁c (2026-05-20).
  *
  * Original contract (4.5.B.α₀): the Recommendation Intelligence
  * pipeline produces candidate rows IN MEMORY ONLY. Customer-
@@ -15,6 +16,14 @@
  * `syncRecommendedEdits`. Every OTHER file in the tree + the
  * operator-only diagnostic page STAYS write-forbidden.
  *
+ * α₁c file-set extension: the operator-only "Promote eligible
+ * candidates" server action at
+ * `src/app/(shell)/diagnostics/recommendation-triggers/actions.ts`
+ * is added to the scan set. The action is NOT in the allowlist
+ * — it must NOT import `recommended-edits-persistence` directly
+ * (it reaches writes only through the allowlisted writer's
+ * `promoteEligibleCandidates`).
+ *
  * Current contract:
  *   • Only `promotion-writer.ts` may import
  *     `recommended-edits-persistence` (positive importer pin).
@@ -27,12 +36,17 @@
  *     (The writer uses `syncRecommendedEdits`, which uses
  *     a different code path via `dualWriteUpsertScoped`.)
  *   • The operator-only diagnostic page at
- *     `/diagnostics/recommendation-triggers/page.tsx` is
- *     scanned (same write-forbidden contract).
+ *     `/diagnostics/recommendation-triggers/page.tsx` AND the
+ *     operator-only server action at
+ *     `/diagnostics/recommendation-triggers/actions.ts` are
+ *     both scanned (same write-forbidden contract).
  *
  * Defense-in-depth alongside `recommendation-trigger-predicates-
- * purity`, `-no-llm-decides`, and the α₁a mapper-eligibility +
- * source-pin invariants.
+ * purity`, `-no-llm-decides`, the α₁a mapper-eligibility +
+ * source-pin invariants, and the α₁c
+ * `-promotion-live-write-guards` invariant (which separately
+ * pins the action's three-gate ladder + confirmation phrase +
+ * positive source-pin).
  */
 
 import { describe, expect, it } from "vitest";
@@ -46,15 +60,19 @@ const INTEL_DIR = resolve(
   "domains",
   "recommendation-intelligence",
 );
-const DIAGNOSTIC_PAGE = resolve(
+const DIAGNOSTIC_DIR = resolve(
   REPO_ROOT,
   "src",
   "app",
   "(shell)",
   "diagnostics",
   "recommendation-triggers",
-  "page.tsx",
 );
+const DIAGNOSTIC_PAGE = resolve(DIAGNOSTIC_DIR, "page.tsx");
+/** Slice 4.5.D.α₁c (2026-05-20) — operator-only server action.
+ *  Added to the scan set; NOT in the persistence-import allowlist
+ *  (it reaches writes only via the α₁b writer). */
+const DIAGNOSTIC_ACTIONS = resolve(DIAGNOSTIC_DIR, "actions.ts");
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -109,10 +127,18 @@ const RECOMMENDED_EDITS_WRITE = new RegExp(
 );
 
 describe("recommendation-intelligence-no-queue-write", () => {
-  const files = [...walk(INTEL_DIR), DIAGNOSTIC_PAGE];
+  const files = [...walk(INTEL_DIR), DIAGNOSTIC_PAGE, DIAGNOSTIC_ACTIONS];
 
-  it("file set is non-empty", () => {
-    expect(files.length).toBeGreaterThanOrEqual(2);
+  it("file set is non-empty AND includes both diagnostic surfaces (page + actions)", () => {
+    expect(files.length).toBeGreaterThanOrEqual(3);
+    expect(files).toContain(DIAGNOSTIC_PAGE);
+    expect(files).toContain(DIAGNOSTIC_ACTIONS);
+  });
+
+  it("diagnostic actions.ts is NOT in the persistence-import allowlist", () => {
+    expect(ALLOWED_PERSISTENCE_IMPORT_FILES.has(DIAGNOSTIC_ACTIONS)).toBe(
+      false,
+    );
   });
 
   it.each(PERSISTENCE_IMPORT_TOKENS)(

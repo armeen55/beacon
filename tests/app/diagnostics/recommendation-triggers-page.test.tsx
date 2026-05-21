@@ -36,11 +36,31 @@ vi.mock("@/lib/operator-mode", () => ({
   isOperatorModeServer: () => _isOperator,
 }));
 
+// Slice 4.5.D.α₁c — env-flag helper mock. Driven by per-test
+// state below.
+let _liveWriteEnabled = false;
+vi.mock("@/lib/promotion-live-write", () => ({
+  isPromotionLiveWriteEnabled: () => _liveWriteEnabled,
+}));
+
+// Slice 4.5.D.α₁c — next/cache mock so the page's transitive import
+// of `./actions` (which imports `revalidatePath`) resolves cleanly
+// during page module load.
+vi.mock("next/cache", () => ({
+  revalidatePath: () => undefined,
+}));
+
 const _notFoundSpy = vi.fn();
 vi.mock("next/navigation", () => ({
   notFound: () => {
     _notFoundSpy();
     throw new Error("NEXT_NOT_FOUND");
+  },
+  // Slice 4.5.D.α₁c — actions.ts imports `redirect`; the page-render
+  // tests never invoke it. The no-op throw matches Next.js semantics
+  // if the page render path were to invoke it (it won't).
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT ${url}`);
   },
 }));
 
@@ -232,6 +252,8 @@ beforeEach(() => {
   // Slice 4.5.D.α₀b — reset Promotion Preview data sources.
   _recommendedEditsToReturn = [];
   _recommendationResponsesToReturn = [];
+  // Slice 4.5.D.α₁c — env flag defaults to off (disabled).
+  _liveWriteEnabled = false;
 });
 
 async function renderPage(): Promise<string> {
@@ -240,6 +262,17 @@ async function renderPage(): Promise<string> {
   );
   const Page = mod.default as (props: Record<string, unknown>) => Promise<ReactElement>;
   const element = await Page({ searchParams: Promise.resolve({}) });
+  return renderToStaticMarkup(element);
+}
+
+async function renderPageWithSearchParams(
+  searchParams: Record<string, string | string[] | undefined>,
+): Promise<string> {
+  const mod = await import(
+    "@/app/(shell)/diagnostics/recommendation-triggers/page"
+  );
+  const Page = mod.default as (props: Record<string, unknown>) => Promise<ReactElement>;
+  const element = await Page({ searchParams: Promise.resolve(searchParams) });
   return renderToStaticMarkup(element);
 }
 
@@ -982,5 +1015,126 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(eligibleN).toBeGreaterThanOrEqual(1);
     expect(totalM).toBeGreaterThanOrEqual(2);
     expect(totalM).toBeGreaterThanOrEqual(eligibleN);
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // Slice 4.5.D.α₁c — operator-only live-write gesture render tests
+  // ─────────────────────────────────────────────────────────────
+
+  it("(α₁c) renders the PROMOTE form ENABLED when env flag is ON and eligible_count > 0", async () => {
+    _liveWriteEnabled = true;
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        title: null,
+        meta_description: "ok",
+        h1: "Custom Homes",
+      }),
+    ];
+    const html = await renderPageWithSearchParams({});
+    expect(html).toContain('data-diagnostic-section="promote-form"');
+    expect(html).toContain('data-live-write-enabled="true"');
+    expect(html).toContain('data-promote-form');
+    expect(html).toContain('data-promote-confirmation-input');
+    expect(html).toContain('data-promote-button="enabled"');
+    expect(html).toContain('Type PROMOTE to confirm');
+    // Disabled-state caption should NOT appear in enabled mode
+    expect(html).not.toContain('data-promote-disabled-caption');
+    expect(html).not.toContain('data-promote-button="disabled"');
+  });
+
+  it("(α₁c) renders the PROMOTE form DISABLED when env flag is OFF and eligible_count > 0", async () => {
+    _liveWriteEnabled = false;
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        title: null,
+        meta_description: "ok",
+        h1: "Custom Homes",
+      }),
+    ];
+    const html = await renderPageWithSearchParams({});
+    expect(html).toContain('data-diagnostic-section="promote-form"');
+    expect(html).toContain('data-live-write-enabled="false"');
+    expect(html).toContain('data-promote-disabled-caption');
+    expect(html).toContain('data-promote-button="disabled"');
+    expect(html).toContain('BEACON_PROMOTION_LIVE_WRITE_ENABLED=true');
+    // Form + input should NOT render in disabled mode
+    expect(html).not.toContain('data-promote-form');
+    expect(html).not.toContain('data-promote-confirmation-input');
+    expect(html).not.toContain('data-promote-button="enabled"');
+  });
+
+  it("(α₁c) suppresses the promote form entirely when eligible_count === 0 (regardless of env flag)", async () => {
+    // Empty snapshots → zero eligible candidates. Even with env on
+    // the form section should not render — operator sees only the
+    // empty-snapshots/empty-candidates state.
+    _liveWriteEnabled = true;
+    _snapshotsToReturn = [];
+    const html = await renderPageWithSearchParams({});
+    expect(html).not.toContain('data-diagnostic-section="promote-form"');
+    expect(html).not.toContain('data-promote-form');
+    expect(html).not.toContain('data-promote-button');
+  });
+
+  it("(α₁c) renders the promoted result banner with counts (and sync_warning when present)", async () => {
+    // Counts-only render
+    const html1 = await renderPageWithSearchParams({
+      action_result: "promoted",
+      promoted_count: "5",
+      skipped_count: "1",
+      mapped_row_count: "5",
+    });
+    expect(html1).toContain('data-action-result="promoted"');
+    expect(html1).toContain('data-result-field="promoted_count"');
+    expect(html1).toContain('data-result-field="skipped_count"');
+    expect(html1).toContain('data-result-field="mapped_row_count"');
+    expect(html1).not.toContain('data-result-field="sync_warning"');
+
+    // Same banner WITH sync_warning
+    const html2 = await renderPageWithSearchParams({
+      action_result: "promoted",
+      promoted_count: "3",
+      skipped_count: "0",
+      mapped_row_count: "3",
+      sync_warning: "supabase upsert failed (transient)",
+    });
+    expect(html2).toContain('data-result-field="sync_warning"');
+    expect(html2).toContain("supabase upsert failed (transient)");
+    expect(html2).toContain("Local rows persisted; next run retries.");
+  });
+
+  it("(α₁c) renders blocked banners for known blocked reasons (parametric)", async () => {
+    const cases: Array<[string, string]> = [
+      ["blocked_live_write_disabled", "BEACON_PROMOTION_LIVE_WRITE_ENABLED=true"],
+      ["blocked_confirmation_missing", "Type PROMOTE exactly to confirm"],
+      ["blocked_no_tenant", "tenant context could not be resolved"],
+    ];
+    for (const [kind, expectedCopy] of cases) {
+      const html = await renderPageWithSearchParams({ action_result: kind });
+      expect(html, `${kind} should render banner`).toContain(
+        `data-action-result="${kind}"`,
+      );
+      expect(html, `${kind} should include expected copy`).toContain(
+        expectedCopy,
+      );
+    }
+  });
+
+  it("(α₁c) renders the error banner with the msg search-param", async () => {
+    const html = await renderPageWithSearchParams({
+      action_result: "error",
+      msg: "writer threw: connection refused",
+    });
+    expect(html).toContain('data-action-result="error"');
+    expect(html).toContain("Promotion failed: writer threw: connection refused");
+  });
+
+  it("(α₁c) unknown action_result values render NO banner", async () => {
+    const html = await renderPageWithSearchParams({
+      action_result: "something_unknown",
+    });
+    expect(html).not.toContain('data-diagnostic-section="action-result"');
+    expect(html).not.toContain('data-action-result');
   });
 });

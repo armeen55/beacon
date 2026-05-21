@@ -33,6 +33,7 @@ import "server-only";
 import { notFound } from "next/navigation";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { isPromotionLiveWriteEnabled } from "@/lib/promotion-live-write";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getBusinessConfig } from "@/lib/business-config";
@@ -48,6 +49,7 @@ import {
   type PromotionResult,
 } from "@/domains/recommendation-intelligence/promote-to-queue";
 import { getRecommendationResponses } from "@/domains/product/recommendation-response-store";
+import { promoteEligibleCandidatesAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +74,9 @@ export default async function RecommendationTriggersDiagnosticPage(
   if (!isAccessAllowed()) {
     notFound();
   }
-  await (props.searchParams ?? Promise.resolve({}));
+  const searchParams = await (props.searchParams ?? Promise.resolve({}));
+  const actionResult = parseActionResult(searchParams);
+  const liveWriteEnabled = isPromotionLiveWriteEnabled();
 
   const tenantId = await currentTenantId();
   const result = await loadTriggerCandidatesForTenant({ tenantId });
@@ -121,6 +125,7 @@ export default async function RecommendationTriggersDiagnosticPage(
 
   return (
     <div className="space-y-4 p-4" data-diagnostic="recommendation-triggers">
+      {actionResult ? <ActionResultBanner result={actionResult} /> : null}
       <header className="space-y-1">
         <h1 className="text-[15px] font-semibold text-foreground">
           Recommendation Trigger Diagnostic
@@ -206,6 +211,11 @@ export default async function RecommendationTriggersDiagnosticPage(
         eligible={promotionEligible}
         capped={promotionCapped}
         safetySuppressed={promotionSafetySuppressed}
+      />
+
+      <PromoteForm
+        eligibleCount={promotionEligible.length}
+        liveWriteEnabled={liveWriteEnabled}
       />
     </div>
   );
@@ -460,6 +470,219 @@ function DiagnosticOnlySection(props: {
           ))}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+// Slice 4.5.D.α₁c (2026-05-20) — operator-only live-write gesture.
+// Three gates govern the write: operator + env flag + confirmation
+// phrase. UI renders disabled when env flag OFF; section suppressed
+// when eligible_count === 0. Server action `./actions.ts` re-checks
+// all three gates regardless of UI state.
+
+type KnownActionResult =
+  | {
+      kind: "promoted";
+      promoted_count: number;
+      skipped_count: number;
+      mapped_row_count: number;
+      sync_warning: string | null;
+    }
+  | { kind: "blocked_live_write_disabled" }
+  | { kind: "blocked_confirmation_missing" }
+  | { kind: "blocked_no_tenant" }
+  | { kind: "error"; msg: string };
+
+function readParam(
+  searchParams: Record<string, string | string[] | undefined>,
+  key: string,
+): string | null {
+  const v = searchParams[key];
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && v.length > 0 && typeof v[0] === "string") {
+    return v[0];
+  }
+  return null;
+}
+
+function parseInt0(s: string | null): number {
+  if (s == null) return 0;
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function parseActionResult(
+  searchParams: Record<string, string | string[] | undefined>,
+): KnownActionResult | null {
+  const raw = readParam(searchParams, "action_result");
+  if (raw === "promoted") {
+    return {
+      kind: "promoted",
+      promoted_count: parseInt0(readParam(searchParams, "promoted_count")),
+      skipped_count: parseInt0(readParam(searchParams, "skipped_count")),
+      mapped_row_count: parseInt0(readParam(searchParams, "mapped_row_count")),
+      sync_warning: readParam(searchParams, "sync_warning"),
+    };
+  }
+  if (raw === "blocked_live_write_disabled") {
+    return { kind: "blocked_live_write_disabled" };
+  }
+  if (raw === "blocked_confirmation_missing") {
+    return { kind: "blocked_confirmation_missing" };
+  }
+  if (raw === "blocked_no_tenant") {
+    return { kind: "blocked_no_tenant" };
+  }
+  if (raw === "error") {
+    return { kind: "error", msg: readParam(searchParams, "msg") ?? "" };
+  }
+  return null;
+}
+
+function ActionResultBanner(props: { result: KnownActionResult }) {
+  const r = props.result;
+  if (r.kind === "promoted") {
+    return (
+      <section
+        className="rounded-md border border-status-success/40 bg-status-success/[0.06] px-3 py-2"
+        data-diagnostic-section="action-result"
+        data-action-result="promoted"
+      >
+        <p className="text-[12px] text-foreground">
+          ✓ Promoted{" "}
+          <span className="font-mono" data-result-field="promoted_count">
+            {r.promoted_count}
+          </span>{" "}
+          rows to the customer queue. Skipped{" "}
+          <span className="font-mono" data-result-field="skipped_count">
+            {r.skipped_count}
+          </span>
+          . Mapped{" "}
+          <span className="font-mono" data-result-field="mapped_row_count">
+            {r.mapped_row_count}
+          </span>
+          .
+          {r.sync_warning ? (
+            <>
+              {" "}
+              Supabase sync warning:{" "}
+              <span
+                className="font-mono text-status-warning"
+                data-result-field="sync_warning"
+              >
+                {r.sync_warning}
+              </span>
+              . Local rows persisted; next run retries.
+            </>
+          ) : null}
+        </p>
+      </section>
+    );
+  }
+  const message =
+    r.kind === "blocked_live_write_disabled"
+      ? "Promotion blocked: live-write env flag is disabled. Set BEACON_PROMOTION_LIVE_WRITE_ENABLED=true to enable."
+      : r.kind === "blocked_confirmation_missing"
+        ? "Promotion blocked: confirmation phrase missing or incorrect. Type PROMOTE exactly to confirm."
+        : r.kind === "blocked_no_tenant"
+          ? "Promotion blocked: tenant context could not be resolved."
+          : `Promotion failed: ${r.msg}`;
+  return (
+    <section
+      className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+      data-diagnostic-section="action-result"
+      data-action-result={r.kind}
+    >
+      <p className="text-[12px] text-foreground">{message}</p>
+    </section>
+  );
+}
+
+function PromoteForm(props: {
+  eligibleCount: number;
+  liveWriteEnabled: boolean;
+}) {
+  if (props.eligibleCount === 0) {
+    return null;
+  }
+  if (!props.liveWriteEnabled) {
+    return (
+      <section
+        className="rounded-md border border-border/40 p-3"
+        data-diagnostic-section="promote-form"
+        data-live-write-enabled="false"
+      >
+        <h2 className="text-[13px] font-semibold text-foreground">
+          Promote eligible candidates to customer queue
+        </h2>
+        <p className="mt-1 text-[12px] text-foreground">
+          Eligible to promote:{" "}
+          <span className="font-mono" data-counter="promote-eligible-count">
+            {props.eligibleCount}
+          </span>
+        </p>
+        <p
+          className="mt-2 text-[11px] text-status-warning"
+          data-promote-disabled-caption
+        >
+          Live promotion DISABLED. Set
+          BEACON_PROMOTION_LIVE_WRITE_ENABLED=true to enable.
+        </p>
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          className="mt-2 rounded-md border border-border/40 bg-surface-inset/20 px-3 py-1 text-[12px] text-muted-foreground"
+          data-promote-button="disabled"
+        >
+          Promote {props.eligibleCount} candidates →
+        </button>
+      </section>
+    );
+  }
+  return (
+    <section
+      className="rounded-md border border-border/40 p-3"
+      data-diagnostic-section="promote-form"
+      data-live-write-enabled="true"
+    >
+      <h2 className="text-[13px] font-semibold text-foreground">
+        Promote eligible candidates to customer queue
+      </h2>
+      <p className="mt-1 text-[12px] text-foreground">
+        Eligible to promote:{" "}
+        <span className="font-mono" data-counter="promote-eligible-count">
+          {props.eligibleCount}
+        </span>
+      </p>
+      <form
+        action={promoteEligibleCandidatesAction}
+        className="mt-2 space-y-2"
+        data-promote-form
+      >
+        <label className="flex flex-col text-[11px] text-foreground">
+          Type PROMOTE to confirm:
+          <input
+            name="confirmation"
+            type="text"
+            autoComplete="off"
+            placeholder="Type PROMOTE to confirm"
+            className="mt-1 rounded-md border border-border/40 bg-surface-inset/10 px-2 py-1 font-mono text-[12px] text-foreground"
+            data-promote-confirmation-input
+          />
+        </label>
+        <button
+          type="submit"
+          className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-1 text-[12px] text-foreground"
+          data-promote-button="enabled"
+        >
+          Promote {props.eligibleCount} candidates →
+        </button>
+        <p className="text-[11px] text-status-warning">
+          ⚠ This writes to the customer queue. Idempotent — safe to
+          retry, but accepted rows cannot be unsent.
+        </p>
+      </form>
     </section>
   );
 }
