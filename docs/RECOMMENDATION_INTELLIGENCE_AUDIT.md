@@ -81,6 +81,48 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice — Brand Assertion Key Alignment (2026-05-22)**:
+> Generic tenant-identity fix surfaced by B.4a's diagnostic
+> (Brand-supported = 0 despite Ritz's `architect-led
+> design-build` `process` assertion). Root cause:
+> `TENANT_ASSERTIONS` + `TENANT_NAME_STYLES` in
+> `brand-assertions.ts` were keyed by tenant SLUG
+> (`"ritz-builders"`) while every production caller
+> (`specific-edit-evidence.ts`, the recommendation-triggers
+> action, the B.4a safety-audit diagnostic, and the validator's
+> `getBrandNameStyle(packet.tenantId)`) passes the tenant ID
+> (`"tenant-ritz-founder"` = `currentTenantId()`). So
+> `getBrandAssertions`/`getBrandNameStyle` returned `[]`/`null`
+> in production — silently disabling the LLM brand-assertion
+> guidance + the validator brand-name-style gate; the slug-based
+> unit test stayed green, masking it. Fix (Option 4): re-key both
+> registries by canonical tenantId — generic, no Ritz `if`, no
+> async resolver, no caller changes, sync signatures preserved.
+> **Re-activates intended behavior** (LLM allowed-phrase guidance
+> + validator brand-name-style gate for Ritz) — verified via the
+> full validator/LLM suite. Modifies (1) `brand-assertions.ts` —
+> re-key + test-only `__brandRegistryKeys` export + doc comments;
+> (2) `brand-assertions.test.ts` — re-key lookups + 2 regression
+> tests (slug → `[]`/`null`, no alias); (3)
+> `specific-edit-validator-brand-claims.test.ts`
+> (operator-approved fixture expansion) — 11 packet fixtures
+> slug→id; the 2 bare-Ritz-rejection tests now fire; (4)
+> `specific-edit-validator-faq-pairing.test.ts`
+> (operator-approved) — 1 fixture slug→id. `static-bundle.test.ts`
+> untouched (22 green, unaffected). Adds (5) NEW
+> `tests/architecture/brand-assertions-tenant-key-contract.test.ts`
+> — every registry key is an `ops/active-tenants.json` tenantId,
+> NO key equals a slug, + behavioral regression (tenantId lookup
+> non-empty / slug lookup empty). **This is the invariant that
+> would have caught the bug.** Protects Customer 2. **NO
+> production mutation · NO migration · NO LLM · NO polls/scans ·
+> NO env · NO validator-logic change · NO customer-route change ·
+> NO scanner change · NO Ritz-specific logic.** After deploy,
+> `/diagnostics/recommendation-safety-audit` should flip
+> Brand-supported from 0 → > 0 with architect-led tagged
+> supported, unblocking the B.4b/B.4c scope decision against
+> correctly-resolved data.
+
 > **Slice 4.5.G-B.4a — generic claim-risk classification (tag,
 > don't suppress) (2026-05-22)**: First slice of Section
 > 4.5.G-B.4. Operator-locked architecture: GLOBAL risk-pattern

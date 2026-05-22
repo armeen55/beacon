@@ -164,18 +164,33 @@ const RITZ_ASSERTIONS: ReadonlyArray<BrandAssertion> = [
 ];
 
 /**
- * Brand-assertions registry. Add new tenants here as they land. Keys
- * are tenant slugs (matching `BeaconTenant.slug`).
+ * Brand-assertions registry. Add new tenants here as they land.
+ *
+ * Keys are `BeaconTenant.id` — the canonical `tenant-<...>` identifier
+ * that `currentTenantId()` returns and that EVERY caller passes
+ * (`getBrandAssertions(args.tenantId)` in the packet builder, the
+ * recommendation-triggers action, and the safety-audit diagnostic).
+ *
+ * Key-alignment fix (2026-05-22): these keys were previously tenant
+ * SLUGS (`"ritz-builders"`), but every production caller passes the
+ * tenant ID (`"tenant-ritz-founder"`) — so lookups silently returned
+ * `[]` in production while the slug-based unit test stayed green. The
+ * registry is now keyed by tenantId to match the universal
+ * `currentTenantId()` / `.forTenant(tenantId)` convention. Pinned by
+ * `tests/architecture/brand-assertions-tenant-key-contract.test.ts`
+ * (every key MUST be an `ops/active-tenants.json` tenantId, never a
+ * slug).
  */
 const TENANT_ASSERTIONS: Record<string, ReadonlyArray<BrandAssertion>> = {
-  "ritz-builders": RITZ_ASSERTIONS,
+  "tenant-ritz-founder": RITZ_ASSERTIONS,
 };
 
 /**
- * Get the operator-curated brand assertions for a tenant. Returns an
- * empty array for unknown tenants — never throws — so the LLM
- * provider degrades gracefully (no assertions = every forbidden
- * pattern stays locked, which is the safe default).
+ * Get the operator-curated brand assertions for a tenant. `tenantId`
+ * is the canonical `BeaconTenant.id` (the value `currentTenantId()`
+ * returns). Returns an empty array for unknown tenants — never throws
+ * — so the LLM provider degrades gracefully (no assertions = every
+ * forbidden pattern stays locked, which is the safe default).
  *
  * Pure / deterministic. The returned array is the live registry
  * reference; callers MUST treat it as readonly.
@@ -466,9 +481,15 @@ export type BrandNameStyle = {
   readonly bannedShortForms: ReadonlyArray<string>;
 };
 
-/** Per-tenant style registry. Adds-only — keys match `BeaconTenant.slug`. */
+/**
+ * Per-tenant style registry. Adds-only — keys are `BeaconTenant.id`
+ * (the `tenant-<...>` value `currentTenantId()` returns + `getBrandName
+ * Style(packet.tenantId)` passes), NOT the slug. Key-alignment fix
+ * (2026-05-22) — see the `TENANT_ASSERTIONS` note above. Pinned by
+ * `brand-assertions-tenant-key-contract`.
+ */
 const TENANT_NAME_STYLES: Record<string, BrandNameStyle> = {
-  "ritz-builders": {
+  "tenant-ritz-founder": {
     fullName: "Ritz Builders",
     bannedShortForms: ["Ritz"],
   },
@@ -484,6 +505,18 @@ export function getBrandNameStyle(tenantId: string): BrandNameStyle | null {
   if (typeof tenantId !== "string" || tenantId.length === 0) return null;
   return TENANT_NAME_STYLES[tenantId] ?? null;
 }
+
+/**
+ * Test-only: the exact top-level keys registered in each brand registry.
+ * `Object.keys` is authoritative (no fragile source-text parsing).
+ * Pinned by `tests/architecture/brand-assertions-tenant-key-contract.test.ts`
+ * to be `ops/active-tenants.json` tenantIds — never slugs. This is the
+ * invariant that would have caught the 2026-05-22 slug-vs-id bug.
+ */
+export const __brandRegistryKeys = {
+  assertions: Object.keys(TENANT_ASSERTIONS),
+  nameStyles: Object.keys(TENANT_NAME_STYLES),
+} as const;
 
 // ── Em-dash detector ───────────────────────────────────────────────────
 

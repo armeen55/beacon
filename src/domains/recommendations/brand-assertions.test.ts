@@ -30,11 +30,18 @@ import {
   type BrandAssertion,
 } from "./brand-assertions";
 
+// Key-alignment fix (2026-05-22): the registries are keyed by
+// BeaconTenant.id (the value currentTenantId() returns + every caller
+// passes), NOT the slug. Ritz's canonical id from ops/active-tenants.json
+// is "tenant-ritz-founder"; its slug is "ritz-builders".
+const RITZ_TENANT_ID = "tenant-ritz-founder";
+const RITZ_SLUG = "ritz-builders";
+
 // ── getBrandAssertions ───────────────────────────────────────────────────
 
 describe("getBrandAssertions — tenant retrieval", () => {
-  it("returns Ritz Builders' curated list for tenant 'ritz-builders'", () => {
-    const list = getBrandAssertions("ritz-builders");
+  it("returns Ritz Builders' curated list for the canonical tenantId", () => {
+    const list = getBrandAssertions(RITZ_TENANT_ID);
     expect(list.length).toBeGreaterThan(0);
     expect(list.some((a) => a.id === "ritz_positioning_design_build")).toBe(
       true,
@@ -42,6 +49,13 @@ describe("getBrandAssertions — tenant retrieval", () => {
     expect(list.some((a) => a.phrase === "architect-led design-build")).toBe(
       true,
     );
+  });
+
+  it("REGRESSION (key-alignment): the slug 'ritz-builders' is NOT the canonical key → returns [] (no alias)", () => {
+    // Pre-fix this returned the Ritz list; the bug was that production
+    // callers pass the tenantId, not the slug. No slug alias is kept —
+    // the tenant-key-contract invariant forbids slug keys.
+    expect(getBrandAssertions(RITZ_SLUG)).toEqual([]);
   });
 
   it("returns an empty array for an unknown tenant", () => {
@@ -61,7 +75,7 @@ describe("getBrandAssertions — tenant retrieval", () => {
     // claims are operator-supplied for Ritz. The forbidden-pattern
     // gate stays armed for award-winning, frequently recommended,
     // X years in business, etc.
-    const list = getBrandAssertions("ritz-builders");
+    const list = getBrandAssertions(RITZ_TENANT_ID);
     expect(list.some((a) => a.category === "award")).toBe(false);
     expect(list.some((a) => a.category === "popularity")).toBe(false);
     expect(list.some((a) => a.category === "tenure")).toBe(false);
@@ -71,7 +85,7 @@ describe("getBrandAssertions — tenant retrieval", () => {
   });
 
   it("Ritz list includes positioning + service_area + service_offering + process categories", () => {
-    const list = getBrandAssertions("ritz-builders");
+    const list = getBrandAssertions(RITZ_TENANT_ID);
     const cats = new Set(list.map((a) => a.category));
     expect(cats.has("positioning")).toBe(true);
     expect(cats.has("service_area")).toBe(true);
@@ -268,7 +282,7 @@ describe("findUnsupportedBrandClaims — flags forbidden claims when no matching
       findUnsupportedBrandClaims(
         "Ritz guarantees on-time delivery for every project.",
         // Even with EVERY assertion, this stays locked.
-        getBrandAssertions("ritz-builders"),
+        getBrandAssertions(RITZ_TENANT_ID),
       )[0]?.patternId,
     ).toBe("guarantee_outcome");
   });
@@ -312,7 +326,7 @@ describe("findUnsupportedBrandClaims — flags forbidden claims when no matching
 describe("findUnsupportedBrandClaims — assertion unlocks the pattern", () => {
   it("'award-winning' is allowed when an 'award' assertion exists", () => {
     const assertionsWithAward: ReadonlyArray<BrandAssertion> = [
-      ...getBrandAssertions("ritz-builders"),
+      ...getBrandAssertions(RITZ_TENANT_ID),
       {
         id: "ritz_award_property_2025",
         phrase: "2025 Americas Property Awards",
@@ -330,7 +344,7 @@ describe("findUnsupportedBrandClaims — assertion unlocks the pattern", () => {
 
   it("'frequently recommended' is allowed when a 'popularity' assertion exists", () => {
     const assertionsWithPopularity: ReadonlyArray<BrandAssertion> = [
-      ...getBrandAssertions("ritz-builders"),
+      ...getBrandAssertions(RITZ_TENANT_ID),
       {
         id: "ritz_popularity_houzz",
         phrase: "frequently recommended on Houzz",
@@ -397,7 +411,7 @@ describe("findUnsupportedBrandClaims — assertion unlocks the pattern", () => {
 describe("formatBrandAssertionsForPrompt", () => {
   it("renders one bullet per assertion with its category prefix", () => {
     const out = formatBrandAssertionsForPrompt(
-      getBrandAssertions("ritz-builders"),
+      getBrandAssertions(RITZ_TENANT_ID),
     );
     expect(out).toMatch(/architect-led design-build/);
     expect(out).toMatch(/\[process\]/);
@@ -422,11 +436,15 @@ describe("formatForbiddenClaimsForPrompt", () => {
 // ── W3 Step 3.7s — getBrandNameStyle ────────────────────────────────────
 
 describe("W3 §3.7s — getBrandNameStyle", () => {
-  it("returns Ritz Builders style for tenant 'ritz-builders'", () => {
-    const style = getBrandNameStyle("ritz-builders");
+  it("returns Ritz Builders style for the canonical tenantId", () => {
+    const style = getBrandNameStyle(RITZ_TENANT_ID);
     expect(style).not.toBeNull();
     expect(style?.fullName).toBe("Ritz Builders");
     expect(style?.bannedShortForms).toEqual(["Ritz"]);
+  });
+
+  it("REGRESSION (key-alignment): the slug 'ritz-builders' returns null (not the canonical key; no alias)", () => {
+    expect(getBrandNameStyle(RITZ_SLUG)).toBeNull();
   });
 
   it("returns null for unknown tenants (gate stays inert)", () => {
@@ -485,7 +503,7 @@ describe("W3 §3.7s — findEmDashes", () => {
 // ── W3 Step 3.7s — findIncompleteBrandMentions ─────────────────────────
 
 describe("W3 §3.7s — findIncompleteBrandMentions", () => {
-  const RITZ_STYLE = getBrandNameStyle("ritz-builders");
+  const RITZ_STYLE = getBrandNameStyle(RITZ_TENANT_ID);
 
   it("flags bare 'Ritz' that is NOT followed by ' Builders'", () => {
     const out = findIncompleteBrandMentions(

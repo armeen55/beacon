@@ -391,7 +391,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
@@ -409,7 +409,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
@@ -426,21 +426,21 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
     expect(result.ok).toBe(true);
   });
 
-  it("rejects bare 'Ritz' in proposedText for tenant 'ritz-builders'", () => {
+  it("rejects bare 'Ritz' in proposedText for the canonical tenantId", () => {
     const edit = makeH2Edit(
       "Ritz emphasizes architect-led design-build for whole-home remodels.",
     );
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
@@ -458,7 +458,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
@@ -472,7 +472,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
@@ -486,7 +486,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
@@ -509,7 +509,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
       }),
     );
@@ -527,7 +527,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
     const result = validateSpecificEdit(
       edit,
       makePacket({
-        tenantId: "ritz-builders",
+        tenantId: "tenant-ritz-founder",
         brandAssertions: [RITZ_PROCESS_ASSERTION],
         affectedPrompts: [
           {
@@ -558,7 +558,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
       const result = validateSpecificEdit(
         edit,
         makePacket({
-          tenantId: "ritz-builders",
+          tenantId: "tenant-ritz-founder",
           brandAssertions: [RITZ_PROCESS_ASSERTION],
         }),
       );
@@ -579,7 +579,7 @@ describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)",
       const result = validateSpecificEdit(
         edit,
         makePacket({
-          tenantId: "ritz-builders",
+          tenantId: "tenant-ritz-founder",
           brandAssertions: [RITZ_PROCESS_ASSERTION],
         }),
       );

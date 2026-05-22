@@ -7,6 +7,60 @@
 
 ---
 
+## 2026-05-22 — Slice: Brand Assertion Key Alignment (tenant id vs slug)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.
+
+**Trigger.** B.4a's production diagnostic showed Brand-supported = 0 even though Ritz has `architect-led design-build` as a `process` brand assertion. The brand-assertion-resolution preflight traced this to a tenant-identity key mismatch.
+
+**Root cause.** `TENANT_ASSERTIONS` + `TENANT_NAME_STYLES` in `brand-assertions.ts` were keyed by tenant **slug** (`"ritz-builders"`), but every production caller (`specific-edit-evidence.ts` packet builder, the recommendation-triggers action, the B.4a safety-audit diagnostic, and the validator's `getBrandNameStyle(packet.tenantId)`) passes the tenant **id** (`"tenant-ritz-founder"` — what `currentTenantId()` returns). So `getBrandAssertions("tenant-ritz-founder")` → `[]` and `getBrandNameStyle("tenant-ritz-founder")` → `null` in production. The slug-based unit test (`getBrandAssertions("ritz-builders")`) stayed green, masking the bug. Canonical identity (`ops/active-tenants.json`): `tenantId: "tenant-ritz-founder"`, `slug: "ritz-builders"`.
+
+**Impact (pre-fix, dormant).** (a) LLM evidence packet shipped `brandAssertions: []` → `formatBrandAssertionsForPrompt` emitted "(none)" → the model never learned it MAY use "architect-led design-build". (b) Validator brand-name-style gate (`getBrandNameStyle` → null) was inert → "Ritz Builders" first-mention / bare-"Ritz" ban never fired. (NOT affected: forbidden-claim *rejection*, since Ritz has no unlocking-category assertion either way — which is why it went unnoticed.)
+
+**Fix (Option 4 — re-key by tenantId).** Generic, no Ritz `if`, no async resolver, no caller changes, sync signatures preserved.
+
+**Hard contracts honored.** No production mutation · no migration · no LLM · no polls/scans · no env change · no validator-logic change (only correct data lookup) · no customer-route change · no scanner change · no Ritz-specific logic.
+
+**Files modified (1 src + 3 tests) / added (1 invariant) / docs synced (5).**
+
+1. `src/domains/recommendations/brand-assertions.ts` — re-keyed `TENANT_ASSERTIONS` + `TENANT_NAME_STYLES` from `"ritz-builders"` → `"tenant-ritz-founder"`; updated both doc comments ("keyed by `BeaconTenant.id` / `currentTenantId()`, never slug"); added test-only `__brandRegistryKeys = { assertions: Object.keys(TENANT_ASSERTIONS), nameStyles: Object.keys(TENANT_NAME_STYLES) }` export for the new invariant. Signatures stay sync; assertion phrase/category content UNCHANGED.
+
+2. `src/domains/recommendations/brand-assertions.test.ts` — re-keyed all lookups to `RITZ_TENANT_ID = "tenant-ritz-founder"`; added 2 regression tests: slug `"ritz-builders"` now returns `[]` (getBrandAssertions) / `null` (getBrandNameStyle) — no alias. 55 cases.
+
+3. `src/domains/recommendations/specific-edit-validator-brand-claims.test.ts` (operator-approved bounded fixture expansion) — 11 packet fixtures re-keyed `tenantId: "ritz-builders"` → `"tenant-ritz-founder"` so the brand-name-style gate mirrors production. The 2 "rejects bare 'Ritz'" tests now correctly fire (gate active); the "ALLOWS 'Ritz Builders'" / transition / gold-standard tests stay green (clean copy under the active gate). Test intent preserved; assertions not weakened.
+
+4. `src/domains/recommendations/specific-edit-validator-faq-pairing.test.ts` (operator-approved) — 1 packet fixture re-keyed; the "rejects 'Ritz' short form inside faq_answer" test now fires.
+
+5. NEW `tests/architecture/brand-assertions-tenant-key-contract.test.ts` (~130 lines, 7+ cases) — reads `ops/active-tenants.json` (id/slug sets) + `__brandRegistryKeys`; pins: active-tenants has a distinct id≠slug tenant (Ritz); registries non-empty; every `TENANT_ASSERTIONS` key is an active tenantId; every `TENANT_NAME_STYLES` key is an active tenantId; NO registry key equals a slug (slug-vs-id guard); behavioral — for each registered tenant, `getBrandAssertions(tenantId)` non-empty + `getBrandAssertions(slug)` `[]`, `getBrandNameStyle(tenantId)` non-null + `getBrandNameStyle(slug)` null. **This is the invariant that would have caught the bug** (the old unit test used the slug, bypassing the production key). Protects Customer 2.
+
+`static-bundle.test.ts` (5 slug packet fixtures) left untouched — its tests don't assert brand-name-style behavior; 22 cases stay green.
+
+**Re-activation verified (the acknowledged behavior change).** Re-keying makes the LLM brand-assertion guidance + the validator brand-name-style gate ACTIVE for Ritz in production. Confirmed correct: validator brand-claims (43) + faq-pairing + specific-edit-evidence + recommendation-triggers + B.4a safety-audit scanner/page all green with the gate now firing.
+
+**Architecture invariants.**
+- 1 NEW: `brand-assertions-tenant-key-contract`.
+- Auto-pass: B.1 `recommendation-why-render-guard`; B.2 `recommendation-copy-sanitize-purity`; B.4a `recommendation-safety-audit-coverage` + `-read-only` (scanner unchanged — it receives assertions via context, which the page now resolves correctly); all recommendation-intelligence + tenant-isolation invariants; `catalog-sync` (1 new row).
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck`: clean ✅
+- brand-assertions (55) + new invariant (7) = 62 ✅
+- validator brand-claims + faq-pairing: 43 ✅
+- static-bundle: 22 ✅ (unaffected)
+- catalog-sync: 8 ✅
+- Full architecture suite: TO RUN
+- Full vitest: TO RUN
+- Tenant-env build: TO RUN
+
+**Result.** Brand-assertion resolution is now keyed by the universal `tenantId` convention. After deploy, `/diagnostics/recommendation-safety-audit` should flip Brand-supported from 0 → > 0 with architect-led tagged supported. The new key-contract invariant prevents Customer 2 from hitting the same slug-vs-id trap.
+
+**STOPPED AT READY_TO_COMMIT — not pushed.**
+
+Proposed commit message: `fix(recommendations): key brand assertions by tenant id`.
+
+**Next phase recommendation.** Operator review → local commit → push → re-inspect the diagnostic to confirm Brand-supported > 0 + architect-led supported → resume the B.4b/B.4c scope decision against correctly-resolved data.
+
+---
+
 ## 2026-05-22 — Slice 4.5.G-B.4a: generic claim-risk classification (tag, don't suppress)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

@@ -29,7 +29,7 @@ function makePacket(
   const base: SpecificEditEvidencePacket = {
     schemaVersion: "specific-edit/v1",
     generatedAt: "2026-05-03T00:00:00Z",
-    tenantId: "ritz-builders",
+    tenantId: "tenant-ritz-founder",
     recId: "rec-test",
     clusterId: null,
     clusterLabel: "Whole Home Renovation Builders",
