@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-05-22 — Slice C7d: Today off-site authority tile (first customer-facing off-site surface)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.
+
+**What changed.** Added the first customer-facing off-site surface: a read-only "Off-site authority" Today card, unblocked by MT-2 (off-site data path now tenant-correct). NEW `src/components/today/off-site-authority-tile.tsx` (pure, is_local_service-gated, renders nothing when no useful signal); new `TodayV2OffSiteAuthoritySection` in `today-v2-sections.tsx` (loads `loadOffSitePresenceSnapshot` + pure `computeOffSiteRecommendationCandidates`; soft-fails to hidden tile); composed in `page.tsx` via `<Suspense fallback={null}>` (Option A — page.tsx added to scope; no separate skeleton file). The tile shows "Connected"/"Configured" chips for claimed channels (review count+rating only for high-confidence GBP/Yelp) + "Worth a manual review" for the 3 non-policy-risk candidates only (`request_gbp_reviews`/`pursue_local_pr` excluded; no raw URLs; no "missing").
+
+**Invariant plan (corrected, operator-approved):** 2 NEW invariants only — `off-site-customer-tile-safe-copy` (forbidden-vocab + policy-risk action-token ban; visible-text extractor skips `${}` for the `$` check) and `off-site-customer-tile-no-queue` (no queue/promotion/persistence imports; no Accept/form/button; offsite-contract intact). The existing `off-site-authority-customer-surface-isolation` (scans operator files, inverse direction) + `off-site-profile-urls-no-customer-surface` (auto-covers the new tile via its recursive `src/components/today/**` walk) were LEFT UNCHANGED — they pass as-is; weakening avoided.
+
+**Scope honored:** read-only · no C7e · no queue promotion (off-site stays diagnostic_only) · no Accept/Defer/Dismiss · no auto-claim/post · no review requests · no raw profile URLs · no connector/API/scrape/LLM calls · no migration/mutation/env change · no connector-store/middleware/OAuth/tenant-context/business-config-core change. `today-v2-data.ts` not needed (wired directly in sections.tsx).
+
+**Implementation note (test-extractor bug found + fixed):** the safe-copy invariant's literal extractor (mirrored from the operator-copy invariant) does not capture JSX text children; resolved by moving the tile's visible headings into `COPY` string constants so every visible phrase is a literal the extractor scans.
+
+**Verified (local only, no CI minutes):**
+- `npm run typecheck` — clean ✅
+- 8 targeted suites / 646 cases ✅ (tile render test + 2 new invariants + existing off-site invariants the tile must satisfy: profile-urls, customer-surface-isolation, customer-copy, offsite-contract, no-paid-or-scan-or-llm)
+- `catalog-sync` — 8 ✅ (2 new rows)
+- Line delta: src+tests +719 — over the ≤700 target, within the ≤850 soft threshold; no trim (contract: do not weaken tests)
+- `npm run test` (full vitest) — 677 files / 13584 passed, 25 skipped, 0 failures ✅
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — RUNNING (result to be confirmed in READY_TO_COMMIT report)
+
+**Proposed commit message:** `feat(today): show off-site authority summary`
+
+**Next:** operator review → local commit C7d → push/verify → Today visual smoke → C7e preflight OR MT-3 preflight.
+
+---
+
 ## 2026-05-22 — Slice MT-2: Customer-facing business-config entry-point migration
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.
