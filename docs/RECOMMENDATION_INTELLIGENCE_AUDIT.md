@@ -81,6 +81,64 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 4.5.G-B.4a — generic claim-risk classification (tag,
+> don't suppress) (2026-05-22)**: First slice of Section
+> 4.5.G-B.4. Operator-locked architecture: GLOBAL risk-pattern
+> detection (pure scanner) + TENANT-PROVIDED brand-assertion
+> support (via context) + TAG-DON'T-SUPPRESS. Preflight finding:
+> the 40 architect_overclaim + 14 unsupported_claim audit "debt"
+> is largely false-positive — the scanner flat-token-matched with
+> NO brand-assertion carve-out, so it flagged operator-asserted
+> phrases (e.g. an `architect-led design-build` `process`
+> assertion). The validator already blocks the genuinely-unsafe
+> brand claims at write-time via its category-gated unlock
+> mechanism; the audit lacked the same awareness. B.4a makes the
+> scanner CLASSIFY each `architect_overclaim` / `unsupported_claim`
+> violation as `brand_supported: true | false` against
+> tenant-supplied assertions — NEVER removing a violation — and
+> the operator diagnostic surfaces a per-field × per-term ×
+> brand-support debt breakdown. **Tenant-agnostic**: the scanner
+> owns a GLOBAL claim-risk registry (token → 6 categories:
+> professional_credential / process / ranking / award /
+> guarantee_outcome / superiority) + a GLOBAL unlock map
+> (risk-category → assertion-category strings); it NEVER imports
+> brand-assertions, NEVER imports getBrandAssertions, NEVER
+> imports business-config, NEVER references getRepository, NEVER
+> branches on a tenant name. The diagnostic page resolves
+> `getBrandAssertions(tenantId)` at the boundary and passes a
+> LOCAL STRUCTURAL shape (`{ id?, phrase, category }`) into the
+> scanner via `context.brandAssertions`. No assertions →
+> `brand_supported` defaults false (safe; preserves pre-B.4a
+> behavior). Modifies (1) `safety-audit.ts` — `ClaimRiskCategory`
+> type + 4 OPTIONAL violation fields (architect/unsupported only)
+> + `SafetyAuditBrandAssertion` structural shape +
+> `context.brandAssertions?` + `CLAIM_RISK_BY_TOKEN` (18 tokens
+> mapped) + `CLAIM_RISK_UNLOCK` + `classifyClaim` /
+> `classificationForToken`; existing kinds UNCHANGED. (2)
+> `recommendation-safety-audit/page.tsx` — boundary
+> `getBrandAssertions` resolution + structural map + context
+> pass; page-layer `FIELD_VISIBILITY` (proposed_text + why =
+> customer_visible; customer_copy = unknown; operator_evidence =
+> operator_internal); brand-support counters; `DebtBreakdownTable`
+> grouped section; flat-table brand-support data-attrs + column.
+> Tests: `safety-audit.test.ts` +20 (51 total, SYNTHETIC tenants
+> only); `recommendation-safety-audit-page.test.tsx` +9 (19
+> total); `recommendation-safety-audit-read-only.test.ts` +5
+> scanner purity pins + page brand-assertions pin flipped
+> negative→positive (32 cases); `recommendation-safety-audit-
+> coverage.test.ts` +15 (30 total). **Locked decisions honored**:
+> tag-don't-suppress; generic-not-Ritz (zero tenant-name logic in
+> scanner); scanner import-free (structural shape via context);
+> page-boundary brand-assertion resolution; NO credentials
+> category (B.4d); field-visibility unknown-where-uncertain. **NO
+> customer surface change · NO migration · NO mutation · NO LLM ·
+> NO B.1/B.2/validator change.** **The operator can now SEE true
+> debt (unsupported + customer-visible) vs audit noise
+> (brand-supported or operator-internal) on the diagnostic —
+> unblocking the B.4b (validator: premier/proven) + B.4c (render
+> guard for why/measurement_plan) scope decision against REAL
+> per-field/per-term data instead of guessed counts.**
+
 > **Slice 5.B.2 — Today edit-lifecycle tile repeat-citation
 > band counter (2026-05-21)**: Closes Section 5 end-to-end.
 > Sections 5.A (compute + loader at `0c1957a`), 5.A.2

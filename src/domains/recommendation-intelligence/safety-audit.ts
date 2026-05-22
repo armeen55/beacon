@@ -19,10 +19,28 @@
  * architecture invariant. Catches HISTORICAL rows that predate the
  * current validator set + any future regression.
  *
+ * Slice 4.5.G-B.4a (2026-05-22) — GENERIC claim-risk classification.
+ * `architect_overclaim` + `unsupported_claim` violations are now
+ * CLASSIFIED (never suppressed) against tenant-supplied brand
+ * assertions passed in via `context.brandAssertions`. Each such
+ * violation carries `brand_supported` (true/false), the supporting
+ * `brand_assertion_ids`, the `normalized_match`, and the
+ * tenant-agnostic `claim_risk_category`. The scanner stays
+ * IMPORT-FREE and TENANT-AGNOSTIC: it owns a GLOBAL claim-risk
+ * registry (token → risk category) + a GLOBAL unlock map (risk
+ * category → assertion categories that unlock it), and classifies
+ * via the supplied assertions only. It NEVER imports brand-assertions,
+ * never imports getBrandAssertions, never imports business-config,
+ * and never branches on a tenant name. The diagnostic page resolves
+ * `getBrandAssertions(tenantId)` at the boundary and passes the
+ * structural shape in. No assertions supplied → `brand_supported`
+ * defaults false (the safe default; preserves pre-B.4a behavior).
+ *
  * Hard contract: pure / deterministic / no I/O / no LLM / no network /
  * no Supabase / no mutation. Returns a structured violation list;
  * the caller (operator-only diagnostic surface) decides what to do
- * with it (display only; never auto-rewrite).
+ * with it (display only; never auto-rewrite). NO violation is ever
+ * suppressed — classification only.
  *
  * Pinned by:
  *   • tests/domains/recommendation-intelligence/safety-audit.test.ts
@@ -73,12 +91,38 @@ export type SafetyViolationField =
 
 export type SafetyViolationSeverity = "high" | "medium" | "low";
 
+/**
+ * GLOBAL, tenant-agnostic claim-risk categories. Every
+ * `architect_overclaim` / `unsupported_claim` token maps to exactly
+ * one of these (see `CLAIM_RISK_BY_TOKEN`). The scanner owns this
+ * taxonomy; it is NOT a brand-assertion category and never references
+ * a tenant.
+ */
+export type ClaimRiskCategory =
+  | "professional_credential"
+  | "process"
+  | "ranking"
+  | "award"
+  | "guarantee_outcome"
+  | "superiority";
+
 export type SafetyViolation = {
   kind: SafetyViolationKind;
   field: SafetyViolationField;
   matched_text: string;
   severity: SafetyViolationSeverity;
   context_excerpt: string;
+  /**
+   * Slice 4.5.G-B.4a — claim-risk classification. Present ONLY on
+   * `architect_overclaim` + `unsupported_claim` violations. All other
+   * kinds (uuid_leak / internal_token / competitor_name / placeholder
+   * / em_dash / leading_superlative / causal_language) leave these
+   * undefined — their behavior is unchanged.
+   */
+  brand_supported?: boolean;
+  brand_assertion_ids?: string[];
+  normalized_match?: string;
+  claim_risk_category?: ClaimRiskCategory;
 };
 
 export type SafetyAuditResult = {
@@ -88,9 +132,29 @@ export type SafetyAuditResult = {
   scanned_at: string;
 };
 
+/**
+ * Tenant-supplied brand assertion — LOCAL STRUCTURAL shape. The
+ * scanner deliberately does NOT import `BrandAssertion` from
+ * `@/domains/recommendations/brand-assertions` (that would couple the
+ * pure scanner to the brand-assertion module + break the read-only
+ * import boundary). The diagnostic page maps `getBrandAssertions(...)`
+ * onto this shape and passes it via `context.brandAssertions`.
+ */
+export type SafetyAuditBrandAssertion = {
+  id?: string;
+  phrase: string;
+  category: string;
+};
+
 export type SafetyAuditContext = {
   competitorNames: ReadonlyArray<string>;
   tenantId: string;
+  /**
+   * Slice 4.5.G-B.4a — optional tenant brand assertions for
+   * claim-risk classification. When omitted, every classifiable
+   * violation defaults `brand_supported: false` (safe default).
+   */
+  brandAssertions?: ReadonlyArray<SafetyAuditBrandAssertion>;
   now?: Date;
 };
 
@@ -170,6 +234,139 @@ const UUID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 const LONG_HEX_HASH_RE = /\b[0-9a-f]{32,}\b/i;
 
+// ---------------------------------------------------------------------------
+// Slice 4.5.G-B.4a — GLOBAL claim-risk registry (tenant-agnostic).
+//
+// Maps every architect_overclaim + unsupported_claim token to exactly
+// one global `ClaimRiskCategory`. This is the GLOBAL risk-pattern half
+// of the model — it knows NOTHING about any tenant. Adding a new token
+// to either token set REQUIRES a matching entry here (pinned by the
+// coverage invariant) so a future term can never ship unclassified.
+// ---------------------------------------------------------------------------
+
+const CLAIM_RISK_BY_TOKEN: Readonly<Record<string, ClaimRiskCategory>> = {
+  // architect_overclaim tokens
+  "architect-led": "process",
+  "architect-designed": "process",
+  licensed: "professional_credential",
+  "licensed architect": "professional_credential",
+  accredited: "professional_credential",
+  certified: "professional_credential",
+  endorsed: "professional_credential",
+  "master craftsman": "professional_credential",
+  "award-winning": "award",
+  "top-rated": "ranking",
+  // unsupported_claim tokens
+  best: "superiority",
+  "#1": "ranking",
+  "number one": "ranking",
+  leading: "superiority",
+  premier: "superiority",
+  guaranteed: "guarantee_outcome",
+  proven: "guarantee_outcome",
+  "guaranteed results": "guarantee_outcome",
+};
+
+// ---------------------------------------------------------------------------
+// GLOBAL unlock map — which brand-assertion CATEGORY STRINGS unlock each
+// claim-risk category. These are plain strings compared against the
+// supplied assertions' `category` field; the scanner does NOT import the
+// `BrandAssertionCategory` enum. `professional_credential` +
+// `guarantee_outcome` have NO category unlock today — they can only be
+// supported by an explicit phrase match (e.g. a tenant whose assertion
+// phrase literally contains "licensed architects"). A dedicated
+// `credentials` assertion category is deferred to Slice 4.5.G-B.4d.
+// ---------------------------------------------------------------------------
+
+const EMPTY_UNLOCK: ReadonlySet<string> = new Set<string>();
+const CLAIM_RISK_UNLOCK: Readonly<Record<ClaimRiskCategory, ReadonlySet<string>>> = {
+  process: new Set(["process"]),
+  professional_credential: EMPTY_UNLOCK,
+  ranking: new Set(["ranking_first"]),
+  award: new Set(["award"]),
+  superiority: new Set(["ranking_first"]),
+  guarantee_outcome: EMPTY_UNLOCK,
+};
+
+/**
+ * Per-violation claim-risk classification attached to
+ * `architect_overclaim` / `unsupported_claim` violations only.
+ */
+type ViolationClassification = {
+  brand_supported?: boolean;
+  brand_assertion_ids?: string[];
+  normalized_match?: string;
+  claim_risk_category?: ClaimRiskCategory;
+};
+
+/**
+ * GENERIC brand-support classifier. Given a normalized risky term, its
+ * global claim-risk category, and the tenant-supplied assertions,
+ * decides `brand_supported` + the supporting assertion ids.
+ *
+ * `brand_supported` is TRUE when at least one supplied assertion either
+ *   (a) has a `phrase` (case-insensitively) CONTAINING the term, OR
+ *   (b) has a `category` in the term's claim-risk unlock set.
+ * Otherwise FALSE. No assertions supplied → FALSE (safe default).
+ *
+ * Tenant-agnostic: identical logic for every tenant; the only input
+ * that differs is the supplied `brandAssertions`. NEVER suppresses —
+ * the caller still emits the violation, now tagged.
+ */
+function classifyClaim(
+  normalizedTerm: string,
+  claimRiskCategory: ClaimRiskCategory,
+  brandAssertions: ReadonlyArray<SafetyAuditBrandAssertion> | undefined,
+): { brand_supported: boolean; brand_assertion_ids: string[] } {
+  if (!brandAssertions || brandAssertions.length === 0) {
+    return { brand_supported: false, brand_assertion_ids: [] };
+  }
+  const term = normalizedTerm.toLowerCase();
+  const unlock = CLAIM_RISK_UNLOCK[claimRiskCategory] ?? EMPTY_UNLOCK;
+  let supported = false;
+  const ids: string[] = [];
+  for (const a of brandAssertions) {
+    const phraseMatch =
+      typeof a.phrase === "string" && a.phrase.toLowerCase().includes(term);
+    const categoryMatch =
+      typeof a.category === "string" && unlock.has(a.category);
+    if (phraseMatch || categoryMatch) {
+      supported = true;
+      if (typeof a.id === "string" && a.id.length > 0) ids.push(a.id);
+    }
+  }
+  return { brand_supported: supported, brand_assertion_ids: ids };
+}
+
+/**
+ * Build the full `ViolationClassification` for a risky token: resolve
+ * its global claim-risk category, normalize the match, and classify
+ * brand support against the supplied assertions. Every architect /
+ * unsupported token is registered in `CLAIM_RISK_BY_TOKEN` (pinned by
+ * the coverage invariant); an unmapped token falls back to
+ * `superiority` with phrase-match-only support (defensive — should
+ * never happen).
+ */
+function classificationForToken(
+  token: string,
+  brandAssertions: ReadonlyArray<SafetyAuditBrandAssertion> | undefined,
+): ViolationClassification {
+  const normalized = token.toLowerCase();
+  const claimRiskCategory: ClaimRiskCategory =
+    CLAIM_RISK_BY_TOKEN[token] ?? "superiority";
+  const { brand_supported, brand_assertion_ids } = classifyClaim(
+    normalized,
+    claimRiskCategory,
+    brandAssertions,
+  );
+  return {
+    normalized_match: normalized,
+    claim_risk_category: claimRiskCategory,
+    brand_supported,
+    brand_assertion_ids,
+  };
+}
+
 // Per K4: severity bands
 const HIGH_SEVERITY: ReadonlySet<SafetyViolationKind> = new Set([
   "placeholder",
@@ -234,6 +431,9 @@ function pushViolationsForLiteral(
   caseInsensitive: boolean,
   wholeWord: boolean,
   out: SafetyViolation[],
+  // Slice 4.5.G-B.4a — optional classification fields merged onto each
+  // emitted violation (used for architect_overclaim / unsupported_claim).
+  classification?: ViolationClassification,
 ): void {
   if (needle.length === 0) return;
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -258,6 +458,7 @@ function pushViolationsForLiteral(
       matched_text: m[0],
       severity: severityFor(kind),
       context_excerpt: contextOf(text, m.index, m[0].length),
+      ...(classification ?? {}),
     });
     if (m[0].length === 0) re.lastIndex++;
   }
@@ -291,7 +492,10 @@ function scanField(
     );
   }
 
-  // Unsupported claims — case-insensitive whole-word
+  // Unsupported claims — case-insensitive whole-word.
+  // B.4a: classify each match against tenant-supplied assertions (tag,
+  // never suppress). Classification is computed ONCE per token (it does
+  // not vary by occurrence) and merged onto every emitted violation.
   for (const tok of UNSUPPORTED_CLAIM_TOKENS) {
     pushViolationsForLiteral(
       text,
@@ -301,10 +505,12 @@ function scanField(
       true,
       true,
       out,
+      classificationForToken(tok, context.brandAssertions),
     );
   }
 
-  // Architect / licensing overclaim — case-insensitive whole-word
+  // Architect / licensing overclaim — case-insensitive whole-word.
+  // B.4a: same generic classification as unsupported_claim above.
   for (const tok of ARCHITECT_OVERCLAIM_TOKENS) {
     pushViolationsForLiteral(
       text,
@@ -314,6 +520,7 @@ function scanField(
       true,
       true,
       out,
+      classificationForToken(tok, context.brandAssertions),
     );
   }
 

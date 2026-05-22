@@ -54,6 +54,19 @@ vi.mock("@/lib/persistence/repositories", () => ({
   }),
 }));
 
+// B.4a — controllable brand-assertions mock. The page resolves
+// getBrandAssertions(tenantId) at the boundary; tests set synthetic
+// assertions here. Default [] preserves pre-B.4a behavior (every
+// classifiable violation defaults brand_supported:false).
+let _brandAssertions: ReadonlyArray<{
+  id: string;
+  phrase: string;
+  category: string;
+}> = [];
+vi.mock("@/domains/recommendations/brand-assertions", () => ({
+  getBrandAssertions: () => _brandAssertions,
+}));
+
 import RecommendationSafetyAuditPage from "@/app/(shell)/diagnostics/recommendation-safety-audit/page";
 
 function makeEdit(
@@ -121,6 +134,7 @@ beforeEach(() => {
   _isOperator = true;
   _recommendedEdits = [];
   _trackedEntities = [];
+  _brandAssertions = [];
   _notFoundSpy.mockClear();
 });
 
@@ -274,6 +288,132 @@ describe("Recommendation Safety Audit page render", () => {
     ];
     const html = await render();
     expect(html).toContain("Read-only operator audit");
+    expect(html).not.toMatch(/<button\b/i);
+    expect(html).not.toMatch(/<form\b/i);
+    expect(html).not.toMatch(/type="submit"/);
+  });
+});
+
+// B.4a — render with a one-row fixture + assertions in one call.
+async function renderWith(opts: {
+  recId: string;
+  proposed_text: string;
+  assertions?: ReadonlyArray<{ id: string; phrase: string; category: string }>;
+}): Promise<string> {
+  _recommendedEdits = [
+    makeEdit({ rec_id: opts.recId, proposed_text: opts.proposed_text }),
+  ];
+  _brandAssertions = opts.assertions ?? [];
+  return render();
+}
+
+const ARCH_LED_ASSERT = [
+  { id: "a1", phrase: "architect-led design-build", category: "process" },
+] as const;
+
+describe("Recommendation Safety Audit page — B.4a brand-support classification", () => {
+  it("flat table carries data-safety-brand-supported + claim-risk-category + normalized-match for a classifiable violation", async () => {
+    const html = await renderWith({
+      recId: "rec-arch",
+      proposed_text: "An architect-led design-build approach.",
+      assertions: [...ARCH_LED_ASSERT],
+    });
+    expect(html).toContain('data-safety-violation-kind="architect_overclaim"');
+    expect(html).toContain('data-safety-brand-supported="true"');
+    expect(html).toContain('data-safety-claim-risk-category="process"');
+    expect(html).toContain('data-safety-normalized-match="architect-led"');
+  });
+
+  it("tags brand_supported=false when the tenant has no supporting assertion (and never removes the row)", async () => {
+    const html = await renderWith({
+      recId: "rec-arch-unsup",
+      proposed_text: "An architect-led design-build approach.",
+      assertions: [], // no support
+    });
+    expect(html).toContain('data-safety-violation-kind="architect_overclaim"');
+    expect(html).toContain('data-safety-brand-supported="false"'); // not suppressed
+  });
+
+  it("renders brand-support summary counters", async () => {
+    const html = await renderWith({
+      recId: "rec-mix",
+      proposed_text: "architect-led design-build, but also premier and proven.",
+      assertions: [...ARCH_LED_ASSERT],
+    });
+    expect(html).toContain('data-counter="brand_supported_violations"');
+    expect(html).toContain('data-counter="unsupported_violations"');
+    expect(html).toContain(
+      'data-counter="unsupported_customer_visible_violations"',
+    );
+  });
+
+  it("unsupported customer-visible counter counts an unsupported claim in a customer-visible field (proposed_text)", async () => {
+    const html = await renderWith({
+      recId: "rec-prem",
+      proposed_text: "a premier remodeler",
+      assertions: [], // premier unsupported; proposed_text is customer-visible
+    });
+    expect(html).toMatch(
+      /data-counter="unsupported_customer_visible_violations"[^>]*>[\s\S]*?<span[^>]*>[1-9]/,
+    );
+  });
+
+  it("renders the Debt breakdown grouped section with brand-support + visibility data-attrs", async () => {
+    const html = await renderWith({
+      recId: "rec-debt",
+      proposed_text: "a premier proven team",
+      assertions: [],
+    });
+    expect(html).toContain(
+      'data-diagnostic-section="recommendation-safety-audit-debt-breakdown"',
+    );
+    expect(html).toContain("Debt breakdown");
+    expect(html).toContain("data-debt-brand-supported=");
+    expect(html).toContain("data-debt-visibility=");
+    expect(html).toContain("data-debt-count=");
+  });
+
+  it("flat table still renders one DOM row per violation (no suppression, brand-support is additive)", async () => {
+    // architect-led (supported) + premier (unsupported) = 2 violations
+    const html = await renderWith({
+      recId: "rec-count",
+      proposed_text: "architect-led design-build and premier service",
+      assertions: [...ARCH_LED_ASSERT],
+    });
+    const flatRows = (html.match(/data-safety-rec-id="rec-count"/g) ?? []).length;
+    expect(flatRows).toBeGreaterThanOrEqual(2);
+    expect(html).toContain('data-safety-brand-supported="true"'); // supported present
+    expect(html).toContain('data-safety-brand-supported="false"'); // unsupported present
+  });
+
+  it("non-classifiable kinds (uuid/internal/competitor/placeholder) carry NO brand-supported attr", async () => {
+    const html = await renderWith({
+      recId: "rec-nonclass",
+      proposed_text: "TODO and aiSearchSignal here",
+      assertions: [...ARCH_LED_ASSERT],
+    });
+    expect(html).toContain('data-safety-violation-kind="placeholder"');
+    // No architect/unsupported term in this fixture → no brand-supported attr anywhere.
+    expect(html).not.toContain("data-safety-brand-supported=");
+  });
+
+  it("still gates non-operator → notFound() (gate unchanged by B.4a)", async () => {
+    _isOperator = false;
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      await expect(render()).rejects.toThrow(/NEXT_NOT_FOUND/);
+      expect(_notFoundSpy).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("still renders no buttons / forms with the B.4a additions", async () => {
+    const html = await renderWith({
+      recId: "rec-ro",
+      proposed_text: "a premier proven team",
+      assertions: [],
+    });
     expect(html).not.toMatch(/<button\b/i);
     expect(html).not.toMatch(/<form\b/i);
     expect(html).not.toMatch(/type="submit"/);

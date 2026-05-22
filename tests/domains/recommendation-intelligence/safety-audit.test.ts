@@ -399,3 +399,228 @@ describe("safety-audit / scanned fields", () => {
     expect(customerCopyVios.length).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 4.5.G-B.4a — GENERIC claim-risk classification (tag, don't suppress)
+// ---------------------------------------------------------------------------
+//
+// CRITICAL: every test below uses SYNTHETIC tenant names + assertions,
+// never "Ritz Builders". The scanner must classify identically for any
+// tenant based ONLY on the supplied `brandAssertions` context. The same
+// term must be brand_supported for one tenant and unsupported for
+// another based purely on context.
+
+type B4aAssertions = ReadonlyArray<{
+  id?: string;
+  phrase: string;
+  category: string;
+}>;
+
+// Audit a single proposed_text. `assertions` undefined → omitted
+// (safe default); `[]` → explicitly empty. `extra` overrides context
+// (e.g. tenantId, competitorNames). Returns the violation array.
+function auditProposed(
+  text: string,
+  assertions?: B4aAssertions,
+  extra: Partial<SafetyAuditContext> = {},
+) {
+  return auditRecommendedEditRow(
+    makeRow({ proposed_text: text }),
+    makeContext({ brandAssertions: assertions, ...extra }),
+  ).violations;
+}
+
+// First violation whose normalized_match equals `term` (undefined if none).
+function vio(
+  text: string,
+  term: string,
+  assertions?: B4aAssertions,
+  extra: Partial<SafetyAuditContext> = {},
+) {
+  return auditProposed(text, assertions, extra).find(
+    (v) => v.normalized_match === term,
+  );
+}
+
+const ARCH_LED = "An architect-led design-build approach.";
+const ARCH_LED_ASSERT: B4aAssertions = [
+  { id: "a1", phrase: "architect-led design-build", category: "process" },
+];
+
+describe("safety-audit / B.4a — architect-led generic phrase-match classification", () => {
+  it("emits architect_overclaim + brand_supported:true when an assertion phrase contains 'architect-led'", () => {
+    const vios = auditProposed(ARCH_LED, ARCH_LED_ASSERT).filter(
+      (v) => v.kind === "architect_overclaim",
+    );
+    expect(vios.length).toBeGreaterThanOrEqual(1); // NEVER suppressed
+    const v = vios.find((x) => x.normalized_match === "architect-led")!;
+    expect(v).toBeDefined();
+    expect(v.brand_supported).toBe(true);
+    expect(v.brand_assertion_ids).toContain("a1");
+    expect(v.claim_risk_category).toBe("process");
+  });
+
+  it("brand_supported:false with empty assertions ([])", () => {
+    const v = vio(ARCH_LED, "architect-led", [])!;
+    expect(v).toBeDefined();
+    expect(v.kind).toBe("architect_overclaim");
+    expect(v.brand_supported).toBe(false);
+    expect(v.brand_assertion_ids).toEqual([]);
+  });
+
+  it("brand_supported:false when brandAssertions omitted entirely (safe default)", () => {
+    const v = vio(ARCH_LED, "architect-led")!;
+    expect(v).toBeDefined();
+    expect(v.brand_supported).toBe(false);
+  });
+
+  it("same term, two synthetic tenants: supported for one (has phrase), unsupported for the other", () => {
+    const sup = vio(ARCH_LED, "architect-led", ARCH_LED_ASSERT, {
+      tenantId: "tenant-design-firm",
+    })!;
+    const unsup = vio(
+      ARCH_LED,
+      "architect-led",
+      [{ id: "y", phrase: "fast turnaround remodels", category: "service_offering" }],
+      { tenantId: "tenant-generic-builder" },
+    )!;
+    expect(sup).toBeDefined();
+    expect(unsup).toBeDefined();
+    expect(sup.brand_supported).toBe(true); // not suppressed
+    expect(unsup.brand_supported).toBe(false); // not suppressed
+  });
+});
+
+describe("safety-audit / B.4a — professional_credential terms unsupported without matching assertion", () => {
+  const processAssert: B4aAssertions = [
+    { id: "p", phrase: "architect-led design-build", category: "process" },
+  ];
+  for (const term of [
+    "licensed",
+    "licensed architect",
+    "accredited",
+    "certified",
+    "endorsed",
+    "master craftsman",
+  ]) {
+    it(`'${term}' is professional_credential + brand_supported:false with an unrelated process assertion`, () => {
+      const v = vio(`We are ${term} for this work.`, term, processAssert)!;
+      expect(v).toBeDefined();
+      expect(v.claim_risk_category).toBe("professional_credential");
+      expect(v.brand_supported).toBe(false); // process does NOT unlock credential
+    });
+  }
+
+  it("professional_credential CAN be supported by an explicit phrase match (generic — any tenant)", () => {
+    const v = vio(
+      "Our licensed architect leads every project.",
+      "licensed architect",
+      [{ id: "cred", phrase: "licensed architect on staff", category: "factual" }],
+    )!;
+    expect(v).toBeDefined();
+    expect(v.brand_supported).toBe(true);
+    expect(v.brand_assertion_ids).toContain("cred");
+  });
+});
+
+describe("safety-audit / B.4a — award + ranking category unlocks", () => {
+  it("'award-winning' unsupported without an award assertion", () => {
+    const v = vio("An award-winning team.", "award-winning", [
+      { id: "p", phrase: "design-build", category: "process" },
+    ])!;
+    expect(v.claim_risk_category).toBe("award");
+    expect(v.brand_supported).toBe(false);
+  });
+
+  it("'award-winning' supported when an award-category assertion exists (generic category unlock)", () => {
+    const v = vio("An award-winning team.", "award-winning", [
+      { id: "aw", phrase: "2025 Best of Houzz", category: "award" },
+    ])!;
+    expect(v.brand_supported).toBe(true);
+    expect(v.brand_assertion_ids).toContain("aw");
+  });
+
+  it("'top-rated' is ranking: unsupported without ranking_first, supported with it (category unlock)", () => {
+    expect(vio("A top-rated firm.", "top-rated", [])!.brand_supported).toBe(false);
+    expect(
+      vio("A top-rated firm.", "top-rated", [
+        { id: "r", phrase: "#1 on Yelp 2025", category: "ranking_first" },
+      ])!.brand_supported,
+    ).toBe(true);
+  });
+});
+
+describe("safety-audit / B.4a — superiority + guarantee_outcome terms", () => {
+  it("'best' is superiority + unsupported_claim kind, unsupported without ranking_first", () => {
+    const v = vio("the best builder around", "best", [])!;
+    expect(v.kind).toBe("unsupported_claim");
+    expect(v.claim_risk_category).toBe("superiority");
+    expect(v.brand_supported).toBe(false);
+  });
+
+  it("'premier' is superiority and supported under a ranking_first assertion", () => {
+    const v = vio("a premier remodeler", "premier", [
+      { id: "rf", phrase: "ranked first regionally", category: "ranking_first" },
+    ])!;
+    expect(v.claim_risk_category).toBe("superiority");
+    expect(v.brand_supported).toBe(true);
+  });
+
+  it("'guaranteed' + 'proven' are guarantee_outcome + stay unsupported even with assertions (no unlock)", () => {
+    const assertions: B4aAssertions = [
+      { id: "rf", phrase: "ranked first", category: "ranking_first" },
+      { id: "aw", phrase: "award winner", category: "award" },
+    ];
+    const g = vio("guaranteed and proven results", "guaranteed", assertions);
+    const p = vio("guaranteed and proven results", "proven", assertions);
+    expect(g?.claim_risk_category).toBe("guarantee_outcome");
+    expect(g?.brand_supported).toBe(false);
+    expect(p?.claim_risk_category).toBe("guarantee_outcome");
+    expect(p?.brand_supported).toBe(false);
+  });
+});
+
+describe("safety-audit / B.4a — every architect token is mapped to a claim-risk category", () => {
+  it("emits a claim_risk_category for every ARCHITECT_OVERCLAIM_TOKEN", () => {
+    for (const tok of ARCHITECT_OVERCLAIM_TOKENS) {
+      const v = vio(`prefix ${tok} suffix`, tok.toLowerCase());
+      expect(v, `token '${tok}' produced no architect_overclaim violation`).toBeDefined();
+      expect(v!.kind).toBe("architect_overclaim");
+      expect(v!.claim_risk_category, `token '${tok}' has no claim_risk_category`).toBeTruthy();
+    }
+  });
+});
+
+describe("safety-audit / B.4a — non-classifiable kinds carry NO classification + are never suppressed", () => {
+  it("uuid_leak / internal_token / competitor_name / placeholder leave classification undefined", () => {
+    const violations = auditRecommendedEditRow(
+      makeRow({
+        proposed_text:
+          "ref abc12345-de67-89ab-cdef-0123456789ab and aiSearchSignal and Greenberg here. TODO",
+        why: "clean",
+      }),
+      makeContext({ competitorNames: ["Greenberg"], brandAssertions: ARCH_LED_ASSERT }),
+    ).violations;
+    const nonClassifiable = violations.filter(
+      (v) =>
+        v.kind === "uuid_leak" ||
+        v.kind === "internal_token" ||
+        v.kind === "competitor_name" ||
+        v.kind === "placeholder",
+    );
+    expect(nonClassifiable.length).toBeGreaterThan(0);
+    for (const v of nonClassifiable) {
+      expect(v.brand_supported).toBeUndefined();
+      expect(v.claim_risk_category).toBeUndefined();
+      expect(v.normalized_match).toBeUndefined();
+    }
+  });
+
+  it("brand_supported:true does NOT remove the violation from the result (no suppression)", () => {
+    const violations = auditProposed("architect-led design-build", ARCH_LED_ASSERT);
+    const v = violations.find((x) => x.normalized_match === "architect-led")!;
+    expect(v).toBeDefined();
+    expect(v.brand_supported).toBe(true);
+    expect(violations.length).toBeGreaterThan(0); // supported ≠ hidden
+  });
+});

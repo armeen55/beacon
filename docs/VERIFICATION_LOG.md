@@ -7,6 +7,56 @@
 
 ---
 
+## 2026-05-22 — Slice 4.5.G-B.4a: generic claim-risk classification (tag, don't suppress)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.
+
+**Slice scope (locked, B.4a only).** First slice of Section 4.5.G-B.4 (architect_overclaim + unsupported_claim handling). Operator-locked product-grade architecture: **GLOBAL risk-pattern detection (in the pure scanner) + TENANT-PROVIDED brand-assertion support (passed via context) + TAG, DON'T SUPPRESS.** The safety audit scanner now classifies each `architect_overclaim` / `unsupported_claim` violation as `brand_supported: true | false` against tenant-supplied assertions, never removing a violation. The operator diagnostic surfaces a per-field × per-term × brand-support debt breakdown so genuine debt (unsupported + customer-visible) is separable from audit noise (brand-supported or operator-internal) BEFORE any guard/validator change.
+
+**Preflight finding that motivated the design.** The 40 architect_overclaim + 14 unsupported_claim audit hits were largely false-positive: the scanner flat-token-matched with NO brand-assertion carve-out, so it flagged operator-asserted phrases (e.g. an `architect-led design-build` `process` assertion). The validator already blocks the genuinely-unsafe brand claims (best-builder/top-rated/award-winning/guarantees) at write-time via its category-gated unlock mechanism; the audit just lacked the same awareness. B.4a gives the scanner generic, tenant-agnostic claim-risk classification.
+
+**Hard contracts honored.** Classify-only (no violation suppressed/removed) · GLOBAL risk-pattern detection in the scanner (zero tenant-name logic) · scanner stays IMPORT-FREE (local structural shape via `context.brandAssertions`; NO import of brand-assertions / getBrandAssertions / business-config; NO getRepository) · diagnostic page is the ONLY brand-assertion-resolution boundary · NO customer surface change · NO B.1 why-display-guard change · NO B.2 copy-sanitize change · NO validator change · NO credentials BrandAssertionCategory (deferred B.4d) · NO migration · NO backfill · NO mutation · NO LLM · NO scans · operator-gated + read-only page preserved.
+
+**Files modified (2 src + 4 tests) / added (0) / docs synced (5).**
+
+1. `src/domains/recommendation-intelligence/safety-audit.ts` — added `ClaimRiskCategory` (6 categories), 4 OPTIONAL violation fields (`brand_supported` / `brand_assertion_ids` / `normalized_match` / `claim_risk_category`) set ONLY on architect_overclaim + unsupported_claim, `SafetyAuditBrandAssertion` local structural shape (`{ id?, phrase, category }`), `context.brandAssertions?`, `CLAIM_RISK_BY_TOKEN` registry (all 18 architect+unsupported tokens), `CLAIM_RISK_UNLOCK` map (process←process · ranking←ranking_first · award←award · superiority←ranking_first · professional_credential + guarantee_outcome → NO category unlock, phrase-match-only), `classifyClaim` (phrase-contains OR category-unlock; returns supporting ids) + `classificationForToken` helpers; the architect/unsupported scan loops attach classification; `pushViolationsForLiteral` gained an optional `classification` spread. Existing kinds (uuid/internal/competitor/placeholder/em_dash/leading_superlative/causal) UNCHANGED — no classification fields.
+
+2. `src/app/(shell)/diagnostics/recommendation-safety-audit/page.tsx` — imports `getBrandAssertions` at the boundary, maps to the structural shape, passes via context; page-layer `FIELD_VISIBILITY` (proposed_text + why = customer_visible; customer_copy = unknown [conflates expected_impact + measurement_plan, don't guess]; operator_evidence = operator_internal; topic_cluster_label = unknown); brand-support summary counters (brand_supported / unsupported / unsupported-customer-visible); `DebtBreakdownTable` grouped section (kind × field × match × claim_risk_category × brand_supported × severity × count, unsupported-first sort); flat-table `data-safety-brand-supported` / `data-safety-claim-risk-category` / `data-safety-normalized-match` / `data-safety-visibility` + a "Brand support" column.
+
+3. `tests/domains/recommendation-intelligence/safety-audit.test.ts` — +20 B.4a cases (51 total). ALL synthetic tenants (`tenant-design-firm`, `tenant-generic-builder`, etc.) — never "Ritz Builders". Covers: architect-led supported via phrase-match / unsupported with empty assertions / safe-default when omitted; same term supported for one synthetic tenant + unsupported for another (context-only); professional_credential terms unsupported without a matching assertion + supportable via explicit phrase; award + ranking category unlocks; superiority + guarantee_outcome (permanently locked); every architect token classified; non-classifiable kinds carry NO classification; brand_supported:true does NOT remove the violation.
+
+4. `tests/app/diagnostics/recommendation-safety-audit-page.test.tsx` — +9 B.4a cases (19 total) via a controllable `getBrandAssertions` mock: flat-table brand-support data-attrs; unsupported tagging without suppression; brand-support counters; unsupported-customer-visible counter; Debt breakdown render; one-DOM-row-per-violation preserved; non-classifiable kinds carry no brand-supported attr; operator gate + no-buttons/forms unchanged.
+
+5. `tests/architecture/recommendation-safety-audit-read-only.test.ts` — +5 scanner purity pins (no brand-assertions import / no getBrandAssertions / no business-config / no getRepository / no tenant-name literal); FLIPPED the page's brand-assertions pin negative→positive (page now legitimately imports getBrandAssertions at the boundary). 32 cases.
+
+6. `tests/architecture/recommendation-safety-audit-coverage.test.ts` — +15 B.4a cases (30 total): claim-risk registry source presence + 6 categories declared; behavioral per-architect-token classification coverage (every token → claim_risk_category + brand_supported defined; phrase-match flips to true generically); scanner test exercises brand_supported true/false + claim_risk_category + normalized_match; comment-stripped no-Ritz-logic pin.
+
+**Architecture invariants.**
+- 0 NEW invariants (both safety-audit invariants EXTENDED in place — no new test file → catalog-sync unaffected by file count).
+- `recommendation-safety-audit-read-only`: +5 scanner pins + 1 page pin flipped.
+- `recommendation-safety-audit-coverage`: +15 claim-risk classification pins.
+- Auto-pass: `recommendation-intelligence-no-queue-write` (scanner write-axis unchanged); B.1 `recommendation-why-render-guard` + `why-display-guard` (UNCHANGED); B.2 `recommendation-copy-sanitize-purity` + `copy-sanitize` (UNCHANGED); all 20 recommendation-intelligence invariants green; `catalog-sync` (8 cases; rows edited in place).
+
+**Quality gates (LOCAL ONLY — no CI minutes used).**
+- `npm run typecheck`: clean ✅
+- Targeted B.4a + B.1/B.2 carry-over + catalog-sync (9 files): **233 cases passing** ✅
+- All recommendation-intelligence architecture invariants: **192 cases passing** ✅
+- Full architecture suite: TO RUN
+- Full vitest: TO RUN
+- Tenant-env build: TO RUN
+
+**Line budget.** src+tests delta = **964** (src +450, tests +514) after the operator-approved Option-2 DRY refactor (extracted `auditProposed`/`vio` in the scanner test + `renderWith` in the page test; first pass was 1,033, saved 69 lines, zero cases/assertions lost). Under the +1,000 hard stop by 36. No new files; all edits in place.
+
+**Result.** The operator can now visit `/diagnostics/recommendation-safety-audit` and SEE, per (field × term × brand-support), which violations are genuine debt (unsupported + customer-visible) vs audit noise (brand-supported or operator-internal) — with zero customer-facing change and zero suppression. This converts the noisy 40+14 count into an actionable debt list and unblocks the B.4b / B.4c scope decision against real data.
+
+**STOPPED AT READY_TO_COMMIT — not pushed.**
+
+Proposed commit message: `feat(diagnostics): classify brand-supported safety findings`.
+
+**Next phase recommendation.** Operator review → local commit only → optional push + inspect the diagnostic debt breakdown in production → decide whether B.4b (validator: add premier/proven) + B.4c (render guard for why/measurement_plan, brand-assertion-aware) are still needed against the real per-field/per-term breakdown. B.4d (credentials category) only if the operator verifies licensing AND wants to claim it.
+
+---
+
 ## 2026-05-21 — Slice 5.B.2: Today edit-lifecycle tile repeat-citation band counter
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification per operator-locked workflow rule.

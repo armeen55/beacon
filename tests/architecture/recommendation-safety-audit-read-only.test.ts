@@ -136,6 +136,34 @@ describe("recommendation-safety-audit-read-only", () => {
     it("does NOT call fetch(", () => {
       expect(active).not.toMatch(/\bfetch\s*\(/);
     });
+
+    // B.4a — the scanner classifies against brand assertions passed
+    // via context. It must NEVER import brand-assertions, never call
+    // getBrandAssertions, never import business-config, never call
+    // getRepository. The structural shape + context arg keep it pure.
+    it("does NOT import brand-assertions (B.4a — assertions arrive via context)", () => {
+      expect(active).not.toContain(
+        "@/domains/recommendations/brand-assertions",
+      );
+    });
+
+    it("does NOT reference getBrandAssertions", () => {
+      expect(active).not.toContain("getBrandAssertions");
+    });
+
+    it("does NOT import business-config", () => {
+      expect(active).not.toContain("@/lib/business-config");
+      expect(active).not.toContain("getBusinessConfig");
+    });
+
+    it("does NOT reference getRepository", () => {
+      expect(active).not.toContain("getRepository");
+    });
+
+    it("does NOT contain a tenant-name-specific literal (e.g. 'Ritz Builders')", () => {
+      expect(active).not.toContain("Ritz Builders");
+      expect(active).not.toContain("ritz-builders");
+    });
   });
 
   describe("page source-text contract (recommendation-safety-audit/page.tsx)", () => {
@@ -182,10 +210,15 @@ describe("recommendation-safety-audit-read-only", () => {
       expect(active).not.toContain("validateSpecificEdit");
     });
 
-    it("does NOT import brand-assertions", () => {
-      expect(active).not.toContain(
+    // B.4a — the page is the BOUNDARY that resolves tenant brand
+    // assertions and passes them into the pure scanner via context.
+    // It legitimately imports getBrandAssertions (read-only, no write).
+    // This pin FLIPPED from negative (A.2) to positive (B.4a).
+    it("DOES import + reference getBrandAssertions (B.4a boundary)", () => {
+      expect(active).toContain(
         "@/domains/recommendations/brand-assertions",
       );
+      expect(active).toContain("getBrandAssertions");
     });
 
     it("does NOT import the action-types registry", () => {
