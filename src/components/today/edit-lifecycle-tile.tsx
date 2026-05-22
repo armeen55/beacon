@@ -35,6 +35,7 @@
 import { useId, useState } from "react";
 
 import type { LifecycleStage } from "@/domains/citation-lifecycle/lifecycle-stage";
+import type { RepeatCitationBand } from "@/domains/citation-lifecycle/compute-repeat-citation";
 import { cn } from "@/lib/utils";
 
 export type EditLifecycleTileProps = {
@@ -57,7 +58,54 @@ export type EditLifecycleTileProps = {
    *  `{windowDays}` placeholder which this component substitutes
    *  before rendering. */
   emptyStateBody: string;
+  /**
+   * Section 5.B Slice 2 (2026-05-21) — optional repeat-citation 30d
+   * band rollup. When provided and `total_with_band > 0`, the tile
+   * renders an additional "Citation stability (past 30 days)" section
+   * BELOW the per-stage rollup. When absent, null, or fully zero,
+   * the tile renders identically to its pre-5.B.2 form (backward
+   * compat). Customer labels are locked at 5.B.1 — see
+   * `REPEAT_CITATION_BAND_LABELS` in this file.
+   */
+  repeatCitation30d?: {
+    per_band: Record<RepeatCitationBand, number>;
+    total: number;
+    total_with_band: number;
+  } | null;
 };
+
+/**
+ * Locked customer-facing labels for repeat-citation bands, mirroring
+ * the Section 5.B Slice 1 contract pinned by
+ * `repeat-citation-changes-detail-band-mapping.test.ts`. The Today
+ * tile counter uses the SAME label set so the customer reads a
+ * consistent vocabulary across Changes detail (per-edit) and Today
+ * (aggregate counters).
+ *
+ * Architecture invariant
+ * `repeat-citation-today-tile-band-counter.test.ts` pins this map
+ * verbatim at source-text level.
+ */
+const REPEAT_CITATION_BAND_LABELS: Record<RepeatCitationBand, string> = {
+  stable: "consistent",
+  intermittent: "recurring",
+  one_off: "early signal",
+  not_repeated: "not repeated",
+  still_learning: "still learning",
+};
+
+/**
+ * Render order for the band counter line. Same order as the Section
+ * 5.B Slice 1 Changes detail rendering: best outcomes first, then
+ * trailing categories.
+ */
+const REPEAT_CITATION_BAND_ORDER: ReadonlyArray<RepeatCitationBand> = [
+  "stable",
+  "intermittent",
+  "one_off",
+  "not_repeated",
+  "still_learning",
+];
 
 // ─────────────────────────────────────────────────────────────────────
 // Display rows — glyphs only; labels come in from props
@@ -102,6 +150,7 @@ export function EditLifecycleTile(props: EditLifecycleTileProps) {
     stageLabels,
     tooltipBody,
     emptyStateBody,
+    repeatCitation30d,
   } = props;
   const tooltipId = useId();
   const [open, setOpen] = useState(false);
@@ -189,6 +238,7 @@ export function EditLifecycleTile(props: EditLifecycleTileProps) {
           />
         ))}
       </ul>
+      <CitationStabilitySection repeatCitation30d={repeatCitation30d ?? null} />
       {latestLiveAtIso && (
         <p
           className="mt-3 text-[10.5px] text-muted-foreground"
@@ -198,6 +248,79 @@ export function EditLifecycleTile(props: EditLifecycleTileProps) {
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * Section 5.B Slice 2 — Citation stability counter section. Renders
+ * a compact line of band counts beneath the per-stage rollup when
+ * `repeatCitation30d` is provided AND has at least one band-
+ * classified edit. Zero-buckets are suppressed so the counter line
+ * stays readable.
+ *
+ * Customer labels come from the locked `REPEAT_CITATION_BAND_LABELS`
+ * map. The component renders ONLY customer-safe labels — no raw
+ * band names, no percentages, no internal taxonomy (`Mode A` /
+ * `Mode B` / `Mode C` / `primary recommendation` / `aiSearchSignal`).
+ *
+ * Suppression rules:
+ *   - `repeatCitation30d == null` → null (backward compat)
+ *   - `repeatCitation30d.total === 0` → null (no candidates iterated)
+ *   - `repeatCitation30d.total_with_band === 0` → null (loader had
+ *     candidates but classified none — render nothing rather than
+ *     a misleading "0 consistent · 0 recurring" line)
+ */
+function CitationStabilitySection({
+  repeatCitation30d,
+}: {
+  repeatCitation30d: EditLifecycleTileProps["repeatCitation30d"] | null;
+}) {
+  if (repeatCitation30d == null) return null;
+  if (repeatCitation30d.total === 0) return null;
+  if (repeatCitation30d.total_with_band === 0) return null;
+
+  const segments: Array<{ band: RepeatCitationBand; count: number; label: string }> = [];
+  for (const band of REPEAT_CITATION_BAND_ORDER) {
+    const count = repeatCitation30d.per_band[band] ?? 0;
+    if (count === 0) continue;
+    segments.push({ band, count, label: REPEAT_CITATION_BAND_LABELS[band] });
+  }
+  if (segments.length === 0) return null;
+
+  return (
+    <div
+      className="mt-3 border-t border-border/40 pt-2.5"
+      data-today-tile-section="citation-stability"
+      data-today-tile-citation-stability-total={repeatCitation30d.total}
+      data-today-tile-citation-stability-total-with-band={
+        repeatCitation30d.total_with_band
+      }
+    >
+      <h4 className="text-[11px] font-semibold text-foreground/85 tracking-tight">
+        Citation stability
+      </h4>
+      <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+        past 30 days
+      </p>
+      <p
+        className="mt-1.5 text-[12px] leading-snug text-foreground/85"
+        data-today-tile-citation-stability-line="true"
+      >
+        {segments.map((segment, idx) => (
+          <span
+            key={segment.band}
+            data-today-tile-citation-stability-band={segment.band}
+            data-today-tile-citation-stability-count={segment.count}
+          >
+            <span className="tabular-nums font-semibold">{segment.count}</span>{" "}
+            <span>{segment.label}</span>
+            {idx < segments.length - 1 ? (
+              <span className="text-muted-foreground/70"> · </span>
+            ) : null}
+          </span>
+        ))}
+      </p>
+    </div>
   );
 }
 

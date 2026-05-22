@@ -249,3 +249,239 @@ describe("EditLifecycleTile — empty state", () => {
     expect(html).toContain('data-today-tile-tooltip-trigger="true"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Section 5.B Slice 2 — Citation stability counter section
+// ---------------------------------------------------------------------------
+
+const POPULATED_STAGE_PROPS = {
+  perStage: {
+    ...EMPTY_PER_STAGE,
+    cited_fast: 3,
+    cited_typical: 5,
+    live_not_yet_cited: 2,
+    stuck: 1,
+  },
+  total: 11,
+  latestLiveAtIso: "2026-05-12T00:00:00Z",
+  stageLabels: PROFOUND_STRINGS.stage_labels,
+  tooltipBody: PROFOUND_STRINGS.tooltip_body,
+  emptyStateBody: PROFOUND_STRINGS.empty_state_body,
+} as const;
+
+type BandCounts = {
+  stable?: number;
+  intermittent?: number;
+  one_off?: number;
+  not_repeated?: number;
+  still_learning?: number;
+};
+
+/**
+ * Build a `repeatCitation30d` prop fixture from a partial band-count
+ * override. `total` defaults to 11 (matches POPULATED_STAGE_PROPS.total
+ * so the rollup feels coherent) and can be overridden per case.
+ * `total_with_band` is auto-computed as the sum of band counts.
+ */
+function makeRepeatCitation30dFixture(
+  bandsOverride: BandCounts,
+  totalOverride?: number,
+) {
+  const per_band = {
+    stable: bandsOverride.stable ?? 0,
+    intermittent: bandsOverride.intermittent ?? 0,
+    one_off: bandsOverride.one_off ?? 0,
+    not_repeated: bandsOverride.not_repeated ?? 0,
+    still_learning: bandsOverride.still_learning ?? 0,
+  };
+  const total_with_band =
+    per_band.stable +
+    per_band.intermittent +
+    per_band.one_off +
+    per_band.not_repeated +
+    per_band.still_learning;
+  return {
+    per_band,
+    total: totalOverride ?? 11,
+    total_with_band,
+  };
+}
+
+// Common mixed-bands fixture used by the multiple "negative" assertions
+// (no raw band names / no percentages / no Section-6 vocab / no causal
+// language) — all four cases want a populated counter to scan.
+const MIXED_BANDS_FIXTURE = makeRepeatCitation30dFixture({
+  stable: 4,
+  intermittent: 2,
+  one_off: 1,
+});
+
+describe("EditLifecycleTile — citation stability counter (Section 5.B.2)", () => {
+  it("renders the citation-stability section when repeatCitation30d.total_with_band > 0", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: MIXED_BANDS_FIXTURE,
+    });
+    expect(html).toContain('data-today-tile-section="citation-stability"');
+    expect(html).toContain("Citation stability");
+    expect(html).toContain("past 30 days");
+    expect(html).toContain('data-today-tile-citation-stability-line="true"');
+    expect(html).toContain('data-today-tile-citation-stability-total="11"');
+    expect(html).toContain(
+      'data-today-tile-citation-stability-total-with-band="7"',
+    );
+  });
+
+  it("renders the locked customer-facing labels in the counter line", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: makeRepeatCitation30dFixture({
+        stable: 4,
+        intermittent: 2,
+        one_off: 1,
+        not_repeated: 3,
+        still_learning: 1,
+      }),
+    });
+    for (const label of [
+      "consistent",
+      "recurring",
+      "early signal",
+      "not repeated",
+      "still learning",
+    ]) {
+      expect(html).toContain(label);
+    }
+  });
+
+  it("hides zero buckets in the counter line", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: makeRepeatCitation30dFixture({
+        stable: 4,
+        one_off: 2,
+      }),
+    });
+    // Visible bands carry their data-attr; zero bands do NOT.
+    expect(html).toContain('data-today-tile-citation-stability-band="stable"');
+    expect(html).toContain('data-today-tile-citation-stability-band="one_off"');
+    for (const absentBand of [
+      "intermittent",
+      "not_repeated",
+      "still_learning",
+    ]) {
+      expect(html).not.toContain(
+        `data-today-tile-citation-stability-band="${absentBand}"`,
+      );
+    }
+    // And the customer-facing labels for zero buckets are absent.
+    for (const absentLabel of ["recurring", "not repeated", "still learning"]) {
+      expect(html).not.toContain(absentLabel);
+    }
+  });
+
+  it("does NOT render the citation-stability section when repeatCitation30d is absent (backward compat)", () => {
+    const html = render({ ...POPULATED_STAGE_PROPS });
+    expect(html).not.toContain('data-today-tile-section="citation-stability"');
+    expect(html).not.toContain("Citation stability");
+  });
+
+  it("does NOT render the citation-stability section when repeatCitation30d is null", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: null,
+    });
+    expect(html).not.toContain('data-today-tile-section="citation-stability"');
+    expect(html).not.toContain("Citation stability");
+  });
+
+  it("does NOT render the citation-stability section when total_with_band is 0", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      // All zeros → total_with_band auto-computes to 0
+      repeatCitation30d: makeRepeatCitation30dFixture({}),
+    });
+    expect(html).not.toContain('data-today-tile-section="citation-stability"');
+    expect(html).not.toContain("Citation stability");
+  });
+
+  it("does NOT render the citation-stability section when total is 0 (no eligible edits)", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: makeRepeatCitation30dFixture({}, 0),
+    });
+    expect(html).not.toContain('data-today-tile-section="citation-stability"');
+  });
+
+  it("does NOT expose raw internal band names as visible customer copy", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: MIXED_BANDS_FIXTURE,
+    });
+    // Internal band names appear in data-* attributes (operator tooling)
+    // but NOT in customer-facing text content (matched as `>name<`).
+    for (const rawBand of [
+      "stable",
+      "intermittent",
+      "one_off",
+      "not_repeated",
+      "still_learning",
+    ]) {
+      expect(html).not.toMatch(new RegExp(`>${rawBand}<`));
+    }
+  });
+
+  it("does NOT expose percentages in the counter line", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: MIXED_BANDS_FIXTURE,
+    });
+    expect(html).not.toMatch(/\d+\s*%/);
+    expect(html).not.toContain("percent");
+  });
+
+  it("does NOT expose Section 6 / Mode A/B/C / primary-recommendation vocab", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: MIXED_BANDS_FIXTURE,
+    });
+    for (const forbidden of [
+      "Mode A",
+      "Mode B",
+      "Mode C",
+      "primary recommendation",
+      "Primary recommendation",
+    ]) {
+      expect(html).not.toContain(forbidden);
+    }
+  });
+
+  it("does NOT expose causal / revenue / leads language in the counter section", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: MIXED_BANDS_FIXTURE,
+    });
+    for (const forbidden of [
+      "drove",
+      "caused",
+      "generated",
+      "revenue",
+      "leads",
+      "$",
+    ]) {
+      expect(html).not.toContain(forbidden);
+    }
+  });
+
+  it("renders the time-to-citation stage rollup ALONGSIDE the citation-stability section (both surfaces coexist)", () => {
+    const html = render({
+      ...POPULATED_STAGE_PROPS,
+      repeatCitation30d: makeRepeatCitation30dFixture({ stable: 4, one_off: 1 }),
+    });
+    // Section 2 stage rollup still present
+    expect(html).toContain('data-today-tile-stage="cited_fast"');
+    expect(html).toContain('data-today-tile-stage="stuck"');
+    // Section 5.B.2 stability section present
+    expect(html).toContain('data-today-tile-section="citation-stability"');
+  });
+});

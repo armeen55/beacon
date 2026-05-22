@@ -52,6 +52,8 @@ import {
   deriveLifecycleStage,
   type LifecycleStage,
 } from "./lifecycle-stage";
+import { loadRepeatCitationForEdit } from "./load-repeat-citation";
+import type { RepeatCitationBand } from "./compute-repeat-citation";
 import { T2C_THRESHOLDS } from "./thresholds";
 import {
   renderLifecycleCopy,
@@ -137,7 +139,45 @@ export type LifecycleSummary = {
    *  `BORROWED_BENCHMARK_TOOLTIP` constant — architecture
    *  invariant pins that boundary. */
   tile_strings: LifecycleTileStrings;
+  /**
+   * Section 5.B Slice 2 (2026-05-21) — repeat-citation band rollup
+   * over a 30-day window across the SAME `candidates` set the
+   * per_stage loop iterates. `total` mirrors `candidates.length`
+   * (independent of time-to-citation eligibility); `total_with_band`
+   * counts candidates that the repeat-citation loader was able to
+   * classify (eligible AND `band != null`). `per_band` sums to
+   * `total_with_band`.
+   *
+   * The Today `EditLifecycleTile` reads `per_band` directly to
+   * render a "Citation stability (past 30 days)" sub-section
+   * beneath the per_stage rollup. Customer labels come from a
+   * typed map inside the tile component (locked at 5.B.1:
+   * `stable → "Consistent"`, `intermittent → "Recurring"`,
+   * `one_off → "Early signal"`, `not_repeated → "Not repeated in
+   * this window"`, `still_learning → "Still learning"`).
+   *
+   * Soft-fail contract: catastrophic failure during the per-edit
+   * `loadRepeatCitationForEdit` aggregation reduces the field to
+   * zero-band counts (`total === 0`, `total_with_band === 0`).
+   * The tile suppresses the section in that case — keeping the
+   * time-to-citation per_stage rollup visible.
+   */
+  repeat_citation_30d: {
+    per_band: Record<RepeatCitationBand, number>;
+    total: number;
+    total_with_band: number;
+  };
 };
+
+const EMPTY_PER_BAND_30D: Record<RepeatCitationBand, number> = {
+  stable: 0,
+  intermittent: 0,
+  one_off: 0,
+  not_repeated: 0,
+  still_learning: 0,
+};
+
+const REPEAT_CITATION_TILE_WINDOW_DAYS = 30;
 
 // ─────────────────────────────────────────────────────────────────────
 // Benchmark-regime reader (Path A pre-cutover branch)
@@ -824,12 +864,53 @@ export async function loadLifecycleSummaryForTenant(opts: {
 
       const tileStrings = buildTileStrings(thresholdDecision);
 
+      // 5.B Slice 2 (2026-05-21) — repeat-citation 30d band aggregation
+      // across the same `candidates` set the per_stage loop iterates.
+      // Each per-edit call hits its own 60s `unstable_cache` per
+      // `(tenant, edit.id, live_at, windowDays)`. Promise.all bounds
+      // the cold-cache fan-out cost. Per-edit errors are caught and
+      // leave the edit out of `per_band`; catastrophic failure of the
+      // entire batch zeros the rollup so the tile suppresses the
+      // section cleanly.
+      let repeatCitation30dPerBand: Record<RepeatCitationBand, number> = {
+        ...EMPTY_PER_BAND_30D,
+      };
+      let repeatCitation30dWithBand = 0;
+      let repeatCitation30dTotal = candidates.length;
+      try {
+        const repeatResults = await Promise.all(
+          candidates.map((row) =>
+            loadRepeatCitationForEdit({
+              tenantId,
+              recommendedEdit: row,
+              windowDays: REPEAT_CITATION_TILE_WINDOW_DAYS,
+              now,
+            }).catch(() => null),
+          ),
+        );
+        for (const result of repeatResults) {
+          if (result && result.band != null) {
+            repeatCitation30dPerBand[result.band]++;
+            repeatCitation30dWithBand++;
+          }
+        }
+      } catch {
+        repeatCitation30dPerBand = { ...EMPTY_PER_BAND_30D };
+        repeatCitation30dWithBand = 0;
+        repeatCitation30dTotal = 0;
+      }
+
       return {
         total,
         per_stage: perStage,
         latest_live_at_iso: latest,
         threshold_decision: thresholdDecision,
         tile_strings: tileStrings,
+        repeat_citation_30d: {
+          per_band: repeatCitation30dPerBand,
+          total: repeatCitation30dTotal,
+          total_with_band: repeatCitation30dWithBand,
+        },
       };
     },
     cacheKey,

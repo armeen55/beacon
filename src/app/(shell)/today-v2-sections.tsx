@@ -94,6 +94,7 @@ export async function TodayV2EditLifecycleSection() {
       stageLabels={summary.tile_strings.stage_labels}
       tooltipBody={summary.tile_strings.tooltip_body}
       emptyStateBody={summary.tile_strings.empty_state_body}
+      repeatCitation30d={summary.repeat_citation_30d}
     />
   );
 }

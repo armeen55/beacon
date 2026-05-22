@@ -81,6 +81,96 @@
 > (local-only workflow, no CI minutes used). **Operator can
 > now visually validate the promotion engine's output BEFORE
 > α₁ ever flips a customer queue.**
+> **Slice 5.B.2 — Today edit-lifecycle tile repeat-citation
+> band counter (2026-05-21)**: Closes Section 5 end-to-end.
+> Sections 5.A (compute + loader at `0c1957a`), 5.A.2
+> (`/diagnostics/repeat-citation` operator diagnostic at
+> `aa003e8`), 5.A bug-fix (poll-day denominator alignment at
+> `93a56f6`), and 5.B Slice 1 (Changes detail Act 3 sub-line at
+> `4656483`) were already deployed pre-slice. 5.B.2 ships the
+> LAST Section-5 customer surface: a compact "Citation stability
+> (past 30 days)" counter sub-section inside the existing Today
+> `EditLifecycleTile` (NOT a new tile). Locked decisions G1-G5 +
+> 5.B.1 customer labels were already in place; this slice plumbs
+> them through to the Today tile. **Pure additive render-time
+> extension. NO production data mutations · NO LLM · NO Supabase
+> writes · NO migrations · NO new top-level routes · NO new
+> dashboards · NO env changes · NO compute-repeat-citation.ts /
+> load-repeat-citation.ts / /diagnostics/repeat-citation /
+> Changes detail mutations · NO band-threshold or denominator-
+> logic changes · NO Section 6 / Section 7 / Section 9 / Section
+> 10 / 4.5.G-B work.** Modifies (1) `src/domains/citation-
+> lifecycle/load-lifecycle.ts` — adds `repeat_citation_30d:
+> { per_band: Record<RepeatCitationBand, number>; total: number;
+> total_with_band: number }` to `LifecycleSummary`. Loader body
+> invokes existing `loadRepeatCitationForEdit({ tenantId,
+> recommendedEdit: row, windowDays: 30, now })` in `Promise.all`
+> across the SAME `candidates` set the per_stage loop iterates;
+> aggregates per-band counts. Per-edit `.catch()` softens
+> individual failures; outer try/catch zeros the rollup on
+> catastrophic failure. Each per-edit call hits its existing 60s
+> `unstable_cache`. (2) `src/components/today/edit-lifecycle-
+> tile.tsx` — additive `repeatCitation30d?` prop + new
+> `CitationStabilitySection` component. Locked
+> `REPEAT_CITATION_BAND_LABELS` map (lower-case sentence-case
+> forms): `stable: "consistent"`, `intermittent: "recurring"`,
+> `one_off: "early signal"`, `not_repeated: "not repeated"`,
+> `still_learning: "still learning"`. Locked
+> `REPEAT_CITATION_BAND_ORDER` drives render order.
+> Suppression rules: prop null / total 0 / total_with_band 0 /
+> all-zero per_band → section absent. Zero-buckets hidden in the
+> counter line. Type-only import of `RepeatCitationBand`. (3)
+> `src/app/(shell)/today-v2-sections.tsx` — single-line addition:
+> `repeatCitation30d={summary.repeat_citation_30d}` prop passed
+> to existing `<EditLifecycleTile />`. (4) `tests/components/
+> today/edit-lifecycle-tile.test.tsx` — extended from 8 to 20
+> cases (+12 new 5.B.2 cases): section renders when populated ·
+> locked labels rendered · zero-buckets hidden · section absent
+> when prop absent / null / total_with_band=0 / total=0 · no raw
+> band names as visible JSX text · no percentages · no Section-6
+> vocab · no causal/revenue language · per-stage rollup coexists.
+> (5) `tests/domains/citation-lifecycle/load-lifecycle.test.ts`
+> — extended with new mock for `loadRepeatCitationForEdit` and 7
+> new aggregation cases. 31/31 passing. (6) `tests/architecture/
+> repeat-citation-no-customer-surface.test.ts` — extended
+> ALLOWED_FILES with `src/components/today/edit-lifecycle-tile.
+> tsx` + `src/app/(shell)/today-v2-sections.tsx`; introduced
+> `ADDITIONAL_SCAN_FILES` list to scan `today-v2-sections.tsx`
+> (sits at sibling depth, not in existing root walk). 585 cases
+> passing. (7) NEW `tests/architecture/repeat-citation-today-
+> tile-band-counter.test.ts` (~280 lines, 31 cases) — pins 3
+> things on the tile: locked customer-label map (7 pins) +
+> module purity (8 pins) + forbidden customer-copy vocab (10
+> pins) + render-surface contract (5 pins). **Locked decisions
+> honored**: G1 (30d customer / 60+90d operator already covered
+> by 5.A.2; tile shows 30 only); G2 (successful poll-day
+> denominator UNCHANGED via existing loader); G3 (per-platform
+> divergence on Changes detail only; tile counter is single
+> aggregate row — no per-platform); G4 (no half-life — invariant
+> pins absence); G5 (band thresholds UNCHANGED). 5.B.1 customer
+> labels EXACTLY preserved (lower-case forms in tile counter;
+> title-case forms in Changes detail badge — same band concept,
+> case-folded for rendering context). **Auto-pass invariants**:
+> `repeat-citation-pure-purity` · `repeat-citation-forbidden-
+> vocab` · `repeat-citation-customer-copy-vocab` (5.B.1
+> UNCHANGED) · `repeat-citation-no-section-6-bridge` · `repeat-
+> citation-loader-tenant-scope` (5.A loader UNCHANGED) ·
+> `repeat-citation-changes-detail-band-mapping` · `repeat-
+> citation-operator-page-discipline` + `repeat-citation-
+> operator-page-vocab` · `citation-lifecycle-tenant-isolation` ·
+> `catalog-sync` (1 new row added in lockstep). **Hard contracts
+> honored**: pure additive · NO mutations · NO LLM · NO Supabase
+> writes · NO migrations · NO env changes · NO 5.A / 5.A.2 /
+> 5.B.1 mutations · NO Section 6 / 7 / 9 / 10 / 4.5.G-B work ·
+> forward-only · existing rows + cache untouched. **Section 5 —
+> Repeat-Citation Classifier is now COMPLETE end-to-end**: 5.A
+> compute + loader + 5.A.2 operator diagnostic + 5.B.1 Changes
+> detail + 5.B.2 Today tile. The customer reads "Citation
+> stability (past 30 days): N consistent · M recurring · K
+> early signal" alongside the existing per-stage rollup.
+> Operator inspects the full 30/60/90 breakdown at
+> `/diagnostics/repeat-citation`.
+
 > **Slice 4.5.G-B.2 — write-time sanitizer forward-prevention
 > (2026-05-21)**: Second half of Section 4.5.G-B safety
 > hardening. **Forward-only complement to B.1's render-time

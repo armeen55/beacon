@@ -163,6 +163,75 @@ vi.mock("@/domains/indexability/load-indexability", () => ({
   },
 }));
 
+// Section 5.B Slice 2 (2026-05-21) — mock the per-edit repeat-citation
+// loader at the module boundary. Tests control per-edit bands via
+// `setRepeatCitationBandByEditId({...})`. Edits not in the map fall
+// back to an ineligible result (band = null). Per-edit errors are
+// forced via `setRepeatCitationThrowByEditId({...})`.
+type RepeatCitationFixtureResult = {
+  band:
+    | "stable"
+    | "intermittent"
+    | "one_off"
+    | "not_repeated"
+    | "still_learning"
+    | null;
+};
+let _repeatCitationCalls: Array<{
+  tenantId: string;
+  editId: string;
+  windowDays: number;
+}> = [];
+let _repeatCitationByEditId: Record<string, RepeatCitationFixtureResult> = {};
+let _repeatCitationThrowByEditId: Record<string, Error> = {};
+
+function setRepeatCitationBandByEditId(
+  next: Record<string, RepeatCitationFixtureResult>,
+): void {
+  _repeatCitationByEditId = next;
+  _repeatCitationThrowByEditId = {};
+}
+
+function setRepeatCitationThrowByEditId(next: Record<string, Error>): void {
+  _repeatCitationThrowByEditId = next;
+}
+
+function clearRepeatCitationCalls(): void {
+  _repeatCitationCalls = [];
+}
+
+vi.mock("@/domains/citation-lifecycle/load-repeat-citation", () => ({
+  loadRepeatCitationForEdit: async (opts: {
+    tenantId: string;
+    recommendedEdit: { id: string };
+    windowDays?: number;
+  }) => {
+    _repeatCitationCalls.push({
+      tenantId: opts.tenantId,
+      editId: opts.recommendedEdit.id,
+      windowDays: opts.windowDays ?? 30,
+    });
+    const perEditThrow = _repeatCitationThrowByEditId[opts.recommendedEdit.id];
+    if (perEditThrow) throw perEditThrow;
+    const fix = _repeatCitationByEditId[opts.recommendedEdit.id];
+    return {
+      eligible: fix != null && fix.band != null,
+      eligibility_reason: "eligible",
+      window_days: opts.windowDays ?? 30,
+      polling_days: fix && fix.band != null ? 10 : 0,
+      distinct_citation_days: 0,
+      citation_rate: null,
+      band: fix?.band ?? null,
+      per_platform: {
+        chatgpt: { polling_days: 0, distinct_citation_days: 0 },
+        perplexity: { polling_days: 0, distinct_citation_days: 0 },
+        google_ai_overviews: null,
+      },
+      first_citation_date_iso: null,
+    };
+  },
+}));
+
 // Imports under test go AFTER the mocks so vitest hoists the mocks
 // before the module evaluates.
 import {
@@ -1313,5 +1382,200 @@ describe("loadLifecycleForEdit — stuck-row indexability diagnostic (Phase A.3 
     expect(result.copy?.diagnostic).toBeNull();
     // Cited rows have no bridge sub-line either.
     expect(result.copy?.bridge).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 5.B Slice 2 (2026-05-21) — repeat-citation 30d band aggregation
+// ---------------------------------------------------------------------------
+
+const SECTION_5_B_2_NOW = "2026-05-20T12:00:00Z";
+const SECTION_5_B_2_LIVE_AT = "2026-05-10T00:00:00Z";
+
+/**
+ * Build N edits inside the lifecycle window. Each edit gets unique
+ * id + URL + element key based on its index. All edits target the
+ * same tenant + window so they pass `isWithinWindow` in the loader.
+ */
+function makeEditsFor(ids: ReadonlyArray<string>) {
+  return ids.map((id, idx) => ({
+    id,
+    tenant_id: TENANT,
+    rec_id: `rec-${idx}`,
+    action_type: "add_h2_section",
+    target_url: `https://example.com/services/p-${idx}`,
+    target_element_key: `h2[new]:${idx}`,
+    implementation_status: "verified_live" as const,
+    live_at: SECTION_5_B_2_LIVE_AT,
+  }));
+}
+
+/**
+ * One-call helper that builds edits keyed by id, applies the repo
+ * fixture (with no prompt-answer observations), and sets the per-
+ * edit band map in one shot. Eliminates the repeated 3-block setup
+ * across all aggregation cases.
+ */
+function setupBandFixture(
+  bandMap: Record<string, RepeatCitationFixtureResult>,
+): { editIds: string[] } {
+  const editIds = Object.keys(bandMap);
+  setRepoFixture({
+    promptAnswerObservations: [],
+    recommendedEdits: makeEditsFor(editIds),
+  });
+  setRepeatCitationBandByEditId(bandMap);
+  return { editIds };
+}
+
+const EMPTY_PER_BAND_EXPECTED = {
+  stable: 0,
+  intermittent: 0,
+  one_off: 0,
+  not_repeated: 0,
+  still_learning: 0,
+};
+
+describe("loadLifecycleSummaryForTenant — repeat_citation_30d aggregation (Section 5.B.2)", () => {
+  beforeEach(() => {
+    clearRepeatCitationCalls();
+    setRepeatCitationBandByEditId({});
+  });
+
+  it("returns repeat_citation_30d with empty per_band when no candidates", async () => {
+    setRepoFixture({ promptAnswerObservations: [], recommendedEdits: [] });
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: SECTION_5_B_2_NOW,
+    });
+    expect(summary.repeat_citation_30d).toBeDefined();
+    expect(summary.repeat_citation_30d.total).toBe(0);
+    expect(summary.repeat_citation_30d.total_with_band).toBe(0);
+    expect(summary.repeat_citation_30d.per_band).toEqual(EMPTY_PER_BAND_EXPECTED);
+  });
+
+  it("aggregates per-edit bands into repeat_citation_30d.per_band", async () => {
+    setupBandFixture({
+      "e-stable-1": { band: "stable" },
+      "e-stable-2": { band: "stable" },
+      "e-intermittent-1": { band: "intermittent" },
+      "e-one_off-1": { band: "one_off" },
+      "e-not_repeated-1": { band: "not_repeated" },
+      "e-still_learning-1": { band: "still_learning" },
+      "e-ineligible-1": { band: null },
+    });
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: SECTION_5_B_2_NOW,
+    });
+    expect(summary.repeat_citation_30d.per_band).toEqual({
+      stable: 2,
+      intermittent: 1,
+      one_off: 1,
+      not_repeated: 1,
+      still_learning: 1,
+    });
+    expect(summary.repeat_citation_30d.total).toBe(7);
+    expect(summary.repeat_citation_30d.total_with_band).toBe(6);
+  });
+
+  it("invokes the per-edit loader once per candidate with windowDays=30", async () => {
+    setupBandFixture({
+      "e-a": { band: "stable" },
+      "e-b": { band: "intermittent" },
+      "e-c": { band: "one_off" },
+    });
+    await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: SECTION_5_B_2_NOW,
+    });
+    expect(_repeatCitationCalls.length).toBe(3);
+    expect(_repeatCitationCalls.map((c) => c.editId).sort()).toEqual([
+      "e-a",
+      "e-b",
+      "e-c",
+    ]);
+    for (const call of _repeatCitationCalls) {
+      expect(call.tenantId).toBe(TENANT);
+      expect(call.windowDays).toBe(30);
+    }
+  });
+
+  it("soft-fails per-edit errors — that edit is omitted from per_band but other edits still count", async () => {
+    setupBandFixture({
+      "e-ok": { band: "stable" },
+      "e-throws": { band: null }, // placeholder; throw overrides via setter below
+      "e-ok-2": { band: "intermittent" },
+    });
+    setRepeatCitationThrowByEditId({
+      "e-throws": new Error("simulated per-edit failure"),
+    });
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: SECTION_5_B_2_NOW,
+    });
+    expect(summary.repeat_citation_30d.total).toBe(3); // all candidates iterated
+    expect(summary.repeat_citation_30d.total_with_band).toBe(2); // two succeeded
+    expect(summary.repeat_citation_30d.per_band).toEqual({
+      stable: 1,
+      intermittent: 1,
+      one_off: 0,
+      not_repeated: 0,
+      still_learning: 0,
+    });
+  });
+
+  it("excludes ineligible edits (band === null) from per_band even when total_with_band counts them out", async () => {
+    setupBandFixture({
+      "e-stable": { band: "stable" },
+      "e-ineligible": { band: null },
+    });
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: SECTION_5_B_2_NOW,
+    });
+    expect(summary.repeat_citation_30d.total).toBe(2);
+    expect(summary.repeat_citation_30d.total_with_band).toBe(1);
+    expect(summary.repeat_citation_30d.per_band.stable).toBe(1);
+    expect(summary.repeat_citation_30d.per_band.not_repeated).toBe(0);
+    expect(summary.repeat_citation_30d.per_band.still_learning).toBe(0);
+  });
+
+  it("returns repeat_citation_30d alongside (does not affect) the existing per_stage rollup", async () => {
+    // Use the seedCitedTenantFixture which provides 5 cited rows
+    // plus their observations. Apply a band per seeded edit so the
+    // aggregation populates and verify both surfaces coexist.
+    const fx = seedCitedTenantFixture(5);
+    setRepoFixture(fx);
+    const bandMap: Record<string, RepeatCitationFixtureResult> = {};
+    for (const e of fx.recommendedEdits) bandMap[e.id] = { band: "stable" };
+    setRepeatCitationBandByEditId(bandMap);
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(summary.total).toBeGreaterThan(0); // Section 2 per_stage still populates
+    expect(summary.repeat_citation_30d.total).toBe(fx.recommendedEdits.length);
+    expect(summary.repeat_citation_30d.per_band.stable).toBe(
+      fx.recommendedEdits.length,
+    );
+  });
+
+  it("sum of per_band equals total_with_band (band-count invariant)", async () => {
+    setupBandFixture({
+      e1: { band: "stable" },
+      e2: { band: "stable" },
+      e3: { band: "intermittent" },
+      e4: { band: "one_off" },
+      e5: { band: null },
+    });
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: SECTION_5_B_2_NOW,
+    });
+    const sumOfPerBand = Object.values(
+      summary.repeat_citation_30d.per_band,
+    ).reduce((a, b) => a + b, 0);
+    expect(sumOfPerBand).toBe(summary.repeat_citation_30d.total_with_band);
   });
 });
