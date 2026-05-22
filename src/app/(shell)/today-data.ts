@@ -238,6 +238,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // is set — fail-loud posture.
   const tenantId = await currentTenantId();
 
+  // MT-2 (2026-05-22) — resolve tenant-aware business config ONCE and
+  // thread it through this loader, replacing the prior per-call no-arg
+  // config reads at the brand-alias / stripWords / scanner /
+  // local-operator sites below. tenantId is already resolved above.
+  const businessConfig = getBusinessConfig(tenantId);
+
   // EGRESS-P0 (2026-05-07) — single-render memoization for
   // page_snapshots. Pre-fix the table was fetched twice per /today
   // render (top-pick page-inventory + general use), pulling the
@@ -390,7 +396,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // identical to the construction further down (the older second
   // declaration is preserved for readability and pinned by the
   // architecture test to be equivalent).
-  const todayBusinessConfig = getBusinessConfig();
+  const todayBusinessConfig = businessConfig;
   const brandAliases = [
     todayBusinessConfig.name,
     todayBusinessConfig.name.split(" ")[0],
@@ -472,7 +478,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // T1 (operator audit, 2026-05-05) — pass tenant `stripWords` through
   // so the runtime descriptor-quality filter knows about Bay-Area cities
   // and brand parts on top of the global stopword list.
-  const tenantStripWordsForRollups = getBusinessConfig().stripWords ?? [];
+  const tenantStripWordsForRollups = businessConfig.stripWords ?? [];
   let enrichmentRollup: EnrichmentRollup | null = null;
   try {
     // Phase 4.9: using fresh `promptAnswerObservations` from outer scope.
@@ -511,8 +517,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     const v2EndDate = todayISOUtc();
     const v2WindowDays = 7;
     const v2BrandAliases = [
-      getBusinessConfig().name,
-      getBusinessConfig().name.split(" ")[0],
+      businessConfig.name,
+      businessConfig.name.split(" ")[0],
     ].filter((a, i, arr) => a && arr.indexOf(a) === i);
     const v2BrandName = v2BrandAliases[0] ?? "You";
 
@@ -1054,7 +1060,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     (d) => d.status === "meaningful_decline",
   ).length;
   const localOperatorSurface = computeLocalOperatorSurface({
-    business: getBusinessConfig(),
+    business: businessConfig,
     importRow: await loadLocalOperatorImport(),
     geoGap: topLocalGap
       ? {
@@ -1096,7 +1102,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // `brandAliases` declared near the top of the function. The rollup
   // builder handles brand-alias exclusion using that single source of
   // truth, so the scanner's local copy is no longer needed.
-  const scannerBusinessConfig = getBusinessConfig();
+  const scannerBusinessConfig = businessConfig;
 
   // Phase 7 Part 1b-v2: dynamic competitor exclusion list. businessConfig
   // lists only the top 5 primaryCompetitors, but observation data surfaces

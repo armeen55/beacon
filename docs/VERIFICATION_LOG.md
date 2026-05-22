@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-05-22 — Slice MT-2: Customer-facing business-config entry-point migration
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.
+
+**What changed.** Migrated the 8 customer-facing business-config entry files off the deprecated no-arg `getBusinessConfig()`:
+- `getBusinessConfig(tenantId)` (tenantId already in scope): `domains/off-site-authority/load-snapshot.ts`, `domains/today/visibility-read-model.ts`, `app/(shell)/changes/[id]/page.tsx`, `app/(shell)/today-data.ts` (resolve-once + thread to 5 sites), `app/(shell)/today-v2-data.ts` (descriptors + visibility fns).
+- `await getBusinessConfigForCurrentTenant()` (no tenantId in scope; import swapped): `app/(shell)/competitors/page.tsx`, `app/(shell)/local/page.tsx`, `lib/local-presence.ts`.
+
+The off-site loader one-liner makes the **C7d/C7e off-site data path tenant-correct end-to-end** (downstream `computeOffSitePresenceSnapshot` is pure/injected). NEW invariant `business-config-customer-surface-tenant-aware` (8-file allowlist; per-file negative no-arg ban + positive tenant-aware-form requirement; comment-strip is **line-before-block** to survive `// .data/*.json`-style phantom block-openers). No global no-arg ban; deprecated overload retained for MT-3 consumers.
+
+**Scope honored:** no operator/diagnostic/settings migration, no deep domain/lib helper migration, no pure-helper signature tightening, no connector-store/middleware/OAuth/tenant-context/business-config-core changes, no migration/mutation/LLM/env change. **No test-mock updates required** — off-site loader + changes route mocks are arg-agnostic; local-presence tests use the real tenant-keyed module via the global `BEACON_TENANT_ID`. **`RECOMMENDATION_INTELLIGENCE_AUDIT.md` reviewed — not impacted** (resolution mechanism changed; signal-source content unchanged; trigger helpers are MT-3).
+
+**Verified (local only, no CI minutes):**
+- `npm run typecheck` — clean ✅
+- 23 targeted suites / 799 cases ✅ (both business-config invariants, catalog-sync, off-site-authority loader+purity, change-primary-evidence-page-source, tenant-isolation, today-data, today-v2, visibility-read-model, local-presence, changes route, local-operator surface)
+- Line delta: src+tests +204 added / −20 deleted (net ~184) — under the ≤700 target ✅
+- `npm run test` (full vitest) — 674 files / 13504 passed, 25 skipped, 0 failures ✅
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted (all `(shell)` dynamic routes prerendered, middleware compiled) ✅
+
+**Proposed commit message:** `refactor(config): resolve customer surfaces by tenant`
+
+**Next:** operator review → local commit MT-2 → push → decide MT-3 (deep migration) vs Section 7 C7d/C7e (customer build, now unblocked).
+
+---
+
 ## 2026-05-22 — Slice MT-1: Tenant-keyed business-config core
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.

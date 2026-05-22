@@ -68,7 +68,11 @@ export async function loadOffSitePresenceSnapshot(
 ): Promise<OffSitePresenceSnapshot> {
   const tenantId = await currentTenantId();
 
-  const businessConfig = getBusinessConfig();
+  // MT-2 (2026-05-22) — tenant-aware resolution. tenantId is already in
+  // scope (resolved above), so pass it explicitly instead of the
+  // deprecated no-arg path. Makes the off-site C7d/C7e data path
+  // tenant-correct end-to-end (downstream compute is pure/injected).
+  const businessConfig = getBusinessConfig(tenantId);
   const businessConfigIsPlaceholder = isPlaceholderConfig(businessConfig);
   const brandName =
     typeof businessConfig.name === "string" && businessConfig.name.length > 0

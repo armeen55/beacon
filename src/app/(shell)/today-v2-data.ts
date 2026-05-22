@@ -175,7 +175,11 @@ export type TodayV2DescriptorsData = {
 };
 
 export async function loadTodayV2DescriptorsData(): Promise<TodayV2DescriptorsData> {
-  await currentTenantId(); // ensure tenant is resolved for downstream seed/business-config reads
+  // MT-2 (2026-05-22) — tenant-aware resolution. Previously this only
+  // resolved the tenant to warm downstream reads and discarded it; now we
+  // pass it explicitly into the business-config read below.
+  const tenantId = await currentTenantId();
+  const businessConfig = getBusinessConfig(tenantId);
   // Phase 1 (2026-05-12): descriptors uses the narrow 14d canonical pull
   // — see `loadCachedFreshCanonical14d` for rationale. The 7d / 14d
   // rollups never look further back than this, so the previous 60d
@@ -183,7 +187,7 @@ export async function loadTodayV2DescriptorsData(): Promise<TodayV2DescriptorsDa
   const fresh = await loadCachedFreshCanonical14d();
   const { promptAnswerObservations, trackedEntities } = fresh;
 
-  const tenantStripWordsForRollups = getBusinessConfig().stripWords ?? [];
+  const tenantStripWordsForRollups = businessConfig.stripWords ?? [];
 
   // Enrichment v2 — same compute path as loadTodayPageData (lines
   // ~509–573). Defensive: a single rollup failure must not blank out
@@ -193,8 +197,8 @@ export async function loadTodayV2DescriptorsData(): Promise<TodayV2DescriptorsDa
     const v2EndDate = todayISOUtc();
     const v2WindowDays = 7;
     const v2BrandAliases = [
-      getBusinessConfig().name,
-      getBusinessConfig().name.split(" ")[0],
+      businessConfig.name,
+      businessConfig.name.split(" ")[0],
     ].filter((a, i, arr) => a && arr.indexOf(a) === i);
     const v2BrandName = v2BrandAliases[0] ?? "You";
 
@@ -318,7 +322,7 @@ export type TodayV2VisibilityData = {
 
 export async function loadTodayV2VisibilityData(): Promise<TodayV2VisibilityData> {
   const tenantId = await currentTenantId();
-  const businessConfig = getBusinessConfig();
+  const businessConfig = getBusinessConfig(tenantId);
   const brandName = businessConfig.name || "You";
 
   // ── Snapshot-backed visibility data ────────────────────────────────

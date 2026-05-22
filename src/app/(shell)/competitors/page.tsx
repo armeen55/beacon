@@ -29,7 +29,7 @@ import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
 import { LAYER2_MARKET_METHODOLOGY_BULLETS } from "@/lib/beacon-proof-copy";
 import { classifyCompetitorType, COMPETITOR_TYPE_LABELS, COMPETITOR_TYPE_COLORS } from "@/domains/competitors/classify-type";
 import { discoverCompetitorUniverse } from "@/domains/competitors/discover";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import {
   computeLocalOperatorSurface,
   loadLocalOperatorImport,
@@ -145,8 +145,11 @@ export default async function CompetitorsPage() {
 
   const decayForLocal = getDecayAlerts(computeCitationDecay(siteDomain));
   const topGeoGap = geoCoverage.gaps[0] ?? null;
+  // MT-2 (2026-05-22) — tenant-aware resolution via the async wrapper
+  // (no tenantId in scope on this page).
+  const businessConfig = await getBusinessConfigForCurrentTenant();
   const localMarketSurface = computeLocalOperatorSurface({
-    business: getBusinessConfig(),
+    business: businessConfig,
     importRow: await loadLocalOperatorImport(),
     geoGap: topGeoGap
       ? {

@@ -332,7 +332,7 @@ export default async function ChangeDetailPage({
     // instead of crashing Changes detail. Fallback emits a structured
     // console.warn so operators see degradation without exposing raw
     // error objects, stacks, or Supabase internals.
-    const brandName = getBusinessConfig().name || "You";
+    const brandName = getBusinessConfig(tenantId).name || "You";
     const lifecycleStage = lifecycle?.available
       ? (lifecycle.stage ?? null)
       : null;

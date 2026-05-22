@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import {
   getConnectorToken,
   getGoogleConnectorToken,
@@ -356,7 +356,7 @@ export function computeListingHealth(opts: {
  * NAP from business config fields; health from weighted composite.
  */
 export async function getLocalPresenceSnapshot(): Promise<LocalPresenceSnapshot> {
-  const config = getBusinessConfig();
+  const config = await getBusinessConfigForCurrentTenant();
   const hasListing = Boolean(config.domain?.trim());
 
   const reviews = await readLocalReviews();

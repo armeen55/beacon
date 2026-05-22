@@ -8,7 +8,7 @@ import {
   napStateExplanation,
   type NapConsistencyState,
 } from "@/lib/local-presence";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 
 function tierLabel(t: "weak" | "ok" | "strong"): string {
   if (t === "weak") return "Weak";
@@ -53,7 +53,7 @@ function manualImportLine(iso: string | null): string {
 
 export default async function LocalPresencePage() {
   const snapshot = await getLocalPresenceSnapshot();
-  const business = getBusinessConfig();
+  const business = await getBusinessConfigForCurrentTenant();
 
   const stalenessNote =
     snapshot.lastReviewImportAt && snapshot.reviewImportAgeDays != null

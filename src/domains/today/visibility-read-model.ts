@@ -998,8 +998,10 @@ async function loadVisibilityReadModelCoreInner(opts: {
     ensureCanonicalStoresSeeded(),
   ]);
 
-  const businessConfig = getBusinessConfig();
+  // MT-2 (2026-05-22) — tenant-aware resolution; destructure opts first
+  // so tenantId is in scope for the explicit-tenant config read.
   const { tenantId, endDate } = opts;
+  const businessConfig = getBusinessConfig(tenantId);
 
   // Read floor: earliest active-provider snapshot date (P1 follow-up).
   // Replaces the previous 365-day cap so "All time" really means "all
