@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-05-22 — Slice MT-1: Tenant-keyed business-config core
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.
+
+**What changed.** First slice of the multi-tenant-store prerequisite. Replaced `business-config.ts`'s process-global `_cached` singleton with a tenant-keyed `Map` cache. Added `getBusinessConfig(tenantId)` (resolution order: `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT[tenantId]` → env-named-tenant back-compat chain → `.data/tenants/<tenantId>/business-config.json` → placeholder), an async `getBusinessConfigForCurrentTenant()` wrapper, a DEPRECATED no-arg overload (keeps all ~60 consumers green; resolves `BEACON_TENANT_ID`, fail-loud if unset), and a tenant-scoped `saveBusinessConfig(tenantId, patch)`. Ritz resolves byte-identically via the back-compat chain. New architecture invariant `business-config-tenant-keyed-cache`. No consumer edits, no Section 7 surfaces, no connector-store/middleware/OAuth/tenant-context changes, no migration, no mutation.
+
+**Preflight correction recorded.** The off-site loader comment + the `off-site-authority-multi-tenant-prerequisite` catalog row claim `connector-store` is process-global — STALE. connector-store has been tenant-scoped since 2026-05-16 (composite PK + `currentTenantId()`); middleware injects `x-beacon-tenant` per request (Phase 7.4). business-config was the only genuine blocker. Doc correction deferred to MT-4.
+
+**Verified (local only, no CI minutes):**
+- `npm run typecheck` — clean ✅
+- `npx vitest run` business-config (30) + new invariant (7) + catalog-sync (4) — 41 passed ✅
+- `npx vitest run` off-site loader/profile-url + canonical-store-tenant-isolation + no-tenant-id-empty-string-literals — 471 passed ✅
+- Line delta: src+tests +606 added / −55 deleted (net ~551) — under the ≤700 target ✅
+- `npm run test` (full vitest) — 673 files / 13485 passed, 25 skipped, 0 failures ✅
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted (all `(shell)` dynamic routes prerendered, middleware compiled) ✅
+
+**Proposed commit message:** `refactor(config): key business config cache by tenant`
+
+**Next:** operator review → local commit MT-1 → push → MT-2 (migrate customer-facing loaders to `getBusinessConfigForCurrentTenant`; unblocks Section 7 C7d/C7e).
+
+---
+
 ## 2026-05-22 — Slice: Brand Assertion Key Alignment (tenant id vs slug)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.

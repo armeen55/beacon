@@ -5,6 +5,7 @@ import path from "path";
 import { syncBusinessConfig } from "@/lib/persistence/dual-write";
 import { EVENT_PRIORS_V1 as EVENT_PRIORS_V1_SOURCE } from "@/lib/event-priors";
 import { log } from "@/lib/logger";
+import { currentTenantId } from "@/lib/tenant-context";
 
 /** Re-export for backwards compatibility with code that imports from business-config. */
 export const EVENT_PRIORS_V1 = EVENT_PRIORS_V1_SOURCE;
@@ -137,6 +138,12 @@ const TOP_LEVEL_CONFIG_PATH = path.join(DATA_DIR, "business-config.json");
  * to the global path keeps working.
  */
 const GLOBAL_CONFIG_PATH = path.join(DATA_DIR, "global", "business-config.json");
+/**
+ * MT-1 (2026-05-22) — per-tenant local/dev config dir. Resolution
+ * priority (c) reads `.data/tenants/<tenantId>/business-config.json`.
+ * Local/dev only; Vercel's `.data` is not bundled into the lambda.
+ */
+const TENANTS_DIR = path.join(DATA_DIR, "tenants");
 
 /**
  * D1 (operator audit, 2026-05-05) — neutral placeholder config.
@@ -262,64 +269,183 @@ function readConfigFromFiles(): Partial<BusinessConfig> | null {
   return null;
 }
 
-let _cached: BusinessConfig | null = null;
 /**
- * Process-level "already warned" flag for the placeholder log.
- * Without this, every server-component render that calls
- * `getBusinessConfig()` would re-emit the warning, flooding the
- * production log with noise. Reset by `__resetBusinessConfigCacheForTests`.
+ * MT-1 (2026-05-22) — multi-tenant env source (resolution priority a).
+ * The operator sets `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` to a JSON
+ * object keyed by CANONICAL tenantId, e.g.
+ * `{"tenant-acme":{...},"tenant-foo":{...}}`. Returns the entry for
+ * `tenantId` when present + parseable, else null. Checked BEFORE the
+ * single-tenant back-compat chain so a per-tenant entry always wins.
+ *
+ * Returns null (caller falls through) when the env var is unset/empty/
+ * unparseable OR has no entry for this tenant.
  */
-let _placeholderWarnedThisProcess = false;
+function readConfigFromByTenantEnv(
+  tenantId: string,
+): Partial<BusinessConfig> | null {
+  const raw = process.env.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT;
+  if (typeof raw !== "string" || raw.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Partial<BusinessConfig>>;
+    if (parsed == null || typeof parsed !== "object") return null;
+    const entry = parsed[tenantId];
+    if (entry == null || typeof entry !== "object") return null;
+    // Defensive: env describes REAL configs, never the placeholder marker.
+    if ("__placeholder" in entry) delete entry.__placeholder;
+    return entry;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Resolve the active business config. Priority order:
- *   1. `BEACON_BUSINESS_CONFIG_JSON` env var (Vercel-friendly).
- *   2. `.data/business-config.json` (top-level — legacy save target).
- *   3. `.data/global/business-config.json` (canonical store-classification path).
- *   4. `PLACEHOLDER_CONFIG` (neutral, `__placeholder: true`).
- *
- * For sources 1–3, missing fields are filled in from the placeholder
- * (so the type stays complete). For source 4, the placeholder is
- * returned verbatim with `__placeholder: true`.
- *
- * Operator audit (2026-05-05) — when the resolution falls through to
- * the neutral placeholder, the function emits a one-time `log.warn`
- * so production dashboards surface the "configuration needed" state.
- * The warning fires AT MOST ONCE per process; consumer code can
- * branch on `isPlaceholderConfig(cfg)` for UI affordances. Customer-
- * facing surfaces should NOT show a scary warning — only admin /
- * diagnostic surfaces (e.g., `/diagnostics`) should expose this state
- * to the operator.
+ * MT-1 (2026-05-22) — per-tenant local/dev file source (resolution
+ * priority c). Reads `.data/tenants/<tenantId>/business-config.json`.
+ * Returns null when the file is absent or unparseable.
  */
-export function getBusinessConfig(): BusinessConfig {
-  if (_cached) return _cached;
+function readConfigFromTenantFile(
+  tenantId: string,
+): Partial<BusinessConfig> | null {
+  const candidate = path.join(TENANTS_DIR, tenantId, "business-config.json");
+  if (!existsSync(candidate)) return null;
+  try {
+    const raw = readFileSync(candidate, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<BusinessConfig>;
+    if ("__placeholder" in parsed) delete parsed.__placeholder;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
-  const fromEnv = readConfigFromEnv();
-  if (fromEnv !== null) {
-    _cached = mergeWithPlaceholder(fromEnv);
-    return _cached;
+/**
+ * MT-1 (2026-05-22) — tenant-keyed config cache. Replaces the prior
+ * process-level singleton (`let _cached: BusinessConfig | null`). Keyed
+ * by CANONICAL tenantId (e.g. "tenant-ritz-founder"), NEVER by slug. Two
+ * distinct tenants sharing one lambda each cache their own config — no
+ * cross-tenant bleed. Cleared by `__resetBusinessConfigCacheForTests`.
+ */
+const _cacheByTenant = new Map<string, BusinessConfig>();
+/**
+ * MT-1 — per-tenant "already warned" set for the placeholder log.
+ * Without this, every render that resolves the placeholder for a tenant
+ * would re-emit the warning, flooding the production log. Tenant-keyed
+ * so each tenant warns at most once per process. Reset by
+ * `__resetBusinessConfigCacheForTests`.
+ */
+const _placeholderWarnedTenants = new Set<string>();
+
+/**
+ * MT-1 (2026-05-22) — synchronous tenant resolution for the deprecated
+ * no-arg path. Mirrors the fail-loud spirit of `currentTenantId` but
+ * cannot read request headers (it's synchronous), so it resolves only
+ * from `BEACON_TENANT_ID`. Throws when that env var is unset.
+ */
+function resolveTenantIdFromEnvSync(): string {
+  const envId = process.env.BEACON_TENANT_ID;
+  if (typeof envId === "string" && envId.length > 0) return envId;
+  throw new Error(
+    "getBusinessConfig(): no tenantId argument and no BEACON_TENANT_ID env var. " +
+      "Pass an explicit tenantId or use getBusinessConfigForCurrentTenant(). " +
+      "In dev/test set BEACON_TENANT_ID=tenant-ritz-founder.",
+  );
+}
+
+/**
+ * MT-1 — one-time placeholder warning, per tenant. Fires AT MOST ONCE
+ * per tenant per process so production dashboards surface the
+ * "configuration needed" state without log flooding.
+ */
+function warnPlaceholderOnce(tenantId: string): void {
+  if (_placeholderWarnedTenants.has(tenantId)) return;
+  _placeholderWarnedTenants.add(tenantId);
+  log.warn(
+    "[business-config] no tenant config found — running on neutral placeholder. Set BEACON_BUSINESS_CONFIG_JSON env var or place a .data/global/business-config.json to load real tenant config.",
+    {
+      tenantId,
+      envVarSet: typeof process.env.BEACON_BUSINESS_CONFIG_JSON === "string",
+      topLevelFileExists: existsSync(TOP_LEVEL_CONFIG_PATH),
+      globalFileExists: existsSync(GLOBAL_CONFIG_PATH),
+      runningOn: process.env.VERCEL === "1" ? "vercel" : "local",
+    },
+  );
+}
+
+/**
+ * MT-1 — pure resolution chain for ONE tenant. Priority order:
+ *   a. `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT[tenantId]` (multi-tenant).
+ *   b. when `tenantId === BEACON_TENANT_ID`: today's single-tenant chain,
+ *      preserved EXACTLY — `BEACON_BUSINESS_CONFIG_JSON` →
+ *      `.data/business-config.json` → `.data/global/business-config.json`
+ *      (back-compat; keeps the env-named tenant byte-identical).
+ *   c. `.data/tenants/<tenantId>/business-config.json` (local/dev).
+ *   d. `PLACEHOLDER_CONFIG` (neutral, `__placeholder: true`).
+ *
+ * For sources a–c, missing fields are filled from the placeholder via
+ * `mergeWithPlaceholder`. For source d, the placeholder is returned
+ * verbatim and the one-time per-tenant warning fires.
+ */
+function resolveConfigForTenant(tenantId: string): BusinessConfig {
+  const fromByTenant = readConfigFromByTenantEnv(tenantId);
+  if (fromByTenant !== null) return mergeWithPlaceholder(fromByTenant);
+
+  if (tenantId === process.env.BEACON_TENANT_ID) {
+    const fromEnv = readConfigFromEnv();
+    if (fromEnv !== null) return mergeWithPlaceholder(fromEnv);
+    const fromFile = readConfigFromFiles();
+    if (fromFile !== null) return mergeWithPlaceholder(fromFile);
   }
 
-  const fromFile = readConfigFromFiles();
-  if (fromFile !== null) {
-    _cached = mergeWithPlaceholder(fromFile);
-    return _cached;
-  }
+  const fromTenantFile = readConfigFromTenantFile(tenantId);
+  if (fromTenantFile !== null) return mergeWithPlaceholder(fromTenantFile);
 
-  _cached = PLACEHOLDER_CONFIG;
-  if (!_placeholderWarnedThisProcess) {
-    _placeholderWarnedThisProcess = true;
-    log.warn(
-      "[business-config] no tenant config found — running on neutral placeholder. Set BEACON_BUSINESS_CONFIG_JSON env var or place a .data/global/business-config.json to load real tenant config.",
-      {
-        envVarSet: typeof process.env.BEACON_BUSINESS_CONFIG_JSON === "string",
-        topLevelFileExists: existsSync(TOP_LEVEL_CONFIG_PATH),
-        globalFileExists: existsSync(GLOBAL_CONFIG_PATH),
-        runningOn: process.env.VERCEL === "1" ? "vercel" : "local",
-      },
-    );
-  }
-  return _cached;
+  warnPlaceholderOnce(tenantId);
+  return PLACEHOLDER_CONFIG;
+}
+
+/**
+ * Resolve the active business config for a tenant. Tenant-keyed cache;
+ * resolution order documented on `resolveConfigForTenant`.
+ *
+ * Operator audit (2026-05-05) — when resolution falls through to the
+ * neutral placeholder, a one-time-per-tenant `log.warn` fires so
+ * production dashboards surface the "configuration needed" state.
+ * Consumer code can branch on `isPlaceholderConfig(cfg)` for UI
+ * affordances. Customer-facing surfaces should NOT show a scary
+ * warning — only admin / diagnostic surfaces should expose this state.
+ */
+export function getBusinessConfig(tenantId: string): BusinessConfig;
+/**
+ * @deprecated MT-1 back-compat ONLY. Resolves the tenant synchronously
+ * from `process.env.BEACON_TENANT_ID` and delegates to the tenant-aware
+ * form. This no-arg path keeps existing consumers green during the
+ * multi-tenant migration and will be REMOVED in a later MT slice once
+ * every consumer threads an explicit tenantId (or uses
+ * `getBusinessConfigForCurrentTenant`). Do NOT add new no-arg call-sites.
+ */
+export function getBusinessConfig(): BusinessConfig;
+export function getBusinessConfig(tenantId?: string): BusinessConfig {
+  const resolvedTenantId =
+    typeof tenantId === "string" && tenantId.length > 0
+      ? tenantId
+      : resolveTenantIdFromEnvSync();
+
+  const cached = _cacheByTenant.get(resolvedTenantId);
+  if (cached) return cached;
+
+  const resolved = resolveConfigForTenant(resolvedTenantId);
+  _cacheByTenant.set(resolvedTenantId, resolved);
+  return resolved;
+}
+
+/**
+ * Async entry point for server components / actions / loaders. Resolves
+ * the current tenant via `currentTenantId()` (request header → env) and
+ * returns that tenant's config. Preferred over the deprecated no-arg
+ * `getBusinessConfig()` — it routes per-request, not per-process-env.
+ */
+export async function getBusinessConfigForCurrentTenant(): Promise<BusinessConfig> {
+  return getBusinessConfig(await currentTenantId());
 }
 
 /**
@@ -335,17 +461,40 @@ function mergeWithPlaceholder(
   return merged;
 }
 
-export function saveBusinessConfig(patch: Partial<BusinessConfig>): BusinessConfig {
-  const current = getBusinessConfig();
+export function saveBusinessConfig(
+  tenantId: string,
+  patch: Partial<BusinessConfig>,
+): BusinessConfig;
+/**
+ * @deprecated MT-1 back-compat ONLY — the no-tenant form for the
+ * existing settings call-site. Resolves the tenant from
+ * `BEACON_TENANT_ID`. Will be tightened to a required tenantId in a
+ * later MT slice. Do NOT add new no-tenant call-sites.
+ */
+export function saveBusinessConfig(patch: Partial<BusinessConfig>): BusinessConfig;
+export function saveBusinessConfig(
+  arg1: string | Partial<BusinessConfig>,
+  arg2?: Partial<BusinessConfig>,
+): BusinessConfig {
+  const tenantId =
+    typeof arg1 === "string" ? arg1 : resolveTenantIdFromEnvSync();
+  const patch = typeof arg1 === "string" ? (arg2 ?? {}) : arg1;
+
+  const current = getBusinessConfig(tenantId);
   const updated = { ...current, ...patch };
   // Saving makes this a real config; clear the placeholder marker.
   delete updated.__placeholder;
 
-  if (process.env.VERCEL !== "1") {
+  // MT-1: file write stays single-tenant/back-compat — only the
+  // env-named tenant writes to the shared top-level file (today's
+  // behavior). A non-env tenant's save updates the tenant-keyed cache
+  // only, so it can't clobber the shared file. Per-tenant write storage
+  // lands in a later MT slice (no DB storage introduced in MT-1).
+  if (process.env.VERCEL !== "1" && tenantId === process.env.BEACON_TENANT_ID) {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
     writeFileSync(TOP_LEVEL_CONFIG_PATH, JSON.stringify(updated, null, 2));
   }
-  _cached = updated;
+  _cacheByTenant.set(tenantId, updated);
   // Fire-and-forget: saveBusinessConfig is synchronous, dual-write is async best-effort
   syncBusinessConfig(updated).catch(() => {});
   return updated;
@@ -359,8 +508,8 @@ export function saveBusinessConfig(patch: Partial<BusinessConfig>): BusinessConf
  * is read once per process).
  */
 export function __resetBusinessConfigCacheForTests(): void {
-  _cached = null;
-  _placeholderWarnedThisProcess = false;
+  _cacheByTenant.clear();
+  _placeholderWarnedTenants.clear();
 }
 
 export function getLocationRegex(config?: BusinessConfig): RegExp {
