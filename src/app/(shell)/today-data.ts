@@ -1161,7 +1161,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     // 2026-04-20: changeOutcomes (topic-level) no longer used for prior-success
     // attribution. urlChangeOutcomes (URL-level Z-score) is the new source.
     urlChangeOutcomes,
-    sectionAnalyzerConfig: getSectionAnalyzerConfig(),
+    sectionAnalyzerConfig: getSectionAnalyzerConfig(businessConfig),
     queryIndex,
     observations: promptAnswerObservations,
     answerTexts,
@@ -1280,7 +1280,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     memoryInsights: [],
     competitorAlerts,
     competitorSnapshots: competitorMonState.snapshots,
-    faqTemplates: getFaqTemplates(),
+    faqTemplates: getFaqTemplates(businessConfig),
     pageSnapshots,
     queryIndex,
   });

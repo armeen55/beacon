@@ -536,10 +536,13 @@ export function getServiceRegex(config?: BusinessConfig): RegExp {
   return new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
 }
 
-export function isDirectoryDomain(domain: string, config?: BusinessConfig): boolean {
-  const cfg = config ?? getBusinessConfig();
+// MT-3C (2026-05-23) — `config` is REQUIRED (no no-arg fallback). All
+// runtime callers thread the tenant-resolved config. (getLocationRegex /
+// getServiceRegex keep the optional fallback until the extractor
+// config-threading slice — they're called by the pure page extractor.)
+export function isDirectoryDomain(domain: string, config: BusinessConfig): boolean {
   const norm = domain.toLowerCase().replace(/^www\./, "");
-  return cfg.directoryDomains.some((d) => norm === d || norm.endsWith(`.${d}`));
+  return config.directoryDomains.some((d) => norm === d || norm.endsWith(`.${d}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -549,18 +552,16 @@ export function isDirectoryDomain(domain: string, config?: BusinessConfig): bool
 import type { SectionAnalyzerConfig } from "@/domains/product/section-analyzer";
 import type { FaqTemplate } from "@/domains/product/morning-brief";
 
-/** Build the section analyzer config from business config. */
-export function getSectionAnalyzerConfig(config?: BusinessConfig): SectionAnalyzerConfig {
-  const cfg = config ?? getBusinessConfig();
+/** Build the section analyzer config from business config. MT-3C: `config` required. */
+export function getSectionAnalyzerConfig(config: BusinessConfig): SectionAnalyzerConfig {
   return {
-    urlPatterns: cfg.urlPatterns,
-    stripWords: cfg.stripWords,
-    industryThemes: cfg.industryThemes,
+    urlPatterns: config.urlPatterns,
+    stripWords: config.stripWords,
+    industryThemes: config.industryThemes,
   };
 }
 
-/** Get FAQ templates from business config. */
-export function getFaqTemplates(config?: BusinessConfig): FaqTemplate[] {
-  const cfg = config ?? getBusinessConfig();
-  return cfg.faqTemplates ?? [];
+/** Get FAQ templates from business config. MT-3C: `config` required. */
+export function getFaqTemplates(config: BusinessConfig): FaqTemplate[] {
+  return config.faqTemplates ?? [];
 }

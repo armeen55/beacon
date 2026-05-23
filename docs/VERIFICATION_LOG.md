@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-05-23 — Slice MT-3C: Pure-helper config injection
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Tightened 3 of the 5 business-config pure helpers to REQUIRE an injected `config` (dropped their `?? getBusinessConfig()` no-arg fallback): `getSectionAnalyzerConfig`, `getFaqTemplates`, `isDirectoryDomain`. Callers updated: `today-data.ts` (businessConfig in scope from MT-2), `changes/[id]/page.tsx` (resolve `businessConfig = getBusinessConfig(tenantId)` once before line 265; thread into the analyzer + reuse for brandName). NEW `business-config-pure-helpers-require-config` invariant. This IS a business-config core change (expected for MT-3C).
+
+**Deferred to MT-3C.2:** `getLocationRegex` + `getServiceRegex` keep the optional `config?` fallback — their only runtime caller is the pure page extractor (`pages/extractor.ts`, `require()` + inline-default pattern, no config/tenantId in scope); threading config into `extractPageSnapshot` ripples into the scan pipeline, so it's a separate slice. The deep-runtime invariant's "2 fallbacks remain" sanity pin reflects this.
+
+**Preflight:** zero direct test callers of the 5 helpers; `isDirectoryDomain` has zero runtime callers (citation-index has its own local one); the 3 tightened helpers' callers are bounded + have config. typecheck confirmed every caller of the 3 passes config (no misses).
+
+**Test-mock update:** `changes-id-page-reads-fresh.test.ts` mocked business-config without `getBusinessConfig`; the page now calls it unconditionally at line 266 (previously the only call was a conditional line-335 path) → 1 failure → added `getBusinessConfig` to the mock.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅
+- MT-3C invariant + MT-3B + MT-1 + business-config core: 44 cases ✅
+- changes/today/section-analyzer caller tests + catalog-sync (after the 2 fixes): 28 cases ✅
+- `catalog-sync` — green (1 new row)
+- Line delta: src+tests +137 added / −17 deleted — well under target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 683 files / **13668 passed, 25 skipped, 0 failures** ✅
+
+**Proposed commit message:** `refactor(config): require injected config for pure helpers`
+
+**Next:** operator review → local commit MT-3C → MT-3C.2 (extractor config-threading for the last 2 helpers).
+
+---
+
 ## 2026-05-23 — Slice MT-3B: Deep-runtime business-config helper migration
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
