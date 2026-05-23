@@ -7,6 +7,34 @@
 
 ---
 
+## 2026-05-22 — Slice MT-3A: Operator-surface business-config migration
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Migrated the 9 operator-facing business-config entry files (settings + diagnostics pages/actions) off the deprecated no-arg `getBusinessConfig()` → tenant-aware:
+- `getBusinessConfig(tenantId)` (tenantId already in scope): `diagnostics/page.tsx` (2 sites), `diagnostics/recommendation-triggers/{page,actions}.ts`, `diagnostics/repeat-citation/page.tsx`, `diagnostics/indexability/page.tsx`.
+- `await getBusinessConfigForCurrentTenant()` (no tenantId in scope): `settings/connectors/page.tsx`, `settings/connectors/actions.ts`, `settings/config/page.tsx` (**sync→async conversion**), `settings/config/actions.ts` `loadSetup`.
+- `settings/config/actions.ts` `saveSetup`: deprecated `saveBusinessConfig({...})` → tenant-scoped `saveBusinessConfig(await currentTenantId(), {...})`.
+
+NEW invariant `business-config-operator-surface-tenant-aware` (9-file allowlist; comment-stripped line-first; `typeof getBusinessConfig` type usage allowed). MT-3B (deep helpers), MT-3C (pure-helper fallbacks), MT-5 (global no-arg removal) deferred. Business-config core, C7d/C7e, connector-store/middleware/OAuth/tenant-context all unchanged.
+
+**Async-conversion check (C7e lesson applied):** `settings/config/page.tsx` was sync; converting it to async is safe only if no test renders it via `renderToStaticMarkup` — grep confirmed no test references it (`connectors-smoke` only awaits the already-async ConnectorsPage). The full suite re-confirms.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅
+- MT-3A invariant + MT-1/MT-2 + C7d/C7e invariants + connectors-smoke: 8 files / 128 cases ✅
+- diagnostics suites (the migrated pages): 14 files / 241 cases ✅
+- `catalog-sync` — green (1 new row)
+- Line delta: src+tests +131 added / −17 deleted — well under target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 681 files / **13657 passed, 25 skipped, 0 failures** ✅ (incl. the settings/config/page.tsx sync→async conversion — no breakage)
+
+**Proposed commit message:** `refactor(config): resolve operator surfaces by tenant`
+
+**Next:** operator review → local commit MT-3A → (when Actions billing restored) batch-push C7d + C7e + MT-3A → MT-3B / MT-3C.
+
+---
+
 ## 2026-05-22 — Slice C7e: Recommendations off-site opportunities section (second customer-facing off-site surface)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI, NO Vercel, NO `gh`.** Local-only verification.

@@ -1,5 +1,5 @@
 import { getConnectorInfo, getGoogleConnectorToken } from "@/lib/connector-store";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient } from "./connectors-client";
@@ -15,7 +15,7 @@ export default async function ConnectorsPage() {
   const googleGsc = await getConnectorInfo("google_gsc");
   const googleGa4 = await getConnectorInfo("google_ga4");
   const yelp = await getConnectorInfo("yelp");
-  const cfg = getBusinessConfig();
+  const cfg = await getBusinessConfigForCurrentTenant();
   // Selected GBP location lives on the (deferred) google_gbp token. Read
   // it so a returning GBP card can immediately show the saved selection.
   const gbpTok = await getGoogleConnectorToken("gbp");

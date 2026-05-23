@@ -26,7 +26,7 @@ import {
   type GbpLocationInfo,
 } from "@/lib/connectors/google-reviews-sync";
 import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
@@ -64,7 +64,7 @@ export async function saveYelpApiKey(
   }
   log.info("Action started", { action });
   try {
-    const bid = getBusinessConfig().yelpBusinessId.trim();
+    const bid = (await getBusinessConfigForCurrentTenant()).yelpBusinessId.trim();
     await saveConnectorToken({
       provider: "yelp",
       api_key: trimmed,

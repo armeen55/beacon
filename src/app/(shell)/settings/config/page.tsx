@@ -1,12 +1,12 @@
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { PageHeader } from "@/components/data/page-header";
 import { ConfigForm } from "./config-form";
 
 /** Local JSON can change without rebuild; avoid baking build-time defaults into static HTML. */
 export const dynamic = "force-dynamic";
 
-export default function SettingsConfigPage() {
-  const cfg = getBusinessConfig();
+export default async function SettingsConfigPage() {
+  const cfg = await getBusinessConfigForCurrentTenant();
 
   const initial = {
     name: cfg.name,

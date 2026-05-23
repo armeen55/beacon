@@ -118,7 +118,7 @@ export default async function RepeatCitationDiagnosticPage() {
   if (!(await isOperatorModeServer())) return notFound();
 
   const tenantId = await currentTenantId();
-  const businessConfig = getBusinessConfig();
+  const businessConfig = getBusinessConfig(tenantId);
   const repo = getRepository().forTenant(tenantId);
   const edits = await repo.getRecommendedEdits();
 

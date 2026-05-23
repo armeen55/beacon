@@ -102,7 +102,7 @@ export default async function RecommendationTriggersDiagnosticPage(
     .forTenant(tenantId)
     .getRecommendedEdits();
   const recommendationResponses = await getRecommendationResponses();
-  const businessConfig = getBusinessConfig();
+  const businessConfig = getBusinessConfig(tenantId);
   const triggerCandidates = [...result.candidates, ...result.diagnostic_only];
   const pageTypeByUrl = new Map<string, PageType>();
   for (const c of triggerCandidates) {
