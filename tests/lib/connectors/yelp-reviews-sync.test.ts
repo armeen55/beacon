@@ -51,6 +51,11 @@ const yelpCfg = vi.hoisted(() => ({ yelpBusinessId: "test-yelp-biz" }));
 
 vi.mock("@/lib/business-config", () => ({
   getBusinessConfig: () => ({ yelpBusinessId: yelpCfg.yelpBusinessId }),
+  // MT-3B (2026-05-22) — runYelpReviewsSync migrated to the async
+  // wrapper; the mock must provide it (same shape, async).
+  getBusinessConfigForCurrentTenant: async () => ({
+    yelpBusinessId: yelpCfg.yelpBusinessId,
+  }),
 }));
 
 function jsonResponse(obj: unknown, status = 200): Promise<Response> {

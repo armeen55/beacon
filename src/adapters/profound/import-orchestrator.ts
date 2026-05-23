@@ -195,7 +195,7 @@ export async function runProfoundImport(
   // The entity-seed-only path produced "Ritzbuilders" (one word) which failed
   // to match "Ritz Builders" in actual response text.
   const { getBusinessConfig } = await import("@/lib/business-config");
-  const bizName = getBusinessConfig().name;
+  const bizName = getBusinessConfig(tenantId).name;
   const rawAliases = new Set<string>();
   if (bizName) rawAliases.add(bizName);
   for (const e of entities) {

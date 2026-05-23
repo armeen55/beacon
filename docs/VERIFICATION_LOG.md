@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-05-23 — Slice MT-3B: Deep-runtime business-config helper migration
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Migrated the remaining deep domain/lib runtime callers off the deprecated no-arg `getBusinessConfig()`:
+- `getBusinessConfig(tenantId)` (tenantId in scope): `recommendation-intelligence/{load-trigger-candidates-for-tenant,promotion-writer}.ts`, `indexability/{batch-load,load}-indexability.ts`, `pages/verify-action.ts`, `adapters/profound/import-orchestrator.ts`, `lib/connectors/ga4/persist-url-traffic.ts`.
+- `await getBusinessConfigForCurrentTenant()`: `lib/connectors/yelp-reviews-sync.ts`.
+- Config injection: `classifyCompetitorType(domain, directoryDomains)` (now pure, no business-config import); callers thread `businessConfig.directoryDomains` — `competitors/discover.ts` (opts), `competitors/page.tsx` (relocated `businessConfig` above the discover call; direct call + `buildCompetitorRank` callback closure), `milestones/post-import-sync.ts` (resolves config + closure).
+
+**Result:** ZERO active no-arg `getBusinessConfig()` calls remain in `src/` runtime code; only the 5 pure-helper fallbacks (MT-3C) + the deprecated overload signature (MT-5) inside business-config.ts. NEW `business-config-deep-runtime-tenant-aware` invariant (src-wide scan, business-config.ts excepted). MT-3C/MT-4/MT-5 deferred.
+
+**Ripple caught by typecheck (not grep):** `classifyCompetitorType` was passed as a CALLBACK in 2 places (`competitors/page.tsx:194`, `post-import-sync.ts:25`) — the `(`-grep missed those; typecheck flagged them; fixed with `(domain) => classifyCompetitorType(domain, directoryDomains)` closures (no `buildCompetitorRank` signature change). Zero test ripple for the signature change.
+
+**Test-mock update:** `yelp-reviews-sync.test.ts` mocked `getBusinessConfig` (no-arg) but not the wrapper → 10 failures after the migration; added `getBusinessConfigForCurrentTenant` to its mock factory (same shape, async).
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅ (after fixing the 2-caller callback ripple)
+- 61 targeted suites / 1112 cases ✅ (competitors, indexability, recommendation-intelligence, milestones, connectors + MT-1/MT-2/MT-3A/MT-3B invariants + 2 off-site no-queue)
+- `catalog-sync` — green (1 new row)
+- Line delta: src+tests +145 added / −22 deleted — well under target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 682 files / **13660 passed, 25 skipped, 0 failures** ✅ (incl. the classify-type call-graph ripple + connector-sync changes)
+
+**Proposed commit message:** `refactor(config): inject business config into deep helpers`
+
+**Next:** operator review → local commit MT-3B → MT-3C (pure-helper fallback tightening).
+
+---
+
 ## 2026-05-22 — Slice MT-3A: Operator-surface business-config migration
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.

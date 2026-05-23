@@ -181,7 +181,7 @@ export async function loadTriggerCandidatesForTenant(options: {
   // running predicates with an unknown config shape.
   let businessConfig: BusinessConfig;
   try {
-    businessConfig = getBusinessConfig();
+    businessConfig = getBusinessConfig(tenantId);
   } catch {
     return emptyResult("config_unavailable", tenantId, snapshots.length);
   }

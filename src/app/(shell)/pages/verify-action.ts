@@ -237,7 +237,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
     // already durable; `persistPageElements` swallows any extractor or
     // dual-write failure internally so it cannot regress verify success.
     try {
-      const cfg = getBusinessConfig();
+      const cfg = getBusinessConfig(tenantId);
       await persistPageElements({
         snapshot: newSnapshot,
         html,

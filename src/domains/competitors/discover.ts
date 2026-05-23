@@ -56,8 +56,12 @@ export function discoverCompetitorUniverse(opts: {
   sourceTrustIndex: SourceTrustIndex | null;
   ownedDomain: string;
   universeDomains: Set<string>;
+  /** MT-3B (2026-05-22) — tenant directory blocklist, injected by the
+   *  caller (from the resolved BusinessConfig) and threaded into
+   *  `classifyCompetitorType` instead of a no-arg config read. */
+  directoryDomains: ReadonlyArray<string>;
 }): DiscoveryResult {
-  const { citationIndex, coMentionMatrix, sourceTrustIndex, ownedDomain, universeDomains } = opts;
+  const { citationIndex, coMentionMatrix, sourceTrustIndex, ownedDomain, universeDomains, directoryDomains } = opts;
   const domainMap = new Map<
     string,
     {
@@ -190,7 +194,7 @@ export function discoverCompetitorUniverse(opts: {
   const all: DiscoveredDomain[] = [...domainMap.entries()]
     .filter(([, data]) => data.citations > 0 || data.sources.size > 0)
     .map(([domain, data]) => {
-      const type = classifyCompetitorType(domain);
+      const type = classifyCompetitorType(domain, directoryDomains);
       const topicThreats = computeTopicThreats(domain);
       return {
         domain,

@@ -11,6 +11,7 @@ import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-stor
 import { stripSiteOrigin, getSiteConfig } from "@/lib/site-config";
 import { buildCompetitorRank } from "@/lib/performance-timeseries";
 import { classifyCompetitorType } from "@/domains/competitors/classify-type";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { syncMilestonesFromWorkspace } from "./sync";
 
 export async function runMilestoneSync(): Promise<{
@@ -19,10 +20,13 @@ export async function runMilestoneSync(): Promise<{
 }> {
   const { siteDomain } = getSiteConfig();
   const citationEvidenceIndex = await getCitationEvidenceIndex();
+  // MT-3B (2026-05-22) — inject tenant directoryDomains into the
+  // competitor classifier (CLI-safe: resolves via BEACON_TENANT_ID env).
+  const businessConfig = await getBusinessConfigForCurrentTenant();
   const competitorRank = buildCompetitorRank(
     citationEvidenceIndex,
     siteDomain,
-    classifyCompetitorType,
+    (domain) => classifyCompetitorType(domain, businessConfig.directoryDomains),
   );
 
   const { newEvents } = await syncMilestonesFromWorkspace({

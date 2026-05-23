@@ -135,19 +135,21 @@ export default async function CompetitorsPage() {
     ? computeMarketBenchmark(citIndex, await getPageIssues())
     : null;
 
+  // MT-2/MT-3B (2026-05-22) — tenant-aware config resolved once here
+  // (no tenantId in scope on this page); threaded into competitor
+  // classification + the local-operator surface below.
+  const businessConfig = await getBusinessConfigForCurrentTenant();
   const discovery = discoverCompetitorUniverse({
     citationIndex: citIndex,
     coMentionMatrix,
     sourceTrustIndex: trustIndex,
     ownedDomain: siteDomain,
     universeDomains,
+    directoryDomains: businessConfig.directoryDomains,
   });
 
   const decayForLocal = getDecayAlerts(computeCitationDecay(siteDomain));
   const topGeoGap = geoCoverage.gaps[0] ?? null;
-  // MT-2 (2026-05-22) — tenant-aware resolution via the async wrapper
-  // (no tenantId in scope on this page).
-  const businessConfig = await getBusinessConfigForCurrentTenant();
   const localMarketSurface = computeLocalOperatorSurface({
     business: businessConfig,
     importRow: await loadLocalOperatorImport(),
@@ -189,7 +191,7 @@ export default async function CompetitorsPage() {
   const competitorRankForMilestones = buildCompetitorRank(
     citIndex,
     siteDomain,
-    classifyCompetitorType,
+    (domain) => classifyCompetitorType(domain, businessConfig.directoryDomains),
   );
   const { state: milestoneStateMarket } = await syncMilestonesFromWorkspace({
     results,
@@ -354,7 +356,7 @@ export default async function CompetitorsPage() {
                         <div className="flex items-center gap-1.5">
                           <p className="text-[10px] text-muted-foreground font-mono truncate">{comp.domain}</p>
                           {(() => {
-                            const cType = classifyCompetitorType(comp.domain);
+                            const cType = classifyCompetitorType(comp.domain, businessConfig.directoryDomains);
                             return (
                               <span className={cn("text-[9px] font-medium rounded border px-1 py-0.5 leading-none shrink-0", COMPETITOR_TYPE_COLORS[cType])}>
                                 {COMPETITOR_TYPE_LABELS[cType]}

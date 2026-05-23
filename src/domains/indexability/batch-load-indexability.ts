@@ -80,7 +80,7 @@ export async function loadIndexabilityBatchForTenant(
     readRobotsState({ tenantId }),
   ]);
 
-  const cfg = getBusinessConfig();
+  const cfg = getBusinessConfig(tenantId);
   const tenantDomain = normalizeHost(cfg.domain);
 
   const out = new Map<string, OwnedUrlIndexability>();
