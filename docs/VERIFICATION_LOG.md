@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-05-22 — Slice C7e: Recommendations off-site opportunities section (second customer-facing off-site surface)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI, NO Vercel, NO `gh`.** Local-only verification.
+
+**What changed.** Added a read-only "Off-site opportunities" section at the bottom of `/recommendations`, structurally separate from the website-edit queue. NEW `src/app/(shell)/recommendations/off-site-opportunities-section.tsx` (async server component: loads `loadOffSitePresenceSnapshot` + pure `computeOffSiteRecommendationCandidates`, soft-fails to hidden; is_local_service + renderability gate; renders a manual-follow-up context label + the REUSED C7d `OffSiteAuthorityTile`). Wired into `recommendations/page.tsx` at the bottom of both the v2 and legacy branches. C7d tile reused unchanged (zero rendering duplication; ~9-line allowlist mirror inlined per "don't over-abstract if tiny").
+
+**Preflight:** clearly bounded + safe (no queue promotion, no Accept/Defer/Dismiss, no raw URLs, no external calls, no broad pipeline changes; reuses C7d tile) → proceeded to implementation without a tiny approval per the operator's new mode.
+
+**Invariants:** 2 NEW — `off-site-recommendations-section-safe-copy` (scans the section's NEW context-label copy) + `off-site-recommendations-section-no-queue` (section never imports emitter/promotion-writer/to-candidate-row/persistence/runProviderAndPersist/recommendation-actions/`load-queue`; no Accept/form/button; scans ONLY the section file since `recommendations/page.tsx` legitimately imports the website-edit queue loaders). C7d invariants + offsite-contract unchanged; `off-site-profile-urls-no-customer-surface` auto-covers the new section.
+
+**Full-suite catch + fix (why running the full suite mattered):** the first full-suite run surfaced 10 failures / 3 files (`recommendations-page-reads-fresh`, `-smoke`, `-v2-switcher`) that the targeted batches missed. Root cause: `OffSiteOpportunitiesSection` is an async server component, and it was rendered as a DIRECT child in `RecommendationsAsyncContent` — the recommendations route tests render that via `renderToStaticMarkup` (legacy sync renderer), which cannot render an async child and threw. Fix (within C7e scope): wrap both `<OffSiteOpportunitiesSection />` renders in `<Suspense fallback={null}>` (matching the Today page's C7d pattern) — the sync renderer renders the null fallback instead of awaiting; Next's RSC renderer streams the resolved section in production. Re-ran the 3 files → 15 passed; full suite re-running to confirm 0 failures.
+
+**Scope honored:** read-only · no queue promotion (off-site stays diagnostic_only) · no Accept/Defer/Dismiss · no auto-claim/post · no review requests · no raw profile URLs · no connector/API/scrape/LLM calls · no migration/mutation/env change · no connector-store/middleware/OAuth/tenant-context/business-config-core change · C7d unchanged.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅
+- 9 targeted suites / 632 cases ✅ (C7e section + 2 new invariants + C7d invariants + auto-coverage + offsite-contract)
+- 12 targeted suites / 244 cases ✅ (catalog-sync + MT-1/MT-2 invariants + off-site domain + **recommendations route tests re-verified green** with the off-site section in the render graph)
+- `catalog-sync` — green (2 new rows)
+- Line delta: src+tests +507 — under the ≤850 target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅ (re-run after the Suspense fix — still green)
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — after the Suspense fix: 680 files / **13637 passed, 25 skipped, 0 failures** ✅ (first run had 10 failures / 3 files — see the full-suite-catch note above)
+
+**Proposed commit message:** `feat(recommendations): show off-site opportunities section`
+
+**Next:** operator review → local commit C7e → (when Actions billing restored) batch-push C7d + C7e → visual smoke Today + Recommendations → MT-3 or C7f.
+
+---
+
 ## 2026-05-22 — Slice C7d: Today off-site authority tile (first customer-facing off-site surface)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.
