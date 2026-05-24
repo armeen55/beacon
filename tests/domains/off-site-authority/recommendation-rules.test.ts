@@ -29,10 +29,10 @@ const TENANT = "tenant-ritz-founder";
 const NOW = "2026-05-16T12:00:00.000Z";
 
 const STANDARD_NOTES = [
-  "business-config: process-global today; multi-tenant routing not yet implemented for this source.",
-  "connector-tokens: process-global today; multi-tenant routing not yet implemented for this source.",
+  "business-config: tenant-scoped — resolved per request for the active tenant.",
+  "connector-tokens: tenant-scoped — stored per (tenant, provider) in Supabase.",
   "local-reviews: request-scoped per tenant via the persistence-layer tenant-slug resolver.",
-  "industry directory and local press detection: not implemented until C7g.",
+  "industry directory and local press: detected only from operator-configured profile URLs; no automated detection yet.",
 ];
 
 const INFERRED_CHANNELS: OffSitePresenceChannel[] = [

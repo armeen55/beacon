@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-05-23 — Slice: Off-site `data_sources_note` copy refresh (MT-4 follow-up)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed (copy/string-only, zero logic).** Refreshed the stale RENDERED operator-footer copy that still said "process-global today":
+- `src/domains/off-site-authority/compute-snapshot.ts` — `ALWAYS_INCLUDED_NOTES`: business-config + connector-tokens lines → "tenant-scoped" framing ("resolved per request for the active tenant" / "stored per (tenant, provider) in Supabase"); industry/local-press line → "detected only from operator-configured profile URLs; no automated detection yet." `PLACEHOLDER_NOTE` unchanged. Also refreshed the module-header "Tenant-scope reality" comment + the invariant-#6 note (C7d/C7e "deferred" → "now shipped").
+- `tests/domains/off-site-authority/compute-snapshot.test.ts` — the 2 `data_sources_note` assertions `.includes("...: process-global")` → `.includes("...: tenant-scoped")`.
+- `tests/domains/off-site-authority/recommendation-rules.test.ts` — `STANDARD_NOTES` fixture matched to the new strings.
+
+**Mid-slice catch.** First draft placed the literal `getBusinessConfig(tenantId)` in a note string + comment → tripped `off-site-authority-pure-module-purity` (forbids the `getBusinessConfig` identifier anywhere in the pure module, even in copy) → reworded to "resolved per request for the active tenant" (no identifier). Confirmed final copy contains none of the forbidden identifiers (getBusinessConfig / isPlaceholderConfig / readLocalReviews / getConnectorToken* / getRepository) and none of the forbidden customer vocab (no "process-global", no "missing", no causal/revenue/$).
+
+**Verified (local only):**
+- `npm run typecheck` — clean ✅
+- off-site batch — 14 files / 758 cases ✅ (incl. the now-passing `off-site-authority-pure-module-purity` + the diagnostics-page test that renders the footer strings)
+- `npm run test` (full suite) — **683 files / 13671 passed, 1 file / 25 skipped, 0 failures** ✅ (run per the "unless tests fail → full suite" rule, after the mid-slice draft trip)
+
+**Line budget:** +20 / −20 (net 0; pure string swaps).
+
+**FOLLOW-UP flagged (NOT done — out of footer-only scope):** `src/domains/off-site-authority/types.ts:7` module-header comment still says "process-global today" + "C7d/C7e defer" + cites the retired `off-site-authority-multi-tenant-prerequisite` catalog row. Deferred to a separate doc-comment slice to honor the "footer refresh only" scope lock.
+
+**Commit (local only):** `chore(config): refresh off-site data-source copy`. **NOT pushed** — local stack now 8 ahead of origin/main; batch-push when Actions billing restored.
+
+---
+
 ## 2026-05-23 — Slice MT-4: Multi-tenant doc truth-up (+ MT-5 preflight)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.

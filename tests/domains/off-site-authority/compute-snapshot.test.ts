@@ -219,12 +219,12 @@ describe("Section 7 C7a — data_sources_note", () => {
     const out = computeOffSitePresenceSnapshot(args());
     expect(
       out.data_sources_note.some((n) =>
-        n.includes("business-config: process-global"),
+        n.includes("business-config: tenant-scoped"),
       ),
     ).toBe(true);
     expect(
       out.data_sources_note.some((n) =>
-        n.includes("connector-tokens: process-global"),
+        n.includes("connector-tokens: tenant-scoped"),
       ),
     ).toBe(true);
     expect(
