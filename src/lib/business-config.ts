@@ -32,10 +32,11 @@ export interface BusinessConfig {
    * the listing. The diagnostic page renders these as "Configured"
    * (not "Confirmed") so the trust level is honest.
    *
-   * Multi-tenant note: BusinessConfig is process-global today (see
-   * `off-site-authority-multi-tenant-prerequisite` catalog row).
-   * C7g v1 inherits that limitation; customer surfaces (C7d/C7e)
-   * remain blocked until the multi-tenant store workstream lands.
+   * Multi-tenant note: BusinessConfig is tenant-keyed as of MT-1
+   * (resolve via `getBusinessConfig(tenantId)` /
+   * `getBusinessConfigForCurrentTenant()`). C7g v1's operator-entered
+   * URLs are read per-tenant; customer surfaces (C7d/C7e) now ship on
+   * the tenant-correct path (MT-2/MT-3*).
    */
   houzzProfileUrl: string;
   angiProfileUrl: string;

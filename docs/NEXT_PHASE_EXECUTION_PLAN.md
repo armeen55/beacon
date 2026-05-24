@@ -1,5 +1,18 @@
 # Beacon Execution Plan
 
+> 🟢 **SLICE MT-4 — MULTI-TENANT DOC TRUTH-UP (READY_TO_COMMIT — NOT PUSHED, Actions minutes exhausted, 2026-05-23).** Comment/doc-only: corrected the stale "PROCESS-GLOBAL" claims in the off-site loader (import annotations + prerequisite note) + the `BusinessConfig` interface note, and marked the `off-site-authority-multi-tenant-prerequisite` catalog row **retired** (resolved by MT-1/2/3*). Zero behavior change. FOLLOW-UP: the runtime `data_sources_note` strings in `compute-snapshot.ts` are still stale (rendered footer copy = behavior; deferred). Files: 2 src comments + 1 catalog row. Gates LOCAL ONLY: typecheck ✅ · 121 invariant/catalog-sync ✅ · tenant-env build exit 0 ✅ · full suite NOT run (comment-only, zero executable change). Proposed commit: `docs(config): correct stale process-global notes`. **READY_TO_COMMIT — not pushed.**
+>
+> **Local stack now 7 ahead of origin/main (unpushed; Actions exhausted):** C7d + C7e + MT-3A + MT-3B + MT-3C + MT-3C.2 + MT-4. Batch-push all when billing restored.
+>
+> **MT-5 PREFLIGHT — DEFERRED (report-first, per the operator default).** Runtime is fully clean: 0 no-arg `getBusinessConfig()` runtime callers, 0 `?? getBusinessConfig()` fallbacks, 0 no-tenant `saveBusinessConfig` callers. So removal is *mechanically* possible. BUT it is NOT "zero test blockers / obviously safe" — removing the deprecated no-arg overload requires a coordinated test+invariant migration:
+> - `src/lib/business-config.test.ts` — **23 no-arg `getBusinessConfig()` calls** (the D1 suite + the MT-1 deprecated-path tests) → migrate each to `getBusinessConfig(tenantId)` or rewrite the deprecated-path tests.
+> - 3 other test files call/mock no-arg: `load-trigger-candidates-for-tenant.test.ts`, `off-site-authority/load-snapshot.test.ts`, `changes-id-v2-switcher.test.ts` → audit + migrate.
+> - **5 architecture invariants** sanity-pin that `export function getBusinessConfig(): BusinessConfig;` EXISTS (tenant-keyed-cache, customer-surface, operator-surface, deep-runtime, pure-helpers) → flip each to "overload removed."
+> - `business-config-deep-runtime-tenant-aware` → convert from "src/** except business-config.ts" to a fully GLOBAL no-arg ban (include business-config.ts).
+> - Remove the no-tenant `saveBusinessConfig(patch)` overload too (0 callers — trivial).
+> 
+> **Recommendation: MT-5 is a dedicated slice needing explicit operator approval** (a ~25-call test migration + 5 invariant flips). Defer until approved.
+
 > 🟢 **SLICE MT-3C.2 — PAGE-EXTRACTOR CONFIG INJECTION (READY_TO_COMMIT — NOT PUSHED, Actions minutes exhausted, 2026-05-23).** Tightened the last 2 pure helpers (`getLocationRegex`, `getServiceRegex`) to require config; the page extractor now injects `getBusinessConfig(tenantId)` via its existing required `tenantId` param (1 runtime caller, no ripple). **ZERO `?? getBusinessConfig()` fallbacks remain.** Production identical (verify-action passes the real tenant); no extractor test asserts location/service terms. Updated 2 invariants (5-of-5 require config; 0 fallbacks). Files: 2 src + 2 invariants + docs. Line +79/−45. Gates LOCAL ONLY: typecheck ✅ · 129 targeted ✅ · catalog-sync ✅ · tenant-env build exit 0 ✅ · full vitest 13671 passed / 0 failures ✅. Proposed commit: `refactor(config): require config for page-extractor helpers`. **READY_TO_COMMIT — not pushed.**
 >
 > **Local stack now 6 ahead of origin/main (unpushed; Actions exhausted):** C7d + C7e + MT-3A + MT-3B + MT-3C + MT-3C.2. Batch-push all when billing restored.

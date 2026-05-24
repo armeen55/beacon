@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-05-23 — Slice MT-4: Multi-tenant doc truth-up (+ MT-5 preflight)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed (comment/doc-only, zero behavior).** Corrected stale "PROCESS-GLOBAL" claims that MT-1/MT-2/MT-3* resolved: (1) `off-site-authority/load-snapshot.ts` import-allowlist annotations (`business-config` → tenant-keyed; `connector-store` → tenant-scoped via composite PK + currentTenantId, 2026-05-16) + the "Multi-tenant prerequisite" note → RESOLVED (C7d/C7e ship on the tenant-correct path); (2) `business-config.ts` `BusinessConfig` interface note → "tenant-keyed as of MT-1"; (3) catalog row `off-site-authority-multi-tenant-prerequisite` → **retired**. FOLLOW-UP (deferred — rendered footer copy = behavior): the runtime `ALWAYS_INCLUDED_NOTES` strings in `compute-snapshot.ts` still say "process-global today."
+
+**Verified (local only):**
+- `npm run typecheck` — clean ✅
+- off-site invariants (loader-allowed-imports, customer-surface-isolation, pure-module-purity, C7d/C7e no-queue) + MT-1 + catalog-sync — 7 files / 121 cases ✅
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- Full suite NOT run — justified: comment/doc-only, zero executable change (MT-3C.2 `f09b408` is the last code state; the full suite was green there + nothing executable changed since).
+
+**MT-5 preflight — DEFERRED.** Runtime fully clean (0 no-arg runtime callers, 0 fallbacks, 0 no-tenant saveBusinessConfig callers), but removing the deprecated no-arg overload requires migrating 23 no-arg calls in `business-config.test.ts` + 3 other test files + flipping 5 invariant existence-pins + converting the deep-runtime invariant to a global ban. Not "zero test blockers / obviously safe" → dedicated slice with explicit approval.
+
+**Proposed commit message:** `docs(config): correct stale process-global notes`
+
+---
+
 ## 2026-05-23 — Slice MT-3C.2: Page-extractor config injection (last 2 pure helpers)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
