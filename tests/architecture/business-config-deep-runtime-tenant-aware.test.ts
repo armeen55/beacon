@@ -88,7 +88,7 @@ describe("business-config-deep-runtime-tenant-aware (MT-3B)", () => {
     ).toEqual([]);
   });
 
-  it("business-config.ts still defines the deprecated overload + pure-helper fallbacks (NOT globally removed — MT-3C/MT-5)", () => {
+  it("business-config.ts still defines the deprecated overload (NOT globally removed — MT-5)", () => {
     const core = readFileSync(
       resolve(SRC_DIR, "lib", "business-config.ts"),
       "utf-8",
@@ -97,7 +97,12 @@ describe("business-config-deep-runtime-tenant-aware (MT-3B)", () => {
     expect(
       /export function getBusinessConfig\(\):\s*BusinessConfig;/.test(core),
     ).toBe(true);
-    // Pure-helper fallbacks still present (MT-3C tightens them).
-    expect(core.includes("?? getBusinessConfig()")).toBe(true);
+    // MT-3C.2 (2026-05-23) — ALL pure-helper `?? getBusinessConfig()`
+    // fallbacks are now removed (the last 2, getLocationRegex /
+    // getServiceRegex, were tightened once the page extractor injected
+    // its per-tenant config). The deprecated overload itself remains for
+    // back-compat until MT-5. `business-config-pure-helpers-require-config`
+    // pins the require-config signatures.
+    expect(core.includes("?? getBusinessConfig()")).toBe(false);
   });
 });

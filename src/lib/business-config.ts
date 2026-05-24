@@ -512,23 +512,24 @@ export function __resetBusinessConfigCacheForTests(): void {
   _placeholderWarnedTenants.clear();
 }
 
-export function getLocationRegex(config?: BusinessConfig): RegExp {
-  const cfg = config ?? getBusinessConfig();
+// MT-3C.2 (2026-05-23) — `config` is REQUIRED (no no-arg fallback). The
+// only runtime caller is the pure page extractor, which now resolves the
+// per-tenant config from its `tenantId` param and injects it.
+export function getLocationRegex(config: BusinessConfig): RegExp {
   const terms =
-    cfg.locationTerms.length > 0
-      ? cfg.locationTerms
-      : cfg.locations;
+    config.locationTerms.length > 0
+      ? config.locationTerms
+      : config.locations;
   if (terms.length === 0) return /(?!)/g;
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
 }
 
-export function getServiceRegex(config?: BusinessConfig): RegExp {
-  const cfg = config ?? getBusinessConfig();
+export function getServiceRegex(config: BusinessConfig): RegExp {
   const terms =
-    cfg.serviceTerms.length > 0
-      ? cfg.serviceTerms
-      : cfg.services;
+    config.serviceTerms.length > 0
+      ? config.serviceTerms
+      : config.services;
   if (terms.length === 0) return /(?!)/g;
   const escaped = terms.map((t) =>
     t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "[\\s-]?"),

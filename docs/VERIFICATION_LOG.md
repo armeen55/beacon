@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-05-23 — Slice MT-3C.2: Page-extractor config injection (last 2 pure helpers)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Tightened the final 2 pure helpers (`getLocationRegex`, `getServiceRegex`) to REQUIRE config. The page extractor (`pages/extractor.ts`) — which already takes a required `tenantId` and has ONE runtime caller (`verify-action`, already passing the real tenant) — now resolves `getBusinessConfig(tenantId)` and injects it (replacing the deprecated no-arg path that implicitly read the process-env tenant). **ZERO `?? getBusinessConfig()` fallbacks remain in business-config.ts.** Updated 2 invariants (`business-config-pure-helpers-require-config` → all 5 require config + 0 fallbacks; `business-config-deep-runtime-tenant-aware` sanity pin → 0 fallbacks).
+
+**Why safe (preflight):** production behavior identical (verify-action passes the real tenant → same regex). The require()+inline-default catch stays as the safety net. **No extractor/scanning test asserts location/service terms** (verified: they assert FAQs/tables/headings/schema; the `locationTerms` references elsewhere are trigger-test fixtures, not extraction output) — so the per-tenant change (placeholder→empty terms for the synthetic `tenant-test`) breaks nothing.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅ (no typed caller of the 2 tightened helpers besides the untyped extractor require)
+- 11 files / 129 cases ✅ (both updated business-config invariants + MT-1 + business-config core + extractor.test + extractor-expanded + 4 scanning suites + catalog-sync)
+- Line delta: src+tests +79 / −45 (net +34)
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 683 files / **13671 passed, 25 skipped, 0 failures** ✅ (extractor per-tenant change broke nothing)
+
+**Proposed commit message:** `refactor(config): require config for page-extractor helpers`
+
+**Next:** operator review → local commit MT-3C.2 → MT-4 (doc truth-up) → MT-5 preflight.
+
+---
+
 ## 2026-05-23 — Slice MT-3C: Pure-helper config injection
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.

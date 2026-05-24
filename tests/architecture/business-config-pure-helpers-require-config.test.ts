@@ -1,28 +1,27 @@
 /**
- * Architecture invariant — MT-3C pure-helper config injection
+ * Architecture invariant — MT-3C / MT-3C.2 pure-helper config injection
  * (2026-05-23).
  *
  * MT-3B threaded tenant-resolved config into every runtime caller of the
- * business-config pure helpers. MT-3C tightens THREE of the five pure
- * helpers to REQUIRE an injected `config` (dropping their
- * `?? getBusinessConfig()` no-arg fallback):
- *   • getSectionAnalyzerConfig(config: BusinessConfig)
- *   • getFaqTemplates(config: BusinessConfig)
- *   • isDirectoryDomain(domain: string, config: BusinessConfig)
+ * business-config pure helpers. MT-3C tightened three of the five pure
+ * helpers to REQUIRE an injected `config`; MT-3C.2 then threaded the page
+ * extractor's per-tenant config (`getBusinessConfig(tenantId)`) into the
+ * last two, so now ALL FIVE require config (no `?? getBusinessConfig()`
+ * fallback anywhere):
+ *   • getLocationRegex(config: BusinessConfig)           [MT-3C.2]
+ *   • getServiceRegex(config: BusinessConfig)            [MT-3C.2]
+ *   • getSectionAnalyzerConfig(config: BusinessConfig)   [MT-3C]
+ *   • getFaqTemplates(config: BusinessConfig)            [MT-3C]
+ *   • isDirectoryDomain(domain: string, config: BusinessConfig) [MT-3C]
  *
- * DEFERRED (still `config?` with the fallback): getLocationRegex /
- * getServiceRegex — their only runtime caller is the pure page extractor
- * (`pages/extractor.ts`), which uses a `require()` + inline-default
- * pattern and has no config/tenantId in scope. Threading config into
- * `extractPageSnapshot` ripples into the scan pipeline, so it's a
- * separate slice (MT-3C.2). Until then they keep the optional fallback.
- *
- * This invariant pins both the tightening (3 helpers require config + no
- * longer fall back) AND the deferral (2 helpers still optional), and
- * verifies the 3 work with injected config.
+ * This invariant pins all five require-config signatures, that ZERO
+ * `?? getBusinessConfig()` fallbacks remain in business-config.ts, and
+ * verifies the helpers work with injected config. (The deprecated no-arg
+ * `getBusinessConfig()` overload still EXISTS for back-compat until MT-5,
+ * but nothing inside business-config.ts falls back to it.)
  *
  * Protects Customer 2: a regression that re-adds a no-arg fallback to a
- * tightened helper (re-introducing a process-global read) trips here.
+ * pure helper (re-introducing a process-global read) trips here.
  */
 
 import { describe, expect, it } from "vitest";
@@ -31,6 +30,8 @@ import { resolve } from "node:path";
 
 import {
   getBusinessConfig,
+  getLocationRegex,
+  getServiceRegex,
   getSectionAnalyzerConfig,
   getFaqTemplates,
   isDirectoryDomain,
@@ -43,7 +44,21 @@ const CORE = readFileSync(
 );
 
 describe("business-config-pure-helpers-require-config (MT-3C)", () => {
-  describe("tightened helpers require config (no optional, no no-arg fallback)", () => {
+  describe("all 5 pure helpers require config (no optional, no no-arg fallback)", () => {
+    it("getLocationRegex signature requires config (MT-3C.2)", () => {
+      expect(
+        /export function getLocationRegex\(config:\s*BusinessConfig\)/.test(CORE),
+      ).toBe(true);
+      expect(CORE.includes("getLocationRegex(config?")).toBe(false);
+    });
+
+    it("getServiceRegex signature requires config (MT-3C.2)", () => {
+      expect(
+        /export function getServiceRegex\(config:\s*BusinessConfig\)/.test(CORE),
+      ).toBe(true);
+      expect(CORE.includes("getServiceRegex(config?")).toBe(false);
+    });
+
     it("getSectionAnalyzerConfig signature requires config", () => {
       expect(
         /export function getSectionAnalyzerConfig\(config:\s*BusinessConfig\)/.test(
@@ -72,22 +87,24 @@ describe("business-config-pure-helpers-require-config (MT-3C)", () => {
     });
   });
 
-  it("exactly TWO `?? getBusinessConfig()` fallbacks remain (the deferred getLocationRegex + getServiceRegex)", () => {
+  it("ZERO `?? getBusinessConfig()` fallbacks remain in business-config.ts (MT-3C.2)", () => {
     const matches = CORE.match(/\?\?\s*getBusinessConfig\(\)/g) ?? [];
-    expect(matches.length).toBe(2);
+    expect(matches.length).toBe(0);
   });
 
-  it("the deferred helpers keep their optional config fallback (extractor slice MT-3C.2)", () => {
-    expect(CORE.includes("getLocationRegex(config?: BusinessConfig)")).toBe(
-      true,
-    );
-    expect(CORE.includes("getServiceRegex(config?: BusinessConfig)")).toBe(
-      true,
-    );
+  it("the deprecated no-arg overload still EXISTS for back-compat (removed in MT-5, not here)", () => {
+    expect(
+      /export function getBusinessConfig\(\):\s*BusinessConfig;/.test(CORE),
+    ).toBe(true);
   });
 
-  describe("behavioral — the 3 tightened helpers work with injected config", () => {
+  describe("behavioral — the pure helpers work with injected config", () => {
     const cfg = getBusinessConfig(process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder");
+
+    it("getLocationRegex + getServiceRegex return RegExps from the injected config", () => {
+      expect(getLocationRegex(cfg)).toBeInstanceOf(RegExp);
+      expect(getServiceRegex(cfg)).toBeInstanceOf(RegExp);
+    });
 
     it("getSectionAnalyzerConfig returns a shape derived from the injected config", () => {
       const out = getSectionAnalyzerConfig(cfg);

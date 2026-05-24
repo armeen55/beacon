@@ -278,9 +278,20 @@ export function extractPageSnapshot(
   let locationRegex: RegExp;
   let serviceRegex: RegExp;
   try {
-    const { getLocationRegex, getServiceRegex } = require("@/lib/business-config");
-    locationRegex = getLocationRegex();
-    serviceRegex = getServiceRegex();
+    // MT-3C.2 (2026-05-23) — resolve THIS tenant's config (the extractor
+    // already requires tenantId) and inject it into the now-required-
+    // config pure helpers, instead of the deprecated no-arg path that
+    // implicitly read the process-env tenant. Production behavior is
+    // identical for a real tenant; the inline-default catch below stays
+    // as the safety net if business-config fails to load.
+    const {
+      getBusinessConfig,
+      getLocationRegex,
+      getServiceRegex,
+    } = require("@/lib/business-config");
+    const cfg = getBusinessConfig(tenantId);
+    locationRegex = getLocationRegex(cfg);
+    serviceRegex = getServiceRegex(cfg);
   } catch {
     locationRegex = /\b(palo alto|menlo park|atherton|los altos|cupertino|saratoga|woodside|portola valley|mountain view|sunnyvale|san jose|bay area|silicon valley|emerald hills)\b/gi;
     serviceRegex = /\b(custom home|remodel|renovation|new construction|tear[ -]?down|rebuild|home builder|general contractor|addition|ADU|design[- ]build)\b/gi;
