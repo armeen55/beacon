@@ -112,8 +112,14 @@ on:
     # Schedule choices (UTC) — primary first, then 90-minute spacing so the
     # GH scheduler has room to land the primary before backups race:
     - cron: "0 7 * * *"     # primary    07:00 UTC
-    - cron: "30 8 * * *"    # backup 1   08:30 UTC
-    - cron: "0 10 * * *"    # backup 2   10:00 UTC
+    # ── 2026-05-26 Actions-minute conservation ──────────────────────────────
+    # Backups disabled to stop scheduled-run minute burn ahead of the Actions
+    # quota reset. They never double-SPEND (the UTC-day budget guard above
+    # makes same-day repeats no-op), but they DO burn checkout+install+preflight
+    # minutes each day. Re-enable by uncommenting if GH-scheduler skips recur;
+    # meanwhile use workflow_dispatch to re-fire a missed day.
+    # - cron: "30 8 * * *"    # backup 1   08:30 UTC
+    # - cron: "0 10 * * *"    # backup 2   10:00 UTC
   # Manual trigger from the Actions tab. Use this to verify the flow once
   # after first deploy, then let the schedule take over.
   workflow_dispatch:

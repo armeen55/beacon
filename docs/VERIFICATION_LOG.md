@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-05-26 — Slice: Ops-safety — thin poll schedules + CI build gate
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**Why.** Pre-dogfood release-readiness review flagged (a) scheduled workflows burning Actions minutes (3 fires/day each on `daily-native-poll` + `poll-canary`) and (b) CI stopping at typecheck+test, so Vercel could fail on a build/route break CI never caught.
+
+**What changed (`.github/workflows/` only — no `src/`, no tests).**
+- `daily-native-poll.yml` — scheduled crons 3 → 1: kept `0 7 * * *` (07:00 UTC primary); commented out `30 8 * * *` + `0 10 * * *` backups with a dated re-enable note. `workflow_dispatch` preserved. Job `timeout-minutes` already present (unchanged).
+- `poll-canary.yml` — scheduled crons 3 → 1: kept `45 7 * * *` primary; commented out `15 9 * * *` + `45 10 * * *`. `workflow_dispatch` preserved.
+- `daily-scan.yml` — untouched (already 1/day at 04:00).
+- `ci.yml` — added a `Build` step (`npm run build`) after `Test`, with `BEACON_TENANT_ID=tenant-ritz-founder` + `BEACON_TENANT_SLUG=ritz-founder` env (mirrors the verified-local incantation; non-secret slugs).
+- **Net effect:** scheduled fires 7/day → 3/day; CI gate becomes typecheck → test → build.
+
+**Verified (local only):**
+- All 4 workflows parse as valid YAML via node `js-yaml`; `on:` triggers intact — `workflow_dispatch` preserved on both thinned polls ✅
+- Active-cron audit: exactly 1 scheduled cron each on `daily-native-poll` (07:00) + `poll-canary` (07:45) + `daily-scan` (04:00) ✅
+- `npm run build` (the gate being added) is green at HEAD `dd4c52f`: exit 0, `.next/BUILD_ID` written, full route manifest, zero error lines ✅ (`/rank` is the only static route — confirmed no data/Supabase deps, prerenders anywhere)
+- `npm run typecheck` clean ✅ · full suite 13671 passed / 0 failures ✅ (unchanged at `dd4c52f`; this slice touches no executable code)
+
+**Unverifiable without a push (flagged, per the missing-capability rule).** The CI `Build` step cannot be executed without landing on a branch GitHub runs. Its maiden run is the first push/merge after this lands — watch it. Residual risk low (build is env-light; only `/rank` is static and dependency-free), but if the runner needs env beyond the two tenant slugs, it surfaces there.
+
+**Operational truth-up.** Committing the cron thinning **does not** reduce the live Actions burn — GitHub schedules fire from the default branch's file. The only pre-push burn-stop is the operator disabling both workflows in the GitHub UI (Actions tab → "Disable workflow"), which is instant + reversible. Recorded in NEXT_PHASE landing runbook step 1.
+
+**Commit (local only):** `ci(actions): conserve minutes — thin poll schedules + add build gate`. **NOT pushed** — local stack now 9 ahead of origin/main; batch-land at the operator-approved reset window per the NEXT_PHASE runbook.
+
+---
+
 ## 2026-05-23 — Slice: Off-site `data_sources_note` copy refresh (MT-4 follow-up)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.

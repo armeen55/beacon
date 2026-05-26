@@ -71,8 +71,12 @@ on:
     # has landed cleanly — so even if only the primary or only a backup
     # fires, downstream alerting stays accurate.
     - cron: "45 7 * * *"    # primary canary     07:45 UTC
-    - cron: "15 9 * * *"    # backup canary 1    09:15 UTC
-    - cron: "45 10 * * *"   # backup canary 2    10:45 UTC
+    # ── 2026-05-26 Actions-minute conservation ──────────────────────────────
+    # Backup canaries disabled alongside the daily-native-poll backups. The
+    # primary canary still reports ✓ as soon as the 07:00 poll lands. Re-enable
+    # by uncommenting if the poll backups are restored.
+    # - cron: "15 9 * * *"    # backup canary 1    09:15 UTC
+    # - cron: "45 10 * * *"   # backup canary 2    10:45 UTC
   workflow_dispatch:
 
 concurrency:
