@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-05-26 — §3.2 cross-tenant producer + sync-chain threading (gate-off byte-identical)
+
+**Status:** Shipped locally (producer + backward-compat threading through the sync packet-build chain). Build + full suite green. Activation (async-ancestor compute + prod deps) flagged.
+
+**Producer.** `cross-tenant-brain/producer.ts` — async `computeCrossTenantPatterns(args, deps)`: GATE-FIRST (`isCrossTenantProducerEnabled()` off → `[]`, no reads → production byte-identical); enumerate tenants, exclude self, load each other tenant's outcomes, delegate to the pure `aggregateCrossTenantPatterns`; any fault → `[]` (never breaks the evidence packet). Dep-injected (`listTenants` / `loadOutcomesForTenant` / `buildBlocklist`) → tested with synthetic multi-tenant fixtures, gate forced on. 7 tests (gate / exclude-self / n=1 / aggregation / fault-tolerance).
+
+**Why the producer is async but the packet builder isn't.** `buildSpecificEditEvidencePacket` AND its wrapper `buildPacketForRec` are both **synchronous** (the brain stub was sync by design to fit them). Rather than cascade `async` through the sync rec pipeline, the producer runs upstream (async) and its result threads DOWN through the sync chain as an **optional** arg:
+- `buildSpecificEditEvidencePacket` args gain optional `crossTenantPatterns?`; line 665 uses `args.crossTenantPatterns ?? getCrossTenantPatterns(stub)`. Omitted by every current caller → falls back to the `[]` stub → **102 packet tests unchanged**.
+- `buildPacketForRec` args gain the same optional field + pass it through.
+Both changes are backward-compatible; the gate-off path is byte-identical.
+
+**FLAGGED — final activation step (genuine architectural boundary).** The async ancestor that should compute `computeCrossTenantPatterns(...)` + pass it into `buildPacketForRec` is **indirect** (`buildPacketForRec` has no non-test runtime caller — the runtime packet path runs through the generation pipeline). Locating + wiring that ancestor, plus the production deps (`listTenants` from `tenants/store`, a per-tenant outcomes loader over `buildTenantLifecycleRecords` + median classification, and a `buildBlocklist` over business-config + tracked-entities) is the dedicated activation slice. **Deferred because:** gated off + returns `[]` at n=1 (zero current value), and threading blindly through the core pipeline risks regressions. The producer + the entire sync-chain seam are built + proven, so activation is now a contained change.
+
+**Verified:** typecheck 0 · producer + load-queue + 102 packet tests green · build 0 · full suite 13757 passed / 0 failures. Commit: `feat(brain): cross-tenant producer + thread patterns through sync packet chain (§3.2)`.
+
+---
+
 ## 2026-05-26 — §3.6 "Beacon learned" customer tile (flag-gated)
 
 **Status:** Shipped locally (new customer component + flag-gated Today section + test). Build + full suite green.

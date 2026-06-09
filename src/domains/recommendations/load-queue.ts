@@ -39,6 +39,7 @@ import {
 } from "./prioritize";
 import { resolvePageIntent } from "./resolve-page-intent";
 import type { PageEntity } from "@/domains/pages/types";
+import type { CrossTenantPattern } from "./cross-tenant-brain";
 import {
   buildSpecificEditEvidencePacket,
   hasAiSearchSignalForRec,
@@ -900,6 +901,14 @@ export type BuildPacketForRecArgs = {
   pageElementInventory: ReadonlyArray<PageElementInventoryRow>;
   tenantId: string;
   now?: Date;
+  /**
+   * Phase A.2 §3.2 — pre-computed cross-tenant patterns from the async
+   * producer, threaded through the sync packet-build chain. Omitted by
+   * every current caller → the packet builder falls back to the sync
+   * stub ([]), so byte-identical until the async ancestor computes +
+   * passes real patterns (gated by BEACON_CROSS_TENANT_BRAIN).
+   */
+  crossTenantPatterns?: ReadonlyArray<CrossTenantPattern>;
 };
 
 /**
@@ -927,6 +936,7 @@ export function buildPacketForRec(
 
   return buildSpecificEditEvidencePacket({
     tenantId,
+    crossTenantPatterns: args.crossTenantPatterns,
     recId: rec.stableKey,
     clusterLabel: rec.clusterLabel,
     clusterKind: rec.clusterKind,
