@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-09 — Semrush connector — full loop (connect → fetch → persist → view)
+
+**Status:** Shipped locally (backend + operator surface + 32 tests). Build + full suite green. Migration PENDING (deploy-applied); live pulls need the operator's key.
+
+**The loop, end to end:**
+- **Auth/store:** new `semrush` provider in `connector-store` + `SemrushConnectorToken` (API-key auth like Yelp, soft-disconnect) + `getSemrushConnectorToken` + `updateConnectorToken` overload. **No migration for the key** — `connector_tokens` is provider-agnostic JSONB.
+- **Client (`src/lib/connectors/semrush/`):** `client.ts` — key-auth GET to `https://api.semrush.com/`, `;`-CSV parse, unit-frugal `display_limit`, server-only, tenant-scoped, key never logged, **fail-soft** on `no_key`/`disconnected`/non-2xx/`ERROR`-body/network (never throws). `domain-reports.ts` — `domain_ranks` overview + `domain_organic_organic` competitors, typed + normalized. `types.ts`.
+- **Persist (`persist-domain-metrics.ts`):** `refreshSemrushDomainMetrics` fetches overview first (1 unit-line; bails on `no_key` before spending competitor units), assembles a snapshot, upserts to `semrush_domain_metrics`; soft-fails on missing table/Supabase. `loadSemrushDomainMetrics` reads it back.
+- **Migration:** `migrations/2026-06-09_semrush_domain_metrics.sql` — additive cache table `(tenant_id, domain)` PK, RLS deny-all. **PENDING apply** (deploy-time, operator-approved; reads soft-fail on 42P01 until then) — I did NOT apply it.
+- **Operator surface (`/diagnostics/semrush`):** operator-gated, force-dynamic, resilient. Connect form (paste key + database) → `connectSemrush`; "Refresh metrics" → `refreshSemrushMetrics` (pulls the owned domain from business-config); cached snapshot view (overview metrics + organic-competitor list); soft-disconnect. All three actions operator-gated (non-operator → `not_operator`, no key stored, no HTTP).
+- **Loop close / cross-check:** the diagnostic surfaces Semrush's organic competitors next to a note to cross-check against Beacon's AI-citation competitor set (each catches rivals the other misses). Deeper auto-merge into the tracked set / recommendation inputs is a flagged follow-up.
+
+**Constraints honored:** I did NOT make live Semrush calls (no key; would burn the operator's week-limited units) — tests inject `fetchImpl` + `token`, never touching the network. Migration written, not applied. No push.
+
+**Tests (32):** connector client fail-soft gates / URL shape / error handling / CSV parse / typed mapping (13); refresh assembly + unit-frugal bail (4); page render + operator gate + connected/disconnected/snapshot states (8); actions operator-gate + connect/refresh/disconnect (15). [client.test 13 + persist.test 4 + page 8 + actions 15 = 40 cases across 4 files.] typecheck 0 · build 0 (route in manifest) · **full suite 13791 passed / 0 failures.**
+
+**FLAGGED (operator):** (1) live pulls need the operator to paste a Semrush API key on `/diagnostics/semrush` (operator-mode) — I can't (no key). (2) The migration applies on deploy. (3) A `/settings/connectors` card + auto-merging Semrush competitors into the tracked set are follow-ups (the functional loop lives on the operator diagnostic). (4) Week-limited key: connect + refresh now to capture; soft-disconnect preserves the cached snapshot after it expires.
+
+Commits: `feat(semrush): connector backend …(1/2)` + `feat(semrush): operator connect/refresh/view surface …(2/2)`.
+
+---
+
 ## 2026-05-26 — §3.2 cross-tenant producer + sync-chain threading (gate-off byte-identical)
 
 **Status:** Shipped locally (producer + backward-compat threading through the sync packet-build chain). Build + full suite green. Activation (async-ancestor compute + prod deps) flagged.
