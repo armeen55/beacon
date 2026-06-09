@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-05-26 — S3 (§12 N3 comprehensive tenant-isolation scan) evaluated → NOT RECOMMENDED as specified
+
+**Status:** Evaluation (read-only); no code change. Last open local slice, now dispositioned.
+
+**Method.** Empirically sized the proposed scan before building it: `grep -rE "^export (async )?function " src/domains/ src/lib/connectors/` → **995 exported named functions; 31 mention `tenant` on the signature line.** Sampled the remainder.
+
+**Finding.** ~960 of the exports are **pure helpers** that correctly take no tenant (`missingTitleCopy`, `fixSitemapCopy`, `dedupeKey`, `buildPromotionDedupeKey`, `confidenceMultiplier`, `priorityScore`, `getCooldownWindowForStatus`, `eligibilityForTrigger`, copy/format/parse/normalize/derive builders…). The plan's N3 assumed a "lax scan with a small (<20) whitelist." Reality is the inverse: a comprehensive scan would flag ~960 functions, each needing an allowlist entry or a `@no-tenant-required` marker → a brittle, oversized, perpetually-churning test that fights the codebase's (correct) pure-helper-heavy design and adds ~no safety.
+
+**Why isolation is already strong (so N3 is belt-and-suspenders we don't need).** The genuine risk — a data-access function reading across tenants — is already prevented by: (1) the repository pattern `getRepository().forTenant(tenantId)` (a structural guarantee at the data layer), (2) RLS deny-all on every table, and (3) 13+ targeted isolation invariants (`canonical-store-tenant-isolation`, `factory-functions-require-tenant`, `no-unscoped-tier-a-reads`, `sync-wrappers-stamp-tenant-id`, `citation-lifecycle-tenant-isolation`, GA4/GSC isolation, `business-config-*-tenant-aware`, etc.).
+
+**Decision.** Do NOT build the comprehensive scan. If a real gap ever surfaces, scope a future test to data-access name-patterns only (`load*/persist*/sync*/save*/upsert*` in domains+connectors) — but existing mechanisms already cover it. N3 reclassified in NEXT_PHASE + capsule from "open / low-urgency" to "evaluated → not-recommended-as-specified."
+
+**Net.** This was the last open *safe local* slice. With S1 done, S3 dispositioned, and S2-remainder/S4/S5/S6 all refactor/constraint/approval/LLM-gated, **all productive local work within the current constraints is exhausted.** Further progress requires operator push/deploy or a greenlit deliberate slice.
+
+---
+
 ## 2026-05-26 — CORRECTION: S1 (per-tenant thresholds) is shipped + green, not pending
 
 **Status:** Read-only verification + doc correction (no code change).
