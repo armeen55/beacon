@@ -7,6 +7,46 @@
 
 ---
 
+## 2026-05-26 — Continuous-execution pass: roadmap checklist + brain compute layer
+
+**Goal:** execute the full roadmap top-to-bottom, autonomously, logging as I go. This entry is the running log + the workstream checklist.
+
+**ROADMAP CHECKLIST (every workstream + state, verified this session):**
+
+| # | Workstream (plan §) | State | Evidence |
+|---|---|---|---|
+| 1 | §1 Lifecycle reality check | ✅ done (diagnostic) | — |
+| 2 | §2 Time-to-citation (A.1) | ✅ BUILT | `citation-lifecycle/*` + `/diagnostics/lifecycle-eligibility` + tile/strip |
+| 3 | §3 Cross-tenant brain (A.2) | 🟡 compute layer DONE; producer wiring gated | config ✅ thresholds ✅ compute-tenant-thresholds ✅ per-tenant wiring (S1) ✅ **privacy scrubber ✅** **aggregation core ✅** — REMAINING: producer I/O (sync→async, touches LLM packet), "Beacon learned" tile, operator surface |
+| 4 | §4 Indexability+GSC (A.3) | ✅ BUILT | `indexability/*` + `connectors/gsc/*` + migrations |
+| 5 | §4.5 Recommendation intelligence | ✅ BUILT | 16 triggers + emitter + promotion (queue-flip live) + 15 generatorActive + safety-audit |
+| 6 | §5 Repeat-citation | ✅ BUILT | `citation-lifecycle/*repeat*` + today counters |
+| 7 | §6 Primary recommendation | ✅ BUILT | `change-primary-mode-{a,b}` + migration |
+| 8 | §7 Off-site authority | ✅ BUILT | C7a–C7e + footer + types truth-up |
+| 9 | §8 GSC depth (J-block) | ✅ BUILT | expiry/stagger/rich-fields/disconnect |
+| 10 | §9 Outcome attribution | ✅ BUILT (GA4/K1) | mode-a + GA4 connector + migration; CallRail/GBP deferred-by-design |
+| 11 | §10 Phase B regenerate | 🟡 gateway infra ✅; persist gated | operator-only + env-off + non-persisting; brandAssertions/cooldown/original-preservation = S6 (no-LLM-gated) |
+| 12 | §11 Pricing | ✅ operator-side (no code) | — |
+| 13 | §12 Invariants/safety/budget | 🟡 N1/N4 ✅, N2-pin ✅, N3 audited(0 leaks), N2-router net-negative | — |
+| 14 | §13 CMS publishing | ⚫ PARKED | by design |
+| 15 | MT-1..MT-4 + footer + types | ✅ BUILT | multi-tenant business-config cleanup |
+| 16 | MT-5 (overload removal) | 🔒 approval-gated | ~23-call test migration |
+| 17 | Ops-safety (cron thin + CI build gate) | ✅ BUILT | `e16695a` |
+
+**Built THIS pass (new code, full suite green):**
+- `cross-tenant-brain/privacy.ts` — E4 description scrubber (`3d83ac8`, 23 tests).
+- `cross-tenant-brain/aggregate.ts` — §3.2 pure aggregation core: group-by-matchKey → helpingRate → exclude-self → sample-gate(≥5, E3) → scrub(E4) → leak-guard → rank+cap(5, E5). 14 tests. Verified: typecheck 0 · full suite **685 files / 13710 passed / 0 failures**. Commit: `feat(brain): add cross-tenant pattern aggregation core (§3.2)`.
+
+Together these complete the cross-tenant brain's **pure-compute layer** (config + thresholds + scrubber + aggregator), all gated behind `BEACON_CROSS_TENANT_BRAIN` (off) and inert at n=1 (only Ritz → self-excluded → []). The remaining producer I/O wiring (enumerate via `listTenants()`, read per-tenant via `forTenant`, then call the aggregator) requires changing the locked SYNC `getCrossTenantPatterns` stub to async + rippling into `specific-edit-evidence.ts` (the LLM evidence packet builder) — a coordinated, sensitive slice scoped as its own gated phase (§3.13). Building its compute dependencies first (done) de-risks that activation.
+
+**FLAGGED BLOCKERS (per goal: assume + keep moving, flag at end):**
+- 🔒 **Deploy is operator-gated** — no push/CI/Vercel this session (Actions minutes exhausted). 20-commit stack stays local.
+- 🔒 **No-LLM / no-connector / no-migration mode** — blocks §10 persist activation, §9 CallRail/GBP, any new migration, the brain producer's live activation.
+- 🔒 **MT-5** — explicit operator-approval-gated.
+- ⚖️ **S2-router** — judged net-negative (premature abstraction; isolation already pinned). Not built; documented.
+
+---
+
 ## 2026-05-26 — S4 partial: cross-tenant brain privacy scrubber built + green (§3.4 / E4)
 
 **Status:** Shipped locally (new pure module + 23 tests). Full suite green.
