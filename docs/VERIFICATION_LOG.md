@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-09 — Connector "refresh all data sources" orchestrator (§5, single-tenant half)
+
+**Status:** Shipped locally (orchestrator action + operator surface + 10 tests). Full suite green. No new HTTP/persistence — composes existing per-connector refresh actions.
+
+**Why this slice:** the GA4/CallRail/Semrush work I shipped is only as fresh as the last manual refresh, and each lived on a separate `/diagnostics/<provider>` page. This is #5's single-tenant-valuable half ("connector auto-refresh") — one click keeps the entire outcome-attribution substrate current. Deliberately **not scheduled** (no cron added — that's the constraint-gated/operator half); this is the orchestration seam the nightly poll could later call.
+
+**What shipped:**
+- **`/diagnostics/connectors/actions.ts` — `refreshAllDataSources()`:** operator-gated once, then composes the three already-gated, soft-failing per-connector refresh actions (`refreshTenantGa4Traffic`, `refreshCallRailMetrics`, `refreshSemrushMetrics`). Runs all three independently (one failing/skipping never blocks the others). Classifies each outcome: **refreshed** (data pulled) / **skipped** (`no_token`/`no_key`/`no_property`/`no_domain`/`disconnected` → not set up) / **failed** (connected but the pull errored). Returns per-connector results + refreshed/skipped/failed counts.
+- **`/diagnostics/connectors/page.tsx`:** operator-gated, force-dynamic, resilient. One row per cache-backed connector (GA4, CallRail, Semrush) with status pill + last-refreshed time + a "manage →" deep link, and a single "Refresh all connected sources" button (disabled when none connected). The updated last-refreshed timestamp after a refresh is the in-surface proof the pull landed. GSC excluded (on-demand URL inspection, no batch cache).
+
+**Constraints honored:** no cron / scheduler added (operator-triggered + poll-callable seam only); no new outbound HTTP path (reuses the three connectors' existing, tested clients); operator-gated end to end.
+
+**Tests (10):** operator gate (no sub-action fires for non-operator); all-connected → 3 refreshed with correct detail strings; not-connected reasons → skipped (not failed); error reason → failed, independent of the others (one fails, others still refresh/skip); all three sub-actions invoked even when the first fails. typecheck 0.
+
+Commit: `feat(connectors): one-click refresh-all orchestrator + operator surface (§5)`.
+
+---
+
 ## 2026-06-09 — CallRail connector — closes the revenue loop (cited → recommended → traffic → CALL)
 
 **Status:** Shipped locally (backend + feed-flip + operator surface + 46 tests). Full suite green (13824/0). Migration PENDING (deploy-applied); live pulls need the operator's CallRail key + account id.
