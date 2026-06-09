@@ -31,6 +31,7 @@ import {
 import {
   TodayV2ActionCardsSection,
   TodayV2DescriptorsSection,
+  TodayV2BeaconLearnedSection,
   TodayV2EditLifecycleSection,
   TodayV2EditOutcomesSection,
   TodayV2OffSiteAuthoritySection,
@@ -191,6 +192,13 @@ async function TodayV2SectionedContent() {
       </Suspense>
       <Suspense fallback={<TodayV2EditLifecycleSkeleton />}>
         <TodayV2EditLifecycleSection />
+      </Suspense>
+      {/* Phase A.2 §3.6 — "Beacon learned" tile. Gated behind
+          BEACON_BRAIN_LEARNED_TILE; the section returns null when the
+          flag is off or below the sample gate, so a null fallback
+          reserves no layout. */}
+      <Suspense fallback={null}>
+        <TodayV2BeaconLearnedSection />
       </Suspense>
       <Suspense fallback={<TodayV2EditOutcomesSkeleton />}>
         <TodayV2EditOutcomesSection />

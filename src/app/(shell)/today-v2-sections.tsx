@@ -46,6 +46,12 @@ import { loadOutcomesSummaryForTenant } from "@/domains/outcome-attribution/load
 import { loadOffSitePresenceSnapshot } from "@/domains/off-site-authority/load-snapshot";
 import { computeOffSiteRecommendationCandidates } from "@/domains/off-site-authority/recommendation-rules";
 import { currentTenantId } from "@/lib/tenant-context";
+import {
+  BeaconLearnedTile,
+  type BeaconLearnedState,
+} from "@/components/today/beacon-learned-tile";
+import { isBrainLearnedTileEnabled } from "@/domains/recommendations/cross-tenant-brain/config";
+import { BRAIN_SAMPLE_THRESHOLDS } from "@/domains/recommendations/cross-tenant-brain/thresholds";
 
 export async function TodayV2VisibilityGroupSection() {
   const data = await loadTodayV2VisibilityData();
@@ -100,6 +106,38 @@ export async function TodayV2EditLifecycleSection() {
       repeatCitation30d={summary.repeat_citation_30d}
     />
   );
+}
+
+/**
+ * Phase A.2 §3.6 (2026-05-26) — "Beacon learned" tile section. Gated
+ * behind `BEACON_BRAIN_LEARNED_TILE` (off by default — "coming soon").
+ * When ON, surfaces the PER-TENANT citation-timing insight only when
+ * the tenant has crossed the customer-tile sample gate AND the loader
+ * resolved Beacon-owned (not borrowed) thresholds — the honesty gate.
+ * Otherwise renders nothing. Returns null immediately when the flag is
+ * off, so production Today is byte-identical until activation.
+ */
+export async function TodayV2BeaconLearnedSection() {
+  if (!isBrainLearnedTileEnabled()) return null;
+  let state: BeaconLearnedState = { kind: "hidden" };
+  try {
+    const tenantId = await currentTenantId();
+    const summary = await loadLifecycleSummaryForTenant({ tenantId });
+    const d = summary.threshold_decision;
+    if (
+      d.source === "per_tenant" &&
+      d.sample_size >= BRAIN_SAMPLE_THRESHOLDS.customer_tile
+    ) {
+      state = {
+        kind: "per_tenant",
+        medianDays: d.thresholds.median_days,
+        sampleSize: d.sample_size,
+      };
+    }
+  } catch {
+    state = { kind: "hidden" };
+  }
+  return <BeaconLearnedTile state={state} />;
 }
 
 /**

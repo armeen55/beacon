@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-05-26 — §3.6 "Beacon learned" customer tile (flag-gated)
+
+**Status:** Shipped locally (new customer component + flag-gated Today section + test). Build + full suite green.
+
+**What.** `src/components/today/beacon-learned-tile.tsx` — pure presentational customer tile (per_tenant / network / hidden states). `TodayV2BeaconLearnedSection` in `today-v2-sections.tsx` gates on `isBrainLearnedTileEnabled()` (returns null immediately when OFF → production Today byte-identical) and, when ON, surfaces the per-tenant insight ONLY when `threshold_decision.source === "per_tenant"` AND `sample_size >= BRAIN_SAMPLE_THRESHOLDS.customer_tile` (10) — the honesty gate. Wired into `page.tsx` after the lifecycle tile, `<Suspense fallback={null}>` (self-hiding → no reserved layout). Reuses the lifecycle summary loader; no new data path.
+
+**Customer-safe.** Copy: "Beacon learned from your site — your shipped edits typically get their first AI citation within {N} days, measured from {M} of your own cited edits, not a borrowed benchmark." Verified against the forbidden-customer-vocabulary contract (no Mode A/B/C, no causal/revenue, no internal taxonomy). 8 tile tests (3 states + vocab scan).
+
+**Verified:** typecheck 0 · tile + forbidden-vocab contract green · build 0 (Today wiring compiles) · full suite 13750 passed / 0 failures. Commit: `feat(today): add flag-gated "Beacon learned" tile (§3.6)`.
+
+**§3 status after this:** compute layer (scrubber + aggregator) ✅, operator surface ✅, customer tile ✅. ONLY the producer I/O wiring remains (the sync→async + LLM-packet ripple keystone) — gated, inert at n=1, all deps built.
+
+---
+
 ## 2026-05-26 — §3.10 operator cross-tenant-brain surface + google-auth flake fix
 
 **Status:** Shipped locally (new operator route + page test + flaky-test fix). Build + full suite green.
