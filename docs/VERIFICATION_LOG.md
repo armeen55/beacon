@@ -53,6 +53,20 @@
 
 ---
 
+## 2026-05-26 — Fix: N2 pin tripped a meta-test false-positive (caught by full-suite gate)
+
+**Status:** Fixed + re-verified green. Test-comment-only change.
+
+**What the final full-suite gate caught.** After the N2 pin (`16f5e66`), the definitive full-suite run failed 1 test: `llm-budget-test-isolation.test.ts` flagged `cost-controls.test.ts` as "writes to a global store but not hermetically isolated." **False positive.** That meta-test's *loop-shape heuristic* (`writeStore(<var>,` + a global-store name literal in the same file → assume the test writes the store) matched my new block's **comment** "written via `writeStore(STORE_NAME, ...)`" co-occurring with the `"llm-budget"` literal. My test only READS source via `readFileSync` + regex; it never persists. The meta-test's own header notes "this is a heuristic; tighten if false positives appear."
+
+**Why targeted runs missed it.** I'd run `cost-controls.test.ts` + `catalog-sync.test.ts` targeted (green) but not the *meta-test that scans all test files* — only the full suite exercises that cross-file interaction. Validates the "run the full suite when anything could interact" rule.
+
+**Fix.** Reworded the comment to drop the literal `writeStore(STORE_NAME, ...)` call-shape (now: "persisted by adjudicator-budget.ts via the json-store writer keyed by its STORE_NAME constant") + added a note that this static-analysis file never persists. My scan regex `/writeStore/` (bare) and smoke `/writeStore<…>\(STORE_NAME/` (the `<` breaks the heuristic's `writeStore\s*\(` match) don't trigger it — only the comment did. Did NOT touch the meta-test (kept the fix local to my file).
+
+**Verified:** meta-test + cost-controls + catalog-sync → 38 passed; **full suite re-run → 683 files, 13673 passed, 0 failures, exit 0.** Commit: `test(cost): fix N2-pin comment tripping llm-budget meta-test`.
+
+---
+
 ## 2026-05-26 — §12 N2 llm-budget store write-isolation pin (follow-on)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. Local-only. Test-only (no src/behavior change).

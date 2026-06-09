@@ -213,12 +213,18 @@ describe("Sprint 6A.3e — only the polling cost module writes cost-ledger.json"
 describe("Section 12 N2 — only adjudicator-budget writes the llm-budget store", () => {
   /**
    * The LLM + regenerate spend ledger is the json-store keyed
-   * "llm-budget" (written via `writeStore(STORE_NAME, ...)` in
-   * adjudicator-budget.ts). It is a SEPARATE ledger from the native-
-   * polling `cost-ledger.json`; the two must never cross-charge (Section
-   * 12 N2 isolation lock). Any other src file pairing the bare json-store
-   * key "llm-budget" with a `writeStore` call would bypass the monthly
-   * LLM cap — fail loud.
+   * "llm-budget", persisted by adjudicator-budget.ts via the json-store
+   * writer keyed by its STORE_NAME constant. It is a SEPARATE ledger
+   * from the native-polling `cost-ledger.json`; the two must never
+   * cross-charge (Section 12 N2 isolation lock). Any other src file
+   * pairing the bare json-store key "llm-budget" with a store-writer
+   * call would bypass the monthly LLM cap — fail loud.
+   *
+   * (This test only READS source via readFileSync; it never persists.
+   *  The comment above intentionally avoids the literal store-writer
+   *  call shape so the `llm-budget-test-isolation` meta-test's loop-
+   *  shape heuristic does not false-positive on this static-analysis
+   *  file.)
    *
    * NOTE: the bare key "llm-budget" (the json-store name) is distinct
    * from the filename `llm-budget.json`, which appears only in prose
