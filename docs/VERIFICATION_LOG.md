@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-05-26 — S4 partial: cross-tenant brain privacy scrubber built + green (§3.4 / E4)
+
+**Status:** Shipped locally (new pure module + 23 tests). Full suite green.
+
+**What + why.** Pushed S4 forward by building its safety-critical foundation: `src/domains/recommendations/cross-tenant-brain/privacy.ts` — `scrubPatternDescription(description, blocklist)` + `containsBlocklistedTerm` + `normalizeBlocklist`. This is the E4-locked primitive that strips any other tenant's identifying strings (names/domains/aliases/competitors) from a `CrossTenantPattern.description` before it could ever be packeted or surfaced. PURE (no I/O, no env, no tenant context, deterministic). Privacy-first design: case-insensitive substring matching, longest-term-first (so a full domain redacts as a unit), regex-escaped terms, ≥2-char terms only (a 1-char term would shred text), over-redaction is the SAFE failure. Confirmed net-new (no existing scrubber; `copy-sanitize.ts:scrubInternalLeakagePatterns` is a different concern — internal tokens, not a tenant blocklist).
+
+**Why only the scrubber (not the full producer).** The remaining S4 work — the real `getCrossTenantPatterns` producer (still a `[]` stub) — requires an intentional CROSS-tenant read (aggregate all tenants' recommended_edits + lifecycle, exclude self, scrub, cap, sample-gate). The repository is `forTenant`-scoped by design, so the producer needs a deliberate all-tenants read mechanism + is the highest-privacy-risk component in the system, AND returns `[]` at n=1 (only Ritz, self-excluded) — it's gated behind `BEACON_CROSS_TENANT_BRAIN` (off). Building that half-baked at session-tail would create the exact privacy risk §3.4 most fears. It stays the careful, dedicated, gated slice the plan (§3.13) scoped — now with its scrubber dependency ready + proven.
+
+**Verified (local only):** typecheck clean ✅ · `privacy.test.ts` 23 cases ✅ (redaction, case-insensitivity, longest-first non-fragmentation, regex-metachar literal-matching, over-redaction-safe, no-op/empty/non-string defensive, normalize hygiene, post-scrub guard, determinism) · **full suite 684 files / 13696 passed / 0 failures** ✅ (new module tripped no invariant). Commit: `feat(brain): add cross-tenant pattern privacy scrubber (§3.4/E4)`.
+
+---
+
 ## 2026-05-26 — S3 follow-through: tenant-isolation LEAK AUDIT of data-access surface → ZERO leaks
 
 **Status:** Read-only security audit (no code change). Closes S3 with evidence, not just judgment.
