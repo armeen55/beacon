@@ -98,9 +98,13 @@ describe("google-auth signed state — encode / decode round-trip", () => {
       n: "nonce",
       i: Date.now(),
     });
-    // Flip a character in the body half.
+    // Flip the FIRST body char to a different base64url char. The
+    // first char carries the full high bits of byte 0, so the change
+    // is always significant (the last base64url char can have
+    // don't-care low bits → a last-char flip can be a byte-level
+    // no-op → flaky, same class as the signature case below).
     const [body, sig] = encoded.split(".");
-    const tampered = `${body!.slice(0, -2)}XX.${sig}`;
+    const tampered = `${body!.slice(0, 1) === "A" ? "B" : "A"}${body!.slice(1)}.${sig}`;
     const result = decodeOAuthState(tampered);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -115,7 +119,15 @@ describe("google-auth signed state — encode / decode round-trip", () => {
       i: Date.now(),
     });
     const [body, sig] = encoded.split(".");
-    const tampered = `${body}.${sig!.slice(0, -2)}00`;
+    // The signature is LOWERCASE hex and Buffer.from(_, "hex") is
+    // case-insensitive, so flipping to a different *hex nibble* is the
+    // only guaranteed-different tamper. (The old `slice(0,-2)+"00"` was
+    // a no-op when the sig ended in "00"; an "a"->"A" flip is a no-op
+    // because both decode to byte 0x0a. The payload carries Date.now()
+    // so the sig — and thus the last nibble — varies per run → flaky.)
+    const lastNibble = sig!.slice(-1).toLowerCase();
+    const flipped = lastNibble === "0" ? "1" : "0";
+    const tampered = `${body}.${sig!.slice(0, -1)}${flipped}`;
     const result = decodeOAuthState(tampered);
     expect(result.ok).toBe(false);
     if (result.ok) return;

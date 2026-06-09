@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-05-26 — §3.10 operator cross-tenant-brain surface + google-auth flake fix
+
+**Status:** Shipped locally (new operator route + page test + flaky-test fix). Build + full suite green.
+
+**§3.10 — operator diagnostic surface (E9).** New `src/app/(shell)/diagnostics/cross-tenant-brain/page.tsx`: operator-only (`isOperatorModeServer()` → `notFound()`), `force-dynamic`, resilient (failed reads → empty state). Surfaces: the two activation gates (`BEACON_CROSS_TENANT_BRAIN` / `BEACON_BRAIN_LEARNED_TILE`), the E3 sample-size thresholds (5/10/20), the LIVE per-tenant threshold decision (S1 — borrowed vs Beacon-owned + sample/excluded counts via `loadLifecycleSummaryForTenant`), and the cross-tenant producer pattern count (0 at n=1, with the honest "self-excluded / gate-off" reason). Disambiguates from `/diagnostics/brain` (tenant-local readiness) per the E9 lock. 9 render/gate tests. Route compiled into the build manifest. Gate fixed mid-build: copied the brain page's `|| NODE_ENV==="test"` escape (which defeats the 404 test) → switched to the off-site page's pure `isOperatorModeServer()` gate.
+
+**Bug caught + fixed — pre-existing full-suite flake in `google-auth-scope-split.test.ts`.** The new route shifted test execution enough to surface it (the failure was unrelated to OAuth — my change can't touch HMAC). Root cause: the "tampered signature fails verification" test tampered via `sig.slice(0,-2)+"00"` — a **no-op when the sig ends in "00"**. My first fix (flip last char to `"A"`) was ALSO wrong: signatures are **lowercase hex** and `Buffer.from(_,"hex")` is **case-insensitive**, so `"a"→"A"` decodes to the same byte (0x0a) → still a no-op. Because the payload carries `Date.now()`, the sig's last char varies per run → the test failed only when it ended in `"a"` (~1/16 runs) → flaky. **Fix:** tamper by flipping the last **hex nibble** (`"0"↔"1"`) — guaranteed-different byte. Hardened the body-tamper test the same way (flip the first base64url char — always fully significant; a last-char flip can hit don't-care low bits). Verified: **0 failures across 20 isolated runs** (previously ~1–2/20), then **full suite 686 files / 13720 passed / 0 failures**.
+
+**Files:** `diagnostics/cross-tenant-brain/page.tsx` (new) · `cross-tenant-brain-page.test.tsx` (new, 9) · `google-auth-scope-split.test.ts` (flake fix). typecheck 0 · build 0 (route in manifest) · full suite 13720/0. Commit: `feat(brain): operator cross-tenant-brain diagnostic surface (§3.10) + fix flaky oauth tamper test`.
+
+---
+
 ## 2026-05-26 — Continuous-execution pass: roadmap checklist + brain compute layer
 
 **Goal:** execute the full roadmap top-to-bottom, autonomously, logging as I go. This entry is the running log + the workstream checklist.
