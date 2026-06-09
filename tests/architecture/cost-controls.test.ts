@@ -208,6 +208,58 @@ describe("Sprint 6A.3e — only the polling cost module writes cost-ledger.json"
   });
 });
 
+// ── llm-budget store write isolation (Section 12 N2) ───────────────────
+
+describe("Section 12 N2 — only adjudicator-budget writes the llm-budget store", () => {
+  /**
+   * The LLM + regenerate spend ledger is the json-store keyed
+   * "llm-budget" (written via `writeStore(STORE_NAME, ...)` in
+   * adjudicator-budget.ts). It is a SEPARATE ledger from the native-
+   * polling `cost-ledger.json`; the two must never cross-charge (Section
+   * 12 N2 isolation lock). Any other src file pairing the bare json-store
+   * key "llm-budget" with a `writeStore` call would bypass the monthly
+   * LLM cap — fail loud.
+   *
+   * NOTE: the bare key "llm-budget" (the json-store name) is distinct
+   * from the filename `llm-budget.json`, which appears only in prose
+   * comments of monthly.ts / budget.ts / specific-edit-llm-history.ts /
+   * recommended-edits-persistence.ts. Those are read-only references, not
+   * writers, and are NOT matched by the bare-key regex below.
+   *
+   * Allowed to reference the bare key:
+   *   - adjudicator-budget.ts: defines + writes the store (canonical writer)
+   *   - store-classification.ts: lists "llm-budget" in the store registry
+   *     for classification metadata (no writeStore of this key)
+   */
+  const ALLOWED = new Set<string>([
+    "src/domains/recommendations/adjudicator-budget.ts",
+    "src/lib/persistence/store-classification.ts",
+  ]);
+
+  it('no source file outside the allowlist writes the "llm-budget" store', () => {
+    const offenders: string[] = [];
+    for (const f of walk(SRC_ROOT)) {
+      const rel = f.slice(REPO_ROOT.length + 1);
+      if (ALLOWED.has(rel)) continue;
+      const src = readFileSync(f, "utf8");
+      // Bare json-store key, NOT the `llm-budget.json` filename-in-comments.
+      if (/"llm-budget"/.test(src) && /writeStore/.test(src)) {
+        offenders.push(rel);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("adjudicator-budget.ts is the canonical llm-budget writer (smoke)", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "domains/recommendations/adjudicator-budget.ts"),
+      "utf8",
+    );
+    expect(src).toMatch(/STORE_NAME\s*=\s*"llm-budget"/);
+    expect(src).toMatch(/writeStore<[^>]*>\(STORE_NAME/);
+  });
+});
+
 // ── Existing LLM safety invariants stay green (smoke) ───────────────────
 
 describe("Sprint 6A.3e — existing LLM safety invariants intact", () => {

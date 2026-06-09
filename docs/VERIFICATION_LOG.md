@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-05-26 — §12 N2 llm-budget store write-isolation pin (follow-on)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. Local-only. Test-only (no src/behavior change).
+
+**What changed.** Extended `tests/architecture/cost-controls.test.ts` with a new describe block "Section 12 N2 — only adjudicator-budget writes the llm-budget store" (2 cases): an isolation scan (no src file outside the allowlist pairs the bare json-store key `"llm-budget"` with `writeStore`) + a writer smoke (`adjudicator-budget.ts` has `STORE_NAME = "llm-budget"` + `writeStore(STORE_NAME...)`).
+
+**Why bare-key, not filename.** Ground-truth checked first: the LLM ledger is written via `writeStore("llm-budget", ...)` (json-store key), NOT direct `writeFileSync` to a `llm-budget.json` path. The filename `llm-budget.json` appears only in prose comments of monthly.ts / budget.ts / specific-edit-llm-history.ts / recommended-edits-persistence.ts — read-only references. Pinning the bare quoted key `"llm-budget"` avoids false-positives (esp. specific-edit-llm-history.ts, which has a `llm-budget.json` comment + a `writeStore` to its OWN store). `grep '"llm-budget"' src/` → only `adjudicator-budget.ts` (writer) + `store-classification.ts` (registry listing, no writeStore). No `readStore("llm-budget")` elsewhere.
+
+**Closes the lower-risk half of N2** (symmetric to the existing cost-ledger isolation pin). STILL OPEN: `cap_kind` annotation + unified `recordSpend({ledger})` router (cost-path refactor; dedicated slice).
+
+**Verified (local only):** `npx vitest run cost-controls.test.ts catalog-sync.test.ts` → 2 files / 31 passed ✅ (catalog-sync green — extended an existing file, no new catalog row). Extends an existing test file → no full-suite needed (additive, isolated; src unchanged from the 13671-green baseline).
+
+**Commit (local only):** `test(cost): pin llm-budget store write isolation (§12 N2)`. **NOT pushed** — stack → 11 ahead.
+
+---
+
 ## 2026-05-26 — MVP audit sweep + process-global straggler truth-up
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. Actions exhausted → local-only.
