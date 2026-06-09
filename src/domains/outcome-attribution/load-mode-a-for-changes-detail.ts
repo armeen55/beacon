@@ -99,6 +99,7 @@
  */
 
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { loadQualifiedCallCountForUrl } from "@/lib/connectors/callrail/persist-url-calls";
 import {
   computeModeATrafficAttribution,
   type ModeAResult,
@@ -209,11 +210,25 @@ export async function loadModeAForChangesDetail(
         });
       }
 
+      // §9.B — qualified calls from CallRail attributed to this URL since
+      // it went live. Soft-fails to 0 (no CallRail / no Supabase / no
+      // rows), so with CallRail unconnected this is byte-identical to the
+      // old hardcoded 0.
+      const since = recommendedEdit.live_at
+        ? recommendedEdit.live_at.slice(0, 10)
+        : null;
+      const qualifiedCallCount = since
+        ? await loadQualifiedCallCountForUrl({
+            tenantId,
+            canonicalUrl: canonicalTargetUrl,
+            sinceUtcDate: since,
+          })
+        : 0;
+
       return computeModeATrafficAttribution({
         recommendedEdit,
         ga4UrlTrafficRows: rows,
-        // K2-deferred CallRail; light up in 9.B when the connector ships.
-        qualifiedCallCount: 0,
+        qualifiedCallCount,
         now,
       });
     },

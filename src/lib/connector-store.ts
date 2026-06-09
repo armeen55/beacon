@@ -62,7 +62,8 @@ export type ConnectorProvider =
   | "google_gbp"
   | "google_ga4"
   | "yelp"
-  | "semrush";
+  | "semrush"
+  | "callrail";
 
 /** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
 export type GoogleConnectorToken = {
@@ -136,10 +137,26 @@ export type SemrushConnectorToken = {
   disconnected_at?: string;
 };
 
+/**
+ * CallRail API — API token + account id (never sent to the client).
+ * Token-header auth (no OAuth). `account_id` scopes the calls endpoint
+ * (/v3/a/{account_id}/calls.json). Soft-disconnect via `disconnected_at`
+ * mirrors the other connectors so cached call attribution is preserved.
+ */
+export type CallRailConnectorToken = {
+  provider: "callrail";
+  api_key: string;
+  account_id: string;
+  connected_at: string;
+  last_synced_at?: string;
+  disconnected_at?: string;
+};
+
 export type ConnectorToken =
   | GoogleConnectorToken
   | YelpConnectorToken
-  | SemrushConnectorToken;
+  | SemrushConnectorToken
+  | CallRailConnectorToken;
 
 export type ConnectorStatus = "connected" | "disconnected";
 
@@ -253,6 +270,13 @@ export async function getSemrushConnectorToken(
   return t != null && t.provider === "semrush" ? t : null;
 }
 
+export async function getCallRailConnectorToken(
+  tenantId?: string,
+): Promise<CallRailConnectorToken | null> {
+  const t = await getConnectorToken("callrail", tenantId);
+  return t != null && t.provider === "callrail" ? t : null;
+}
+
 export async function getConnectorInfo(
   provider: ConnectorProvider,
   tenantId?: string,
@@ -302,15 +326,16 @@ export async function getConnectorInfo(
       ...sharedFields,
     };
   }
-  // Semrush soft-disconnect mirrors the Google connectors: the row is
-  // preserved so cached metrics survive, but we report `disconnected`
-  // when `disconnected_at` is set (UI shows Connect + last-synced).
-  const semrushDisconnected =
-    token.provider === "semrush" &&
+  // Semrush + CallRail soft-disconnect mirrors the Google connectors:
+  // the row is preserved so cached data survives, but we report
+  // `disconnected` when `disconnected_at` is set (UI shows Connect +
+  // last-synced).
+  const softDisconnected =
+    (token.provider === "semrush" || token.provider === "callrail") &&
     token.disconnected_at != null &&
     token.disconnected_at !== "";
   return {
-    status: semrushDisconnected ? "disconnected" : "connected",
+    status: softDisconnected ? "disconnected" : "connected",
     connected_at: token.connected_at,
     expires_at: null,
     last_synced_at: token.last_synced_at ?? null,
@@ -371,6 +396,12 @@ type SemrushConnectorPatch = Partial<
     "api_key" | "database" | "last_synced_at" | "disconnected_at"
   >
 >;
+type CallRailConnectorPatch = Partial<
+  Pick<
+    CallRailConnectorToken,
+    "api_key" | "account_id" | "last_synced_at" | "disconnected_at"
+  >
+>;
 
 export async function updateConnectorToken(
   provider: "google_gsc" | "google_gbp" | "google_ga4",
@@ -388,8 +419,17 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
+  provider: "callrail",
+  patch: CallRailConnectorPatch,
+  tenantId?: string,
+): Promise<void>;
+export async function updateConnectorToken(
   provider: ConnectorProvider,
-  patch: GoogleConnectorPatch | YelpConnectorPatch | SemrushConnectorPatch,
+  patch:
+    | GoogleConnectorPatch
+    | YelpConnectorPatch
+    | SemrushConnectorPatch
+    | CallRailConnectorPatch,
   tenantId?: string,
 ): Promise<void> {
   const tid = await resolveTenantId(tenantId);

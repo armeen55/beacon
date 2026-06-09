@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-06-09 — CallRail connector — closes the revenue loop (cited → recommended → traffic → CALL)
+
+**Status:** Shipped locally (backend + feed-flip + operator surface + 46 tests). Full suite green (13824/0). Migration PENDING (deploy-applied); live pulls need the operator's CallRail key + account id.
+
+**Why this slice:** the highest-value not-yet-built piece of the "Proof Engine + Move Forecast" killer feature — **half C, "close it to revenue."** The Mode A engine already threads `qualifiedCallCount` → `post_live_qualified_calls` (K4 ≥1-call branch) and the customer copy ("received N sessions and M calls in the X days since going live") was already written + runtime-suppressed at calls=0. The only missing link was an actual source of call counts. This builds it.
+
+**The loop, end to end:**
+- **Auth/store:** `callrail` provider added to `connector-store` + `CallRailConnectorToken` (API-key auth like Yelp/Semrush; soft-disconnect preserves cached attribution through key rotation) + `getCallRailConnectorToken` + `updateConnectorToken` overload. **No migration for the key** — `connector_tokens` is provider-agnostic JSONB.
+- **Client (`src/lib/connectors/callrail/`):** `client.ts` — `GET /v3/a/{account_id}/calls.json` with `Authorization: Token token={key}`, `fields=landing_page_url,answered,duration,lead_status,start_time`; server-only, tenant-scoped, key never logged, **fail-soft** on `no_key`/`disconnected`/non-2xx/missing-array/network. `calls-by-url.ts` — `isQualifiedCall` (good_lead OR answered & duration ≥ 60s) + `groupCallsByUrlDay` (canonicalizes the landing URL via `canonicalizeCitationUrl`, buckets by UTC day, drops un-attributable, deterministic sort) + `sumQualifiedForUrl`. `types.ts`.
+- **Persist (`persist-url-calls.ts`):** `refreshCallRailCalls` fetch → group → upsert to `call_url_attribution`, soft-fails on missing table/Supabase, stamps `last_synced_at`. `loadQualifiedCallCountForUrl` (the read the Mode A feed calls) sums qualified calls for one canonical URL since a date — wrapped in try/catch → **0 on any error**, so with CallRail unconnected the outcome surfaces are byte-identical to before. `loadRecentCallAttribution` powers the operator view.
+- **Feed-flip:** both Mode A loaders — `load-mode-a-for-changes-detail.ts` + `load-outcomes-summary-for-tenant.ts` — replaced their hardcoded `qualifiedCallCount: 0` with `loadQualifiedCallCountForUrl({tenantId, canonicalUrl, sinceUtcDate: live_at})`. No `live_at` → still 0 (read skipped).
+- **Migration:** `migrations/2026-06-09_call_url_attribution.sql` — additive cache table `(tenant_id, url, date)` PK + `last_synced_at` index, RLS deny-all. Sibling of `ga4_url_traffic`. **PENDING apply** (deploy-time, operator-approved; reads soft-fail on 42P01 until then) — I did NOT apply it.
+- **Operator surface (`/diagnostics/callrail`):** operator-gated, force-dynamic, resilient. Connect form (paste key + account id) → `connectCallRail`; "Refresh calls" → `refreshCallRailMetrics`; cached attribution-row view (URL · date · qualified/total) + soft-disconnect. All three actions operator-gated (non-operator → `not_operator`, no key stored, no HTTP).
+
+**Constraints honored:** I did NOT make live CallRail calls (no key) — tests inject `fetchImpl` + `token`, never touching the network. Migration written, not applied. No push.
+
+**Tests (46):** connector client fail-soft / request shape / error handling / parse + `isQualifiedCall` + `groupCallsByUrlDay` + `sumQualifiedForUrl` + refresh assembly (15); Mode A loader **call-count wiring** — non-zero count threads into compute, stays 0 with no `live_at` (2 new); the two loader tests now mock the CallRail collaborator so their exact GA4-query-shape assertions stay valid (the loaders genuinely do a 2nd read now); actions operator-gate + connect/refresh/disconnect (10); page render + operator gate + connected/disconnected/rows states (5). typecheck 0 · **full suite 13824 passed / 25 skipped / 0 failures.**
+
+**FLAGGED (operator):** (1) live pulls need the operator to paste a CallRail API key + numeric account id on `/diagnostics/callrail` (operator-mode) — I can't (no key). (2) The migration applies on deploy. (3) The qualified rule (answered ≥60s OR good_lead) is a sensible default; tune per business if needed.
+
+Commit: `feat(callrail): connector loop + Mode A call-count feed-flip + operator surface (§9.B)`.
+
+---
+
 ## 2026-06-09 — Semrush connector — full loop (connect → fetch → persist → view)
 
 **Status:** Shipped locally (backend + operator surface + 32 tests). Build + full suite green. Migration PENDING (deploy-applied); live pulls need the operator's key.
