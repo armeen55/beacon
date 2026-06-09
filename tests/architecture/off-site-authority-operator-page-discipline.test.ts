@@ -6,7 +6,7 @@
  *
  *   1. Declares `export const dynamic = "force-dynamic"` so Vercel
  *      never statically prerenders the read (the loader touches
- *      process-global helpers + per-tenant per-request data).
+ *      tenant-keyed business-config + per-tenant per-request data).
  *   2. Imports `isOperatorModeServer` from `@/lib/operator-mode`.
  *   3. Imports `notFound` from `next/navigation`.
  *   4. Active source contains an `isOperatorModeServer(` invocation

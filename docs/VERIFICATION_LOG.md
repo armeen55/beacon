@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-05-26 — MVP audit sweep + process-global straggler truth-up
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. Actions exhausted → local-only.
+
+**Audit (read-only deep verification of 4 plan subsystems via parallel Explore agents):**
+- **§8 GSC depth (J-block):** VERIFIED COMPLETE. J2 expiry-handler (7-day soft-fail + reconnect copy), J3 quota-stagger (4h hash-bucket by tenant_id + exp-backoff, max 3 retries), J4 rich fields (`last_crawl_time` + `mobile_usability` from raw JSONB), J5 soft-disconnect (cached state preserved) — all built + tested. J1 multi-property correctly deferred. Invariants present: property-mapping-required, no-GSC-on-page-load, tenant-isolation. **No gaps.**
+- **§9 Outcome-Attribution:** VERIFIED COMPLETE. GA4 (K1) property-selection + data-api + `ga4_url_traffic` migration + persist + normalization; Mode A guard (K4: ≥7d post-live AND (≥5 sessions OR ≥1 call)); customer copy + forbidden-vocab (K5) on Today tile + Changes Act-3; operator `/diagnostics/outcome-attribution`; tenant-isolation + no-revenue-claim + no-call-on-load invariants. CallRail (K2) + GBP-insights (K3) correctly absent with forward-compat slots. **No gaps.**
+- **§3 Cross-Tenant Brain:** partial-by-design. Env gates (`BEACON_CROSS_TENANT_BRAIN` / `BEACON_BRAIN_LEARNED_TILE`), LLM-packet wiring, sample-size thresholds, `compute-tenant-thresholds.ts` all built + tested. Producer = intentional stub (`getCrossTenantPatterns` → `[]`; correct at n=1 tenant). **GAP: per-tenant threshold compute NOT wired into `citation-lifecycle/thresholds.ts`** (still static borrowed 6/18/37) → slice S1. "Beacon learned" tile + privacy scrubber unbuilt (multi-tenant + LLM work) → S4.
+- **§12 Invariants/Safety/Budget:** N1 (catalog + `catalog-sync.test.ts`, 232 test files ↔ catalog rows) ✅; N4 forbidden-vocab (8 dedicated tests: Mode A/B/C, causal/revenue, off-site labels) ✅. **N2 half-wired**: two ledgers isolated + `cost-controls` pins polling side, but no `recordSpend({ledger})` router, no `cap_kind`, no LLM-side isolation pin → S2. **N3 missing**: no comprehensive tenant-isolation scan (13+ targeted tests + RLS + repo-pattern exist; low urgency) → S3.
+
+**Bug caught + fixed (the "check every dot" payoff).** The `dd4c52f` footer-copy-refresh updated `ALWAYS_INCLUDED_NOTES` + 2 test files but **missed a third copy of those strings**: `tests/app/diagnostics/off-site-authority-page.test.tsx` `STANDARD_NOTES` (lines 120-125) still carried the old "process-global today" / "not implemented until C7g" strings. The suite stayed green because the fixture feeds a self-consistent mock the page renders + the loop asserts against — but it asserted the operator page against copy `computeOffSitePresenceSnapshot` can no longer produce (a fidelity gap, not a failure). Fixed to the shipped "tenant-scoped" strings.
+
+**Comment truth-ups (zero behavior).** `src/domains/off-site-authority/types.ts` header (C7d/C7e now shipped on tenant-correct path; business-config tenant-keyed; prerequisite catalog row retired) + `off-site-authority-operator-page-discipline.test.ts` JSDoc ("process-global helpers" → "tenant-keyed business-config"; force-dynamic still justified by per-tenant per-request data).
+
+**Repo-wide sweep:** `grep -rn "process-global today\|not implemented until C7g\|multi-tenant routing not yet implemented" src/ tests/ scripts/` → **0 matches.** dd4c52f's truth-up is now complete.
+
+**Files (3 code/test + 3 docs):** `src/domains/off-site-authority/types.ts` · `tests/app/diagnostics/off-site-authority-page.test.tsx` · `tests/architecture/off-site-authority-operator-page-discipline.test.ts` + HANDOFF/NEXT_PHASE/VERIFICATION. (`docs/FABLE_CONTEXT_CAPSULE.md` updated too but left **untracked** — portable Fable handoff, intentionally out of the push stack.)
+
+**Verified (local only):**
+- `npm run typecheck` — clean ✅
+- targeted: off-site batch (9 files / 170 cases) + page-test/discipline/purity/catalog-sync (4 files / 51 cases) ✅
+- `npm run test` (full) — **683 files / 13671 passed, 25 skipped, 0 failures** ✅ (count unchanged — confirms comment/fixture-only, no executable change)
+
+**Commit (local only):** `chore(off-site): finish process-global truth-up + fix stale test fixture`. **NOT pushed** — local stack now 10 ahead of origin/main.
+
+---
+
 ## 2026-05-26 — Slice: Ops-safety — thin poll schedules + CI build gate
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
