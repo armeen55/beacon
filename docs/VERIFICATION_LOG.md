@@ -7,6 +7,29 @@
 
 ---
 
+## 2026-06-09 — Move Forecast composer — killer-feature half A ("before you ship")
+
+**Status:** Compute built locally + green (11 tests). Pure (no I/O). **Inert until tenant #2 + `BEACON_CROSS_TENANT_BRAIN` on + a Move surface** — same built-but-gated posture as the cross-tenant brain it rides on. Render activation deferred with the rest of the brain runtime.
+
+**Why this slice:** completes the killer-feature trilogy. C (calls / "close to revenue") and B (Proof Engine / "after you ship," already surfaced via `AttributionDrilldown`) were done; A is the "before you ship" half — forecast an edit's likely outcome from real peer results so the owner sees the odds before spending a dev hour.
+
+**What shipped (`src/domains/product/move-forecast.ts`):** `buildPeerMoveForecast(args) → MoveForecast | null`. The What-If engine (`simulateAction`) speaks only from THIS tenant's history; when that's thin it returns `direction: "insufficient_data"` and says nothing. This pure composer fills exactly that gap from the cross-tenant brain's `CrossTenantPattern[]`:
+- Fills ONLY when this-tenant evidence is thin (defers to simulateAction's first-party signal otherwise).
+- Matches patterns whose `matchKey` references the action type; picks the strongest (most peer attempts, then highest helpingRate).
+- **Honesty floors (mirror natural-controls' computed-vs-weak discipline):** suppress entirely below `FORECAST_SUPPRESS_BELOW` (3) peer attempts; flag `seeded` (early-signal "still gathering data; treat as directional" caveat) below `FORECAST_SEEDED_BELOW` (10).
+- Returns `null` whenever there's nothing honest to say. The gate-first producer returns `[]` at n=1 / gate-off, so this is **always null today** — no fake forecasts, no causal claims (causation is the Proof Engine's job).
+- Copy is plain English + associative (not causal), matching simulateAction's voice: "{pct}% of {N} similar changes shipped by other businesses like you had a positive outcome."
+
+**Why a pure composer, not a `simulateAction` edit:** keeps the hardened pure core untouched; the composer is the thin, testable seam a future Move surface calls after running the producer (async, gated) + simulateAction.
+
+**Tests (11):** fills only when thin (defers on sufficient first-party evidence); inert at no-patterns / no-match; suppress floor; seeded band (caveat + pct); confident band; action-type matching; strongest-pattern selection + tie-break. typecheck 0.
+
+**FLAGGED (deferred, same gates as the brain):** rendering one forecast line on a customer "Move" surface needs (1) a 2nd tenant (producer returns [] at n=1), (2) `BEACON_CROSS_TENANT_BRAIN=1`, (3) a customer Move surface to host it (today `simulateAction` is operator-diagnostic-only). The compute is ready; activation is the deferred runtime wiring.
+
+Commit: `feat(move-forecast): peer-outcome forecast composer (killer-feature half A, gated)`.
+
+---
+
 ## 2026-06-09 — Connector "refresh all data sources" orchestrator (§5, single-tenant half)
 
 **Status:** Shipped locally (orchestrator action + operator surface + 10 tests). Full suite green. No new HTTP/persistence — composes existing per-connector refresh actions.
