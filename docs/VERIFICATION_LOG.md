@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-05-26 — CORRECTION: S1 (per-tenant thresholds) is shipped + green, not pending
+
+**Status:** Read-only verification + doc correction (no code change).
+
+**What happened.** Preflighting S1 (the "highest-value pending slice" per the earlier audit) to attempt it, I discovered it is **already fully wired + verified green**. The earlier "per-tenant thresholds NOT wired = S1 pending" finding was an **audit error**: the §3 Explore agent traced only `citation-lifecycle/thresholds.ts` (which correctly remains the borrowed-6/18/37 constants source, pinned by `thresholds-provenance.test.ts`) and inferred "not wired." It missed the actual implementation:
+- `deriveLifecycleStage` (lifecycle-stage.ts) already takes an **optional `thresholds` 2nd arg** (Phase A.2 Step 3a, 2026-05-14), defaulting to borrowed.
+- `load-lifecycle.ts` (Step 3b) resolves per-tenant thresholds via `computeTenantThresholds(records)`, threads them into `deriveLifecycleStage`, exposes `threshold_decision` (source/thresholds/sample_size/excluded_count) on `LifecycleForEdit` + `LifecycleSummary`, and folds `source` into the cache key so a profound_default→per_tenant flip can't serve stale copy.
+- `render-copy.ts` (Step 3c) emits **per-source customer copy**: the borrowed-benchmark tooltip ("6, 18, and 37 days are starter benchmarks… Beacon will replace them with its own observed benchmarks") vs the per-tenant `buildPerTenantBenchmarkTooltip` ("Computed from {sample_size} cited shipped edits on this site") + a "for this site" honesty suffix on cited-* variants.
+- Consumed by `edit-lifecycle-tile.tsx` / `lifecycle-strip.tsx` / `changes/[id]/page.tsx`. Pinned by `threshold-decision-loader-wiring.test.ts`.
+
+**Verified:** `npx vitest run` over `threshold-decision-loader-wiring` + `brain-compute-tenant-thresholds-provenance` + `thresholds-provenance` + `citation-lifecycle-tenant-isolation` + `tests/domains/citation-lifecycle/` + `tests/components/today/` → **24 files / 442 passed.**
+
+**Net.** Phase A.2 Step 3 is COMPLETE. The only remaining §3 work is the cross-tenant PRODUCER (S4 — constraint-blocked at n=1 + LLM). Docs corrected: HANDOFF (top correction entry + inline strike), NEXT_PHASE (S1→DONE, operator-ask de-greenlit), capsule (§3 row + S1 bullet + findings). **The only genuinely-open *local* slice is now S3** (comprehensive tenant-isolation scan, low-urgency).
+
+**Lesson logged.** A single-file agent trace can under-report cross-file wiring — verify the *consumers* (who calls the compute, who renders the copy), not just the named module.
+
+---
+
 ## 2026-05-26 — Audit coverage completion: §10 + §4.5 deep-verify (read-only)
 
 **Status:** Read-only verification (no code change). Findings recorded; one new slice (S6) flagged.
