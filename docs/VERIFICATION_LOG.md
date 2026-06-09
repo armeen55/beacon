@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-05-26 — Audit coverage completion: §10 + §4.5 deep-verify (read-only)
+
+**Status:** Read-only verification (no code change). Findings recorded; one new slice (S6) flagged.
+
+**§4.5 Recommendation Intelligence — VERIFIED COMPLETE.** All 9 safety properties enforced + pinned (20 dedicated arch tests): no-LLM-decides-existence (16 deterministic triggers fire before any draft; LLM only drafts copy), every queue row carries evidence/confidence/dedupe_key/cooldown_key/customer_copy/action_type, customer-copy forbidden-vocab scan on all 15 templates, index-blockers-outrank-content in the priority score, off-site rows detection-only via 3 layers (registry `generatorActive:false` + queue-rule route-to-diagnostic + promotion-eligibility `blocked`), low-confidence/safety-flagged rows stay diagnostic-only, 13-step promotion safety ladder (cooldown/accepted-ancestor/staleness/prereq), tenant isolation on loads + writes. **Customer-queue flip is LIVE** (`promotion-writer.ts`, `dryRun` defaults true, live-write requires operator-only action + `isPromotionLiveWriteEnabled` + uppercase confirm; pinned by `promotion-live-write-guards.test.ts`). `generatorActive` = 15 (up from 3). **No loopholes found.**
+
+**§10 Phase B Regenerate — infra shipped + safe; persist phase deferred-by-design.** ENFORCED (7): no-LLM-on-page-load (render-isolation test), no-auto-regenerate, budget gate (daily+monthly via `checkBudget` pre-call), validator+display-safety guard, 19-rule provider/validator reuse (no second prompt), cost→`adjudicator-budget` discipline, explicit tenant isolation. The LLM-draft gateway is **operator-only + env-gated OFF (`BEACON_LLM_DRAFT_GATEWAY_ENABLED`) + read-only/non-persisting by design** (docstring: "no caller in production yet; does NOT write recommended_edits"). DEFERRED to slice **S6** (Phase B persist phase, NOT bugs in shipped code): brandAssertions ≥3 gate, 5-min per-rec cooldown, original-`proposed_text` preservation + revert UI, show-original-on-fail UI. Budget gate already caps worst-case cost; path is inert by default.
+
+**Audit coverage now complete:** §3/§8/§9/§10/§12/§4.5 deep-verified by parallel Explore agents this session; §2/§4/§5/§6/§7 confirmed-built via module listings + build manifest + git log. Full suite green at 13671. **Verdict: product is feature-complete for n=1 dogfood; all remaining work (S1–S6) is deliberate-slice / approval-gated / constraint-blocked / operator-gated.** No commit (read-only); findings folded into NEXT_PHASE + `docs/FABLE_CONTEXT_CAPSULE.md`.
+
+---
+
 ## 2026-05-26 — §12 N2 llm-budget store write-isolation pin (follow-on)
 
 **Status:** READY_TO_COMMIT — **NOT pushed**. Local-only. Test-only (no src/behavior change).

@@ -8,6 +8,9 @@
 > - **S3 — §12 N3 comprehensive tenant-isolation scan.** New scan of `src/domains/*` + `src/lib/connectors/*` exports + reason-annotated allowlist. Low urgency (13+ targeted tests + RLS + repo-pattern already strong); risk of a noisy 50+ allowlist. **Balanced.**
 > - **S4 — §3 brain producer + "Beacon learned" tile + scrubber. CONSTRAINT-BLOCKED** (needs ≥2 tenants + LLM).
 > - **S5 — MT-5 deprecated no-arg overload removal. APPROVAL-GATED** (~23-call test migration + 5 invariant flips).
+> - **S6 — §10 Phase B regenerate completion.** Gateway infra shipped + safe (operator-only, env-gated-OFF, budget/validator/provider-reuse/tenant-iso enforced) but non-persisting by design. Complete per §10 L1–L5: (a) brandAssertions ≥3 gate, (b) 5-min per-rec cooldown, (c) persist regenerated draft to `recommended_edits.metadata.regenerated_draft` NEVER overwriting original `proposed_text` + revert UI, (d) show-original-on-fail UI. Touches a live LLM-cost path → deliberate, operator-aware slice; (a)/(b)/(c-shape) local-feasible, but NO LLM execution in current no-LLM mode. **Max tier.**
+>
+> **AUDIT COVERAGE COMPLETE (2026-05-26):** §3/§8/§9/§10/§12/§4.5 deep-verified by agents; §2/§4/§5/§6/§7 confirmed-built. **§4.5 = production-ready (customer-queue flip live + 9 safety props pinned); §8/§9 = complete.** Product is feature-complete + green (13671) for n=1 dogfood.
 >
 > **NEED FROM OPERATOR (unchanged + restated):**
 > 1. **Disable `daily-native-poll` + `poll-canary` in GitHub Actions UI now** (stop live minute burn; committed cron-thinning only bites after merge).
