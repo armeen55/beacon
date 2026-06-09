@@ -61,7 +61,8 @@ export type ConnectorProvider =
   | "google_gsc"
   | "google_gbp"
   | "google_ga4"
-  | "yelp";
+  | "yelp"
+  | "semrush";
 
 /** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
 export type GoogleConnectorToken = {
@@ -117,7 +118,28 @@ export type YelpConnectorToken = {
   last_synced_at?: string;
 };
 
-export type ConnectorToken = GoogleConnectorToken | YelpConnectorToken;
+/**
+ * Semrush Analytics API — API key (never sent to the client). Key-based
+ * auth like Yelp (no OAuth). `database` is the Semrush regional database
+ * (e.g. "us") used as the default for domain reports. Soft-disconnect
+ * via `disconnected_at` mirrors the Google connectors so a week-limited
+ * key can be disconnected while cached metrics are preserved.
+ */
+export type SemrushConnectorToken = {
+  provider: "semrush";
+  api_key: string;
+  connected_at: string;
+  /** Regional database default for domain reports (e.g. "us"). */
+  database: string;
+  last_synced_at?: string;
+  /** Set when the operator disconnects; cached metrics are preserved. */
+  disconnected_at?: string;
+};
+
+export type ConnectorToken =
+  | GoogleConnectorToken
+  | YelpConnectorToken
+  | SemrushConnectorToken;
 
 export type ConnectorStatus = "connected" | "disconnected";
 
@@ -224,6 +246,13 @@ export async function getYelpConnectorToken(
   return t != null && t.provider === "yelp" ? t : null;
 }
 
+export async function getSemrushConnectorToken(
+  tenantId?: string,
+): Promise<SemrushConnectorToken | null> {
+  const t = await getConnectorToken("semrush", tenantId);
+  return t != null && t.provider === "semrush" ? t : null;
+}
+
 export async function getConnectorInfo(
   provider: ConnectorProvider,
   tenantId?: string,
@@ -273,8 +302,15 @@ export async function getConnectorInfo(
       ...sharedFields,
     };
   }
+  // Semrush soft-disconnect mirrors the Google connectors: the row is
+  // preserved so cached metrics survive, but we report `disconnected`
+  // when `disconnected_at` is set (UI shows Connect + last-synced).
+  const semrushDisconnected =
+    token.provider === "semrush" &&
+    token.disconnected_at != null &&
+    token.disconnected_at !== "";
   return {
-    status: "connected",
+    status: semrushDisconnected ? "disconnected" : "connected",
     connected_at: token.connected_at,
     expires_at: null,
     last_synced_at: token.last_synced_at ?? null,
@@ -329,6 +365,12 @@ type GoogleConnectorPatch = Partial<
 type YelpConnectorPatch = Partial<
   Pick<YelpConnectorToken, "api_key" | "last_synced_at" | "business_id">
 >;
+type SemrushConnectorPatch = Partial<
+  Pick<
+    SemrushConnectorToken,
+    "api_key" | "database" | "last_synced_at" | "disconnected_at"
+  >
+>;
 
 export async function updateConnectorToken(
   provider: "google_gsc" | "google_gbp" | "google_ga4",
@@ -341,8 +383,13 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
+  provider: "semrush",
+  patch: SemrushConnectorPatch,
+  tenantId?: string,
+): Promise<void>;
+export async function updateConnectorToken(
   provider: ConnectorProvider,
-  patch: GoogleConnectorPatch | YelpConnectorPatch,
+  patch: GoogleConnectorPatch | YelpConnectorPatch | SemrushConnectorPatch,
   tenantId?: string,
 ): Promise<void> {
   const tid = await resolveTenantId(tenantId);
