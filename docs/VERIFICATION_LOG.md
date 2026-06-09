@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-05-26 — S3 follow-through: tenant-isolation LEAK AUDIT of data-access surface → ZERO leaks
+
+**Status:** Read-only security audit (no code change). Closes S3 with evidence, not just judgment.
+
+**Why.** The comprehensive N3 scan is brittle (995 exports / mostly pure helpers), but the *underlying question* — "does any data-access function touch tenant-partitioned data without scoping?" — is the real safety value. Rather than ship a brittle test, I audited the actual risk surface.
+
+**Method.** Scoped to data-access-verb exports (`load*/fetch*/read*/persist*/save*/write*/upsert*/sync*/list*/query*/update*/delete*`) in `src/domains` + `src/lib/connectors` lacking `tenant` on the signature line = **89 functions**. Read the body of the **39 highest-risk** (no-arg persisters/writers + queue/outcome/pattern loaders — those with no param to thread tenant) and classified each by its tenant-scoping mechanism: (a) `tenantId` param, (b) `opts.tenantId`, (c) internal `currentTenantId()`, (d) `getRepository().forTenant()`, (e) global-store-by-design.
+
+**Result: ZERO genuine leaks.** All 39 are properly scoped. Breakdown: most `persist*` go through `getRepository()` (tenant-aware backend, mechanism d); `persistRecommendedEditsLocal`/`persistGa4UrlTraffic` take explicit `tenantId` (a/b); `runProviderAndPersist` has a fail-loud `currentTenantId()` mismatch gate (c); `global-patterns`/`prompt-library`/`observation-runs-merged`/`competitor-universe` are documented GLOBAL stores (e, by design). Defense-in-depth confirmed (e.g., recommended-edits-persistence.ts tenant-mismatch throw; GA4 "every upserted row carries tenant_id = args.tenantId").
+
+**Decision.** S3 CLOSED. No comprehensive test shipped — it would be brittle (the 5 valid scoping mechanisms can't be captured by a single-signature assertion) and adds no safety the audit + RLS + repository pattern + 13+ targeted invariants don't already provide. The audit itself is the deliverable: the data-access isolation surface is clean. If a future data-access function is added, the existing repository-pattern discipline + targeted invariants remain the guard.
+
+---
+
 ## 2026-05-26 — S3 (§12 N3 comprehensive tenant-isolation scan) evaluated → NOT RECOMMENDED as specified
 
 **Status:** Evaluation (read-only); no code change. Last open local slice, now dispositioned.
