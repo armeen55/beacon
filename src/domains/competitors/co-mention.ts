@@ -142,14 +142,32 @@ export function getTopCoMentions(
   return matrix.entries.slice(0, limit);
 }
 
-let _cachedMatrix: CoMentionMatrix | null = null;
+// Audit #5 (2026-06-10): the module cache MUST be keyed by tenant. A bare
+// `let _cachedMatrix` served the first tenant's competitive matrix to
+// EVERY other tenant in the same serverless instance — a cross-tenant
+// bleed independent of store routing. Keyed by the ambient tenant slug;
+// the store itself is now a per-tenant SINGLETON (store-classification),
+// so readStore routes to `.data/tenants/{slug}/co-mention-matrix.json`.
+const _cachedByTenant = new Map<string, CoMentionMatrix>();
+
+async function cacheKey(): Promise<string> {
+  try {
+    const { currentTenantId } = await import("@/lib/tenant-context");
+    return await currentTenantId();
+  } catch {
+    return "__unresolved__";
+  }
+}
 
 export async function getCachedCoMentionMatrix(): Promise<CoMentionMatrix | null> {
-  if (_cachedMatrix) return _cachedMatrix;
+  const key = await cacheKey();
+  const cached = _cachedByTenant.get(key);
+  if (cached) return cached;
   const stored = await readStore<CoMentionMatrix>(STORE_NAME);
   if (Array.isArray(stored) && stored.length > 0) {
-    _cachedMatrix = stored[0] as unknown as CoMentionMatrix;
-    return _cachedMatrix;
+    const matrix = stored[0] as unknown as CoMentionMatrix;
+    _cachedByTenant.set(key, matrix);
+    return matrix;
   }
   return null;
 }
@@ -157,6 +175,6 @@ export async function getCachedCoMentionMatrix(): Promise<CoMentionMatrix | null
 export async function persistCoMentionMatrix(
   matrix: CoMentionMatrix,
 ): Promise<void> {
-  _cachedMatrix = matrix;
+  _cachedByTenant.set(await cacheKey(), matrix);
   await writeStore(STORE_NAME, [matrix] as unknown as never[]);
 }

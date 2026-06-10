@@ -152,6 +152,13 @@ export const TENANT_SCOPED_STORES = new Set<string>([
 export const SINGLETON_STORES = new Set<string>([
   "answer-intelligence-index",
   "citation-evidence-index",
+  // Audit #5 (2026-06-10): co-mention matrix is DERIVED per-tenant
+  // competitive data, not operator config. Moved GLOBAL → per-tenant
+  // singleton so tenant B never reads tenant A's market. Not
+  // Supabase-backed; the /competitors page recomputes on a per-tenant
+  // miss, so the move is lossless (one recompute from the tenant's own
+  // citations).
+  "co-mention-matrix",
   // Phase 7.8a.1 (2026-04-25) — per-tenant singletons added from
   // the live dry-run. Each is a single object scoped to one tenant
   // (or trivially scoped because the operator runs one site today).
@@ -174,7 +181,6 @@ export const GLOBAL_STORES = new Set<string>([
   "business-config",
   "competitor-universe",
   "competitor-monitoring",
-  "co-mention-matrix",
   "exit-gates",
   "milestone-state",
   "scan-state",
