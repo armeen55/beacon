@@ -114,6 +114,14 @@ vi.mock("next/cache", () => ({
   },
 }));
 
+// §9.B — mock the CallRail call-count collaborator (not under test here;
+// its behavior is pinned in tests/lib/connectors/callrail/). Default 0 =
+// "no CallRail connected" → the GA4 read shape stays exactly as before.
+let _qualifiedCalls = 0;
+vi.mock("@/lib/connectors/callrail/persist-url-calls", () => ({
+  loadQualifiedCallCountForUrl: async () => _qualifiedCalls,
+}));
+
 const _computeMock = vi.fn();
 vi.mock(
   "@/domains/outcome-attribution/mode-a-cited-here-traffic-here",
@@ -142,6 +150,7 @@ beforeEach(() => {
   _adminFromCallCount = 0;
   _cacheKey = null;
   _cacheOpts = null;
+  _qualifiedCalls = 0;
   _computeMock.mockReset();
 });
 

@@ -262,7 +262,10 @@ export default async function ChangeDetailPage({
     persistedPatternEvidence,
   );
   const briefs = generateBriefs(pageSnapshots, citMap, patterns);
-  const allRecs = computeRecommendations({ impactRows, patterns, briefs, sectionAnalyzerConfig: getSectionAnalyzerConfig() });
+  // MT-3C (2026-05-23) — resolve tenant config once; thread into the
+  // section analyzer (now requires config) + reuse for brandName below.
+  const businessConfig = getBusinessConfig(tenantId);
+  const allRecs = computeRecommendations({ impactRows, patterns, briefs, sectionAnalyzerConfig: getSectionAnalyzerConfig(businessConfig) });
 
   const trackRecord = computeTrackRecord({ impactRows, patterns });
   const recommendedMatch = wasChangeRecommended(id, trackRecord);
@@ -332,7 +335,7 @@ export default async function ChangeDetailPage({
     // instead of crashing Changes detail. Fallback emits a structured
     // console.warn so operators see degradation without exposing raw
     // error objects, stacks, or Supabase internals.
-    const brandName = getBusinessConfig(tenantId).name || "You";
+    const brandName = businessConfig.name || "You";
     const lifecycleStage = lifecycle?.available
       ? (lifecycle.stage ?? null)
       : null;

@@ -9,20 +9,20 @@
  * `tests/architecture/off-site-authority-pure-module-purity.test.ts`.
  *
  * Tenant-scope reality (carried verbatim into `data_sources_note`):
- *   - business-config is process-global today; multi-tenant routing
- *     not yet implemented for this source.
- *   - connector-tokens are process-global today; multi-tenant routing
- *     not yet implemented for this source.
+ *   - business-config is tenant-scoped (MT-1+): the loader resolves it
+ *     per request for the active tenant.
+ *   - connector-tokens are tenant-scoped (since 2026-05-16): stored per
+ *     (tenant, provider) in Supabase.
  *   - local-reviews IS request-scoped per tenant via the persistence
- *     layer's tenant-slug resolver (the only properly per-tenant
- *     input here).
- *   - industry_directory + local_press detection is not implemented
- *     until C7g; placeholder rows ship inferred/unknown.
+ *     layer's tenant-slug resolver.
+ *   - industry_directory + local_press have no automated detection yet;
+ *     they surface only from operator-configured profile URLs (else
+ *     inferred/unknown).
  *
- * Section 7 invariant #6: `is_local_service` gates Section 7
- * customer surfaces (deferred to C7d/C7e). C7a's operator diagnostic
- * still renders for non-local-service tenants but shows a "not
- * classified" notice instead of the channel table.
+ * Section 7 invariant #6: `is_local_service` gates Section 7 customer
+ * surfaces (C7d Today tile + C7e Recommendations section, now shipped).
+ * C7a's operator diagnostic still renders for non-local-service tenants
+ * but shows a "not classified" notice instead of the channel table.
  *
  * Section 7 invariant #3: no causal/scary language in customer copy;
  * the operator page rendering this output also avoids the "missing"
@@ -99,10 +99,10 @@ const CHANNEL_ORDER: ReadonlyArray<OffSitePresenceChannel> = [
 ];
 
 const ALWAYS_INCLUDED_NOTES: ReadonlyArray<string> = [
-  "business-config: process-global today; multi-tenant routing not yet implemented for this source.",
-  "connector-tokens: process-global today; multi-tenant routing not yet implemented for this source.",
+  "business-config: tenant-scoped — resolved per request for the active tenant.",
+  "connector-tokens: tenant-scoped — stored per (tenant, provider) in Supabase.",
   "local-reviews: request-scoped per tenant via the persistence-layer tenant-slug resolver.",
-  "industry directory and local press detection: not implemented until C7g.",
+  "industry directory and local press: detected only from operator-configured profile URLs; no automated detection yet.",
 ];
 
 const PLACEHOLDER_NOTE =

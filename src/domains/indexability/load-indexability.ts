@@ -348,7 +348,7 @@ export async function loadIndexabilityForUrl(opts: {
 
   const cached = unstable_cache(
     async () => {
-      const cfg = getBusinessConfig();
+      const cfg = getBusinessConfig(opts.tenantId);
       const tenantDomain = normalizeHost(cfg.domain);
 
       // Phase A.3 (post-A.3.5 production-data fix, 2026-05-14):

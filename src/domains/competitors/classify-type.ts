@@ -1,5 +1,3 @@
-import { getBusinessConfig } from "@/lib/business-config";
-
 export type CompetitorType = "direct" | "directory" | "editorial" | "forum" | "other";
 
 const EDITORIAL_PATTERNS = [
@@ -23,11 +21,18 @@ const FORUM_PATTERNS = [
   "city-data.com",
 ];
 
-export function classifyCompetitorType(domain: string): CompetitorType {
+/**
+ * MT-3B (2026-05-22) — `directoryDomains` is injected by the caller
+ * (from the tenant's resolved BusinessConfig) instead of read via the
+ * deprecated no-arg `getBusinessConfig()`. Keeps this a pure function.
+ */
+export function classifyCompetitorType(
+  domain: string,
+  directoryDomains: ReadonlyArray<string>,
+): CompetitorType {
   const norm = domain.toLowerCase().replace(/^www\./, "");
 
-  const config = getBusinessConfig();
-  if (config.directoryDomains.some((d) => norm === d || norm.endsWith(`.${d}`))) {
+  if (directoryDomains.some((d) => norm === d || norm.endsWith(`.${d}`))) {
     return "directory";
   }
 

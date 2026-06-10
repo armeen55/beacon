@@ -40,9 +40,18 @@ import { EnrichmentV2 } from "@/components/today/enrichment-v2";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import { EditLifecycleTile } from "@/components/today/edit-lifecycle-tile";
 import { EditOutcomesTile } from "@/components/today/edit-outcomes-tile";
+import { OffSiteAuthorityTile } from "@/components/today/off-site-authority-tile";
 import { loadLifecycleSummaryForTenant } from "@/domains/citation-lifecycle/load-lifecycle";
 import { loadOutcomesSummaryForTenant } from "@/domains/outcome-attribution/load-outcomes-summary-for-tenant";
+import { loadOffSitePresenceSnapshot } from "@/domains/off-site-authority/load-snapshot";
+import { computeOffSiteRecommendationCandidates } from "@/domains/off-site-authority/recommendation-rules";
 import { currentTenantId } from "@/lib/tenant-context";
+import {
+  BeaconLearnedTile,
+  type BeaconLearnedState,
+} from "@/components/today/beacon-learned-tile";
+import { isBrainLearnedTileEnabled } from "@/domains/recommendations/cross-tenant-brain/config";
+import { BRAIN_SAMPLE_THRESHOLDS } from "@/domains/recommendations/cross-tenant-brain/thresholds";
 
 export async function TodayV2VisibilityGroupSection() {
   const data = await loadTodayV2VisibilityData();
@@ -100,6 +109,38 @@ export async function TodayV2EditLifecycleSection() {
 }
 
 /**
+ * Phase A.2 §3.6 (2026-05-26) — "Beacon learned" tile section. Gated
+ * behind `BEACON_BRAIN_LEARNED_TILE` (off by default — "coming soon").
+ * When ON, surfaces the PER-TENANT citation-timing insight only when
+ * the tenant has crossed the customer-tile sample gate AND the loader
+ * resolved Beacon-owned (not borrowed) thresholds — the honesty gate.
+ * Otherwise renders nothing. Returns null immediately when the flag is
+ * off, so production Today is byte-identical until activation.
+ */
+export async function TodayV2BeaconLearnedSection() {
+  if (!isBrainLearnedTileEnabled()) return null;
+  let state: BeaconLearnedState = { kind: "hidden" };
+  try {
+    const tenantId = await currentTenantId();
+    const summary = await loadLifecycleSummaryForTenant({ tenantId });
+    const d = summary.threshold_decision;
+    if (
+      d.source === "per_tenant" &&
+      d.sample_size >= BRAIN_SAMPLE_THRESHOLDS.customer_tile
+    ) {
+      state = {
+        kind: "per_tenant",
+        medianDays: d.thresholds.median_days,
+        sampleSize: d.sample_size,
+      };
+    }
+  } catch {
+    state = { kind: "hidden" };
+  }
+  return <BeaconLearnedTile state={state} />;
+}
+
+/**
  * Section 9 Today tile (2026-05-19) — "Edit outcomes (past 30
  * days)". Streams independently from the action cards + lifecycle +
  * descriptors. Reads tenant-scoped `recommended_edits` + cached
@@ -125,6 +166,38 @@ export async function TodayV2EditOutcomesSection() {
     summary = null;
   }
   return <EditOutcomesTile summary={summary} />;
+}
+
+/**
+ * Section 7 C7d (2026-05-22) — Off-site authority tile. The first
+ * customer-facing off-site surface. Reads the now-tenant-correct
+ * off-site detection snapshot (MT-2 made `loadOffSitePresenceSnapshot`
+ * resolve per-tenant) and derives the operator-rule candidates purely.
+ * Soft-fails to a hidden tile on loader error — a transient Supabase /
+ * connector-store read failure must never block Today. The tile itself
+ * renders nothing when `is_local_service === false` or when there's no
+ * useful off-site signal.
+ *
+ * Read-only: NO recommendation-queue promotion (off-site rows stay
+ * `diagnostic_only` per the locked offsite-contract) and NO connector /
+ * API / scrape / LLM calls — only the cached snapshot path is read.
+ */
+export async function TodayV2OffSiteAuthoritySection() {
+  let snapshot = null;
+  let candidates: Awaited<
+    ReturnType<typeof computeOffSiteRecommendationCandidates>
+  >["candidates"] = [];
+  try {
+    snapshot = await loadOffSitePresenceSnapshot();
+    candidates = computeOffSiteRecommendationCandidates(snapshot).candidates;
+  } catch (error) {
+    console.warn("[section7-c7d-off-site] snapshot load failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    snapshot = null;
+    candidates = [];
+  }
+  return <OffSiteAuthorityTile snapshot={snapshot} candidates={candidates} />;
 }
 
 export async function TodayV2DescriptorsSection() {

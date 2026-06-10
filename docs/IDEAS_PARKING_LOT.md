@@ -253,3 +253,75 @@ These were considered and explicitly deferred when extraction coverage + scanner
 - **Why it's hard / risky:** Copy tone pass only, but "Beacon recommended" → "which rec" needs the response→changelog linkage to surface the rec id + title cleanly. Touches `/changes/[id]/page.tsx`.
 - **Claude's take:** Pure copy + linkage polish. Low risk. Queue after Sprint 6 (recs UX detail) since that sprint will surface recommendation titles in a format directly reusable here.
 
+
+---
+
+### Prospect Audit mode — the sales weapon
+
+**Added:** 2026-06-09 · **Status:** `parked` (Claude recommends: build BEFORE more engine work)
+
+- **The idea:** Point the existing engine at ANY local-service domain (a prospect, not a tenant) and auto-generate a shareable one-page audit: "We asked AI 25 real questions about kitchen remodels in Palo Alto. AI recommended Supple Homes 14 times. You: 2. Here are the 3 pages you're missing and the first move." Cold outreach becomes "let me show you something about your business."
+- **Source:** Claude gap analysis (2026-06-09) — the pricing ladder has a free-audit rung with NO product surface behind it.
+- **Why it's interesting:** It's the only missing piece that directly manufactures paying customers before the June 26 target. ~80% assembly of existing engines (prompt runner, co-mention competitor extraction, visibility scoring, deterministic recommendation triggers). Every audit is also a demo.
+- **Why it's hard / risky:** Each audit burns real API spend (~$1–3 at 25 prompts × 2 platforms); needs a "not-a-tenant" run mode so prospect data doesn't pollute tenant stores; shareable page needs to be public-safe (no operator surfaces leaking).
+- **Claude's take:** YES — highest-leverage unbuilt thing in the whole project. Sales surface, not engine. Build the moment the stack ships.
+
+### Weekly owner email + "you just got recommended" alert
+
+**Added:** 2026-06-09 · **Status:** `parked`
+
+- **The idea:** A weekly plain-English email ("AI recommended you 14 times this week, up 3. Your ADU page got cited for the first time Tuesday. 2 calls landed on cited pages. Next move: …") + a real-time ping the first time a page ever gets cited. Owners screenshot "ChatGPT just recommended Ritz Builders" and forward it.
+- **Source:** Claude gap analysis (2026-06-09) — recon confirmed ZERO email/notification infra exists; the product only delivers value if the owner logs in.
+- **Why it's interesting:** This is the renewal driver. A non-technical owner won't open a dashboard weekly; the email IS the product, the dashboard becomes the drill-down. All read-models already exist — this is render-to-email.
+- **Why it's hard / risky:** Needs an email provider (Resend free tier) + an operator-approved sending key; deliverability/cadence tuning; must reuse the locked forbidden-vocab discipline so automated copy never overclaims.
+- **Claude's take:** YES — second-highest leverage. Renderer + preview surface buildable now; sending is operator-gated (key).
+
+### Google AI surface coverage (Gemini + AI Overviews)
+
+**Added:** 2026-06-09 · **Status:** `parked`
+
+- **The idea:** Real pollers today are OpenAI + Perplexity only (Gemini/Claude/Copilot appear in type unions, not pollers). Add Gemini API polling (easy, same pattern as poll-openai) and Google AI Overviews/AI Mode via a SERP API (~$50/mo at this volume).
+- **Source:** Claude gap analysis (2026-06-09) — recon of scripts/poll-*.
+- **Why it's interesting:** For local services, Google's AI surfaces are where the most real buyers actually are. "AI visibility" with a Google-shaped hole is the first objection a savvy prospect raises.
+- **Why it's hard / risky:** AI Overviews has no official API — SERP-API dependence (cost + fragility); Gemini is straightforward but adds per-poll cost.
+- **Claude's take:** YES on Gemini (cheap, fits the existing poller pattern). MAYBE on AI Overviews — validate with a SERP-API trial month before committing.
+
+### Competitor move detection — "steal this move"
+
+**Added:** 2026-06-09 · **Status:** `shipped` (2026-06-09, commits e1efe35+1a0eee9 — domain src/domains/competitor-intel/, customer section on /competitors, operator /diagnostics/competitor-intel; preview-verified)
+
+- **The idea:** Watch the top-8 real competitors' key pages for content changes. When a competitor ships a change and their citations rise within the window: "Supple Homes added an ADU cost page June 2; AI started citing it June 8. Want the equivalent move?"
+- **Source:** Claude gap analysis (2026-06-09).
+- **Why it's interesting:** It's the cross-tenant brain's "learn from others" story WITHOUT needing tenant #2 — at n=1 this is the only honest learning-network pitch available. Pairs with the existing co-mention competitor list + citation time series.
+- **Why it's hard / risky:** Page-change detection on sites you don't own (crawl etiquette, diff noise); correlation copy must stay associative (the forbidden-vocab discipline applies); competitor citation series already exist but per-URL granularity needs checking.
+- **Claude's take:** YES, after audit + email. Differentiated and demo-able; medium build.
+
+### Call-transcript → prompt mining
+
+**Added:** 2026-06-09 · **Status:** `parked`
+
+- **The idea:** CallRail can return call transcripts. Mine what callers actually ask ("do you do ADUs under 800 sq ft?") and propose them as tracked prompts — your own phone calls write your AI-question tracking list.
+- **Source:** Claude gap analysis (2026-06-09), enabled by the CallRail connector shipped today.
+- **Why it's interesting:** Closes a loop nobody else has; prompts grounded in real buyer language instead of operator guesses. Compounds the wedge.
+- **Why it's hard / risky:** Transcripts are a CallRail plan add-on (verify availability); needs an extraction pass (LLM or rules) — touches the no-LLM constraint; privacy: transcripts contain PII, must never leave the tenant boundary.
+- **Claude's take:** MAYBE-LEANING-YES — month 2-ish, after the LLM provider is on anyway. Cheap to validate: pull 20 transcripts, hand-check signal.
+
+### "Why them, not you" forensics per lost prompt
+
+**Added:** 2026-06-09 · **Status:** `shipped` (2026-06-09, same commits — deterministic v1: gaps + descriptor contrast + loss rows; follow-up: thread real quotes from the newly-found answer-texts.json store)
+
+- **The idea:** For a prompt where a competitor gets recommended and you don't: show the actual AI answer text, which competitor page got cited, and a side-by-side vs your equivalent page with the gap named ("they list prices; you don't"). Actionable jealousy.
+- **Source:** Claude gap analysis (2026-06-09). Adjacent to (but read-only, so much earlier than) the parked full-page ablation idea.
+- **Why it's interesting:** Answer snapshots + citation evidence already exist; this is a drilldown view, not new collection. It's the emotional core of the sale — owners FEEL losses to named rivals.
+- **Why it's hard / risky:** Gap-naming beyond simple structural checks wants the LLM; v1 can ship with deterministic gaps only (the 16 trigger checks already produce these).
+- **Claude's take:** YES as a v1 deterministic drilldown; LLM gap-naming upgrades it later.
+
+### Money language — a decision, not a feature
+
+**Added:** 2026-06-09 · **Status:** `parked` (needs an Armeen decision)
+
+- **The idea:** Resolve the standing tension: the operating instinct is "speak money and customers," but the locked N4 forbidden-vocab invariant deliberately bans $/revenue/ROI/leads from measured-outcome surfaces (honesty discipline). Proposed line: money language lives on SALES surfaces (prospect audit, pitch, marketing); measured-outcome surfaces keep speaking sessions + calls; optionally add a clearly-labeled owner-entered calculator ("your numbers: avg job value × qualified calls") that does arithmetic without Beacon claiming causation.
+- **Source:** Claude gap analysis (2026-06-09) — surfaced while wiring CallRail call counts into outcome copy.
+- **Why it's interesting:** One ADU job ≈ $200k+; "Beacon's tracked calls cover its price 40x" is THE renewal sentence — but only if it stays honest.
+- **Why it's hard / risky:** Eroding the invariant on outcome surfaces would undermine the category-defining trust posture (the whole Proof Engine pitch is "the only ROI claim that survives scrutiny").
+- **Claude's take:** Keep the invariant on outcome surfaces; put dollars on sales surfaces + an owner-entered calculator. Decide deliberately.

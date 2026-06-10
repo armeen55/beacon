@@ -83,6 +83,14 @@ vi.mock("@/lib/persistence/supabase", () => ({
   },
 }));
 
+// §9.B — mock the CallRail call-count collaborator (not under test here;
+// its behavior is pinned in tests/lib/connectors/callrail/). Default 0 =
+// "no CallRail connected" → the GA4 read shape stays exactly as before.
+let _qualifiedCalls = 0;
+vi.mock("@/lib/connectors/callrail/persist-url-calls", () => ({
+  loadQualifiedCallCountForUrl: async () => _qualifiedCalls,
+}));
+
 // Inline unstable_cache so the cached function executes immediately
 // (no real Next.js cache backend in this test env). Capture the cache
 // key argument so tests can pin the 9.A2β.1 v1→v2 bump.
@@ -122,6 +130,7 @@ beforeEach(() => {
   _fromTable = "";
   _adminFromCallCount = 0;
   _cacheKey = null;
+  _qualifiedCalls = 0;
   _computeMock.mockReset();
 });
 
@@ -445,6 +454,53 @@ describe("loadModeAForChangesDetail — happy path", () => {
       kind: "still_learning_outcome",
       reason: "insufficient_volume",
     });
+  });
+
+  it("§9.B — threads the CallRail qualified-call count into Mode A compute", async () => {
+    // CallRail connected: 3 qualified calls attributed to this URL since live.
+    _qualifiedCalls = 3;
+    _computeMock.mockReturnValue({
+      kind: "eligible",
+      days_since_live: 21,
+      post_live_sessions: 12,
+      post_live_engaged_sessions: 9,
+      post_live_qualified_calls: 3,
+      canonical_target_url:
+        "https://ritzbuilders.com/services/whole-home-remodel",
+      sample_window_start: "2026-04-28",
+      sample_window_end: "2026-05-19",
+    });
+
+    await loadModeAForChangesDetail({
+      tenantId: "tenant-ritz-founder",
+      recommendedEdit: makeEdit(),
+      now: NOW,
+    });
+
+    expect(_computeMock).toHaveBeenCalledTimes(1);
+    const args = _computeMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(args.qualifiedCallCount).toBe(3);
+  });
+
+  it("§9.B — qualifiedCallCount stays 0 when the edit has no live_at (call-read skipped)", async () => {
+    // Even with calls available, no live_at means no since-date → no read.
+    _qualifiedCalls = 99;
+    _computeMock.mockReturnValue({
+      kind: "ineligible",
+      reason: "no_live_at",
+      canonical_target_url:
+        "https://ritzbuilders.com/services/whole-home-remodel",
+    });
+
+    await loadModeAForChangesDetail({
+      tenantId: "tenant-ritz-founder",
+      recommendedEdit: makeEdit({ live_at: null as unknown as string }),
+      now: NOW,
+    });
+
+    expect(_computeMock).toHaveBeenCalledTimes(1);
+    const args = _computeMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(args.qualifiedCallCount).toBe(0);
   });
 
   it("narrows row shape (drops malformed entries)", async () => {

@@ -117,7 +117,7 @@ export async function promoteEligibleCandidates(
     getRecommendationResponses(),
   ]);
 
-  const businessConfig = getBusinessConfig();
+  const businessConfig = getBusinessConfig(input.tenantId);
   const triggerCandidates = [
     ...triggerResult.candidates,
     ...triggerResult.diagnostic_only,

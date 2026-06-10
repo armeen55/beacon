@@ -303,7 +303,7 @@ export default async function DiagnosticsPage() {
     activePrompts,
   );
   const localDiagSurface = computeLocalOperatorSurface({
-    business: getBusinessConfig(),
+    business: getBusinessConfig(tenantId),
     importRow: await loadLocalOperatorImport(),
     geoGap: geoLocal.gaps[0]
       ? {
@@ -323,8 +323,8 @@ export default async function DiagnosticsPage() {
   // This is NOT a customer-facing scary warning — it's an internal
   // operator signal to set BEACON_BUSINESS_CONFIG_JSON or place a
   // tenant config file. The same state also fires a one-time
-  // log.warn from getBusinessConfig() so server logs carry the trace.
-  const businessConfig = getBusinessConfig();
+  // log.warn from the business-config resolver so server logs carry the trace.
+  const businessConfig = getBusinessConfig(tenantId);
   const isOnPlaceholderConfig = isPlaceholderConfig(businessConfig);
 
   return (

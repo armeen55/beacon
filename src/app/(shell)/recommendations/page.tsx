@@ -21,6 +21,7 @@ import type { RecommendedEditRow } from "@/domains/recommendations/recommended-e
 import { RecommendationsClient } from "./recommendations-client";
 import { RecommendationsV2Client } from "./recommendations-v2-client";
 import { RecsResolverDebugPanel } from "./recs-resolver-debug-panel";
+import { OffSiteOpportunitiesSection } from "./off-site-opportunities-section";
 import {
   RecommendationsV2Skeleton,
   RecommendationsLegacySkeleton,
@@ -203,6 +204,14 @@ export async function RecommendationsAsyncContent({
               promptTextById={promptTextById}
             />
           )}
+          {/* Section 7 C7e — read-only off-site opportunities, below the
+              website-edit queue. Separate region; never queue-promoted.
+              Suspense-wrapped: it's an async server section, so the
+              boundary lets the page frame flush + keeps sync renderers
+              (renderToStaticMarkup) rendering the null fallback. */}
+          <Suspense fallback={null}>
+            <OffSiteOpportunitiesSection />
+          </Suspense>
         </div>
       );
     }
@@ -300,6 +309,12 @@ export async function RecommendationsAsyncContent({
           changelogIdByRecId={changelogIdByRecId}
           competitorNames={competitorNames}
         />
+        {/* Section 7 C7e — read-only off-site opportunities, below the
+            website-edit queue. Separate region; never queue-promoted.
+            Suspense-wrapped (async server section). */}
+        <Suspense fallback={null}>
+          <OffSiteOpportunitiesSection />
+        </Suspense>
       </div>
     );
   } finally {

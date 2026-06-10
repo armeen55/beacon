@@ -31,8 +31,10 @@ import {
 import {
   TodayV2ActionCardsSection,
   TodayV2DescriptorsSection,
+  TodayV2BeaconLearnedSection,
   TodayV2EditLifecycleSection,
   TodayV2EditOutcomesSection,
+  TodayV2OffSiteAuthoritySection,
   TodayV2VisibilityGroupSection,
 } from "./today-v2-sections";
 import { loadTodayV2GateData } from "./today-v2-data";
@@ -191,8 +193,22 @@ async function TodayV2SectionedContent() {
       <Suspense fallback={<TodayV2EditLifecycleSkeleton />}>
         <TodayV2EditLifecycleSection />
       </Suspense>
+      {/* Phase A.2 §3.6 — "Beacon learned" tile. Gated behind
+          BEACON_BRAIN_LEARNED_TILE; the section returns null when the
+          flag is off or below the sample gate, so a null fallback
+          reserves no layout. */}
+      <Suspense fallback={null}>
+        <TodayV2BeaconLearnedSection />
+      </Suspense>
       <Suspense fallback={<TodayV2EditOutcomesSkeleton />}>
         <TodayV2EditOutcomesSection />
+      </Suspense>
+      {/* Section 7 C7d (2026-05-22) — off-site authority tile. Secondary
+          intelligence card; the tile self-hides when there's nothing
+          useful, so a null Suspense fallback avoids reserving layout
+          for an often-empty section (no separate skeleton file). */}
+      <Suspense fallback={null}>
+        <TodayV2OffSiteAuthoritySection />
       </Suspense>
       <Suspense fallback={<TodayV2DescriptorsSkeleton />}>
         <TodayV2DescriptorsSection />

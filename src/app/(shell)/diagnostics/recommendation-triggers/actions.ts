@@ -252,7 +252,7 @@ export async function generateLlmDraftAction(
   // Gate 8 — business config.
   let businessConfig: ReturnType<typeof getBusinessConfig>;
   try {
-    businessConfig = getBusinessConfig();
+    businessConfig = getBusinessConfig(tenantId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errorRedirect(`business_config:${msg}`);

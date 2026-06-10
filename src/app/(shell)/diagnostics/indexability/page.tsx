@@ -313,7 +313,7 @@ export default async function OperatorIndexabilityDiagnosticsPage({
   const sp: SearchParams = (await (searchParams ?? Promise.resolve({}))) ?? {};
 
   const tenantId = await currentTenantId();
-  const cfg = getBusinessConfig();
+  const cfg = getBusinessConfig(tenantId);
   const tenantDomain = normalizeHost(cfg.domain);
   const now = new Date();
   const nowMs = now.getTime();

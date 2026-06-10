@@ -8,10 +8,12 @@
  *
  * Import allowlist (pinned by
  * `tests/architecture/off-site-authority-loader-allowed-imports.test.ts`):
- *   - @/lib/business-config        (PROCESS-GLOBAL — documented)
+ *   - @/lib/business-config        (tenant-keyed; called as
+ *                                   getBusinessConfig(tenantId) — MT-1+)
  *   - @/lib/local-reviews-store    (request-scoped per tenant via
  *                                   currentTenantSlug — OK)
- *   - @/lib/connector-store        (PROCESS-GLOBAL — documented)
+ *   - @/lib/connector-store        (tenant-scoped via composite PK +
+ *                                   currentTenantId, 2026-05-16 — OK)
  *   - @/lib/tenant-context         (request-scoped — OK)
  *   - ./types
  *   - ./compute-snapshot
@@ -22,13 +24,15 @@
  *   - `fetch`, `axios`, any HTTP-client identifier
  *   - any LLM-provider identifier
  *
- * Multi-tenant prerequisite (documented in catalog row
- * `off-site-authority-multi-tenant-prerequisite`): business-config and
- * connector-store are process-global today. Section 7 customer
- * surfaces (C7d/C7e) MUST NOT ship for Customer 2 until those stores
- * grow tenant-aware routing. C7a's operator-only diagnostic inherits
- * the same boundary; the snapshot's `data_sources_note` surfaces this
- * limitation in-place so it can't be silently overlooked.
+ * Multi-tenant prerequisite — RESOLVED (2026-05-22/23): connector-store
+ * has been tenant-scoped since 2026-05-16 (composite PK + currentTenantId);
+ * business-config became tenant-keyed in MT-1 and all customer + operator +
+ * deep-helper callers were migrated in MT-2/MT-3A/MT-3B/MT-3C(.2). This
+ * loader resolves `getBusinessConfig(tenantId)` per request. Section 7
+ * customer surfaces C7d (Today tile) + C7e (Recommendations section) now
+ * ship on this tenant-correct path. (Only the deprecated no-arg
+ * getBusinessConfig() overload remains, pending MT-5.) See catalog row
+ * `off-site-authority-multi-tenant-prerequisite`.
  */
 
 import "server-only";

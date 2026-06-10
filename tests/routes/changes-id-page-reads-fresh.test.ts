@@ -148,6 +148,10 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
       }));
       vi.doMock("@/lib/business-config", () => ({
         getSectionAnalyzerConfig: () => ({}),
+        // MT-3C (2026-05-23) — the page now resolves businessConfig once
+        // (getBusinessConfig(tenantId)) to thread into the section
+        // analyzer + brandName, so the mock must provide it.
+        getBusinessConfig: () => ({ name: "Test Brand" }),
       }));
       vi.doMock("@/domains/observations/read", () => ({
         latestWebsiteCrawlRun: () => null,

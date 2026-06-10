@@ -2,10 +2,11 @@
  * Section 7 C7a (2026-05-16) — Off-Site Authority detection projection
  * types. Pure; no imports of helpers, no runtime logic.
  *
- * Scope: operator-only diagnostic in C7a. Customer surfaces (C7d/C7e)
- * defer until the multi-tenant prerequisite ships — business-config
- * and connector-store are process-global today (see catalog row
- * `off-site-authority-multi-tenant-prerequisite`).
+ * Scope: operator-only diagnostic in C7a; customer surfaces C7d (Today
+ * off-site tile) + C7e (Recommendations off-site section) now shipped on
+ * the tenant-correct path — business-config is tenant-keyed (MT-1+) and
+ * connector-store is tenant-scoped per (tenant, provider). The former
+ * `off-site-authority-multi-tenant-prerequisite` catalog row is retired.
  */
 
 export type OffSitePresenceChannel =

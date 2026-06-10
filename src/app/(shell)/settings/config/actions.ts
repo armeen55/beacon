@@ -1,11 +1,16 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { saveBusinessConfig, getBusinessConfig, type BusinessConfig } from "@/lib/business-config";
+import {
+  saveBusinessConfig,
+  getBusinessConfigForCurrentTenant,
+  type BusinessConfig,
+} from "@/lib/business-config";
 import {
   getYelpConnectorToken,
   updateConnectorToken,
 } from "@/lib/connector-store";
+import { currentTenantId } from "@/lib/tenant-context";
 import { revalidatePath } from "next/cache";
 
 export async function saveSetup(data: {
@@ -30,7 +35,9 @@ export async function saveSetup(data: {
     },
   });
   try {
-    saveBusinessConfig({
+    // MT-3A (2026-05-22) — tenant-aware save (operator settings action).
+    const tenantId = await currentTenantId();
+    saveBusinessConfig(tenantId, {
       name: data.name,
       domain: data.domain,
       industry: data.industry,
@@ -62,5 +69,5 @@ export async function saveSetup(data: {
 }
 
 export async function loadSetup(): Promise<BusinessConfig> {
-  return getBusinessConfig();
+  return await getBusinessConfigForCurrentTenant();
 }

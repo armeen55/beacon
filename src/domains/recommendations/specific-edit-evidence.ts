@@ -498,6 +498,14 @@ export type BuildSpecificEditEvidencePacketArgs = {
   priorOutcomes?: ReadonlyArray<PriorOutcomeBlock>;
   /** Optional override; defaults to v1 active set. */
   allowedActionTypes?: ReadonlyArray<ActionType>;
+  /**
+   * Phase A.2 §3.2 — pre-computed cross-tenant patterns from the async
+   * producer (the packet builder is sync, so the producer runs upstream
+   * in the async caller and threads the result in here). When omitted
+   * the builder falls back to the locked sync stub (`[]`) — so every
+   * existing caller is byte-identical and the gate-off path is unchanged.
+   */
+  crossTenantPatterns?: ReadonlyArray<CrossTenantPattern>;
   /** Cap on candidate URLs scored against the cluster. Defaults to 8. */
   maxCandidatePages?: number;
   /** Cap on element rows per packet. Defaults to 80 (10 candidate pages
@@ -662,12 +670,19 @@ export function buildSpecificEditEvidencePacket(
       args.competitorBlueprintBrandScrubAliases ?? [],
   });
 
-  const crossTenantPatterns = getCrossTenantPatterns({
-    tenantId: args.tenantId,
-    actionTypes: args.allowedActionTypes ?? defaultAllowedActionTypes(),
-    clusterKind: args.clusterKind,
-    clusterLabel: args.clusterLabel,
-  });
+  // Phase A.2 §3.2 — use the producer's pre-computed patterns when the
+  // async caller threaded them in; otherwise fall back to the locked
+  // sync stub ([]). Keeps this builder synchronous + every existing
+  // caller byte-identical.
+  const crossTenantPatterns: CrossTenantPattern[] =
+    args.crossTenantPatterns != null
+      ? [...args.crossTenantPatterns]
+      : getCrossTenantPatterns({
+          tenantId: args.tenantId,
+          actionTypes: args.allowedActionTypes ?? defaultAllowedActionTypes(),
+          clusterKind: args.clusterKind,
+          clusterLabel: args.clusterLabel,
+        });
 
   const allowedActionTypes = (
     args.allowedActionTypes ?? defaultAllowedActionTypes()

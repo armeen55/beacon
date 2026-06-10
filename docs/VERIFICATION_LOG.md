@@ -7,6 +7,568 @@
 
 ---
 
+## 2026-06-09 — INCIDENT: ChatGPT polling down June 3–9 (gate latch) — root-caused, fixed, cleared
+
+**What happened:** two ChatGPT polls fired June 3 ~20 min apart (11:39 partial 99/100, 12:01 full re-run). The re-run's rows had new ids but the same (tenant, prompt, platform, UTC-day) → the id-keyed upsert INSERTed into the `ux_pao_tenant_prompt_platform_day` EXPRESSION index → threw → run `pollrun-1780488090974-dxjopr` marked PERSISTENCE FAILED → the R6 paid-poll gate latched. Every daily run June 3–9 skipped ChatGPT (`skipped_persistence_failure_gate`); the canary could never go green to auto-clear → deadlock. **Perplexity was unaffected (polled + persisted daily). June 3 ChatGPT data exists (99/100 via the partial run); June 4–9 ChatGPT is a true gap.** Only alert channel was GitHub failure email — operator never saw it for 6 days.
+
+**Fixes shipped (commit `00ccf23`):**
+1. **Idempotent same-day re-poll** — `syncPromptAnswerObservations` catches that exact collision (expression index → supabase-js can't `onConflict` it), reads the day's existing keys, writes ONLY missing rows (also rescues prompts a partial run missed); any other error still throws (the gate keeps its real job). 5 regression tests.
+2. **Fail-loud to the operator** — `alert-on-failure` job in both poll workflows: opens/updates ONE GitHub issue (dedupe + daily comment) with per-job results + the gate runbook. No new secrets.
+
+**Operational clear (operator-approved "do all", 2026-06-09):** removed the PERSISTENCE FAILED marker from the June 3 run row via SQL (audit note left in scope_label pointing at this entry + the fix commit). Manual `workflow_dispatch` poll fired immediately after for same-day recovery proof.
+
+**Runbook (if it ever latches again):** find the latest `observation_runs` row for the source with `status='failed'` and `scope_label` containing `PERSISTENCE FAILED`; edit the label to remove that substring (leave an audit note); re-fire via workflow_dispatch.
+
+---
+
+## 2026-06-09 — Competitor Intel: "Steal this move" + "Why them, not you" (parking-lot ideas #4 + #6, built)
+
+**Status:** Shipped locally (domain + stores + refresh pipeline + loaders + customer sections + operator diagnostic + 64 tests). Full suite green (13944/0). **Verified live in dev preview** (worktree, seeded fixtures, then removed): the proven-move card and the full forensic report rendered through real json-store plumbing; zero console errors. Commits `e1efe35` (domain) + `1a0eee9` (surfaces).
+
+**What it is:** the join no AEO competitor has — *what a rival shipped* → *AI citations rising on that exact page* → *your equivalent move with evidence attached*. At n=1 this is the only honest "learn from others" pitch (peers come later with tenant #2; competitors exist today).
+
+**Domain (`src/domains/competitor-intel/`):** citation-series (competitor-URL daily buckets from observations' `citation_urls`); structural-diff (stored-vs-fresh snapshot differ: FAQ added/expanded, new sections, retitle, meta added — removals never reported under extraction uncertainty); detect-moves (change × pre/post-14-day citation windows → **proven** (post ≥2 ∧ post>pre) / **early** / **watching** / **quiet**, temporal-associative copy ONLY — "added it June 2; AI started citing it 6 days later" — plus deterministic equivalent-action mapping); forensics (equivalent-page matcher with honesty floor → "no close match" beats a bad guess; jealousy-direction gap engine: FAQ / pricing-language / section-coverage / meta; descriptor contrast — the words AI uses about them vs you, already extracted per answer at poll time; prompt rows losses-first). Two new tenant-scoped stores (`competitor-structural-changes`, `competitor-sitemap-changes` — the shared monitoring state REPLACES recentChanges per crawl; moves need a rolling window). Polite refresh pipeline: robots.txt-respecting, identified UA, 10s timeout, sequential, bounded (top-cited 12 + just-changed 8), operator-triggered, **no cron**.
+
+**Decision-loop tie-ins (the spectacular part):** every move card carries (a) the What-If evidence line — `simulateAction` on this tenant's own outcome history, attached only when it can genuinely speak; (b) the `buildPeerMoveForecast` seam — null until tenant #2 + brain gate, so activation is a data flip, not a refactor; (c) a steal CTA into /recommendations.
+
+**Surfaces:** customer `/competitors` gains "Their winning moves" (proven/early/watching, quiet suppressed, cap 5) + "Why them, not you" (their page vs your closest, gap sentences, descriptor contrast, them-#1/you-not-cited loss rows). Operator `/diagnostics/competitor-intel`: refresh + ALL tiers + structural-change history.
+
+**Live verification transcript (preview):** customer card — "**Supple Homes published a adu cost guide page on May 28. AI started citing it 6 days later — 3 citations in the 14 days after (none in the two weeks before). Publish your own cost guide →**"; why-them — their URL vs "No close match yet.", "Words AI uses about them: award-winning, custom, luxury", three "them #1 · you not cited" loss rows; diagnostic — same move, "pre 0 → post 3".
+
+**Honesty discipline:** no causal verbs anywhere (two dated facts side by side); suppression floors (≥2 their-citations + ≥1 concrete prompt row for a report; quiet moves customer-suppressed); "no close match" over a forced match; no fabricated quotes (prompt table speaks in ranks + dates).
+
+**FLAGGED:** (1) Discovered during verification: `.data/global/answer-texts.json` EXISTS in the main checkout — answer text IS persisted (earlier agent recon said otherwise). Follow-up: thread real answer quotes into why-them. (2) The worktree's partial `.data` copy got cleared during dev-preview runs (main checkout `.data` verified intact; worktree copy was disposable). (3) First real data needs one operator click on `/diagnostics/competitor-intel` → Refresh (crawls sitemaps + fetches top-cited rival pages).
+
+---
+
+## 2026-06-09 — Move Forecast composer — killer-feature half A ("before you ship")
+
+**Status:** Compute built locally + green (11 tests). Pure (no I/O). **Inert until tenant #2 + `BEACON_CROSS_TENANT_BRAIN` on + a Move surface** — same built-but-gated posture as the cross-tenant brain it rides on. Render activation deferred with the rest of the brain runtime.
+
+**Why this slice:** completes the killer-feature trilogy. C (calls / "close to revenue") and B (Proof Engine / "after you ship," already surfaced via `AttributionDrilldown`) were done; A is the "before you ship" half — forecast an edit's likely outcome from real peer results so the owner sees the odds before spending a dev hour.
+
+**What shipped (`src/domains/product/move-forecast.ts`):** `buildPeerMoveForecast(args) → MoveForecast | null`. The What-If engine (`simulateAction`) speaks only from THIS tenant's history; when that's thin it returns `direction: "insufficient_data"` and says nothing. This pure composer fills exactly that gap from the cross-tenant brain's `CrossTenantPattern[]`:
+- Fills ONLY when this-tenant evidence is thin (defers to simulateAction's first-party signal otherwise).
+- Matches patterns whose `matchKey` references the action type; picks the strongest (most peer attempts, then highest helpingRate).
+- **Honesty floors (mirror natural-controls' computed-vs-weak discipline):** suppress entirely below `FORECAST_SUPPRESS_BELOW` (3) peer attempts; flag `seeded` (early-signal "still gathering data; treat as directional" caveat) below `FORECAST_SEEDED_BELOW` (10).
+- Returns `null` whenever there's nothing honest to say. The gate-first producer returns `[]` at n=1 / gate-off, so this is **always null today** — no fake forecasts, no causal claims (causation is the Proof Engine's job).
+- Copy is plain English + associative (not causal), matching simulateAction's voice: "{pct}% of {N} similar changes shipped by other businesses like you had a positive outcome."
+
+**Why a pure composer, not a `simulateAction` edit:** keeps the hardened pure core untouched; the composer is the thin, testable seam a future Move surface calls after running the producer (async, gated) + simulateAction.
+
+**Tests (11):** fills only when thin (defers on sufficient first-party evidence); inert at no-patterns / no-match; suppress floor; seeded band (caveat + pct); confident band; action-type matching; strongest-pattern selection + tie-break. typecheck 0.
+
+**FLAGGED (deferred, same gates as the brain):** rendering one forecast line on a customer "Move" surface needs (1) a 2nd tenant (producer returns [] at n=1), (2) `BEACON_CROSS_TENANT_BRAIN=1`, (3) a customer Move surface to host it (today `simulateAction` is operator-diagnostic-only). The compute is ready; activation is the deferred runtime wiring.
+
+Commit: `feat(move-forecast): peer-outcome forecast composer (killer-feature half A, gated)`.
+
+---
+
+## 2026-06-09 — Connector "refresh all data sources" orchestrator (§5, single-tenant half)
+
+**Status:** Shipped locally (orchestrator action + operator surface + 10 tests). Full suite green. No new HTTP/persistence — composes existing per-connector refresh actions.
+
+**Why this slice:** the GA4/CallRail/Semrush work I shipped is only as fresh as the last manual refresh, and each lived on a separate `/diagnostics/<provider>` page. This is #5's single-tenant-valuable half ("connector auto-refresh") — one click keeps the entire outcome-attribution substrate current. Deliberately **not scheduled** (no cron added — that's the constraint-gated/operator half); this is the orchestration seam the nightly poll could later call.
+
+**What shipped:**
+- **`/diagnostics/connectors/actions.ts` — `refreshAllDataSources()`:** operator-gated once, then composes the three already-gated, soft-failing per-connector refresh actions (`refreshTenantGa4Traffic`, `refreshCallRailMetrics`, `refreshSemrushMetrics`). Runs all three independently (one failing/skipping never blocks the others). Classifies each outcome: **refreshed** (data pulled) / **skipped** (`no_token`/`no_key`/`no_property`/`no_domain`/`disconnected` → not set up) / **failed** (connected but the pull errored). Returns per-connector results + refreshed/skipped/failed counts.
+- **`/diagnostics/connectors/page.tsx`:** operator-gated, force-dynamic, resilient. One row per cache-backed connector (GA4, CallRail, Semrush) with status pill + last-refreshed time + a "manage →" deep link, and a single "Refresh all connected sources" button (disabled when none connected). The updated last-refreshed timestamp after a refresh is the in-surface proof the pull landed. GSC excluded (on-demand URL inspection, no batch cache).
+
+**Constraints honored:** no cron / scheduler added (operator-triggered + poll-callable seam only); no new outbound HTTP path (reuses the three connectors' existing, tested clients); operator-gated end to end.
+
+**Tests (10):** operator gate (no sub-action fires for non-operator); all-connected → 3 refreshed with correct detail strings; not-connected reasons → skipped (not failed); error reason → failed, independent of the others (one fails, others still refresh/skip); all three sub-actions invoked even when the first fails. typecheck 0.
+
+Commit: `feat(connectors): one-click refresh-all orchestrator + operator surface (§5)`.
+
+---
+
+## 2026-06-09 — CallRail connector — closes the revenue loop (cited → recommended → traffic → CALL)
+
+**Status:** Shipped locally (backend + feed-flip + operator surface + 46 tests). Full suite green (13824/0). Migration PENDING (deploy-applied); live pulls need the operator's CallRail key + account id.
+
+**Why this slice:** the highest-value not-yet-built piece of the "Proof Engine + Move Forecast" killer feature — **half C, "close it to revenue."** The Mode A engine already threads `qualifiedCallCount` → `post_live_qualified_calls` (K4 ≥1-call branch) and the customer copy ("received N sessions and M calls in the X days since going live") was already written + runtime-suppressed at calls=0. The only missing link was an actual source of call counts. This builds it.
+
+**The loop, end to end:**
+- **Auth/store:** `callrail` provider added to `connector-store` + `CallRailConnectorToken` (API-key auth like Yelp/Semrush; soft-disconnect preserves cached attribution through key rotation) + `getCallRailConnectorToken` + `updateConnectorToken` overload. **No migration for the key** — `connector_tokens` is provider-agnostic JSONB.
+- **Client (`src/lib/connectors/callrail/`):** `client.ts` — `GET /v3/a/{account_id}/calls.json` with `Authorization: Token token={key}`, `fields=landing_page_url,answered,duration,lead_status,start_time`; server-only, tenant-scoped, key never logged, **fail-soft** on `no_key`/`disconnected`/non-2xx/missing-array/network. `calls-by-url.ts` — `isQualifiedCall` (good_lead OR answered & duration ≥ 60s) + `groupCallsByUrlDay` (canonicalizes the landing URL via `canonicalizeCitationUrl`, buckets by UTC day, drops un-attributable, deterministic sort) + `sumQualifiedForUrl`. `types.ts`.
+- **Persist (`persist-url-calls.ts`):** `refreshCallRailCalls` fetch → group → upsert to `call_url_attribution`, soft-fails on missing table/Supabase, stamps `last_synced_at`. `loadQualifiedCallCountForUrl` (the read the Mode A feed calls) sums qualified calls for one canonical URL since a date — wrapped in try/catch → **0 on any error**, so with CallRail unconnected the outcome surfaces are byte-identical to before. `loadRecentCallAttribution` powers the operator view.
+- **Feed-flip:** both Mode A loaders — `load-mode-a-for-changes-detail.ts` + `load-outcomes-summary-for-tenant.ts` — replaced their hardcoded `qualifiedCallCount: 0` with `loadQualifiedCallCountForUrl({tenantId, canonicalUrl, sinceUtcDate: live_at})`. No `live_at` → still 0 (read skipped).
+- **Migration:** `migrations/2026-06-09_call_url_attribution.sql` — additive cache table `(tenant_id, url, date)` PK + `last_synced_at` index, RLS deny-all. Sibling of `ga4_url_traffic`. **PENDING apply** (deploy-time, operator-approved; reads soft-fail on 42P01 until then) — I did NOT apply it.
+- **Operator surface (`/diagnostics/callrail`):** operator-gated, force-dynamic, resilient. Connect form (paste key + account id) → `connectCallRail`; "Refresh calls" → `refreshCallRailMetrics`; cached attribution-row view (URL · date · qualified/total) + soft-disconnect. All three actions operator-gated (non-operator → `not_operator`, no key stored, no HTTP).
+
+**Constraints honored:** I did NOT make live CallRail calls (no key) — tests inject `fetchImpl` + `token`, never touching the network. Migration written, not applied. No push.
+
+**Tests (46):** connector client fail-soft / request shape / error handling / parse + `isQualifiedCall` + `groupCallsByUrlDay` + `sumQualifiedForUrl` + refresh assembly (15); Mode A loader **call-count wiring** — non-zero count threads into compute, stays 0 with no `live_at` (2 new); the two loader tests now mock the CallRail collaborator so their exact GA4-query-shape assertions stay valid (the loaders genuinely do a 2nd read now); actions operator-gate + connect/refresh/disconnect (10); page render + operator gate + connected/disconnected/rows states (5). typecheck 0 · **full suite 13824 passed / 25 skipped / 0 failures.**
+
+**FLAGGED (operator):** (1) live pulls need the operator to paste a CallRail API key + numeric account id on `/diagnostics/callrail` (operator-mode) — I can't (no key). (2) The migration applies on deploy. (3) The qualified rule (answered ≥60s OR good_lead) is a sensible default; tune per business if needed.
+
+Commit: `feat(callrail): connector loop + Mode A call-count feed-flip + operator surface (§9.B)`.
+
+---
+
+## 2026-06-09 — Semrush connector — full loop (connect → fetch → persist → view)
+
+**Status:** Shipped locally (backend + operator surface + 32 tests). Build + full suite green. Migration PENDING (deploy-applied); live pulls need the operator's key.
+
+**The loop, end to end:**
+- **Auth/store:** new `semrush` provider in `connector-store` + `SemrushConnectorToken` (API-key auth like Yelp, soft-disconnect) + `getSemrushConnectorToken` + `updateConnectorToken` overload. **No migration for the key** — `connector_tokens` is provider-agnostic JSONB.
+- **Client (`src/lib/connectors/semrush/`):** `client.ts` — key-auth GET to `https://api.semrush.com/`, `;`-CSV parse, unit-frugal `display_limit`, server-only, tenant-scoped, key never logged, **fail-soft** on `no_key`/`disconnected`/non-2xx/`ERROR`-body/network (never throws). `domain-reports.ts` — `domain_ranks` overview + `domain_organic_organic` competitors, typed + normalized. `types.ts`.
+- **Persist (`persist-domain-metrics.ts`):** `refreshSemrushDomainMetrics` fetches overview first (1 unit-line; bails on `no_key` before spending competitor units), assembles a snapshot, upserts to `semrush_domain_metrics`; soft-fails on missing table/Supabase. `loadSemrushDomainMetrics` reads it back.
+- **Migration:** `migrations/2026-06-09_semrush_domain_metrics.sql` — additive cache table `(tenant_id, domain)` PK, RLS deny-all. **PENDING apply** (deploy-time, operator-approved; reads soft-fail on 42P01 until then) — I did NOT apply it.
+- **Operator surface (`/diagnostics/semrush`):** operator-gated, force-dynamic, resilient. Connect form (paste key + database) → `connectSemrush`; "Refresh metrics" → `refreshSemrushMetrics` (pulls the owned domain from business-config); cached snapshot view (overview metrics + organic-competitor list); soft-disconnect. All three actions operator-gated (non-operator → `not_operator`, no key stored, no HTTP).
+- **Loop close / cross-check:** the diagnostic surfaces Semrush's organic competitors next to a note to cross-check against Beacon's AI-citation competitor set (each catches rivals the other misses). Deeper auto-merge into the tracked set / recommendation inputs is a flagged follow-up.
+
+**Constraints honored:** I did NOT make live Semrush calls (no key; would burn the operator's week-limited units) — tests inject `fetchImpl` + `token`, never touching the network. Migration written, not applied. No push.
+
+**Tests (32):** connector client fail-soft gates / URL shape / error handling / CSV parse / typed mapping (13); refresh assembly + unit-frugal bail (4); page render + operator gate + connected/disconnected/snapshot states (8); actions operator-gate + connect/refresh/disconnect (15). [client.test 13 + persist.test 4 + page 8 + actions 15 = 40 cases across 4 files.] typecheck 0 · build 0 (route in manifest) · **full suite 13791 passed / 0 failures.**
+
+**FLAGGED (operator):** (1) live pulls need the operator to paste a Semrush API key on `/diagnostics/semrush` (operator-mode) — I can't (no key). (2) The migration applies on deploy. (3) A `/settings/connectors` card + auto-merging Semrush competitors into the tracked set are follow-ups (the functional loop lives on the operator diagnostic). (4) Week-limited key: connect + refresh now to capture; soft-disconnect preserves the cached snapshot after it expires.
+
+Commits: `feat(semrush): connector backend …(1/2)` + `feat(semrush): operator connect/refresh/view surface …(2/2)`.
+
+---
+
+## 2026-05-26 — §3.2 cross-tenant producer + sync-chain threading (gate-off byte-identical)
+
+**Status:** Shipped locally (producer + backward-compat threading through the sync packet-build chain). Build + full suite green. Activation (async-ancestor compute + prod deps) flagged.
+
+**Producer.** `cross-tenant-brain/producer.ts` — async `computeCrossTenantPatterns(args, deps)`: GATE-FIRST (`isCrossTenantProducerEnabled()` off → `[]`, no reads → production byte-identical); enumerate tenants, exclude self, load each other tenant's outcomes, delegate to the pure `aggregateCrossTenantPatterns`; any fault → `[]` (never breaks the evidence packet). Dep-injected (`listTenants` / `loadOutcomesForTenant` / `buildBlocklist`) → tested with synthetic multi-tenant fixtures, gate forced on. 7 tests (gate / exclude-self / n=1 / aggregation / fault-tolerance).
+
+**Why the producer is async but the packet builder isn't.** `buildSpecificEditEvidencePacket` AND its wrapper `buildPacketForRec` are both **synchronous** (the brain stub was sync by design to fit them). Rather than cascade `async` through the sync rec pipeline, the producer runs upstream (async) and its result threads DOWN through the sync chain as an **optional** arg:
+- `buildSpecificEditEvidencePacket` args gain optional `crossTenantPatterns?`; line 665 uses `args.crossTenantPatterns ?? getCrossTenantPatterns(stub)`. Omitted by every current caller → falls back to the `[]` stub → **102 packet tests unchanged**.
+- `buildPacketForRec` args gain the same optional field + pass it through.
+Both changes are backward-compatible; the gate-off path is byte-identical.
+
+**FLAGGED — final activation step (genuine architectural boundary).** The async ancestor that should compute `computeCrossTenantPatterns(...)` + pass it into `buildPacketForRec` is **indirect** (`buildPacketForRec` has no non-test runtime caller — the runtime packet path runs through the generation pipeline). Locating + wiring that ancestor, plus the production deps (`listTenants` from `tenants/store`, a per-tenant outcomes loader over `buildTenantLifecycleRecords` + median classification, and a `buildBlocklist` over business-config + tracked-entities) is the dedicated activation slice. **Deferred because:** gated off + returns `[]` at n=1 (zero current value), and threading blindly through the core pipeline risks regressions. The producer + the entire sync-chain seam are built + proven, so activation is now a contained change.
+
+**Verified:** typecheck 0 · producer + load-queue + 102 packet tests green · build 0 · full suite 13757 passed / 0 failures. Commit: `feat(brain): cross-tenant producer + thread patterns through sync packet chain (§3.2)`.
+
+---
+
+## 2026-05-26 — §3.6 "Beacon learned" customer tile (flag-gated)
+
+**Status:** Shipped locally (new customer component + flag-gated Today section + test). Build + full suite green.
+
+**What.** `src/components/today/beacon-learned-tile.tsx` — pure presentational customer tile (per_tenant / network / hidden states). `TodayV2BeaconLearnedSection` in `today-v2-sections.tsx` gates on `isBrainLearnedTileEnabled()` (returns null immediately when OFF → production Today byte-identical) and, when ON, surfaces the per-tenant insight ONLY when `threshold_decision.source === "per_tenant"` AND `sample_size >= BRAIN_SAMPLE_THRESHOLDS.customer_tile` (10) — the honesty gate. Wired into `page.tsx` after the lifecycle tile, `<Suspense fallback={null}>` (self-hiding → no reserved layout). Reuses the lifecycle summary loader; no new data path.
+
+**Customer-safe.** Copy: "Beacon learned from your site — your shipped edits typically get their first AI citation within {N} days, measured from {M} of your own cited edits, not a borrowed benchmark." Verified against the forbidden-customer-vocabulary contract (no Mode A/B/C, no causal/revenue, no internal taxonomy). 8 tile tests (3 states + vocab scan).
+
+**Verified:** typecheck 0 · tile + forbidden-vocab contract green · build 0 (Today wiring compiles) · full suite 13750 passed / 0 failures. Commit: `feat(today): add flag-gated "Beacon learned" tile (§3.6)`.
+
+**§3 status after this:** compute layer (scrubber + aggregator) ✅, operator surface ✅, customer tile ✅. ONLY the producer I/O wiring remains (the sync→async + LLM-packet ripple keystone) — gated, inert at n=1, all deps built.
+
+---
+
+## 2026-05-26 — §3.10 operator cross-tenant-brain surface + google-auth flake fix
+
+**Status:** Shipped locally (new operator route + page test + flaky-test fix). Build + full suite green.
+
+**§3.10 — operator diagnostic surface (E9).** New `src/app/(shell)/diagnostics/cross-tenant-brain/page.tsx`: operator-only (`isOperatorModeServer()` → `notFound()`), `force-dynamic`, resilient (failed reads → empty state). Surfaces: the two activation gates (`BEACON_CROSS_TENANT_BRAIN` / `BEACON_BRAIN_LEARNED_TILE`), the E3 sample-size thresholds (5/10/20), the LIVE per-tenant threshold decision (S1 — borrowed vs Beacon-owned + sample/excluded counts via `loadLifecycleSummaryForTenant`), and the cross-tenant producer pattern count (0 at n=1, with the honest "self-excluded / gate-off" reason). Disambiguates from `/diagnostics/brain` (tenant-local readiness) per the E9 lock. 9 render/gate tests. Route compiled into the build manifest. Gate fixed mid-build: copied the brain page's `|| NODE_ENV==="test"` escape (which defeats the 404 test) → switched to the off-site page's pure `isOperatorModeServer()` gate.
+
+**Bug caught + fixed — pre-existing full-suite flake in `google-auth-scope-split.test.ts`.** The new route shifted test execution enough to surface it (the failure was unrelated to OAuth — my change can't touch HMAC). Root cause: the "tampered signature fails verification" test tampered via `sig.slice(0,-2)+"00"` — a **no-op when the sig ends in "00"**. My first fix (flip last char to `"A"`) was ALSO wrong: signatures are **lowercase hex** and `Buffer.from(_,"hex")` is **case-insensitive**, so `"a"→"A"` decodes to the same byte (0x0a) → still a no-op. Because the payload carries `Date.now()`, the sig's last char varies per run → the test failed only when it ended in `"a"` (~1/16 runs) → flaky. **Fix:** tamper by flipping the last **hex nibble** (`"0"↔"1"`) — guaranteed-different byte. Hardened the body-tamper test the same way (flip the first base64url char — always fully significant; a last-char flip can hit don't-care low bits). Verified: **0 failures across 20 isolated runs** (previously ~1–2/20), then **full suite 686 files / 13720 passed / 0 failures**.
+
+**Files:** `diagnostics/cross-tenant-brain/page.tsx` (new) · `cross-tenant-brain-page.test.tsx` (new, 9) · `google-auth-scope-split.test.ts` (flake fix). typecheck 0 · build 0 (route in manifest) · full suite 13720/0. Commit: `feat(brain): operator cross-tenant-brain diagnostic surface (§3.10) + fix flaky oauth tamper test`.
+
+---
+
+## 2026-05-26 — Continuous-execution pass: roadmap checklist + brain compute layer
+
+**Goal:** execute the full roadmap top-to-bottom, autonomously, logging as I go. This entry is the running log + the workstream checklist.
+
+**ROADMAP CHECKLIST (every workstream + state, verified this session):**
+
+| # | Workstream (plan §) | State | Evidence |
+|---|---|---|---|
+| 1 | §1 Lifecycle reality check | ✅ done (diagnostic) | — |
+| 2 | §2 Time-to-citation (A.1) | ✅ BUILT | `citation-lifecycle/*` + `/diagnostics/lifecycle-eligibility` + tile/strip |
+| 3 | §3 Cross-tenant brain (A.2) | 🟡 compute layer DONE; producer wiring gated | config ✅ thresholds ✅ compute-tenant-thresholds ✅ per-tenant wiring (S1) ✅ **privacy scrubber ✅** **aggregation core ✅** — REMAINING: producer I/O (sync→async, touches LLM packet), "Beacon learned" tile, operator surface |
+| 4 | §4 Indexability+GSC (A.3) | ✅ BUILT | `indexability/*` + `connectors/gsc/*` + migrations |
+| 5 | §4.5 Recommendation intelligence | ✅ BUILT | 16 triggers + emitter + promotion (queue-flip live) + 15 generatorActive + safety-audit |
+| 6 | §5 Repeat-citation | ✅ BUILT | `citation-lifecycle/*repeat*` + today counters |
+| 7 | §6 Primary recommendation | ✅ BUILT | `change-primary-mode-{a,b}` + migration |
+| 8 | §7 Off-site authority | ✅ BUILT | C7a–C7e + footer + types truth-up |
+| 9 | §8 GSC depth (J-block) | ✅ BUILT | expiry/stagger/rich-fields/disconnect |
+| 10 | §9 Outcome attribution | ✅ BUILT (GA4/K1) | mode-a + GA4 connector + migration; CallRail/GBP deferred-by-design |
+| 11 | §10 Phase B regenerate | 🟡 gateway infra ✅; persist gated | operator-only + env-off + non-persisting; brandAssertions/cooldown/original-preservation = S6 (no-LLM-gated) |
+| 12 | §11 Pricing | ✅ operator-side (no code) | — |
+| 13 | §12 Invariants/safety/budget | 🟡 N1/N4 ✅, N2-pin ✅, N3 audited(0 leaks), N2-router net-negative | — |
+| 14 | §13 CMS publishing | ⚫ PARKED | by design |
+| 15 | MT-1..MT-4 + footer + types | ✅ BUILT | multi-tenant business-config cleanup |
+| 16 | MT-5 (overload removal) | 🔒 approval-gated | ~23-call test migration |
+| 17 | Ops-safety (cron thin + CI build gate) | ✅ BUILT | `e16695a` |
+
+**Built THIS pass (new code, full suite green):**
+- `cross-tenant-brain/privacy.ts` — E4 description scrubber (`3d83ac8`, 23 tests).
+- `cross-tenant-brain/aggregate.ts` — §3.2 pure aggregation core: group-by-matchKey → helpingRate → exclude-self → sample-gate(≥5, E3) → scrub(E4) → leak-guard → rank+cap(5, E5). 14 tests. Verified: typecheck 0 · full suite **685 files / 13710 passed / 0 failures**. Commit: `feat(brain): add cross-tenant pattern aggregation core (§3.2)`.
+
+Together these complete the cross-tenant brain's **pure-compute layer** (config + thresholds + scrubber + aggregator), all gated behind `BEACON_CROSS_TENANT_BRAIN` (off) and inert at n=1 (only Ritz → self-excluded → []). The remaining producer I/O wiring (enumerate via `listTenants()`, read per-tenant via `forTenant`, then call the aggregator) requires changing the locked SYNC `getCrossTenantPatterns` stub to async + rippling into `specific-edit-evidence.ts` (the LLM evidence packet builder) — a coordinated, sensitive slice scoped as its own gated phase (§3.13). Building its compute dependencies first (done) de-risks that activation.
+
+**FLAGGED BLOCKERS (per goal: assume + keep moving, flag at end):**
+- 🔒 **Deploy is operator-gated** — no push/CI/Vercel this session (Actions minutes exhausted). 20-commit stack stays local.
+- 🔒 **No-LLM / no-connector / no-migration mode** — blocks §10 persist activation, §9 CallRail/GBP, any new migration, the brain producer's live activation.
+- 🔒 **MT-5** — explicit operator-approval-gated.
+- ⚖️ **S2-router** — judged net-negative (premature abstraction; isolation already pinned). Not built; documented.
+
+---
+
+## 2026-05-26 — S4 partial: cross-tenant brain privacy scrubber built + green (§3.4 / E4)
+
+**Status:** Shipped locally (new pure module + 23 tests). Full suite green.
+
+**What + why.** Pushed S4 forward by building its safety-critical foundation: `src/domains/recommendations/cross-tenant-brain/privacy.ts` — `scrubPatternDescription(description, blocklist)` + `containsBlocklistedTerm` + `normalizeBlocklist`. This is the E4-locked primitive that strips any other tenant's identifying strings (names/domains/aliases/competitors) from a `CrossTenantPattern.description` before it could ever be packeted or surfaced. PURE (no I/O, no env, no tenant context, deterministic). Privacy-first design: case-insensitive substring matching, longest-term-first (so a full domain redacts as a unit), regex-escaped terms, ≥2-char terms only (a 1-char term would shred text), over-redaction is the SAFE failure. Confirmed net-new (no existing scrubber; `copy-sanitize.ts:scrubInternalLeakagePatterns` is a different concern — internal tokens, not a tenant blocklist).
+
+**Why only the scrubber (not the full producer).** The remaining S4 work — the real `getCrossTenantPatterns` producer (still a `[]` stub) — requires an intentional CROSS-tenant read (aggregate all tenants' recommended_edits + lifecycle, exclude self, scrub, cap, sample-gate). The repository is `forTenant`-scoped by design, so the producer needs a deliberate all-tenants read mechanism + is the highest-privacy-risk component in the system, AND returns `[]` at n=1 (only Ritz, self-excluded) — it's gated behind `BEACON_CROSS_TENANT_BRAIN` (off). Building that half-baked at session-tail would create the exact privacy risk §3.4 most fears. It stays the careful, dedicated, gated slice the plan (§3.13) scoped — now with its scrubber dependency ready + proven.
+
+**Verified (local only):** typecheck clean ✅ · `privacy.test.ts` 23 cases ✅ (redaction, case-insensitivity, longest-first non-fragmentation, regex-metachar literal-matching, over-redaction-safe, no-op/empty/non-string defensive, normalize hygiene, post-scrub guard, determinism) · **full suite 684 files / 13696 passed / 0 failures** ✅ (new module tripped no invariant). Commit: `feat(brain): add cross-tenant pattern privacy scrubber (§3.4/E4)`.
+
+---
+
+## 2026-05-26 — S3 follow-through: tenant-isolation LEAK AUDIT of data-access surface → ZERO leaks
+
+**Status:** Read-only security audit (no code change). Closes S3 with evidence, not just judgment.
+
+**Why.** The comprehensive N3 scan is brittle (995 exports / mostly pure helpers), but the *underlying question* — "does any data-access function touch tenant-partitioned data without scoping?" — is the real safety value. Rather than ship a brittle test, I audited the actual risk surface.
+
+**Method.** Scoped to data-access-verb exports (`load*/fetch*/read*/persist*/save*/write*/upsert*/sync*/list*/query*/update*/delete*`) in `src/domains` + `src/lib/connectors` lacking `tenant` on the signature line = **89 functions**. Read the body of the **39 highest-risk** (no-arg persisters/writers + queue/outcome/pattern loaders — those with no param to thread tenant) and classified each by its tenant-scoping mechanism: (a) `tenantId` param, (b) `opts.tenantId`, (c) internal `currentTenantId()`, (d) `getRepository().forTenant()`, (e) global-store-by-design.
+
+**Result: ZERO genuine leaks.** All 39 are properly scoped. Breakdown: most `persist*` go through `getRepository()` (tenant-aware backend, mechanism d); `persistRecommendedEditsLocal`/`persistGa4UrlTraffic` take explicit `tenantId` (a/b); `runProviderAndPersist` has a fail-loud `currentTenantId()` mismatch gate (c); `global-patterns`/`prompt-library`/`observation-runs-merged`/`competitor-universe` are documented GLOBAL stores (e, by design). Defense-in-depth confirmed (e.g., recommended-edits-persistence.ts tenant-mismatch throw; GA4 "every upserted row carries tenant_id = args.tenantId").
+
+**Decision.** S3 CLOSED. No comprehensive test shipped — it would be brittle (the 5 valid scoping mechanisms can't be captured by a single-signature assertion) and adds no safety the audit + RLS + repository pattern + 13+ targeted invariants don't already provide. The audit itself is the deliverable: the data-access isolation surface is clean. If a future data-access function is added, the existing repository-pattern discipline + targeted invariants remain the guard.
+
+---
+
+## 2026-05-26 — S3 (§12 N3 comprehensive tenant-isolation scan) evaluated → NOT RECOMMENDED as specified
+
+**Status:** Evaluation (read-only); no code change. Last open local slice, now dispositioned.
+
+**Method.** Empirically sized the proposed scan before building it: `grep -rE "^export (async )?function " src/domains/ src/lib/connectors/` → **995 exported named functions; 31 mention `tenant` on the signature line.** Sampled the remainder.
+
+**Finding.** ~960 of the exports are **pure helpers** that correctly take no tenant (`missingTitleCopy`, `fixSitemapCopy`, `dedupeKey`, `buildPromotionDedupeKey`, `confidenceMultiplier`, `priorityScore`, `getCooldownWindowForStatus`, `eligibilityForTrigger`, copy/format/parse/normalize/derive builders…). The plan's N3 assumed a "lax scan with a small (<20) whitelist." Reality is the inverse: a comprehensive scan would flag ~960 functions, each needing an allowlist entry or a `@no-tenant-required` marker → a brittle, oversized, perpetually-churning test that fights the codebase's (correct) pure-helper-heavy design and adds ~no safety.
+
+**Why isolation is already strong (so N3 is belt-and-suspenders we don't need).** The genuine risk — a data-access function reading across tenants — is already prevented by: (1) the repository pattern `getRepository().forTenant(tenantId)` (a structural guarantee at the data layer), (2) RLS deny-all on every table, and (3) 13+ targeted isolation invariants (`canonical-store-tenant-isolation`, `factory-functions-require-tenant`, `no-unscoped-tier-a-reads`, `sync-wrappers-stamp-tenant-id`, `citation-lifecycle-tenant-isolation`, GA4/GSC isolation, `business-config-*-tenant-aware`, etc.).
+
+**Decision.** Do NOT build the comprehensive scan. If a real gap ever surfaces, scope a future test to data-access name-patterns only (`load*/persist*/sync*/save*/upsert*` in domains+connectors) — but existing mechanisms already cover it. N3 reclassified in NEXT_PHASE + capsule from "open / low-urgency" to "evaluated → not-recommended-as-specified."
+
+**Net.** This was the last open *safe local* slice. With S1 done, S3 dispositioned, and S2-remainder/S4/S5/S6 all refactor/constraint/approval/LLM-gated, **all productive local work within the current constraints is exhausted.** Further progress requires operator push/deploy or a greenlit deliberate slice.
+
+---
+
+## 2026-05-26 — CORRECTION: S1 (per-tenant thresholds) is shipped + green, not pending
+
+**Status:** Read-only verification + doc correction (no code change).
+
+**What happened.** Preflighting S1 (the "highest-value pending slice" per the earlier audit) to attempt it, I discovered it is **already fully wired + verified green**. The earlier "per-tenant thresholds NOT wired = S1 pending" finding was an **audit error**: the §3 Explore agent traced only `citation-lifecycle/thresholds.ts` (which correctly remains the borrowed-6/18/37 constants source, pinned by `thresholds-provenance.test.ts`) and inferred "not wired." It missed the actual implementation:
+- `deriveLifecycleStage` (lifecycle-stage.ts) already takes an **optional `thresholds` 2nd arg** (Phase A.2 Step 3a, 2026-05-14), defaulting to borrowed.
+- `load-lifecycle.ts` (Step 3b) resolves per-tenant thresholds via `computeTenantThresholds(records)`, threads them into `deriveLifecycleStage`, exposes `threshold_decision` (source/thresholds/sample_size/excluded_count) on `LifecycleForEdit` + `LifecycleSummary`, and folds `source` into the cache key so a profound_default→per_tenant flip can't serve stale copy.
+- `render-copy.ts` (Step 3c) emits **per-source customer copy**: the borrowed-benchmark tooltip ("6, 18, and 37 days are starter benchmarks… Beacon will replace them with its own observed benchmarks") vs the per-tenant `buildPerTenantBenchmarkTooltip` ("Computed from {sample_size} cited shipped edits on this site") + a "for this site" honesty suffix on cited-* variants.
+- Consumed by `edit-lifecycle-tile.tsx` / `lifecycle-strip.tsx` / `changes/[id]/page.tsx`. Pinned by `threshold-decision-loader-wiring.test.ts`.
+
+**Verified:** `npx vitest run` over `threshold-decision-loader-wiring` + `brain-compute-tenant-thresholds-provenance` + `thresholds-provenance` + `citation-lifecycle-tenant-isolation` + `tests/domains/citation-lifecycle/` + `tests/components/today/` → **24 files / 442 passed.**
+
+**Net.** Phase A.2 Step 3 is COMPLETE. The only remaining §3 work is the cross-tenant PRODUCER (S4 — constraint-blocked at n=1 + LLM). Docs corrected: HANDOFF (top correction entry + inline strike), NEXT_PHASE (S1→DONE, operator-ask de-greenlit), capsule (§3 row + S1 bullet + findings). **The only genuinely-open *local* slice is now S3** (comprehensive tenant-isolation scan, low-urgency).
+
+**Lesson logged.** A single-file agent trace can under-report cross-file wiring — verify the *consumers* (who calls the compute, who renders the copy), not just the named module.
+
+---
+
+## 2026-05-26 — Audit coverage completion: §10 + §4.5 deep-verify (read-only)
+
+**Status:** Read-only verification (no code change). Findings recorded; one new slice (S6) flagged.
+
+**§4.5 Recommendation Intelligence — VERIFIED COMPLETE.** All 9 safety properties enforced + pinned (20 dedicated arch tests): no-LLM-decides-existence (16 deterministic triggers fire before any draft; LLM only drafts copy), every queue row carries evidence/confidence/dedupe_key/cooldown_key/customer_copy/action_type, customer-copy forbidden-vocab scan on all 15 templates, index-blockers-outrank-content in the priority score, off-site rows detection-only via 3 layers (registry `generatorActive:false` + queue-rule route-to-diagnostic + promotion-eligibility `blocked`), low-confidence/safety-flagged rows stay diagnostic-only, 13-step promotion safety ladder (cooldown/accepted-ancestor/staleness/prereq), tenant isolation on loads + writes. **Customer-queue flip is LIVE** (`promotion-writer.ts`, `dryRun` defaults true, live-write requires operator-only action + `isPromotionLiveWriteEnabled` + uppercase confirm; pinned by `promotion-live-write-guards.test.ts`). `generatorActive` = 15 (up from 3). **No loopholes found.**
+
+**§10 Phase B Regenerate — infra shipped + safe; persist phase deferred-by-design.** ENFORCED (7): no-LLM-on-page-load (render-isolation test), no-auto-regenerate, budget gate (daily+monthly via `checkBudget` pre-call), validator+display-safety guard, 19-rule provider/validator reuse (no second prompt), cost→`adjudicator-budget` discipline, explicit tenant isolation. The LLM-draft gateway is **operator-only + env-gated OFF (`BEACON_LLM_DRAFT_GATEWAY_ENABLED`) + read-only/non-persisting by design** (docstring: "no caller in production yet; does NOT write recommended_edits"). DEFERRED to slice **S6** (Phase B persist phase, NOT bugs in shipped code): brandAssertions ≥3 gate, 5-min per-rec cooldown, original-`proposed_text` preservation + revert UI, show-original-on-fail UI. Budget gate already caps worst-case cost; path is inert by default.
+
+**Audit coverage now complete:** §3/§8/§9/§10/§12/§4.5 deep-verified by parallel Explore agents this session; §2/§4/§5/§6/§7 confirmed-built via module listings + build manifest + git log. Full suite green at 13671. **Verdict: product is feature-complete for n=1 dogfood; all remaining work (S1–S6) is deliberate-slice / approval-gated / constraint-blocked / operator-gated.** No commit (read-only); findings folded into NEXT_PHASE + `docs/FABLE_CONTEXT_CAPSULE.md`.
+
+---
+
+## 2026-05-26 — Fix: N2 pin tripped a meta-test false-positive (caught by full-suite gate)
+
+**Status:** Fixed + re-verified green. Test-comment-only change.
+
+**What the final full-suite gate caught.** After the N2 pin (`16f5e66`), the definitive full-suite run failed 1 test: `llm-budget-test-isolation.test.ts` flagged `cost-controls.test.ts` as "writes to a global store but not hermetically isolated." **False positive.** That meta-test's *loop-shape heuristic* (`writeStore(<var>,` + a global-store name literal in the same file → assume the test writes the store) matched my new block's **comment** "written via `writeStore(STORE_NAME, ...)`" co-occurring with the `"llm-budget"` literal. My test only READS source via `readFileSync` + regex; it never persists. The meta-test's own header notes "this is a heuristic; tighten if false positives appear."
+
+**Why targeted runs missed it.** I'd run `cost-controls.test.ts` + `catalog-sync.test.ts` targeted (green) but not the *meta-test that scans all test files* — only the full suite exercises that cross-file interaction. Validates the "run the full suite when anything could interact" rule.
+
+**Fix.** Reworded the comment to drop the literal `writeStore(STORE_NAME, ...)` call-shape (now: "persisted by adjudicator-budget.ts via the json-store writer keyed by its STORE_NAME constant") + added a note that this static-analysis file never persists. My scan regex `/writeStore/` (bare) and smoke `/writeStore<…>\(STORE_NAME/` (the `<` breaks the heuristic's `writeStore\s*\(` match) don't trigger it — only the comment did. Did NOT touch the meta-test (kept the fix local to my file).
+
+**Verified:** meta-test + cost-controls + catalog-sync → 38 passed; **full suite re-run → 683 files, 13673 passed, 0 failures, exit 0.** Commit: `test(cost): fix N2-pin comment tripping llm-budget meta-test`.
+
+---
+
+## 2026-05-26 — §12 N2 llm-budget store write-isolation pin (follow-on)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. Local-only. Test-only (no src/behavior change).
+
+**What changed.** Extended `tests/architecture/cost-controls.test.ts` with a new describe block "Section 12 N2 — only adjudicator-budget writes the llm-budget store" (2 cases): an isolation scan (no src file outside the allowlist pairs the bare json-store key `"llm-budget"` with `writeStore`) + a writer smoke (`adjudicator-budget.ts` has `STORE_NAME = "llm-budget"` + `writeStore(STORE_NAME...)`).
+
+**Why bare-key, not filename.** Ground-truth checked first: the LLM ledger is written via `writeStore("llm-budget", ...)` (json-store key), NOT direct `writeFileSync` to a `llm-budget.json` path. The filename `llm-budget.json` appears only in prose comments of monthly.ts / budget.ts / specific-edit-llm-history.ts / recommended-edits-persistence.ts — read-only references. Pinning the bare quoted key `"llm-budget"` avoids false-positives (esp. specific-edit-llm-history.ts, which has a `llm-budget.json` comment + a `writeStore` to its OWN store). `grep '"llm-budget"' src/` → only `adjudicator-budget.ts` (writer) + `store-classification.ts` (registry listing, no writeStore). No `readStore("llm-budget")` elsewhere.
+
+**Closes the lower-risk half of N2** (symmetric to the existing cost-ledger isolation pin). STILL OPEN: `cap_kind` annotation + unified `recordSpend({ledger})` router (cost-path refactor; dedicated slice).
+
+**Verified (local only):** `npx vitest run cost-controls.test.ts catalog-sync.test.ts` → 2 files / 31 passed ✅ (catalog-sync green — extended an existing file, no new catalog row). Extends an existing test file → no full-suite needed (additive, isolated; src unchanged from the 13671-green baseline).
+
+**Commit (local only):** `test(cost): pin llm-budget store write isolation (§12 N2)`. **NOT pushed** — stack → 11 ahead.
+
+---
+
+## 2026-05-26 — MVP audit sweep + process-global straggler truth-up
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. Actions exhausted → local-only.
+
+**Audit (read-only deep verification of 4 plan subsystems via parallel Explore agents):**
+- **§8 GSC depth (J-block):** VERIFIED COMPLETE. J2 expiry-handler (7-day soft-fail + reconnect copy), J3 quota-stagger (4h hash-bucket by tenant_id + exp-backoff, max 3 retries), J4 rich fields (`last_crawl_time` + `mobile_usability` from raw JSONB), J5 soft-disconnect (cached state preserved) — all built + tested. J1 multi-property correctly deferred. Invariants present: property-mapping-required, no-GSC-on-page-load, tenant-isolation. **No gaps.**
+- **§9 Outcome-Attribution:** VERIFIED COMPLETE. GA4 (K1) property-selection + data-api + `ga4_url_traffic` migration + persist + normalization; Mode A guard (K4: ≥7d post-live AND (≥5 sessions OR ≥1 call)); customer copy + forbidden-vocab (K5) on Today tile + Changes Act-3; operator `/diagnostics/outcome-attribution`; tenant-isolation + no-revenue-claim + no-call-on-load invariants. CallRail (K2) + GBP-insights (K3) correctly absent with forward-compat slots. **No gaps.**
+- **§3 Cross-Tenant Brain:** partial-by-design. Env gates (`BEACON_CROSS_TENANT_BRAIN` / `BEACON_BRAIN_LEARNED_TILE`), LLM-packet wiring, sample-size thresholds, `compute-tenant-thresholds.ts` all built + tested. Producer = intentional stub (`getCrossTenantPatterns` → `[]`; correct at n=1 tenant). **GAP: per-tenant threshold compute NOT wired into `citation-lifecycle/thresholds.ts`** (still static borrowed 6/18/37) → slice S1. "Beacon learned" tile + privacy scrubber unbuilt (multi-tenant + LLM work) → S4.
+- **§12 Invariants/Safety/Budget:** N1 (catalog + `catalog-sync.test.ts`, 232 test files ↔ catalog rows) ✅; N4 forbidden-vocab (8 dedicated tests: Mode A/B/C, causal/revenue, off-site labels) ✅. **N2 half-wired**: two ledgers isolated + `cost-controls` pins polling side, but no `recordSpend({ledger})` router, no `cap_kind`, no LLM-side isolation pin → S2. **N3 missing**: no comprehensive tenant-isolation scan (13+ targeted tests + RLS + repo-pattern exist; low urgency) → S3.
+
+**Bug caught + fixed (the "check every dot" payoff).** The `dd4c52f` footer-copy-refresh updated `ALWAYS_INCLUDED_NOTES` + 2 test files but **missed a third copy of those strings**: `tests/app/diagnostics/off-site-authority-page.test.tsx` `STANDARD_NOTES` (lines 120-125) still carried the old "process-global today" / "not implemented until C7g" strings. The suite stayed green because the fixture feeds a self-consistent mock the page renders + the loop asserts against — but it asserted the operator page against copy `computeOffSitePresenceSnapshot` can no longer produce (a fidelity gap, not a failure). Fixed to the shipped "tenant-scoped" strings.
+
+**Comment truth-ups (zero behavior).** `src/domains/off-site-authority/types.ts` header (C7d/C7e now shipped on tenant-correct path; business-config tenant-keyed; prerequisite catalog row retired) + `off-site-authority-operator-page-discipline.test.ts` JSDoc ("process-global helpers" → "tenant-keyed business-config"; force-dynamic still justified by per-tenant per-request data).
+
+**Repo-wide sweep:** `grep -rn "process-global today\|not implemented until C7g\|multi-tenant routing not yet implemented" src/ tests/ scripts/` → **0 matches.** dd4c52f's truth-up is now complete.
+
+**Files (3 code/test + 3 docs):** `src/domains/off-site-authority/types.ts` · `tests/app/diagnostics/off-site-authority-page.test.tsx` · `tests/architecture/off-site-authority-operator-page-discipline.test.ts` + HANDOFF/NEXT_PHASE/VERIFICATION. (`docs/FABLE_CONTEXT_CAPSULE.md` updated too but left **untracked** — portable Fable handoff, intentionally out of the push stack.)
+
+**Verified (local only):**
+- `npm run typecheck` — clean ✅
+- targeted: off-site batch (9 files / 170 cases) + page-test/discipline/purity/catalog-sync (4 files / 51 cases) ✅
+- `npm run test` (full) — **683 files / 13671 passed, 25 skipped, 0 failures** ✅ (count unchanged — confirms comment/fixture-only, no executable change)
+
+**Commit (local only):** `chore(off-site): finish process-global truth-up + fix stale test fixture`. **NOT pushed** — local stack now 10 ahead of origin/main.
+
+---
+
+## 2026-05-26 — Slice: Ops-safety — thin poll schedules + CI build gate
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**Why.** Pre-dogfood release-readiness review flagged (a) scheduled workflows burning Actions minutes (3 fires/day each on `daily-native-poll` + `poll-canary`) and (b) CI stopping at typecheck+test, so Vercel could fail on a build/route break CI never caught.
+
+**What changed (`.github/workflows/` only — no `src/`, no tests).**
+- `daily-native-poll.yml` — scheduled crons 3 → 1: kept `0 7 * * *` (07:00 UTC primary); commented out `30 8 * * *` + `0 10 * * *` backups with a dated re-enable note. `workflow_dispatch` preserved. Job `timeout-minutes` already present (unchanged).
+- `poll-canary.yml` — scheduled crons 3 → 1: kept `45 7 * * *` primary; commented out `15 9 * * *` + `45 10 * * *`. `workflow_dispatch` preserved.
+- `daily-scan.yml` — untouched (already 1/day at 04:00).
+- `ci.yml` — added a `Build` step (`npm run build`) after `Test`, with `BEACON_TENANT_ID=tenant-ritz-founder` + `BEACON_TENANT_SLUG=ritz-founder` env (mirrors the verified-local incantation; non-secret slugs).
+- **Net effect:** scheduled fires 7/day → 3/day; CI gate becomes typecheck → test → build.
+
+**Verified (local only):**
+- All 4 workflows parse as valid YAML via node `js-yaml`; `on:` triggers intact — `workflow_dispatch` preserved on both thinned polls ✅
+- Active-cron audit: exactly 1 scheduled cron each on `daily-native-poll` (07:00) + `poll-canary` (07:45) + `daily-scan` (04:00) ✅
+- `npm run build` (the gate being added) is green at HEAD `dd4c52f`: exit 0, `.next/BUILD_ID` written, full route manifest, zero error lines ✅ (`/rank` is the only static route — confirmed no data/Supabase deps, prerenders anywhere)
+- `npm run typecheck` clean ✅ · full suite 13671 passed / 0 failures ✅ (unchanged at `dd4c52f`; this slice touches no executable code)
+
+**Unverifiable without a push (flagged, per the missing-capability rule).** The CI `Build` step cannot be executed without landing on a branch GitHub runs. Its maiden run is the first push/merge after this lands — watch it. Residual risk low (build is env-light; only `/rank` is static and dependency-free), but if the runner needs env beyond the two tenant slugs, it surfaces there.
+
+**Operational truth-up.** Committing the cron thinning **does not** reduce the live Actions burn — GitHub schedules fire from the default branch's file. The only pre-push burn-stop is the operator disabling both workflows in the GitHub UI (Actions tab → "Disable workflow"), which is instant + reversible. Recorded in NEXT_PHASE landing runbook step 1.
+
+**Commit (local only):** `ci(actions): conserve minutes — thin poll schedules + add build gate`. **NOT pushed** — local stack now 9 ahead of origin/main; batch-land at the operator-approved reset window per the NEXT_PHASE runbook.
+
+---
+
+## 2026-05-23 — Slice: Off-site `data_sources_note` copy refresh (MT-4 follow-up)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed (copy/string-only, zero logic).** Refreshed the stale RENDERED operator-footer copy that still said "process-global today":
+- `src/domains/off-site-authority/compute-snapshot.ts` — `ALWAYS_INCLUDED_NOTES`: business-config + connector-tokens lines → "tenant-scoped" framing ("resolved per request for the active tenant" / "stored per (tenant, provider) in Supabase"); industry/local-press line → "detected only from operator-configured profile URLs; no automated detection yet." `PLACEHOLDER_NOTE` unchanged. Also refreshed the module-header "Tenant-scope reality" comment + the invariant-#6 note (C7d/C7e "deferred" → "now shipped").
+- `tests/domains/off-site-authority/compute-snapshot.test.ts` — the 2 `data_sources_note` assertions `.includes("...: process-global")` → `.includes("...: tenant-scoped")`.
+- `tests/domains/off-site-authority/recommendation-rules.test.ts` — `STANDARD_NOTES` fixture matched to the new strings.
+
+**Mid-slice catch.** First draft placed the literal `getBusinessConfig(tenantId)` in a note string + comment → tripped `off-site-authority-pure-module-purity` (forbids the `getBusinessConfig` identifier anywhere in the pure module, even in copy) → reworded to "resolved per request for the active tenant" (no identifier). Confirmed final copy contains none of the forbidden identifiers (getBusinessConfig / isPlaceholderConfig / readLocalReviews / getConnectorToken* / getRepository) and none of the forbidden customer vocab (no "process-global", no "missing", no causal/revenue/$).
+
+**Verified (local only):**
+- `npm run typecheck` — clean ✅
+- off-site batch — 14 files / 758 cases ✅ (incl. the now-passing `off-site-authority-pure-module-purity` + the diagnostics-page test that renders the footer strings)
+- `npm run test` (full suite) — **683 files / 13671 passed, 1 file / 25 skipped, 0 failures** ✅ (run per the "unless tests fail → full suite" rule, after the mid-slice draft trip)
+
+**Line budget:** +20 / −20 (net 0; pure string swaps).
+
+**FOLLOW-UP flagged (NOT done — out of footer-only scope):** `src/domains/off-site-authority/types.ts:7` module-header comment still says "process-global today" + "C7d/C7e defer" + cites the retired `off-site-authority-multi-tenant-prerequisite` catalog row. Deferred to a separate doc-comment slice to honor the "footer refresh only" scope lock.
+
+**Commit (local only):** `chore(config): refresh off-site data-source copy`. **NOT pushed** — local stack now 8 ahead of origin/main; batch-push when Actions billing restored.
+
+---
+
+## 2026-05-23 — Slice MT-4: Multi-tenant doc truth-up (+ MT-5 preflight)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed (comment/doc-only, zero behavior).** Corrected stale "PROCESS-GLOBAL" claims that MT-1/MT-2/MT-3* resolved: (1) `off-site-authority/load-snapshot.ts` import-allowlist annotations (`business-config` → tenant-keyed; `connector-store` → tenant-scoped via composite PK + currentTenantId, 2026-05-16) + the "Multi-tenant prerequisite" note → RESOLVED (C7d/C7e ship on the tenant-correct path); (2) `business-config.ts` `BusinessConfig` interface note → "tenant-keyed as of MT-1"; (3) catalog row `off-site-authority-multi-tenant-prerequisite` → **retired**. FOLLOW-UP (deferred — rendered footer copy = behavior): the runtime `ALWAYS_INCLUDED_NOTES` strings in `compute-snapshot.ts` still say "process-global today."
+
+**Verified (local only):**
+- `npm run typecheck` — clean ✅
+- off-site invariants (loader-allowed-imports, customer-surface-isolation, pure-module-purity, C7d/C7e no-queue) + MT-1 + catalog-sync — 7 files / 121 cases ✅
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- Full suite NOT run — justified: comment/doc-only, zero executable change (MT-3C.2 `f09b408` is the last code state; the full suite was green there + nothing executable changed since).
+
+**MT-5 preflight — DEFERRED.** Runtime fully clean (0 no-arg runtime callers, 0 fallbacks, 0 no-tenant saveBusinessConfig callers), but removing the deprecated no-arg overload requires migrating 23 no-arg calls in `business-config.test.ts` + 3 other test files + flipping 5 invariant existence-pins + converting the deep-runtime invariant to a global ban. Not "zero test blockers / obviously safe" → dedicated slice with explicit approval.
+
+**Proposed commit message:** `docs(config): correct stale process-global notes`
+
+---
+
+## 2026-05-23 — Slice MT-3C.2: Page-extractor config injection (last 2 pure helpers)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Tightened the final 2 pure helpers (`getLocationRegex`, `getServiceRegex`) to REQUIRE config. The page extractor (`pages/extractor.ts`) — which already takes a required `tenantId` and has ONE runtime caller (`verify-action`, already passing the real tenant) — now resolves `getBusinessConfig(tenantId)` and injects it (replacing the deprecated no-arg path that implicitly read the process-env tenant). **ZERO `?? getBusinessConfig()` fallbacks remain in business-config.ts.** Updated 2 invariants (`business-config-pure-helpers-require-config` → all 5 require config + 0 fallbacks; `business-config-deep-runtime-tenant-aware` sanity pin → 0 fallbacks).
+
+**Why safe (preflight):** production behavior identical (verify-action passes the real tenant → same regex). The require()+inline-default catch stays as the safety net. **No extractor/scanning test asserts location/service terms** (verified: they assert FAQs/tables/headings/schema; the `locationTerms` references elsewhere are trigger-test fixtures, not extraction output) — so the per-tenant change (placeholder→empty terms for the synthetic `tenant-test`) breaks nothing.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅ (no typed caller of the 2 tightened helpers besides the untyped extractor require)
+- 11 files / 129 cases ✅ (both updated business-config invariants + MT-1 + business-config core + extractor.test + extractor-expanded + 4 scanning suites + catalog-sync)
+- Line delta: src+tests +79 / −45 (net +34)
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 683 files / **13671 passed, 25 skipped, 0 failures** ✅ (extractor per-tenant change broke nothing)
+
+**Proposed commit message:** `refactor(config): require config for page-extractor helpers`
+
+**Next:** operator review → local commit MT-3C.2 → MT-4 (doc truth-up) → MT-5 preflight.
+
+---
+
+## 2026-05-23 — Slice MT-3C: Pure-helper config injection
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Tightened 3 of the 5 business-config pure helpers to REQUIRE an injected `config` (dropped their `?? getBusinessConfig()` no-arg fallback): `getSectionAnalyzerConfig`, `getFaqTemplates`, `isDirectoryDomain`. Callers updated: `today-data.ts` (businessConfig in scope from MT-2), `changes/[id]/page.tsx` (resolve `businessConfig = getBusinessConfig(tenantId)` once before line 265; thread into the analyzer + reuse for brandName). NEW `business-config-pure-helpers-require-config` invariant. This IS a business-config core change (expected for MT-3C).
+
+**Deferred to MT-3C.2:** `getLocationRegex` + `getServiceRegex` keep the optional `config?` fallback — their only runtime caller is the pure page extractor (`pages/extractor.ts`, `require()` + inline-default pattern, no config/tenantId in scope); threading config into `extractPageSnapshot` ripples into the scan pipeline, so it's a separate slice. The deep-runtime invariant's "2 fallbacks remain" sanity pin reflects this.
+
+**Preflight:** zero direct test callers of the 5 helpers; `isDirectoryDomain` has zero runtime callers (citation-index has its own local one); the 3 tightened helpers' callers are bounded + have config. typecheck confirmed every caller of the 3 passes config (no misses).
+
+**Test-mock update:** `changes-id-page-reads-fresh.test.ts` mocked business-config without `getBusinessConfig`; the page now calls it unconditionally at line 266 (previously the only call was a conditional line-335 path) → 1 failure → added `getBusinessConfig` to the mock.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅
+- MT-3C invariant + MT-3B + MT-1 + business-config core: 44 cases ✅
+- changes/today/section-analyzer caller tests + catalog-sync (after the 2 fixes): 28 cases ✅
+- `catalog-sync` — green (1 new row)
+- Line delta: src+tests +137 added / −17 deleted — well under target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 683 files / **13668 passed, 25 skipped, 0 failures** ✅
+
+**Proposed commit message:** `refactor(config): require injected config for pure helpers`
+
+**Next:** operator review → local commit MT-3C → MT-3C.2 (extractor config-threading for the last 2 helpers).
+
+---
+
+## 2026-05-23 — Slice MT-3B: Deep-runtime business-config helper migration
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Migrated the remaining deep domain/lib runtime callers off the deprecated no-arg `getBusinessConfig()`:
+- `getBusinessConfig(tenantId)` (tenantId in scope): `recommendation-intelligence/{load-trigger-candidates-for-tenant,promotion-writer}.ts`, `indexability/{batch-load,load}-indexability.ts`, `pages/verify-action.ts`, `adapters/profound/import-orchestrator.ts`, `lib/connectors/ga4/persist-url-traffic.ts`.
+- `await getBusinessConfigForCurrentTenant()`: `lib/connectors/yelp-reviews-sync.ts`.
+- Config injection: `classifyCompetitorType(domain, directoryDomains)` (now pure, no business-config import); callers thread `businessConfig.directoryDomains` — `competitors/discover.ts` (opts), `competitors/page.tsx` (relocated `businessConfig` above the discover call; direct call + `buildCompetitorRank` callback closure), `milestones/post-import-sync.ts` (resolves config + closure).
+
+**Result:** ZERO active no-arg `getBusinessConfig()` calls remain in `src/` runtime code; only the 5 pure-helper fallbacks (MT-3C) + the deprecated overload signature (MT-5) inside business-config.ts. NEW `business-config-deep-runtime-tenant-aware` invariant (src-wide scan, business-config.ts excepted). MT-3C/MT-4/MT-5 deferred.
+
+**Ripple caught by typecheck (not grep):** `classifyCompetitorType` was passed as a CALLBACK in 2 places (`competitors/page.tsx:194`, `post-import-sync.ts:25`) — the `(`-grep missed those; typecheck flagged them; fixed with `(domain) => classifyCompetitorType(domain, directoryDomains)` closures (no `buildCompetitorRank` signature change). Zero test ripple for the signature change.
+
+**Test-mock update:** `yelp-reviews-sync.test.ts` mocked `getBusinessConfig` (no-arg) but not the wrapper → 10 failures after the migration; added `getBusinessConfigForCurrentTenant` to its mock factory (same shape, async).
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅ (after fixing the 2-caller callback ripple)
+- 61 targeted suites / 1112 cases ✅ (competitors, indexability, recommendation-intelligence, milestones, connectors + MT-1/MT-2/MT-3A/MT-3B invariants + 2 off-site no-queue)
+- `catalog-sync` — green (1 new row)
+- Line delta: src+tests +145 added / −22 deleted — well under target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 682 files / **13660 passed, 25 skipped, 0 failures** ✅ (incl. the classify-type call-graph ripple + connector-sync changes)
+
+**Proposed commit message:** `refactor(config): inject business config into deep helpers`
+
+**Next:** operator review → local commit MT-3B → MT-3C (pure-helper fallback tightening).
+
+---
+
+## 2026-05-22 — Slice MT-3A: Operator-surface business-config migration
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI/Vercel/`gh`.** Local-only verification.
+
+**What changed.** Migrated the 9 operator-facing business-config entry files (settings + diagnostics pages/actions) off the deprecated no-arg `getBusinessConfig()` → tenant-aware:
+- `getBusinessConfig(tenantId)` (tenantId already in scope): `diagnostics/page.tsx` (2 sites), `diagnostics/recommendation-triggers/{page,actions}.ts`, `diagnostics/repeat-citation/page.tsx`, `diagnostics/indexability/page.tsx`.
+- `await getBusinessConfigForCurrentTenant()` (no tenantId in scope): `settings/connectors/page.tsx`, `settings/connectors/actions.ts`, `settings/config/page.tsx` (**sync→async conversion**), `settings/config/actions.ts` `loadSetup`.
+- `settings/config/actions.ts` `saveSetup`: deprecated `saveBusinessConfig({...})` → tenant-scoped `saveBusinessConfig(await currentTenantId(), {...})`.
+
+NEW invariant `business-config-operator-surface-tenant-aware` (9-file allowlist; comment-stripped line-first; `typeof getBusinessConfig` type usage allowed). MT-3B (deep helpers), MT-3C (pure-helper fallbacks), MT-5 (global no-arg removal) deferred. Business-config core, C7d/C7e, connector-store/middleware/OAuth/tenant-context all unchanged.
+
+**Async-conversion check (C7e lesson applied):** `settings/config/page.tsx` was sync; converting it to async is safe only if no test renders it via `renderToStaticMarkup` — grep confirmed no test references it (`connectors-smoke` only awaits the already-async ConnectorsPage). The full suite re-confirms.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅
+- MT-3A invariant + MT-1/MT-2 + C7d/C7e invariants + connectors-smoke: 8 files / 128 cases ✅
+- diagnostics suites (the migrated pages): 14 files / 241 cases ✅
+- `catalog-sync` — green (1 new row)
+- Line delta: src+tests +131 added / −17 deleted — well under target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — 681 files / **13657 passed, 25 skipped, 0 failures** ✅ (incl. the settings/config/page.tsx sync→async conversion — no breakage)
+
+**Proposed commit message:** `refactor(config): resolve operator surfaces by tenant`
+
+**Next:** operator review → local commit MT-3A → (when Actions billing restored) batch-push C7d + C7e + MT-3A → MT-3B / MT-3C.
+
+---
+
+## 2026-05-22 — Slice C7e: Recommendations off-site opportunities section (second customer-facing off-site surface)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**. **Actions minutes exhausted → NO remote CI, NO Vercel, NO `gh`.** Local-only verification.
+
+**What changed.** Added a read-only "Off-site opportunities" section at the bottom of `/recommendations`, structurally separate from the website-edit queue. NEW `src/app/(shell)/recommendations/off-site-opportunities-section.tsx` (async server component: loads `loadOffSitePresenceSnapshot` + pure `computeOffSiteRecommendationCandidates`, soft-fails to hidden; is_local_service + renderability gate; renders a manual-follow-up context label + the REUSED C7d `OffSiteAuthorityTile`). Wired into `recommendations/page.tsx` at the bottom of both the v2 and legacy branches. C7d tile reused unchanged (zero rendering duplication; ~9-line allowlist mirror inlined per "don't over-abstract if tiny").
+
+**Preflight:** clearly bounded + safe (no queue promotion, no Accept/Defer/Dismiss, no raw URLs, no external calls, no broad pipeline changes; reuses C7d tile) → proceeded to implementation without a tiny approval per the operator's new mode.
+
+**Invariants:** 2 NEW — `off-site-recommendations-section-safe-copy` (scans the section's NEW context-label copy) + `off-site-recommendations-section-no-queue` (section never imports emitter/promotion-writer/to-candidate-row/persistence/runProviderAndPersist/recommendation-actions/`load-queue`; no Accept/form/button; scans ONLY the section file since `recommendations/page.tsx` legitimately imports the website-edit queue loaders). C7d invariants + offsite-contract unchanged; `off-site-profile-urls-no-customer-surface` auto-covers the new section.
+
+**Full-suite catch + fix (why running the full suite mattered):** the first full-suite run surfaced 10 failures / 3 files (`recommendations-page-reads-fresh`, `-smoke`, `-v2-switcher`) that the targeted batches missed. Root cause: `OffSiteOpportunitiesSection` is an async server component, and it was rendered as a DIRECT child in `RecommendationsAsyncContent` — the recommendations route tests render that via `renderToStaticMarkup` (legacy sync renderer), which cannot render an async child and threw. Fix (within C7e scope): wrap both `<OffSiteOpportunitiesSection />` renders in `<Suspense fallback={null}>` (matching the Today page's C7d pattern) — the sync renderer renders the null fallback instead of awaiting; Next's RSC renderer streams the resolved section in production. Re-ran the 3 files → 15 passed; full suite re-running to confirm 0 failures.
+
+**Scope honored:** read-only · no queue promotion (off-site stays diagnostic_only) · no Accept/Defer/Dismiss · no auto-claim/post · no review requests · no raw profile URLs · no connector/API/scrape/LLM calls · no migration/mutation/env change · no connector-store/middleware/OAuth/tenant-context/business-config-core change · C7d unchanged.
+
+**Verified (local only — Actions minutes exhausted):**
+- `npm run typecheck` — clean ✅
+- 9 targeted suites / 632 cases ✅ (C7e section + 2 new invariants + C7d invariants + auto-coverage + offsite-contract)
+- 12 targeted suites / 244 cases ✅ (catalog-sync + MT-1/MT-2 invariants + off-site domain + **recommendations route tests re-verified green** with the off-site section in the render graph)
+- `catalog-sync` — green (2 new rows)
+- Line delta: src+tests +507 — under the ≤850 target
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — exit 0; full route manifest emitted ✅ (re-run after the Suspense fix — still green)
+- `npm run test` (full vitest, LOCAL — no Actions minutes) — after the Suspense fix: 680 files / **13637 passed, 25 skipped, 0 failures** ✅ (first run had 10 failures / 3 files — see the full-suite-catch note above)
+
+**Proposed commit message:** `feat(recommendations): show off-site opportunities section`
+
+**Next:** operator review → local commit C7e → (when Actions billing restored) batch-push C7d + C7e → visual smoke Today + Recommendations → MT-3 or C7f.
+
+---
+
+## 2026-05-22 — Slice C7d: Today off-site authority tile (first customer-facing off-site surface)
+
+**Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.
+
+**What changed.** Added the first customer-facing off-site surface: a read-only "Off-site authority" Today card, unblocked by MT-2 (off-site data path now tenant-correct). NEW `src/components/today/off-site-authority-tile.tsx` (pure, is_local_service-gated, renders nothing when no useful signal); new `TodayV2OffSiteAuthoritySection` in `today-v2-sections.tsx` (loads `loadOffSitePresenceSnapshot` + pure `computeOffSiteRecommendationCandidates`; soft-fails to hidden tile); composed in `page.tsx` via `<Suspense fallback={null}>` (Option A — page.tsx added to scope; no separate skeleton file). The tile shows "Connected"/"Configured" chips for claimed channels (review count+rating only for high-confidence GBP/Yelp) + "Worth a manual review" for the 3 non-policy-risk candidates only (`request_gbp_reviews`/`pursue_local_pr` excluded; no raw URLs; no "missing").
+
+**Invariant plan (corrected, operator-approved):** 2 NEW invariants only — `off-site-customer-tile-safe-copy` (forbidden-vocab + policy-risk action-token ban; visible-text extractor skips `${}` for the `$` check) and `off-site-customer-tile-no-queue` (no queue/promotion/persistence imports; no Accept/form/button; offsite-contract intact). The existing `off-site-authority-customer-surface-isolation` (scans operator files, inverse direction) + `off-site-profile-urls-no-customer-surface` (auto-covers the new tile via its recursive `src/components/today/**` walk) were LEFT UNCHANGED — they pass as-is; weakening avoided.
+
+**Scope honored:** read-only · no C7e · no queue promotion (off-site stays diagnostic_only) · no Accept/Defer/Dismiss · no auto-claim/post · no review requests · no raw profile URLs · no connector/API/scrape/LLM calls · no migration/mutation/env change · no connector-store/middleware/OAuth/tenant-context/business-config-core change. `today-v2-data.ts` not needed (wired directly in sections.tsx).
+
+**Implementation note (test-extractor bug found + fixed):** the safe-copy invariant's literal extractor (mirrored from the operator-copy invariant) does not capture JSX text children; resolved by moving the tile's visible headings into `COPY` string constants so every visible phrase is a literal the extractor scans.
+
+**Verified (local only, no CI minutes):**
+- `npm run typecheck` — clean ✅
+- 8 targeted suites / 646 cases ✅ (tile render test + 2 new invariants + existing off-site invariants the tile must satisfy: profile-urls, customer-surface-isolation, customer-copy, offsite-contract, no-paid-or-scan-or-llm)
+- `catalog-sync` — 8 ✅ (2 new rows)
+- Line delta: src+tests +719 — over the ≤700 target, within the ≤850 soft threshold; no trim (contract: do not weaken tests)
+- `npm run test` (full vitest) — 677 files / 13584 passed, 25 skipped, 0 failures ✅
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — RUNNING (result to be confirmed in READY_TO_COMMIT report)
+
+**Proposed commit message:** `feat(today): show off-site authority summary`
+
+**Next:** operator review → local commit C7d → push/verify → Today visual smoke → C7e preflight OR MT-3 preflight.
+
+---
+
 ## 2026-05-22 — Slice MT-2: Customer-facing business-config entry-point migration
 
 **Status:** READY_TO_COMMIT — **NOT pushed**, no CI minutes used. Local-only verification.

@@ -526,16 +526,97 @@ export async function syncDailyMetricSnapshots(
   );
 }
 
+/** The per-day uniqueness index on prompt_answer_observations:
+ *  (tenant_id, prompt_id, platform, (observed_at AT TIME ZONE 'UTC')::date).
+ *  An EXPRESSION index — supabase-js `onConflict` can't target it, so the
+ *  primary upsert keys on `id` and same-day collisions are recovered below. */
+const PAO_DAY_CONSTRAINT = "ux_pao_tenant_prompt_platform_day";
+
+function paoDayKey(row: {
+  prompt_id?: unknown;
+  platform?: unknown;
+  observed_at?: unknown;
+}): string | null {
+  if (
+    typeof row.prompt_id !== "string" ||
+    typeof row.platform !== "string" ||
+    typeof row.observed_at !== "string"
+  ) {
+    return null;
+  }
+  return `${row.platform}|${row.observed_at.slice(0, 10)}|${row.prompt_id}`;
+}
+
+/**
+ * 2026-06-09 — same-day re-poll recovery (root cause of the June 3
+ * persistence-gate latch). When two polls fire on the same UTC day
+ * (double cron fire / retry-after-partial), the second run's rows carry
+ * NEW ids but the SAME (tenant, prompt, platform, day) — the id-keyed
+ * upsert INSERTs and trips the day-uniqueness constraint, which used to
+ * throw, mark the run PERSISTENCE FAILED, and latch the paid-poll gate.
+ *
+ * A same-day duplicate is skippable BY DEFINITION (that prompt's answer
+ * for that day is already recorded). On this specific collision we
+ * fetch the day's existing keys and write ONLY the genuinely-missing
+ * rows — which also lets a re-run fill prompts an earlier partial run
+ * missed. Any other error still throws (the gate's job is real
+ * failures, not re-poll collisions).
+ */
 export async function syncPromptAnswerObservations(
   rows: PromptAnswerObservation[],
   tenantId: string,
 ): Promise<void> {
   const stamped = tenantizeRows(rows, tenantId, "prompt_answer_observations");
-  await dualWriteUpsert(
-    "prompt_answer_observations",
-    stamped as unknown as AnyRow[],
-    "id",
-  );
+  try {
+    await dualWriteUpsert(
+      "prompt_answer_observations",
+      stamped as unknown as AnyRow[],
+      "id",
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes(PAO_DAY_CONSTRAINT)) throw err;
+
+    const sb = getSupabaseAdmin();
+    const existing = new Set<string>();
+    // One read per distinct (platform, day) in the batch (a poll chunk
+    // is one platform + one day, so this is one query in practice).
+    const groups = new Map<string, { platform: string; day: string }>();
+    for (const row of stamped as unknown as AnyRow[]) {
+      const key = paoDayKey(row);
+      if (key == null) continue;
+      const [platform, day] = key.split("|");
+      groups.set(`${platform}|${day}`, { platform: platform!, day: day! });
+    }
+    for (const { platform, day } of groups.values()) {
+      const { data, error } = await sb
+        .from("prompt_answer_observations")
+        .select("prompt_id")
+        .eq("tenant_id", tenantId)
+        .eq("platform", platform)
+        .gte("observed_at", `${day}T00:00:00Z`)
+        .lt("observed_at", `${day}T23:59:59.999Z`);
+      if (error != null) throw err; // recovery read failed → surface the ORIGINAL error
+      for (const r of (data ?? []) as Array<{ prompt_id?: string }>) {
+        if (typeof r.prompt_id === "string") {
+          existing.add(`${platform}|${day}|${r.prompt_id}`);
+        }
+      }
+    }
+
+    const missing = (stamped as unknown as AnyRow[]).filter((row) => {
+      const key = paoDayKey(row);
+      return key != null && !existing.has(key);
+    });
+    if (missing.length > 0) {
+      await dualWriteUpsert("prompt_answer_observations", missing, "id");
+    }
+    console.error(
+      `[dual-write] prompt_answer_observations: same-day re-poll collision — ` +
+        `${stamped.length - missing.length} duplicate row(s) skipped, ` +
+        `${missing.length} missing row(s) written`,
+    );
+  }
 }
 
 // ── Poll Integrity Hardening (2026-05-04, post May 2-4 incident) ──
