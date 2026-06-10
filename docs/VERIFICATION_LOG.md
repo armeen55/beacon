@@ -7,6 +7,54 @@
 
 ---
 
+## 2026-06-10 — MASTER GOAL RUN: multi-property activation + THE PUSH LAYER (shipped to production)
+
+**One continuous operator-approved run ("do not stop"). Three PRs merged to main, all CI-green, production verified at `be0f86d` (hosted /login 200). Full suite: 13,987 passed / 0 failed / 0 skipped.**
+
+### VERIFY-FIRST corrections (read the code, not the summary)
+- Change Card schema CONFIRMED (recommended-edits-persistence.ts:86,130) — and BETTER than summarized: `accepted` status already existed.
+- **Inherited claim WRONG:** "prompt library is global = poller blocker." The poller eats `tracked_prompts` — ALREADY tenant-scoped (adapters/perplexity/poll.ts → repo.forTenant). The global `prompt-library` is a UI corpus only.
+- Vertical enumeration: 91 broad-match files; LOAD-BEARING sites were ~8 constants + the deepest lock: `BeaconTenant.segment` hardcoded single-value (types + DB CHECK).
+- onboard-tenant.ts: local scaffold only (registry + 14 stores + checklist); Supabase rows are separate.
+- LLM gateway: src/lib/llm/config.ts, BEACON_LLM_PROVIDER (openai|deterministic), OPENAI_API_KEY present locally → flipped.
+- Brain/Forecast gating confirmed (BEACON_CROSS_TENANT_BRAIN + n≥2).
+
+### Iranopedia = tenant #2 (LIVE in production registry)
+- Raw-HTML test run MYSELF (crawler-style fetch): content pages serve full H1 + 3-5K chars server-rendered (/famous-iranian-poets etc.) → **Wix write path GREEN, no headless detour.**
+- DB CHECK widened via applied migration `2026-06-10_tenant_segments`; tenants row (content_publisher, active, $5/day), owned entity, **50 prompts across 7 Persian topics** seeded.
+- **First sensed numbers (Perplexity, 50/50 answered, $0.07): Iranopedia cited in 8/50 (16%).** Famous Iranians 3/5 · Persian Culture 2/8 · Phrases 1/8 · Names 1/8 · Cities 1/7 · **Food 0/9 · History 0/3 · Travel 0/2** → Food = first factory cluster target.
+
+### INCIDENT caught + fixed mid-run: cross-tenant poll leak (Invariant 5)
+Iranopedia's first poll consumed **Ritz's 100 prompts** and stamped them tenant-iranopedia: the adapter read via the UNSCOPED base repo (poll.ts:181) — invisible at n=1, a leak at n=2. Fixed via forTenant push-down + regression test (`tests/adapters/perplexity/poll-tenant-isolation.test.ts`); 100 mis-stamped observations + 209 contaminated snapshots deleted from prod; shipped in PR #5 BEFORE the first 2-tenant cron.
+
+### THE PUSH LAYER (PR #7) — Beacon can now publish an approved card itself
+- Wix connector (key-auth; data-item query/update/INSERT, blog draft+publish, media import; **no delete endpoints exist**; slug/url/link-* stripped from every update; slug allowed at CREATE only).
+- url-map: operator collection mappings → canonical URL → (collection, item).
+- push-service invariants IN CODE + pinned by tests: **Ritz hard-returns dev notes even if config says wix_cms**; ≤10 pushes/day/property (push-ledger clone of budget caps); non-destructive guard (no empty / >80% shrink); field-targeted or create-route only; creation never overwrites a mapped URL.
+- Lifecycle: + `pushed`/`push_failed` (cooldowns 180/30d; ratchet tests updated with dated notes); push stamps `live_at` (Mode A clock) + immediate live-text probe can flip `verified_live` same-minute; scan/match-runner stays authoritative.
+- Surfaces: `/diagnostics/wix` (connect → mappings → sync → **pushable-cards console: one explicit click per card**) + Approve&Push server action; `/diagnostics/dev-notes` (paste-ready tickets; Ritz's ONLY path; pinned structurally: route has no actions module).
+
+### PAGE FACTORY + LLM FLIP (PR #7)
+cluster-factory: plan → OpenAI structured fields per item → batch `create_page` cards (JSON fields incl slug) → same approval queue → capped create-route pushes. Deterministic mode refuses loudly; ≤10 items/run; cost stamped per card; content rules (Persian-never-Farsi, word caps, no-fabrication instruction) flagged into risks[] for the human gate. Allowlisted as the 2nd documented OpenAI egress. `BEACON_LLM_PROVIDER=openai` set locally (Vercel env = operator).
+
+### Finglish = tenant #3 (pending_onboarding)
+Supabase row (product_app, publish_target git_pr) — **deliberately NOT active**: no real domain confirmed; polling a guessed domain would poison data + spend. git_pr cards export as PR-ready notes until repo config lands.
+
+### Brain/Forecast at n=2 — honest status
+Flags set locally; producer requires per-tenant OUTCOME data — Iranopedia has zero shipped edits yet, so patterns are legitimately `[]` until first pushes verify-live. The seam is live; activation is data arrival, not code.
+
+### Test-env hardening
+vitest env now pins safe defaults (deterministic provider, brain off) so operator activation flags in .env.local can't flip gate tests; worktree .data registry repaired (Ritz restored + Iranopedia appended).
+
+### OPERATOR — the only remaining inputs
+1. **Wix API key + site id** → /diagnostics/wix → paste collection mappings → Sync url map.
+2. **First ≤5 pushes**: review cards → Approve & Push, one click each.
+3. Vercel env when ready for hosted generation: BEACON_LLM_PROVIDER=openai (+ key), BEACON_CROSS_TENANT_BRAIN=1.
+4. **Finglish domain + repo** → flip tenant active; Iranopedia GSC property → connect for the dying-chart baseline.
+5. Yesterday's still-open: SEMrush key (trial burning), CallRail key.
+
+---
+
 ## 2026-06-10 — SHIPPED: the full stack deployed to production ("do all" run)
 
 **What ran (operator-approved "do all"):**
