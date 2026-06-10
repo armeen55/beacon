@@ -126,6 +126,10 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   const ALLOWED_OPENAI_CALLERS = new Set<string>([
     "src/domains/recommendations/adjudicate.ts",
     "src/domains/recommendations/providers/openai.ts",
+  // §push page-factory (2026-06-10): the cluster generator is the second
+  // documented OpenAI egress — gated by the same BEACON_LLM_PROVIDER
+  // config, capped at MAX_ITEMS_PER_RUN per run, cost stamped per card.
+  "src/domains/push/cluster-factory.ts",
     "src/lib/querying/openai-client.ts",
   ]);
 

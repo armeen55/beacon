@@ -177,6 +177,9 @@ describe("COOLDOWN_WINDOW_DAYS + getCooldownWindowForStatus", () => {
         "no_prior",
         "not_found_after_7d",
         "partially_implemented",
+        // §push (2026-06-10): real statuses — Beacon-published edits.
+        "push_failed",
+        "pushed",
         "recommended",
         "verified_live",
         "verified_live_modified",

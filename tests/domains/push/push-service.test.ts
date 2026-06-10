@@ -33,6 +33,7 @@ vi.mock("@/lib/connectors/wix/url-map", () => ({
 
 const _queryResult: { ok: boolean; value?: unknown[]; reason?: string } = { ok: true, value: [] };
 let _updateCalls: Array<Record<string, unknown>> = [];
+let _insertCalls: Array<Record<string, unknown>> = [];
 let _updateResult: { ok: boolean; reason?: string; detail?: string } = { ok: true };
 vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/connectors/wix/client")>();
@@ -44,6 +45,10 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
       return _updateResult.ok
         ? { ok: true, value: { id: "item-1", dataCollectionId: "col", data: {} } }
         : _updateResult;
+    },
+    wixInsertDataItem: async (args: Record<string, unknown>) => {
+      _insertCalls.push(args);
+      return { ok: true, value: { id: "new-item", dataCollectionId: args.dataCollectionId, data: args.data } };
     },
   };
 });
@@ -98,6 +103,7 @@ beforeEach(() => {
   _queryResult.ok = true;
   _queryResult.value = [{ id: "item-1", dataCollectionId: "col", data: { description: "old" } }];
   _updateCalls = [];
+  _insertCalls = [];
   _updateResult = { ok: true };
 });
 
@@ -192,6 +198,26 @@ describe("push happy path + failure ledger", () => {
     const r = await executePush({ tenantId: "tenant-iranopedia", edit: edit() });
     expect(r.kind).toBe("dev_note");
     expect(_updateCalls).toHaveLength(0);
+  });
+
+  it("create route: inserts a NEW item; refuses when the URL already maps", async () => {
+    _urlMapEntry = null; // URL not mapped → genuinely new page
+    const createCard = edit({
+      target_element_key: "create:Foods",
+      target_url: "https://www.iranopedia.com/persian-food/ghormeh-sabzi",
+      current_text: null,
+      proposed_text: JSON.stringify({ slug: "ghormeh-sabzi", title: "Ghormeh Sabzi", description: "Herb stew." }),
+    });
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: createCard });
+    expect(r.kind).toBe("pushed");
+    expect(_insertCalls).toHaveLength(1);
+    expect((_insertCalls[0]!.data as Record<string, unknown>).slug).toBe("ghormeh-sabzi");
+
+    // mapped URL → creation never overwrites
+    _urlMapEntry = { url: "https://www.iranopedia.com/persian-food/ghormeh-sabzi", dataCollectionId: "Foods", dataItemId: "i1", slugField: "slug", label: null, syncedAt: "x" };
+    const r2 = await executePush({ tenantId: "tenant-iranopedia", edit: createCard });
+    expect(r2.kind).toBe("refused");
+    if (r2.kind === "refused") expect(r2.reason).toMatch(/never overwrites/);
   });
 
   it("formatDevNote carries the exact paste-ready copy", () => {

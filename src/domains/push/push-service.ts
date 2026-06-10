@@ -40,7 +40,12 @@ import {
 } from "./caps";
 import { formatDevNote } from "./dev-note";
 import { resolveWixItemForUrl } from "@/lib/connectors/wix/url-map";
-import { wixQueryDataItems, wixUpdateDataItem, type WixDeps } from "@/lib/connectors/wix/client";
+import {
+  wixInsertDataItem,
+  wixQueryDataItems,
+  wixUpdateDataItem,
+  type WixDeps,
+} from "@/lib/connectors/wix/client";
 
 export const RITZ_TENANT_ID = "tenant-ritz-founder";
 
@@ -117,8 +122,51 @@ export async function executePush(
   });
   if (!destructive.allowed) return { kind: "refused", reason: destructive.reason };
 
-  // ── wix_cms adapter ─────────────────────────────────────────────────
+  // ── wix_cms CREATE route (§page-factory) ────────────────────────────
+  // Cards with element key "create:<collectionId>" insert a NEW item.
+  // proposed_text is the JSON of the new item's fields (slug included —
+  // a new page has no URL to *change*). Refuses if the URL already maps
+  // to an existing item (creation never overwrites).
   const elementKey = edit.target_element_key ?? "";
+  if (elementKey.startsWith("create:")) {
+    const collectionId = elementKey.slice("create:".length);
+    if (collectionId === "") {
+      return { kind: "refused", reason: "create card missing collection id" };
+    }
+    let fields: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(edit.proposed_text ?? "");
+      if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("not an object");
+      }
+      fields = parsed as Record<string, unknown>;
+    } catch {
+      return { kind: "refused", reason: "create card proposed_text is not a JSON object of CMS fields" };
+    }
+    const existing = await resolveWixItemForUrl(edit.target_url);
+    if (existing != null) {
+      return {
+        kind: "refused",
+        reason: `a CMS item already renders ${edit.target_url} — creation never overwrites (use a field: edit card)`,
+      };
+    }
+    const insert = await wixInsertDataItem(
+      { dataCollectionId: collectionId, data: fields },
+      { ...deps.wix, tenantId },
+    );
+    if (!insert.ok) {
+      await recordLedger(tenantId, edit, "push_failed", `create: ${insert.reason}`, now);
+      return { kind: "refused", reason: `wix create failed: ${insert.reason}${insert.detail ? ` (${insert.detail})` : ""}` };
+    }
+    await recordLedger(tenantId, edit, "pushed", `created item ${insert.value.id} in ${collectionId}`, now);
+    return {
+      kind: "pushed",
+      adapter: "wix_cms",
+      detail: `created new item ${insert.value.id} in ${collectionId} (${edit.target_url})`,
+    };
+  }
+
+  // ── wix_cms EDIT route ──────────────────────────────────────────────
   if (!elementKey.startsWith("field:")) {
     return {
       kind: "refused",

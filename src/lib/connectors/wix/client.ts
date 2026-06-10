@@ -179,6 +179,41 @@ export async function wixUpdateDataItem(
   };
 }
 
+/**
+ * INSERT a new CMS item (§page-factory create path). Unlike updates,
+ * creation MAY set the slug field — a NEW page has no URL to change
+ * (Invariant 3 forbids changing existing URLs/nav and deleting; net-new
+ * pages are the cluster feature itself, behind approval + the daily cap).
+ * Only `_id`/`id` are stripped (server assigns identity).
+ */
+export async function wixInsertDataItem(
+  args: { dataCollectionId: string; data: Record<string, unknown> },
+  deps: WixDeps = {},
+): Promise<WixFetchResult<WixDataItem>> {
+  const data: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args.data)) {
+    if (k === "_id" || k === "id") continue;
+    data[k] = v;
+  }
+  const r = await wixFetch<{ dataItem?: { id?: string; data?: Record<string, unknown> } }>(
+    "/wix-data/v2/items",
+    {
+      method: "POST",
+      body: { dataCollectionId: args.dataCollectionId, dataItem: { data } },
+    },
+    deps,
+  );
+  if (!r.ok) return r;
+  const id = r.value.dataItem?.id;
+  if (typeof id !== "string") {
+    return { ok: false, reason: "api_error", detail: "no_item_id_in_response" };
+  }
+  return {
+    ok: true,
+    value: { id, dataCollectionId: args.dataCollectionId, data: r.value.dataItem?.data ?? data },
+  };
+}
+
 /** Create a blog draft post (NOT published). */
 export async function wixCreateDraftPost(
   args: { title: string; contentHtml: string; memberId?: string },
