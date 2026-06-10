@@ -62,15 +62,17 @@ describe("poll adapter — tenant-scoped reads (Invariant 5)", () => {
   it("reads prompts/entities via forTenant(tenantId); never the unscoped base", async () => {
     const seen: string[] = [];
     const client: QueryClient = {
-      query: async (prompt: string) => {
+      platform: "perplexity",
+      model: "test-model",
+      sample: async (prompt: string) => {
         seen.push(prompt);
         return {
-          answerText: "an answer",
+          answer_text: "an answer",
           citations: [],
-          usage: { inputTokens: 1, outputTokens: 1, costUsd: 0 },
-        } as unknown as Awaited<ReturnType<QueryClient["query"]>>;
+          model: "test-model",
+        };
       },
-    } as unknown as QueryClient;
+    };
 
     // dryRun-ish: inject client; persistence seams default — but with one
     // prompt and a mock client the adapter exercises the read path fully
