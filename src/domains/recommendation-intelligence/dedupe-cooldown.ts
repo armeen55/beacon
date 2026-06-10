@@ -29,6 +29,11 @@ import type { ActionType } from "@/domains/recommendations/action-types";
 export type PromotionEditStatus =
   | "recommended"
   | "accepted"
+  /** §push (2026-06-10): Beacon published the approved edit itself.
+   *  Cooldown = verified_live (the change is live; don't re-fire). */
+  | "pushed"
+  /** §push: adapter failed; card still actionable → accepted-like. */
+  | "push_failed"
   | "verified_live"
   | "verified_live_modified"
   | "needs_review"
@@ -139,6 +144,8 @@ export const COOLDOWN_WINDOW_DAYS: Readonly<
 > = {
   dismissed: 90,
   accepted: 30,
+  pushed: 180,
+  push_failed: 30,
   verified_live: 180,
   verified_live_modified: 180,
   wrong_page: 14,

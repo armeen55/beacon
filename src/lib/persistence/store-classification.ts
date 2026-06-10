@@ -98,6 +98,13 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // (Today's alerts read it); move detection needs a rolling window,
   // so each refresh appends here too.
   "competitor-sitemap-changes",
+  // 2026-06-10 §push — publish layer stores (tenant-scoped):
+  //   push-ledger: per-day push counts + outcomes (Invariant-3 caps math)
+  //   wix-url-map: canonical page URL → Wix CMS (collection, item)
+  //   wix-collection-config: operator-entered dynamic-page mappings
+  "push-ledger",
+  "wix-url-map",
+  "wix-collection-config",
   "source-pattern-evidence",
   "render-checks",
   "page-snapshot-diffs",

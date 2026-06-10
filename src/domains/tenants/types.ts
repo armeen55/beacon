@@ -44,6 +44,8 @@ export type TenantFeatures = {
   geo_pages?: boolean;
 };
 
+export type PublishTargetKind = "wix_cms" | "git_pr" | "dev_note";
+
 export type BeaconTenant = {
   id: string;                           // "tenant-<slug>"
   slug: string;                         // URL-safe
@@ -56,6 +58,16 @@ export type BeaconTenant = {
   budget_range: "under_1m" | "1m_5m" | "5m_plus" | "mixed";
   /** Optional per-tenant engine toggles; absent → segment defaults. */
   features?: TenantFeatures;
+  /**
+   * §push (2026-06-10): where approved Change Cards publish.
+   *   • wix_cms  — Wix Data API edit path (Iranopedia)
+   *   • git_pr   — GitHub PR → Vercel auto-deploy (Finglish)
+   *   • dev_note — export-only; NO automated write (Ritz — Invariant 2:
+   *     the push service ALSO hard-refuses any non-dev_note target for
+   *     tenant-ritz-founder regardless of this config)
+   * Absent → dev_note (safe default: nothing publishes).
+   */
+  publish_target?: PublishTargetKind;
   signup_date: string;
   role: BeaconTenantRole;
   tos_accepted_at: string | null;

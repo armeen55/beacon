@@ -80,6 +80,17 @@ const STYLES: Record<LifecycleStatusPillKey, StyleSpec> = {
     compactLabel: "Pending",
     className: "border-status-warning/40 bg-status-warning/[0.06] text-status-warning",
   },
+  pushed: {
+    label: "Published by Beacon",
+    compactLabel: "Pushed",
+    className: "border-status-success/40 bg-status-success/[0.06] text-status-success",
+    checkmark: true,
+  },
+  push_failed: {
+    label: "Publish failed",
+    compactLabel: "Push failed",
+    className: "border-status-error/40 bg-status-error/[0.08] text-status-error",
+  },
   recommended: {
     label: "Recommended",
     compactLabel: "Recommended",

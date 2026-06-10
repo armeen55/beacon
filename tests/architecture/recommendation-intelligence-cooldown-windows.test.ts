@@ -32,6 +32,11 @@ import {
 const LOCKED_WINDOWS = {
   dismissed: 90,
   accepted: 30,
+  // §push (2026-06-10): Beacon-published edits. pushed mirrors
+  // verified_live (the change IS live); push_failed mirrors accepted
+  // (still actionable).
+  pushed: 180,
+  push_failed: 30,
   verified_live: 180,
   verified_live_modified: 180,
   wrong_page: 14,

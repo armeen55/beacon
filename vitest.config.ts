@@ -34,6 +34,14 @@ export default defineConfig({
       // existing BEACON_TENANT_ID pattern. Reproduced + verified by
       // hiding .data/global/tenants.json + unsetting the env var.
       BEACON_TENANT_SLUG: "ritz-builders",
+      // 2026-06-10 hermetic-test fix. The operator's `.env.local` now
+      // carries runtime activation flags (BEACON_LLM_PROVIDER=openai,
+      // BEACON_CROSS_TENANT_BRAIN=1) for local dev. Tests pin the SAFE
+      // DEFAULTS ("deterministic", brain off); without these lines any
+      // env-loading picks up the operator flags and 16 gate tests flip.
+      // Tests that exercise the enabled paths stub the env themselves.
+      BEACON_LLM_PROVIDER: "deterministic",
+      BEACON_CROSS_TENANT_BRAIN: "",
     },
   },
 });
