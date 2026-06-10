@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-10 — SHIPPED: the full stack deployed to production ("do all" run)
+
+**What ran (operator-approved "do all"):**
+1. **Poll gate latch cleared** (SQL on the June 3 `observation_runs` row; audit note left in scope_label) + manual `workflow_dispatch` recovery run → **ChatGPT polling resumed** (June 10 run: poll job ✓, 27/100 prompts persisted — `partial` on upstream OpenAI slowness; tonight's 07:00 UTC cron self-heals via the new missing-rows rescue path; partial does NOT re-latch the gate).
+2. **[PR #1](https://github.com/armeen55/beacon/pull/1) opened + merged** — 38 commits (2026-05-22 → 06-09) to `main` @ `871eff5`. CI green including the **maiden `npm run build` gate (4m53s)**; Vercel preview build green on the PR.
+3. **Production deploy verified by SHA**: GitHub deployments API shows env=Production sha=`871eff5` state=success (2026-06-10T00:56:57Z). **Hosted smoke** on `beacon-bice.vercel.app`: `/` + `/competitors` → 307 to `/login` (auth wall intact), `/login` → 200, cron endpoint → 405 on GET (POST-only). App boots, routes, auths.
+4. **Migrations applied via Supabase MCP** (operator-approved): `call_url_attribution` + `semrush_domain_metrics` — both tables verified present, RLS deny-all.
+5. **Connector audit (connector_tokens):** `google_ga4` + `google_gsc` connected 2026-05-19, **last_synced never** → the GA4 traffic cache is EMPTY; first Refresh-all populates it. `callrail` + `semrush` not connected (keys needed).
+6. **Move-7 prep:** queue has 20 `recommended` edits (1 already `verified_live`). Best first ship = the homepage FAQ pair (low difficulty): Q "Who should I hire to build a modern custom home in the Bay Area?" + the architect-led design-build answer — full text in the session report + Recommendations queue.
+
+**Still operator-gated:** SEMrush/CallRail keys (paste on diagnostics pages), Refresh-all click, competitor-intel Refresh click, shipping the FAQ edit on ritzbuilders.com, `BEACON_LLM_PROVIDER` flip (Vercel env), tenant #2.
+
+---
+
 ## 2026-06-09 — INCIDENT: ChatGPT polling down June 3–9 (gate latch) — root-caused, fixed, cleared
 
 **What happened:** two ChatGPT polls fired June 3 ~20 min apart (11:39 partial 99/100, 12:01 full re-run). The re-run's rows had new ids but the same (tenant, prompt, platform, UTC-day) → the id-keyed upsert INSERTed into the `ux_pao_tenant_prompt_platform_day` EXPRESSION index → threw → run `pollrun-1780488090974-dxjopr` marked PERSISTENCE FAILED → the R6 paid-poll gate latched. Every daily run June 3–9 skipped ChatGPT (`skipped_persistence_failure_gate`); the canary could never go green to auto-clear → deadlock. **Perplexity was unaffected (polled + persisted daily). June 3 ChatGPT data exists (99/100 via the partial run); June 4–9 ChatGPT is a true gap.** Only alert channel was GitHub failure email — operator never saw it for 6 days.
