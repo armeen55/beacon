@@ -85,6 +85,19 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // `competitor-page-evidence` (citation-derived, frequent) so
   // structural fetches stay rare and bounded.
   "competitor-page-snapshots",
+  // 2026-06-09 §competitor-intel — structural changes detected when a
+  // fresh competitor-page fetch differs from the stored snapshot
+  // (FAQ added, new sections, retitle, meta added). Written by
+  // refresh-intel.ts at fetch time (the snapshot store keeps
+  // latest-per-URL, so the diff only exists at that moment); read by
+  // move detection ("steal this move").
+  "competitor-structural-changes",
+  // 2026-06-09 §competitor-intel — durable history of sitemap-level
+  // competitor page changes (added/updated). The shared
+  // competitor-monitoring state REPLACES recentChanges on every crawl
+  // (Today's alerts read it); move detection needs a rolling window,
+  // so each refresh appends here too.
+  "competitor-sitemap-changes",
   "source-pattern-evidence",
   "render-checks",
   "page-snapshot-diffs",
