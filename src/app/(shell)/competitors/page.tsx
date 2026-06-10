@@ -9,7 +9,11 @@ import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/bu
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { normalizeCompetitorDomain } from "@/domains/competitors/universe-normalize";
 import { CompetitorsManageClient } from "./competitors-manage-client";
+import { loadCompetitorMoves } from "@/domains/competitor-intel/load-moves";
+import { loadWhyThemReports } from "@/domains/competitor-intel/load-why-them";
 import { CoMentionSection } from "./co-mention-section";
+import { StealThisMoveSection } from "./steal-this-move-section";
+import { WhyThemSection } from "./why-them-section";
 import { SourceTrustSection } from "./source-trust-section";
 import { LocalPressureSection } from "./local-pressure-section";
 import { BattlecardSection } from "./battlecard-section";
@@ -130,6 +134,13 @@ export default async function CompetitorsPage() {
         competitorNames: compNames,
       })
     : null;
+
+  // §competitor-intel (2026-06-09) — both loaders soft-fail to [] so
+  // the sections render nothing rather than break this page.
+  const [competitorMoves, whyThemReports] = await Promise.all([
+    loadCompetitorMoves(),
+    loadWhyThemReports(),
+  ]);
 
   const benchmark: MarketBenchmark | null = citIndex
     ? computeMarketBenchmark(citIndex, await getPageIssues())
@@ -750,6 +761,9 @@ export default async function CompetitorsPage() {
             </section>
           )}
 
+          {competitorMoves.length > 0 && (
+            <StealThisMoveSection moves={competitorMoves} />
+          )}
           {coMentionMatrix && coMentionMatrix.entries.length > 0 && (
             <CoMentionSection matrix={coMentionMatrix} />
           )}
@@ -761,6 +775,9 @@ export default async function CompetitorsPage() {
           )}
           {battlecardIndex && battlecardIndex.cards.length > 0 && (
             <BattlecardSection index={battlecardIndex} />
+          )}
+          {whyThemReports.length > 0 && (
+            <WhyThemSection reports={whyThemReports} />
           )}
         </div>
       ) : (
