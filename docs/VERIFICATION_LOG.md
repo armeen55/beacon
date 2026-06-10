@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-09 — INCIDENT: ChatGPT polling down June 3–9 (gate latch) — root-caused, fixed, cleared
+
+**What happened:** two ChatGPT polls fired June 3 ~20 min apart (11:39 partial 99/100, 12:01 full re-run). The re-run's rows had new ids but the same (tenant, prompt, platform, UTC-day) → the id-keyed upsert INSERTed into the `ux_pao_tenant_prompt_platform_day` EXPRESSION index → threw → run `pollrun-1780488090974-dxjopr` marked PERSISTENCE FAILED → the R6 paid-poll gate latched. Every daily run June 3–9 skipped ChatGPT (`skipped_persistence_failure_gate`); the canary could never go green to auto-clear → deadlock. **Perplexity was unaffected (polled + persisted daily). June 3 ChatGPT data exists (99/100 via the partial run); June 4–9 ChatGPT is a true gap.** Only alert channel was GitHub failure email — operator never saw it for 6 days.
+
+**Fixes shipped (commit `00ccf23`):**
+1. **Idempotent same-day re-poll** — `syncPromptAnswerObservations` catches that exact collision (expression index → supabase-js can't `onConflict` it), reads the day's existing keys, writes ONLY missing rows (also rescues prompts a partial run missed); any other error still throws (the gate keeps its real job). 5 regression tests.
+2. **Fail-loud to the operator** — `alert-on-failure` job in both poll workflows: opens/updates ONE GitHub issue (dedupe + daily comment) with per-job results + the gate runbook. No new secrets.
+
+**Operational clear (operator-approved "do all", 2026-06-09):** removed the PERSISTENCE FAILED marker from the June 3 run row via SQL (audit note left in scope_label pointing at this entry + the fix commit). Manual `workflow_dispatch` poll fired immediately after for same-day recovery proof.
+
+**Runbook (if it ever latches again):** find the latest `observation_runs` row for the source with `status='failed'` and `scope_label` containing `PERSISTENCE FAILED`; edit the label to remove that substring (leave an audit note); re-fire via workflow_dispatch.
+
+---
+
 ## 2026-06-09 — Competitor Intel: "Steal this move" + "Why them, not you" (parking-lot ideas #4 + #6, built)
 
 **Status:** Shipped locally (domain + stores + refresh pipeline + loaders + customer sections + operator diagnostic + 64 tests). Full suite green (13944/0). **Verified live in dev preview** (worktree, seeded fixtures, then removed): the proven-move card and the full forensic report rendered through real json-store plumbing; zero console errors. Commits `e1efe35` (domain) + `1a0eee9` (surfaces).
