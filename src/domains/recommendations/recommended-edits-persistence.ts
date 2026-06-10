@@ -86,6 +86,11 @@ import {
 export type ImplementationStatus =
   | "recommended"
   | "accepted"
+  /** §push (2026-06-10): Beacon itself published the approved edit.
+   *  Reachable ONLY via the human "Approve & Push" action. */
+  | "pushed"
+  /** §push: the adapter call failed; card stays actionable. */
+  | "push_failed"
   | "verified_live"
   | "verified_live_modified"
   | "needs_review"
@@ -374,6 +379,57 @@ export async function markRecommendedEditsAccepted(args: {
     // dual-write failure.
   }
   return { flipped: flipped.length, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// §push (2026-06-10) — push-result transition.
+//
+// The push service executed an adapter write for ONE approved card; this
+// records the outcome. `pushed` also stamps `live_at` (the change IS live
+// the moment the CMS write returns 200) so the Mode A outcome clock starts
+// immediately; the match engine's scan pass remains the authoritative
+// `verified_live` flip (or the immediate probe can flip it same-minute).
+// ---------------------------------------------------------------------------
+
+export async function markRecommendedEditPushResult(args: {
+  editId: string;
+  tenantId: string;
+  result: "pushed" | "push_failed";
+  verifiedByProbe?: boolean;
+  now?: Date;
+}): Promise<{ updated: boolean }> {
+  const nowIso = (args.now ?? new Date()).toISOString();
+  const all = await readRecommendedEditsLocal();
+  let updatedRow: RecommendedEditRow | null = null;
+  const next: RecommendedEditRow[] = all.map((row) => {
+    if (row.id !== args.editId) return row;
+    const status =
+      args.result === "pushed"
+        ? args.verifiedByProbe
+          ? ("verified_live" as const)
+          : ("pushed" as const)
+        : ("push_failed" as const);
+    updatedRow = {
+      ...row,
+      implementation_status: status,
+      ...(args.result === "pushed" ? { live_at: row.live_at ?? nowIso } : {}),
+      updated_at: nowIso,
+    };
+    return updatedRow;
+  });
+  if (updatedRow == null) return { updated: false };
+
+  await writeDotDataJson(STORE, next);
+  try {
+    await syncRecommendedEdits([updatedRow], args.tenantId);
+  } catch (err) {
+    log.warn("markRecommendedEditPushResult: dual-write failed", {
+      tenantId: args.tenantId,
+      editId: args.editId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return { updated: true };
 }
 
 // ---------------------------------------------------------------------------

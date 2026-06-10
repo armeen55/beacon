@@ -776,3 +776,81 @@ export async function undoRecommendationResponse(
   updateTag(buildRecQueueCacheTag(tenantId));
   return { success: true };
 }
+
+// ---------------------------------------------------------------------------
+// §push (2026-06-10) — Approve & Push: the ONLY path to `pushed`.
+//
+// Invariant 1: this server action is the human approve click. It takes one
+// card fully end-to-end: caps → adapter (via push-service, which hard-
+// refuses Ritz + enforces caps in code) → status + live_at → immediate
+// verify probe (verified_live on a same-minute hit) → revalidate.
+// ---------------------------------------------------------------------------
+
+export type ApproveAndPushResult =
+  | { ok: true; outcome: "pushed" | "verified_live"; detail: string }
+  | { ok: true; outcome: "dev_note"; note: string; reason: string }
+  | { ok: false; reason: string };
+
+export async function approveAndPushRecommendedEdit(args: {
+  editId: string;
+}): Promise<ApproveAndPushResult> {
+  const { isOperatorModeServer } = await import("@/lib/operator-mode");
+  if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
+
+  const tenantId = await currentTenantId();
+  const repo = getRepository().forTenant(tenantId);
+  const edits = await repo.getRecommendedEdits();
+  const edit = edits.find((e) => e.id === args.editId);
+  if (edit == null) return { ok: false, reason: "edit_not_found" };
+
+  const { executePush, probeLiveText } = await import(
+    "@/domains/push/push-service"
+  );
+  const { markRecommendedEditPushResult } = await import(
+    "@/domains/recommendations/recommended-edits-persistence"
+  );
+
+  const result = await executePush({ tenantId, edit });
+
+  if (result.kind === "refused") {
+    log.warn("[approve-and-push] refused", {
+      tenantId,
+      editId: args.editId,
+      reason: result.reason,
+    });
+    return { ok: false, reason: result.reason };
+  }
+
+  if (result.kind === "dev_note") {
+    // Advise mode (Ritz always; any tenant without a write target).
+    return { ok: true, outcome: "dev_note", note: result.note, reason: result.reason };
+  }
+
+  // Adapter wrote. Immediate probe, then persist the outcome.
+  const probe = await probeLiveText({
+    url: edit.target_url,
+    proposedText: edit.proposed_text ?? "",
+  });
+  await markRecommendedEditPushResult({
+    editId: args.editId,
+    tenantId,
+    result: "pushed",
+    verifiedByProbe: probe.found,
+  });
+
+  updateTag(buildRecQueueCacheTag(tenantId));
+  revalidatePath("/recommendations");
+  revalidatePath("/changes");
+  log.info("[approve-and-push] pushed", {
+    tenantId,
+    editId: args.editId,
+    detail: result.detail,
+    probeFound: probe.found,
+    probeStatus: probe.status,
+  });
+  return {
+    ok: true,
+    outcome: probe.found ? "verified_live" : "pushed",
+    detail: `${result.detail}${probe.found ? " · verified live by immediate probe" : " · probe pending (scan cadence will verify)"}`,
+  };
+}

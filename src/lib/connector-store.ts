@@ -63,7 +63,8 @@ export type ConnectorProvider =
   | "google_ga4"
   | "yelp"
   | "semrush"
-  | "callrail";
+  | "callrail"
+  | "wix";
 
 /** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
 export type GoogleConnectorToken = {
@@ -152,11 +153,27 @@ export type CallRailConnectorToken = {
   disconnected_at?: string;
 };
 
+/**
+ * Wix REST — site-level API key + site id (never sent to the client).
+ * Header auth: `Authorization: <api_key>` + `wix-site-id: <site_id>`.
+ * Powers the §push Wix adapter (CMS data items, blog drafts, media).
+ * Soft-disconnect via `disconnected_at` preserves the url-map cache.
+ */
+export type WixConnectorToken = {
+  provider: "wix";
+  api_key: string;
+  site_id: string;
+  connected_at: string;
+  last_synced_at?: string;
+  disconnected_at?: string;
+};
+
 export type ConnectorToken =
   | GoogleConnectorToken
   | YelpConnectorToken
   | SemrushConnectorToken
-  | CallRailConnectorToken;
+  | CallRailConnectorToken
+  | WixConnectorToken;
 
 export type ConnectorStatus = "connected" | "disconnected";
 
@@ -270,6 +287,13 @@ export async function getSemrushConnectorToken(
   return t != null && t.provider === "semrush" ? t : null;
 }
 
+export async function getWixConnectorToken(
+  tenantId?: string,
+): Promise<WixConnectorToken | null> {
+  const t = await getConnectorToken("wix", tenantId);
+  return t != null && t.provider === "wix" ? t : null;
+}
+
 export async function getCallRailConnectorToken(
   tenantId?: string,
 ): Promise<CallRailConnectorToken | null> {
@@ -331,7 +355,7 @@ export async function getConnectorInfo(
   // `disconnected` when `disconnected_at` is set (UI shows Connect +
   // last-synced).
   const softDisconnected =
-    (token.provider === "semrush" || token.provider === "callrail") &&
+    (token.provider === "semrush" || token.provider === "callrail" || token.provider === "wix") &&
     token.disconnected_at != null &&
     token.disconnected_at !== "";
   return {
@@ -402,6 +426,12 @@ type CallRailConnectorPatch = Partial<
     "api_key" | "account_id" | "last_synced_at" | "disconnected_at"
   >
 >;
+type WixConnectorPatch = Partial<
+  Pick<
+    WixConnectorToken,
+    "api_key" | "site_id" | "last_synced_at" | "disconnected_at"
+  >
+>;
 
 export async function updateConnectorToken(
   provider: "google_gsc" | "google_gbp" | "google_ga4",
@@ -424,12 +454,18 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
+  provider: "wix",
+  patch: WixConnectorPatch,
+  tenantId?: string,
+): Promise<void>;
+export async function updateConnectorToken(
   provider: ConnectorProvider,
   patch:
     | GoogleConnectorPatch
     | YelpConnectorPatch
     | SemrushConnectorPatch
-    | CallRailConnectorPatch,
+    | CallRailConnectorPatch
+    | WixConnectorPatch,
   tenantId?: string,
 ): Promise<void> {
   const tid = await resolveTenantId(tenantId);
