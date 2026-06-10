@@ -83,21 +83,34 @@ export async function refreshAllDataSources(): Promise<RefreshAllDataSourcesResu
       : { provider: "ga4", outcome: classify(ga4.reason), detail: ga4.reason },
   );
 
-  // CallRail calls.
-  const callrail = await refreshCallRailMetrics();
-  results.push(
-    callrail.ok
-      ? {
-          provider: "callrail",
-          outcome: "refreshed",
-          detail: `${callrail.rowsUpserted} URL/day rows`,
-        }
-      : {
-          provider: "callrail",
-          outcome: classify(callrail.reason),
-          detail: callrail.reason,
-        },
+  // CallRail calls. Multi-property (2026-06-10): call tracking is a
+  // local-service feature — segment-gated per tenant.
+  const { getCurrentTenantFeatures } = await import(
+    "@/domains/tenants/tenant-features"
   );
+  const features = await getCurrentTenantFeatures();
+  if (!features.call_tracking) {
+    results.push({
+      provider: "callrail",
+      outcome: "skipped",
+      detail: "feature_off_for_segment",
+    });
+  } else {
+    const callrail = await refreshCallRailMetrics();
+    results.push(
+      callrail.ok
+        ? {
+            provider: "callrail",
+            outcome: "refreshed",
+            detail: `${callrail.rowsUpserted} URL/day rows`,
+          }
+        : {
+            provider: "callrail",
+            outcome: classify(callrail.reason),
+            detail: callrail.reason,
+          },
+    );
+  }
 
   // Semrush domain metrics.
   const semrush = await refreshSemrushMetrics();

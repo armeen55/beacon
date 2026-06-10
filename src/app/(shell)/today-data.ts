@@ -1934,9 +1934,16 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       }
     : null;
 
-  const localAttentionStrip = isDemoMode
-    ? null
-    : buildTodayLocalAttention(await getLocalPresenceSnapshot());
+  // Multi-property (2026-06-10): local-presence is a local-service
+  // surface — segment-gated per tenant (content/product tenants skip it).
+  const { getTenantFeatures } = await import(
+    "@/domains/tenants/tenant-features"
+  );
+  const tenantFeatures = await getTenantFeatures(tenantId);
+  const localAttentionStrip =
+    isDemoMode || !tenantFeatures.local_service
+      ? null
+      : buildTodayLocalAttention(await getLocalPresenceSnapshot());
 
   const scanState = readScanState();
   const scanPhaseFailed = scanState?.phase === "failed";
