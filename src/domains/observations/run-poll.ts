@@ -271,7 +271,10 @@ export async function runNativePoll(
     deps.buildDailySnapshotsFromObservations ?? realBuildSnaps;
   const getEntities =
     deps.getTrackedEntities ??
-    (async () => getRepository().getTrackedEntities());
+    // Invariant 5 (2026-06-10): tenant-scoped. The unscoped base repo
+    // returns EVERY tenant's entities — same leak class fixed in the
+    // perplexity adapter. Scope to the tenant being polled.
+    (async () => getRepository().forTenant(tenantId).getTrackedEntities());
   const getDayObs =
     deps.getObservationsForDay ?? defaultGetObservationsForDay;
   // Poll Integrity Hardening (2026-05-04).
