@@ -9,7 +9,10 @@ import type {
 } from "./types";
 import { scoreCandidate } from "./scoring";
 
-const KNOWN_CITIES = [
+/** Multi-property (2026-06-10): founder-default geo-expansion list.
+ * Tenant-aware callers pass their own `cities` into generateCandidates;
+ * absent → this list, so Ritz behavior is unchanged. */
+const DEFAULT_EXPANSION_CITIES = [
   "Menlo Park",
   "Palo Alto",
   "Atherton",
@@ -61,7 +64,9 @@ export function generateCandidates(
   patterns: Pattern[],
   clusters: ActionCluster[],
   changes: ChangelogEntry[],
-  opportunities: Opportunity[]
+  opportunities: Opportunity[],
+  /** Tenant geo-expansion vocabulary. Defaults to the founder list. */
+  cities: ReadonlyArray<string> = DEFAULT_EXPANSION_CITIES,
 ): OpportunityCandidate[] {
   const candidates: OpportunityCandidate[] = [];
   const existingTopics = new Set(
@@ -79,7 +84,7 @@ export function generateCandidates(
 
   for (const pattern of provenPatterns) {
     candidates.push(
-      ...generateAdjacentCityCandidates(pattern, existingCities, existingTopics, clusters, changes)
+      ...generateAdjacentCityCandidates(pattern, existingCities, existingTopics, clusters, changes, cities)
     );
     candidates.push(
       ...generateTopicExpansionCandidates(pattern, existingTopics, clusters, changes)
@@ -99,14 +104,15 @@ function generateAdjacentCityCandidates(
   existingCities: Set<string>,
   existingTopics: Set<string>,
   clusters: ActionCluster[],
-  changes: ChangelogEntry[]
+  changes: ChangelogEntry[],
+  cities: ReadonlyArray<string>,
 ): OpportunityCandidate[] {
   const candidates: OpportunityCandidate[] = [];
   const patternCities = new Set(pattern.dominantGeo);
 
   if (patternCities.size === 0) return candidates;
 
-  for (const targetCity of KNOWN_CITIES) {
+  for (const targetCity of cities) {
     if (patternCities.has(targetCity)) continue;
 
     const topicBase = extractTopicBase(pattern, changes);

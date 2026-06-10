@@ -137,9 +137,14 @@ export default async function CompetitorsPage() {
 
   // §competitor-intel (2026-06-09) — both loaders soft-fail to [] so
   // the sections render nothing rather than break this page.
-  const [competitorMoves, whyThemReports] = await Promise.all([
+  // Multi-property (2026-06-10): local-service sections segment-gated.
+  const { getCurrentTenantFeatures } = await import(
+    "@/domains/tenants/tenant-features"
+  );
+  const [competitorMoves, whyThemReports, tenantFeatures] = await Promise.all([
     loadCompetitorMoves(),
     loadWhyThemReports(),
+    getCurrentTenantFeatures(),
   ]);
 
   const benchmark: MarketBenchmark | null = citIndex
@@ -770,7 +775,7 @@ export default async function CompetitorsPage() {
           {trustIndex.platforms.length > 0 && (
             <SourceTrustSection index={trustIndex} />
           )}
-          {competitorPressureCities.length > 0 && (
+          {tenantFeatures.local_service && competitorPressureCities.length > 0 && (
             <LocalPressureSection cities={competitorPressureCities} />
           )}
           {battlecardIndex && battlecardIndex.cards.length > 0 && (
@@ -858,9 +863,11 @@ export default async function CompetitorsPage() {
         </details>
       </div>
 
-      <div className="mt-10 border-t border-border/50 pt-8">
-        <LocalOperatorPanel surface={localMarketSurface} variant="market" />
-      </div>
+      {tenantFeatures.local_service && (
+        <div className="mt-10 border-t border-border/50 pt-8">
+          <LocalOperatorPanel surface={localMarketSurface} variant="market" />
+        </div>
+      )}
     </div>
   );
 }

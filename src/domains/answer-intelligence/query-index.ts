@@ -43,16 +43,26 @@ export type QueryKeywordIndex = {
 // City extraction
 // ---------------------------------------------------------------------------
 
-const KNOWN_CITIES = [
+/**
+ * Multi-property (2026-06-10): DEFAULT city vocabulary — the founder
+ * tenant's Bay-Area service area. Tenant-aware callers thread their own
+ * `cities` (from BusinessConfig.locations) through the exported
+ * functions; this list is only the fallback when none are provided, so
+ * Ritz behavior is byte-identical with no caller changes.
+ */
+const DEFAULT_CITIES = [
   "atherton", "menlo park", "palo alto", "los altos", "los altos hills",
   "cupertino", "saratoga", "woodside", "portola valley", "mountain view",
   "sunnyvale", "san jose", "emerald hills", "bay area",
 ];
 
-function extractCityFromQuery(query: string): string | null {
+function extractCityFromQuery(
+  query: string,
+  cities: ReadonlyArray<string>,
+): string | null {
   const lower = query.toLowerCase();
   // Check longest first to avoid "los altos" matching before "los altos hills"
-  const sorted = [...KNOWN_CITIES].sort((a, b) => b.length - a.length);
+  const sorted = [...cities].sort((a, b) => b.length - a.length);
   for (const city of sorted) {
     if (lower.includes(city)) return city;
   }
@@ -78,6 +88,8 @@ function extractCityFromQuery(query: string): string | null {
 export function buildQueryKeywordIndex(
   citationIndex: CitationEvidenceIndex | null,
   observations: PromptAnswerObservation[],
+  /** Tenant city vocabulary (lowercase). Defaults to the founder list. */
+  cities: ReadonlyArray<string> = DEFAULT_CITIES,
 ): QueryKeywordIndex {
 
   // Step 1: Extract all fan-out queries grouped by topic
@@ -116,7 +128,7 @@ export function buildQueryKeywordIndex(
     // Group by city
     const cityQueries: Record<string, string[]> = {};
     for (const q of sorted) {
-      const city = extractCityFromQuery(q);
+      const city = extractCityFromQuery(q, cities);
       if (city) {
         if (!cityQueries[city]) cityQueries[city] = [];
         cityQueries[city].push(q);
@@ -282,9 +294,13 @@ function extractServiceFromPath(path: string): string[] {
 }
 
 /** True if the query mentions a specific city (not just "bay area"). */
-function queryHasSpecificCity(query: string): boolean {
+function queryHasSpecificCity(
+  query: string,
+  cities: ReadonlyArray<string>,
+): boolean {
   const lower = query.toLowerCase();
-  const specificCities = KNOWN_CITIES.filter((c) => c !== "bay area");
+  // Region-wide labels (e.g. "bay area") are not a SPECIFIC city.
+  const specificCities = cities.filter((c) => c !== "bay area");
   return specificCities.some((c) => lower.includes(c));
 }
 
@@ -325,6 +341,8 @@ export function getRelevantQueriesForPage(
     h2_list?: string[];
   } | null,
   topN: number = 10,
+  /** Tenant city vocabulary (lowercase). Defaults to the founder list. */
+  cities: ReadonlyArray<string> = DEFAULT_CITIES,
 ): string[] {
   const normalizedUrl = pageUrl.replace(/\/+$/, "").toLowerCase();
   const path = normalizedUrl.replace(/^https?:\/\/[^/]+/, "");
@@ -387,7 +405,7 @@ export function getRelevantQueriesForPage(
       // 2. REJECT queries with specific city names — those belong on
       //    city pages, not service pages. "best remodel builders Menlo
       //    Park" is for /locations/menlo-park, not /services/whole-home-remodel.
-      if (queryHasSpecificCity(qLower)) continue;
+      if (queryHasSpecificCity(qLower, cities)) continue;
 
       relevance = 1.0;
     } else {
