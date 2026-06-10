@@ -262,3 +262,34 @@ export async function readSpendSnapshotForDate(
     return [];
   }
 }
+
+/**
+ * 2026-06-10 (audit #31/#35) — today's TOTAL spend for a tenant across
+ * all platforms, from `llm_budget_ledger`. Powers the per-tenant daily
+ * spend CEILING enforced in the poll runner. Fail-OPEN: a read error
+ * returns null (caller treats null as "unknown → allow") so a transient
+ * Supabase hiccup never blocks legitimate polling — the per-run cost
+ * ceiling remains the backstop.
+ */
+export async function getTenantSpentTodayUsd(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<number | null> {
+  if (typeof tenantId !== "string" || tenantId.trim() === "") return 0;
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from("llm_budget_ledger")
+      .select("spent_usd")
+      .eq("tenant_id", tenantId)
+      .eq("date_utc", todayUtcDate(now));
+    if (error || !Array.isArray(data)) return null;
+    let total = 0;
+    for (const row of data as Array<{ spent_usd?: number }>) {
+      if (typeof row.spent_usd === "number") total += row.spent_usd;
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}
