@@ -796,8 +796,12 @@ export type ApproveAndPushResult =
 export async function approveAndPushRecommendedEdit(args: {
   editId: string;
 }): Promise<ApproveAndPushResult> {
-  const { isOperatorModeServer } = await import("@/lib/operator-mode");
-  if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
+  // Audit #11/#12: per-tenant publish authorization (operator-mode OR an
+  // owner/admin/founder member of THIS tenant) — not a single global flag.
+  const { canPublishForCurrentTenant } = await import("@/lib/auth/can-publish");
+  if (!(await canPublishForCurrentTenant())) {
+    return { ok: false, reason: "not_operator" };
+  }
 
   const tenantId = await currentTenantId();
   const repo = getRepository().forTenant(tenantId);
