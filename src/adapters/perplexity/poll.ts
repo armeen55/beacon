@@ -178,7 +178,13 @@ export async function pollPerplexityForTenant(
   const pollSource = opts.pollSource ?? DEFAULT_POLL_SOURCE;
   const parserVersion = opts.parserVersion ?? DEFAULT_PARSER_VERSION;
 
-  const repo = getRepository();
+  // Invariant 5 (2026-06-10): TENANT-SCOPED reads. The unscoped base
+  // repo returns EVERY tenant's rows — invisible while production had
+  // one tenant, a cross-tenant leak the moment tenant #2 existed
+  // (Iranopedia's first poll consumed Ritz's 100 prompts and stamped
+  // the answers tenant-iranopedia). forTenant pushes the tenant_id
+  // filter down to Postgres.
+  const repo = getRepository().forTenant(tenantId);
   const trackedPrompts =
     opts.trackedPrompts ?? (await repo.getTrackedPrompts());
   const trackedEntities =
