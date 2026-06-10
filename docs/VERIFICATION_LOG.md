@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-09 — Competitor Intel: "Steal this move" + "Why them, not you" (parking-lot ideas #4 + #6, built)
+
+**Status:** Shipped locally (domain + stores + refresh pipeline + loaders + customer sections + operator diagnostic + 64 tests). Full suite green (13944/0). **Verified live in dev preview** (worktree, seeded fixtures, then removed): the proven-move card and the full forensic report rendered through real json-store plumbing; zero console errors. Commits `e1efe35` (domain) + `1a0eee9` (surfaces).
+
+**What it is:** the join no AEO competitor has — *what a rival shipped* → *AI citations rising on that exact page* → *your equivalent move with evidence attached*. At n=1 this is the only honest "learn from others" pitch (peers come later with tenant #2; competitors exist today).
+
+**Domain (`src/domains/competitor-intel/`):** citation-series (competitor-URL daily buckets from observations' `citation_urls`); structural-diff (stored-vs-fresh snapshot differ: FAQ added/expanded, new sections, retitle, meta added — removals never reported under extraction uncertainty); detect-moves (change × pre/post-14-day citation windows → **proven** (post ≥2 ∧ post>pre) / **early** / **watching** / **quiet**, temporal-associative copy ONLY — "added it June 2; AI started citing it 6 days later" — plus deterministic equivalent-action mapping); forensics (equivalent-page matcher with honesty floor → "no close match" beats a bad guess; jealousy-direction gap engine: FAQ / pricing-language / section-coverage / meta; descriptor contrast — the words AI uses about them vs you, already extracted per answer at poll time; prompt rows losses-first). Two new tenant-scoped stores (`competitor-structural-changes`, `competitor-sitemap-changes` — the shared monitoring state REPLACES recentChanges per crawl; moves need a rolling window). Polite refresh pipeline: robots.txt-respecting, identified UA, 10s timeout, sequential, bounded (top-cited 12 + just-changed 8), operator-triggered, **no cron**.
+
+**Decision-loop tie-ins (the spectacular part):** every move card carries (a) the What-If evidence line — `simulateAction` on this tenant's own outcome history, attached only when it can genuinely speak; (b) the `buildPeerMoveForecast` seam — null until tenant #2 + brain gate, so activation is a data flip, not a refactor; (c) a steal CTA into /recommendations.
+
+**Surfaces:** customer `/competitors` gains "Their winning moves" (proven/early/watching, quiet suppressed, cap 5) + "Why them, not you" (their page vs your closest, gap sentences, descriptor contrast, them-#1/you-not-cited loss rows). Operator `/diagnostics/competitor-intel`: refresh + ALL tiers + structural-change history.
+
+**Live verification transcript (preview):** customer card — "**Supple Homes published a adu cost guide page on May 28. AI started citing it 6 days later — 3 citations in the 14 days after (none in the two weeks before). Publish your own cost guide →**"; why-them — their URL vs "No close match yet.", "Words AI uses about them: award-winning, custom, luxury", three "them #1 · you not cited" loss rows; diagnostic — same move, "pre 0 → post 3".
+
+**Honesty discipline:** no causal verbs anywhere (two dated facts side by side); suppression floors (≥2 their-citations + ≥1 concrete prompt row for a report; quiet moves customer-suppressed); "no close match" over a forced match; no fabricated quotes (prompt table speaks in ranks + dates).
+
+**FLAGGED:** (1) Discovered during verification: `.data/global/answer-texts.json` EXISTS in the main checkout — answer text IS persisted (earlier agent recon said otherwise). Follow-up: thread real answer quotes into why-them. (2) The worktree's partial `.data` copy got cleared during dev-preview runs (main checkout `.data` verified intact; worktree copy was disposable). (3) First real data needs one operator click on `/diagnostics/competitor-intel` → Refresh (crawls sitemaps + fetches top-cited rival pages).
+
+---
+
 ## 2026-06-09 — Move Forecast composer — killer-feature half A ("before you ship")
 
 **Status:** Compute built locally + green (11 tests). Pure (no I/O). **Inert until tenant #2 + `BEACON_CROSS_TENANT_BRAIN` on + a Move surface** — same built-but-gated posture as the cross-tenant brain it rides on. Render activation deferred with the rest of the brain runtime.

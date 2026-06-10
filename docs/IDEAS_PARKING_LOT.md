@@ -288,7 +288,7 @@ These were considered and explicitly deferred when extraction coverage + scanner
 
 ### Competitor move detection — "steal this move"
 
-**Added:** 2026-06-09 · **Status:** `parked`
+**Added:** 2026-06-09 · **Status:** `shipped` (2026-06-09, commits e1efe35+1a0eee9 — domain src/domains/competitor-intel/, customer section on /competitors, operator /diagnostics/competitor-intel; preview-verified)
 
 - **The idea:** Watch the top-8 real competitors' key pages for content changes. When a competitor ships a change and their citations rise within the window: "Supple Homes added an ADU cost page June 2; AI started citing it June 8. Want the equivalent move?"
 - **Source:** Claude gap analysis (2026-06-09).
@@ -308,7 +308,7 @@ These were considered and explicitly deferred when extraction coverage + scanner
 
 ### "Why them, not you" forensics per lost prompt
 
-**Added:** 2026-06-09 · **Status:** `parked`
+**Added:** 2026-06-09 · **Status:** `shipped` (2026-06-09, same commits — deterministic v1: gaps + descriptor contrast + loss rows; follow-up: thread real quotes from the newly-found answer-texts.json store)
 
 - **The idea:** For a prompt where a competitor gets recommended and you don't: show the actual AI answer text, which competitor page got cited, and a side-by-side vs your equivalent page with the gap named ("they list prices; you don't"). Actionable jealousy.
 - **Source:** Claude gap analysis (2026-06-09). Adjacent to (but read-only, so much earlier than) the parked full-page ablation idea.
