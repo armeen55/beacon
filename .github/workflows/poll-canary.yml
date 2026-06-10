@@ -173,3 +173,51 @@ jobs:
           # Tenant identity sourced from ops/active-tenants.json (first
           # enabled). Was hardcoded `tenant-ritz-founder` pre-2026-05-06.
           BEACON_TENANT_ID: ${{ needs.compute-matrix.outputs.first_tenant_id }}
+
+  # Fail-loud to the OPERATOR (2026-06-09) — see the matching job in
+  # daily-native-poll.yml. The canary IS the alerting layer for silent
+  # poll skips, so its own failures must reach the operator the same way.
+  alert-on-failure:
+    name: Open alert issue on failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [compute-matrix, canary]
+    if: >-
+      always() && (
+        needs.compute-matrix.result == 'failure' ||
+        needs.canary.result == 'failure'
+      )
+    permissions:
+      issues: write
+    steps:
+      - name: Create or update the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          R_MATRIX: ${{ needs.compute-matrix.result }}
+          R_CANARY: ${{ needs.canary.result }}
+        run: |
+          set -euo pipefail
+          TITLE="🔴 Poll canary is failing"
+          BODY=$(cat <<BODYEOF
+          **Run:** $RUN_URL ($(date -u +%Y-%m-%d) UTC)
+
+          | job | result |
+          |---|---|
+          | compute-matrix | $R_MATRIX |
+          | canary | $R_CANARY |
+
+          **Runbook:** the canary fails when a platform has no persisted
+          observations for the day. Open the run log; if the daily poll was
+          gate-skipped (\`skipped_persistence_failure_gate\`), clear the
+          \`PERSISTENCE FAILED\` marker on the failed \`observation_runs\` row
+          (docs/VERIFICATION_LOG.md 2026-06-09). Close once a green run lands.
+          BODYEOF
+          )
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+          fi

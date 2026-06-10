@@ -381,3 +381,70 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+  # --------------------------------------------------------------------------
+  # Fail-loud to the OPERATOR (2026-06-09) — open/update a GitHub issue when
+  # any job in this workflow fails.
+  #
+  # Why: the June 3–9 outage. A same-day re-poll collision latched the
+  # persistence-failure gate; this workflow then failed RED every day for
+  # 6 days, and the only signal was GitHub's failure email — which never
+  # reached the operator. An open issue is persistent (sits in the repo +
+  # notification inbox until closed), dedupes to ONE issue with a comment
+  # per failing day, and needs no new secrets (repo GITHUB_TOKEN).
+  # --------------------------------------------------------------------------
+  alert-on-failure:
+    name: Open alert issue on failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [compute-matrix, poll-perplexity, poll-openai, rebuild-citation-evidence-index, verify-persistence]
+    if: >-
+      always() && (
+        needs.compute-matrix.result == 'failure' ||
+        needs.poll-perplexity.result == 'failure' ||
+        needs.poll-openai.result == 'failure' ||
+        needs.rebuild-citation-evidence-index.result == 'failure' ||
+        needs.verify-persistence.result == 'failure'
+      )
+    permissions:
+      issues: write
+    steps:
+      - name: Create or update the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          R_MATRIX: ${{ needs.compute-matrix.result }}
+          R_PPLX: ${{ needs.poll-perplexity.result }}
+          R_OPENAI: ${{ needs.poll-openai.result }}
+          R_REBUILD: ${{ needs.rebuild-citation-evidence-index.result }}
+          R_VERIFY: ${{ needs.verify-persistence.result }}
+        run: |
+          set -euo pipefail
+          TITLE="🔴 Daily native poll is failing"
+          BODY=$(cat <<EOF
+          **Run:** $RUN_URL ($(date -u +%Y-%m-%d) UTC)
+
+          | job | result |
+          |---|---|
+          | compute-matrix | $R_MATRIX |
+          | poll-perplexity | $R_PPLX |
+          | poll-openai | $R_OPENAI |
+          | rebuild-citation-evidence-index | $R_REBUILD |
+          | verify-persistence | $R_VERIFY |
+
+          **Runbook:** open the run log. If a poll step says
+          \`skipped_persistence_failure_gate\`, the paid-poll gate is latched —
+          clear the \`PERSISTENCE FAILED\` marker on the failed
+          \`observation_runs\` row (see docs/VERIFICATION_LOG.md 2026-06-09).
+          Close this issue once a green run lands.
+          EOF
+          )
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+            echo "Commented on existing alert issue #$EXISTING"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+            echo "Opened new alert issue"
+          fi
