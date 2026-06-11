@@ -108,7 +108,17 @@ function movePath(r: RecommendedEditRow): string {
 /** Compose the unified digest from per-tenant sections. Pure. */
 export function composeMorningDigest(
   sections: DigestTenantSection[],
-  opts: { appBaseUrl: string; dateLabel: string },
+  opts: {
+    appBaseUrl: string;
+    dateLabel: string;
+    /**
+     * P0 wall 5 — one cross-business page-shape insight line
+     * ("pages with a Q&A section get cited 2.1× more"), already
+     * formatted; null hides the strip. Gated upstream by
+     * BEACON_CROSS_TENANT_BRAIN.
+     */
+    networkInsight?: string | null;
+  },
 ): MorningDigest {
   const totalPending = sections.reduce((n, s) => n + s.pendingTotal, 0);
   const subject =
@@ -165,6 +175,13 @@ export function composeMorningDigest(
       textParts.push(line);
       htmlParts.push(`<p style="margin:4px 0 0;color:#777;font-size:13px">${escapeHtml(line)}</p>`);
     }
+  }
+
+  if (opts.networkInsight != null && opts.networkInsight.trim() !== "") {
+    textParts.push(`\n${opts.networkInsight}`);
+    htmlParts.push(
+      `<p style="margin:16px 0 0;padding:10px 12px;background:#f4f4f5;border-radius:8px;color:#333">${escapeHtml(opts.networkInsight)}</p>`,
+    );
   }
 
   const reviewUrl = `${opts.appBaseUrl.replace(/\/+$/, "")}/recommendations`;

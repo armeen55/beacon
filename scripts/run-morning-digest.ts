@@ -65,9 +65,26 @@ async function main() {
     );
   }
 
+  // P0 wall 5 — the cross-business page-shape insight (gated by
+  // BEACON_CROSS_TENANT_BRAIN inside the loader; null when off/thin).
+  let networkInsight: string | null = null;
+  try {
+    const { loadPageShapePatterns } = await import(
+      "../src/domains/recommendations/cross-tenant-brain/load-page-shape-patterns"
+    );
+    const { formatNetworkInsight } = await import(
+      "../src/domains/recommendations/cross-tenant-brain/page-shape"
+    );
+    networkInsight = formatNetworkInsight(await loadPageShapePatterns());
+  } catch (err) {
+    console.warn(
+      `[morning-digest] page-shape insight skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   const appBaseUrl = process.env.BEACON_APP_URL?.trim() || "https://beacon-bice.vercel.app";
   const dateLabel = now.toISOString().slice(0, 10);
-  const digest = composeMorningDigest(sections, { appBaseUrl, dateLabel });
+  const digest = composeMorningDigest(sections, { appBaseUrl, dateLabel, networkInsight });
 
   const result = await sendEmail({
     to: cfg.defaultTo,
