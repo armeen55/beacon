@@ -704,16 +704,16 @@ export function computeRecommendations(opts: {
           ? ` \u2014 "${rewritten.currentHeadingText}"`
           : "";
         const satPct = Math.round(rewritten.evidence.saturation_rate * 100);
-        const ritzObsLabel =
-          rewritten.evidence.ritz_obs_count === 0
+        const ownObsLabel =
+          rewritten.evidence.own_obs_count === 0
             ? "not once"
-            : rewritten.evidence.ritz_obs_count === 1
+            : rewritten.evidence.own_obs_count === 1
               ? "once"
-              : `${rewritten.evidence.ritz_obs_count} times`;
+              : `${rewritten.evidence.own_obs_count} times`;
         const evidenceSentence =
           rewritten.kind === "saturation_miss"
             ? `AI searches mention "${rewritten.concept}" in ${satPct}% of answers in this topic (${rewritten.evidence.observation_count} of ${rewritten.evidence.topic_cluster_size}).`
-            : `AI cites competitors ${rewritten.evidence.competitor_obs_count}\u00d7 on queries containing "${rewritten.concept}", your page ${ritzObsLabel}.`;
+            : `AI cites competitors ${rewritten.evidence.competitor_obs_count}\u00d7 on queries containing "${rewritten.concept}", your page ${ownObsLabel}.`;
         const moveHeadline = `Best current page for "${rewritten.concept}": ${displayPath}`;
         const moveRationale = [
           `The ${elementLabel} on ${displayPath}${headingSnippet} anchors on this concept more cleanly than the page we originally tested.`,

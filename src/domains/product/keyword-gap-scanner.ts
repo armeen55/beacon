@@ -42,11 +42,11 @@ const MAX_POSITIVES_PER_PAGE = 1;
 
 /** Tier 2 gap thresholds. Counts measured at the concept level across topic observations. */
 const MIN_COMPETITOR_OBS_FOR_GAP = 5;
-const MAX_RITZ_OBS_FOR_GAP = 2;
+const MAX_OWN_OBS_FOR_GAP = 2;
 
 /** Tier 3 positive thresholds. */
 const MIN_COMPETITOR_OBS_FOR_POSITIVE = 5;
-const MIN_RITZ_OBS_FOR_POSITIVE = 3;
+const MIN_OWN_OBS_FOR_POSITIVE = 3;
 
 /** Platforms that don't expose search_queries (accepted blind spot). */
 const EXCLUDED_PLATFORMS = new Set([
@@ -142,8 +142,8 @@ export type KeywordGap = {
     saturation_rate: number;
     /** How many observations in competitor-citing bucket contain this concept. */
     competitor_obs_count: number;
-    /** How many observations in Ritz-citing bucket contain this concept. */
-    ritz_obs_count: number;
+    /** How many observations in own-site-citing bucket contain this concept. */
+    own_obs_count: number;
     /** Topic(s) this concept appeared under. */
     topics: string[];
     /** Up to 5 raw search queries that contained this concept (for the "evidence" expand). */
@@ -243,7 +243,7 @@ type ConceptStat = {
   /** Obs IDs where ANY search query contained this concept. Use .size for the denominator-friendly count. */
   allObs: Set<string>;
   competitorObs: Set<string>;
-  ritzObs: Set<string>;
+  ownObs: Set<string>;
   exampleQueries: Set<string>;
   topics: Set<string>;
 };
@@ -321,7 +321,7 @@ function scanPage(
       for (const key of seenConceptsInObs) {
         const stat = conceptStats.get(key)!;
         stat.allObs.add(obs.id);
-        if (isOurs) stat.ritzObs.add(obs.id);
+        if (isOurs) stat.ownObs.add(obs.id);
         else if (mentionsCompetitor) stat.competitorObs.add(obs.id);
       }
     }
@@ -363,7 +363,7 @@ function scanPage(
   for (const stat of conceptStats.values()) {
     const allObsCount = stat.allObs.size;
     const competitorObsCount = stat.competitorObs.size;
-    const ritzObsCount = stat.ritzObs.size;
+    const ownObsCount = stat.ownObs.size;
     const saturationRate = allObsCount / topicClusterSize;
 
     // Fix-3: Concept expansion \u2014 TIER-AWARE.
@@ -409,7 +409,7 @@ function scanPage(
     const isGap =
       !isSaturationMiss &&
       competitorObsCount >= MIN_COMPETITOR_OBS_FOR_GAP &&
-      ritzObsCount <= MAX_RITZ_OBS_FOR_GAP &&
+      ownObsCount <= MAX_OWN_OBS_FOR_GAP &&
       pageCoverageRatioRaw < 0.75;
 
     // Tier 3: Positive/Winning.
@@ -417,7 +417,7 @@ function scanPage(
       !isSaturationMiss &&
       !isGap &&
       competitorObsCount >= MIN_COMPETITOR_OBS_FOR_POSITIVE &&
-      ritzObsCount >= MIN_RITZ_OBS_FOR_POSITIVE;
+      ownObsCount >= MIN_OWN_OBS_FOR_POSITIVE;
 
     if (!isSaturationMiss && !isGap && !isPositive) continue;
 
@@ -493,10 +493,10 @@ function scanPage(
         10; // tier bonus so saturation always ranks above gap in cross-page sort
     } else if (kind === "gap") {
       const asymmetry =
-        1 - ritzObsCount / Math.max(competitorObsCount, 1);
+        1 - ownObsCount / Math.max(competitorObsCount, 1);
       base = competitorObsCount * asymmetry * specificityBonus;
     } else {
-      base = ritzObsCount * specificityBonus;
+      base = ownObsCount * specificityBonus;
     }
     const impactScore = base * pageWeight * (0.5 + uncoveredWeight);
 
@@ -530,7 +530,7 @@ function scanPage(
         topic_cluster_size: topicClusterSize,
         saturation_rate: saturationRate,
         competitor_obs_count: competitorObsCount,
-        ritz_obs_count: ritzObsCount,
+        own_obs_count: ownObsCount,
         topics: [...stat.topics],
         example_queries: exampleQueries,
         example_excerpts: excerpts,
@@ -638,7 +638,7 @@ function touchConcept(
       conceptType,
       allObs: new Set(),
       competitorObs: new Set(),
-      ritzObs: new Set(),
+      ownObs: new Set(),
       exampleQueries: new Set(),
       topics: new Set(),
     };
@@ -994,14 +994,14 @@ export function gapFindingsToRecs(
       }
 
       // gap
-      const ritzObsLabel =
-        f.evidence.ritz_obs_count === 0
+      const ownObsLabel =
+        f.evidence.own_obs_count === 0
           ? "not once"
-          : f.evidence.ritz_obs_count === 1
+          : f.evidence.own_obs_count === 1
             ? "once"
-            : `${f.evidence.ritz_obs_count} times`;
+            : `${f.evidence.own_obs_count} times`;
       const rationale = [
-        `AI cites competitors ${f.evidence.competitor_obs_count}\u00d7 on queries containing "${f.concept}", your page ${ritzObsLabel}.`,
+        `AI cites competitors ${f.evidence.competitor_obs_count}\u00d7 on queries containing "${f.concept}", your page ${ownObsLabel}.`,
         `The ${elementLabel} on ${displayPath}${headingSnippet} does not anchor on this concept.`,
       ].join(" ");
 
@@ -1010,7 +1010,7 @@ export function gapFindingsToRecs(
         type: "keyword_optimization" as const,
         headline: `Competitors own "${f.concept}" \u2014 ${displayPath} does not cover it`,
         rationale,
-        sourceEvidence: `${f.evidence.competitor_obs_count} competitor citations vs ${f.evidence.ritz_obs_count} yours \u00b7 ${f.page_citations} page citations`,
+        sourceEvidence: `${f.evidence.competitor_obs_count} competitor citations vs ${f.evidence.own_obs_count} yours \u00b7 ${f.page_citations} page citations`,
         targetPageUrl: f.pageUrl,
         targetPagePath: f.pagePath,
         sourceChangeId: null,
