@@ -24,6 +24,18 @@ export interface BusinessConfig {
    * "other" pages stay conservatively excluded from content edits.
    */
   contentSiteMode?: boolean;
+  /**
+   * Night-shift #35/#67 (2026-06-11) — per-tenant CONTENT RULES.
+   * Plain-English rules every LLM generation for this tenant must
+   * follow (e.g. "Call the language Persian, never Farsi."). The page
+   * factory injects these as defaults when a cluster plan doesn't
+   * carry its own; violations of `flaggedTerms` are HARD-REJECTED
+   * (audit #47). Per-tenant config — never hardcoded vocabulary.
+   */
+  contentRules?: string[];
+  /** Banned terms enforced by the factory validator (word-boundary,
+   *  case-sensitive). Pairs with `contentRules`. */
+  flaggedTerms?: string[];
   phone: string;
   address: string;
   /** Yelp Fusion business id or alias (used by Settings → Connectors → Yelp sync). */

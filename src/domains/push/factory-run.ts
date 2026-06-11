@@ -23,6 +23,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { getTenant } from "@/domains/tenants/store";
+import { getBusinessConfig } from "@/lib/business-config";
 import {
   generateClusterCards,
   type ClusterDeps,
@@ -188,8 +189,19 @@ export async function runClusterFactoryForTenant(
     };
   }
 
+  // Per-tenant content rules (#35/#67, 2026-06-11): when the plan
+  // doesn't carry its own rules, inject the tenant's configured
+  // defaults — and MERGE flagged terms (tenant bans always apply).
+  const cfg = getBusinessConfig(tenantId);
+  const effectivePlan: ClusterPlan = {
+    ...plan,
+    contentRules:
+      plan.contentRules.length > 0 ? plan.contentRules : (cfg.contentRules ?? []),
+    flaggedTerms: [...new Set([...(cfg.flaggedTerms ?? []), ...plan.flaggedTerms])],
+  };
+
   const generate = deps.generate ?? generateClusterCards;
-  const result = await generate(plan);
+  const result = await generate(effectivePlan);
   if (!result.ok) {
     return { ok: false, reason: result.reason, detail: result.detail };
   }
