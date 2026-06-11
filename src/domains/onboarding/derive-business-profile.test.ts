@@ -1,0 +1,236 @@
+/**
+ * derive-business-profile — North-star onboarding (2026-06-11).
+ *
+ * Three fixture sites across verticals/geos pin that EVERY derived value
+ * comes from the input HTML — a Texas builder yields Texas cities (never
+ * Bay-Area), a content site yields the content signal with zero
+ * locations, a restaurant yields its own JSON-LD facts. Plus the unit
+ * pins for the title-brand heuristic and the schema-type humanizer.
+ */
+
+import { describe, it, expect } from "vitest";
+
+import {
+  deriveBusinessProfile,
+  brandFromTitle,
+  humanizeSchemaType,
+} from "./derive-business-profile";
+
+// ── Fixture 1: Texas custom-home builder (LocalBusiness JSON-LD) ──
+
+const TEXAS_BUILDER_HTML = `<!doctype html><html><head>
+<title>Lone Star Custom Homes | Hill Country Builder</title>
+<meta name="description" content="Custom home builder serving the Texas Hill Country.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": ["GeneralContractor", "LocalBusiness"],
+  "name": "Lone Star Custom Homes",
+  "telephone": "+1-512-555-0147",
+  "description": "Hill Country custom homes and remodels.",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "100 Ranch Rd",
+    "addressLocality": "Fredericksburg",
+    "addressRegion": "TX",
+    "postalCode": "78624"
+  },
+  "areaServed": ["Fredericksburg", {"@type": "City", "name": "Boerne"}, "Kerrville"],
+  "sameAs": ["https://www.houzz.com/pro/lonestarhomes", "https://www.facebook.com/lonestarhomes"],
+  "makesOffer": [
+    {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Custom Home Construction"}},
+    {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Whole Home Remodeling"}}
+  ]
+}
+</script></head><body>
+<header><nav>
+  <a href="/">Home</a>
+  <a href="/custom-homes">Custom Homes</a>
+  <a href="/remodeling">Remodeling</a>
+  <a href="/portfolio">Portfolio</a>
+  <a href="/about">About</a>
+  <a href="/contact">Contact</a>
+</nav></header>
+<footer>Call us: (512) 555-0147</footer>
+</body></html>`;
+
+// ── Fixture 2: content publication (no address, Article schema) ──
+
+const CONTENT_SITE_HTML = `<!doctype html><html><head>
+<title>Saffron Atlas — Persian Culture, Explained</title>
+<meta property="og:site_name" content="Saffron Atlas">
+<meta name="description" content="An encyclopedia of Persian culture, food, and history.">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "WebSite", "name": "Saffron Atlas"}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "Article", "headline": "The History of Saffron"}
+</script></head><body>
+<header><nav>
+  <a href="/">Home</a>
+  <a href="/food">Persian Food</a>
+  <a href="/history">History</a>
+  <a href="/names">Persian Names</a>
+  <a href="/about">About</a>
+</nav></header>
+<footer><a href="https://www.instagram.com/saffronatlas">Instagram</a></footer>
+</body></html>`;
+
+// ── Fixture 3: restaurant (subtype + tel link, no offers) ──
+
+const RESTAURANT_HTML = `<!doctype html><html><head>
+<title>Welcome - La Palma Taqueria</title>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Restaurant",
+  "name": "La Palma Taqueria",
+  "address": {"@type": "PostalAddress", "addressLocality": "Tucson", "addressRegion": "AZ"},
+  "servesCuisine": "Mexican"
+}
+</script></head><body>
+<header><nav>
+  <a href="/">Home</a>
+  <a href="/catering">Catering</a>
+  <a href="/our-menu">Our Menu</a>
+  <a href="/contact">Contact</a>
+</nav></header>
+<a href="tel:+15205550199">Call</a>
+</body></html>`;
+
+describe("deriveBusinessProfile — Texas builder fixture (geo comes from INPUT)", () => {
+  const profile = deriveBusinessProfile([
+    { url: "https://lonestarhomes.com/", html: TEXAS_BUILDER_HTML },
+  ]);
+
+  it("derives name from JSON-LD", () => {
+    expect(profile.name).toBe("Lone Star Custom Homes");
+    expect(profile.nameSource).toBe("json-ld");
+  });
+
+  it("derives industry from the schema subtype (humanized)", () => {
+    expect(profile.industry).toBe("general contractor");
+  });
+
+  it("derives phone + printable address", () => {
+    expect(profile.phone).toBe("+1-512-555-0147");
+    expect(profile.address).toBe("100 Ranch Rd, Fredericksburg, TX, 78624");
+  });
+
+  it("locations are the SITE'S cities — zero Bay-Area leakage", () => {
+    expect(profile.locations).toEqual(
+      expect.arrayContaining(["fredericksburg", "tx", "boerne", "kerrville"]),
+    );
+    for (const banned of ["palo alto", "menlo park", "atherton", "bay area"]) {
+      expect(profile.locations).not.toContain(banned);
+    }
+  });
+
+  it("services merge JSON-LD offers + nav labels minus furniture", () => {
+    expect(profile.services).toEqual(
+      expect.arrayContaining([
+        "custom home construction",
+        "whole home remodeling",
+        "custom homes",
+        "remodeling",
+      ]),
+    );
+    expect(profile.services).not.toContain("home");
+    expect(profile.services).not.toContain("about");
+    expect(profile.services).not.toContain("contact");
+    expect(profile.services).not.toContain("portfolio");
+  });
+
+  it("key pages are internal nav paths with / first", () => {
+    expect(profile.keyPages[0]).toBe("/");
+    expect(profile.keyPages).toEqual(
+      expect.arrayContaining(["/custom-homes", "/remodeling"]),
+    );
+  });
+
+  it("social profiles from sameAs", () => {
+    expect(profile.socialProfiles).toEqual(
+      expect.arrayContaining(["https://www.houzz.com/pro/lonestarhomes"]),
+    );
+  });
+
+  it("a business with an address is NOT a content site", () => {
+    expect(profile.contentSiteSignal).toBe(false);
+  });
+});
+
+describe("deriveBusinessProfile — content publication fixture", () => {
+  const profile = deriveBusinessProfile([
+    { url: "https://saffronatlas.com/", html: CONTENT_SITE_HTML },
+  ]);
+
+  it("falls back to og:site_name for the name", () => {
+    expect(profile.name).toBe("Saffron Atlas");
+    expect(profile.nameSource).toBe("og-site-name");
+  });
+
+  it("Article schema + no address → contentSiteSignal", () => {
+    expect(profile.contentSiteSignal).toBe(true);
+  });
+
+  it("a content site derives ZERO locations (no invented geo)", () => {
+    expect(profile.locations).toEqual([]);
+  });
+
+  it("topic hubs surface as services; furniture filtered", () => {
+    expect(profile.services).toEqual(
+      expect.arrayContaining(["persian food", "history", "persian names"]),
+    );
+    expect(profile.services).not.toContain("about");
+  });
+});
+
+describe("deriveBusinessProfile — restaurant fixture", () => {
+  const profile = deriveBusinessProfile([
+    { url: "https://lapalmataqueria.com/", html: RESTAURANT_HTML },
+  ]);
+
+  it("derives the subtype industry + the site's own city", () => {
+    expect(profile.industry).toBe("restaurant");
+    expect(profile.locations).toEqual(expect.arrayContaining(["tucson", "az"]));
+  });
+
+  it("falls back to the tel: link for phone", () => {
+    expect(profile.phone).toBe("+15205550199");
+  });
+});
+
+describe("brandFromTitle", () => {
+  it("takes the brand segment, skipping generic page words", () => {
+    expect(brandFromTitle("Welcome - La Palma Taqueria")).toBe("La Palma Taqueria");
+    expect(brandFromTitle("Acme Plumbing | SF's Trusted Plumbers")).toBe("Acme Plumbing");
+    expect(brandFromTitle("Home | Acme Co")).toBe("Acme Co");
+  });
+});
+
+describe("humanizeSchemaType", () => {
+  it("camelCase → words, with overrides for awkward spellings", () => {
+    expect(humanizeSchemaType("BeautySalon")).toBe("beauty salon");
+    expect(humanizeSchemaType("GeneralContractor")).toBe("general contractor");
+    expect(humanizeSchemaType("HVACBusiness")).toBe("HVAC services");
+    expect(humanizeSchemaType("LegalService")).toBe("legal services");
+  });
+});
+
+describe("deriveBusinessProfile — empty/hostile input", () => {
+  it("no pages → all-null profile (honest blanks, no invented defaults)", () => {
+    const p = deriveBusinessProfile([]);
+    expect(p.name).toBeNull();
+    expect(p.locations).toEqual([]);
+    expect(p.services).toEqual([]);
+  });
+
+  it("malformed JSON-LD never crashes or poisons other blocks", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{not json at all</script>
+      <script type="application/ld+json">{"@type":"Organization","name":"Survivor Co","sameAs":["https://www.facebook.com/survivor"]}</script>
+      </head><body></body></html>`;
+    const p = deriveBusinessProfile([{ url: "https://x.com/", html }]);
+    expect(p.name).toBe("Survivor Co");
+  });
+});
