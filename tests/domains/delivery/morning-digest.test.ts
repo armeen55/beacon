@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import {
   selectDigestRows,
   composeMorningDigest,
+  selectFirstCitations,
   DIGEST_MOVES_PER_TENANT,
   type DigestTenantSection,
 } from "@/domains/delivery/morning-digest";
@@ -182,5 +183,73 @@ describe("composeMorningDigest — the learning line (P0 wall 7)", () => {
       { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
     );
     expect(d.text).not.toContain("reworded");
+  });
+});
+
+describe("selectFirstCitations (#94) — the first-ever-citation receipt", () => {
+  const NOW2 = new Date("2026-06-11T14:00:00Z");
+  const obs = (observed_at: string, urls: string[]) => ({ observed_at, citation_urls: urls });
+
+  it("reports own-domain URLs whose EARLIEST citation is within 24h", () => {
+    const out = selectFirstCitations(
+      [
+        obs("2026-06-11T07:10:00Z", ["https://www.iranopedia.com/persian-last-names"]),
+        obs("2026-06-11T07:10:00Z", ["https://other-site.com/x"]), // foreign — never
+      ],
+      "iranopedia.com",
+      NOW2,
+    );
+    expect(out).toEqual(["/persian-last-names"]);
+  });
+
+  it("a URL cited long ago is NOT 'first' even when cited again today", () => {
+    const out = selectFirstCitations(
+      [
+        obs("2026-05-01T07:00:00Z", ["https://iranopedia.com/famous-iranians"]),
+        obs("2026-06-11T07:10:00Z", ["https://iranopedia.com/famous-iranians"]),
+      ],
+      "iranopedia.com",
+      NOW2,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("normalizes www/protocol/trailing-slash so variants don't fake a 'first'", () => {
+    const out = selectFirstCitations(
+      [
+        obs("2026-05-01T07:00:00Z", ["https://www.iranopedia.com/cities/"]),
+        obs("2026-06-11T07:10:00Z", ["http://iranopedia.com/cities"]),
+      ],
+      "iranopedia.com",
+      NOW2,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("caps at 5, oldest-first within the day", () => {
+    const rows = Array.from({ length: 8 }, (_, i) =>
+      obs(`2026-06-11T0${i}:00:00Z`, [`https://iranopedia.com/p${i}`]),
+    );
+    const out = selectFirstCitations(rows, "iranopedia.com", NOW2);
+    expect(out).toHaveLength(5);
+    expect(out[0]).toBe("/p0");
+  });
+
+  it("composer renders the receipt line", () => {
+    const d = composeMorningDigest(
+      [
+        {
+          tenantId: "t",
+          businessName: "Iranopedia",
+          pending: [],
+          pendingTotal: 0,
+          verifiedLastDay: 0,
+          pushedLastDay: 0,
+          firstCitations: ["/persian-last-names"],
+        },
+      ],
+      { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
+    );
+    expect(d.text).toContain("First AI citation ever: /persian-last-names");
   });
 });

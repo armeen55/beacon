@@ -22,6 +22,7 @@ import { getRepository } from "../src/lib/persistence/repositories";
 import {
   composeMorningDigest,
   selectDigestRows,
+  selectFirstCitations,
   type DigestTenantSection,
 } from "../src/domains/delivery/morning-digest";
 import { computeEditFeedback } from "../src/domains/recommendation-intelligence/edit-feedback";
@@ -53,12 +54,28 @@ async function main() {
     const sel = selectDigestRows(rows, now);
     const feedback = computeEditFeedback(rows, now);
     const shipped = feedback.overall.asProposed + feedback.overall.modified;
+    // First-ever citations (#94): full per-tenant citation history so
+    // "first" means first, not first-in-window. Soft-fail to none.
+    let firstCitations: string[] = [];
+    try {
+      const observations = await getRepository()
+        .forTenant(t.id)
+        .getPromptAnswerObservations();
+      firstCitations = selectFirstCitations(
+        observations as Array<{ observed_at: string; citation_urls?: string[] | null }>,
+        t.domain,
+        now,
+      );
+    } catch {
+      /* none */
+    }
     sections.push({
       tenantId: t.id,
       businessName: t.business_name || t.slug,
       ...sel,
       editRate: feedback.overall.editRate,
       editRateShipped: shipped,
+      firstCitations,
     });
     console.log(
       `[morning-digest] ${t.id}: pending=${sel.pendingTotal} pushed24h=${sel.pushedLastDay} verified24h=${sel.verifiedLastDay} editRate=${feedback.overall.editRate ?? "n/a"}`,
