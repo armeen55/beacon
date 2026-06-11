@@ -5,7 +5,10 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import {
   WATCHDOG_EXPECTED_PLATFORMS,
   shouldDispatchPoll,
+  shouldDispatchScan,
+  shouldDispatchGeneration,
   type WatchdogObservationRun,
+  type WatchdogTenantRun,
 } from "@/domains/observations/poll-watchdog";
 
 /**
@@ -97,7 +100,7 @@ async function handle(request: NextRequest): Promise<NextResponse> {
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from("observation_runs")
-      .select("run_type, scope_label, status")
+      .select("run_type, scope_label, status, tenant_id")
       .gte("started_at", todayUtcStart)
       .order("started_at", { ascending: true });
     if (error) {
@@ -117,18 +120,55 @@ async function handle(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // ── decide ────────────────────────────────────────────────────────
-  const decision = shouldDispatchPoll({ todayObservationRuns: todayRuns });
-
-  if (!decision.shouldDispatch) {
+  // ── decide (night-shift 2026-06-11: the watchdog covers the WHOLE
+  // nightly chain — scan + generation + poll — after GH's scheduler
+  // skipped the 04:00 scan and delayed the 07:00 poll on 2026-06-11;
+  // the scan previously had NO recovery path) ─────────────────────────
+  let activeTenantIds: string[] = [];
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("tenants")
+      .select("id, status")
+      .eq("status", "active");
+    if (error) throw new Error(error.message);
+    activeTenantIds = ((data ?? []) as Array<{ id: string }>).map((t) => t.id);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[poll-watchdog] tenants select failed:", msg);
     return NextResponse.json(
-      {
-        status: "skipped_already_ran_today" as const,
-        coveredPlatforms: decision.coveredPlatforms,
-        todayUtcStart,
-        todayObservationRunCount: todayRuns.length,
-        expectedPlatforms: [...WATCHDOG_EXPECTED_PLATFORMS],
-      },
+      { error: "tenants select failed", detail: msg },
+      { status: 502 },
+    );
+  }
+
+  const tenantRuns = todayRuns as unknown as WatchdogTenantRun[];
+  const pollDecision = shouldDispatchPoll({ todayObservationRuns: todayRuns });
+  const scanDecision = shouldDispatchScan({ todayRuns: tenantRuns, activeTenantIds });
+  const generationDecision = shouldDispatchGeneration({ todayRuns: tenantRuns, activeTenantIds });
+
+  const wanted: Array<{ kind: string; workflow: string }> = [];
+  if (scanDecision.shouldDispatch) wanted.push({ kind: "scan", workflow: "daily-scan.yml" });
+  if (generationDecision.shouldDispatch) wanted.push({ kind: "generation", workflow: "nightly-generation.yml" });
+  if (pollDecision.shouldDispatch) {
+    wanted.push({
+      kind: "poll",
+      workflow: process.env.BEACON_GH_WORKFLOW_FILE ?? DEFAULT_WORKFLOW,
+    });
+  }
+
+  const summary = {
+    todayUtcStart,
+    todayObservationRunCount: todayRuns.length,
+    activeTenants: activeTenantIds.length,
+    poll: pollDecision,
+    scan: scanDecision,
+    generation: generationDecision,
+  };
+
+  if (wanted.length === 0) {
+    return NextResponse.json(
+      { status: "skipped_already_ran_today" as const, ...summary },
       { status: 200 },
     );
   }
@@ -136,16 +176,14 @@ async function handle(request: NextRequest): Promise<NextResponse> {
   // ── dispatch ──────────────────────────────────────────────────────
   const pat = process.env.BEACON_GH_WORKFLOW_DISPATCH_PAT;
   if (!pat) {
-    const outcome: DispatchOutcome = { status: "skipped_pat_not_configured" };
     console.warn(
-      "[poll-watchdog] missing platforms but BEACON_GH_WORKFLOW_DISPATCH_PAT not set — cannot dispatch",
-      { missingPlatforms: decision.missingPlatforms },
+      "[poll-watchdog] missing chain coverage but BEACON_GH_WORKFLOW_DISPATCH_PAT not set — cannot dispatch",
+      { wanted: wanted.map((w) => w.kind) },
     );
     return NextResponse.json(
       {
-        ...outcome,
-        missingPlatforms: decision.missingPlatforms,
-        coveredPlatforms: decision.coveredPlatforms,
+        status: "skipped_pat_not_configured" as const,
+        ...summary,
         hint: "Set BEACON_GH_WORKFLOW_DISPATCH_PAT in Vercel env to enable recovery dispatch.",
       },
       { status: 503 },
@@ -154,54 +192,52 @@ async function handle(request: NextRequest): Promise<NextResponse> {
 
   const owner = process.env.BEACON_GH_REPO_OWNER ?? DEFAULT_OWNER;
   const repo = process.env.BEACON_GH_REPO_NAME ?? DEFAULT_REPO;
-  const workflow = process.env.BEACON_GH_WORKFLOW_FILE ?? DEFAULT_WORKFLOW;
   const ref = process.env.BEACON_GH_WORKFLOW_REF ?? DEFAULT_REF;
 
-  let outcome: DispatchOutcome;
-  try {
-    const ghRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${pat}`,
-          Accept: "application/vnd.github+json",
-          "Content-Type": "application/json",
+  async function dispatchWorkflow(workflow: string): Promise<DispatchOutcome> {
+    try {
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ref }),
         },
-        body: JSON.stringify({ ref }),
-      },
-    );
-    if (ghRes.status === 204) {
-      outcome = { status: "dispatched", httpStatus: 204 };
-    } else {
+      );
+      if (ghRes.status === 204) return { status: "dispatched", httpStatus: 204 };
       const body = await ghRes.text().catch(() => "");
-      outcome = {
+      return {
         status: "dispatch_failed",
         httpStatus: ghRes.status,
         error: body.slice(0, 500),
       };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { status: "dispatch_failed", httpStatus: 0, error: msg };
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    outcome = { status: "dispatch_failed", httpStatus: 0, error: msg };
   }
 
-  const httpStatus =
-    outcome.status === "dispatched"
-      ? 200
-      : outcome.status === "dispatch_failed"
-        ? 502
-        : 503;
+  const dispatches: Record<string, DispatchOutcome> = {};
+  for (const w of wanted) {
+    dispatches[w.kind] = await dispatchWorkflow(w.workflow);
+    console.log(
+      `[poll-watchdog] dispatch ${w.kind} (${w.workflow}): ${dispatches[w.kind]!.status}`,
+    );
+  }
 
+  const anyFailed = Object.values(dispatches).some((d) => d.status === "dispatch_failed");
   return NextResponse.json(
     {
-      ...outcome,
-      missingPlatforms: decision.missingPlatforms,
-      coveredPlatforms: decision.coveredPlatforms,
-      todayObservationRunCount: todayRuns.length,
-      dispatch: { owner, repo, workflow, ref },
+      status: anyFailed ? ("dispatch_failed" as const) : ("dispatched" as const),
+      dispatches,
+      ...summary,
+      dispatch: { owner, repo, ref },
     },
-    { status: httpStatus },
+    { status: anyFailed ? 502 : 200 },
   );
 }
 

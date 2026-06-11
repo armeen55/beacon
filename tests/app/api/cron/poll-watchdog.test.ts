@@ -17,7 +17,11 @@ import { NextRequest } from "next/server";
 // Hoisted mutable state so each test can shape the mocked Supabase
 // response + fetch behavior independently.
 const supabaseState = vi.hoisted(() => ({
-  rows: [] as Array<{ run_type: string; scope_label: string | null; status: string }>,
+  rows: [] as Array<{ run_type: string; scope_label: string | null; status: string; tenant_id?: string }>,
+  // Night-shift (2026-06-11): the watchdog now also reads active tenants
+  // for the scan/generation chain checks. Default: one tenant, fully
+  // covered by the default rows fixtures via coverChain().
+  tenants: [{ id: "tenant-ritz-founder" }] as Array<{ id: string }>,
   errorMessage: null as string | null,
   throws: false,
 }));
@@ -31,7 +35,7 @@ const fetchState = vi.hoisted(() => ({
 
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({
-    from: (_table: string) => ({
+    from: (table: string) => ({
       select: (_cols: string) => ({
         gte: (_col: string, _val: string) => ({
           order: async (_orderCol: string, _opts: unknown) => {
@@ -46,6 +50,12 @@ vi.mock("@/lib/persistence/supabase", () => ({
             };
           },
         }),
+        eq: async (_col: string, _val: string) => {
+          if (table === "tenants") {
+            return { data: supabaseState.tenants, error: null };
+          }
+          return { data: [], error: null };
+        },
       }),
     }),
   }),
@@ -109,6 +119,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   supabaseState.rows = [];
+  supabaseState.tenants = [{ id: "tenant-ritz-founder" }];
   supabaseState.errorMessage = null;
   supabaseState.throws = false;
   fetchState.responseStatus = 204;
@@ -133,6 +144,15 @@ afterEach(() => {
     if (typeof v === "string") process.env[k] = v;
   }
 });
+
+/** Night-shift (2026-06-11): cover rows for the scan + generation chain
+ *  checks so poll-focused scenarios keep their original semantics. */
+function chainCover(tenantId = "tenant-ritz-founder") {
+  return [
+    { run_type: "website_crawl", scope_label: "scan", status: "completed", tenant_id: tenantId },
+    { run_type: "generation", scope_label: "gen", status: "completed", tenant_id: tenantId },
+  ];
+}
 
 async function callRoute(req: NextRequest) {
   // Re-import per test so the route picks up the env values set in beforeEach.
@@ -183,7 +203,7 @@ describe("/api/cron/poll-watchdog — auth contract", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("/api/cron/poll-watchdog — already-ran-today (no dispatch)", () => {
-  it("both platforms covered → 200 skipped, no dispatch fetch call", async () => {
+  it("whole chain covered → 200 skipped, no dispatch fetch call", async () => {
     supabaseState.rows = [
       {
         run_type: "citation_sample_import",
@@ -195,6 +215,7 @@ describe("/api/cron/poll-watchdog — already-ran-today (no dispatch)", () => {
         scope_label: "Native perplexity poll · 100/100",
         status: "completed",
       },
+      ...chainCover(),
     ];
     const res = await callRoute(
       makeRequest({ authorization: "Bearer test-secret" }),
@@ -202,7 +223,7 @@ describe("/api/cron/poll-watchdog — already-ran-today (no dispatch)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("skipped_already_ran_today");
-    expect([...body.coveredPlatforms].sort()).toEqual(["chatgpt", "perplexity"]);
+    expect([...body.poll.coveredPlatforms].sort()).toEqual(["chatgpt", "perplexity"]);
     expect(fetchState.callLog.length).toBe(0);
   });
 
@@ -218,6 +239,7 @@ describe("/api/cron/poll-watchdog — already-ran-today (no dispatch)", () => {
         scope_label: "Native perplexity poll · in flight",
         status: "running",
       },
+      ...chainCover(),
     ];
     const res = await callRoute(
       makeRequest({ authorization: "Bearer test-secret" }),
@@ -232,7 +254,7 @@ describe("/api/cron/poll-watchdog — already-ran-today (no dispatch)", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("/api/cron/poll-watchdog — dispatch path", () => {
-  it("no rows today → dispatches once with the expected payload", async () => {
+  it("no rows today → dispatches the FULL chain (scan + generation + poll)", async () => {
     supabaseState.rows = [];
     fetchState.responseStatus = 204;
     const res = await callRoute(
@@ -241,24 +263,27 @@ describe("/api/cron/poll-watchdog — dispatch path", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("dispatched");
-    expect([...body.missingPlatforms].sort()).toEqual(["chatgpt", "perplexity"]);
-    expect(fetchState.callLog.length).toBe(1);
-    const call = fetchState.callLog[0]!;
-    expect(call.url).toBe(
-      "https://api.github.com/repos/armeen55/beacon/actions/workflows/daily-native-poll.yml/dispatches",
-    );
-    expect(call.method).toBe("POST");
-    expect(call.body).toBe('{"ref":"main"}');
-    expect(call.authPrefix).toBe("Bearer s"); // "Bearer stub-pat"
+    expect([...body.poll.missingPlatforms].sort()).toEqual(["chatgpt", "perplexity"]);
+    expect(body.scan.missingTenants).toEqual(["tenant-ritz-founder"]);
+    expect(body.generation.missingTenants).toEqual(["tenant-ritz-founder"]);
+    const urls = fetchState.callLog.map((c) => c.url);
+    expect(urls).toHaveLength(3);
+    expect(urls.some((u) => u.includes("daily-scan.yml"))).toBe(true);
+    expect(urls.some((u) => u.includes("nightly-generation.yml"))).toBe(true);
+    expect(urls.some((u) => u.includes("daily-native-poll.yml"))).toBe(true);
+    expect(fetchState.callLog[0]!.method).toBe("POST");
+    expect(fetchState.callLog[0]!.body).toBe('{"ref":"main"}');
+    expect(fetchState.callLog[0]!.authPrefix).toBe("Bearer s"); // "Bearer stub-pat"
   });
 
-  it("only chatgpt missing → dispatches once (workflow runs both platforms; budget guard covers idempotency)", async () => {
+  it("only chatgpt missing → dispatches ONLY the poll workflow once", async () => {
     supabaseState.rows = [
       {
         run_type: "citation_sample_import",
         scope_label: "Native perplexity poll · 100/100",
         status: "completed",
       },
+      ...chainCover(),
     ];
     const res = await callRoute(
       makeRequest({ authorization: "Bearer test-secret" }),
@@ -266,8 +291,9 @@ describe("/api/cron/poll-watchdog — dispatch path", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("dispatched");
-    expect(body.missingPlatforms).toEqual(["chatgpt"]);
+    expect(body.poll.missingPlatforms).toEqual(["chatgpt"]);
     expect(fetchState.callLog.length).toBe(1);
+    expect(fetchState.callLog[0]!.url).toContain("daily-native-poll.yml");
   });
 
   it("env overrides flow through (BEACON_GH_REPO_OWNER, …_NAME, …_WORKFLOW_FILE, …_WORKFLOW_REF)", async () => {
@@ -275,6 +301,7 @@ describe("/api/cron/poll-watchdog — dispatch path", () => {
     process.env.BEACON_GH_REPO_NAME = "alt-repo";
     process.env.BEACON_GH_WORKFLOW_FILE = "alt-workflow.yml";
     process.env.BEACON_GH_WORKFLOW_REF = "release";
+    supabaseState.rows = [...chainCover()]; // only the poll is missing
     const res = await callRoute(
       makeRequest({ authorization: "Bearer test-secret" }),
     );
@@ -326,27 +353,29 @@ describe("/api/cron/poll-watchdog — failure modes", () => {
   it("GitHub dispatch returns non-204 → 502 with dispatch_failed status", async () => {
     fetchState.responseStatus = 422;
     fetchState.responseBody = '{"message":"Workflow does not have workflow_dispatch trigger"}';
+    supabaseState.rows = [...chainCover()]; // only the poll is missing
     const res = await callRoute(
       makeRequest({ authorization: "Bearer test-secret" }),
     );
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.status).toBe("dispatch_failed");
-    expect(body.httpStatus).toBe(422);
-    expect(body.error).toContain("workflow_dispatch trigger");
+    expect(body.dispatches.poll.httpStatus).toBe(422);
+    expect(body.dispatches.poll.error).toContain("workflow_dispatch trigger");
     expect(fetchState.callLog.length).toBe(1); // dispatch was attempted once
   });
 
   it("GitHub dispatch throws (network error) → 502 with dispatch_failed", async () => {
     fetchState.throws = true;
+    supabaseState.rows = [...chainCover()]; // only the poll is missing
     const res = await callRoute(
       makeRequest({ authorization: "Bearer test-secret" }),
     );
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.status).toBe("dispatch_failed");
-    expect(body.httpStatus).toBe(0);
-    expect(body.error).toContain("simulated fetch failure");
+    expect(body.dispatches.poll.httpStatus).toBe(0);
+    expect(body.dispatches.poll.error).toContain("simulated fetch failure");
   });
 });
 
@@ -367,6 +396,7 @@ describe("/api/cron/poll-watchdog — no double-spend property", () => {
         scope_label: "Native perplexity poll · 100/100",
         status: "completed",
       },
+      ...chainCover(),
     ];
     await callRoute(makeRequest({ authorization: "Bearer test-secret" }));
     const ghCalls = fetchState.callLog.filter((c) =>
@@ -375,10 +405,50 @@ describe("/api/cron/poll-watchdog — no double-spend property", () => {
     expect(ghCalls).toEqual([]);
   });
 
-  it("on the dispatch path, dispatch is called AT MOST ONCE per invocation", async () => {
-    supabaseState.rows = [];
+  it("each missing workflow is dispatched AT MOST ONCE per invocation", async () => {
+    supabaseState.rows = [...chainCover()]; // only the poll is missing
     await callRoute(makeRequest({ authorization: "Bearer test-secret" }));
     expect(fetchState.callLog.length).toBe(1);
+  });
+
+  // Night-shift (2026-06-11): the chain checks themselves.
+  it("scan missing only → dispatches daily-scan.yml only", async () => {
+    supabaseState.rows = [
+      { run_type: "citation_sample_import", scope_label: "Native chatgpt poll · x", status: "completed" },
+      { run_type: "citation_sample_import", scope_label: "Native perplexity poll · x", status: "completed" },
+      { run_type: "generation", scope_label: "gen", status: "completed", tenant_id: "tenant-ritz-founder" },
+    ];
+    const res = await callRoute(makeRequest({ authorization: "Bearer test-secret" }));
+    expect(res.status).toBe(200);
+    expect(fetchState.callLog).toHaveLength(1);
+    expect(fetchState.callLog[0]!.url).toContain("daily-scan.yml");
+  });
+
+  it("a FAILED scan row does not cover — the watchdog retries it", async () => {
+    supabaseState.rows = [
+      { run_type: "citation_sample_import", scope_label: "Native chatgpt poll · x", status: "completed" },
+      { run_type: "citation_sample_import", scope_label: "Native perplexity poll · x", status: "completed" },
+      { run_type: "website_crawl", scope_label: "scan", status: "failed", tenant_id: "tenant-ritz-founder" },
+      { run_type: "generation", scope_label: "gen", status: "completed", tenant_id: "tenant-ritz-founder" },
+    ];
+    const res = await callRoute(makeRequest({ authorization: "Bearer test-secret" }));
+    expect(res.status).toBe(200);
+    expect(fetchState.callLog).toHaveLength(1);
+    expect(fetchState.callLog[0]!.url).toContain("daily-scan.yml");
+  });
+
+  it("a second active tenant without coverage triggers the chain dispatch", async () => {
+    supabaseState.tenants = [{ id: "tenant-ritz-founder" }, { id: "tenant-iranopedia" }];
+    supabaseState.rows = [
+      { run_type: "citation_sample_import", scope_label: "Native chatgpt poll · x", status: "completed" },
+      { run_type: "citation_sample_import", scope_label: "Native perplexity poll · x", status: "completed" },
+      ...chainCover("tenant-ritz-founder"), // iranopedia uncovered
+    ];
+    const res = await callRoute(makeRequest({ authorization: "Bearer test-secret" }));
+    const body = await res.json();
+    expect(body.scan.missingTenants).toEqual(["tenant-iranopedia"]);
+    expect(body.generation.missingTenants).toEqual(["tenant-iranopedia"]);
+    expect(fetchState.callLog).toHaveLength(2);
   });
 
   it("the route never imports or invokes paid AI providers (runNativePoll, openai, perplexity)", async () => {

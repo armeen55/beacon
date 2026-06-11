@@ -19,6 +19,9 @@ export type ObservationRunType =
   /** Live HTML re-fetch from ship verification (single URL). */
   | "website_verify"
   | "citation_sample_import"
+  /** Night-shift (2026-06-11): nightly recommendation-generation
+   *  heartbeat — lets the watchdog detect a missed generation run. */
+  | "generation"
   | "composite_placeholder";
 
 export type ObservationRunStatus = "completed" | "failed" | "partial";

@@ -49,41 +49,47 @@ const STORE_NAME = "recommendation-responses";
 const DEFER_DAYS = 7;
 
 // Sprint 7 Phase 7.8e-3 (2026-04-26): module-level top-level await replaced
-// with cached async getter. Phase 3.5C DB-merge logic preserved verbatim —
-// runs on first getter call when DATA_SOURCE=supabase. Mutators
-// (`recordResponse`, `deleteResponseByRecId`) became async; helpers
-// (`getResponse`, `isRecSuppressed`) became async.
-let _state: RecommendationResponse[] | null = null;
+// with cached async getter. Night-shift fix (2026-06-11): the cache was
+// a single process-global `_state` keyed by NOTHING — in a warm
+// multi-tenant process the first tenant pinned THEIR responses for every
+// later tenant (same class as the citation/answer-intel store bugs fixed
+// the same night). Now a per-tenant Map; the array reference per tenant
+// is stable so the in-place mutator semantics below are preserved.
+const _byTenant = new Map<string, RecommendationResponse[]>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state !== null) return;
-  _state = await readStore<RecommendationResponse>(STORE_NAME);
+async function loadForTenant(tenantId: string): Promise<RecommendationResponse[]> {
+  // Disk read routes per-tenant via the ambient slug (file mode).
+  const state = await readStore<RecommendationResponse>(STORE_NAME);
 
   // Phase 3.5C (2026-04-22): on Vercel / DATA_SOURCE=supabase the disk read
   // returned [] because the JSON file doesn't exist on the read-only FS.
   // Merge from `recommendation_responses` table so getters see real data.
   if (process.env.DATA_SOURCE === "supabase") {
     try {
-      const tenantId = await currentTenantId();
       const rows = await getRepository().forTenant(tenantId).getRecommendationResponses();
       const byId = new Map<string, RecommendationResponse>();
-      for (const r of _state) byId.set(r.recId, r);
+      for (const r of state) byId.set(r.recId, r);
       for (const r of rows) {
         const cur = byId.get(r.recId);
         if (!cur || r.respondedAt > cur.respondedAt) byId.set(r.recId, r);
       }
-      _state.length = 0;
-      _state.push(...byId.values());
+      state.length = 0;
+      state.push(...byId.values());
     } catch (e) {
       console.error("[rec-responses] DB seed failed:", e);
     }
   }
-});
+  return state;
+}
 
 export const getRecommendationResponses = cache(
   async (): Promise<RecommendationResponse[]> => {
-    await ensureLoaded();
-    return _state!;
+    const tenantId = await currentTenantId();
+    const cached = _byTenant.get(tenantId);
+    if (cached) return cached;
+    const loaded = await loadForTenant(tenantId);
+    _byTenant.set(tenantId, loaded);
+    return loaded;
   },
 );
 
@@ -93,13 +99,13 @@ export const getRecommendationResponses = cache(
  * the merge runs automatically on first getter call.
  */
 export async function ensureRecommendationResponsesSeeded(): Promise<void> {
-  await ensureLoaded();
+  await getRecommendationResponses();
 }
 
 /** Resets the seed cache. Call after a write that should be reflected on
  *  the next read in this process. */
 export function invalidateRecommendationResponsesSeed(): void {
-  _state = null;
+  _byTenant.clear();
 }
 
 export async function persistResponses(tenantId: string): Promise<void> {
