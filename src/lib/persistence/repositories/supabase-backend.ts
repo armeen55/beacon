@@ -568,6 +568,21 @@ export const supabaseBackend: SeedDataRepository = {
     return (data.data as AnswerIntelligenceIndex) ?? null;
   },
 
+  getAnswerIntelligenceIndexScoped: async (tenantId: string) => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("answer_intelligence_index")
+      .select("*")
+      .eq("id", "current")
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (error)
+      throw new Error(
+        `Supabase query failed on answer_intelligence_index (scoped): ${error.message}`,
+      );
+    if (!data) return null;
+    return data.data as AnswerIntelligenceIndex;
+  },
+
   getObservationRuns: () => query<ObservationRun>("observation_runs"),
   getCompetitorConfigEntries: () =>
     query<ConfiguredCompetitorEntry>("competitor_config"),
@@ -730,6 +745,8 @@ export const supabaseBackend: SeedDataRepository = {
       // Night-shift fix (2026-06-11) — per-tenant citation index row.
       getCitationEvidenceIndex: () =>
         supabaseBackend.getCitationEvidenceIndexScoped!(tenantId),
+      getAnswerIntelligenceIndex: () =>
+        supabaseBackend.getAnswerIntelligenceIndexScoped!(tenantId),
 
       // Paged reads — defeats PostgREST's default 1000-row cap and keeps
       // the tenant filter in every page request.

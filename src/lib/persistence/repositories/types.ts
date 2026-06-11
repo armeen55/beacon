@@ -111,6 +111,11 @@ export interface SeedDataRepository {
   getScanFindings(): Promise<Finding[]>;
   getPendingScanFindings(): Promise<Finding[]>;
   getAnswerIntelligenceIndex(): Promise<AnswerIntelligenceIndex | null>;
+  /** Night-shift fix (2026-06-11): explicit-tenant read (Supabase only;
+   *  file backend's ambient routing already isolates). */
+  getAnswerIntelligenceIndexScoped?(
+    tenantId: string,
+  ): Promise<AnswerIntelligenceIndex | null>;
   getObservationRuns(): Promise<ObservationRun[]>;
   getCompetitorConfigEntries(): Promise<ConfiguredCompetitorEntry[]>;
 
@@ -285,6 +290,8 @@ export interface TenantRepository {
    * the wrapper routes to the backend's explicit-tenant read.
    */
   getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
+  /** Night-shift fix (2026-06-11) — per-tenant answer-intel index. */
+  getAnswerIntelligenceIndex(): Promise<AnswerIntelligenceIndex | null>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
   getScanFindings(): Promise<Finding[]>;
   getPendingScanFindings(): Promise<Finding[]>;

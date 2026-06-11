@@ -372,7 +372,7 @@ export async function runProfoundImport(
   const aiTmp = aiPath + ".tmp";
   writeFileSync(aiTmp, JSON.stringify(answerIntelIndex), "utf-8");
   renameSync(aiTmp, aiPath);
-  await syncAnswerIntelligenceIndex(answerIntelIndex);
+  await syncAnswerIntelligenceIndex(answerIntelIndex, tenantId);
 
   // Refresh module-level caches so the UI reads fresh data without server restart
   await refreshCitationEvidenceStore();

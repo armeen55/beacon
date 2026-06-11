@@ -236,6 +236,10 @@ export function buildTenantRepo(
       base.getCitationEvidenceIndexScoped
         ? base.getCitationEvidenceIndexScoped(tenantId)
         : base.getCitationEvidenceIndex(),
+    getAnswerIntelligenceIndex: async () =>
+      base.getAnswerIntelligenceIndexScoped
+        ? base.getAnswerIntelligenceIndexScoped(tenantId)
+        : base.getAnswerIntelligenceIndex(),
     /**
      * Section 5 precursor (2026-05-16) — explicit-tenant poll-run
      * read. Scopes by the captured `tenantId` argument, NOT by

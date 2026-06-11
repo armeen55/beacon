@@ -995,17 +995,20 @@ export async function syncCitationEvidenceIndex(
 
 export async function syncAnswerIntelligenceIndex(
   index: AnswerIntelligenceIndex,
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled()) return;
   const sb = getSupabaseAdmin();
   try {
+    // Night-shift fix (2026-06-11): per-tenant row on (tenant_id, id).
     const { error } = await sb.from("answer_intelligence_index").upsert(
       {
         id: "current",
+        tenant_id: tenantId,
         built_at: index.built_at,
         data: index,
       },
-      { onConflict: "id" },
+      { onConflict: "tenant_id,id" },
     );
     if (error) {
       console.error(

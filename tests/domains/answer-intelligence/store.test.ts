@@ -1,82 +1,95 @@
 /**
- * Phase 7.8e-4b (2026-04-26) — answer-intelligence store request-scope getter.
- *
- * Pins the lazy-load + refresh contract:
- *   - First call hydrates from disk via readDotDataJson.
- *   - Subsequent calls reuse the cached value (no re-read).
- *   - refreshAnswerIntelligenceStore() reloads from disk.
- *   - undefined sentinel = "not loaded yet"; null = "loaded, no data".
+ * Phase 7.8e-4b (2026-04-26) → night-shift rewrite (2026-06-11) —
+ * answer-intelligence store is now PER-TENANT and repository-routed.
+ * Mirrors tests/domains/pages/citation-evidence-store.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const readMock = vi.hoisted(() => vi.fn());
+vi.mock("server-only", () => ({}));
 
-vi.mock("@/lib/persistence/dotdata-json", () => ({
-  readDotDataJson: readMock,
+const repoRead = vi.hoisted(() => vi.fn());
+const tenantIdMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/persistence/repositories", () => ({
+  getRepository: () => ({
+    forTenant: (tenantId: string) => ({
+      getAnswerIntelligenceIndex: () => repoRead(tenantId),
+    }),
+  }),
 }));
 
-const stubIndex = (built_at: string) => ({
-  built_at,
-  brand_positioning: [],
-  co_citation: {
-    competitors: [],
-    by_topic: [],
-    total_answers_with_owned: 0,
-    total_answers_without_owned: 0,
-  },
-  // Other AnswerIntelligenceIndex fields intentionally omitted — the getter
-  // returns whatever readDotDataJson resolves with; type-safety is enforced
-  // at the consumer call sites.
-});
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: () => tenantIdMock(),
+}));
 
-describe("answer-intelligence store — Phase 7.8e-4b request-scope getter", () => {
-  beforeEach(async () => {
+const stubIndex = (built_at: string) => ({ built_at });
+
+describe("answer-intelligence store — per-tenant repository-routed getter", () => {
+  beforeEach(() => {
     vi.resetModules();
-    readMock.mockReset();
+    repoRead.mockReset();
+    tenantIdMock.mockReset();
+    tenantIdMock.mockResolvedValue("tenant-a");
   });
 
-  it("first call hydrates from disk", async () => {
-    readMock.mockResolvedValueOnce(stubIndex("2026-04-26T00:00:00Z"));
+  it("first call hydrates via the tenant-scoped repository", async () => {
+    repoRead.mockResolvedValueOnce(stubIndex("2026-06-11"));
     const mod = await import("@/domains/answer-intelligence/store");
     mod._resetAnswerIntelligenceForTests();
-    const idx = await mod.getAnswerIntelligenceIndex();
-    expect(readMock).toHaveBeenCalledTimes(1);
-    expect(idx?.built_at).toBe("2026-04-26T00:00:00Z");
+    const out = await mod.getAnswerIntelligenceIndex();
+    expect(repoRead).toHaveBeenCalledTimes(1);
+    expect(repoRead).toHaveBeenCalledWith("tenant-a");
+    expect(out?.built_at).toBe("2026-06-11");
   });
 
-  it("subsequent calls reuse the cached value (no re-read)", async () => {
-    readMock.mockResolvedValueOnce(stubIndex("x"));
+  it("same tenant reuses the cache (one read)", async () => {
+    repoRead.mockResolvedValueOnce(stubIndex("x"));
     const mod = await import("@/domains/answer-intelligence/store");
     mod._resetAnswerIntelligenceForTests();
     await mod.getAnswerIntelligenceIndex();
     await mod.getAnswerIntelligenceIndex();
-    await mod.getAnswerIntelligenceIndex();
-    expect(readMock).toHaveBeenCalledTimes(1);
+    expect(repoRead).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null when disk has no index, and caches the null result", async () => {
-    readMock.mockResolvedValueOnce(null);
+  it("TENANT ISOLATION: tenant B gets its own read + value, not tenant A's", async () => {
+    repoRead
+      .mockResolvedValueOnce(stubIndex("a-index"))
+      .mockResolvedValueOnce(stubIndex("b-index"));
     const mod = await import("@/domains/answer-intelligence/store");
     mod._resetAnswerIntelligenceForTests();
+    tenantIdMock.mockResolvedValue("tenant-a");
     const a = await mod.getAnswerIntelligenceIndex();
+    tenantIdMock.mockResolvedValue("tenant-b");
     const b = await mod.getAnswerIntelligenceIndex();
-    expect(a).toBeNull();
-    expect(b).toBeNull();
-    expect(readMock).toHaveBeenCalledTimes(1);
+    expect(a?.built_at).toBe("a-index");
+    expect(b?.built_at).toBe("b-index"); // pre-rewrite: returned "a-index"
   });
 
-  it("refreshAnswerIntelligenceStore() reloads from disk", async () => {
-    readMock
+  it("caches a null loaded-state (one read, not two)", async () => {
+    repoRead.mockResolvedValueOnce(null);
+    const mod = await import("@/domains/answer-intelligence/store");
+    mod._resetAnswerIntelligenceForTests();
+    expect(await mod.getAnswerIntelligenceIndex()).toBeNull();
+    expect(await mod.getAnswerIntelligenceIndex()).toBeNull();
+    expect(repoRead).toHaveBeenCalledTimes(1);
+  });
+
+  it("repository throw → soft null (surfaces degrade, never crash)", async () => {
+    repoRead.mockRejectedValueOnce(new Error("table missing"));
+    const mod = await import("@/domains/answer-intelligence/store");
+    mod._resetAnswerIntelligenceForTests();
+    expect(await mod.getAnswerIntelligenceIndex()).toBeNull();
+  });
+
+  it("refreshAnswerIntelligenceStore() re-reads the current tenant", async () => {
+    repoRead
       .mockResolvedValueOnce(stubIndex("first"))
       .mockResolvedValueOnce(stubIndex("second"));
     const mod = await import("@/domains/answer-intelligence/store");
     mod._resetAnswerIntelligenceForTests();
-    const first = await mod.getAnswerIntelligenceIndex();
-    expect(first?.built_at).toBe("first");
+    expect((await mod.getAnswerIntelligenceIndex())?.built_at).toBe("first");
     await mod.refreshAnswerIntelligenceStore();
-    const second = await mod.getAnswerIntelligenceIndex();
-    expect(second?.built_at).toBe("second");
-    expect(readMock).toHaveBeenCalledTimes(2);
+    expect((await mod.getAnswerIntelligenceIndex())?.built_at).toBe("second");
   });
 });

@@ -32,6 +32,8 @@ const BACKEND = read("src/lib/persistence/repositories/supabase-backend.ts");
 const WRAPPER = read("src/lib/persistence/repositories/tenant-repo.ts");
 const STORE = read("src/domains/pages/citation-evidence-store.ts");
 const MIGRATION = read("migrations/2026-06-11_citation_evidence_index_per_tenant.sql");
+const AI_MIGRATION = read("migrations/2026-06-11_answer_intelligence_index_per_tenant.sql");
+const AI_STORE = read("src/domains/answer-intelligence/store.ts");
 
 describe("citation_evidence_index — per-tenant invariants", () => {
   it("cron route loops active tenants and scopes both reads", () => {
@@ -85,5 +87,36 @@ describe("citation_evidence_index — per-tenant invariants", () => {
   it("migration mirror exists with the composite primary key", () => {
     expect(MIGRATION).toMatch(/PRIMARY KEY \(tenant_id, id\)/);
     expect(MIGRATION).toMatch(/SET tenant_id = 'tenant-ritz-founder' WHERE tenant_id IS NULL/);
+  });
+});
+
+describe("answer_intelligence_index — same per-tenant invariants (night-shift item 2)", () => {
+  it("syncAnswerIntelligenceIndex requires + stamps tenantId", () => {
+    expect(DUAL).toMatch(
+      /export async function syncAnswerIntelligenceIndex\(\s*index: AnswerIntelligenceIndex,\s*tenantId: string,?\s*\)/,
+    );
+    const fn = DUAL.slice(DUAL.indexOf("export async function syncAnswerIntelligenceIndex"));
+    const body = fn.slice(0, fn.indexOf("export async function", 10));
+    expect(body).toMatch(/tenant_id: tenantId/);
+    expect(body).toMatch(/onConflict:\s*"tenant_id,id"/);
+  });
+
+  it("backend exposes the scoped read; facade + wrapper route to it", () => {
+    expect(BACKEND).toMatch(/getAnswerIntelligenceIndexScoped: async \(tenantId: string\)/);
+    expect(BACKEND).toMatch(/getAnswerIntelligenceIndexScoped!\(tenantId\)/);
+    expect(WRAPPER).toMatch(
+      /base\.getAnswerIntelligenceIndexScoped\s*\?\s*base\.getAnswerIntelligenceIndexScoped\(tenantId\)\s*:\s*base\.getAnswerIntelligenceIndex\(\)/,
+    );
+  });
+
+  it("app-layer store is repository-routed with a tenant-keyed cache", () => {
+    expect(AI_STORE).toMatch(/getRepository\(\)\.forTenant\(tenantId\)\.getAnswerIntelligenceIndex\(\)/);
+    expect(AI_STORE).toMatch(/Map<string, AnswerIntelligenceIndex \| null>/);
+    expect(AI_STORE).not.toMatch(/import.*readDotDataJson/);
+  });
+
+  it("migration mirror exists with the composite primary key", () => {
+    expect(AI_MIGRATION).toMatch(/PRIMARY KEY \(tenant_id, id\)/);
+    expect(AI_MIGRATION).toMatch(/SET tenant_id = 'tenant-ritz-founder' WHERE tenant_id IS NULL/);
   });
 });
