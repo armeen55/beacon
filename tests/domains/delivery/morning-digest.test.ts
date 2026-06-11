@@ -124,6 +124,10 @@ describe("composeMorningDigest", () => {
     expect(d.text).toContain("yesterday: 1 shipped, 2 verified live");
     expect(d.text).toContain("…and 13 more in the app.");
     expect(d.text).toContain("https://beacon-bice.vercel.app/recommendations");
+    // #118 (2026-06-11): per-business deep link through the switch route.
+    expect(d.text).toContain(
+      "/api/tenant-switch?tenant=tenant-iranopedia&next=%2Frecommendations",
+    );
     expect(d.html).toContain("Review &amp; approve");
   });
 

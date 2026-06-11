@@ -179,9 +179,13 @@ export function composeMorningDigest(
     if (s.verifiedLastDay > 0) happened.push(`${s.verifiedLastDay} verified live`);
     const happenedLine = happened.length > 0 ? ` (yesterday: ${happened.join(", ")})` : "";
 
-    textParts.push(`\n## ${s.businessName} — ${s.pendingTotal} waiting${happenedLine}`);
+    // #118 (2026-06-11): the section heading deep-links into the RIGHT
+    // business via the tenant-switch route (fail-closed membership check
+    // server-side; the cookie the middleware honors).
+    const sectionUrl = `${opts.appBaseUrl.replace(/\/+$/, "")}/api/tenant-switch?tenant=${encodeURIComponent(s.tenantId)}&next=${encodeURIComponent("/recommendations")}`;
+    textParts.push(`\n## ${s.businessName} — ${s.pendingTotal} waiting${happenedLine}\n${sectionUrl}`);
     htmlParts.push(
-      `<h3 style="margin:20px 0 4px">${escapeHtml(s.businessName)} — ${s.pendingTotal} waiting<span style="color:#777;font-weight:normal">${escapeHtml(happenedLine)}</span></h3>`,
+      `<h3 style="margin:20px 0 4px"><a href="${escapeHtml(sectionUrl)}" style="color:inherit;text-decoration:none">${escapeHtml(s.businessName)}</a> — ${s.pendingTotal} waiting<span style="color:#777;font-weight:normal">${escapeHtml(happenedLine)}</span></h3>`,
     );
     if (s.pending.length === 0) {
       textParts.push("Nothing pending.");
