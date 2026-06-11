@@ -15,6 +15,8 @@ export default async function ConnectorsPage() {
   const googleGsc = await getConnectorInfo("google_gsc");
   const googleGa4 = await getConnectorInfo("google_ga4");
   const yelp = await getConnectorInfo("yelp");
+  // North-star onboarding (2026-06-11): self-serve Wix connection card.
+  const wix = await getConnectorInfo("wix");
   const cfg = await getBusinessConfigForCurrentTenant();
   // Selected GBP location lives on the (deferred) google_gbp token. Read
   // it so a returning GBP card can immediately show the saved selection.
@@ -62,6 +64,7 @@ export default async function ConnectorsPage() {
         }
         ga4={googleGa4}
         yelp={yelp}
+        wix={wix}
         configYelpBusinessId={cfg.yelpBusinessId ?? ""}
         gscStaleCopy={gscStaleCopy}
         ga4StaleCopy={ga4StaleCopy}
