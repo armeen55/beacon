@@ -10,6 +10,7 @@ import { cache } from "react";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncPageIssues } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 
 export type IssueStatus =
   | "new"
@@ -102,42 +103,47 @@ type State = {
   pageIssues: PersistedIssue[] | null;
 };
 
-const _state: State = {
-  rolloutExecutions: null,
-  patternEvidence: null,
-  pageIssues: null,
-};
+// Night-shift fix (2026-06-11): 6th instance of the process-global
+// cache class — `_state` was keyed by NOTHING, so the first tenant
+// pinned its issues/rollouts for every later tenant in a warm process,
+// AND the page_issues read pulled EVERY tenant's rows on hosted. Now a
+// per-tenant Map; page_issues reads go through forTenant; the two
+// disk-backed siblings keep their ambient per-tenant routing.
+const _stateByTenant = new Map<string, State>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state.rolloutExecutions !== null) return;
+async function loadStateForTenant(tenantId: string): Promise<State> {
   const repo = getRepository();
   const [re, pe, pi] = await Promise.all([
     repo.getRolloutExecutions(),
     repo.getPatternEvidence(),
-    repo.getPageIssues(),
+    repo.forTenant(tenantId).getPageIssues(),
   ]);
-  _state.rolloutExecutions = re;
-  _state.patternEvidence = pe;
-  _state.pageIssues = pi;
+  return { rolloutExecutions: re, patternEvidence: pe, pageIssues: pi };
+}
+
+const ensureLoaded = cache(async (): Promise<State> => {
+  const tenantId = await currentTenantId();
+  const cached = _stateByTenant.get(tenantId);
+  if (cached) return cached;
+  const loaded = await loadStateForTenant(tenantId);
+  _stateByTenant.set(tenantId, loaded);
+  return loaded;
 });
 
 export const getRolloutExecutions = cache(
   async (): Promise<RolloutExecution[]> => {
-    await ensureLoaded();
-    return _state.rolloutExecutions!;
+    return (await ensureLoaded()).rolloutExecutions!;
   },
 );
 
 export const getPatternEvidence = cache(
   async (): Promise<PatternEvidenceRecord[]> => {
-    await ensureLoaded();
-    return _state.patternEvidence!;
+    return (await ensureLoaded()).patternEvidence!;
   },
 );
 
 export const getPageIssues = cache(async (): Promise<PersistedIssue[]> => {
-  await ensureLoaded();
-  return _state.pageIssues!;
+  return (await ensureLoaded()).pageIssues!;
 });
 
 export async function persistRolloutExecutions(): Promise<void> {
@@ -165,7 +171,5 @@ export async function persistPageIssues(tenantId: string): Promise<void> {
 }
 
 export function _resetIssuesStateForTests(): void {
-  _state.rolloutExecutions = null;
-  _state.patternEvidence = null;
-  _state.pageIssues = null;
+  _stateByTenant.clear();
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import type React from "react";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
@@ -29,7 +31,7 @@ function useBreadcrumb(pathname: string) {
   return { title: parentLabel, parent: null };
 }
 
-export function AppHeader() {
+export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
   const pathname = usePathname();
   const { toggleSidebar } = useShell();
   const { title, parent } = useBreadcrumb(pathname);
@@ -59,7 +61,10 @@ export function AppHeader() {
       ) : (
         <h1 className="text-[13px] font-semibold">{title}</h1>
       )}
-      <div className="ml-auto hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground/40">
+      {/* Night-shift #119 (2026-06-11): server-rendered tenant switcher
+          composed in via RSC props (this component stays client). */}
+      {rightSlot ? <div className="ml-auto">{rightSlot}</div> : null}
+      <div className={`${rightSlot ? "ml-3" : "ml-auto"} hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground/40`}>
         <kbd className="border border-border rounded px-1.5 py-0.5 font-mono">
           ⌘K
         </kbd>

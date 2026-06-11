@@ -11,6 +11,7 @@ import { cache } from "react";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangeContracts } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 
 // ── Change Type Taxonomy ──
 
@@ -298,17 +299,22 @@ export function validateContract(contract: Partial<ChangeContract>): ValidationR
 
 // ── Persistence ──
 
-let _changeContracts: ChangeContract[] | null = null;
-
-const ensureChangeContractsLoaded = cache(async (): Promise<void> => {
-  if (_changeContracts !== null) return;
-  _changeContracts = await getRepository().getChangeContracts();
-});
+// Night-shift fix (2026-06-11): 5th instance of the process-global
+// cache class — `_changeContracts` was keyed by NOTHING (first tenant
+// pinned its contracts for every later tenant in a warm process) AND
+// the unscoped base read pulled EVERY tenant's rows on hosted. Now a
+// per-tenant Map over the tenant-scoped repository read; stable array
+// references preserve the in-place mutator semantics.
+const _contractsByTenant = new Map<string, ChangeContract[]>();
 
 export const getChangeContracts = cache(
   async (): Promise<ChangeContract[]> => {
-    await ensureChangeContractsLoaded();
-    return _changeContracts!;
+    const tenantId = await currentTenantId();
+    const cached = _contractsByTenant.get(tenantId);
+    if (cached) return cached;
+    const loaded = await getRepository().forTenant(tenantId).getChangeContracts();
+    _contractsByTenant.set(tenantId, loaded);
+    return loaded;
   },
 );
 
@@ -319,7 +325,7 @@ export async function persistChangeContracts(tenantId: string): Promise<void> {
 }
 
 export function _resetChangeContractsForTests(): void {
-  _changeContracts = null;
+  _contractsByTenant.clear();
 }
 
 // ── Auto-parsing helpers ──

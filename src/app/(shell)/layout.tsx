@@ -1,6 +1,7 @@
 import { ShellProvider, type NavBadges } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { AppHeader } from "@/components/shell/app-header";
+import { TenantSwitcher } from "@/components/shell/tenant-switcher";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
 import { DemoBannerGate } from "@/components/shell/demo-banner";
 import {
@@ -188,7 +189,7 @@ export default async function ShellLayout({
         <AppSidebar />
         <MobileSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <AppHeader />
+          <AppHeader rightSlot={<TenantSwitcher />} />
           <main className="flex-1 overflow-y-auto">
             <DemoBannerGate />
             <div className="mx-auto max-w-[1120px] p-6 lg:p-8">{children}</div>
