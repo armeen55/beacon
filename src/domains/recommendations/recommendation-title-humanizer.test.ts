@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractGeoTag,
   extractTopicTag,
+  extractTopicFromPrompts,
   humanizeRecTitle,
   pageNameFromUrl,
 } from "./recommendation-title-humanizer";
@@ -442,5 +443,29 @@ describe("extractGeoTag — injected per-tenant cities (#149)", () => {
     expect(
       humanizeRecTitle({ ...labelArgs, knownCities: ["Tucson"] }),
     ).toBe(humanizeRecTitle({ ...labelArgs, knownCities: [] }));
+  });
+});
+
+describe("extractTopicTag — injected per-tenant services (#149-sibling)", () => {
+  it("the tenant's own service phrase IS the topic — beats the builder table", () => {
+    expect(extractTopicTag("best taco bar in Tucson", ["taco bar", "catering"])).toBe(
+      "taco bar",
+    );
+  });
+  it("longest service phrase wins", () => {
+    expect(
+      extractTopicTag("dental implant consultation", ["implant", "dental implant"]),
+    ).toBe("dental implant");
+  });
+  it("no service match falls through to the builder table (Ritz parity)", () => {
+    expect(extractTopicTag("custom home builder", ["taco bar"])).toBe("custom home");
+  });
+  it("un-threaded callers behave exactly as before", () => {
+    expect(extractTopicTag("whole home remodel")).toBeTruthy();
+  });
+  it("extractTopicFromPrompts tries services first too", () => {
+    expect(
+      extractTopicFromPrompts(["who does the best catering in Tucson"], ["catering"]),
+    ).toBe("catering");
   });
 });

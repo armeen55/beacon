@@ -172,13 +172,17 @@ export async function RecommendationsAsyncContent({
     // default — founder parity); a loaded-but-empty list means "this
     // tenant has no geo vocabulary" and matches nothing.
     let knownCities: string[] | undefined;
+    let knownServices: string[] | undefined;
     try {
       const { getBusinessConfigForCurrentTenant } = await import(
         "@/lib/business-config"
       );
-      knownCities = (await getBusinessConfigForCurrentTenant()).locations;
+      const cfg = await getBusinessConfigForCurrentTenant();
+      knownCities = cfg.locations;
+      knownServices = cfg.services;
     } catch {
       knownCities = undefined;
+      knownServices = undefined;
     }
 
     if (useV2) {
@@ -213,6 +217,7 @@ export async function RecommendationsAsyncContent({
             promptTextById={promptTextById}
             competitorNames={competitorNames}
             knownCities={knownCities}
+            knownServices={knownServices}
           />
           {debugResolver && (
             <RecsResolverDebugPanel
