@@ -63,6 +63,8 @@ export type LifecycleUpdate = Partial<
     | "live_match_confidence"
     | "live_match_kind"
     | "live_element_key"
+    // #100 substrate (2026-06-11): live wording at verify time.
+    | "live_text"
     | "not_found_reason"
   >
 >;
@@ -136,6 +138,8 @@ export function computeLifecycleUpdate(
       live_match_confidence: match.confidence,
       live_match_kind: toLiveMatchKind(match.kind),
       live_element_key: match.matchedElementKey ?? null,
+      // #100 substrate (2026-06-11): keep the live wording uniformly.
+      live_text: match.matchedElementText ?? null,
       not_found_reason: null,
     };
   }
@@ -150,6 +154,9 @@ export function computeLifecycleUpdate(
       live_match_confidence: match.confidence,
       live_match_kind: toLiveMatchKind(match.kind),
       live_element_key: match.matchedElementKey ?? null,
+      // #100 substrate (2026-06-11): the operator's FINAL wording —
+      // the proposed→final delta the learning loop consumes.
+      live_text: match.matchedElementText ?? null,
       not_found_reason: null,
     };
   }
