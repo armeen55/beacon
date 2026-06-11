@@ -179,7 +179,7 @@ describe("per-tenant content rules injection (#35/#67, 2026-06-11)", () => {
       "tenant-iranopedia",
       { ...PLAN, contentRules: [], flaggedTerms: [] },
       {
-        generate: async (p) => {
+        generate: async (p: import("@/domains/push/cluster-factory").ClusterPlan) => {
           captured = p;
           return { ok: true, drafts: [], totalCostUsd: 0, flagged: 0, rejected: 0, rejectedReasons: [] };
         },
@@ -208,7 +208,7 @@ describe("per-tenant content rules injection (#35/#67, 2026-06-11)", () => {
       "tenant-iranopedia",
       { ...PLAN, contentRules: ["plan rule"], flaggedTerms: ["PlanBan"] },
       {
-        generate: async (p) => {
+        generate: async (p: import("@/domains/push/cluster-factory").ClusterPlan) => {
           captured = p;
           return { ok: true, drafts: [], totalCostUsd: 0, flagged: 0, rejected: 0, rejectedReasons: [] };
         },
