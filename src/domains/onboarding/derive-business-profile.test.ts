@@ -273,3 +273,16 @@ describe("nav services — CTA + self-referential filtering (live check)", () =>
     expect(p.services).toEqual(["whole-home remodeling"]);
   });
 });
+
+describe("nav services — icon-font + phone-label hygiene (live check round 2)", () => {
+  it("icon ligature text and phone-shaped labels never become services", () => {
+    const html = `<html><body><header><nav>
+      <a href="tel:8002773633"><i class="material-icons">local_phone</i>(800) 277-3633</a>
+      <a href="/account"><span aria-hidden="true">person_outline</span></a>
+      <a href="/dentures"><svg></svg>Dentures</a>
+      <a href="/implants">Dental Implants</a>
+      </nav></header></body></html>`;
+    const p = deriveBusinessProfile([{ url: "https://aspen.com/", html }]);
+    expect(p.services).toEqual(["dentures", "dental implants"]);
+  });
+});

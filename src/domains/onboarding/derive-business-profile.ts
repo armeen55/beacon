@@ -330,6 +330,11 @@ const NAV_FURNITURE = new Set([
   "view all",
   "see all",
   "read more",
+  // Live check round 2 (sweetgreen.com): brand-story + app CTAs.
+  "mission",
+  "download the app",
+  "download our app",
+  "schedule an appointment",
 ]);
 
 function normalizeInternalPath(href: string, baseUrl: string): string | null {
@@ -348,6 +353,10 @@ function normalizeInternalPath(href: string, baseUrl: string): string | null {
   }
 }
 
+/** Phone-shaped label ("(800) 277-3633") — a contact affordance, never
+ *  a service phrase. */
+const PHONE_LABEL_PATTERN = /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/;
+
 function extractNav(
   html: string,
   pageUrl: string,
@@ -359,14 +368,27 @@ function extractNav(
   const containers = $("header nav, nav, [role='navigation']");
   const scope = containers.length > 0 ? containers.first() : $("header");
   scope.find("a[href]").each((_, el) => {
-    const text = $(el).text().replace(/\s+/g, " ").trim();
+    // Live check 2026-06-11 (aspendental.com): icon-font ligature text
+    // ("local_phone", "person_outline") sits inside nav anchors as
+    // <i class="material-icons">/<span aria-hidden> children and leaked
+    // into services. Read the label from a clone with icon-ish children
+    // removed — generic markup hygiene, not vertical vocabulary.
+    const clone = $(el).clone();
+    clone.find("i, svg, [aria-hidden='true'], [class*='icon']").remove();
+    const text = clone.text().replace(/\s+/g, " ").trim();
     const href = $(el).attr("href") ?? "";
     const path = normalizeInternalPath(href, pageUrl);
     if (path && !seenPaths.has(path)) {
       seenPaths.add(path);
       paths.push(path);
     }
-    if (text.length >= 3 && text.length <= 40) labels.push(text);
+    if (
+      text.length >= 3 &&
+      text.length <= 40 &&
+      !PHONE_LABEL_PATTERN.test(text)
+    ) {
+      labels.push(text);
+    }
   });
   return { labels, paths };
 }
