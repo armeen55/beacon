@@ -166,7 +166,7 @@ export function ChangeContractUI({ contracts, onCreateContract, onVerifyContract
         city: city || undefined,
         service: service || undefined,
         topic: topic || undefined,
-        faqCountExpected: faqCount ? parseInt(faqCount) : undefined,
+        faqCountExpected: faqCount ? parseInt(faqCount, 10) : undefined,
         schemaTypesExpected: schemas ? schemas.split(",").map(s => s.trim()).filter(Boolean) : undefined,
         h1Expected: h1 || undefined,
         sourceInputType: "manual",
