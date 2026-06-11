@@ -37,12 +37,21 @@ const ALLOWLIST = new Set<string>([
   "domains/changelog/change-contract.ts:getChangeContracts",
   "domains/pages/frontier-planner.ts:getFrontierOpportunities",
   "domains/pages/outcome-watch.ts:getOutcomeObservations",
-  "domains/product/recommendation-response-store.ts:getRecommendationResponses",
   "domains/pages/wave-planner.ts:getRolloutWaves",
   "domains/observations/visibility-observation-explicit-store.ts:getVisibilityObservationRunsExplicit",
 ]);
 
 /** repo getters that return TENANT-OWNED rows (must be scoped). */
+/** Strip // and *-prefixed comment lines so docstrings can MENTION the
+ *  unscoped pattern without tripping the ratchet (night-shift 2026-06-11:
+ *  the recommendation-response-store entry was a comment false-positive). */
+function stripComments(src: string): string {
+  return src
+    .split("\n")
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .join("\n");
+}
+
 const TENANT_GETTERS =
   /getRepository\(\)\.(getActionStates|getAssetResponses|getBriefStates|getChangeContracts|getFrontierOpportunities|getOutcomeObservations|getRecommendationResponses|getRolloutWaves|getVisibilityObservationRunsExplicit|getTrackedPrompts|getTrackedEntities|getRecommendedEdits|getChangelogEntries|getImportRuns|getDailyMetricSnapshots|getObservationRuns|getUrlChangeOutcomes|getScanFindings|getPageSnapshots)\(/g;
 
@@ -64,7 +73,7 @@ describe("tenant-isolation ratchet — no unscoped tenant-data reads (audit #1/#
   it("every getRepository().getX() tenant read is .forTenant-scoped or allowlisted", () => {
     const offenders: string[] = [];
     for (const file of walk(SRC)) {
-      const src = readFileSync(file, "utf8");
+      const src = stripComments(readFileSync(file, "utf8"));
       const rel = file.slice(SRC.length + 1);
       let m: RegExpExecArray | null;
       TENANT_GETTERS.lastIndex = 0;
@@ -87,7 +96,7 @@ describe("tenant-isolation ratchet — no unscoped tenant-data reads (audit #1/#
       const [rel, method] = key.split(":");
       let src = "";
       try {
-        src = readFileSync(join(SRC, rel!), "utf8");
+        src = stripComments(readFileSync(join(SRC, rel!), "utf8"));
       } catch {
         stale.push(`${key} (file gone)`);
         continue;
