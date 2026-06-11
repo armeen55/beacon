@@ -505,6 +505,9 @@ export const supabaseBackend: SeedDataRepository = {
   },
   getGuardrailAlerts: () => query<GuardrailAlert>("guardrail_alerts"),
 
+  // Night-shift fix (2026-06-11): the unscoped read now returns the
+  // FOUNDER-era row only via the scoped helper below; ambient callers
+  // go through the tenant-repo wrapper which prefers the scoped read.
   getCitationEvidenceIndex: async () => {
     const { data, error } = await getSupabaseAdmin()
       .from("citation_evidence_index")
@@ -514,6 +517,27 @@ export const supabaseBackend: SeedDataRepository = {
     if (error)
       throw new Error(
         `Supabase query failed on citation_evidence_index: ${error.message}`,
+      );
+    if (!data) return null;
+    return {
+      built_at: data.built_at,
+      total_citations_processed: data.total_citations_processed,
+      by_page_and_topic: data.by_page_and_topic,
+      by_topic: data.by_topic,
+      page_to_topics: data.page_to_topics,
+    } as CitationEvidenceIndex;
+  },
+
+  getCitationEvidenceIndexScoped: async (tenantId: string) => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("citation_evidence_index")
+      .select("*")
+      .eq("id", "current")
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (error)
+      throw new Error(
+        `Supabase query failed on citation_evidence_index (scoped): ${error.message}`,
       );
     if (!data) return null;
     return {
@@ -703,6 +727,9 @@ export const supabaseBackend: SeedDataRepository = {
           "recommended_edits",
           tenantId,
         )) as unknown as RecommendedEditRow[],
+      // Night-shift fix (2026-06-11) — per-tenant citation index row.
+      getCitationEvidenceIndex: () =>
+        supabaseBackend.getCitationEvidenceIndexScoped!(tenantId),
 
       // Paged reads — defeats PostgREST's default 1000-row cap and keeps
       // the tenant filter in every page request.

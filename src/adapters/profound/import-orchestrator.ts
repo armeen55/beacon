@@ -355,7 +355,7 @@ export async function runProfoundImport(
   const ciTmp = ciPath + ".tmp";
   writeFileSync(ciTmp, JSON.stringify(citationIndex), "utf-8");
   renameSync(ciTmp, ciPath);
-  await syncCitationEvidenceIndex(citationIndex);
+  await syncCitationEvidenceIndex(citationIndex, tenantId);
 
   // Build answer intelligence index — extracts brand positioning, visibility
   // time-series, co-citation analysis, and narrative shifts from observation +

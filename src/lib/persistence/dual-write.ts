@@ -962,20 +962,24 @@ export async function syncScanFindings(
 
 export async function syncCitationEvidenceIndex(
   index: CitationEvidenceIndex,
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled()) return;
   const sb = getSupabaseAdmin();
   try {
+    // Night-shift fix (2026-06-11): the table keys on (tenant_id, id) —
+    // every write stamps its tenant; the global-singleton write is gone.
     const { error } = await sb.from("citation_evidence_index").upsert(
       {
         id: "current",
+        tenant_id: tenantId,
         built_at: index.built_at,
         total_citations_processed: index.total_citations_processed,
         by_page_and_topic: index.by_page_and_topic,
         by_topic: index.by_topic,
         page_to_topics: index.page_to_topics,
       },
-      { onConflict: "id" },
+      { onConflict: "tenant_id,id" },
     );
     if (error) {
       console.error(

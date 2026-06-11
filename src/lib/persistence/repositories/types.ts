@@ -95,6 +95,17 @@ export interface SeedDataRepository {
   getPageSnapshots(): Promise<PageSnapshot[]>;
   getGuardrailAlerts(): Promise<GuardrailAlert[]>;
   getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
+  /**
+   * Night-shift fix (2026-06-11): explicit-tenant read of the
+   * per-tenant citation index row (citation_evidence_index keys on
+   * (tenant_id, id) now). Optional: implemented by the Supabase
+   * backend; the file backend's ambient per-tenant routing already
+   * isolates, so the tenant-repo wrapper falls back to the ambient
+   * read when this is absent.
+   */
+  getCitationEvidenceIndexScoped?(
+    tenantId: string,
+  ): Promise<CitationEvidenceIndex | null>;
 
   // Phase 7 — scan findings via repository
   getScanFindings(): Promise<Finding[]>;
@@ -268,6 +279,12 @@ export interface TenantRepository {
   getPageElementInventory(): Promise<PageElementInventoryRow[]>;
   getRecommendedEdits(): Promise<RecommendedEditRow[]>;
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
+  /**
+   * Night-shift fix (2026-06-11) — per-tenant citation index. A single
+   * object (not rows), so the wrapper's row filter can't protect it;
+   * the wrapper routes to the backend's explicit-tenant read.
+   */
+  getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
   getScanFindings(): Promise<Finding[]>;
   getPendingScanFindings(): Promise<Finding[]>;
