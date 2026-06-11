@@ -1,0 +1,188 @@
+# ============================================================================
+#  Nightly recommendation generation — P0 wall 1 (2026-06-10)
+# ============================================================================
+#
+#  "The queue refills while you sleep."
+#
+#  Runs promoteEligibleCandidates per active tenant: trigger candidates
+#  (from the 04:00 UTC scan's fresh snapshots) → 13-gate safety ladder →
+#  deterministic scoring → dedupe/cooldowns → promotion into the
+#  recommendation queue (recommended_edits, status "recommended").
+#
+#  Hard properties (read before editing):
+#    • DETERMINISTIC — no LLM, no paid API calls. GH-runner CPU only.
+#    • Queue-only writes. NOTHING publishes from this job; pushes still
+#      require the operator's explicit approve click in the product.
+#    • Idempotent — deterministic rec ids; local upsert by id; Supabase
+#      upsert on (tenant_id, rec_id, action_type, target_element_key).
+#      Re-running a night is safe.
+#    • Engine caps: ≤5 rows/page, ≤10 rows/trigger-family, cooldowns.
+#
+#  Mode: BEACON_PROMOTION_LIVE_WRITE_ENABLED ("true" = write the queue;
+#  anything else = report-only dry run). Default comes from the repo
+#  variable of the same name, falling back to "true" — flip the repo var
+#  to pause live writes without a commit. BEACON_GENERATION_DISABLED
+#  (secret) is the hard kill switch (exit-0 no-op).
+#
+#  Schedule: 05:30 UTC — 90 min after the 04:00 scan (fresh inventory),
+#  90 min before the 07:00 poll. Runner-local CLI (same architecture as
+#  the scan + poll: writable FS, npm toolchain, Supabase dual-write).
+#
+#  Matrix: scripts/list-active-tenants.ts — Supabase tenants
+#  status='active' preferred, ops/active-tenants.json fallback. Same
+#  fleet as the scan + poll; a tenant activated in the DB is generated
+#  for the next night with no git commit.
+#
+#  Required repo secrets: NEXT_PUBLIC_SUPABASE_URL,
+#  SUPABASE_SERVICE_ROLE_KEY. Optional: BEACON_GENERATION_DISABLED.
+#  Optional repo vars: BEACON_PROMOTION_LIVE_WRITE_ENABLED,
+#  BEACON_REQUIRED_TENANT_ID.
+# ============================================================================
+
+name: Nightly recommendation generation
+
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-generation
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  compute-matrix:
+    name: Compute active-tenants matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      tenants: ${{ steps.compute.outputs.tenants }}
+      tenant_count: ${{ steps.compute.outputs.tenant_count }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - id: compute
+        run: |
+          set -euo pipefail
+          MATRIX=$(npx tsx --require ./scripts/mock-server-only.cjs scripts/list-active-tenants.ts)
+          COUNT=$(echo "$MATRIX" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No active tenants — refusing to run generation with empty matrix"
+            exit 1
+          fi
+          REQUIRED_OK=$(echo "$MATRIX" | jq --arg id "$REQUIRED_TENANT_ID" '[.[] | select(.tenantId == $id)] | length')
+          if [ "$REQUIRED_OK" -eq 0 ]; then
+            echo "::error::Required tenant ($REQUIRED_TENANT_ID) is missing or inactive — refusing to run generation without it"
+            exit 1
+          fi
+          {
+            echo "tenants=$MATRIX"
+            echo "tenant_count=$COUNT"
+          } >> "$GITHUB_OUTPUT"
+          echo "Active tenants: $COUNT"
+          echo "$MATRIX" | jq
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REQUIRED_TENANT_ID: ${{ vars.BEACON_REQUIRED_TENANT_ID || 'tenant-ritz-founder' }}
+
+  generate:
+    name: Generate · ${{ matrix.tenant.slug }}
+    needs: compute-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        tenant: ${{ fromJSON(needs.compute-matrix.outputs.tenants) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run nightly generation (${{ matrix.tenant.slug }})
+        run: |
+          npx tsx --require ./scripts/mock-server-only.cjs scripts/run-scheduled-generation.ts
+        env:
+          # Tenant identity — from the lister matrix.
+          BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
+          BEACON_TENANT_SLUG: ${{ matrix.tenant.slug }}
+          BEACON_SITE_DOMAIN: ${{ matrix.tenant.siteDomain }}
+          # Credentials + dual-write — repo secrets.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATA_SOURCE: supabase
+          DUAL_WRITE: "true"
+          # Queue live-write mode (repo var; default ON — queue-only writes,
+          # the approve click remains the only publish gate).
+          BEACON_PROMOTION_LIVE_WRITE_ENABLED: ${{ vars.BEACON_PROMOTION_LIVE_WRITE_ENABLED || 'true' }}
+          # Hard kill switch (secret; truthy = exit-0 no-op).
+          BEACON_GENERATION_DISABLED: ${{ secrets.BEACON_GENERATION_DISABLED }}
+          # Per-tenant business configs (repo VARIABLE, not secret) — the
+          # classifier + enricher need real per-tenant configs on the
+          # runner, where no .data files exist (P0 wall 3 fix).
+          BEACON_BUSINESS_CONFIG_JSON_BY_TENANT: ${{ vars.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT }}
+          # Deterministic only — belt-and-suspenders against any code path
+          # resolving an LLM provider inside the promotion pipeline.
+          BEACON_LLM_PROVIDER: deterministic
+          NODE_NO_WARNINGS: "1"
+
+  # Mirror of the daily-poll alert: any failed job opens/refreshes a
+  # deduped GitHub issue so the operator hears about it without watching
+  # the Actions tab.
+  alert-on-failure:
+    name: Alert on failure
+    needs: [compute-matrix, generate]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "🔴 Nightly recommendation generation is failing";
+            const body = [
+              "The nightly-generation workflow failed.",
+              "",
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              "",
+              "What this means: the recommendation queue did NOT refill for at",
+              "least one tenant tonight. Check the per-tenant job logs.",
+              "Re-running the workflow is safe (idempotent upserts).",
+            ].join("\n");
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+            const existing = issues.find((i) => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["ops", "automation"],
+              });
+            }
