@@ -1304,6 +1304,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     faqTemplates: getFaqTemplates(businessConfig),
     pageSnapshots,
     queryIndex,
+    cities: tenantCities.length > 0 ? tenantCities : undefined,
   });
 
   function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
