@@ -121,6 +121,79 @@ export function matchSingleton(
   return interpretBest(best, edit.action_type);
 }
 
+// ── Created-page matcher (night-shift #90, 2026-06-11) ────────────────────
+//
+// A factory `create_page` card's proposed_text is a JSON object of CMS
+// fields. Verification contract once the crawl picks up the new URL:
+//   • inventory EMPTY → not_found ("not crawled / not live yet"; the
+//     runner's 7-day promotion applies as usual).
+//   • inventory present + a comparable field (title preferred, else
+//     the longest string value) matches the page's title/h1 →
+//     verified_live / verified_live_modified by similarity.
+//   • page live but nothing comparable → needs_review (a human glance
+//     beats a fake verification).
+
+export function extractCreatePageComparable(proposed: string | null): string | null {
+  if (proposed === null) return null;
+  try {
+    const parsed = JSON.parse(proposed) as Record<string, unknown>;
+    if (typeof parsed.title === "string" && parsed.title.trim() !== "") {
+      return parsed.title;
+    }
+    let longest: string | null = null;
+    for (const v of Object.values(parsed)) {
+      if (typeof v === "string" && v.trim().length >= 4) {
+        if (longest === null || v.length > longest.length) longest = v;
+      }
+    }
+    return longest;
+  } catch {
+    return null;
+  }
+}
+
+export function matchCreatedPage(
+  edit: RecommendedEditRow,
+  currentInventory: ReadonlyArray<PageElementInventoryRow>,
+): MatchResult {
+  if (currentInventory.length === 0) {
+    return {
+      outcome: "not_found",
+      confidence: "low",
+      kind: "none",
+      reason: "created page not in the crawl inventory yet (not live or not yet crawled)",
+    };
+  }
+  const comparable = extractCreatePageComparable(edit.proposed_text);
+  if (comparable === null) {
+    return {
+      outcome: "needs_review",
+      confidence: "medium",
+      kind: "structural_partial",
+      reason: "page is live but the created-content JSON has no comparable text field",
+    };
+  }
+  const { exact: pExact, folded: pFolded } = normalizeTextBoth(comparable);
+  const candidates = [
+    ...filterByType(currentInventory, "title"),
+    ...filterByType(currentInventory, "h1"),
+  ];
+  if (candidates.length === 0) {
+    return {
+      outcome: "needs_review",
+      confidence: "medium",
+      kind: "structural_partial",
+      reason: "page is live but exposes no title/h1 elements to compare",
+    };
+  }
+  const scored: Scored[] = [];
+  for (const row of candidates) {
+    const s = scoreCandidate(row, pExact, pFolded);
+    if (s !== null) scored.push(s);
+  }
+  return interpretBest(pickBest(scored), edit.action_type);
+}
+
 // ── Positional-new matcher (h2 / faq leg / internal_link) ─────────────────
 
 export function matchPositional(

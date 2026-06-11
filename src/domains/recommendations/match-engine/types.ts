@@ -128,6 +128,9 @@ export const ACTION_THRESHOLDS: Record<string, ActionThresholds> = {
   add_faq: { modified: 0.85, medium: 0.7 },
   rewrite_faq: { modified: 0.85, medium: 0.7 },
   add_internal_link: { modified: 0.85, medium: 0.5 },
+  // Night-shift #90 (2026-06-11): created pages verify by their title
+  // field once the crawl picks the new URL up.
+  create_page: { modified: 0.85, medium: 0.5 },
 };
 
 /**
@@ -146,6 +149,8 @@ export const SUPPORTED_ACTION_TYPES = [
   "add_internal_link",
   "add_schema",
   "fix_schema",
+  // Night-shift #90 (2026-06-11): created pages (factory output).
+  "create_page",
 ] as const;
 
 export type SupportedActionType = (typeof SUPPORTED_ACTION_TYPES)[number];
