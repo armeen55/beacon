@@ -124,3 +124,23 @@ describe("autoSeedCompetitorsForTenant", () => {
     expect(written[0]![0]!.tenant_id).toBe("tenant-iranopedia");
   });
 });
+
+describe("platform-domain exclusion (caught live 2026-06-11)", () => {
+  it("universal platforms are never seeded as rivals, including subdomains", () => {
+    const rows = selectSeedCandidates({
+      discovery: {
+        direct: [
+          direct("youtube.com", 50),
+          direct("www.facebook.com", 40),
+          direct("m.youtube.com", 30),
+          direct("real-rival.com", 5),
+        ],
+      },
+      existingDomains: new Set(),
+      ownedDomain: "ritzbuilders.com",
+      tenantId: "tenant-ritz-founder",
+      now: new Date("2026-06-11T05:35:00Z"),
+    });
+    expect(rows.map((r) => r.domain)).toEqual(["real-rival.com"]);
+  });
+});
