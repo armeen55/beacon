@@ -7,6 +7,7 @@
 
 import { cache } from "react";
 
+import { currentTenantId } from "@/lib/tenant-context";
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { FrontierOpportunity, RecommendedMoveType } from "./frontier-planner";
@@ -59,26 +60,31 @@ type CompilerState = {
   trackedMissingPages: TrackedMissingPage[] | null;
 };
 
-const _state: CompilerState = {
-  attackPackages: null,
-  trackedMissingPages: null,
-};
+// Night-shift cache sweep (2026-06-11): both stores are TENANT_SCOPED but
+// `_state` was a single process-global object keyed by NOTHING — the first
+// tenant's attack packages + missing pages pinned for every later tenant
+// in a warm process (the `const _state` object form the `let _state` sweep
+// missed). Per-tenant Map of state objects now; the arrays inside each
+// tenant's state stay stable refs, preserving any in-place mutation.
+const _byTenant = new Map<string, CompilerState>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state.attackPackages !== null) return;
+const ensureLoaded = cache(async (): Promise<CompilerState> => {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached && cached.attackPackages !== null) return cached;
   const repo = getRepository();
   const [ap, tmp] = await Promise.all([
     repo.getFrontierAttackPackages(),
     repo.getTrackedMissingPages(),
   ]);
-  _state.attackPackages = ap;
-  _state.trackedMissingPages = tmp;
+  const state: CompilerState = { attackPackages: ap, trackedMissingPages: tmp };
+  _byTenant.set(tenantId, state);
+  return state;
 });
 
 export const getAttackPackages = cache(
   async (): Promise<FrontierAttackPackage[]> => {
-    await ensureLoaded();
-    return _state.attackPackages!;
+    return (await ensureLoaded()).attackPackages!;
   },
 );
 
@@ -389,8 +395,7 @@ export type TrackedMissingPage = {
 
 export const getTrackedMissingPages = cache(
   async (): Promise<TrackedMissingPage[]> => {
-    await ensureLoaded();
-    return _state.trackedMissingPages!;
+    return (await ensureLoaded()).trackedMissingPages!;
   },
 );
 
@@ -399,8 +404,7 @@ export async function persistTrackedMissingPages(): Promise<void> {
 }
 
 export function _resetFrontierCompilerForTests(): void {
-  _state.attackPackages = null;
-  _state.trackedMissingPages = null;
+  _byTenant.clear();
 }
 
 // ── Package Progress ──

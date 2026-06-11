@@ -6,6 +6,7 @@
 
 import { cache } from "react";
 
+import { currentTenantId } from "@/lib/tenant-context";
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { CitationEvidenceIndex, CitationPageRollup, TopicCitationSummary } from "./types";
@@ -93,33 +94,38 @@ type EvidenceState = {
   sourcePatterns: SourcePatternEvidence[] | null;
 };
 
-const _state: EvidenceState = {
-  competitorPages: null,
-  sourcePatterns: null,
-};
+// Night-shift cache sweep (2026-06-11): both stores are TENANT_SCOPED but
+// `_state` was a single process-global object keyed by NOTHING — the first
+// tenant's competitor evidence + source patterns pinned for every later
+// tenant in a warm process. Per-tenant Map of state objects now; the arrays
+// inside each tenant's state stay stable refs so persistComputedEvidence()'s
+// in-place `.length = 0; .push(...)` mutation (and computeCompetitorEvidence's
+// push) persist for the correct tenant.
+const _byTenant = new Map<string, EvidenceState>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state.competitorPages !== null) return;
+const ensureLoaded = cache(async (): Promise<EvidenceState> => {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached && cached.competitorPages !== null) return cached;
   const repo = getRepository();
   const [cp, sp] = await Promise.all([
     repo.getCompetitorPageEvidence(),
     repo.getSourcePatternEvidence(),
   ]);
-  _state.competitorPages = cp;
-  _state.sourcePatterns = sp;
+  const state: EvidenceState = { competitorPages: cp, sourcePatterns: sp };
+  _byTenant.set(tenantId, state);
+  return state;
 });
 
 export const getCompetitorPages = cache(
   async (): Promise<CompetitorPageEvidence[]> => {
-    await ensureLoaded();
-    return _state.competitorPages!;
+    return (await ensureLoaded()).competitorPages!;
   },
 );
 
 export const getSourcePatterns = cache(
   async (): Promise<SourcePatternEvidence[]> => {
-    await ensureLoaded();
-    return _state.sourcePatterns!;
+    return (await ensureLoaded()).sourcePatterns!;
   },
 );
 
@@ -129,8 +135,7 @@ export async function persistCompetitorEvidence(): Promise<void> {
 }
 
 export function _resetCompetitorEvidenceForTests(): void {
-  _state.competitorPages = null;
-  _state.sourcePatterns = null;
+  _byTenant.clear();
 }
 
 // ── Frontier competitive summary ──
