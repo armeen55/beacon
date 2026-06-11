@@ -150,6 +150,11 @@ const NAV_FURNITURE = new Set([
   "download the app",
   "download our app",
   "schedule an appointment",
+  // Live check round 3 (rotorooter.com): franchise promo-page labels.
+  "coupons",
+  "deals",
+  "specials",
+  "promotions",
 ]);
 
 function normalizeInternalPath(href: string, baseUrl: string): string | null {

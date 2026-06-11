@@ -274,6 +274,18 @@ describe("nav services — CTA + self-referential filtering (live check)", () =>
   });
 });
 
+describe("nav services — promo-page furniture (live check round 3)", () => {
+  it("'coupons'/'deals' never become services (rotorooter.com)", () => {
+    const html = `<html><body><header><nav>
+      <a href="/coupons">Coupons</a>
+      <a href="/deals">Deals</a>
+      <a href="/drain-cleaning">Drain Cleaning</a>
+      </nav></header></body></html>`;
+    const p = deriveBusinessProfile([{ url: "https://rr.com/", html }]);
+    expect(p.services).toEqual(["drain cleaning"]);
+  });
+});
+
 describe("nav services — icon-font + phone-label hygiene (live check round 2)", () => {
   it("icon ligature text and phone-shaped labels never become services", () => {
     const html = `<html><body><header><nav>

@@ -25,6 +25,10 @@ export type ConfigFormInitial = {
   locationsLine: string;
   servicesLine: string;
   competitorsLine: string;
+  /** One rule per line. */
+  contentRulesLine: string;
+  /** Comma-separated banned terms (hard-rejected by the factory). */
+  flaggedTermsLine: string;
 };
 
 function splitList(line: string): string[] {
@@ -46,6 +50,8 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
   const [servicesLine, setServicesLine] = useState(initial.servicesLine);
   const [competitorsLine, setCompetitorsLine] = useState(initial.competitorsLine);
   const [yelpBusinessId, setYelpBusinessId] = useState(initial.yelpBusinessId);
+  const [contentRulesLine, setContentRulesLine] = useState(initial.contentRulesLine);
+  const [flaggedTermsLine, setFlaggedTermsLine] = useState(initial.flaggedTermsLine);
   const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   useEffect(() => {
@@ -58,6 +64,8 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
     setServicesLine(initial.servicesLine);
     setCompetitorsLine(initial.competitorsLine);
     setYelpBusinessId(initial.yelpBusinessId);
+    setContentRulesLine(initial.contentRulesLine);
+    setFlaggedTermsLine(initial.flaggedTermsLine);
   }, [
     initial.name,
     initial.domain,
@@ -68,6 +76,8 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
     initial.locationsLine,
     initial.servicesLine,
     initial.competitorsLine,
+    initial.contentRulesLine,
+    initial.flaggedTermsLine,
   ]);
 
   const handleSave = () => {
@@ -87,6 +97,11 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         services: splitList(servicesLine),
         primaryCompetitors: splitList(competitorsLine),
         yelpBusinessId: yelpBusinessId.trim(),
+        contentRules: contentRulesLine
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+        flaggedTerms: splitList(flaggedTermsLine),
       });
       setResult(r);
       if (r.success) router.refresh();
@@ -194,6 +209,43 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           value={competitorsLine}
           onChange={(e) => setCompetitorsLine(e.target.value)}
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+        />
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-[12px] font-medium text-foreground">
+          Content rules
+        </label>
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          One rule per line. Every piece of content Beacon drafts for you
+          follows these — e.g. &ldquo;Call the language Persian, never
+          Farsi.&rdquo;
+        </p>
+        <textarea
+          rows={4}
+          value={contentRulesLine}
+          onChange={(e) => setContentRulesLine(e.target.value)}
+          placeholder={"One rule per line"}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+          data-config-field="content-rules"
+        />
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-[12px] font-medium text-foreground">
+          Banned terms
+        </label>
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          Comma-separated. Drafts containing these words are rejected
+          outright — they can never reach your review queue.
+        </p>
+        <input
+          type="text"
+          value={flaggedTermsLine}
+          onChange={(e) => setFlaggedTermsLine(e.target.value)}
+          placeholder="e.g. Farsi, cheapest"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+          data-config-field="flagged-terms"
         />
       </div>
 

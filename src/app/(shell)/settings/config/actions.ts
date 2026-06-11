@@ -23,6 +23,11 @@ export async function saveSetup(data: {
   locations: string[];
   services: string[];
   primaryCompetitors: string[];
+  /** North-star onboarding (2026-06-11) — self-serve content guardrails
+   *  (e.g. "Call the language Persian, never Farsi."). flaggedTerms are
+   *  HARD-REJECTED by the factory validator. */
+  contentRules?: string[];
+  flaggedTerms?: string[];
 }): Promise<{ success: boolean; error?: string }> {
   const action = "saveSetup";
   const t0 = Date.now();
@@ -47,6 +52,8 @@ export async function saveSetup(data: {
       locations: data.locations,
       services: data.services,
       primaryCompetitors: data.primaryCompetitors,
+      contentRules: data.contentRules ?? [],
+      flaggedTerms: data.flaggedTerms ?? [],
     });
     const yelpBid = (data.yelpBusinessId ?? "").trim();
     const yelp = await getYelpConnectorToken();

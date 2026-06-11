@@ -64,13 +64,16 @@ export function CompetitorsForm({
           htmlFor="competitors"
           className="block text-[13px] font-medium"
         >
-          Builders to compare you against
+          Competitors to compare you against{" "}
+          <span className="font-normal text-muted-foreground">
+            (optional — Beacon finds your real AI-answer rivals
+            automatically once tracking starts)
+          </span>
         </label>
         <textarea
           id="competitors"
           name="competitors"
           rows={5}
-          required
           value={competitorsText}
           onChange={(e) => setCompetitorsText(e.target.value)}
           placeholder={
