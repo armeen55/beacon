@@ -443,3 +443,71 @@ describe("generateStarterPrompts — output type narrowing helper", () => {
     expect(sample.text).toBe("x");
   });
 });
+
+// ── North-star onboarding (2026-06-11): SITE-DERIVED services/industry ──
+
+describe("generateStarterPrompts — site-derived services (vertical-agnostic)", () => {
+  const restaurant = {
+    businessName: "La Palma Taqueria",
+    domain: "lapalma.com",
+    citiesServed: ["Tucson", "AZ"],
+    projectMix: [],
+    competitors: [],
+    derivedServices: ["catering", "taco bar"],
+    industry: "restaurant",
+  };
+
+  it("a NON-builder business gets real service-in-city prompts from its own site", () => {
+    const texts = generateStarterPrompts(restaurant).map((d) => d.text);
+    expect(texts).toContain("best restaurant in Tucson");
+    expect(texts).toContain("best catering in Tucson");
+    expect(texts).toContain("best taco bar in Tucson");
+    expect(texts).toContain("how much does catering cost in Tucson");
+  });
+
+  it("region codes never become prompt cities ('best catering in AZ' is banned)", () => {
+    const texts = generateStarterPrompts(restaurant).map((d) => d.text);
+    expect(texts.some((t) => / in AZ$/.test(t))).toBe(false);
+  });
+
+  it("derived prompts carry city_scope but a null service_scope (not a ProjectMixTag)", () => {
+    const derived = generateStarterPrompts(restaurant).filter((d) =>
+      d.text.includes("taco bar"),
+    );
+    expect(derived.length).toBeGreaterThan(0);
+    for (const d of derived) {
+      expect(d.city_scope).toBe("Tucson");
+      expect(d.service_scope).toBeNull();
+    }
+  });
+
+  it("no cities → no derived service-in-city prompts (brand-only is honest)", () => {
+    const texts = generateStarterPrompts({
+      ...restaurant,
+      citiesServed: [],
+    }).map((d) => d.text);
+    expect(texts.some((t) => t.startsWith("best "))).toBe(false);
+    expect(texts).toContain("La Palma Taqueria reviews");
+  });
+
+  it("derived phrases that duplicate builder-tag prompts never double-emit", () => {
+    const drafts = generateStarterPrompts({
+      businessName: "Acme Builders",
+      domain: "acme.com",
+      citiesServed: ["Boerne"],
+      projectMix: ["whole_home_remodel"],
+      competitors: [],
+      derivedServices: ["home remodel"], // same phrase the tag emits
+      industry: null,
+    });
+    const matching = drafts.filter((d) => d.text === "best home remodel in Boerne");
+    expect(matching).toHaveLength(1);
+  });
+
+  it("stays deterministic and ≤25 with derived inputs", () => {
+    const a = generateStarterPrompts(restaurant);
+    const b = generateStarterPrompts(restaurant);
+    expect(a).toEqual(b);
+    expect(a.length).toBeLessThanOrEqual(25);
+  });
+});
