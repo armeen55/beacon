@@ -211,54 +211,54 @@ describe("validateScopeProfile", () => {
     }
   });
 
-  it("rejects empty cities", () => {
+  // North-star onboarding (2026-06-11): BOTH fields are now OPTIONAL —
+  // the old ≥1-city / ≥1-builder-tag rules hard-blocked every non-local
+  // / non-builder vertical from completing onboarding (a taqueria owner
+  // could not truthfully pick any of the six builder tags). Empty now
+  // normalizes to [] and launch falls back to site-derived
+  // locations/services.
+  it("accepts empty cities (non-local businesses skip the field)", () => {
     const r = validateScopeProfile({
       cities: "",
       projectMix: ["new_construction"],
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.errors.cities).toBeTruthy();
-      expect(r.errors.projectMix).toBeUndefined();
-    }
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.normalized.cities).toEqual([]);
   });
 
-  it("rejects whitespace-only cities", () => {
+  it("whitespace-only cities normalize to empty (accepted)", () => {
     const r = validateScopeProfile({
       cities: " , , ",
       projectMix: ["new_construction"],
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.cities).toBeTruthy();
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.normalized.cities).toEqual([]);
   });
 
-  it("rejects empty project_mix", () => {
+  it("accepts empty project_mix (non-builders truthfully pick none)", () => {
     const r = validateScopeProfile({
       cities: "Atherton",
       projectMix: [],
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.errors.projectMix).toBeTruthy();
-      expect(r.errors.cities).toBeUndefined();
-    }
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.normalized.projectMix).toEqual([]);
   });
 
-  it("rejects project_mix with only unknown tags", () => {
+  it("unknown tags are dropped, leaving a valid empty mix", () => {
     const r = validateScopeProfile({
       cities: "Atherton",
       projectMix: ["foo", "bar", "baz"],
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.projectMix).toBeTruthy();
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.normalized.projectMix).toEqual([]);
   });
 
-  it("returns BOTH errors when both fields are invalid", () => {
+  it("both fields empty is a VALID scope (brand-prompts-only launch)", () => {
     const r = validateScopeProfile({ cities: "", projectMix: [] });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.errors.cities).toBeTruthy();
-      expect(r.errors.projectMix).toBeTruthy();
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.normalized.cities).toEqual([]);
+      expect(r.normalized.projectMix).toEqual([]);
     }
   });
 
@@ -282,14 +282,14 @@ describe("validateScopeProfile", () => {
     if (r.ok) expect(r.normalized.cities.length).toBe(CITIES_MAX_COUNT);
   });
 
-  it("handles missing keys safely", () => {
+  it("handles missing keys safely (normalizes to empty scope)", () => {
     const r = validateScopeProfile({} as unknown as Parameters<
       typeof validateScopeProfile
     >[0]);
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.errors.cities).toBeTruthy();
-      expect(r.errors.projectMix).toBeTruthy();
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.normalized.cities).toEqual([]);
+      expect(r.normalized.projectMix).toEqual([]);
     }
   });
 });

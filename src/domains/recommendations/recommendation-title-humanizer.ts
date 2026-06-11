@@ -275,15 +275,38 @@ const BAY_AREA_CITIES: ReadonlyArray<string> = [
 ];
 
 /**
- * Extract a Bay Area city name from a label. Returns the city in
- * its canonical capitalization, or null when no city is mentioned.
+ * Extract a city name from a label. Returns the city in its canonical
+ * capitalization, or null when no city is mentioned.
+ *
+ * North-star de-hardcoding #149 (2026-06-11): the city vocabulary is an
+ * INJECTED per-tenant list (`knownCities` — BusinessConfig.locations,
+ * threaded from the server page through the action-row builder). The
+ * Bay-Area list above remains ONLY as the legacy default for
+ * un-threaded callers (founder/Ritz parity) — a Tucson restaurant's
+ * labels match Tucson, never Atherton. Injected lists are matched
+ * longest-name-first so "Los Altos Hills" beats "Los Altos" regardless
+ * of the order the tenant listed them.
  *
  * Word-boundary anchored so "Mountain View" matches in "best
  * builders Mountain View" but not in "Mountainview" (one word).
  */
-export function extractGeoTag(label: string): string | null {
+export function extractGeoTag(
+  label: string,
+  knownCities?: ReadonlyArray<string>,
+): string | null {
   if (typeof label !== "string" || label.length === 0) return null;
-  for (const city of BAY_AREA_CITIES) {
+  // undefined = un-threaded caller → legacy Bay-Area default (founder
+  // parity). An INJECTED EMPTY list means "this tenant has no geo
+  // vocabulary" (content publishers) and matches NOTHING — it must not
+  // fall back to another tenant's cities.
+  const cities =
+    knownCities === undefined
+      ? BAY_AREA_CITIES
+      : [...knownCities]
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0)
+          .sort((a, b) => b.length - a.length);
+  for (const city of cities) {
     const re = new RegExp(`\\b${escapeRegex(city)}\\b`, "i");
     if (re.test(label)) return city;
   }
@@ -490,6 +513,9 @@ export type HumanizeRecTitleArgs = {
    *  for the highest-priority topic. */
   readonly affectedPromptTexts?: ReadonlyArray<string>;
   readonly resolution?: PageIntentResolution | null;
+  /** #149 (2026-06-11): per-tenant city vocabulary
+   *  (BusinessConfig.locations). Absent → legacy Bay-Area default. */
+  readonly knownCities?: ReadonlyArray<string>;
 };
 
 /**
@@ -537,8 +563,8 @@ export function humanizeRecTitle(args: HumanizeRecTitleArgs): string {
     extractTopicTag(labelSource) ??
     extractTopicFromPrompts(args.affectedPromptTexts ?? []);
   const geo =
-    extractGeoTag(labelSource) ??
-    extractGeoTag((args.affectedPromptTexts ?? []).join(" "));
+    extractGeoTag(labelSource, args.knownCities) ??
+    extractGeoTag((args.affectedPromptTexts ?? []).join(" "), args.knownCities);
   const sanitizedLabel = sanitizeClusterLabel(args.clusterLabel ?? "");
 
   const targetUrl =

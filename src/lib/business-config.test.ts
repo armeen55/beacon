@@ -25,7 +25,7 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -76,6 +76,15 @@ afterEach(() => {
     process.env.BEACON_BUSINESS_CONFIG_JSON = savedEnv;
   } else {
     delete process.env.BEACON_BUSINESS_CONFIG_JSON;
+  }
+  // North-star onboarding (2026-06-11): saveBusinessConfig now persists a
+  // per-tenant file for EVERY tenant — remove the fixture tenants this
+  // suite saves so test residue never accumulates in .data/tenants/.
+  for (const fixtureTenant of ["tenant-save-test"]) {
+    rmSync(join(REPO_ROOT, ".data", "tenants", fixtureTenant), {
+      recursive: true,
+      force: true,
+    });
   }
   __resetBusinessConfigCacheForTests();
 });

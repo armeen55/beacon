@@ -166,6 +166,21 @@ export async function RecommendationsAsyncContent({
       competitorNames = [];
     }
 
+    // #149 (2026-06-11): per-tenant city vocabulary for geo tags in row
+    // titles — client components can't read server config, so the list
+    // is threaded as a prop. Soft-fail to UNDEFINED (legacy Bay-Area
+    // default — founder parity); a loaded-but-empty list means "this
+    // tenant has no geo vocabulary" and matches nothing.
+    let knownCities: string[] | undefined;
+    try {
+      const { getBusinessConfigForCurrentTenant } = await import(
+        "@/lib/business-config"
+      );
+      knownCities = (await getBusinessConfigForCurrentTenant()).locations;
+    } catch {
+      knownCities = undefined;
+    }
+
     if (useV2) {
       const persisted = await trace.time(
         "loadPersistedRecommendationQueueForPage",
@@ -197,6 +212,7 @@ export async function RecommendationsAsyncContent({
             matrixDate={persisted.matrixDateLabel}
             promptTextById={promptTextById}
             competitorNames={competitorNames}
+            knownCities={knownCities}
           />
           {debugResolver && (
             <RecsResolverDebugPanel

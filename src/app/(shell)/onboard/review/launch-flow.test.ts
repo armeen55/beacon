@@ -11,13 +11,23 @@
  * `tests/architecture/onboard-launch-step-contract.test.ts`.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildTrackedPromptRow,
   executeLaunchTransaction,
 } from "./launch-flow";
 
 const FIXED_NOW = "2026-05-07T18:00:00.000Z";
+
+// North-star onboarding (2026-06-11): executeLaunchTransaction now takes a
+// config-persister dep (defaults to the real site-fetching derivation).
+// Tests inject a stub so this suite stays network-free; the dep's own
+// behavior is pinned in src/domains/onboarding/launch-config.test.ts.
+const persistConfigStub = vi.fn(async () => ({
+  outcome: "typed_only_saved" as const,
+  derivedFields: [] as string[],
+  suggestedSegment: null,
+}));
 
 const PENDING_TENANT = {
   id: "tenant-8c9d2f4a",
@@ -307,6 +317,7 @@ describe("executeLaunchTransaction — happy path", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -337,6 +348,7 @@ describe("executeLaunchTransaction — happy path", () => {
     });
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -370,6 +382,7 @@ describe("executeLaunchTransaction — dedup", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -401,6 +414,7 @@ describe("executeLaunchTransaction — dedup", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -440,6 +454,7 @@ describe("executeLaunchTransaction — dedup", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -465,6 +480,7 @@ describe("executeLaunchTransaction — already launched", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -513,6 +529,7 @@ describe("executeLaunchTransaction — race lost (concurrent double-click)", () 
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -549,6 +566,7 @@ describe("executeLaunchTransaction — validation errors", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -567,6 +585,7 @@ describe("executeLaunchTransaction — validation errors", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -584,6 +603,7 @@ describe("executeLaunchTransaction — validation errors", () => {
     });
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -594,6 +614,7 @@ describe("executeLaunchTransaction — validation errors", () => {
     const { client } = makeMockSupabase({ tenants: [] });
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: "tenant-nonexistent",
       now: FIXED_NOW,
     });
@@ -611,6 +632,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -626,6 +648,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -652,6 +675,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -669,6 +693,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -684,6 +709,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -721,6 +747,7 @@ describe("executeLaunchTransaction — tenant isolation", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -763,6 +790,7 @@ describe("executeLaunchTransaction — tenant isolation", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -779,5 +807,122 @@ describe("executeLaunchTransaction — tenant isolation", () => {
       (p) => p.account_id === PENDING_TENANT.slug,
     );
     expect(pendingAfter.length).toBe(0);
+  });
+});
+
+// ── North-star onboarding (2026-06-11): derived config feeds prompts ──
+
+describe("executeLaunchTransaction — site-derived config → prompts", () => {
+  it("threads derived services/industry/locations into the inserted prompts", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT, cities_served: [], project_mix: [] }],
+    });
+    const tucsonStub = vi.fn(async () => ({
+      outcome: "derived_and_saved" as const,
+      derivedFields: ["industry", "services"],
+      suggestedSegment: "local_service" as const,
+      config: {
+        industry: "restaurant",
+        services: ["catering", "taco bar"],
+        locations: ["Tucson", "AZ"], // derived — wizard typed none
+      },
+    }));
+
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: tucsonStub,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(tucsonStub).toHaveBeenCalledTimes(1);
+
+    const inserted = writes
+      .filter(
+        (w): w is Extract<(typeof writes)[number], { op: "insert" }> =>
+          w.op === "insert" && w.table === "tracked_prompts",
+      )
+      .flatMap((w) => w.rows as Array<{ text: string }>);
+    const texts = inserted.map((row) => row.text);
+    expect(texts).toContain("best restaurant in Tucson");
+    expect(texts).toContain("best catering in Tucson");
+    expect(texts.some((t) => / in AZ$/.test(t))).toBe(false); // region codes filtered
+  });
+
+  it("config derivation FAILING never blocks the launch (failure-soft)", async () => {
+    const { client, store } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT }],
+    });
+    const explodingStub = vi.fn(async () => {
+      throw new Error("site fetch exploded");
+    });
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: explodingStub as never,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(store.tenants[0].status).toBe("active");
+  });
+});
+
+describe("executeLaunchTransaction — derived segment rides the activation UPDATE", () => {
+  function tenantUpdatePayload(writes: WriteLog) {
+    const u = writes.find((w) => w.op === "update" && w.table === "tenants");
+    return u && u.op === "update" ? u.payload : undefined;
+  }
+
+  it("human-picked builder tags BEAT site inference (self-declaration wins)", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT }], // has project_mix tags
+    });
+    const stub = vi.fn(async () => ({
+      outcome: "derived_and_saved" as const,
+      derivedFields: [],
+      suggestedSegment: "local_service" as const, // site says generic local
+    }));
+    await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: stub,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(tenantUpdatePayload(writes)?.segment).toBe(
+      "local_residential_builder",
+    );
+  });
+
+  it("no builder tags → the site's suggested segment is written", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT, project_mix: [] }],
+    });
+    const stub = vi.fn(async () => ({
+      outcome: "derived_and_saved" as const,
+      derivedFields: [],
+      suggestedSegment: "local_service" as const,
+    }));
+    await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: stub,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(tenantUpdatePayload(writes)?.segment).toBe("local_service");
+  });
+
+  it("ambiguous site + no tags → segment NOT touched (provisioning default stands)", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT, project_mix: [] }],
+    });
+    await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: persistConfigStub, // suggestedSegment: null
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    const payload = tenantUpdatePayload(writes);
+    expect(payload).toBeDefined();
+    expect(payload && "segment" in payload).toBe(false);
   });
 });

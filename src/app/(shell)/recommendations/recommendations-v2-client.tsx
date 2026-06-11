@@ -102,6 +102,11 @@ export type RecommendationsV2ClientProps = {
    *  render-time `why`-display guard on each `<RecommendationV2Card>`.
    *  Threaded from the server page; optional. */
   competitorNames?: ReadonlyArray<string>;
+  /** #149 (2026-06-11): per-tenant city vocabulary
+   *  (BusinessConfig.locations) for geo tags in row titles. Threaded
+   *  from the server page (client components can't read server config).
+   *  Absent → legacy Bay-Area default. */
+  knownCities?: ReadonlyArray<string>;
 };
 
 export function RecommendationsV2Client({
@@ -111,6 +116,7 @@ export function RecommendationsV2Client({
   matrixDate,
   promptTextById,
   competitorNames,
+  knownCities,
 }: RecommendationsV2ClientProps) {
   // 2026-05-13 follow-up — "See full list" used to link to
   // `/recommendations?legacy=1`, pushing customers out of v2 every time
@@ -124,8 +130,8 @@ export function RecommendationsV2Client({
   // Build typed action rows from the same queue the legacy table consumes.
   // Pure projection — no new I/O, no math change.
   const allRows = useMemo(
-    () => buildRecommendationActionRows({ queue, promptTextById }),
-    [queue, promptTextById],
+    () => buildRecommendationActionRows({ queue, promptTextById, knownCities }),
+    [queue, promptTextById, knownCities],
   );
 
   const actionableRows = useMemo(

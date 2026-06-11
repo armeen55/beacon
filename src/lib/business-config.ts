@@ -2,7 +2,10 @@ import "server-only";
 
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
-import { syncBusinessConfig } from "@/lib/persistence/dual-write";
+import {
+  syncBusinessConfig,
+  syncTenantBusinessConfig,
+} from "@/lib/persistence/dual-write";
 import { EVENT_PRIORS_V1 as EVENT_PRIORS_V1_SOURCE } from "@/lib/event-priors";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -371,6 +374,14 @@ const _cacheByTenant = new Map<string, BusinessConfig>();
  * `__resetBusinessConfigCacheForTests`.
  */
 const _placeholderWarnedTenants = new Set<string>();
+/**
+ * North-star onboarding (2026-06-11) — per-tenant "Supabase hydrate
+ * already attempted" memo. Prevents every placeholder render from
+ * re-querying the `business_config` table when the tenant genuinely has
+ * no row yet. Cleared per tenant on save (a new row may now exist) and
+ * by `__resetBusinessConfigCacheForTests`.
+ */
+const _supabaseHydrateAttempted = new Set<string>();
 
 /**
  * MT-1 (2026-05-22) — synchronous tenant resolution for the deprecated
@@ -490,7 +501,57 @@ export function getBusinessConfig(tenantId?: string): BusinessConfig {
  * `getBusinessConfig()` — it routes per-request, not per-process-env.
  */
 export async function getBusinessConfigForCurrentTenant(): Promise<BusinessConfig> {
-  return getBusinessConfig(await currentTenantId());
+  const tenantId = await currentTenantId();
+  const resolved = getBusinessConfig(tenantId);
+  if (!resolved.__placeholder) return resolved;
+  // North-star onboarding (2026-06-11): the sync chain (env → files)
+  // came up empty. On Vercel `.data` doesn't exist, so a self-served
+  // tenant's only durable config channel is its per-tenant Supabase row
+  // — consult it before settling for the placeholder.
+  const hydrated = await hydrateBusinessConfigFromSupabase(tenantId);
+  return hydrated ?? resolved;
+}
+
+/**
+ * North-star onboarding (2026-06-11) — hosted per-tenant config read.
+ *
+ * Reads the `business_config` Supabase row keyed by `tenantId` (written
+ * by `saveBusinessConfig` via `syncTenantBusinessConfig`) and caches the
+ * merged result. This is what makes a stranger's onboarding-saved config
+ * actually resolve on Vercel, where the file chain can never exist and
+ * the only pre-existing channel was the operator-hand-written
+ * `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` env blob.
+ *
+ * Returns null (and memoizes the miss) when the tenant has no row —
+ * callers keep the placeholder. Failure-soft: any Supabase error returns
+ * null rather than crashing a render.
+ */
+export async function hydrateBusinessConfigFromSupabase(
+  tenantId: string,
+): Promise<BusinessConfig | null> {
+  // Run the SYNC chain first so the operator's env-blob / file config
+  // always beats the Supabase row (priority a–c before d') — a cron
+  // calling hydrate as its first config touch must not invert the
+  // resolution order.
+  const resolved = getBusinessConfig(tenantId);
+  if (!resolved.__placeholder) return resolved;
+  if (_supabaseHydrateAttempted.has(tenantId)) return null;
+  _supabaseHydrateAttempted.add(tenantId);
+  try {
+    const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("business_config")
+      .select("data")
+      .eq("id", tenantId)
+      .maybeSingle();
+    if (error || !data?.data) return null;
+    const merged = mergeWithPlaceholder(data.data as Partial<BusinessConfig>);
+    _cacheByTenant.set(tenantId, merged);
+    return merged;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -530,18 +591,39 @@ export function saveBusinessConfig(
   // Saving makes this a real config; clear the placeholder marker.
   delete updated.__placeholder;
 
-  // MT-1: file write stays single-tenant/back-compat — only the
-  // env-named tenant writes to the shared top-level file (today's
-  // behavior). A non-env tenant's save updates the tenant-keyed cache
-  // only, so it can't clobber the shared file. Per-tenant write storage
-  // lands in a later MT slice (no DB storage introduced in MT-1).
+  // MT-1 back-compat: the env-named tenant keeps writing the shared
+  // top-level file so the operator's /settings/config save path is
+  // byte-identical to today.
   if (process.env.VERCEL !== "1" && tenantId === process.env.BEACON_TENANT_ID) {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
     writeFileSync(TOP_LEVEL_CONFIG_PATH, JSON.stringify(updated, null, 2));
   }
+  // North-star onboarding (2026-06-11) — the "later MT slice" lands:
+  // EVERY tenant's save persists to its own per-tenant file
+  // (.data/tenants/<tenantId>/business-config.json — the exact path
+  // resolution priority (c) already reads), so a save survives a
+  // process restart instead of living only in the in-memory cache.
+  if (process.env.VERCEL !== "1") {
+    const tenantDir = path.join(TENANTS_DIR, tenantId);
+    if (!existsSync(tenantDir)) mkdirSync(tenantDir, { recursive: true });
+    writeFileSync(
+      path.join(tenantDir, "business-config.json"),
+      JSON.stringify(updated, null, 2),
+    );
+  }
   _cacheByTenant.set(tenantId, updated);
-  // Fire-and-forget: saveBusinessConfig is synchronous, dual-write is async best-effort
-  syncBusinessConfig(updated).catch(() => {});
+  // A fresh save invalidates the "no Supabase row" memo so the next
+  // hydrate sees the new row.
+  _supabaseHydrateAttempted.delete(tenantId);
+  // Fire-and-forget: saveBusinessConfig is synchronous, dual-write is
+  // async best-effort. The per-tenant row is the hosted source of truth
+  // (read back by hydrateBusinessConfigFromSupabase); the legacy
+  // singleton row (id="current") keeps the env-named tenant's
+  // pre-multi-tenant channel byte-identical.
+  syncTenantBusinessConfig(tenantId, updated).catch(() => {});
+  if (tenantId === process.env.BEACON_TENANT_ID) {
+    syncBusinessConfig(updated).catch(() => {});
+  }
   return updated;
 }
 
@@ -555,6 +637,7 @@ export function saveBusinessConfig(
 export function __resetBusinessConfigCacheForTests(): void {
   _cacheByTenant.clear();
   _placeholderWarnedTenants.clear();
+  _supabaseHydrateAttempted.clear();
 }
 
 // MT-3C.2 (2026-05-23) — `config` is REQUIRED (no no-arg fallback). The

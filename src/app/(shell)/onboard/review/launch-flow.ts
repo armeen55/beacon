@@ -28,6 +28,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
 import {
   generateStarterPrompts,
   type PromptDraft,
@@ -104,8 +105,16 @@ export async function executeLaunchTransaction(args: {
   admin: SupabaseClient;
   tenantId: string;
   now: string;
+  /**
+   * North-star onboarding (2026-06-11) — injectable config persister.
+   * Defaults to the real `deriveAndPersistTenantConfig` (polite ≤3-page
+   * site fetch → derived profile → per-tenant BusinessConfig). Tests
+   * inject a stub; the dep shape keeps this module network-free.
+   */
+  persistConfig?: typeof deriveAndPersistTenantConfig;
 }): Promise<LaunchTransactionOutcome> {
   const { admin, tenantId, now } = args;
+  const persistConfig = args.persistConfig ?? deriveAndPersistTenantConfig;
 
   // 1. Fetch tenant row.
   const { data: tenant, error: tFetchErr } = await admin
@@ -132,13 +141,68 @@ export async function executeLaunchTransaction(args: {
     return { kind: "error", error: `tenant_invalid_status:${tenant.status}` };
   }
 
+  // 2.5 North-star onboarding (2026-06-11): persist the per-tenant
+  //     BusinessConfig BEFORE anything else — an active tenant must
+  //     never exist without a config (every downstream engine reads
+  //     it). Derivation fetches the stranger's own site (polite, ≤3
+  //     pages); typed wizard fields beat derived values. FAILURE-SOFT:
+  //     an unreachable site still persists a typed-fields config, and
+  //     an unexpected throw never blocks the launch (config can be
+  //     re-derived later; a blocked launch cannot be retried as
+  //     cheaply). Pre-flip write is harmless if the flip races — the
+  //     config is inert until the tenant is active.
+  let persistedConfig: Awaited<ReturnType<typeof persistConfig>>["config"];
+  let suggestedSegment: Awaited<
+    ReturnType<typeof persistConfig>
+  >["suggestedSegment"] = null;
+  try {
+    const configResult = await persistConfig({
+      tenantId: tenant.id,
+      domain: tenant.domain ?? "",
+      typedName: tenant.business_name,
+      typedCities: tenant.cities_served ?? [],
+      competitors: tenant.discovered_competitors ?? [],
+    });
+    persistedConfig = configResult.config;
+    suggestedSegment = configResult.suggestedSegment;
+    console.info(
+      `[onboard/review] tenant config ${configResult.outcome}` +
+        (configResult.derivedFields.length > 0
+          ? ` (derived: ${configResult.derivedFields.join(", ")})`
+          : ""),
+    );
+  } catch (e) {
+    console.error(
+      "[onboard/review] config derivation threw — launching without it:",
+      e instanceof Error ? e.message : e,
+    );
+  }
+
+  // Segment resolution (2026-06-11): a human picking builder tags is a
+  // SELF-DECLARATION and beats site inference; otherwise the site's own
+  // signals decide (content_publisher / local_service); an ambiguous
+  // site keeps the provisioning default (all local engines safe-off).
+  const resolvedSegment =
+    (tenant.project_mix ?? []).length > 0
+      ? ("local_residential_builder" as const)
+      : suggestedSegment;
+
   // 3. Re-generate prompts server-side. NEVER trust client input.
+  //    North-star onboarding (2026-06-11): the site-derived config
+  //    feeds the generator so ANY vertical gets real service-in-city
+  //    prompts (the ProjectMixTag path only covers the six builder
+  //    verticals). Typed cities beat derived locations; derived
+  //    locations fill in when the wizard collected none.
+  const typedCities = tenant.cities_served ?? [];
   const drafts = generateStarterPrompts({
     businessName: tenant.business_name ?? "",
     domain: tenant.domain ?? "",
-    citiesServed: tenant.cities_served ?? [],
+    citiesServed:
+      typedCities.length > 0 ? typedCities : (persistedConfig?.locations ?? []),
     projectMix: (tenant.project_mix ?? []) as ProjectMixTag[],
     competitors: tenant.discovered_competitors ?? [],
+    derivedServices: persistedConfig?.services ?? [],
+    industry: persistedConfig?.industry ?? null,
   });
   if (drafts.length === 0) {
     return { kind: "error", error: "no_prompts_generated" };
@@ -192,13 +256,17 @@ export async function executeLaunchTransaction(args: {
     }
   }
 
-  // 6. Atomic flip with double-click guard.
+  // 6. Atomic flip with double-click guard. The derived segment rides
+  //    the same UPDATE (one write, same race guard) — only when the
+  //    site/human gave a signal; an ambiguous site keeps the
+  //    provisioning default.
   const { data: updated, error: updateErr } = await admin
     .from("tenants")
     .update({
       status: "active",
       tos_accepted_at: now,
       updated_at: now,
+      ...(resolvedSegment ? { segment: resolvedSegment } : {}),
     })
     .eq("id", tenant.id)
     .eq("status", "pending_onboarding")
