@@ -103,6 +103,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   //   wix-url-map: canonical page URL → Wix CMS (collection, item)
   //   wix-collection-config: operator-entered dynamic-page mappings
   "push-ledger",
+  // Night-shift #82 (2026-06-11): pre-push field snapshots — the
+  // revert safety net (one row per field write, capped 1000).
+  "push-snapshots",
   "wix-url-map",
   "wix-collection-config",
   "source-pattern-evidence",
