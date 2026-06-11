@@ -44,7 +44,31 @@ export type DigestTenantSection = {
   firstCitations?: string[];
   /** #96 v1 — post-push citation regression alarm lines. */
   pushRegressions?: string[];
+  /** #127 (2026-06-11) — median hours from queue to approval over the
+   *  last 14 days; null hides the line (needs ≥3 stamped accepts). */
+  medianApprovalHours?: number | null;
 };
+
+/** #127: median (accepted_at − created_at) hours, last 14 days, ≥3 rows. */
+export function computeMedianApprovalHours(
+  rows: ReadonlyArray<{ created_at: string; accepted_at?: string | null }>,
+  now: Date,
+): number | null {
+  const cutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const deltas: number[] = [];
+  for (const r of rows) {
+    if (typeof r.accepted_at !== "string" || r.accepted_at < cutoff) continue;
+    const a = Date.parse(r.accepted_at);
+    const c = Date.parse(r.created_at);
+    if (!Number.isFinite(a) || !Number.isFinite(c) || a < c) continue;
+    deltas.push((a - c) / 3_600_000);
+  }
+  if (deltas.length < 3) return null;
+  deltas.sort((x, y) => x - y);
+  const mid = Math.floor(deltas.length / 2);
+  const median = deltas.length % 2 === 1 ? deltas[mid]! : (deltas[mid - 1]! + deltas[mid]!) / 2;
+  return Math.round(median * 10) / 10;
+}
 
 /**
  * Pure: URLs (own-domain, normalized) whose earliest citation across
@@ -298,6 +322,11 @@ export function composeMorningDigest(
     }
     // The learning proof line (P0 wall 7) — renders with or without a
     // pending queue; it's a receipts line about SHIPPED drafts.
+    if (s.medianApprovalHours != null) {
+      const line = `Median time from queue to your approval: ${s.medianApprovalHours}h (last 14 days).`;
+      textParts.push(line);
+      htmlParts.push(`<p style="margin:4px 0 0;color:#777;font-size:13px">${escapeHtml(line)}</p>`);
+    }
     if (s.editRate != null && (s.editRateShipped ?? 0) >= 3) {
       const pct = Math.round(s.editRate * 100);
       const line = `You reworded ${pct}% of the last ${s.editRateShipped} drafts before shipping.`;

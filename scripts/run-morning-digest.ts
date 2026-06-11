@@ -24,6 +24,7 @@ import {
   selectDigestRows,
   selectFirstCitations,
   selectPushRegressionAlarms,
+  computeMedianApprovalHours,
   type DigestTenantSection,
 } from "../src/domains/delivery/morning-digest";
 import { computeEditFeedback } from "../src/domains/recommendation-intelligence/edit-feedback";
@@ -86,6 +87,7 @@ async function main() {
       editRateShipped: shipped,
       firstCitations,
       pushRegressions,
+      medianApprovalHours: computeMedianApprovalHours(rows, now),
     });
     console.log(
       `[morning-digest] ${t.id}: pending=${sel.pendingTotal} pushed24h=${sel.pushedLastDay} verified24h=${sel.verifiedLastDay} editRate=${feedback.overall.editRate ?? "n/a"}`,
