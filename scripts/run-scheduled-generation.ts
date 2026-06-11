@@ -200,8 +200,14 @@ async function main() {
             });
             console.log(
               `[scheduled-generation] URL-MAP tenant=${tenantId} ok=${sync.ok} collections=${sync.collections} itemsMapped=${sync.itemsMapped}` +
-                (sync.errors.length > 0 ? ` errors=${sync.errors.length}` : ""),
+                (sync.errors.length > 0 ? ` errors=${sync.errors.length}` : "") +
+                ` probe=${sync.probe.ok}/${sync.probe.checked}`,
             );
+            if (sync.probe.failures.length > 0) {
+              console.warn(
+                `::warning::[scheduled-generation] url-map probe failures (mapping may be wrong): ${sync.probe.failures.join("; ").slice(0, 300)}`,
+              );
+            }
           } else {
             console.log(`[scheduled-generation] URL-MAP tenant=${tenantId} skipped=no_wix_connector`);
           }
