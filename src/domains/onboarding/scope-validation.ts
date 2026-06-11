@@ -153,11 +153,19 @@ export type ScopeProfileValidationResult =
 /**
  * Validate + normalize the scope-step submitted form.
  *
- * Rules:
- *   - cities: at least 1 after normalization; capped at CITIES_MAX_COUNT.
- *   - projectMix: at least 1 known tag; unknown tags are silently
- *     dropped (no error — the form's checkboxes only emit known tags
- *     so this is just defense-in-depth against tampered POSTs).
+ * Rules (North-star onboarding, 2026-06-11 — BOTH fields optional):
+ *   - cities: 0..CITIES_MAX_COUNT after normalization. The wizard
+ *     serves EVERY vertical — a content publisher or online business
+ *     has no "cities served", and the old ≥1 rule forced them to
+ *     invent fake geo data (a hard blocker on URL-only onboarding).
+ *     When empty, launch falls back to the SITE-DERIVED locations
+ *     (areaServed/address) for prompt generation; a business with
+ *     neither simply starts with brand prompts.
+ *   - projectMix: 0..6 known tags. The six tags are builder
+ *     vocabulary — non-builders truthfully pick none, and the
+ *     site-derived services now feed their prompts instead. Unknown
+ *     tags are silently dropped (defense-in-depth against tampered
+ *     POSTs; the form only emits known tags).
  */
 export function validateScopeProfile(
   input: ScopeProfileInput,
@@ -165,9 +173,7 @@ export function validateScopeProfile(
   const errors: { cities?: string; projectMix?: string } = {};
 
   const normalizedCities = normalizeCityList(input.cities);
-  if (normalizedCities.length === 0) {
-    errors.cities = "List at least one city you serve.";
-  } else if (normalizedCities.length > CITIES_MAX_COUNT) {
+  if (normalizedCities.length > CITIES_MAX_COUNT) {
     errors.cities = `Pick ${CITIES_MAX_COUNT} cities or fewer for now — you can add more after launch.`;
   }
 
@@ -182,9 +188,6 @@ export function validateScopeProfile(
     if (seenTags.has(t)) continue;
     seenTags.add(t);
     dedupedProjectMix.push(t);
-  }
-  if (dedupedProjectMix.length === 0) {
-    errors.projectMix = "Pick at least one type of work you take on.";
   }
 
   if (errors.cities || errors.projectMix) {

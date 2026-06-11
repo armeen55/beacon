@@ -86,16 +86,18 @@ export function ScopeForm({
     <form onSubmit={onSubmit} className="space-y-6" noValidate>
       <div className="space-y-2">
         <label htmlFor="cities" className="block text-[13px] font-medium">
-          Cities you serve
+          Cities you serve{" "}
+          <span className="font-normal text-muted-foreground">
+            (skip if location doesn&apos;t apply)
+          </span>
         </label>
         <textarea
           id="cities"
           name="cities"
           rows={4}
-          required
           value={citiesText}
           onChange={(e) => setCitiesText(e.target.value)}
-          placeholder={"Atherton\nMenlo Park\nLos Altos"}
+          placeholder={"One city per line"}
           aria-invalid={Boolean(fieldErrors.cities)}
           aria-describedby={
             fieldErrors.cities ? "cities-error" : "cities-hint"
@@ -116,10 +118,12 @@ export function ScopeForm({
 
       <fieldset className="space-y-2">
         <legend className="block text-[13px] font-medium">
-          What kind of work do you take on?
+          What kind of work do you take on?{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
         </legend>
         <p className="text-[12px] text-muted-foreground">
-          Pick everything that applies. You can change this later.
+          Pick everything that applies — or none, if these don&apos;t describe
+          your business. Beacon also reads your services from your site.
         </p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 pt-2">
           {PROJECT_MIX_TAGS.map((tag) => {
