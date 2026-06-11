@@ -98,6 +98,19 @@ const startedAt = Date.now();
   console.log(
     `[cron-poll] tenant=${tenantId} platform=${platform} limit=${limit ?? "all"} offset=${offset ?? 0} force=${force}`,
   );
+  // North-star onboarding (2026-06-11): hydrate a self-served tenant's
+  // per-tenant business_config row into the config cache before the
+  // poll engines resolve config (sync chain still wins for env-blob
+  // tenants; placeholder logged honestly).
+  {
+    const { hydrateBusinessConfigFromSupabase } = await import(
+      "../src/lib/business-config"
+    );
+    const hydrated = await hydrateBusinessConfigFromSupabase(tenantId);
+    console.log(
+      `[cron-poll] business-config: ${hydrated ? `resolved (${hydrated.domain || "no domain"})` : "PLACEHOLDER — no env/file/db config for this tenant"}`,
+    );
+  }
   const result = await runNativePoll({
     tenantId,
     platform,

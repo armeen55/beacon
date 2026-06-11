@@ -92,6 +92,20 @@ async function main() {
     DUAL_WRITE: env.DUAL_WRITE ?? "(unset)",
   });
 
+  // North-star onboarding (2026-06-11): hydrate a self-served tenant's
+  // per-tenant business_config row into the config cache before the
+  // generation engines resolve config (sync chain still wins for the
+  // env-blob tenants; placeholder logged honestly).
+  {
+    const { hydrateBusinessConfigFromSupabase } = await import(
+      "../src/lib/business-config"
+    );
+    const hydrated = await hydrateBusinessConfigFromSupabase(tenantId);
+    console.log(
+      `[scheduled-generation] business-config: ${hydrated ? `resolved (${hydrated.domain || "no domain"})` : "PLACEHOLDER — no env/file/db config for this tenant"}`,
+    );
+  }
+
   // Lazy import — env must be set before tenant context resolves.
   const { promoteEligibleCandidates } = await import(
     "../src/domains/recommendation-intelligence/promotion-writer"
