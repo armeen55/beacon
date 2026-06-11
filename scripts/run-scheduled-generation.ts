@@ -182,6 +182,27 @@ async function main() {
         );
       }
     }
+    // Competitor auto-seed (#24, 2026-06-11): persist newly discovered
+    // direct rivals into the tenant's universe (≤8/night, idempotent).
+    // Best-effort — discovery data may simply not exist yet.
+    if (!mode.dryRun) {
+      try {
+        const { autoSeedCompetitorsForTenant } = await import(
+          "../src/domains/competitors/auto-seed"
+        );
+        const seeded = await autoSeedCompetitorsForTenant(tenantId);
+        console.log(
+          `[scheduled-generation] AUTO-SEED tenant=${tenantId} ` +
+            ("skipped" in seeded
+              ? `skipped=${seeded.skipped}`
+              : `seeded=${seeded.seeded} domains=${seeded.domains.join(",")}`),
+        );
+      } catch (err) {
+        console.warn(
+          `::warning::[scheduled-generation] competitor auto-seed failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     process.exit(0);
   } catch (err) {
     console.error(
