@@ -36,6 +36,23 @@ vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
+// Night-shift hardening (2026-06-11): the callback verifies the signed-in
+// user is a member of the state's tenant. Default mock = member; flip
+// _isMember to exercise the fail-closed path.
+let _isMember = true;
+vi.mock("@/lib/auth/supabase-server", () => ({
+  getSupabaseServerClient: async () => ({
+    auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          eq: async () => ({ data: _isMember ? [{ tenant_id: "x" }] : [], error: null }),
+        }),
+      }),
+    }),
+  }),
+}));
+
 let _exchangeOk = true;
 let _exchangeBody: Record<string, unknown> = {};
 
@@ -45,6 +62,7 @@ import { encodeOAuthState } from "@/lib/connectors/google-auth";
 beforeEach(() => {
   _savedTokens.length = 0;
   _saveError = null;
+  _isMember = true;
   _exchangeOk = true;
   _exchangeBody = {
     access_token: "test-access",
@@ -101,6 +119,16 @@ describe("callback — state validation", () => {
     expect(_savedTokens).toHaveLength(1);
     expect(_savedTokens[0]!.provider).toBe("google_gsc");
     expect(_savedTokens[0]!.tenantId).toBe("tenant-alpha");
+  });
+
+  // Night-shift hardening (2026-06-11): membership gate before write.
+  it("non-member caller → ?error=not_authorized, NO token saved (fail-closed)", async () => {
+    _isMember = false;
+    const state = encodeOAuthState({ k: "gsc", t: "tenant-victim", n: "nonce", i: Date.now() });
+    const res = await GET(makeRequest({ code: "auth-code-abc", state }));
+    expect(res.status).toBe(307);
+    expect(locationOf(res).searchParams.get("error")).toBe("not_authorized");
+    expect(_savedTokens).toHaveLength(0);
   });
 
   it("valid gbp state → stores token under google_gbp and redirects ?connected=google_gbp", async () => {

@@ -30,6 +30,34 @@ import {
   exchangeGoogleCode,
   decodeOAuthState,
 } from "@/lib/connectors/google-auth";
+import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
+
+/**
+ * Night-shift hardening (2026-06-11): the signed state carries the
+ * tenantId chosen at connect-initiation. The middleware already blocks
+ * unauthenticated access to this route, and the state is HMAC-signed
+ * (so the tenantId isn't attacker-forgeable) — but nothing previously
+ * confirmed the signed-in user is a MEMBER of the state's tenant before
+ * writing a connector token there via the service-role client.
+ * Defense-in-depth: verify membership, fail-closed.
+ */
+async function callerIsMemberOfTenant(tenantId: string): Promise<boolean> {
+  try {
+    const supabase = await getSupabaseServerClient();
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return false;
+    const { data, error } = await supabase
+      .from("tenant_members")
+      .select("tenant_id")
+      .eq("user_id", userId)
+      .eq("tenant_id", tenantId);
+    if (error) return false;
+    return (data ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
 
 const SETTINGS_PATH = "/settings/connectors";
 
@@ -67,6 +95,16 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const { k: kind, t: tenantId } = stateResult.payload;
+
+  // Defense-in-depth (2026-06-11): the signed-in user must be a member
+  // of the state's tenant before we write a connector token there.
+  if (!(await callerIsMemberOfTenant(tenantId))) {
+    log.warn("Google OAuth callback rejected: caller not a member of state tenant", {
+      tenantId,
+    });
+    return settingsRedirect(request, { error: "not_authorized" });
+  }
+
   const provider: "google_gsc" | "google_gbp" | "google_ga4" =
     kind === "gsc"
       ? "google_gsc"
