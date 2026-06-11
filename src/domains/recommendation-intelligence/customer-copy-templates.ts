@@ -109,3 +109,11 @@ export function addSchemaCopy(): string {
 export function rewriteH2Copy(): string {
   return "Rewrite this H2 to include the page's target topic so AI search platforms can understand the section more clearly.";
 }
+
+// ── Night-shift #43 (2026-06-11) — merge-pages copy ──────────────────────
+// Diagnostic-only trigger (thin_content_overlap); plain English, no
+// jargon. Operator-locked phrasing — do not edit without approval.
+
+export function mergePagesCopy(): string {
+  return "This short page covers nearly the same topic as another page on your site. Folding them into one stronger page usually earns more AI citations than two thin ones.";
+}

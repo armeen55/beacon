@@ -83,6 +83,7 @@ import { badHttpStatus } from "./triggers/bad-http-status";
 import { canonicalMismatch } from "./triggers/canonical-mismatch";
 import { duplicateMeta } from "./triggers/duplicate-meta";
 import { duplicateTitle } from "./triggers/duplicate-title";
+import { thinContentOverlap } from "./triggers/thin-content-overlap";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { missingSchema } from "./triggers/missing-schema";
@@ -213,6 +214,9 @@ export async function loadTriggerCandidatesForTenant(options: {
   // anchor candidates; running them inside the per-snapshot loop
   // would re-aggregate redundantly.
   all.push(...duplicateTitle({ tenantId, snapshots }));
+  // Night-shift #43 (2026-06-11): cross-snapshot thin-overlap detector —
+  // emits at confidence "low" → diagnostic_only (operator calibrates).
+  all.push(...thinContentOverlap({ tenantId, snapshots }));
   all.push(...duplicateMeta({ tenantId, snapshots }));
   // Slice 4.5.C.α₃a — `orphan-page` is also a cross-snapshot
   // predicate. It aggregates each snapshot's `internal_links`

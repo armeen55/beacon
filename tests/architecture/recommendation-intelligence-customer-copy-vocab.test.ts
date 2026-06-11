@@ -107,6 +107,8 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // confidence: low → diagnostic_only routing. The LLM gateway
   // drafts the actual replacement text in α₁b.
   rewriteH2Copy: [[]],
+  // Night-shift #43 (2026-06-11) — merge-pages (thin_content_overlap).
+  mergePagesCopy: [[]],
 };
 
 function scanForViolations(output: string): string[] {
