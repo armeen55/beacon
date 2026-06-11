@@ -377,3 +377,48 @@ describe("Gap C.4 — wrapper launchTenant resolves user from session (not from 
     );
   });
 });
+
+// ── North-star onboarding (2026-06-11): config-derivation wiring ──
+
+describe("launch flow — config derivation wiring (North-star onboarding)", () => {
+  const LAUNCH_FLOW_SRC = readFileSync(
+    "src/app/(shell)/onboard/review/launch-flow.ts",
+    "utf8",
+  );
+  const BUSINESS_ACTIONS_SRC = readFileSync(
+    "src/app/(shell)/onboard/business/actions.ts",
+    "utf8",
+  );
+
+  it("persists the tenant config BEFORE the prompt insert (an active tenant must never exist without config)", () => {
+    const configIdx = LAUNCH_FLOW_SRC.indexOf("persistConfig({");
+    const promptInsertIdx = LAUNCH_FLOW_SRC.indexOf('from("tracked_prompts")');
+    expect(configIdx).toBeGreaterThan(-1);
+    expect(promptInsertIdx).toBeGreaterThan(-1);
+    expect(configIdx).toBeLessThan(promptInsertIdx);
+  });
+
+  it("config derivation is failure-soft (wrapped in try/catch — a throw never blocks launch)", () => {
+    expect(LAUNCH_FLOW_SRC).toMatch(
+      /try \{\s*\n\s*const configResult = await persistConfig\(/,
+    );
+  });
+
+  it("the derived segment rides the SAME atomic activation UPDATE, conditionally", () => {
+    expect(LAUNCH_FLOW_SRC).toMatch(
+      /\.\.\.\(resolvedSegment \? \{ segment: resolvedSegment \} : \{\}\)/,
+    );
+  });
+
+  it("human-picked builder tags beat site inference", () => {
+    expect(LAUNCH_FLOW_SRC).toMatch(
+      /\(tenant\.project_mix \?\? \[\]\)\.length > 0\s*\n?\s*\? \("local_residential_builder"/,
+    );
+  });
+
+  it("business-step prefill only fires when NO cities are typed and never blocks the step", () => {
+    expect(BUSINESS_ACTIONS_SRC).toMatch(
+      /if \(existingCities\.length === 0\) \{\s*\n\s*try \{/,
+    );
+  });
+});
