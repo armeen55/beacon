@@ -200,3 +200,32 @@ WAITING FOR OPERATOR — unchanged: RESEND_API_KEY; Vercel env
 (BEACON_LLM_PROVIDER=openai, OPENAI_API_KEY, BEACON_CROSS_TENANT_BRAIN=1);
 Wix key + collection mappings for Iranopedia; SEMrush/CallRail keys;
 Finglish domain/repo decision; GSC connect for Iranopedia.
+
+### Night shift, second wave (02:00–05:00 PT)
+
+10. **Resurrection detectors** — triggers 17+18: thin-overlap merge
+    candidates (#43) + sitemap-lastmod staleness (#44); both
+    diagnostic-only until the operator calibrates.
+11. **Pre-push snapshots + one-click Revert** (#82/A#29) — fail-closed
+    capture before every field write; revert ships through the same
+    capped push path; deletion-shaped restores refuse.
+12. **url-map live verification** (#73/A#24) — every sync probes 3
+    sample URLs per collection; failures surface on the console + the
+    nightly job.
+13. **create_page verification** (#90) — factory pages flip to
+    verified_live the night after they're crawled.
+14. **Per-tenant console access** (#126) — owners no longer need the
+    global operator flag for their own wix/factory/dev-notes pages.
+15. **Morning-ritual receipts**: first-citation-ever lines naming the
+    engine (#94/#52-lite), post-push regression alarms pointing at
+    Revert (#96 v1), median time-to-approve (#127, on the new
+    accepted_at stamp), per-business deep links via /api/tenant-switch
+    (#118), batch accept ≤20 (accept-only, #84).
+16. **accepted_at + live_text columns** (additive, applied + mirrored)
+    — the lifecycle clock and the learning loop's text delta stop
+    depending on derivation.
+
+NEW WAITING FOR OPERATOR (added this wave):
+- `BEACON_BUDGET_LEDGER_DUAL_WRITE=1` in Vercel env — without it the
+  factory's per-tenant spend recording no-ops (poll-side caps are
+  unaffected). Pair it with the OPENAI key flip.

@@ -13,6 +13,7 @@ import {
   composeMorningDigest,
   selectFirstCitations,
   selectPushRegressionAlarms,
+  computeMedianApprovalHours,
   DIGEST_MOVES_PER_TENANT,
   type DigestTenantSection,
 } from "@/domains/delivery/morning-digest";
@@ -326,5 +327,46 @@ describe("selectPushRegressionAlarms (#96 v1)", () => {
       { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
     );
     expect(d.text).toContain("⚠ Possible regression: /famous-iranians");
+  });
+});
+
+describe("computeMedianApprovalHours (#127)", () => {
+  const NOW4 = new Date("2026-06-11T14:00:00Z");
+  const row = (created: string, accepted: string | null) => ({
+    created_at: created,
+    accepted_at: accepted,
+  });
+
+  it("median over stamped accepts in the last 14 days (≥3 required)", () => {
+    const out = computeMedianApprovalHours(
+      [
+        row("2026-06-10T00:00:00Z", "2026-06-10T02:00:00Z"), // 2h
+        row("2026-06-09T00:00:00Z", "2026-06-09T10:00:00Z"), // 10h
+        row("2026-06-08T00:00:00Z", "2026-06-08T04:00:00Z"), // 4h
+      ],
+      NOW4,
+    );
+    expect(out).toBe(4);
+  });
+
+  it("returns null under 3 stamped accepts (no fake precision)", () => {
+    expect(
+      computeMedianApprovalHours(
+        [row("2026-06-10T00:00:00Z", "2026-06-10T02:00:00Z")],
+        NOW4,
+      ),
+    ).toBeNull();
+  });
+
+  it("ignores unstamped rows and accepts older than 14 days", () => {
+    const out = computeMedianApprovalHours(
+      [
+        row("2026-05-01T00:00:00Z", "2026-05-01T01:00:00Z"), // too old
+        row("2026-06-10T00:00:00Z", null),
+        row("2026-06-10T00:00:00Z", "2026-06-10T02:00:00Z"),
+      ],
+      NOW4,
+    );
+    expect(out).toBeNull();
   });
 });

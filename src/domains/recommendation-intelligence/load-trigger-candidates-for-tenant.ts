@@ -174,7 +174,12 @@ export async function loadTriggerCandidatesForTenant(options: {
     const repo = getRepository().forTenant(tenantId);
     const all = await repo.getPageSnapshots();
     snapshots = Array.isArray(all) ? all.filter((s) => s != null) : [];
-  } catch {
+  } catch (err) {
+    // Night-shift observability (2026-06-11): the nightly job diagnosed
+    // blind without these — log WHY before degrading.
+    console.error(
+      `[trigger-loader] snapshots unavailable for ${tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return emptyResult("snapshots_unavailable", tenantId, 0);
   }
 
@@ -184,7 +189,10 @@ export async function loadTriggerCandidatesForTenant(options: {
   let businessConfig: BusinessConfig;
   try {
     businessConfig = getBusinessConfig(tenantId);
-  } catch {
+  } catch (err) {
+    console.error(
+      `[trigger-loader] business config unavailable for ${tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return emptyResult("config_unavailable", tenantId, snapshots.length);
   }
 
@@ -204,7 +212,10 @@ export async function loadTriggerCandidatesForTenant(options: {
       tenantId,
       snapshots,
     });
-  } catch {
+  } catch (err) {
+    console.error(
+      `[trigger-loader] indexability batch failed for ${tenantId} (Tier-1 predicates skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
     indexabilityFailed = true;
   }
 
@@ -219,7 +230,10 @@ export async function loadTriggerCandidatesForTenant(options: {
         lastmodByUrl.set(normalizeStaleUrl(page.url), page.sitemap_lastmod);
       }
     }
-  } catch {
+  } catch (err) {
+    console.error(
+      `[trigger-loader] sitemap reconciliation unavailable for ${tenantId} (stale-content skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
     /* empty map — predicate skips */
   }
 

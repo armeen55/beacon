@@ -6,6 +6,7 @@
  */
 
 import { cache } from "react";
+import { currentTenantId } from "@/lib/tenant-context";
 
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
@@ -63,17 +64,27 @@ export type FrontierOpportunity = {
   notes: string | null;
 };
 
-let _state: FrontierOpportunity[] | null = null;
+// Night-shift cache sweep (2026-06-11): this was a process-global
+// mutable cache keyed by NOTHING — in a warm multi-tenant process the
+// first tenant pinned its rows for every later tenant (the same class
+// fixed across 7 other stores tonight). Per-tenant Map now; the
+// underlying read stays ambient-routed (per-tenant on disk), so the
+// cache key was the leak. Stable per-tenant array refs preserve the
+// in-place mutator semantics.
+const _byTenant = new Map<string, FrontierOpportunity[]>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state !== null) return;
-  _state = await getRepository().getFrontierOpportunities();
+const ensureLoaded = cache(async (): Promise<FrontierOpportunity[]> => {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached) return cached;
+  const loaded = await getRepository().getFrontierOpportunities();
+  _byTenant.set(tenantId, loaded);
+  return loaded;
 });
 
 export const getFrontierOpportunities = cache(
   async (): Promise<FrontierOpportunity[]> => {
-    await ensureLoaded();
-    return _state!;
+    return ensureLoaded();
   },
 );
 
@@ -82,7 +93,7 @@ export async function persistFrontierOpportunities(): Promise<void> {
 }
 
 export function _resetFrontierOpportunitiesForTests(): void {
-  _state = null;
+  _byTenant.clear();
 }
 
 // ── Frontier Computation ──

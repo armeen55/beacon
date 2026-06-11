@@ -97,7 +97,8 @@ export function readUrlWatcherState(): UrlWatcherStateFile | null {
     const raw = JSON.parse(readFileSync(p, "utf8")) as UrlWatcherStateFile;
     if (raw.schemaVersion !== 1) return null;
     return raw;
-  } catch {
+  } catch (err) {
+    console.error("[url-watcher] swallowed error:", err instanceof Error ? err.message : String(err));
     return null;
   }
 }

@@ -217,7 +217,8 @@ function buildLocationPatterns(ownedLocations: Set<string>): Map<string, RegExp>
     if (ownedLocations.has(loc)) continue;
     try {
       patterns.set(loc, new RegExp(`\\b${loc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"));
-    } catch {
+    } catch (err) {
+      console.error("[discrepancy-detect] invalid pattern skipped:", err instanceof Error ? err.message : String(err));
       // skip invalid patterns
     }
   }
@@ -240,7 +241,8 @@ function buildServicePatterns(ownedServices: Set<string>): Map<string, RegExp> {
     if (ownedServices.has(svc)) continue;
     try {
       patterns.set(svc, new RegExp(`\\b${svc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"));
-    } catch {
+    } catch (err) {
+      console.error("[discrepancy-detect] swallowed error:", err instanceof Error ? err.message : String(err));
       // skip
     }
   }

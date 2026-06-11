@@ -217,21 +217,22 @@ export type UrlChangeOutcome = {
 // the DB merge on Vercel) is replaced with a cached async getter. Phase
 // 3.5C DB-merge logic preserved verbatim — runs on first getter call when
 // DATA_SOURCE=supabase.
-let _state: UrlChangeOutcome[] | null = null;
+// Night-shift cache sweep (2026-06-11): per-tenant Map — the global
+// `let _state` pinned the FIRST tenant's outcomes (including its
+// tenant-scoped DB merge) for every later tenant in a warm process.
+const _byTenant = new Map<string, UrlChangeOutcome[]>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state !== null) return;
-  _state = await readStore<UrlChangeOutcome>("url-change-outcomes");
+async function loadForTenant(tenantId: string): Promise<UrlChangeOutcome[]> {
+  const state = await readStore<UrlChangeOutcome>("url-change-outcomes");
 
   // Phase 3.5C (2026-04-22): on Vercel / DATA_SOURCE=supabase the disk read
   // above returned [] because the JSON file doesn't exist on the read-only
   // FS. Merge from `url_change_outcomes` table so getters see real data.
   if (process.env.DATA_SOURCE === "supabase") {
     try {
-      const tenantId = await currentTenantId();
       const rows = await getRepository().forTenant(tenantId).getUrlChangeOutcomes();
       const byKey = new Map<string, UrlChangeOutcome>();
-      for (const o of _state) {
+      for (const o of state) {
         byKey.set(`${o.change_id}::${o.url}`, o);
       }
       for (const o of rows) {
@@ -239,18 +240,27 @@ const ensureLoaded = cache(async (): Promise<void> => {
         const cur = byKey.get(k);
         if (!cur || o.updated_at > cur.updated_at) byKey.set(k, o);
       }
-      _state.length = 0;
-      _state.push(...byKey.values());
+      state.length = 0;
+      state.push(...byKey.values());
     } catch (e) {
       console.error("[url-change-outcomes] DB seed failed:", e);
     }
   }
+  return state;
+}
+
+const ensureLoaded = cache(async (): Promise<UrlChangeOutcome[]> => {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached) return cached;
+  const loaded = await loadForTenant(tenantId);
+  _byTenant.set(tenantId, loaded);
+  return loaded;
 });
 
 export const getUrlChangeOutcomes = cache(
   async (): Promise<UrlChangeOutcome[]> => {
-    await ensureLoaded();
-    return _state!;
+    return ensureLoaded();
   },
 );
 
@@ -267,7 +277,7 @@ export async function ensureUrlChangeOutcomesSeeded(): Promise<void> {
 /** Resets the seed cache. Call after a write that should be reflected on
  *  the next read in this process. */
 export function invalidateUrlChangeOutcomesSeed(): void {
-  _state = null;
+  _byTenant.clear();
 }
 
 /**

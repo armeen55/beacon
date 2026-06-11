@@ -13,6 +13,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { currentTenantId } from "@/lib/tenant-context";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type {
@@ -27,16 +28,26 @@ const STORE_NAME = "outcome-store";
 // with cached async getter. Mutators (`recordOutcome`, `resolveOutcome`,
 // `backfillFromExistingData`) are now async and read the cached array via
 // the getter before mutating; same shape as before, just one indirection.
-let _state: OutcomeRecord[] | null = null;
+// Night-shift cache sweep (2026-06-11): this was a process-global
+// mutable cache keyed by NOTHING — in a warm multi-tenant process the
+// first tenant pinned its rows for every later tenant (the same class
+// fixed across 7 other stores tonight). Per-tenant Map now; the
+// underlying read stays ambient-routed (per-tenant on disk), so the
+// cache key was the leak. Stable per-tenant array refs preserve the
+// in-place mutator semantics.
+const _byTenant = new Map<string, OutcomeRecord[]>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state !== null) return;
-  _state = await readStore<OutcomeRecord>(STORE_NAME);
+const ensureLoaded = cache(async (): Promise<OutcomeRecord[]> => {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached) return cached;
+  const loaded = await readStore<OutcomeRecord>(STORE_NAME);
+  _byTenant.set(tenantId, loaded);
+  return loaded;
 });
 
 export const getOutcomeRecords = cache(async (): Promise<OutcomeRecord[]> => {
-  await ensureLoaded();
-  return _state!;
+  return ensureLoaded();
 });
 
 export async function persistOutcomes(): Promise<void> {
@@ -300,5 +311,5 @@ export async function backfillFromExistingData(opts: {
 }
 
 export function _resetOutcomeStoreForTests(): void {
-  _state = null;
+  _byTenant.clear();
 }
