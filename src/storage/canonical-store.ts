@@ -22,9 +22,9 @@
  * `getOutcomeEvents`, `getCandidateCauses`, `getEventDecisions`.
  *
  * `React.cache` memoizes within one render tree; the process-level
- * `_state` map preserves the mutate-array semantic that the
- * import-orchestrator + persist helpers rely on across requests within
- * one lambda. Initial population still does the Phase 3.5E DB-merge for
+ * per-tenant `_byTenant` state map preserves the mutate-array semantic
+ * that the import-orchestrator + persist helpers rely on across requests
+ * within one lambda. Initial population still does the Phase 3.5E DB-merge for
  * Vercel-hosted callers (DATA_SOURCE=supabase) so non-render consumers
  * see the same hydrated arrays they did pre-7.8e-2.
  */
@@ -57,8 +57,9 @@ import type { EventDecision } from "@/domains/event-decisions/types";
 // First request through `ensureLoaded()` populates each array by reading
 // from json-store (disk) and — when DATA_SOURCE=supabase — merging
 // Phase 3.5E hosted-hero data from the repository. Subsequent requests in
-// the same lambda share the SAME array references; mutations land in
-// `_state` and persist across requests, identical to today's behavior.
+// the same lambda + tenant share the SAME array references; mutations land
+// in that tenant's state and persist across requests, identical to today's
+// behavior — but no longer leak across tenants in a warm process.
 // ---------------------------------------------------------------------------
 
 type State = {
@@ -72,16 +73,31 @@ type State = {
   eventDecisions: EventDecision[] | null;
 };
 
-const _state: State = {
-  trackedPrompts: null,
-  trackedEntities: null,
-  observationRuns: null,
-  promptAnswerObservations: null,
-  dailyMetricSnapshots: null,
-  outcomeEvents: null,
-  candidateCauses: null,
-  eventDecisions: null,
-};
+function emptyState(): State {
+  return {
+    trackedPrompts: null,
+    trackedEntities: null,
+    observationRuns: null,
+    promptAnswerObservations: null,
+    dailyMetricSnapshots: null,
+    outcomeEvents: null,
+    candidateCauses: null,
+    eventDecisions: null,
+  };
+}
+
+// Night-shift cache sweep (2026-06-11): `_state` was a SINGLE process-global
+// State object keyed by NOTHING. The live customer render path uses
+// `loadFreshCanonicalData()` (already forTenant-scoped, bypasses this cache),
+// but the module-level getters below — used by the poll pipeline,
+// orchestrate-scan, url-citation-history and the Profound importer — served
+// the FIRST tenant's eight canonical arrays to every later tenant in a warm
+// process (the `loadFromDiskAndMerge` guard short-circuited). All eight stores
+// are TENANT_SCOPED. Per-tenant Map of State now; each tenant's arrays stay
+// stable refs so the replaceAll/mergeById/persist mutators target the right
+// tenant. The disk reads (ambient-routed) and the Supabase merge (currentTenantId)
+// already scoped to the active tenant — the cache KEY was the leak.
+const _byTenant = new Map<string, State>();
 
 function mergeById<T extends { id: string }>(target: T[], incoming: T[]): void {
   if (incoming.length === 0) return;
@@ -127,10 +143,15 @@ function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
 }
 
-async function loadFromDiskAndMerge(): Promise<void> {
-  if (_state.trackedPrompts !== null) return;
+async function loadStateForTenant(): Promise<State> {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached && cached.trackedPrompts !== null) return cached;
 
-  // Initial disk read for all 8 stores.
+  const state = cached ?? emptyState();
+  _byTenant.set(tenantId, state);
+
+  // Initial disk read for all 8 stores (ambient-routed to this tenant).
   const [tp, te, or, pao, dms, oe, cc, ed] = await Promise.all([
     readStore<TrackedPrompt>("tracked-prompts"),
     readStore<TrackedEntity>("tracked-entities"),
@@ -141,14 +162,14 @@ async function loadFromDiskAndMerge(): Promise<void> {
     readStore<CandidateCause>("candidate-causes"),
     readStore<EventDecision>("event-decisions"),
   ]);
-  _state.trackedPrompts = tp;
-  _state.trackedEntities = te;
-  _state.observationRuns = or;
-  _state.promptAnswerObservations = pao;
-  _state.dailyMetricSnapshots = dms;
-  _state.outcomeEvents = oe;
-  _state.candidateCauses = cc;
-  _state.eventDecisions = ed;
+  state.trackedPrompts = tp;
+  state.trackedEntities = te;
+  state.observationRuns = or;
+  state.promptAnswerObservations = pao;
+  state.dailyMetricSnapshots = dms;
+  state.outcomeEvents = oe;
+  state.candidateCauses = cc;
+  state.eventDecisions = ed;
 
   // Phase 3.5E hosted-hero DB merge — preserved verbatim from the
   // pre-7.8e-2 `ensureCanonicalStoresSeeded()`. On Vercel `.data/*.json`
@@ -174,7 +195,6 @@ async function loadFromDiskAndMerge(): Promise<void> {
       // drops by ~75% on a typical tenant. Tracked-prompts +
       // tracked-entities reads are small (<100 rows total) so no
       // window is applied.
-      const tenantId = await currentTenantId();
       const repo = getRepository();
       const tenantRepo = repo.forTenant(tenantId);
       const observationsSince = isoDaysAgo(SEED_OBSERVATIONS_WINDOW_DAYS);
@@ -185,14 +205,15 @@ async function loadFromDiskAndMerge(): Promise<void> {
         tenantRepo.getTrackedEntities(),
         tenantRepo.getTrackedPrompts(),
       ]);
-      mergeById(_state.promptAnswerObservations, obs);
-      mergeById(_state.dailyMetricSnapshots, snaps);
-      mergeById(_state.trackedEntities, ents);
-      mergeById(_state.trackedPrompts, prompts);
+      mergeById(state.promptAnswerObservations!, obs);
+      mergeById(state.dailyMetricSnapshots!, snaps);
+      mergeById(state.trackedEntities!, ents);
+      mergeById(state.trackedPrompts!, prompts);
     } catch (e) {
       console.error("[canonical-store] DB seed failed:", e);
     }
   }
+  return state;
 }
 
 /**
@@ -205,63 +226,55 @@ export const CANONICAL_SEED_WINDOWS = {
   snapshotsDays: SEED_SNAPSHOTS_WINDOW_DAYS,
 } as const;
 
-const ensureLoaded = cache(loadFromDiskAndMerge);
+const ensureLoaded = cache(loadStateForTenant);
 
 // ---------------------------------------------------------------------------
 // Public getters.
 //
 // Each is wrapped in `React.cache` so a single render tree resolves the
-// array once. The returned reference IS the cached array — callers may
-// mutate via `.push(...)`, `.length = 0; .push(...rest)`, etc. and those
-// mutations persist for the lifetime of the lambda (same as today).
+// array once. The returned reference IS the current tenant's cached array —
+// callers may mutate via `.push(...)`, `.length = 0; .push(...rest)`, etc.
+// and those mutations persist (per tenant) for the lifetime of the lambda.
 // ---------------------------------------------------------------------------
 
 export const getTrackedPrompts = cache(async (): Promise<TrackedPrompt[]> => {
-  await ensureLoaded();
-  return _state.trackedPrompts!;
+  return (await ensureLoaded()).trackedPrompts!;
 });
 
 export const getTrackedEntities = cache(async (): Promise<TrackedEntity[]> => {
-  await ensureLoaded();
-  return _state.trackedEntities!;
+  return (await ensureLoaded()).trackedEntities!;
 });
 
 export const getObservationRuns = cache(
   async (): Promise<ProfoundImportRun[]> => {
-    await ensureLoaded();
-    return _state.observationRuns!;
+    return (await ensureLoaded()).observationRuns!;
   },
 );
 
 export const getPromptAnswerObservations = cache(
   async (): Promise<PromptAnswerObservation[]> => {
-    await ensureLoaded();
-    return _state.promptAnswerObservations!;
+    return (await ensureLoaded()).promptAnswerObservations!;
   },
 );
 
 export const getDailyMetricSnapshots = cache(
   async (): Promise<DailyMetricSnapshot[]> => {
-    await ensureLoaded();
-    return _state.dailyMetricSnapshots!;
+    return (await ensureLoaded()).dailyMetricSnapshots!;
   },
 );
 
 export const getOutcomeEvents = cache(async (): Promise<OutcomeEvent[]> => {
-  await ensureLoaded();
-  return _state.outcomeEvents!;
+  return (await ensureLoaded()).outcomeEvents!;
 });
 
 export const getCandidateCauses = cache(
   async (): Promise<CandidateCause[]> => {
-    await ensureLoaded();
-    return _state.candidateCauses!;
+    return (await ensureLoaded()).candidateCauses!;
   },
 );
 
 export const getEventDecisions = cache(async (): Promise<EventDecision[]> => {
-  await ensureLoaded();
-  return _state.eventDecisions!;
+  return (await ensureLoaded()).eventDecisions!;
 });
 
 /**
@@ -280,14 +293,7 @@ export async function ensureCanonicalStoresSeeded(): Promise<void> {
  * re-runs `loadFromDiskAndMerge()`.
  */
 export function _resetCanonicalStoreStateForTests(): void {
-  _state.trackedPrompts = null;
-  _state.trackedEntities = null;
-  _state.observationRuns = null;
-  _state.promptAnswerObservations = null;
-  _state.dailyMetricSnapshots = null;
-  _state.outcomeEvents = null;
-  _state.candidateCauses = null;
-  _state.eventDecisions = null;
+  _byTenant.clear();
 }
 
 /**
