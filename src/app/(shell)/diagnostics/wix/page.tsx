@@ -20,6 +20,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   approveAndPushFromForm,
+  acceptAllQueuedFromForm,
   connectWixFromForm,
   saveWixMappingsFromForm,
   syncWixMapFromForm,
@@ -194,6 +195,18 @@ export default async function WixDiagnosticPage() {
           field edits only, no URLs, no deletions — enforced in the push code.
         </p>
       </section>
+      {/* #84 (2026-06-11): accept-only batch — publishing stays per-card. */}
+      <form action={acceptAllQueuedFromForm}>
+        <button
+          type="submit"
+          className="rounded-lg border border-border/60 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+          title="Flip up to 20 queued cards to accepted (never pushes)"
+        >
+          Accept all queued (≤20) — staging only, never publishes
+        </button>
+      </form>
+
+
 
       <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">

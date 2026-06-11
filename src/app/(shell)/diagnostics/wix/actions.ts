@@ -164,3 +164,27 @@ export async function revertPushFromForm(formData: FormData): Promise<void> {
   await executePush({ tenantId, edit: revert.edit });
   revalidatePath(ROUTE);
 }
+
+// ── Batch accept (#84, 2026-06-11) — ACCEPT-ONLY, never pushes ───────
+// Flips up to 20 queued (status "recommended") cards to "accepted" in
+// one click: for Ritz this is "approve the morning ticket stack"; for
+// Wix tenants it stages cards for the per-card Approve & Push below
+// (publishing stays strictly one explicit click per card — the
+// master-goal invariant is untouched).
+export async function acceptAllQueuedFromForm(_formData: FormData): Promise<void> {
+  if (!(await canPublishForCurrentTenant())) return;
+  const tenantId = await currentTenantId();
+  const { getRepository } = await import("@/lib/persistence/repositories");
+  const edits = await getRepository().forTenant(tenantId).getRecommendedEdits();
+  const ids = edits
+    .filter((e) => (e.implementation_status ?? "recommended") === "recommended")
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 20)
+    .map((e) => e.id);
+  if (ids.length === 0) return;
+  const { markRecommendedEditsAccepted } = await import(
+    "@/domains/recommendations/recommended-edits-persistence"
+  );
+  await markRecommendedEditsAccepted({ editIds: ids, tenantId });
+  revalidatePath(ROUTE);
+}
