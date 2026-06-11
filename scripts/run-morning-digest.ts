@@ -79,6 +79,18 @@ async function main() {
     } catch {
       /* none */
     }
+    // Diagnostic-only detector findings (merge/stale etc.) — surfaced
+    // as a calibration nudge. Soft-fail to 0.
+    let diagnosticCount = 0;
+    try {
+      const { loadTriggerCandidatesForTenant } = await import(
+        "../src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+      );
+      const triggers = await loadTriggerCandidatesForTenant({ tenantId: t.id });
+      diagnosticCount = triggers.diagnostic_only.length;
+    } catch {
+      /* 0 */
+    }
     sections.push({
       tenantId: t.id,
       businessName: t.business_name || t.slug,
@@ -88,6 +100,7 @@ async function main() {
       firstCitations,
       pushRegressions,
       medianApprovalHours: computeMedianApprovalHours(rows, now),
+      diagnosticCount,
     });
     console.log(
       `[morning-digest] ${t.id}: pending=${sel.pendingTotal} pushed24h=${sel.pushedLastDay} verified24h=${sel.verifiedLastDay} editRate=${feedback.overall.editRate ?? "n/a"}`,

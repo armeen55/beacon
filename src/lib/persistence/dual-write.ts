@@ -147,8 +147,13 @@ export async function dualWriteUpsert(
 export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   "tenants",
   "business_config",
-  "citation_evidence_index",
-  "answer_intelligence_index",
+  // Night-shift (2026-06-11): citation_evidence_index +
+  // answer_intelligence_index were REMOVED from this set — both tables
+  // are per-tenant now (tenant_id + (tenant_id,id) PK; migrations
+  // applied 2026-06-11) and their sync wrappers stamp tenant_id.
+  // tracked_prompts/tracked_entities remain listed pending a daylight
+  // verification of every writer (their reads are already
+  // tenant-filtered at the wrapper).
   "tracked_prompts",
   "tracked_entities",
   "answer_texts",

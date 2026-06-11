@@ -168,10 +168,14 @@ describe("Phase 7.7a — GLOBAL_TABLES", () => {
     expect(GLOBAL_TABLES.has("tenants")).toBe(true);
   });
 
-  it("includes single-row config tables", () => {
+  it("includes single-row config tables (night-shift 2026-06-11: the two index tables LEFT this set — per-tenant now)", () => {
     expect(GLOBAL_TABLES.has("business_config")).toBe(true);
-    expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(true);
-    expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(true);
+    // citation_evidence_index + answer_intelligence_index became
+    // per-tenant ((tenant_id,id) PK, migrations applied 2026-06-11);
+    // listing them global made dualWriteUpsertScoped THROW for
+    // legitimate scoped writes.
+    expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false);
+    expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);
   });
 
   it("includes operator-shared config tables", () => {

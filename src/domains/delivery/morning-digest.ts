@@ -47,6 +47,9 @@ export type DigestTenantSection = {
   /** #127 (2026-06-11) — median hours from queue to approval over the
    *  last 14 days; null hides the line (needs ≥3 stamped accepts). */
   medianApprovalHours?: number | null;
+  /** Night-shift (2026-06-11) — diagnostic-only candidates waiting for
+   *  operator calibration (the merge/stale detectors land here). */
+  diagnosticCount?: number;
 };
 
 /** #127: median (accepted_at − created_at) hours, last 14 days, ≥3 rows. */
@@ -322,6 +325,11 @@ export function composeMorningDigest(
     }
     // The learning proof line (P0 wall 7) — renders with or without a
     // pending queue; it's a receipts line about SHIPPED drafts.
+    if ((s.diagnosticCount ?? 0) > 0) {
+      const line = `${s.diagnosticCount} new detector finding${s.diagnosticCount === 1 ? "" : "s"} waiting for your calibration (merge/stale/etc.) on the trigger page.`;
+      textParts.push(line);
+      htmlParts.push(`<p style="margin:4px 0 0;color:#777;font-size:13px">${escapeHtml(line)}</p>`);
+    }
     if (s.medianApprovalHours != null) {
       const line = `Median time from queue to your approval: ${s.medianApprovalHours}h (last 14 days).`;
       textParts.push(line);

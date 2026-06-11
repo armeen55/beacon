@@ -39,6 +39,40 @@ import {
 
 export const MAX_SEEDS_PER_NIGHT = 8;
 
+/**
+ * Universal internet platforms — never a business rival, whatever the
+ * vertical (caught live: the first auto-seed run persisted youtube.com
+ * as a "direct competitor"). Same class of universal set as the
+ * classifier's utility patterns; tenant-specific directories belong in
+ * BusinessConfig.directoryDomains instead.
+ */
+export const PLATFORM_DOMAINS: ReadonlySet<string> = new Set([
+  "youtube.com",
+  "facebook.com",
+  "instagram.com",
+  "linkedin.com",
+  "pinterest.com",
+  "x.com",
+  "twitter.com",
+  "tiktok.com",
+  "wikipedia.org",
+  "google.com",
+  "maps.google.com",
+  "amazon.com",
+  "etsy.com",
+  "medium.com",
+  "quora.com",
+]);
+
+function isPlatformDomain(domain: string): boolean {
+  const d = domain.toLowerCase().replace(/^www\./, "");
+  if (PLATFORM_DOMAINS.has(d)) return true;
+  for (const p of PLATFORM_DOMAINS) {
+    if (d.endsWith(`.${p}`)) return true;
+  }
+  return false;
+}
+
 export type CompetitorSeedRow = {
   id: string;
   tenant_id: string;
@@ -78,6 +112,7 @@ export function selectSeedCandidates(args: {
     const domain = d.domain.toLowerCase().replace(/^www\./, "");
     if (domain === owned) continue;
     if (args.existingDomains.has(domain)) continue;
+    if (isPlatformDomain(domain)) continue; // platforms are never rivals
     out.push({
       id: `cc-${createHash("sha1").update(`${args.tenantId}::${domain}`).digest("hex").slice(0, 12)}`,
       tenant_id: args.tenantId,

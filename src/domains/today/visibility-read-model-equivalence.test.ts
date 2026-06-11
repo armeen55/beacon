@@ -633,8 +633,9 @@ describe("Phase 2B — `loadVisibilityReadModelFromSnapshots` contract", () => {
     // Compile-time pin: if the read-model loader's `VisibilityReadModelData`
     // ever drifts from what `loadTodayV2VisibilityData` returns as
     // `visibilityData`, vitest fails at import time because the swap site
-    // copies fields onto `visibilityData` by name. Vitest passing this
-    // import is the contract.
-    expect(true).toBe(true);
+    // copies fields onto `visibilityData` by name. Night-shift audit
+    // (2026-06-11): assert the imported builder is callable so this
+    // test exercises MORE than bare import success.
+    expect(typeof buildDailySnapshotsFromObservations).toBe("function");
   });
 });

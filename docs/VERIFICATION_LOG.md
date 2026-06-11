@@ -7,6 +7,62 @@
 
 ---
 
+## 2026-06-11 (night shift 00:00–05:00 PT) — autonomous hardening run: PRs #12–#20
+
+**Method:** continuous verify-first loop; every batch locally gated
+(typecheck + full vitest) and merged only on explicit CI pass after one
+early mistake (PR #14's failing build was merged by a faulty status
+chain — main red ~25 min, hotfixed via PR #15 with a locally-verified
+prod build; merge gating corrected to explicit-pass assertion).
+
+**Isolation (the night's spine):**
+- citation_evidence_index + answer_intelligence_index were GLOBAL
+  singleton rows blending every tenant (and their app-layer stores were
+  disk-only on hosted = silently null, with process-global caches).
+  Per-tenant rows (2 additive migrations applied + mirrored), per-tenant
+  rebuild loop in the post-poll cron, scoped reads through every layer,
+  per-tenant store caches. GLOBAL_TABLES corrected.
+- FIFTEEN process-global cache bleeds converted to per-tenant maps
+  (citation store, answer-intel store, recommendation responses, action
+  states, change contracts, page issues, attribution state,
+  outcome-store, wave-planner, asset-response, outcome-watch,
+  frontier-planner, competitor-page-snapshots, url-change-outcome,
+  attribution/candidates). Bonus: candidates' citation-topic index had
+  read a pre-tenant-routing flat path — silently EMPTY everywhere —
+  now warmed from the live per-tenant store.
+- The isolation ratchet learned the `const repo = getRepository()`
+  call shape (how the hidden ones survived), watches 6 more getters,
+  strips comments, and froze the legacy seed-data aggregator visibly.
+
+**Resilience:** the 11:00 UTC watchdog now covers scan + generation
+(new heartbeat rows) + poll per active tenant (caught live: GH's
+scheduler skipped the 04:00 scan and the 07:00 poll entirely);
+sitemap fetch retry-with-backoff (a 1-minute transient had killed a
+whole night's scan); the scan workflow finally has a failure alert.
+
+**Autopilot hygiene + morning ritual:** nightly queue sweeper (new
+`expired` status, TTL 30d + 50-pending cap); competitor auto-seed
+(≤8 direct rivals/night); nightly Wix url-map re-sync with sampled
+live-URL probes; tenant switcher + owner memberships for all three
+businesses; per-tenant console access (#126); digest deep links via
+GET /api/tenant-switch; first-citation-ever receipts naming the
+engine; post-push regression alarms pointing at the new Revert button;
+median time-to-approve on the new accepted_at stamp; batch accept
+(accept-only). Pre-push snapshots make every field push revertible
+(fail-closed capture). create_page cards verify once crawled.
+Resurrection detectors landed diagnostic-only (thin-overlap merge,
+sitemap-lastmod staleness). live_text captured at verify time (the
+learning loop's text delta).
+
+**Verified at close:** typecheck clean; full suite green at every
+batch (final counts in the last PR); nightly chain ran for BOTH
+tenants tonight (scan via manual dispatch post-merge: Ritz +
+Iranopedia green; generation live: Iranopedia 14 promoted; poll
+pending the 11:00 UTC watchdog — its full-chain version deployed
+tonight). Ledger: docs/P0_WALLS_LEDGER.md addendum; play-by-play:
+docs/NIGHT_SHIFT_LOG.md.
+
+
 ## 2026-06-11 — P0 walls 1–7: autopilot, fleet, drafting, factory, brain, delivery, learning
 
 **What changed (7 commits):**
