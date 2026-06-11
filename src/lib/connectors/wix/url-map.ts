@@ -61,7 +61,61 @@ export type SyncWixUrlMapResult = {
   collections: number;
   itemsMapped: number;
   errors: string[];
+  /**
+   * Night-shift #73 (2026-06-11) — sampled live-URL verification: up
+   * to PROBE_SAMPLES_PER_COLLECTION derived URLs per collection are
+   * probed after the sync. A failing sample means the prefix/slug
+   * mapping is probably wrong for that collection (pushes would target
+   * pages that don't exist). Warn-only: entries stay usable; the
+   * operator surface + nightly log show the warning.
+   */
+  probe: { checked: number; ok: number; failures: string[] };
 };
+
+const PROBE_SAMPLES_PER_COLLECTION = 3;
+
+async function probeSampleUrls(
+  entries: ReadonlyArray<WixUrlMapEntry>,
+  fetchImpl: typeof fetch,
+): Promise<{ checked: number; ok: number; failures: string[] }> {
+  // Deterministic sample: first / middle / last entry per collection.
+  const byCollection = new Map<string, WixUrlMapEntry[]>();
+  for (const e of entries) {
+    const arr = byCollection.get(e.dataCollectionId) ?? [];
+    arr.push(e);
+    byCollection.set(e.dataCollectionId, arr);
+  }
+  const samples: WixUrlMapEntry[] = [];
+  for (const arr of byCollection.values()) {
+    const picks = new Set([0, Math.floor(arr.length / 2), arr.length - 1]);
+    let n = 0;
+    for (const i of picks) {
+      if (arr[i] && n < PROBE_SAMPLES_PER_COLLECTION) {
+        samples.push(arr[i]!);
+        n++;
+      }
+    }
+  }
+  let okCount = 0;
+  const failures: string[] = [];
+  for (const sample of samples) {
+    try {
+      const res = await fetchImpl(sample.url, {
+        method: "GET",
+        redirect: "follow",
+        headers: { "User-Agent": "BeaconUrlMapProbe/1.0" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) okCount++;
+      else failures.push(`${sample.url} → HTTP ${res.status} (${sample.dataCollectionId})`);
+    } catch (err) {
+      failures.push(
+        `${sample.url} → ${err instanceof Error ? err.message : String(err)} (${sample.dataCollectionId})`,
+      );
+    }
+  }
+  return { checked: samples.length, ok: okCount, failures };
+}
 
 /**
  * Operator-triggered: rebuild the url map from the configured
@@ -107,9 +161,17 @@ export async function syncWixUrlMap(
   }
 
   if (config.length > 0 && entries.length === 0 && errors.length === config.length) {
-    return { ok: false, collections: config.length, itemsMapped: 0, errors };
+    return {
+      ok: false,
+      collections: config.length,
+      itemsMapped: 0,
+      errors,
+      probe: { checked: 0, ok: 0, failures: [] },
+    };
   }
   await writeStore(MAP_STORE, entries);
-  return { ok: true, collections: config.length, itemsMapped: entries.length, errors };
+  // #73: sampled live verification of the DERIVED urls (warn-only).
+  const probe = await probeSampleUrls(entries, deps.fetchImpl ?? fetch);
+  return { ok: true, collections: config.length, itemsMapped: entries.length, errors, probe };
 }
 

@@ -136,3 +136,31 @@ export async function approveAndPushFromForm(formData: FormData): Promise<void> 
   await approveAndPushRecommendedEdit({ editId });
   revalidatePath(ROUTE);
 }
+
+// ── Revert (#82, 2026-06-11) — restore the pre-push field value ──────
+// Explicit operator click; ships through the SAME executePush (caps,
+// non-destructive guard, ledger all apply). Empty previous values
+// refuse (deletion-shaped restores need a human in Wix).
+export async function revertPushFromForm(formData: FormData): Promise<void> {
+  if (!(await canPublishForCurrentTenant())) return;
+  const editId = String(formData.get("edit_id") ?? "");
+  if (editId === "") return;
+  const tenantId = await currentTenantId();
+
+  const { getRepository } = await import("@/lib/persistence/repositories");
+  const edits = await getRepository().forTenant(tenantId).getRecommendedEdits();
+  const original = edits.find((e) => e.id === editId);
+  if (!original) return;
+
+  const { findLatestSnapshotForEdit, buildRevertEdit } = await import(
+    "@/domains/push/push-snapshots"
+  );
+  const snapshot = await findLatestSnapshotForEdit(tenantId, editId);
+  if (!snapshot) return;
+  const revert = buildRevertEdit(snapshot, original, new Date());
+  if (!revert.ok) return;
+
+  const { executePush } = await import("@/domains/push/push-service");
+  await executePush({ tenantId, edit: revert.edit });
+  revalidatePath(ROUTE);
+}

@@ -39,6 +39,7 @@ import {
   checkDailyPushCap,
 } from "./caps";
 import { formatDevNote } from "./dev-note";
+import { appendPushSnapshot } from "./push-snapshots";
 import { resolveWixItemForUrl } from "@/lib/connectors/wix/url-map";
 import {
   wixInsertDataItem,
@@ -201,6 +202,28 @@ export async function executePush(
   if (item == null) {
     await recordLedger(tenantId, edit, "push_failed", "item_gone", now);
     return { kind: "refused", reason: "mapped Wix item no longer exists — re-run the url-map sync" };
+  }
+
+  // Pre-push snapshot (#82, 2026-06-11) — FAIL-CLOSED: the safety net
+  // must persist before the live site changes.
+  try {
+    await appendPushSnapshot({
+      id: `snap-${now.getTime()}-${edit.id.slice(0, 8)}`,
+      tenant_id: tenantId,
+      edit_id: edit.id,
+      target_url: edit.target_url,
+      dataCollectionId: mapEntry.dataCollectionId,
+      dataItemId: mapEntry.dataItemId,
+      field,
+      previous_text: String((item.data as Record<string, unknown>)[field] ?? ""),
+      captured_at: now.toISOString(),
+    });
+  } catch (err) {
+    await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now);
+    return {
+      kind: "refused",
+      reason: `could not capture the pre-push snapshot (${err instanceof Error ? err.message : String(err)}) — refusing to change the live site without an undo`,
+    };
   }
 
   const merged = { ...item.data, [field]: edit.proposed_text ?? "" };

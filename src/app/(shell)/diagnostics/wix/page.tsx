@@ -24,6 +24,7 @@ import {
   saveWixMappingsFromForm,
   syncWixMapFromForm,
   disconnectWixFromForm,
+  revertPushFromForm,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -200,6 +201,21 @@ export default async function WixDiagnosticPage() {
           <ul className="space-y-1 text-sm">
             {recentPushes.map((e) => (
               <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                {/* #82 (2026-06-11): one-click revert for successful field
+                    pushes (not for reverts themselves). Ships through the
+                    same capped push path. */}
+                {e.result === "pushed" && !e.edit_id.endsWith("__revert") && (
+                  <form action={revertPushFromForm} className="order-last">
+                    <input type="hidden" name="edit_id" value={e.edit_id} />
+                    <button
+                      type="submit"
+                      className="rounded border border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                      title="Restore the field's pre-push value (counts against the daily push cap)"
+                    >
+                      Revert
+                    </button>
+                  </form>
+                )}
                 <span>
                   <span className={e.result === "pushed" ? "text-status-success" : "text-status-error"}>
                     {e.result}
