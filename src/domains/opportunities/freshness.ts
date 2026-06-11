@@ -27,7 +27,12 @@ function getLastActivityDate(opp: Opportunity): Date {
     .filter((d): d is string => d !== null)
     .map((d) => new Date(d).getTime());
 
-  return new Date(Math.max(...dates, new Date(opp.created_at).getTime()));
+  // Night-shift (2026-06-11): created_at is always one of the args, so
+  // Math.max can't be -Infinity from emptiness; the only failure is an
+  // unparseable created_at yielding NaN → Invalid Date. Guard it.
+  const createdMs = new Date(opp.created_at).getTime();
+  const candidates = Number.isFinite(createdMs) ? [...dates, createdMs] : dates;
+  return candidates.length > 0 ? new Date(Math.max(...candidates)) : new Date(0);
 }
 
 export function getFreshnessStatus(

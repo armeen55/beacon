@@ -254,7 +254,7 @@ function parseImpactWindowDays(window: string | null): number {
   if (!window) return 14;
   const match = window.match(/(\d+)[\s\u2013-]*(\d+)?\s*(day|week|month)/i);
   if (!match) return 14;
-  const upper = match[2] ? parseInt(match[2]) : parseInt(match[1]);
+  const upper = match[2] ? parseInt(match[2], 10) : parseInt(match[1], 10);
   const unit = match[3].toLowerCase();
   if (unit.startsWith("day")) return upper;
   if (unit.startsWith("week")) return upper * 7;

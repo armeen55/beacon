@@ -1164,6 +1164,7 @@ function mapRecommendationResponseToRow(
     defer_until: r.deferUntil,
     target_page_url: r.targetPageUrl ?? null,
     pattern_id: r.patternId ?? null,
+    dismiss_reason: r.dismissReason ?? null,
     tenant_id: tenantId,
     updated_at: new Date().toISOString(),
   };

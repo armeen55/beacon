@@ -366,7 +366,7 @@ function SprintDecisionCard({
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
       if (isPending) return;
 
-      const numKey = parseInt(e.key);
+      const numKey = parseInt(e.key, 10);
       if (numKey >= 1 && numKey <= actionableCandidates.length) {
         e.preventDefault();
         setSelectedCause("change");

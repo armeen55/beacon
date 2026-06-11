@@ -39,7 +39,20 @@ export type RecommendationResponse = {
    *  acceptance. Absent on legacy rows. */
   targetPageUrl?: string | null;
   patternId?: string | null;
+  /** #54 (2026-06-11): operator's reason on dismiss — the
+   *  taste-learning signal. One of a small fixed set or null. */
+  dismissReason?: DismissReason | null;
 };
+
+/** #54 — fixed reason set (keeps the signal aggregatable; free text
+ *  would fragment it). */
+export type DismissReason =
+  | "not_relevant"
+  | "already_done"
+  | "wrong_page"
+  | "bad_suggestion"
+  | "too_risky"
+  | "other";
 
 // ---------------------------------------------------------------------------
 // Store
@@ -204,7 +217,7 @@ export function isRecSuppressedFromMap(
 export async function recordResponse(
   recId: string,
   status: RecommendationResponseStatus,
-  context?: { targetPageUrl?: string | null; patternId?: string | null },
+  context?: { targetPageUrl?: string | null; patternId?: string | null; dismissReason?: DismissReason | null },
 ): Promise<void> {
   const now = new Date().toISOString();
   const recommendationResponses = await getRecommendationResponses();
@@ -227,6 +240,7 @@ export async function recordResponse(
         : null,
     targetPageUrl: context?.targetPageUrl ?? prior?.targetPageUrl ?? null,
     patternId: context?.patternId ?? prior?.patternId ?? null,
+    dismissReason: context?.dismissReason ?? prior?.dismissReason ?? null,
   };
 
   if (existing >= 0) {
