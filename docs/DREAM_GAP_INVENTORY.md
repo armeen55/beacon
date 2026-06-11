@@ -2,6 +2,11 @@
 
 **The dream, restated as testable claims:** (1) the engine learns each business's entire world from scratch; (2) it runs growth while you sleep; (3) every morning it hands you a short queue of exact moves with receipts; (4) one approve click ships end-to-end; (5) the three businesses teach each other through one brain; (6) nothing is hardcoded; (7) your total involvement is ~20 min/day.
 
+**STATUS UPDATE — 2026-06-11 night shift (see `docs/P0_WALLS_LEDGER.md` + `docs/NIGHT_SHIFT_LOG.md`):**
+DONE: #16 #17 (scan fleet DB-driven, Iranopedia crawled nightly) · #24 (competitor auto-seed) · #35+#67 (per-tenant content rules + factory injection) · #42/#108 (nightly generation cron, live) · #100-as-v1+#101 (edit-rate learning + digest line) · #111 (nightly url-map re-sync) · #114+#49 (queue sweeper: TTL+cap, new `expired` status) · #119 (tenant switcher + owner memberships for all 3) · #120 (digest built; WAITING FOR OPERATOR: RESEND_API_KEY) · #98+#99 (page-shape layer, gated on BEACON_CROSS_TENANT_BRAIN — ON for runner jobs).
+PARTIAL: #4 (factory surfaced; blog/media still WIRE) · #55 (10 more action types draft deterministically via promotion enrichment) · #43/#44 unchanged · #116 (watchdog now covers scan+generation+poll per tenant; per-tenant alert routing remains).
+ALSO FIXED (not in the original 178 — found by the night shift): citation_evidence_index + answer_intelligence_index were GLOBAL singletons blending all tenants (now per-tenant, migrations applied); seven process-global store caches cross-pinned tenants in warm processes (all per-tenant now); the isolation ratchet learned the `const repo =` call shape and watches 6 more getters (allowlist: seed-data aggregator frozen for a daylight refactor).
+
 **Honest scope note:** every item below is a real, distinct unit of work verified against the code this session (receipts where they pin to a file). Tags: **[BUILD]** new code · **[WIRE]** exists but unreachable/unconnected · **[DATA]** needs data/keys/config · **[FLAG]** env activation · **[DECIDE]** product decision · **[HARDCODE]** de-Ritzing · **[INFRA]** platform ceiling. `A#n` cross-refs the 51-issue audit (`AUDIT_50_MULTI_TENANT.md` / fix ledger). Items already FIXED in the ledger are not repeated.
 
 ---
