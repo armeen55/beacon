@@ -206,8 +206,14 @@ function extractAddress(node: JsonLdNode): {
     const postal = firstString(a.postalCode);
     if (locality) locations.push(locality.toLowerCase());
     if (region) locations.push(region.toLowerCase());
+    // Live check 2026-06-11 (iranopedia.com): a region-only address
+    // node ("CA", no street/locality) is NOT a physical address — it
+    // produced a false "local business" signal for a content site.
+    // Printable requires at least a street or a locality.
     const parts = [street, locality, region, postal].filter(Boolean);
-    if (parts.length > 0) printable = parts.join(", ");
+    if ((street || locality) && parts.length > 0) {
+      printable = parts.join(", ");
+    }
   } else if (typeof addrNode === "string" && addrNode.trim()) {
     printable = addrNode.trim();
   }
@@ -311,6 +317,19 @@ const NAV_FURNITURE = new Set([
   "schedule",
   "locations",
   "services",
+  // Live check 2026-06-11 (ritzbuilders.com): CTA labels leaked into
+  // services. All page-role/CTA furniture — never business vocabulary.
+  "call now",
+  "call us",
+  "schedule a consultation",
+  "book a consultation",
+  "free consultation",
+  "free estimate",
+  "get started",
+  "learn more",
+  "view all",
+  "see all",
+  "read more",
 ]);
 
 function normalizeInternalPath(href: string, baseUrl: string): string | null {
@@ -383,6 +402,35 @@ export function brandFromTitle(title: string): string | null {
  *  is generic — host families, not a vertical's directory list). */
 const SOCIAL_HOST_PATTERN =
   /(facebook|instagram|linkedin|twitter|x|youtube|tiktok|pinterest|yelp|houzz|angi|thumbtack|bbb|tripadvisor|zillow|avvo|healthgrades)\.(com|org)$/i;
+
+/**
+ * Normalize + dedupe derived locations. Live check 2026-06-11
+ * (ritzbuilders.com): real-world areaServed lists are noisy — the same
+ * city appears as "palo alto" AND "palo alto ca", entries carry
+ * parenthetical marketing ("east bay (select locations)"), and the raw
+ * list ran to 47 entries. Rules (all generic, no geo vocabulary):
+ *   - strip parenthetical tails,
+ *   - a trailing 2-letter region token dedupes against the bare city
+ *     ("palo alto ca" collapses into "palo alto"; a bare region code
+ *     like "ca" survives as itself — downstream consumers filter
+ *     2-letter entries where they don't belong),
+ *   - first occurrence wins, cap 30.
+ */
+export function normalizeDerivedLocations(raw: ReadonlyArray<string>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of raw) {
+    let cleaned = entry.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    if (cleaned.length === 0) continue;
+    const regionStripped = cleaned.replace(/\s+[a-z]{2}$/, "");
+    if (regionStripped.length >= 3) cleaned = regionStripped;
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+    if (out.length >= 30) break;
+  }
+  return out;
+}
 
 // ── Main entry ──
 
@@ -481,10 +529,17 @@ export function deriveBusinessProfile(
 
   // Nav: services (labels minus furniture) + key pages (paths).
   const nav = extractNav(homepage.html, homepage.url);
+  const businessNameLower = profile.name?.toLowerCase() ?? null;
   for (const label of nav.labels) {
     const lower = label.toLowerCase();
-    if (NAV_FURNITURE.has(lower)) continue;
+    // "our services" is the same furniture as "services" — strip the
+    // generic-English possessive before matching (not vertical vocab).
+    const dePossessed = lower.replace(/^our\s+/, "");
+    if (NAV_FURNITURE.has(lower) || NAV_FURNITURE.has(dePossessed)) continue;
     if (/^\d+$/.test(lower)) continue;
+    // Self-referential nav ("Ritz Builders Services") is brand chrome,
+    // not a service phrase — live check 2026-06-11.
+    if (businessNameLower && lower.includes(businessNameLower)) continue;
     services.add(lower);
   }
   const keyPages = ["/", ...nav.paths.filter((p) => p !== "/")].slice(0, 12);
@@ -502,7 +557,7 @@ export function deriveBusinessProfile(
   });
 
   profile.schemaTypes = [...schemaTypes];
-  profile.locations = [...locations];
+  profile.locations = normalizeDerivedLocations([...locations]);
   profile.services = [...services].slice(0, 24);
   profile.keyPages = nav.paths.length > 0 ? keyPages : ["/"];
   profile.socialProfiles = [...socialProfiles];

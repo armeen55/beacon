@@ -18,6 +18,12 @@ const TIMEOUT_MS = 10_000;
 
 export type PoliteFetchDeps = {
   fetchImpl?: typeof fetch;
+  /** Per-request timeout. Default 10s (competitor-intel posture).
+   *  Onboarding derivation passes 20s — live check 2026-06-11: a real
+   *  Wix homepage (iranopedia.com) exceeds 10s cold, and silently
+   *  losing derivation for slow-but-fine sites is worse than a slower
+   *  one-time launch step. */
+  timeoutMs?: number;
 };
 
 export type RobotsVerdict = "allowed" | "blocked";
@@ -80,7 +86,7 @@ export async function robotsVerdictFor(
     try {
       const res = await fetchImpl(`${origin}/robots.txt`, {
         headers: { "User-Agent": COMPETITOR_INTEL_UA },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
       });
       disallows = res.ok ? parseRobotsDisallows(await res.text()) : [];
     } catch {
@@ -110,7 +116,7 @@ export async function fetchPageHtml(
         "User-Agent": COMPETITOR_INTEL_UA,
         Accept: "text/html,application/xhtml+xml",
       },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
       redirect: "follow",
     });
     if (!res.ok) {

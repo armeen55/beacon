@@ -29,16 +29,20 @@ import {
 import { deriveBusinessConfig } from "./derive-business-config";
 import { fetchSiteProfilePages, normalizeSiteUrl } from "./fetch-site-profile";
 
-/** Site signals → segment. Pure; null when ambiguous. */
+/** Site signals → segment. Pure; null when ambiguous.
+ *
+ * Live check 2026-06-11 (iranopedia.com): `locations` alone is NOT a
+ * local signal — a content site's Organization node carried a region-
+ * only address ("CA") that produced locations and would have flipped an
+ * encyclopedia to local_service. Local now requires a REAL physical
+ * address (street/locality — see extractAddress) or a phone; everything
+ * weaker stays null and keeps the safe provisioning default. */
 export function suggestSegmentFromProfile(
   profile: DerivedBusinessProfile | null,
 ): TenantSegment | null {
   if (!profile) return null;
   if (profile.contentSiteSignal) return "content_publisher";
-  const localSignals =
-    profile.address !== null ||
-    profile.phone !== null ||
-    profile.locations.length > 0;
+  const localSignals = profile.address !== null || profile.phone !== null;
   return localSignals ? "local_service" : null;
 }
 
@@ -85,6 +89,10 @@ export async function deriveAndPersistTenantConfig(
 
   const fetched = await fetchSiteProfilePages(args.domain, {
     fetchImpl: args.fetchImpl,
+    // Live check 2026-06-11: real Wix homepages exceed the 10s
+    // competitor-intel default cold. Launch is one-time — give slow
+    // sites 20s before falling back to typed-only config.
+    timeoutMs: args.timeoutMs ?? 20_000,
   });
   const profile = fetched.ok ? deriveBusinessProfile(fetched.pages) : null;
 

@@ -14,6 +14,7 @@ import {
   deriveBusinessProfile,
   brandFromTitle,
   humanizeSchemaType,
+  normalizeDerivedLocations,
 } from "./derive-business-profile";
 
 // ── Fixture 1: Texas custom-home builder (LocalBusiness JSON-LD) ──
@@ -232,5 +233,43 @@ describe("deriveBusinessProfile — empty/hostile input", () => {
       </head><body></body></html>`;
     const p = deriveBusinessProfile([{ url: "https://x.com/", html }]);
     expect(p.name).toBe("Survivor Co");
+  });
+});
+
+// ── Live-check hardening (2026-06-11, ritzbuilders.com run) ──
+
+describe("normalizeDerivedLocations — real-world areaServed noise", () => {
+  it("collapses 'city + region' variants into the bare city", () => {
+    expect(
+      normalizeDerivedLocations(["palo alto", "palo alto ca", "Cupertino CA"]),
+    ).toEqual(["palo alto", "cupertino"]);
+  });
+  it("strips parenthetical marketing tails", () => {
+    expect(normalizeDerivedLocations(["east bay (select locations)"])).toEqual([
+      "east bay",
+    ]);
+  });
+  it("bare region codes survive as themselves (downstream filters them)", () => {
+    expect(normalizeDerivedLocations(["ca", "tx"])).toEqual(["ca", "tx"]);
+  });
+  it("caps at 30, first occurrence wins", () => {
+    const many = Array.from({ length: 40 }, (_, i) => `city${i}`);
+    expect(normalizeDerivedLocations(many)).toHaveLength(30);
+  });
+});
+
+describe("nav services — CTA + self-referential filtering (live check)", () => {
+  it("drops CTA labels, 'our X' furniture, and brand-named nav entries", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":"Organization","name":"Ritz Builders","sameAs":["https://www.facebook.com/r"]}</script>
+      </head><body><header><nav>
+      <a href="/services">Our Services</a>
+      <a href="/call">Call Now</a>
+      <a href="/consult">Schedule a Consultation</a>
+      <a href="/brand">Ritz Builders Services</a>
+      <a href="/remodeling">Whole-Home Remodeling</a>
+      </nav></header></body></html>`;
+    const p = deriveBusinessProfile([{ url: "https://ritz.com/", html }]);
+    expect(p.services).toEqual(["whole-home remodeling"]);
   });
 });

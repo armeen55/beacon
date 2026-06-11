@@ -123,7 +123,9 @@ export async function saveBusinessProfile(
       ]);
       const fetched = await fetchSiteProfilePages(
         validation.normalized.domain,
-        { maxPages: 1 },
+        // Homepage-only for speed, but allow slow CMS hosts (real Wix
+        // homepages exceed 10s cold — live check 2026-06-11).
+        { maxPages: 1, timeoutMs: 20_000 },
       );
       if (fetched.ok) {
         const profile = deriveBusinessProfile(fetched.pages);

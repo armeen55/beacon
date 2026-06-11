@@ -175,7 +175,7 @@ describe("suggestSegmentFromProfile — site signals → segment", () => {
     const p = deriveBusinessProfileFixture({ contentSiteSignal: true });
     expect(suggestSegmentFromProfile(p)).toBe("content_publisher");
   });
-  it("physical presence (address/phone/locations) → local_service", () => {
+  it("REAL physical presence (address or phone) → local_service", () => {
     expect(
       suggestSegmentFromProfile(
         deriveBusinessProfileFixture({ address: "1 Main St, Tucson, AZ" }),
@@ -184,11 +184,14 @@ describe("suggestSegmentFromProfile — site signals → segment", () => {
     expect(
       suggestSegmentFromProfile(deriveBusinessProfileFixture({ phone: "555" })),
     ).toBe("local_service");
+  });
+
+  it("locations ALONE are not a local signal (live check: a content site's region-only address must not flip it)", () => {
     expect(
       suggestSegmentFromProfile(
-        deriveBusinessProfileFixture({ locations: ["tucson"] }),
+        deriveBusinessProfileFixture({ locations: ["ca"] }),
       ),
-    ).toBe("local_service");
+    ).toBeNull();
   });
   it("ambiguous site → null (provisioning default stands)", () => {
     expect(suggestSegmentFromProfile(deriveBusinessProfileFixture({}))).toBeNull();
