@@ -120,6 +120,17 @@ export function deriveBusinessConfig(
     if (houzz) config.houzzProfileUrl = houzz;
     if (angi) config.angiProfileUrl = angi;
     if (bbb) config.bbbProfileUrl = bbb;
+    // The generic 4th off-site channel: a non-builder local business's
+    // industry directory (restaurant → yelp/tripadvisor, doctor →
+    // healthgrades, lawyer → avvo, realtor → zillow). First match wins;
+    // the off-site-authority engine treats it as "Configured".
+    const industryDirectory =
+      profileUrlFor(profile.socialProfiles, "yelp.com") ??
+      profileUrlFor(profile.socialProfiles, "tripadvisor.com") ??
+      profileUrlFor(profile.socialProfiles, "healthgrades.com") ??
+      profileUrlFor(profile.socialProfiles, "avvo.com") ??
+      profileUrlFor(profile.socialProfiles, "zillow.com");
+    if (industryDirectory) config.industryDirectoryProfileUrl = industryDirectory;
   }
 
   return config;

@@ -107,6 +107,8 @@ export type RecommendationsV2ClientProps = {
    *  from the server page (client components can't read server config).
    *  Absent → legacy Bay-Area default. */
   knownCities?: ReadonlyArray<string>;
+  /** #149-sibling: per-tenant service phrases for topic extraction. */
+  knownServices?: ReadonlyArray<string>;
 };
 
 export function RecommendationsV2Client({
@@ -117,6 +119,7 @@ export function RecommendationsV2Client({
   promptTextById,
   competitorNames,
   knownCities,
+  knownServices,
 }: RecommendationsV2ClientProps) {
   // 2026-05-13 follow-up — "See full list" used to link to
   // `/recommendations?legacy=1`, pushing customers out of v2 every time
@@ -130,8 +133,14 @@ export function RecommendationsV2Client({
   // Build typed action rows from the same queue the legacy table consumes.
   // Pure projection — no new I/O, no math change.
   const allRows = useMemo(
-    () => buildRecommendationActionRows({ queue, promptTextById, knownCities }),
-    [queue, promptTextById, knownCities],
+    () =>
+      buildRecommendationActionRows({
+        queue,
+        promptTextById,
+        knownCities,
+        knownServices,
+      }),
+    [queue, promptTextById, knownCities, knownServices],
   );
 
   const actionableRows = useMemo(

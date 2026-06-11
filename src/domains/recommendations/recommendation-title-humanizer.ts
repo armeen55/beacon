@@ -222,13 +222,48 @@ const TOPIC_TAGS: ReadonlyArray<TopicTag> = [
 ];
 
 /**
+ * #149-sibling (2026-06-11): match a label against the TENANT'S OWN
+ * service phrases (BusinessConfig.services) — longest phrase first,
+ * word-boundary anchored. The matched phrase IS the topic ("taco bar"),
+ * so any vertical gets correct topics from its own vocabulary.
+ */
+function matchKnownService(
+  label: string,
+  knownServices: ReadonlyArray<string>,
+): string | null {
+  const phrases = [...knownServices]
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length >= 3)
+    .sort((a, b) => b.length - a.length);
+  for (const phrase of phrases) {
+    const re = new RegExp(`\\b${escapeRegex(phrase)}\\b`, "i");
+    if (re.test(label)) return phrase;
+  }
+  return null;
+}
+
+/**
  * Detect the highest-priority topic tag in a label. Returns null
  * when no tag matches; caller falls back to a generic phrase.
  *
  * Pure / deterministic. Case-insensitive matching.
+ *
+ * #149-sibling (2026-06-11): the tenant's own service phrases
+ * (`knownServices`, from BusinessConfig.services) are tried FIRST —
+ * tenant vocabulary beats the builder tag table. The builder TOPIC_TAGS
+ * remain as the fallthrough: their patterns are builder-specific, so
+ * they're a no-op for other verticals and exact parity for un-threaded
+ * callers (founder/Ritz).
  */
-export function extractTopicTag(label: string): string | null {
+export function extractTopicTag(
+  label: string,
+  knownServices?: ReadonlyArray<string>,
+): string | null {
   if (typeof label !== "string" || label.trim().length === 0) return null;
+  if (knownServices && knownServices.length > 0) {
+    const fromServices = matchKnownService(label, knownServices);
+    if (fromServices) return fromServices;
+  }
   // Sort by priority ASC; first match wins.
   const sorted = [...TOPIC_TAGS].sort((a, b) => a.priority - b.priority);
   for (const tag of sorted) {
@@ -368,8 +403,17 @@ export function pageNameFromUrl(url: string | null): string {
  */
 export function extractTopicFromPrompts(
   prompts: ReadonlyArray<string>,
+  knownServices?: ReadonlyArray<string>,
 ): string | null {
   if (!Array.isArray(prompts) || prompts.length === 0) return null;
+  // #149-sibling: tenant service phrases first (see extractTopicTag).
+  if (knownServices && knownServices.length > 0) {
+    for (const text of prompts) {
+      if (typeof text !== "string") continue;
+      const fromServices = matchKnownService(text, knownServices);
+      if (fromServices) return fromServices;
+    }
+  }
   const sorted = [...TOPIC_TAGS].sort((a, b) => a.priority - b.priority);
   for (const tag of sorted) {
     for (const re of tag.triggers) {
@@ -516,6 +560,9 @@ export type HumanizeRecTitleArgs = {
   /** #149 (2026-06-11): per-tenant city vocabulary
    *  (BusinessConfig.locations). Absent → legacy Bay-Area default. */
   readonly knownCities?: ReadonlyArray<string>;
+  /** #149-sibling: per-tenant service phrases (BusinessConfig.services)
+   *  — tried before the builder topic table. */
+  readonly knownServices?: ReadonlyArray<string>;
 };
 
 /**
@@ -560,8 +607,8 @@ export function humanizeRecTitle(args: HumanizeRecTitleArgs): string {
   //      like "Atherton" yield "design-build vs architect" once we
   //      look at the prompts that fall under them).
   const topic =
-    extractTopicTag(labelSource) ??
-    extractTopicFromPrompts(args.affectedPromptTexts ?? []);
+    extractTopicTag(labelSource, args.knownServices) ??
+    extractTopicFromPrompts(args.affectedPromptTexts ?? [], args.knownServices);
   const geo =
     extractGeoTag(labelSource, args.knownCities) ??
     extractGeoTag((args.affectedPromptTexts ?? []).join(" "), args.knownCities);

@@ -119,20 +119,24 @@ export function buildMorningBrief(opts: {
   pageSnapshots?: PageSnapshot[];
   /** Fan-out query keyword index for query-driven recommendations. */
   queryIndex?: QueryKeywordIndex;
+  /** Tenant city vocabulary (lowercase) for query-relevance filtering.
+   *  Absent → the founder default inside query-index (parity). */
+  cities?: ReadonlyArray<string>;
 }): MorningBriefData {
   const items: MorningBriefItem[] = [];
   const pageSnaps = opts.pageSnapshots ?? [];
   const qIdx = opts.queryIndex ?? null;
+  const tenantCities = opts.cities;
 
   if (opts.primaryAction) {
     items.push(
-      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx)
+      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx, tenantCities)
     );
   }
 
   for (const action of opts.secondaryActions.slice(0, 2)) {
     items.push(
-      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx)
+      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx, tenantCities)
     );
   }
 
@@ -220,8 +224,9 @@ function toBriefItem(
   faqTemplates?: FaqTemplate[],
   pageSnapshots?: PageSnapshot[],
   queryIndex?: QueryKeywordIndex | null,
+  cities?: ReadonlyArray<string>,
 ): MorningBriefItem {
-  const { contextLines, steps: rawSteps } = generateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex ?? undefined);
+  const { contextLines, steps: rawSteps } = generateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex ?? undefined, cities);
   const headline = rewriteHeadline(action);
   const rationale = rewriteRationale(action);
   const aiContext = action.answerContext ?? null;
@@ -532,6 +537,7 @@ function generateSteps(
   faqTemplates?: FaqTemplate[],
   pageSnapshots?: PageSnapshot[],
   queryIndex?: QueryKeywordIndex,
+  cities?: ReadonlyArray<string>,
 ): { contextLines: string[]; steps: string[] } {
   const ctx: string[] = [];   // Intelligence context (displayed as header)
   const steps: string[] = []; // Pure execution steps (3-4 max)
@@ -610,7 +616,7 @@ function generateSteps(
 
       // Phase B: add title/H2 specificity when snapshot is available
       if (snap && pageTopics.length > 0) {
-        const titleSuggestion = suggestTitleRewrite(snap, pageTopics, queryIndex);
+        const titleSuggestion = suggestTitleRewrite(snap, pageTopics, queryIndex, cities);
         if (titleSuggestion) {
           steps.push(titleSuggestion);
         }
@@ -625,7 +631,7 @@ function generateSteps(
       // Produce "Change H2 from X to Y" instructions, not vague directions.
       if (steps.length === 0) {
         const relevantQueries = queryIndex
-          ? getRelevantQueriesForPage(queryIndex, action.targetPageUrl ?? "", snap, 10)
+          ? getRelevantQueriesForPage(queryIndex, action.targetPageUrl ?? "", snap, 10, cities)
           : [];
 
         if (relevantQueries.length > 0 && snap) {
@@ -862,6 +868,7 @@ function suggestTitleRewrite(
   snap: PageSnapshot,
   citedTopics: string[],
   queryIndex?: QueryKeywordIndex,
+  cities?: ReadonlyArray<string>,
 ): string | null {
   const title = snap.title;
   if (!title) return null;
@@ -877,6 +884,7 @@ function suggestTitleRewrite(
       snap.url,
       snap, // snapshot provides H1/H2/title for relevance matching
       10,
+      cities,
     );
 
     if (relevantQueries.length === 0) return null; // No relevant queries → no suggestion

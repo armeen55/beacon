@@ -137,19 +137,24 @@ export default async function RecommendationDetailPage({
     // titles. Soft-fail to UNDEFINED (legacy default); a loaded-but-
     // empty list means "no geo vocabulary" and matches nothing.
     let knownCities: string[] | undefined;
+    let knownServices: string[] | undefined;
     try {
       const { getBusinessConfigForCurrentTenant } = await import(
         "@/lib/business-config"
       );
-      knownCities = (await getBusinessConfigForCurrentTenant()).locations;
+      const cfg = await getBusinessConfigForCurrentTenant();
+      knownCities = cfg.locations;
+      knownServices = cfg.services;
     } catch {
       knownCities = undefined;
+      knownServices = undefined;
     }
 
     const allRows = buildRecommendationActionRows({
       queue: persisted.queue,
       promptTextById,
       knownCities,
+      knownServices,
     });
     const resolution = resolveRecommendationDetail(allRows, decodedId);
 

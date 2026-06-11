@@ -755,11 +755,13 @@ export function composeMetaRowTitle(args: {
   readonly targetLabel: string;
   /** #149: per-tenant city vocabulary; absent → legacy Bay-Area default. */
   readonly knownCities?: ReadonlyArray<string>;
+  /** #149-sibling: per-tenant service phrases for topic extraction. */
+  readonly knownServices?: ReadonlyArray<string>;
 }): string {
   // Topic ladder: cluster label first, then prompts.
   const topic =
-    extractTopicTag(args.clusterLabel ?? "") ??
-    extractTopicFromPrompts(args.affectedPromptTexts);
+    extractTopicTag(args.clusterLabel ?? "", args.knownServices) ??
+    extractTopicFromPrompts(args.affectedPromptTexts, args.knownServices);
   const geo =
     extractGeoTag(args.clusterLabel ?? "", args.knownCities) ??
     extractGeoTag(args.affectedPromptTexts.join(" "), args.knownCities);
@@ -771,6 +773,7 @@ export function composeMetaRowTitle(args: {
       affectedPromptTexts: args.affectedPromptTexts,
       resolution: args.resolution,
       knownCities: args.knownCities,
+      knownServices: args.knownServices,
     });
   }
   if (args.metaKind === "review_decision") {
@@ -1250,6 +1253,9 @@ export type BuildActionRowsArgs = {
    *  (BusinessConfig.locations) for geo-tag extraction in row titles.
    *  Absent → legacy Bay-Area default (founder parity). */
   readonly knownCities?: ReadonlyArray<string>;
+  /** #149-sibling: per-tenant service phrases (BusinessConfig.services)
+   *  — topic extraction tries these before the builder topic table. */
+  readonly knownServices?: ReadonlyArray<string>;
 };
 
 /**
@@ -1317,8 +1323,8 @@ export function buildRecommendationActionRows(
       .map((id) => promptTextById[id] ?? "")
       .filter((s) => s.length > 0);
     const topicTag =
-      extractTopicTag(rec.clusterLabel ?? rec.title ?? "") ??
-      extractTopicFromPrompts(affectedPromptTexts);
+      extractTopicTag(rec.clusterLabel ?? rec.title ?? "", args.knownServices) ??
+      extractTopicFromPrompts(affectedPromptTexts, args.knownServices);
     const geoTag =
       extractGeoTag(rec.clusterLabel ?? rec.title ?? "", args.knownCities) ??
       extractGeoTag(affectedPromptTexts.join(" "), args.knownCities);
@@ -1678,6 +1684,7 @@ export function buildRecommendationActionRows(
       metaKind,
       targetLabel,
       knownCities: args.knownCities,
+      knownServices: args.knownServices,
     });
     const rowType: ActionRowType =
       metaKind === "create_page"
