@@ -97,19 +97,37 @@ describe("generateClusterCards — drafts", () => {
     expect(r.totalCostUsd).toBeGreaterThan(0);
   });
 
-  it("flags content-rule violations into risks[] (Farsi term, word cap, empty)", async () => {
+  it("HARD-REJECTS a banned-term violation by default (Audit #47 — never emits the card)", async () => {
     const r = await generateClusterCards(plan(), {
       apiKey: "k",
       fetchImpl: (async () =>
         llmResponse({
-          title: "How to cook Ghormeh Sabzi the famous Farsi national herb stew dish",
+          title: "How to cook Ghormeh Sabzi the famous Farsi herb stew",
+          description: "A Persian herb stew.",
+        })) as unknown as typeof fetch,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.drafts).toHaveLength(0); // banned term → not emitted
+    expect(r.rejected).toBe(1);
+    expect(r.rejectedReasons[0]).toContain("Farsi");
+  });
+
+  it("flag-only mode (enforceContentRules:false) emits with risks[] for review", async () => {
+    const r = await generateClusterCards(plan(), {
+      apiKey: "k",
+      enforceContentRules: false,
+      fetchImpl: (async () =>
+        llmResponse({
+          title: "Ghormeh Sabzi the Farsi herb stew with way too many words here indeed yes",
           description: "",
         })) as unknown as typeof fetch,
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+    expect(r.drafts).toHaveLength(1);
     const risks = r.drafts[0]!.risks;
-    expect(risks.some((x) => x.includes('"Farsi"'))).toBe(true);
+    expect(risks.some((x) => x.includes("Farsi"))).toBe(true);
     expect(risks.some((x) => x.includes("words"))).toBe(true);
     expect(risks.some((x) => x.includes("empty"))).toBe(true);
     expect(r.flagged).toBe(1);

@@ -32,7 +32,13 @@ function isOperatorMode(): boolean {
 }
 
 const REPO_ROOT = resolve(process.cwd());
-const TENANT_SLUG = process.env.BEACON_TENANT_SLUG ?? "ritz-builders";
+// Audit #36/#37: derive the slug from the deployment's tenant env — never
+// a hardcoded "ritz-builders" (operator diagnostic; the operator's
+// BEACON_TENANT_* env names the inspected tenant in a multi-tenant deploy).
+const TENANT_SLUG =
+  process.env.BEACON_TENANT_SLUG ??
+  process.env.BEACON_TENANT_ID?.replace(/^tenant-/, "") ??
+  "";
 const BRAIN_DIR = join(REPO_ROOT, ".data", "tenants", TENANT_SLUG, "brain");
 const REPORTS_DIR = join(REPO_ROOT, ".data", "_reports");
 

@@ -47,7 +47,14 @@ export const PROVISIONING_DEFAULTS = {
   status: "pending_onboarding" as const,
   role: "beta_customer" as const,
   daily_budget_usd: 5,
-  segment: "local_residential_builder" as const,
+  // Audit #17 (2026-06-10): a brand-new stranger must NOT be born a
+  // builder. `content_publisher` is the neutral default — its feature
+  // resolution turns OFF every local-service engine (no off-site
+  // authority, no call-tracking, no geo/city recs), so a non-builder
+  // signup never inherits Ritz's vertical. The onboarding scope step
+  // sets the real segment; until it does, all-features-off is the safe
+  // floor. (A builder signup gets corrected during onboarding.)
+  segment: "content_publisher" as const,
   budget_range: "mixed" as const,
   email_frequency: "off" as const,
   member_role: "owner" as const,

@@ -147,8 +147,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
       const { data, error } = await trace.time("tenant_lookup", () =>
         supabase
           .from("tenant_members")
-          .select("tenant_id")
-          .eq("user_id", user.id),
+          .select("tenant_id, created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true }),
       );
 
       if (error) {
@@ -164,29 +165,31 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
         url.pathname = "/login";
         url.searchParams.set("error", "no_tenant");
         return NextResponse.redirect(url);
-      } else if (data.length > 1) {
-        console.error("[mw-tenant] multiple tenant_members rows for user:", {
-          userId: user.id,
-          count: data.length,
-        });
-        trace.data("tenant_decision", "multiple_tenants_redirect");
-        trace.flush();
-        const url = request.nextUrl.clone();
-        url.pathname = "/login";
-        url.searchParams.set("error", "multiple_tenants");
-        return NextResponse.redirect(url);
       } else {
-        // Exactly one tenant — inject. Rebuild response so the modified
-        // headers propagate to RSC. Preserve any Set-Cookie headers the
-        // supabase auth flow set on the previous response (raw header copy
-        // preserves httpOnly / secure / sameSite options).
-        requestHeaders.set("x-beacon-tenant", data[0].tenant_id);
+        // Audit #13 (2026-06-10): MULTI-TENANT users are no longer locked
+        // out. Previously >1 membership → redirect to /login?error=
+        // multiple_tenants (an agency / "my app + my website" owner could
+        // never use Beacon). Now we resolve a DEFAULT tenant and inject
+        // it; switching is a seam (the `beacon_tenant` cookie). The
+        // membership rows are ordered by created_at asc, so the default
+        // is: the cookie-preferred tenant IF the user is a member of it,
+        // else the earliest membership. Deterministic, never a lockout.
+        const memberIds = data.map((r) => r.tenant_id);
+        const preferred = request.cookies.get("beacon_tenant")?.value;
+        const chosen =
+          preferred && memberIds.includes(preferred)
+            ? preferred
+            : memberIds[0]!;
+        requestHeaders.set("x-beacon-tenant", chosen);
         const setCookieHeaders = response.headers.getSetCookie();
         response = NextResponse.next({ request: { headers: requestHeaders } });
         for (const c of setCookieHeaders) {
           response.headers.append("Set-Cookie", c);
         }
-        trace.data("tenant_decision", "injected");
+        trace.data(
+          "tenant_decision",
+          data.length > 1 ? "injected_default_of_many" : "injected",
+        );
       }
     } catch (e) {
       console.error("[mw-tenant] tenant lookup threw:", e);

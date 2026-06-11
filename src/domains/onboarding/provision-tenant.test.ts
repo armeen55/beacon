@@ -193,7 +193,10 @@ describe("provisionTenantForNewUser — happy path", () => {
     expect(t.slug).toBe("8c9d2f4a");
     expect(t.business_name).toBe("Acme Builders");
     expect(t.domain).toBe("");
-    expect(t.segment).toBe("local_residential_builder");
+    // Audit #17 (2026-06-10): neutral default segment (all local-service
+    // features off) so a stranger isn't born a builder. Onboarding sets
+    // the real segment.
+    expect(t.segment).toBe("content_publisher");
     expect(t.budget_range).toBe("mixed");
     expect(t.role).toBe("beta_customer");
     expect(t.daily_budget_usd).toBe(5);

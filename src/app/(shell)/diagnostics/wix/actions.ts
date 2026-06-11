@@ -8,7 +8,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { isOperatorModeServer } from "@/lib/operator-mode";
+import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   saveConnectorToken,
@@ -28,7 +28,8 @@ export type ConnectWixResult =
   | { ok: false; reason: "not_operator" | "missing_key" | "missing_site" };
 
 export async function connectWix(formData: FormData): Promise<ConnectWixResult> {
-  if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
+  // Audit #11/#12: per-tenant publish authorization, not a global flag.
+  if (!(await canPublishForCurrentTenant())) return { ok: false, reason: "not_operator" };
   const apiKey = String(formData.get("api_key") ?? "").trim();
   const siteId = String(formData.get("site_id") ?? "").trim();
   if (apiKey === "") return { ok: false, reason: "missing_key" };
@@ -48,7 +49,7 @@ export type SaveWixMappingResult =
 
 /** Operator pastes a JSON array of WixCollectionMapping rows. */
 export async function saveWixMappings(formData: FormData): Promise<SaveWixMappingResult> {
-  if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
+  if (!(await canPublishForCurrentTenant())) return { ok: false, reason: "not_operator" };
   const raw = String(formData.get("mappings_json") ?? "[]");
   let parsed: unknown;
   try {
@@ -84,7 +85,7 @@ export type SyncWixResult =
   | { ok: false; reason: "not_operator" | "no_domain" | "sync_failed"; errors?: string[] };
 
 export async function syncWixMap(): Promise<SyncWixResult> {
-  if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
+  if (!(await canPublishForCurrentTenant())) return { ok: false, reason: "not_operator" };
   const tenantId = await currentTenantId();
   const { getBusinessConfig } = await import("@/lib/business-config");
   const domain = (getBusinessConfig(tenantId).domain ?? "").trim();
@@ -99,7 +100,7 @@ export async function syncWixMap(): Promise<SyncWixResult> {
 }
 
 export async function disconnectWix(): Promise<{ ok: boolean }> {
-  if (!isOperatorModeServer()) return { ok: false };
+  if (!(await canPublishForCurrentTenant())) return { ok: false };
   const tenantId = await currentTenantId();
   await updateConnectorToken("wix", { disconnected_at: new Date().toISOString() }, tenantId);
   revalidatePath(ROUTE);

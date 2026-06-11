@@ -275,10 +275,12 @@ async function createChangelogEntriesForEdits(
   // evidence summary in changelog notes renders a snippet instead of
   // a raw promptId UUID. Best-effort: an empty map causes prompt refs
   // to be dropped from the summary, never to leak as UUIDs.
-  // tracked-prompts is a global store, not tenant-scoped.
+  // Invariant 5 (2026-06-10): tracked_prompts IS tenant-scoped (carries
+  // tenant_id). The prior comment was wrong and the unscoped base read
+  // pulled EVERY tenant's prompts — scope to this tenant.
   let promptTextById: Record<string, string> = {};
   try {
-    const tp = await getRepository().getTrackedPrompts();
+    const tp = await getRepository().forTenant(tenantId).getTrackedPrompts();
     for (const p of tp) promptTextById[p.id] = p.text;
   } catch (e) {
     log.warn(
@@ -794,8 +796,12 @@ export type ApproveAndPushResult =
 export async function approveAndPushRecommendedEdit(args: {
   editId: string;
 }): Promise<ApproveAndPushResult> {
-  const { isOperatorModeServer } = await import("@/lib/operator-mode");
-  if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
+  // Audit #11/#12: per-tenant publish authorization (operator-mode OR an
+  // owner/admin/founder member of THIS tenant) — not a single global flag.
+  const { canPublishForCurrentTenant } = await import("@/lib/auth/can-publish");
+  if (!(await canPublishForCurrentTenant())) {
+    return { ok: false, reason: "not_operator" };
+  }
 
   const tenantId = await currentTenantId();
   const repo = getRepository().forTenant(tenantId);

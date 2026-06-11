@@ -29,7 +29,7 @@ import { NextRequest } from "next/server";
 // Hoisted mutable state controls every aspect of the mocked Supabase client.
 const supabaseState = vi.hoisted(() => ({
   user: null as { id: string } | null,
-  tenantMembersRows: [] as Array<{ tenant_id: string }>,
+  tenantMembersRows: [] as Array<{ tenant_id: string; created_at?: string }>,
   tenantMembersError: null as { message: string } | null,
   tenantQueryThrows: false,
 }));
@@ -40,8 +40,8 @@ vi.mock("@supabase/ssr", () => ({
       getUser: async () => ({ data: { user: supabaseState.user }, error: null }),
     },
     from: (_table: string) => ({
-      select: (_cols: string) => ({
-        eq: async (_col: string, _val: string) => {
+      select: (_cols: string) => {
+        const result = () => {
           if (supabaseState.tenantQueryThrows) {
             throw new Error("simulated edge-runtime fetch failure");
           }
@@ -49,8 +49,18 @@ vi.mock("@supabase/ssr", () => ({
             data: supabaseState.tenantMembersRows,
             error: supabaseState.tenantMembersError,
           };
-        },
-      }),
+        };
+        // Chain supports both `.eq()` terminal and `.eq().order()` (the
+        // 2026-06-10 multi-membership default-resolution adds .order()).
+        const eq = (_col: string, _val: string) => {
+          const thenable = {
+            order: async () => result(),
+            then: (onF: (v: unknown) => unknown) => Promise.resolve(result()).then(onF),
+          };
+          return thenable;
+        };
+        return { eq };
+      },
     }),
   }),
 }));
@@ -125,18 +135,31 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     expect(location).toContain("error=no_tenant");
   });
 
-  it("authenticated user with multiple tenant_members rows redirects to /login?error=multiple_tenants", async () => {
+  // Audit #13 (2026-06-10): multi-membership is NO LONGER a lockout. The
+  // user is admitted with a DEFAULT tenant injected (earliest membership,
+  // or the `beacon_tenant` cookie if they're a member of it).
+  it("authenticated user with multiple tenant_members rows is admitted with the earliest as default", async () => {
     supabaseState.user = { id: "user-multi" };
     supabaseState.tenantMembersRows = [
-      { tenant_id: "tenant-a" },
-      { tenant_id: "tenant-b" },
+      { tenant_id: "tenant-a", created_at: "2026-01-01T00:00:00Z" },
+      { tenant_id: "tenant-b", created_at: "2026-02-01T00:00:00Z" },
     ];
     const req = makeRequest("/today");
     const res = await updateSession(req);
-    expect(res.status).toBe(307);
-    const location = res.headers.get("location");
-    expect(location).toContain("/login");
-    expect(location).toContain("error=multiple_tenants");
+    expect(res.status).not.toBe(307); // NOT locked out
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-a"); // earliest (query ordered asc)
+  });
+
+  it("multi-membership honors the beacon_tenant cookie when the user is a member of it", async () => {
+    supabaseState.user = { id: "user-multi" };
+    supabaseState.tenantMembersRows = [
+      { tenant_id: "tenant-a", created_at: "2026-01-01T00:00:00Z" },
+      { tenant_id: "tenant-b", created_at: "2026-02-01T00:00:00Z" },
+    ];
+    const req = makeRequest("/today");
+    req.cookies.set("beacon_tenant", "tenant-b");
+    const res = await updateSession(req);
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-b");
   });
 
   it("unauthenticated request to a private path still redirects to /login?next=...", async () => {

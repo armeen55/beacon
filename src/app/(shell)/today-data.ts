@@ -237,6 +237,15 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // middleware (Phase 7.4) or env-fallback (Phase 7.3). Throws if neither
   // is set — fail-loud posture.
   const tenantId = await currentTenantId();
+  // Audit #36 (2026-06-10): resolve THIS tenant's slug — never fall back
+  // to a hardcoded "ritz-builders" (which rendered a stranger's Today as
+  // Ritz). currentTenant() reads the registry; derive a safe slug from
+  // the id if the registry can't resolve, so a non-Ritz tenant never
+  // borrows Ritz's command-center data.
+  const resolvedTenantSlug =
+    (await currentTenant())?.slug ??
+    process.env.BEACON_TENANT_SLUG ??
+    tenantId.replace(/^tenant-/, "");
 
   // MT-2 (2026-05-22) — resolve tenant-aware business config ONCE and
   // thread it through this loader, replacing the prior per-call no-arg
@@ -1088,7 +1097,19 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Build query keyword index from fan-out data — unlocks 5,289 real search
   // queries for keyword optimization recs AND morning brief step generation.
   // Phase 4.9: using fresh `promptAnswerObservations` from outer scope.
-  const queryIndex = buildQueryKeywordIndex(citationEvidenceIndex, promptAnswerObservations);
+  // Audit #37b: pass THIS tenant's cities (business-config locations) so
+  // city extraction isn't hardcoded to the Bay Area. Empty for non-geo
+  // tenants → no city matching, which is correct (a content site has no
+  // service-area geography). Falls back to the founder default only when
+  // the tenant has no configured locations.
+  const tenantCities = (businessConfig.locations ?? [])
+    .map((c) => c.toLowerCase().trim())
+    .filter(Boolean);
+  const queryIndex = buildQueryKeywordIndex(
+    citationEvidenceIndex,
+    promptAnswerObservations,
+    tenantCities.length > 0 ? tenantCities : undefined,
+  );
 
   // Phase 7 Part 1b (2026-04-18): load answer-texts from disk so the
   // data-grounded keyword-gap scanner has the raw AI answer corpus to mine
@@ -2644,6 +2665,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       process.env.BEACON_COMMAND_CENTER_ENABLED === "false"
         ? { hasAnyData: false, brain: null, manifest: null }
         : resolveCommandCenterFailSoft({
+            tenantSlug: resolvedTenantSlug,
             // UX.6.1 (2026-05-07) — pass already-loaded counts so the
             // helper can derive a Brain readiness summary when the disk
             // JSON is unreachable (production: `.data/_reports/` is
@@ -2677,6 +2699,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
  * to mature tenants.
  */
 function resolveCommandCenterFailSoft(args: {
+  tenantSlug: string;
   observations: ReadonlyArray<{ observed_at: string }>;
   snapshots: ReadonlyArray<{ date: string }>;
   citationEvidenceIndex: unknown;
@@ -2684,8 +2707,9 @@ function resolveCommandCenterFailSoft(args: {
 }): CommandCenterData {
   let resolved: CommandCenterData;
   try {
-    const slug = process.env.BEACON_TENANT_SLUG ?? "ritz-builders";
-    resolved = resolveCommandCenterData({ tenantSlug: slug });
+    // Audit #36: the caller's resolved tenant slug — NO hardcoded
+    // "ritz-builders" fallback (that leaked Ritz data to other tenants).
+    resolved = resolveCommandCenterData({ tenantSlug: args.tenantSlug });
   } catch (err) {
     console.warn("[today] commandCenter resolve failed:", err);
     resolved = { hasAnyData: false, brain: null, manifest: null };

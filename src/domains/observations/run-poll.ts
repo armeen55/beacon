@@ -40,7 +40,28 @@ import "server-only";
 import { pollPerplexityForTenant } from "@/adapters/perplexity/poll";
 import { pollOpenAIForTenant } from "@/adapters/openai/poll";
 import type { PerplexityPollResult } from "@/adapters/perplexity/poll";
-import { recordSpendDualWrite } from "@/lib/cost/budget-ledger-supabase";
+import {
+  recordSpendDualWrite,
+  getTenantSpentTodayUsd,
+} from "@/lib/cost/budget-ledger-supabase";
+
+/**
+ * Audit #31/#35: resolve a tenant's daily spend ceiling from the
+ * registry. Falls back to a conservative global default so a tenant
+ * whose row lacks an explicit budget still can't poll unbounded.
+ * 0 → no cap (explicit opt-out). Fail-soft to the default on any error.
+ */
+const GLOBAL_DEFAULT_DAILY_BUDGET_USD = 10;
+async function resolveTenantDailyBudgetUsd(tenantId: string): Promise<number> {
+  try {
+    const { getTenant } = await import("@/domains/tenants/store");
+    const tenant = await getTenant(tenantId);
+    const v = tenant?.daily_budget_usd;
+    return typeof v === "number" && v >= 0 ? v : GLOBAL_DEFAULT_DAILY_BUDGET_USD;
+  } catch {
+    return GLOBAL_DEFAULT_DAILY_BUDGET_USD;
+  }
+}
 import {
   syncPromptAnswerObservations as realSyncObs,
   syncAnswerTexts as realSyncTexts,
@@ -75,7 +96,12 @@ export type NativePollStatus =
   // this source failed persistence. The next paid run is BLOCKED
   // until a successful canary clears the gate or the operator
   // manually acknowledges the failure.
-  | "skipped_persistence_failure_gate";
+  | "skipped_persistence_failure_gate"
+  // Audit #31/#35 (2026-06-10): per-tenant daily spend ceiling. The
+  // tenant has already spent >= its daily_budget_usd today; refuse the
+  // paid poll. Caps a runaway/abusive tenant + bounds fleet spend so N
+  // self-serve signups can't drain the account.
+  | "skipped_daily_budget_cap";
 
 /**
  * Poll Integrity Hardening (2026-05-04). Sub-status flags stamped on
@@ -183,6 +209,12 @@ export type RunNativePollDeps = {
   /** Snapshot derivation + entity fetcher. */
   buildDailySnapshotsFromObservations?: typeof realBuildSnaps;
   getTrackedEntities?: () => Promise<TrackedEntity[]>;
+  /** Audit #31/#35: today's total spend for the tenant (null = unknown
+   *  → allow). Default reads `llm_budget_ledger`. Injectable for tests. */
+  getSpentTodayUsd?: (tenantId: string) => Promise<number | null>;
+  /** Audit #31/#35: the tenant's daily spend ceiling (USD). Default
+   *  resolves from the tenants registry; 0/undefined → no cap. */
+  dailyBudgetUsd?: number;
   /**
    * Load all observations for (tenant, platform, UTC date). Used in chunk mode
    * to cumulatively derive day-level snapshots across chunks. Default queries
@@ -271,9 +303,17 @@ export async function runNativePoll(
     deps.buildDailySnapshotsFromObservations ?? realBuildSnaps;
   const getEntities =
     deps.getTrackedEntities ??
-    (async () => getRepository().getTrackedEntities());
+    // Invariant 5 (2026-06-10): tenant-scoped. The unscoped base repo
+    // returns EVERY tenant's entities — same leak class fixed in the
+    // perplexity adapter. Scope to the tenant being polled.
+    (async () => getRepository().forTenant(tenantId).getTrackedEntities());
   const getDayObs =
     deps.getObservationsForDay ?? defaultGetObservationsForDay;
+  // Audit #31/#35: per-tenant daily spend ceiling inputs.
+  const getSpentToday =
+    deps.getSpentTodayUsd ?? (async (tid: string) => getTenantSpentTodayUsd(tid));
+  const dailyBudgetUsd =
+    deps.dailyBudgetUsd ?? (await resolveTenantDailyBudgetUsd(tenantId));
   // Poll Integrity Hardening (2026-05-04).
   const syncRawChunk = deps.syncRawPollChunk ?? realSyncRawChunk;
   const stampRawRecon =
@@ -310,6 +350,31 @@ export async function runNativePoll(
         costEstimateUsd: 0,
         completedAt: null,
         note: gate.reason,
+      };
+    }
+  }
+
+  // ── Per-tenant daily spend ceiling (Audit #31/#35) ──────────────────
+  // Refuse a paid poll once the tenant has spent >= its daily_budget_usd
+  // today. Caps a runaway/abusive tenant and bounds fleet spend so N
+  // self-serve signups can't drain the account. force=true bypasses
+  // (deliberate operator override). FAIL-OPEN on read error (null) so a
+  // transient Supabase hiccup never blocks legit polling — the per-run
+  // cost ceiling downstream remains the backstop.
+  if (!force) {
+    const spentToday = await getSpentToday(tenantId);
+    if (spentToday != null && dailyBudgetUsd > 0 && spentToday >= dailyBudgetUsd) {
+      return {
+        status: "skipped_daily_budget_cap",
+        runId: null,
+        platform,
+        chunk: { offset: chunkOffset, limit: chunkLimit, promptsPolled: 0 },
+        observationsWritten: 0,
+        snapshotsWritten: 0,
+        errorCount: 0,
+        costEstimateUsd: 0,
+        completedAt: null,
+        note: `tenant daily spend cap reached: $${spentToday.toFixed(2)} >= $${dailyBudgetUsd.toFixed(2)}`,
       };
     }
   }

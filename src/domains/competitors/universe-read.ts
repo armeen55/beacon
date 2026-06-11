@@ -24,11 +24,49 @@ import type { CompetitorUniverseFile } from "./universe-schema";
 import { parseUniverseFile } from "./universe-file-parse";
 
 const IS_SUPABASE = process.env.DATA_SOURCE === "supabase";
-const repo = getRepository();
 
-const _dbConfigEntries = IS_SUPABASE
-  ? await repo.getCompetitorConfigEntries()
-  : [];
+/**
+ * Audit #4 (2026-06-10): competitor_config rows are PER-TENANT (the table
+ * carries tenant_id). The prior module-level top-level `await
+ * repo.getCompetitorConfigEntries()` read EVERY tenant's rows ONCE at
+ * import and froze them for the whole serverless instance — so every
+ * tenant's /competitors page showed the first-loaded mix. Now resolved
+ * per-call and filtered to the ambient tenant, cached per-tenant.
+ */
+const _dbEntriesByTenant = new Map<
+  string,
+  CompetitorUniverseRuntime["entries"]
+>();
+
+async function loadTenantConfigEntries(): Promise<
+  CompetitorUniverseRuntime["entries"]
+> {
+  if (!IS_SUPABASE) return [];
+  let tenantId: string;
+  try {
+    const { currentTenantId } = await import("@/lib/tenant-context");
+    tenantId = await currentTenantId();
+  } catch {
+    return [];
+  }
+  const cached = _dbEntriesByTenant.get(tenantId);
+  if (cached) return cached;
+  const all = await getRepository().getCompetitorConfigEntries();
+  // Defensive tenant filter (rows carry tenant_id even if the TS type
+  // doesn't surface it). Never serve another tenant's competitor set.
+  const mine = all.filter((e) => {
+    const t = (e as { tenant_id?: string }).tenant_id;
+    return t == null || t === tenantId;
+  });
+  // If the rows DO carry tenant_id, drop the permissive null-pass entries
+  // when any row matched this tenant (prevents legacy null rows leaking).
+  const strict = mine.filter(
+    (e) => (e as { tenant_id?: string }).tenant_id === tenantId,
+  );
+  const result = strict.length > 0 ? strict : mine.filter((e) => (e as { tenant_id?: string }).tenant_id == null);
+  _dbEntriesByTenant.set(tenantId, result);
+  return result;
+}
 
 function buildRuntime(
   origin: CompetitorUniverseRuntime["origin"],
@@ -53,9 +91,10 @@ function buildRuntime(
  * reconstructed (the DB doesn't store version/fingerprint metadata).
  */
 export async function loadCompetitorUniverseRuntime(): Promise<CompetitorUniverseRuntime> {
-  if (IS_SUPABASE && _dbConfigEntries.length > 0) {
-    const fp = computeCompetitorUniverseFingerprint(_dbConfigEntries);
-    return buildRuntime("configured_file", _dbConfigEntries, {
+  const dbConfigEntries = await loadTenantConfigEntries();
+  if (IS_SUPABASE && dbConfigEntries.length > 0) {
+    const fp = computeCompetitorUniverseFingerprint(dbConfigEntries);
+    return buildRuntime("configured_file", dbConfigEntries, {
       universe_version: null,
       universe_fingerprint: fp,
       legacy_unversioned_file: false,
