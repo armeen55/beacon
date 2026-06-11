@@ -19,7 +19,7 @@
  * stranger's own site.
  */
 
-import { saveBusinessConfig } from "@/lib/business-config";
+import { saveBusinessConfig, type BusinessConfig } from "@/lib/business-config";
 import type { PoliteFetchDeps } from "@/domains/competitor-intel/polite-fetch";
 import { deriveBusinessProfile } from "./derive-business-profile";
 import { deriveBusinessConfig } from "./derive-business-config";
@@ -38,6 +38,9 @@ export type LaunchConfigResult = {
   outcome: "derived_and_saved" | "typed_only_saved" | "skipped_no_domain";
   /** Field names the site derivation actually contributed. */
   derivedFields: string[];
+  /** The persisted config (undefined only when skipped) — the launch
+   *  flow threads services/industry/locations into prompt generation. */
+  config?: Partial<BusinessConfig>;
 };
 
 export async function deriveAndPersistTenantConfig(
@@ -79,5 +82,6 @@ export async function deriveAndPersistTenantConfig(
   return {
     outcome: profile ? "derived_and_saved" : "typed_only_saved",
     derivedFields,
+    config,
   };
 }

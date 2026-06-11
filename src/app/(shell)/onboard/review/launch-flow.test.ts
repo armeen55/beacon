@@ -808,3 +808,59 @@ describe("executeLaunchTransaction — tenant isolation", () => {
     expect(pendingAfter.length).toBe(0);
   });
 });
+
+// ── North-star onboarding (2026-06-11): derived config feeds prompts ──
+
+describe("executeLaunchTransaction — site-derived config → prompts", () => {
+  it("threads derived services/industry/locations into the inserted prompts", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT, cities_served: [], project_mix: [] }],
+    });
+    const tucsonStub = vi.fn(async () => ({
+      outcome: "derived_and_saved" as const,
+      derivedFields: ["industry", "services"],
+      config: {
+        industry: "restaurant",
+        services: ["catering", "taco bar"],
+        locations: ["Tucson", "AZ"], // derived — wizard typed none
+      },
+    }));
+
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: tucsonStub,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(tucsonStub).toHaveBeenCalledTimes(1);
+
+    const inserted = writes
+      .filter(
+        (w): w is Extract<(typeof writes)[number], { op: "insert" }> =>
+          w.op === "insert" && w.table === "tracked_prompts",
+      )
+      .flatMap((w) => w.rows as Array<{ text: string }>);
+    const texts = inserted.map((row) => row.text);
+    expect(texts).toContain("best restaurant in Tucson");
+    expect(texts).toContain("best catering in Tucson");
+    expect(texts.some((t) => / in AZ$/.test(t))).toBe(false); // region codes filtered
+  });
+
+  it("config derivation FAILING never blocks the launch (failure-soft)", async () => {
+    const { client, store } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT }],
+    });
+    const explodingStub = vi.fn(async () => {
+      throw new Error("site fetch exploded");
+    });
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: explodingStub as never,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(store.tenants[0].status).toBe("active");
+  });
+});

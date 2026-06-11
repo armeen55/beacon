@@ -151,6 +151,7 @@ export async function executeLaunchTransaction(args: {
   //     re-derived later; a blocked launch cannot be retried as
   //     cheaply). Pre-flip write is harmless if the flip races — the
   //     config is inert until the tenant is active.
+  let persistedConfig: Awaited<ReturnType<typeof persistConfig>>["config"];
   try {
     const configResult = await persistConfig({
       tenantId: tenant.id,
@@ -159,6 +160,7 @@ export async function executeLaunchTransaction(args: {
       typedCities: tenant.cities_served ?? [],
       competitors: tenant.discovered_competitors ?? [],
     });
+    persistedConfig = configResult.config;
     console.info(
       `[onboard/review] tenant config ${configResult.outcome}` +
         (configResult.derivedFields.length > 0
@@ -173,12 +175,21 @@ export async function executeLaunchTransaction(args: {
   }
 
   // 3. Re-generate prompts server-side. NEVER trust client input.
+  //    North-star onboarding (2026-06-11): the site-derived config
+  //    feeds the generator so ANY vertical gets real service-in-city
+  //    prompts (the ProjectMixTag path only covers the six builder
+  //    verticals). Typed cities beat derived locations; derived
+  //    locations fill in when the wizard collected none.
+  const typedCities = tenant.cities_served ?? [];
   const drafts = generateStarterPrompts({
     businessName: tenant.business_name ?? "",
     domain: tenant.domain ?? "",
-    citiesServed: tenant.cities_served ?? [],
+    citiesServed:
+      typedCities.length > 0 ? typedCities : (persistedConfig?.locations ?? []),
     projectMix: (tenant.project_mix ?? []) as ProjectMixTag[],
     competitors: tenant.discovered_competitors ?? [],
+    derivedServices: persistedConfig?.services ?? [],
+    industry: persistedConfig?.industry ?? null,
   });
   if (drafts.length === 0) {
     return { kind: "error", error: "no_prompts_generated" };

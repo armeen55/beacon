@@ -92,6 +92,17 @@ export type StarterPromptInput = {
   citiesServed: string[];
   projectMix: ProjectMixTag[];
   competitors: string[];
+  /**
+   * North-star onboarding (2026-06-11) — SITE-DERIVED service phrases
+   * (BusinessConfig.services, lowercase, any vertical). The builder-tag
+   * path above only fires for the six ProjectMixTag verticals; these
+   * fire for everyone — "best taco bar in Tucson" comes from the
+   * stranger's own site, not from a Beacon vocabulary.
+   */
+  derivedServices?: string[];
+  /** Site-derived industry label (e.g. "restaurant") — one extra
+   *  industry-in-city prompt per city. */
+  industry?: string | null;
 };
 
 /**
@@ -228,6 +239,62 @@ export function generateStarterPrompts(
           "Cost questions reveal who AI labels as the affordable vs premium option.",
       });
     }
+  }
+
+  // ── 6. SITE-DERIVED services + industry (vertical-agnostic) ───────
+  // North-star onboarding (2026-06-11): sections 3–5 only fire for the
+  // six builder ProjectMixTags. These fire for ANY business from its
+  // own site-derived config — a restaurant gets "best taco bar in
+  // Tucson", a dentist gets "best teeth whitening in Reno". Dedup via
+  // `add` means a builder whose derived phrases overlap the tag terms
+  // never double-emits. Region codes ("TX") make awkward prompt cities
+  // — only city-shaped names (>2 chars after state-strip) are used.
+  const promptCities = cities.filter(
+    (c) => stripStateAbbreviation(c).length > 2,
+  );
+  const derivedServices = (input.derivedServices ?? [])
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length >= 3 && s.length <= 40)
+    .slice(0, 8);
+  const industry = (input.industry ?? "").trim().toLowerCase();
+
+  if (industry && industry.length >= 3) {
+    for (const city of promptCities) {
+      add({
+        text: `best ${industry} in ${stripStateAbbreviation(city)}`,
+        cluster: "service_in_city",
+        category: "service_in_city",
+        city_scope: city,
+        service_scope: null,
+        rationale: `The broad "best ${industry}" question — the front door of AI recommendations.`,
+      });
+    }
+  }
+
+  for (const service of derivedServices) {
+    for (const city of promptCities) {
+      add({
+        text: `best ${service} in ${stripStateAbbreviation(city)}`,
+        cluster: "service_in_city",
+        category: "service_in_city",
+        city_scope: city,
+        service_scope: null,
+        rationale: `Captures people searching for ${service} — derived from your own site.`,
+      });
+    }
+  }
+
+  if (promptCities.length > 0 && derivedServices.length > 0) {
+    const anchor = promptCities[0]!;
+    add({
+      text: `how much does ${derivedServices[0]} cost in ${stripStateAbbreviation(anchor)}`,
+      cluster: "cost_query",
+      category: "cost_query",
+      city_scope: anchor,
+      service_scope: null,
+      rationale:
+        "Cost questions reveal who AI labels as the affordable vs premium option.",
+    });
   }
 
   return out;
