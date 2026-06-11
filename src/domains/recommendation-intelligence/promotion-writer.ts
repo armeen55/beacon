@@ -66,12 +66,17 @@ import {
   classifyPageType,
   type PageType,
 } from "@/domains/recommendation-intelligence/page-classifier";
+import {
+  enrichPromotionRow,
+  type DraftEnrichmentContext,
+} from "@/domains/recommendation-intelligence/draft-enrichment";
 import { loadTriggerCandidatesForTenant } from "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant";
 import { selectPromotableCandidates } from "@/domains/recommendation-intelligence/promote-to-queue";
 import {
   promotionResultToRecommendedEditRow,
   type DeterministicPromotionEditRow,
 } from "@/domains/recommendation-intelligence/promotion-result-to-edit-row";
+import type { PageSnapshot } from "@/domains/pages/types";
 
 export type PromoteEligibleCandidatesInput = {
   tenantId: string;
@@ -111,11 +116,25 @@ export async function promoteEligibleCandidates(
     triggerResult,
     recommendedEdits,
     recommendationResponses,
+    pageSnapshots,
   ] = await Promise.all([
     loadTriggerCandidatesForTenant({ tenantId: input.tenantId }),
     getRepository().forTenant(input.tenantId).getRecommendedEdits(),
     getRecommendationResponses(),
+    getRepository().forTenant(input.tenantId).getPageSnapshots(),
   ]);
+
+  // Draft enrichment context (P0 wall 3, 2026-06-10): latest snapshot
+  // per URL so the enricher can compose exact proposed copy / fix
+  // directives instead of empty "go look at this page" cards.
+  const snapshotByUrl = new Map<string, PageSnapshot>();
+  for (const snap of pageSnapshots) {
+    const existing = snapshotByUrl.get(snap.url);
+    if (!existing || snap.fetched_at > existing.fetched_at) {
+      snapshotByUrl.set(snap.url, snap);
+    }
+  }
+  const enrichmentCtx: DraftEnrichmentContext = { snapshotByUrl };
 
   const businessConfig = getBusinessConfig(input.tenantId);
   const triggerCandidates = [
@@ -143,13 +162,17 @@ export async function promoteEligibleCandidates(
     now,
   });
 
-  // Stage 3: map eligible results through α₁a. Skip null returns
-  // (defense-in-depth rejections).
+  // Stage 3: map eligible results through α₁a, then fill deterministic
+  // drafts (P0 wall 3). Enrichment is pure, never changes the row id /
+  // element-key identity, and leaves the row untouched when a correct
+  // draft can't be computed from the snapshot.
   const eligibleResults = promotion.filter((r) => r.eligible);
   const mapped_rows: DeterministicPromotionEditRow[] = [];
   for (const result of eligibleResults) {
     const row = promotionResultToRecommendedEditRow(result, now);
-    if (row != null) mapped_rows.push(row);
+    if (row != null) {
+      mapped_rows.push(enrichPromotionRow(row, result.candidate, enrichmentCtx));
+    }
   }
 
   const candidate_count = triggerCandidates.length;
