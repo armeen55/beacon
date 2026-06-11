@@ -9,3 +9,5 @@ One line per hour: time, items shipped, commits, next.
 - 00:44 — #24 auto-seed committed. #26 verified bounded (answer_texts keyed by tenant-disjoint observation ids — hygiene not bleed; consumption half stays inventory item). Next: >500-line sweep.
 - 00:55 — change-contracts scoped (allowlist 7), tenant switcher shipped (+ owner memberships for all 3 tenants), fleet scan SUCCEEDED on main (both tenants), nightly url-map re-sync wired (#111). Next: edit_meta/change_h1 → customer-queue-ready? No — operator-locked table. Next: docs sync + ship batch 3.
 - 01:00 — sweep done: issues+attribution stores per-tenant (6th/7th cache instances), ratchet learns repo-var shape + watches 6 more getters, seed-data aggregator frozen visibly. Suite 14,133/0. Shipping PR 14.
+- 01:05 — content rules per-tenant (#35/#67) committed; docs sync (inventory status block + ledger addendum).
+- 01:12 — INCIDENT: PR 14's build FAILED (use-server file exported a const) and my shell chain merged it anyway → main red ~10 min. Hotfix: tenant-cookie module extracted; local prod build verified green. Lesson encoded: assert 'pass' explicitly before merge, never grep&&merge.

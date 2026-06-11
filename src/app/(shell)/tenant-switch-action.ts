@@ -17,17 +17,11 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
-
-export const TENANT_COOKIE = "beacon_tenant";
-const COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60;
-
-/** Pure membership check (exported for tests). */
-export async function canSwitchToTenant(
-  memberships: ReadonlyArray<{ tenant_id: string }>,
-  target: string,
-): Promise<boolean> {
-  return target.length > 0 && memberships.some((m) => m.tenant_id === target);
-}
+import {
+  TENANT_COOKIE,
+  TENANT_COOKIE_MAX_AGE_S,
+  canSwitchToTenant,
+} from "@/lib/tenant-cookie";
 
 export async function switchTenantFromForm(formData: FormData): Promise<void> {
   const target = String(formData.get("tenant_id") ?? "").trim();
@@ -42,7 +36,7 @@ export async function switchTenantFromForm(formData: FormData): Promise<void> {
     .from("tenant_members")
     .select("tenant_id")
     .eq("user_id", user.id);
-  if (error || !(await canSwitchToTenant(memberships ?? [], target))) {
+  if (error || !canSwitchToTenant(memberships ?? [], target)) {
     // Not a member (or lookup failed) — change nothing.
     redirect("/");
   }
@@ -50,7 +44,7 @@ export async function switchTenantFromForm(formData: FormData): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(TENANT_COOKIE, target, {
     path: "/",
-    maxAge: COOKIE_MAX_AGE_S,
+    maxAge: TENANT_COOKIE_MAX_AGE_S,
     sameSite: "lax",
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

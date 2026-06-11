@@ -163,3 +163,63 @@ describe("runClusterFactoryForTenant", () => {
     if (r.ok) expect(r.syncWarning).toContain("supabase down");
   });
 });
+
+describe("per-tenant content rules injection (#35/#67, 2026-06-11)", () => {
+  it("plan without rules inherits the tenant's configured rules + bans", async () => {
+    vi.doMock("@/lib/business-config", () => ({
+      getBusinessConfig: () => ({
+        contentRules: ["Call the language Persian, never Farsi."],
+        flaggedTerms: ["Farsi"],
+      }),
+    }));
+    vi.resetModules();
+    const mod = await import("@/domains/push/factory-run");
+    let captured: import("@/domains/push/cluster-factory").ClusterPlan | null = null;
+    await mod.runClusterFactoryForTenant(
+      "tenant-iranopedia",
+      { ...PLAN, contentRules: [], flaggedTerms: [] },
+      {
+        generate: async (p: import("@/domains/push/cluster-factory").ClusterPlan) => {
+          captured = p;
+          return { ok: true, drafts: [], totalCostUsd: 0, flagged: 0, rejected: 0, rejectedReasons: [] };
+        },
+        getSpentTodayUsd: async () => 0,
+        persistLocal: async () => {},
+        syncRows: async () => {},
+        recordSpend: async () => {},
+      } as never,
+    );
+    expect(captured!.contentRules).toEqual(["Call the language Persian, never Farsi."]);
+    expect(captured!.flaggedTerms).toEqual(["Farsi"]);
+    vi.doUnmock("@/lib/business-config");
+  });
+
+  it("plan-level rules override; tenant bans still MERGE in", async () => {
+    vi.doMock("@/lib/business-config", () => ({
+      getBusinessConfig: () => ({
+        contentRules: ["tenant rule"],
+        flaggedTerms: ["Farsi"],
+      }),
+    }));
+    vi.resetModules();
+    const mod = await import("@/domains/push/factory-run");
+    let captured: import("@/domains/push/cluster-factory").ClusterPlan | null = null;
+    await mod.runClusterFactoryForTenant(
+      "tenant-iranopedia",
+      { ...PLAN, contentRules: ["plan rule"], flaggedTerms: ["PlanBan"] },
+      {
+        generate: async (p: import("@/domains/push/cluster-factory").ClusterPlan) => {
+          captured = p;
+          return { ok: true, drafts: [], totalCostUsd: 0, flagged: 0, rejected: 0, rejectedReasons: [] };
+        },
+        getSpentTodayUsd: async () => 0,
+        persistLocal: async () => {},
+        syncRows: async () => {},
+        recordSpend: async () => {},
+      } as never,
+    );
+    expect(captured!.contentRules).toEqual(["plan rule"]);
+    expect([...captured!.flaggedTerms].sort()).toEqual(["Farsi", "PlanBan"]);
+    vi.doUnmock("@/lib/business-config");
+  });
+});

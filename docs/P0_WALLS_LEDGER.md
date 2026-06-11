@@ -161,3 +161,42 @@ the nightly writer; the digest shows the per-business learning line
 05:30 UTC — both queues refill (Iranopedia: ~14 rows, 10 with drafts).
 07:00 UTC — both tenants polled across both engines.
 14:00 UTC — digest job runs (skips loudly until the Resend key lands).
+
+---
+
+## Night shift addendum — 2026-06-11 (00:00–05:00 PT)
+
+Shipped on top of the seven walls (PRs #12–#15):
+1. **Cross-tenant blend killed in both singleton indexes** —
+   citation_evidence_index + answer_intelligence_index were ONE global
+   row blended across tenants (and the app-layer stores were disk-only
+   on hosted = always null, with process-global caches that cross-pinned
+   tenants). Per-tenant rows (migrations applied), per-tenant rebuild
+   loop in the cron, scoped reads everywhere, per-tenant store caches.
+2. **Seven process-global cache bleeds fixed** (citation store,
+   answer-intel store, recommendation responses, action states, change
+   contracts, page issues, attribution state) — all per-tenant maps now;
+   the ratchet learned the call shape that hid them and watches 6 more
+   getters (seed-data aggregator frozen visibly for daylight).
+3. **Nightly chain self-heals** — the 11:00 UTC watchdog now covers
+   scan + generation (new heartbeat) + poll per active tenant and
+   dispatches exactly the missing workflows. Found live: GH's scheduler
+   skipped the 04:00 scan and the 07:00 poll entirely tonight.
+4. **Scan resilience** — sitemap retry-with-backoff (a 1-minute
+   transient killed yesterday's whole scan) + the scan workflow finally
+   has a failure alert.
+5. **Queue hygiene** — nightly sweeper: auto-promoted cards expire at
+   30 days or beyond 50 pending (new `expired` status, 30d cooldown).
+6. **Competitor auto-seed** — ≤8 direct rivals/night persisted into the
+   universe per tenant (discovery was display-only before).
+7. **Tenant switcher** — owner memberships for all three businesses +
+   the header switcher (the operator could not reach Iranopedia's queue
+   in-app before this).
+8. **Per-tenant content rules** (+ factory default injection) —
+   "Persian, never Farsi" is tenant config now, not typed arguments.
+9. **Nightly Wix url-map re-sync** (no-ops until the Wix key lands).
+
+WAITING FOR OPERATOR — unchanged: RESEND_API_KEY; Vercel env
+(BEACON_LLM_PROVIDER=openai, OPENAI_API_KEY, BEACON_CROSS_TENANT_BRAIN=1);
+Wix key + collection mappings for Iranopedia; SEMrush/CallRail keys;
+Finglish domain/repo decision; GSC connect for Iranopedia.

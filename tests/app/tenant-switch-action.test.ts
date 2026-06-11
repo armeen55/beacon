@@ -37,7 +37,8 @@ vi.mock("@/lib/auth/supabase-server", () => ({
   }),
 }));
 
-import { switchTenantFromForm, canSwitchToTenant, TENANT_COOKIE } from "@/app/(shell)/tenant-switch-action";
+import { switchTenantFromForm } from "@/app/(shell)/tenant-switch-action";
+import { canSwitchToTenant, TENANT_COOKIE } from "@/lib/tenant-cookie";
 
 function form(tenantId: string): FormData {
   const f = new FormData();
@@ -46,11 +47,11 @@ function form(tenantId: string): FormData {
 }
 
 describe("canSwitchToTenant", () => {
-  it("true only for actual memberships, never empty targets", async () => {
+  it("true only for actual memberships, never empty targets", () => {
     const m = [{ tenant_id: "tenant-a" }];
-    expect(await canSwitchToTenant(m, "tenant-a")).toBe(true);
-    expect(await canSwitchToTenant(m, "tenant-b")).toBe(false);
-    expect(await canSwitchToTenant(m, "")).toBe(false);
+    expect(canSwitchToTenant(m, "tenant-a")).toBe(true);
+    expect(canSwitchToTenant(m, "tenant-b")).toBe(false);
+    expect(canSwitchToTenant(m, "")).toBe(false);
   });
 });
 
