@@ -103,6 +103,22 @@ async function main() {
     BEACON_SITE_DOMAIN: env.BEACON_SITE_DOMAIN ?? "(unset — falls back to .data/business-config)",
   });
 
+  // North-star onboarding (2026-06-11): a self-served tenant has no env
+  // blob and no .data on this runner — its config lives in the
+  // per-tenant business_config row written at launch. Hydrate it into
+  // the config cache BEFORE the scan engines resolve config (hydrate
+  // runs the sync chain first, so the operator env blob still wins for
+  // the hand-configured tenants).
+  {
+    const { hydrateBusinessConfigFromSupabase } = await import(
+      "../src/lib/business-config"
+    );
+    const hydrated = await hydrateBusinessConfigFromSupabase(tenantId);
+    console.log(
+      `[scheduled-scan] business-config: ${hydrated ? `resolved (${hydrated.domain || "no domain"})` : "PLACEHOLDER — no env/file/db config for this tenant"}`,
+    );
+  }
+
   // Lazy import — env must be set before orchestrate-scan resolves
   // tenant context at module load.
   const { runWebsiteScan } = await import(

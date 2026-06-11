@@ -138,3 +138,42 @@ describe("getBusinessConfigForCurrentTenant — Supabase hydrate fallback", () =
     expect(cfg.name).toBe("Now Exists");
   });
 });
+
+describe("hydrateBusinessConfigFromSupabase — standalone (the cron path)", () => {
+  it("PRIORITY: the operator env blob beats the Supabase row even when hydrate is the first config touch", async () => {
+    const saved = process.env.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT;
+    process.env.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT = JSON.stringify({
+      [TENANT]: { name: "Env Override Co", domain: "env.example" },
+    });
+    try {
+      maybeSingleMock.mockResolvedValue({
+        data: { data: { name: "DB Row Co", domain: "db.example" } },
+        error: null,
+      });
+      const { hydrateBusinessConfigFromSupabase } = await import(
+        "./business-config"
+      );
+      const cfg = await hydrateBusinessConfigFromSupabase(TENANT);
+      expect(cfg?.name).toBe("Env Override Co"); // pre-fix: "DB Row Co"
+      expect(maybeSingleMock).not.toHaveBeenCalled(); // never even queried
+    } finally {
+      if (typeof saved === "string") {
+        process.env.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT = saved;
+      } else {
+        delete process.env.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT;
+      }
+    }
+  });
+
+  it("falls through to the Supabase row when env+files miss (first touch)", async () => {
+    maybeSingleMock.mockResolvedValue({
+      data: { data: { name: "DB Row Co", domain: "db.example" } },
+      error: null,
+    });
+    const { hydrateBusinessConfigFromSupabase } = await import(
+      "./business-config"
+    );
+    const cfg = await hydrateBusinessConfigFromSupabase(TENANT);
+    expect(cfg?.name).toBe("DB Row Co");
+  });
+});

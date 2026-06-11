@@ -529,8 +529,12 @@ export async function getBusinessConfigForCurrentTenant(): Promise<BusinessConfi
 export async function hydrateBusinessConfigFromSupabase(
   tenantId: string,
 ): Promise<BusinessConfig | null> {
-  const cached = _cacheByTenant.get(tenantId);
-  if (cached && !cached.__placeholder) return cached;
+  // Run the SYNC chain first so the operator's env-blob / file config
+  // always beats the Supabase row (priority a–c before d') — a cron
+  // calling hydrate as its first config touch must not invert the
+  // resolution order.
+  const resolved = getBusinessConfig(tenantId);
+  if (!resolved.__placeholder) return resolved;
   if (_supabaseHydrateAttempted.has(tenantId)) return null;
   _supabaseHydrateAttempted.add(tenantId);
   try {
