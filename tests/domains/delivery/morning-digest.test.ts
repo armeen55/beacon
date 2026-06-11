@@ -14,6 +14,7 @@ import {
   selectFirstCitations,
   selectPushRegressionAlarms,
   computeMedianApprovalHours,
+  selectTopDismissReason,
   DIGEST_MOVES_PER_TENANT,
   type DigestTenantSection,
 } from "@/domains/delivery/morning-digest";
@@ -368,5 +369,60 @@ describe("computeMedianApprovalHours (#127)", () => {
       NOW4,
     );
     expect(out).toBeNull();
+  });
+});
+
+describe("selectTopDismissReason (#54)", () => {
+  const NOW5 = new Date("2026-06-11T14:00:00Z");
+  const resp = (status: string, respondedAt: string, dismissReason?: string | null) => ({
+    status, respondedAt, dismissReason: dismissReason ?? null,
+  });
+
+  it("returns the most common dismiss reason in the window (≥3)", () => {
+    const out = selectTopDismissReason(
+      [
+        resp("dismissed", "2026-06-10T00:00:00Z", "not_relevant"),
+        resp("dismissed", "2026-06-09T00:00:00Z", "not_relevant"),
+        resp("dismissed", "2026-06-08T00:00:00Z", "not_relevant"),
+        resp("dismissed", "2026-06-08T00:00:00Z", "too_risky"),
+        resp("accepted", "2026-06-10T00:00:00Z"),
+      ],
+      NOW5,
+    );
+    expect(out).toEqual({ reason: "not_relevant", count: 3 });
+  });
+
+  it("null reasons bucket as 'other'", () => {
+    const out = selectTopDismissReason(
+      [
+        resp("dismissed", "2026-06-10T00:00:00Z"),
+        resp("dismissed", "2026-06-09T00:00:00Z"),
+        resp("dismissed", "2026-06-08T00:00:00Z"),
+      ],
+      NOW5,
+    );
+    expect(out).toEqual({ reason: "other", count: 3 });
+  });
+
+  it("under 3 dismissals → null (no noise)", () => {
+    expect(
+      selectTopDismissReason(
+        [resp("dismissed", "2026-06-10T00:00:00Z", "wrong_page")],
+        NOW5,
+      ),
+    ).toBeNull();
+  });
+
+  it("old dismissals fall out of the window", () => {
+    expect(
+      selectTopDismissReason(
+        [
+          resp("dismissed", "2026-05-01T00:00:00Z", "not_relevant"),
+          resp("dismissed", "2026-05-01T00:00:00Z", "not_relevant"),
+          resp("dismissed", "2026-05-01T00:00:00Z", "not_relevant"),
+        ],
+        NOW5,
+      ),
+    ).toBeNull();
   });
 });
