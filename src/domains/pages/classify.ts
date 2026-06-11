@@ -72,24 +72,48 @@ export function classifyOwnership(
 
 // ── City extraction from URL path ───────────────────────────────────
 
+// Bay-Area default list — the LEGACY fallback for callers that don't
+// pass a tenant city list (preserves the founder/Ritz behavior exactly).
 const ALL_CITIES = Object.values(GEO_CONTAINMENT).flat();
 
-export function extractCityFromPath(path: string): string | null {
+/**
+ * Night-shift #147/#148 (2026-06-11): the city vocabulary is now an
+ * INJECTED per-tenant list. `knownCities` (lowercased) is threaded from
+ * the tenant's `businessConfig.locations` by the caller; when omitted,
+ * we fall back to the Bay-Area `ALL_CITIES` (Ritz/legacy parity). A
+ * content tenant with NO locations passes `[]` → matches nothing, so
+ * Bay-Area names no longer false-tag (e.g.) Persian-encyclopedia text.
+ */
+export function extractCityFromPath(
+  path: string,
+  knownCities?: ReadonlyArray<string>,
+): string | null {
   const match = path.match(/\/locations\/([^/]+)/i);
   if (!match) return null;
 
   const slug = match[1].replace(/-/g, " ").toLowerCase().trim();
-  const found = ALL_CITIES.find((c) => c === slug);
+  const cities = knownCities ?? ALL_CITIES;
+  const found = cities.find((c) => c === slug);
+  // Path-extraction still trusts the URL structure: a /locations/<slug>
+  // page IS a city page even if the slug isn't in the configured list.
   return found ?? slug;
 }
 
-export function extractCityFromText(text: string): string | null {
+export function extractCityFromText(
+  text: string,
+  knownCities?: ReadonlyArray<string>,
+): string | null {
   const lower = text.toLowerCase();
-  for (const city of ALL_CITIES) {
+  const cities = knownCities ?? ALL_CITIES;
+  for (const city of cities) {
     if (lower.includes(city)) return city;
   }
-  for (const metro of Object.keys(GEO_CONTAINMENT)) {
-    if (lower.includes(metro)) return metro;
+  // The metro-name fallback is Bay-Area-specific; only apply it when no
+  // tenant list was injected (legacy callers), never for a content tenant.
+  if (knownCities === undefined) {
+    for (const metro of Object.keys(GEO_CONTAINMENT)) {
+      if (lower.includes(metro)) return metro;
+    }
   }
   return null;
 }
