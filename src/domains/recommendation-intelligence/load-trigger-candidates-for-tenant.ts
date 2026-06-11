@@ -84,6 +84,7 @@ import { canonicalMismatch } from "./triggers/canonical-mismatch";
 import { duplicateMeta } from "./triggers/duplicate-meta";
 import { duplicateTitle } from "./triggers/duplicate-title";
 import { thinContentOverlap } from "./triggers/thin-content-overlap";
+import { staleContent, normalizeStaleUrl } from "./triggers/stale-content";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { missingSchema } from "./triggers/missing-schema";
@@ -207,6 +208,21 @@ export async function loadTriggerCandidatesForTenant(options: {
     indexabilityFailed = true;
   }
 
+  // Night-shift #44 (2026-06-11): pre-load the per-tenant sitemap
+  // lastmod map for the stale-content predicate. Soft-fail to an
+  // empty map — unknown age is never evidence of staleness.
+  const lastmodByUrl = new Map<string, string>();
+  try {
+    const recon = await getRepository().forTenant(tenantId).getSitemapReconciliation();
+    for (const page of recon?.canonical_pages ?? []) {
+      if (page.sitemap_lastmod) {
+        lastmodByUrl.set(normalizeStaleUrl(page.url), page.sitemap_lastmod);
+      }
+    }
+  } catch {
+    /* empty map — predicate skips */
+  }
+
   const all: RecommendationCandidateRow[] = [];
   // Slice 4.5.B.α₂ — cross-snapshot duplicate predicates run ONCE
   // over the full tenant-filtered list, BEFORE the per-snapshot
@@ -217,6 +233,9 @@ export async function loadTriggerCandidatesForTenant(options: {
   // Night-shift #43 (2026-06-11): cross-snapshot thin-overlap detector —
   // emits at confidence "low" → diagnostic_only (operator calibrates).
   all.push(...thinContentOverlap({ tenantId, snapshots }));
+  // Night-shift #44: sitemap-lastmod staleness — confidence "low" →
+  // diagnostic_only (operator calibrates).
+  all.push(...staleContent({ tenantId, snapshots, lastmodByUrl, now: new Date() }));
   all.push(...duplicateMeta({ tenantId, snapshots }));
   // Slice 4.5.C.α₃a — `orphan-page` is also a cross-snapshot
   // predicate. It aggregates each snapshot's `internal_links`
