@@ -24,7 +24,7 @@ export default async function SettingsConfigPage() {
     <div>
       <PageHeader
         title="Business configuration"
-        description="Core profile (name, domain, industry, locations, services, competitors, optional Yelp business id for the Yelp connector) used across Beacon. Values are read from and written to .data/business-config.json on this machine."
+        description="Core profile (name, domain, industry, locations, services, competitors, optional Yelp business id for the Yelp connector) used across Beacon. Beacon fills this in automatically from your website at launch — anything you save here wins over what was derived."
       />
       <ConfigForm initial={initial} />
     </div>
