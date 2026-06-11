@@ -83,11 +83,22 @@ export default async function ExpansionPage() {
     getChangelogEntries(),
     getOpportunities(),
   ]);
+  // #149-family (2026-06-11): geo-expansion uses the TENANT'S cities.
+  let expansionCities: string[] | undefined;
+  try {
+    const { getBusinessConfigForCurrentTenant } = await import(
+      "@/lib/business-config"
+    );
+    expansionCities = (await getBusinessConfigForCurrentTenant()).locations;
+  } catch {
+    expansionCities = undefined; // founder default
+  }
   const allCandidates = computeOpportunityCandidates(
     results,
     changelogEntries,
     opportunities,
-    await getCandidateLinks()
+    await getCandidateLinks(),
+    expansionCities,
   );
   const summary = summarizeCandidates(allCandidates);
   const fresh = newCandidates(allCandidates);
