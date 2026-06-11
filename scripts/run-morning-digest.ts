@@ -23,6 +23,7 @@ import {
   composeMorningDigest,
   selectDigestRows,
   selectFirstCitations,
+  selectPushRegressionAlarms,
   type DigestTenantSection,
 } from "../src/domains/delivery/morning-digest";
 import { computeEditFeedback } from "../src/domains/recommendation-intelligence/edit-feedback";
@@ -57,13 +58,21 @@ async function main() {
     // First-ever citations (#94): full per-tenant citation history so
     // "first" means first, not first-in-window. Soft-fail to none.
     let firstCitations: string[] = [];
+    let pushRegressions: string[] = [];
     try {
       const observations = await getRepository()
         .forTenant(t.id)
         .getPromptAnswerObservations();
       firstCitations = selectFirstCitations(
-        observations as Array<{ observed_at: string; citation_urls?: string[] | null }>,
+        observations as Array<{ observed_at: string; citation_urls?: string[] | null; platform?: string | null }>,
         t.domain,
+        now,
+      );
+      // #96 v1: did an approved push HURT? Compare the week before vs
+      // after for every page pushed in the last 7 days.
+      pushRegressions = selectPushRegressionAlarms(
+        observations as Array<{ observed_at: string; citation_urls?: string[] | null }>,
+        rows,
         now,
       );
     } catch {
@@ -76,6 +85,7 @@ async function main() {
       editRate: feedback.overall.editRate,
       editRateShipped: shipped,
       firstCitations,
+      pushRegressions,
     });
     console.log(
       `[morning-digest] ${t.id}: pending=${sel.pendingTotal} pushed24h=${sel.pushedLastDay} verified24h=${sel.verifiedLastDay} editRate=${feedback.overall.editRate ?? "n/a"}`,

@@ -12,6 +12,7 @@ import {
   selectDigestRows,
   composeMorningDigest,
   selectFirstCitations,
+  selectPushRegressionAlarms,
   DIGEST_MOVES_PER_TENANT,
   type DigestTenantSection,
 } from "@/domains/delivery/morning-digest";
@@ -259,5 +260,71 @@ describe("selectFirstCitations (#94) — the first-ever-citation receipt", () =>
       { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
     );
     expect(d.text).toContain("First AI citation ever: /persian-last-names");
+  });
+});
+
+describe("selectPushRegressionAlarms (#96 v1)", () => {
+  const NOW3 = new Date("2026-06-11T14:00:00Z");
+  const obs = (observed_at: string, urls: string[]) => ({ observed_at, citation_urls: urls });
+  const PUSH_URL = "https://iranopedia.com/famous-iranians";
+  const pushed = (live_at: string) => [
+    { target_url: PUSH_URL, implementation_status: "pushed", live_at, updated_at: live_at },
+  ];
+
+  function citations(beforeCount: number, afterCount: number, pushedAt: string) {
+    const t0 = Date.parse(pushedAt);
+    const rows: Array<{ observed_at: string; citation_urls: string[] }> = [];
+    for (let i = 0; i < beforeCount; i++) {
+      rows.push(obs(new Date(t0 - (i + 1) * 12 * 3600 * 1000).toISOString(), [PUSH_URL]));
+    }
+    for (let i = 0; i < afterCount; i++) {
+      rows.push(obs(new Date(t0 + (i + 1) * 12 * 3600 * 1000).toISOString(), [PUSH_URL]));
+    }
+    return rows;
+  }
+
+  it("alarms when citations halve after a push (pre ≥3)", () => {
+    const pushedAt = "2026-06-08T07:00:00Z";
+    const out = selectPushRegressionAlarms(citations(6, 1, pushedAt), pushed(pushedAt), NOW3);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("/famous-iranians");
+    expect(out[0]).toContain("6 citations the week before");
+    expect(out[0]).toContain("Revert");
+  });
+
+  it("never alarms on thin priors (pre <3) — young pages stay quiet", () => {
+    const pushedAt = "2026-06-08T07:00:00Z";
+    const out = selectPushRegressionAlarms(citations(2, 0, pushedAt), pushed(pushedAt), NOW3);
+    expect(out).toEqual([]);
+  });
+
+  it("no alarm when citations hold steady", () => {
+    const pushedAt = "2026-06-08T07:00:00Z";
+    const out = selectPushRegressionAlarms(citations(6, 5, pushedAt), pushed(pushedAt), NOW3);
+    expect(out).toEqual([]);
+  });
+
+  it("pushes older than 7 days are out of scope", () => {
+    const pushedAt = "2026-05-20T07:00:00Z";
+    const out = selectPushRegressionAlarms(citations(6, 0, pushedAt), pushed(pushedAt), NOW3);
+    expect(out).toEqual([]);
+  });
+
+  it("composer renders the alarm loudly", () => {
+    const d = composeMorningDigest(
+      [
+        {
+          tenantId: "t",
+          businessName: "Iranopedia",
+          pending: [],
+          pendingTotal: 0,
+          verifiedLastDay: 0,
+          pushedLastDay: 0,
+          pushRegressions: ["/famous-iranians — 6 citations the week before the push, 1 since. Consider the Revert button on the Wix console."],
+        },
+      ],
+      { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
+    );
+    expect(d.text).toContain("⚠ Possible regression: /famous-iranians");
   });
 });

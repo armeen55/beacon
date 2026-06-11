@@ -15,3 +15,4 @@ One line per hour: time, items shipped, commits, next.
 - 01:27 — PR 16 merged (triggers 17/18 on main). #82 pre-push snapshots+revert committed; #73 url-map live probes committed. Next: full gates + ship batch 5.
 - 01:34 — full suite flaked once (6 fails) then clean 14,154/0 on immediate rerun — suspected worker-order pollution; watching CI for recurrence.
 - 01:50 — flake non-reproducible (3× clean full runs, 14,160/0). Shipped tonight since last log: #126 per-tenant console gates, live_text capture substrate (#100), first-citation receipts (#94). Deferred with note: #149 geo-tag de-hardcode (display-only, wide ripple — daylight slice).
+- 02:00 — PR 18 merged. Landed since: digest deep links via /api/tenant-switch (#118), engine tag on first-citations (#52-lite), create_page verification matcher (#90). Next: post-push regression alarm (#96 v1).
