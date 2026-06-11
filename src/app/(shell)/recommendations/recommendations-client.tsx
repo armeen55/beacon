@@ -1301,6 +1301,9 @@ function RowDrawer({
   competitorNames?: ReadonlyArray<string>;
 }) {
   const d = row.detail;
+  // #54 (2026-06-11): optional dismiss reason — the taste-learning
+  // signal. Empty string → undefined → null reason (today's behavior).
+  const [dismissReason, setDismissReason] = useState<string>("");
   const hasExactCopy =
     typeof d.proposedText === "string" && d.proposedText.trim().length > 0;
   // W3 §3.15 (2026-05-04): grouped FAQ Q+A rows carry the answer
@@ -1614,12 +1617,34 @@ function RowDrawer({
           >
             Defer 7 days
           </button>
+          <select
+            value={dismissReason}
+            disabled={pending}
+            onChange={(e) => setDismissReason(e.target.value)}
+            className="text-[11px] px-1.5 py-1 rounded border border-border/60 bg-background disabled:opacity-50"
+            data-rec-dismiss-reason
+            aria-label="Dismiss reason"
+          >
+            <option value="">Reason…</option>
+            <option value="not_relevant">Not relevant</option>
+            <option value="already_done">Already done</option>
+            <option value="wrong_page">Wrong page</option>
+            <option value="bad_suggestion">Bad suggestion</option>
+            <option value="too_risky">Too risky</option>
+            <option value="other">Other</option>
+          </select>
           <button
             type="button"
             disabled={pending}
             onClick={() =>
               handle(
-                () => dismissRecommendation(row.sourceRecommendationId),
+                () =>
+                  dismissRecommendation(
+                    row.sourceRecommendationId,
+                    (dismissReason || undefined) as
+                      | import("@/domains/product/recommendation-response-store").DismissReason
+                      | undefined,
+                  ),
                 "Dismissed.",
               )
             }
