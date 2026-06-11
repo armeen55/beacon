@@ -266,11 +266,18 @@ async function bootstrap() {
 
   console.log("\nSingleton stores:");
 
+  // Night-shift (2026-06-11): both index tables are per-tenant now —
+  // multiple id='current' rows exist, so an unfiltered maybeSingle()
+  // throws. Bootstrap seeds ONE tenant's local .data (founder by
+  // default; override with BEACON_TENANT_ID).
+  const bootstrapTenantId = process.env.BEACON_TENANT_ID || "tenant-ritz-founder";
+
   // citation_evidence_index
   const { data: citData } = await sb
     .from("citation_evidence_index")
     .select("*")
     .eq("id", "current")
+    .eq("tenant_id", bootstrapTenantId)
     .maybeSingle();
   if (citData) {
     const citIndex = {
@@ -292,6 +299,7 @@ async function bootstrap() {
     .from("answer_intelligence_index")
     .select("*")
     .eq("id", "current")
+    .eq("tenant_id", bootstrapTenantId)
     .maybeSingle();
   if (aiData?.data) {
     writeJsonFile("answer-intelligence-index", aiData.data);

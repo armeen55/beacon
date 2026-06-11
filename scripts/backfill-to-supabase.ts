@@ -225,8 +225,15 @@ async function backfill() {
     "citation-evidence-index",
   );
   if (citIndex && typeof citIndex === "object" && !Array.isArray(citIndex)) {
+    // Night-shift (2026-06-11): citation_evidence_index is per-tenant
+    // now ((tenant_id, id) PK, NOT NULL). This legacy single-tenant
+    // backfill stamps the founder tenant (overridable via
+    // BEACON_TENANT_ID) and uses the composite conflict key — without
+    // this it would fail against the post-migration schema.
+    const backfillTenantId = process.env.BEACON_TENANT_ID || "tenant-ritz-founder";
     const row = {
       id: "current",
+      tenant_id: backfillTenantId,
       built_at: citIndex.built_at ?? new Date().toISOString(),
       total_citations_processed: citIndex.total_citations_processed ?? 0,
       by_page_and_topic: citIndex.by_page_and_topic ?? [],
@@ -235,7 +242,7 @@ async function backfill() {
     };
     const { error } = await sb
       .from("citation_evidence_index")
-      .upsert(row, { onConflict: "id" });
+      .upsert(row, { onConflict: "tenant_id,id" });
     if (error) {
       console.error(`  citation_evidence_index: FAILED — ${error.message}`);
     } else {

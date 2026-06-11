@@ -251,3 +251,20 @@ NEW WAITING FOR OPERATOR (added this wave):
     `skipped_pat_not_configured`.
   - `PERPLEXITY_API_KEY` / OpenAI key (GH Actions secrets) for the
     poll matrix — without them the poll job fails even when dispatched.
+
+### Hardcode residue — night-shift dispositions (2026-06-11)
+
+- **#147/#148 city extraction (classify.ts) — FIXED.** Per-tenant
+  injected city list; content tenants no longer false-tag Bay-Area
+  names. (Commit this batch.)
+- **#149 BAY_AREA_CITIES in recommendation-title-humanizer
+  (extractGeoTag) — WAITING (daylight).** Display-only (a parenthetical
+  geo in a rec title); the real fix threads the tenant's cities from
+  the server page through the CLIENT row-builder
+  (recommendations-v2-client / recs-resolver-debug-panel), an
+  RSC→client prop-plumb not safely verifiable headless at night. The
+  function seam is the next slice; the wrong-tag blast radius is a
+  cosmetic title only.
+- **#150 SERVICE_KEYWORD_MAP/TOPIC_ADJACENCY (query-index) — WAITING
+  (daylight).** Same shape: caller-deep, self-degrades via path
+  fallback, builder-flavored display/inference only.

@@ -18,6 +18,7 @@ import {
   extractCityFromText,
   isOpaqueUrl,
 } from "./classify";
+import { getBusinessConfig } from "@/lib/business-config";
 
 type DiscoveredPage = {
   url: string;
@@ -59,6 +60,13 @@ export function discoverPages(opts: {
     }
   }
   ownedDomains.add(ownedDomain.toLowerCase().replace(/^www\./, ""));
+
+  // Night-shift #147 (2026-06-11): the tenant's OWN city vocabulary
+  // (lowercased) drives city extraction — not the global Bay-Area list.
+  // A content tenant with no locations → [] → no false city tags.
+  const tenantCities = (getBusinessConfig(tenantId).locations ?? []).map((c) =>
+    c.toLowerCase().trim(),
+  );
 
   const pageMap = new Map<string, DiscoveredPage>();
 
@@ -136,11 +144,11 @@ export function discoverPages(opts: {
       | undefined;
     const ownership = classifyOwnership(p.domain, ownedDomains, primaryCategory);
 
-    const pathCity = extractCityFromPath(p.path);
+    const pathCity = extractCityFromPath(p.path, tenantCities);
     const textCity = p.cities.size > 0
       ? [...p.cities][0]
       : p.titles.length > 0
-        ? extractCityFromText(p.titles[0])
+        ? extractCityFromText(p.titles[0], tenantCities)
         : null;
     const city = pathCity ?? textCity ?? null;
 
