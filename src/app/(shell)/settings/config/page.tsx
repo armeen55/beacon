@@ -17,6 +17,8 @@ export default async function SettingsConfigPage() {
     locationsLine: cfg.locations.join(", "),
     servicesLine: cfg.services.join(", "),
     competitorsLine: cfg.primaryCompetitors.join(", "),
+    contentRulesLine: (cfg.contentRules ?? []).join("\n"),
+    flaggedTermsLine: (cfg.flaggedTerms ?? []).join(", "),
     yelpBusinessId: cfg.yelpBusinessId ?? "",
   };
 
