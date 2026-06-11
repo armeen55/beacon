@@ -25,3 +25,4 @@ One line per hour: time, items shipped, commits, next.
 - 03:02 — round-2 audit verified (2 of 3 findings were false/marginal — codebase is solid); kept parseInt radix sweep + freshness NaN guard. Suite green on touched domains.
 - 03:05 — #54 dismiss-reason substrate + parseInt/freshness robustness shipped (PR 23). 12 PRs tonight. Suite 14,189/0.
 - 03:18 — chain health verified: scan GREEN on schedule (both tenants, ~4h GH lag), generation GREEN by dispatch, poll skipped by GH (watchdog deployed to catch at 11:00 UTC; needs PAT+keys → WAITING). PR 25 (dismiss picker) in CI.
+- 03:22 — dismiss-reason loop fully closed (picker→persist→aggregate→digest); digest at-a-glance summary header (#125). Folded into PR 25. Suite 14,194/0, local build green. ~1h40 to 05:00; chain verified (scan green, gen green by dispatch, poll operator-key-blocked).
