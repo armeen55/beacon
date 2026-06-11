@@ -182,6 +182,36 @@ async function main() {
         );
       }
     }
+    // Wix url-map nightly re-sync (#111, 2026-06-11): new CMS items
+    // appear daily on a content site; a stale map silently shrinks the
+    // pushable set. No-ops cleanly when the tenant has no Wix connector
+    // or no collection mappings. Best-effort.
+    if (!mode.dryRun) {
+      try {
+        const { getTenant } = await import("../src/domains/tenants/store");
+        const tenant = await getTenant(tenantId);
+        if (tenant?.publish_target === "wix_cms") {
+          const { getConnectorToken } = await import("../src/lib/connector-store");
+          const token = await getConnectorToken("wix", tenantId);
+          if (token) {
+            const { syncWixUrlMap } = await import("../src/lib/connectors/wix/url-map");
+            const sync = await syncWixUrlMap({
+              siteBaseUrl: `https://${(tenant.domain || "").replace(/^https?:\/\//, "")}`,
+            });
+            console.log(
+              `[scheduled-generation] URL-MAP tenant=${tenantId} ok=${sync.ok} collections=${sync.collections} itemsMapped=${sync.itemsMapped}` +
+                (sync.errors.length > 0 ? ` errors=${sync.errors.length}` : ""),
+            );
+          } else {
+            console.log(`[scheduled-generation] URL-MAP tenant=${tenantId} skipped=no_wix_connector`);
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `::warning::[scheduled-generation] wix url-map re-sync failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     // Competitor auto-seed (#24, 2026-06-11): persist newly discovered
     // direct rivals into the tenant's universe (≤8/night, idempotent).
     // Best-effort — discovery data may simply not exist yet.
