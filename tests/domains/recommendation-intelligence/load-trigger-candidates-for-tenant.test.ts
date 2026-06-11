@@ -647,7 +647,10 @@ describe("loadTriggerCandidatesForTenant", () => {
       "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
     );
     await loadTriggerCandidatesForTenant({ tenantId: "tenant-a" });
-    expect(_forTenantSpy).toHaveBeenCalledTimes(1);
+    // Night-shift #44 (2026-06-11): a second forTenant call loads the
+    // sitemap reconciliation (stale-content lastmod map). Both calls
+    // must carry the explicit tenantId.
+    expect(_forTenantSpy).toHaveBeenCalledTimes(2);
     expect(_forTenantSpy).toHaveBeenCalledWith("tenant-a");
   });
 
