@@ -112,6 +112,11 @@ describe("deriveAndPersistTenantConfig — URL-only acceptance", () => {
     );
     expect(cfg.scanSettings.enabled).toBe(true); // launch IS the opt-in
     expect(cfg.scanSettings.timezone).toBe("UTC"); // never a geo guess
+    // The restaurant's yelp sameAs becomes the generic industry-directory
+    // channel (off-site authority engine reads it as "Configured").
+    expect(cfg.industryDirectoryProfileUrl).toBe(
+      "https://www.yelp.com/biz/la-palma-tucson",
+    );
 
     // ZERO leakage from any other tenant's vertical/geo.
     const flat = JSON.stringify(cfg).toLowerCase();
