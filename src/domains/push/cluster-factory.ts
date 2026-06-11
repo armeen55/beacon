@@ -82,45 +82,79 @@ export type ClusterCardDraft = Pick<
 > & { model: string; cost_usd: number };
 
 export type ClusterFactoryResult =
-  | { ok: true; drafts: ClusterCardDraft[]; totalCostUsd: number; flagged: number }
+  | {
+      ok: true;
+      drafts: ClusterCardDraft[];
+      totalCostUsd: number;
+      /** Drafts emitted WITH soft-flag risks (word-count, empty) — reviewable. */
+      flagged: number;
+      /** Drafts HARD-REJECTED (never emitted) for a banned-term violation. */
+      rejected: number;
+      /** Human-readable rejection reasons, for the operator surface. */
+      rejectedReasons: string[];
+    }
   | { ok: false; reason: "llm_disabled" | "too_many_items" | "api_error"; detail?: string };
 
 export type ClusterDeps = {
   fetchImpl?: typeof fetch;
   apiKey?: string;
   model?: string;
+  /**
+   * Audit #47: content-rule ENFORCEMENT mode. When true (the default —
+   * self-serve safe), a draft containing any `flaggedTerms` banned word
+   * is HARD-REJECTED (never emitted as a pushable card) rather than
+   * merely flagged. Word-count/empty issues stay SOFT flags (the human
+   * approval gate reviews those). Set false only for an operator who
+   * explicitly wants flag-and-review for banned terms too.
+   */
+  enforceContentRules?: boolean;
 };
 
 function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
-export function validateDraftFields(
+/**
+ * Validate a draft's fields. Returns SOFT risks (word-count, empty —
+ * reviewable flags) separately from HARD violations (banned terms —
+ * rejectable). Audit #47: callers in enforce mode drop hard violations.
+ */
+export function validateDraftFieldsSplit(
   fields: Record<string, string>,
   plan: Pick<ClusterPlan, "fields" | "flaggedTerms">,
-): string[] {
-  const risks: string[] = [];
+): { soft: string[]; hard: string[] } {
+  const soft: string[] = [];
+  const hard: string[] = [];
   for (const spec of plan.fields) {
     const value = fields[spec.field] ?? "";
     if (value.trim() === "") {
-      risks.push(`field "${spec.field}" came back empty`);
+      soft.push(`field "${spec.field}" came back empty`);
       continue;
     }
     if (spec.maxWords != null && wordCount(value) > spec.maxWords) {
-      risks.push(
+      soft.push(
         `field "${spec.field}" is ${wordCount(value)} words (rule: ≤${spec.maxWords}) — trim before approving`,
       );
     }
     for (const term of plan.flaggedTerms) {
       const re = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
       if (re.test(value)) {
-        risks.push(
-          `field "${spec.field}" contains "${term}" — review against the content rules before approving`,
+        hard.push(
+          `field "${spec.field}" contains banned term "${term}" (content rule)`,
         );
       }
     }
   }
-  return risks;
+  return { soft, hard };
+}
+
+/** Back-compat: combined risk list (soft + hard) for flag-only callers. */
+export function validateDraftFields(
+  fields: Record<string, string>,
+  plan: Pick<ClusterPlan, "fields" | "flaggedTerms">,
+): string[] {
+  const { soft, hard } = validateDraftFieldsSplit(fields, plan);
+  return [...soft, ...hard];
 }
 
 /**
@@ -152,7 +186,8 @@ export async function generateClusterCards(
       };
     }
   }
-  if (plan.items.length === 0) return { ok: true, drafts: [], totalCostUsd: 0, flagged: 0 };
+  if (plan.items.length === 0)
+    return { ok: true, drafts: [], totalCostUsd: 0, flagged: 0, rejected: 0, rejectedReasons: [] };
   if (plan.items.length > MAX_ITEMS_PER_RUN) {
     return {
       ok: false,
@@ -167,9 +202,12 @@ export async function generateClusterCards(
   }
   const fetchImpl = deps.fetchImpl ?? fetch;
 
+  const enforce = deps.enforceContentRules ?? true; // self-serve-safe default
   const drafts: ClusterCardDraft[] = [];
   let totalCost = 0;
   let flagged = 0;
+  let rejected = 0;
+  const rejectedReasons: string[] = [];
 
   for (const item of plan.items) {
     const sys = [
@@ -235,7 +273,16 @@ export async function generateClusterCards(
       };
     }
 
-    const risks = validateDraftFields(fields, plan);
+    const { soft, hard } = validateDraftFieldsSplit(fields, plan);
+    // Audit #47: HARD-REJECT banned-term violations in enforce mode —
+    // never emit them as a pushable card (no human can approve a content-
+    // rule breach). Soft issues (word-count, empty) stay reviewable flags.
+    if (enforce && hard.length > 0) {
+      rejected++;
+      rejectedReasons.push(`${item.title}: ${hard.join("; ")}`);
+      continue;
+    }
+    const risks = [...soft, ...hard];
     if (risks.length > 0) flagged++;
     const slug = item.slug.replace(/^\/+/, "");
     const targetUrl = `${plan.siteBaseUrl.replace(/\/+$/, "")}${plan.urlPrefix.replace(/\/+$/, "")}/${slug}`;
@@ -262,5 +309,5 @@ export async function generateClusterCards(
     });
   }
 
-  return { ok: true, drafts, totalCostUsd: totalCost, flagged };
+  return { ok: true, drafts, totalCostUsd: totalCost, flagged, rejected, rejectedReasons };
 }
