@@ -229,3 +229,25 @@ NEW WAITING FOR OPERATOR (added this wave):
 - `BEACON_BUDGET_LEDGER_DUAL_WRITE=1` in Vercel env — without it the
   factory's per-tenant spend recording no-ops (poll-side caps are
   unaffected). Pair it with the OPENAI key flip.
+
+### Nightly chain health — verified 10:16 UTC 2026-06-11
+
+- **Scan: GREEN.** Scheduled fire succeeded tonight for both tenants
+  (ran ~08:46 UTC — GH's shared scheduler was badly lagged vs the
+  04:00 cron, which is precisely why the Vercel watchdog exists).
+  Tonight's sitemap-retry + failure-alert changes are live in it.
+- **Generation: GREEN (verified by dispatch).** Two runs promoted
+  Iranopedia idempotently (queue stable at 14); sweeper + auto-seed +
+  heartbeat all fired. The 05:30 scheduled fire is subject to the same
+  GH-scheduler reliability the watchdog now backstops.
+- **Poll: did NOT run tonight** — GH skipped the 07:00 UTC schedule
+  (the exact failure the watchdog upgrade targets). The full-chain
+  watchdog is DEPLOYED and fires at 11:00 UTC via Vercel cron, but it
+  only DISPATCHES recovery when `BEACON_GH_WORKFLOW_DISPATCH_PAT` is
+  set in Vercel env, and the poll itself needs the provider keys. Both
+  are operator items → added to WAITING FOR OPERATOR:
+  - `BEACON_GH_WORKFLOW_DISPATCH_PAT` (Vercel) — lets the watchdog
+    actually recover a skipped poll/scan/generation instead of logging
+    `skipped_pat_not_configured`.
+  - `PERPLEXITY_API_KEY` / OpenAI key (GH Actions secrets) for the
+    poll matrix — without them the poll job fails even when dispatched.
