@@ -420,6 +420,46 @@ export async function syncBusinessConfig(
   }
 }
 
+/**
+ * North-star onboarding (2026-06-11) — PER-TENANT business-config row.
+ *
+ * `syncBusinessConfig` above is the legacy SINGLETON channel (id="current",
+ * pre-multi-tenant): every tenant's save would clobber one shared row, so
+ * hosted resolution had to rely on the hand-written
+ * `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` env blob. This writes the same
+ * table keyed by the tenant id instead — additive (text PK, no migration),
+ * one row per tenant, read back by `hydrateBusinessConfigFromSupabase`.
+ * Refuses the literal "current" id so the legacy row can never be
+ * clobbered by a tenant write.
+ */
+export async function syncTenantBusinessConfig(
+  tenantId: string,
+  config: BusinessConfig,
+): Promise<void> {
+  if (!isDualWriteEnabled()) return;
+  if (!tenantId || tenantId === "current") return;
+  const sb = getSupabaseAdmin();
+  try {
+    const { error } = await sb.from("business_config").upsert(
+      {
+        id: tenantId,
+        data: config,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
+    if (error) {
+      console.error(
+        `[dual-write] business_config(${tenantId}): ${error.message}`,
+      );
+    }
+  } catch (e) {
+    console.error(
+      `[dual-write] business_config(${tenantId}): ${e instanceof Error ? e.message : e}`,
+    );
+  }
+}
+
 /** Map camelCase ChangeContract to snake_case DB row. PK: contract_id.
  *  Phase 1 Stage C (2026-05-09): tenant_id is the canonical scoping column;
  *  account_id is retained additively for compatibility (cleanup in a later
