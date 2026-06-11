@@ -298,3 +298,17 @@ describe("nav services — icon-font + phone-label hygiene (live check round 2)"
     expect(p.services).toEqual(["dentures", "dental implants"]);
   });
 });
+
+describe("JSON-LD org detection — Product nodes never win (live check round 4)", () => {
+  it("a Product node with sameAs/offers is NOT the business; og:site_name wins", () => {
+    const html = `<html><head>
+      <meta property="og:site_name" content="Square">
+      <script type="application/ld+json">
+      {"@type":"Product","name":"Square Reader for Contactless and Chip (2nd Generation)","sameAs":["https://www.facebook.com/square"],"offers":{"@type":"Offer","price":"49"}}
+      </script></head><body></body></html>`;
+    const p = deriveBusinessProfile([{ url: "https://squareup.com/", html }]);
+    expect(p.name).toBe("Square");
+    expect(p.nameSource).toBe("og-site-name");
+    expect(p.industry).not.toBe("product");
+  });
+});

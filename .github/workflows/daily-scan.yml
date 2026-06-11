@@ -81,13 +81,27 @@ on:
     - cron: "0 4 * * *"
   # Manual trigger from the Actions tab — use after first deploy to verify
   # end-to-end before relying on the schedule.
+  #
+  # North-star onboarding (2026-06-11): optional `only_tenant` scopes a
+  # dispatch to ONE tenant (the launch-time first-scan path). Absent →
+  # full fleet matrix, byte-identical to the scheduled run.
   workflow_dispatch:
+    inputs:
+      only_tenant:
+        description: "Scan ONLY this tenantId (launch-time first scan). Empty = full fleet."
+        required: false
+        type: string
 
 # Prevent overlap if a previous day's scan is still running when the next
 # scheduled fire arrives. Cancel the older run; the orchestrator's stale-
 # scan-state guard would also recover this on the next manual trigger.
+# 2026-06-11: a tenant-scoped dispatch gets its OWN concurrency group so a
+# launch-time first scan can NEVER cancel the nightly fleet run mid-flight
+# (cancel-in-progress on the shared group made that a real hazard). The
+# scheduled path + fleet-wide manual dispatches keep the EXACT historical
+# group string — behavior byte-identical when only_tenant is absent.
 concurrency:
-  group: daily-scheduled-scan
+  group: ${{ inputs.only_tenant && format('scan-tenant-{0}', inputs.only_tenant) || 'daily-scheduled-scan' }}
   cancel-in-progress: true
 
 # Night-shift hardening (2026-06-11): issues:write for the failure
@@ -124,19 +138,29 @@ jobs:
         run: |
           set -euo pipefail
           MATRIX=$(npx tsx --require ./scripts/mock-server-only.cjs scripts/list-active-tenants.ts)
+          # 2026-06-11: tenant-scoped dispatch (launch-time first scan).
+          # Filter the lister output to the requested tenant; the
+          # required-tenant guard below only applies to FLEET runs (a
+          # single-tenant run is not a fleet run — requiring Ritz in it
+          # would block every other tenant's first scan).
+          if [ -n "${ONLY_TENANT:-}" ]; then
+            MATRIX=$(echo "$MATRIX" | jq --arg only "$ONLY_TENANT" '[.[] | select(.tenantId == $only)]')
+          fi
           COUNT=$(echo "$MATRIX" | jq 'length')
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::No active tenants — refusing to run scan with empty matrix"
+            echo "::error::No active tenants matched — refusing to run scan with empty matrix"
             exit 1
           fi
           # Required-tenant guard: protects the anchor customer from an
           # accidental DB status flip silently dropping their daily scan.
           # Configurable via repo variable BEACON_REQUIRED_TENANT_ID;
-          # defaults to Customer 1 (Ritz).
-          REQUIRED_OK=$(echo "$MATRIX" | jq --arg id "$REQUIRED_TENANT_ID" '[.[] | select(.tenantId == $id)] | length')
-          if [ "$REQUIRED_OK" -eq 0 ]; then
-            echo "::error::Required tenant ($REQUIRED_TENANT_ID) is missing or inactive — refusing to run scan without it"
-            exit 1
+          # defaults to Customer 1 (Ritz). Skipped for tenant-scoped runs.
+          if [ -z "${ONLY_TENANT:-}" ]; then
+            REQUIRED_OK=$(echo "$MATRIX" | jq --arg id "$REQUIRED_TENANT_ID" '[.[] | select(.tenantId == $id)] | length')
+            if [ "$REQUIRED_OK" -eq 0 ]; then
+              echo "::error::Required tenant ($REQUIRED_TENANT_ID) is missing or inactive — refusing to run scan without it"
+              exit 1
+            fi
           fi
           {
             echo "tenants=$MATRIX"
@@ -148,6 +172,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           REQUIRED_TENANT_ID: ${{ vars.BEACON_REQUIRED_TENANT_ID || 'tenant-ritz-founder' }}
+          ONLY_TENANT: ${{ inputs.only_tenant }}
 
   scheduled-scan:
     name: Scan · ${{ matrix.tenant.slug }}

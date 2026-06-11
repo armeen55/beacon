@@ -44,8 +44,25 @@ describe("Phase 5 — daily-scan workflow YAML structure", () => {
 
   it("declares concurrency group to prevent overlapping runs", () => {
     expect(WORKFLOW).toMatch(/^concurrency:/m);
-    expect(WORKFLOW).toMatch(/group:\s+daily-scheduled-scan/);
+    // 2026-06-11: the group is conditional — tenant-scoped dispatches get
+    // their own group so a launch-time first scan can NEVER cancel the
+    // nightly fleet run; the scheduled path keeps the EXACT historical
+    // group string (pinned below).
+    expect(WORKFLOW).toMatch(/'daily-scheduled-scan'/);
+    expect(WORKFLOW).toMatch(/scan-tenant-\{0\}/);
     expect(WORKFLOW).toMatch(/cancel-in-progress:\s+true/);
+  });
+
+  it("tenant-scoped dispatch contract: only_tenant input + matrix filter + fleet-only required-tenant guard", () => {
+    expect(WORKFLOW).toMatch(/only_tenant:/);
+    expect(WORKFLOW).toMatch(/required:\s+false/);
+    // The matrix filter applies ONLY when ONLY_TENANT is set…
+    expect(WORKFLOW).toMatch(/if \[ -n "\$\{ONLY_TENANT:-\}" \]; then/);
+    // …and the required-tenant (anchor-customer) guard applies ONLY to
+    // fleet runs — requiring Ritz inside a single-tenant run would block
+    // every other tenant's first scan.
+    expect(WORKFLOW).toMatch(/if \[ -z "\$\{ONLY_TENANT:-\}" \]; then/);
+    expect(WORKFLOW).toMatch(/ONLY_TENANT:\s+\$\{\{ inputs\.only_tenant \}\}/);
   });
 
   it("invokes scripts/run-scheduled-scan.ts (the canonical entry)", () => {

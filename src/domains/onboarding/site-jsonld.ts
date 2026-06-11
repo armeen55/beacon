@@ -65,11 +65,41 @@ export const CONTENT_SCHEMA_TYPES = new Set([
  *  schema.org LocalBusiness subtypes are numerous (Plumber, Dentist,
  *  Restaurant, GeneralContractor, …) — we treat a node as org-ish when it
  *  carries org-shaped fields rather than enumerating every subtype. */
+/** Schema kinds that are THINGS a business publishes — never the
+ *  business itself. Live check round 4 (2026-06-11, squareup.com): a
+ *  Product node carrying sameAs won the org slot and the derived
+ *  business name became "Square Reader for Contactless and Chip". */
+const NON_ORG_THING_TYPES = new Set([
+  "Product",
+  "Offer",
+  "AggregateOffer",
+  "Service",
+  "Review",
+  "AggregateRating",
+  "FAQPage",
+  "Question",
+  "Event",
+  "JobPosting",
+  "Recipe",
+  "VideoObject",
+  "ImageObject",
+]);
+
 export function isOrgish(node: JsonLdNode): boolean {
   const types = typesOf(node);
   if (types.some((t) => t === "Organization" || t === "LocalBusiness")) return true;
   if (types.length === 0) return false;
-  if (types.some((t) => CONTENT_SCHEMA_TYPES.has(t) || t === "WebSite" || t === "WebPage" || t === "BreadcrumbList" || t === "Person")) {
+  if (
+    types.some(
+      (t) =>
+        CONTENT_SCHEMA_TYPES.has(t) ||
+        NON_ORG_THING_TYPES.has(t) ||
+        t === "WebSite" ||
+        t === "WebPage" ||
+        t === "BreadcrumbList" ||
+        t === "Person",
+    )
+  ) {
     return false;
   }
   // Unknown @type: org-ish iff it carries business-shaped fields.

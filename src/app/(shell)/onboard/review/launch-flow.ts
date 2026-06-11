@@ -29,6 +29,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
+import { dispatchFirstScanForTenant } from "@/domains/onboarding/first-scan-dispatch";
 import {
   generateStarterPrompts,
   type PromptDraft,
@@ -112,9 +113,13 @@ export async function executeLaunchTransaction(args: {
    * inject a stub; the dep shape keeps this module network-free.
    */
   persistConfig?: typeof deriveAndPersistTenantConfig;
+  /** 2026-06-11 — injectable launch-time first-scan dispatcher (inert
+   *  without the operator PAT; tenant-scoped; failure-soft). */
+  dispatchFirstScan?: typeof dispatchFirstScanForTenant;
 }): Promise<LaunchTransactionOutcome> {
   const { admin, tenantId, now } = args;
   const persistConfig = args.persistConfig ?? deriveAndPersistTenantConfig;
+  const dispatchFirstScan = args.dispatchFirstScan ?? dispatchFirstScanForTenant;
 
   // 1. Fetch tenant row.
   const { data: tenant, error: tFetchErr } = await admin
@@ -302,6 +307,24 @@ export async function executeLaunchTransaction(args: {
     return { kind: "redirect", to: "/today", reason: "race_lost" };
   }
 
-  // 7c. Success — atomic flip lit up.
+  // 7c. Success — atomic flip lit up. Kick the tenant-scoped first
+  //     scan (2026-06-11): minutes-to-first-crawl instead of waiting
+  //     for the nightly. Inert without the operator PAT; failure-soft —
+  //     a failed dispatch never affects the launch (the nightly fleet
+  //     run picks the tenant up automatically either way).
+  try {
+    const scanDispatch = await dispatchFirstScan(tenant.id);
+    console.info(
+      `[onboard/review] first-scan dispatch: ${scanDispatch.status}` +
+        (scanDispatch.status === "dispatch_failed"
+          ? ` (http ${scanDispatch.httpStatus}: ${scanDispatch.error.slice(0, 120)})`
+          : ""),
+    );
+  } catch (e) {
+    console.error(
+      "[onboard/review] first-scan dispatch threw (launch unaffected):",
+      e instanceof Error ? e.message : e,
+    );
+  }
   return { kind: "redirect", to: "/today", reason: "success" };
 }
