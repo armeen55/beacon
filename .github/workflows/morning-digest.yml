@@ -63,6 +63,9 @@ jobs:
           BEACON_DIGEST_TO: ${{ vars.BEACON_DIGEST_TO }}
           BEACON_DIGEST_FROM: ${{ vars.BEACON_DIGEST_FROM }}
           BEACON_APP_URL: ${{ vars.BEACON_APP_URL }}
+          # P0 wall 5 — the cross-business page-shape insight strip
+          # ("1" enables; repo var so it flips without a commit).
+          BEACON_CROSS_TENANT_BRAIN: ${{ vars.BEACON_CROSS_TENANT_BRAIN }}
           NODE_NO_WARNINGS: "1"
 
   alert-on-failure:
