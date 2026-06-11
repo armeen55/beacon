@@ -66,6 +66,9 @@ export const PAGE_IMPORTANCE_BY_PAGE_TYPE: Readonly<Record<PageType, number>> =
     city: 12,
     service: 12,
     project: 10,
+    // P0 wall 3 (2026-06-10): on a content-site tenant the entries ARE
+    // the product — same importance tier as city/service detail pages.
+    content: 12,
     hub: 8,
     utility: 3,
     technical_asset: 3,

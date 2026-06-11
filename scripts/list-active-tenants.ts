@@ -27,9 +27,14 @@
  *
  * Hard contracts:
  *   - Returns ONLY the 4 fields the matrix needs (tenantId/slug/
- *     siteDomain/enabled). Extra DB columns (business_name,
- *     daily_budget_usd, etc.) are omitted — the workflow doesn't read
- *     them and exposing them in matrix output is unnecessary surface.
+ *     siteDomain/enabled) plus OPTIONAL per-tenant ops overrides
+ *     (today: `scanMaxPages`, the crawl ceiling consumed by the
+ *     daily-scan matrix — sourced from ops/active-tenants.json even
+ *     when the tenant list itself comes from Supabase, so operational
+ *     tuning never requires a DB migration). Extra DB columns
+ *     (business_name, daily_budget_usd, etc.) are omitted — the
+ *     workflow doesn't read them and exposing them in matrix output
+ *     is unnecessary surface.
  *   - Refuses to return rows with empty/null tenantId, slug, or
  *     siteDomain (would break the matrix's downstream curl/CLI calls).
  *   - Fail-loud: exits non-zero with a structured `::error` line if
@@ -69,7 +74,37 @@ export type MatrixTenant = {
   slug: string;
   siteDomain: string;
   enabled: true;
+  /**
+   * Optional per-tenant crawl ceiling for the daily scan (pages per run).
+   * Operational override carried from ops/active-tenants.json — NOT a DB
+   * column. Omitted unless the ops file sets a positive number.
+   */
+  scanMaxPages?: number;
 };
+
+/** Coerce an ops-file value into a usable crawl ceiling, or undefined. */
+export function parseScanMaxPages(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v > 0
+    ? Math.floor(v)
+    : undefined;
+}
+
+/**
+ * Read per-tenant operational overrides (today: scanMaxPages) from the
+ * ops file, keyed by tenantId. Tolerant: returns {} when the file is
+ * missing/invalid — overrides are tuning, never a reason to fail the
+ * matrix when the tenant list itself came from Supabase.
+ */
+export function readOpsOverrides(raw: unknown): Map<string, { scanMaxPages?: number }> {
+  const out = new Map<string, { scanMaxPages?: number }>();
+  if (!Array.isArray(raw)) return out;
+  for (const row of raw as Array<Record<string, unknown>>) {
+    if (typeof row.tenantId !== "string" || row.tenantId.length === 0) continue;
+    const scanMaxPages = parseScanMaxPages(row.scanMaxPages);
+    if (scanMaxPages !== undefined) out.set(row.tenantId, { scanMaxPages });
+  }
+  return out;
+}
 
 /** Validates a candidate row against the matrix-entry contract. */
 export function isValidEntry(t: unknown): t is MatrixTenant {
@@ -178,11 +213,13 @@ export function parseJsonFallback(
   const enabled: MatrixTenant[] = [];
   for (const row of raw as Array<Record<string, unknown>>) {
     if (row.enabled !== true) continue;
+    const scanMaxPages = parseScanMaxPages(row.scanMaxPages);
     const candidate = {
       tenantId: typeof row.tenantId === "string" ? row.tenantId : "",
       slug: typeof row.slug === "string" ? row.slug : "",
       siteDomain: typeof row.siteDomain === "string" ? row.siteDomain : "",
       enabled: true as const,
+      ...(scanMaxPages !== undefined ? { scanMaxPages } : {}),
     };
     if (isValidEntry(candidate)) {
       enabled.push(candidate);
@@ -238,6 +275,26 @@ async function main(): Promise<void> {
       logError(`JSON fallback failed: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
+  }
+
+  // 2.5 Merge per-tenant ops overrides (scanMaxPages) onto the rows.
+  // Applies on BOTH paths: DB rows have no override column, and the
+  // JSON-fallback path is a no-op re-stamp of the same values. Tolerant
+  // of a missing/invalid ops file — overrides are tuning, not identity.
+  try {
+    if (existsSync(FALLBACK_PATH)) {
+      const overrides = readOpsOverrides(
+        JSON.parse(readFileSync(FALLBACK_PATH, "utf-8")) as unknown,
+      );
+      for (const t of active) {
+        const o = overrides.get(t.tenantId);
+        if (o?.scanMaxPages !== undefined) t.scanMaxPages = o.scanMaxPages;
+      }
+    }
+  } catch (err) {
+    logWarn(
+      `ops overrides skipped (unreadable ops file): ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // 3. Fail loud if zero active tenants from either source.

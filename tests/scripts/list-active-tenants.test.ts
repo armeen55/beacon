@@ -14,6 +14,8 @@ import {
   isValidEntry,
   mapDbRowToMatrixEntry,
   parseJsonFallback,
+  parseScanMaxPages,
+  readOpsOverrides,
   type MatrixTenant,
 } from "../../scripts/list-active-tenants";
 
@@ -152,5 +154,70 @@ describe("mapDbRowToMatrixEntry — Supabase column mapping", () => {
 
   it("returns null on row with null domain", () => {
     expect(mapDbRowToMatrixEntry({ id: "tenant-x", slug: "x", domain: null })).toBeNull();
+  });
+});
+
+// ── Per-tenant ops overrides (scanMaxPages crawl ceiling, 2026-06-10) ──
+
+describe("parseScanMaxPages — crawl-ceiling coercion", () => {
+  it("accepts positive finite numbers (floored)", () => {
+    expect(parseScanMaxPages(800)).toBe(800);
+    expect(parseScanMaxPages(799.9)).toBe(799);
+  });
+
+  it("rejects zero, negatives, non-numbers, NaN, Infinity", () => {
+    expect(parseScanMaxPages(0)).toBeUndefined();
+    expect(parseScanMaxPages(-5)).toBeUndefined();
+    expect(parseScanMaxPages("800")).toBeUndefined();
+    expect(parseScanMaxPages(NaN)).toBeUndefined();
+    expect(parseScanMaxPages(Infinity)).toBeUndefined();
+    expect(parseScanMaxPages(undefined)).toBeUndefined();
+  });
+});
+
+describe("readOpsOverrides — ops-file override map", () => {
+  it("keys overrides by tenantId, carrying only valid scanMaxPages", () => {
+    const m = readOpsOverrides([
+      { tenantId: "tenant-a", scanMaxPages: 800 },
+      { tenantId: "tenant-b" }, // no override → omitted
+      { tenantId: "tenant-c", scanMaxPages: "junk" }, // invalid → omitted
+      { scanMaxPages: 100 }, // no tenantId → ignored
+    ]);
+    expect(m.get("tenant-a")).toEqual({ scanMaxPages: 800 });
+    expect(m.has("tenant-b")).toBe(false);
+    expect(m.has("tenant-c")).toBe(false);
+    expect(m.size).toBe(1);
+  });
+
+  it("tolerates a non-array payload (returns empty map, never throws)", () => {
+    expect(readOpsOverrides(null).size).toBe(0);
+    expect(readOpsOverrides({}).size).toBe(0);
+    expect(readOpsOverrides("garbage").size).toBe(0);
+  });
+});
+
+describe("parseJsonFallback — carries scanMaxPages through", () => {
+  it("attaches a valid scanMaxPages to the matrix entry", () => {
+    const rows = parseJsonFallback([
+      {
+        tenantId: "tenant-iranopedia",
+        slug: "iranopedia",
+        siteDomain: "iranopedia.com",
+        enabled: true,
+        scanMaxPages: 800,
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.scanMaxPages).toBe(800);
+  });
+
+  it("omits the field entirely when absent or invalid", () => {
+    const rows = parseJsonFallback([
+      { tenantId: "t-1", slug: "s1", siteDomain: "a.com", enabled: true },
+      { tenantId: "t-2", slug: "s2", siteDomain: "b.com", enabled: true, scanMaxPages: -1 },
+    ]);
+    expect(rows).toHaveLength(2);
+    expect("scanMaxPages" in rows[0]!).toBe(false);
+    expect("scanMaxPages" in rows[1]!).toBe(false);
   });
 });

@@ -70,6 +70,14 @@ export type PageType =
   | "hub"
   | "utility"
   | "technical_asset"
+  /**
+   * P0 wall 3 (2026-06-10): a topical content detail page on a
+   * content-site tenant (encyclopedia entry, article, glossary page).
+   * Assigned ONLY when `BusinessConfig.contentSiteMode === true` —
+   * config-driven, never inferred from vertical-specific vocab.
+   * Content-edit triggers apply (unlike "other").
+   */
+  | "content"
   | "other";
 
 /** File extensions that classify the URL as a non-HTML asset.
@@ -304,6 +312,12 @@ export function classifyPageType(
     if (path === "/projects" || path === "/projects/") return "hub";
   }
 
-  // 8. Fallback.
+  // 8. Content-site mode (P0 wall 3, 2026-06-10): on tenants whose
+  //    config declares contentSiteMode, the remaining HTML pages ARE
+  //    the product — encyclopedia entries, articles, glossary pages.
+  //    Classify them "content" so content-edit triggers apply.
+  if (config.contentSiteMode === true) return "content";
+
+  // 9. Fallback.
   return "other";
 }

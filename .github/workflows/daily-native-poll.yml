@@ -244,6 +244,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
           DUAL_WRITE: "true"
+          # Per-tenant business configs (repo VARIABLE, not secret) — real
+          # configs on the runner where no .data files exist (2026-06-10).
+          BEACON_BUSINESS_CONFIG_JSON_BY_TENANT: ${{ vars.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT }}
           DATA_SOURCE: supabase
           BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
           # 2026-05-10 budget-ledger Stage B.2 wiring fix. The
@@ -285,6 +288,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DUAL_WRITE: "true"
+          # Per-tenant business configs (repo VARIABLE, not secret) — real
+          # configs on the runner where no .data files exist (2026-06-10).
+          BEACON_BUSINESS_CONFIG_JSON_BY_TENANT: ${{ vars.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT }}
           DATA_SOURCE: supabase
           BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
           # 2026-05-10 budget-ledger Stage B.2 wiring fix. See the

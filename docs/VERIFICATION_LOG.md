@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-11 — P0 walls 1–7: autopilot, fleet, drafting, factory, brain, delivery, learning
+
+**What changed (7 commits):**
+1. `feat(scan-fleet)` — DB-driven scan matrix (shared lister), Wix sitemap-index recursion, per-tenant crawl ceilings (`scanMaxPages` → 1500 default), CLI timeout scaled; Iranopedia added to the fleet.
+2. `feat(autopilot)` — nightly-generation workflow (05:30 UTC) + headless runner; live-write via repo var (default true, queue-only); deterministic-only pinned; kill switch; failure alert; arch-contract test + catalog row.
+3. `feat(drafting)` — draft-enrichment for 10 action types in the promotion path; NEW `content` PageType via `BusinessConfig.contentSiteMode`; business-config resolution reorder (per-tenant file beats the env-named legacy chain — fixed a live cross-tenant config bleed); `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` repo var wired into scan/generation/poll jobs; Wix-reality hardening (brand-suffix path-diversity, CMS-placeholder filter, slug titles, chrome-filtered meta).
+4. `feat(delivery)` — morning-digest composer + Resend transport (fetch, env-gated) + 14:00 UTC workflow; repo vars `BEACON_DIGEST_TO`/`BEACON_APP_URL` set; key WAITING FOR OPERATOR.
+5. `feat(learning)` — edit-feedback (90d edit rate per action type from `verified_live_modified`), conservative confidence downgrade + note in the nightly writer, learning line in the digest.
+6. `feat(factory)` — factory-run orchestration + `/diagnostics/factory` surface (budget gate, idempotent rows, spend ledger, hard-rejection surfacing).
+7. `feat(brain)` — vertical-agnostic page-shape layer (extract/aggregate/insight, privacy-safe by construction) + gated loader + digest insight strip; `BEACON_CROSS_TENANT_BRAIN=1` set as repo var (runner jobs).
+
+**Verified:** `npm run typecheck` clean · full `npx vitest run` **14,055+ passed / 0 failed** (mid-stack full run; per-batch suites green after) · Iranopedia first crawl END-TO-END on the new sitemap-index path (**217 pages**, dual-written) · headless generation for both tenants against live data (Ritz 29 candidates; Iranopedia 17 → 14 eligible → **10 drafted**, copy spot-checked) · digest runner smoke: unconfigured = structured skip; fake-key = sections composed from live Supabase data, failed only at the provider (http_401) per contract.
+
+**Live bugs caught + fixed during verification:** scan CLI killed at 120s on encyclopedia crawls; Wix sitemap-index parsed to 0 URLs; Iranopedia served Ritz's business config in per-tenant CLI runs; builder-shaped classifier suppressed all encyclopedia content edits (`skip_page_type`); brand-suffix inference latched onto a Wix collection tail; "Page Title" CMS placeholder leaked into drafts; UI chrome leaked into meta drafts.
+
+**Disposition ledger:** `docs/P0_WALLS_LEDGER.md` (per-wall status + the complete WAITING-FOR-OPERATOR list).
+
+
 ## 2026-06-10 — MASTER GOAL RUN: multi-property activation + THE PUSH LAYER (shipped to production)
 
 **One continuous operator-approved run ("do not stop"). Three PRs merged to main, all CI-green, production verified at `be0f86d` (hosted /login 200). Full suite: 13,987 passed / 0 failed / 0 skipped.**

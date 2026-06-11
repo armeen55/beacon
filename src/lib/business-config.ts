@@ -14,6 +14,16 @@ export interface BusinessConfig {
   name: string;
   domain: string;
   industry: string;
+  /**
+   * P0 wall 3 (2026-06-10) — content-site classification mode. When
+   * true (encyclopedias, blogs, docs sites — content_publisher-segment
+   * tenants), HTML pages that aren't homepage/hub/utility/asset
+   * classify as "content" detail pages instead of falling to "other",
+   * so content-edit triggers (title/meta/h1/…) actually apply to the
+   * site's real pages. Local-service sites leave this unset — their
+   * "other" pages stay conservatively excluded from content edits.
+   */
+  contentSiteMode?: boolean;
   phone: string;
   address: string;
   /** Yelp Fusion business id or alias (used by Settings → Connectors → Yelp sync). */
@@ -307,7 +317,21 @@ function readConfigFromByTenantEnv(
 function readConfigFromTenantFile(
   tenantId: string,
 ): Partial<BusinessConfig> | null {
-  const candidate = path.join(TENANTS_DIR, tenantId, "business-config.json");
+  // Tenant data dirs are keyed by SLUG on disk (.data/tenants/<slug>/).
+  // Try the id-named dir (legacy), then the slug dir when the CLI env
+  // pair (BEACON_TENANT_ID + BEACON_TENANT_SLUG) identifies this exact
+  // tenant — scan/poll/generation matrix jobs always set both.
+  let candidate = path.join(TENANTS_DIR, tenantId, "business-config.json");
+  if (!existsSync(candidate)) {
+    const envSlug = process.env.BEACON_TENANT_SLUG;
+    if (
+      typeof envSlug === "string" &&
+      envSlug.length > 0 &&
+      process.env.BEACON_TENANT_ID === tenantId
+    ) {
+      candidate = path.join(TENANTS_DIR, envSlug, "business-config.json");
+    }
+  }
   if (!existsSync(candidate)) return null;
   try {
     const raw = readFileSync(candidate, "utf-8");
@@ -390,15 +414,23 @@ function resolveConfigForTenant(tenantId: string): BusinessConfig {
   const fromByTenant = readConfigFromByTenantEnv(tenantId);
   if (fromByTenant !== null) return mergeWithPlaceholder(fromByTenant);
 
+  // P0 wall 3 fix (2026-06-10): the per-tenant file now BEATS the
+  // legacy env-named chain. Pre-fix, any per-tenant CLI job (matrix
+  // scan/generation sets BEACON_TENANT_ID=<that tenant>) fell into the
+  // legacy branch and read the GLOBAL business-config file — serving
+  // tenant B the founder tenant's config (caught live: Iranopedia
+  // classified with Ritz's urlPatterns). A tenant with its own config
+  // file gets its own config, full stop; the legacy chain remains as
+  // the founder-deploy fallback for tenants WITHOUT a per-tenant file.
+  const fromTenantFile = readConfigFromTenantFile(tenantId);
+  if (fromTenantFile !== null) return mergeWithPlaceholder(fromTenantFile);
+
   if (tenantId === process.env.BEACON_TENANT_ID) {
     const fromEnv = readConfigFromEnv();
     if (fromEnv !== null) return mergeWithPlaceholder(fromEnv);
     const fromFile = readConfigFromFiles();
     if (fromFile !== null) return mergeWithPlaceholder(fromFile);
   }
-
-  const fromTenantFile = readConfigFromTenantFile(tenantId);
-  if (fromTenantFile !== null) return mergeWithPlaceholder(fromTenantFile);
 
   warnPlaceholderOnce(tenantId);
   return PLACEHOLDER_CONFIG;

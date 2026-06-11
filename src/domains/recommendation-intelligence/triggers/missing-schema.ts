@@ -83,6 +83,13 @@ function pageTypeToAssetType(pageType: PageType): AssetType | null {
     case "other":
     case "technical_asset":
       return null;
+    // P0 wall 3 (2026-06-10): "content" pages stay out of α₃b scope —
+    // the schema-substrate expectations are local-service-tuned today
+    // (the eligibility table holds missing_schema::add_schema at
+    // diagnostic-only pending cross-industry calibration). Revisit
+    // when Article/FAQPage expectations land for content sites.
+    case "content":
+      return null;
   }
 }
 

@@ -21,23 +21,24 @@
 #  the orchestrator dual-writes everything that needs to persist to Supabase.
 #  Verified end-to-end by Steps 1–5 of the safety gate (2026-04-28).
 #
-#  Multi-tenant scaffold (2026-05-06):
+#  Multi-tenant fleet (2026-05-06, DB-driven 2026-06-10 — P0 wall 2):
 #
-#  Active-tenants list lives in `ops/active-tenants.json`. The compute-matrix
-#  job filters to `enabled === true` and emits one matrix entry per tenant
-#  for the parallel scan jobs. Today the list has exactly one entry (Ritz),
-#  so behavior is identical to the prior single-tenant shape. Tenant
-#  identity (BEACON_TENANT_ID, BEACON_TENANT_SLUG, BEACON_SITE_DOMAIN) is now
-#  sourced from the matrix entry rather than from GH secrets — secrets are
-#  still consulted for the LIFECYCLE / SCAN_DISABLED gating flags so the
-#  operator can toggle behavior without editing the JSON.
+#  The compute-matrix job calls scripts/list-active-tenants.ts — the SAME
+#  lister the daily poll uses: Supabase `tenants` where status='active'
+#  (preferred), ops/active-tenants.json as fallback. Activating a tenant
+#  row in Supabase adds it to the next 04:00 UTC scan with no git commit.
+#  Tenant identity (BEACON_TENANT_ID, BEACON_TENANT_SLUG,
+#  BEACON_SITE_DOMAIN) is sourced from the matrix entry; per-tenant ops
+#  overrides (scanMaxPages → BEACON_SCAN_MAX_PAGES crawl ceiling) ride
+#  the matrix from ops/active-tenants.json. Secrets are still consulted
+#  for the LIFECYCLE / SCAN_DISABLED gating flags.
 #
 #  Fail-loud guards in compute-matrix:
-#    1. ops/active-tenants.json must exist and be valid JSON.
-#    2. At least one tenant must be enabled.
-#    3. Ritz (tenant-ritz-founder) must be present AND enabled.
-#       Hard guard against accidental disable that would silently
-#       skip Customer 1's daily scan.
+#    1. The lister must return ≥1 active tenant (it exits non-zero itself
+#       when both sources fail).
+#    2. The required tenant (repo var BEACON_REQUIRED_TENANT_ID, default
+#       tenant-ritz-founder) must be present AND active — guard against
+#       an accidental status flip silently dropping the anchor customer.
 #
 #  Schedule: 04:00 UTC daily — runs ~3 hours BEFORE the native poll cron
 #  (07:00 UTC, see daily-native-poll.yml). This ordering ensures fresh
@@ -91,35 +92,43 @@ concurrency:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Compute the per-tenant matrix from ops/active-tenants.json. Mirrors the
-  # compute-matrix job in daily-native-poll.yml — same fail-loud rules.
+  # Compute the per-tenant matrix via scripts/list-active-tenants.ts —
+  # DB-preferred (Supabase tenants where status='active'), JSON-fallback
+  # (ops/active-tenants.json). Same lister + fail-loud rules as
+  # daily-native-poll.yml's compute-matrix (Gap A). P0 wall 2 (2026-06-10):
+  # a tenant activated in Supabase is scanned the next 04:00 UTC with no
+  # git commit. Per-tenant ops overrides (scanMaxPages) ride the matrix.
   # --------------------------------------------------------------------------
   compute-matrix:
     name: Compute active-tenants matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     outputs:
       tenants: ${{ steps.compute.outputs.tenants }}
       tenant_count: ${{ steps.compute.outputs.tenant_count }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
       - id: compute
         run: |
           set -euo pipefail
-          CONFIG=ops/active-tenants.json
-          if [ ! -f "$CONFIG" ]; then
-            echo "::error file=$CONFIG::ops/active-tenants.json is missing — refusing to run scan"
-            exit 1
-          fi
-          MATRIX=$(jq -c '[.[] | select(.enabled == true)]' "$CONFIG")
+          MATRIX=$(npx tsx --require ./scripts/mock-server-only.cjs scripts/list-active-tenants.ts)
           COUNT=$(echo "$MATRIX" | jq 'length')
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error file=$CONFIG::No tenants with enabled=true — refusing to run scan"
+            echo "::error::No active tenants — refusing to run scan with empty matrix"
             exit 1
           fi
-          RITZ_OK=$(echo "$MATRIX" | jq '[.[] | select(.tenantId == "tenant-ritz-founder")] | length')
-          if [ "$RITZ_OK" -eq 0 ]; then
-            echo "::error file=$CONFIG::Ritz (tenant-ritz-founder) is missing or disabled — refusing to run scan without Ritz"
+          # Required-tenant guard: protects the anchor customer from an
+          # accidental DB status flip silently dropping their daily scan.
+          # Configurable via repo variable BEACON_REQUIRED_TENANT_ID;
+          # defaults to Customer 1 (Ritz).
+          REQUIRED_OK=$(echo "$MATRIX" | jq --arg id "$REQUIRED_TENANT_ID" '[.[] | select(.tenantId == $id)] | length')
+          if [ "$REQUIRED_OK" -eq 0 ]; then
+            echo "::error::Required tenant ($REQUIRED_TENANT_ID) is missing or inactive — refusing to run scan without it"
             exit 1
           fi
           {
@@ -128,12 +137,16 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Active tenants: $COUNT"
           echo "$MATRIX" | jq
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REQUIRED_TENANT_ID: ${{ vars.BEACON_REQUIRED_TENANT_ID || 'tenant-ritz-founder' }}
 
   scheduled-scan:
     name: Scan · ${{ matrix.tenant.slug }}
     needs: compute-matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # full scan typically ~30s + lifecycle runner ~3s; 20 min generous
+    timeout-minutes: 30 # Ritz ~30s; encyclopedia-scale tenants up to ~15 min at the capped serial fetch rate
     strategy:
       fail-fast: false
       matrix:
@@ -155,10 +168,17 @@ jobs:
         run: |
           npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/run-scheduled-scan.ts
         env:
-          # Tenant identity — sourced from ops/active-tenants.json via matrix.
+          # Tenant identity — sourced from the lister (Supabase-preferred) via matrix.
           BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
           BEACON_TENANT_SLUG: ${{ matrix.tenant.slug }}
           BEACON_SITE_DOMAIN: ${{ matrix.tenant.siteDomain }}
+          # Per-tenant crawl ceiling (ops override; empty → script default cap).
+          BEACON_SCAN_MAX_PAGES: ${{ matrix.tenant.scanMaxPages || '' }}
+          # Per-tenant business configs (repo VARIABLE, not secret — names,
+          # domains, url patterns; no credentials). Without it the runner
+          # has no .data files and every tenant resolves the neutral
+          # placeholder config (P0 wall 3 fix, 2026-06-10).
+          BEACON_BUSINESS_CONFIG_JSON_BY_TENANT: ${{ vars.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT }}
           # Credentials + dual-write — repo secrets.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

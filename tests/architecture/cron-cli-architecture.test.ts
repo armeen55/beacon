@@ -193,11 +193,13 @@ describe("Bundle 2 — package.json + active-tenants invariants", () => {
     expect(PKG.scripts?.["cron:poll"]).toContain("mock-server-only.cjs");
   });
 
-  it("active-tenants.json has exactly one enabled tenant (Ritz)", () => {
+  // 2026-06-10 (P0 wall 2): the fleet is two tenants — Ritz + Iranopedia.
+  it("active-tenants.json has exactly two enabled tenants (Ritz + Iranopedia)", () => {
     expect(Array.isArray(ACTIVE_TENANTS)).toBe(true);
     const enabled = ACTIVE_TENANTS.filter((t) => t.enabled === true);
-    expect(enabled.length).toBe(1);
-    expect(enabled[0].tenantId).toBe("tenant-ritz-founder");
+    expect(enabled.length).toBe(2);
+    const ids = enabled.map((t) => t.tenantId).sort();
+    expect(ids).toEqual(["tenant-iranopedia", "tenant-ritz-founder"]);
   });
 
   it("Vercel /api/poll/run route still exists as the manual/debug fallback", () => {

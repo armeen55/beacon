@@ -10,8 +10,9 @@
  *   - Fail-loud (exit 1) on zero active tenants.
  *   - daily-native-poll.yml's compute-matrix step calls the script.
  *   - JSON file (ops/active-tenants.json) preserved as fallback.
- *   - Ritz remains the only active tenant by default.
- *   - No second tenant injected.
+ *   - Fleet is Ritz + Iranopedia as of 2026-06-10 (P0 wall 2); the
+ *     fallback file mirrors the DB fleet.
+ *   - No tenant injected by the script itself.
  *   - No paid API calls.
  */
 
@@ -189,13 +190,15 @@ describe("Gap A — JSON file fallback preserved + Ritz-only invariant", () => {
     expect(existsSync(ACTIVE_TENANTS_JSON_PATH)).toBe(true);
   });
 
-  it("ops/active-tenants.json has exactly 1 enabled tenant (Ritz)", () => {
+  // 2026-06-10 (P0 wall 2): the fallback file now mirrors the two-tenant
+  // fleet (Ritz + Iranopedia) so a Supabase outage degrades to the SAME
+  // fleet, not a Ritz-only one.
+  it("ops/active-tenants.json has exactly 2 enabled tenants (Ritz + Iranopedia)", () => {
     expect(Array.isArray(ACTIVE_TENANTS)).toBe(true);
     const enabled = ACTIVE_TENANTS.filter((t) => t.enabled === true);
-    expect(enabled.length).toBe(1);
-    expect(enabled[0].tenantId).toBe("tenant-ritz-founder");
-    expect(enabled[0].slug).toBe("ritz-builders");
-    expect(enabled[0].siteDomain).toBe("ritzbuilders.com");
+    expect(enabled.length).toBe(2);
+    const ids = enabled.map((t) => t.tenantId).sort();
+    expect(ids).toEqual(["tenant-iranopedia", "tenant-ritz-founder"]);
   });
 
   it("ops/active-tenants.json contains NO second-tenant slugs (acme/customer-2/etc.)", () => {
