@@ -339,3 +339,6 @@ The biggest file-size discipline violation in the repo; touched by everything on
 
 ### `ritz_obs_count` → `own_obs_count` rename
 Internal evidence field named for the founder tenant (recommendation-engine, keyword-gap-scanner). Rendered copy is already neutral ("your page"). **Honest take:** pure naming debt across engine+types+tests; zero behavior. Bundle into the next engine-touching session.
+
+### `only_tenant` for the generation workflow (chain completion)
+The scan workflow now takes a tenant-scoped dispatch (#37). The natural next link: after a launch-time first scan completes, dispatch a tenant-scoped first GENERATION so the queue fills the same day (today it waits for the 05:30 nightly). Needs the same only_tenant + concurrency treatment on `nightly-generation.yml`, plus a completion trigger (workflow_run or the watchdog). **Honest take:** half the value of #37 again; build when the PAT lands and the first-scan path is observed working live. Status: next session after PAT.
