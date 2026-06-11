@@ -197,6 +197,11 @@ export type RecommendedEditRow = {
    * differ from `target_element_key` when match was text-only.
    */
   live_element_key?: string | null;
+  /** Night-shift #100 substrate (2026-06-11): the matched element's
+   *  LIVE text at verify time. On verified_live_modified this is the
+   *  operator's final wording — the proposed→final delta that feeds
+   *  the inner learning loop. */
+  live_text?: string | null;
   /** Free-text reason if status is `not_found_after_7d`. */
   not_found_reason?: string | null;
 };

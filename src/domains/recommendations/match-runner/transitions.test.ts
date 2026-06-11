@@ -27,6 +27,7 @@ function modifiedMatch(): MatchResult {
     kind: "modified",
     similarity: 0.92,
     matchedElementKey: "h2[0]:e1",
+    matchedElementText: "the operator's final wording",
   };
 }
 
@@ -141,6 +142,19 @@ describe("computeLifecycleUpdate — verified_live promotion", () => {
       match: modifiedMatch(),
     });
     expect(u?.implementation_status).toBe("verified_live_modified");
+  });
+
+  // Night-shift #100 substrate (2026-06-11): the live wording is
+  // CAPTURED at verify time — verified_live_modified stores the
+  // operator's final text (the proposed→final delta the learning
+  // loop consumes).
+  it("verified_live_modified stamps live_text with the matched element's wording", () => {
+    const u = computeLifecycleUpdate({
+      ...baseInputs,
+      currentStatus: "accepted",
+      match: modifiedMatch(),
+    });
+    expect(u?.live_text).toBe("the operator's final wording");
   });
 
   it("verified_live_modified + verified_live → flip (operator cleaned up)", () => {

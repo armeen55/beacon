@@ -36,7 +36,47 @@ export type DigestTenantSection = {
   editRate?: number | null;
   /** Shipped-draft count behind editRate (display denominator). */
   editRateShipped?: number;
+  /**
+   * Night-shift #94 (2026-06-11) — URL paths whose FIRST-EVER AI
+   * citation landed in the last 24h. The "launch already cited" /
+   * resurrection receipt, celebrated the morning it happens.
+   */
+  firstCitations?: string[];
 };
+
+/**
+ * Pure: URLs (own-domain, normalized) whose earliest citation across
+ * the FULL observation history falls inside the last 24h. Caps at 5.
+ */
+export function selectFirstCitations(
+  observations: ReadonlyArray<{ observed_at: string; citation_urls?: string[] | null }>,
+  ownDomain: string,
+  now: Date,
+  max = 5,
+): string[] {
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const d = ownDomain.toLowerCase().replace(/^www\./, "");
+  const earliest = new Map<string, string>();
+  for (const obs of observations) {
+    for (const raw of obs.citation_urls ?? []) {
+      if (typeof raw !== "string") continue;
+      const norm = raw.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").split(/[?#]/)[0]!;
+      const host = norm.split("/")[0] ?? "";
+      if (host !== d && !host.endsWith(`.${d}`)) continue;
+      const cur = earliest.get(norm);
+      if (!cur || obs.observed_at < cur) earliest.set(norm, obs.observed_at);
+    }
+  }
+  const fresh: Array<{ path: string; at: string }> = [];
+  for (const [norm, at] of earliest) {
+    if (at >= dayAgo) {
+      const path = "/" + norm.split("/").slice(1).join("/");
+      fresh.push({ path: path === "/" ? "/ (homepage)" : path, at });
+    }
+  }
+  fresh.sort((a, b) => a.at.localeCompare(b.at));
+  return fresh.slice(0, max).map((f) => f.path);
+}
 
 export type MorningDigest = {
   subject: string;
@@ -166,6 +206,14 @@ export function composeMorningDigest(
         textParts.push(`…and ${more} more in the app.`);
         htmlParts.push(`<p style="margin:0;color:#777">…and ${more} more in the app.</p>`);
       }
+    }
+    // First-ever citations (#94) — the resurrection/launch receipt.
+    if (s.firstCitations && s.firstCitations.length > 0) {
+      const line = `First AI citation ever: ${s.firstCitations.join(", ")}`;
+      textParts.push(line);
+      htmlParts.push(
+        `<p style="margin:4px 0 0;color:#0a7a3d;font-size:13px">★ ${escapeHtml(line)}</p>`,
+      );
     }
     // The learning proof line (P0 wall 7) — renders with or without a
     // pending queue; it's a receipts line about SHIPPED drafts.
