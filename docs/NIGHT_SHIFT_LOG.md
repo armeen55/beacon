@@ -11,3 +11,4 @@ One line per hour: time, items shipped, commits, next.
 - 01:00 — sweep done: issues+attribution stores per-tenant (6th/7th cache instances), ratchet learns repo-var shape + watches 6 more getters, seed-data aggregator frozen visibly. Suite 14,133/0. Shipping PR 14.
 - 01:05 — content rules per-tenant (#35/#67) committed; docs sync (inventory status block + ledger addendum).
 - 01:12 — INCIDENT: PR 14's build FAILED (use-server file exported a const) and my shell chain merged it anyway → main red ~10 min. Hotfix: tenant-cookie module extracted; local prod build verified green. Lesson encoded: assert 'pass' explicitly before merge, never grep&&merge.
+- 01:17 — main healed (PR 15 merged on explicit pass). Triggers 17+18 landed: thin-overlap merge detector (#43) + stale-content (#44), both diagnostic-only. Next: full gates + ship batch.
