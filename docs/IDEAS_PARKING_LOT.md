@@ -325,3 +325,17 @@ These were considered and explicitly deferred when extraction coverage + scanner
 - **Why it's interesting:** One ADU job ≈ $200k+; "Beacon's tracked calls cover its price 40x" is THE renewal sentence — but only if it stays honest.
 - **Why it's hard / risky:** Eroding the invariant on outcome surfaces would undermine the category-defining trust posture (the whole Proof Engine pitch is "the only ROI claim that survives scrutiny").
 - **Claude's take:** Keep the invariant on outcome surfaces; put dollars on sales surfaces + an owner-entered calculator. Decide deliberately.
+
+## 2026-06-11 (day shift) — deferred with reasoning
+
+### Instant first-scan at launch (PAT-gated)
+A freshly launched tenant waits for the next nightly scan (≤24h) before anything crawls. With `BEACON_GH_WORKFLOW_DISPATCH_PAT` set in Vercel, the launch action could dispatch the scan workflow immediately — first crawl within minutes of signup. **Honest take:** real time-to-value win, zero new architecture (the watchdog already dispatches workflows when the PAT exists); blocked ONLY on the operator pasting the PAT. Status: ready-to-build the moment the PAT lands.
+
+### Universal city gazetteer for discrepancy detection
+`entity/discrepancy-detect.ts` checks content for mentions of non-owned locations/services against founder-vertical candidate lists — conservative-incomplete for other geos (a Tucson dentist's "Phoenix" mention is missed). A real fix needs a generic gazetteer (or deriving candidates from the tenant's citation corpus). **Honest take:** coverage gap, not wrong output; only worth building once a paying non-Bay tenant cares about NAP discrepancies. Status: month-2+.
+
+### today-data.ts split (3,048 lines)
+The biggest file-size discipline violation in the repo; touched by everything on /today. **Honest take:** a pure-move refactor needs a dedicated session with the full suite as the only gate — both shifts correctly refused to do it as a side-quest. Status: schedule a focused session.
+
+### `ritz_obs_count` → `own_obs_count` rename
+Internal evidence field named for the founder tenant (recommendation-engine, keyword-gap-scanner). Rendered copy is already neutral ("your page"). **Honest take:** pure naming debt across engine+types+tests; zero behavior. Bundle into the next engine-touching session.
