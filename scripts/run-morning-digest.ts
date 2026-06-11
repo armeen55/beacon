@@ -24,6 +24,7 @@ import {
   selectDigestRows,
   type DigestTenantSection,
 } from "../src/domains/delivery/morning-digest";
+import { computeEditFeedback } from "../src/domains/recommendation-intelligence/edit-feedback";
 import { resolveEmailConfig, sendEmail } from "../src/lib/email/resend";
 
 async function main() {
@@ -50,13 +51,17 @@ async function main() {
   for (const t of tenants) {
     const rows = await getRepository().forTenant(t.id).getRecommendedEdits();
     const sel = selectDigestRows(rows, now);
+    const feedback = computeEditFeedback(rows, now);
+    const shipped = feedback.overall.asProposed + feedback.overall.modified;
     sections.push({
       tenantId: t.id,
       businessName: t.business_name || t.slug,
       ...sel,
+      editRate: feedback.overall.editRate,
+      editRateShipped: shipped,
     });
     console.log(
-      `[morning-digest] ${t.id}: pending=${sel.pendingTotal} pushed24h=${sel.pushedLastDay} verified24h=${sel.verifiedLastDay}`,
+      `[morning-digest] ${t.id}: pending=${sel.pendingTotal} pushed24h=${sel.pushedLastDay} verified24h=${sel.verifiedLastDay} editRate=${feedback.overall.editRate ?? "n/a"}`,
     );
   }
 

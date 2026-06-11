@@ -144,3 +144,43 @@ describe("composeMorningDigest", () => {
     expect(d.hasContent).toBe(false);
   });
 });
+
+describe("composeMorningDigest — the learning line (P0 wall 7)", () => {
+  it("renders the edit-rate line at ≥3 shipped drafts", () => {
+    const d = composeMorningDigest(
+      [
+        {
+          tenantId: "t",
+          businessName: "Iranopedia",
+          pending: [],
+          pendingTotal: 0,
+          verifiedLastDay: 0,
+          pushedLastDay: 0,
+          editRate: 0.4,
+          editRateShipped: 5,
+        },
+      ],
+      { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
+    );
+    expect(d.text).toContain("You reworded 40% of the last 5 drafts before shipping.");
+  });
+
+  it("hides the line under 3 shipped or when null", () => {
+    const d = composeMorningDigest(
+      [
+        {
+          tenantId: "t",
+          businessName: "Iranopedia",
+          pending: [],
+          pendingTotal: 0,
+          verifiedLastDay: 0,
+          pushedLastDay: 0,
+          editRate: 1,
+          editRateShipped: 2,
+        },
+      ],
+      { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
+    );
+    expect(d.text).not.toContain("reworded");
+  });
+});

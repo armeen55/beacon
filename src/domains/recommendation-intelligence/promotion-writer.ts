@@ -67,6 +67,10 @@ import {
   type PageType,
 } from "@/domains/recommendation-intelligence/page-classifier";
 import {
+  applyEditFeedbackToRow,
+  computeEditFeedback,
+} from "@/domains/recommendation-intelligence/edit-feedback";
+import {
   enrichPromotionRow,
   type DraftEnrichmentContext,
 } from "@/domains/recommendation-intelligence/draft-enrichment";
@@ -163,15 +167,22 @@ export async function promoteEligibleCandidates(
   });
 
   // Stage 3: map eligible results through α₁a, then fill deterministic
-  // drafts (P0 wall 3). Enrichment is pure, never changes the row id /
-  // element-key identity, and leaves the row untouched when a correct
-  // draft can't be computed from the snapshot.
+  // drafts (P0 wall 3) and apply the operator-edit learning signal
+  // (P0 wall 7: action types the operator usually rewords get a
+  // one-step confidence downgrade + a plain-English note). Both steps
+  // are pure and never change the row id / element-key identity.
+  const editFeedback = computeEditFeedback(recommendedEdits, now);
   const eligibleResults = promotion.filter((r) => r.eligible);
   const mapped_rows: DeterministicPromotionEditRow[] = [];
   for (const result of eligibleResults) {
     const row = promotionResultToRecommendedEditRow(result, now);
     if (row != null) {
-      mapped_rows.push(enrichPromotionRow(row, result.candidate, enrichmentCtx));
+      mapped_rows.push(
+        applyEditFeedbackToRow(
+          enrichPromotionRow(row, result.candidate, enrichmentCtx),
+          editFeedback,
+        ),
+      );
     }
   }
 

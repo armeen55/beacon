@@ -27,6 +27,15 @@ export type DigestTenantSection = {
   pushedLastDay: number;
   /** Total pending beyond the cap (for the "+N more" line). */
   pendingTotal: number;
+  /**
+   * P0 wall 7 — the learning proof line. Operator edit rate over the
+   * feedback window (0..1), shown when ≥3 drafts shipped; null hides
+   * the line. "Your edit rate is dropping" is the dream's evidence
+   * that the engine is learning your taste.
+   */
+  editRate?: number | null;
+  /** Shipped-draft count behind editRate (display denominator). */
+  editRateShipped?: number;
 };
 
 export type MorningDigest = {
@@ -127,26 +136,34 @@ export function composeMorningDigest(
     if (s.pending.length === 0) {
       textParts.push("Nothing pending.");
       htmlParts.push(`<p style="margin:4px 0;color:#777">Nothing pending.</p>`);
-      continue;
+    } else {
+      htmlParts.push(`<ol style="margin:4px 0 8px;padding-left:20px">`);
+      for (const r of s.pending) {
+        const label = moveLabel(r);
+        const path = movePath(r);
+        textParts.push(`- ${label} → ${path}`);
+        htmlParts.push(
+          `<li style="margin:6px 0"><strong>${escapeHtml(label)}</strong><br><span style="color:#777">${escapeHtml(path)}</span>${
+            r.proposed_text != null && r.display_label == null
+              ? `<br><span style="color:#555">${escapeHtml(r.proposed_text.slice(0, 140))}</span>`
+              : ""
+          }</li>`,
+        );
+      }
+      htmlParts.push(`</ol>`);
+      if (s.pendingTotal > s.pending.length) {
+        const more = s.pendingTotal - s.pending.length;
+        textParts.push(`…and ${more} more in the app.`);
+        htmlParts.push(`<p style="margin:0;color:#777">…and ${more} more in the app.</p>`);
+      }
     }
-    htmlParts.push(`<ol style="margin:4px 0 8px;padding-left:20px">`);
-    for (const r of s.pending) {
-      const label = moveLabel(r);
-      const path = movePath(r);
-      textParts.push(`- ${label} → ${path}`);
-      htmlParts.push(
-        `<li style="margin:6px 0"><strong>${escapeHtml(label)}</strong><br><span style="color:#777">${escapeHtml(path)}</span>${
-          r.proposed_text != null && r.display_label == null
-            ? `<br><span style="color:#555">${escapeHtml(r.proposed_text.slice(0, 140))}</span>`
-            : ""
-        }</li>`,
-      );
-    }
-    htmlParts.push(`</ol>`);
-    if (s.pendingTotal > s.pending.length) {
-      const more = s.pendingTotal - s.pending.length;
-      textParts.push(`…and ${more} more in the app.`);
-      htmlParts.push(`<p style="margin:0;color:#777">…and ${more} more in the app.</p>`);
+    // The learning proof line (P0 wall 7) — renders with or without a
+    // pending queue; it's a receipts line about SHIPPED drafts.
+    if (s.editRate != null && (s.editRateShipped ?? 0) >= 3) {
+      const pct = Math.round(s.editRate * 100);
+      const line = `You reworded ${pct}% of the last ${s.editRateShipped} drafts before shipping.`;
+      textParts.push(line);
+      htmlParts.push(`<p style="margin:4px 0 0;color:#777;font-size:13px">${escapeHtml(line)}</p>`);
     }
   }
 
