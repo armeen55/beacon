@@ -146,15 +146,31 @@ type SitemapReconciliation = {
 //     their <url> entries.
 // Parsing lives in src/domains/scanning/sitemap-parse.ts (pure, tested).
 
+// Night-shift hardening (2026-06-11): retry-with-backoff. A single
+// transient upstream hiccup (caught live: ritzbuilders.com served HTTP
+// 415 for one minute on 2026-06-10) used to kill the ENTIRE nightly
+// scan — sitemap fetch was one-shot.
+const SITEMAP_RETRY_DELAYS_MS = [5_000, 15_000];
+
 async function fetchSitemapXml(url: string): Promise<string | null> {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "BeaconScanner/1.0" },
-  });
-  if (!res.ok) {
-    console.warn(`[scan] Sitemap ${url} → HTTP ${res.status}`);
-    return null;
+  for (let attempt = 0; attempt <= SITEMAP_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "BeaconScanner/1.0" },
+      });
+      if (res.ok) return res.text();
+      console.warn(
+        `[scan] Sitemap ${url} → HTTP ${res.status} (attempt ${attempt + 1}/${SITEMAP_RETRY_DELAYS_MS.length + 1})`,
+      );
+    } catch (err) {
+      console.warn(
+        `[scan] Sitemap ${url} fetch error (attempt ${attempt + 1}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const delay = SITEMAP_RETRY_DELAYS_MS[attempt];
+    if (delay !== undefined) await new Promise((r) => setTimeout(r, delay));
   }
-  return res.text();
+  return null;
 }
 
 async function fetchSitemap(): Promise<{ url: string; lastmod: string | null }[]> {

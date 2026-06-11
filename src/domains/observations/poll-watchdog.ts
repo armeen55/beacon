@@ -113,3 +113,66 @@ export function shouldDispatchPoll(args: {
     coveredPlatforms: [...covered],
   };
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// Night-shift extension (2026-06-11) — the watchdog grows from poll-only
+// to the WHOLE nightly chain. Caught live: GH's scheduler skipped the
+// 04:00 scan AND delayed the 07:00 poll on 2026-06-11; the scan had no
+// recovery path at all. Same Vercel cron, two more pure decisions.
+// ───────────────────────────────────────────────────────────────────────
+
+/** Row shape for tenant-scoped chain checks (scan + generation). */
+export type WatchdogTenantRun = {
+  readonly run_type: string;
+  readonly status: string;
+  readonly tenant_id?: string | null;
+};
+
+export type ChainWatchdogDecision = {
+  readonly shouldDispatch: boolean;
+  /** Active tenants with NO covering run today. */
+  readonly missingTenants: ReadonlyArray<string>;
+  readonly coveredTenants: ReadonlyArray<string>;
+};
+
+/**
+ * Generic per-tenant cover check: a tenant is covered when at least one
+ * row of `runType` with status completed/running/partial carries its
+ * tenant_id today. `failed` rows do NOT cover (we want the retry).
+ */
+export function shouldDispatchForRunType(args: {
+  readonly todayRuns: ReadonlyArray<WatchdogTenantRun>;
+  readonly activeTenantIds: ReadonlyArray<string>;
+  readonly runType: string;
+}): ChainWatchdogDecision {
+  const covered = new Set<string>();
+  for (const row of args.todayRuns) {
+    if (row.run_type !== args.runType) continue;
+    if (row.status !== "completed" && row.status !== "running" && row.status !== "partial") continue;
+    if (typeof row.tenant_id === "string" && row.tenant_id.length > 0) {
+      covered.add(row.tenant_id);
+    }
+  }
+  const missing = args.activeTenantIds.filter((t) => !covered.has(t));
+  return {
+    shouldDispatch: missing.length > 0,
+    missingTenants: missing,
+    coveredTenants: args.activeTenantIds.filter((t) => covered.has(t)),
+  };
+}
+
+/** Did every active tenant get a website crawl today? */
+export function shouldDispatchScan(args: {
+  readonly todayRuns: ReadonlyArray<WatchdogTenantRun>;
+  readonly activeTenantIds: ReadonlyArray<string>;
+}): ChainWatchdogDecision {
+  return shouldDispatchForRunType({ ...args, runType: "website_crawl" });
+}
+
+/** Did every active tenant get a generation heartbeat today? */
+export function shouldDispatchGeneration(args: {
+  readonly todayRuns: ReadonlyArray<WatchdogTenantRun>;
+  readonly activeTenantIds: ReadonlyArray<string>;
+}): ChainWatchdogDecision {
+  return shouldDispatchForRunType({ ...args, runType: "generation" });
+}

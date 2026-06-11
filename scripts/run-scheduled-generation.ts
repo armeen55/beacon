@@ -125,6 +125,42 @@ async function main() {
           `(set BEACON_PROMOTION_LIVE_WRITE_ENABLED=true to refill the queue nightly)`,
       );
     }
+    // Watchdog heartbeat (2026-06-11): one observation_runs row per
+    // completed generation so the 11:00 UTC nightly watchdog can detect
+    // a missed run and re-dispatch this workflow. Best-effort — a
+    // heartbeat failure must never fail the night's generation.
+    try {
+      const { syncObservationRuns } = await import("../src/lib/persistence/dual-write");
+      const nowIso = new Date().toISOString();
+      await syncObservationRuns(
+        [
+          {
+            run_id: `gen-${Date.now()}`,
+            tenant_id: tenantId,
+            run_type: "generation",
+            source: "run-scheduled-generation.ts",
+            status: "completed",
+            started_at: new Date(startedAt).toISOString(),
+            completed_at: nowIso,
+            scope_label: `Nightly generation · candidates=${result.candidate_count} promoted=${result.promoted_count} dryRun=${result.dryRun}`,
+            parser_version: undefined,
+            baseline_run_id: null,
+            pages_scanned: 0,
+            pages_changed: 0,
+            pages_with_errors: 0,
+            guardrail_alerts: 0,
+            critical_count: 0,
+            regression_count: 0,
+            improvement_count: 0,
+          },
+        ],
+        tenantId,
+      );
+    } catch (err) {
+      console.warn(
+        `[scheduled-generation] heartbeat write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     // Queue hygiene (#114/#49, 2026-06-11): expire stale auto-promoted
     // cards (TTL + per-tenant cap) AFTER tonight's promotion, live mode
     // only. A sweep failure is loud but not fatal — the night's
