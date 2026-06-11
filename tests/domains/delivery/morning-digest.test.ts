@@ -192,18 +192,22 @@ describe("composeMorningDigest — the learning line (P0 wall 7)", () => {
 
 describe("selectFirstCitations (#94) — the first-ever-citation receipt", () => {
   const NOW2 = new Date("2026-06-11T14:00:00Z");
-  const obs = (observed_at: string, urls: string[]) => ({ observed_at, citation_urls: urls });
+  const obs = (observed_at: string, urls: string[], platform?: string) => ({
+    observed_at,
+    citation_urls: urls,
+    platform: platform ?? null,
+  });
 
-  it("reports own-domain URLs whose EARLIEST citation is within 24h", () => {
+  it("reports own-domain URLs whose EARLIEST citation is within 24h, naming the engine", () => {
     const out = selectFirstCitations(
       [
-        obs("2026-06-11T07:10:00Z", ["https://www.iranopedia.com/persian-last-names"]),
+        obs("2026-06-11T07:10:00Z", ["https://www.iranopedia.com/persian-last-names"], "perplexity"),
         obs("2026-06-11T07:10:00Z", ["https://other-site.com/x"]), // foreign — never
       ],
       "iranopedia.com",
       NOW2,
     );
-    expect(out).toEqual(["/persian-last-names"]);
+    expect(out).toEqual(["/persian-last-names (via perplexity)"]);
   });
 
   it("a URL cited long ago is NOT 'first' even when cited again today", () => {

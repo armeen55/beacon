@@ -49,14 +49,19 @@ export type DigestTenantSection = {
  * the FULL observation history falls inside the last 24h. Caps at 5.
  */
 export function selectFirstCitations(
-  observations: ReadonlyArray<{ observed_at: string; citation_urls?: string[] | null }>,
+  observations: ReadonlyArray<{
+    observed_at: string;
+    citation_urls?: string[] | null;
+    /** #52-lite (2026-06-11): which engine produced the answer. */
+    platform?: string | null;
+  }>,
   ownDomain: string,
   now: Date,
   max = 5,
 ): string[] {
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const d = ownDomain.toLowerCase().replace(/^www\./, "");
-  const earliest = new Map<string, string>();
+  const earliest = new Map<string, { at: string; platform: string | null }>();
   for (const obs of observations) {
     for (const raw of obs.citation_urls ?? []) {
       if (typeof raw !== "string") continue;
@@ -64,18 +69,22 @@ export function selectFirstCitations(
       const host = norm.split("/")[0] ?? "";
       if (host !== d && !host.endsWith(`.${d}`)) continue;
       const cur = earliest.get(norm);
-      if (!cur || obs.observed_at < cur) earliest.set(norm, obs.observed_at);
+      if (!cur || obs.observed_at < cur.at) {
+        earliest.set(norm, { at: obs.observed_at, platform: obs.platform ?? null });
+      }
     }
   }
-  const fresh: Array<{ path: string; at: string }> = [];
-  for (const [norm, at] of earliest) {
-    if (at >= dayAgo) {
+  const fresh: Array<{ path: string; at: string; platform: string | null }> = [];
+  for (const [norm, info] of earliest) {
+    if (info.at >= dayAgo) {
       const path = "/" + norm.split("/").slice(1).join("/");
-      fresh.push({ path: path === "/" ? "/ (homepage)" : path, at });
+      fresh.push({ path: path === "/" ? "/ (homepage)" : path, at: info.at, platform: info.platform });
     }
   }
   fresh.sort((a, b) => a.at.localeCompare(b.at));
-  return fresh.slice(0, max).map((f) => f.path);
+  return fresh
+    .slice(0, max)
+    .map((f) => (f.platform ? `${f.path} (via ${f.platform})` : f.path));
 }
 
 export type MorningDigest = {
