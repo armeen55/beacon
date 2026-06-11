@@ -219,6 +219,24 @@ describe("computeAcceptedAtMs (Phase 3.1)", () => {
   // to align; target_element_key is only enforced when the edit has
   // a non-null value.
 
+  // Night-shift #127 (2026-06-11): the explicit stamp beats everything.
+  it("Source 0: an explicit accepted_at stamp wins over changelog + responses", () => {
+    const edit = { ...makeEdit("e1", "rec-A"), accepted_at: "2026-06-11T07:00:00Z" };
+    const responses = [makeResponse("rec-A", "accepted", "2026-04-26T12:00:00Z")];
+    const changelog = [makeChangelog("cl1", "rec-A", "2026-04-25T08:00:00Z")];
+    expect(computeAcceptedAtMs(edit, responses, changelog)).toBe(
+      Date.parse("2026-06-11T07:00:00Z"),
+    );
+  });
+
+  it("Source 0: an unparseable stamp falls through to the derivation ladder", () => {
+    const edit = { ...makeEdit("e1", "rec-A"), accepted_at: "not-a-date" };
+    const changelog = [makeChangelog("cl1", "rec-A", "2026-04-25T08:00:00Z")];
+    expect(computeAcceptedAtMs(edit, [], changelog)).toBe(
+      Date.parse("2026-04-25T08:00:00Z"),
+    );
+  });
+
   it("uses earliest EXACT-matching changelog timestamp when present", () => {
     const edit = makeEdit("e1", "rec-A");
     const responses = [

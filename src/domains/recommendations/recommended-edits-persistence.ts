@@ -202,6 +202,11 @@ export type RecommendedEditRow = {
    *  operator's final wording — the proposed→final delta that feeds
    *  the inner learning loop. */
   live_text?: string | null;
+  /** Night-shift #127 substrate (2026-06-11): stamped the moment the
+   *  operator accepts. The match runner's accept-time derivation
+   *  prefers this over its legacy changelog/response/created_at
+   *  ladder; also enables the time-to-approve metric. */
+  accepted_at?: string | null;
   /** Free-text reason if status is `not_found_after_7d`. */
   not_found_reason?: string | null;
 };
@@ -359,6 +364,9 @@ export async function markRecommendedEditsAccepted(args: {
       const updated: RecommendedEditRow = {
         ...row,
         implementation_status: "accepted",
+        // #127 substrate (2026-06-11): explicit accept timestamp — the
+        // 7-day not_found promotion no longer depends on derivation.
+        accepted_at: nowIso,
         updated_at: nowIso,
       };
       flipped.push(updated);

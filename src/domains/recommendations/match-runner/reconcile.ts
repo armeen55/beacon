@@ -115,6 +115,14 @@ export function computeAcceptedAtMs(
   responses: ReadonlyArray<RecommendationResponse>,
   changelog: ReadonlyArray<ChangelogEntry>,
 ): number | null {
+  // ── Source 0 (night-shift #127, 2026-06-11): the EXPLICIT stamp ─────
+  // markRecommendedEditsAccepted now writes accepted_at directly; when
+  // present it beats every derivation below (stable by construction).
+  if (typeof edit.accepted_at === "string") {
+    const t = Date.parse(edit.accepted_at);
+    if (!Number.isNaN(t)) return t;
+  }
+
   // ── Source 1: EXACT changelog match ─────────────────────────────────
   let earliestChangelog: number | null = null;
   for (const c of changelog) {
