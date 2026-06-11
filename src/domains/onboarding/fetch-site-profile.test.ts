@@ -129,3 +129,28 @@ describe("fetchSiteProfilePages", () => {
     });
   });
 });
+
+describe("fetchSiteProfilePages — maxPages cap (business-step prefill)", () => {
+  it("maxPages: 1 fetches ONLY the homepage (fast form submit)", async () => {
+    const fetchImpl = fakeFetch({
+      "https://acme.com/robots.txt": { status: 404 },
+      "https://acme.com/": {
+        body: `<nav><a href="/about">About</a><a href="/contact">Contact</a></nav>`,
+      },
+      "https://acme.com/about": { body: "never fetched" },
+    });
+    const result = await fetchSiteProfilePages("acme.com", {
+      fetchImpl,
+      maxPages: 1,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pages).toHaveLength(1);
+    // robots + homepage only — the about/contact candidates were never hit.
+    expect(
+      (fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(
+        (c) => String(c[0]),
+      ),
+    ).toEqual(["https://acme.com/robots.txt", "https://acme.com/"]);
+  });
+});
