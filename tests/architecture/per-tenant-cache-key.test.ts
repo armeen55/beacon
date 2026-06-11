@@ -59,6 +59,25 @@ const ALLOWLIST = new Set<string>([
   "lib/seed-data.server.ts",
 ]);
 
+/**
+ * A SECOND, related footgun: a module-global tenant POINTER
+ * (`let _<x>Tenant: string | null`) that sync code reads to pick a slot
+ * in a per-tenant Map. The data is per-tenant (never pinned), but the
+ * pointer is shared — if a sync consumer runs without first warming the
+ * pointer for the active tenant, it reads whatever tenant warmed last.
+ */
+const POINTER_ALLOWLIST = new Set<string>([
+  // candidates.ts: `_lastWarmedTenant` indexes per-tenant Maps
+  // (_registryByTenant/_topicIndexByTenant) for the SYNC scoring chain.
+  // Data is per-tenant, but 5 of 6 discoverCandidates callers don't
+  // `await warmPageRegistry()` first, so a warm process can read another
+  // tenant's page registry into the scoring INPUTS (a correctness bug, not
+  // a data-exposure leak). Tracked for a daylight fix (warm-before-discover
+  // in the 5 callers, or thread tenantId into discoverCandidates). See
+  // docs/AUDIT_50_MULTI_TENANT_FIXES.md §I.
+  "domains/attribution/candidates.ts",
+]);
+
 function stripComments(src: string): string {
   return src
     .split("\n")
@@ -124,5 +143,49 @@ describe("per-tenant cache-key ratchet — no tenant-blind module-global store c
       }
     }
     expect(stale, `Stale allowlist entries:\n${stale.join("\n")}`).toEqual([]);
+  });
+});
+
+describe("per-tenant pointer ratchet — no tenant-blind process-global tenant pointer", () => {
+  // A module-level `let _<x>Tenant: string | null` that sync code reads to
+  // index a per-tenant Map. Safe ONLY if every sync consumer is preceded by
+  // a same-tenant warm; otherwise a warm process serves the last-warmed
+  // tenant's slot to a different tenant. New instances must be allowlisted
+  // with a justification + a tracked fix.
+  const POINTER_DECL = /^\s*let\s+_[a-zA-Z]*[Tt]enant\b[^=\n]*:\s*string\s*\|\s*null/m;
+
+  it("no NEW process-global tenant pointer (the candidates.ts sync-resolver footgun)", () => {
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      const src = stripComments(readFileSync(file, "utf8"));
+      const rel = file.slice(SRC.length + 1);
+      if (!POINTER_DECL.test(src)) continue;
+      if (POINTER_ALLOWLIST.has(rel)) continue;
+      offenders.push(
+        `${rel}: process-global tenant pointer — a sync consumer running without a same-tenant ` +
+          `warm reads the last-warmed tenant's slot. Warm-before-use, thread tenantId, or allowlist with a tracked fix.`,
+      );
+    }
+    expect(
+      offenders,
+      `NEW process-global tenant pointer(s) — cross-tenant footgun:\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("pointer allowlist has no STALE entries (each file exists + still declares the pointer)", () => {
+    const stale: string[] = [];
+    for (const rel of POINTER_ALLOWLIST) {
+      let src = "";
+      try {
+        src = stripComments(readFileSync(join(SRC, rel), "utf8"));
+      } catch {
+        stale.push(`${rel} (file gone — remove from pointer allowlist)`);
+        continue;
+      }
+      if (!POINTER_DECL.test(src)) {
+        stale.push(`${rel} (no longer declares a tenant pointer — remove from pointer allowlist)`);
+      }
+    }
+    expect(stale, `Stale pointer-allowlist entries:\n${stale.join("\n")}`).toEqual([]);
   });
 });
