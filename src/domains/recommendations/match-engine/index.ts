@@ -15,6 +15,7 @@
 
 import { extractFirstNonEmptyLine } from "./normalize-text";
 import {
+  matchCreatedPage,
   matchInternalLink,
   matchPositional,
   matchSchemaType,
@@ -106,6 +107,10 @@ export function matchAcceptedEdit(inputs: MatchInputs): MatchResult {
     case "add_schema":
     case "fix_schema":
       return matchSchemaType(edit, inputs.currentInventory);
+
+    case "create_page":
+      // Night-shift #90 (2026-06-11): factory pages verify once crawled.
+      return matchCreatedPage(edit, inputs.currentInventory);
 
     default: {
       // Exhaustiveness — TypeScript proves we've handled every

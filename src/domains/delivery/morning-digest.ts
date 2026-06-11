@@ -42,6 +42,8 @@ export type DigestTenantSection = {
    * resurrection receipt, celebrated the morning it happens.
    */
   firstCitations?: string[];
+  /** #96 v1 — post-push citation regression alarm lines. */
+  pushRegressions?: string[];
 };
 
 /**
@@ -49,14 +51,19 @@ export type DigestTenantSection = {
  * the FULL observation history falls inside the last 24h. Caps at 5.
  */
 export function selectFirstCitations(
-  observations: ReadonlyArray<{ observed_at: string; citation_urls?: string[] | null }>,
+  observations: ReadonlyArray<{
+    observed_at: string;
+    citation_urls?: string[] | null;
+    /** #52-lite (2026-06-11): which engine produced the answer. */
+    platform?: string | null;
+  }>,
   ownDomain: string,
   now: Date,
   max = 5,
 ): string[] {
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const d = ownDomain.toLowerCase().replace(/^www\./, "");
-  const earliest = new Map<string, string>();
+  const earliest = new Map<string, { at: string; platform: string | null }>();
   for (const obs of observations) {
     for (const raw of obs.citation_urls ?? []) {
       if (typeof raw !== "string") continue;
@@ -64,18 +71,79 @@ export function selectFirstCitations(
       const host = norm.split("/")[0] ?? "";
       if (host !== d && !host.endsWith(`.${d}`)) continue;
       const cur = earliest.get(norm);
-      if (!cur || obs.observed_at < cur) earliest.set(norm, obs.observed_at);
+      if (!cur || obs.observed_at < cur.at) {
+        earliest.set(norm, { at: obs.observed_at, platform: obs.platform ?? null });
+      }
     }
   }
-  const fresh: Array<{ path: string; at: string }> = [];
-  for (const [norm, at] of earliest) {
-    if (at >= dayAgo) {
+  const fresh: Array<{ path: string; at: string; platform: string | null }> = [];
+  for (const [norm, info] of earliest) {
+    if (info.at >= dayAgo) {
       const path = "/" + norm.split("/").slice(1).join("/");
-      fresh.push({ path: path === "/" ? "/ (homepage)" : path, at });
+      fresh.push({ path: path === "/" ? "/ (homepage)" : path, at: info.at, platform: info.platform });
     }
   }
   fresh.sort((a, b) => a.at.localeCompare(b.at));
-  return fresh.slice(0, max).map((f) => f.path);
+  return fresh
+    .slice(0, max)
+    .map((f) => (f.platform ? `${f.path} (via ${f.platform})` : f.path));
+}
+
+/**
+ * Night-shift #96 v1 (2026-06-11) — post-push regression alarm. For
+ * every page PUSHED in the last 7 days, compare own-citation counts in
+ * the 7 days AFTER the push vs the 7 days BEFORE. Pre ≥ MIN_PRE and
+ * post ≤ half of pre → alarm ("this approved change may have hurt").
+ * Pure; conservative by construction (young pushes with thin priors
+ * never alarm).
+ */
+export const REGRESSION_MIN_PRE_CITATIONS = 3;
+
+export function selectPushRegressionAlarms(
+  observations: ReadonlyArray<{ observed_at: string; citation_urls?: string[] | null }>,
+  pushedRows: ReadonlyArray<{ target_url: string; updated_at?: string | null; implementation_status?: string | null; live_at?: string | null }>,
+  now: Date,
+): string[] {
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const norm = (raw: string) =>
+    raw.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").split(/[?#]/)[0]!;
+
+  const recentPushes = pushedRows.filter((r) => {
+    if ((r.implementation_status ?? "") !== "pushed") return false;
+    const at = r.live_at ?? r.updated_at ?? "";
+    if (at === "") return false;
+    const t = Date.parse(at);
+    return Number.isFinite(t) && now.getTime() - t <= weekMs && now.getTime() - t >= 0;
+  });
+  if (recentPushes.length === 0) return [];
+
+  const alarms: string[] = [];
+  for (const push of recentPushes) {
+    const pushedAt = Date.parse(push.live_at ?? push.updated_at ?? "");
+    const target = norm(push.target_url);
+    let pre = 0;
+    let post = 0;
+    for (const obs of observations) {
+      const t = Date.parse(obs.observed_at);
+      if (!Number.isFinite(t)) continue;
+      const cites = (obs.citation_urls ?? []).some(
+        (u) => typeof u === "string" && norm(u) === target,
+      );
+      if (!cites) continue;
+      if (t < pushedAt && pushedAt - t <= weekMs) pre++;
+      else if (t >= pushedAt && t - pushedAt <= weekMs) post++;
+    }
+    if (pre >= REGRESSION_MIN_PRE_CITATIONS && post <= pre / 2) {
+      let path: string;
+      try {
+        path = new URL(push.target_url).pathname || "/";
+      } catch {
+        path = push.target_url;
+      }
+      alarms.push(`${path} — ${pre} citations the week before the push, ${post} since. Consider the Revert button on the Wix console.`);
+    }
+  }
+  return alarms.slice(0, 3);
 }
 
 export type MorningDigest = {
@@ -179,9 +247,13 @@ export function composeMorningDigest(
     if (s.verifiedLastDay > 0) happened.push(`${s.verifiedLastDay} verified live`);
     const happenedLine = happened.length > 0 ? ` (yesterday: ${happened.join(", ")})` : "";
 
-    textParts.push(`\n## ${s.businessName} — ${s.pendingTotal} waiting${happenedLine}`);
+    // #118 (2026-06-11): the section heading deep-links into the RIGHT
+    // business via the tenant-switch route (fail-closed membership check
+    // server-side; the cookie the middleware honors).
+    const sectionUrl = `${opts.appBaseUrl.replace(/\/+$/, "")}/api/tenant-switch?tenant=${encodeURIComponent(s.tenantId)}&next=${encodeURIComponent("/recommendations")}`;
+    textParts.push(`\n## ${s.businessName} — ${s.pendingTotal} waiting${happenedLine}\n${sectionUrl}`);
     htmlParts.push(
-      `<h3 style="margin:20px 0 4px">${escapeHtml(s.businessName)} — ${s.pendingTotal} waiting<span style="color:#777;font-weight:normal">${escapeHtml(happenedLine)}</span></h3>`,
+      `<h3 style="margin:20px 0 4px"><a href="${escapeHtml(sectionUrl)}" style="color:inherit;text-decoration:none">${escapeHtml(s.businessName)}</a> — ${s.pendingTotal} waiting<span style="color:#777;font-weight:normal">${escapeHtml(happenedLine)}</span></h3>`,
     );
     if (s.pending.length === 0) {
       textParts.push("Nothing pending.");
@@ -205,6 +277,15 @@ export function composeMorningDigest(
         const more = s.pendingTotal - s.pending.length;
         textParts.push(`…and ${more} more in the app.`);
         htmlParts.push(`<p style="margin:0;color:#777">…and ${more} more in the app.</p>`);
+      }
+    }
+    // Post-push regression alarms (#96 v1) — loud and first.
+    if (s.pushRegressions && s.pushRegressions.length > 0) {
+      for (const line of s.pushRegressions) {
+        textParts.push(`⚠ Possible regression: ${line}`);
+        htmlParts.push(
+          `<p style="margin:4px 0 0;color:#b42318;font-size:13px">⚠ Possible regression: ${escapeHtml(line)}</p>`,
+        );
       }
     }
     // First-ever citations (#94) — the resurrection/launch receipt.

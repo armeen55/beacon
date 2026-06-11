@@ -997,3 +997,58 @@ describe("matchAcceptedEdit — purity invariants", () => {
     expect(matchAcceptedEdit(inputs)).toEqual(matchAcceptedEdit(inputs));
   });
 });
+
+// ── Night-shift #90 (2026-06-11) — created-page verification ─────────────
+
+describe("matchAcceptedEdit — create_page (factory pages)", () => {
+  const createEdit = (proposed: string | null) =>
+    ({
+      id: "e-create",
+      action_type: "create_page",
+      target_url: "https://iranopedia.com/persian-food/ghormeh-sabzi",
+      target_element_key: "create:Foods",
+      proposed_text: proposed,
+    }) as unknown as Parameters<typeof matchAcceptedEdit>[0]["edit"];
+
+  const titleRow = (text: string) =>
+    ({
+      element_key: "title",
+      element_type: "title",
+      element_text: text,
+    }) as unknown as NonNullable<
+      Parameters<typeof matchAcceptedEdit>[0]["currentInventory"]
+    >[number];
+
+  it("not crawled yet → not_found (the 7-day promotion applies as usual)", () => {
+    const r = matchAcceptedEdit({
+      edit: createEdit('{"title":"Ghormeh Sabzi"}'),
+      currentInventory: [],
+    });
+    expect(r.outcome).toBe("not_found");
+    expect(r.reason).toContain("not in the crawl inventory");
+  });
+
+  it("live page with a matching title field → verified_live (exact)", () => {
+    const r = matchAcceptedEdit({
+      edit: createEdit('{"title":"Ghormeh Sabzi","slug":"ghormeh-sabzi"}'),
+      currentInventory: [titleRow("Ghormeh Sabzi")],
+    });
+    expect(r.outcome).toBe("verified_live");
+  });
+
+  it("live page with a reworded title → verified_live_modified", () => {
+    const r = matchAcceptedEdit({
+      edit: createEdit('{"title":"Ghormeh Sabzi the famous Persian herb stew dish"}'),
+      currentInventory: [titleRow("Ghormeh Sabzi — the famous Persian herb stew")],
+    });
+    expect(r.outcome).toBe("verified_live_modified");
+  });
+
+  it("live page but unparseable JSON → needs_review (no fake verification)", () => {
+    const r = matchAcceptedEdit({
+      edit: createEdit("not json at all"),
+      currentInventory: [titleRow("Whatever")],
+    });
+    expect(r.outcome).toBe("needs_review");
+  });
+});
