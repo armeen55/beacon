@@ -1591,3 +1591,72 @@ describe("Phase 5: answer intelligence drives recommendation content", () => {
     expect(allText).toContain("FAQ");
   });
 });
+
+// ── 2026-06-11: tenant-vocabulary title intent (no fabricated builder copy) ──
+
+describe("buildMorningBrief — tenant-vocabulary title suggestions", () => {
+  function actionFor(url: string) {
+    return {
+      id: "act-1",
+      type: "page_edit",
+      title: "Improve page",
+      rationale: "test",
+      targetPageUrl: url,
+      targetPagePath: new URL(url).pathname,
+      priorityScore: 90,
+      citationOpportunity: null,
+      answerContext: null,
+    } as unknown as PrioritizedAction;
+  }
+  const snapFor = (url: string) =>
+    ({
+      url,
+      title: "Catering | La Palma",
+      h1: "Catering",
+      h2_list: [],
+    }) as unknown as import("@/domains/pages/types").PageSnapshot;
+  const queryIndexFor = (url: string, queries: string[]) =>
+    ({
+      by_page: { [url.replace(/\/+$/, "").toLowerCase()]: queries },
+      by_topic: {},
+      by_city: {},
+    }) as unknown as import("@/domains/answer-intelligence/query-index").QueryKeywordIndex;
+
+  it("a taqueria's suggestion uses ITS OWN service phrase — never 'Custom Home Builder'", () => {
+    const url = "https://lapalma.com/services/catering";
+    const brief = buildMorningBrief({
+      primaryAction: actionFor(url),
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: null,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+      pageSnapshots: [snapFor(url)],
+      queryIndex: queryIndexFor(url, ["best catering in tucson"]),
+      cities: ["tucson"],
+      industry: "restaurant",
+      services: ["catering", "taco bar"],
+    });
+    const allSteps = brief.items.flatMap((i) => i.steps).join("\n");
+    expect(allSteps).not.toContain("Custom Home Builder");
+    expect(allSteps).not.toContain("Bay Area");
+  });
+
+  it("no intent signal + no tenant vocab → NO fabricated suggestion", () => {
+    const url = "https://example.com/services/widgets";
+    const brief = buildMorningBrief({
+      primaryAction: actionFor(url),
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: null,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+      pageSnapshots: [snapFor(url)],
+      queryIndex: queryIndexFor(url, ["completely unrelated query"]),
+    });
+    const allSteps = brief.items.flatMap((i) => i.steps).join("\n");
+    expect(allSteps).not.toContain("Custom Home Builder");
+  });
+});

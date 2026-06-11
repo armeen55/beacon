@@ -122,21 +122,28 @@ export function buildMorningBrief(opts: {
   /** Tenant city vocabulary (lowercase) for query-relevance filtering.
    *  Absent → the founder default inside query-index (parity). */
   cities?: ReadonlyArray<string>;
+  /** Tenant vocabulary for title-intent extraction (2026-06-11): the
+   *  intent ladder tries the tenant's own services, then the builder
+   *  patterns (no-op for other verticals), then industry — and returns
+   *  NO suggestion rather than fabricate vocabulary. */
+  industry?: string | null;
+  services?: ReadonlyArray<string>;
 }): MorningBriefData {
   const items: MorningBriefItem[] = [];
   const pageSnaps = opts.pageSnapshots ?? [];
   const qIdx = opts.queryIndex ?? null;
   const tenantCities = opts.cities;
+  const tenantVocab = { industry: opts.industry ?? null, services: opts.services ?? [] };
 
   if (opts.primaryAction) {
     items.push(
-      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx, tenantCities)
+      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx, tenantCities, tenantVocab)
     );
   }
 
   for (const action of opts.secondaryActions.slice(0, 2)) {
     items.push(
-      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx, tenantCities)
+      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx, tenantCities, tenantVocab)
     );
   }
 
@@ -225,8 +232,9 @@ function toBriefItem(
   pageSnapshots?: PageSnapshot[],
   queryIndex?: QueryKeywordIndex | null,
   cities?: ReadonlyArray<string>,
+  vocab?: TenantTitleVocab,
 ): MorningBriefItem {
-  const { contextLines, steps: rawSteps } = generateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex ?? undefined, cities);
+  const { contextLines, steps: rawSteps } = generateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex ?? undefined, cities, vocab);
   const headline = rewriteHeadline(action);
   const rationale = rewriteRationale(action);
   const aiContext = action.answerContext ?? null;
@@ -538,6 +546,7 @@ function generateSteps(
   pageSnapshots?: PageSnapshot[],
   queryIndex?: QueryKeywordIndex,
   cities?: ReadonlyArray<string>,
+  vocab?: TenantTitleVocab,
 ): { contextLines: string[]; steps: string[] } {
   const ctx: string[] = [];   // Intelligence context (displayed as header)
   const steps: string[] = []; // Pure execution steps (3-4 max)
@@ -616,7 +625,7 @@ function generateSteps(
 
       // Phase B: add title/H2 specificity when snapshot is available
       if (snap && pageTopics.length > 0) {
-        const titleSuggestion = suggestTitleRewrite(snap, pageTopics, queryIndex, cities);
+        const titleSuggestion = suggestTitleRewrite(snap, pageTopics, queryIndex, cities, vocab);
         if (titleSuggestion) {
           steps.push(titleSuggestion);
         }
@@ -864,11 +873,17 @@ function generateFaqSchemaJsonLd(faqs: FaqItem[]): string {
  *
  * A bad suggestion is worse than no suggestion.
  */
+type TenantTitleVocab = {
+  industry: string | null;
+  services: ReadonlyArray<string>;
+};
+
 function suggestTitleRewrite(
   snap: PageSnapshot,
   citedTopics: string[],
   queryIndex?: QueryKeywordIndex,
   cities?: ReadonlyArray<string>,
+  vocab?: TenantTitleVocab,
 ): string | null {
   const title = snap.title;
   if (!title) return null;
@@ -920,14 +935,33 @@ function suggestTitleRewrite(
       /architect[- ]designed/i,
       /ground[- ]up/i,
     ];
-    for (const pattern of servicePatterns) {
-      const match = topQuery.match(pattern);
-      if (match) { intentWords.push(match[0]); break; }
+    // Tenant vocabulary FIRST (2026-06-11): the tenant's own service
+    // phrases beat the builder patterns — "best catering in tucson"
+    // yields "catering", never builder vocabulary.
+    if (vocab && vocab.services.length > 0) {
+      const phrases = [...vocab.services]
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s.length >= 3)
+        .sort((a, b) => b.length - a.length);
+      for (const phrase of phrases) {
+        if (topQueryLower.includes(phrase)) { intentWords.push(phrase); break; }
+      }
+    }
+    if (intentWords.length === 0) {
+      for (const pattern of servicePatterns) {
+        const match = topQuery.match(pattern);
+        if (match) { intentWords.push(match[0]); break; }
+      }
     }
 
+    if (intentWords.length === 0 && vocab?.industry) {
+      intentWords.push(vocab.industry);
+    }
     if (intentWords.length === 0) {
-      // Fallback: use "Custom Home Builder" as default intent
-      intentWords.push("Custom Home Builder");
+      // 2026-06-11: pre-fix this fabricated "Custom Home Builder" for
+      // EVERY tenant. No intent signal → no suggestion (honest blank),
+      // never another vertical's vocabulary.
+      return null;
     }
 
     // Title case the intent
@@ -937,18 +971,21 @@ function suggestTitleRewrite(
       .join(" ");
 
     // Build the suggested title — keep under 60 chars
+    // 2026-06-11: the no-city branch used to fabricate "Bay Area" into
+    // every tenant's suggestion. No city → no region word (the suffix
+    // already carries the brand).
     let suggested: string;
     if (city) {
       suggested = `Best ${intentPhrase} in ${city}${suffix}`;
     } else {
-      suggested = `Best ${intentPhrase} Bay Area${suffix}`;
+      suggested = `Best ${intentPhrase}${suffix}`;
     }
 
     // Truncate if over 60 chars (drop "Best " prefix first, then suffix)
     if (suggested.length > 65) {
       suggested = city
         ? `${intentPhrase} in ${city}${suffix}`
-        : `${intentPhrase} Bay Area${suffix}`;
+        : `${intentPhrase}${suffix}`;
     }
     if (suggested.length > 65 && suffix.length > 0) {
       suggested = suggested.replace(suffix, "").trim();

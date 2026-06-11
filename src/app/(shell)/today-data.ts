@@ -1305,6 +1305,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     pageSnapshots,
     queryIndex,
     cities: tenantCities.length > 0 ? tenantCities : undefined,
+    industry: businessConfig.industry || null,
+    services: businessConfig.services ?? [],
   });
 
   function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
