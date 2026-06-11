@@ -109,6 +109,17 @@ describe("composeMorningDigest", () => {
     };
   }
 
+  it("leads with an at-a-glance summary across businesses (2026-06-11)", () => {
+    const d = composeMorningDigest(
+      [
+        section({ pendingTotal: 14, pushedLastDay: 1, verifiedLastDay: 2 }),
+        section({ tenantId: "t2", businessName: "Ritz", pendingTotal: 3, pushedLastDay: 0, verifiedLastDay: 0 }),
+      ],
+      { appBaseUrl: "https://x.com", dateLabel: "2026-06-11" },
+    );
+    expect(d.text.split("\n")[0]).toBe("2 businesses · 17 moves waiting · 1 shipped yesterday · 2 verified live");
+  });
+
   it("subject carries the cross-business pending total", () => {
     const d = composeMorningDigest(
       [section(), section({ tenantId: "t2", businessName: "Ritz Builders", pendingTotal: 3 })],

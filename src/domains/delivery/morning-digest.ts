@@ -293,10 +293,23 @@ export function composeMorningDigest(
       ? `Beacon — nothing waiting today (${opts.dateLabel})`
       : `Beacon — ${totalPending} move${totalPending === 1 ? "" : "s"} waiting for your approval (${opts.dateLabel})`;
 
-  const textParts: string[] = [];
+  // At-a-glance synthesis across all businesses (2026-06-11) — the
+  // one line the operator reads first.
+  const shippedYesterday = sections.reduce((n, s) => n + s.pushedLastDay, 0);
+  const verifiedYesterday = sections.reduce((n, s) => n + s.verifiedLastDay, 0);
+  const summaryBits = [
+    `${sections.length} business${sections.length === 1 ? "" : "es"}`,
+    `${totalPending} move${totalPending === 1 ? "" : "s"} waiting`,
+  ];
+  if (shippedYesterday > 0) summaryBits.push(`${shippedYesterday} shipped yesterday`);
+  if (verifiedYesterday > 0) summaryBits.push(`${verifiedYesterday} verified live`);
+  const summaryLine = summaryBits.join(" · ");
+
+  const textParts: string[] = [summaryLine];
   const htmlParts: string[] = [
     `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:640px;margin:0 auto;color:#1a1a1a">`,
     `<h2 style="margin:16px 0 4px">Your morning queue</h2>`,
+    `<p style="margin:0 0 4px;font-weight:600;color:#1a1a1a">${escapeHtml(summaryLine)}</p>`,
     `<p style="margin:0 0 16px;color:#555">${escapeHtml(opts.dateLabel)} — approve, edit, or skip. Nothing ships without you.</p>`,
   ];
 
