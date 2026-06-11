@@ -95,11 +95,17 @@ export function pickSecondaryPaths(homepageHtml: string): string[] {
  */
 export async function fetchSiteProfilePages(
   rawUrl: string,
-  deps: PoliteFetchDeps = {},
+  deps: PoliteFetchDeps & {
+    /** Cap total pages (1..3). Default 3. The onboarding business step
+     *  passes 1 (homepage-only) to keep the form submit fast; launch
+     *  uses the full default for the richer derivation. */
+    maxPages?: number;
+  } = {},
 ): Promise<SiteProfileFetchResult> {
   const normalized = normalizeSiteUrl(rawUrl);
   if (!normalized) return { ok: false, reason: "invalid_url" };
 
+  const maxPages = Math.max(1, Math.min(deps.maxPages ?? MAX_PAGES, MAX_PAGES));
   const robotsCache = new Map<string, string[]>();
   const homepage = await fetchPageHtml(
     normalized.homepageUrl,
@@ -118,7 +124,7 @@ export async function fetchSiteProfilePages(
     { url: normalized.homepageUrl, html: homepage.html },
   ];
   for (const path of pickSecondaryPaths(homepage.html)) {
-    if (pages.length >= MAX_PAGES) break;
+    if (pages.length >= maxPages) break;
     const url = `https://${new URL(normalized.homepageUrl).hostname}${path}`;
     const res = await fetchPageHtml(url, robotsCache, deps);
     if (res.ok) pages.push({ url, html: res.html });

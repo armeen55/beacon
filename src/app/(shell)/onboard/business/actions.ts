@@ -79,27 +79,78 @@ export async function saveBusinessProfile(
   //    Status guard prevents this action from ever mutating an active
   //    customer's row, even if the route guard somehow let an active
   //    user reach the form (e.g., race with operator launching them).
-  const { error: updateErr, count } = await admin
+  //    `.select` returns the updated row so the prefill step below can
+  //    see whether cities were already typed (typed beats derived).
+  const { data: updatedRows, error: updateErr } = await admin
     .from("tenants")
-    .update(
-      {
-        business_name: validation.normalized.businessName,
-        domain: validation.normalized.domain,
-        updated_at: new Date().toISOString(),
-      },
-      { count: "exact" },
-    )
+    .update({
+      business_name: validation.normalized.businessName,
+      domain: validation.normalized.domain,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", membership.tenantId)
-    .eq("status", "pending_onboarding");
+    .eq("status", "pending_onboarding")
+    .select("cities_served");
 
   if (updateErr) {
     console.error("[onboard/business] update failed:", updateErr.message);
     return { ok: false, error: "update_failed" };
   }
-  if (count === 0) {
+  if (!updatedRows || updatedRows.length === 0) {
     // Tenant exists but is no longer pending — operator activated it
     // (or paused/cancelled it) between the form render and this action.
     return { ok: false, error: "already_launched" };
+  }
+
+  // 4.5 North-star onboarding (2026-06-11): derive a cities SUGGESTION
+  //     from the site (homepage only — keeps the submit fast) and
+  //     prefill cities_served so the scope step opens with what Beacon
+  //     found instead of a blank box. Strictly best-effort and
+  //     typed-beats-derived: only fires when the human hasn't entered
+  //     cities; they can edit/clear the prefill on the next screen. A
+  //     fetch failure or throw never blocks the step.
+  const existingCities = (updatedRows[0]?.cities_served ?? []) as string[];
+  if (existingCities.length === 0) {
+    try {
+      const [
+        { fetchSiteProfilePages },
+        { deriveBusinessProfile },
+        { displayCaseLocation },
+      ] = await Promise.all([
+        import("@/domains/onboarding/fetch-site-profile"),
+        import("@/domains/onboarding/derive-business-profile"),
+        import("@/domains/onboarding/derive-business-config"),
+      ]);
+      const fetched = await fetchSiteProfilePages(
+        validation.normalized.domain,
+        { maxPages: 1 },
+      );
+      if (fetched.ok) {
+        const profile = deriveBusinessProfile(fetched.pages);
+        const suggested = profile.locations
+          .filter((l) => l.trim().length > 2) // drop bare region codes
+          .map(displayCaseLocation)
+          .slice(0, 20);
+        if (suggested.length > 0) {
+          await admin
+            .from("tenants")
+            .update({
+              cities_served: suggested,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", membership.tenantId)
+            .eq("status", "pending_onboarding");
+          console.info(
+            `[onboard/business] prefilled ${suggested.length} derived cities for the scope step`,
+          );
+        }
+      }
+    } catch (e) {
+      console.error(
+        "[onboard/business] cities prefill skipped:",
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
 
   // 5. Success — advance to step 2.
