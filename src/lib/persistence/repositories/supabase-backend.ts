@@ -761,6 +761,18 @@ export const supabaseBackend: SeedDataRepository = {
         supabaseBackend.getCitationEvidenceIndexScoped!(tenantId),
       getChangeContracts: () =>
         queryMappedScoped<ChangeContract>("change_contracts", tenantId),
+      // Night-shift sweep (2026-06-11) — same recipe for the remaining
+      // tenant-stamped tables the ambient legacy stores read unscoped.
+      getPageIssues: () =>
+        queryMappedScoped<PersistedIssue>("page_issues", tenantId),
+      getEventDecisions: () =>
+        selectScoped<EventDecision>("attribution_decisions", tenantId),
+      getCandidateLinks: () =>
+        selectScoped<CandidateLink>("candidate_links", tenantId),
+      getOpportunities: () =>
+        selectScoped<Opportunity>("opportunities", tenantId),
+      getCompetitors: () =>
+        selectScoped<Competitor>("competitors", tenantId),
       getAnswerIntelligenceIndex: () =>
         supabaseBackend.getAnswerIntelligenceIndexScoped!(tenantId),
 

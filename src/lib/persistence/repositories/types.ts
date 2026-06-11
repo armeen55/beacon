@@ -286,6 +286,13 @@ export interface TenantRepository {
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
   /** Night-shift (2026-06-11) — tenant-scoped change contracts. */
   getChangeContracts(): Promise<ChangeContract[]>;
+  /** Night-shift sweep (2026-06-11) — tenant-scoped reads for the
+   *  remaining stamped tables. */
+  getPageIssues(): Promise<PersistedIssue[]>;
+  getEventDecisions(): Promise<EventDecision[]>;
+  getCandidateLinks(): Promise<CandidateLink[]>;
+  getOpportunities(): Promise<Opportunity[]>;
+  getCompetitors(): Promise<Competitor[]>;
   /**
    * Night-shift fix (2026-06-11) — per-tenant citation index. A single
    * object (not rows), so the wrapper's row filter can't protect it;
