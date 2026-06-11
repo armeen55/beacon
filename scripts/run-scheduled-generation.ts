@@ -125,6 +125,27 @@ async function main() {
           `(set BEACON_PROMOTION_LIVE_WRITE_ENABLED=true to refill the queue nightly)`,
       );
     }
+    // Queue hygiene (#114/#49, 2026-06-11): expire stale auto-promoted
+    // cards (TTL + per-tenant cap) AFTER tonight's promotion, live mode
+    // only. A sweep failure is loud but not fatal — the night's
+    // promotion already landed; the sweep retries tomorrow.
+    if (!mode.dryRun) {
+      try {
+        const { sweepQueueForTenant } = await import(
+          "../src/domains/recommendations/queue-sweeper"
+        );
+        const sweep = await sweepQueueForTenant(tenantId);
+        console.log(
+          `[scheduled-generation] SWEEP tenant=${tenantId} expiredTtl=${sweep.expiredTtl} ` +
+            `expiredOverflow=${sweep.expiredOverflow} pendingAfter=${sweep.pendingAfter}` +
+            (sweep.sync_warning ? ` sync_warning=${sweep.sync_warning.slice(0, 120)}` : ""),
+        );
+      } catch (err) {
+        console.error(
+          `::warning::[scheduled-generation] queue sweep failed (promotion already landed): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     process.exit(0);
   } catch (err) {
     console.error(

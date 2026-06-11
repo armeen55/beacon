@@ -122,6 +122,14 @@ const STYLES: Record<LifecycleStatusPillKey, StyleSpec> = {
     className: "border-border/60 bg-surface-inset/60 text-muted-foreground",
     hollow: true,
   },
+  // Night-shift #114 (2026-06-11): auto-expired by the nightly queue
+  // sweeper (TTL / queue cap) — machine hygiene, rendered muted.
+  expired: {
+    label: "Expired",
+    compactLabel: "Expired",
+    className: "border-border/60 bg-surface-inset/60 text-muted-foreground",
+    hollow: true,
+  },
   imported_legacy: {
     label: "Pre-launch",
     compactLabel: "Pre-launch",

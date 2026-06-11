@@ -97,6 +97,12 @@ export type ImplementationStatus =
   | "wrong_page"
   | "partially_implemented"
   | "not_found_after_7d"
+  /** Night-shift #114 (2026-06-11): auto-expired by the nightly queue
+   *  sweeper — TTL or per-tenant queue-cap overflow. ONLY auto-promoted
+   *  rows (source deterministic_promotion) ever get this status; it is
+   *  machine hygiene, not operator rejection (cooldown 30d, vs 90d for
+   *  dismissed). */
+  | "expired"
   | "dismissed";
 
 /** Phase 1: confidence tier emitted by the (future Phase 2) match engine. */

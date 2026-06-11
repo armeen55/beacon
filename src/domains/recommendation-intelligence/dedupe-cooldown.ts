@@ -40,6 +40,10 @@ export type PromotionEditStatus =
   | "wrong_page"
   | "partially_implemented"
   | "not_found_after_7d"
+  /** Night-shift #114 (2026-06-11): auto-expired by the nightly queue
+   *  sweeper (TTL / queue-cap overflow). Machine hygiene, not operator
+   *  rejection. */
+  | "expired"
   | "dismissed";
 
 /** Minimal anchor shape for `isInCooldown` reads. */
@@ -153,6 +157,10 @@ export const COOLDOWN_WINDOW_DAYS: Readonly<
   needs_review: 14,
   recommended: 0,
   not_found_after_7d: 0,
+  // Night-shift #114 (2026-06-11): auto-expiry is machine hygiene, not
+  // operator rejection — a 30d window lets a still-firing trigger
+  // re-promote the move a month later (vs dismissed: 90).
+  expired: 30,
   no_prior: 0,
 } as const;
 

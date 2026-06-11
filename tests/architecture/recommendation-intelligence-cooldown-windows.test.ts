@@ -44,6 +44,10 @@ const LOCKED_WINDOWS = {
   needs_review: 14,
   recommended: 0,
   not_found_after_7d: 0,
+  // Night-shift #114 (2026-06-11): nightly queue-sweeper auto-expiry —
+  // machine hygiene, not operator rejection. 30d (vs dismissed 90) so a
+  // still-firing trigger re-promotes the move a month later.
+  expired: 30,
   no_prior: 0,
 } as const;
 
