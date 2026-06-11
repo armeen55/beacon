@@ -156,6 +156,25 @@ async function safeCall<T>(
  * Returns a `LiveRecommendationQueue` with the decorated queue + every
  * intermediate input the CLI needs to build packets.
  */
+/**
+ * Night-shift #48 (2026-06-11) — unified queue ordering score for a
+ * rec_id's edit group: drafted moves (proposed_text present) outrank
+ * undrafted; confidence high > medium > low. Max over the group. Pure;
+ * exported for tests. Recency breaks ties at the call site.
+ */
+export function queueGroupScore(
+  edits: ReadonlyArray<{ proposed_text?: string | null; confidence?: string | null }>,
+): number {
+  let best = 0;
+  for (const e of edits) {
+    const drafted = e.proposed_text != null && e.proposed_text !== "" ? 10 : 0;
+    const conf = e.confidence === "high" ? 2 : e.confidence === "medium" ? 1 : 0;
+    const score = drafted + conf;
+    if (score > best) best = score;
+  }
+  return best;
+}
+
 export async function loadLiveRecommendationQueue(
   opts: LoadLiveRecommendationQueueOptions,
 ): Promise<LiveRecommendationQueue> {
@@ -846,10 +865,15 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       for (const r of responses) responseByRecId.set(r.recId, r);
 
       // Build queue items. Synthesized LiveRecQueueItem per rec_id with
-      // at least one edit. Rank assigned by sort order: rec_id with the
-      // most recent edit first (recency is the cheapest stand-in for
-      // priority in the absence of the prioritizer's score).
+      // at least one edit. Night-shift #48 (2026-06-11): unified
+      // ordering replaces the recency-only stand-in — drafted moves
+      // (approvable on sight) outrank undrafted; higher confidence
+      // outranks lower; recency breaks ties. Mirrors the morning
+      // digest's ordering so the email and the page agree.
       const recIds = Array.from(editsByRecId.keys()).sort((a, b) => {
+        const sa = queueGroupScore(editsByRecId.get(a)!);
+        const sb = queueGroupScore(editsByRecId.get(b)!);
+        if (sb !== sa) return sb - sa;
         const aMax = Math.max(
           ...editsByRecId
             .get(a)!
