@@ -66,7 +66,7 @@ type ObservationRow = {
   citation_urls: string[] | null;
 };
 
-async function fetchNativeObservations(): Promise<ObservationRow[]> {
+async function fetchNativeObservations(tenantId: string): Promise<ObservationRow[]> {
   const sb = getSupabaseAdmin();
   // Page through all native-era observations with citation_urls populated.
   // Volume is small (~420 today, growing by ~200/day) but we page defensively.
@@ -77,6 +77,7 @@ async function fetchNativeObservations(): Promise<ObservationRow[]> {
     const { data, error } = await sb
       .from("prompt_answer_observations")
       .select("id, prompt_id, observed_at, topic, platform, citation_urls")
+      .eq("tenant_id", tenantId)
       .gte("observed_at", `${NATIVE_REGIME_START}T00:00:00Z`)
       .not("citation_urls", "is", null)
       .order("observed_at", { ascending: true })
@@ -90,16 +91,18 @@ async function fetchNativeObservations(): Promise<ObservationRow[]> {
   return out;
 }
 
-async function fetchTrackedEntities(): Promise<TrackedEntity[]> {
+async function fetchTrackedEntities(tenantId: string): Promise<TrackedEntity[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("tracked_entities")
-    .select("*");
+    .select("*")
+    .eq("tenant_id", tenantId);
   if (error) throw new Error(`tracked_entities: ${error.message}`);
   return (data ?? []) as TrackedEntity[];
 }
 
 async function writeIndex(
   index: Awaited<ReturnType<typeof buildNativeCitationEvidenceIndex>>,
+  tenantId: string,
 ): Promise<void> {
   // 1. Local disk write — DATA_SOURCE=file readers (local dev, tests) see fresh data.
   //    No-ops on Vercel (read-only FS); hosted relies on the Supabase write below.
@@ -109,6 +112,7 @@ async function writeIndex(
   const sb = getSupabaseAdmin();
   const row = {
     id: "current",
+    tenant_id: tenantId,
     built_at: index.built_at,
     total_citations_processed: index.total_citations_processed,
     by_page_and_topic: index.by_page_and_topic,
@@ -117,7 +121,7 @@ async function writeIndex(
   };
   const { error } = await sb
     .from("citation_evidence_index")
-    .upsert(row, { onConflict: "id" });
+    .upsert(row, { onConflict: "tenant_id,id" });
   if (error) throw new Error(`upsert citation_evidence_index: ${error.message}`);
 }
 
@@ -127,9 +131,15 @@ async function main(): Promise<number> {
     `rebuild-citation-evidence-index-native: dry-run=${dryRun}, boundary=${NATIVE_REGIME_START}`,
   );
 
+  // Night-shift fix (2026-06-11): explicit tenant scope — the table is
+  // per-tenant now and unscoped fetches would blend tenants.
+  const tenantId = process.env.BEACON_TENANT_ID;
+  if (!tenantId) {
+    throw new Error("BEACON_TENANT_ID is required (per-tenant index rebuild)");
+  }
   const [observations, entities] = await Promise.all([
-    fetchNativeObservations(),
-    fetchTrackedEntities(),
+    fetchNativeObservations(tenantId),
+    fetchTrackedEntities(tenantId),
   ]);
   console.log(
     `Fetched: ${observations.length} native observations with citation_urls, ${entities.length} tracked entities.`,
@@ -165,7 +175,7 @@ async function main(): Promise<number> {
   }
 
   if (!dryRun) {
-    await writeIndex(index);
+    await writeIndex(index, tenantId);
     console.log(`\nWrote citation_evidence_index id='current' to Supabase.`);
   } else {
     console.log(`\n(dry-run — no write)`);

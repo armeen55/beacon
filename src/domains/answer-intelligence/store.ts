@@ -1,46 +1,49 @@
 import "server-only";
 
 import { cache } from "react";
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
+import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import type { AnswerIntelligenceIndex } from "./types";
 
 /**
- * Reads the answer intelligence index fresh from disk.
- * Always returns current data — no module-level cache staleness.
+ * Night-shift rewrite (2026-06-11) — per-tenant, repository-routed.
+ * Same two bugs as citation-evidence-store: a process-global `let`
+ * cache keyed by NOTHING (first tenant pinned its index for the whole
+ * warm process) and disk-only reads (hosted surfaces always saw null
+ * while the Supabase row sat unread). Reads now route through
+ * `getRepository().forTenant(tenantId)` — ambient per-tenant disk via
+ * the file backend locally (lossless), the tenant's own
+ * `answer_intelligence_index` row on hosted.
  */
-async function loadFromDisk(): Promise<AnswerIntelligenceIndex | null> {
-  return (await readDotDataJson<AnswerIntelligenceIndex>("answer-intelligence-index")) ?? null;
+
+const _byTenant = new Map<string, AnswerIntelligenceIndex | null>();
+
+async function loadForTenant(tenantId: string): Promise<AnswerIntelligenceIndex | null> {
+  try {
+    return await getRepository().forTenant(tenantId).getAnswerIntelligenceIndex();
+  } catch {
+    return null; // soft-fail — surfaces treat null as "no index yet"
+  }
 }
-
-// Phase 7.8e-4b (2026-04-26): request-scope conversion. The previous
-// module-level `let _cached = await loadFromDisk()` froze the env-resolved
-// tenant at module load (caveat documented in 7.8b-1). Pattern A here
-// hydrates lazily on first call within a process; React.cache layers
-// per-render-tree memoization on top.
-//
-// Sentinel:
-//   undefined = not loaded yet
-//   null      = loaded, no index on disk
-let _state: AnswerIntelligenceIndex | null | undefined = undefined;
-
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state !== undefined) return;
-  _state = await loadFromDisk();
-});
 
 export const getAnswerIntelligenceIndex = cache(
   async (): Promise<AnswerIntelligenceIndex | null> => {
-    await ensureLoaded();
-    return _state ?? null;
+    const tenantId = await currentTenantId();
+    if (_byTenant.has(tenantId)) return _byTenant.get(tenantId) ?? null;
+    const loaded = await loadForTenant(tenantId);
+    _byTenant.set(tenantId, loaded);
+    return loaded;
   },
 );
 
-/** Call after rebuilding the index (e.g. post-import) to refresh the in-memory reference. */
+/** Call after rebuilding the index (e.g. post-import) to refresh the
+ *  CURRENT tenant's in-memory reference. */
 export async function refreshAnswerIntelligenceStore(): Promise<void> {
-  _state = await loadFromDisk();
+  const tenantId = await currentTenantId();
+  _byTenant.set(tenantId, await loadForTenant(tenantId));
 }
 
 /** Test-only reset hook. */
 export function _resetAnswerIntelligenceForTests(): void {
-  _state = undefined;
+  _byTenant.clear();
 }

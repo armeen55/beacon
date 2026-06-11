@@ -226,6 +226,20 @@ export function buildTenantRepo(
       filterByTenantId(await base.getTrackedPrompts(), tenantId),
     getTrackedEntities: async () =>
       filterByTenantId(await base.getTrackedEntities(), tenantId),
+    // Night-shift fix (2026-06-11) — citation_evidence_index is a
+    // SINGLE OBJECT per tenant (not rows), so filterByTenantId can't
+    // protect it. Pre-fix, hosted reads returned ONE global row blended
+    // across tenants. Prefer the backend's explicit-tenant read when it
+    // exists (Supabase); the file backend's ambient per-tenant routing
+    // already isolates, so fall back to the ambient read there.
+    getCitationEvidenceIndex: async () =>
+      base.getCitationEvidenceIndexScoped
+        ? base.getCitationEvidenceIndexScoped(tenantId)
+        : base.getCitationEvidenceIndex(),
+    getAnswerIntelligenceIndex: async () =>
+      base.getAnswerIntelligenceIndexScoped
+        ? base.getAnswerIntelligenceIndexScoped(tenantId)
+        : base.getAnswerIntelligenceIndex(),
     /**
      * Section 5 precursor (2026-05-16) — explicit-tenant poll-run
      * read. Scopes by the captured `tenantId` argument, NOT by
