@@ -62,6 +62,53 @@ export function FirstReadingWaiting({
           </dl>
         </div>
 
+        {context.derived &&
+        (context.derived.industry ||
+          context.derived.locations.length > 0 ||
+          context.derived.serviceCount > 0) ? (
+          <div
+            className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3"
+            data-today-derived-profile="true"
+          >
+            <p className="font-medium">What Beacon learned from your site</p>
+            <dl className="grid grid-cols-[140px_1fr] gap-y-1 text-[13px]">
+              {context.derived.industry ? (
+                <>
+                  <dt className="text-muted-foreground">Business type</dt>
+                  <dd className="capitalize">{context.derived.industry}</dd>
+                </>
+              ) : null}
+              {context.derived.locations.length > 0 ? (
+                <>
+                  <dt className="text-muted-foreground">Areas served</dt>
+                  <dd>
+                    {context.derived.locations.slice(0, 6).join(", ")}
+                    {context.derived.locations.length > 6
+                      ? ` +${context.derived.locations.length - 6} more`
+                      : ""}
+                  </dd>
+                </>
+              ) : null}
+              {context.derived.serviceCount > 0 ? (
+                <>
+                  <dt className="text-muted-foreground">Services found</dt>
+                  <dd>{context.derived.serviceCount}</dd>
+                </>
+              ) : null}
+              {context.derived.keyPageCount > 0 ? (
+                <>
+                  <dt className="text-muted-foreground">Key pages</dt>
+                  <dd>{context.derived.keyPageCount}</dd>
+                </>
+              ) : null}
+            </dl>
+            <p className="text-[12px] text-muted-foreground">
+              Read automatically from your website — you can adjust any of
+              this later in Settings.
+            </p>
+          </div>
+        ) : null}
+
         <div className="rounded-md border border-foreground/10 bg-surface-inset/40 p-4 text-[13px] space-y-2">
           <p className="font-medium">What happens next</p>
           <ol className="list-decimal pl-5 text-muted-foreground space-y-1">

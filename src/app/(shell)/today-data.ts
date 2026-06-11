@@ -2842,11 +2842,33 @@ async function resolveFirstReadingState(args: {
     // path; logging on every cold-tenant render was operator noise.
     return { isFirstReading: false };
   }
-  return detectFirstReadingState({
-    tenant,
-    activePromptCount: args.activePromptCount,
-    observationCount: args.observationCount,
-  });
+  // North-star onboarding (2026-06-11): surface what Beacon derived
+  // from the customer's site at launch — minute-one value on the
+  // waiting card. Failure-soft: no config → no derived block.
+  let derived: import("@/domains/onboarding/first-reading-state").FirstReadingContext["derived"];
+  try {
+    const { getBusinessConfigForCurrentTenant, isPlaceholderConfig } =
+      await import("@/lib/business-config");
+    const cfg = await getBusinessConfigForCurrentTenant();
+    if (!isPlaceholderConfig(cfg)) {
+      derived = {
+        industry: cfg.industry || null,
+        locations: cfg.locations ?? [],
+        serviceCount: (cfg.services ?? []).length,
+        keyPageCount: (cfg.keyPages ?? []).length,
+      };
+    }
+  } catch {
+    derived = undefined;
+  }
+  return detectFirstReadingState(
+    {
+      tenant,
+      activePromptCount: args.activePromptCount,
+      observationCount: args.observationCount,
+    },
+    derived,
+  );
 }
 
 /**
