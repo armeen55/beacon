@@ -11,13 +11,22 @@
  * `tests/architecture/onboard-launch-step-contract.test.ts`.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildTrackedPromptRow,
   executeLaunchTransaction,
 } from "./launch-flow";
 
 const FIXED_NOW = "2026-05-07T18:00:00.000Z";
+
+// North-star onboarding (2026-06-11): executeLaunchTransaction now takes a
+// config-persister dep (defaults to the real site-fetching derivation).
+// Tests inject a stub so this suite stays network-free; the dep's own
+// behavior is pinned in src/domains/onboarding/launch-config.test.ts.
+const persistConfigStub = vi.fn(async () => ({
+  outcome: "typed_only_saved" as const,
+  derivedFields: [] as string[],
+}));
 
 const PENDING_TENANT = {
   id: "tenant-8c9d2f4a",
@@ -307,6 +316,7 @@ describe("executeLaunchTransaction — happy path", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -337,6 +347,7 @@ describe("executeLaunchTransaction — happy path", () => {
     });
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -370,6 +381,7 @@ describe("executeLaunchTransaction — dedup", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -401,6 +413,7 @@ describe("executeLaunchTransaction — dedup", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -440,6 +453,7 @@ describe("executeLaunchTransaction — dedup", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -465,6 +479,7 @@ describe("executeLaunchTransaction — already launched", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -513,6 +528,7 @@ describe("executeLaunchTransaction — race lost (concurrent double-click)", () 
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -549,6 +565,7 @@ describe("executeLaunchTransaction — validation errors", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -567,6 +584,7 @@ describe("executeLaunchTransaction — validation errors", () => {
 
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -584,6 +602,7 @@ describe("executeLaunchTransaction — validation errors", () => {
     });
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -594,6 +613,7 @@ describe("executeLaunchTransaction — validation errors", () => {
     const { client } = makeMockSupabase({ tenants: [] });
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: "tenant-nonexistent",
       now: FIXED_NOW,
     });
@@ -611,6 +631,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -626,6 +647,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -652,6 +674,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -669,6 +692,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -684,6 +708,7 @@ describe("executeLaunchTransaction — failure rollback", () => {
     );
     const r = await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -721,6 +746,7 @@ describe("executeLaunchTransaction — tenant isolation", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -763,6 +789,7 @@ describe("executeLaunchTransaction — tenant isolation", () => {
 
     await executeLaunchTransaction({
       admin: client as never,
+      persistConfig: persistConfigStub,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
