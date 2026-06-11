@@ -11,7 +11,7 @@
  */
 
 import { notFound } from "next/navigation";
-import { isOperatorModeServer } from "@/lib/operator-mode";
+import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { PageHeader } from "@/components/data/page-header";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -22,7 +22,11 @@ export const dynamic = "force-dynamic";
 const ACTIONABLE = new Set(["recommended", "accepted", "push_failed"]);
 
 export default async function DevNotesPage() {
-  if (!isOperatorModeServer()) notFound();
+  // Night-shift #126 (2026-06-11): gate by PER-TENANT publish auth
+  // (operator mode OR owner/admin/founder of the current tenant) —
+  // pre-fix this page 404'd for a tenant OWNER unless the GLOBAL
+  // operator env flag was set. Same authority the actions enforce.
+  if (!(await canPublishForCurrentTenant())) notFound();
 
   let notes: Array<{ id: string; label: string; note: string }> = [];
   let tenantId = "";

@@ -11,7 +11,7 @@
  */
 
 import { notFound } from "next/navigation";
-import { isOperatorModeServer } from "@/lib/operator-mode";
+import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { PageHeader } from "@/components/data/page-header";
 import { getConnectorInfo } from "@/lib/connector-store";
 import { getWixUrlMap, getWixCollectionConfig } from "@/lib/connectors/wix/url-map";
@@ -30,7 +30,11 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function WixDiagnosticPage() {
-  if (!isOperatorModeServer()) notFound();
+  // Night-shift #126 (2026-06-11): gate by PER-TENANT publish auth
+  // (operator mode OR owner/admin/founder of the current tenant) —
+  // pre-fix this page 404'd for a tenant OWNER unless the GLOBAL
+  // operator env flag was set. Same authority the actions enforce.
+  if (!(await canPublishForCurrentTenant())) notFound();
 
   let connected = false;
   let lastSyncedAt: string | null = null;
