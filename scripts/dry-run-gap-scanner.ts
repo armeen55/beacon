@@ -125,7 +125,7 @@ function printFinding(f: KeywordGap): void {
   console.log(`    Score: ${f.impactScore.toFixed(0)}`);
   console.log(`    Saturation: ${satPct}% (${f.evidence.observation_count} of ${f.evidence.topic_cluster_size} observations in topic cluster)`);
   console.log(`    Page coverage: ${covPct}%`);
-  console.log(`    Bucket counts: ${f.evidence.competitor_obs_count} competitor-citing, ${f.evidence.ritz_obs_count} Ritz-citing`);
+  console.log(`    Bucket counts: ${f.evidence.competitor_obs_count} competitor-citing, ${f.evidence.own_obs_count} Ritz-citing`);
   console.log(`    Current ${f.targetElement}: "${f.currentHeadingText}"`);
   console.log(`    Why it qualified:`);
   if (f.kind === "saturation_miss") {
@@ -133,7 +133,7 @@ function printFinding(f: KeywordGap): void {
     console.log(`      - Page covers only ${covPct}% of its content words`);
   } else if (f.kind === "gap") {
     console.log(`      - Competitor-citing answers: ${f.evidence.competitor_obs_count} (\u2265 5)`);
-    console.log(`      - Ritz-citing answers: ${f.evidence.ritz_obs_count} (\u2264 2)`);
+    console.log(`      - Ritz-citing answers: ${f.evidence.own_obs_count} (\u2264 2)`);
   } else {
     console.log(`      - Ritz and competitors both get cited for this concept (hold-ground signal)`);
   }
