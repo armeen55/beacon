@@ -101,3 +101,48 @@ Shipped via PRs to `main`; full suite 14003 passed / 0 failed; typecheck clean.
 - **GATED (key / product / infra decision):** #6, #7, #9, #14, #20, #21, #23, #28, #29, #32, #34, #39, #40, #42, #45, #46, #49, #50 — **18**.
 
 Net: the spine (#1) is ratcheted, the live breaches (#2/#4/#5) are closed, a stranger can now authorize their own publishes (#11–13), can't be born a builder (#17) or render as Ritz (#3/#4/#5/#36), and can't drain the account (#31/#35). What remains is overwhelmingly product/UI build-out and security-infra (RLS rewrite, encryption, retention) — not silent correctness bugs.
+
+---
+
+## I. Process-global cache-key sweep (night-shift addendum, 2026-06-11 ~04:00 PT)
+
+The tenant-scoped-reads ratchet (#1/#2/#10) polices the `getRepository().getX()`
+**call shape**, but is structurally blind to the **cache-key** bug: a module-global
+mutable cache (`let _state` / `const _state = {…}`) that hydrates from a TENANT_SCOPED
+store but is keyed by NOTHING. In a warm multi-tenant process the FIRST tenant pins its
+rows for every later tenant. The ambient per-tenant *disk* routing masks it (correct on a
+cold process; first-tenant's data on a warm one), so no existing test caught these.
+
+Swept every `let _state` + `readStore`/`getRepository` store AND the `const _state = {…}`
+object form. **Five genuine cross-tenant leaks found and fixed** (per-tenant `Map` keyed by
+`currentTenantId`, stable per-tenant array refs preserving in-place mutators), each with new
+isolation pins whose cross-tenant assertion fails on the pre-fix code:
+
+| Store | Form | Fix |
+|-------|------|-----|
+| `domains/brief-generation/store.ts` | `let _state` array | per-tenant Map; preserves `updateBriefState` in-place push/replace |
+| `domains/observations/visibility-observation-explicit-store.ts` | `let _state` array | per-tenant Map |
+| `domains/answer-snapshots/store.ts` | `let _state` array (reads `readStore` directly — ratchet-blind) | per-tenant Map; preserves `appendSnapshot` |
+| `domains/pages/frontier-compiler.ts` | `const _state` object (2 stores) | per-tenant Map of state objects |
+| `domains/pages/competitor-evidence.ts` | `const _state` object (2 stores) | per-tenant Map; preserves `persistComputedEvidence` `.length=0;.push` |
+
+**Verified SAFE (no change):** `attribution/candidates.ts` (`_lastWarmedTenant` indexes
+per-tenant Maps), `prompts/prompt-library.ts` (classified GLOBAL — operator-shared corpus,
+no tenant_id), `lib/persistence/cold-store.ts:_answerTextsCache` (keyed by globally-unique
+`observationId`), `lib/persistence/supabase.ts` / `lib/data-adapters` (tenant-agnostic infra).
+
+### New daylight items (NOT safe to fix at night — core trust path / cutover-entangled)
+- **MT-COLD-1 — `cold-store.ts` `citations-by-date` flat store.** `CITATION_DIR =
+  .data/citations-by-date/` is NOT tenant-routed; `_citationShardCache` is keyed by *date*
+  alone; `writeCitationShard` overwrites the whole date file (two tenants writing the same
+  date ⇒ second clobbers first). Written ONLY by the legacy Profound importer
+  (`adapters/profound/import-orchestrator.ts`) — the native multi-tenant poll does not write
+  it, so it is vestigial post-cutover (Profound expired May 10). Residual risk: 6 live readers
+  (lifecycle, decay, co-mention, source-trust, url-citation-history) read the flat shard and
+  could serve Profound-era Ritz data to a native tenant. Fix needs the Profound→native cutover
+  context + a flat→per-tenant data migration; supersede with the per-tenant
+  citation-evidence-index path (#44) and retire the shard readers.
+- **MT-COLD-2 — `cold-store.ts` `answer-texts.json` whole-map write.** Flat
+  `.data/answer-texts.json`; `writeAnswerTexts(texts)` replaces the entire map, so a per-tenant
+  partial write would clobber other tenants' texts. Reads are safe-in-practice (keyed by
+  globally-unique observationId). Same legacy lineage; resolve with MT-COLD-1.

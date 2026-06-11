@@ -25100,3 +25100,7 @@ Portable project instructions for **Claude Code / CLI** (same substance as `.cur
 ### Validation
 - `npm run typecheck` — **pass** (pre-commit)
 - `npm run test` — **328/328 pass** (pre-commit)
+
+## 2026-06-11 (night shift) — cross-tenant cache-key sweep
+- **Changed:** 5 process-global store caches → per-tenant Maps (brief-generation/store, visibility-observation-explicit-store, answer-snapshots/store, pages/frontier-compiler, pages/competitor-evidence). 15 new tenant-isolation pins. Audit addendum + 2 daylight cold-store findings ledgered (docs/AUDIT_50_MULTI_TENANT_FIXES.md §I).
+- **Verified:** `npm run typecheck` clean (0 errors). Targeted: 5 new isolation suites green (15 pins). Regression: `vitest run tests/domains/pages tests/domains/competitor-intel tests/app` → 60 files / 791 tests passed. Each isolation pin's cross-tenant assertion confirmed to fail on pre-fix code by construction (`if (_state !== null) return` short-circuits tenant B to tenant A).
