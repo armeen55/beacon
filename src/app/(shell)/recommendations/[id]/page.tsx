@@ -133,9 +133,23 @@ export default async function RecommendationDetailPage({
       persisted.changelogEntries,
     );
 
+    // #149 (2026-06-11): per-tenant city vocabulary for geo tags in row
+    // titles. Soft-fail to UNDEFINED (legacy default); a loaded-but-
+    // empty list means "no geo vocabulary" and matches nothing.
+    let knownCities: string[] | undefined;
+    try {
+      const { getBusinessConfigForCurrentTenant } = await import(
+        "@/lib/business-config"
+      );
+      knownCities = (await getBusinessConfigForCurrentTenant()).locations;
+    } catch {
+      knownCities = undefined;
+    }
+
     const allRows = buildRecommendationActionRows({
       queue: persisted.queue,
       promptTextById,
+      knownCities,
     });
     const resolution = resolveRecommendationDetail(allRows, decodedId);
 

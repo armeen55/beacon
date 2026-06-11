@@ -401,3 +401,46 @@ describe("humanizeRecTitle — operator-readable titles", () => {
     expect(result).toBe("Create an older-home rebuild decision page");
   });
 });
+
+// ── #149 (2026-06-11): per-tenant city vocabulary injection ──
+
+describe("extractGeoTag — injected per-tenant cities (#149)", () => {
+  it("a Tucson tenant's labels match Tucson — never the Bay-Area list", () => {
+    const cities = ["Tucson", "Oro Valley"];
+    expect(extractGeoTag("best taqueria in Tucson", cities)).toBe("Tucson");
+    expect(extractGeoTag("best builders in Atherton", cities)).toBeNull();
+  });
+
+  it("injected lists match longest-name-first regardless of input order", () => {
+    const cities = ["Oro", "Oro Valley"];
+    expect(extractGeoTag("catering in Oro Valley", cities)).toBe("Oro Valley");
+  });
+
+  it("an INJECTED EMPTY list matches nothing (content tenants have no geo vocabulary)", () => {
+    expect(extractGeoTag("best builders in Atherton", [])).toBeNull();
+  });
+
+  it("un-threaded callers (undefined) keep the legacy Bay-Area default", () => {
+    expect(extractGeoTag("best builders in Atherton")).toBe("Atherton");
+  });
+
+  it("humanizeRecTitle threads knownCities through to geo extraction", () => {
+    const withTenantCities = humanizeRecTitle({
+      clusterLabel: "best catering in Tucson",
+      resolution: null,
+      knownCities: ["Tucson"],
+    });
+    expect(withTenantCities).toContain("Tucson");
+    // A Bay-Area word in a Tucson tenant's label is NOT geo-extracted:
+    // the title for knownCities=["Tucson"] is identical to the
+    // no-geo-vocabulary title (the raw label may still echo the word —
+    // that's the tenant's own text, not a geo tag).
+    const labelArgs = {
+      clusterLabel: "best catering in Atherton",
+      resolution: null,
+    } as const;
+    expect(
+      humanizeRecTitle({ ...labelArgs, knownCities: ["Tucson"] }),
+    ).toBe(humanizeRecTitle({ ...labelArgs, knownCities: [] }));
+  });
+});

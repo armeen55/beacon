@@ -753,14 +753,16 @@ export function composeMetaRowTitle(args: {
   readonly resolution: PageIntentResolution | null;
   readonly metaKind: "create_page" | "review_decision" | "regenerate_edit";
   readonly targetLabel: string;
+  /** #149: per-tenant city vocabulary; absent → legacy Bay-Area default. */
+  readonly knownCities?: ReadonlyArray<string>;
 }): string {
   // Topic ladder: cluster label first, then prompts.
   const topic =
     extractTopicTag(args.clusterLabel ?? "") ??
     extractTopicFromPrompts(args.affectedPromptTexts);
   const geo =
-    extractGeoTag(args.clusterLabel ?? "") ??
-    extractGeoTag(args.affectedPromptTexts.join(" "));
+    extractGeoTag(args.clusterLabel ?? "", args.knownCities) ??
+    extractGeoTag(args.affectedPromptTexts.join(" "), args.knownCities);
 
   if (args.metaKind === "create_page") {
     // Reuse the title humanizer (now topic-from-prompts aware).
@@ -768,6 +770,7 @@ export function composeMetaRowTitle(args: {
       clusterLabel: args.clusterLabel,
       affectedPromptTexts: args.affectedPromptTexts,
       resolution: args.resolution,
+      knownCities: args.knownCities,
     });
   }
   if (args.metaKind === "review_decision") {
@@ -1243,6 +1246,10 @@ export type BuildActionRowsArgs = {
   /** Optional now-clock for stale-pending math. Defaults to
    *  Date.now(). */
   readonly now?: Date;
+  /** #149 (2026-06-11): per-tenant city vocabulary
+   *  (BusinessConfig.locations) for geo-tag extraction in row titles.
+   *  Absent → legacy Bay-Area default (founder parity). */
+  readonly knownCities?: ReadonlyArray<string>;
 };
 
 /**
@@ -1313,8 +1320,8 @@ export function buildRecommendationActionRows(
       extractTopicTag(rec.clusterLabel ?? rec.title ?? "") ??
       extractTopicFromPrompts(affectedPromptTexts);
     const geoTag =
-      extractGeoTag(rec.clusterLabel ?? rec.title ?? "") ??
-      extractGeoTag(affectedPromptTexts.join(" "));
+      extractGeoTag(rec.clusterLabel ?? rec.title ?? "", args.knownCities) ??
+      extractGeoTag(affectedPromptTexts.join(" "), args.knownCities);
 
     const motiveLabel = resolution?.motive
       ? MOTIVE_LABEL[resolution.motive] ?? null
@@ -1670,6 +1677,7 @@ export function buildRecommendationActionRows(
       resolution,
       metaKind,
       targetLabel,
+      knownCities: args.knownCities,
     });
     const rowType: ActionRowType =
       metaKind === "create_page"
