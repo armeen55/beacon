@@ -152,6 +152,9 @@ export async function executeLaunchTransaction(args: {
   //     cheaply). Pre-flip write is harmless if the flip races — the
   //     config is inert until the tenant is active.
   let persistedConfig: Awaited<ReturnType<typeof persistConfig>>["config"];
+  let suggestedSegment: Awaited<
+    ReturnType<typeof persistConfig>
+  >["suggestedSegment"] = null;
   try {
     const configResult = await persistConfig({
       tenantId: tenant.id,
@@ -161,6 +164,7 @@ export async function executeLaunchTransaction(args: {
       competitors: tenant.discovered_competitors ?? [],
     });
     persistedConfig = configResult.config;
+    suggestedSegment = configResult.suggestedSegment;
     console.info(
       `[onboard/review] tenant config ${configResult.outcome}` +
         (configResult.derivedFields.length > 0
@@ -173,6 +177,15 @@ export async function executeLaunchTransaction(args: {
       e instanceof Error ? e.message : e,
     );
   }
+
+  // Segment resolution (2026-06-11): a human picking builder tags is a
+  // SELF-DECLARATION and beats site inference; otherwise the site's own
+  // signals decide (content_publisher / local_service); an ambiguous
+  // site keeps the provisioning default (all local engines safe-off).
+  const resolvedSegment =
+    (tenant.project_mix ?? []).length > 0
+      ? ("local_residential_builder" as const)
+      : suggestedSegment;
 
   // 3. Re-generate prompts server-side. NEVER trust client input.
   //    North-star onboarding (2026-06-11): the site-derived config
@@ -243,13 +256,17 @@ export async function executeLaunchTransaction(args: {
     }
   }
 
-  // 6. Atomic flip with double-click guard.
+  // 6. Atomic flip with double-click guard. The derived segment rides
+  //    the same UPDATE (one write, same race guard) — only when the
+  //    site/human gave a signal; an ambiguous site keeps the
+  //    provisioning default.
   const { data: updated, error: updateErr } = await admin
     .from("tenants")
     .update({
       status: "active",
       tos_accepted_at: now,
       updated_at: now,
+      ...(resolvedSegment ? { segment: resolvedSegment } : {}),
     })
     .eq("id", tenant.id)
     .eq("status", "pending_onboarding")
