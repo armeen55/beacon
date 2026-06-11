@@ -241,10 +241,17 @@ export async function runWebsiteScan(opts: {
     log.info("Scan step", { runId, step: "inferred_site_domain", siteDomain: scanDomain });
   }
 
+  // CLI timeout scales with the crawl ceiling (P0 wall 2, 2026-06-10).
+  // 120s fit Ritz's ~80 serial fetches but killed encyclopedia-scale
+  // tenants mid-crawl. Budget ~1s/page on top of a 120s floor, capped
+  // at 25 min (inside the workflow job's 30-min timeout).
+  const envCap = Number.parseInt(process.env.BEACON_SCAN_MAX_PAGES ?? "", 10);
+  const pageBudget = Number.isFinite(envCap) && envCap > 0 ? envCap : 1500;
+  const cliTimeoutMs = Math.min(120_000 + pageBudget * 1_000, 25 * 60_000);
   try {
     await execAsync(SCAN_CLI_CMD, {
       cwd: process.cwd(),
-      timeout: 120_000,
+      timeout: cliTimeoutMs,
       env: execEnv,
     });
     log.info("Scan step", { runId, step: "cli_exited_zero" });

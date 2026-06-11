@@ -138,8 +138,28 @@ type SitemapReconciliation = {
 };
 
 // ── Sitemap fetcher ──
+//
+// Handles BOTH sitemap shapes (2026-06-10, P0 wall 2):
+//   • flat <urlset> (Ritz) — parsed directly;
+//   • <sitemapindex> (Wix sites like Iranopedia) — recurses ONE level
+//     into child sitemaps (capped at MAX_CHILD_SITEMAPS) and merges
+//     their <url> entries.
+// Parsing lives in src/domains/scanning/sitemap-parse.ts (pure, tested).
+
+async function fetchSitemapXml(url: string): Promise<string | null> {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "BeaconScanner/1.0" },
+  });
+  if (!res.ok) {
+    console.warn(`[scan] Sitemap ${url} → HTTP ${res.status}`);
+    return null;
+  }
+  return res.text();
+}
 
 async function fetchSitemap(): Promise<{ url: string; lastmod: string | null }[]> {
+  const { parseSitemapUrlEntries, parseSitemapIndexLocs, dedupeSitemapEntries } =
+    await import("../src/domains/scanning/sitemap-parse");
   const origin = siteOrigin.replace(/\/+$/, "");
   const candidates = [
     `${origin}/sitemap.xml`,
@@ -150,29 +170,39 @@ async function fetchSitemap(): Promise<{ url: string; lastmod: string | null }[]
   for (const url of candidates) {
     try {
       console.log(`[scan] Trying sitemap: ${url}`);
-      const res = await fetch(url, {
-        headers: { "User-Agent": "BeaconScanner/1.0" },
-      });
-      if (!res.ok) {
-        lastError = `${url} → HTTP ${res.status}`;
-        console.warn(`[scan] Sitemap ${lastError}`);
+      const xml = await fetchSitemapXml(url);
+      if (xml === null) {
+        lastError = `${url} → fetch failed`;
         continue;
       }
-      const xml = await res.text();
       console.log(`[scan] Sitemap fetched: ${url} (${xml.length} chars)`);
 
-      const entries: { url: string; lastmod: string | null }[] = [];
-      const urlBlocks = xml.match(/<url>[\s\S]*?<\/url>/g) ?? [];
-      for (const block of urlBlocks) {
-        const locMatch = block.match(/<loc>([^<]+)<\/loc>/);
-        const modMatch = block.match(/<lastmod>([^<]+)<\/lastmod>/);
-        if (locMatch) {
-          entries.push({
-            url: locMatch[1].replace(/\/+$/, ""),
-            lastmod: modMatch ? modMatch[1] : null,
-          });
+      let entries = parseSitemapUrlEntries(xml);
+
+      // Sitemap-index shape: no direct <url> entries — fetch children.
+      if (entries.length === 0) {
+        const childLocs = parseSitemapIndexLocs(xml);
+        if (childLocs.length > 0) {
+          console.log(
+            `[scan] Sitemap index detected: ${childLocs.length} child sitemap(s) — fetching`,
+          );
+          for (const child of childLocs) {
+            try {
+              const childXml = await fetchSitemapXml(child);
+              if (childXml === null) continue;
+              const childEntries = parseSitemapUrlEntries(childXml);
+              console.log(`[scan]   child ${child} → ${childEntries.length} URLs`);
+              entries.push(...childEntries);
+            } catch (err) {
+              console.warn(
+                `[scan]   child ${child} failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+          entries = dedupeSitemapEntries(entries);
         }
       }
+
       if (entries.length > 0) {
         console.log(`[scan] Sitemap resolved: ${url} → ${entries.length} URLs`);
         return entries;
@@ -394,8 +424,20 @@ async function saveReconciliation(
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
+  // Crawl ceiling resolution (multi-tenant fleet, 2026-06-10):
+  //   --limit=N CLI arg → BEACON_SCAN_MAX_PAGES env (per-tenant, set by the
+  //   daily-scan matrix from the tenant's `scanMaxPages` ops override) →
+  //   DEFAULT_SCAN_PAGE_CAP. The default exists so an encyclopedia-scale
+  //   sitemap (thousands of URLs) cannot blow the scheduled job's time
+  //   window with serial fetches; small sites are unaffected.
+  const DEFAULT_SCAN_PAGE_CAP = 1500;
   const limitArg = args.find((a) => a.startsWith("--limit="));
-  const limit = limitArg ? parseInt(limitArg.split("=")[1], 10) : Infinity;
+  const envCap = parseInt(process.env.BEACON_SCAN_MAX_PAGES ?? "", 10);
+  const limit = limitArg
+    ? parseInt(limitArg.split("=")[1], 10)
+    : Number.isFinite(envCap) && envCap > 0
+      ? envCap
+      : DEFAULT_SCAN_PAGE_CAP;
   const urlArg = args.find((a) => a.startsWith("--url="));
   const singleUrl = urlArg ? urlArg.split("=").slice(1).join("=") : null;
 

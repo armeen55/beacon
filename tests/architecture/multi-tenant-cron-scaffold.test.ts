@@ -13,14 +13,13 @@
  *     is missing or disabled in the active-tenants config.
  *
  * What's pinned here:
- *   1. ops/active-tenants.json shape:
+ *   1. ops/active-tenants.json shape (updated 2026-06-10, P0 wall 2):
  *      - is valid JSON
  *      - is an array
- *      - exactly one entry today
- *      - that entry is Ritz (tenantId === "tenant-ritz-founder",
- *        slug === "ritz-builders", siteDomain === "ritzbuilders.com",
- *        enabled === true)
- *      - no customer-2 slug or id appears
+ *      - exactly two entries today: Ritz + Iranopedia, both enabled,
+ *        all four required fields each; Iranopedia carries the
+ *        scanMaxPages crawl-ceiling ops override
+ *      - no placeholder/test tenant appears
  *
  *   2. daily-native-poll.yml:
  *      - has a `compute-matrix` job
@@ -102,24 +101,33 @@ describe("ops/active-tenants.json — shape contract", () => {
     expect(Array.isArray(parsed)).toBe(true);
   });
 
-  it("contains exactly one tenant today (Ritz only)", () => {
+  // 2026-06-10 (P0 wall 2): the scan fleet is two tenants — Ritz + Iranopedia.
+  it("contains exactly two tenants today (Ritz + Iranopedia)", () => {
     const parsed = JSON.parse(ACTIVE_TENANTS_RAW) as ReadonlyArray<unknown>;
-    expect(parsed.length).toBe(1);
+    expect(parsed.length).toBe(2);
   });
 
-  it("the single tenant is Ritz with all four required fields + enabled=true", () => {
+  it("Ritz and Iranopedia both carry all four required fields + enabled=true", () => {
     const parsed = JSON.parse(ACTIVE_TENANTS_RAW) as ReadonlyArray<{
       tenantId?: string;
       slug?: string;
       siteDomain?: string;
       enabled?: boolean;
+      scanMaxPages?: number;
     }>;
-    expect(parsed.length).toBe(1);
-    const t = parsed[0];
-    expect(t.tenantId).toBe("tenant-ritz-founder");
-    expect(t.slug).toBe("ritz-builders");
-    expect(t.siteDomain).toBe("ritzbuilders.com");
-    expect(t.enabled).toBe(true);
+    const ritz = parsed.find((t) => t.tenantId === "tenant-ritz-founder");
+    expect(ritz).toBeDefined();
+    expect(ritz!.slug).toBe("ritz-builders");
+    expect(ritz!.siteDomain).toBe("ritzbuilders.com");
+    expect(ritz!.enabled).toBe(true);
+
+    const iranopedia = parsed.find((t) => t.tenantId === "tenant-iranopedia");
+    expect(iranopedia).toBeDefined();
+    expect(iranopedia!.slug).toBe("iranopedia");
+    expect(iranopedia!.siteDomain).toBe("iranopedia.com");
+    expect(iranopedia!.enabled).toBe(true);
+    // Encyclopedia-scale crawl ceiling rides the ops file (P0 wall 2).
+    expect(iranopedia!.scanMaxPages).toBe(800);
   });
 
   it("does NOT contain any customer-2 / acme / placeholder tenants (today's posture)", () => {
@@ -278,11 +286,24 @@ describe("daily-native-poll.yml — matrix shape", () => {
 // ── 3. daily-scan.yml — matrix shape ────────────────────────────────
 
 describe("daily-scan.yml — matrix shape", () => {
-  it("declares a `compute-matrix` job with the Ritz fail-loud guard", () => {
+  // 2026-06-10 (P0 wall 2): the scan matrix is DB-driven via the SAME
+  // lister the poll uses; the Ritz literal guard became a configurable
+  // required-tenant guard (repo var BEACON_REQUIRED_TENANT_ID, default
+  // tenant-ritz-founder).
+  it("declares a `compute-matrix` job using the DB-first lister + required-tenant guard", () => {
     expect(/^\s*compute-matrix:/m.test(SCAN_YAML)).toBe(true);
-    expect(SCAN_YAML).toContain("ops/active-tenants.json");
+    expect(SCAN_YAML).toContain("scripts/list-active-tenants.ts");
     expect(SCAN_YAML).toMatch(
-      /Ritz \(tenant-ritz-founder\) is missing or disabled/,
+      /Required tenant \(\$REQUIRED_TENANT_ID\) is missing or inactive/,
+    );
+    expect(SCAN_YAML).toMatch(
+      /REQUIRED_TENANT_ID:\s*\$\{\{\s*vars\.BEACON_REQUIRED_TENANT_ID\s*\|\|\s*'tenant-ritz-founder'\s*\}\}/,
+    );
+  });
+
+  it("scheduled-scan job passes the per-tenant crawl ceiling from the matrix", () => {
+    expect(SCAN_YAML).toMatch(
+      /BEACON_SCAN_MAX_PAGES:\s*\$\{\{\s*matrix\.tenant\.scanMaxPages\s*\|\|\s*''\s*\}\}/,
     );
   });
 
