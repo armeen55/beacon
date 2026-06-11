@@ -26,7 +26,10 @@ vi.mock("@/lib/tenant-context", () => ({
   currentTenantId: vi.fn(async () => "tenant-launch-config-test"),
 }));
 
-import { deriveAndPersistTenantConfig } from "./launch-config";
+import {
+  deriveAndPersistTenantConfig,
+  suggestSegmentFromProfile,
+} from "./launch-config";
 import {
   getBusinessConfig,
   __resetBusinessConfigCacheForTests,
@@ -166,3 +169,49 @@ describe("deriveAndPersistTenantConfig — URL-only acceptance", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe("suggestSegmentFromProfile — site signals → segment", () => {
+  it("article schema + no address → content_publisher", () => {
+    const p = deriveBusinessProfileFixture({ contentSiteSignal: true });
+    expect(suggestSegmentFromProfile(p)).toBe("content_publisher");
+  });
+  it("physical presence (address/phone/locations) → local_service", () => {
+    expect(
+      suggestSegmentFromProfile(
+        deriveBusinessProfileFixture({ address: "1 Main St, Tucson, AZ" }),
+      ),
+    ).toBe("local_service");
+    expect(
+      suggestSegmentFromProfile(deriveBusinessProfileFixture({ phone: "555" })),
+    ).toBe("local_service");
+    expect(
+      suggestSegmentFromProfile(
+        deriveBusinessProfileFixture({ locations: ["tucson"] }),
+      ),
+    ).toBe("local_service");
+  });
+  it("ambiguous site → null (provisioning default stands)", () => {
+    expect(suggestSegmentFromProfile(deriveBusinessProfileFixture({}))).toBeNull();
+    expect(suggestSegmentFromProfile(null)).toBeNull();
+  });
+});
+
+function deriveBusinessProfileFixture(
+  over: Partial<import("./derive-business-profile").DerivedBusinessProfile>,
+): import("./derive-business-profile").DerivedBusinessProfile {
+  return {
+    name: null,
+    nameSource: null,
+    description: null,
+    industry: null,
+    schemaTypes: [],
+    phone: null,
+    address: null,
+    locations: [],
+    services: [],
+    keyPages: [],
+    socialProfiles: [],
+    contentSiteSignal: false,
+    ...over,
+  };
+}

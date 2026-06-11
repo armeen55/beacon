@@ -26,6 +26,7 @@ const FIXED_NOW = "2026-05-07T18:00:00.000Z";
 const persistConfigStub = vi.fn(async () => ({
   outcome: "typed_only_saved" as const,
   derivedFields: [] as string[],
+  suggestedSegment: null,
 }));
 
 const PENDING_TENANT = {
@@ -819,6 +820,7 @@ describe("executeLaunchTransaction — site-derived config → prompts", () => {
     const tucsonStub = vi.fn(async () => ({
       outcome: "derived_and_saved" as const,
       derivedFields: ["industry", "services"],
+      suggestedSegment: "local_service" as const,
       config: {
         industry: "restaurant",
         services: ["catering", "taco bar"],
@@ -862,5 +864,65 @@ describe("executeLaunchTransaction — site-derived config → prompts", () => {
     });
     expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
     expect(store.tenants[0].status).toBe("active");
+  });
+});
+
+describe("executeLaunchTransaction — derived segment rides the activation UPDATE", () => {
+  function tenantUpdatePayload(writes: WriteLog) {
+    const u = writes.find((w) => w.op === "update" && w.table === "tenants");
+    return u && u.op === "update" ? u.payload : undefined;
+  }
+
+  it("human-picked builder tags BEAT site inference (self-declaration wins)", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT }], // has project_mix tags
+    });
+    const stub = vi.fn(async () => ({
+      outcome: "derived_and_saved" as const,
+      derivedFields: [],
+      suggestedSegment: "local_service" as const, // site says generic local
+    }));
+    await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: stub,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(tenantUpdatePayload(writes)?.segment).toBe(
+      "local_residential_builder",
+    );
+  });
+
+  it("no builder tags → the site's suggested segment is written", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT, project_mix: [] }],
+    });
+    const stub = vi.fn(async () => ({
+      outcome: "derived_and_saved" as const,
+      derivedFields: [],
+      suggestedSegment: "local_service" as const,
+    }));
+    await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: stub,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(tenantUpdatePayload(writes)?.segment).toBe("local_service");
+  });
+
+  it("ambiguous site + no tags → segment NOT touched (provisioning default stands)", async () => {
+    const { client, writes } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT, project_mix: [] }],
+    });
+    await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: persistConfigStub, // suggestedSegment: null
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    const payload = tenantUpdatePayload(writes);
+    expect(payload).toBeDefined();
+    expect(payload && "segment" in payload).toBe(false);
   });
 });

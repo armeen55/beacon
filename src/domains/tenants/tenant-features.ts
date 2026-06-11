@@ -25,6 +25,15 @@ const SEGMENT_DEFAULTS: Record<TenantSegment, ResolvedTenantFeatures> = {
     call_tracking: true,
     geo_pages: true,
   },
+  // North-star onboarding (2026-06-11): any non-builder local business
+  // (restaurant, dentist, plumber, …) — same toggles as the builder
+  // segment; the local engines are vertical-agnostic. Separate label so
+  // cross-tenant brain bins stay honest.
+  local_service: {
+    local_service: true,
+    call_tracking: true,
+    geo_pages: true,
+  },
   content_publisher: {
     local_service: false,
     call_tracking: false,

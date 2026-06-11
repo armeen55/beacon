@@ -21,9 +21,26 @@
 
 import { saveBusinessConfig, type BusinessConfig } from "@/lib/business-config";
 import type { PoliteFetchDeps } from "@/domains/competitor-intel/polite-fetch";
-import { deriveBusinessProfile } from "./derive-business-profile";
+import type { TenantSegment } from "@/domains/tenants/types";
+import {
+  deriveBusinessProfile,
+  type DerivedBusinessProfile,
+} from "./derive-business-profile";
 import { deriveBusinessConfig } from "./derive-business-config";
 import { fetchSiteProfilePages, normalizeSiteUrl } from "./fetch-site-profile";
+
+/** Site signals → segment. Pure; null when ambiguous. */
+export function suggestSegmentFromProfile(
+  profile: DerivedBusinessProfile | null,
+): TenantSegment | null {
+  if (!profile) return null;
+  if (profile.contentSiteSignal) return "content_publisher";
+  const localSignals =
+    profile.address !== null ||
+    profile.phone !== null ||
+    profile.locations.length > 0;
+  return localSignals ? "local_service" : null;
+}
 
 export type LaunchConfigArgs = {
   tenantId: string;
@@ -41,6 +58,15 @@ export type LaunchConfigResult = {
   /** The persisted config (undefined only when skipped) — the launch
    *  flow threads services/industry/locations into prompt generation. */
   config?: Partial<BusinessConfig>;
+  /**
+   * Segment suggested by the SITE's own signals: article schema with no
+   * address → content_publisher; physical presence (address/phone/
+   * areaServed) → local_service. Null when the site is ambiguous — the
+   * caller keeps the provisioning default. (The launch flow upgrades to
+   * local_residential_builder when the human picked builder tags — a
+   * self-declaration beats inference.)
+   */
+  suggestedSegment: TenantSegment | null;
 };
 
 export async function deriveAndPersistTenantConfig(
@@ -50,7 +76,11 @@ export async function deriveAndPersistTenantConfig(
   if (!normalized) {
     // No usable domain — nothing to key the config on. The wizard
     // validates domains, so this is a defensive branch.
-    return { outcome: "skipped_no_domain", derivedFields: [] };
+    return {
+      outcome: "skipped_no_domain",
+      derivedFields: [],
+      suggestedSegment: null,
+    };
   }
 
   const fetched = await fetchSiteProfilePages(args.domain, {
@@ -83,5 +113,6 @@ export async function deriveAndPersistTenantConfig(
     outcome: profile ? "derived_and_saved" : "typed_only_saved",
     derivedFields,
     config,
+    suggestedSegment: suggestSegmentFromProfile(profile),
   };
 }

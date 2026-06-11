@@ -21,12 +21,19 @@ export type BeaconTenantRole = "founder" | "beta_customer" | "paid_customer";
  * (`local_residential_builder`); the union widens ADDITIVELY so every
  * existing row/caller keeps compiling. Cross-tenant brain pattern keys
  * include segment, so patterns never mix across segments by construction.
- *   • local_residential_builder — local-service business (Ritz).
+ *   • local_residential_builder — residential builder (Ritz).
+ *   • local_service             — ANY other local-service business
+ *     (restaurant, dentist, plumber, …). North-star onboarding
+ *     (2026-06-11): derived at launch from the site's own signals
+ *     (physical address/phone/areaServed). Same engine toggles as the
+ *     builder segment — the local engines are vertical-agnostic; only
+ *     the brain bins stay honest by keeping the labels apart.
  *   • content_publisher         — content/encyclopedia site (Iranopedia).
  *   • product_app               — product/app property (Finglish).
  */
 export type TenantSegment =
   | "local_residential_builder"
+  | "local_service"
   | "content_publisher"
   | "product_app";
 
