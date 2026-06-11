@@ -253,6 +253,34 @@ async function main() {
         );
       }
     }
+    // Causal Proof Engine (2026-06-11 day shift): attribute each shipped
+    // edit against comparable untreated URLs (diff-in-diff) and persist
+    // the customer-facing outcome rows that light up the "Proof" drilldown
+    // on /changes/[id]. Runs AFTER promotion, live mode only (the rows are
+    // derived analytics, but a dry-run/CI run has an ephemeral FS so the
+    // persist wouldn't land durably without dual-write — match the other
+    // persisting steps). 100% deterministic, NO paid API. Best-effort: the
+    // engine reads existing changelog + citation history, so a failure here
+    // never affects tonight's promotion — it simply recomputes tomorrow.
+    if (!mode.dryRun) {
+      try {
+        const { buildAndPersistTenantProof } = await import(
+          "../src/domains/attribution/proof-engine"
+        );
+        const proof = await buildAndPersistTenantProof(tenantId);
+        console.log(
+          `[scheduled-generation] PROOF tenant=${tenantId} ` +
+            `classified=${proof.events_classified} computed=${proof.computed} ` +
+            `weak=${proof.weak} persisted=${proof.persisted} ` +
+            `skipped_ineligible=${proof.skipped_ineligible} ` +
+            `by_status=${JSON.stringify(proof.by_status)}`,
+        );
+      } catch (err) {
+        console.warn(
+          `::warning::[scheduled-generation] proof engine failed (promotion already landed): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     process.exit(0);
   } catch (err) {
     console.error(
