@@ -284,6 +284,8 @@ export interface TenantRepository {
   getPageElementInventory(): Promise<PageElementInventoryRow[]>;
   getRecommendedEdits(): Promise<RecommendedEditRow[]>;
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
+  /** Night-shift (2026-06-11) — tenant-scoped change contracts. */
+  getChangeContracts(): Promise<ChangeContract[]>;
   /**
    * Night-shift fix (2026-06-11) — per-tenant citation index. A single
    * object (not rows), so the wrapper's row filter can't protect it;

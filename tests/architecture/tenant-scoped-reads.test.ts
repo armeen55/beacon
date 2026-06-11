@@ -34,7 +34,6 @@ const ALLOWLIST = new Set<string>([
   "domains/actions/store.ts:getActionStates",
   "domains/pages/asset-response.ts:getAssetResponses",
   "domains/brief-generation/store.ts:getBriefStates",
-  "domains/changelog/change-contract.ts:getChangeContracts",
   "domains/pages/frontier-planner.ts:getFrontierOpportunities",
   "domains/pages/outcome-watch.ts:getOutcomeObservations",
   "domains/pages/wave-planner.ts:getRolloutWaves",

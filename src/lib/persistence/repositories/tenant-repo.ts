@@ -240,6 +240,10 @@ export function buildTenantRepo(
       base.getAnswerIntelligenceIndexScoped
         ? base.getAnswerIntelligenceIndexScoped(tenantId)
         : base.getAnswerIntelligenceIndex(),
+    // Night-shift (2026-06-11) — rows carry tenant_id; the unscoped base
+    // read returns every tenant on hosted.
+    getChangeContracts: async () =>
+      filterByTenantId(await base.getChangeContracts(), tenantId),
     /**
      * Section 5 precursor (2026-05-16) — explicit-tenant poll-run
      * read. Scopes by the captured `tenantId` argument, NOT by

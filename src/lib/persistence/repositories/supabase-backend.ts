@@ -365,6 +365,20 @@ async function queryMapped<T>(table: string): Promise<T[]> {
 // `ux_pei_tenant_snapshot_element_key`) and the Phase 7.5b/1B PK on
 // `recommendation_responses (tenant_id, rec_id)` actually get used. Also
 // avoids fetching another tenant's rows just to filter them out in JS.
+/** Night-shift (2026-06-11): tenant-scoped variant of queryMapped —
+ *  same key-mapping, with the tenant filter pushed to Postgres. */
+async function queryMappedScoped<T>(table: string, tenantId: string): Promise<T[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(table)
+    .select("*")
+    .eq("tenant_id", tenantId);
+  if (error)
+    throw new Error(`Supabase query failed on ${table}: ${error.message}`);
+  return (data ?? []).map((row) =>
+    mapRowToEntity<T>(row as Record<string, unknown>),
+  );
+}
+
 async function selectScoped<T>(table: string, tenantId: string): Promise<T[]> {
   const t0 = Date.now();
   const { data, error } = await getSupabaseAdmin()
@@ -745,6 +759,8 @@ export const supabaseBackend: SeedDataRepository = {
       // Night-shift fix (2026-06-11) — per-tenant citation index row.
       getCitationEvidenceIndex: () =>
         supabaseBackend.getCitationEvidenceIndexScoped!(tenantId),
+      getChangeContracts: () =>
+        queryMappedScoped<ChangeContract>("change_contracts", tenantId),
       getAnswerIntelligenceIndex: () =>
         supabaseBackend.getAnswerIntelligenceIndexScoped!(tenantId),
 
