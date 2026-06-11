@@ -139,16 +139,20 @@ describe("validateCompetitorsProfile — accept paths", () => {
 });
 
 describe("validateCompetitorsProfile — reject paths", () => {
-  it("rejects empty input", () => {
+  // North-star onboarding (2026-06-11): empty is now a VALID scope —
+  // the old ≥1 rule blocked strangers who don't know their AI rivals,
+  // and the 2026-06 co-mention audit showed manually-guessed
+  // competitors were wrong; auto-seed fills real rivals post-launch.
+  it("accepts empty input (auto-seed takes over post-launch)", () => {
     const r = validateCompetitorsProfile({ competitors: "" });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.competitors).toBeTruthy();
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.normalized.competitors).toEqual([]);
   });
 
-  it("rejects whitespace-only input", () => {
+  it("whitespace-only input normalizes to empty (accepted)", () => {
     const r = validateCompetitorsProfile({ competitors: " , , " });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.competitors).toBeTruthy();
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.normalized.competitors).toEqual([]);
   });
 
   it("rejects more than COMPETITORS_MAX_COUNT competitors", () => {
@@ -206,18 +210,18 @@ describe("validateCompetitorsProfile — reject paths", () => {
     if (r.ok) expect(r.normalized.competitors).toEqual(["Acme.com Builders"]);
   });
 
-  it("handles missing keys safely", () => {
+  it("handles missing keys safely (normalizes to empty)", () => {
     const r = validateCompetitorsProfile(
       {} as unknown as Parameters<typeof validateCompetitorsProfile>[0],
     );
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.competitors).toBeTruthy();
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.normalized.competitors).toEqual([]);
   });
 });
 
 describe("validateCompetitorsProfile — constants pinned", () => {
-  it("COMPETITORS_MIN_COUNT = 1, COMPETITORS_MAX_COUNT = 5", () => {
-    expect(COMPETITORS_MIN_COUNT).toBe(1);
+  it("COMPETITORS_MIN_COUNT = 0 (optional step), COMPETITORS_MAX_COUNT = 5", () => {
+    expect(COMPETITORS_MIN_COUNT).toBe(0);
     expect(COMPETITORS_MAX_COUNT).toBe(5);
   });
 });

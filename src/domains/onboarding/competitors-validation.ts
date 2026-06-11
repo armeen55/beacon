@@ -19,7 +19,8 @@
 import { normalizeDomain } from "./profile-validation";
 
 export const COMPETITORS_MAX_COUNT = 5;
-export const COMPETITORS_MIN_COUNT = 1;
+/** 2026-06-11: 0 — the step is optional; auto-seed fills real rivals. */
+export const COMPETITORS_MIN_COUNT = 0;
 export const COMPETITOR_NAME_MAX_LENGTH = 100;
 
 /**
@@ -100,9 +101,13 @@ export type CompetitorsProfileValidationResult =
 /**
  * Validate + normalize the competitors-step submitted form.
  *
- * Rules:
- *   - At least COMPETITORS_MIN_COUNT (=1) and at most
- *     COMPETITORS_MAX_COUNT (=5) competitors after normalization.
+ * Rules (North-star onboarding, 2026-06-11 — the field is OPTIONAL):
+ *   - 0..COMPETITORS_MAX_COUNT (=5) competitors after normalization.
+ *     The old ≥1 rule blocked every stranger who doesn't know their
+ *     AI-answer rivals — and Beacon's own data showed manually-guessed
+ *     competitors were WRONG (the 2026-06 co-mention audit replaced
+ *     them); auto-seed fills real rivals from citation data after
+ *     launch. Skipping is the better default; typing still works.
  *   - At least one entry must look like a name (has whitespace OR
  *     isn't URL-shaped). If every entry is a bare URL/domain,
  *     reject with the "names not URLs" message — the field is for
@@ -115,7 +120,7 @@ export function validateCompetitorsProfile(
 
   const normalized = normalizeCompetitorList(input.competitors);
   if (normalized.length === 0) {
-    errors.competitors = "List at least one competitor you want to track.";
+    // Valid empty scope — auto-seed takes over post-launch.
   } else if (normalized.length > COMPETITORS_MAX_COUNT) {
     errors.competitors = `Pick ${COMPETITORS_MAX_COUNT} competitors or fewer for now — you can add more after launch.`;
   } else {
