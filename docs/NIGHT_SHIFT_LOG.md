@@ -18,3 +18,4 @@ One line per hour: time, items shipped, commits, next.
 - 02:00 — PR 18 merged. Landed since: digest deep links via /api/tenant-switch (#118), engine tag on first-citations (#52-lite), create_page verification matcher (#90). Next: post-push regression alarm (#96 v1).
 - 02:10 — landed: accepted_at stamp (#127 substrate) + median time-to-approve digest line + batch accept (#84, accept-only). Audit agent restocking the work queue. PR 19 in slow CI (GH congestion).
 - 02:25 — audit wave done: 8 more per-tenant cache conversions (incl. candidates.ts topic index, which had been silently EMPTY since tenant routing — restored from the live store) + 11 silent catches now log. Suite 14,179/0. Shipping PR 20.
+- 02:35 — PR 20 merged. #48 unified queue ordering (drafted>confidence>recency) + digest diagnostic-findings count + GLOBAL_TABLES correction + audit item 14. Full-pipeline generation proof run in flight.
