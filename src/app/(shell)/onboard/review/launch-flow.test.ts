@@ -926,3 +926,56 @@ describe("executeLaunchTransaction — derived segment rides the activation UPDA
     expect(payload && "segment" in payload).toBe(false);
   });
 });
+
+describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () => {
+  it("a SUCCESSFUL launch dispatches the tenant-scoped first scan (failure-soft)", async () => {
+    const { client } = makeMockSupabase({ tenants: [{ ...PENDING_TENANT }] });
+    const dispatchStub = vi.fn(async () => ({
+      status: "skipped_pat_not_configured" as const,
+    }));
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: persistConfigStub,
+      dispatchFirstScan: dispatchStub as never,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(dispatchStub).toHaveBeenCalledWith(PENDING_TENANT.id);
+  });
+
+  it("a FAILED launch never dispatches a scan", async () => {
+    const { client } = makeMockSupabase(
+      { tenants: [{ ...PENDING_TENANT }] },
+      { failTenantUpdate: true },
+    );
+    const dispatchStub = vi.fn(async () => ({
+      status: "skipped_pat_not_configured" as const,
+    }));
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: persistConfigStub,
+      dispatchFirstScan: dispatchStub as never,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r.kind).toBe("error");
+    expect(dispatchStub).not.toHaveBeenCalled();
+  });
+
+  it("a THROWING dispatcher never breaks the launch", async () => {
+    const { client, store } = makeMockSupabase({ tenants: [{ ...PENDING_TENANT }] });
+    const dispatchStub = vi.fn(async () => {
+      throw new Error("github down");
+    });
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: persistConfigStub,
+      dispatchFirstScan: dispatchStub as never,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(store.tenants[0].status).toBe("active");
+  });
+});
