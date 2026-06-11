@@ -72,7 +72,8 @@ export function isScanOverdue(
 function toDateInTimezone(date: Date, tz: string): string {
   try {
     return date.toLocaleDateString("en-CA", { timeZone: tz });
-  } catch {
+  } catch (err) {
+    console.error("[scan-settings] swallowed error:", err instanceof Error ? err.message : String(err));
     return date.toLocaleDateString("en-CA");
   }
 }
@@ -86,7 +87,8 @@ function getHourInTimezone(date: Date, tz: string): number {
     }).formatToParts(date);
     const hourPart = parts.find((p) => p.type === "hour");
     return hourPart ? parseInt(hourPart.value, 10) : date.getHours();
-  } catch {
+  } catch (err) {
+    console.error("[scan-settings] swallowed error:", err instanceof Error ? err.message : String(err));
     return date.getHours();
   }
 }

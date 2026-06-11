@@ -71,7 +71,8 @@ function safeJsonRead<T>(path: string): T | null {
   try {
     if (!existsSync(path)) return null;
     return JSON.parse(readFileSync(path, "utf-8")) as T;
-  } catch {
+  } catch (err) {
+    console.error("[command-center] swallowed error:", err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -91,7 +92,8 @@ function findLatestBrainHealthReport(): string | null {
       .sort();
     if (files.length === 0) return null;
     return join(reportsDir, files[files.length - 1]);
-  } catch {
+  } catch (err) {
+    console.error("[command-center] swallowed error:", err instanceof Error ? err.message : String(err));
     return null;
   }
 }
