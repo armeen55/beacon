@@ -213,3 +213,40 @@ describe("detectFirstReadingState — customer-safe phrasing", () => {
     }
   });
 });
+
+// ── North-star onboarding (2026-06-11): derived-profile facts on the card ──
+
+describe("detectFirstReadingState — derived profile pass-through", () => {
+  const baseInput = {
+    tenant: {
+      id: "t-1",
+      status: "active",
+      business_name: "La Palma",
+      domain: "lapalma.com",
+    } as never,
+    activePromptCount: 5,
+    observationCount: 0,
+  };
+
+  it("carries the derived facts into the context when provided", () => {
+    const r = detectFirstReadingState(baseInput, {
+      industry: "restaurant",
+      locations: ["Tucson", "Oro Valley"],
+      serviceCount: 4,
+      keyPageCount: 8,
+    });
+    expect(r.isFirstReading).toBe(true);
+    if (r.isFirstReading) {
+      expect(r.context.derived?.industry).toBe("restaurant");
+      expect(r.context.derived?.locations).toEqual(["Tucson", "Oro Valley"]);
+    }
+  });
+
+  it("omits the derived block entirely when nothing was derived", () => {
+    const r = detectFirstReadingState(baseInput);
+    expect(r.isFirstReading).toBe(true);
+    if (r.isFirstReading) {
+      expect("derived" in r.context).toBe(false);
+    }
+  });
+});

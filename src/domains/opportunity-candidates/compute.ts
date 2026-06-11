@@ -10,7 +10,13 @@ export function computeOpportunityCandidates(
   results: Result[],
   changes: ChangelogEntry[],
   opportunities: Opportunity[],
-  candidateLinks: CandidateLink[]
+  candidateLinks: CandidateLink[],
+  /** Tenant geo-expansion vocabulary (display case). 2026-06-11: the
+   *  2026-06-10 work made generateCandidates injectable but this wrapper
+   *  never threaded it — /expansion suggested founder cities to every
+   *  tenant. Absent → founder default (Ritz parity); an injected EMPTY
+   *  list means "no geo expansion" (content tenants). */
+  cities?: ReadonlyArray<string>,
 ): OpportunityCandidate[] {
   const { patterns, clusters } = computePatterns(
     results,
@@ -19,5 +25,5 @@ export function computeOpportunityCandidates(
     candidateLinks
   );
 
-  return generateCandidates(patterns, clusters, changes, opportunities);
+  return generateCandidates(patterns, clusters, changes, opportunities, cities);
 }

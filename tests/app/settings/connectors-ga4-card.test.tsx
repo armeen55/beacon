@@ -71,6 +71,7 @@ function renderClient(args: {
       google={disconnectedInfo()}
       googleSelectedLocation={null}
       ga4={args.ga4}
+      wix={{ status: "disconnected", connected_at: null, expires_at: null, last_synced_at: null }}
       yelp={disconnectedInfo()}
       configYelpBusinessId=""
       gscStaleCopy={null}

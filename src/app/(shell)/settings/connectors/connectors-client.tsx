@@ -8,10 +8,13 @@ import {
   getGoogleAuthUrl,
   getGoogleGscConnectorStatus,
   getGoogleGa4ConnectorStatus,
+  getWixConnectorStatus,
   getYelpConnectorStatus,
   disconnectGoogle,
   disconnectGoogleGa4,
   disconnectYelp,
+  saveWixConnection,
+  disconnectWix,
   saveYelpApiKey,
   syncGoogleReviews,
   syncYelpReviews,
@@ -40,6 +43,8 @@ type Props = {
    *  GSC props shape (status, expires_at, ga4_property_id, etc.). */
   ga4: ConnectorInfo;
   yelp: ConnectorInfo;
+  /** North-star onboarding (2026-06-11) — self-serve Wix connection. */
+  wix: ConnectorInfo;
   /** From business config — for operator hint only (not a secret). */
   configYelpBusinessId: string;
   /** J5 (2026-05-18) — pre-rendered "GSC data last refreshed X days
@@ -89,6 +94,7 @@ export function ConnectorsClient({
   googleSelectedLocation: initialSelectedLocation,
   ga4: initialGa4,
   yelp: initialYelp,
+  wix: initialWix,
   configYelpBusinessId,
   gscStaleCopy = null,
   ga4StaleCopy = null,
@@ -100,6 +106,9 @@ export function ConnectorsClient({
   const [google, setGoogle] = useState<ConnectorInfo>(initialGoogle);
   const [ga4, setGa4] = useState<ConnectorInfo>(initialGa4);
   const [yelp, setYelp] = useState<ConnectorInfo>(initialYelp);
+  const [wix, setWix] = useState<ConnectorInfo>(initialWix);
+  const [wixKeyInput, setWixKeyInput] = useState("");
+  const [wixSiteIdInput, setWixSiteIdInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [googleSyncInFlight, setGoogleSyncInFlight] = useState(false);
@@ -361,6 +370,47 @@ export function ConnectorsClient({
         router.refresh();
       } else {
         setError(result.error ?? "Could not save Yelp key.");
+      }
+    });
+  }
+
+  function handleSaveWixConnection() {
+    setError(null);
+    setSuccess(null);
+    startTransition(async () => {
+      const result = await saveWixConnection({
+        apiKey: wixKeyInput,
+        siteId: wixSiteIdInput,
+      });
+      if (result.success) {
+        setWixKeyInput("");
+        setWixSiteIdInput("");
+        const status = await getWixConnectorStatus();
+        setWix(status);
+        setSuccess(
+          "Wix connected. Approved edits can now publish to your site — nothing publishes without your approval.",
+        );
+      } else {
+        setError(result.error ?? "Could not save the Wix connection.");
+      }
+    });
+  }
+
+  function handleDisconnectWix() {
+    setError(null);
+    setSuccess(null);
+    startTransition(async () => {
+      const result = await disconnectWix();
+      if (result.success) {
+        setWix({
+          status: "disconnected",
+          connected_at: null,
+          expires_at: null,
+          last_synced_at: null,
+        });
+        setSuccess("Wix disconnected.");
+      } else {
+        setError(result.error ?? "Could not disconnect Wix.");
       }
     });
   }
@@ -856,6 +906,85 @@ export function ConnectorsClient({
             Pulls reviews from Yelp on demand when you click Sync now.
             Yelp Fusion returns a bounded sample — may not reflect your full Yelp profile.
             No automatic syncing — Beacon does not poll Yelp in the background.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Wix — North-star onboarding (2026-06-11) ──
+          Self-serve publish connection: the customer pastes their own
+          Wix API key + site id. Connecting NEVER publishes anything —
+          every edit still goes through Approve & Push (your click,
+          daily caps, non-destructive guard). */}
+      <div
+        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        data-connector-card="wix"
+      >
+        <div className="px-5 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">Wix</h3>
+            {wix.status === "connected" ? (
+              <p className="text-[12px] text-muted-foreground">
+                Connected &middot; Authorized {formatDate(wix.connected_at)}
+              </p>
+            ) : (
+              <p className="text-[12px] text-muted-foreground">
+                Connect your Wix site so approved edits can publish
+                directly. Nothing publishes without your approval.
+              </p>
+            )}
+          </div>
+          {wix.status === "connected" ? (
+            <button
+              type="button"
+              onClick={handleDisconnectWix}
+              disabled={isPending}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          ) : null}
+        </div>
+
+        {wix.status !== "connected" ? (
+          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <p className="text-[12px] text-muted-foreground">
+              From your Wix dashboard: Settings → API Keys → create a key
+              with content-write access, and copy your Site ID from
+              Settings → Website settings. Both stay on this server and
+              are never sent to the browser after saving.
+            </p>
+            <input
+              type="password"
+              value={wixKeyInput}
+              onChange={(e) => setWixKeyInput(e.target.value)}
+              placeholder="Wix API key"
+              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+            />
+            <input
+              type="text"
+              value={wixSiteIdInput}
+              onChange={(e) => setWixSiteIdInput(e.target.value)}
+              placeholder="Wix Site ID"
+              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+            />
+            <div>
+              <button
+                type="button"
+                onClick={handleSaveWixConnection}
+                disabled={isPending || !wixKeyInput.trim() || !wixSiteIdInput.trim()}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+              >
+                Connect Wix
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Used only when you click Approve &amp; Push on an edit. Daily
+            push caps and the non-destructive guard apply to every push;
+            disconnecting stops all publishing instantly.
           </p>
         </div>
       </div>

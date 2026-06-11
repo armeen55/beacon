@@ -32,6 +32,17 @@ export type FirstReadingContext = {
    * Customer-safe — no infrastructure terms.
    */
   nextReadingDescription: string;
+  /**
+   * North-star onboarding (2026-06-11) — minute-one value: what Beacon
+   * derived from the customer's own site at launch. All optional; the
+   * card renders the block only when something was derived.
+   */
+  derived?: {
+    industry: string | null;
+    locations: string[];
+    serviceCount: number;
+    keyPageCount: number;
+  };
 };
 
 export type FirstReadingDetection =
@@ -72,6 +83,8 @@ export type FirstReadingDetectorInput = {
  */
 export function detectFirstReadingState(
   input: FirstReadingDetectorInput,
+  /** Optional derived-profile facts from the per-tenant config. */
+  derived?: FirstReadingContext["derived"],
 ): FirstReadingDetection {
   const { tenant, activePromptCount, observationCount } = input;
 
@@ -94,6 +107,7 @@ export function detectFirstReadingState(
       // Supabase / poll. The actual cron fires daily at 07:00 UTC, so
       // "tomorrow morning" is accurate from any same-day signup.
       nextReadingDescription: "tomorrow morning",
+      ...(derived ? { derived } : {}),
     },
   };
 }

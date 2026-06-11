@@ -53,6 +53,75 @@ export async function getYelpConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("yelp");
 }
 
+export async function getWixConnectorStatus(): Promise<ConnectorInfo> {
+  return getConnectorInfo("wix");
+}
+
+/**
+ * North-star onboarding (2026-06-11) — self-serve Wix connection.
+ * A Wix customer pastes their own API key + site id; the token is
+ * stored per-tenant in the connector store (the same row the push
+ * service reads). Without this card the publish path dead-ended on
+ * the operator hand-seeding the key. The key is held server-side
+ * only; pushing still goes through Approve & Push (operator click,
+ * caps, non-destructive guard) — connecting a key never publishes
+ * anything by itself.
+ */
+export async function saveWixConnection(input: {
+  apiKey: string;
+  siteId: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const action = "saveWixConnection";
+  const t0 = Date.now();
+  const apiKey = input.apiKey.trim();
+  const siteId = input.siteId.trim();
+  if (!apiKey) return { success: false, error: "Enter your Wix API key." };
+  if (!siteId) return { success: false, error: "Enter your Wix site id." };
+  log.info("Action started", { action });
+  try {
+    await saveConnectorToken({
+      provider: "wix",
+      api_key: apiKey,
+      site_id: siteId,
+      connected_at: now(),
+    });
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: err.slice(0, 500),
+    });
+    return { success: false, error: err };
+  }
+}
+
+export async function disconnectWix(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const action = "disconnectWix";
+  const t0 = Date.now();
+  log.info("Action started", { action });
+  try {
+    await deleteConnectorToken("wix");
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: err.slice(0, 500),
+    });
+    return { success: false, error: err };
+  }
+}
+
 export async function saveYelpApiKey(
   apiKeyRaw: string,
 ): Promise<{ success: boolean; error?: string }> {

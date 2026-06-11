@@ -185,7 +185,11 @@ describe("Gap F.1 — today-data.ts wiring", () => {
   });
 
   it("calls detectFirstReadingState with both counts", () => {
-    expect(TODAY_DATA_SRC).toMatch(/detectFirstReadingState\(\{/);
+    // 2026-06-11: the call gained a second `derived` arg (the launch-
+    // derived profile facts for the minute-one card), so the object
+    // literal is no longer glued to the call parens — pin the call +
+    // both count fields independently.
+    expect(TODAY_DATA_SRC).toMatch(/detectFirstReadingState\(/);
     expect(TODAY_DATA_SRC).toMatch(/activePromptCount:/);
     expect(TODAY_DATA_SRC).toMatch(/observationCount:/);
   });
