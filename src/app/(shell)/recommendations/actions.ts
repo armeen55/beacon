@@ -621,13 +621,15 @@ export async function deferRecommendation(
 
 export async function dismissRecommendation(
   stableKey: string,
+  reason?: import("@/domains/product/recommendation-response-store").DismissReason,
 ): Promise<RecommendationActionResponse> {
   const action = "dismissRecommendation";
   const t0 = Date.now();
-  log.info("Action started", { action, params: { stableKey } });
+  log.info("Action started", { action, params: { stableKey, reason } });
 
   await ensureRecommendationResponsesSeeded();
-  recordResponse(stableKey, "dismissed");
+  // #54 (2026-06-11): capture WHY — the taste-learning signal.
+  await recordResponse(stableKey, "dismissed", { dismissReason: reason ?? null });
   const tenantId = await currentTenantId();
   await persistResponses(tenantId);
 

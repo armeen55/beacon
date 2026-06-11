@@ -62,3 +62,26 @@ describe("recordResponse — Fix 2 auto-link context", () => {
     expect(r?.patternId).toBe("p-updated");
   });
 });
+
+describe("#54 (2026-06-11) — dismiss reason capture", () => {
+  it("records the operator's dismiss reason and preserves it on later updates", async () => {
+    const mod = await import("@/domains/product/recommendation-response-store");
+    mod.invalidateRecommendationResponsesSeed();
+    await mod.recordResponse("rec-dismiss", "dismissed", { dismissReason: "not_relevant" });
+    const r1 = await mod.getResponse("rec-dismiss");
+    expect(r1?.status).toBe("dismissed");
+    expect(r1?.dismissReason).toBe("not_relevant");
+
+    // A later context-less update must NOT clobber the reason.
+    await mod.recordResponse("rec-dismiss", "dismissed");
+    const r2 = await mod.getResponse("rec-dismiss");
+    expect(r2?.dismissReason).toBe("not_relevant");
+  });
+
+  it("non-dismiss responses carry a null reason", async () => {
+    const mod = await import("@/domains/product/recommendation-response-store");
+    mod.invalidateRecommendationResponsesSeed();
+    await mod.recordResponse("rec-accept", "accepted");
+    expect((await mod.getResponse("rec-accept"))?.dismissReason ?? null).toBeNull();
+  });
+});
