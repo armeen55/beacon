@@ -146,3 +146,11 @@ no tenant_id), `lib/persistence/cold-store.ts:_answerTextsCache` (keyed by globa
   `.data/answer-texts.json`; `writeAnswerTexts(texts)` replaces the entire map, so a per-tenant
   partial write would clobber other tenants' texts. Reads are safe-in-practice (keyed by
   globally-unique observationId). Same legacy lineage; resolve with MT-COLD-1.
+
+### Regression guard (so the class can't silently return)
+`tests/architecture/per-tenant-cache-key.test.ts` — a NEW ratchet companion to
+the tenant-scoped-reads ratchet. It fails the build if any module declares a
+process-global `_state` cache over a store (`readStore`/`getRepository`) without
+being tenant-aware (`currentTenantId`). Allowlist: `prompt-library` (GLOBAL) +
+`seed-data.server` (known daylight debt, also in the tenant-scoped-reads allowlist).
+This is the structural blind spot that hid all six leaks above.
