@@ -9,6 +9,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { currentTenantId } from "@/lib/tenant-context";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { AnswerSnapshot } from "./types";
 
@@ -16,17 +17,29 @@ const STORE_NAME = "answer-snapshots";
 
 // Sprint 7 Phase 7.8e-3 (2026-04-26): module-level top-level await
 // replaced with cached async getter. Mutators are now async.
-let _state: AnswerSnapshot[] | null = null;
+//
+// Night-shift cache sweep (2026-06-11): answer-snapshots is a
+// TENANT_SCOPED store, but this held a process-global `let _state` keyed
+// by NOTHING — in a warm process the first tenant's snapshots pinned for
+// every later tenant (cross-pin). The ambient-routed disk read masked it,
+// and this store reads via `readStore` directly (not getRepository), so
+// the tenant-scoped-reads ratchet structurally can't catch it. Per-tenant
+// Map keyed by currentTenantId now; stable per-tenant array refs preserve
+// appendSnapshot()'s in-place push/replace semantics.
+const _byTenant = new Map<string, AnswerSnapshot[]>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state !== null) return;
-  _state = await readStore<AnswerSnapshot>(STORE_NAME);
+const ensureLoaded = cache(async (): Promise<AnswerSnapshot[]> => {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached) return cached;
+  const loaded = await readStore<AnswerSnapshot>(STORE_NAME);
+  _byTenant.set(tenantId, loaded);
+  return loaded;
 });
 
 export const getAnswerSnapshots = cache(
   async (): Promise<AnswerSnapshot[]> => {
-    await ensureLoaded();
-    return _state!;
+    return ensureLoaded();
   },
 );
 
@@ -98,5 +111,5 @@ export async function getSnapshotSummary(): Promise<{
 }
 
 export function _resetAnswerSnapshotsForTests(): void {
-  _state = null;
+  _byTenant.clear();
 }
