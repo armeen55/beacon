@@ -25,6 +25,7 @@ import {
   selectFirstCitations,
   selectPushRegressionAlarms,
   computeMedianApprovalHours,
+  selectTopDismissReason,
   type DigestTenantSection,
 } from "../src/domains/delivery/morning-digest";
 import { computeEditFeedback } from "../src/domains/recommendation-intelligence/edit-feedback";
@@ -101,6 +102,21 @@ async function main() {
       pushRegressions,
       medianApprovalHours: computeMedianApprovalHours(rows, now),
       diagnosticCount,
+      topDismissReason: await (async () => {
+        try {
+          // Explicit per-tenant read — the ambient store getter would
+          // misattribute one tenant's dismissals to another's section.
+          const responses = await getRepository()
+            .forTenant(t.id)
+            .getRecommendationResponses();
+          return selectTopDismissReason(
+            responses as Array<{ status: string; respondedAt: string; dismissReason?: string | null }>,
+            now,
+          );
+        } catch {
+          return null;
+        }
+      })(),
     });
     console.log(
       `[morning-digest] ${t.id}: pending=${sel.pendingTotal} pushed24h=${sel.pushedLastDay} verified24h=${sel.verifiedLastDay} editRate=${feedback.overall.editRate ?? "n/a"}`,

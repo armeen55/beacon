@@ -687,6 +687,7 @@ export const supabaseBackend: SeedDataRepository = {
       deferUntil: row.defer_until,
       targetPageUrl: row.target_page_url ?? null,
       patternId: row.pattern_id ?? null,
+      dismissReason: row.dismiss_reason ?? null,
     })) as RecommendationResponse[];
   },
   getUrlChangeOutcomes: async () => {
@@ -1042,6 +1043,7 @@ export const supabaseBackend: SeedDataRepository = {
           deferUntil: row.defer_until,
           targetPageUrl: row.target_page_url ?? null,
           patternId: row.pattern_id ?? null,
+          dismissReason: row.dismiss_reason ?? null,
         })) as RecommendationResponse[];
       },
 

@@ -50,7 +50,39 @@ export type DigestTenantSection = {
   /** Night-shift (2026-06-11) — diagnostic-only candidates waiting for
    *  operator calibration (the merge/stale detectors land here). */
   diagnosticCount?: number;
+  /** #54 (2026-06-11) — the operator's most common dismiss reason in
+   *  the last 14 days + its count; null hides the line (needs ≥3). */
+  topDismissReason?: { reason: string; count: number } | null;
 };
+
+const DISMISS_REASON_LABELS: Record<string, string> = {
+  not_relevant: "not relevant",
+  already_done: "already done",
+  wrong_page: "wrong page",
+  bad_suggestion: "a bad suggestion",
+  too_risky: "too risky",
+  other: "other reasons",
+};
+
+/** #54 — most common dismiss reason in the window; null under 3. Pure. */
+export function selectTopDismissReason(
+  responses: ReadonlyArray<{ status: string; respondedAt: string; dismissReason?: string | null }>,
+  now: Date,
+  windowDays = 14,
+): { reason: string; count: number } | null {
+  const cutoff = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const counts = new Map<string, number>();
+  for (const r of responses) {
+    if (r.status !== "dismissed" || r.respondedAt < cutoff) continue;
+    const reason = r.dismissReason ?? "other";
+    counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  }
+  let best: { reason: string; count: number } | null = null;
+  for (const [reason, count] of counts) {
+    if (best === null || count > best.count) best = { reason, count };
+  }
+  return best && best.count >= 3 ? best : null;
+}
 
 /** #127: median (accepted_at − created_at) hours, last 14 days, ≥3 rows. */
 export function computeMedianApprovalHours(
@@ -325,6 +357,12 @@ export function composeMorningDigest(
     }
     // The learning proof line (P0 wall 7) — renders with or without a
     // pending queue; it's a receipts line about SHIPPED drafts.
+    if (s.topDismissReason) {
+      const label = DISMISS_REASON_LABELS[s.topDismissReason.reason] ?? s.topDismissReason.reason;
+      const line = `You dismissed ${s.topDismissReason.count} moves as "${label}" recently — Beacon weights this in what it surfaces next.`;
+      textParts.push(line);
+      htmlParts.push(`<p style="margin:4px 0 0;color:#777;font-size:13px">${escapeHtml(line)}</p>`);
+    }
     if ((s.diagnosticCount ?? 0) > 0) {
       const line = `${s.diagnosticCount} new detector finding${s.diagnosticCount === 1 ? "" : "s"} waiting for your calibration (merge/stale/etc.) on the trigger page.`;
       textParts.push(line);
