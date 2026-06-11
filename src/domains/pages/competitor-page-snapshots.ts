@@ -41,6 +41,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { currentTenantId } from "@/lib/tenant-context";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
@@ -173,18 +174,23 @@ function escapeRegex(s: string): string {
 
 const STORE_NAME = "competitor-page-snapshots";
 
-let _state: CompetitorPageSnapshot[] | null = null;
+// Night-shift cache sweep (2026-06-11): per-tenant Map — the global
+// `let _state` pinned the first tenant's competitor snapshots for
+// everyone in a warm process.
+const _byTenant = new Map<string, CompetitorPageSnapshot[]>();
 
-const ensureLoaded = cache(async (): Promise<void> => {
-  if (_state !== null) return;
-  const repo = getRepository();
-  _state = await repo.getCompetitorPageSnapshots();
+const ensureLoaded = cache(async (): Promise<CompetitorPageSnapshot[]> => {
+  const tenantId = await currentTenantId();
+  const cached = _byTenant.get(tenantId);
+  if (cached) return cached;
+  const loaded = await getRepository().getCompetitorPageSnapshots();
+  _byTenant.set(tenantId, loaded);
+  return loaded;
 });
 
 export const getCompetitorPageSnapshots = cache(
   async (): Promise<CompetitorPageSnapshot[]> => {
-    await ensureLoaded();
-    return _state!;
+    return ensureLoaded();
   },
 );
 
@@ -221,12 +227,12 @@ export async function persistCompetitorPageSnapshots(
   for (const s of rows) byUrl.set(s.url, s);
   await writeStore(STORE_NAME, [...byUrl.values()]);
   // Reset the cache so subsequent reads see the fresh rows.
-  _state = null;
+  _byTenant.clear();
 }
 
 /** Test-only reset. */
 export function _resetCompetitorPageSnapshotsForTests(): void {
-  _state = null;
+  _byTenant.clear();
 }
 
 // ---------------------------------------------------------------------------
