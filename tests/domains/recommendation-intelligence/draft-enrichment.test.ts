@@ -372,3 +372,186 @@ describe("enrichPromotionRow — guardrails", () => {
     expect(canon.proposed_text).toBeNull();
   });
 });
+
+// ── Content Schema Engine (2026-06-12) ───────────────────────────────
+// `missing_schema_content` candidates get a COMPLETE Article
+// (+BreadcrumbList) JSON-LD draft. The drafts are pinned against the
+// scanner's own validateSchema() so Beacon can never propose markup
+// its own scanner would flag (closed loop).
+
+import { validateSchemaToStrings } from "@/domains/pages/schema-validator";
+
+const CONTENT_URL = "https://example-site.com/famous-iranians/hafez";
+
+/** Parse every JSON-LD <script> block out of a proposed_text draft. */
+function extractJsonLdBlocks(text: string | null): unknown[] {
+  if (!text) return [];
+  const out: unknown[] = [];
+  const re = /<script type="application\/ld\+json">\n([\s\S]*?)\n<\/script>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    out.push(JSON.parse(m[1]!));
+  }
+  return out;
+}
+
+function contentSnap(over: Partial<PageSnapshot> = {}): PageSnapshot {
+  return snap({
+    url: CONTENT_URL,
+    title: "Hafez | Iranopedia",
+    h1: "Hafez",
+    meta_description:
+      "Hafez was a 14th-century Persian lyric poet whose ghazals remain central to Iranian culture.",
+    ...over,
+  });
+}
+
+function contentCandidate(over: Partial<RecommendationCandidateRow> = {}) {
+  return candidate({
+    trigger_signal: "missing_schema_content",
+    action_type: "add_schema",
+    target_url: CONTENT_URL,
+    ...over,
+  });
+}
+
+function contentRow(over: Partial<DeterministicPromotionEditRow> = {}) {
+  return row({
+    action_type: "add_schema",
+    target_url: CONTENT_URL,
+    ...over,
+  });
+}
+
+/** Brand-bearing fleet: ≥3 titled pages across ≥2 first path segments
+ *  ending " | Iranopedia" so inferBrandSuffix resolves the brand. */
+function brandFleet(): PageSnapshot[] {
+  return [
+    snap({ url: "https://example-site.com/tea-houses", title: "Tea Houses | Iranopedia" }),
+    snap({ url: "https://example-site.com/rugs/qom", title: "Persian Rugs | Iranopedia" }),
+    snap({ url: "https://example-site.com/flags", title: "Iran Flags | Iranopedia" }),
+    contentSnap(),
+  ];
+}
+
+describe("enrichPromotionRow — Content Schema Engine (add_schema, content pages)", () => {
+  it("composes a COMPLETE Article + BreadcrumbList draft from page facts", () => {
+    const out = enrichPromotionRow(
+      contentRow(),
+      contentCandidate(),
+      ctxOf(...brandFleet()),
+    );
+    expect(out.display_label).toBe(
+      "Add Article structured data so AI engines understand this page",
+    );
+    const blocks = extractJsonLdBlocks(out.proposed_text) as Array<
+      Record<string, unknown>
+    >;
+    expect(blocks).toHaveLength(2);
+
+    const article = blocks[0]!;
+    expect(article["@type"]).toBe("Article");
+    expect(article["headline"]).toBe("Hafez");
+    expect(article["description"]).toContain("14th-century Persian lyric poet");
+    expect(article["mainEntityOfPage"]).toEqual({
+      "@type": "WebPage",
+      "@id": CONTENT_URL,
+    });
+    expect(article["author"]).toEqual({
+      "@type": "Organization",
+      name: "Iranopedia",
+    });
+    expect(article["publisher"]).toEqual({
+      "@type": "Organization",
+      name: "Iranopedia",
+    });
+
+    const breadcrumb = blocks[1]!;
+    expect(breadcrumb["@type"]).toBe("BreadcrumbList");
+    const items = breadcrumb["itemListElement"] as Array<
+      Record<string, unknown>
+    >;
+    expect(items).toHaveLength(3);
+    expect(items[0]).toEqual({
+      "@type": "ListItem",
+      position: 1,
+      name: "Iranopedia",
+      item: "https://example-site.com/",
+    });
+    expect(items[1]).toEqual({
+      "@type": "ListItem",
+      position: 2,
+      name: "Famous Iranians",
+      item: "https://example-site.com/famous-iranians",
+    });
+    // Google breadcrumb rule: the LAST element omits `item`.
+    expect(items[2]).toEqual({ "@type": "ListItem", position: 3, name: "Hafez" });
+    expect(Object.keys(items[2]!)).not.toContain("item");
+  });
+
+  it("CLOSED LOOP: drafts pass the scanner's own validateSchema with zero criticals", () => {
+    const out = enrichPromotionRow(
+      contentRow(),
+      contentCandidate(),
+      ctxOf(...brandFleet()),
+    );
+    const blocks = extractJsonLdBlocks(out.proposed_text);
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const block of blocks) {
+      const criticals = validateSchemaToStrings(block).filter((s) =>
+        s.startsWith("schema_critical"),
+      );
+      expect(criticals).toEqual([]);
+    }
+  });
+
+  it("omits author/publisher when no brand infers and description when no source exists (never fabricates)", () => {
+    const bare = contentSnap({
+      meta_description: null,
+      body_paragraph_sample: [],
+      title: "Hafez", // no suffix → brand cannot infer from one page
+    });
+    const out = enrichPromotionRow(
+      contentRow(),
+      contentCandidate(),
+      ctxOf(bare),
+    );
+    const blocks = extractJsonLdBlocks(out.proposed_text) as Array<
+      Record<string, unknown>
+    >;
+    const article = blocks[0]!;
+    expect(article["headline"]).toBe("Hafez");
+    expect(article).not.toHaveProperty("author");
+    expect(article).not.toHaveProperty("publisher");
+    expect(article).not.toHaveProperty("description");
+  });
+
+  it("keeps Persian text verbatim — no Latin casing mangling, JSON round-trips", () => {
+    const fa = contentSnap({ h1: "حافظ شیرازی", title: null });
+    const out = enrichPromotionRow(contentRow(), contentCandidate(), ctxOf(fa));
+    const blocks = extractJsonLdBlocks(out.proposed_text) as Array<
+      Record<string, unknown>
+    >;
+    expect(blocks[0]!["headline"]).toBe("حافظ شیرازی");
+    const items = (blocks[1]! as { itemListElement: Array<Record<string, unknown>> })
+      .itemListElement;
+    expect(items[items.length - 1]!["name"]).toBe("حافظ شیرازی");
+  });
+
+  it("returns the row UNCHANGED when neither h1 nor title exists (better empty than fake)", () => {
+    const empty = contentSnap({ h1: null, title: null });
+    const pre = contentRow();
+    const out = enrichPromotionRow(pre, contentCandidate(), ctxOf(empty));
+    expect(out).toBe(pre);
+  });
+
+  it("non-content add_schema candidates keep the generic WebPage skeleton", () => {
+    const out = enrichPromotionRow(
+      contentRow(),
+      contentCandidate({ trigger_signal: "missing_schema" }),
+      ctxOf(contentSnap()),
+    );
+    expect(out.proposed_text).toContain('"@type": "WebPage"');
+    expect(out.proposed_text).toContain("extend the @type");
+  });
+});

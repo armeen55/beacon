@@ -295,3 +295,78 @@ describe("missingSchema predicate", () => {
     expect(a[0]!.dedupe_key).toBe(b[0]!.dedupe_key);
   });
 });
+
+// ── Content Schema Engine (2026-06-12) — content-site branch ─────────
+// Content pages (contentSiteMode tenants) were previously OUT of scope
+// entirely; they now emit `missing_schema_content` at MEDIUM confidence
+// against the vertical-neutral CONTENT_PAGE_EXPECTED_SCHEMA (Article
+// required — Google's Article doc lists NO required properties, so the
+// proposal is always schema-valid). Store pages carrying Product schema
+// are guarded out (Article would be a mislabel).
+
+describe("missingSchema — content-site branch", () => {
+  const contentConfig = () =>
+    makeConfig({ contentSiteMode: true, industry: "encyclopedia" });
+  const contentUrl = "https://example.com/famous-iranians/hafez";
+
+  it("emits missing_schema_content at MEDIUM confidence for a content page with no schema", () => {
+    const out = missingSchema({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({ url: contentUrl, schema_types: [] }),
+      businessConfig: contentConfig(),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.trigger_signal).toBe("missing_schema_content");
+    expect(out[0]!.action_type).toBe("add_schema");
+    expect(out[0]!.confidence).toBe("medium");
+    expect(out[0]!.impact_estimate).toBe("high");
+    expect(out[0]!.safety_flags).toEqual([]);
+    expect(out[0]!.operator_evidence).toContain("page_type=content");
+    expect(out[0]!.operator_evidence).toContain("missing_required=[Article]");
+  });
+
+  it("does NOT emit when Article is already present", () => {
+    const out = missingSchema({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({ url: contentUrl, schema_types: ["Article"] }),
+      businessConfig: contentConfig(),
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("PRODUCT GUARD: does NOT emit on store pages already carrying Product schema", () => {
+    const out = missingSchema({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({
+        url: "https://example.com/product-page/persian-cat-hoodie",
+        schema_types: ["Product"],
+      }),
+      businessConfig: contentConfig(),
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("does NOT emit when extraction certainty is uncertain", () => {
+    const out = missingSchema({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({
+        url: contentUrl,
+        schema_types: [],
+        extraction_certainty: "uncertain",
+      }),
+      businessConfig: contentConfig(),
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("builder tenants (no contentSiteMode) keep the original low-confidence missing_schema behavior", () => {
+    const out = missingSchema({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({ schema_types: [] }), // default /services/ URL
+      businessConfig: makeConfig(),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.trigger_signal).toBe("missing_schema");
+    expect(out[0]!.confidence).toBe("low");
+  });
+});

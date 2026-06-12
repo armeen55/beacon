@@ -89,6 +89,18 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],
 
+  // Content Schema Engine (2026-06-12). Unlike the builder-tuned
+  // `missing_schema` signal below (diagnostic-only pending industry
+  // calibration), the content branch involves NO industry-tuned
+  // types: Article on an article-shaped content page is universally
+  // correct (Google: Article has no required properties), the page
+  // class comes from the tenant's own contentSiteMode config, store
+  // pages are guarded out (Product schema present → no emission),
+  // and the deterministic draft is pinned against the scanner's own
+  // validateSchema() in tests. Customer-queue-ready is the dream
+  // contract: schema fixes must be accept-ready, not diagnostics.
+  ["missing_schema_content::add_schema", "customer-queue-ready"],
+
   // ── diagnostic-only ───────────────────────────────────────────
   // Pending industry calibration. Schema expectations are
   // local-service-tuned today; cross-industry calibration is a
