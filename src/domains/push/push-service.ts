@@ -29,6 +29,25 @@ import "server-only";
  *     refuses with a precise reason (the operator sees exactly why).
  *   • git_pr / wix blog — routed via push-adapters (Finglish slice).
  *   • dev_note — formatted ticket, never a write.
+ *
+ * ROUTING MAP (audit #33, 2026-06-12) — which Wix surface each card
+ * shape writes to, and with what verb:
+ *   • "create:<collectionId>"  → CMS collection INSERT
+ *       wixInsertDataItem (POST). New page; refuses if the URL already
+ *       maps to an item.
+ *   • action_type "add_schema" → Wix STORES product seoData
+ *       wixGetStoreProduct → wixUpdateProductSeoData (PATCH, seoData
+ *       only — renders server-side in <head>, overrides pattern tags).
+ *       CMS dynamic pages have NO per-item SEO field (platform design)
+ *       → those cards refuse here and stay paste-ready (dashboard
+ *       template path documented in CONNECTOR_RESEARCH_2026-06-12.md).
+ *   • "field:<itemField>"      → CMS collection item UPDATE
+ *       wixQueryDataItems → wixUpdateDataItem (PUT, full-item replace —
+ *       hence the read-modify-write merge below; a bare PUT without the
+ *       merge would null every other field).
+ *   • Blog posts are NOT pushed from here — the Finglish adapter slice
+ *       (wixCreateDraftPost → wixPublishDraftPost) routes via
+ *       push-adapters under the git_pr/dev_note targets above.
  */
 
 import { getTenant } from "@/domains/tenants/store";
@@ -92,6 +111,11 @@ const PUSHABLE_FROM = new Set(["recommended", "accepted", "push_failed"]);
 
 export type PushResult =
   | { kind: "pushed"; adapter: "wix_cms"; detail: string }
+  /** Audit #35 (2026-06-12): dry-run ran EVERY guard + resolution the
+   *  real push would (caps, destructive check, item/product lookup,
+   *  Wix limits) and stopped before ANY side effect — no snapshot, no
+   *  ledger, no adapter write. `detail` says exactly what would land. */
+  | { kind: "dry_run"; adapter: "wix_cms"; detail: string }
   | { kind: "dev_note"; note: string; reason: string }
   | { kind: "refused"; reason: string };
 
@@ -100,16 +124,29 @@ export type PushDeps = {
   now?: Date;
 };
 
+/** Wix documents ≤5 structured-data markups per page — enforced on the
+ *  MERGED tag set (existing + incoming), not just the incoming blocks,
+ *  so repeated pushes of different @types can't pile past the limit. */
+export const MAX_JSONLD_TAGS_PER_PAGE = 5;
+/** Conservative ceiling on a serialized CMS item write. Wix doesn't
+ *  publish a hard item-size limit; 1 MB is far past any sane text
+ *  field and refusing locally beats an opaque API 4xx. */
+export const MAX_CMS_ITEM_BYTES = 1_000_000;
+
 /**
  * Execute one approved card. Returns the outcome; the CALLER (the
  * action) persists the status transition + revalidates, so this module
  * stays persistence-agnostic and unit-testable.
+ *
+ * `dryRun: true` exercises the full guard + resolution path and
+ * returns `{kind: "dry_run"}` instead of writing (audit #35).
  */
 export async function executePush(
-  args: { tenantId: string; edit: RecommendedEditRow },
+  args: { tenantId: string; edit: RecommendedEditRow; dryRun?: boolean },
   deps: PushDeps = {},
 ): Promise<PushResult> {
   const { tenantId, edit } = args;
+  const dryRun = args.dryRun === true;
   const now = deps.now ?? new Date();
 
   // ── Status guard: only approvable cards ─────────────────────────────
@@ -188,6 +225,13 @@ export async function executePush(
         reason: `a CMS item already renders ${edit.target_url} — creation never overwrites (use a field: edit card)`,
       };
     }
+    if (dryRun) {
+      return {
+        kind: "dry_run",
+        adapter: "wix_cms",
+        detail: `would create a new item in ${collectionId} (${edit.target_url}) with ${Object.keys(fields).length} field(s)`,
+      };
+    }
     const insert = await wixInsertDataItem(
       { dataCollectionId: collectionId, data: fields },
       { ...deps.wix, tenantId },
@@ -263,25 +307,6 @@ export async function executePush(
         reason: `could not read the product for a pre-push snapshot (${product.reason}) — refusing to change the live site without an undo`,
       };
     }
-    try {
-      await appendPushSnapshot({
-        id: `snap-${now.getTime()}-${edit.id.slice(0, 8)}`,
-        tenant_id: tenantId,
-        edit_id: edit.id,
-        target_url: edit.target_url,
-        dataCollectionId: "Stores/Products",
-        dataItemId: match.id,
-        field: "seoData",
-        previous_text: JSON.stringify(product.value.seoData ?? { tags: [] }),
-        captured_at: now.toISOString(),
-      });
-    } catch (err) {
-      await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now);
-      return {
-        kind: "refused",
-        reason: `could not capture the pre-push snapshot (${err instanceof Error ? err.message : String(err)}) — refusing to change the live site without an undo`,
-      };
-    }
     // Merge: keep every existing tag EXCEPT our own prior custom
     // script tags whose @type matches an incoming block (idempotent
     // re-push), then append the new script tag(s).
@@ -315,6 +340,50 @@ export async function executePush(
         disabled: false,
       })),
     ];
+    // Audit #33 (2026-06-12): Wix's ≤5-markups-per-page limit applies
+    // to the PAGE total — enforce it on the MERGED set, not just the
+    // incoming blocks, or successive pushes of different @types pile
+    // past the limit.
+    const mergedJsonLdCount = tags.filter(
+      (t) =>
+        t.type === "script" &&
+        (t.props as { type?: unknown } | undefined)?.type ===
+          "application/ld+json",
+    ).length;
+    if (mergedJsonLdCount > MAX_JSONLD_TAGS_PER_PAGE) {
+      return {
+        kind: "refused",
+        reason: `merged seoData would carry ${mergedJsonLdCount} JSON-LD scripts — Wix allows ${MAX_JSONLD_TAGS_PER_PAGE} markups per page (remove stale tags in the Wix dashboard first)`,
+      };
+    }
+    if (dryRun) {
+      return {
+        kind: "dry_run",
+        adapter: "wix_cms",
+        detail: `would apply ${blocks.length} JSON-LD block(s) to product ${match.id} seoData (${edit.target_url}); merged page total ${mergedJsonLdCount}/${MAX_JSONLD_TAGS_PER_PAGE}`,
+      };
+    }
+    // Fail-closed snapshot of the product's CURRENT seoData — must
+    // persist before the live site changes.
+    try {
+      await appendPushSnapshot({
+        id: `snap-${now.getTime()}-${edit.id.slice(0, 8)}`,
+        tenant_id: tenantId,
+        edit_id: edit.id,
+        target_url: edit.target_url,
+        dataCollectionId: "Stores/Products",
+        dataItemId: match.id,
+        field: "seoData",
+        previous_text: JSON.stringify(product.value.seoData ?? { tags: [] }),
+        captured_at: now.toISOString(),
+      });
+    } catch (err) {
+      await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now);
+      return {
+        kind: "refused",
+        reason: `could not capture the pre-push snapshot (${err instanceof Error ? err.message : String(err)}) — refusing to change the live site without an undo`,
+      };
+    }
     const write = await wixUpdateProductSeoData(
       { productId: match.id, tags },
       { ...deps.wix, tenantId },
@@ -377,6 +446,25 @@ export async function executePush(
     return { kind: "refused", reason: "mapped Wix item no longer exists — re-run the url-map sync" };
   }
 
+  // Audit #33 (2026-06-12): wixUpdateDataItem is a full-item PUT — the
+  // merged payload travels whole. Refuse pathological sizes locally
+  // with a precise reason instead of an opaque Wix 4xx.
+  const mergedPreview = { ...item.data, [field]: edit.proposed_text ?? "" };
+  if (JSON.stringify(mergedPreview).length > MAX_CMS_ITEM_BYTES) {
+    return {
+      kind: "refused",
+      reason: `merged item would exceed ${MAX_CMS_ITEM_BYTES.toLocaleString()} bytes — too large for a safe CMS write`,
+    };
+  }
+
+  if (dryRun) {
+    return {
+      kind: "dry_run",
+      adapter: "wix_cms",
+      detail: `would update "${field}" on ${mapEntry.dataCollectionId}/${mapEntry.dataItemId} (${edit.target_url})`,
+    };
+  }
+
   // Pre-push snapshot (#82, 2026-06-11) — FAIL-CLOSED: the safety net
   // must persist before the live site changes.
   try {
@@ -399,9 +487,8 @@ export async function executePush(
     };
   }
 
-  const merged = { ...item.data, [field]: edit.proposed_text ?? "" };
   const write = await wixUpdateDataItem(
-    { dataCollectionId: mapEntry.dataCollectionId, dataItemId: mapEntry.dataItemId, data: merged },
+    { dataCollectionId: mapEntry.dataCollectionId, dataItemId: mapEntry.dataItemId, data: mergedPreview },
     { ...deps.wix, tenantId },
   );
   if (!write.ok) {
