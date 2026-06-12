@@ -29,6 +29,12 @@
  * Fail-soft EVERYWHERE: no token / no domain / table missing /
  * quota → returns { synced: false, reason } — callers log one line
  * and move on. The cron must never die on this step.
+ *
+ * IDEMPOTENT-SYNC CONTRACT (audit #35, 2026-06-12): rows UPSERT on
+ * (tenant_id, property, date, page, query). A failed chunk ends the
+ * run early with everything before it kept; the next nightly run's
+ * REPULL window re-pulls those days and the UPSERT converges — no
+ * dedupe pass, no manual repair, safe to re-run any number of times.
  */
 
 import "server-only";

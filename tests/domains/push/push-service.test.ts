@@ -340,3 +340,89 @@ describe("wix_cms SEO route — add_schema cards push to product seoData", () =>
     expect(_seoUpdateCalls).toHaveLength(0);
   });
 });
+
+// ── Audit #33/#35 hardening (2026-06-12) ───────────────────────────────
+
+describe("dry-run mode (audit #35) — full guard path, zero side effects", () => {
+  it("field route: reports the would-be write; no snapshot, no ledger, no adapter call", async () => {
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: edit(), dryRun: true });
+    expect(r.kind).toBe("dry_run");
+    if (r.kind === "dry_run") expect(r.detail).toMatch(/would update "description" on col\/item-1/);
+    expect(_updateCalls).toHaveLength(0);
+    expect(_stores.get("push-snapshots") ?? []).toHaveLength(0);
+    expect(_stores.get("push-ledger") ?? []).toHaveLength(0);
+  });
+
+  it("add_schema route: stops before snapshot + seoData write", async () => {
+    _queryResult.value = [
+      { id: "prod-1", dataCollectionId: "Stores/Products", data: { slug: "persian-cat-hoodie" } },
+    ];
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: schemaEdit(), dryRun: true });
+    expect(r.kind).toBe("dry_run");
+    if (r.kind === "dry_run") expect(r.detail).toMatch(/would apply 1 JSON-LD block/);
+    expect(_seoUpdateCalls).toHaveLength(0);
+    expect(_stores.get("push-snapshots") ?? []).toHaveLength(0);
+  });
+
+  it("create route: reports the would-be insert without inserting", async () => {
+    _urlMapEntry = null;
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        target_element_key: "create:Foods",
+        target_url: "https://www.iranopedia.com/persian-food/ash-reshteh",
+        current_text: null,
+        proposed_text: JSON.stringify({ slug: "ash-reshteh", title: "Ash Reshteh" }),
+      }),
+      dryRun: true,
+    });
+    expect(r.kind).toBe("dry_run");
+    expect(_insertCalls).toHaveLength(0);
+  });
+
+  it("still REFUSES on real guard failures — dry-run is not a yes-machine", async () => {
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({ target_element_key: "field:slug" }),
+      dryRun: true,
+    });
+    expect(r.kind).toBe("refused");
+  });
+});
+
+describe("Wix page limits on the MERGED tag set (audit #33)", () => {
+  it("refuses when existing JSON-LD scripts + incoming would exceed the 5-markup page limit", async () => {
+    _queryResult.value = [
+      { id: "prod-1", dataCollectionId: "Stores/Products", data: { slug: "persian-cat-hoodie" } },
+    ];
+    const ldTag = (t: string) => ({
+      type: "script",
+      props: { type: "application/ld+json" },
+      children: JSON.stringify({ "@type": t }),
+      custom: true,
+      disabled: false,
+    });
+    _productResult = {
+      ok: true,
+      value: {
+        id: "prod-1", name: "P", slug: "persian-cat-hoodie",
+        seoData: { tags: ["Product", "Offer", "FAQPage", "Organization", "WebSite"].map(ldTag) },
+      },
+    };
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: schemaEdit() });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toMatch(/markups per page/);
+    expect(_seoUpdateCalls).toHaveLength(0);
+    expect(_stores.get("push-snapshots") ?? []).toHaveLength(0);
+  });
+
+  it("refuses a merged CMS item that would exceed the 1MB write ceiling", async () => {
+    _queryResult.value = [
+      { id: "item-1", dataCollectionId: "col", data: { description: "old", blob: "x".repeat(1_100_000) } },
+    ];
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: edit() });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toMatch(/bytes/);
+    expect(_updateCalls).toHaveLength(0);
+  });
+});

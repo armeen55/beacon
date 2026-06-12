@@ -13,6 +13,11 @@
  *
  * Fail-soft: no key / disconnected / API error → { synced: false },
  * one log line, the cron continues.
+ *
+ * IDEMPOTENT-SYNC CONTRACT (audit #35, 2026-06-12): rows UPSERT on
+ * (tenant_id, domain, keyword, url); a failed chunk is skipped and
+ * the next nightly run re-fetches the full report, so the table
+ * converges without dedupe or manual repair — safe to re-run.
  */
 
 import "server-only";

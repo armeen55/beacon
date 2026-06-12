@@ -29,6 +29,7 @@ import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { log } from "@/lib/logger";
 
 import { evaluateExpiry } from "./expiry-handler";
+import { backoffDelayMs } from "./quota-stagger";
 
 const REQUIRED_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 /** Google's documented per-request maximum. */
@@ -79,55 +80,89 @@ export async function resolveGscAccessToken(
  * One searchanalytics.query call. Returns rows (possibly []) or null
  * on any failure (auth, quota, network) — never throws.
  */
-export async function gscSearchAnalyticsQuery(args: {
-  accessToken: string;
-  siteUrl: string;
-  startDate: string;
-  endDate: string;
-  dimensions: string[];
-  dataState?: "final" | "all";
-  rowLimit?: number;
-  startRow?: number;
-}): Promise<GscSearchAnalyticsRow[] | null> {
+export async function gscSearchAnalyticsQuery(
+  args: {
+    accessToken: string;
+    siteUrl: string;
+    startDate: string;
+    endDate: string;
+    dimensions: string[];
+    dataState?: "final" | "all";
+    rowLimit?: number;
+    startRow?: number;
+  },
+  deps: {
+    fetchImpl?: typeof fetch;
+    /** Test seam — defaults to a real timer sleep. */
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<GscSearchAnalyticsRow[] | null> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const endpoint =
     "https://www.googleapis.com/webmasters/v3/sites/" +
     encodeURIComponent(args.siteUrl) +
     "/searchAnalytics/query";
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        startDate: args.startDate,
-        endDate: args.endDate,
-        dimensions: args.dimensions,
-        type: "web",
-        rowLimit: args.rowLimit ?? GSC_SA_ROW_LIMIT,
-        startRow: args.startRow ?? 0,
-        dataState: args.dataState ?? "final",
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!res.ok) {
-      log.warn("[gsc-search-analytics] non-2xx from searchanalytics.query", {
-        status: res.status,
+  // Audit hardening #35 (2026-06-12): 429s retry with the connector's
+  // own exponential backoff (quota-stagger.backoffDelayMs — 1s/2s/4s,
+  // then give up). Other failures stay single-shot fail-soft.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${args.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          startDate: args.startDate,
+          endDate: args.endDate,
+          dimensions: args.dimensions,
+          type: "web",
+          rowLimit: args.rowLimit ?? GSC_SA_ROW_LIMIT,
+          startRow: args.startRow ?? 0,
+          dataState: args.dataState ?? "final",
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.status === 429) {
+        const delay = backoffDelayMs(attempt);
+        if (delay > 0) {
+          log.warn("[gsc-search-analytics] 429 — backing off", {
+            siteUrl: args.siteUrl,
+            startDate: args.startDate,
+            attempt,
+            delayMs: delay,
+          });
+          await sleep(delay);
+          continue;
+        }
+        log.warn("[gsc-search-analytics] 429 — retries exhausted", {
+          siteUrl: args.siteUrl,
+          startDate: args.startDate,
+          attempt,
+        });
+        return null;
+      }
+      if (!res.ok) {
+        log.warn("[gsc-search-analytics] non-2xx from searchanalytics.query", {
+          status: res.status,
+          siteUrl: args.siteUrl,
+          startDate: args.startDate,
+        });
+        return null;
+      }
+      const body = (await res.json()) as { rows?: GscSearchAnalyticsRow[] };
+      return Array.isArray(body.rows) ? body.rows : [];
+    } catch (err) {
+      log.warn("[gsc-search-analytics] query failed", {
         siteUrl: args.siteUrl,
         startDate: args.startDate,
+        error: err instanceof Error ? err.message : String(err),
       });
       return null;
     }
-    const body = (await res.json()) as { rows?: GscSearchAnalyticsRow[] };
-    return Array.isArray(body.rows) ? body.rows : [];
-  } catch (err) {
-    log.warn("[gsc-search-analytics] query failed", {
-      siteUrl: args.siteUrl,
-      startDate: args.startDate,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
   }
 }
 
