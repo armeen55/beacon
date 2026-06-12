@@ -101,3 +101,48 @@ Steps (Wix Dashboard, ~10 minutes per dynamic page type):
 After setup, Beacon's existing `field:` push path (Accept-gated)
 writes the bound fields per item — i.e. content-page schema becomes
 effectively auto-applied too, with zero further dashboard work.
+
+---
+
+## Profound API — verified implementation spec (night shift, 2026-06-12)
+
+Digested from the OFFICIAL docs (publicly reachable, incl. raw `.md`
+mirrors + llms.txt index). Implemented in `src/lib/connectors/profound/`.
+
+- **Auth:** `X-API-Key` header (Bearer also accepted) on
+  `https://api.tryprofound.com`. Keys are customer-minted in the
+  Profound app, shown once, and EXPIRE → 401 means "re-paste your
+  key" UX, not a bug. API is beta + Enterprise/on-request
+  (support@tryprofound.com) — onboarding copy must say so.
+- **Rate limit:** 600 requests/hour per key (official, confirms the
+  operator's figure). Headers X-RateLimit-*; 429 carries Retry-After.
+  Nightly sync ≈ 1 + 2·categories requests — trivial.
+- **Envelope (load-bearing):** all reports return
+  `{info:{total_rows}, data:[{dimensions:[...], metrics:[...]}]}`
+  where `dimensions[i]`/`metrics[i]` are POSITIONAL to the request
+  arrays. `decodeProfoundEnvelope` is the single owner of that rule;
+  arity-broken rows are dropped, never misaligned.
+- **Dates:** plain `YYYY-MM-DD`, inclusive both ends, interpreted as
+  EST ("Incorrect timezone handling is the most common cause of
+  missing or unexpected data"). Freshness UNDOCUMENTED → trailing
+  3-day re-pull window with idempotent UPSERTs.
+- **Setup deps:** every report call requires a `category_id` —
+  discovery via GET /v1/org/categories (+ /v1/org/assets for
+  own-vs-competitor via `is_owned`, /v1/org/models for platform
+  UUIDs). No query-by-domain for answer-engine data.
+- **Endpoints used:** POST /v1/reports/citations (count,
+  citation_share × date/model/root_domain/url) + POST
+  /v1/reports/visibility (visibility_score, share_of_voice,
+  mentions_count, executions × date/model/asset_name). Future:
+  /v1/reports/sentiment, /v1/reports/query-fanouts,
+  /v1/prompts/answers (per-answer citation_details), /v2/reports/
+  {bots,referrals} (these take a raw `domain`).
+- **Deprecations:** /v1/logs/raw* sunset 2026-06-10 — use /v2/reports/*.
+
+Sources (≥5, official primary): rest-api/{introduction,
+authentication, response-format, date-ranges, changelog};
+api-reference/reports/{query-citations, query-visibility};
+api-reference/organization/{get-categories, get-assets, get-models};
+PyPI `profound` SDK v0.48.0; cooper-square-technologies TS SDK.
+(thatmarketingbuddy.com writeup REJECTED — claims OAuth, contradicted
+by official docs.)

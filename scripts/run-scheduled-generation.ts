@@ -174,6 +174,26 @@ async function main() {
     );
   }
 
+  // Profound slice (2026-06-12): nightly answer-engine truth —
+  // citations + visibility/share-of-voice, ~2+2·categories requests
+  // of the 600/hr per-key budget. Dormant (no_key_or_api_error) until
+  // the operator pastes a key on /settings/connectors. Failure-soft.
+  try {
+    const { syncProfoundNightlyForTenant } = await import(
+      "../src/lib/connectors/profound/sync-nightly"
+    );
+    const pf = await syncProfoundNightlyForTenant({ tenantId });
+    console.log(
+      pf.synced
+        ? `[scheduled-generation] PROFOUND synced tenant=${tenantId} categories=${pf.categories} citations=${pf.citation_rows} visibility=${pf.visibility_rows}`
+        : `[scheduled-generation] PROFOUND skipped tenant=${tenantId} reason=${pf.reason}`,
+    );
+  } catch (err) {
+    console.warn(
+      `::warning::[scheduled-generation] Profound sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Lazy import — env must be set before tenant context resolves.
   const { promoteEligibleCandidates } = await import(
     "../src/domains/recommendation-intelligence/promotion-writer"
