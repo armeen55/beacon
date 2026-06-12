@@ -22,6 +22,7 @@
  * the no-diagnostic-only-promotion invariant).
  */
 
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import type { ActionType } from "@/domains/recommendations/action-types";
 import type { PageType } from "@/domains/recommendation-intelligence/page-classifier";
 import type { RecommendationCandidateRow } from "@/domains/recommendation-intelligence/emitter/candidate-row";
@@ -81,6 +82,9 @@ export type SelectPromotableCandidatesInput = {
   /** Caller-computed page type per target_url. Missing entries
    *  resolve to null → content-edit gate fails closed. */
   pageTypeByUrl: ReadonlyMap<string, PageType>;
+  /** Fusion slice (2026-06-12): bounded GA4 value weight per
+   *  CANDIDATE target_url (caller canonicalizes). Optional. */
+  ga4ValueWeightByUrl?: ReadonlyMap<string, number>;
   now: Date;
 };
 
@@ -119,6 +123,15 @@ export function selectPromotableCandidates(
       // Fusion-EV slice (2026-06-12): first-party expected-clicks
       // upside, when the predicate computed one.
       upside_clicks_28d: candidate.upside_clicks_28d,
+      // Fusion slice (2026-06-12): GA4 page-value weight (neutral
+      // when the map is absent/has no entry).
+      page_value_weight:
+        candidate.target_url != null
+          ? input.ga4ValueWeightByUrl?.get(
+              canonicalizeCitationUrl(candidate.target_url) ??
+                candidate.target_url,
+            )
+          : undefined,
     });
 
     const promotion_dedupe_key = buildPromotionDedupeKey({

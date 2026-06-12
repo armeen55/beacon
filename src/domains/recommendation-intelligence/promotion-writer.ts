@@ -141,6 +141,21 @@ export async function promoteEligibleCandidates(
   const enrichmentCtx: DraftEnrichmentContext = { snapshotByUrl };
 
   const businessConfig = getBusinessConfig(input.tenantId);
+
+  // Fusion slice (2026-06-12): GA4 page-value weights, keyed by the
+  // candidates' target_url form. Fail-soft to neutral.
+  const ga4ValueWeightByUrl = new Map<string, number>();
+  try {
+    const { loadGa4PageValuesForTenant, ga4ValueWeight } = await import(
+      "@/domains/recommendation-intelligence/ga4-page-values"
+    );
+    const values = await loadGa4PageValuesForTenant(input.tenantId);
+    for (const [page, v] of values) {
+      ga4ValueWeightByUrl.set(page, ga4ValueWeight(v));
+    }
+  } catch {
+    // neutral weights
+  }
   const triggerCandidates = [
     ...triggerResult.candidates,
     ...triggerResult.diagnostic_only,
@@ -163,6 +178,7 @@ export async function promoteEligibleCandidates(
     recommendedEdits,
     recommendationResponses,
     pageTypeByUrl,
+    ga4ValueWeightByUrl,
     now,
   });
 

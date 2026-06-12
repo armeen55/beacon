@@ -228,3 +228,44 @@ describe("fusion EV — upside_clicks_28d", () => {
     expect(blocker).toBeGreaterThan(content);
   });
 });
+
+// ── GA4 value weight (2026-06-12) ─────────────────────────────────────
+import { ga4ValueWeight } from "@/domains/recommendation-intelligence/ga4-page-values";
+
+describe("ga4ValueWeight", () => {
+  it("neutral without data or value mass", () => {
+    expect(ga4ValueWeight(undefined)).toBe(1.0);
+    expect(
+      ga4ValueWeight({ page: "p", sessions28d: 50, engaged28d: 0, conversions28d: 0 }),
+    ).toBe(1.0);
+  });
+
+  it("log-damped and capped at 1.5", () => {
+    const small = ga4ValueWeight({ page: "p", sessions28d: 0, engaged28d: 0, conversions28d: 9 });
+    expect(small).toBeCloseTo(1.25, 2); // 1 + 0.25·log10(10)
+    const huge = ga4ValueWeight({ page: "p", sessions28d: 0, engaged28d: 0, conversions28d: 1_000_000 });
+    expect(huge).toBe(1.5);
+  });
+
+  it("priorityScore applies the bounded multiplier without breaking the blocker ordering", () => {
+    const weighted = priorityScore({
+      trigger_signal: "gsc_low_ctr",
+      action_type: "edit_title",
+      target_page_type: "content",
+      confidence: "medium",
+      prerequisite_resolved: true,
+      safety_flags: [],
+      page_value_weight: 1.5,
+    });
+    const blocker = priorityScore({
+      trigger_signal: "bad_http_status",
+      action_type: "fix_status_code",
+      target_page_type: "content",
+      confidence: "high",
+      prerequisite_resolved: true,
+      safety_flags: [],
+    });
+    // (28+12)·1.5·0.75 = 45 < 67
+    expect(blocker).toBeGreaterThan(weighted);
+  });
+});
