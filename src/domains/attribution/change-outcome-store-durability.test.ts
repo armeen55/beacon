@@ -10,7 +10,7 @@
  *   • DUAL_WRITE off → no Supabase calls at all (tests + local dev stay on disk).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 let localData: unknown[] = [];
 const writeStoreSpy = vi.fn(async (_name: string, data: unknown[]) => {
@@ -105,13 +105,24 @@ function computed(source_id: string, lift = 2): StoredChangeOutcome {
   };
 }
 
+const ORIG_DATA_SOURCE = process.env.DATA_SOURCE;
+
 beforeEach(() => {
   localData = [];
   supabaseRows = [];
   dualWriteEnabled = false;
+  // Read-hydration gates on DATA_SOURCE === "supabase" (the READ condition,
+  // mirroring getRepository — NOT DUAL_WRITE). Default to file mode so tests
+  // stay on the local path unless a case opts into Supabase reads.
+  delete process.env.DATA_SOURCE;
   writeStoreSpy.mockClear();
   dualWriteUpsertSpy.mockClear();
   eqSpy.mockClear();
+});
+
+afterEach(() => {
+  if (ORIG_DATA_SOURCE === undefined) delete process.env.DATA_SOURCE;
+  else process.env.DATA_SOURCE = ORIG_DATA_SOURCE;
 });
 
 describe("persistChangeOutcomes — Supabase dual-write", () => {
@@ -147,8 +158,8 @@ describe("persistChangeOutcomes — Supabase dual-write", () => {
 });
 
 describe("loadAllChangeOutcomes — hosted hydration", () => {
-  it("returns local when the local store is non-empty (no Supabase read)", async () => {
-    dualWriteEnabled = true;
+  it("returns local when the local store is non-empty (no Supabase read, even in supabase mode)", async () => {
+    process.env.DATA_SOURCE = "supabase";
     localData = [computed("local-1")];
     const out = await loadAllChangeOutcomes();
     expect(out).toHaveLength(1);
@@ -156,8 +167,8 @@ describe("loadAllChangeOutcomes — hosted hydration", () => {
     expect(eqSpy).not.toHaveBeenCalled();
   });
 
-  it("hydrates from Supabase when local is empty and DUAL_WRITE is on", async () => {
-    dualWriteEnabled = true;
+  it("hydrates from Supabase when local is empty and DATA_SOURCE is supabase (the hosted web app)", async () => {
+    process.env.DATA_SOURCE = "supabase";
     localData = [];
     supabaseRows = [{ outcome: computed("db-1") }, { outcome: computed("db-2") }];
     const out = await loadAllChangeOutcomes();
@@ -165,8 +176,8 @@ describe("loadAllChangeOutcomes — hosted hydration", () => {
     expect(out.map((o) => o.source_id).sort()).toEqual(["db-1", "db-2"]);
   });
 
-  it("local empty + DUAL_WRITE off → empty, never consults Supabase", async () => {
-    dualWriteEnabled = false;
+  it("local empty + DATA_SOURCE is file mode → empty, never consults Supabase", async () => {
+    // beforeEach deletes DATA_SOURCE (file mode).
     localData = [];
     const out = await loadAllChangeOutcomes();
     expect(out).toEqual([]);
