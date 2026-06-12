@@ -475,11 +475,150 @@ function composeInternalLinks(
   };
 }
 
+/**
+ * Serialize JSON-LD for embedding inside a `<script>` tag. `</` is
+ * escaped to `<\/` so page text containing "</script>" can never
+ * terminate the script block early (standard JSON-LD embedding
+ * hygiene; JSON.parse treats `\/` identically to `/`).
+ */
+function jsonLdScript(obj: unknown): string {
+  const body = JSON.stringify(obj, null, 2).replace(/<\//g, "<\\/");
+  return `<script type="application/ld+json">\n${body}\n</script>`;
+}
+
+/** First-character uppercase for ASCII words only — non-Latin text
+ *  (e.g. Persian/Finglish path segments) passes through verbatim,
+ *  never mangled by Latin casing rules. */
+function humanizePathSegment(segment: string): string {
+  let text = segment;
+  try {
+    text = decodeURIComponent(segment);
+  } catch {
+    // keep the raw segment on malformed escapes
+  }
+  text = text.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return text.replace(/(^|\s)([a-z])/g, (m, sp: string, ch: string) => sp + ch.toUpperCase());
+}
+
+/**
+ * Content Schema Engine (2026-06-12) — complete Article
+ * (+BreadcrumbList) JSON-LD for `missing_schema_content` candidates.
+ * Accept-ready: the owner pastes finished, valid markup — never asked
+ * to "extend the @type" themselves.
+ *
+ * Derivation (omit-when-missing, NEVER fabricate; primary-doc
+ * grounding cited in the slice commit):
+ *   • Article has NO required properties (Google Article doc), so an
+ *     omit-when-missing object is always schema-valid.
+ *   • headline ← h1, else title. Neither → no draft (better empty
+ *     than fake).
+ *   • description ← meta description, else clipped body sample.
+ *   • author/publisher ← Organization named by the tenant's OWN
+ *     inferred title-suffix brand; omitted when no brand infers.
+ *     (Google accepts Organization authors.)
+ *   • image / dates / inLanguage: not on the snapshot → omitted.
+ *   • BreadcrumbList (second block) from the URL path: per ListItem,
+ *     `position` + `name` are required; `item` is omitted on the LAST
+ *     element (Google uses the containing page's URL).
+ */
+function composeContentArticleSchema(
+  candidate: RecommendationCandidateRow,
+  snap: PageSnapshot,
+  brand: { separator: string; suffix: string } | null,
+): DraftFill | null {
+  const headline = snap.h1?.trim() || snap.title?.trim() || "";
+  if (!headline) return null;
+  const pageUrl = candidate.target_url ?? snap.url;
+  const description =
+    snap.meta_description?.trim() ||
+    clipOnWordBoundary((snap.body_paragraph_sample ?? []).join(" "), 155);
+  const orgName = brand?.suffix?.trim() || "";
+
+  const article = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline,
+    ...(description ? { description } : {}),
+    mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
+    ...(orgName
+      ? {
+          author: { "@type": "Organization", name: orgName },
+          publisher: { "@type": "Organization", name: orgName },
+        }
+      : {}),
+  };
+
+  const blocks: string[] = [jsonLdScript(article)];
+
+  // BreadcrumbList from the URL path — only when the page sits below
+  // the root and the URL parses. The last item carries no `item`.
+  try {
+    const u = new URL(pageUrl);
+    const segments = u.pathname.split("/").filter((s) => s.length > 0);
+    if (segments.length > 0) {
+      const rootName = orgName || u.hostname.replace(/^www\./i, "");
+      const items: Array<Record<string, unknown>> = [
+        {
+          "@type": "ListItem",
+          position: 1,
+          name: rootName,
+          item: `${u.origin}/`,
+        },
+      ];
+      let cumulative = "";
+      for (let i = 0; i < segments.length - 1; i++) {
+        cumulative += `/${segments[i]}`;
+        items.push({
+          "@type": "ListItem",
+          position: items.length + 1,
+          name: humanizePathSegment(segments[i]!),
+          item: `${u.origin}${cumulative}`,
+        });
+      }
+      items.push({
+        "@type": "ListItem",
+        position: items.length + 1,
+        name: headline,
+      });
+      blocks.push(
+        jsonLdScript({
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: items,
+        }),
+      );
+    }
+  } catch {
+    // Unparseable URL — the Article block alone is still a complete draft.
+  }
+
+  return {
+    display_label:
+      "Add Article structured data so AI engines understand this page",
+    current_text: null,
+    proposed_text:
+      "Add these JSON-LD blocks to the page <head> — they are complete and ready to paste:\n" +
+      blocks.join("\n"),
+    expected_impact:
+      "Structured data is the page explaining itself in the engines' own language.",
+    measurement_plan: FIX_VERIFY_PLAN,
+  };
+}
+
 function composeSchema(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot | undefined,
+  brand: { separator: string; suffix: string } | null,
 ): DraftFill | null {
   if (!snap) return null;
+
+  // Content Schema Engine (2026-06-12): content-page candidates get a
+  // complete Article (+BreadcrumbList) draft instead of the generic
+  // skeleton below.
+  if (candidate.trigger_signal === "missing_schema_content") {
+    return composeContentArticleSchema(candidate, snap, brand);
+  }
+
   const name = snap.title?.trim() || snap.h1?.trim() || "";
   if (!name) return null;
   const description =
@@ -496,7 +635,7 @@ function composeSchema(
     display_label: "Add structured data so engines understand this page",
     current_text: null,
     proposed_text:
-      `Add this JSON-LD block to the page <head> (extend the @type if a more specific one fits — Article, FAQPage, Product):\n<script type="application/ld+json">\n${JSON.stringify(jsonLd, null, 2)}\n</script>`,
+      `Add this JSON-LD block to the page <head> (extend the @type if a more specific one fits — Article, FAQPage, Product):\n${jsonLdScript(jsonLd)}`,
     expected_impact:
       "Structured data is the page explaining itself in the engines' own language.",
     measurement_plan: FIX_VERIFY_PLAN,
@@ -542,9 +681,11 @@ export function enrichPromotionRow(
     case "add_internal_link":
       fill = composeInternalLinks(candidate, snap, ctx);
       break;
-    case "add_schema":
-      fill = composeSchema(candidate, snap);
+    case "add_schema": {
+      const brand = inferBrandSuffix(ctx.snapshotByUrl.values());
+      fill = composeSchema(candidate, snap, brand);
       break;
+    }
     default:
       fill = null;
   }

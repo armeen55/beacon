@@ -49,7 +49,11 @@ import {
   isNonHtmlAsset,
   type PageType,
 } from "../page-classifier";
-import { diffSchemaCoverage } from "@/domains/pages/expected-schema";
+import {
+  CONTENT_PAGE_EXPECTED_SCHEMA,
+  diffSchemaCoverage,
+  diffSchemaCoverageForSpec,
+} from "@/domains/pages/expected-schema";
 
 export type MissingSchemaInput = {
   tenantId: string;
@@ -83,14 +87,122 @@ function pageTypeToAssetType(pageType: PageType): AssetType | null {
     case "other":
     case "technical_asset":
       return null;
-    // P0 wall 3 (2026-06-10): "content" pages stay out of α₃b scope —
-    // the schema-substrate expectations are local-service-tuned today
-    // (the eligibility table holds missing_schema::add_schema at
-    // diagnostic-only pending cross-industry calibration). Revisit
-    // when Article/FAQPage expectations land for content sites.
+    // Content pages are handled by the dedicated content branch in
+    // `missingSchema()` (Content Schema Engine, 2026-06-12) — they
+    // never reach this AssetType mapping. Kept null defensively.
     case "content":
       return null;
   }
+}
+
+/**
+ * Content Schema Engine (2026-06-12) — content-page branch.
+ *
+ * Before this, `content` pages were OUT of scope entirely ("revisit
+ * when Article/FAQPage expectations land for content sites") — so a
+ * content tenant (a Wix encyclopedia in production) got ZERO schema
+ * recommendations while `schema_*` findings were its dominant scan
+ * signal. The Article expectation is vertical-NEUTRAL: per Google's
+ * Article structured-data doc, Article has NO required properties, so
+ * recommending it on an article-shaped page is correct for ANY
+ * content site in any vertical/language.
+ *
+ * Emission contract:
+ *   • trigger_signal `missing_schema_content` — its OWN eligibility
+ *     row (customer-queue-ready), so the builder-tuned
+ *     `missing_schema::add_schema` diagnostic-only entry is untouched.
+ *   • confidence "medium" — routes to the main candidates queue via
+ *     applyQueueRules (rule 4 only demotes "low").
+ *   • PRODUCT GUARD: pages already carrying Product schema are store
+ *     items, not articles — proposing Article there would be wrong.
+ *     They are skipped here; repairing broken Product schema is the
+ *     (separate) invalid-schema/fix_schema slice. Comparison is
+ *     case-insensitive on the observed @type strings (derived data
+ *     hygiene, not vocabulary).
+ */
+function missingSchemaContent(args: {
+  tenantId: string;
+  snapshot: PageSnapshot;
+  pageType: PageType;
+}): RecommendationCandidateRow[] {
+  const { tenantId, snapshot, pageType } = args;
+
+  // Store/product pages: Article would be a mislabel — skip.
+  const hasProductSchema = snapshot.schema_types.some(
+    (t) => t.trim().toLowerCase() === "product",
+  );
+  if (hasProductSchema) return [];
+
+  const coverage = diffSchemaCoverageForSpec(
+    CONTENT_PAGE_EXPECTED_SCHEMA,
+    snapshot.schema_types,
+  );
+  if (coverage.satisfies_all_required) return [];
+
+  const actionType = "add_schema" as const;
+  const targetUrl = snapshot.url;
+  const topicClusterLabel = "Structured data";
+  const presentLabel =
+    coverage.present.length > 0 ? coverage.present.join(", ") : "(none)";
+  const missingReqLabel = coverage.missing_required.join(", ");
+  const missingRecLabel =
+    coverage.missing_recommended.length > 0
+      ? coverage.missing_recommended.join(", ")
+      : "(none)";
+
+  return [
+    {
+      tenant_id: tenantId,
+      trigger_signal: "missing_schema_content",
+      action_type: actionType,
+      generator_kind: "deterministic",
+      target_url: targetUrl,
+      topic_cluster_label: topicClusterLabel,
+      evidence: [
+        {
+          kind: "page_snapshot",
+          ref: targetUrl,
+          detail:
+            "page_type=content; missing_required=" +
+            missingReqLabel +
+            "; present=" +
+            presentLabel,
+        },
+      ],
+      // Medium (not low): the Article expectation is universal for
+      // content pages (no industry-tuned types involved), the draft
+      // is composed only from the page's own extracted facts, and the
+      // composer's output is pinned against the scanner's own
+      // validateSchema() in tests.
+      confidence: "medium",
+      impact_estimate: "high",
+      customer_copy: addSchemaCopy(),
+      operator_evidence:
+        "page_type=" +
+        pageType +
+        "; schema_types=[" +
+        (snapshot.schema_types.length > 0
+          ? snapshot.schema_types.join(", ")
+          : "") +
+        "]; missing_required=[" +
+        missingReqLabel +
+        "]; missing_recommended=[" +
+        missingRecLabel +
+        "]; extraction_certainty=" +
+        (snapshot.extraction_certainty ?? "null") +
+        "; fetched_at=" +
+        snapshot.fetched_at,
+      dedupe_key: dedupeKey({
+        tenantId,
+        actionType,
+        targetUrl,
+        topicClusterLabel,
+      }),
+      cooldown_key: cooldownKey({ tenantId, actionType, targetUrl }),
+      created_from_signal_at: snapshot.fetched_at,
+      safety_flags: [],
+    },
+  ];
 }
 
 export function missingSchema(
@@ -101,12 +213,19 @@ export function missingSchema(
   if (isNonHtmlAsset(snapshot.url)) return [];
 
   const pageType = classifyPageType(snapshot.url, businessConfig);
-  const assetType = pageTypeToAssetType(pageType);
-  if (assetType == null) return [];
 
   // Safety guard: skip when extraction confidence is uncertain —
   // a missed JSON-LD block could produce a false positive.
   if (snapshot.extraction_certainty === "uncertain") return [];
+
+  // Content Schema Engine (2026-06-12): content pages get their own
+  // vertical-neutral expectation + trigger signal.
+  if (pageType === "content") {
+    return missingSchemaContent({ tenantId, snapshot, pageType });
+  }
+
+  const assetType = pageTypeToAssetType(pageType);
+  if (assetType == null) return [];
 
   const coverage = diffSchemaCoverage(assetType, snapshot.schema_types);
   if (coverage.satisfies_all_required) return [];

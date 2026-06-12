@@ -100,6 +100,32 @@ export type SchemaCoverageDiff = {
 };
 
 /**
+ * Content-site (article/encyclopedia) page expectation — 2026-06-12,
+ * Content Schema Engine slice. The `EXPECTED_SCHEMA_BY_ASSET_TYPE` map
+ * above is local-service-tuned (FAQPage required on every type), which
+ * is why content pages were OUT of the missing-schema trigger's scope
+ * and a content tenant (e.g. a Wix encyclopedia) got zero schema
+ * recommendations despite schema being its dominant scan finding.
+ *
+ * Vertical-NEUTRAL and intentionally minimal, grounded in primary docs
+ * (full citations in the slice's commit + docs note):
+ *   • Google "Article structured data": Article has NO required
+ *     properties — "add the properties that apply to your content" —
+ *     so proposing Article on an article-shaped content page is
+ *     always schema-valid.
+ *   • Google "Breadcrumb structured data": BreadcrumbList carries the
+ *     page's navigation context; recommended, not required.
+ *   • FAQPage is deliberately ABSENT: Google restricted FAQ rich
+ *     results (2023) to authoritative gov/health sites, and FAQPage is
+ *     only honest when real visible Q&A exists — a later slice may add
+ *     it conditionally on detected FAQ elements.
+ */
+export const CONTENT_PAGE_EXPECTED_SCHEMA: ExpectedSchema = {
+  required: ["Article"],
+  recommended: ["BreadcrumbList"],
+};
+
+/**
  * Given the observed `schema_types` on a page and the page's `asset_type`,
  * return a structured coverage diff. Caller decides whether to emit a
  * finding (Day 2 of Phase 1 wires this).
@@ -110,8 +136,23 @@ export function diffSchemaCoverage(
   assetType: AssetType,
   actualTypes: string[] | null | undefined,
 ): SchemaCoverageDiff {
+  return diffSchemaCoverageForSpec(
+    EXPECTED_SCHEMA_BY_ASSET_TYPE[assetType],
+    actualTypes,
+  );
+}
+
+/**
+ * Same coverage diff against an explicit spec — lets callers evaluate
+ * page classes that are NOT in the AssetType enum (the content-site
+ * branch) without widening that enum. Pure; logic extracted verbatim
+ * from `diffSchemaCoverage`, which now delegates here.
+ */
+export function diffSchemaCoverageForSpec(
+  expected: ExpectedSchema,
+  actualTypes: string[] | null | undefined,
+): SchemaCoverageDiff {
   const actual = new Set(actualTypes ?? []);
-  const expected = EXPECTED_SCHEMA_BY_ASSET_TYPE[assetType];
 
   const evaluate = (
     spec: Array<string | string[]>,

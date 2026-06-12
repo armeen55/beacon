@@ -19,13 +19,21 @@ import {
 } from "@/domains/recommendation-intelligence/promotion-eligibility";
 
 const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
-  // customer-queue-ready (6)
+  // customer-queue-ready (7)
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
   ["missing_h1::change_h1", "customer-queue-ready"],
   ["sitemap_missing::fix_sitemap", "customer-queue-ready"],
   ["robots_blocks_googlebot::fix_robots", "customer-queue-ready"],
   ["bad_http_status::fix_status_code", "customer-queue-ready"],
+  // Content Schema Engine (2026-06-12): the content-page branch of
+  // missing-schema. Distinct from the builder-tuned `missing_schema`
+  // signal (still diagnostic-only below): no industry-tuned types
+  // (Article has no required properties per Google's Article doc),
+  // store pages guarded out via Product-schema detection, and the
+  // deterministic JSON-LD draft is pinned against the scanner's own
+  // validateSchema(). See promotion-eligibility.ts for rationale.
+  ["missing_schema_content::add_schema", "customer-queue-ready"],
 
   // operator-review-only (7)
   ["duplicate_title::edit_title", "operator-review-only"],
