@@ -63,3 +63,41 @@ slice commits; this note preserves the actionable contracts.
 - Frameworks under evaluation: ICE/PIE/RICE applied to SEO, CTR-gap ×
   impressions expected-value math, first-party-over-third-party
   weighting. Output becomes the priority-score upgrade.
+
+## Wix CMS dynamic pages — one-time SEO template setup (the owner guide)
+
+Per the Wix write-path research above: CMS dynamic pages have NO
+per-item SEO field (staff-confirmed) — their title/description/
+structured data come from a PER-PAGE-TYPE template with variables
+bound to collection fields, configured ONCE in the dashboard. After
+this one-time setup, Beacon's per-item field pushes drive every
+page's SEO values automatically.
+
+Steps (Wix Dashboard, ~10 minutes per dynamic page type):
+1. Dashboard → SEO → "Edit by page type" → choose the dynamic item
+   page (e.g. the encyclopedia article page).
+2. Title tag pattern: insert the collection's title field via
+   "+ Add Variable" (e.g. `{Articles.title} | Iranopedia`).
+3. Meta description pattern: bind a plain-text description field
+   (add one to the collection if needed — rich text breaks JSON).
+4. "Structured data markup" → "+ Add markup" → paste the Article
+   template and bind variables:
+
+   {
+     "@context": "https://schema.org",
+     "@type": "Article",
+     "headline": "{Articles.title}",
+     "description": "{Articles.seoDescription}",
+     "mainEntityOfPage": { "@type": "WebPage", "@id": "{Page URL}" },
+     "author": { "@type": "Organization", "name": "Iranopedia" },
+     "publisher": { "@type": "Organization", "name": "Iranopedia" }
+   }
+
+   (Add a second markup for BreadcrumbList the same way if the
+   collection carries category fields.)
+5. Save. Wix renders the JSON-LD server-side on every dynamic page;
+   limits: ≤5 markups/page, <7,000 chars, JSON-LD only.
+
+After setup, Beacon's existing `field:` push path (Accept-gated)
+writes the bound fields per item — i.e. content-page schema becomes
+effectively auto-applied too, with zero further dashboard work.
