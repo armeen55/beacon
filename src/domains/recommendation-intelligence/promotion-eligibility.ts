@@ -100,6 +100,12 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // validateSchema() in tests. Customer-queue-ready is the dream
   // contract: schema fixes must be accept-ready, not diagnostics.
   ["missing_schema_content::add_schema", "customer-queue-ready"],
+  // fix_schema slice (2026-06-12): repair candidates driven by the
+  // scanner's OWN validator output for the exact page (failing
+  // type + property quoted verbatim) — no industry-tuned
+  // expectations involved, any vertical/language. Same directive-
+  // draft family as fix_canonical/fix_robots (already queue-ready).
+  ["invalid_schema::fix_schema", "customer-queue-ready"],
 
   // ── diagnostic-only ───────────────────────────────────────────
   // Pending industry calibration. Schema expectations are

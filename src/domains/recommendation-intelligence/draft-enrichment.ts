@@ -31,6 +31,7 @@
 import type { PageSnapshot } from "@/domains/pages/types";
 import type { RecommendationCandidateRow } from "@/domains/recommendation-intelligence/emitter/candidate-row";
 import type { DeterministicPromotionEditRow } from "@/domains/recommendation-intelligence/promotion-result-to-edit-row";
+import { actionableSchemaWarnings } from "@/domains/recommendation-intelligence/triggers/invalid-schema";
 
 export type DraftEnrichmentContext = {
   /** Latest snapshot per canonical URL (caller dedupes by fetched_at). */
@@ -605,6 +606,39 @@ function composeContentArticleSchema(
   };
 }
 
+/**
+ * fix_schema slice (2026-06-12) — repair directive for
+ * `invalid_schema` candidates. The scanner's own validator output is
+ * quoted verbatim (prefix stripped for plain English): the owner sees
+ * exactly which type + property is broken on THIS page. Deterministic,
+ * derived 100% from scanner output — nothing invented. Same
+ * directive-draft family as composeFixDirective (canonical/robots/…).
+ */
+function composeFixSchema(
+  snap: PageSnapshot | undefined,
+): DraftFill | null {
+  if (!snap) return null;
+  const actionable = actionableSchemaWarnings(
+    snap.schema_validation_warnings,
+  );
+  if (actionable.length === 0) return null;
+  const lines = actionable.map(
+    (w) =>
+      "- " + w.replace(/^schema_(critical|warning):/, "").trim(),
+  );
+  return {
+    display_label: "Repair this page's structured data",
+    current_text: null,
+    proposed_text:
+      `The scanner found ${actionable.length} issue${actionable.length === 1 ? "" : "s"} in this page's structured data:\n` +
+      lines.join("\n") +
+      "\n\nOpen the page's JSON-LD block(s) and fix each item above; keep every other field unchanged.",
+    expected_impact:
+      "Broken structured data is worse than none — engines discard the whole block. Repairing it restores the page's machine-readable meaning.",
+    measurement_plan: FIX_VERIFY_PLAN,
+  };
+}
+
 function composeSchema(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot | undefined,
@@ -686,6 +720,9 @@ export function enrichPromotionRow(
       fill = composeSchema(candidate, snap, brand);
       break;
     }
+    case "fix_schema":
+      fill = composeFixSchema(snap);
+      break;
     default:
       fill = null;
   }

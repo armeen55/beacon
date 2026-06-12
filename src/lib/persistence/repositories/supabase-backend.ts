@@ -835,17 +835,25 @@ export const supabaseBackend: SeedDataRepository = {
       // rows; 500 is a 10x safety margin without leaking egress). Switched
       // from `select("*")` to an explicit projection that omits the heavy
       // payload fields (`body_paragraph_sample`, `card_texts`,
-      // `internal_links`, `schema_entity_names`, `schema_validation_warnings`)
-      // — these fields can be 5-15KB per row, dominating wire cost. The
-      // dropped fields are NOT consumed by /today / /recommendations /
-      // /changes default surfaces; if a future consumer needs them, fetch
-      // via a separate scoped helper.
+      // `internal_links`, `schema_entity_names`) — these fields can be
+      // 5-15KB per row, dominating wire cost. The dropped fields are NOT
+      // consumed by /today / /recommendations / /changes default
+      // surfaces; if a future consumer needs them, fetch via a separate
+      // scoped helper.
+      //
+      // fix_schema slice (2026-06-12): `schema_validation_warnings` is
+      // BACK in the projection — the invalid-schema trigger reads it to
+      // emit repair candidates; without it the trigger would silently
+      // see undefined on every hosted/cron read (the same silent-empty
+      // failure class caught on the proof engine's owned-set). Warnings
+      // are short one-line strings (hundreds of bytes/row worst case),
+      // nothing like the 5-15KB payload fields the omission targeted.
       getPageSnapshots: async () => {
         const t0 = Date.now();
         const { data, error } = await getSupabaseAdmin()
           .from("page_snapshots")
           .select(
-            "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, tenant_id",
+            "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id",
           )
           .eq("tenant_id", tenantId)
           .order("fetched_at", { ascending: false })

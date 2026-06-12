@@ -87,6 +87,7 @@ import { thinContentOverlap } from "./triggers/thin-content-overlap";
 import { staleContent, normalizeStaleUrl } from "./triggers/stale-content";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
+import { invalidSchema } from "./triggers/invalid-schema";
 import { missingSchema } from "./triggers/missing-schema";
 import { missingTitle } from "./triggers/missing-title";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
@@ -283,6 +284,14 @@ export async function loadTriggerCandidatesForTenant(options: {
     // so operator validates per-tenant before any future
     // promotion.
     all.push(...missingSchema({ tenantId, snapshot, businessConfig }));
+    // fix_schema slice (2026-06-12) — `invalid-schema` consumes the
+    // scanner's own per-page validator output
+    // (snapshot.schema_validation_warnings; restored to the Supabase
+    // projection in this slice) and emits `fix_schema` repair
+    // candidates at medium confidence. Universal: the evidence is the
+    // validator's exact failing type+property for THIS page — no
+    // industry-tuned expectations involved.
+    all.push(...invalidSchema({ tenantId, snapshot, businessConfig }));
 
     // Slice 4.5.C.α₁ — Tier-1 indexability predicates. Each
     // receives the pre-resolved `OwnedUrlIndexability` as a pure

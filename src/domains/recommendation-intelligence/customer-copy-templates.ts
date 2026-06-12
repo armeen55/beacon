@@ -124,3 +124,9 @@ export function mergePagesCopy(): string {
 export function staleContentCopy(): string {
   return "This page hasn't changed in a long time. A refreshed intro with current facts makes it far more quotable for AI search platforms.";
 }
+
+// ── fix_schema slice (2026-06-12) — structured-data repair copy ──────────
+
+export function fixSchemaCopy(): string {
+  return "This page's structured data has errors AI search platforms will reject. Repair it so the page is read correctly.";
+}
