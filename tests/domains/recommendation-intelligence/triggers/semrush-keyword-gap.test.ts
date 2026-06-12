@@ -57,3 +57,66 @@ describe("semrushKeywordGap", () => {
     expect(out.map((c) => c.topic_cluster_label)).toEqual(["a", "b", "c"]);
   });
 });
+
+// ── Originality guard (audit #13, 2026-06-12) ─────────────────────────
+import { findTopicalDuplicate } from "@/domains/recommendation-intelligence/triggers/semrush-keyword-gap";
+
+describe("originality guard — expand existing pages instead of duplicating", () => {
+  const gap = {
+    keyword: "persian tea ceremony",
+    competitor_domain: "rival.com",
+    competitor_position: 4,
+    volume: 500,
+    difficulty: 20,
+  };
+  const base = {
+    tenantId: "tenant-a",
+    siteRootUrl: "https://iranopedia.com/",
+    gaps: [gap],
+    signalAt: "2026-06-12T00:00:00Z",
+  };
+
+  it("findTopicalDuplicate: full token containment in title+h1 matches; partial does not", () => {
+    const pages = [
+      { url: "https://iranopedia.com/tea", title: "The Persian Tea Ceremony Explained", h1: null },
+      { url: "https://iranopedia.com/other", title: "Persian Poetry", h1: "Hafez" },
+    ];
+    expect(findTopicalDuplicate("persian tea ceremony", pages)?.url).toBe(
+      "https://iranopedia.com/tea",
+    );
+    expect(findTopicalDuplicate("persian tea house design", pages)).toBeNull();
+    expect(findTopicalDuplicate("", pages)).toBeNull();
+  });
+
+  it("flips to add_h2_section targeting the matched page when the topic is covered", () => {
+    const out = semrushKeywordGap({
+      ...base,
+      existingPages: [
+        { url: "https://iranopedia.com/tea", title: "Persian Tea Ceremony", h1: "Tea in Iran" },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    const c = out[0]!;
+    expect(c.action_type).toBe("add_h2_section");
+    expect(c.target_url).toBe("https://iranopedia.com/tea");
+    expect(c.trigger_signal).toBe("semrush_keyword_gap");
+    expect(c.operator_evidence).toContain("expand_existing_page");
+    expect(c.operator_evidence).toContain("https://iranopedia.com/tea");
+    expect(c.customer_copy).toContain("persian tea ceremony");
+    expect(c.customer_copy).toContain("already have a page");
+  });
+
+  it("stays create_page when no existing page covers the topic (and without existingPages)", () => {
+    const noMatch = semrushKeywordGap({
+      ...base,
+      existingPages: [
+        { url: "https://iranopedia.com/poets", title: "Famous Iranian Poets", h1: null },
+      ],
+    });
+    expect(noMatch[0]!.action_type).toBe("create_page");
+    expect(noMatch[0]!.target_url).toBe("https://iranopedia.com/");
+
+    const legacy = semrushKeywordGap(base);
+    expect(legacy[0]!.action_type).toBe("create_page");
+  });
+});
