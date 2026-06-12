@@ -1,0 +1,72 @@
+/**
+ * TodayV2ProvenResults — the causal wedge on the home screen.
+ *
+ * Renders the Proof Engine's `computed` + positive-lift wins (the strongest,
+ * control-backed evidence Beacon has) as plain-English "we measured this"
+ * cards. Distinct from the Z-score "Recent wins" rail: this states
+ * cause-and-effect ("+N more AI citations a day than comparable pages that
+ * didn't change"), the only ROI claim in the category that survives scrutiny.
+ *
+ * Pure presentational. SELF-HIDES when there are no proven wins, so the home
+ * screen stays quiet until the engine has a real causal result — never a
+ * placeholder, never an overclaim.
+ */
+
+import Link from "next/link";
+
+import type { ProvenWin } from "@/domains/attribution/load-proven-wins";
+
+function confidenceWord(confidence: string): string {
+  switch (confidence) {
+    case "high":
+      return "strong evidence";
+    case "medium":
+      return "moderate evidence";
+    case "low":
+      return "early read";
+    default:
+      return confidence;
+  }
+}
+
+export function TodayV2ProvenResults({
+  wins,
+}: {
+  wins: ReadonlyArray<ProvenWin>;
+}) {
+  if (wins.length === 0) return null;
+  return (
+    <article
+      className="rounded-lg border border-status-success/30 bg-status-success/[0.04] px-5 py-5"
+      data-today-v2-card="proven-results"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-status-success">
+          Proven by Beacon
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          measured cause-and-effect
+        </span>
+      </div>
+      <ul className="mt-3 space-y-3">
+        {wins.map((w) => (
+          <li key={w.sourceId}>
+            <Link
+              href={`/changes/${encodeURIComponent(w.sourceId)}`}
+              className="group block"
+            >
+              <p className="text-[13px] font-medium leading-snug text-foreground group-hover:text-accent-primary">
+                {w.headline}
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {w.url ?? "this change"}
+                {w.relativeLiftPct != null ? ` · +${w.relativeLiftPct}%` : ""} ·{" "}
+                {confidenceWord(w.confidence)}
+              </p>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}

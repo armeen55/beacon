@@ -45,6 +45,8 @@ import { loadLifecycleSummaryForTenant } from "@/domains/citation-lifecycle/load
 import { loadOutcomesSummaryForTenant } from "@/domains/outcome-attribution/load-outcomes-summary-for-tenant";
 import { loadOffSitePresenceSnapshot } from "@/domains/off-site-authority/load-snapshot";
 import { computeOffSiteRecommendationCandidates } from "@/domains/off-site-authority/recommendation-rules";
+import { TodayV2ProvenResults } from "@/components/today/v2/today-v2-proven-results";
+import { loadProvenWins } from "@/domains/attribution/load-proven-wins";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   BeaconLearnedTile,
@@ -198,6 +200,17 @@ export async function TodayV2OffSiteAuthoritySection() {
     candidates = [];
   }
   return <OffSiteAuthorityTile snapshot={snapshot} candidates={candidates} />;
+}
+
+/**
+ * Proven results — the causal Proof Engine's `computed` + positive-lift wins,
+ * surfaced on the home screen as plain-English cause-and-effect proof. The
+ * loader is failure-soft (→ []) and the tile self-hides when empty, so this
+ * section reserves no layout until there's a real measured win.
+ */
+export async function TodayV2ProvenResultsSection() {
+  const wins = await loadProvenWins({ limit: 4 }).catch(() => []);
+  return <TodayV2ProvenResults wins={wins} />;
 }
 
 export async function TodayV2DescriptorsSection() {

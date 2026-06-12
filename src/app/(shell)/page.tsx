@@ -34,6 +34,7 @@ import {
   TodayV2BeaconLearnedSection,
   TodayV2EditLifecycleSection,
   TodayV2EditOutcomesSection,
+  TodayV2ProvenResultsSection,
   TodayV2OffSiteAuthoritySection,
   TodayV2VisibilityGroupSection,
 } from "./today-v2-sections";
@@ -202,6 +203,12 @@ async function TodayV2SectionedContent() {
       </Suspense>
       <Suspense fallback={<TodayV2EditOutcomesSkeleton />}>
         <TodayV2EditOutcomesSection />
+      </Suspense>
+      {/* Proven results (2026-06-11) — the causal Proof Engine's measured
+          wins. Self-hides until there's a real computed lift, so a null
+          fallback reserves no layout for an often-empty section. */}
+      <Suspense fallback={null}>
+        <TodayV2ProvenResultsSection />
       </Suspense>
       {/* Section 7 C7d (2026-05-22) — off-site authority tile. Secondary
           intelligence card; the tile self-hides when there's nothing
