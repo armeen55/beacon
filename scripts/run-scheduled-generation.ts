@@ -150,6 +150,24 @@ async function main() {
         ? `[scheduled-generation] SEMRUSH-GAP synced tenant=${tenantId} competitor=${gap.competitor} rows=${gap.rows_upserted}`
         : `[scheduled-generation] SEMRUSH-GAP skipped tenant=${tenantId} reason=${gap.reason}`,
     );
+    // Connect-cards slice (2026-06-12): Clarity nightly harvest —
+    // ONE request (of the 10/day platform budget), accumulating the
+    // per-URL behavioral history Clarity itself won't keep.
+    try {
+      const { syncClarityDailyMetricsForTenant } = await import(
+        "../src/lib/connectors/clarity/sync-daily-metrics"
+      );
+      const cl = await syncClarityDailyMetricsForTenant({ tenantId });
+      console.log(
+        cl.synced
+          ? `[scheduled-generation] CLARITY synced tenant=${tenantId} rows=${cl.rows_upserted}`
+          : `[scheduled-generation] CLARITY skipped tenant=${tenantId} reason=${cl.reason}`,
+      );
+    } catch (err) {
+      console.warn(
+        `::warning::[scheduled-generation] Clarity sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   } catch (err) {
     console.warn(
       `::warning::[scheduled-generation] SEMrush sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,

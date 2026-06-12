@@ -515,3 +515,133 @@ export async function disconnectGoogleGa4(): Promise<{
     return { success: false, error: err.slice(0, 500) };
   }
 }
+
+// ── Connect-cards slice (2026-06-12) — SEMrush / Profound / Clarity ──
+// Same self-serve posture as the Wix card: paste a key, it stays on
+// this server, the nightly syncs activate the moment it lands
+// (dormant-honest until then). Disconnect = soft (cached data kept).
+
+export async function saveSemrushConnection(input: {
+  apiKey: string;
+  database?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const action = "saveSemrushConnection";
+  const t0 = Date.now();
+  const apiKey = input.apiKey.trim();
+  const database = (input.database ?? "us").trim() || "us";
+  if (!apiKey) return { success: false, error: "Enter your Semrush API key." };
+  log.info("Action started", { action });
+  try {
+    await saveConnectorToken({
+      provider: "semrush",
+      api_key: apiKey,
+      database,
+      connected_at: now(),
+    });
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
+    return { success: false, error: err };
+  }
+}
+
+export async function disconnectSemrush(): Promise<{ success: boolean; error?: string }> {
+  const action = "disconnectSemrush";
+  const t0 = Date.now();
+  log.info("Action started", { action });
+  try {
+    await deleteConnectorToken("semrush");
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
+    return { success: false, error: err };
+  }
+}
+
+export async function saveProfoundConnection(input: {
+  apiKey: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const action = "saveProfoundConnection";
+  const t0 = Date.now();
+  const apiKey = input.apiKey.trim();
+  if (!apiKey) return { success: false, error: "Enter your Profound API key." };
+  log.info("Action started", { action });
+  try {
+    await saveConnectorToken({
+      provider: "profound",
+      api_key: apiKey,
+      connected_at: now(),
+    });
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
+    return { success: false, error: err };
+  }
+}
+
+export async function disconnectProfound(): Promise<{ success: boolean; error?: string }> {
+  const action = "disconnectProfound";
+  const t0 = Date.now();
+  log.info("Action started", { action });
+  try {
+    await deleteConnectorToken("profound");
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
+    return { success: false, error: err };
+  }
+}
+
+export async function saveClarityConnection(input: {
+  apiToken: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const action = "saveClarityConnection";
+  const t0 = Date.now();
+  const apiToken = input.apiToken.trim();
+  if (!apiToken) {
+    return { success: false, error: "Enter your Clarity API token." };
+  }
+  log.info("Action started", { action });
+  try {
+    await saveConnectorToken({
+      provider: "clarity",
+      api_token: apiToken,
+      connected_at: now(),
+    });
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
+    return { success: false, error: err };
+  }
+}
+
+export async function disconnectClarity(): Promise<{ success: boolean; error?: string }> {
+  const action = "disconnectClarity";
+  const t0 = Date.now();
+  log.info("Action started", { action });
+  try {
+    await deleteConnectorToken("clarity");
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
+    return { success: false, error: err };
+  }
+}
