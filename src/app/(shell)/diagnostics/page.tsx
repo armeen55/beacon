@@ -404,6 +404,26 @@ export default async function DiagnosticsPage() {
         → cited → threshold-eligible funnel.
       </p>
 
+      {/* Dream shift (2026-06-11) — the causal Proof Engine's whole-tenant
+          view: status histogram, top causally-proven wins, per-bucket Move
+          Forecast base rates. The fastest way to confirm the nightly proof
+          run is producing real `computed` outcomes. Operator-gated; read-only. */}
+      <p
+        className="-mt-2 text-xs text-muted-foreground"
+        data-diagnostics-hub-link="proof-engine"
+      >
+        Operator-only deep dive:{" "}
+        <Link
+          href="/diagnostics/proof-engine"
+          className="text-foreground underline-offset-4 hover:underline"
+        >
+          Proof Engine
+        </Link>{" "}
+        — causal diff-in-differences outcomes per tenant: status histogram,
+        top proven wins, and the per-bucket forecast base rates the
+        before-you-ship Move Forecast reads.
+      </p>
+
       {/* ── Pulse summary ── */}
       <PulseBanner ctx={ctx} />
 
