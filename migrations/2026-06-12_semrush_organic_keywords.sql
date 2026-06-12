@@ -31,3 +31,10 @@ create policy semrush_organic_keywords_tenant_rw on semrush_organic_keywords
   for all to authenticated
   using (is_tenant_member(tenant_id))
   with check (is_tenant_member(tenant_id));
+
+-- 2026-06-12 (cannibalization slice, applied via MCP): PK widened to
+-- include url — domain_organic emits MULTIPLE rows per keyword when
+-- several of the domain's URLs rank (the cannibalization signal); the
+-- original 3-column PK collapsed them on upsert. Non-destructive.
+-- alter table semrush_organic_keywords drop constraint semrush_organic_keywords_pkey;
+-- alter table semrush_organic_keywords add primary key (tenant_id, domain, keyword, url);

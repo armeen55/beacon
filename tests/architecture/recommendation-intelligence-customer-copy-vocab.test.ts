@@ -125,6 +125,8 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   gscStrikingDistanceCopy: [["nowruz traditions", 9, 1200], ["q", 4, 100]],
   // Decay slice (2026-06-12) — fading-page template. Arg: dropPct.
   gscDecayCopy: [[25], [80]],
+  // Cannibalization slice (2026-06-12). Arg: keyword.
+  cannibalizationCopy: [["persian rugs"], ["x"]],
 };
 
 function scanForViolations(output: string): string[] {

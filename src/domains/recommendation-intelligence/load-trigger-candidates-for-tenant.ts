@@ -90,7 +90,10 @@ import { missingMeta } from "./triggers/missing-meta";
 import { gscLowCtr, gscStrikingDistance } from "./triggers/gsc-low-ctr";
 import { gscDecay } from "./triggers/gsc-decay";
 import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
+import { semrushCannibalization } from "./triggers/semrush-cannibalization";
 import {
+  detectCannibalization,
+  loadSemrushCannibalRowsForTenant,
   loadSemrushPageSignalsForTenant,
   type SemrushPageSignal,
 } from "./semrush-page-signals";
@@ -307,6 +310,25 @@ export async function loadTriggerCandidatesForTenant(options: {
   // usable `internal_links` data, ALL orphan emissions are
   // suppressed (data unavailable; not "every page is an orphan").
   all.push(...orphanPage({ tenantId, snapshots, businessConfig }));
+  // Cannibalization slice (2026-06-12): cross-page, runs once before
+  // the per-snapshot loop (the duplicate-title pattern). Soft-empty
+  // until SEMrush rows exist.
+  try {
+    const cannibalRows = await loadSemrushCannibalRowsForTenant(tenantId);
+    if (cannibalRows.length > 0) {
+      all.push(
+        ...semrushCannibalization({
+          tenantId,
+          cases: detectCannibalization(cannibalRows),
+          signalAt: new Date().toISOString(),
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] semrush cannibalization load failed for ${tenantId} (predicate skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   for (const snapshot of snapshots) {
     all.push(...missingTitle({ tenantId, snapshot }));
     all.push(...missingMeta({ tenantId, snapshot }));

@@ -188,3 +188,13 @@ export function gscDecayCopy(dropPct: number): string {
     "% versus the previous month. A content refresh usually recovers lost ground fastest."
   );
 }
+
+// ── Cannibalization slice (2026-06-12) ───────────────────────────────────
+
+export function cannibalizationCopy(keyword: string): string {
+  return (
+    "Two of your pages compete in Google for \u201c" +
+    keyword +
+    "\u201d, splitting their strength. Pointing one at the other makes the stronger page win."
+  );
+}

@@ -86,6 +86,9 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   gsc_decay: 26,
   // Breadcrumb on store products — enhancement, one-click pushable.
   missing_schema_store: 16,
+  // Two own pages splitting one keyword's equity — meaningful but
+  // operator-reviewed (third-party evidence + structural remedy).
+  semrush_cannibalization: 14,
 } as const;
 
 export const PAGE_IMPORTANCE_BY_PAGE_TYPE: Readonly<Record<PageType, number>> =

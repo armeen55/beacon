@@ -75,7 +75,7 @@ export async function syncSemrushOrganicKeywordsForTenant(args: {
     const chunk = rows.slice(i, i + UPSERT_CHUNK);
     const { error } = await sb
       .from("semrush_organic_keywords")
-      .upsert(chunk, { onConflict: "tenant_id,domain,keyword" });
+      .upsert(chunk, { onConflict: "tenant_id,domain,keyword,url" });
     if (error) {
       log.warn("[semrush-sync] upsert failed", {
         tenantId,
