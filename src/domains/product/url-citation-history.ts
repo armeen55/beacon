@@ -271,6 +271,21 @@ export async function buildUrlCitationHistory(opts?: {
   };
 }
 
+/** Bare, lowercased host (leading `www.` stripped) — the canonical form
+ *  `citation_domains` is stored in, so URL hosts compare equal to it. */
+function stripWww(host: string): string {
+  return host.replace(/^www\./i, "").toLowerCase();
+}
+
+/** Host of a full URL in `citation_domains` form, or null if unparseable. */
+function urlHost(raw: string): string | null {
+  try {
+    return stripWww(new URL(raw).hostname);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Commit 7 (2026-04-24) — native per-URL per-day citation builder.
  *
@@ -286,6 +301,19 @@ export async function buildUrlCitationHistory(opts?: {
  *      nothing. Pre-Commit-7 rows (citation_urls=null) are invisible to
  *      this builder by design — domain-level is the only signal they carry.
  *
+ * Owned-URL determination (when `ownedOnly`):
+ *   - If `ownedUrlPathSet` is supplied, it is authoritative (tests + any
+ *     sitemap-driven caller).
+ *   - Otherwise, fall back to the observation's OWN per-citation domain
+ *     classification: `citation_domains[i]` + `citation_domain_classes[i]`
+ *     are emitted ALIGNED by `classifyCitationDomains` (deduped host + its
+ *     class, relative to the observation's owning tenant), so a citation
+ *     URL is owned iff its host's class is "owned". This makes the builder
+ *     self-contained. Before 2026-06-12 the no-set case skipped EVERY
+ *     citation, which silently emptied native-regime history for all three
+ *     callers (proof engine, URL watcher, /changes) since
+ *     NATIVE_REGIME_START — the proof engine's computed=0-on-prod bug.
+ *
  * Returns a Map<normalizedOwnedUrl, Map<YYYY-MM-DD, DayBucket>>. Caller
  * merges into the overall series.
  */
@@ -296,16 +324,17 @@ export function buildNativeDayBuckets(
     observed_at: string;
     citation_urls?: string[] | null;
     citation_domains?: string[] | null;
+    citation_domain_classes?: string[] | null;
   }>,
   opts: {
     ownedOnly: boolean;
     since: string | null;
     /**
-     * Set of normalized owned URL paths to keep. When present, only owned
-     * URLs pass the filter. When absent, every URL path is kept (useful
-     * when `ownedOnly=false`). In production this is computed from the
-     * tracked_entities table's is_owned domains + site sitemap; in tests
-     * it's injected.
+     * Set of normalized owned URL paths to keep. When present, it is
+     * authoritative — only these paths pass the owned filter. When absent
+     * AND `ownedOnly`, the per-observation `citation_domain_classes`
+     * fallback (above) decides owned-ness. When `ownedOnly` is false,
+     * every URL path is kept.
      */
     ownedUrlPathSet?: ReadonlySet<string>;
   },
@@ -330,6 +359,21 @@ export function buildNativeDayBuckets(
     // Skip pre-Commit-7 rows (no URLs stored).
     if (!obs.citation_urls || obs.citation_urls.length === 0) continue;
 
+    // Owned-host fallback — built once per observation, only when no
+    // explicit path set was supplied. `citation_domains[i]` and
+    // `citation_domain_classes[i]` are emitted aligned (deduped host + its
+    // class, relative to THIS observation's owning tenant), so a host is
+    // owned iff its class is "owned".
+    let ownedHosts: Set<string> | null = null;
+    if (opts.ownedOnly && !opts.ownedUrlPathSet) {
+      ownedHosts = new Set<string>();
+      const domains = obs.citation_domains ?? [];
+      const classes = obs.citation_domain_classes ?? [];
+      for (let i = 0; i < domains.length; i++) {
+        if (classes[i] === "owned") ownedHosts.add(stripWww(domains[i]));
+      }
+    }
+
     // INVARIANT 1: dedupe URLs within this observation via a Set. A
     // duplicate citation in one answer never contributes +2.
     const ownedUrlsInObs = new Set<string>();
@@ -337,13 +381,15 @@ export function buildNativeDayBuckets(
       const normUrl = normalizeUrl(raw);
       if (!normUrl) continue;
       if (opts.ownedOnly) {
-        if (!opts.ownedUrlPathSet) {
-          // When ownedOnly is true but no owned set was provided, skip —
-          // caller must supply the set. Safer than matching against a
-          // domain-only heuristic and silently including non-owned paths.
-          continue;
+        if (opts.ownedUrlPathSet) {
+          // Explicit path set is authoritative.
+          if (!opts.ownedUrlPathSet.has(normUrl)) continue;
+        } else {
+          // Self-contained fallback: keep the citation iff its host is
+          // classified "owned" in this observation's domain classes.
+          const host = urlHost(raw);
+          if (!host || !ownedHosts!.has(host)) continue;
         }
-        if (!opts.ownedUrlPathSet.has(normUrl)) continue;
       }
       ownedUrlsInObs.add(normUrl);
     }
