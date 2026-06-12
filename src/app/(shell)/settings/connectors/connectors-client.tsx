@@ -15,6 +15,12 @@ import {
   disconnectYelp,
   saveWixConnection,
   disconnectWix,
+  saveSemrushConnection,
+  disconnectSemrush,
+  saveProfoundConnection,
+  disconnectProfound,
+  saveClarityConnection,
+  disconnectClarity,
   saveYelpApiKey,
   syncGoogleReviews,
   syncYelpReviews,
@@ -45,6 +51,9 @@ type Props = {
   yelp: ConnectorInfo;
   /** North-star onboarding (2026-06-11) — self-serve Wix connection. */
   wix: ConnectorInfo;
+  semrush: ConnectorInfo;
+  profound: ConnectorInfo;
+  clarity: ConnectorInfo;
   /** From business config — for operator hint only (not a secret). */
   configYelpBusinessId: string;
   /** J5 (2026-05-18) — pre-rendered "GSC data last refreshed X days
@@ -95,6 +104,9 @@ export function ConnectorsClient({
   ga4: initialGa4,
   yelp: initialYelp,
   wix: initialWix,
+  semrush: initialSemrush,
+  profound: initialProfound,
+  clarity: initialClarity,
   configYelpBusinessId,
   gscStaleCopy = null,
   ga4StaleCopy = null,
@@ -109,6 +121,14 @@ export function ConnectorsClient({
   const [wix, setWix] = useState<ConnectorInfo>(initialWix);
   const [wixKeyInput, setWixKeyInput] = useState("");
   const [wixSiteIdInput, setWixSiteIdInput] = useState("");
+  // Connect-cards slice (2026-06-12)
+  const [semrush, setSemrush] = useState<ConnectorInfo>(initialSemrush);
+  const [semrushKeyInput, setSemrushKeyInput] = useState("");
+  const [semrushDbInput, setSemrushDbInput] = useState("");
+  const [profound, setProfound] = useState<ConnectorInfo>(initialProfound);
+  const [profoundKeyInput, setProfoundKeyInput] = useState("");
+  const [clarity, setClarity] = useState<ConnectorInfo>(initialClarity);
+  const [clarityTokenInput, setClarityTokenInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [googleSyncInFlight, setGoogleSyncInFlight] = useState(false);
@@ -392,6 +412,42 @@ export function ConnectorsClient({
         );
       } else {
         setError(result.error ?? "Could not save the Wix connection.");
+      }
+    });
+  }
+
+  function handleSaveSimpleConnection(
+    save: () => Promise<{ success: boolean; error?: string }>,
+    setInfo: (i: ConnectorInfo) => void,
+    clear: () => void,
+  ) {
+    startTransition(async () => {
+      const result = await save();
+      if (result.success) {
+        setInfo({
+          status: "connected",
+          connected_at: new Date().toISOString(),
+          expires_at: null,
+          last_synced_at: null,
+        });
+        clear();
+      }
+    });
+  }
+
+  function handleSimpleDisconnect(
+    disconnect: () => Promise<{ success: boolean; error?: string }>,
+    setInfo: (i: ConnectorInfo) => void,
+  ) {
+    startTransition(async () => {
+      const result = await disconnect();
+      if (result.success) {
+        setInfo({
+          status: "disconnected",
+          connected_at: null,
+          expires_at: null,
+          last_synced_at: null,
+        });
       }
     });
   }
@@ -987,6 +1043,206 @@ export function ConnectorsClient({
             disconnecting stops all publishing instantly.
           </p>
         </div>
+      </div>
+
+      {/* ── SEMrush — Connect-cards slice (2026-06-12) ── */}
+      <div
+        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        data-connector-card="semrush"
+      >
+        <div className="px-5 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">Semrush</h3>
+            {semrush.status === "connected" ? (
+              <p className="text-[12px] text-muted-foreground">
+                Connected &middot; Authorized {formatDate(semrush.connected_at)}
+              </p>
+            ) : (
+              <p className="text-[12px] text-muted-foreground">
+                Connect your Semrush API key so Beacon can see which
+                searches you rank for, which rivals beat you, and where
+                the gaps are. Syncs nightly within a strict unit budget.
+              </p>
+            )}
+          </div>
+          {semrush.status === "connected" ? (
+            <button
+              type="button"
+              onClick={() => handleSimpleDisconnect(disconnectSemrush, setSemrush)}
+              disabled={isPending}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          ) : null}
+        </div>
+        {semrush.status !== "connected" ? (
+          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <input
+              type="password"
+              value={semrushKeyInput}
+              onChange={(e) => setSemrushKeyInput(e.target.value)}
+              placeholder="Semrush API key"
+              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+            />
+            <input
+              type="text"
+              value={semrushDbInput}
+              onChange={(e) => setSemrushDbInput(e.target.value)}
+              placeholder="Regional database (default: us)"
+              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+            />
+            <div>
+              <button
+                type="button"
+                onClick={() =>
+                  handleSaveSimpleConnection(
+                    () =>
+                      saveSemrushConnection({
+                        apiKey: semrushKeyInput,
+                        database: semrushDbInput,
+                      }),
+                    setSemrush,
+                    () => {
+                      setSemrushKeyInput("");
+                      setSemrushDbInput("");
+                    },
+                  )
+                }
+                disabled={isPending || !semrushKeyInput.trim()}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+              >
+                Connect Semrush
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* ── Profound — Connect-cards slice (2026-06-12) ── */}
+      <div
+        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        data-connector-card="profound"
+      >
+        <div className="px-5 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">Profound</h3>
+            {profound.status === "connected" ? (
+              <p className="text-[12px] text-muted-foreground">
+                Connected &middot; Authorized {formatDate(profound.connected_at)}
+              </p>
+            ) : (
+              <p className="text-[12px] text-muted-foreground">
+                Connect your Profound API key so Beacon can track how AI
+                assistants mention and cite your site, and where rivals
+                get cited instead.
+              </p>
+            )}
+          </div>
+          {profound.status === "connected" ? (
+            <button
+              type="button"
+              onClick={() => handleSimpleDisconnect(disconnectProfound, setProfound)}
+              disabled={isPending}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          ) : null}
+        </div>
+        {profound.status !== "connected" ? (
+          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <input
+              type="password"
+              value={profoundKeyInput}
+              onChange={(e) => setProfoundKeyInput(e.target.value)}
+              placeholder="Profound API key"
+              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+            />
+            <div>
+              <button
+                type="button"
+                onClick={() =>
+                  handleSaveSimpleConnection(
+                    () => saveProfoundConnection({ apiKey: profoundKeyInput }),
+                    setProfound,
+                    () => setProfoundKeyInput(""),
+                  )
+                }
+                disabled={isPending || !profoundKeyInput.trim()}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+              >
+                Connect Profound
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* ── Microsoft Clarity — Connect-cards slice (2026-06-12) ── */}
+      <div
+        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        data-connector-card="clarity"
+      >
+        <div className="px-5 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">
+              Microsoft Clarity
+            </h3>
+            {clarity.status === "connected" ? (
+              <p className="text-[12px] text-muted-foreground">
+                Connected &middot; Authorized {formatDate(clarity.connected_at)}
+              </p>
+            ) : (
+              <p className="text-[12px] text-muted-foreground">
+                Connect a Clarity API token so Beacon can see where
+                visitors get stuck on each page (rage clicks, dead
+                clicks, scroll depth). Clarity only shares the last 1-3
+                days, so Beacon saves a little each day to build history.
+              </p>
+            )}
+          </div>
+          {clarity.status === "connected" ? (
+            <button
+              type="button"
+              onClick={() => handleSimpleDisconnect(disconnectClarity, setClarity)}
+              disabled={isPending}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          ) : null}
+        </div>
+        {clarity.status !== "connected" ? (
+          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <p className="text-[12px] text-muted-foreground">
+              In Clarity: Settings → Data Export → Generate new API token.
+            </p>
+            <input
+              type="password"
+              value={clarityTokenInput}
+              onChange={(e) => setClarityTokenInput(e.target.value)}
+              placeholder="Clarity API token"
+              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+            />
+            <div>
+              <button
+                type="button"
+                onClick={() =>
+                  handleSaveSimpleConnection(
+                    () => saveClarityConnection({ apiToken: clarityTokenInput }),
+                    setClarity,
+                    () => setClarityTokenInput(""),
+                  )
+                }
+                disabled={isPending || !clarityTokenInput.trim()}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+              >
+                Connect Clarity
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* ── Manual import note ── */}

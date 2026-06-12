@@ -13,9 +13,17 @@
  *   • SAFETY          0 if any safety flag, 1 otherwise
  *   • EFFORT          divisor per action_type         (1.0–1.5)
  *
- * Formula:
- *   round((SEVERITY + INDEX_BLOCKER + PAGE_IMPORTANCE)
- *         * CONFIDENCE * PREREQ * SAFETY / EFFORT)
+ * Formula (kept in sync with priorityScore() below — audit check
+ * #23, 2026-06-12):
+ *   round((SEVERITY + INDEX_BLOCKER + PAGE_IMPORTANCE + UPSIDE_BONUS)
+ *         * VALUE_WEIGHT * CONFIDENCE * PREREQ * SAFETY / EFFORT)
+ * where UPSIDE_BONUS = min(15, 4*log10(1+gsc_upside_clicks)) and
+ * VALUE_WEIGHT = bounded GA4 page-value multiplier (1.0-1.5).
+ * NOTE on "risk": the recommended_edits `risks: string[]` field is
+ * POST-promotion operator-facing metadata (it does not exist at
+ * scoring time); pre-promotion risk gating is `safety_flags`, which
+ * zeroes the score via the SAFETY term — risks are deliberately NOT
+ * a scoring input.
  *
  * Hard rule (pinned by `recommendation-intelligence-promotion-
  * eligibility-pin`): indexability blockers with confidence ≥

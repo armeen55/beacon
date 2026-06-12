@@ -64,7 +64,9 @@ export type ConnectorProvider =
   | "yelp"
   | "semrush"
   | "callrail"
-  | "wix";
+  | "wix"
+  | "profound"
+  | "clarity";
 
 /** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
 export type GoogleConnectorToken = {
@@ -168,12 +170,42 @@ export type WixConnectorToken = {
   disconnected_at?: string;
 };
 
+/**
+ * Profound API — bearer key (never sent to the client). Answer-engine
+ * visibility: citations, sentiment, fanouts. Connect-cards slice
+ * (2026-06-12): self-serve key paste; the nightly fetcher activates
+ * the moment a key lands (dormant-honest until then).
+ */
+export type ProfoundConnectorToken = {
+  provider: "profound";
+  api_key: string;
+  connected_at: string;
+  last_synced_at?: string;
+  disconnected_at?: string;
+};
+
+/**
+ * Microsoft Clarity Data Export API — per-project bearer token (never
+ * sent to the client). Hard platform limits: 10 requests/day, 1-3 day
+ * lookback, no backfill — the nightly harvester budgets ONE pull/day
+ * and accumulates history locally (the research-note hedge).
+ */
+export type ClarityConnectorToken = {
+  provider: "clarity";
+  api_token: string;
+  connected_at: string;
+  last_synced_at?: string;
+  disconnected_at?: string;
+};
+
 export type ConnectorToken =
   | GoogleConnectorToken
   | YelpConnectorToken
   | SemrushConnectorToken
   | CallRailConnectorToken
-  | WixConnectorToken;
+  | WixConnectorToken
+  | ProfoundConnectorToken
+  | ClarityConnectorToken;
 
 export type ConnectorStatus = "connected" | "disconnected";
 
