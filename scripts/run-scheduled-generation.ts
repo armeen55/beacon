@@ -126,6 +126,25 @@ async function main() {
     );
   }
 
+  // Insight Graph slice 2 (2026-06-12): SEMrush organic-keyword sync
+  // (one 150-line domain_organic call = 1,500 units, inside the
+  // nightly budget; instant skip when no key). Failure-soft.
+  try {
+    const { syncSemrushOrganicKeywordsForTenant } = await import(
+      "../src/lib/connectors/semrush/sync-organic-keywords"
+    );
+    const sem = await syncSemrushOrganicKeywordsForTenant({ tenantId });
+    console.log(
+      sem.synced
+        ? `[scheduled-generation] SEMRUSH synced tenant=${tenantId} domain=${sem.domain} rows=${sem.rows_upserted}`
+        : `[scheduled-generation] SEMRUSH skipped tenant=${tenantId} reason=${sem.reason}`,
+    );
+  } catch (err) {
+    console.warn(
+      `::warning::[scheduled-generation] SEMrush sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Lazy import — env must be set before tenant context resolves.
   const { promoteEligibleCandidates } = await import(
     "../src/domains/recommendation-intelligence/promotion-writer"
