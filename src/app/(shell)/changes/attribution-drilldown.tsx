@@ -19,6 +19,7 @@
 
 import type { StoredChangeOutcome, SparklineData, ControlSparklinePoint, TreatedSparklinePoint } from "@/domains/attribution/change-outcome-store";
 import type { PlatformLift, RawPrePost } from "@/domains/attribution/natural-controls";
+import { buildProofSentence, type ProofTone } from "@/domains/attribution/proof-sentence";
 import { AttributionStatusPill } from "./attribution-status-pill";
 
 export function AttributionDrilldown({ outcome }: { outcome: StoredChangeOutcome }) {
@@ -31,7 +32,11 @@ export function AttributionDrilldown({ outcome }: { outcome: StoredChangeOutcome
     >
       <Header outcome={outcome} />
 
-      {/* Single-line rationale (always shown) */}
+      {/* Plain-English proof — the customer-facing headline. The technical
+          rationale + diff-in-diff blocks below are the supporting "math". */}
+      <ProofLead outcome={outcome} />
+
+      {/* Single-line engine rationale (technical; supports the headline) */}
       <p className="mt-3 text-[12px] text-foreground-secondary leading-relaxed">
         {outcome.rationale}
       </p>
@@ -67,6 +72,36 @@ export function AttributionDrilldown({ outcome }: { outcome: StoredChangeOutcome
       {/* Meta */}
       <MetaFooter outcome={outcome} />
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Plain-English proof lead — the customer-facing headline sentence
+// ---------------------------------------------------------------------------
+
+const PROOF_TONE_CLASS: Record<ProofTone, string> = {
+  helping: "text-status-success",
+  hurting: "text-status-danger",
+  flat: "text-foreground-secondary",
+  watching: "text-status-warning",
+  none: "text-muted-foreground",
+};
+
+function ProofLead({ outcome }: { outcome: StoredChangeOutcome }) {
+  const proof = buildProofSentence(outcome);
+  return (
+    <div className="mt-3" data-proof-sentence={proof.tone}>
+      <p
+        className={`text-[15px] font-semibold leading-snug ${PROOF_TONE_CLASS[proof.tone]}`}
+      >
+        {proof.headline}
+      </p>
+      {proof.sub && (
+        <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
+          {proof.sub}
+        </p>
+      )}
+    </div>
   );
 }
 
