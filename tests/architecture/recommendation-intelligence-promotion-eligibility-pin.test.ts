@@ -53,6 +53,9 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   // Internal-link brain (2026-06-12, deliberate): contextual link
   // suggestions gated by human judgment like all link advice.
   ["internal_link_opportunity::add_internal_link", "operator-review-only"],
+  // Source-ledger slice (2026-06-12, deliberate): sources are editorial
+  // judgment — operator review.
+  ["uncited_content::add_proof_section", "operator-review-only"],
   ["title_h1_mismatch::edit_title", "operator-review-only"],
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],

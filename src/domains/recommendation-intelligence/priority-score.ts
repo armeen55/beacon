@@ -60,6 +60,9 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   // Internal-link brain (2026-06-12): an enhancement, not a fix —
   // one notch under orphan_page's missing-inbound repair.
   internal_link_opportunity: 13,
+  // Source-ledger slice (2026-06-12): trust/citability improvement on
+  // content pages — below the link-structure plays.
+  uncited_content: 11,
   duplicate_title: 15,
   duplicate_meta: 15,
   // Legacy 4.5.B baselines (operator-review-only by tier)

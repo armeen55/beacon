@@ -111,6 +111,7 @@ import { missingTitle } from "./triggers/missing-title";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
 import { orphanPage } from "./triggers/orphan-page";
 import { internalLinkOpportunity } from "./triggers/internal-link-opportunity";
+import { uncitedContent } from "./triggers/uncited-content";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
 import { sitemapMissing } from "./triggers/sitemap-missing";
@@ -371,6 +372,9 @@ export async function loadTriggerCandidatesForTenant(options: {
     all.push(...missingMeta({ tenantId, snapshot }));
     all.push(...missingH1({ tenantId, snapshot }));
     all.push(...weakH1({ tenantId, snapshot, businessConfig }));
+    // Source-ledger slice (2026-06-12): substantive content pages with
+    // zero external references earn an add-sources card.
+    all.push(...uncitedContent({ tenantId, snapshot, businessConfig }));
     // Slice 4.5.E.α₁a (2026-05-21) — `weak-h2` mirrors `weak-h1`
     // detection on city/service pages but emits `rewrite_h2` at
     // `confidence: "low"` (diagnostic_only routing). Pure

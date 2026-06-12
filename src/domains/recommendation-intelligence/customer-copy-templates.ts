@@ -209,6 +209,13 @@ export function internalLinkOpportunityCopy(destinationTitle: string): string {
   );
 }
 
+export function uncitedContentCopy(): string {
+  return (
+    "This in-depth page backs up none of its facts with outside sources. " +
+    "AI engines favor pages that cite checkable references \u2014 adding a short sources section makes this page easier to trust and recommend."
+  );
+}
+
 export function keywordGapExpandCopy(keyword: string, volume: number): string {
   return (
     "A rival already wins \u201c" +

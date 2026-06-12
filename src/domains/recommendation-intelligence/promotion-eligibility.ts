@@ -86,6 +86,10 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // Internal-link brain (2026-06-12): contextual topic-cluster link
   // suggestions — same human-judgment posture as the other link advice.
   ["internal_link_opportunity::add_internal_link", "operator-review-only"],
+  // Source-ledger slice (2026-06-12): picking which sources to cite is
+  // editorial judgment — the directive draft names WHAT to add, never
+  // the sources themselves.
+  ["uncited_content::add_proof_section", "operator-review-only"],
   // Legacy 4.5.B baseline predicates — stay operator-review-only
   // until separately validated for customer queue.
   ["title_h1_mismatch::edit_title", "operator-review-only"],

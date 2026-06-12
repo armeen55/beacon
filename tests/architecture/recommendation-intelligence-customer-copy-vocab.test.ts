@@ -131,6 +131,7 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   keywordGapCopy: [["nowruz gifts", 880], ["q", 10]],
   keywordGapExpandCopy: [["nowruz gifts", 880], ["q", 10]],
   internalLinkOpportunityCopy: [["The Persian Tea Ceremony"], ["x"]],
+  uncitedContentCopy: [[], []],
 };
 
 function scanForViolations(output: string): string[] {
