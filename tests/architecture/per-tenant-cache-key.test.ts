@@ -51,12 +51,13 @@ const ALLOWLIST = new Set<string>([
   // store-classification.ts — an operator-shared corpus with no tenant_id
   // column. A single process cache is correct; there is no tenant to key by.
   "domains/prompts/prompt-library.ts",
-  // (b) KNOWN DAYLIGHT DEBT: the seed-data aggregator reads 4 tenant-stamped
-  // tables behind ONE process-global `_state` and feeds the layout +
-  // changelog surfaces. Frozen here AND in tenant-scoped-reads.test.ts's
-  // allowlist (5 entries) pending a daylight refactor through forTenant +
-  // a per-tenant cache. Hosted reads over-fetch; the module cache cross-pins.
-  "lib/seed-data.server.ts",
+  // (b) seed-data.server.ts — BURNED DOWN 2026-06-12. Refactored from one
+  // process-global `_state` (read via the non-tenant-filtered base
+  // getRepository()) to a per-tenant `_stateByTenant` Map keyed by
+  // currentTenantId, reading through getRepository().forTenant(tenantId).
+  // No longer a tenant-blind cache → allowlist entry removed. (The cron
+  // proof run had bled the founder's 289-entry changelog into every
+  // tenant; see proof-engine + this refactor.)
 ]);
 
 /**

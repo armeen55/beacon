@@ -29,6 +29,7 @@ import { cache } from "react";
 
 import * as seed from "./seed-data";
 import { getRepository } from "./persistence/repositories";
+import { currentTenantId } from "./tenant-context";
 
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -67,22 +68,40 @@ type State = {
   importRuns: ImportRun[] | null;
 };
 
-const _state: State = {
-  results: null,
-  changelogEntries: null,
-  opportunities: null,
-  competitors: null,
-  briefs: null,
-  competitorSnapshots: null,
-  importRuns: null,
-};
+function emptyState(): State {
+  return {
+    results: null,
+    changelogEntries: null,
+    opportunities: null,
+    competitors: null,
+    briefs: null,
+    competitorSnapshots: null,
+    importRuns: null,
+  };
+}
 
-async function loadFromRepoOrSeed(): Promise<void> {
-  if (_state.importRuns !== null) return;
+// Per-tenant process-level cache (2026-06-12 — burns down the
+// per-tenant-cache-key ratchet's seed-data allowlist). Keyed by the
+// resolved tenant: a warm lambda serving multiple tenants must NOT bleed
+// one tenant's data into another. The base getRepository().getX() reads
+// are NOT tenant-filtered (query() does a bare select *), so isolation
+// comes from BOTH (a) reading through forTenant(tenantId) and (b) keying
+// the cache by tenant. Concurrent multi-tenant requests get distinct Map
+// entries, so they can't race-clobber a single shared `_state`.
+const _stateByTenant = new Map<string, State>();
 
-  const repo = getRepository();
+async function loadFromRepoOrSeed(tenantId: string): Promise<State> {
+  const cached = _stateByTenant.get(tenantId);
+  if (cached && cached.importRuns !== null) return cached;
+  const state = cached ?? emptyState();
+  _stateByTenant.set(tenantId, state);
+
+  // TENANT-SCOPED reads via forTenant — NOT the bare getRepository(), whose
+  // base getters do `select *` with no tenant filter and would return every
+  // tenant's rows (the founder's, in practice — the only one with data).
+  const repo = getRepository().forTenant(tenantId);
   const importRuns = await repo.getImportRuns();
-  _state.importRuns = importRuns;
+  state.importRuns = importRuns;
 
   if (importRuns.length > 0) {
     const [res, changes, opps, comps] = await Promise.all([
@@ -91,28 +110,33 @@ async function loadFromRepoOrSeed(): Promise<void> {
       repo.getOpportunities(),
       repo.getCompetitors(),
     ]);
-    _state.results = res;
-    _state.changelogEntries = changes;
-    _state.opportunities = opps;
-    _state.competitors = comps;
-    _state.briefs = [];
-    _state.competitorSnapshots = [];
+    state.results = res;
+    state.changelogEntries = changes;
+    state.opportunities = opps;
+    state.competitors = comps;
+    state.briefs = [];
+    state.competitorSnapshots = [];
   } else {
-    _state.results = [...seed.results];
-    _state.changelogEntries = [...seed.changelogEntries];
-    _state.opportunities = [...seed.opportunities];
-    _state.competitors = [...seed.competitors];
-    _state.briefs = [...seed.briefs];
-    _state.competitorSnapshots = [...seed.competitorSnapshots];
+    state.results = [...seed.results];
+    state.changelogEntries = [...seed.changelogEntries];
+    state.opportunities = [...seed.opportunities];
+    state.competitors = [...seed.competitors];
+    state.briefs = [...seed.briefs];
+    state.competitorSnapshots = [...seed.competitorSnapshots];
   }
+  return state;
 }
 
 /**
  * `React.cache` ensures concurrent callers within one render tree share
- * the same in-flight Promise; subsequent requests find `_state` already
- * populated and return immediately.
+ * the same in-flight Promise; the tenant is resolved per render via
+ * `currentTenantId` and its state is cached per-tenant in `_stateByTenant`
+ * across requests in the same lambda.
  */
-const ensureLoaded = cache(loadFromRepoOrSeed);
+const ensureLoaded = cache(async (): Promise<State> => {
+  const tenantId = await currentTenantId();
+  return loadFromRepoOrSeed(tenantId);
+});
 
 // ---------------------------------------------------------------------------
 // Public getters.
@@ -124,42 +148,42 @@ const ensureLoaded = cache(loadFromRepoOrSeed);
 // ---------------------------------------------------------------------------
 
 export const getResults = cache(async (): Promise<Result[]> => {
-  await ensureLoaded();
-  return _state.results!;
+  const s = await ensureLoaded();
+  return s.results!;
 });
 
 export const getChangelogEntries = cache(
   async (): Promise<ChangelogEntry[]> => {
-    await ensureLoaded();
-    return _state.changelogEntries!;
+    const s = await ensureLoaded();
+    return s.changelogEntries!;
   },
 );
 
 export const getOpportunities = cache(async (): Promise<Opportunity[]> => {
-  await ensureLoaded();
-  return _state.opportunities!;
+  const s = await ensureLoaded();
+  return s.opportunities!;
 });
 
 export const getCompetitors = cache(async (): Promise<Competitor[]> => {
-  await ensureLoaded();
-  return _state.competitors!;
+  const s = await ensureLoaded();
+  return s.competitors!;
 });
 
 export const getBriefs = cache(async (): Promise<Brief[]> => {
-  await ensureLoaded();
-  return _state.briefs!;
+  const s = await ensureLoaded();
+  return s.briefs!;
 });
 
 export const getCompetitorSnapshots = cache(
   async (): Promise<CompetitorSnapshot[]> => {
-    await ensureLoaded();
-    return _state.competitorSnapshots!;
+    const s = await ensureLoaded();
+    return s.competitorSnapshots!;
   },
 );
 
 export const getImportRuns = cache(async (): Promise<ImportRun[]> => {
-  await ensureLoaded();
-  return _state.importRuns!;
+  const s = await ensureLoaded();
+  return s.importRuns!;
 });
 
 /**
@@ -177,11 +201,5 @@ export const hasActiveExperiment = cache(async (): Promise<boolean> => {
  * re-runs `loadFromRepoOrSeed()`. Not exported in production paths.
  */
 export function _resetSeedDataStateForTests(): void {
-  _state.results = null;
-  _state.changelogEntries = null;
-  _state.opportunities = null;
-  _state.competitors = null;
-  _state.briefs = null;
-  _state.competitorSnapshots = null;
-  _state.importRuns = null;
+  _stateByTenant.clear();
 }

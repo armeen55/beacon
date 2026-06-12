@@ -31,19 +31,12 @@ const SRC = join(process.cwd(), "src");
  * SHRINK THIS LIST; never grow it. Format: "relpath:getMethod".
  */
 const ALLOWLIST = new Set<string>([
-  // Night-shift sweep (2026-06-11): the legacy seed-data aggregator
-  // reads 4 tenant-stamped tables unscoped behind ANOTHER process-
-  // global cache. Frozen here (visible debt) rather than rewritten at
-  // night — it feeds the layout + changelog surfaces and deserves a
-  // daylight refactor. The tables' rows are tenant-stamped; hosted
-  // reads over-fetch and the module cache cross-pins. Burn down by
-  // routing through forTenant + a per-tenant cache (the same recipe
-  // applied to issues.ts / attribution/store.ts tonight).
-  "lib/seed-data.server.ts:getChangelogEntries",
-  "lib/seed-data.server.ts:getResults",
-  "lib/seed-data.server.ts:getOpportunities",
-  "lib/seed-data.server.ts:getCompetitors",
-  "lib/seed-data.server.ts:getImportRuns",
+  // seed-data.server.ts — BURNED DOWN 2026-06-12. loadFromRepoOrSeed now
+  // reads through getRepository().forTenant(tenantId) into a per-tenant
+  // `_stateByTenant` Map (was the non-tenant-filtered base getRepository()
+  // behind one process-global `_state`, which bled the founder's changelog
+  // into every other tenant — caught on the per-tenant proof cron). All 5
+  // reads are forTenant-scoped now, so the entries are removed.
   "domains/actions/store.ts:getActionStates",
   "domains/pages/asset-response.ts:getAssetResponses",
   "domains/brief-generation/store.ts:getBriefStates",
