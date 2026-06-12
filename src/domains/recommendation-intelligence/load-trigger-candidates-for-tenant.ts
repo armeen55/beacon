@@ -87,6 +87,11 @@ import { thinContentOverlap } from "./triggers/thin-content-overlap";
 import { staleContent, normalizeStaleUrl } from "./triggers/stale-content";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
+import { gscLowCtr } from "./triggers/gsc-low-ctr";
+import {
+  loadGscPageSignalsForTenant,
+  type GscPageSignal,
+} from "./gsc-page-signals";
 import { invalidSchema } from "./triggers/invalid-schema";
 import { missingSchema } from "./triggers/missing-schema";
 import { missingTitle } from "./triggers/missing-title";
@@ -220,6 +225,19 @@ export async function loadTriggerCandidatesForTenant(options: {
     indexabilityFailed = true;
   }
 
+  // Insight Graph slice 1 (2026-06-12): pre-load the per-tenant GSC
+  // Search Analytics page signals (28-day aggregates). Soft-fail to
+  // an empty map — no GSC connection (or no synced rows yet) simply
+  // means the gsc_low_ctr predicate never fires.
+  let gscSignals: Map<string, GscPageSignal> = new Map();
+  try {
+    gscSignals = await loadGscPageSignalsForTenant(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] gsc page-signals load failed for ${tenantId} (gsc predicates skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Night-shift #44 (2026-06-11): pre-load the per-tenant sitemap
   // lastmod map for the stale-content predicate. Soft-fail to an
   // empty map — unknown age is never evidence of staleness.
@@ -292,6 +310,19 @@ export async function loadTriggerCandidatesForTenant(options: {
     // validator's exact failing type+property for THIS page — no
     // industry-tuned expectations involved.
     all.push(...invalidSchema({ tenantId, snapshot, businessConfig }));
+    // Insight Graph slice 1 (2026-06-12) — the first FUSED predicate:
+    // the tenant's own Search Console numbers drive a title rewrite.
+    // The per-page signal is a pre-loaded pure input (soft-empty when
+    // GSC isn't connected).
+    all.push(
+      ...gscLowCtr({
+        tenantId,
+        snapshot,
+        signal: gscSignals.get(
+          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
+        ),
+      }),
+    );
 
     // Slice 4.5.C.α₁ — Tier-1 indexability predicates. Each
     // receives the pre-resolved `OwnedUrlIndexability` as a pure

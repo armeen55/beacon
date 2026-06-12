@@ -106,6 +106,26 @@ async function main() {
     );
   }
 
+  // Insight Graph slice 1 (2026-06-12): sync the tenant's GSC Search
+  // Analytics rows BEFORE promotion so the gsc_low_ctr predicate sees
+  // fresh 28-day signals. Failure-soft by contract: no GSC connection,
+  // quota, or table issues log one line and never block generation.
+  try {
+    const { syncGscSearchAnalyticsForTenant } = await import(
+      "../src/lib/connectors/gsc/sync-search-analytics"
+    );
+    const gsc = await syncGscSearchAnalyticsForTenant({ tenantId });
+    console.log(
+      gsc.synced
+        ? `[scheduled-generation] GSC-SA synced tenant=${tenantId} property=${gsc.property} days=${gsc.days} rows=${gsc.rows_upserted}`
+        : `[scheduled-generation] GSC-SA skipped tenant=${tenantId} reason=${gsc.reason}`,
+    );
+  } catch (err) {
+    console.warn(
+      `::warning::[scheduled-generation] GSC-SA sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Lazy import — env must be set before tenant context resolves.
   const { promoteEligibleCandidates } = await import(
     "../src/domains/recommendation-intelligence/promotion-writer"

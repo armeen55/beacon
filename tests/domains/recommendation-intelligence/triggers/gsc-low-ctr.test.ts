@@ -1,0 +1,139 @@
+/**
+ * Insight Graph slice 1 (2026-06-12) — `gsc-low-ctr` trigger tests.
+ * Rule A: position ≤5 (sourced benchmark band), impressions ≥200/28d,
+ * ctr < 0.5 × positional benchmark → ONE edit_title candidate carrying
+ * the worst under-performing query.
+ */
+
+import { describe, expect, it } from "vitest";
+
+import type { PageSnapshot } from "@/domains/pages/types";
+import type { GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import {
+  EXPECTED_CTR_BY_POSITION,
+  gscLowCtr,
+  underperformingQueries,
+} from "@/domains/recommendation-intelligence/triggers/gsc-low-ctr";
+
+function snap(over: Partial<PageSnapshot> = {}): PageSnapshot {
+  return {
+    id: "snap-1",
+    page_id: "page-1",
+    url: "https://example.com/persian-tea-houses",
+    canonical_url: null,
+    fetched_at: "2026-06-12T04:00:00Z",
+    http_status: 200,
+    title: "Tea",
+    meta_description: null,
+    h1: "Persian Tea Houses",
+    h2_list: [],
+    h3_count: 0,
+    faqs: [],
+    schema_types: [],
+    location_terms: [],
+    service_terms: [],
+    internal_link_count: 0,
+    external_link_count: 0,
+    word_count: 600,
+    robots_meta: null,
+    has_canonical_mismatch: false,
+    content_hash: "x",
+    headings_hash: "y",
+    faq_hash: "z",
+    schema_hash: "w",
+    tenant_id: "tenant-a",
+    extraction_certainty: "confirmed",
+    ...over,
+  };
+}
+
+function signal(over: Partial<GscPageSignal> = {}): GscPageSignal {
+  return {
+    page: "https://example.com/persian-tea-houses",
+    clicks28d: 12,
+    impressions28d: 900,
+    ctr28d: 0.013,
+    position28d: 3.2,
+    topQueries: [
+      // position 3 → benchmark 10.2%; ctr 1.0% < 5.1% threshold → FIRES
+      { query: "persian tea houses", clicks: 5, impressions: 500, ctr: 0.01, position: 3.1 },
+      // healthy query — above threshold
+      { query: "tea house history", clicks: 30, impressions: 250, ctr: 0.12, position: 2.2 },
+    ],
+    ...over,
+  };
+}
+
+describe("underperformingQueries", () => {
+  it("flags only sourced-band (pos 1–5), high-impression, below-half-benchmark queries", () => {
+    const out = underperformingQueries(signal());
+    expect(out.map((q) => q.query)).toEqual(["persian tea houses"]);
+  });
+
+  it("ignores queries outside positions 1–5 (no guessed benchmarks)", () => {
+    const out = underperformingQueries(
+      signal({
+        topQueries: [
+          { query: "deep query", clicks: 1, impressions: 800, ctr: 0.001, position: 9.4 },
+        ],
+      }),
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("ignores low-impression queries (28d noise floor)", () => {
+    const out = underperformingQueries(
+      signal({
+        topQueries: [
+          { query: "rare query", clicks: 0, impressions: 40, ctr: 0, position: 2.0 },
+        ],
+      }),
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("benchmark table covers exactly positions 1–5", () => {
+    expect(Object.keys(EXPECTED_CTR_BY_POSITION).map(Number).sort()).toEqual([
+      1, 2, 3, 4, 5,
+    ]);
+  });
+});
+
+describe("gscLowCtr predicate", () => {
+  it("emits ONE edit_title candidate carrying the worst query + exact numbers", () => {
+    const out = gscLowCtr({
+      tenantId: "tenant-a",
+      snapshot: snap(),
+      signal: signal(),
+    });
+    expect(out).toHaveLength(1);
+    const c = out[0]!;
+    expect(c.trigger_signal).toBe("gsc_low_ctr");
+    expect(c.action_type).toBe("edit_title");
+    expect(c.confidence).toBe("medium");
+    expect(c.impact_estimate).toBe("high");
+    expect(c.topic_cluster_label).toBe("persian tea houses");
+    expect(c.evidence[0]!.detail).toContain("impressions=500");
+    expect(c.evidence[0]!.detail).toContain("position=3.1");
+    expect(c.customer_copy).toContain("persian tea houses");
+    expect(c.customer_copy).toContain("500");
+    expect(c.safety_flags).toEqual([]);
+  });
+
+  it("does NOT emit without a signal (GSC not connected / no rows)", () => {
+    expect(
+      gscLowCtr({ tenantId: "tenant-a", snapshot: snap(), signal: undefined }),
+    ).toEqual([]);
+  });
+
+  it("does NOT emit when every query is healthy", () => {
+    const healthy = signal({
+      topQueries: [
+        { query: "good one", clicks: 60, impressions: 400, ctr: 0.15, position: 2.0 },
+      ],
+    });
+    expect(
+      gscLowCtr({ tenantId: "tenant-a", snapshot: snap(), signal: healthy }),
+    ).toEqual([]);
+  });
+});

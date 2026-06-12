@@ -106,6 +106,12 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // expectations involved, any vertical/language. Same directive-
   // draft family as fix_canonical/fix_robots (already queue-ready).
   ["invalid_schema::fix_schema", "customer-queue-ready"],
+  // Insight Graph slice 1 (2026-06-12): the first FUSED signal — the
+  // tenant's OWN Search Console numbers (impressions/CTR/position per
+  // query) drive a title rewrite. Evidence is first-party ground
+  // truth; thresholds are research-derived (Semrush positional CTR
+  // benchmarks, positions 1–5 only). Any vertical/geo/language.
+  ["gsc_low_ctr::edit_title", "customer-queue-ready"],
 
   // ── diagnostic-only ───────────────────────────────────────────
   // Pending industry calibration. Schema expectations are
