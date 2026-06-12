@@ -10,9 +10,11 @@
  *     the lag.
  *   • REPULL = 4 days — each run re-pulls a trailing window so days
  *     that finalized late self-heal (UPSERT makes this idempotent).
- *   • BACKFILL_DAYS = 28 on first run — the recommendation rules
- *     aggregate a 28-day window; 16 months exist upstream if a later
- *     slice wants more.
+ *   • BACKFILL_DAYS = 90 on first run (decay slice 2026-06-12:
+ *     the refresh rule compares two consecutive 28d windows and the
+ *     Animalz decay guidance is 90-day-based; 90 days ≈ 180 requests
+ *     << the 1,200 QPM quota; completes in 2 runs under
+ *     MAX_DAYS_PER_RUN). 16 months exist upstream if needed.
  *   • Per-day we ALSO pull the ungrouped (no-dimension) totals row:
  *     Google drops rows on page/query-grouped queries, so the
  *     grouped sum undercounts — the totals row makes that honest.
@@ -42,9 +44,9 @@ import {
 
 const FINAL_LAG_DAYS = 3;
 const REPULL_DAYS = 4;
-const BACKFILL_DAYS = 28;
+const BACKFILL_DAYS = 90;
 /** Hard bound on days per run — keeps a cold backfill bounded. */
-const MAX_DAYS_PER_RUN = 35;
+const MAX_DAYS_PER_RUN = 45;
 const UPSERT_CHUNK = 500;
 
 export type GscSyncResult =

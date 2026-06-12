@@ -123,6 +123,9 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // Rule B (2026-06-12): FIRST-PARTY striking distance (4-15 band,
   // GSC impressions floor, query-not-in-title play).
   ["gsc_striking_distance::edit_title", "customer-queue-ready"],
+  // Decay slice (2026-06-12): both first-party decay signals crossed
+  // (clicks -20%+ AND weighted position worse) -> refresh.
+  ["gsc_decay::update_intro", "customer-queue-ready"],
 
   // ── diagnostic-only ───────────────────────────────────────────
   // Pending industry calibration. Schema expectations are

@@ -123,6 +123,8 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   strikingDistanceCopy: [["persian rugs", 12, 590], ["k", 4, 10]],
   // Rule B (2026-06-12) — first-party striking-distance template.
   gscStrikingDistanceCopy: [["nowruz traditions", 9, 1200], ["q", 4, 100]],
+  // Decay slice (2026-06-12) — fading-page template. Arg: dropPct.
+  gscDecayCopy: [[25], [80]],
 };
 
 function scanForViolations(output: string): string[] {
