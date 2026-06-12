@@ -129,6 +129,15 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
       ],
       confidence: "medium",
       impact_estimate: "high",
+      // Sourced EV math: clicks recovered if CTR rises to the
+      // positional benchmark (CTR-gap × impressions).
+      upside_clicks_28d: Math.round(
+        Math.max(
+          0,
+          (EXPECTED_CTR_BY_POSITION[Math.round(worst.position)] ?? 0) -
+            worst.ctr,
+        ) * worst.impressions,
+      ),
       customer_copy: gscLowCtrCopy(worst.query, worst.impressions),
       operator_evidence:
         "signal=gsc_low_ctr; window=28d; page_impressions=" +
@@ -228,6 +237,12 @@ export function gscStrikingDistance(
       ],
       confidence: "medium",
       impact_estimate: "high",
+      // Upside if the page reaches position 3 (SEOmonitor's top-1-3
+      // target convention) from its current striking position:
+      // (ctr(3) − actual) × impressions.
+      upside_clicks_28d: Math.round(
+        Math.max(0, 0.102 - target.ctr) * target.impressions,
+      ),
       customer_copy: gscStrikingDistanceCopy(
         target.query,
         Math.round(target.position),

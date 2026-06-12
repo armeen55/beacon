@@ -186,3 +186,45 @@ describe("gscStrikingDistance predicate (Rule B)", () => {
     expect(out).toEqual([]);
   });
 });
+
+// ── Fusion-EV slice (2026-06-12) ──────────────────────────────────────
+import { upsideBonus, MAX_UPSIDE_BONUS, priorityScore } from "@/domains/recommendation-intelligence/priority-score";
+
+describe("fusion EV — upside_clicks_28d", () => {
+  it("Rule A candidates carry the CTR-gap × impressions upside", () => {
+    const out = gscLowCtr({ tenantId: "tenant-a", snapshot: snap(), signal: signal() });
+    // pos 3.1 → benchmark 10.2%; actual 1.0%; 500 impressions →
+    // (0.102 − 0.01) × 500 ≈ 46.
+    expect(out[0]!.upside_clicks_28d).toBe(46);
+  });
+
+  it("upsideBonus is log-scaled and capped", () => {
+    expect(upsideBonus(undefined)).toBe(0);
+    expect(upsideBonus(0)).toBe(0);
+    expect(upsideBonus(9)).toBe(4); // 4·log10(10) = 4
+    expect(upsideBonus(99)).toBe(8);
+    expect(upsideBonus(1_000_000)).toBe(MAX_UPSIDE_BONUS);
+  });
+
+  it("the bonus lifts the score but an index blocker still outranks content polish", () => {
+    const content = priorityScore({
+      trigger_signal: "gsc_low_ctr",
+      action_type: "edit_title",
+      target_page_type: "content",
+      confidence: "medium",
+      prerequisite_resolved: true,
+      safety_flags: [],
+      upside_clicks_28d: 1_000_000, // even at the cap…
+    });
+    const blocker = priorityScore({
+      trigger_signal: "bad_http_status",
+      action_type: "fix_status_code",
+      target_page_type: "content",
+      confidence: "high",
+      prerequisite_resolved: true,
+      safety_flags: [],
+    });
+    // (28+0+12+15)·0.75 ≈ 41 < (30+25+12)·1.0 = 67
+    expect(blocker).toBeGreaterThan(content);
+  });
+});
