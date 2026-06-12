@@ -145,6 +145,30 @@ async function main() {
     );
   }
 
+  // LLM flip-on slice (2026-06-12): when BEACON_LLM_PROVIDER resolves
+  // to a paid provider (key present + env flipped), upgrade the top
+  // queue recs with structured-output LLM drafts through the existing
+  // budget-gated, validator-gated machinery. Today (deterministic
+  // default / OpenAI over quota) this logs a skip and spends nothing.
+  // Runs AFTER promotion (see below) via this deferred holder.
+  const runLlmUpgrade = async () => {
+    try {
+      const { upgradeQueueDraftsWithLlm } = await import(
+        "../src/domains/recommendation-intelligence/llm-queue-upgrade"
+      );
+      const up = await upgradeQueueDraftsWithLlm({ tenantId });
+      console.log(
+        up.ran
+          ? `[scheduled-generation] LLM-UPGRADE ran tenant=${tenantId} processed=${up.processed} accepted=${up.accepted} persisted=${up.persisted} cost_usd=${up.cost_usd.toFixed(4)}`
+          : `[scheduled-generation] LLM-UPGRADE skipped tenant=${tenantId} reason=${up.reason}`,
+      );
+    } catch (err) {
+      console.warn(
+        `::warning::[scheduled-generation] LLM upgrade failed (generation already landed): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
+
   // Lazy import — env must be set before tenant context resolves.
   const { promoteEligibleCandidates } = await import(
     "../src/domains/recommendation-intelligence/promotion-writer"
@@ -162,6 +186,8 @@ async function main() {
         `promoted=${result.promoted_count} skipped=${result.skipped_count} ` +
         `elapsedMs=${elapsedMs}`,
     );
+
+    await runLlmUpgrade();
     if (result.sync_warning) {
       // Dual-write degraded — the local write landed but Supabase didn't.
       // Loud (workflow log + ::warning) but not fatal: the runner's local
