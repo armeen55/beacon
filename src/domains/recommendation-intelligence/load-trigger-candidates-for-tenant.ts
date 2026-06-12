@@ -87,7 +87,7 @@ import { thinContentOverlap } from "./triggers/thin-content-overlap";
 import { staleContent, normalizeStaleUrl } from "./triggers/stale-content";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
-import { gscLowCtr } from "./triggers/gsc-low-ctr";
+import { gscLowCtr, gscStrikingDistance } from "./triggers/gsc-low-ctr";
 import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
 import {
   loadSemrushPageSignalsForTenant,
@@ -332,6 +332,16 @@ export async function loadTriggerCandidatesForTenant(options: {
     // GSC isn't connected).
     all.push(
       ...gscLowCtr({
+        tenantId,
+        snapshot,
+        signal: gscSignals.get(
+          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
+        ),
+      }),
+    );
+    // Rule B (2026-06-12) — first-party striking distance.
+    all.push(
+      ...gscStrikingDistance({
         tenantId,
         snapshot,
         signal: gscSignals.get(

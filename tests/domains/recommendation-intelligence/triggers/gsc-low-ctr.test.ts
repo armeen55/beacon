@@ -137,3 +137,52 @@ describe("gscLowCtr predicate", () => {
     ).toEqual([]);
   });
 });
+
+// ── Rule B (2026-06-12) — first-party striking distance ──────────────
+import { gscStrikingDistance } from "@/domains/recommendation-intelligence/triggers/gsc-low-ctr";
+
+describe("gscStrikingDistance predicate (Rule B)", () => {
+  it("emits when a 4–15 position query with ≥100 impressions is absent from the title", () => {
+    const out = gscStrikingDistance({
+      tenantId: "tenant-a",
+      snapshot: snap({ title: "Tea" }),
+      signal: signal({
+        topQueries: [
+          { query: "persian tea ceremony", clicks: 4, impressions: 320, ctr: 0.0125, position: 9.2 },
+        ],
+      }),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.trigger_signal).toBe("gsc_striking_distance");
+    expect(out[0]!.topic_cluster_label).toBe("persian tea ceremony");
+    expect(out[0]!.evidence[0]!.detail).toContain("impressions=320");
+  });
+
+  it("abstains when the query already appears in the title", () => {
+    const out = gscStrikingDistance({
+      tenantId: "tenant-a",
+      snapshot: snap({ title: "Persian Tea Ceremony Guide" }),
+      signal: signal({
+        topQueries: [
+          { query: "persian tea ceremony", clicks: 4, impressions: 320, ctr: 0.0125, position: 9.2 },
+        ],
+      }),
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("ignores positions outside 4–15 and low impressions", () => {
+    const out = gscStrikingDistance({
+      tenantId: "tenant-a",
+      snapshot: snap({ title: "Tea" }),
+      signal: signal({
+        topQueries: [
+          { query: "top three", clicks: 9, impressions: 300, ctr: 0.03, position: 2.1 },
+          { query: "page two deep", clicks: 0, impressions: 300, ctr: 0, position: 18.0 },
+          { query: "thin one", clicks: 1, impressions: 40, ctr: 0.025, position: 9.0 },
+        ],
+      }),
+    });
+    expect(out).toEqual([]);
+  });
+});

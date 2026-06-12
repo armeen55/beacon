@@ -34,6 +34,8 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
     // Insight Graph slice 1 (2026-06-12): GSC low-CTR fused signal.
     ["gsc_low_ctr", "edit_title"],
     ["semrush_striking_distance", "edit_title"],
+    ["missing_schema_store", "add_schema"],
+    ["gsc_striking_distance", "edit_title"],
   ] as const)(
     "returns customer-queue-ready for %s::%s",
     (signal, actionType) => {
@@ -117,7 +119,7 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
 });
 
 describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
-  it("returns exactly the 10 customer-queue-ready pairs in stable order", () => {
+  it("returns exactly the 12 customer-queue-ready pairs in stable order", () => {
     const pairs = listCustomerQueueReadyPairs();
     expect(pairs).toEqual([
       "missing_title::edit_title",
@@ -130,18 +132,20 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
       "invalid_schema::fix_schema",
       "gsc_low_ctr::edit_title",
       "semrush_striking_distance::edit_title",
+      "missing_schema_store::add_schema",
+      "gsc_striking_distance::edit_title",
     ]);
   });
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (21 post-Insight-Graph-2)", () => {
-    // 10 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 21
+  it("table size matches the locked entry count (23 post-Rule-B)", () => {
+    // 12 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 23
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
     // `missing_schema_content::add_schema`; the fix_schema slice
     // (2026-06-12) added `invalid_schema::fix_schema` (both
     // customer-queue-ready).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(21);
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(23);
   });
 });

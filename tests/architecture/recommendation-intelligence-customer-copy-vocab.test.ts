@@ -121,6 +121,8 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // Insight Graph slice 2 (2026-06-12) — striking-distance template.
   // Args: (keyword, position, volume).
   strikingDistanceCopy: [["persian rugs", 12, 590], ["k", 4, 10]],
+  // Rule B (2026-06-12) — first-party striking-distance template.
+  gscStrikingDistanceCopy: [["nowruz traditions", 9, 1200], ["q", 4, 100]],
 };
 
 function scanForViolations(output: string): string[] {

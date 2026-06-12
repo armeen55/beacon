@@ -116,6 +116,13 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // (third-party rank data, sourced 4-20 band) -> title push when the
   // keyword is absent from the title.
   ["semrush_striking_distance::edit_title", "customer-queue-ready"],
+  // Wix SEO push slice (2026-06-12): Breadcrumb-only block on store
+  // product pages — duplication-safe + one-click pushable via the
+  // Stores seoData write behind the Accept click.
+  ["missing_schema_store::add_schema", "customer-queue-ready"],
+  // Rule B (2026-06-12): FIRST-PARTY striking distance (4-15 band,
+  // GSC impressions floor, query-not-in-title play).
+  ["gsc_striking_distance::edit_title", "customer-queue-ready"],
 
   // ── diagnostic-only ───────────────────────────────────────────
   // Pending industry calibration. Schema expectations are

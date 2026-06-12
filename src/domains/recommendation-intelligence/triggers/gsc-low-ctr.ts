@@ -39,7 +39,10 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
-import { gscLowCtrCopy } from "../customer-copy-templates";
+import {
+  gscLowCtrCopy,
+  gscStrikingDistanceCopy,
+} from "../customer-copy-templates";
 import { isNonHtmlAsset } from "../page-classifier";
 import type { GscPageSignal, GscQuerySignal } from "../gsc-page-signals";
 
@@ -146,6 +149,97 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
               " impr)",
           )
           .join(" | "),
+      dedupe_key: dedupeKey({
+        tenantId,
+        actionType,
+        targetUrl,
+        topicClusterLabel,
+      }),
+      cooldown_key: cooldownKey({ tenantId, actionType, targetUrl }),
+      created_from_signal_at: snapshot.fetched_at,
+      safety_flags: [],
+    },
+  ];
+}
+
+/**
+ * Rule B — first-party striking distance (2026-06-12). Sourced bands:
+ * SEJ tooling 4–20 default, Backlinko 8–20, Ahrefs "almost there"
+ * <8.1 — v1 uses 4–15 (the overlap the GSC research recommends) with
+ * the spec's impressions floor. The play (SEJ): the query must appear
+ * in the title — when absent, an edit_title candidate carries the
+ * query + numbers. First-party impressions are STRONGER evidence than
+ * third-party volume (Mueller: tool volumes "will always be wrong").
+ */
+const STRIKING_MIN_POS = 4;
+const STRIKING_MAX_POS = 15;
+const STRIKING_MIN_IMPRESSIONS_28D = 100;
+
+function titleContains(text: string | null | undefined, q: string): boolean {
+  const hay = (text ?? "").toLowerCase();
+  if (!hay) return false;
+  const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return tokens.length > 0 && tokens.every((t) => hay.includes(t));
+}
+
+export function gscStrikingDistance(
+  input: GscLowCtrInput,
+): RecommendationCandidateRow[] {
+  const { tenantId, snapshot, signal } = input;
+  if (isNonHtmlAsset(snapshot.url)) return [];
+  if (signal == null) return [];
+
+  const target = signal.topQueries
+    .filter(
+      (q) =>
+        q.impressions >= STRIKING_MIN_IMPRESSIONS_28D &&
+        q.position >= STRIKING_MIN_POS &&
+        q.position <= STRIKING_MAX_POS &&
+        !titleContains(snapshot.title, q.query),
+    )
+    .sort((a, b) => b.impressions - a.impressions)[0];
+  if (target == null) return [];
+
+  const actionType = "edit_title" as const;
+  const targetUrl = snapshot.url;
+  const topicClusterLabel = target.query;
+
+  return [
+    {
+      tenant_id: tenantId,
+      trigger_signal: "gsc_striking_distance",
+      action_type: actionType,
+      generator_kind: "deterministic",
+      target_url: targetUrl,
+      topic_cluster_label: topicClusterLabel,
+      evidence: [
+        {
+          kind: "page_snapshot",
+          ref: targetUrl,
+          detail:
+            "gsc_28d striking query=" +
+            target.query +
+            "; impressions=" +
+            target.impressions +
+            "; position=" +
+            target.position.toFixed(1) +
+            "; keyword_in_title=false",
+        },
+      ],
+      confidence: "medium",
+      impact_estimate: "high",
+      customer_copy: gscStrikingDistanceCopy(
+        target.query,
+        Math.round(target.position),
+        target.impressions,
+      ),
+      operator_evidence:
+        "signal=gsc_striking_distance; band=4-15; window=28d; query=" +
+        target.query +
+        "; impressions=" +
+        target.impressions +
+        "; position=" +
+        target.position.toFixed(1),
       dedupe_key: dedupeKey({
         tenantId,
         actionType,
