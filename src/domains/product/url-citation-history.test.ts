@@ -152,6 +152,34 @@ describe("buildNativeDayBuckets — owned-URL dedup invariant", () => {
     expect(day.by_platform.chatgpt).toBe(1);
   });
 
+  it("canonicalizes platform case — 'ChatGPT' + 'chatgpt' collapse to ONE per-platform series", () => {
+    // Prod citation data carries both "chatgpt" and "ChatGPT"; un-normalized
+    // they split the per-platform diff-in-diff breakdown in two. The total
+    // count is unaffected; the per-platform series must collapse.
+    const obsA = nativeObs({
+      id: "obs-mixed-A",
+      observed_at: "2026-04-23T12:00:00Z",
+      platform: "ChatGPT",
+      citation_urls: ["https://ritzbuilders.com/locations/palo-alto"],
+    });
+    const obsB = nativeObs({
+      id: "obs-mixed-B",
+      observed_at: "2026-04-23T18:00:00Z",
+      platform: "chatgpt",
+      citation_urls: ["https://ritzbuilders.com/locations/palo-alto"],
+    });
+    const out = buildNativeDayBuckets([obsA, obsB], {
+      ownedOnly: true,
+      since: null,
+      ownedUrlPathSet: OWNED_SET,
+    });
+    const day = out.get(RITZ_PA_PALO_ALTO)!.get("2026-04-23")!;
+    expect(day.count).toBe(2);
+    expect(day.by_platform.chatgpt).toBe(2);
+    expect(day.by_platform.ChatGPT).toBeUndefined();
+    expect(Object.keys(day.by_platform)).toEqual(["chatgpt"]);
+  });
+
   it("invariant 1 sanity: 10 duplicates across one answer still = 1", () => {
     const dupes = Array(10).fill("https://ritzbuilders.com/locations/palo-alto");
     const obs = nativeObs({
