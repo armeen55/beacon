@@ -417,13 +417,83 @@ export function buildOutcomeSummaryIndex(outcomes: StoredChangeOutcome[]): Outco
 // Persistence (server-only)
 // ---------------------------------------------------------------------------
 
+/** Durable Supabase home for the full StoredChangeOutcome (JSONB). Distinct
+ *  from the legacy `change_outcomes` table (old ChangeOutcome shape). The
+ *  local json-store skips disk on Vercel + is ephemeral on the cron runner,
+ *  so this is the ONLY place a hosted web app can read the engine's output. */
+const SUPABASE_TABLE = "change_outcomes_v2";
+
+/** StoredChangeOutcome → change_outcomes_v2 row. `id` is the composite PK so
+ *  dualWriteUpsert's single-key onConflict dedupes per (tenant, source). */
+function toSupabaseRow(o: StoredChangeOutcome, tenantId: string) {
+  return {
+    id: `${tenantId}::${o.source_id}`,
+    tenant_id: tenantId,
+    source_id: o.source_id,
+    status: o.status,
+    primary_bucket: o.primary_bucket,
+    outcome: o as unknown as Record<string, unknown>,
+    computed_at: o.computed_at,
+    stored_at: o.stored_at,
+  };
+}
+
 export async function persistChangeOutcomes(outcomes: StoredChangeOutcome[]): Promise<void> {
   for (const o of outcomes) validateInvariants(o);
   await writeStore(STORE_NAME, outcomes);
+
+  // Durable Supabase dual-write (the hosted truth). Without this the engine's
+  // outcomes never leave the runner's ephemeral FS / Vercel's in-process
+  // cache, so the web app's loadChangeOutcomeById reads empty. Failure-soft:
+  // the local write already succeeded and the engine recomputes the full set
+  // each run, so a transient sync failure self-heals on the next run.
+  try {
+    const { isDualWriteEnabled, dualWriteUpsert } = await import(
+      "@/lib/persistence/dual-write"
+    );
+    if (!isDualWriteEnabled() || outcomes.length === 0) return;
+    const { currentTenantId } = await import("@/lib/tenant-context");
+    const tenantId = await currentTenantId();
+    const rows = outcomes.map((o) => toSupabaseRow(o, tenantId));
+    await dualWriteUpsert(SUPABASE_TABLE, rows, "id");
+  } catch (err) {
+    console.warn(
+      `[change-outcome-store] Supabase sync failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** Hydrate this tenant's outcomes from Supabase (the durable hosted truth).
+ *  Returns null when Supabase/dual-write isn't configured or the read fails —
+ *  callers fall back to the local store (tests + local dev stay on disk). */
+async function loadChangeOutcomesFromSupabase(): Promise<StoredChangeOutcome[] | null> {
+  try {
+    const { isDualWriteEnabled } = await import("@/lib/persistence/dual-write");
+    if (!isDualWriteEnabled()) return null;
+    const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+    const { currentTenantId } = await import("@/lib/tenant-context");
+    const tenantId = await currentTenantId();
+    const { data, error } = await getSupabaseAdmin()
+      .from(SUPABASE_TABLE)
+      .select("outcome")
+      .eq("tenant_id", tenantId);
+    if (error || !data) return null;
+    return data
+      .map((r) => (r as { outcome: StoredChangeOutcome }).outcome)
+      .filter((o): o is StoredChangeOutcome => !!o && typeof o === "object");
+  } catch {
+    return null;
+  }
 }
 
 export async function loadAllChangeOutcomes(): Promise<StoredChangeOutcome[]> {
-  return await readStore<StoredChangeOutcome>(STORE_NAME);
+  // Local-first (covers tests + the cron's own just-written set), then the
+  // durable Supabase truth when local is empty — the hosted web-app case,
+  // where writeStore only ever populated an empty in-process cache.
+  const local = await readStore<StoredChangeOutcome>(STORE_NAME);
+  if (local.length > 0) return local;
+  const fromDb = await loadChangeOutcomesFromSupabase();
+  return fromDb ?? local;
 }
 
 export async function loadChangeOutcomeById(sourceId: string): Promise<StoredChangeOutcome | null> {
