@@ -27,6 +27,7 @@
  */
 
 import type { ClassifiedEvent } from "./change-taxonomy";
+import { computePlaceboP, isPlaceboSignificant } from "./placebo-inference";
 import {
   denseSeries,
   normalizeUrl,
@@ -124,6 +125,11 @@ export type PlatformLift = {
   controls_used: number;
   pre_days_observed: number;
   post_days_observed: number;
+  /** Leave-one-out placebo p-value for adjusted_lift (#64 wiring,
+   *  2026-06-12) — the share of control pseudo-lifts at least as
+   *  extreme as the observed lift. Set on the OVERALL lift of
+   *  `computed` results only; null when <2 controls. */
+  placebo_p?: number | null;
 };
 
 /**
@@ -678,6 +684,24 @@ export function attributeEvent(inputs: AttributeInputs): NaturalControlResult {
   } else if (aggControls.length >= config.minControlsForComputed) {
     status = "computed";
     overall = computeDiffInDiff(treatedAggAgg, aggControls, config, "overall");
+
+    // Placebo (permutation) inference — #64 wiring (2026-06-12 night
+    // shift). HIGH confidence additionally requires the observed lift
+    // to beat the placebo distribution of the engine's OWN control
+    // deltas (p < 0.1; Bertrand-Duflo-Mullainathan / Conley-Taber /
+    // Mixtape ch.9 — sources in placebo-inference.ts). A lift that
+    // untreated pages matched by chance stays an honest "medium".
+    const placeboP = computePlaceboP(
+      overall.adjusted_lift,
+      aggControls.map((c) => c.delta),
+    );
+    overall = { ...overall, placebo_p: placeboP };
+    if (graded.tier === "high" && !isPlaceboSignificant(placeboP)) {
+      graded.tier = "medium";
+      warnings.push(
+        `placebo_not_significant: p=${placeboP ?? "n/a"} across ${aggControls.length} leave-one-out placebos — untreated pages moved this much by chance; confidence capped at medium`,
+      );
+    }
 
     // Per-platform: rebuild the control pool FOR EACH PLATFORM (platform-aware filtering)
     for (const p of platforms) {

@@ -550,3 +550,56 @@ describe("attributeEvent — structural split (no adjusted_lift leakage)", () =>
     expect(r.status).toBe("ineligible_layer");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Placebo wiring (#64 → engine, 2026-06-12 night shift): HIGH confidence on
+// computed results additionally requires the lift to beat the leave-one-out
+// placebo distribution of the engine's own control deltas (p < 0.1).
+// ---------------------------------------------------------------------------
+
+function stepSeries(url: string, start: string, preDays: number, preCount: number, postDays: number, postCount: number, platform = "ChatGPT"): UrlCitationSeries {
+  return mkSeries(
+    url,
+    daysFrom(start, preDays + postDays).map((d, i) => {
+      const count = i < preDays ? preCount : postCount;
+      return { date: d, count, by_platform: { [platform]: count } };
+    }),
+  );
+}
+
+describe("attributeEvent — placebo inference gates HIGH confidence", () => {
+  const treatmentDate = "2026-04-15";
+
+  it("a real lift vs flat controls clears the placebo bar → HIGH, placebo_p persisted", () => {
+    // Treated: 5/day pre → 9/day post. Controls: flat (deltas ≈ 0).
+    const treated = stepSeries("/locations/t", "2026-04-01", 14, 5, 14, 9);
+    const c1 = constantSeries("/locations/c1", "2026-04-01", 28, 6);
+    const c2 = constantSeries("/locations/c2", "2026-04-01", 28, 5);
+    const c3 = constantSeries("/locations/c3", "2026-04-01", 28, 4);
+    const history = mkHistory([treated, c1, c2, c3]);
+    const event = mkEvent({ source_id: "e1", observed_at: treatmentDate, url: "/locations/t" });
+    const r = attributeEvent({
+      event, history, treatmentIndex: new Map(), config: DEFAULT_CONFIG, inferUrlType: inferTestUrlType, classifierVersion: CLASSIFIER_VERSION,
+    });
+    expect(r.status).toBe("computed");
+    expect(r.confidence).toBe("high");
+    expect(r.overall!.placebo_p).toBe(0); // no flat control matched a +4 lift
+    expect(r.warnings.join(" ")).not.toContain("placebo_not_significant");
+  });
+
+  it("a chance-level lift (treated flat like the controls) is capped at MEDIUM with the warning", () => {
+    const treated = constantSeries("/locations/t", "2026-04-01", 28, 5);
+    const c1 = constantSeries("/locations/c1", "2026-04-01", 28, 6);
+    const c2 = constantSeries("/locations/c2", "2026-04-01", 28, 5);
+    const c3 = constantSeries("/locations/c3", "2026-04-01", 28, 4);
+    const history = mkHistory([treated, c1, c2, c3]);
+    const event = mkEvent({ source_id: "e1", observed_at: treatmentDate, url: "/locations/t" });
+    const r = attributeEvent({
+      event, history, treatmentIndex: new Map(), config: DEFAULT_CONFIG, inferUrlType: inferTestUrlType, classifierVersion: CLASSIFIER_VERSION,
+    });
+    expect(r.status).toBe("computed"); // the point estimate is unchanged
+    expect(r.confidence).toBe("medium"); // ...but never sold as HIGH
+    expect(r.overall!.placebo_p).toBe(1); // every placebo matched a 0 lift
+    expect(r.warnings.join(" ")).toContain("placebo_not_significant");
+  });
+});

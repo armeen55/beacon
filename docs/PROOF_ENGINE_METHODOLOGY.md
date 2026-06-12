@@ -40,7 +40,17 @@ owned-citation rate. Config (`DEFAULT_CONFIG`): `preWindowDays=14`,
 practice. The "Proof" claim is defensible: it is a transparent DiD estimate
 against real comparable pages, graded by control count, never a black-box score.
 
-## The one sourced refinement that would harden it (next build)
+## The one sourced refinement that would harden it — ✅ BUILT + WIRED
+
+> **Status (2026-06-12 night shift):** built as `placebo-inference.ts`
+> (exhaustive leave-one-out — deterministic, no RNG, strictly stronger than
+> the K-draw sketch below) and **wired into `attributeEvent`**: every
+> `computed` outcome's overall lift now carries `placebo_p`, and
+> `confidence: "high"` requires BOTH `≥minControlsForHighConfidence` AND
+> `placebo_p < 0.1` (a chance-level lift is capped at `medium` with a
+> `placebo_not_significant` warning). Pinned by the two attributeEvent
+> placebo tests (strong lift → p=0 stays high; flat treated → p=1 capped).
+
 
 The small-cluster literature's strongest recommendation is **permutation /
 placebo inference** rather than relying on a point estimate alone: re-run the
