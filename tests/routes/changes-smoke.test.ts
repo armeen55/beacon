@@ -22,6 +22,20 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/changes",
 }));
 
+// 2026-06-12 — `hasActiveExperiment()` gates the page on import-runs
+// existing for the CURRENT tenant. It now reads through
+// `forTenant(tenantId)` (the unscoped read it replaced bled other
+// tenants' import-runs in — the seed-data isolation fix). The lifecycle
+// layout under test is downstream of that gate, so force it open; the
+// changelog itself still comes from the real `forTenant` read at
+// page.tsx:161. Only `hasActiveExperiment` is overridden — getResults /
+// getOpportunities keep their real (now tenant-scoped) behavior.
+vi.mock("@/lib/seed-data.server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/seed-data.server")>();
+  return { ...actual, hasActiveExperiment: async () => true };
+});
+
 describe("Changes route smoke", () => {
   it("ChangeScorecardPage RSC renders Phase 6A.2 lifecycle layout", async () => {
     const { default: ChangeScorecardPage } = await import(

@@ -37,6 +37,18 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/changes",
 }));
 
+// 2026-06-12 — `hasActiveExperiment()` gates the page on import-runs
+// existing for the CURRENT tenant. It now reads through
+// `forTenant(tenantId)` (the unscoped read it replaced bled other
+// tenants' import-runs in — the seed-data isolation fix). The switcher
+// routing under test is downstream of that gate, so force it open; only
+// `hasActiveExperiment` is overridden so the rest stays real.
+vi.mock("@/lib/seed-data.server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/seed-data.server")>();
+  return { ...actual, hasActiveExperiment: async () => true };
+});
+
 vi.mock("@/app/(shell)/changes/scorecard-client", async () => {
   const actual = await vi.importActual<
     typeof import("@/app/(shell)/changes/scorecard-client")
