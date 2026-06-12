@@ -91,6 +91,9 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // Cannibalization slice (2026-06-12): link-structure advice wants
   // human eyes (same posture as orphan_page::add_internal_link).
   ["semrush_cannibalization::add_internal_link", "operator-review-only"],
+  // Keyword-gap slice (2026-06-12): new-content briefs commit real
+  // authoring effort — human judgment gates them.
+  ["semrush_keyword_gap::create_page", "operator-review-only"],
 
   // Content Schema Engine (2026-06-12). Unlike the builder-tuned
   // `missing_schema` signal below (diagnostic-only pending industry

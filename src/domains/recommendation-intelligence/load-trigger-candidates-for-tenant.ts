@@ -91,9 +91,11 @@ import { gscLowCtr, gscStrikingDistance } from "./triggers/gsc-low-ctr";
 import { gscDecay } from "./triggers/gsc-decay";
 import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
 import { semrushCannibalization } from "./triggers/semrush-cannibalization";
+import { semrushKeywordGap } from "./triggers/semrush-keyword-gap";
 import {
   detectCannibalization,
   loadSemrushCannibalRowsForTenant,
+  loadSemrushKeywordGapsForTenant,
   loadSemrushPageSignalsForTenant,
   type SemrushPageSignal,
 } from "./semrush-page-signals";
@@ -327,6 +329,30 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] semrush cannibalization load failed for ${tenantId} (predicate skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // Keyword-gap slice (2026-06-12): "Missing" keywords -> new-content
+  // briefs (operator-review). Soft-empty until the weekly gap sync
+  // has rows.
+  try {
+    const gaps = await loadSemrushKeywordGapsForTenant(tenantId);
+    const rootDomain = businessConfig.domain
+      ?.trim()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "");
+    if (gaps.length > 0 && rootDomain) {
+      all.push(
+        ...semrushKeywordGap({
+          tenantId,
+          gaps,
+          siteRootUrl: "https://" + rootDomain + "/",
+          signalAt: new Date().toISOString(),
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] semrush keyword-gap load failed for ${tenantId} (predicate skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   for (const snapshot of snapshots) {

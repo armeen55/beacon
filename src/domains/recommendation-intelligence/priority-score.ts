@@ -89,6 +89,9 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   // Two own pages splitting one keyword's equity — meaningful but
   // operator-reviewed (third-party evidence + structural remedy).
   semrush_cannibalization: 14,
+  // Net-new content territory (competitor-proven demand) — valuable
+  // but the most effortful play; operator-reviewed.
+  semrush_keyword_gap: 12,
 } as const;
 
 export const PAGE_IMPORTANCE_BY_PAGE_TYPE: Readonly<Record<PageType, number>> =

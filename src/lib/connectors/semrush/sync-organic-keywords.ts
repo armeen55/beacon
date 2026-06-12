@@ -104,3 +104,96 @@ export async function syncSemrushOrganicKeywordsForTenant(args: {
 
   return { synced: true, domain, rows_upserted: upserted, purged };
 }
+
+// ── Keyword-gap slice (2026-06-12) — weekly gap sync ─────────────────
+
+/**
+ * Weekly (PT Monday) keyword-gap fetch vs the tenant's TOP organic
+ * competitor (from the already-synced semrush_domain_metrics
+ * snapshot). 6 lines × 80 units = 480 — the spec's rotating weekly
+ * slot inside the nightly budget. Idempotent UPSERTs + the same ToS
+ * 30-day TTL purge. Fail-soft everywhere.
+ */
+export type SemrushGapSyncResult =
+  | { synced: false; reason: string }
+  | { synced: true; competitor: string; rows_upserted: number };
+
+export async function syncSemrushKeywordGapForTenant(args: {
+  tenantId: string;
+  now?: Date;
+}): Promise<SemrushGapSyncResult> {
+  const { tenantId } = args;
+  const now = args.now ?? new Date();
+
+  // Weekly gate: PT Monday only (the budget spec's rotation).
+  const weekdayPt = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    timeZone: "America/Los_Angeles",
+  }).format(now);
+  if (weekdayPt !== "Mon") {
+    return { synced: false, reason: "not_gap_day" };
+  }
+
+  const domain = getBusinessConfig(tenantId)
+    .domain?.trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "");
+  if (!domain) return { synced: false, reason: "no_domain" };
+
+  const { loadSemrushDomainMetrics } = await import(
+    "./persist-domain-metrics"
+  );
+  const metrics = await loadSemrushDomainMetrics(tenantId, domain);
+  const competitor = metrics?.organic_competitors?.[0]?.domain?.trim();
+  if (!competitor) {
+    return { synced: false, reason: "no_known_competitor" };
+  }
+
+  const { fetchKeywordGap } = await import("./domain-gap");
+  const rows = await fetchKeywordGap({
+    tenantId,
+    ourDomain: domain,
+    competitorDomain: competitor,
+  });
+  if (rows == null) return { synced: false, reason: "no_key_or_api_error" };
+
+  const sb = getSupabaseAdmin();
+  const mapped = rows.map((r) => ({
+    tenant_id: tenantId,
+    domain,
+    competitor_domain: competitor,
+    keyword: r.keyword,
+    competitor_position: r.competitorPosition,
+    volume: r.volume,
+    difficulty: r.difficulty,
+    fetched_at: now.toISOString(),
+  }));
+  let upserted = 0;
+  if (mapped.length > 0) {
+    const { error } = await sb
+      .from("semrush_keyword_gaps")
+      .upsert(mapped, {
+        onConflict: "tenant_id,domain,competitor_domain,keyword",
+      });
+    if (error) {
+      log.warn("[semrush-gap-sync] upsert failed", {
+        tenantId,
+        error: error.message,
+      });
+      return { synced: true, competitor, rows_upserted: 0 };
+    }
+    upserted = mapped.length;
+  }
+  // ToS 30-day TTL purge (cached third-party rows only).
+  try {
+    const cutoff = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+    await sb
+      .from("semrush_keyword_gaps")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .lt("fetched_at", cutoff);
+  } catch {
+    // best effort
+  }
+  return { synced: true, competitor, rows_upserted: upserted };
+}
