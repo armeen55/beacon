@@ -35,6 +35,10 @@ const _queryResult: { ok: boolean; value?: unknown[]; reason?: string } = { ok: 
 let _updateCalls: Array<Record<string, unknown>> = [];
 let _insertCalls: Array<Record<string, unknown>> = [];
 let _updateResult: { ok: boolean; reason?: string; detail?: string } = { ok: true };
+// Wix SEO push slice (2026-06-12) — Stores product mocks.
+let _productResult: { ok: boolean; value?: Record<string, unknown>; reason?: string } = { ok: true };
+let _seoUpdateCalls: Array<Record<string, unknown>> = [];
+let _seoUpdateResult: { ok: boolean; reason?: string; detail?: string } = { ok: true };
 vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/connectors/wix/client")>();
   return {
@@ -49,6 +53,14 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
     wixInsertDataItem: async (args: Record<string, unknown>) => {
       _insertCalls.push(args);
       return { ok: true, value: { id: "new-item", dataCollectionId: args.dataCollectionId, data: args.data } };
+    },
+    wixGetStoreProduct: async () =>
+      _productResult.ok
+        ? { ok: true, value: _productResult.value ?? { id: "prod-1", name: "P", slug: "s", seoData: { tags: [] } } }
+        : _productResult,
+    wixUpdateProductSeoData: async (args: Record<string, unknown>) => {
+      _seoUpdateCalls.push(args);
+      return _seoUpdateResult.ok ? { ok: true, value: { id: "prod-1" } } : _seoUpdateResult;
     },
   };
 });
@@ -105,6 +117,9 @@ beforeEach(() => {
   _updateCalls = [];
   _insertCalls = [];
   _updateResult = { ok: true };
+  _productResult = { ok: true };
+  _seoUpdateCalls = [];
+  _seoUpdateResult = { ok: true };
 });
 
 describe("Invariant 2 — Ritz NEVER pushes", () => {
@@ -224,5 +239,104 @@ describe("push happy path + failure ledger", () => {
     const note = formatDevNote(edit());
     expect(note).toContain("**Page:** https://www.iranopedia.com/famous-iranian-poets");
     expect(note).toContain("Ferdowsi, Hafez, and Rumi");
+  });
+});
+
+// ── Wix SEO push slice (2026-06-12) — add_schema → product seoData ──────
+
+const BREADCRUMB_BLOCK = JSON.stringify(
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Iranopedia", item: "https://www.iranopedia.com/" },
+      { "@type": "ListItem", position: 2, name: "Persian Cat Hoodie" },
+    ],
+  },
+  null,
+  2,
+);
+const SCHEMA_DRAFT =
+  "Add this JSON-LD block to the page <head> — complete and ready to paste (Beacon can also apply it for you on approval):\n" +
+  '<script type="application/ld+json">\n' +
+  BREADCRUMB_BLOCK +
+  "\n</script>";
+
+function schemaEdit(over: Partial<RecommendedEditRow> = {}): RecommendedEditRow {
+  return edit({
+    action_type: "add_schema" as RecommendedEditRow["action_type"],
+    target_url: "https://www.iranopedia.com/product-page/persian-cat-hoodie",
+    target_element_key: null,
+    proposed_text: SCHEMA_DRAFT,
+    current_text: null,
+    ...over,
+  });
+}
+
+describe("wix_cms SEO route — add_schema cards push to product seoData", () => {
+  beforeEach(() => {
+    _queryResult.ok = true;
+    _queryResult.value = [
+      { id: "prod-1", dataCollectionId: "Stores/Products", data: { slug: "persian-cat-hoodie" } },
+    ];
+  });
+
+  it("pushes the extracted JSON-LD block onto the matched product's seoData (snapshot first)", async () => {
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: schemaEdit() });
+    expect(r.kind).toBe("pushed");
+    expect(_seoUpdateCalls).toHaveLength(1);
+    const tags = (_seoUpdateCalls[0]!.tags ?? []) as Array<Record<string, unknown>>;
+    const script = tags.find((t) => t.type === "script")!;
+    expect(script).toBeDefined();
+    expect(String(script.children)).toContain('"BreadcrumbList"');
+    // fail-closed snapshot captured before the write
+    const snaps = (_stores.get("push-snapshots") ?? []) as Array<Record<string, unknown>>;
+    expect(snaps.length).toBeGreaterThanOrEqual(1);
+    expect(snaps[snaps.length - 1]!.field).toBe("seoData");
+  });
+
+  it("replaces a prior custom script tag of the same @type (idempotent re-push)", async () => {
+    _productResult = {
+      ok: true,
+      value: {
+        id: "prod-1", name: "P", slug: "persian-cat-hoodie",
+        seoData: { tags: [
+          { type: "title", children: "Keep me", custom: false, disabled: false },
+          { type: "script", props: { type: "application/ld+json" }, children: '{"@type":"BreadcrumbList"}', custom: true, disabled: false },
+        ] },
+      },
+    };
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: schemaEdit() });
+    expect(r.kind).toBe("pushed");
+    const tags = (_seoUpdateCalls[0]!.tags ?? []) as Array<Record<string, unknown>>;
+    expect(tags.filter((t) => t.type === "script")).toHaveLength(1);
+    expect(tags.find((t) => t.type === "title")).toBeDefined();
+  });
+
+  it("refuses when the URL does not match any store product (card stays paste-ready)", async () => {
+    _queryResult.value = [
+      { id: "prod-2", dataCollectionId: "Stores/Products", data: { slug: "other-product" } },
+    ];
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: schemaEdit() });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toMatch(/not a Wix Stores product/);
+    expect(_seoUpdateCalls).toHaveLength(0);
+  });
+
+  it("refuses when the draft has no extractable JSON-LD block", async () => {
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: schemaEdit({ proposed_text: "Fix the offers block on your Product schema." }),
+    });
+    expect(r.kind).toBe("refused");
+    expect(_seoUpdateCalls).toHaveLength(0);
+  });
+
+  it("refuses (fail-closed) when the product read for the snapshot fails", async () => {
+    _productResult = { ok: false, reason: "api_error" };
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: schemaEdit() });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toMatch(/snapshot/);
+    expect(_seoUpdateCalls).toHaveLength(0);
   });
 });

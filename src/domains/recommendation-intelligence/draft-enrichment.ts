@@ -639,6 +639,67 @@ function composeFixSchema(
   };
 }
 
+/**
+ * Wix SEO push slice (2026-06-12) — BreadcrumbList-only draft for
+ * store-product pages (`missing_schema_store`). Breadcrumb is the one
+ * duplication-safe type there (the platform auto-generates Product
+ * JSON-LD) and the block is machine-extractable, so the push path can
+ * apply it via the Stores seoData write on Accept.
+ */
+function composeStoreBreadcrumbSchema(
+  candidate: RecommendationCandidateRow,
+  snap: PageSnapshot,
+  brand: { separator: string; suffix: string } | null,
+): DraftFill | null {
+  const headline = snap.h1?.trim() || snap.title?.trim() || "";
+  if (!headline) return null;
+  const pageUrl = candidate.target_url ?? snap.url;
+  const orgName = brand?.suffix?.trim() || "";
+  let block: string;
+  try {
+    const u = new URL(pageUrl);
+    const segments = u.pathname.split("/").filter((s) => s.length > 0);
+    if (segments.length === 0) return null;
+    const rootName = orgName || u.hostname.replace(/^www\./i, "");
+    const items: Array<Record<string, unknown>> = [
+      { "@type": "ListItem", position: 1, name: rootName, item: `${u.origin}/` },
+    ];
+    let cumulative = "";
+    for (let i = 0; i < segments.length - 1; i++) {
+      cumulative += `/${segments[i]}`;
+      items.push({
+        "@type": "ListItem",
+        position: items.length + 1,
+        name: humanizePathSegment(segments[i]!),
+        item: `${u.origin}${cumulative}`,
+      });
+    }
+    items.push({
+      "@type": "ListItem",
+      position: items.length + 1,
+      name: headline,
+    });
+    block = jsonLdScript({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: items,
+    });
+  } catch {
+    return null;
+  }
+  return {
+    display_label:
+      "Add breadcrumb structured data so engines see where this product sits",
+    current_text: null,
+    proposed_text:
+      "Add this JSON-LD block to the page <head> — complete and ready to paste (Beacon can also apply it for you on approval):\n" +
+      block,
+    expected_impact:
+      "Structured data is the page explaining itself in the engines' own language.",
+    measurement_plan: FIX_VERIFY_PLAN,
+  };
+}
+
 function composeSchema(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot | undefined,
@@ -651,6 +712,12 @@ function composeSchema(
   // skeleton below.
   if (candidate.trigger_signal === "missing_schema_content") {
     return composeContentArticleSchema(candidate, snap, brand);
+  }
+
+  // Wix SEO push slice (2026-06-12): store-product pages get a
+  // Breadcrumb-only block (duplication-safe + pushable).
+  if (candidate.trigger_signal === "missing_schema_store") {
+    return composeStoreBreadcrumbSchema(candidate, snap, brand);
   }
 
   const name = snap.title?.trim() || snap.h1?.trim() || "";
