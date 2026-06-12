@@ -151,6 +151,12 @@ export type PriorityScoreInput = {
   /** Fusion-EV slice (2026-06-12): first-party expected-clicks
    *  upside (28d). Optional — only GSC-backed candidates carry it. */
   upside_clicks_28d?: number;
+  /** Fusion slice (2026-06-12): bounded GA4 page-value multiplier
+   *  (1.0–1.5, computed by ga4ValueWeight). Optional — defaults
+   *  neutral. Applied to the whole base so blockers and polish on
+   *  the SAME page scale equally (the locked blocker-vs-polish
+   *  ordering is unaffected). */
+  page_value_weight?: number;
 };
 
 /**
@@ -183,8 +189,15 @@ export function priorityScore(c: PriorityScoreInput): number {
   const safety = c.safety_flags.length === 0 ? 1 : 0;
   const effort = EFFORT_BY_ACTION_TYPE[c.action_type] ?? DEFAULT_EFFORT;
 
+  // Bounded defensive clamp — the weight is computed bounded
+  // upstream, but the scorer never trusts inputs blindly.
+  const valueWeight = Math.min(
+    1.5,
+    Math.max(1, c.page_value_weight ?? 1),
+  );
   const raw =
     ((severity + indexBlocker + pageImportance + upsideBonus(c.upside_clicks_28d)) *
+      valueWeight *
       conf *
       prereq *
       safety) /
