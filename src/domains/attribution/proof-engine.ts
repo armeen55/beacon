@@ -46,6 +46,7 @@ import {
   type ResultStatus,
 } from "./natural-controls";
 import { CLASSIFIER_VERSION, inferUrlType } from "./change-taxonomy";
+import { alignTreatmentDates, type LiveEditLike } from "./align-treatment-dates";
 import { classifyChangelogEntries } from "./changelog-classifier";
 import {
   fromNaturalControlResult,
@@ -77,6 +78,9 @@ const PERSISTABLE_STATUSES: ReadonlySet<ResultStatus> = new Set([
 
 export type ProofEngineDeps = {
   loadChangelog?: () => Promise<ReadonlyArray<ChangelogEntry & { archived?: boolean }>>;
+  /** Tenant's recommended_edits rows — only the live-state slice is read
+   *  (audit fix #26: treatment dates realign to `live_at`). */
+  loadEdits?: () => Promise<ReadonlyArray<LiveEditLike>>;
   loadHistory?: () => Promise<UrlCitationHistory>;
   persist?: (outcomes: StoredChangeOutcome[]) => Promise<void>;
   /** Test clock; defaults to the history's last date inside the engine. */
@@ -123,6 +127,21 @@ export async function buildAndPersistTenantProof(
       const { getRepository } = await import("@/lib/persistence/repositories");
       return getRepository().forTenant(tenantId).getChangelogEntries();
     });
+  // Audit fix #26 (2026-06-12): treatment dates anchor to the linked
+  // edit's `live_at` (when the change actually hit the page), not the
+  // changelog's accept-time stamp — see align-treatment-dates.ts. Read
+  // through the same explicit per-tenant repository; fail-soft to []
+  // (alignment is then a no-op and accept time stays the anchor).
+  const loadEdits =
+    deps.loadEdits ??
+    (async () => {
+      try {
+        const { getRepository } = await import("@/lib/persistence/repositories");
+        return await getRepository().forTenant(tenantId).getRecommendedEdits();
+      } catch {
+        return [];
+      }
+    });
   const loadHistory =
     deps.loadHistory ??
     (async () => {
@@ -134,7 +153,7 @@ export async function buildAndPersistTenantProof(
     });
   const persist = deps.persist ?? persistChangeOutcomes;
 
-  const entries = await loadChangelog();
+  const entries = alignTreatmentDates(await loadChangelog(), await loadEdits());
   const events = classifyChangelogEntries(entries, tenantId);
   const history = await loadHistory();
 
