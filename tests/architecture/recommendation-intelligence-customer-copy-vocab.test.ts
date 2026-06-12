@@ -127,6 +127,8 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   gscDecayCopy: [[25], [80]],
   // Cannibalization slice (2026-06-12). Arg: keyword.
   cannibalizationCopy: [["persian rugs"], ["x"]],
+  // Keyword-gap slice (2026-06-12). Args: (keyword, volume).
+  keywordGapCopy: [["nowruz gifts", 880], ["q", 10]],
 };
 
 function scanForViolations(output: string): string[] {

@@ -198,3 +198,15 @@ export function cannibalizationCopy(keyword: string): string {
     "\u201d, splitting their strength. Pointing one at the other makes the stronger page win."
   );
 }
+
+// ── Keyword-gap slice (2026-06-12) ───────────────────────────────────────
+
+export function keywordGapCopy(keyword: string, volume: number): string {
+  return (
+    "A rival already wins \u201c" +
+    keyword +
+    "\u201d in Google \u2014 searched about " +
+    volume.toLocaleString("en-US") +
+    " times a month \u2014 and you have no page for it. A dedicated page puts you in that race."
+  );
+}

@@ -209,3 +209,35 @@ export async function loadSemrushCannibalRowsForTenant(
     return [];
   }
 }
+
+/** Gap rows for the keyword-gap trigger (bounded; fail-soft empty). */
+export async function loadSemrushKeywordGapsForTenant(
+  tenantId: string,
+): Promise<
+  Array<{
+    keyword: string;
+    competitor_domain: string;
+    competitor_position: number;
+    volume: number;
+    difficulty: number | null;
+  }>
+> {
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("semrush_keyword_gaps")
+      .select("keyword, competitor_domain, competitor_position, volume, difficulty")
+      .eq("tenant_id", tenantId)
+      .limit(500);
+    if (error) return [];
+    return (data ?? []) as Array<{
+      keyword: string;
+      competitor_domain: string;
+      competitor_position: number;
+      volume: number;
+      difficulty: number | null;
+    }>;
+  } catch {
+    return [];
+  }
+}

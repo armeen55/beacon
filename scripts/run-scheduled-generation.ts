@@ -139,6 +139,17 @@ async function main() {
         ? `[scheduled-generation] SEMRUSH synced tenant=${tenantId} domain=${sem.domain} rows=${sem.rows_upserted}`
         : `[scheduled-generation] SEMRUSH skipped tenant=${tenantId} reason=${sem.reason}`,
     );
+    // Keyword-gap slice (2026-06-12): weekly (PT Monday) gap fetch —
+    // 480 units max, inside the rotating budget slot. Fail-soft.
+    const { syncSemrushKeywordGapForTenant } = await import(
+      "../src/lib/connectors/semrush/sync-organic-keywords"
+    );
+    const gap = await syncSemrushKeywordGapForTenant({ tenantId });
+    console.log(
+      gap.synced
+        ? `[scheduled-generation] SEMRUSH-GAP synced tenant=${tenantId} competitor=${gap.competitor} rows=${gap.rows_upserted}`
+        : `[scheduled-generation] SEMRUSH-GAP skipped tenant=${tenantId} reason=${gap.reason}`,
+    );
   } catch (err) {
     console.warn(
       `::warning::[scheduled-generation] SEMrush sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,

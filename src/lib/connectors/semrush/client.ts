@@ -45,6 +45,9 @@ export type SemrushRawFetchArgs = {
   /** Sort order, e.g. "tr_desc" (traffic share) — Insight Graph
    *  slice 2 (2026-06-12). Omitted → Semrush's default sort. */
   displaySort?: string;
+  /** Keyword-gap slice (2026-06-12): report-specific extra query
+   *  params (e.g. domain_domains' `domains` comparison chain). */
+  extraParams?: Record<string, string>;
 };
 
 export type SemrushTokenLike = {
@@ -103,6 +106,11 @@ export async function semrushRawFetch(
   );
   if (args.displaySort != null && args.displaySort !== "") {
     url.searchParams.set("display_sort", args.displaySort);
+  }
+  if (args.extraParams != null) {
+    for (const [k, v] of Object.entries(args.extraParams)) {
+      url.searchParams.set(k, v);
+    }
   }
 
   const doFetch = deps.fetchImpl ?? fetch;
