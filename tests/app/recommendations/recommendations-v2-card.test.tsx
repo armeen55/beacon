@@ -231,3 +231,29 @@ describe("Bundle 2A — deriveEvidenceChips fallbacks", () => {
     expect(chips.length).toBeLessThanOrEqual(3);
   });
 });
+
+// ── One-tap slice (2026-06-12) — inline Accept on the card ───────────
+describe("RecommendationV2Card — one-tap Accept", () => {
+  it("renders the Accept button when onAccept is wired, and Review stays available", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card row={makeRow()} onAccept={() => {}} acceptState="idle" />,
+    );
+    expect(html).toContain('data-recommendation-v2-cta="accept"');
+    expect(html).toContain(">Accept<");
+    expect(html).toContain('data-recommendation-v2-cta="review"');
+  });
+
+  it("shows the accepted state and disables the button", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card row={makeRow()} onAccept={() => {}} acceptState="accepted" />,
+    );
+    expect(html).toContain("Accepted ✓");
+    expect(html).toContain("disabled");
+  });
+
+  it("stays presentation-only without onAccept (no Accept button)", () => {
+    const html = renderToStaticMarkup(<RecommendationV2Card row={makeRow()} />);
+    expect(html).not.toContain('data-recommendation-v2-cta="accept"');
+    expect(html).toContain('data-recommendation-v2-cta="primary"');
+  });
+});

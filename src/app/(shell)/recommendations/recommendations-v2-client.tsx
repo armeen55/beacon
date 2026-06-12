@@ -29,7 +29,7 @@
  * logic changes.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 
 import {
@@ -39,6 +39,10 @@ import {
 } from "@/domains/recommendations/recommendation-action-rows";
 
 import { RecommendationV2Card } from "@/components/recommendations/v2/recommendation-v2-card";
+import {
+  acceptRecommendation,
+  type RecommendationActionPayload,
+} from "./actions";
 import { RecommendationsV2WorkingRail } from "@/components/recommendations/v2/recommendations-v2-working-rail";
 import type {
   RecommendationQueueRow,
@@ -130,6 +134,26 @@ export function RecommendationsV2Client({
   // route. No new data fetch.
   const [showAllSuggested, setShowAllSuggested] = useState(false);
 
+  // One-tap slice (2026-06-12): inline Accept on each card, wired to
+  // the SAME acceptRecommendation server action the legacy drawer and
+  // the detail page use (per-edit fan-out, changelog entries,
+  // attribution clock — all unchanged). Optimistic per-row state.
+  const [acceptStates, setAcceptStates] = useState<
+    Record<string, "pending" | "accepted" | "error">
+  >({});
+  const [, startTransition] = useTransition();
+  const acceptRow = (rowId: string, payload: RecommendationActionPayload) => {
+    setAcceptStates((s) => ({ ...s, [rowId]: "pending" }));
+    startTransition(async () => {
+      try {
+        await acceptRecommendation(payload);
+        setAcceptStates((s) => ({ ...s, [rowId]: "accepted" }));
+      } catch {
+        setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
+      }
+    });
+  };
+
   // Build typed action rows from the same queue the legacy table consumes.
   // Pure projection — no new I/O, no math change.
   const allRows = useMemo(
@@ -209,6 +233,20 @@ export function RecommendationsV2Client({
                 key={row.id}
                 row={row}
                 competitorNames={competitorNames}
+                acceptState={acceptStates[row.id] ?? "idle"}
+                onAccept={() =>
+                  acceptRow(row.id, {
+                    stableKey: row.sourceRecommendationId,
+                    // Placeholder type — the server action reads the
+                    // canonical rec from the store by stableKey (same
+                    // contract the legacy table uses).
+                    type: "create_cluster_page",
+                    title: row.title,
+                    description: row.evidenceSummary ?? row.title,
+                    clusterLabel: null,
+                    clusterKind: null,
+                  })
+                }
               />
             ))}
 
