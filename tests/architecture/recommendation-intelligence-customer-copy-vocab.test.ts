@@ -115,6 +115,9 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // No-arg; paired with the per-snapshot `invalid-schema` predicate
   // (medium confidence, customer-queue-ready).
   fixSchemaCopy: [[]],
+  // Insight Graph slice 1 (2026-06-12) — GSC low-CTR template. Args:
+  // (query, impressions). Probe both a short and a long query.
+  gscLowCtrCopy: [["persian tea houses", 480], ["x", 200000]],
 };
 
 function scanForViolations(output: string): string[] {

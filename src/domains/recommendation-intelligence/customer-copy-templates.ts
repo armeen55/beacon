@@ -130,3 +130,15 @@ export function staleContentCopy(): string {
 export function fixSchemaCopy(): string {
   return "This page's structured data has errors AI search platforms will reject. Repair it so the page is read correctly.";
 }
+
+// ── Insight Graph slice 1 (2026-06-12) — GSC low-CTR copy ────────────────
+
+export function gscLowCtrCopy(query: string, impressions: number): string {
+  return (
+    "People searched “" +
+    query +
+    "” " +
+    impressions.toLocaleString("en-US") +
+    " times in the last 4 weeks and saw this page — but few clicked it. A clearer title can win those clicks."
+  );
+}
