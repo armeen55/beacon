@@ -104,3 +104,108 @@ export async function loadSemrushPageSignalsForTenant(
   }
   return out;
 }
+
+// ── Cannibalization slice (2026-06-12) ───────────────────────────────
+
+export type CannibalizationCase = {
+  keyword: string;
+  volume: number;
+  intent: string | null;
+  /** The better-ranking URL (lower position). */
+  preferredUrl: string;
+  preferredPosition: number;
+  /** The competing own-URL that splits the keyword's equity. */
+  cannibalUrl: string;
+  cannibalPosition: number;
+};
+
+/**
+ * Detect keyword cannibalization from the synced domain_organic rows:
+ * the SAME keyword ranking >1 of the tenant's own URLs splits link
+ * equity and confuses engines about the canonical page (Semrush
+ * cannibalization guide — definition + the it's-fine-when-intent-
+ * differs caveat is approximated by requiring the SAME stored intent
+ * class on both rows; sources in the slice commit).
+ *
+ * domain_organic emits MULTIPLE rows per keyword when several of the
+ * domain's URLs rank — the storage PK includes url (widened in the
+ * cannibalization slice) precisely so those rows survive the upsert
+ * and this detector can observe them.
+ */
+export function detectCannibalization(
+  rows: ReadonlyArray<{
+    keyword: string;
+    position: number;
+    volume: number;
+    url: string;
+    intent: string | null;
+  }>,
+): CannibalizationCase[] {
+  const byKeyword = new Map<string, typeof rows[number][]>();
+  for (const r of rows) {
+    const list = byKeyword.get(r.keyword) ?? [];
+    list.push(r);
+    byKeyword.set(r.keyword, list);
+  }
+  const out: CannibalizationCase[] = [];
+  for (const [keyword, list] of byKeyword) {
+    const urls = new Map<string, typeof rows[number]>();
+    for (const r of list) {
+      const cur = urls.get(r.url);
+      if (!cur || r.position < cur.position) urls.set(r.url, r);
+    }
+    if (urls.size < 2) continue;
+    const sorted = [...urls.values()].sort((a, b) => a.position - b.position);
+    const preferred = sorted[0]!;
+    for (const cannibal of sorted.slice(1)) {
+      // Same-intent requirement (different intent = legitimately
+      // different pages per the Semrush guide).
+      if ((preferred.intent ?? "") !== (cannibal.intent ?? "")) continue;
+      out.push({
+        keyword,
+        volume: preferred.volume,
+        intent: preferred.intent,
+        preferredUrl: preferred.url,
+        preferredPosition: preferred.position,
+        cannibalUrl: cannibal.url,
+        cannibalPosition: cannibal.position,
+      });
+    }
+  }
+  out.sort((a, b) => b.volume - a.volume);
+  return out;
+}
+
+/** Raw keyword rows for the cannibalization detector (bounded read;
+ *  fail-soft empty). Separate from the per-page aggregation so the
+ *  detector sees every (keyword, url) pair. */
+export async function loadSemrushCannibalRowsForTenant(
+  tenantId: string,
+): Promise<
+  Array<{
+    keyword: string;
+    position: number;
+    volume: number;
+    url: string;
+    intent: string | null;
+  }>
+> {
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("semrush_organic_keywords")
+      .select("keyword, position, volume, url, intent")
+      .eq("tenant_id", tenantId)
+      .limit(5_000);
+    if (error) return [];
+    return (data ?? []) as Array<{
+      keyword: string;
+      position: number;
+      volume: number;
+      url: string;
+      intent: string | null;
+    }>;
+  } catch {
+    return [];
+  }
+}

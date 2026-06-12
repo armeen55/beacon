@@ -45,7 +45,7 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["gsc_striking_distance::edit_title", "customer-queue-ready"],
   ["gsc_decay::update_intro", "customer-queue-ready"],
 
-  // operator-review-only (7)
+  // operator-review-only (8)
   ["duplicate_title::edit_title", "operator-review-only"],
   ["duplicate_meta::edit_meta", "operator-review-only"],
   ["canonical_mismatch::fix_canonical", "operator-review-only"],
@@ -53,6 +53,7 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["title_h1_mismatch::edit_title", "operator-review-only"],
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],
+  ["semrush_cannibalization::add_internal_link", "operator-review-only"],
 
   // diagnostic-only (4)
   ["missing_schema::add_schema", "diagnostic-only"],

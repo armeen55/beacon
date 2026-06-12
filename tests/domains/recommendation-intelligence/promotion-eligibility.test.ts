@@ -55,6 +55,7 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
     ["title_h1_mismatch", "edit_title"],
     ["title_h1_mismatch", "change_h1"],
     ["weak_h1", "change_h1"],
+    ["semrush_cannibalization", "add_internal_link"],
   ] as const)(
     "returns operator-review-only for %s::%s",
     (signal, actionType) => {
@@ -141,13 +142,13 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (24 post-decay)", () => {
-    // 13 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 24
+  it("table size matches the locked entry count (25 post-cannibalization)", () => {
+    // 13 customer-queue-ready + 8 operator-review-only + 4 diagnostic-only = 25
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
     // `missing_schema_content::add_schema`; the fix_schema slice
     // (2026-06-12) added `invalid_schema::fix_schema` (both
     // customer-queue-ready).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(24);
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(25);
   });
 });
