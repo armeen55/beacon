@@ -115,6 +115,15 @@ export { normalizeUrl };
 export async function buildUrlCitationHistory(opts?: {
   ownedOnly?: boolean;
   sinceDate?: string;
+  /**
+   * Injected native-regime observations. When provided, used verbatim
+   * instead of the canonical-store read — the Proof Engine passes the FULL
+   * per-tenant observation set (via the repository) so it can attribute
+   * historical changes whose pre/post windows predate the canonical-store's
+   * 60-day render-perf window. Render-path consumers omit it and keep the
+   * windowed read.
+   */
+  observations?: Awaited<ReturnType<typeof getPromptAnswerObservations>>;
 }): Promise<UrlCitationHistory> {
   const ownedOnly = opts?.ownedOnly ?? true;
   const since = opts?.sinceDate ?? null;
@@ -123,7 +132,8 @@ export async function buildUrlCitationHistory(opts?: {
   // output). Used by the Profound shard ingest path (native path uses
   // observation.platform directly — we're iterating observations, not
   // detached citation rows).
-  const promptAnswerObservations = await getPromptAnswerObservations();
+  const promptAnswerObservations =
+    opts?.observations ?? (await getPromptAnswerObservations());
   const paoPlatform = new Map<string, string>();
   for (const pao of promptAnswerObservations) {
     // Canonicalize platform case here so a single platform never splits

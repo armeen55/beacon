@@ -36,7 +36,6 @@
 
 import "server-only";
 
-import { getChangelogEntries } from "@/lib/seed-data.server";
 import { buildUrlCitationHistory } from "@/domains/product/url-citation-history";
 import type { UrlCitationHistory } from "@/domains/product/url-citation-history";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -96,9 +95,31 @@ export async function buildAndPersistTenantProof(
   tenantId: string,
   deps: ProofEngineDeps = {},
 ): Promise<ProofEngineRunResult> {
-  const loadChangelog = deps.loadChangelog ?? (() => getChangelogEntries());
+  // TENANT-SCOPED reads (prod-bug fix, 2026-06-12). The ambient seed-data
+  // getChangelogEntries() reads a NON-tenant-scoped repository
+  // (getRepository() WITHOUT .forTenant) — on the per-tenant cron it bled
+  // the founder tenant's changelog into every other tenant's proof run
+  // (Iranopedia, which has 0 changelog rows, classified the founder's 289).
+  // Read the changelog through the explicit per-tenant repository. And load
+  // the FULL observation set (not the canonical-store's 60-day render
+  // window) so changes whose pre/post windows predate the last 60 days
+  // still get attributed — without it the engine returned
+  // insufficient_baseline for every historical change (computed=0 on prod).
+  const loadChangelog =
+    deps.loadChangelog ??
+    (async () => {
+      const { getRepository } = await import("@/lib/persistence/repositories");
+      return getRepository().forTenant(tenantId).getChangelogEntries();
+    });
   const loadHistory =
-    deps.loadHistory ?? (() => buildUrlCitationHistory({ ownedOnly: true }));
+    deps.loadHistory ??
+    (async () => {
+      const { getRepository } = await import("@/lib/persistence/repositories");
+      const observations = await getRepository()
+        .forTenant(tenantId)
+        .getPromptAnswerObservations();
+      return buildUrlCitationHistory({ ownedOnly: true, observations });
+    });
   const persist = deps.persist ?? persistChangeOutcomes;
 
   const entries = await loadChangelog();
