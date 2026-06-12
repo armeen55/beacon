@@ -135,4 +135,48 @@ describe("buildAndPersistTenantProof — end-to-end causal proof", () => {
     expect(result.computed).toBe(0); // the wedge: no causal claim without controls
     for (const o of persisted) expect(o.computed).toBeNull();
   });
+
+  it("persists insufficient_baseline as an honest WATCHING row (not a win, not skipped)", async () => {
+    const persisted: StoredChangeOutcome[] = [];
+    // The treated URL (/services/roofing, from entry()) has NO citation
+    // history at all — only unrelated control URLs do. The engine returns
+    // insufficient_baseline ("not enough pre-period data on the treated
+    // URL"), which is now persisted as an honest per-change "watching" row
+    // (no computed/raw block) so the customer's drilldown explains WHY
+    // there's no proof yet instead of rendering a silent empty panel.
+    const noTreatedHistory: UrlCitationHistory = {
+      built_at: "2026-05-30T00:00:00Z",
+      date_range: { first: "2026-05-01", last: "2026-05-30" },
+      distinct_urls: 2,
+      series: [
+        series("/services/siding", [
+          { start: "2026-05-01", n: 14, perDay: 1 },
+          { start: "2026-05-16", n: 14, perDay: 1 },
+        ]),
+        series("/services/gutters", [
+          { start: "2026-05-01", n: 14, perDay: 1 },
+          { start: "2026-05-16", n: 14, perDay: 1 },
+        ]),
+      ],
+    };
+    const result = await buildAndPersistTenantProof(TENANT, {
+      loadChangelog: async () => [entry({})],
+      loadHistory: async () => noTreatedHistory,
+      persist: async (o) => { persisted.push(...o); },
+      today: "2026-05-30",
+    });
+
+    expect(result.by_status.insufficient_baseline).toBe(1);
+    expect(result.computed).toBe(0);
+    expect(result.watching).toBe(1);
+    expect(result.persisted).toBe(1);
+
+    // Persisted honestly: status set, but NO computed/raw block → the
+    // proven-wins rail + the forecast denominator (both computed-only)
+    // never count it as a win or a base-rate sample.
+    const o = persisted[0]!;
+    expect(o.status).toBe("insufficient_baseline");
+    expect(o.computed).toBeNull();
+    expect(o.raw).toBeNull();
+  });
 });

@@ -271,7 +271,7 @@ async function main() {
         console.log(
           `[scheduled-generation] PROOF tenant=${tenantId} ` +
             `classified=${proof.events_classified} computed=${proof.computed} ` +
-            `weak=${proof.weak} persisted=${proof.persisted} ` +
+            `weak=${proof.weak} watching=${proof.watching} persisted=${proof.persisted} ` +
             `skipped_ineligible=${proof.skipped_ineligible} ` +
             `by_status=${JSON.stringify(proof.by_status)}`,
         );
