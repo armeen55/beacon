@@ -50,6 +50,9 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["duplicate_meta::edit_meta", "operator-review-only"],
   ["canonical_mismatch::fix_canonical", "operator-review-only"],
   ["orphan_page::add_internal_link", "operator-review-only"],
+  // Internal-link brain (2026-06-12, deliberate): contextual link
+  // suggestions gated by human judgment like all link advice.
+  ["internal_link_opportunity::add_internal_link", "operator-review-only"],
   ["title_h1_mismatch::edit_title", "operator-review-only"],
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],

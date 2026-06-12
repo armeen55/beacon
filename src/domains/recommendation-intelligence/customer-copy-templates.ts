@@ -201,6 +201,14 @@ export function cannibalizationCopy(keyword: string): string {
 
 // ── Keyword-gap slice (2026-06-12) ───────────────────────────────────────
 
+export function internalLinkOpportunityCopy(destinationTitle: string): string {
+  return (
+    "Two of your pages cover the same topic, but one never points readers (or Google) to the other. Add a link to \u201c" +
+    destinationTitle +
+    "\u201d where the topic comes up \u2014 it helps that page get found."
+  );
+}
+
 export function keywordGapExpandCopy(keyword: string, volume: number): string {
   return (
     "A rival already wins \u201c" +

@@ -110,6 +110,7 @@ import { missingSchema } from "./triggers/missing-schema";
 import { missingTitle } from "./triggers/missing-title";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
 import { orphanPage } from "./triggers/orphan-page";
+import { internalLinkOpportunity } from "./triggers/internal-link-opportunity";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
 import { sitemapMissing } from "./triggers/sitemap-missing";
@@ -312,6 +313,9 @@ export async function loadTriggerCandidatesForTenant(options: {
   // usable `internal_links` data, ALL orphan emissions are
   // suppressed (data unavailable; not "every page is an orphan").
   all.push(...orphanPage({ tenantId, snapshots, businessConfig }));
+  // Internal-link brain (2026-06-12): contextual topic-cluster link
+  // opportunities from the same snapshot link graph.
+  all.push(...internalLinkOpportunity({ tenantId, snapshots }));
   // Cannibalization slice (2026-06-12): cross-page, runs once before
   // the per-snapshot loop (the duplicate-title pattern). Soft-empty
   // until SEMrush rows exist.

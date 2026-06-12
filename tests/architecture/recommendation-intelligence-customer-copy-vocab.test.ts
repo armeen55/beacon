@@ -130,6 +130,7 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // Keyword-gap slice (2026-06-12). Args: (keyword, volume).
   keywordGapCopy: [["nowruz gifts", 880], ["q", 10]],
   keywordGapExpandCopy: [["nowruz gifts", 880], ["q", 10]],
+  internalLinkOpportunityCopy: [["The Persian Tea Ceremony"], ["x"]],
 };
 
 function scanForViolations(output: string): string[] {
