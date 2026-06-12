@@ -55,6 +55,14 @@ export type RecommendationCandidateRow = {
   evidence: ReadonlyArray<CandidateEvidenceRef>;
   confidence: CandidateConfidence;
   impact_estimate: CandidateImpactEstimate;
+  /** Fusion-EV slice (2026-06-12): estimated ADDITIONAL clicks per
+   *  28 days if this edit lands, computed from FIRST-PARTY data via
+   *  the published CTR-gap method (Botify/SEOmonitor/Greenlane:
+   *  (expected_ctr(position) − actual_ctr) × impressions). Only
+   *  set by predicates with real per-query numbers (the GSC rules);
+   *  absent elsewhere. Consumed as a bounded additive term in
+   *  priorityScore. */
+  upside_clicks_28d?: number;
   /** Plain English. Passes forbidden-vocab + internal-taxonomy
    *  scans (`recommendation-intelligence-customer-copy-vocab`). */
   customer_copy: string;

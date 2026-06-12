@@ -148,6 +148,9 @@ export type PriorityScoreInput = {
   confidence: CandidateConfidence;
   prerequisite_resolved: boolean;
   safety_flags: ReadonlyArray<CandidateSafetyFlag>;
+  /** Fusion-EV slice (2026-06-12): first-party expected-clicks
+   *  upside (28d). Optional — only GSC-backed candidates carry it. */
+  upside_clicks_28d?: number;
 };
 
 /**
@@ -155,6 +158,21 @@ export type PriorityScoreInput = {
  * `(30 + 25 + 15) * 1.0 * 1 * 1 / 1.0 = 70`. Always returns a
  * non-negative integer.
  */
+/**
+ * Fusion-EV slice (2026-06-12): bounded additive upside term. The
+ * published EV method (CTR-gap × impressions — Botify, SEOmonitor,
+ * Greenlane) yields clicks/28d; log-scaling keeps one mega-page from
+ * monopolizing the queue (the PIE/log-damping convention from the
+ * fusion-math research) and the cap preserves the locked invariant
+ * that index blockers outrank content polish (severity+bonus ceiling
+ * stays meaningful).
+ */
+export const MAX_UPSIDE_BONUS = 15;
+export function upsideBonus(upsideClicks28d: number | undefined): number {
+  if (upsideClicks28d == null || upsideClicks28d <= 0) return 0;
+  return Math.min(MAX_UPSIDE_BONUS, Math.round(4 * Math.log10(1 + upsideClicks28d)));
+}
+
 export function priorityScore(c: PriorityScoreInput): number {
   const severity = SEVERITY_BY_TRIGGER_SIGNAL[c.trigger_signal] ?? 0;
   const indexBlocker =
@@ -166,7 +184,10 @@ export function priorityScore(c: PriorityScoreInput): number {
   const effort = EFFORT_BY_ACTION_TYPE[c.action_type] ?? DEFAULT_EFFORT;
 
   const raw =
-    ((severity + indexBlocker + pageImportance) * conf * prereq * safety) /
+    ((severity + indexBlocker + pageImportance + upsideBonus(c.upside_clicks_28d)) *
+      conf *
+      prereq *
+      safety) /
     effort;
   return Math.max(0, Math.round(raw));
 }

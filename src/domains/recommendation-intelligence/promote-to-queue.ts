@@ -116,6 +116,9 @@ export function selectPromotableCandidates(
       confidence: candidate.confidence,
       prerequisite_resolved: true,
       safety_flags: candidate.safety_flags,
+      // Fusion-EV slice (2026-06-12): first-party expected-clicks
+      // upside, when the predicate computed one.
+      upside_clicks_28d: candidate.upside_clicks_28d,
     });
 
     const promotion_dedupe_key = buildPromotionDedupeKey({
