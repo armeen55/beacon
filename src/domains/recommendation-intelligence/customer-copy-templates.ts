@@ -142,3 +142,21 @@ export function gscLowCtrCopy(query: string, impressions: number): string {
     " times in the last 4 weeks and saw this page — but few clicked it. A clearer title can win those clicks."
   );
 }
+
+// ── Insight Graph slice 2 (2026-06-12) — striking-distance copy ──────────
+
+export function strikingDistanceCopy(
+  keyword: string,
+  position: number,
+  volume: number,
+): string {
+  return (
+    "This page already ranks #" +
+    position +
+    " in Google for “" +
+    keyword +
+    "” — searched about " +
+    volume.toLocaleString("en-US") +
+    " times a month. A focused title update can lift it into the results people actually click."
+  );
+}

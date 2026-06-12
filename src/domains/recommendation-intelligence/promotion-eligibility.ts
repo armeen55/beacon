@@ -112,6 +112,10 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // truth; thresholds are research-derived (Semrush positional CTR
   // benchmarks, positions 1–5 only). Any vertical/geo/language.
   ["gsc_low_ctr::edit_title", "customer-queue-ready"],
+  // Insight Graph slice 2 (2026-06-12): striking-distance keywords
+  // (third-party rank data, sourced 4-20 band) -> title push when the
+  // keyword is absent from the title.
+  ["semrush_striking_distance::edit_title", "customer-queue-ready"],
 
   // ── diagnostic-only ───────────────────────────────────────────
   // Pending industry calibration. Schema expectations are

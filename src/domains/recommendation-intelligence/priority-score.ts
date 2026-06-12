@@ -58,6 +58,25 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   missing_schema: 10,
   noindex_on_indexable_page: 10,
   robots_blocks_ai_bots: 10,
+  // 2026-06-12 day run — the three new engines. Relative order is
+  // grounded in the fusion-math research (sources in the slice
+  // commits): FIRST-PARTY evidence outranks third-party estimates
+  // (Mueller: tool volumes "will always be wrong"; first-party GSC
+  // impressions are realized demand), and breakage outranks
+  // enhancement (Google: invalid markup can make the whole block
+  // ineligible).
+  // First-party CTR-gap with exact impressions — just below
+  // missing_title (a page with NO title is still the harder blocker).
+  gsc_low_ctr: 28,
+  // Present-but-broken structured data (scanner's own validator
+  // output). Also earns the fix_ index-blocker bonus at >=medium.
+  invalid_schema: 22,
+  // Third-party rank estimate (striking distance) — real signal,
+  // discounted vs first-party per the sourced weighting rule.
+  semrush_striking_distance: 20,
+  // Article expectation on content pages — AEO enhancement, not a
+  // click blocker.
+  missing_schema_content: 18,
 } as const;
 
 export const PAGE_IMPORTANCE_BY_PAGE_TYPE: Readonly<Record<PageType, number>> =
@@ -94,6 +113,10 @@ export const EFFORT_BY_ACTION_TYPE: Readonly<
   add_h2_section: 1.5,
   add_faq: 1.5,
   add_schema: 1.5,
+  // fix_schema is a guided repair of an existing block (directive
+  // draft quoting the validator) — less work than authoring new
+  // structured data.
+  fix_schema: 1.2,
 } as const;
 
 const DEFAULT_EFFORT = 1.5;
