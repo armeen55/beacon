@@ -83,6 +83,9 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   ["duplicate_meta::edit_meta", "operator-review-only"],
   ["canonical_mismatch::fix_canonical", "operator-review-only"],
   ["orphan_page::add_internal_link", "operator-review-only"],
+  // Internal-link brain (2026-06-12): contextual topic-cluster link
+  // suggestions — same human-judgment posture as the other link advice.
+  ["internal_link_opportunity::add_internal_link", "operator-review-only"],
   // Legacy 4.5.B baseline predicates — stay operator-review-only
   // until separately validated for customer queue.
   ["title_h1_mismatch::edit_title", "operator-review-only"],

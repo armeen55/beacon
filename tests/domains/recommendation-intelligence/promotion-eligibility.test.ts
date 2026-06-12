@@ -143,7 +143,7 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (27 post-originality-guard)", () => {
+  it("table size matches the locked entry count (28 post-internal-link-brain)", () => {
     // 13 customer-queue-ready + 9 operator-review-only + 4 diagnostic-only = 26
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
@@ -152,6 +152,6 @@ describe("promotion-eligibility / table snapshot", () => {
     // customer-queue-ready). Audit #13 originality guard (2026-06-12)
     // added `semrush_keyword_gap::add_h2_section` (operator-review-only,
     // deliberate — topical duplicates expand instead of duplicating).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(27);
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(28);
   });
 });
