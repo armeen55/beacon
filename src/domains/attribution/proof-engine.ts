@@ -54,16 +54,25 @@ import {
 } from "./change-outcome-store";
 
 /** Statuses that produce a customer-facing outcome row. `computed` is a
- *  causal claim; the raw buckets are honest "watching / not enough
- *  signal yet" descriptives. Everything else (ineligible_layer,
- *  unsupported_scope, zero_signal, insufficient_baseline, …) is NOT an
- *  outcome and is skipped — never persisted as proof.
- *  Mirrors COMPUTED_STATUSES ∪ RAW_STATUSES in change-outcome-store. */
+ *  causal claim; the raw buckets (weak_estimate / no_controls /
+ *  insufficient_post_data) are honest "still measuring" descriptives;
+ *  `insufficient_baseline` is the honest "this eligible change lacks enough
+ *  pre-change citation history to measure reliably — future changes will be
+ *  measurable" state (carries NO computed/raw block — `buildProofSentence`
+ *  renders it from the status alone). Persisting it means every ELIGIBLE
+ *  shipped change gets a visible, honest per-change status on its drilldown
+ *  instead of a silent empty panel (the common case for a young tenant or a
+ *  change shipped before it accrued citation history). Only the
+ *  truly-unmeasurable statuses (ineligible_layer/_event, unsupported_scope,
+ *  zero_signal) stay skipped. proven-wins + the forecast denominator are
+ *  computed-only, so these watching rows never inflate a win or a base
+ *  rate. */
 const PERSISTABLE_STATUSES: ReadonlySet<ResultStatus> = new Set([
   "computed",
   "weak_estimate",
   "no_controls",
   "insufficient_post_data",
+  "insufficient_baseline",
 ]);
 
 export type ProofEngineDeps = {
@@ -80,6 +89,9 @@ export type ProofEngineRunResult = {
   eligible_attempted: number;
   computed: number;
   weak: number;
+  /** Eligible changes persisted as honest "not enough baseline yet"
+   *  (insufficient_baseline) — visible on the drilldown, never a win. */
+  watching: number;
   skipped_ineligible: number;
   persisted: number;
   /** Status histogram across ALL attributed events (for honest logging). */
@@ -140,11 +152,13 @@ export async function buildAndPersistTenantProof(
   const by_status: Record<string, number> = {};
   let computed = 0;
   let weak = 0;
+  let watching = 0;
   const outcomes: StoredChangeOutcome[] = [];
   for (const r of results) {
     by_status[r.status] = (by_status[r.status] ?? 0) + 1;
     if (!PERSISTABLE_STATUSES.has(r.status)) continue;
     if (r.status === "computed") computed++;
+    else if (r.status === "insufficient_baseline") watching++;
     else weak++;
     outcomes.push(fromNaturalControlResult(r, history));
   }
@@ -157,6 +171,7 @@ export async function buildAndPersistTenantProof(
     eligible_attempted: results.filter((r) => r.status !== "ineligible_layer" && r.status !== "ineligible_event" && r.status !== "unsupported_scope").length,
     computed,
     weak,
+    watching,
     skipped_ineligible: results.length - outcomes.length,
     persisted: outcomes.length,
     by_status,
