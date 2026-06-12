@@ -19,7 +19,7 @@ import {
 } from "@/domains/recommendation-intelligence/promotion-eligibility";
 
 const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
-  // customer-queue-ready (7)
+  // customer-queue-ready (8)
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
   ["missing_h1::change_h1", "customer-queue-ready"],
@@ -34,6 +34,10 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   // deterministic JSON-LD draft is pinned against the scanner's own
   // validateSchema(). See promotion-eligibility.ts for rationale.
   ["missing_schema_content::add_schema", "customer-queue-ready"],
+  // fix_schema slice (2026-06-12): repair candidates from the
+  // scanner's own validator output — directive-draft family
+  // (fix_canonical/fix_robots precedent).
+  ["invalid_schema::fix_schema", "customer-queue-ready"],
 
   // operator-review-only (7)
   ["duplicate_title::edit_title", "operator-review-only"],

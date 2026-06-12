@@ -29,6 +29,8 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
     // missing-schema — vertical-neutral Article expectation, Product
     // guard, validator-pinned deterministic draft.
     ["missing_schema_content", "add_schema"],
+    // fix_schema slice (2026-06-12): validator-output repair cards.
+    ["invalid_schema", "fix_schema"],
   ] as const)(
     "returns customer-queue-ready for %s::%s",
     (signal, actionType) => {
@@ -112,7 +114,7 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
 });
 
 describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
-  it("returns exactly the 7 customer-queue-ready pairs in stable order", () => {
+  it("returns exactly the 8 customer-queue-ready pairs in stable order", () => {
     const pairs = listCustomerQueueReadyPairs();
     expect(pairs).toEqual([
       "missing_title::edit_title",
@@ -122,16 +124,19 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
       "robots_blocks_googlebot::fix_robots",
       "bad_http_status::fix_status_code",
       "missing_schema_content::add_schema",
+      "invalid_schema::fix_schema",
     ]);
   });
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (18 post-Content-Schema-Engine)", () => {
-    // 7 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 18
+  it("table size matches the locked entry count (19 post-fix_schema)", () => {
+    // 8 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 19
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
-    // `missing_schema_content::add_schema` (customer-queue-ready).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(18);
+    // `missing_schema_content::add_schema`; the fix_schema slice
+    // (2026-06-12) added `invalid_schema::fix_schema` (both
+    // customer-queue-ready).
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(19);
   });
 });

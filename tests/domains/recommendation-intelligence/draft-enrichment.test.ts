@@ -555,3 +555,51 @@ describe("enrichPromotionRow — Content Schema Engine (add_schema, content page
     expect(out.proposed_text).toContain("extend the @type");
   });
 });
+
+// ── fix_schema slice (2026-06-12) ────────────────────────────────────
+// `invalid_schema` candidates get a repair directive quoting the
+// scanner's own validator output verbatim (prefix stripped).
+
+describe("enrichPromotionRow — fix_schema repair directives", () => {
+  const warnedSnap = () =>
+    contentSnap({
+      schema_types: ["Product"],
+      schema_validation_warnings: [
+        "schema_warning:Product: Product missing offers block — price/availability rich results won't fire.",
+        "schema_critical:FAQPage: Missing mainEntity.",
+        "schema_info:LocalBusiness: missing telephone.",
+      ],
+    });
+
+  it("drafts a directive listing exactly the actionable validator lines (info excluded)", () => {
+    const out = enrichPromotionRow(
+      contentRow({ action_type: "fix_schema" }),
+      contentCandidate({
+        trigger_signal: "invalid_schema",
+        action_type: "fix_schema",
+      }),
+      ctxOf(warnedSnap()),
+    );
+    expect(out.display_label).toBe("Repair this page's structured data");
+    expect(out.proposed_text).toContain("2 issues");
+    expect(out.proposed_text).toContain(
+      "- Product: Product missing offers block",
+    );
+    expect(out.proposed_text).toContain("- FAQPage: Missing mainEntity.");
+    expect(out.proposed_text).not.toContain("schema_warning:");
+    expect(out.proposed_text).not.toContain("missing telephone");
+  });
+
+  it("returns the row UNCHANGED when the snapshot has no actionable warnings", () => {
+    const pre = contentRow({ action_type: "fix_schema" });
+    const out = enrichPromotionRow(
+      pre,
+      contentCandidate({
+        trigger_signal: "invalid_schema",
+        action_type: "fix_schema",
+      }),
+      ctxOf(contentSnap({ schema_validation_warnings: [] })),
+    );
+    expect(out).toBe(pre);
+  });
+});

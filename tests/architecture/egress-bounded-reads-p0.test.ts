@@ -182,7 +182,13 @@ describe("EGRESS-P0.4 — tenant-scoped getPageSnapshots is capped + projected",
         expect(cols).not.toMatch(/\bcard_texts\b/);
         expect(cols).not.toMatch(/\binternal_links\b/);
         expect(cols).not.toMatch(/\bschema_entity_names\b/);
-        expect(cols).not.toMatch(/\bschema_validation_warnings\b/);
+        // fix_schema slice (2026-06-12): `schema_validation_warnings`
+        // is deliberately BACK in the projection — the invalid-schema
+        // trigger consumes it (without it the trigger silently reads
+        // undefined on every hosted/cron read). Warnings are short
+        // one-line strings (hundreds of bytes/row worst case), not the
+        // 5-15KB payload fields this egress pin protects against.
+        expect(cols).toMatch(/\bschema_validation_warnings\b/);
       }
     }
   });
