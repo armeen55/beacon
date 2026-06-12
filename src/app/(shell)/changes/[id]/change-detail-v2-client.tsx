@@ -140,6 +140,21 @@ export type ChangeDetailV2Props = {
    * `<ChangeDetailV2Client>` without this prop continue to compile.
    */
   modeAResult?: ModeAResult | null;
+  /**
+   * Plain-English causal proof from the diff-in-differences Proof Engine
+   * (buildProofSentence over the stored outcome). The premium brief's
+   * strongest "what happened" claim — distinct from the Z-score `pill`.
+   * Optional + null-safe so existing callers compile; self-hides when null.
+   */
+  causalProof?: { headline: string; sub: string; tone: string } | null;
+};
+
+const CAUSAL_PROOF_TONE_CLASS: Record<string, string> = {
+  helping: "text-status-success",
+  hurting: "text-status-danger",
+  flat: "text-foreground-secondary",
+  watching: "text-status-warning",
+  none: "text-muted-foreground",
 };
 
 export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
@@ -161,6 +176,7 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
     primaryEvidenceLines = null,
     repeatCitation30d = null,
     modeAResult = null,
+    causalProof = null,
   } = props;
 
   const formattedShippedAt = formatLongDate(shippedAt);
@@ -223,6 +239,32 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
           {pill.blurb}
         </p>
       </header>
+
+      {/* Causal proof — the diff-in-differences Proof Engine's plain-English
+          result. The strongest "what happened" claim (measured vs comparable
+          pages); self-hides until the engine has computed an outcome. */}
+      {causalProof && (
+        <div
+          className="rounded-lg border border-border bg-surface-inset/40 px-5 py-4"
+          data-change-detail-causal-proof={causalProof.tone}
+        >
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            What Beacon measured
+          </p>
+          <p
+            className={`mt-1.5 text-[14px] font-semibold leading-snug ${
+              CAUSAL_PROOF_TONE_CLASS[causalProof.tone] ?? "text-foreground"
+            }`}
+          >
+            {causalProof.headline}
+          </p>
+          {causalProof.sub && (
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+              {causalProof.sub}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Act 1 — What changed.
           Hierarchy: the header already shows the short title, URL,

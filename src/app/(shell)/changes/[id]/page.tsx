@@ -37,6 +37,7 @@ import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier
 import { HypothesisEditor } from "./hypothesis-editor";
 import { AttributionDrilldown } from "../attribution-drilldown";
 import { loadChangeOutcomeById } from "@/domains/attribution/change-outcome-store";
+import { buildProofSentence } from "@/domains/attribution/proof-sentence";
 import { getUrlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
 import { ChangeDetailV2Client } from "./change-detail-v2-client";
 import { resolveProofPill } from "@/domains/changes/proof-timeline/result-pill";
@@ -422,6 +423,12 @@ export default async function ChangeDetailPage({
       )
       .map((ea) => humanizeOutcomeEvent(ea.event));
 
+    // Causal proof (diff-in-diff) plain-English sentence for the premium
+    // brief — the strongest "what happened" claim. Self-hides when no
+    // computed outcome yet (buildProofSentence handles every status).
+    const causalProof = storedOutcome
+      ? buildProofSentence(storedOutcome)
+      : null;
     const sparklineSource = storedOutcome?.sparklines?.treated ?? [];
     const sparkline = sparklineSource.map((p) => ({
       date: p.date,
@@ -487,6 +494,7 @@ export default async function ChangeDetailPage({
         primaryEvidenceLines={primaryEvidenceLines}
         repeatCitation30d={repeatCitation30d}
         modeAResult={modeAResult}
+        causalProof={causalProof}
       />
     );
   }

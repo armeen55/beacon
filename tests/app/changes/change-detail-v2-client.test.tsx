@@ -386,3 +386,25 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
     }
   });
 });
+
+describe("ChangeDetailV2Client — causal proof (diff-in-diff)", () => {
+  it("renders the causal proof headline + tone attr when present", () => {
+    const html = render({
+      causalProof: {
+        tone: "helping",
+        headline:
+          "This change brought in about +2 more AI citations a day than comparable pages that didn't change.",
+        sub: "Measured against 3 similar pages that didn't change — a strong, clearly measured result.",
+      },
+    });
+    expect(html).toContain("What Beacon measured");
+    expect(html).toContain("more AI citations a day than comparable pages");
+    expect(html).toContain('data-change-detail-causal-proof="helping"');
+  });
+
+  it("self-hides when there's no computed causal proof", () => {
+    const html = render({ causalProof: null });
+    expect(html).not.toContain("What Beacon measured");
+    expect(html).not.toContain("data-change-detail-causal-proof");
+  });
+});
