@@ -100,6 +100,56 @@ const ASSET_URL_TYPE: Record<AssetType, UrlType> = {
   hub_page: "hub",
 } as Record<AssetType, UrlType>;
 
+/** The taxonomy coordinates a (signal_type, asset_type, url) triple maps to.
+ *  Shared by the changelog classifier (which labels SHIPPED edits) and the
+ *  Move-forecast bridge (which keys a NOT-yet-shipped edit into the same
+ *  reference class) — so a forecast's reference class is guaranteed to be
+ *  the exact bucket/url_type its outcomes will later be classified under. */
+export type TaxonomyTarget = {
+  layer: TaxonomyLayer;
+  scope: EventScope;
+  primary_bucket: string;
+  authorship: Authorship;
+  /** Normalized path (scheme/host stripped), or null when no URL. */
+  url: string | null;
+  url_type: UrlType | null;
+};
+
+/**
+ * Derive the taxonomy coordinates for a change from its typed fields. Pure,
+ * deterministic, the SINGLE source of the signal_type→bucket + url→url_type
+ * logic (classifyChangelogEntry and the forecast bridge both call it).
+ *
+ * url_type: prefer the URL's structural archetype; when the path yields
+ * nothing specific (inferUrlType returns null OR the catch-all "other"),
+ * trust the typed asset_type instead — better signal than "other" for
+ * cross-tenant pattern matching.
+ */
+export function deriveTaxonomyTarget(
+  signal_type: SignalType,
+  asset_type: AssetType,
+  rawUrl: string | null | undefined,
+): TaxonomyTarget {
+  const map = SIGNAL_MAP[signal_type] ?? SIGNAL_MAP.content;
+  const url = normalizeUrl(rawUrl);
+  let url_type: UrlType | null = null;
+  if (url) {
+    const structural = inferUrlType(url);
+    url_type =
+      structural && structural !== "other"
+        ? structural
+        : ASSET_URL_TYPE[asset_type] ?? structural ?? "other";
+  }
+  return {
+    layer: map.layer,
+    scope: map.scope,
+    primary_bucket: map.bucket,
+    authorship: map.authorship,
+    url,
+    url_type,
+  };
+}
+
 /**
  * Classify ONE changelog entry into a ClassifiedEvent the natural-
  * controls engine can attribute. Pure + deterministic; no I/O, no LLM.
@@ -116,25 +166,12 @@ export function classifyChangelogEntry(
   entry: ChangelogEntry,
   tenantId: string,
 ): ClassifiedEvent {
-  const map = SIGNAL_MAP[entry.signal_type] ?? SIGNAL_MAP.content;
-  const url = normalizeUrl(entry.url);
-  // Prefer the URL's structural archetype; when the path yields nothing
-  // specific (inferUrlType returns null OR the catch-all "other"), trust
-  // the changelog's typed asset_type instead — it's better signal than
-  // "other" for cross-tenant pattern matching.
-  let urlType: UrlType | null = null;
-  if (url) {
-    const structural = inferUrlType(url);
-    urlType =
-      structural && structural !== "other"
-        ? structural
-        : ASSET_URL_TYPE[entry.asset_type] ?? structural ?? "other";
-  }
+  const t = deriveTaxonomyTarget(entry.signal_type, entry.asset_type, entry.url);
   const description = (entry.change_description ?? "").trim();
 
   let confidence: Confidence;
-  if (map.layer === "change") {
-    if (!url) confidence = "low";
+  if (t.layer === "change") {
+    if (!t.url) confidence = "low";
     else if (description.length >= 12) confidence = "high";
     else confidence = "medium";
   } else {
@@ -147,17 +184,17 @@ export function classifyChangelogEntry(
     source_id: entry.id,
     source_type: "changelog",
     classifier_version: CLASSIFIER_VERSION,
-    taxonomy_layer: map.layer,
-    primary_bucket: map.bucket,
+    taxonomy_layer: t.layer,
+    primary_bucket: t.primary_bucket,
     child_tags: [],
     paired_with: [],
-    scope: map.scope,
-    url,
-    url_type: urlType,
+    scope: t.scope,
+    url: t.url,
+    url_type: t.url_type,
     offsite_platform: null,
-    authorship: map.authorship,
+    authorship: t.authorship,
     confidence,
-    classifier_rationale: `deterministic: signal_type=${entry.signal_type} asset_type=${entry.asset_type} → layer=${map.layer}/scope=${map.scope}`,
+    classifier_rationale: `deterministic: signal_type=${entry.signal_type} asset_type=${entry.asset_type} → layer=${t.layer}/scope=${t.scope}`,
     bundle_parent_id: null,
     bundle_size: 1,
     observed_at: entry.timestamp || entry.created_at,

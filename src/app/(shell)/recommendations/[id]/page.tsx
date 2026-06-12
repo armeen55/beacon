@@ -42,6 +42,7 @@ import { resolveRecommendationDetail } from "@/domains/recommendations/resolve-r
 import { redirect } from "next/navigation";
 import { RecommendationDetailClient } from "./recommendation-detail-client";
 import { RecommendationDetailNotFound } from "./recommendation-detail-not-found";
+import type { CausalSelfForecast } from "@/domains/attribution/causal-self-forecast";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -194,6 +195,34 @@ export default async function RecommendationDetailPage({
     trace.data("queue_count", persisted.queue.length);
     trace.measureSize("payload", { row: resolution.row, promptTextById });
 
+    // Move Forecast (2026-06-11) — the dream's "forecast BEFORE you ship".
+    // A base rate from THIS tenant's own causally-proven outcomes (Proof
+    // Engine → reference-class self-forecast), keyed by the resolved edit's
+    // action_type → taxonomy bucket. Best-effort + self-gating: returns null
+    // (renders nothing) until the tenant has causal-grade history for this
+    // kind of change. Deterministic; no paid API.
+    const matchedEdit = resolution.row.sourceEditId
+      ? (persisted.recommendedEdits.find(
+          (e) => e.id === resolution.row.sourceEditId,
+        ) ?? null)
+      : null;
+    let moveForecast: CausalSelfForecast | null = null;
+    if (matchedEdit) {
+      try {
+        const { loadForecastForRecommendedEdit } = await import(
+          "@/domains/attribution/forecast-for-recommended-edit"
+        );
+        moveForecast = await trace.time("loadMoveForecast", () =>
+          loadForecastForRecommendedEdit({
+            action_type: matchedEdit.action_type,
+            target_url: matchedEdit.target_url,
+          }),
+        );
+      } catch {
+        moveForecast = null;
+      }
+    }
+
     if (debugResolver) {
       return (
         <>
@@ -212,6 +241,7 @@ export default async function RecommendationDetailPage({
                 : { kind: "exact", matchedRowId: resolution.row.id }
             }
           />
+          <MoveForecastBanner forecast={moveForecast} />
           <RecommendationDetailClient
             row={resolution.row}
             changelogId={
@@ -225,17 +255,71 @@ export default async function RecommendationDetailPage({
     }
 
     return (
-      <RecommendationDetailClient
-        row={resolution.row}
-        changelogId={
-          changelogIdByRecId[resolution.row.sourceRecommendationId] ?? null
-        }
-        promptTextById={promptTextById}
-      />
+      <>
+        <MoveForecastBanner forecast={moveForecast} />
+        <RecommendationDetailClient
+          row={resolution.row}
+          changelogId={
+            changelogIdByRecId[resolution.row.sourceRecommendationId] ?? null
+          }
+          promptTextById={promptTextById}
+        />
+      </>
     );
   } finally {
     trace.flush();
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Move Forecast banner — "before you ship, here's your own track record"
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Renders the causal self-forecast (reference-class base rate from this
+ * tenant's own proven outcomes) above the recommendation brief. Self-
+ * gating: renders NOTHING when there's no causal-grade history to speak
+ * from. The copy is explicitly a base rate over the tenant's history —
+ * NOT a causal promise about this specific edit (that distinction is the
+ * Proof Engine's job, after the edit ships).
+ */
+function MoveForecastBanner({
+  forecast,
+}: {
+  forecast: CausalSelfForecast | null;
+}) {
+  if (!forecast) return null;
+  const tone = forecast.seeded
+    ? "border-status-warning/30 bg-status-warning/[0.05]"
+    : forecast.helpingRate >= 0.6
+      ? "border-status-success/30 bg-status-success/[0.05]"
+      : "border-border bg-surface-inset/40";
+  return (
+    <section
+      className={`mb-5 rounded-lg border px-5 py-4 ${tone}`}
+      data-move-forecast="true"
+      aria-label="Move forecast — your track record on changes like this"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-accent-primary">
+          Before you ship — your track record
+        </span>
+        {forecast.seeded && (
+          <span className="rounded-sm border border-status-warning/40 bg-status-warning/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-status-warning">
+            early signal
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-foreground">
+        {forecast.line}
+      </p>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
+        A base rate from your own history ({forecast.sampleSize} past change
+        {forecast.sampleSize !== 1 ? "s" : ""} like this that Beacon could
+        measure causally) — not a promise about this specific edit.
+      </p>
+    </section>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────
