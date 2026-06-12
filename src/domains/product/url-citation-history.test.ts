@@ -361,3 +361,75 @@ describe("denseSeries — regime tagging across the boundary (invariants 3+4)", 
     expect(verdict.explanation.summary).toMatch(/native day/);
   });
 });
+
+describe("buildNativeDayBuckets — owned-host fallback (no ownedUrlPathSet)", () => {
+  // Regression for the 2026-06-12 computed=0-on-prod bug. The three
+  // production callers (proof engine, URL watcher, /changes) all call
+  // buildUrlCitationHistory WITHOUT an ownedUrlPathSet. The builder used
+  // to skip EVERY citation in that case, silently emptying native-regime
+  // history since NATIVE_REGIME_START. It now falls back to the
+  // observation's own citation_domains + citation_domain_classes (aligned:
+  // deduped host + its class, relative to the owning tenant) to decide
+  // owned-ness.
+  it("keeps URLs on 'owned'-classed hosts and drops competitor/other hosts", () => {
+    const obs = {
+      id: "obs-fallback-A",
+      platform: "perplexity",
+      observed_at: "2026-04-23T12:00:00Z",
+      citation_domains: ["ritzbuilders.com", "demattei.com", "houzz.com"],
+      citation_domain_classes: ["owned", "competitor", "directory"],
+      citation_urls: [
+        "https://ritzbuilders.com/locations/palo-alto",
+        "https://www.demattei.com/projects",
+        "https://houzz.com/pro/ritz",
+      ],
+    };
+    const out = buildNativeDayBuckets([obs], { ownedOnly: true, since: null });
+    expect([...out.keys()]).toEqual([RITZ_PA_PALO_ALTO]);
+    expect(out.get(RITZ_PA_PALO_ALTO)!.get("2026-04-23")!.count).toBe(1);
+  });
+
+  it("matches a www-prefixed citation URL against a bare owned citation_domain", () => {
+    const obs = {
+      id: "obs-fallback-www",
+      platform: "chatgpt",
+      observed_at: "2026-04-23T12:00:00Z",
+      citation_domains: ["ritzbuilders.com"],
+      citation_domain_classes: ["owned"],
+      citation_urls: ["https://www.ritzbuilders.com/about"],
+    };
+    const out = buildNativeDayBuckets([obs], { ownedOnly: true, since: null });
+    expect(out.get("/about")!.get("2026-04-23")!.count).toBe(1);
+  });
+
+  it("counts MULTIPLE owned URLs on one host (citation_domains deduped, citation_urls not)", () => {
+    const obs = {
+      id: "obs-fallback-multi",
+      platform: "perplexity",
+      observed_at: "2026-04-23T12:00:00Z",
+      citation_domains: ["ritzbuilders.com"],
+      citation_domain_classes: ["owned"],
+      citation_urls: [
+        "https://ritzbuilders.com/locations/palo-alto",
+        "https://ritzbuilders.com/about",
+      ],
+    };
+    const out = buildNativeDayBuckets([obs], { ownedOnly: true, since: null });
+    expect(new Set(out.keys())).toEqual(
+      new Set([RITZ_PA_PALO_ALTO, "/about"]),
+    );
+  });
+
+  it("drops all citations when the observation has no 'owned' class (honest empty)", () => {
+    const obs = {
+      id: "obs-fallback-none",
+      platform: "perplexity",
+      observed_at: "2026-04-23T12:00:00Z",
+      citation_domains: ["demattei.com"],
+      citation_domain_classes: ["competitor"],
+      citation_urls: ["https://demattei.com/x"],
+    };
+    const out = buildNativeDayBuckets([obs], { ownedOnly: true, since: null });
+    expect(out.size).toBe(0);
+  });
+});
