@@ -111,6 +111,10 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   mergePagesCopy: [[]],
   // Night-shift #44 (2026-06-11) — stale-content (stale_content).
   staleContentCopy: [[]],
+  // fix_schema slice (2026-06-12) — structured-data repair template.
+  // No-arg; paired with the per-snapshot `invalid-schema` predicate
+  // (medium confidence, customer-queue-ready).
+  fixSchemaCopy: [[]],
 };
 
 function scanForViolations(output: string): string[] {
