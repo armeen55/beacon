@@ -81,6 +81,9 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   // gsc_low_ctr, slightly lower urgency (upside play, not bleeding
   // clicks).
   gsc_striking_distance: 24,
+  // Losing already-earned presence — recovering existing value is the
+  // most urgent content play (declining-pages opportunity class).
+  gsc_decay: 26,
   // Breadcrumb on store products — enhancement, one-click pushable.
   missing_schema_store: 16,
 } as const;

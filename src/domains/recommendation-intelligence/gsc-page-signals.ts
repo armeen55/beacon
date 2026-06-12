@@ -140,3 +140,98 @@ export async function loadGscPageSignalsForTenant(
   }
   return out;
 }
+
+// ── Decay slice (2026-06-12) — split-window decay signals ────────────
+
+export type GscDecaySignal = {
+  page: string;
+  /** Trailing 28-day window. */
+  clicksNow: number;
+  positionNow: number;
+  impressionsNow: number;
+  /** The 28 days before that. */
+  clicksPrior: number;
+  positionPrior: number;
+  impressionsPrior: number;
+};
+
+const DECAY_WINDOW_DAYS = 28;
+
+/**
+ * Two consecutive 28-day windows per page (56 days total), for the
+ * decay/refresh rule (Animalz "two or more signals crossing
+ * simultaneously"; Ahrefs "declining pages" opportunity class —
+ * sources in the slice commit). Positions are impressions-weighted.
+ * Fail-soft: empty Map.
+ */
+export async function loadGscDecaySignalsForTenant(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<Map<string, GscDecaySignal>> {
+  const out = new Map<string, GscDecaySignal>();
+  type Row = {
+    page: string;
+    clicks: number;
+    impressions: number;
+    position: number;
+    date: string;
+  };
+  let rows: Row[] = [];
+  const splitMs = now.getTime() - DECAY_WINDOW_DAYS * 86_400_000;
+  const split = new Date(splitMs).toISOString().slice(0, 10);
+  const since = new Date(splitMs - DECAY_WINDOW_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("gsc_daily_rows")
+      .select("page, clicks, impressions, position, date")
+      .eq("tenant_id", tenantId)
+      .eq("is_final", true)
+      .gte("date", since)
+      .limit(40_000);
+    if (error) return out;
+    rows = (data ?? []) as unknown as Row[];
+  } catch {
+    return out;
+  }
+  if (rows.length === 0) return out;
+
+  type Acc = {
+    clicks: number;
+    impressions: number;
+    positionWeighted: number;
+  };
+  const nowAcc = new Map<string, Acc>();
+  const priorAcc = new Map<string, Acc>();
+  for (const r of rows) {
+    const page = canonicalizeCitationUrl(r.page) ?? r.page;
+    const bucket = r.date >= split ? nowAcc : priorAcc;
+    let acc = bucket.get(page);
+    if (!acc) {
+      acc = { clicks: 0, impressions: 0, positionWeighted: 0 };
+      bucket.set(page, acc);
+    }
+    acc.clicks += r.clicks ?? 0;
+    acc.impressions += r.impressions ?? 0;
+    acc.positionWeighted += (r.position ?? 0) * (r.impressions ?? 0);
+  }
+  const pages = new Set([...nowAcc.keys(), ...priorAcc.keys()]);
+  for (const page of pages) {
+    const n = nowAcc.get(page);
+    const p = priorAcc.get(page);
+    out.set(page, {
+      page,
+      clicksNow: n?.clicks ?? 0,
+      impressionsNow: n?.impressions ?? 0,
+      positionNow:
+        n != null && n.impressions > 0 ? n.positionWeighted / n.impressions : 0,
+      clicksPrior: p?.clicks ?? 0,
+      impressionsPrior: p?.impressions ?? 0,
+      positionPrior:
+        p != null && p.impressions > 0 ? p.positionWeighted / p.impressions : 0,
+    });
+  }
+  return out;
+}

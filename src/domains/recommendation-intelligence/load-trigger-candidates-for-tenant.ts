@@ -88,13 +88,16 @@ import { staleContent, normalizeStaleUrl } from "./triggers/stale-content";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { gscLowCtr, gscStrikingDistance } from "./triggers/gsc-low-ctr";
+import { gscDecay } from "./triggers/gsc-decay";
 import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
 import {
   loadSemrushPageSignalsForTenant,
   type SemrushPageSignal,
 } from "./semrush-page-signals";
 import {
+  loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant,
+  type GscDecaySignal,
   type GscPageSignal,
 } from "./gsc-page-signals";
 import { invalidSchema } from "./triggers/invalid-schema";
@@ -242,6 +245,15 @@ export async function loadTriggerCandidatesForTenant(options: {
       `[trigger-loader] gsc page-signals load failed for ${tenantId} (gsc predicates skip): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+  // Decay slice (2026-06-12): two consecutive 28d windows per page.
+  let gscDecaySignals: Map<string, GscDecaySignal> = new Map();
+  try {
+    gscDecaySignals = await loadGscDecaySignalsForTenant(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] gsc decay-signals load failed for ${tenantId} (decay predicate skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   // Insight Graph slice 2 (2026-06-12): pre-load SEMrush per-page
   // keyword signals. Soft-empty when no key / no rows.
@@ -335,6 +347,16 @@ export async function loadTriggerCandidatesForTenant(options: {
         tenantId,
         snapshot,
         signal: gscSignals.get(
+          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
+        ),
+      }),
+    );
+    // Decay slice (2026-06-12) — fading pages -> refresh.
+    all.push(
+      ...gscDecay({
+        tenantId,
+        snapshot,
+        signal: gscDecaySignals.get(
           canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
         ),
       }),

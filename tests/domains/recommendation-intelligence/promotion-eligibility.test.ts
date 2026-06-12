@@ -36,6 +36,7 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
     ["semrush_striking_distance", "edit_title"],
     ["missing_schema_store", "add_schema"],
     ["gsc_striking_distance", "edit_title"],
+    ["gsc_decay", "update_intro"],
   ] as const)(
     "returns customer-queue-ready for %s::%s",
     (signal, actionType) => {
@@ -119,7 +120,7 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
 });
 
 describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
-  it("returns exactly the 12 customer-queue-ready pairs in stable order", () => {
+  it("returns exactly the 13 customer-queue-ready pairs in stable order", () => {
     const pairs = listCustomerQueueReadyPairs();
     expect(pairs).toEqual([
       "missing_title::edit_title",
@@ -134,18 +135,19 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
       "semrush_striking_distance::edit_title",
       "missing_schema_store::add_schema",
       "gsc_striking_distance::edit_title",
+      "gsc_decay::update_intro",
     ]);
   });
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (23 post-Rule-B)", () => {
-    // 12 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 23
+  it("table size matches the locked entry count (24 post-decay)", () => {
+    // 13 customer-queue-ready + 7 operator-review-only + 4 diagnostic-only = 24
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
     // `missing_schema_content::add_schema`; the fix_schema slice
     // (2026-06-12) added `invalid_schema::fix_schema` (both
     // customer-queue-ready).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(23);
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(24);
   });
 });

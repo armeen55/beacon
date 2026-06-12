@@ -19,7 +19,7 @@ import {
 } from "@/domains/recommendation-intelligence/promotion-eligibility";
 
 const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
-  // customer-queue-ready (12)
+  // customer-queue-ready (13)
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
   ["missing_h1::change_h1", "customer-queue-ready"],
@@ -43,6 +43,7 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["semrush_striking_distance::edit_title", "customer-queue-ready"],
   ["missing_schema_store::add_schema", "customer-queue-ready"],
   ["gsc_striking_distance::edit_title", "customer-queue-ready"],
+  ["gsc_decay::update_intro", "customer-queue-ready"],
 
   // operator-review-only (7)
   ["duplicate_title::edit_title", "operator-review-only"],

@@ -178,3 +178,13 @@ export function gscStrikingDistanceCopy(
     " times in the last 4 weeks. Naming it in the title can push it into the top results."
   );
 }
+
+// ── Decay slice (2026-06-12) — fading-page refresh copy ──────────────────
+
+export function gscDecayCopy(dropPct: number): string {
+  return (
+    "This page is fading in Google — clicks are down about " +
+    dropPct +
+    "% versus the previous month. A content refresh usually recovers lost ground fastest."
+  );
+}
