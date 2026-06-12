@@ -743,6 +743,27 @@ function composeSchema(
   };
 }
 
+/**
+ * Source-ledger slice (2026-06-12) — directive draft for
+ * `uncited_content` candidates. Names WHAT to add (a sources section
+ * for the page's checkable claims) — never invents the sources
+ * themselves; that's editorial judgment the operator keeps.
+ */
+function composeSourcesDirective(
+  snap: PageSnapshot | undefined,
+): DraftFill | null {
+  if (!snap) return null;
+  return {
+    display_label: "Add a sources section so engines can trust this page",
+    current_text: null,
+    proposed_text:
+      "Add a short \u201cSources\u201d section at the end of this page citing 2\u20134 authoritative references for its checkable claims (dates, names, statistics, historical facts). Link each source where the claim appears or list them together at the bottom. Choose references a reader would recognize as credible \u2014 academic, institutional, or established publications.",
+    expected_impact:
+      "Pages that cite checkable sources are measurably more likely to be quoted by AI engines, and sourcing is a trust signal for search quality raters.",
+    measurement_plan: FIX_VERIFY_PLAN,
+  };
+}
+
 // ── entry point ───────────────────────────────────────────────────────
 
 /**
@@ -789,6 +810,14 @@ export function enrichPromotionRow(
     }
     case "fix_schema":
       fill = composeFixSchema(snap);
+      break;
+    case "add_proof_section":
+      // Only the uncited_content trigger carries a deterministic
+      // directive; other proof-section candidates stay draft-less.
+      fill =
+        candidate.trigger_signal === "uncited_content"
+          ? composeSourcesDirective(snap)
+          : null;
       break;
     default:
       fill = null;
