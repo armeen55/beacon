@@ -201,6 +201,16 @@ export function cannibalizationCopy(keyword: string): string {
 
 // ── Keyword-gap slice (2026-06-12) ───────────────────────────────────────
 
+export function keywordGapExpandCopy(keyword: string, volume: number): string {
+  return (
+    "A rival already wins \u201c" +
+    keyword +
+    "\u201d in Google \u2014 searched about " +
+    volume.toLocaleString("en-US") +
+    " times a month \u2014 and you already have a page on this topic. Expanding that page with a section on it beats building a duplicate."
+  );
+}
+
 export function keywordGapCopy(keyword: string, volume: number): string {
   return (
     "A rival already wins \u201c" +

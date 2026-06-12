@@ -347,6 +347,13 @@ export async function loadTriggerCandidatesForTenant(options: {
           gaps,
           siteRootUrl: "https://" + rootDomain + "/",
           signalAt: new Date().toISOString(),
+          // Originality guard (audit #13): topical duplicates flip the
+          // play from create_page to expanding the matched page.
+          existingPages: snapshots.map((s) => ({
+            url: s.url,
+            title: s.title,
+            h1: s.h1,
+          })),
         }),
       );
     }

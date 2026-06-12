@@ -94,6 +94,10 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // Keyword-gap slice (2026-06-12): new-content briefs commit real
   // authoring effort — human judgment gates them.
   ["semrush_keyword_gap::create_page", "operator-review-only"],
+  // Originality guard (audit #13, 2026-06-12): when the gap keyword's
+  // topic is already covered by an existing page, the play flips to
+  // expanding that page — same human-judgment tier as the family.
+  ["semrush_keyword_gap::add_h2_section", "operator-review-only"],
 
   // Content Schema Engine (2026-06-12). Unlike the builder-tuned
   // `missing_schema` signal below (diagnostic-only pending industry

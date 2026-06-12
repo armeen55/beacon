@@ -55,6 +55,9 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["weak_h1::change_h1", "operator-review-only"],
   ["semrush_cannibalization::add_internal_link", "operator-review-only"],
   ["semrush_keyword_gap::create_page", "operator-review-only"],
+  // Audit #13 originality guard (2026-06-12, deliberate): topical
+  // duplicates expand the existing page instead of creating a new one.
+  ["semrush_keyword_gap::add_h2_section", "operator-review-only"],
 
   // diagnostic-only (4)
   ["missing_schema::add_schema", "diagnostic-only"],
