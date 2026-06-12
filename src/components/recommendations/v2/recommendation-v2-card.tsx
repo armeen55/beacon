@@ -158,6 +158,13 @@ const CHIP_TONE_CLASS: Record<Chip["tone"], string> = {
 
 export type RecommendationV2CardProps = {
   row: RecommendationActionRow;
+  /** One-tap slice (2026-06-12): when provided, the card renders a
+   *  primary "Accept" button that invokes this handler (the parent
+   *  wires the existing acceptRecommendation server action). The
+   *  card stays presentation-only — pending/done state is driven by
+   *  `acceptState`. */
+  onAccept?: () => void;
+  acceptState?: "idle" | "pending" | "accepted" | "error";
   /** When provided, "Review" links to a custom href. Defaults to the
    *  Bundle 2B detail page at `/recommendations/<encoded-row-id>`,
    *  which renders the 5-act brief for this row. */
@@ -175,6 +182,8 @@ export function RecommendationV2Card({
   reviewHref,
   className,
   competitorNames,
+  onAccept,
+  acceptState = "idle",
 }: RecommendationV2CardProps) {
   const chips = deriveEvidenceChips(row);
   const target = row.targetUrl && row.targetUrl !== "needs_new_page"
@@ -295,13 +304,40 @@ export function RecommendationV2Card({
         </div>
       )}
 
-      {/* CTA */}
+      {/* CTA — one-tap slice (2026-06-12): Accept is the primary
+          action when wired; Review (the 5-act brief) stays one click
+          away for owners who want the full why before deciding. */}
       <div className="mt-4 flex items-center gap-3 text-[12px] font-semibold">
+        {onAccept != null && (
+          <button
+            type="button"
+            onClick={onAccept}
+            disabled={acceptState === "pending" || acceptState === "accepted"}
+            className={
+              acceptState === "accepted"
+                ? "rounded-md bg-status-success/15 px-3 py-1.5 text-status-success cursor-default"
+                : "rounded-md bg-accent-primary px-3 py-1.5 text-white hover:bg-accent-primary/90 disabled:opacity-60"
+            }
+            data-recommendation-v2-cta="accept"
+            data-accept-state={acceptState}
+          >
+            {acceptState === "accepted"
+              ? "Accepted ✓"
+              : acceptState === "pending"
+                ? "Accepting…"
+                : "Accept"}
+          </button>
+        )}
+        {acceptState === "error" && (
+          <span className="text-status-danger font-normal">
+            Something went wrong — try again.
+          </span>
+        )}
         <Link
           href={href}
           prefetch={false}
           className="text-accent-primary hover:underline"
-          data-recommendation-v2-cta="primary"
+          data-recommendation-v2-cta={onAccept != null ? "review" : "primary"}
         >
           Review →
         </Link>
