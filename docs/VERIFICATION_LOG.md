@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-12 — Midnight shift: 35-check audit + connector completion + audit-fix sweep (PRs #80–#85)
+
+**What changed:**
+- 11-agent adversarially-verified audit of the operator's 35-check spec: 28/35 pass, ALL TEN P0s pass; verdict + open-fix ledger in `docs/research/AUDIT_35_CHECKS_2026-06-12.md` (PR #80).
+- #80: self-serve connect cards (SEMrush/Profound/Clarity) on /settings/connectors + Clarity nightly harvester (`clarity_daily_url_metrics` migration applied via MCP) + scorer doc-sync (audit #23).
+- #81 (audit #26): `alignTreatmentDates` — proof-engine treatment dates anchor to the linked edit's `live_at` (trusted-live states only) instead of changelog accept-time.
+- #82: Profound connector from the official docs — client (X-API-Key, positional-envelope decoder), nightly sync (citations + visibility/SoV, 3-day EST window), `profound_citation_rows`/`profound_visibility_rows` migration applied via MCP, failure-soft cron step.
+- #83 (audits #33+#35): merged-page ≤5 JSON-LD cap, 1MB CMS write ceiling, push routing map, `executePush({dryRun})`, GSC 429 exponential backoff, idempotent-sync docstrings.
+- #84 (audit #13): originality guard on keyword-gap — topical duplicates flip create_page → add_h2_section on the matched page (eligibility 26→27, both pins deliberate).
+- #85: internal-link brain — `internal_link_opportunity` contextual topic-cluster link cards (9 sources; eligibility 27→28; severity 13).
+
+**Verified:**
+- `npm run typecheck` clean at every slice; full `npx vitest run` green at every PR gate (final: 771+ files / 14,596 tests).
+- Both Supabase migrations applied to prod (jdegznovgysxyweknewh) via MCP and exercised by failure-soft cron steps.
+- END-STATE walk, prod (workflow run 27449042865): GSC-SA/SEMRUSH/SEMRUSH-GAP/CLARITY/PROFOUND all log honest dormant reasons per tenant; iranopedia 305 candidates → 34 promoted; Ritz PROOF persisted=166 watching.
+- CI check == pass before every squash-merge (#80–#85); main never red.
+
+
 ## 2026-06-11 (night shift 00:00–05:00 PT) — autonomous hardening run: PRs #12–#20
 
 **Method:** continuous verify-first loop; every batch locally gated
