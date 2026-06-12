@@ -23,6 +23,7 @@ import {
   getAllCitationDates,
 } from "@/lib/persistence/cold-store";
 import { getPromptAnswerObservations } from "@/storage/canonical-store";
+import { normalizePlatform } from "@/lib/platform";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 
 /**
@@ -125,7 +126,10 @@ export async function buildUrlCitationHistory(opts?: {
   const promptAnswerObservations = await getPromptAnswerObservations();
   const paoPlatform = new Map<string, string>();
   for (const pao of promptAnswerObservations) {
-    paoPlatform.set(pao.id, pao.platform);
+    // Canonicalize platform case here so a single platform never splits
+    // across the per-platform breakdown (prod data has both "chatgpt" and
+    // "ChatGPT"). The total daily count is unaffected either way.
+    paoPlatform.set(pao.id, normalizePlatform(pao.platform));
   }
 
   type DayBucket = {
@@ -347,8 +351,11 @@ export function buildNativeDayBuckets(
         byDate.set(isoDate, bucket);
       }
       bucket.count += 1;
-      bucket.by_platform[obs.platform] =
-        (bucket.by_platform[obs.platform] ?? 0) + 1;
+      // Canonicalize platform case (prod has "chatgpt" AND "ChatGPT") so the
+      // per-platform diff-in-diff breakdown doesn't split one platform in two.
+      const canonPlatform = normalizePlatform(obs.platform);
+      bucket.by_platform[canonPlatform] =
+        (bucket.by_platform[canonPlatform] ?? 0) + 1;
     }
   }
 
