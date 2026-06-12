@@ -464,12 +464,17 @@ export async function persistChangeOutcomes(outcomes: StoredChangeOutcome[]): Pr
 }
 
 /** Hydrate this tenant's outcomes from Supabase (the durable hosted truth).
- *  Returns null when Supabase/dual-write isn't configured or the read fails —
- *  callers fall back to the local store (tests + local dev stay on disk). */
+ *  Returns null when not in Supabase read mode (DATA_SOURCE !== "supabase",
+ *  i.e. file-mode tests + local dev) or the read fails — callers fall back to
+ *  the local store. */
 async function loadChangeOutcomesFromSupabase(): Promise<StoredChangeOutcome[] | null> {
   try {
-    const { isDualWriteEnabled } = await import("@/lib/persistence/dual-write");
-    if (!isDualWriteEnabled()) return null;
+    // Gate on the READ condition (DATA_SOURCE === "supabase"), mirroring
+    // getRepository() — NOT DUAL_WRITE (a WRITE gate). The hosted web app
+    // runs DATA_SOURCE=supabase but does not necessarily set DUAL_WRITE, so
+    // gating the read on DUAL_WRITE would leave the drilldown dark even after
+    // the cron populated change_outcomes_v2.
+    if (process.env.DATA_SOURCE !== "supabase") return null;
     const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
     const { currentTenantId } = await import("@/lib/tenant-context");
     const tenantId = await currentTenantId();
