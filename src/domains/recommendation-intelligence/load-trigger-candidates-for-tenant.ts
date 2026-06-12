@@ -88,6 +88,11 @@ import { staleContent, normalizeStaleUrl } from "./triggers/stale-content";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { gscLowCtr } from "./triggers/gsc-low-ctr";
+import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
+import {
+  loadSemrushPageSignalsForTenant,
+  type SemrushPageSignal,
+} from "./semrush-page-signals";
 import {
   loadGscPageSignalsForTenant,
   type GscPageSignal,
@@ -238,6 +243,17 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
+  // Insight Graph slice 2 (2026-06-12): pre-load SEMrush per-page
+  // keyword signals. Soft-empty when no key / no rows.
+  let semrushSignals: Map<string, SemrushPageSignal> = new Map();
+  try {
+    semrushSignals = await loadSemrushPageSignalsForTenant(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] semrush page-signals load failed for ${tenantId} (semrush predicates skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Night-shift #44 (2026-06-11): pre-load the per-tenant sitemap
   // lastmod map for the stale-content predicate. Soft-fail to an
   // empty map — unknown age is never evidence of staleness.
@@ -319,6 +335,16 @@ export async function loadTriggerCandidatesForTenant(options: {
         tenantId,
         snapshot,
         signal: gscSignals.get(
+          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
+        ),
+      }),
+    );
+    // Insight Graph slice 2 (2026-06-12) — striking-distance keywords.
+    all.push(
+      ...semrushStrikingDistance({
+        tenantId,
+        snapshot,
+        signal: semrushSignals.get(
           canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
         ),
       }),

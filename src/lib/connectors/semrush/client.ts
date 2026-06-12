@@ -42,6 +42,9 @@ export type SemrushRawFetchArgs = {
   exportColumns?: string;
   /** Row cap. Defaults to SEMRUSH_DEFAULT_DISPLAY_LIMIT. */
   displayLimit?: number;
+  /** Sort order, e.g. "tr_desc" (traffic share) — Insight Graph
+   *  slice 2 (2026-06-12). Omitted → Semrush's default sort. */
+  displaySort?: string;
 };
 
 export type SemrushTokenLike = {
@@ -98,6 +101,9 @@ export async function semrushRawFetch(
     "display_limit",
     String(args.displayLimit ?? SEMRUSH_DEFAULT_DISPLAY_LIMIT),
   );
+  if (args.displaySort != null && args.displaySort !== "") {
+    url.searchParams.set("display_sort", args.displaySort);
+  }
 
   const doFetch = deps.fetchImpl ?? fetch;
   let res: Response;

@@ -118,6 +118,9 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // Insight Graph slice 1 (2026-06-12) — GSC low-CTR template. Args:
   // (query, impressions). Probe both a short and a long query.
   gscLowCtrCopy: [["persian tea houses", 480], ["x", 200000]],
+  // Insight Graph slice 2 (2026-06-12) — striking-distance template.
+  // Args: (keyword, position, volume).
+  strikingDistanceCopy: [["persian rugs", 12, 590], ["k", 4, 10]],
 };
 
 function scanForViolations(output: string): string[] {
