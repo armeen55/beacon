@@ -334,7 +334,7 @@ describe("missingSchema — content-site branch", () => {
     expect(out).toEqual([]);
   });
 
-  it("PRODUCT GUARD: does NOT emit on store pages already carrying Product schema", () => {
+  it("PRODUCT GUARD: store pages never get an ARTICLE proposal (they route to the store branch)", () => {
     const out = missingSchema({
       tenantId: "tenant-a",
       snapshot: makeSnapshot({
@@ -343,7 +343,12 @@ describe("missingSchema — content-site branch", () => {
       }),
       businessConfig: contentConfig(),
     });
-    expect(out).toEqual([]);
+    // Wix SEO push slice (2026-06-12): Product pages now emit the
+    // store-branch Breadcrumb candidate instead of nothing — but NEVER
+    // the content-branch Article signal (the mislabel this guard
+    // exists to prevent).
+    expect(out.every((c) => c.trigger_signal !== "missing_schema_content")).toBe(true);
+    expect(out.every((c) => c.trigger_signal === "missing_schema_store")).toBe(true);
   });
 
   it("does NOT emit when extraction certainty is uncertain", () => {
@@ -368,5 +373,39 @@ describe("missingSchema — content-site branch", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.trigger_signal).toBe("missing_schema");
     expect(out[0]!.confidence).toBe("low");
+  });
+});
+
+// ── Wix SEO push slice (2026-06-12) — store-product branch ───────────
+describe("missingSchema — store-product branch (Product schema present)", () => {
+  const contentConfig2 = () =>
+    makeConfig({ contentSiteMode: true, industry: "encyclopedia" });
+
+  it("emits missing_schema_store when a Product page lacks BreadcrumbList", () => {
+    const out = missingSchema({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({
+        url: "https://example.com/product-page/persian-cat-hoodie",
+        schema_types: ["Product"],
+      }),
+      businessConfig: contentConfig2(),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.trigger_signal).toBe("missing_schema_store");
+    expect(out[0]!.action_type).toBe("add_schema");
+    expect(out[0]!.confidence).toBe("medium");
+    expect(out[0]!.operator_evidence).toContain("missing=[BreadcrumbList]");
+  });
+
+  it("does NOT emit when the product page already carries BreadcrumbList", () => {
+    const out = missingSchema({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({
+        url: "https://example.com/product-page/persian-cat-hoodie",
+        schema_types: ["Product", "BreadcrumbList"],
+      }),
+      businessConfig: contentConfig2(),
+    });
+    expect(out).toEqual([]);
   });
 });

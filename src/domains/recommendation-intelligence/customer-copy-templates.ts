@@ -160,3 +160,21 @@ export function strikingDistanceCopy(
     " times a month. A focused title update can lift it into the results people actually click."
   );
 }
+
+// ── Rule B (2026-06-12) — first-party striking-distance copy ─────────────
+
+export function gscStrikingDistanceCopy(
+  query: string,
+  position: number,
+  impressions: number,
+): string {
+  return (
+    "Google already shows this page around #" +
+    position +
+    " when people search \u201c" +
+    query +
+    "\u201d \u2014 " +
+    impressions.toLocaleString("en-US") +
+    " times in the last 4 weeks. Naming it in the title can push it into the top results."
+  );
+}

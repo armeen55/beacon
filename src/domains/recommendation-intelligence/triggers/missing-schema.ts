@@ -127,11 +127,65 @@ function missingSchemaContent(args: {
 }): RecommendationCandidateRow[] {
   const { tenantId, snapshot, pageType } = args;
 
-  // Store/product pages: Article would be a mislabel — skip.
+  // Store/product pages: Article would be a mislabel. Wix SEO push
+  // slice (2026-06-12): instead of skipping silently, these pages get
+  // their OWN candidate when BreadcrumbList is absent — the one
+  // schema type that is duplication-safe on product pages (Wix
+  // auto-generates the Product JSON-LD preset; a custom Breadcrumb
+  // block never collides) AND is one-click pushable via the Stores
+  // seoData write path.
   const hasProductSchema = snapshot.schema_types.some(
     (t) => t.trim().toLowerCase() === "product",
   );
-  if (hasProductSchema) return [];
+  if (hasProductSchema) {
+    const hasBreadcrumb = snapshot.schema_types.some(
+      (t) => t.trim().toLowerCase() === "breadcrumblist",
+    );
+    if (hasBreadcrumb) return [];
+    return [
+      {
+        tenant_id: tenantId,
+        trigger_signal: "missing_schema_store",
+        action_type: "add_schema",
+        generator_kind: "deterministic",
+        target_url: snapshot.url,
+        topic_cluster_label: "Structured data",
+        evidence: [
+          {
+            kind: "page_snapshot",
+            ref: snapshot.url,
+            detail:
+              "page_type=content(store); present=Product; missing=BreadcrumbList",
+          },
+        ],
+        confidence: "medium",
+        impact_estimate: "medium",
+        customer_copy: addSchemaCopy(),
+        operator_evidence:
+          "page_type=" +
+          pageType +
+          "(store); schema_types=[" +
+          snapshot.schema_types.join(", ") +
+          "]; missing=[BreadcrumbList]; extraction_certainty=" +
+          (snapshot.extraction_certainty ?? "null") +
+          "; fetched_at=" +
+          snapshot.fetched_at,
+        dedupe_key: dedupeKey({
+          tenantId,
+          actionType: "add_schema",
+          targetUrl: snapshot.url,
+          topicClusterLabel: "Structured data",
+        }),
+        cooldown_key: cooldownKey({
+          tenantId,
+          actionType: "add_schema",
+          targetUrl: snapshot.url,
+        }),
+        created_from_signal_at: snapshot.fetched_at,
+        safety_flags: [],
+      },
+    ];
+  }
 
   const coverage = diffSchemaCoverageForSpec(
     CONTENT_PAGE_EXPECTED_SCHEMA,

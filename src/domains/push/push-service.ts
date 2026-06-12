@@ -42,11 +42,48 @@ import { formatDevNote } from "./dev-note";
 import { appendPushSnapshot } from "./push-snapshots";
 import { resolveWixItemForUrl } from "@/lib/connectors/wix/url-map";
 import {
+  wixGetStoreProduct,
   wixInsertDataItem,
   wixQueryDataItems,
   wixUpdateDataItem,
+  wixUpdateProductSeoData,
   type WixDeps,
+  type WixSeoTag,
 } from "@/lib/connectors/wix/client";
+
+
+/** Parse every <script type="application/ld+json">…</script> block out
+ *  of a draft. Returns the raw JSON strings (validated as JSON). */
+export function extractJsonLdScriptBlocks(text: string): string[] {
+  const out: string[] = [];
+  const re = /<script type="application\/ld\+json">\n([\s\S]*?)\n<\/script>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    try {
+      JSON.parse(m[1]!);
+      out.push(m[1]!);
+    } catch {
+      // skip unparseable block
+    }
+  }
+  return out;
+}
+
+/** Decoded last path segment of a URL ("" when none). */
+export function lastPathSegment(url: string): string {
+  try {
+    const u = new URL(url);
+    const segs = u.pathname.split("/").filter((s) => s.length > 0);
+    const last = segs[segs.length - 1] ?? "";
+    try {
+      return decodeURIComponent(last);
+    } catch {
+      return last;
+    }
+  } catch {
+    return "";
+  }
+}
 
 export const RITZ_TENANT_ID = "tenant-ritz-founder";
 
@@ -164,6 +201,142 @@ export async function executePush(
       kind: "pushed",
       adapter: "wix_cms",
       detail: `created new item ${insert.value.id} in ${collectionId} (${edit.target_url})`,
+    };
+  }
+
+  // ── wix_cms SEO route (Wix SEO push slice, 2026-06-12) ──────────────
+  // add_schema cards whose draft carries machine-extractable JSON-LD
+  // blocks AND whose URL resolves to a Wix STORES product get the
+  // block(s) applied to the product's seoData via the Catalog API —
+  // seoData renders server-side in the page <head> and overrides
+  // pattern tags (Wix docs). CMS dynamic pages have NO per-item SEO
+  // field (template-based by platform design) → those cards refuse
+  // here and stay paste-ready.
+  if (edit.action_type === "add_schema") {
+    const blocks = extractJsonLdScriptBlocks(edit.proposed_text ?? "");
+    if (blocks.length === 0) {
+      return {
+        kind: "refused",
+        reason:
+          "add_schema card has no extractable JSON-LD block — keep it as paste-ready instructions",
+      };
+    }
+    // Wix structured-data limits: ≤5 markups/page, <7,000 chars each.
+    if (blocks.length > 5 || blocks.some((b) => b.length >= 7000)) {
+      return {
+        kind: "refused",
+        reason: "JSON-LD exceeds Wix limits (max 5 markups, <7000 chars each)",
+      };
+    }
+    const slug = lastPathSegment(edit.target_url);
+    if (!slug) {
+      return { kind: "refused", reason: "target URL has no slug segment" };
+    }
+    const productsQuery = await wixQueryDataItems(
+      { dataCollectionId: "Stores/Products", limit: 1000 },
+      { ...deps.wix, tenantId },
+    );
+    if (!productsQuery.ok) {
+      return {
+        kind: "refused",
+        reason: `could not query store products: ${productsQuery.reason} — card stays paste-ready`,
+      };
+    }
+    const match = productsQuery.value.find(
+      (it) => String(it.data["slug"] ?? "") === slug,
+    );
+    if (match == null) {
+      return {
+        kind: "refused",
+        reason:
+          "this page is not a Wix Stores product (CMS pages take schema via the dashboard template) — use the paste-ready block",
+      };
+    }
+    // Fail-closed snapshot of the product's CURRENT seoData.
+    const product = await wixGetStoreProduct(
+      { productId: match.id },
+      { ...deps.wix, tenantId },
+    );
+    if (!product.ok) {
+      return {
+        kind: "refused",
+        reason: `could not read the product for a pre-push snapshot (${product.reason}) — refusing to change the live site without an undo`,
+      };
+    }
+    try {
+      await appendPushSnapshot({
+        id: `snap-${now.getTime()}-${edit.id.slice(0, 8)}`,
+        tenant_id: tenantId,
+        edit_id: edit.id,
+        target_url: edit.target_url,
+        dataCollectionId: "Stores/Products",
+        dataItemId: match.id,
+        field: "seoData",
+        previous_text: JSON.stringify(product.value.seoData ?? { tags: [] }),
+        captured_at: now.toISOString(),
+      });
+    } catch (err) {
+      await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now);
+      return {
+        kind: "refused",
+        reason: `could not capture the pre-push snapshot (${err instanceof Error ? err.message : String(err)}) — refusing to change the live site without an undo`,
+      };
+    }
+    // Merge: keep every existing tag EXCEPT our own prior custom
+    // script tags whose @type matches an incoming block (idempotent
+    // re-push), then append the new script tag(s).
+    const incomingTypes = new Set(
+      blocks
+        .map((b) => {
+          try {
+            return String((JSON.parse(b) as { "@type"?: unknown })["@type"] ?? "");
+          } catch {
+            return "";
+          }
+        })
+        .filter((t) => t !== ""),
+    );
+    const existing = (product.value.seoData?.tags ?? []).filter((t) => {
+      if (t.type !== "script" || t.custom !== true) return true;
+      try {
+        const parsed = JSON.parse(t.children ?? "") as { "@type"?: unknown };
+        return !incomingTypes.has(String(parsed["@type"] ?? ""));
+      } catch {
+        return true;
+      }
+    });
+    const tags: WixSeoTag[] = [
+      ...existing,
+      ...blocks.map((b) => ({
+        type: "script" as const,
+        props: { type: "application/ld+json" },
+        children: b,
+        custom: true,
+        disabled: false,
+      })),
+    ];
+    const write = await wixUpdateProductSeoData(
+      { productId: match.id, tags },
+      { ...deps.wix, tenantId },
+    );
+    if (!write.ok) {
+      await recordLedger(tenantId, edit, "push_failed", `seoData: ${write.reason}`, now);
+      return {
+        kind: "refused",
+        reason: `wix seoData write failed: ${write.reason}${write.detail ? ` (${write.detail})` : ""}`,
+      };
+    }
+    await recordLedger(
+      tenantId,
+      edit,
+      "pushed",
+      `seoData: ${blocks.length} JSON-LD block(s) on product ${match.id}`,
+      now,
+    );
+    return {
+      kind: "pushed",
+      adapter: "wix_cms",
+      detail: `applied ${blocks.length} JSON-LD block(s) to product seoData (${edit.target_url})`,
     };
   }
 

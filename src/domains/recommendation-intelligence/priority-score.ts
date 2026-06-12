@@ -77,6 +77,12 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   // Article expectation on content pages — AEO enhancement, not a
   // click blocker.
   missing_schema_content: 18,
+  // First-party striking distance — same evidence class as
+  // gsc_low_ctr, slightly lower urgency (upside play, not bleeding
+  // clicks).
+  gsc_striking_distance: 24,
+  // Breadcrumb on store products — enhancement, one-click pushable.
+  missing_schema_store: 16,
 } as const;
 
 export const PAGE_IMPORTANCE_BY_PAGE_TYPE: Readonly<Record<PageType, number>> =

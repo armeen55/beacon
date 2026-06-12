@@ -280,3 +280,85 @@ export async function wixImportMedia(
   }
   return { ok: true, value: { fileId: id } };
 }
+
+// ── Wix SEO push slice (2026-06-12) — Stores product seoData ────────────
+//
+// Wix Stores products carry a `seoData` SeoSchema ({ tags: [...] })
+// that is fully writable via the Catalog REST API with the same
+// API-key + wix-site-id auth this client already uses. Per Wix's own
+// docs, seoData "will override other sources of tags (for example
+// patterns) and will be included in the <head> section" — i.e. a
+// `script` tag with application/ld+json children renders server-side
+// JSON-LD on the live product page. CMS dynamic pages have NO such
+// per-item field (their SEO is template-based in the dashboard), so
+// this write path is Stores-products-only by platform design.
+
+export type WixSeoTag = {
+  type: "title" | "meta" | "script" | "link";
+  props?: Record<string, string>;
+  children?: string;
+  custom?: boolean;
+  disabled?: boolean;
+};
+
+export type WixStoreProduct = {
+  id: string;
+  name: string | null;
+  slug: string | null;
+  seoData: { tags?: WixSeoTag[] } | null;
+};
+
+/** GET one Stores catalog product (V1). Used for the fail-closed
+ *  pre-push snapshot of its current seoData. */
+export async function wixGetStoreProduct(
+  args: { productId: string },
+  deps: WixDeps = {},
+): Promise<WixFetchResult<WixStoreProduct>> {
+  const r = await wixFetch<{
+    product?: {
+      id?: string;
+      name?: string;
+      slug?: string;
+      seoData?: { tags?: WixSeoTag[] };
+    };
+  }>(`/stores/v1/products/${encodeURIComponent(args.productId)}`, {
+    method: "GET",
+  }, deps);
+  if (!r.ok) return r;
+  const p = r.value.product;
+  if (p == null || typeof p.id !== "string") {
+    return { ok: false, reason: "api_error", detail: "no_product_in_response" };
+  }
+  return {
+    ok: true,
+    value: {
+      id: p.id,
+      name: typeof p.name === "string" ? p.name : null,
+      slug: typeof p.slug === "string" ? p.slug : null,
+      seoData: p.seoData ?? null,
+    },
+  };
+}
+
+/** PATCH a product's seoData.tags (V1 catalog). PATCH semantics:
+ *  only the sent fields update — the caller passes the COMPLETE
+ *  desired tags array (existing tags merged upstream). */
+export async function wixUpdateProductSeoData(
+  args: { productId: string; tags: WixSeoTag[] },
+  deps: WixDeps = {},
+): Promise<WixFetchResult<{ id: string }>> {
+  const r = await wixFetch<{ product?: { id?: string } }>(
+    `/stores/v1/products/${encodeURIComponent(args.productId)}`,
+    {
+      method: "PATCH",
+      body: { product: { seoData: { tags: args.tags } } },
+    },
+    deps,
+  );
+  if (!r.ok) return r;
+  const id = r.value.product?.id;
+  if (typeof id !== "string") {
+    return { ok: false, reason: "api_error", detail: "no_product_in_response" };
+  }
+  return { ok: true, value: { id } };
+}

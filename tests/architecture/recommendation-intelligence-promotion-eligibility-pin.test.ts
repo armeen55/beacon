@@ -19,7 +19,7 @@ import {
 } from "@/domains/recommendation-intelligence/promotion-eligibility";
 
 const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
-  // customer-queue-ready (10)
+  // customer-queue-ready (12)
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
   ["missing_h1::change_h1", "customer-queue-ready"],
@@ -41,6 +41,8 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   // Insight Graph slice 1 (2026-06-12): GSC low-CTR fused signal.
   ["gsc_low_ctr::edit_title", "customer-queue-ready"],
   ["semrush_striking_distance::edit_title", "customer-queue-ready"],
+  ["missing_schema_store::add_schema", "customer-queue-ready"],
+  ["gsc_striking_distance::edit_title", "customer-queue-ready"],
 
   // operator-review-only (7)
   ["duplicate_title::edit_title", "operator-review-only"],
