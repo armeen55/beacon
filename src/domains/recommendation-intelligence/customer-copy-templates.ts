@@ -209,6 +209,14 @@ export function internalLinkOpportunityCopy(destinationTitle: string): string {
   );
 }
 
+export function clarityFrictionCopy(
+  reason: "script_errors" | "rage_clicks",
+): string {
+  return reason === "script_errors"
+    ? "This page is throwing errors that can break it for visitors \u2014 and AI assistants can't read pages that fail to load, so fixing it protects how often you're recommended."
+    : "Visitors are clicking the same spot over and over on this page, a sign something feels broken or unresponsive. Worth a look at what they expect to work.";
+}
+
 export function answerBlockReadinessCopy(question: string): string {
   return (
     "People ask \u201c" +

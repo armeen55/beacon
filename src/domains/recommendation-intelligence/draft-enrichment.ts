@@ -837,6 +837,40 @@ function composeAnswerBlockDirective(
   };
 }
 
+// Clarity fuse (2026-06-13): directive draft for clarity_friction.
+// Names the specific Clarity signal + what to investigate; NEVER
+// fabricates the fix (the JS bug / frustrating element is the owner's
+// to locate). Sources: Microsoft Learn semantic-metrics + Data Export
+// API; Google JS-rendering guidance; AI-crawler JS-execution research.
+function composeClarityDirective(
+  candidate: RecommendationCandidateRow,
+): DraftFill | null {
+  const ev = candidate.operator_evidence ?? "";
+  const isErrors = /reason=script_errors/.test(ev);
+  if (isErrors) {
+    return {
+      display_label: "Fix the JavaScript errors on this page",
+      current_text: null,
+      proposed_text:
+        "Microsoft Clarity recorded JavaScript errors affecting a meaningful share of sessions on this page. Open the page in your browser's dev console (and Clarity's \u201cErrors\u201d view) to find the failing script, then fix or remove it. This matters twice over: errors break interactivity for visitors, and most AI answer-engine crawlers (GPTBot, OAI-SearchBot, Perplexity) do NOT run JavaScript \u2014 if a script error blocks content from rendering, those engines never see it.",
+      expected_impact:
+        "Removing render-breaking errors restores the page for both visitors and the JS-free AI crawlers that decide what to cite.",
+      measurement_plan:
+        "After you fix it, Clarity's script-error count for this page should drop on the next nightly sync; watch the page's AI-citation trend on the Proof tab.",
+    };
+  }
+  return {
+    display_label: "Review the element visitors are rage-clicking",
+    current_text: null,
+    proposed_text:
+      "Microsoft Clarity recorded rage clicks (rapid repeated clicks in one spot) on this page \u2014 a strong signal that something looks interactive but isn't responding, or responds too slowly. Watch a few Clarity session recordings for this page to find the element, then make it work as users expect (or remove the false affordance).",
+    expected_impact:
+      "Resolving the frustrating element reduces abandonment and improves the page's engagement signals.",
+    measurement_plan:
+      "After the fix, Clarity's rage-click rate for this page should fall on the next nightly sync.",
+  };
+}
+
 // ── entry point ───────────────────────────────────────────────────────
 
 /**
@@ -896,6 +930,12 @@ export function enrichPromotionRow(
       fill =
         candidate.trigger_signal === "missing_answer_block"
           ? composeAnswerBlockDirective(candidate)
+          : null;
+      break;
+    case "fix_page_experience":
+      fill =
+        candidate.trigger_signal === "clarity_friction"
+          ? composeClarityDirective(candidate)
           : null;
       break;
     default:

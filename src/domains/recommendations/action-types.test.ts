@@ -40,7 +40,7 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       // `fix_canonical`). All five ship `generatorActive: false`
       // (paired Tier-1/Tier-2 deterministic predicates land in
       // Slice 4.5.C.α₁ / α₂).
-      expect(ACTION_TYPES).toHaveLength(37);
+      expect(ACTION_TYPES).toHaveLength(38); // +fix_page_experience (Clarity fuse, 2026-06-13)
     });
 
     it("contains every action type planned in Sprint 6A.1 + Section 7 C7b + Slice 4.5.B.α₀ + Slice 4.5.C.α₀", () => {
@@ -82,6 +82,9 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
         "fix_noindex",
         "fix_status_code",
         "fix_canonical",
+        // Clarity fuse (2026-06-13) — directive-only page-experience
+        // fix paired with the deterministic clarity_friction predicate.
+        "fix_page_experience",
         // Section 7 C7b (2026-05-16) — off-site / manual action types.
         // All seven carry `generatorActive: false` (LLM never produces
         // them) and `elementTypeDomain: []` (no on-page element target).
@@ -187,7 +190,7 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       );
       // Prior post-4.5.C.α₃b inactive count was 25.
       // 4.5.E.α₁a flips `rewrite_h2` → inactive count drops to 24.
-      expect(inactive).toHaveLength(24);
+      expect(inactive).toHaveLength(25); // +fix_page_experience (inactive)
       for (const t of ACTIVE_AFTER_4_5_E_ALPHA1A) {
         expect(inactive).not.toContain(t);
       }
@@ -471,6 +474,9 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       "fix_noindex",
       "fix_status_code",
       "fix_canonical",
+      // Clarity fuse (2026-06-13) — targets a JS bug / frustrating
+      // element, not a single page element_type → empty domain.
+      "fix_page_experience",
       // Off-site / manual (Section 7 C7b)
       "claim_gbp",
       "optimize_gbp_profile",

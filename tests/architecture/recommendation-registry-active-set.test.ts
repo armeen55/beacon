@@ -120,7 +120,7 @@ const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
  *  4.5.C.α₁ (2026-05-20) flips 4 of the 5 indexability types
  *  to `generatorActive: true` paired with their predicates;
  *  total registry count UNCHANGED at 37. */
-const LOCKED_REGISTRY_COUNT = 37;
+const LOCKED_REGISTRY_COUNT = 38; // +fix_page_experience (Clarity fuse, 2026-06-13)
 
 describe("Slice 4.5.A — registry inventory + active set", () => {
   it(`registers exactly ${LOCKED_REGISTRY_COUNT} action types`, () => {

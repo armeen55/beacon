@@ -95,6 +95,10 @@ export const ACTION_TYPES = [
   "fix_noindex",
   "fix_status_code",
   "fix_canonical",
+  // Clarity fuse (2026-06-13): page-experience defects surfaced by
+  // Microsoft Clarity (script errors / rage clicks). Directive-only,
+  // inactive generator — the owner locates the JS bug / element.
+  "fix_page_experience",
   // ── Off-site authority (Section 7 C7b — locked invariants: read-only,
   //    no LLM generation, no Suggested Copy, no write paths to GBP /
   //    Yelp / Houzz / Angi / BBB / industry directories / press).
@@ -598,6 +602,20 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   // Detection lives on /diagnostics/off-site-authority (C7a).
   // Recommendation generation + customer surfaces defer to
   // C7c / C7d / C7e behind the multi-tenant prerequisite.
+  fix_page_experience: {
+    actionType: "fix_page_experience",
+    elementTypeDomain: [],
+    signalType: "technical",
+    requiresCurrentText: false,
+    requiresProposedText: true,
+    changelogAssetType: "service_page",
+    operatorLabel: "Fix page-experience issue (Clarity)",
+    // Clarity fuse (2026-06-13): directive-only; the deterministic
+    // clarity-friction predicate pairs with it. No LLM generator
+    // (generatorActive stays false) — Beacon names the Clarity signal
+    // + what to investigate, never fabricates the fix.
+    generatorActive: false,
+  },
   claim_gbp: {
     actionType: "claim_gbp",
     elementTypeDomain: [],

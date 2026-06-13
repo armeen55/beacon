@@ -63,6 +63,10 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   // Source-ledger slice (2026-06-12): trust/citability improvement on
   // content pages — below the link-structure plays.
   uncited_content: 11,
+  // Clarity fuse (2026-06-13): page-experience friction. Script errors
+  // also block JS-free AI crawlers, so this sits with the content
+  // signals (above the link/source plays).
+  clarity_friction: 16,
   // AEO answer-block readiness (2026-06-12): high-leverage content
   // move on question-shaped pages; evidence is directional (vendor +
   // entity-signal study), not an RCT, so it sits below the

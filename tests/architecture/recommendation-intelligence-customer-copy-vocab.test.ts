@@ -133,6 +133,7 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   internalLinkOpportunityCopy: [["The Persian Tea Ceremony"], ["x"]],
   uncitedContentCopy: [[], []],
   answerBlockReadinessCopy: [["What is Chaharshanbe Suri"], ["q"]],
+  clarityFrictionCopy: [["script_errors"], ["rage_clicks"]],
 };
 
 function scanForViolations(output: string): string[] {

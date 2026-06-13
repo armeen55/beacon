@@ -90,6 +90,9 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // editorial judgment — the directive draft names WHAT to add, never
   // the sources themselves.
   ["uncited_content::add_proof_section", "operator-review-only"],
+  // Clarity fuse (2026-06-13): page-experience friction is advisory —
+  // the owner locates the JS bug / element. Operator review.
+  ["clarity_friction::fix_page_experience", "operator-review-only"],
   // AEO answer-block readiness (2026-06-12): the directive names what
   // to add; the OWNER writes the factual answer (no auto-authoring of
   // cultural/historical claims) — operator review.

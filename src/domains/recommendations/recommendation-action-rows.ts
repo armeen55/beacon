@@ -416,6 +416,10 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
     case "fix_status_code":
     case "fix_canonical":
       return "review_decision";
+    // Clarity fuse (2026-06-13): page-experience defects render as a
+    // technical fix (review_decision keeps Suggested Copy suppressed).
+    case "fix_page_experience":
+      return "review_decision";
   }
 }
 
@@ -599,6 +603,8 @@ export function composeEditRowTitle(args: {
       return `Restore a clean 200 response for the ${targetLabel}`;
     case "fix_canonical":
       return `Update the canonical tag on the ${targetLabel}`;
+    case "fix_page_experience":
+      return `Fix the page-experience issue on the ${targetLabel}`;
   }
 }
 

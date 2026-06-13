@@ -47,6 +47,13 @@ describe("getLocalPresenceSnapshot", () => {
   beforeEach(async () => {
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
+    // The in-memory connector-token mock accumulates across tests in
+    // this file — without this reset, a token saved by one test (e.g.
+    // a Yelp last_synced_at) leaks into the next via the
+    // max(google, yelp) lastReviewImportAt logic, making
+    // single-connector cases fail. The _resetTokenStore helper existed
+    // but was never wired here.
+    _resetTokenStore();
   });
 
   it("returns empty review fields when no imported reviews", async () => {
