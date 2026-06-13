@@ -161,6 +161,73 @@ export async function loadGscPageSignalsForTenant(
       topQueries: querySignals.slice(0, TOP_QUERIES_CAP),
     });
   }
+
+  // Override per-page totals with the TRUE page-level numbers
+  // (dimensions=[page], gsc_daily_page_totals) — these INCLUDE the anonymized
+  // low-volume queries GSC hides from the page+query grain above, so CTR +
+  // impressions match the GSC UI instead of understating impressions /
+  // inflating CTR. topQueries (from page+query) are kept. Pages with totals
+  // but no visible queries get an entry with empty topQueries. Soft-fail
+  // (keep the page+query totals) when the table is empty / unread (pre-backfill).
+  try {
+    const sinceTotals = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const sbTotals = getSupabaseAdmin();
+    const totalsByPage = new Map<
+      string,
+      { clicks: number; impressions: number; positionWeighted: number }
+    >();
+    for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+      const { data, error } = await sbTotals
+        .from("gsc_daily_page_totals")
+        .select("page, clicks, impressions, position, date")
+        .eq("tenant_id", tenantId)
+        .eq("is_final", true)
+        .gte("date", sinceTotals)
+        .order("date")
+        .order("page")
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error) break;
+      const batch = (data ?? []) as unknown as Array<{
+        page: string;
+        clicks: number;
+        impressions: number;
+        position: number;
+      }>;
+      for (const r of batch) {
+        const page = canonicalizeCitationUrl(r.page) ?? r.page;
+        let acc = totalsByPage.get(page);
+        if (!acc) {
+          acc = { clicks: 0, impressions: 0, positionWeighted: 0 };
+          totalsByPage.set(page, acc);
+        }
+        acc.clicks += r.clicks ?? 0;
+        acc.impressions += r.impressions ?? 0;
+        acc.positionWeighted += (r.position ?? 0) * (r.impressions ?? 0);
+      }
+      if (batch.length < PAGE_SIZE) break;
+    }
+    for (const [page, acc] of totalsByPage) {
+      const totals = {
+        clicks28d: acc.clicks,
+        impressions28d: acc.impressions,
+        ctr28d: acc.impressions > 0 ? acc.clicks / acc.impressions : 0,
+        position28d:
+          acc.impressions > 0 ? acc.positionWeighted / acc.impressions : 0,
+      };
+      const existing = out.get(page);
+      out.set(
+        page,
+        existing
+          ? { ...existing, ...totals }
+          : { page, ...totals, topQueries: [] },
+      );
+    }
+  } catch {
+    /* page-totals unavailable — keep the page+query totals */
+  }
+
   return out;
 }
 

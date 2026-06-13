@@ -253,6 +253,49 @@ export async function syncGscSearchAnalyticsForTenant(args: {
         { onConflict: "tenant_id,property,date" },
       );
     }
+
+    // Per-PAGE ungrouped totals (dimensions=[page]). Unlike the page+query
+    // grain above, this INCLUDES the anonymized low-volume queries GSC hides —
+    // so these clicks/impressions/CTR/position are the honest page-level
+    // numbers that match the GSC UI. The card leads with these; page+query
+    // stays for query-level evidence (topQueries).
+    const pageTotals = await pullDayRows({
+      accessToken,
+      siteUrl: property,
+      day,
+      dimensions: ["page"],
+      dataState: "final",
+    });
+    if (pageTotals != null && pageTotals.length > 0) {
+      const pageRows = pageTotals
+        .filter((r) => Array.isArray(r.keys) && r.keys.length === 1)
+        .map((r) => ({
+          tenant_id: tenantId,
+          property,
+          date: day,
+          page: r.keys[0]!,
+          clicks: r.clicks ?? 0,
+          impressions: r.impressions ?? 0,
+          ctr: r.ctr ?? 0,
+          position: r.position ?? 0,
+          is_final: true,
+          pulled_at: now.toISOString(),
+        }));
+      for (let i = 0; i < pageRows.length; i += UPSERT_CHUNK) {
+        const chunk = pageRows.slice(i, i + UPSERT_CHUNK);
+        const { error } = await sb
+          .from("gsc_daily_page_totals")
+          .upsert(chunk, { onConflict: "tenant_id,property,date,page" });
+        if (error) {
+          log.warn("[gsc-sa-sync] page-totals upsert failed", {
+            tenantId,
+            day,
+            error: error.message,
+          });
+          break;
+        }
+      }
+    }
     days += 1;
   }
 
