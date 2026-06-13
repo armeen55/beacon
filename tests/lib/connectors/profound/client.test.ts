@@ -98,6 +98,36 @@ describe("fail-soft contract", () => {
     expect(out).toBeNull();
   });
 
+  it("fail-soft null on a 200 response with an unparseable JSON body", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("<html>not json</html>", { status: 200 }),
+    );
+    const out = await queryProfoundReport(
+      {
+        tenantId: "tenant-a",
+        report: "citations",
+        categoryId: "cat-1",
+        startDate: "2026-06-10",
+        endDate: "2026-06-12",
+        metrics: ["count"],
+        dimensions: ["date"],
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, getApiKey: async () => "k" },
+    );
+    expect(out).toBeNull();
+  });
+
+  it("fail-soft null on a network fault (fetch throws)", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("ECONNRESET");
+    });
+    const out = await fetchProfoundCategories("tenant-a", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      getApiKey: async () => "k",
+    });
+    expect(out).toBeNull();
+  });
+
   it("sends X-API-Key + the documented report body shape", async () => {
     let captured: { url?: string; init?: RequestInit } = {};
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
