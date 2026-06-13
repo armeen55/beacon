@@ -156,6 +156,22 @@ export async function promoteEligibleCandidates(
   } catch {
     // neutral weights
   }
+
+  // α₂ approve-to-promote (decision U4, 2026-06-13): the operator's
+  // standing approvals lift the tier gate on those candidates. Empty
+  // until the operator approves any (no-op for every tenant today).
+  // Fail-soft to none — a store error must never block promotion.
+  let operatorApprovedDedupeKeys: Set<string> | undefined;
+  try {
+    const { loadOperatorApprovedDedupeKeys } = await import(
+      "@/domains/recommendation-intelligence/operator-approved-store"
+    );
+    operatorApprovedDedupeKeys = await loadOperatorApprovedDedupeKeys(
+      input.tenantId,
+    );
+  } catch {
+    operatorApprovedDedupeKeys = undefined;
+  }
   const triggerCandidates = [
     ...triggerResult.candidates,
     ...triggerResult.diagnostic_only,
@@ -179,6 +195,7 @@ export async function promoteEligibleCandidates(
     recommendationResponses,
     pageTypeByUrl,
     ga4ValueWeightByUrl,
+    operatorApprovedDedupeKeys,
     now,
   });
 
