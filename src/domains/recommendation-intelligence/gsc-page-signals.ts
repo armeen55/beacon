@@ -272,17 +272,43 @@ export async function loadGscDecaySignalsForTenant(
   const since = new Date(splitMs - DECAY_WINDOW_DAYS * 86_400_000)
     .toISOString()
     .slice(0, 10);
+  // PostgREST caps a single response at ~1k rows regardless of `.limit()`.
+  // The old single `.limit(40_000)` read therefore returned an arbitrary,
+  // UNORDERED handful of the ~88k+ page+query+day rows a busy site has in
+  // the 2×28-day decay window — so the now-vs-prior per-page sums were
+  // both incomplete AND non-deterministic, silently corrupting decay
+  // detection (a page's clicks split across the window boundary by a
+  // truncated subset). Page through with a stable unique order (date,
+  // page, query — query ordered though not selected) until a short page
+  // or the safety bound, mirroring loadGscPageSignalsForTenant. Decay's
+  // window is 2× the page-signals window, so allow a higher bound.
+  const DECAY_MAX_ROWS = 160_000;
   try {
     const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("gsc_daily_rows")
-      .select("page, clicks, impressions, position, date")
-      .eq("tenant_id", tenantId)
-      .eq("is_final", true)
-      .gte("date", since)
-      .limit(40_000);
-    if (error) return out;
-    rows = (data ?? []) as unknown as Row[];
+    for (let offset = 0; offset < DECAY_MAX_ROWS; offset += PAGE_SIZE) {
+      const { data, error } = await sb
+        .from("gsc_daily_rows")
+        .select("page, clicks, impressions, position, date")
+        .eq("tenant_id", tenantId)
+        .eq("is_final", true)
+        .gte("date", since)
+        .order("date")
+        .order("page")
+        .order("query")
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error) {
+        // Keep whatever we've read so far rather than dropping the page.
+        log.warn("[gsc-decay-signals] page read failed", {
+          tenantId,
+          offset,
+          error: error.message,
+        });
+        break;
+      }
+      const batch = (data ?? []) as unknown as Row[];
+      rows.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
+    }
   } catch {
     return out;
   }
