@@ -603,3 +603,86 @@ describe("attributeEvent — placebo inference gates HIGH confidence", () => {
     expect(r.warnings.join(" ")).toContain("placebo_not_significant");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Platform-aware post windows (2026-06-12 night shift): a platform's
+// breakdown may measure over its own longer window (engines reflect content
+// changes at different speeds); the aggregate window/status/confidence are
+// untouched. Defaults are EMPTY — behavior is identical until calibration
+// constants ship with sources.
+// ---------------------------------------------------------------------------
+
+describe("attributeEvent — platform-aware post windows", () => {
+  const treatmentDate = "2026-04-15";
+
+  /** Pre 14d at `preCount`; post days 1-14 flat at `preCount`; post days
+   *  15-21 at `lateCount` — a lift only a longer window can see. */
+  function lateLiftSeries(url: string, lateCount: number): UrlCitationSeries {
+    return mkSeries(
+      url,
+      daysFrom("2026-04-01", 35).map((d, i) => {
+        // Index 14 = the 04-15 treatment day; the 14d post window ends at
+        // index 28 (04-29). The lift starts at index 29 — outside it.
+        const count = i < 29 ? 5 : lateCount;
+        return { date: d, count, by_platform: { ChatGPT: count } };
+      }),
+    );
+  }
+
+  function flat35(url: string, count: number): UrlCitationSeries {
+    return mkSeries(
+      url,
+      daysFrom("2026-04-01", 35).map((d) => ({
+        date: d,
+        count,
+        by_platform: { ChatGPT: count },
+      })),
+    );
+  }
+
+  it("a configured platform measures over its own window and says so", () => {
+    const treated = lateLiftSeries("/locations/t", 12);
+    const history = mkHistory([
+      treated,
+      flat35("/locations/c1", 6),
+      flat35("/locations/c2", 5),
+      flat35("/locations/c3", 4),
+    ]);
+    const event = mkEvent({ source_id: "e1", observed_at: treatmentDate, url: "/locations/t" });
+    const config = {
+      ...DEFAULT_CONFIG,
+      platformPostWindowDays: { ChatGPT: 21 },
+    };
+    const r = attributeEvent({
+      event, history, treatmentIndex: new Map(), config, inferUrlType: inferTestUrlType, classifierVersion: CLASSIFIER_VERSION,
+    });
+    expect(r.status).toBe("computed");
+    // Aggregate (14d) saw no lift — the late move is outside its window.
+    expect(Math.abs(r.overall!.adjusted_lift)).toBeLessThan(0.5);
+    // The ChatGPT breakdown measured over ITS 21-day window and caught it.
+    const cg = r.per_platform.find((l) => l.platform === "ChatGPT");
+    expect(cg).toBeDefined();
+    // 21 configured, honestly clamped to the history's last day (05-05):
+    // 04-16..05-05 = 20 days. The field reports what was MEASURED.
+    expect(cg!.post_window_days).toBe(20);
+    expect(cg!.adjusted_lift).toBeGreaterThan(1.5);
+  });
+
+  it("empty platformPostWindowDays (the default) changes nothing", () => {
+    const treated = lateLiftSeries("/locations/t", 12);
+    const history = mkHistory([
+      treated,
+      flat35("/locations/c1", 6),
+      flat35("/locations/c2", 5),
+      flat35("/locations/c3", 4),
+    ]);
+    const event = mkEvent({ source_id: "e1", observed_at: treatmentDate, url: "/locations/t" });
+    const r = attributeEvent({
+      event, history, treatmentIndex: new Map(), config: DEFAULT_CONFIG, inferUrlType: inferTestUrlType, classifierVersion: CLASSIFIER_VERSION,
+    });
+    expect(r.status).toBe("computed");
+    const cg = r.per_platform.find((l) => l.platform === "ChatGPT");
+    expect(cg!.post_window_days).toBe(14);
+    expect(Math.abs(cg!.adjusted_lift)).toBeLessThan(0.5);
+  });
+});

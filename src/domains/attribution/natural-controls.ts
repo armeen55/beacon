@@ -44,6 +44,16 @@ export type NaturalControlsConfig = {
   preWindowDays: number;
   /** Days of history to read AFTER treatment date (inclusive, excluding treatment day). */
   postWindowDays: number;
+  /** Platform-aware POST windows (2026-06-12 night shift) — keyed by the
+   *  canonical platform slug (chatgpt / google_aio / perplexity / …).
+   *  AI engines reflect content changes at very different speeds
+   *  (Perplexity retrieves near-real-time; ChatGPT's crawl+training
+   *  cycle lags weeks), so the PER-PLATFORM breakdown may use a longer
+   *  post window than the aggregate. The AGGREGATE window — and with it
+   *  the headline status/confidence — is deliberately unchanged.
+   *  Empty by default: calibration constants ship separately with their
+   *  sources (no guessed numbers). */
+  platformPostWindowDays: Record<string, number>;
   /** Minimum total pre-window citations on a candidate URL (for aggregate control pool). */
   minControlPreCitations: number;
   /** Minimum pre-window citations on the target PLATFORM for a platform-specific control pool. */
@@ -80,6 +90,7 @@ export type NaturalControlsConfig = {
 export const DEFAULT_CONFIG: NaturalControlsConfig = {
   preWindowDays: 14,
   postWindowDays: 14,
+  platformPostWindowDays: {},
   minControlPreCitations: 3,
   minControlPreCitationsPerPlatform: 1,
   minControlsForComputed: 2,
@@ -130,6 +141,9 @@ export type PlatformLift = {
    *  extreme as the observed lift. Set on the OVERALL lift of
    *  `computed` results only; null when <2 controls. */
   placebo_p?: number | null;
+  /** The post-window length (days) THIS lift was measured over —
+   *  differs from the aggregate when platformPostWindowDays applies. */
+  post_window_days?: number;
 };
 
 /**
@@ -237,6 +251,13 @@ export type WindowPair = {
   post: { start: string; end: string };
   treatment: string;
 };
+
+/** Inclusive day count between two YYYY-MM-DD dates (same day = 1). */
+function daysBetweenInclusive(start: string, end: string): number {
+  const ms =
+    Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z");
+  return Math.round(ms / 86_400_000) + 1;
+}
 
 export function buildWindows(treatmentDate: string, config: NaturalControlsConfig, clampToToday?: string): WindowPair {
   const t = dateKey(treatmentDate);
@@ -705,8 +726,21 @@ export function attributeEvent(inputs: AttributeInputs): NaturalControlResult {
 
     // Per-platform: rebuild the control pool FOR EACH PLATFORM (platform-aware filtering)
     for (const p of platforms) {
-      const tPre = extractWindowSeries(series, windows.pre, p).map((d) => d.count);
-      const tPost = extractWindowSeries(series, windows.post, p).map((d) => d.count);
+      // Platform-aware post window (2026-06-12): engines reflect content
+      // changes at different speeds — when configured for this platform,
+      // its breakdown measures over its own (usually longer) post window.
+      // Aggregate windows/status/confidence are untouched.
+      const platformPostDays = config.platformPostWindowDays[p];
+      const pWindows =
+        platformPostDays != null && platformPostDays !== config.postWindowDays
+          ? buildWindows(
+              event.observed_at,
+              { ...config, postWindowDays: platformPostDays },
+              today,
+            )
+          : windows;
+      const tPre = extractWindowSeries(series, pWindows.pre, p).map((d) => d.count);
+      const tPost = extractWindowSeries(series, pWindows.post, p).map((d) => d.count);
       const tPreAvg = mean(tPre);
       const tPostAvg = mean(tPost);
       const tPreSlope = linearSlope(tPre);
@@ -716,7 +750,7 @@ export function attributeEvent(inputs: AttributeInputs): NaturalControlResult {
         treatedUrlType,
         treatedPreAvg: tPreAvg,
         treatedPreSlope: tPreSlope,
-        window: windows,
+        window: pWindows,
         history,
         treatmentIndex,
         config,
@@ -737,7 +771,11 @@ export function attributeEvent(inputs: AttributeInputs): NaturalControlResult {
       };
 
       if (platformPool.controls.length >= config.minControlsForComputed) {
-        perPlatform.push(computeDiffInDiff(treatedPlatform, platformPool.controls, config, p));
+        perPlatform.push({
+          ...computeDiffInDiff(treatedPlatform, platformPool.controls, config, p),
+          post_window_days:
+            (pWindows.post.end < pWindows.post.start ? 0 : daysBetweenInclusive(pWindows.post.start, pWindows.post.end)),
+        });
       } else {
         rawPerPlatform.push(
           buildRawPrePost(
