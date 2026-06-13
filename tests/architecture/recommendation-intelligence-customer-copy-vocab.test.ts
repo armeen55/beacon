@@ -132,6 +132,7 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   keywordGapExpandCopy: [["nowruz gifts", 880], ["q", 10]],
   internalLinkOpportunityCopy: [["The Persian Tea Ceremony"], ["x"]],
   uncitedContentCopy: [[], []],
+  answerBlockReadinessCopy: [["What is Chaharshanbe Suri"], ["q"]],
 };
 
 function scanForViolations(output: string): string[] {

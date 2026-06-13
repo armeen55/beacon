@@ -209,6 +209,15 @@ export function internalLinkOpportunityCopy(destinationTitle: string): string {
   );
 }
 
+export function answerBlockReadinessCopy(question: string): string {
+  return (
+    "People ask \u201c" +
+    question +
+    "\u201d and this page is the answer \u2014 but it makes them dig for it. " +
+    "Add a clear 2\u20133 sentence answer right at the top so AI assistants can quote you directly."
+  );
+}
+
 export function uncitedContentCopy(): string {
   return (
     "This in-depth page backs up none of its facts with outside sources. " +
