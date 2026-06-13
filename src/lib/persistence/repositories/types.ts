@@ -67,6 +67,20 @@ import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
  * App code: use `getRepository()` — not `readStore` / raw `readDotDataJson` —
  * except documented exceptions (see `docs/architecture.md`).
  */
+/** Link-graph feed (2026-06-12 night shift): the lean snapshot
+ *  projection (EGRESS-P0) deliberately omits `internal_links`, which
+ *  starved the cross-page link triggers on hosted/cron (their
+ *  emptiness guards silently emitted 0). This narrow row carries ONLY
+ *  the link graph — fetched once per generation run, never by the
+ *  web surfaces the egress pin protects. */
+export type PageSnapshotLinkGraph = {
+  page_id: string;
+  url: string;
+  fetched_at: string;
+  tenant_id: string;
+  internal_links: { href: string; anchor_text: string }[];
+};
+
 export interface SeedDataRepository {
   // Phase 1B — seed-data entities
   getImportRuns(): Promise<ImportRun[]>;
@@ -93,6 +107,8 @@ export interface SeedDataRepository {
    */
   getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
+  /** Scoped link-graph read — see PageSnapshotLinkGraph. */
+  getPageSnapshotLinkGraphs(): Promise<PageSnapshotLinkGraph[]>;
   getGuardrailAlerts(): Promise<GuardrailAlert[]>;
   getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
   /**
@@ -247,6 +263,8 @@ export interface TenantRepository {
    *  `SeedDataRepository.getPageSummaries` docstring. */
   getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
+  /** Scoped link-graph read — see PageSnapshotLinkGraph. */
+  getPageSnapshotLinkGraphs(): Promise<PageSnapshotLinkGraph[]>;
   /**
    * Phase A.3 (post-A.3.5) — tenant-scoped sitemap reconciliation read.
    * Supabase-backend reads `public.sitemap_reconciliation` filtered by

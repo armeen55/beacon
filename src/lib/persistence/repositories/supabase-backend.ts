@@ -494,6 +494,36 @@ export const supabaseBackend: SeedDataRepository = {
   // PageSummary type stays narrow. Used by customer routes that
   // only need URL → id lookup / ownership classification.
   getPageSummaries: () => queryPageSummariesUnscoped(),
+
+  // Link-graph feed (2026-06-12 night shift): internal_links is
+  // DELIBERATELY absent from the lean snapshot projection (the
+  // egress pin) — this scoped read exists for the once-per-generation
+  // cross-page link triggers (orphan_page, internal_link_opportunity),
+  // which were silently emission-less on hosted/cron without it.
+  // Never called by the web surfaces the egress pin protects.
+  getPageSnapshotLinkGraphs: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("page_snapshots")
+      .select("page_id, url, fetched_at, tenant_id, internal_links")
+      .not("internal_links", "is", null)
+      .order("fetched_at", { ascending: false })
+      .limit(500);
+    if (error)
+      throw new Error(
+        `Supabase query failed on page_snapshots(link graphs): ${error.message}`,
+      );
+    const seen = new Set<string>();
+    const out: import("./types").PageSnapshotLinkGraph[] = [];
+    for (const row of (data ?? []) as import("./types").PageSnapshotLinkGraph[]) {
+      if (seen.has(row.page_id)) continue;
+      seen.add(row.page_id);
+      if (Array.isArray(row.internal_links) && row.internal_links.length > 0) {
+        out.push(row);
+      }
+    }
+    return out;
+  },
+
   getPageSnapshots: async () => {
     // Supabase accumulates snapshot history (35 rows per scan).
     // Routes expect only the latest snapshot per page.
@@ -879,6 +909,35 @@ export const supabaseBackend: SeedDataRepository = {
           filter: "limit=500 dedup_by=page_id projected_columns",
         });
         return latest;
+      },
+
+      // Link-graph feed (2026-06-12): tenant-scoped variant of the
+      // scoped internal_links read (see base impl note) — placed AFTER
+      // getPageSnapshots so the egress pin's block regex anchors on the
+      // lean projection above, not this deliberate heavy read. Once per
+      // generation run; web surfaces never call it.
+      getPageSnapshotLinkGraphs: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("page_snapshots")
+          .select("page_id, url, fetched_at, tenant_id, internal_links")
+          .eq("tenant_id", tenantId)
+          .not("internal_links", "is", null)
+          .order("fetched_at", { ascending: false })
+          .limit(500);
+        if (error)
+          throw new Error(
+            `Supabase query failed on page_snapshots(link graphs): ${error.message}`,
+          );
+        const seen = new Set<string>();
+        const out: import("./types").PageSnapshotLinkGraph[] = [];
+        for (const row of (data ?? []) as import("./types").PageSnapshotLinkGraph[]) {
+          if (seen.has(row.page_id)) continue;
+          seen.add(row.page_id);
+          if (Array.isArray(row.internal_links) && row.internal_links.length > 0) {
+            out.push(row);
+          }
+        }
+        return out;
       },
 
       // ─────────────────────────────────────────────────────────────

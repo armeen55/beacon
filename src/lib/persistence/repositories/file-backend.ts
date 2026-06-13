@@ -102,6 +102,19 @@ export const fileBackend: SeedDataRepository = {
   getPageSnapshots: async () =>
     (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [],
 
+  // Link-graph feed (2026-06-12): file rows carry internal_links
+  // in full — derive the narrow graph rows.
+  getPageSnapshotLinkGraphs: async () =>
+    ((await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [])
+      .filter((s) => Array.isArray(s.internal_links) && s.internal_links.length > 0)
+      .map((s) => ({
+        page_id: s.page_id,
+        url: s.url,
+        fetched_at: s.fetched_at,
+        tenant_id: s.tenant_id ?? "",
+        internal_links: s.internal_links!,
+      })),
+
   getGuardrailAlerts: async () =>
     (await readDotDataJson<GuardrailAlert[]>("page-guardrails")) ?? [],
 

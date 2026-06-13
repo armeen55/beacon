@@ -195,6 +195,25 @@ export async function loadTriggerCandidatesForTenant(options: {
     const repo = getRepository().forTenant(tenantId);
     const all = await repo.getPageSnapshots();
     snapshots = Array.isArray(all) ? all.filter((s) => s != null) : [];
+    // Link-graph feed (2026-06-12 night shift): the egress-lean
+    // snapshot projection deliberately omits internal_links, which
+    // starved the cross-page link triggers on hosted/cron — their
+    // emptiness guards silently emitted 0 (orphan_page since the
+    // EGRESS-P0 incident; internal_link_opportunity from birth).
+    // Merge the scoped link-graph read in; fail-soft keeps the
+    // honest guards if the read breaks.
+    try {
+      const graphs = await repo.getPageSnapshotLinkGraphs();
+      const byPage = new Map(graphs.map((g) => [g.page_id, g.internal_links]));
+      for (const s of snapshots) {
+        if (s.internal_links == null || s.internal_links.length === 0) {
+          const links = byPage.get(s.page_id);
+          if (links) s.internal_links = links;
+        }
+      }
+    } catch {
+      /* triggers keep their emptiness guards */
+    }
   } catch (err) {
     // Night-shift observability (2026-06-11): the nightly job diagnosed
     // blind without these — log WHY before degrading.
