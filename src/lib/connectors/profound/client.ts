@@ -224,3 +224,47 @@ export async function queryProfoundReport(
   if (raw == null) return null;
   return decodeProfoundEnvelope(args.dimensions, args.metrics, raw);
 }
+
+// ---------------------------------------------------------------------------
+// Agent Analytics v2 — POST /v2/reports/{bots,referrals}.
+// Unlike the /v1 answer-engine reports these take a RAW `domain` (no
+// category_id needed) and default end_date to now-UTC (official spec:
+// api-reference/reports/get-bots-report-v2 + get-referrals-report-v2;
+// the deprecated /v1/logs/raw* path sunset 2026-06-10 — these v2
+// hourly-materialized reports are the replacement).
+// ---------------------------------------------------------------------------
+
+export async function queryProfoundV2Report(
+  args: {
+    tenantId: string;
+    /** "bots" | "referrals" */
+    report: string;
+    domain: string;
+    /** Plain YYYY-MM-DD (inclusive; EST semantics like all dates). */
+    startDate: string;
+    endDate: string;
+    metrics: readonly string[];
+    dimensions: readonly string[];
+  },
+  deps: ProfoundFetchDeps = {},
+): Promise<{ rows: ProfoundReportRow[]; totalRows: number } | null> {
+  const raw = await profoundRequest(
+    {
+      tenantId: args.tenantId,
+      method: "POST",
+      path: `/v2/reports/${args.report}`,
+      body: {
+        domain: args.domain,
+        start_date: args.startDate,
+        end_date: args.endDate,
+        date_interval: "day",
+        metrics: args.metrics,
+        dimensions: args.dimensions,
+        pagination: { limit: 50_000, offset: 0 },
+      },
+    },
+    deps,
+  );
+  if (raw == null) return null;
+  return decodeProfoundEnvelope(args.dimensions, args.metrics, raw);
+}

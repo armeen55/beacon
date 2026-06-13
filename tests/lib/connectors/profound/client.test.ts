@@ -161,3 +161,63 @@ describe("profoundEstDateString (official EST date semantics)", () => {
     expect(profoundEstDateString(new Date("2026-06-12T12:00:00Z"))).toBe("2026-06-12");
   });
 });
+
+describe("v2 Agent Analytics reports", () => {
+  it("posts the raw-domain body to /v2/reports/{report} and decodes positionally", async () => {
+    let captured: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      captured = { url, init };
+      return new Response(
+        JSON.stringify({
+          info: { total_rows: 1 },
+          data: [
+            { dimensions: ["2026-06-10", "/persepolis", "GPTBot", "training"], metrics: [42, 3] },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    const { queryProfoundV2Report } = await import("@/lib/connectors/profound/client");
+    const out = await queryProfoundV2Report(
+      {
+        tenantId: "tenant-a",
+        report: "bots",
+        domain: "iranopedia.com",
+        startDate: "2026-06-10",
+        endDate: "2026-06-12",
+        metrics: ["count", "citations"],
+        dimensions: ["date", "path", "bot_name", "bot_type"],
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, getApiKey: async () => "k" },
+    );
+    expect(captured.url).toBe("https://api.tryprofound.com/v2/reports/bots");
+    const body = JSON.parse(String(captured.init!.body));
+    expect(body.domain).toBe("iranopedia.com");
+    expect(body.category_id).toBeUndefined();
+    expect(out!.rows[0]!.dims).toEqual({
+      date: "2026-06-10",
+      path: "/persepolis",
+      bot_name: "GPTBot",
+      bot_type: "training",
+    });
+    expect(out!.rows[0]!.mets).toEqual({ count: 42, citations: 3 });
+  });
+
+  it("fail-soft null when the tenant's plan lacks Agent Analytics (4xx)", async () => {
+    const fetchImpl = vi.fn(async () => new Response("forbidden", { status: 403 }));
+    const { queryProfoundV2Report } = await import("@/lib/connectors/profound/client");
+    const out = await queryProfoundV2Report(
+      {
+        tenantId: "tenant-a",
+        report: "referrals",
+        domain: "iranopedia.com",
+        startDate: "2026-06-10",
+        endDate: "2026-06-12",
+        metrics: ["visits"],
+        dimensions: ["date"],
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, getApiKey: async () => "k" },
+    );
+    expect(out).toBeNull();
+  });
+});

@@ -23,9 +23,12 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
+import { getBusinessConfig } from "@/lib/business-config";
+
 import {
   fetchProfoundCategories,
   queryProfoundReport,
+  queryProfoundV2Report,
   type ProfoundFetchDeps,
 } from "./client";
 
@@ -52,6 +55,10 @@ export type ProfoundSyncResult =
       categories: number;
       citation_rows: number;
       visibility_rows: number;
+      /** Agent Analytics v2 (bots/referrals) — 0 when the tenant's
+       *  Profound plan doesn't include it (the report 4xxs fail-soft). */
+      bot_rows: number;
+      referral_rows: number;
     };
 
 /** YYYY-MM-DD for `d` in America/New_York — Profound's plain-date
@@ -209,10 +216,124 @@ export async function syncProfoundNightlyForTenant(
     }
   }
 
+  // ── Agent Analytics v2 (bots + referrals) ──────────────────────────
+  // Raw-domain reports (no category needed): which AI crawlers hit
+  // which paths (count/citations by bot) + AI-referred human visits by
+  // source. 2 requests/night; tenants without Agent Analytics fail-soft
+  // to 0 rows (non-2xx → null).
+  let botRows = 0;
+  let referralRows = 0;
+  const domain = getBusinessConfig(tenantId)
+    .domain?.trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
+  if (domain) {
+    const bots = await queryProfoundV2Report(
+      {
+        tenantId,
+        report: "bots",
+        domain,
+        startDate,
+        endDate,
+        metrics: ["count", "citations"],
+        dimensions: ["date", "path", "bot_name", "bot_type"],
+      },
+      deps,
+    );
+    if (bots != null) {
+      if (bots.totalRows > bots.rows.length) {
+        log.warn("[profound-sync] bots page truncated", {
+          tenantId,
+          total: bots.totalRows,
+          got: bots.rows.length,
+        });
+      }
+      const mapped = bots.rows
+        .filter((r) => r.dims.date)
+        .map((r) => ({
+          tenant_id: tenantId,
+          date: r.dims.date!.slice(0, 10),
+          path: r.dims.path ?? "",
+          bot_name: r.dims.bot_name ?? "",
+          bot_type: r.dims.bot_type ?? "",
+          hit_count: r.mets.count ?? 0,
+          citations: r.mets.citations ?? 0,
+          pulled_at: pulledAt,
+        }));
+      for (let i = 0; i < mapped.length; i += UPSERT_CHUNK) {
+        const chunk = mapped.slice(i, i + UPSERT_CHUNK);
+        const { error } = await sb
+          .from("profound_bot_rows")
+          .upsert(chunk, {
+            onConflict: "tenant_id,date,path,bot_name,bot_type",
+          });
+        if (error) {
+          log.warn("[profound-sync] bot upsert failed", {
+            tenantId,
+            error: error.message,
+          });
+          break;
+        }
+        botRows += chunk.length;
+      }
+    }
+
+    const referrals = await queryProfoundV2Report(
+      {
+        tenantId,
+        report: "referrals",
+        domain,
+        startDate,
+        endDate,
+        metrics: ["visits"],
+        dimensions: ["date", "path", "referral_source", "referral_type"],
+      },
+      deps,
+    );
+    if (referrals != null) {
+      if (referrals.totalRows > referrals.rows.length) {
+        log.warn("[profound-sync] referrals page truncated", {
+          tenantId,
+          total: referrals.totalRows,
+          got: referrals.rows.length,
+        });
+      }
+      const mapped = referrals.rows
+        .filter((r) => r.dims.date)
+        .map((r) => ({
+          tenant_id: tenantId,
+          date: r.dims.date!.slice(0, 10),
+          path: r.dims.path ?? "",
+          referral_source: r.dims.referral_source ?? "",
+          referral_type: r.dims.referral_type ?? "",
+          visits: r.mets.visits ?? 0,
+          pulled_at: pulledAt,
+        }));
+      for (let i = 0; i < mapped.length; i += UPSERT_CHUNK) {
+        const chunk = mapped.slice(i, i + UPSERT_CHUNK);
+        const { error } = await sb
+          .from("profound_referral_rows")
+          .upsert(chunk, {
+            onConflict: "tenant_id,date,path,referral_source,referral_type",
+          });
+        if (error) {
+          log.warn("[profound-sync] referral upsert failed", {
+            tenantId,
+            error: error.message,
+          });
+          break;
+        }
+        referralRows += chunk.length;
+      }
+    }
+  }
+
   return {
     synced: true,
     categories: batch.length,
     citation_rows: citationRows,
     visibility_rows: visibilityRows,
+    bot_rows: botRows,
+    referral_rows: referralRows,
   };
 }

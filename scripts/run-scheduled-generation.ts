@@ -185,7 +185,7 @@ async function main() {
     const pf = await syncProfoundNightlyForTenant({ tenantId });
     console.log(
       pf.synced
-        ? `[scheduled-generation] PROFOUND synced tenant=${tenantId} categories=${pf.categories} citations=${pf.citation_rows} visibility=${pf.visibility_rows}`
+        ? `[scheduled-generation] PROFOUND synced tenant=${tenantId} categories=${pf.categories} citations=${pf.citation_rows} visibility=${pf.visibility_rows} bots=${pf.bot_rows} referrals=${pf.referral_rows}`
         : `[scheduled-generation] PROFOUND skipped tenant=${tenantId} reason=${pf.reason}`,
     );
   } catch (err) {
