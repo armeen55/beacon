@@ -136,6 +136,11 @@ async function readWatermark(
 export async function syncGscSearchAnalyticsForTenant(args: {
   tenantId: string;
   now?: Date;
+  /** Operator backfill override (YYYY-MM-DD). The normal path is incremental-
+   *  FORWARD (watermark + per-run day cap), so it can never reach back for the
+   *  full history GSC holds. When set, start the pull here and bypass both the
+   *  watermark and the day cap — bounded by the operator's chosen start. */
+  startDate?: string;
 }): Promise<GscSyncResult> {
   const { tenantId } = args;
   const now = args.now ?? new Date();
@@ -153,12 +158,17 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   const lastFinalDay = addDays(todayPt, -FINAL_LAG_DAYS);
   const watermark = await readWatermark(tenantId, property);
   let startDay =
-    watermark != null
-      ? addDays(watermark, -REPULL_DAYS)
-      : addDays(lastFinalDay, -(BACKFILL_DAYS - 1));
-  // Never run unbounded: cap the window.
-  const maxStart = addDays(lastFinalDay, -(MAX_DAYS_PER_RUN - 1));
-  if (startDay < maxStart) startDay = maxStart;
+    args.startDate != null
+      ? args.startDate
+      : watermark != null
+        ? addDays(watermark, -REPULL_DAYS)
+        : addDays(lastFinalDay, -(BACKFILL_DAYS - 1));
+  // Never run unbounded: cap the window — EXCEPT an explicit operator backfill,
+  // which the operator has already bounded by choosing startDate.
+  if (args.startDate == null) {
+    const maxStart = addDays(lastFinalDay, -(MAX_DAYS_PER_RUN - 1));
+    if (startDay < maxStart) startDay = maxStart;
+  }
   if (startDay > lastFinalDay) {
     return { synced: true, property, days: 0, rows_upserted: 0 };
   }
