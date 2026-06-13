@@ -668,7 +668,29 @@ describe("attributeEvent — platform-aware post windows", () => {
     expect(cg!.adjusted_lift).toBeGreaterThan(1.5);
   });
 
-  it("empty platformPostWindowDays (the default) changes nothing", () => {
+  it("an explicitly empty platformPostWindowDays changes nothing", () => {
+    const treated = lateLiftSeries("/locations/t", 12);
+    const history = mkHistory([
+      treated,
+      flat35("/locations/c1", 6),
+      flat35("/locations/c2", 5),
+      flat35("/locations/c3", 4),
+    ]);
+    const event = mkEvent({ source_id: "e1", observed_at: treatmentDate, url: "/locations/t" });
+    const r = attributeEvent({
+      event, history, treatmentIndex: new Map(), config: { ...DEFAULT_CONFIG, platformPostWindowDays: {} }, inferUrlType: inferTestUrlType, classifierVersion: CLASSIFIER_VERSION,
+    });
+    expect(r.status).toBe("computed");
+    const cg = r.per_platform.find((l) => l.platform === "ChatGPT");
+    expect(cg!.post_window_days).toBe(14);
+    expect(Math.abs(cg!.adjusted_lift)).toBeLessThan(0.5);
+  });
+
+  it("DEFAULT calibration resolves display-case platform keys via the canonical slug", () => {
+    // History keys carry "ChatGPT" (legacy display case); the shipped
+    // calibration is keyed by the slug "chatgpt" (60d) — the
+    // normalizePlatform fallback must connect them. 60d clamps to the
+    // history's last day: 04-16..05-05 = 20 measured days.
     const treated = lateLiftSeries("/locations/t", 12);
     const history = mkHistory([
       treated,
@@ -682,7 +704,7 @@ describe("attributeEvent — platform-aware post windows", () => {
     });
     expect(r.status).toBe("computed");
     const cg = r.per_platform.find((l) => l.platform === "ChatGPT");
-    expect(cg!.post_window_days).toBe(14);
-    expect(Math.abs(cg!.adjusted_lift)).toBeLessThan(0.5);
+    expect(cg!.post_window_days).toBe(20);
+    expect(cg!.adjusted_lift).toBeGreaterThan(1.5);
   });
 });

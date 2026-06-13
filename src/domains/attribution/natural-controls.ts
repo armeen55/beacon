@@ -28,6 +28,7 @@
 
 import type { ClassifiedEvent } from "./change-taxonomy";
 import { computePlaceboP, isPlaceboSignificant } from "./placebo-inference";
+import { normalizePlatform } from "@/lib/platform";
 import {
   denseSeries,
   normalizeUrl,
@@ -90,7 +91,25 @@ export type NaturalControlsConfig = {
 export const DEFAULT_CONFIG: NaturalControlsConfig = {
   preWindowDays: 14,
   postWindowDays: 14,
-  platformPostWindowDays: {},
+  // Sourced calibration (research agent, 2026-06-12; report digested in
+  // docs/PROOF_ENGINE_METHODOLOGY.md):
+  //   perplexity 14 — on-demand retrieval (official crawler docs;
+  //     Seer recency study; ZipTie 7-14d refresh benchmarks). HIGH.
+  //   google_aio 30 — no separate AI index, tracks normal Googlebot
+  //     re-index latency (Google Search Central, official) + 30-45d
+  //     vendor citation-impact claims. MEDIUM.
+  //   chatgpt 60 — the "6-12 week" folklore is UNVERIFIED (OpenAI's
+  //     cached index picks up hot content in hours); measured citation-
+  //     behavior change clusters at 4-8 weeks (ClickRank/Erlin/Seer
+  //     31%-from-2025 recency tilt) → 60d covers the realistic tail
+  //     without the unsupported 90d cost. MEDIUM.
+  // gemini / claude: deliberately ABSENT (no verified latency evidence
+  // yet) — they measure at the 14d aggregate default.
+  platformPostWindowDays: {
+    perplexity: 14,
+    google_aio: 30,
+    chatgpt: 60,
+  },
   minControlPreCitations: 3,
   minControlPreCitationsPerPlatform: 1,
   minControlsForComputed: 2,
@@ -730,7 +749,9 @@ export function attributeEvent(inputs: AttributeInputs): NaturalControlResult {
       // changes at different speeds — when configured for this platform,
       // its breakdown measures over its own (usually longer) post window.
       // Aggregate windows/status/confidence are untouched.
-      const platformPostDays = config.platformPostWindowDays[p];
+      const platformPostDays =
+        config.platformPostWindowDays[p] ??
+        config.platformPostWindowDays[normalizePlatform(p)];
       const pWindows =
         platformPostDays != null && platformPostDays !== config.postWindowDays
           ? buildWindows(
