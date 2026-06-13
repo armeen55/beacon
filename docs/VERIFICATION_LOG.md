@@ -25,7 +25,9 @@
 - Real promotion writer dry-run (prod data): candidate_count 387, eligible 40, promoted 40, **skipped 0**; edit_title family (cap 10) = **9 GSC demand rewrites** + 1 missing_title, with concrete drafted titles.
 - **Live write to prod** (`dryRun:false`, DATA_SOURCE=supabase): 40 promoted, sync_warning none. Prod SQL confirms **10 GSC cards** in iranopedia `recommended_edits` (status `recommended`): `/iran-flags` "iran flag" 9,137; `/persian-male-names` "muslim boy names" 1,447; `/tehran` "tehran population" 1,377; `/iran-animals/persian-onager` "onager" 1,340; `/cities` "iran population" 819; +5 more.
 
-**Commit:** `2ea1575` (LOCAL on `claude/iranopedia-blockers`, NOT pushed — ci-minutes/merge-gating rails; staged as operator push checkpoint).
+**Follow-on slice (pivot #4 — source-specific confidence):** a GSC-backed card (e.g. /iran-flags, 9,137 searches/4wk) rendered **"Needs more evidence"** because `deriveConfidence` scored ONLY AEO grounding (prompts/owned-page/competitor) and GSC title-rewrites have thin AEO grounding. Fixed by threading `gscSignal.impressions28d` into `deriveConfidence` as a FLOOR (raises only, never lowers): ≥1000 impressions → Strong, ≥200 → at least Moderate (rescues from needs_review). Wired at all 3 call sites (faq/edit/meta); explanations updated to name first-party search demand. `derived-confidence.ts` + `recommendation-action-rows.ts` + new `derived-confidence-gsc-floor.test.ts`. Render-time derivation (no card rewrite needed; takes effect on deploy). Verified: typecheck clean; 27 derived-confidence/gsc tests + 643 recommendations/app tests + **237-file / 5,759-test architecture suite** all green.
+
+**Commits (LOCAL on `claude/iranopedia-blockers`, NOT pushed — ci-minutes/merge-gating rails; staged as operator push checkpoint):** `2ea1575` (Gate 9 GSC override), `5ece847` (docs), `2a6ddc5` (pivot #4 confidence floor).
 **Known gap:** `gsc_daily_page_totals` is EMPTY in prod (backfill hit GSC token-expiry) → page-LEVEL impressions understated ~50% in the GSC-led summary; per-QUERY volumes in card copy are accurate.
 
 ---
