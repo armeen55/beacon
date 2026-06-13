@@ -58,6 +58,7 @@ function computedOutcome(
         controls_used: 3,
         pre_days_observed: 14,
         post_days_observed: 14,
+        placebo_p: 0.05, // placebo-significant → causal-grade for the base rate
       },
       per_platform: [],
     },

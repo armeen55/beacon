@@ -2,8 +2,10 @@
  * causal-self-forecast — the Move Forecast's n=1 engine.
  *
  * Pins reference-class forecasting over the tenant's OWN proven outcomes:
- *   • base rate counts ONLY causal-grade (status==="computed") priors;
- *     weak/raw/ineligible outcomes never enter the reference class;
+ *   • base rate counts ONLY causal-grade priors — computed AND placebo-
+ *     significant (p<0.1); weak/raw/ineligible AND placebo-FAILED computed
+ *     outcomes never enter the reference class (honesty gate 2026-06-13);
+ *   • "measurably helped/hurt" uses the flat-move bar (±FLAT_LIFT_THRESHOLD);
  *   • suppress below CAUSAL_FORECAST_SUPPRESS_BELOW (nothing honest to say);
  *   • seeded caveat in the small-class band;
  *   • (bucket × url_type) reference class, widening to (bucket) when narrow;
@@ -30,6 +32,9 @@ function outcome(
     status?: StoredChangeOutcome["status"];
     adjusted_lift?: number | null;
     relative_lift?: number | null;
+    /** Defaults to placebo-SIGNIFICANT (0.05) so a fixture is causal-grade
+     *  unless a test explicitly makes it placebo-failed. */
+    placebo_p?: number | null;
   },
 ): StoredChangeOutcome {
   const isComputed =
@@ -51,6 +56,10 @@ function outcome(
           controls_used: 3,
           pre_days_observed: 14,
           post_days_observed: 14,
+          // Distinguish explicit `null` (placebo absent → excluded) from
+          // omitted (default to placebo-significant).
+          placebo_p:
+            partial.placebo_p === undefined ? 0.05 : partial.placebo_p,
         },
         per_platform: [],
       }
@@ -114,6 +123,42 @@ describe("buildCausalSelfForecast", () => {
     expect(f.helpingRate).toBe(1);
     expect(f.typicalRelativeLift).toBe(0.4); // median(0.5, 0.3)
     expect(f.kind).toBe("self_causal_forecast");
+  });
+
+  it("excludes placebo-FAILED computed priors — chance-level lifts never enter the base rate", () => {
+    const outcomes = [
+      // Two genuine causal-grade priors (placebo-significant):
+      outcome({ source_id: "a", primary_bucket: "content.faq.add", adjusted_lift: 2, relative_lift: 0.5, placebo_p: 0.02 }),
+      outcome({ source_id: "b", primary_bucket: "content.faq.add", adjusted_lift: 1, relative_lift: 0.3, placebo_p: 0.05 }),
+      // Placebo-FAILED computed (engine verdict: moved by chance) — MUST be excluded:
+      outcome({ source_id: "c", primary_bucket: "content.faq.add", adjusted_lift: 9, relative_lift: 2, placebo_p: 0.5 }),
+      outcome({ source_id: "d", primary_bucket: "content.faq.add", adjusted_lift: 9, relative_lift: 2, placebo_p: null }),
+    ];
+    const f = buildCausalSelfForecast(outcomes, {
+      primary_bucket: "content.faq.add",
+    })!;
+    expect(f).not.toBeNull();
+    expect(f.sampleSize).toBe(2); // only the two placebo-significant priors
+    expect(f.helpedCount).toBe(2);
+    expect(f.helpingRate).toBe(1);
+  });
+
+  it("a credibly-measured-but-FLAT lift (|lift| < threshold) counts as neither help nor hurt", () => {
+    const outcomes = [
+      outcome({ source_id: "a", primary_bucket: "content.body.rewrite", adjusted_lift: 3, relative_lift: 0.6, placebo_p: 0.02 }),
+      outcome({ source_id: "b", primary_bucket: "content.body.rewrite", adjusted_lift: 2, relative_lift: 0.4, placebo_p: 0.02 }),
+      // flat: placebo-significant but a tiny lift below the flat bar — in the
+      // denominator, but not "measurably helped":
+      outcome({ source_id: "c", primary_bucket: "content.body.rewrite", adjusted_lift: 0.2, relative_lift: 0.05, placebo_p: 0.02 }),
+      outcome({ source_id: "d", primary_bucket: "content.body.rewrite", adjusted_lift: 0.4, relative_lift: 0.05, placebo_p: 0.02 }),
+    ];
+    const f = buildCausalSelfForecast(outcomes, {
+      primary_bucket: "content.body.rewrite",
+    })!;
+    expect(f.sampleSize).toBe(4); // all four are credibly measured
+    expect(f.helpedCount).toBe(2); // only the two that cleared the flat bar
+    expect(f.hurtCount).toBe(0);
+    expect(f.helpingRate).toBe(0.5); // 2 of 4 — noise doesn't inflate it
   });
 
   it("computes an honest base rate with helped + hurt priors", () => {
