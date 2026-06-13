@@ -80,7 +80,7 @@ describe("isQuestionShaped", () => {
 
 describe("hasEarlyAnswerScaffold", () => {
   it("true when FAQs, FAQ schema, or a question-shaped H2 exist", () => {
-    expect(hasEarlyAnswerScaffold(snap({ faqs: [{ question: "q", answer: "a" }] as PageSnapshot["faqs"] }))).toBe(true);
+    expect(hasEarlyAnswerScaffold(snap({ faqs: [{ question: "q", answer_excerpt: "a", source: "jsonld" }] }))).toBe(true);
     expect(hasEarlyAnswerScaffold(snap({ faq_schema_block_count: 1 }))).toBe(true);
     expect(hasEarlyAnswerScaffold(snap({ h2_list: ["What is it?", "More"] }))).toBe(true);
   });
