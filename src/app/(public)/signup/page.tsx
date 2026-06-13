@@ -36,8 +36,10 @@ export default async function SignupPage({
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">Create your Beacon account</h1>
           <p className="text-[12px] text-muted-foreground">
-            See how AI search engines describe your business. Magic-link
-            sign-in — no password.
+            Connect the tools you already use and Beacon finds the edits most
+            likely to win AI citations and Google clicks, shows you the exact
+            change, then pushes it live to your site. Magic-link sign-in — no
+            password.
           </p>
         </div>
         <SignupForm sent={params.sent === "1"} error={params.error} />

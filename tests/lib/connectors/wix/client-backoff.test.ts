@@ -40,7 +40,7 @@ function fetchSeq(sequence: FakeRes[]) {
   return { fetchImpl, calls: () => calls };
 }
 
-const token = { api_key: "k", site_id: "s", disconnected_at: null };
+const token = { api_key: "k", site_id: "s" };
 
 describe("wixFetch rate-limit backoff", () => {
   it("retries through 429s and succeeds when the limit clears", async () => {
