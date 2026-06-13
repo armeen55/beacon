@@ -88,7 +88,17 @@ export async function loadGscPageSignalsForTenant(
         .eq("tenant_id", tenantId)
         .eq("is_final", true)
         .gte("date", since)
-        .order("date")
+        // Order date DESCENDING so that when the window has more rows
+        // than the MAX_ROWS safety bound (Iranopedia: ~208k rows in 90
+        // days vs an 80k cap), the read keeps the MOST RECENT rows, not
+        // the oldest. Pre-fix (ascending) the cap summed Mar–mid-Apr and
+        // dropped the latest ~2 months, so the card's "in the last 90
+        // days" counts reflected stale spring data. Recent-truncated is
+        // strictly more correct + conservative (a sub-window undercount,
+        // never an overstatement). Real fix for full accuracy is a
+        // Postgres GROUP-BY RPC (parked). page/query keep ascending so
+        // the (date desc, page, query) order stays unique for paging.
+        .order("date", { ascending: false })
         .order("page")
         .order("query")
         .range(offset, offset + PAGE_SIZE - 1);
