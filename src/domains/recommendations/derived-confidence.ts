@@ -65,9 +65,9 @@ export const DERIVED_CONFIDENCE_EXPLANATION: Record<
   string
 > = {
   strong_evidence:
-    "Grounded in multiple prompts, an owned page, and at least one of: competitor pressure, AI search-query signal, or a brand assertion.",
+    "Grounded in multiple prompts, an owned page, and at least one of: competitor pressure, AI search-query signal, or a brand assertion — or strong first-party Google Search demand for this page.",
   moderate_evidence:
-    "At least two grounding signals present, but missing one major category (e.g., no owned-page match, or single-prompt only).",
+    "At least two grounding signals present (or meaningful first-party Google Search demand for this page), but missing one major category — e.g., no owned-page match, or single-prompt only.",
   needs_review:
     "Thin grounding — single prompt without supporting structural signals. Operator inspection recommended before shipping.",
 };
@@ -83,12 +83,54 @@ export type DeriveConfidenceInput = {
   isFaqAnswer: boolean;
   /** Top competitor presence (signal even when competitor refs missing). */
   hasTopCompetitor: boolean;
+  /**
+   * Pivot 2026-06-13 — first-party Google Search demand for the target
+   * page (28-day impressions, from `gscSignal.impressions28d`). Real
+   * search demand is strong first-party evidence that exists
+   * INDEPENDENTLY of AI-citation grounding: a page Google shows for
+   * queries thousands of times is not "thin" just because few AI
+   * prompts cite it. It can only RAISE the label, never lower it — so
+   * a demand-backed card never reads "Needs more evidence". Thresholds
+   * mirror the `priorityForRow` GSC floors. Optional / undefined when
+   * the page has no GSC signal (label falls back to the AEO rubric).
+   */
+  gscImpressions?: number;
 };
+
+/** First-party Google Search demand thresholds (mirror priorityForRow). */
+const GSC_STRONG_IMPRESSIONS = 1000;
+const GSC_MODERATE_IMPRESSIONS = 200;
 
 /**
  * Pure derivation. Same input → same output.
+ *
+ * First-party Google Search demand is applied as a FLOOR on top of the
+ * AEO-evidence rubric: it can raise the label (heavy demand → Strong;
+ * meaningful demand rescues an otherwise-thin row from "Needs review")
+ * but never lowers an already-strong AEO grounding.
  */
 export function deriveConfidence(
+  input: DeriveConfidenceInput,
+): DerivedConfidenceLabel {
+  const gscImpressions = input.gscImpressions ?? 0;
+  // Heavy first-party demand is strong evidence on its own.
+  if (gscImpressions >= GSC_STRONG_IMPRESSIONS) return "strong_evidence";
+
+  const base = deriveAeoConfidence(input);
+  // Meaningful demand prevents a "Needs review" floor — the page is
+  // provably trafficked even when AI-citation grounding is thin.
+  if (base === "needs_review" && gscImpressions >= GSC_MODERATE_IMPRESSIONS) {
+    return "moderate_evidence";
+  }
+  return base;
+}
+
+/**
+ * AEO-evidence rubric (prompts / owned-page / competitor / search-query
+ * / brand-assertion / evidence-depth). The first-party-demand floor in
+ * `deriveConfidence` wraps this.
+ */
+function deriveAeoConfidence(
   input: DeriveConfidenceInput,
 ): DerivedConfidenceLabel {
   const refs = input.evidenceRefs ?? [];

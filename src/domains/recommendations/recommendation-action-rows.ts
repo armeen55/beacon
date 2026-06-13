@@ -1489,6 +1489,10 @@ export function buildRecommendationActionRows(
           affectedPromptCount: rec.evidence.promptCount,
           isFaqAnswer: false,
           hasTopCompetitor: topCompetitor !== null,
+          // Pivot 2026-06-13: first-party Google Search demand floors
+          // the confidence label (never "Needs more evidence" when the
+          // page is provably trafficked).
+          gscImpressions: rec.gscSignal?.impressions28d,
         });
         rows.push({
           id: `${rec.stableKey}::faq-pair::${hash}`,
@@ -1619,6 +1623,10 @@ export function buildRecommendationActionRows(
             typeof edit.target_element_key === "string" &&
             /^faq_answer\[/.test(edit.target_element_key),
           hasTopCompetitor: topCompetitor !== null,
+          // Pivot 2026-06-13: first-party Google Search demand floors
+          // the confidence label (never "Needs more evidence" when the
+          // page is provably trafficked).
+          gscImpressions: rec.gscSignal?.impressions28d,
         });
         rows.push({
           id: `${rec.stableKey}::${edit.id}`,
@@ -1771,6 +1779,9 @@ export function buildRecommendationActionRows(
       affectedPromptCount: rec.evidence.promptCount,
       isFaqAnswer: false,
       hasTopCompetitor: topCompetitor !== null,
+      // Pivot 2026-06-13: first-party Google Search demand floors the
+      // confidence label for meta-action rows too.
+      gscImpressions: rec.gscSignal?.impressions28d,
     });
     rows.push({
       id: `${rec.stableKey}::${metaKind}`,
