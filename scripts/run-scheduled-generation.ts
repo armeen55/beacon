@@ -194,6 +194,27 @@ async function main() {
     );
   }
 
+  // GA4 slice (2026-06-13): nightly URL-traffic sync so the page-value
+  // ranking weight (loadGa4PageValuesForTenant → promotion-writer) and
+  // the outcome surfaces receive fresh data WITHOUT an operator manually
+  // clicking the diagnostics refresh button. Dormant (no_token /
+  // no_property) until a GA4 key + property land. Failure-soft.
+  try {
+    const { syncGa4UrlTrafficForTenant } = await import(
+      "../src/lib/connectors/ga4/sync-url-traffic"
+    );
+    const ga4 = await syncGa4UrlTrafficForTenant({ tenantId });
+    console.log(
+      ga4.synced
+        ? `[scheduled-generation] GA4 synced tenant=${tenantId} property=${ga4.property} rows_fetched=${ga4.rows_fetched} rows_upserted=${ga4.rows_upserted}`
+        : `[scheduled-generation] GA4 skipped tenant=${tenantId} reason=${ga4.reason}`,
+    );
+  } catch (err) {
+    console.warn(
+      `::warning::[scheduled-generation] GA4 sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Lazy import — env must be set before tenant context resolves.
   const { promoteEligibleCandidates } = await import(
     "../src/domains/recommendation-intelligence/promotion-writer"
