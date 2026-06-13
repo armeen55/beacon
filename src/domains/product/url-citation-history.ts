@@ -124,6 +124,25 @@ export async function buildUrlCitationHistory(opts?: {
    * windowed read.
    */
   observations?: Awaited<ReturnType<typeof getPromptAnswerObservations>>;
+  /**
+   * Profound-connector citations for the tenant's OWNED URLs (live
+   * `profound_citation_rows`, mapped to {url, date, platform, count}).
+   * Fuses the operator's PAID Profound AI-visibility data into the
+   * proof history as a third measurement source — so watch windows
+   * measure even while native polling is OpenAI-quota-blocked.
+   * GAP-FILL precedence: benchmark > native > profound (Profound never
+   * overwrites a (url,date) the polling regimes already cover, so the
+   * same citation is never double-counted). Absent/empty (every render
+   * consumer + the default) → byte-identical behavior. The proof
+   * engine's honesty gates (≥controls, placebo, parallel-trends) apply
+   * to the merged history unchanged.
+   */
+  profoundOwnedCitations?: ReadonlyArray<{
+    url: string;
+    date: string;
+    platform: string;
+    count: number;
+  }>;
 }): Promise<UrlCitationHistory> {
   const ownedOnly = opts?.ownedOnly ?? true;
   const since = opts?.sinceDate ?? null;
@@ -222,6 +241,55 @@ export async function buildUrlCitationHistory(opts?: {
       // history doesn't store full URL lists on daily rows; the raw_urls
       // Set is the union across all dates for this URL key.
       entry.raw_urls.add(date);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Profound regime (2026-06-13) — live profound_citation_rows for the
+  // tenant's OWNED URLs. GAP-FILL only: writes a (url,date) bucket ONLY
+  // when neither benchmark nor native already covered it, so a citation
+  // measured by both sources is never double-counted. This bridges the
+  // measurement loop while native polling is quota-blocked.
+  // ------------------------------------------------------------------
+  if (opts?.profoundOwnedCitations && opts.profoundOwnedCitations.length > 0) {
+    // Aggregate Profound rows per (normUrl, date) → per-platform counts.
+    const pf = new Map<string, Map<string, Record<string, number>>>();
+    for (const row of opts.profoundOwnedCitations) {
+      const normUrl = normalizeUrl(row.url);
+      if (!normUrl || !row.date) continue;
+      if (since && row.date < since) continue;
+      const byDate = pf.get(normUrl) ?? new Map<string, Record<string, number>>();
+      const platforms = byDate.get(row.date) ?? {};
+      const platform = normalizePlatform(row.platform || "unknown");
+      platforms[platform] = (platforms[platform] ?? 0) + (row.count ?? 0);
+      byDate.set(row.date, platforms);
+      pf.set(normUrl, byDate);
+    }
+    for (const [normUrl, byDate] of pf) {
+      // Compute the valid gap-fill buckets FIRST; only touch byUrl when
+      // at least one lands, so an all-zero URL never creates an empty
+      // owned series.
+      const existing = byUrl.get(normUrl);
+      const toAdd: Array<[string, Record<string, number>, number]> = [];
+      for (const [date, platforms] of byDate) {
+        if (existing?.days.has(date)) continue; // benchmark/native win
+        const total = Object.values(platforms).reduce((a, b) => a + b, 0);
+        if (total <= 0) continue;
+        toAdd.push([date, platforms, total]);
+      }
+      if (toAdd.length === 0) continue;
+      const entry =
+        existing ?? { raw_urls: new Set<string>(), is_owned: true, days: new Map() };
+      entry.is_owned = true; // Profound rows here are owned-domain only
+      for (const [date, platforms, total] of toAdd) {
+        entry.days.set(date, {
+          count: total,
+          by_platform: { ...platforms },
+          source_type: "benchmark", // external-source (non-native) bucket
+        });
+        entry.raw_urls.add(date);
+      }
+      byUrl.set(normUrl, entry);
     }
   }
 

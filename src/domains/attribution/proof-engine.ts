@@ -149,7 +149,26 @@ export async function buildAndPersistTenantProof(
       const observations = await getRepository()
         .forTenant(tenantId)
         .getPromptAnswerObservations();
-      return buildUrlCitationHistory({ ownedOnly: true, observations });
+      // Profound → proof bridge (2026-06-13): fuse the operator's paid
+      // Profound AI-citation data (owned URLs) as a gap-fill third
+      // measurement source — so watch windows measure even while native
+      // polling is OpenAI-quota-blocked. Fail-soft [] → native-only.
+      let profoundOwnedCitations: Awaited<
+        ReturnType<typeof import("./profound-proof-observations").loadProfoundOwnedCitations>
+      > = [];
+      try {
+        const { loadProfoundOwnedCitations } = await import(
+          "./profound-proof-observations"
+        );
+        profoundOwnedCitations = await loadProfoundOwnedCitations(tenantId);
+      } catch {
+        profoundOwnedCitations = [];
+      }
+      return buildUrlCitationHistory({
+        ownedOnly: true,
+        observations,
+        profoundOwnedCitations,
+      });
     });
   const persist = deps.persist ?? persistChangeOutcomes;
 
