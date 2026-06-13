@@ -31,7 +31,30 @@ export type WixDeps = {
   /** Token override for tests. `null` = simulate not-connected. */
   token?: Pick<WixConnectorToken, "api_key" | "site_id" | "disconnected_at"> | null;
   tenantId?: string;
+  /** Injectable sleep for the rate-limit backoff (tests pass a no-op so
+   *  retries don't actually wait). Defaults to a real setTimeout sleep. */
+  sleepImpl?: (ms: number) => Promise<void>;
 };
+
+// Rate-limit safety (2026-06-13): Wix returns HTTP 429 when a key exceeds
+// its quota, and 502/503 on transient hiccups. Retrying those with
+// exponential backoff — honoring a Retry-After header when present —
+// keeps a burst of pushes / a large collection sync from tripping Wix's
+// limits (the ban/throttle risk). Bounded so a hard-down API still fails
+// fast. Sources: Wix REST rate-limit docs (429 + Retry-After), MDN
+// Retry-After, AWS/Google exponential-backoff guidance.
+const WIX_MAX_RETRIES = 3;
+const WIX_RETRYABLE_STATUS: ReadonlySet<number> = new Set([429, 502, 503]);
+const WIX_MAX_BACKOFF_MS = 30_000;
+function wixBackoffMs(attempt: number, retryAfter: string | null): number {
+  const ra = retryAfter != null ? Number(retryAfter) : Number.NaN;
+  if (Number.isFinite(ra) && ra >= 0) {
+    return Math.min(Math.round(ra * 1000), WIX_MAX_BACKOFF_MS);
+  }
+  return Math.min(1000 * 2 ** attempt, 8000); // 1s, 2s, 4s, 8s …
+}
+const wixDefaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Slug/URL-bearing keys the push path must never modify (caps §3). */
 const FORBIDDEN_FIELDS = new Set([
@@ -84,33 +107,45 @@ async function wixFetch<T>(
   const tok = await resolveToken(deps);
   if (!tok.ok) return tok;
   const fetchImpl = deps.fetchImpl ?? fetch;
-  try {
-    const res = await fetchImpl(`${WIX_BASE_URL}${path}`, {
-      method: init.method,
-      headers: {
-        Authorization: tok.value.api_key,
-        "wix-site-id": tok.value.site_id,
-        "Content-Type": "application/json",
-      },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!res.ok) {
+  const sleep = deps.sleepImpl ?? wixDefaultSleep;
+  let lastDetail = "unknown";
+  for (let attempt = 0; attempt <= WIX_MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetchImpl(`${WIX_BASE_URL}${path}`, {
+        method: init.method,
+        headers: {
+          Authorization: tok.value.api_key,
+          "wix-site-id": tok.value.site_id,
+          "Content-Type": "application/json",
+        },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (res.ok) {
+        return { ok: true, value: (await res.json().catch(() => ({}))) as T };
+      }
       const text = await res.text().catch(() => "");
+      lastDetail = `http_${res.status}: ${text.slice(0, 300)}`;
+      // Rate-limit / transient backoff: respect Retry-After, else
+      // exponential. Stop changing the live site the instant Wix pushes
+      // back — never hammer past the limit (ban-safety).
+      if (WIX_RETRYABLE_STATUS.has(res.status) && attempt < WIX_MAX_RETRIES) {
+        await sleep(wixBackoffMs(attempt, res.headers.get("retry-after")));
+        continue;
+      }
+      return { ok: false, reason: "api_error", detail: lastDetail };
+    } catch (err) {
+      // Network/timeout — not retried here (the original behavior); a
+      // transient blip surfaces as api_error and the caller's own retry/
+      // next-run handles it.
       return {
         ok: false,
         reason: "api_error",
-        detail: `http_${res.status}: ${text.slice(0, 300)}`,
+        detail: err instanceof Error ? err.message : "unknown",
       };
     }
-    return { ok: true, value: (await res.json().catch(() => ({}))) as T };
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "api_error",
-      detail: err instanceof Error ? err.message : "unknown",
-    };
   }
+  return { ok: false, reason: "api_error", detail: lastDetail };
 }
 
 /** Query items of one collection (paged; v1 pulls up to `limit`). */
