@@ -2,9 +2,10 @@
  * 2026-06-13 — Wix content-push slice: deriveWixContentFieldKey.
  *
  * Pins the operator-config-driven derivation that lets Accept push a
- * content edit (title/heading) LIVE to a Wix CMS page:
- *   • edit_title / change_h1 + a configured contentFieldRoles entry →
- *     "field:<cmsField>";
+ * content edit (title/heading/meta) LIVE to a Wix CMS page:
+ *   • edit_title / change_h1 / edit_meta + a configured contentFieldRoles
+ *     entry → "field:<cmsField>" (edit_meta → the `description` field the
+ *     dynamic page's meta-description SEO Variable references);
  *   • action with no mapped role → null (card stays paste-ready);
  *   • URL not in the synced url-map → null;
  *   • collection present but no contentFieldRoles → null (opt-in);
@@ -44,7 +45,11 @@ beforeEach(() => {
       dataCollectionId: "Poets",
       slugField: "slug",
       urlPrefix: "/poets",
-      contentFieldRoles: { title: "seoTitle", heading: "h1Text" },
+      contentFieldRoles: {
+        title: "seoTitle",
+        heading: "h1Text",
+        description: "seoDescription",
+      },
     },
   ]);
 });
@@ -56,6 +61,24 @@ describe("deriveWixContentFieldKey", () => {
 
   it("change_h1 → field:<configured heading field>", async () => {
     expect(await deriveWixContentFieldKey(URL, "change_h1")).toBe("field:h1Text");
+  });
+
+  it("edit_meta → field:<configured description field> (Wix SEO-Variable-backed meta)", async () => {
+    expect(await deriveWixContentFieldKey(URL, "edit_meta")).toBe("field:seoDescription");
+  });
+
+  it("edit_meta → null when description role is absent (opt-in; many collections have no per-item meta field)", async () => {
+    _stores.set("wix-collection-config", [
+      {
+        dataCollectionId: "Poets",
+        slugField: "slug",
+        urlPrefix: "/poets",
+        contentFieldRoles: { title: "seoTitle", heading: "h1Text" }, // no description
+      },
+    ]);
+    expect(await deriveWixContentFieldKey(URL, "edit_meta")).toBeNull();
+    // siblings still resolve
+    expect(await deriveWixContentFieldKey(URL, "edit_title")).toBe("field:seoTitle");
   });
 
   it("an action with no content role → null (stays paste-ready)", async () => {

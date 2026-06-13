@@ -68,22 +68,29 @@ export async function saveWixMappings(formData: FormData): Promise<SaveWixMappin
       typeof m.urlPrefix === "string"
     ) {
       // Content-push slice (2026-06-13): pass through the optional
-      // contentFieldRoles map (title/heading → CMS field) so live
-      // content pushes can be enabled per collection. Only non-empty
+      // contentFieldRoles map (title/heading/description → CMS field) so
+      // live content pushes can be enabled per collection. Only non-empty
       // string fields are kept; an empty/absent map = paste-ready.
+      // `description` maps edit_meta → the field the page's meta-desc SEO
+      // Variable references (Wix dynamic-page SEO).
       let contentFieldRoles:
         | WixCollectionMapping["contentFieldRoles"]
         | undefined;
       if (m.contentFieldRoles != null && typeof m.contentFieldRoles === "object") {
         const cfr = m.contentFieldRoles as Record<string, unknown>;
-        const roles: { title?: string; heading?: string } = {};
+        const roles: { title?: string; heading?: string; description?: string } = {};
         if (typeof cfr.title === "string" && cfr.title.trim() !== "") {
           roles.title = cfr.title.trim();
         }
         if (typeof cfr.heading === "string" && cfr.heading.trim() !== "") {
           roles.heading = cfr.heading.trim();
         }
-        if (roles.title != null || roles.heading != null) contentFieldRoles = roles;
+        if (typeof cfr.description === "string" && cfr.description.trim() !== "") {
+          roles.description = cfr.description.trim();
+        }
+        if (roles.title != null || roles.heading != null || roles.description != null) {
+          contentFieldRoles = roles;
+        }
       }
       rows.push({
         dataCollectionId: m.dataCollectionId,

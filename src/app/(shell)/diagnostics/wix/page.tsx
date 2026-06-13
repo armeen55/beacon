@@ -145,9 +145,11 @@ export default async function WixDiagnosticPage() {
         <p className="mb-2 text-xs text-muted-foreground">
           JSON array of {"{ dataCollectionId, slugField, urlPrefix, labelField?, contentFieldRoles? }"} —
           which CMS collections render pages and how their URLs are built. Add{" "}
-          <code>{'"contentFieldRoles": { "title": "<field>", "heading": "<field>" }'}</code>{" "}
-          to let Accept push title/heading edits LIVE to those pages (omit it and
-          those edits stay paste-ready).
+          <code>{'"contentFieldRoles": { "title": "<field>", "heading": "<field>", "description": "<field>" }'}</code>{" "}
+          to let Accept push title / H1 / meta-description edits LIVE to those
+          pages (<code>description</code> = the CMS field the page&apos;s
+          meta-description SEO Variable references; omit any role and those edits
+          stay paste-ready).
         </p>
         <form action={saveWixMappingsFromForm} className="space-y-2">
           <textarea

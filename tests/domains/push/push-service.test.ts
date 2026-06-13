@@ -150,6 +150,30 @@ describe("Wix content-push slice — field-role derivation for content edits", (
     );
   });
 
+  it("an edit_meta card with NO element key + a configured description role pushes LIVE to the SEO-Variable field", async () => {
+    // The page's meta description is a Wix SEO Variable bound to this CMS
+    // field; writing the field updates the live meta (Wix dynamic-page SEO).
+    _deriveFieldKey = "field:seoDescription"; // operator mapped description → "seoDescription"
+    _queryResult.value = [
+      { id: "item-1", dataCollectionId: "col", data: { seoDescription: "Old meta." } },
+    ];
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        action_type: "edit_meta" as RecommendedEditRow["action_type"],
+        target_element_key: null,
+        current_text: "Old meta.",
+        proposed_text:
+          "Explore famous Iranian poets — Rumi, Hafez, Saadi — with concise, sourced biographies on Iranopedia.",
+      }),
+    });
+    expect(r.kind).toBe("pushed");
+    expect(_updateCalls).toHaveLength(1);
+    expect((_updateCalls[0]!.data as Record<string, unknown>).seoDescription).toBe(
+      "Explore famous Iranian poets — Rumi, Hafez, Saadi — with concise, sourced biographies on Iranopedia.",
+    );
+  });
+
   it("a content card with NO configured role stays PASTE-READY (refused), never written", async () => {
     _deriveFieldKey = null; // operator has not mapped the field role
     const r = await executePush({

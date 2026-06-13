@@ -56,15 +56,23 @@ export async function resolveWixItemForUrl(
   );
 }
 
-/** Content-edit action_type → the page ROLE it edits. Only the
- *  unambiguous single-field edits are auto-targetable in v1; body-append
- *  (add_h2_section/add_faq) and CMS meta are intentionally absent —
- *  riskier, and Wix CMS items rarely carry a per-item meta field. */
+/** Content-edit action_type → the page ROLE it edits. The unambiguous
+ *  single-field SEO edits are auto-targetable: title, H1, and meta
+ *  description. `edit_meta` maps to the `description` role — on Wix a
+ *  dynamic page's meta description is populated by an SEO Variable bound
+ *  to a collection field, so writing that field updates the live meta
+ *  (Wix "Working with SEO Settings for Dynamic Pages" / "Using Variables
+ *  in SEO Settings", 2026-06). All three are OPT-IN: each does nothing
+ *  until the operator maps the concrete field on /diagnostics/wix, so a
+ *  collection with no per-item meta field simply leaves `description`
+ *  unset and `edit_meta` cards stay paste-ready. Body-append
+ *  (add_h2_section/add_faq) stays absent — multi-field, riskier. */
 const CONTENT_ACTION_FIELD_ROLE: Readonly<
-  Record<string, "title" | "heading">
+  Record<string, "title" | "heading" | "description">
 > = {
   edit_title: "title",
   change_h1: "heading",
+  edit_meta: "description",
 };
 
 /**

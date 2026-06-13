@@ -72,5 +72,14 @@ export type WixCollectionMapping = {
     title?: string;
     /** CMS field rendering the page's main <h1> heading. */
     heading?: string;
+    /**
+     * CMS field the page's meta-description SEO Variable references. On
+     * Wix, a dynamic page's meta description is populated by an SEO
+     * Variable bound to a collection field, so writing this field updates
+     * the live meta description (we update the value, never delete the
+     * field the variable needs). Sources: Wix "Working with SEO Settings
+     * for Dynamic Pages" + "Using Variables in SEO Settings" (2026-06).
+     */
+    description?: string;
   };
 };
