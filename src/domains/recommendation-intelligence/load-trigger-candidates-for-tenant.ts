@@ -89,6 +89,8 @@ import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { gscLowCtr, gscStrikingDistance } from "./triggers/gsc-low-ctr";
 import { answerBlockReadiness } from "./triggers/answer-block-readiness";
+import { clarityFriction } from "./triggers/clarity-friction";
+import { loadClarityPageSignalsForTenant } from "./clarity-page-signals";
 import { gscDecay } from "./triggers/gsc-decay";
 import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
 import { semrushCannibalization } from "./triggers/semrush-cannibalization";
@@ -265,8 +267,10 @@ export async function loadTriggerCandidatesForTenant(options: {
   // an empty map — no GSC connection (or no synced rows yet) simply
   // means the gsc_low_ctr predicate never fires.
   let gscSignals: Map<string, GscPageSignal> = new Map();
+  let claritySignals: Map<string, import("./clarity-page-signals").ClarityPageSignal> = new Map();
   try {
     gscSignals = await loadGscPageSignalsForTenant(tenantId);
+    claritySignals = await loadClarityPageSignalsForTenant(tenantId);
   } catch (err) {
     console.error(
       `[trigger-loader] gsc page-signals load failed for ${tenantId} (gsc predicates skip): ${err instanceof Error ? err.message : String(err)}`,
@@ -465,6 +469,15 @@ export async function loadTriggerCandidatesForTenant(options: {
         signal: gscSignals.get(
           canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
         ),
+      }),
+    );
+    // Clarity fuse (2026-06-13): per-URL friction (script errors /
+    // rage clicks) → a page-experience review card.
+    all.push(
+      ...clarityFriction({
+        tenantId,
+        snapshot,
+        signal: claritySignals.get(snapshot.url),
       }),
     );
     // Insight Graph slice 2 (2026-06-12) — striking-distance keywords.

@@ -56,6 +56,9 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   // Source-ledger slice (2026-06-12, deliberate): sources are editorial
   // judgment — operator review.
   ["uncited_content::add_proof_section", "operator-review-only"],
+  // Clarity fuse (2026-06-13, deliberate): advisory page-experience
+  // friction — operator review.
+  ["clarity_friction::fix_page_experience", "operator-review-only"],
   // AEO answer-block readiness (2026-06-12, deliberate): directive
   // only, owner writes the answer — operator review.
   ["missing_answer_block::add_answer_block", "operator-review-only"],

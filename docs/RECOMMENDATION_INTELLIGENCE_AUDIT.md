@@ -1676,3 +1676,12 @@ After 4.5.G ships, the registry reaches:
 source-of-truth for every future Section 4.5 slice. Any slice that
 changes the registry shape MUST update this document in lockstep
 with the change.
+
+## 2026-06-13 — registry expansion (Clarity fuse)
+
+Added `fix_page_experience` (inactive generator) — the directive-only
+action paired with the deterministic `clarity_friction` predicate that
+consumes the synced Microsoft Clarity per-URL metrics (script errors /
+rage clicks). Registry count is now **38** action types (was 37); the
+locked active set is UNCHANGED (3: `edit_title`, `add_h2_section`,
+`add_faq`) — `fix_page_experience` ships `generatorActive: false`.
