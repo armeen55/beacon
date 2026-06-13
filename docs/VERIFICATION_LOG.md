@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-13 — 02:00→03:05 shift: cron root-cause, END-STATE empirical proof, GA4 producer-gap (PR #111), Profound SOV-gap sourced/parked
+
+**What changed:**
+- **PR #111 (GA4 nightly URL-traffic sync)** — new `src/lib/connectors/ga4/sync-url-traffic.ts` (`syncGa4UrlTrafficForTenant`) + one fail-soft step wired into `scripts/run-scheduled-generation.ts`. Closes the END-STATE gap where GA4 had a live consumer (page-value ranking weight) but no nightly producer — only the operator diagnostics button wrote `ga4_url_traffic`. Dormant-until-key (`no_token`/`no_property` skip), reuses the operator-refresh helpers minus the operator gate, `computeRefreshDateRange`-bounded, UPSERT-idempotent.
+- **Docs (this PR #110, expanded to a docs-sync):** Profound SOV-gap trigger designed + 5-source research digest, PARKED build-blocked (IDEAS_PARKING_LOT); night-shift log 02:38 + 03:05; this entry; HANDOFF refresh.
+
+**Verified:**
+- GA4 slice: 5 new unit tests green (`tests/lib/connectors/ga4/sync-url-traffic.test.ts`); `npm run typecheck` clean; GA4 arch ratchets (no-page-load-call / scope-split / outcomes-loader-no-api), `nightly-generation-contract`, `run-scheduled-generation` script tests green; **FULL `npx vitest run` = 781 files / 14,643 tests / 0 fail**.
+- **END-STATE empirical proof (Supabase, prod, both tenants):** page_snapshots 1085 iran / 1907 ritz; prompt_answer_observations 150 / 21,047; recommended_edits iran 50 `recommended` (+1 expired), ritz 24 `recommended` + 7 dismissed + 1 verified_live; **change_outcomes_v2 = 167 ritz rows written by the cron TONIGHT 08:38 UTC** (166 insufficient_baseline/"watching" + 1 no_controls + 0 computed). iran proof=0 = honest (0 changelog rows). The legacy `change_outcomes` table (frozen 2026-04-15, Profound-CSV era) is NOT the engine's table — `change_outcomes_v2` (JSONB) is, and it's fresh.
+- **Cron "failure" root-caused** (NOT our code): 4 nightly-generation dispatches + #108/#110/#111 CI all die at GitHub hosted-runner init (`steps:0`, runner assigned then dead pre-`checkout`); the compute-matrix command runs green locally on HEAD; workflow YAML byte-identical to the 08:37 UTC scheduled run that SUCCEEDED; CI at 09:20–09:22 passed on the same pool. githubstatus = "operational" (below their incident threshold). Sustained bad-runner batch.
+
+**Blocked (environmental, not code):** #108 (Profound→proof bridge), #110 (this docs/park), #111 (GA4) cannot merge until the runner batch recovers — merge-gating rail (CI==pass) holds. #101 (approve-to-promote) stays parked (operator-lock U4).
+
+---
+
 ## 2026-06-13 — Midnight→01:15 shift: AEO superpowers, measurement credibility, the U4 finding (PRs #93–#103 + parked #101)
 
 **What changed (all CI-gated green on main unless noted):**
