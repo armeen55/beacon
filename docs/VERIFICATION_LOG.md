@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-12 — Midnight shift (cont.): measurement hardening + link-graph fix (PRs #86–#91)
+
+**What changed:**
+- #86 docs sync; #87 `uncited_content` trigger (eligibility 28→29); #88 placebo p-value gates HIGH confidence on computed lifts (placebo_p persisted on the overall lift); #89 platform-aware post windows (sourced: perplexity 14 / google_aio 30 / chatgpt 60; gemini/claude deliberately uncalibrated) + canonical-slug fallback; #90 Profound Agent Analytics v2 (bots + referrals; `profound_bot_rows`/`profound_referral_rows` migration applied via MCP); #91 scoped `getPageSnapshotLinkGraphs()` read un-starves orphan_page + internal_link_opportunity on hosted/cron (egress pin untouched).
+
+**Verified:**
+- Full suite green at every PR gate (final 14,609); typecheck clean throughout; egress pins 17/17.
+- END-STATE walk, prod: cron 27450629948 (post-#90) flat 305 candidates exposed the link starvation; cron 27451554663 (post-#91) candidates iranopedia 305→310, ritz 33→38 (+5/tenant = the trigger cap) — internal-link brain firing in prod.
+- Hosted smoke beacon-bice.vercel.app: /, /settings/connectors, /recommendations, /changes, /diagnostics/proof-engine all 200 on the post-#90 deployment.
+- Iranopedia contentSiteMode=true verified in BEACON_BUSINESS_CONFIG_JSON_BY_TENANT; 862/868 snapshots carry internal_links; uncited_content honest under-fire documented (template chrome 2/5 external links) + scan-layer refinement chipped.
+
 ## 2026-06-12 — Midnight shift: 35-check audit + connector completion + audit-fix sweep (PRs #80–#85)
 
 **What changed:**
