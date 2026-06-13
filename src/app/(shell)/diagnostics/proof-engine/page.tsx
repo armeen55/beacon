@@ -196,6 +196,13 @@ export default async function ProofEngineDiagnosticPage() {
                       {o.primary_bucket} · {o.url ?? "(no url)"} · +
                       {o.computed!.overall!.adjusted_lift} cit/day ·{" "}
                       {o.confidence}
+                      {/* Placebo inference (#88, 2026-06-12): the share of
+                          leave-one-out control pseudo-lifts at least as
+                          extreme as this one — small p = few untreated
+                          pages moved this much by chance. */}
+                      {typeof o.computed!.overall!.placebo_p === "number"
+                        ? ` · placebo p=${o.computed!.overall!.placebo_p.toFixed(2)}`
+                        : ""}
                     </p>
                   </Link>
                 </li>
