@@ -233,6 +233,46 @@ describe("enrichPromotionRow — content drafts", () => {
     expect(out.proposed_text).not.toContain("Explore More");
   });
 
+  it("edit_meta: drops zero-width-only chunks (no \"Kabob Barg \u2014 \u200b \u2014\" garbage)", () => {
+    // Wix injects ZERO-WIDTH SPACE into empty headings/cards; they
+    // survive .trim() and previously joined as 1-char chunks. Caught
+    // live on iranopedia's kabob page.
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(
+        snap({
+          body_paragraph_sample: [],
+          h1: "Kabob Barg, a classic Persian grilled lamb skewer dish",
+          h2_list: ["​", " ​ ", "​​"],
+          card_texts: ["​"],
+        }),
+      ),
+    );
+    expect(out.proposed_text).toBe(
+      "Kabob Barg, a classic Persian grilled lamb skewer dish",
+    );
+    expect(out.proposed_text).not.toContain(" \u2014 ");
+    expect(out.proposed_text).not.toContain("​");
+  });
+
+  it("edit_meta: PRESERVES internal Persian ZWNJ (U+200C) inside real words", () => {
+    const word = "می‌روم"; // mi-ravam, with internal ZWNJ
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(
+        snap({
+          body_paragraph_sample: [],
+          h1: word + " " + "چهارشنبه سوری جشن آتش ایرانیان است",
+          h2_list: ["​"],
+          card_texts: [],
+        }),
+      ),
+    );
+    expect(out.proposed_text).toContain(word); // ZWNJ kept intact
+  });
+
   it("change_h1: derives from the title with the brand suffix stripped", () => {
     const s1 = snap({ h1: null });
     const s2 = snap({ url: "https://x.com/rugs/qom", title: "Persian Rugs | Iranopedia" });
