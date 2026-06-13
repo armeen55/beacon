@@ -1,9 +1,11 @@
 /**
  * load-proven-wins — the home-screen causal wedge.
  *
- * Pins: ONLY computed + positive-lift outcomes become wins (weak/flat/hurting
- * excluded — the home screen states cause-and-effect or stays quiet); ranked
- * by lift; limit respected; failure-soft → [].
+ * Pins: ONLY computed + HIGH-confidence (placebo-significant) + at-or-above
+ * the flat-move bar (lift >= FLAT_LIFT_THRESHOLD) outcomes become wins —
+ * weak/flat/hurting AND placebo-FAILED (medium) AND sub-flat computed
+ * results are excluded (the home screen states cause-and-effect or stays
+ * quiet); ranked by lift; limit respected; failure-soft → [].
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -23,6 +25,7 @@ function outcome(
   source_id: string,
   status: StoredChangeOutcome["status"],
   lift: number,
+  confidence: StoredChangeOutcome["confidence"] = "high",
 ): StoredChangeOutcome {
   const isComputed = status === "computed";
   return {
@@ -41,7 +44,7 @@ function outcome(
     pre_window: { start: "2026-05-01", end: "2026-05-14" },
     post_window: { start: "2026-05-16", end: "2026-05-29" },
     status,
-    confidence: "high",
+    confidence,
     warnings: [],
     rationale: "test",
     computed: isComputed
@@ -90,6 +93,17 @@ describe("loadProvenWins", () => {
     expect(wins[0]!.liftPerDay).toBe(4);
     expect(wins[0]!.relativeLiftPct).toBe(50);
     expect(wins[0]!.headline.toLowerCase()).toContain("more ai citation");
+  });
+
+  it("excludes placebo-FAILED (medium) and sub-flat computed results — chance-level/no-move never reaches the 'Proven' rail", async () => {
+    outcomesRef.current = [
+      outcome("real", "computed", 3, "high"), // placebo-significant, real move → win
+      outcome("placebo_failed", "computed", 9, "medium"), // huge lift but engine capped to medium (moved by chance) → excluded
+      outcome("subflat", "computed", 0.3, "high"), // high but below the flat-move bar → excluded
+    ];
+    outcomesRef.throws = false;
+    const wins = await loadProvenWins();
+    expect(wins.map((w) => w.sourceId)).toEqual(["real"]);
   });
 
   it("respects the limit", async () => {

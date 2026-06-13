@@ -55,6 +55,8 @@
  */
 
 import type { StoredChangeOutcome } from "./change-outcome-store";
+import { isPlaceboSignificant } from "./placebo-inference";
+import { FLAT_LIFT_THRESHOLD } from "./proof-sentence";
 
 /** Below this many causal-grade priors, there is nothing honest to say. */
 export const CAUSAL_FORECAST_SUPPRESS_BELOW = 2;
@@ -68,11 +70,12 @@ export type CausalSelfForecast = {
   url_type: string | null;
   /** Granularity of the reference class actually used (honesty). */
   matched_on: "bucket+url_type" | "bucket";
-  /** # of causal-grade (status==="computed") priors in the reference class. */
+  /** # of causal-grade (computed AND placebo-significant) priors in the class. */
   sampleSize: number;
-  /** # of those whose diff-in-diff adjusted_lift was > 0 (measurably helped). */
+  /** # of those whose diff-in-diff adjusted_lift cleared +FLAT_LIFT_THRESHOLD
+   *  (a real measured help, not statistical noise). */
   helpedCount: number;
-  /** # whose adjusted_lift was < 0 (measurably hurt). */
+  /** # whose adjusted_lift was at/below -FLAT_LIFT_THRESHOLD (measurably hurt). */
   hurtCount: number;
   /** 0..1 base rate of measurable help among causal-grade priors (2dp). */
   helpingRate: number;
@@ -100,9 +103,19 @@ function median(values: number[]): number | null {
     : sorted[mid]!;
 }
 
-/** True iff this outcome is causal-grade evidence for the base rate. */
+/** True iff this outcome is causal-grade evidence for the base rate.
+ *  HARDENED 2026-06-13: a computed lift only earns a place in the reference
+ *  class if it is PLACEBO-SIGNIFICANT (p < 0.1) — i.e. the engine could
+ *  distinguish it from "untreated pages moving by chance." A placebo-FAILED
+ *  computed result (the engine's own verdict: "moved this much by chance")
+ *  is NOT credible causal evidence and must never inflate the "M of N
+ *  measurably lifted" base rate the customer reads BEFORE shipping. */
 function isCausalGrade(o: StoredChangeOutcome): boolean {
-  return o.status === "computed" && o.computed?.overall != null;
+  return (
+    o.status === "computed" &&
+    o.computed?.overall != null &&
+    isPlaceboSignificant(o.computed.overall.placebo_p ?? null)
+  );
 }
 
 function composeLine(args: {
@@ -181,13 +194,18 @@ export function buildCausalSelfForecast(
   const sampleSize = refClass.length;
   if (sampleSize < CAUSAL_FORECAST_SUPPRESS_BELOW) return null;
 
+  // "Measurably helped/hurt" uses the SAME flat-move bar as the proof
+  // sentence (FLAT_LIFT_THRESHOLD): a lift between ±threshold is a credibly-
+  // measured-but-FLAT result — it stays in the denominator (sampleSize) but
+  // counts as neither help nor harm, so the base rate never reports noise as
+  // a "measurable lift."
   const lifts = refClass.map((o) => o.computed!.overall!.adjusted_lift);
-  const helpedCount = lifts.filter((l) => l > 0).length;
-  const hurtCount = lifts.filter((l) => l < 0).length;
+  const helpedCount = lifts.filter((l) => l >= FLAT_LIFT_THRESHOLD).length;
+  const hurtCount = lifts.filter((l) => l <= -FLAT_LIFT_THRESHOLD).length;
   const helpingRate = Math.round((helpedCount / sampleSize) * 100) / 100;
 
   const helpedRelativeLifts = refClass
-    .filter((o) => o.computed!.overall!.adjusted_lift > 0)
+    .filter((o) => o.computed!.overall!.adjusted_lift >= FLAT_LIFT_THRESHOLD)
     .map((o) => o.computed!.overall!.relative_lift)
     .filter((r): r is number => r != null && r > 0);
   const typicalRelativeLift = median(helpedRelativeLifts);

@@ -7,11 +7,19 @@
  * comparable untreated pages, now durably persisted in change_outcomes_v2) —
  * as plain-English "we measured this" wins.
  *
- * Discipline: ONLY `computed` outcomes with a positive adjusted_lift qualify
- * (a real, control-backed causal gain). Weak/raw/insufficient never appear —
- * the home screen states cause-and-effect or stays quiet. Each win's headline
- * is the shared plain-English proof sentence (buildProofSentence), so the
- * home-screen claim and the /changes/[id] drilldown say the same honest thing.
+ * Discipline (HARDENED 2026-06-13): ONLY `computed` outcomes that are
+ * `high` confidence AND clear the flat-move bar (adjusted_lift >=
+ * FLAT_LIFT_THRESHOLD) qualify. `high` is the only tier the engine grants
+ * AFTER the placebo test passes (natural-controls.ts caps high→medium when
+ * the lift is NOT placebo-significant, i.e. "untreated pages moved this much
+ * by chance"), so this rail can honestly badge "measured cause-and-effect."
+ * Previously the filter accepted any computed lift > 0 — which surfaced
+ * placebo-FAILED (chance-level) and sub-flat "no real move" results as
+ * front-page wins, contradicting the engine's own verdict. Weak/raw/
+ * insufficient/medium never appear — the home screen states cause-and-effect
+ * or stays quiet. Each win's headline is the shared plain-English proof
+ * sentence (buildProofSentence), so the home-screen claim and the
+ * /changes/[id] drilldown say the same honest thing.
  *
  * Server-only + failure-soft: any read error returns [] so the home screen's
  * section simply self-hides (never breaks the render). Deterministic; no LLM.
@@ -20,7 +28,7 @@
 import "server-only";
 
 import { loadAllChangeOutcomes } from "./change-outcome-store";
-import { buildProofSentence } from "./proof-sentence";
+import { buildProofSentence, FLAT_LIFT_THRESHOLD } from "./proof-sentence";
 
 export type ProvenWin = {
   sourceId: string;
@@ -55,7 +63,10 @@ export async function loadProvenWins(
       (o) =>
         o.status === "computed" &&
         !!o.computed?.overall &&
-        o.computed.overall.adjusted_lift > 0,
+        // `high` ⟹ placebo-significant (engine caps high→medium otherwise).
+        o.confidence === "high" &&
+        // A real move, not statistical noise (same bar as the proof sentence).
+        o.computed.overall.adjusted_lift >= FLAT_LIFT_THRESHOLD,
     )
     .sort(
       (a, b) =>

@@ -44,8 +44,10 @@ export type ProofSentence = {
   sub: string;
 };
 
-/** cit/day magnitude below which a computed result reads as "no real move". */
-const FLAT_LIFT_THRESHOLD = 0.5;
+/** cit/day magnitude below which a computed result reads as "no real move".
+ *  Exported so the proven-wins rail + the causal self-forecast use the SAME
+ *  "is this a real move?" bar (honesty-gate consistency, 2026-06-13). */
+export const FLAT_LIFT_THRESHOLD = 0.5;
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -88,10 +90,20 @@ export function buildProofSentence(outcome: StoredChangeOutcome): ProofSentence 
     const conf = confidencePhrase(confidence);
 
     if (lift >= FLAT_LIFT_THRESHOLD) {
+      // Honesty gate (2026-06-13): "cause-and-effect, not coincidence" is the
+      // HARD causal claim — reserve it for `high`, which is the only tier the
+      // engine grants AFTER the placebo test passes (natural-controls.ts caps
+      // high→medium when the lift isn't placebo-significant, i.e. "untreated
+      // pages moved this much by chance"). A `medium` result is a real measured
+      // signal but NOT yet placebo-proven (or has thin controls / low
+      // baseline), so it must read "promising, not proven" — never "cause and
+      // effect." `low` stays the early-read hint.
       const softener =
         confidence === "low"
           ? " It's an early read, so treat it as a hint rather than a guarantee."
-          : " That's cause-and-effect, not just a coincidence of timing.";
+          : confidence === "high"
+            ? " That's cause-and-effect, not just a coincidence of timing."
+            : " It's a real measured signal, but not yet conclusive — with the evidence so far it could still be partly timing, so treat it as promising rather than proven.";
       return {
         tone: "helping",
         headline: `This change brought in about +${round1(lift)} more AI citation${round1(lift) === 1 ? "" : "s"} a day than comparable pages that didn't change${relativeClause(rel)}.`,
