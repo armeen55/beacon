@@ -52,8 +52,13 @@ function SidebarContent() {
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background text-xs font-bold">
             B
           </div>
-          <span className="text-[13px] font-semibold tracking-tight text-foreground">
-            Beacon
+          <span className="flex flex-col leading-none">
+            <span className="text-[13px] font-semibold tracking-tight text-foreground">
+              Beacon
+            </span>
+            <span className="text-[9.5px] font-medium text-sidebar-foreground/50 tracking-tight">
+              SEO &amp; AEO autopilot
+            </span>
           </span>
         </Link>
       </div>
