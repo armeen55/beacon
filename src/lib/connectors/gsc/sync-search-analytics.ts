@@ -46,6 +46,8 @@ import { log } from "@/lib/logger";
 import {
   pullDayRows,
   resolveGscAccessToken,
+  gscListSites,
+  pickGscPropertyForDomain,
 } from "./search-analytics";
 
 const FINAL_LAG_DAYS = 3;
@@ -76,11 +78,23 @@ function addDays(isoDate: string, days: number): string {
   return t.toISOString().slice(0, 10);
 }
 
-function resolveProperty(tenantId: string): string | null {
+async function resolveProperty(
+  tenantId: string,
+  accessToken: string,
+): Promise<string | null> {
   const env = process.env.BEACON_GSC_SITE_URL;
   if (env != null && env !== "") return env;
   const domain = getBusinessConfig(tenantId).domain?.trim();
   if (!domain) return null;
+  // Auto-discover the property SHAPE the token actually owns. The account may
+  // have a URL-prefix property (https://www.x.com/) rather than a domain
+  // property (sc-domain:x.com) — guessing the wrong one → HTTP 403 and 0 rows
+  // (the 2026-06-13 Iranopedia incident: sc-domain guess 403'd; the real
+  // property was the URL-prefix). Fail-soft to the sc-domain derivation when
+  // sites.list is unavailable, preserving prior behavior.
+  const sites = await gscListSites(accessToken);
+  const picked = pickGscPropertyForDomain(sites, domain);
+  if (picked != null) return picked;
   return "sc-domain:" + domain.replace(/^https?:\/\//, "").replace(/^www\./, "");
 }
 
@@ -117,7 +131,7 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   if (accessToken == null) {
     return { synced: false, reason: "no_usable_gsc_token" };
   }
-  const property = resolveProperty(tenantId);
+  const property = await resolveProperty(tenantId, accessToken);
   if (property == null) {
     return { synced: false, reason: "no_property_derivable" };
   }

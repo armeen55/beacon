@@ -166,6 +166,78 @@ export async function gscSearchAnalyticsQuery(
   }
 }
 
+export type GscSiteEntry = { siteUrl: string; permissionLevel: string };
+
+/**
+ * List the verified GSC properties this token can access (sites.list).
+ * Fail-soft to [] on any error. Lets the sync auto-pick the right property
+ * SHAPE — a domain property (`sc-domain:x.com`) vs a URL-prefix property
+ * (`https://www.x.com/`) — instead of guessing (the wrong shape → 403).
+ */
+export async function gscListSites(
+  accessToken: string,
+  deps: { fetchImpl?: typeof fetch } = {},
+): Promise<GscSiteEntry[]> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  try {
+    const res = await fetchImpl("https://www.googleapis.com/webmasters/v3/sites", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      log.warn("[gsc-search-analytics] sites.list non-2xx", { status: res.status });
+      return [];
+    }
+    const body = (await res.json()) as {
+      siteEntry?: Array<{ siteUrl?: string; permissionLevel?: string }>;
+    };
+    return (body.siteEntry ?? [])
+      .filter((s): s is { siteUrl: string; permissionLevel?: string } => typeof s.siteUrl === "string")
+      .map((s) => ({ siteUrl: s.siteUrl, permissionLevel: s.permissionLevel ?? "" }));
+  } catch (err) {
+    log.warn("[gsc-search-analytics] sites.list failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
+/** Normalize any GSC property id or domain to a bare host (no protocol, no
+ *  sc-domain: prefix, no leading www, no trailing slash), lowercased. */
+function gscNormHost(s: string): string {
+  return s
+    .replace(/^sc-domain:/i, "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "")
+    .replace(/^www\./i, "")
+    .toLowerCase();
+}
+
+/**
+ * Pick the GSC property id for a tenant `domain` from the token's verified
+ * sites. Skips unverified properties (can't read Search Analytics). Returns
+ * the EXACT siteUrl GSC owns (e.g. `https://www.iranopedia.com/`), preferring
+ * a domain property (broadest), then a `www` URL-prefix, then any match.
+ * Returns null when the token can't see a property for this domain. Pure.
+ */
+export function pickGscPropertyForDomain(
+  sites: GscSiteEntry[],
+  domain: string,
+): string | null {
+  const target = gscNormHost(domain);
+  if (target === "") return null;
+  const matches = sites.filter(
+    (s) => s.permissionLevel !== "siteUnverifiedUser" && gscNormHost(s.siteUrl) === target,
+  );
+  if (matches.length === 0) return null;
+  const scDomain = matches.find((s) => /^sc-domain:/i.test(s.siteUrl));
+  if (scDomain) return scDomain.siteUrl;
+  const www = matches.find((s) => /^https?:\/\/www\./i.test(s.siteUrl));
+  if (www) return www.siteUrl;
+  return matches[0]!.siteUrl;
+}
+
 /**
  * Pull EVERY row for one day at the given grain, following Google's
  * documented pagination loop: bump startRow by 25,000 until a short
