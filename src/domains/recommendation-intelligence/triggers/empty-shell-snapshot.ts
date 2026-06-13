@@ -22,6 +22,9 @@
  * present) it's a genuine gap and the trigger still fires.
  *
  * PURE. No I/O. Keeps the predicates pure (purity ratchet).
+ *
+ * @no-classifier-required — this is a shared guard helper, not a trigger
+ * predicate; page-type classification does not apply to it.
  */
 
 import type { PageSnapshot } from "@/domains/pages/types";
