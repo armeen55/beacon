@@ -65,6 +65,35 @@ and report `placebo_p = (#|pseudo| ≥ |observed|)/K`; gate `confidence: "high"`
 on both `≥minControlsForHighConfidence` AND `placebo_p < 0.1`. Pin with a test
 (a strong real lift → low p; noise → high p).
 
+## Platform-aware post windows (2026-06-12 night shift) — ✅ BUILT + CALIBRATED
+
+AI engines reflect content changes at very different speeds, so the uniform
+14-day post window structurally under-measured the slow engines. The
+per-platform breakdown now measures over per-platform windows
+(`platformPostWindowDays`; the AGGREGATE window — and the headline
+status/confidence/placebo gate — is unchanged; `PlatformLift.post_window_days`
+reports what was actually measured, clamped by available history).
+
+Sourced calibration (research agent, 2026-06-12; ≥10 sources):
+- **perplexity 14d (HIGH):** on-demand `Perplexity-User` retrieval (official
+  crawler docs); Seer recency study (50% of citations from 2025); ZipTie
+  7-14d refresh benchmarks.
+- **google_aio 30d (MEDIUM):** officially index-bound — "indexed and eligible
+  …no additional technical requirements" (Google Search Central AI features
+  doc) → normal re-crawl latency; 30-45d vendor citation-impact claims;
+  BrightEdge stickiness data (96.8% of cited domains unchanged week-over-week).
+- **chatgpt 60d (MEDIUM):** the "6-12 week" folklore is UNVERIFIED — OpenAI's
+  cached index picks up hot content within hours (LLMrefs/SERoundtable, Dec
+  2025) and new content enters citation pools in 3-14d via Bing/IndexNow;
+  but measured citation-BEHAVIOR change clusters at 4-8 weeks and ChatGPT
+  systematically cites older content (Seer: only 31% of citations from 2025)
+  → 60d covers the realistic tail without the unsupported 90d cost.
+- **gemini / claude: deliberately uncalibrated** (no verified latency
+  evidence) — they measure at the 14d default.
+- Cross-cutting (Profound methodology): run-level variance dominates — window
+  length and prompt-sampling depth are SEPARABLE problems; this slice solves
+  the window half only.
+
 ## Sources (≥5)
 
 1. Bertrand, Duflo & Mullainathan (2004), *How Much Should We Trust
