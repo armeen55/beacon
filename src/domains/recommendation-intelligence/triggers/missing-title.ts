@@ -24,6 +24,7 @@ import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { missingTitleCopy } from "../customer-copy-templates";
 import { isNonHtmlAsset } from "../page-classifier";
+import { isLikelyEmptyShellSnapshot } from "./empty-shell-snapshot";
 
 export type MissingTitleInput = {
   tenantId: string;
@@ -37,6 +38,9 @@ export function missingTitle(
   // α₂.2: skip technical assets (`.txt`, `.xml`, images, etc.) —
   // the missing-title concept doesn't apply to non-HTML files.
   if (isNonHtmlAsset(snapshot.url)) return [];
+  // Skip failed JS-shell captures (title+h1+meta all empty at 200) — a
+  // raw-HTML scrape of a client-rendered page, not a real missing title.
+  if (isLikelyEmptyShellSnapshot(snapshot)) return [];
   const title = snapshot.title;
   if (title != null && title.trim().length > 0) return [];
 

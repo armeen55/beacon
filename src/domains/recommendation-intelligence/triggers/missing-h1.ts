@@ -21,6 +21,7 @@ import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { missingH1Copy } from "../customer-copy-templates";
 import { isNonHtmlAsset } from "../page-classifier";
+import { isLikelyEmptyShellSnapshot } from "./empty-shell-snapshot";
 
 export type MissingH1Input = {
   tenantId: string;
@@ -33,6 +34,8 @@ export function missingH1(
   const { tenantId, snapshot } = input;
   // α₂.2: skip technical assets.
   if (isNonHtmlAsset(snapshot.url)) return [];
+  // Skip failed JS-shell captures (title+h1+meta all empty at 200).
+  if (isLikelyEmptyShellSnapshot(snapshot)) return [];
   const h1 = snapshot.h1;
   if (h1 != null && h1.trim().length > 0) return [];
 

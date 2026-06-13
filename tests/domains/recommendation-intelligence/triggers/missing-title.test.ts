@@ -126,6 +126,22 @@ describe("missingTitle predicate", () => {
     expect(out[0]!.created_from_signal_at).toBe("2026-05-18T22:00:00Z");
   });
 
+  it("SKIPS a failed JS-shell capture (title+h1+meta all empty at 200) — false positive", () => {
+    const out = missingTitle({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({ title: null, h1: null, meta_description: null }),
+    });
+    expect(out).toHaveLength(0);
+  });
+
+  it("still fires when title is the ONLY empty basic (h1+meta present)", () => {
+    const out = missingTitle({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({ title: null, h1: "Real H1", meta_description: "Real meta" }),
+    });
+    expect(out).toHaveLength(1);
+  });
+
   // ── α₂.2 technical-asset skip ─────────────────────────────────────
 
   it("(α₂.2) SKIPS technical assets (`.txt`, `.xml`, `.json`, `.pdf`, images)", () => {

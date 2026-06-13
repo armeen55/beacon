@@ -21,6 +21,7 @@ import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { missingMetaCopy } from "../customer-copy-templates";
 import { isNonHtmlAsset } from "../page-classifier";
+import { isLikelyEmptyShellSnapshot } from "./empty-shell-snapshot";
 
 export type MissingMetaInput = {
   tenantId: string;
@@ -33,6 +34,10 @@ export function missingMeta(
   const { tenantId, snapshot } = input;
   // α₂.2: skip technical assets (`.txt`, `.xml`, images, etc.).
   if (isNonHtmlAsset(snapshot.url)) return [];
+  // Skip failed JS-shell captures (title+h1+meta all empty at 200) — but a
+  // page with title+h1 present and ONLY meta empty (e.g. koobideh-kabob) is a
+  // real gap and still fires.
+  if (isLikelyEmptyShellSnapshot(snapshot)) return [];
   const meta = snapshot.meta_description;
   if (meta != null && meta.trim().length > 0) return [];
 
