@@ -154,7 +154,7 @@ describe("Bundle 2A — RecommendationsV2Client", () => {
     const html = renderV2([makeRec()]);
     expect(html).toContain(">Recommendations</h1>");
     expect(html).toContain(
-      "Beacon turns AI visibility gaps into concrete website tasks.",
+      "Beacon turns your Google Search demand + AI-answer gaps into safe,",
     );
     expect(html).toContain("Updated 2026-05-10.");
   });

@@ -51,10 +51,10 @@ describe("Changes route smoke", () => {
     // the surrounding context is unique enough.
     expect(
       html.includes(
-        "Every edit you&#x27;ve shipped to your site, with AI impact tracked over time",
+        "Every edit you&#x27;ve shipped to your site, with its Google Search + AI impact tracked over time",
       ) ||
         html.includes(
-          "Every edit you've shipped to your site, with AI impact tracked over time",
+          "Every edit you've shipped to your site, with its Google Search + AI impact tracked over time",
         ),
     ).toBe(true);
     // Structural wrapper from `components/data/page-header.tsx`.

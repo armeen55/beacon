@@ -136,9 +136,9 @@ describe("Phase 3-bis fix 2 (2026-05-06) — needs_fresh_edit label rename", () 
 // ── Fix 3: /changes header copy ──────────────────────────────────────
 
 describe("Phase 3-bis fix 3 (2026-05-06) — /changes header clarity", () => {
-  it("/changes page renders 'Every edit you've shipped to your site, with AI impact tracked over time.'", () => {
+  it("/changes page renders 'Every edit you've shipped to your site, with its Google Search + AI impact tracked over time.'", () => {
     expect(CHANGES_PAGE).toMatch(
-      /Every edit you've shipped to your site, with AI impact tracked over time/,
+      /Every edit you've shipped to your site, with its Google Search \+ AI impact tracked over time/,
     );
     expect(CHANGES_PAGE).not.toMatch(
       /Verified and tracked changes Beacon has confirmed live, plus everything pending or imported/,

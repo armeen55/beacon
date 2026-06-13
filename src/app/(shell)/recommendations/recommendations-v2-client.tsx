@@ -192,7 +192,8 @@ export function RecommendationsV2Client({
   // rendering only as "as of <date>" — no UTC, no cron.
   const headerSubline = (
     <span data-recommendations-v2-header-subline="true">
-      Beacon turns AI visibility gaps into concrete website tasks.{" "}
+      Beacon turns your Google Search demand + AI-answer gaps into safe,
+      review-gated website edits — approve to push live to Wix.{" "}
       <span className="text-muted-foreground/80">
         Updated {matrixDate}.
       </span>

@@ -312,7 +312,7 @@ export async function RecommendationsAsyncContent({
       <div className="max-w-5xl">
         <PageHeader
           title="Recommendations"
-          description="Beacon turns AI visibility gaps into concrete website tasks. Review the top actions, accept them, or mark them as shipped."
+          description="Beacon turns your Google Search demand + AI-answer gaps into safe, review-gated website edits. Each card shows the evidence and the exact change; approve to push it live to Wix."
         />
         {errors.length > 0 && (
           <div
