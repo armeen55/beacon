@@ -171,6 +171,21 @@ describe("enrichPromotionRow — content drafts", () => {
     expect(out.id).toBe(row().id);
   });
 
+  it("strips zero-width junk (U+200B/U+FEFF) from TITLE drafts too, not just meta (#12)", () => {
+    // The #105 fix only sanitized composeMeta; composeTitle/H1/schema passed
+    // raw snap.h1/snap.title (which can carry CMS zero-width chars) into
+    // customer proposed_text. The single chokepoint now strips every draft.
+    const s1 = snap({ title: null, h1: "Persian Tea Houses\u200B" });
+    const s2 = snap({ url: "https://x.com/rugs/qom", title: "Persian Rugs | Iranopedia" });
+    const s3 = snap({ url: "https://x.com/flags", title: "Iran Flags | Iranopedia" });
+    const s4 = snap({ url: "https://x.com/cities/tehran", title: "Tehran | Iranopedia" });
+    const out = enrichPromotionRow(row(), candidate(), ctxOf(s1, s2, s3, s4));
+    // Without the strip this would be "Persian Tea Houses\u200B | Iranopedia".
+    expect(out.proposed_text).toBe("Persian Tea Houses | Iranopedia");
+    expect(out.proposed_text!).not.toMatch(/[\u200B\uFEFF]/);
+    expect(out.display_label ?? "").not.toMatch(/[\u200B\uFEFF]/);
+  });
+
   it("edit_title: a CMS placeholder h1 (“Page Title”) never becomes the draft", () => {
     const out = enrichPromotionRow(
       row(),
@@ -244,8 +259,8 @@ describe("enrichPromotionRow — content drafts", () => {
         snap({
           body_paragraph_sample: [],
           h1: "Kabob Barg, a classic Persian grilled lamb skewer dish",
-          h2_list: ["​", " ​ ", "​​"],
-          card_texts: ["​"],
+          h2_list: ["\u200B", " \u200B ", "\u200B\u200B"],
+          card_texts: ["\u200B"],
         }),
       ),
     );
@@ -253,7 +268,7 @@ describe("enrichPromotionRow — content drafts", () => {
       "Kabob Barg, a classic Persian grilled lamb skewer dish",
     );
     expect(out.proposed_text).not.toContain(" \u2014 ");
-    expect(out.proposed_text).not.toContain("​");
+    expect(out.proposed_text).not.toContain("\u200B");
   });
 
   it("edit_meta: PRESERVES internal Persian ZWNJ (U+200C) inside real words", () => {
@@ -265,7 +280,7 @@ describe("enrichPromotionRow — content drafts", () => {
         snap({
           body_paragraph_sample: [],
           h1: word + " " + "چهارشنبه سوری جشن آتش ایرانیان است",
-          h2_list: ["​"],
+          h2_list: ["\u200B"],
           card_texts: [],
         }),
       ),

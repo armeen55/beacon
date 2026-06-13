@@ -15,6 +15,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 /** Trailing window for Clarity friction aggregation. Clarity itself
  *  only exposes ~1-3 days live (we accumulate nightly), so 28d gives
@@ -93,11 +94,17 @@ export async function loadClarityPageSignalsForTenant(
     scroll: number;
     errors: number;
   };
+  // Key by the CANONICAL url (www/scheme/trailing-slash/query folded), exactly
+  // like the GSC + SEMrush fuses — Clarity's exported URL format often differs
+  // from the crawler's snapshot URL, so a raw-keyed map silently missed every
+  // lookup whenever the two disagreed (review finding 2026-06-13). Canonical
+  // keys also correctly MERGE per-URL daily rows that differ only by format.
   const byUrl = new Map<string, Acc>();
   for (const r of rows) {
     if (typeof r.url !== "string" || r.url.length === 0) continue;
+    const key = canonicalizeCitationUrl(r.url) ?? r.url;
     const a =
-      byUrl.get(r.url) ??
+      byUrl.get(key) ??
       { sessions: 0, rage: 0, dead: 0, quickbacks: 0, scroll: 0, errors: 0 };
     a.sessions += r.sessions ?? 0;
     a.rage += r.rage_clicks ?? 0;
@@ -105,7 +112,7 @@ export async function loadClarityPageSignalsForTenant(
     a.quickbacks += r.quickbacks ?? 0;
     a.scroll += r.excessive_scroll ?? 0;
     a.errors += r.script_errors ?? 0;
-    byUrl.set(r.url, a);
+    byUrl.set(key, a);
   }
 
   for (const [url, a] of byUrl) {
