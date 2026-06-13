@@ -149,7 +149,9 @@ const ensureLoaded = cache(async (): Promise<State> => {
 
 export const getResults = cache(async (): Promise<Result[]> => {
   const s = await ensureLoaded();
-  return s.results!;
+  // Array getter — coalesce to [] (see the block on getChangelogEntries
+  // below; a null `results` would crash every consumer that maps/iterates).
+  return s.results ?? [];
 });
 
 // Robustness (2026-06-13): these getters return `Promise<X[]>` and
