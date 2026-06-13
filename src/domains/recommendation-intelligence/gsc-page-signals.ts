@@ -42,10 +42,20 @@ export type GscPageSignal = {
   topQueries: GscQuerySignal[];
 };
 
-const WINDOW_DAYS = 28;
+/** 90-day rolling window (operator pref 2026-06-13: don't clip to 28 days —
+ *  use the fuller history GSC holds, more pages + steadier CTR/position). The
+ *  sync backfills up to ~90 days, so this captures it all as it accumulates. */
+const WINDOW_DAYS = 90;
 const TOP_QUERIES_CAP = 8;
-/** Bounded read: per-tenant page+query rows over 28 days. */
-const MAX_ROWS = 20_000;
+/** Bounded read: per-tenant page+query rows over 28 days. At page+query+day
+ *  grain a busy site easily exceeds 20k rows in 28 days; the old 20k cap (with
+ *  no ORDER BY) truncated to an arbitrary handful of pages — starving both the
+ *  GSC triggers and the card evidence. 80k covers Iranopedia's current ~44k
+ *  in-window rows fully so EVERY page aggregates. (Scale follow-up: move to a
+ *  Postgres GROUP BY RPC when in-window rows approach this cap.) */
+const MAX_ROWS = 80_000;
+/** PostgREST response cap — page through in chunks of this size. */
+const PAGE_SIZE = 1_000;
 
 export async function loadGscPageSignalsForTenant(
   tenantId: string,
@@ -60,31 +70,44 @@ export async function loadGscPageSignalsForTenant(
     position: number;
     date: string;
   };
-  let rows: DailyRow[] | null = null;
+  // PostgREST caps a single response (~1k rows) regardless of `.limit()`, so a
+  // busy 28-day window (Iranopedia: ~44k page+query+day rows) must be PAGED —
+  // a bare select truncated to an arbitrary handful of pages, starving the
+  // triggers + card evidence. Page through with a stable order until a short
+  // page or the safety bound. Keep whatever we've read on a mid-page error.
+  const rows: DailyRow[] = [];
   try {
     const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
       .toISOString()
       .slice(0, 10);
     const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("gsc_daily_rows")
-      .select("page, query, clicks, impressions, position, date")
-      .eq("tenant_id", tenantId)
-      .eq("is_final", true)
-      .gte("date", since)
-      .limit(MAX_ROWS);
-    if (error) {
-      log.warn("[gsc-page-signals] read failed", {
-        tenantId,
-        error: error.message,
-      });
-      return out;
+    for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+      const { data, error } = await sb
+        .from("gsc_daily_rows")
+        .select("page, query, clicks, impressions, position, date")
+        .eq("tenant_id", tenantId)
+        .eq("is_final", true)
+        .gte("date", since)
+        .order("date")
+        .order("page")
+        .order("query")
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error) {
+        log.warn("[gsc-page-signals] page read failed", {
+          tenantId,
+          offset,
+          error: error.message,
+        });
+        break;
+      }
+      const batch = (data ?? []) as unknown as DailyRow[];
+      rows.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
     }
-    rows = (data ?? []) as unknown as DailyRow[];
   } catch {
     return out;
   }
-  if (rows == null || rows.length === 0) return out;
+  if (rows.length === 0) return out;
 
   // page → query → accumulator
   type QueryAcc = {

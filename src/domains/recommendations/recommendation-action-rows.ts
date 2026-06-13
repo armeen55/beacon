@@ -1045,6 +1045,20 @@ export function composeRowEvidenceSummary(args: {
    *  summary. */
   readonly override?: string | null;
 }): string {
+  // ── Pivot (2026-06-13): lead with first-party Google Search demand when
+  // present. For a review-gated SEO operator, GSC impressions/clicks/CTR/
+  // position are the primary "why now" evidence; AEO citations are a
+  // secondary signal (surfaced as a chip, not the lead). Falls through to the
+  // AEO summary when the page has no GSC data. ──
+  const gsc = args.rec.gscSignal;
+  if (gsc != null && gsc.impressions28d > 0) {
+    const clicks = Math.round(gsc.clicks28d).toLocaleString();
+    const imp = Math.round(gsc.impressions28d).toLocaleString();
+    const ctrPct = (gsc.ctr28d * 100).toFixed(1);
+    const pos = gsc.position28d.toFixed(1);
+    return `${clicks} clicks · ${imp} impressions · ${ctrPct}% CTR · avg position ${pos} (90-day Google Search)`;
+  }
+
   const ev = args.rec.evidence;
   const N = ev.observationCount;
   const lead = `${N} AI answer${N === 1 ? "" : "s"}`;

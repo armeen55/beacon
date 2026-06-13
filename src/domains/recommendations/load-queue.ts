@@ -68,6 +68,11 @@ import {
   type RecConfidenceVerdict,
 } from "./confidence";
 import type { RecommendedEditRow } from "./recommended-edits-persistence";
+import {
+  loadGscPageSignalsForTenant,
+  type GscPageSignal,
+} from "@/domains/recommendation-intelligence/gsc-page-signals";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 /**
  * W3 Step 3.3 (2026-05-01) — `PrioritizedRecommendation` decorated with
@@ -78,6 +83,11 @@ import type { RecommendedEditRow } from "./recommended-edits-persistence";
  */
 export type LiveRecQueueItem = PrioritizedRecommendation & {
   engineConfidence: RecConfidenceVerdict;
+  /** Pivot (2026-06-13) — per-page Google Search Console signal for this rec's
+   *  target URL (28-day clicks/impressions/CTR/position/top queries), or null
+   *  when the page has no GSC data. Lets the card lead with first-party search
+   *  demand instead of AEO citations. */
+  gscSignal?: GscPageSignal | null;
 };
 
 /**
@@ -422,6 +432,19 @@ export async function loadLiveRecommendationQueue(
     .map((e) => e.name)
     .filter((n) => n.length >= 3);
 
+  // Pivot (2026-06-13) — per-page GSC signals so each card can lead with
+  // first-party search demand (impressions/CTR/position) when present. One
+  // bounded Supabase read; soft-fail to empty so the queue still renders.
+  const gscRes = await trace.time("loadGscPageSignals", () =>
+    safeCall(
+      () => loadGscPageSignalsForTenant(tenantId, opts.now),
+      new Map<string, GscPageSignal>(),
+      "load GSC page signals",
+    ),
+  );
+  if (gscRes.error) errors.push(gscRes.error);
+  const gscByUrl = gscRes.value;
+
   trace.mark("decoration_loop_start");
   const decoratedQueue: LiveRecQueueItem[] = prioritized.queue.map((rec) => {
     const edits = editsByRecId.get(rec.stableKey) ?? [];
@@ -458,7 +481,13 @@ export async function loadLiveRecommendationQueue(
       hasCompetitorPageBlueprints,
       competitorNames,
     });
-    return { ...rec, engineConfidence };
+    const targetUrl = rec.resolution?.targetUrl ?? null;
+    const canonical =
+      targetUrl != null && targetUrl !== "needs_new_page"
+        ? canonicalizeCitationUrl(targetUrl)
+        : null;
+    const gscSignal = canonical != null ? gscByUrl.get(canonical) ?? null : null;
+    return { ...rec, engineConfidence, gscSignal };
   });
   trace.mark("decoration_loop_end");
   trace.data("queue_count", decoratedQueue.length);
