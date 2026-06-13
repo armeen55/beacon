@@ -41,7 +41,11 @@
 
 **Queue-staleness note (honest, NOT a regression):** the promotion writer is additive (no prune). My ~5 iterative live-write runs today (as I fixed the loader) left a few stale GSC `edit_title` cards (e.g. iran-flags still shows the pre-RPC 9,137). These are **understated** counts with the correct "90 days" label — conservative, never overstated — so not a trust violation. They supersede when the nightly re-runs on the deployed RPC code (after #118 merges). Deleting prod rows is pause-listed, so left in place.
 
-**Commits (on `claude/iranopedia-blockers`, pushed; PR [#118](https://github.com/armeen55/beacon/pull/118) open, CI billing-blocked):** `2ea1575` (Gate 9 GSC override), `5ece847` (docs), `2a6ddc5` (pivot #4 confidence floor), `3424ca2` (docs), `c13b246` + `4d82922` (whole-app 500 hardening), `efa7246` (docs), `1bd351f` (GSC decay pagination), `cf77cec` (docs), `c43d9fd` (copy 4wk→90d), `98fd489` (page-signals recent-window), `5400cc6` (GSC GROUP-BY RPC).
+**SEMrush truncation sweep (commit `c201ad1`):** completed the `.limit()`-without-pagination class sweep — `loadSemrushCannibalRowsForTenant` (`.limit(5_000)` → ~1k PostgREST cap → incomplete cannibalization detection) now paginates ordered; `loadSemrushKeywordGapsForTenant` orders the 500-cap by volume desc (keeps highest-value gaps). Latent (SEMrush dormant-until-key) but correct on connect. No other active truncation instances remain in the codebase.
+
+**FULL SUITE GREEN (batch mergeable):** `npm run test` → **791 files / 14,715 tests passed, 0 failures**; `npm run typecheck` clean. The 14-commit batch is ready to merge the instant GitHub Actions billing is restored.
+
+**Commits (on `claude/iranopedia-blockers`, pushed; PR [#118](https://github.com/armeen55/beacon/pull/118) open — CI BILLING-BLOCKED, full suite green locally):** `2ea1575` (Gate 9 GSC override), `5ece847` (docs), `2a6ddc5` (pivot #4 confidence floor), `3424ca2` (docs), `c13b246`+`4d82922` (whole-app 500 hardening), `efa7246` (docs), `1bd351f` (GSC decay pagination), `cf77cec` (docs), `c43d9fd` (copy 4wk→90d), `98fd489` (page-signals recent-window), `5400cc6` (GSC GROUP-BY RPC), `b2e82ea` (docs), `c201ad1` (SEMrush truncation sweep).
 **Known gap:** `gsc_daily_page_totals` is EMPTY in prod (backfill hit GSC token-expiry) → page-LEVEL impressions understated ~50% in the GSC-led summary; per-QUERY volumes in card copy are accurate.
 
 ---
