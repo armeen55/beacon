@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/shell/app-header";
 import { TenantSwitcher } from "@/components/shell/tenant-switcher";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
 import { DemoBannerGate } from "@/components/shell/demo-banner";
+import { getConnectorInfo } from "@/lib/connector-store";
 import {
   getChangelogEntries,
   hasActiveExperiment,
@@ -84,6 +85,8 @@ export default async function ShellLayout({
     pendingFindings,
     isDemoModeRaw,
     changelogEntries,
+    wixInfo,
+    gscInfo,
   ] = await trace.time("parallel_4_awaits", () =>
     Promise.all([
       trace.time("ensureUrlChangeOutcomesSeeded", () =>
@@ -92,6 +95,9 @@ export default async function ShellLayout({
       trace.time("getPendingFindings", () => getPendingFindings()),
       trace.time("hasActiveExperiment", () => hasActiveExperiment()),
       trace.time("getChangelogEntries", () => getChangelogEntries()),
+      // Demo/sample framing must drop the moment a real source is wired.
+      trace.time("connector_wix", () => getConnectorInfo("wix")),
+      trace.time("connector_gsc", () => getConnectorInfo("google_gsc")),
     ]),
   );
   const watchingUrlOutcomes = await trace.time("getWatchingUrlOutcomes", () =>
@@ -145,8 +151,12 @@ export default async function ShellLayout({
   if (pagesBadge > 0) badges["/pages"] = pagesBadge;
   if (changesBadge > 0) badges["/changes"] = changesBadge;
 
-  // Sample / walkthrough data when no import runs exist (`import-runs` store empty).
-  const isDemoMode = !isDemoModeRaw;
+  // Sample / walkthrough data when no import runs exist (`import-runs` store
+  // empty) — UNLESS a real source is connected. A tenant with Wix or GSC wired
+  // is operating on its own live data, never "demo content" (2026-06-13).
+  const hasRealConnector =
+    wixInfo.status === "connected" || gscInfo.status === "connected";
+  const isDemoMode = !isDemoModeRaw && !hasRealConnector;
 
   // ── Palette items ──
   // T-CustomerNav (2026-05-08) — palette items only surface

@@ -58,7 +58,7 @@ export default async function ConnectorsPage() {
     <div>
       <PageHeader
         title="Connectors"
-        description="Search Console (GSC) read access plus optional Yelp pulls. Manual CSV/JSON import under Settings → Import remains available regardless of connector status."
+        description="Connect Wix (push approved edits live) and Google Search Console (search performance). SEMrush, GA4, Profound, and Clarity enrich future cards as they're wired. Manual CSV/JSON import under Settings → Import remains available regardless of connector status."
       />
       <ConnectorsClient
         google={googleGsc}
