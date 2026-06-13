@@ -56,4 +56,21 @@ export type WixCollectionMapping = {
   urlPrefix: string;
   /** Optional label field for operator display, e.g. "title". */
   labelField?: string;
+  /**
+   * OPTIONAL operator-configured map of editable page ROLE → the CMS
+   * collection FIELD that renders it, e.g. { title: "title", heading:
+   * "h1Text" }. This is what lets Accept push a title/heading edit LIVE
+   * to a content page (the push service derives a `field:<x>` target
+   * from this when a card has none). UNSET by default → those edits
+   * stay paste-ready (today's behavior), so a tenant opts in to live
+   * content pushes only by filling this on /diagnostics/wix. Per-tenant,
+   * operator-derived — NO hardcoding. Slug-ish fields are still refused
+   * downstream (no URL changes ever).
+   */
+  contentFieldRoles?: {
+    /** CMS field rendering the page's <title> / SEO title. */
+    title?: string;
+    /** CMS field rendering the page's main <h1> heading. */
+    heading?: string;
+  };
 };

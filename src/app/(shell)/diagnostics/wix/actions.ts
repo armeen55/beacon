@@ -67,11 +67,30 @@ export async function saveWixMappings(formData: FormData): Promise<SaveWixMappin
       typeof m.slugField === "string" &&
       typeof m.urlPrefix === "string"
     ) {
+      // Content-push slice (2026-06-13): pass through the optional
+      // contentFieldRoles map (title/heading → CMS field) so live
+      // content pushes can be enabled per collection. Only non-empty
+      // string fields are kept; an empty/absent map = paste-ready.
+      let contentFieldRoles:
+        | WixCollectionMapping["contentFieldRoles"]
+        | undefined;
+      if (m.contentFieldRoles != null && typeof m.contentFieldRoles === "object") {
+        const cfr = m.contentFieldRoles as Record<string, unknown>;
+        const roles: { title?: string; heading?: string } = {};
+        if (typeof cfr.title === "string" && cfr.title.trim() !== "") {
+          roles.title = cfr.title.trim();
+        }
+        if (typeof cfr.heading === "string" && cfr.heading.trim() !== "") {
+          roles.heading = cfr.heading.trim();
+        }
+        if (roles.title != null || roles.heading != null) contentFieldRoles = roles;
+      }
       rows.push({
         dataCollectionId: m.dataCollectionId,
         slugField: m.slugField,
         urlPrefix: m.urlPrefix,
         ...(typeof m.labelField === "string" ? { labelField: m.labelField } : {}),
+        ...(contentFieldRoles != null ? { contentFieldRoles } : {}),
       });
     }
   }
