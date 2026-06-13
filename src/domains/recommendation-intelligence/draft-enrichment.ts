@@ -764,6 +764,41 @@ function composeSourcesDirective(
   };
 }
 
+/**
+ * AEO answer-block readiness slice (2026-06-12) — directive draft for
+ * `missing_answer_block`. Names the question + the sourced answer
+ * pattern (≈40-60 words, first block under H1, entity-named,
+ * pronoun-free, visible body text NOT FAQ schema) but NEVER writes the
+ * answer — factual correctness + voice are the owner's, and
+ * fabricating cultural/historical facts is a hard rail.
+ *
+ * Sourced (full digest in the slice commit): GEO study (Aggarwal et
+ * al., KDD 2024) on quotable self-contained statements; Google
+ * featured-snippet ~40-60 word convention; answer-first placement
+ * (AirOps/Frase 2025-26); Anthropic contextual-retrieval pronoun
+ * penalty (via Lumar); Google FAQ rich results fully retired May 2026
+ * (so: inline answer, not FAQ schema).
+ */
+function composeAnswerBlockDirective(
+  candidate: RecommendationCandidateRow,
+): DraftFill | null {
+  const question =
+    candidate.topic_cluster_label?.trim() ||
+    candidate.target_url ||
+    "this page's main question";
+  return {
+    display_label: "Add a direct answer at the top so AI engines can quote it",
+    current_text: null,
+    proposed_text:
+      "This page targets the question \u201c" +
+      question +
+      "\u201d but doesn't answer it up front. Add a 2\u20133 sentence direct answer (about 40\u201360 words) as the FIRST content block, right under the headline \u2014 before any intro. The first sentence must NAME the subject explicitly (no \u201cit\u201d / \u201cthis\u201d) and state the answer so it stands alone if quoted out of context. If a heading covers this topic, phrase it as the actual question and put the answer directly beneath it. Keep it as visible body text \u2014 don't rely on FAQ markup (Google retired FAQ rich results in 2026).",
+    expected_impact:
+      "Answer engines lift a short, self-contained answer near the top verbatim. Burying it or opening with a preamble means there's no clean passage to quote.",
+    measurement_plan: FIX_VERIFY_PLAN,
+  };
+}
+
 // ── entry point ───────────────────────────────────────────────────────
 
 /**
@@ -817,6 +852,12 @@ export function enrichPromotionRow(
       fill =
         candidate.trigger_signal === "uncited_content"
           ? composeSourcesDirective(snap)
+          : null;
+      break;
+    case "add_answer_block":
+      fill =
+        candidate.trigger_signal === "missing_answer_block"
+          ? composeAnswerBlockDirective(candidate)
           : null;
       break;
     default:

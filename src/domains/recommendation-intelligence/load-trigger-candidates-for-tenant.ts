@@ -88,6 +88,7 @@ import { staleContent, normalizeStaleUrl } from "./triggers/stale-content";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { gscLowCtr, gscStrikingDistance } from "./triggers/gsc-low-ctr";
+import { answerBlockReadiness } from "./triggers/answer-block-readiness";
 import { gscDecay } from "./triggers/gsc-decay";
 import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
 import { semrushCannibalization } from "./triggers/semrush-cannibalization";
@@ -446,6 +447,19 @@ export async function loadTriggerCandidatesForTenant(options: {
     // Rule B (2026-06-12) — first-party striking distance.
     all.push(
       ...gscStrikingDistance({
+        tenantId,
+        snapshot,
+        signal: gscSignals.get(
+          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
+        ),
+      }),
+    );
+    // AEO answer-block readiness (2026-06-12) — question-shaped pages
+    // lacking an early direct answer. Uses GSC question queries where
+    // connected; falls back to a question-shaped title/H1 (fires
+    // crawl-only, before GSC connects).
+    all.push(
+      ...answerBlockReadiness({
         tenantId,
         snapshot,
         signal: gscSignals.get(

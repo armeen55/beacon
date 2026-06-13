@@ -63,6 +63,11 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   // Source-ledger slice (2026-06-12): trust/citability improvement on
   // content pages — below the link-structure plays.
   uncited_content: 11,
+  // AEO answer-block readiness (2026-06-12): high-leverage content
+  // move on question-shaped pages; evidence is directional (vendor +
+  // entity-signal study), not an RCT, so it sits below the
+  // deterministic schema signals.
+  missing_answer_block: 17,
   duplicate_title: 15,
   duplicate_meta: 15,
   // Legacy 4.5.B baselines (operator-review-only by tier)

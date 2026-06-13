@@ -90,6 +90,10 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // editorial judgment — the directive draft names WHAT to add, never
   // the sources themselves.
   ["uncited_content::add_proof_section", "operator-review-only"],
+  // AEO answer-block readiness (2026-06-12): the directive names what
+  // to add; the OWNER writes the factual answer (no auto-authoring of
+  // cultural/historical claims) — operator review.
+  ["missing_answer_block::add_answer_block", "operator-review-only"],
   // Legacy 4.5.B baseline predicates — stay operator-review-only
   // until separately validated for customer queue.
   ["title_h1_mismatch::edit_title", "operator-review-only"],
