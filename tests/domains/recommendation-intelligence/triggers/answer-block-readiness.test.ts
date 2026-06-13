@@ -12,6 +12,7 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import type { GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import {
   answerBlockReadiness,
+  cleanTitleQuestion,
   hasEarlyAnswerScaffold,
   isQuestionShaped,
   strongestQuestion,
@@ -148,5 +149,25 @@ describe("answerBlockReadiness", () => {
   it("abstains on non-HTML and error pages", () => {
     expect(answerBlockReadiness({ tenantId: "t", snapshot: snap({ url: "https://x.com/a.pdf" }), signal: signal() })).toEqual([]);
     expect(answerBlockReadiness({ tenantId: "t", snapshot: snap({ http_status: 404 }), signal: signal() })).toEqual([]);
+  });
+});
+
+describe("cleanTitleQuestion (customer-facing label hygiene)", () => {
+  it("keeps the question and drops brand/label chrome", () => {
+    expect(cleanTitleQuestion("What is Chaharshanbe Suri? Meaning, Traditions, History | Iranopedia"))
+      .toBe("What is Chaharshanbe Suri?");
+    expect(cleanTitleQuestion("How to cook ghormeh sabzi | Iranopedia"))
+      .toBe("How to cook ghormeh sabzi");
+    expect(cleanTitleQuestion("Which cities are largest in Iran - Iranopedia"))
+      .toBe("Which cities are largest in Iran");
+    expect(cleanTitleQuestion("What is Nowruz")).toBe("What is Nowruz");
+  });
+  it("title-derived question on a card is cleaned", () => {
+    const out = answerBlockReadiness({
+      tenantId: "t",
+      snapshot: snap({ title: "What is Chaharshanbe Suri? Meaning, Traditions | Iranopedia", h2_list: ["History"] }),
+      signal: undefined,
+    });
+    expect(out[0]!.topic_cluster_label).toBe("What is Chaharshanbe Suri?");
   });
 });

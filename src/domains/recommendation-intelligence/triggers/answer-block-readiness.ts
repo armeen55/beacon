@@ -74,6 +74,26 @@ const QUESTION_OPENERS = [
   "can", "should", "will", "list of",
 ];
 
+/**
+ * A title's question, cleaned for customer-facing copy. Titles carry
+ * brand suffixes + trailing label lists ("What is X? Meaning,
+ * Traditions, History | Iranopedia") — keep the actual question and
+ * drop the chrome: take through the first "?", else cut at the first
+ * label/brand separator (" | ", " - ", " — ", " : "). Pure; no
+ * business vocab.
+ */
+export function cleanTitleQuestion(title: string): string {
+  let q = title.trim();
+  const qm = q.indexOf("?");
+  if (qm >= 0) {
+    q = q.slice(0, qm + 1);
+  } else {
+    const sep = q.search(/\s[|–—:-]\s/);
+    if (sep > 0) q = q.slice(0, sep);
+  }
+  return q.trim();
+}
+
 export function isQuestionShaped(text: string | null | undefined): boolean {
   const t = (text ?? "").trim().toLowerCase();
   if (t.length === 0) return false;
@@ -117,7 +137,9 @@ export function strongestQuestion(
     if (q != null) return { question: q.query, source: "gsc_query" };
   }
   const title = snapshot.title?.trim() || snapshot.h1?.trim() || "";
-  if (isQuestionShaped(title)) return { question: title, source: "title" };
+  if (isQuestionShaped(title)) {
+    return { question: cleanTitleQuestion(title), source: "title" };
+  }
   return null;
 }
 
