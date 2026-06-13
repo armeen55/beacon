@@ -57,7 +57,7 @@ function SidebarContent() {
               Beacon
             </span>
             <span className="text-[9.5px] font-medium text-sidebar-foreground/50 tracking-tight">
-              SEO &amp; AEO autopilot
+              SEO &amp; AEO copilot
             </span>
           </span>
         </Link>

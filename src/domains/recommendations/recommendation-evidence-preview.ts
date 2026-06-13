@@ -82,7 +82,7 @@ export function composeEvidencePreview(
     sharePct >= 30 &&
     input.hasResolvedTarget === true
   ) {
-    return `Ritz is close: owned page cited ${sharePct}%, needs more topical coverage.`;
+    return `You're close: owned page cited ${sharePct}%, needs more topical coverage.`;
   }
   // Owned page exists but losing — share 5–29%.
   if (
@@ -106,7 +106,7 @@ export function composeEvidencePreview(
   // Generic competitor-dominant case.
   if (winningCompetitor) {
     const sharePart =
-      sharePct != null ? `Ritz cited ${sharePct}%; ` : "";
+      sharePct != null ? `Your page cited ${sharePct}%; ` : "";
     return `${sharePart}${winningCompetitor.name} winning across ${promptCount} ${plural(promptCount, "prompt", "prompts")}.`;
   }
   // Fallback — just counts.
@@ -156,12 +156,12 @@ export function composeRecommendedMove(args: {
       return "Add a new section to the existing page so AI can cite it directly.";
     case "strengthen_existing_page":
       if (topic && page) {
-        return `Tighten the ${page} copy + descriptors around ${topic} so AI ranks Ritz first.`;
+        return `Tighten the ${page} copy + descriptors around ${topic} so AI ranks your page first.`;
       }
       if (page) {
-        return `Tighten the ${page} copy + descriptors so AI ranks Ritz first.`;
+        return `Tighten the ${page} copy + descriptors so AI ranks your page first.`;
       }
-      return "Tighten the existing page so AI ranks Ritz first.";
+      return "Tighten the existing page so AI ranks your page first.";
     case "merge_or_dedupe":
       if (page) {
         return `Merge overlapping owned pages into the ${page} so AI doesn't split citations.`;
@@ -173,7 +173,7 @@ export function composeRecommendedMove(args: {
       }
       return "Split the bundled page so AI can cite the right one.";
     case "watch":
-      return "Keep an eye on this cluster — Ritz is currently winning.";
+      return "Keep an eye on this cluster — you're currently winning.";
     case "needs_review":
       return "Pick a direction before Beacon proposes specific edits.";
     default:

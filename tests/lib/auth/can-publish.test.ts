@@ -60,10 +60,18 @@ describe("resolvePublishAuth", () => {
     expect(r).toEqual({ allowed: true, via: "tenant_role" });
   });
 
-  it("admin + founder roles also publish", async () => {
+  it("`member` (the only other role the tenant_members CHECK allows) CANNOT publish — owner-only", async () => {
+    _memberRow = { role: "member" };
+    expect(await resolvePublishAuth()).toEqual({
+      allowed: false,
+      reason: "insufficient_role",
+    });
+  });
+
+  it("phantom roles the schema can't store (admin/founder) do NOT publish", async () => {
     for (const role of ["admin", "founder"]) {
       _memberRow = { role };
-      expect((await resolvePublishAuth()).allowed).toBe(true);
+      expect((await resolvePublishAuth()).allowed).toBe(false);
     }
   });
 

@@ -23,7 +23,11 @@ import "server-only";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 
-const PUBLISHING_ROLES = new Set(["owner", "admin", "founder"]);
+// Aligned to the tenant_members.role CHECK constraint (2026-06-13): the DB
+// allows exactly {owner, member}, so `owner` is the only publishing role
+// (`member` is read-only). The prior {owner, admin, founder} listed two
+// roles the schema can never store.
+const PUBLISHING_ROLES = new Set(["owner"]);
 
 export type PublishAuth =
   | { allowed: true; via: "operator_mode" | "tenant_role" }

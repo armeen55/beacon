@@ -1100,7 +1100,7 @@ export function composeRowEvidenceSummary(args: {
   // ── Branch: zero brand share, has cluster + topic ──
   if (sharePct === 0 && topicGeoPhrase) {
     const tail = realCompetitorPresent ? " while competitors appear" : "";
-    return `${lead}; Ritz not cited for ${topicGeoPhrase}${tail}.`;
+    return `${lead}; your site isn't cited for ${topicGeoPhrase}${tail}.`;
   }
   // ── Branch: zero brand share, has target page ──
   if (sharePct === 0 && args.targetLabel !== "New page") {
@@ -1110,25 +1110,25 @@ export function composeRowEvidenceSummary(args: {
   // ── Branch: zero brand share, no signal ──
   if (sharePct === 0) {
     const tail = realCompetitorPresent ? " while competitors appear" : "";
-    return `${lead}; Ritz not cited yet${tail}.`;
+    return `${lead}; your site isn't cited yet${tail}.`;
   }
   // ── Branch: brand cited but losing — has topic ──
   if (sharePct < 30 && topicGeoPhrase) {
-    return `${lead}; Ritz cited ${sharePct}% of ${topicGeoPhrase}.`;
+    return `${lead}; your site cited ${sharePct}% of ${topicGeoPhrase}.`;
   }
   if (sharePct < 30 && args.targetLabel !== "New page") {
     return `${lead}; ${args.targetLabel} cited ${sharePct}%; needs more coverage.`;
   }
   // ── Branch: brand close to winning ──
   if (sharePct < 60 && topicGeoPhrase) {
-    return `${lead}; Ritz close on ${topicGeoPhrase} (${sharePct}%).`;
+    return `${lead}; your site close on ${topicGeoPhrase} (${sharePct}%).`;
   }
   if (sharePct < 60 && args.targetLabel !== "New page") {
     return `${lead}; ${args.targetLabel} close at ${sharePct}%; needs more coverage.`;
   }
   // ── Branch: brand winning — defend ──
   if (topicGeoPhrase) {
-    return `${lead}; Ritz primary on ${topicGeoPhrase} (${sharePct}%).`;
+    return `${lead}; your site primary on ${topicGeoPhrase} (${sharePct}%).`;
   }
   if (args.targetLabel !== "New page") {
     return `${lead}; ${args.targetLabel} primary at ${sharePct}%.`;
@@ -1230,14 +1230,14 @@ function structuralOverrideForEdit(
  *  so the row builder is self-contained for tests. */
 const MOTIVE_LABEL: Record<RecommendationMotive, string> = {
   counter_competitor: "A competitor is currently winning this answer.",
-  capture_absent_cluster: "AI is not citing Ritz for this topic yet.",
-  improve_close_prompt: "Ritz is close, but the page needs more coverage.",
+  capture_absent_cluster: "AI isn't citing your site for this topic yet.",
+  improve_close_prompt: "Your site is close, but the page needs more coverage.",
   defend_winning_cluster:
-    "Ritz is currently the primary answer — keep it that way.",
+    "Your site is currently the primary answer — keep it that way.",
   resolve_cannibalization:
-    "Multiple Ritz pages compete for the same answer.",
+    "Multiple of your pages compete for the same answer.",
   improve_citation_depth:
-    "Ritz is cited but ranks low — strengthen the page.",
+    "Your site is cited but ranks low — strengthen the page.",
 };
 
 export type BuildActionRowsArgs = {
