@@ -702,6 +702,16 @@ export function TodayClient({
           className="space-y-4"
           data-today-section="visibility-headline"
         >
+          {/* Pivot 2026-06-13: AI-assistant visibility is a SECONDARY
+              signal — first-party Google Search demand drives the core
+              moves above (Command Center / Recommendations). The eyebrow
+              demotes this section's narrative without removing it. */}
+          <p
+            className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+            data-today-section-eyebrow="visibility-secondary"
+          >
+            Secondary signal · AI assistant visibility
+          </p>
           {aiVisibilityHeroProps && (
             <AIVisibilityHero {...aiVisibilityHeroProps} />
           )}
