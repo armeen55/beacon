@@ -242,6 +242,16 @@ const SCAN_VERIFY_PLAN =
 const FIX_VERIFY_PLAN =
   "The nightly scan re-checks this page; this issue clears from the queue automatically once it is fixed.";
 
+/** Measurement plan for AEO CONTENT moves (answer blocks, sources)
+ *  whose payoff is AI-recommendation lift, not a queue-clear. Ties the
+ *  card to the Proof Engine + the sourced platform-aware watch windows
+ *  (see natural-controls.ts platformPostWindowDays). Plain English; no
+ *  jargon — "how often AI assistants recommend this page", never
+ *  "citations". Honest on timing (Perplexity fast, Google/ChatGPT
+ *  slow) so the operator doesn't judge the result too early. */
+const AEO_MEASURE_PLAN =
+  "After you publish this, Beacon watches how often AI assistants recommend this page and reports the change on the Proof tab. Perplexity usually reflects edits within about two weeks; Google and ChatGPT take longer, so give it a few weeks before judging the result.";
+
 function composeTitle(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot | undefined,
@@ -760,7 +770,7 @@ function composeSourcesDirective(
       "Add a short \u201cSources\u201d section at the end of this page citing 2\u20134 authoritative references for its checkable claims (dates, names, statistics, historical facts). Link each source where the claim appears or list them together at the bottom. Choose references a reader would recognize as credible \u2014 academic, institutional, or established publications.",
     expected_impact:
       "Pages that cite checkable sources are measurably more likely to be quoted by AI engines, and sourcing is a trust signal for search quality raters.",
-    measurement_plan: FIX_VERIFY_PLAN,
+    measurement_plan: AEO_MEASURE_PLAN,
   };
 }
 
@@ -795,7 +805,7 @@ function composeAnswerBlockDirective(
       "\u201d but doesn't answer it up front. Add a 2\u20133 sentence direct answer (about 40\u201360 words) as the FIRST content block, right under the headline \u2014 before any intro. The first sentence must NAME the subject explicitly (no \u201cit\u201d / \u201cthis\u201d) and state the answer so it stands alone if quoted out of context. If a heading covers this topic, phrase it as the actual question and put the answer directly beneath it. Keep it as visible body text \u2014 don't rely on FAQ markup (Google retired FAQ rich results in 2026).",
     expected_impact:
       "Answer engines lift a short, self-contained answer near the top verbatim. Burying it or opening with a preamble means there's no clean passage to quote.",
-    measurement_plan: FIX_VERIFY_PLAN,
+    measurement_plan: AEO_MEASURE_PLAN,
   };
 }
 
