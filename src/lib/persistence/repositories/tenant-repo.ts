@@ -146,6 +146,8 @@ export function buildTenantRepo(
       filterByTenantId(await base.getPageSummaries(), tenantId),
     getPageSnapshots: async () =>
       filterByTenantId(await base.getPageSnapshots(), tenantId),
+    getPageSnapshotLinkGraphs: async () =>
+      filterByTenantId(await base.getPageSnapshotLinkGraphs(), tenantId),
     getPageElementInventory: async () =>
       filterByTenantId(await base.getPageElementInventory(), tenantId),
     getRecommendedEdits: async () =>
