@@ -71,7 +71,6 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
 });
 
 import { executePush, RITZ_TENANT_ID } from "@/domains/push/push-service";
-import { stripForbiddenFields } from "@/lib/connectors/wix/client";
 import { MAX_PUSHES_PER_DAY, assertNonDestructivePatch } from "@/domains/push/caps";
 import { formatDevNote } from "@/domains/push/dev-note";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
@@ -145,9 +144,8 @@ describe("Wix content-push slice — field-role derivation for content edits", (
     });
     expect(r.kind).toBe("pushed");
     expect(_updateCalls).toHaveLength(1);
-    expect((_updateCalls[0]!.data as Record<string, unknown>).title).toBe(
-      "Famous Iranian Poets | Iranopedia",
-    );
+    expect(_updateCalls[0]!.field).toBe("title");
+    expect(_updateCalls[0]!.value).toBe("Famous Iranian Poets | Iranopedia");
   });
 
   it("an edit_meta card with NO element key + a configured description role pushes LIVE to the SEO-Variable field", async () => {
@@ -169,7 +167,8 @@ describe("Wix content-push slice — field-role derivation for content edits", (
     });
     expect(r.kind).toBe("pushed");
     expect(_updateCalls).toHaveLength(1);
-    expect((_updateCalls[0]!.data as Record<string, unknown>).seoDescription).toBe(
+    expect(_updateCalls[0]!.field).toBe("seoDescription");
+    expect(_updateCalls[0]!.value).toBe(
       "Explore famous Iranian poets — Rumi, Hafez, Saadi — with concise, sourced biographies on Iranopedia.",
     );
   });
@@ -196,9 +195,8 @@ describe("Wix content-push slice — field-role derivation for content edits", (
       edit: edit({ target_element_key: "field:description" }),
     });
     expect(r.kind).toBe("pushed");
-    expect((_updateCalls[0]!.data as Record<string, unknown>).description).toBe(
-      edit().proposed_text,
-    );
+    expect(_updateCalls[0]!.field).toBe("description");
+    expect(_updateCalls[0]!.value).toBe(edit().proposed_text);
   });
 });
 
@@ -251,12 +249,18 @@ describe("Invariant 3 — caps in the push path", () => {
     expect(_updateCalls).toHaveLength(0);
   });
 
-  it("wix client strips slug/url/id keys from every write payload", () => {
-    const safe = stripForbiddenFields({
-      description: "ok",
-      slug: "evil", "link-name": "x", url: "evil", _id: "evil", customSlugField: "evil",
+  it("a content edit NEVER changes the slug/link (target field is preserve-only)", async () => {
+    // Regression for the 2026-06-13 koobideh 404: the write path must change
+    // ONLY the approved field and carry slug/link through unchanged. The
+    // per-field preservation is unit-tested in
+    // tests/lib/connectors/wix/update-preserves-url-fields.test.ts; here we
+    // pin that the push path refuses a slug-ish target outright.
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({ target_element_key: "field:slug" }),
     });
-    expect(Object.keys(safe)).toEqual(["description"]);
+    expect(r.kind).toBe("refused");
+    expect(_updateCalls).toHaveLength(0);
   });
 });
 
@@ -265,7 +269,8 @@ describe("push happy path + failure ledger", () => {
     const r = await executePush({ tenantId: "tenant-iranopedia", edit: edit() });
     expect(r.kind).toBe("pushed");
     expect(_updateCalls).toHaveLength(1);
-    expect((_updateCalls[0]!.data as Record<string, unknown>).description).toContain("Ferdowsi");
+    expect(_updateCalls[0]!.field).toBe("description");
+    expect(String(_updateCalls[0]!.value)).toContain("Ferdowsi");
     const ledger = _stores.get("push-ledger") as Array<{ result: string }>;
     expect(ledger).toHaveLength(1);
     expect(ledger[0]!.result).toBe("pushed");

@@ -465,9 +465,11 @@ export async function executePush(
     return { kind: "refused", reason: "mapped Wix item no longer exists — re-run the url-map sync" };
   }
 
-  // Audit #33 (2026-06-12): wixUpdateDataItem is a full-item PUT — the
-  // merged payload travels whole. Refuse pathological sizes locally
-  // with a precise reason instead of an opaque Wix 4xx.
+  // Audit #33 (2026-06-12): a Wix item update is a full-item PUT. Refuse
+  // pathological sizes locally (precise reason vs opaque Wix 4xx). The actual
+  // write (below) re-fetches the live item and changes ONLY `field`, so slug
+  // + the generated link travel through unchanged — this preview is for the
+  // size check + the snapshot's previous-value only.
   const mergedPreview = { ...item.data, [field]: edit.proposed_text ?? "" };
   if (JSON.stringify(mergedPreview).length > MAX_CMS_ITEM_BYTES) {
     return {
@@ -507,7 +509,12 @@ export async function executePush(
   }
 
   const write = await wixUpdateDataItem(
-    { dataCollectionId: mapEntry.dataCollectionId, dataItemId: mapEntry.dataItemId, data: mergedPreview },
+    {
+      dataCollectionId: mapEntry.dataCollectionId,
+      dataItemId: mapEntry.dataItemId,
+      field,
+      value: edit.proposed_text ?? "",
+    },
     { ...deps.wix, tenantId },
   );
   if (!write.ok) {

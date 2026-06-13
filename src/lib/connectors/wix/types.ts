@@ -15,7 +15,7 @@ export type WixFetchResult<T> =
   | { ok: true; value: T }
   | {
       ok: false;
-      reason: "no_key" | "disconnected" | "api_error";
+      reason: "no_key" | "disconnected" | "api_error" | "protected_field";
       detail?: string;
     };
 

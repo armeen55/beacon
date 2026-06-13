@@ -61,24 +61,19 @@ const FORBIDDEN_FIELDS = new Set([
   "slug", "url", "link", "page-url", "pageUrl", "_id", "id",
 ]);
 
-export function stripForbiddenFields(
-  data: Record<string, unknown>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(data)) {
-    const lower = k.toLowerCase();
-    if (
-      FORBIDDEN_FIELDS.has(k) ||
-      lower.includes("slug") ||
-      // Wix auto-generates URL-bearing "link-…" fields on dynamic items.
-      lower === "link" ||
-      lower.startsWith("link-")
-    ) {
-      continue;
-    }
-    out[k] = v;
-  }
-  return out;
+/** A URL/slug/link-bearing key Beacon must never CHANGE on an existing item
+ *  (caps §3). Used to ASSERT a field edit doesn't target the URL — we never
+ *  drop fields from a write payload (that once blanked a live slug → 404). */
+export function isProtectedUrlField(key: string): boolean {
+  const lower = key.toLowerCase();
+  return (
+    FORBIDDEN_FIELDS.has(key) ||
+    lower.includes("slug") ||
+    lower === "link" ||
+    lower.startsWith("link-") ||
+    lower === "url" ||
+    lower.endsWith("url")
+  );
 }
 
 async function resolveToken(
@@ -177,28 +172,78 @@ export async function wixQueryDataItems(
   return { ok: true, value: items };
 }
 
+/** GET one item by id (Wix Data v2 Get Data Item). */
+export async function wixGetDataItem(
+  args: { dataCollectionId: string; dataItemId: string },
+  deps: WixDeps = {},
+): Promise<WixFetchResult<WixDataItem>> {
+  const r = await wixFetch<{ dataItem?: { id?: string; data?: Record<string, unknown> } }>(
+    `/wix-data/v2/items/${encodeURIComponent(args.dataItemId)}?dataCollectionId=${encodeURIComponent(args.dataCollectionId)}`,
+    { method: "GET" },
+    deps,
+  );
+  if (!r.ok) return r;
+  return {
+    ok: true,
+    value: {
+      id: r.value.dataItem?.id ?? args.dataItemId,
+      dataCollectionId: args.dataCollectionId,
+      data: r.value.dataItem?.data ?? {},
+    },
+  };
+}
+
 /**
- * Field-merge update of ONE item: reads nothing, writes only the given
- * fields (server merges via PATCH semantics — we send the full data
- * object the caller built from current+patch, minus forbidden keys).
+ * Update ONE field on an existing item.
+ *
+ * Wix's Update Data Item is a FULL-ITEM PUT (REPLACE) — any field omitted
+ * from the payload is CLEARED, not preserved. (This blanked koobideh-kabob's
+ * slug → a live 404 on 2026-06-13 when we sent a slug-stripped payload.)
+ * So we NEVER send stripped/partial data: we fetch the CURRENT item
+ * immediately before the write and change ONLY the approved field, carrying
+ * every other field — including `slug` and the generated `link-*` PAGE_LINK —
+ * through UNCHANGED.
+ *
+ * The target field must not itself be URL/slug/link-bearing (caps §3: Beacon
+ * never changes a live URL) unless `urlRepair: true` — the explicit
+ * repair path used to restore a slug we damaged.
  */
 export async function wixUpdateDataItem(
   args: {
     dataCollectionId: string;
     dataItemId: string;
-    /** FULL data object to save (caller merges current + patch). */
-    data: Record<string, unknown>;
+    /** The single approved field to change. */
+    field: string;
+    /** Its new value. */
+    value: unknown;
+    /** Explicit slug/URL repair — bypasses the protected-field guard. */
+    urlRepair?: boolean;
   },
   deps: WixDeps = {},
 ): Promise<WixFetchResult<WixDataItem>> {
-  const safe = stripForbiddenFields(args.data);
+  if (!args.urlRepair && isProtectedUrlField(args.field)) {
+    return {
+      ok: false,
+      reason: "protected_field",
+      detail: `refusing to change URL/slug/link field "${args.field}" via a content edit`,
+    };
+  }
+  // Fetch current item immediately before the write (freshness + full-field
+  // preservation under PUT's replace semantics).
+  const cur = await wixGetDataItem(
+    { dataCollectionId: args.dataCollectionId, dataItemId: args.dataItemId },
+    deps,
+  );
+  if (!cur.ok) return cur;
+  // Preserve EVERY existing field; change ONLY the approved one.
+  const nextData = { ...cur.value.data, [args.field]: args.value };
   const r = await wixFetch<{ dataItem?: { id?: string; data?: Record<string, unknown> } }>(
     `/wix-data/v2/items/${encodeURIComponent(args.dataItemId)}`,
     {
       method: "PUT",
       body: {
         dataCollectionId: args.dataCollectionId,
-        dataItem: { data: safe },
+        dataItem: { data: nextData },
       },
     },
     deps,
@@ -209,7 +254,7 @@ export async function wixUpdateDataItem(
     value: {
       id: r.value.dataItem?.id ?? args.dataItemId,
       dataCollectionId: args.dataCollectionId,
-      data: r.value.dataItem?.data ?? safe,
+      data: r.value.dataItem?.data ?? nextData,
     },
   };
 }

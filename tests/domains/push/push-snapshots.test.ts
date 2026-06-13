@@ -134,7 +134,8 @@ describe("revert", () => {
     // The revert ships through the SAME push path.
     const r = await executePush({ tenantId: "tenant-iranopedia", edit: revert.edit });
     expect(r.kind).toBe("pushed");
-    expect((_updateCalls[1]!.data as Record<string, unknown>).description).toBe("the original text");
+    expect(_updateCalls[1]!.field).toBe("description");
+    expect(_updateCalls[1]!.value).toBe("the original text");
   });
 
   it("refuses deletion-shaped reverts (empty previous value)", () => {
