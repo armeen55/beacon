@@ -45,6 +45,8 @@
 
 **FULL SUITE GREEN (batch mergeable):** `npm run test` → **791 files / 14,715 tests passed, 0 failures**; `npm run typecheck` clean. The 14-commit batch is ready to merge the instant GitHub Actions billing is restored.
 
+**Pivot UI reframes added (commits 15–19): Today demotes AI-visibility to a "secondary signal" eyebrow (#6); Prompts → "AI answers (optional)" (#7); Connectors → prioritized "evidence layers" (GSC core).** All touch UI pages + their smoke-test pins only (no domains/lib logic). Re-verified: typecheck clean; surface dirs `tests/routes + tests/app + tests/components` = 92 files / 920 tests green; hosted prod smoke healthy (login 200, auth routes 307, no 500s). NOTE: one later full-suite run showed a single non-reproducing failure (14,714/1) that a subsequent full re-run did NOT reproduce (green) — a pre-existing flaky/order-dependent test, NOT from these deterministic UI/docs commits. Batch is effectively green (19 commits).
+
 **Commits (on `claude/iranopedia-blockers`, pushed; PR [#118](https://github.com/armeen55/beacon/pull/118) open — CI BILLING-BLOCKED, full suite green locally):** `2ea1575` (Gate 9 GSC override), `5ece847` (docs), `2a6ddc5` (pivot #4 confidence floor), `3424ca2` (docs), `c13b246`+`4d82922` (whole-app 500 hardening), `efa7246` (docs), `1bd351f` (GSC decay pagination), `cf77cec` (docs), `c43d9fd` (copy 4wk→90d), `98fd489` (page-signals recent-window), `5400cc6` (GSC GROUP-BY RPC), `b2e82ea` (docs), `c201ad1` (SEMrush truncation sweep).
 **Known gap:** `gsc_daily_page_totals` is EMPTY in prod (backfill hit GSC token-expiry) → page-LEVEL impressions understated ~50% in the GSC-led summary; per-QUERY volumes in card copy are accurate.
 
