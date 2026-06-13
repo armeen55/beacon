@@ -50,6 +50,10 @@ import { loadTriggerCandidatesForTenant } from "@/domains/recommendation-intelli
 import { buildThinPacketForCandidate } from "@/domains/recommendation-intelligence/build-thin-packet";
 import { draftProposedTextForCandidate } from "@/domains/recommendation-intelligence/llm-draft-gateway";
 import { getBrandAssertions } from "@/domains/recommendations/brand-assertions";
+import {
+  approveCandidate,
+  unapproveCandidate,
+} from "@/domains/recommendation-intelligence/operator-approved-store";
 
 const DIAG_PATH = "/diagnostics/recommendation-triggers";
 const PROPOSED_TEXT_MAX = 500;
@@ -349,4 +353,37 @@ export async function generateLlmDraftAction(
       reason: truncate(gatewayResult.reason, REASON_MAX),
     }),
   );
+}
+
+// α₂ approve-to-promote (operator-locked decision U4, 2026-06-13).
+// Operator approves an operator-review-only candidate by its
+// `dedupe_key`; on the next promotion run it falls through the tier
+// gate (still subject to every other safety gate + Accept-then-push).
+// Operator-mode gated (or NODE_ENV==="test"); NO queue write here, NO
+// LLM, NO push — pure approval bookkeeping. Revalidates the diagnostic.
+// (Line comments, not a JSDoc block: a stray "slash-star" inside the
+//  file's "src/app/**" header comment would otherwise pair with a
+//  block-comment close here and confuse the render-isolation ratchet's
+//  naive comment stripper.)
+export async function approveOperatorReviewCandidateFromForm(
+  formData: FormData,
+): Promise<void> {
+  if (!isOperatorModeServer() && process.env.NODE_ENV !== "test") notFound();
+  const dedupeKey = String(formData.get("dedupe_key") ?? "").trim();
+  if (dedupeKey === "") return;
+  const tenantId = await currentTenantId();
+  await approveCandidate({ tenantId, dedupeKey, now: new Date() });
+  revalidatePath(DIAG_PATH);
+}
+
+// Revoke a prior α₂ approval. Same gating as approve.
+export async function unapproveOperatorReviewCandidateFromForm(
+  formData: FormData,
+): Promise<void> {
+  if (!isOperatorModeServer() && process.env.NODE_ENV !== "test") notFound();
+  const dedupeKey = String(formData.get("dedupe_key") ?? "").trim();
+  if (dedupeKey === "") return;
+  const tenantId = await currentTenantId();
+  await unapproveCandidate({ tenantId, dedupeKey });
+  revalidatePath(DIAG_PATH);
 }

@@ -120,6 +120,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "natural-control-results", // per-tenant natural-control attribution per event
   "page-element-inventory", // Sprint 6A.1 P6; rows already carry tenant_id
   "recommended-edits", // Sprint 6A.1 P11; rows already carry tenant_id
+  // α₂ approve-to-promote (decision U4, 2026-06-13): operator's
+  // standing approvals of operator-review-only candidates; rows carry
+  // tenant_id.
+  "operator-approved-candidates",
   "site-movement-events", // per-tenant Phase 0 movement events
   "url-change-outcomes", // Tier A; rows already carry tenant_id
   // Phase 7.8d-1 (2026-04-26) — flat-fallback removal exposed runtime

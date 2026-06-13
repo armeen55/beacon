@@ -50,9 +50,12 @@ import {
   type PromotionResult,
 } from "@/domains/recommendation-intelligence/promote-to-queue";
 import { getRecommendationResponses } from "@/domains/product/recommendation-response-store";
+import { loadOperatorApprovedDedupeKeys } from "@/domains/recommendation-intelligence/operator-approved-store";
 import {
   generateLlmDraftAction,
   promoteEligibleCandidatesAction,
+  approveOperatorReviewCandidateFromForm,
+  unapproveOperatorReviewCandidateFromForm,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -113,12 +116,23 @@ export default async function RecommendationTriggersDiagnosticPage(
       classifyPageType(c.target_url, businessConfig),
     );
   }
+  // α₂ approve-to-promote (decision U4): the operator's standing
+  // approvals lift the tier gate, so an approved operator-review row
+  // shows as Eligible in this preview (accurate "what would promote").
+  // Fail-soft to none.
+  let operatorApprovedDedupeKeys: Set<string>;
+  try {
+    operatorApprovedDedupeKeys = await loadOperatorApprovedDedupeKeys(tenantId);
+  } catch {
+    operatorApprovedDedupeKeys = new Set<string>();
+  }
   const promotion = selectPromotableCandidates({
     tenantId,
     triggerCandidates,
     recommendedEdits,
     recommendationResponses,
     pageTypeByUrl,
+    operatorApprovedDedupeKeys,
     now: new Date(),
   });
   const promotionEligible = promotion.filter((r) => r.eligible);
@@ -230,6 +244,7 @@ export default async function RecommendationTriggersDiagnosticPage(
         eligible={promotionEligible}
         capped={promotionCapped}
         safetySuppressed={promotionSafetySuppressed}
+        approvedKeys={operatorApprovedDedupeKeys}
       />
 
       <PromoteForm
@@ -316,6 +331,7 @@ function PromotionPreviewSection(props: {
   eligible: ReadonlyArray<PromotionResult>;
   capped: ReadonlyArray<PromotionResult>;
   safetySuppressed: ReadonlyArray<PromotionResult>;
+  approvedKeys: ReadonlySet<string>;
 }) {
   return (
     <section
@@ -348,6 +364,7 @@ function PromotionPreviewSection(props: {
           subsection="eligible"
           title="Eligible for promotion"
           rows={props.eligible}
+          approvedKeys={props.approvedKeys}
         />
       ) : null}
       {props.capped.length > 0 ? (
@@ -355,6 +372,7 @@ function PromotionPreviewSection(props: {
           subsection="capped"
           title="Capped (over per-page or per-family limit)"
           rows={props.capped}
+          approvedKeys={props.approvedKeys}
         />
       ) : null}
       {props.safetySuppressed.length > 0 ? (
@@ -362,6 +380,7 @@ function PromotionPreviewSection(props: {
           subsection="safety-suppressed"
           title="Suppressed by safety gates"
           rows={props.safetySuppressed}
+          approvedKeys={props.approvedKeys}
         />
       ) : null}
     </section>
@@ -372,6 +391,7 @@ function PromotionPreviewSubsection(props: {
   subsection: "eligible" | "capped" | "safety-suppressed";
   title: string;
   rows: ReadonlyArray<PromotionResult>;
+  approvedKeys: ReadonlySet<string>;
 }) {
   return (
     <div
@@ -393,6 +413,7 @@ function PromotionPreviewSubsection(props: {
             <th className="px-3 py-2 font-medium">Suppression reason</th>
             <th className="px-3 py-2 font-medium">Dedupe key</th>
             <th className="px-3 py-2 font-medium">Cooldown key</th>
+            <th className="px-3 py-2 font-medium">α₂ review</th>
           </tr>
         </thead>
         <tbody>
@@ -430,6 +451,43 @@ function PromotionPreviewSubsection(props: {
               </td>
               <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
                 {row.promotion_cooldown_key.slice(0, 8)}…
+              </td>
+              <td className="px-3 py-2 text-[11px]">
+                {row.tier === "operator-review-only" ? (
+                  props.approvedKeys.has(row.candidate.dedupe_key) ? (
+                    <form action={unapproveOperatorReviewCandidateFromForm}>
+                      <input
+                        type="hidden"
+                        name="dedupe_key"
+                        value={row.candidate.dedupe_key}
+                      />
+                      <button
+                        type="submit"
+                        data-action="unapprove-operator-review"
+                        className="rounded border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-surface-inset/20"
+                      >
+                        Approved ✓ · Undo
+                      </button>
+                    </form>
+                  ) : (
+                    <form action={approveOperatorReviewCandidateFromForm}>
+                      <input
+                        type="hidden"
+                        name="dedupe_key"
+                        value={row.candidate.dedupe_key}
+                      />
+                      <button
+                        type="submit"
+                        data-action="approve-operator-review"
+                        className="rounded border border-status-success/60 px-2 py-0.5 text-[11px] text-status-success hover:bg-status-success/10"
+                      >
+                        Promote to queue
+                      </button>
+                    </form>
+                  )
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
               </td>
             </tr>
           ))}

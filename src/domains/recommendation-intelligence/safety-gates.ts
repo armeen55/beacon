@@ -95,6 +95,17 @@ export type SafetyGateContext = {
    *  today; the orchestrator defaults this to `true` until a
    *  future slice introduces prerequisite tracking. */
   prerequisiteResolved: boolean;
+  /** α₂ approve-to-promote (operator-locked decision U4, 2026-06-13).
+   *  Candidate `dedupe_key`s the OPERATOR has explicitly approved for
+   *  promotion. An `operator-review-only` candidate whose key is in
+   *  this set is NOT auto-suppressed — it falls through to the SAME
+   *  remaining safety gates (confidence, safety_flags, evidence,
+   *  content-family, cooldown) as a customer-queue-ready card. Absent/
+   *  empty (the default everywhere today) = the original
+   *  "operator-review-only is suppressed" behavior, byte-identical.
+   *  Lifts the TIER gate ONLY — never weakens another gate, never
+   *  auto-pushes (Accept→push stays operator-gated). */
+  operatorApprovedDedupeKeys?: ReadonlySet<string>;
   now: Date;
 };
 
@@ -130,10 +141,17 @@ export function applyPromotionSafetyGates(
   // Gates 1–3 — eligibility tier check.
   if (tier === "blocked") return suppress(tier, "blocked_tier");
   if (tier === "diagnostic-only") return suppress(tier, "diagnostic_only_tier");
-  // operator-review-only auto-suppressed until α₂'s approve-to-
-  // promote affordance (operator-locked α₀a.2 decision U4).
+  // operator-review-only is auto-suppressed UNLESS the operator has
+  // explicitly approved this candidate (α₂ approve-to-promote, the
+  // operator-locked α₀a.2 decision U4). An approved candidate falls
+  // through to the remaining safety gates below — approval lifts the
+  // TIER gate, never the confidence/safety/evidence/cooldown gates.
   if (tier === "operator-review-only") {
-    return suppress(tier, "diagnostic_only_tier");
+    const approved =
+      ctx.operatorApprovedDedupeKeys?.has(candidate.dedupe_key) ?? false;
+    if (!approved) {
+      return suppress(tier, "diagnostic_only_tier");
+    }
   }
 
   // Gate 4 — confidence ≠ low.

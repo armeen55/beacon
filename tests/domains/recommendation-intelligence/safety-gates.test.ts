@@ -121,6 +121,57 @@ describe("applyPromotionSafetyGates — tier ladder", () => {
     expect(out.suppression_reason).toBe("diagnostic_only_tier");
   });
 
+  // α₂ approve-to-promote (decision U4, 2026-06-13): an operator-
+  // approved operator-review-only candidate is NOT tier-suppressed —
+  // it falls through to the remaining gates. Approval lifts the TIER
+  // gate only.
+  it("operator-APPROVED operator-review-only candidate promotes (passes remaining gates)", () => {
+    const cand = makeCandidate({
+      trigger_signal: "orphan_page",
+      action_type: "add_internal_link",
+      confidence: "medium",
+      dedupe_key: "approved-key-1",
+    });
+    const out = applyPromotionSafetyGates(
+      cand,
+      baseCtx({ operatorApprovedDedupeKeys: new Set(["approved-key-1"]) }),
+    );
+    expect(out.eligible).toBe(true);
+    expect(out.tier).toBe("operator-review-only");
+    expect(out.suppression_reason).toBeNull();
+  });
+
+  it("approval does NOT bypass downstream gates (low confidence still suppresses)", () => {
+    const cand = makeCandidate({
+      trigger_signal: "orphan_page",
+      action_type: "add_internal_link",
+      confidence: "low",
+      dedupe_key: "approved-key-2",
+    });
+    const out = applyPromotionSafetyGates(
+      cand,
+      baseCtx({ operatorApprovedDedupeKeys: new Set(["approved-key-2"]) }),
+    );
+    expect(out.eligible).toBe(false);
+    expect(out.suppression_reason).toBe("low_confidence");
+  });
+
+  it("approval is key-scoped — a different approved key does not lift suppression", () => {
+    const cand = makeCandidate({
+      trigger_signal: "orphan_page",
+      action_type: "add_internal_link",
+      confidence: "medium",
+      dedupe_key: "candidate-key",
+    });
+    const out = applyPromotionSafetyGates(
+      cand,
+      baseCtx({ operatorApprovedDedupeKeys: new Set(["some-other-key"]) }),
+    );
+    expect(out.eligible).toBe(false);
+    expect(out.tier).toBe("operator-review-only");
+    expect(out.suppression_reason).toBe("diagnostic_only_tier");
+  });
+
   it("blocked tier (unknown signal) suppresses with blocked_tier", () => {
     const out = applyPromotionSafetyGates(
       makeCandidate({ trigger_signal: "unknown_signal_xyz" }),
