@@ -85,6 +85,11 @@ export type SelectPromotableCandidatesInput = {
   /** Fusion slice (2026-06-12): bounded GA4 value weight per
    *  CANDIDATE target_url (caller canonicalizes). Optional. */
   ga4ValueWeightByUrl?: ReadonlyMap<string, number>;
+  /** α₂ approve-to-promote (decision U4, 2026-06-13): candidate
+   *  `dedupe_key`s the operator approved. Operator-review-only
+   *  candidates in this set promote (through the remaining gates)
+   *  instead of being tier-suppressed. Optional; absent = unchanged. */
+  operatorApprovedDedupeKeys?: ReadonlySet<string>;
   now: Date;
 };
 
@@ -110,6 +115,7 @@ export function selectPromotableCandidates(
       // Forward-compat: candidate row has no `prerequisite_key`
       // today; treat absence as "resolved".
       prerequisiteResolved: true,
+      operatorApprovedDedupeKeys: input.operatorApprovedDedupeKeys,
       now: input.now,
     });
 
