@@ -27,8 +27,13 @@ vi.mock("@/domains/tenants/store", () => ({
 }));
 
 let _urlMapEntry: Record<string, unknown> | null = null;
+// Wix content-push slice (2026-06-13): the push service derives a
+// field:<x> target for content edits via this; null = operator hasn't
+// mapped the role → card stays paste-ready (today's behavior).
+let _deriveFieldKey: string | null = null;
 vi.mock("@/lib/connectors/wix/url-map", () => ({
   resolveWixItemForUrl: async () => _urlMapEntry,
+  deriveWixContentFieldKey: async () => _deriveFieldKey,
 }));
 
 const _queryResult: { ok: boolean; value?: unknown[]; reason?: string } = { ok: true, value: [] };
@@ -120,6 +125,57 @@ beforeEach(() => {
   _productResult = { ok: true };
   _seoUpdateCalls = [];
   _seoUpdateResult = { ok: true };
+  _deriveFieldKey = null;
+});
+
+describe("Wix content-push slice — field-role derivation for content edits", () => {
+  it("an edit_title card with NO element key + a configured role pushes LIVE via the field path", async () => {
+    _deriveFieldKey = "field:title"; // operator mapped title → "title" on /diagnostics/wix
+    _queryResult.value = [
+      { id: "item-1", dataCollectionId: "col", data: { title: "Old Title" } },
+    ];
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        action_type: "edit_title" as RecommendedEditRow["action_type"],
+        target_element_key: null,
+        current_text: "Old Title",
+        proposed_text: "Famous Iranian Poets | Iranopedia",
+      }),
+    });
+    expect(r.kind).toBe("pushed");
+    expect(_updateCalls).toHaveLength(1);
+    expect((_updateCalls[0]!.data as Record<string, unknown>).title).toBe(
+      "Famous Iranian Poets | Iranopedia",
+    );
+  });
+
+  it("a content card with NO configured role stays PASTE-READY (refused), never written", async () => {
+    _deriveFieldKey = null; // operator has not mapped the field role
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        action_type: "edit_title" as RecommendedEditRow["action_type"],
+        target_element_key: null,
+        current_text: "Old Title",
+        proposed_text: "A New Title For The Page",
+      }),
+    });
+    expect(r.kind).toBe("refused");
+    expect(_updateCalls).toHaveLength(0);
+  });
+
+  it("derivation never overrides an explicit element key (field:/create: pass through unchanged)", async () => {
+    _deriveFieldKey = "field:title"; // would derive, but the card already has a key
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({ target_element_key: "field:description" }),
+    });
+    expect(r.kind).toBe("pushed");
+    expect((_updateCalls[0]!.data as Record<string, unknown>).description).toBe(
+      edit().proposed_text,
+    );
+  });
 });
 
 describe("Invariant 2 — Ritz NEVER pushes", () => {

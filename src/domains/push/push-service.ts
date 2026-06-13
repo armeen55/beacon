@@ -59,7 +59,10 @@ import {
 } from "./caps";
 import { formatDevNote } from "./dev-note";
 import { appendPushSnapshot } from "./push-snapshots";
-import { resolveWixItemForUrl } from "@/lib/connectors/wix/url-map";
+import {
+  resolveWixItemForUrl,
+  deriveWixContentFieldKey,
+} from "@/lib/connectors/wix/url-map";
 import {
   wixGetStoreProduct,
   wixInsertDataItem,
@@ -202,7 +205,23 @@ export async function executePush(
   // proposed_text is the JSON of the new item's fields (slug included —
   // a new page has no URL to *change*). Refuses if the URL already maps
   // to an existing item (creation never overwrites).
-  const elementKey = edit.target_element_key ?? "";
+  let elementKey = edit.target_element_key ?? "";
+  // Wix content-push slice (2026-06-13): a content edit (edit_title /
+  // change_h1) reaches here with NO element key, because the deterministic
+  // promotion mapper leaves target_element_key null — so it would refuse
+  // below and stay paste-ready. If the operator has mapped this page's
+  // collection field roles on /diagnostics/wix, derive the concrete
+  // `field:<cmsField>` target now so the SAME safe field-write path
+  // (snapshot → merge → write → rollback) publishes the edit LIVE. When
+  // nothing is configured this is a no-op (returns null) and the card
+  // stays paste-ready exactly as today — opt-in, per-tenant, no hardcoding.
+  if (elementKey === "") {
+    const derived = await deriveWixContentFieldKey(
+      edit.target_url,
+      edit.action_type,
+    );
+    if (derived != null) elementKey = derived;
+  }
   if (elementKey.startsWith("create:")) {
     const collectionId = elementKey.slice("create:".length);
     if (collectionId === "") {

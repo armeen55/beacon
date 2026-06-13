@@ -56,6 +56,53 @@ export async function resolveWixItemForUrl(
   );
 }
 
+/** Content-edit action_type → the page ROLE it edits. Only the
+ *  unambiguous single-field edits are auto-targetable in v1; body-append
+ *  (add_h2_section/add_faq) and CMS meta are intentionally absent —
+ *  riskier, and Wix CMS items rarely carry a per-item meta field. */
+const CONTENT_ACTION_FIELD_ROLE: Readonly<
+  Record<string, "title" | "heading">
+> = {
+  edit_title: "title",
+  change_h1: "heading",
+};
+
+/**
+ * Derive a live-pushable `field:<cmsField>` element key for a content
+ * edit (Wix content-push slice, 2026-06-13) from the operator's
+ * per-collection `contentFieldRoles` config. THIS is what lets Accept
+ * push a title/heading edit LIVE to a Wix CONTENT page (the push service
+ * calls this when a card carries no `field:`/`create:` target).
+ *
+ * Returns null — so the card stays PASTE-READY (today's behavior) — when:
+ *   • the action isn't an auto-targetable content edit, OR
+ *   • the URL isn't a mapped Wix CMS item (run the url-map sync), OR
+ *   • the matched collection has no role configured on /diagnostics/wix.
+ *
+ * Per-tenant + operator-derived (NO hardcoding): the field name comes
+ * only from the operator's own collection config, empty by default, so a
+ * tenant opts into live content pushes by filling it in. Slug-ish fields
+ * are still refused downstream in push-service (no URL changes ever).
+ * Tenant scope is ambient (same as resolveWixItemForUrl /
+ * getWixCollectionConfig — both read the tenant-scoped store).
+ */
+export async function deriveWixContentFieldKey(
+  targetUrl: string,
+  actionType: string,
+): Promise<string | null> {
+  const role = CONTENT_ACTION_FIELD_ROLE[actionType];
+  if (role == null) return null;
+  const entry = await resolveWixItemForUrl(targetUrl);
+  if (entry == null) return null;
+  const config = await getWixCollectionConfig();
+  const mapping = config.find(
+    (m) => m.dataCollectionId === entry.dataCollectionId,
+  );
+  const field = mapping?.contentFieldRoles?.[role]?.trim();
+  if (!field) return null;
+  return `field:${field}`;
+}
+
 export type SyncWixUrlMapResult = {
   ok: boolean;
   collections: number;
