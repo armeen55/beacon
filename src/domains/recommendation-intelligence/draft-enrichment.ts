@@ -142,6 +142,27 @@ export function clipOnWordBoundary(text: string, max: number): string {
   return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut.slice(0, max)).trim();
 }
 
+/**
+ * Clean a candidate content chunk of JUNK zero-width characters before
+ * it's used in a draft. Removes ZERO-WIDTH SPACE (U+200B) and BOM
+ * (U+FEFF) — Wix injects these into headings/card text and they
+ * survive `.trim()`, so an "empty" chunk would otherwise read as a
+ * 1-char string. DELIBERATELY preserves U+200C ZWNJ / U+200D ZWJ:
+ * those are SEMANTICALLY MEANINGFUL inside Persian/Arabic words
+ * (e.g. می‌روم) and must never be stripped. Pure.
+ */
+export function stripJunkZeroWidth(s: string): string {
+  return s.replace(/[\u200B\uFEFF]/g, "").trim();
+}
+
+/** Whether a chunk has any VISIBLE glyph — strips ALL zero-width marks
+ *  (incl. ZWNJ/ZWJ) + whitespace purely for the emptiness test, so a
+ *  chunk that is ONLY zero-width/whitespace is rejected, while a real
+ *  Persian word containing an internal ZWNJ still passes. */
+export function hasVisibleGlyph(s: string): boolean {
+  return s.replace(/[\u200B-\u200D\uFEFF\s]/g, "").length > 0;
+}
+
 function titleCaseLabel(label: string): string {
   return label
     .split(/\s+/)
@@ -342,8 +363,15 @@ function composeMeta(
     ...(snap?.h2_list ?? []),
     ...(snap?.card_texts ?? []),
   ]
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !isCmsPlaceholder(s) && !isChrome(s))
+    // Strip JUNK zero-width (ZWSP/BOM) Wix injects — these survive
+    // .trim() and otherwise pass the length check as 1-char "empty"
+    // chunks, producing garbage like "Kabob Barg \u2014 \u200b \u2014 \u200b".
+    // ZWNJ/ZWJ (Persian) are preserved by stripJunkZeroWidth;
+    // hasVisibleGlyph rejects chunks with no real glyph.
+    .map((s) => stripJunkZeroWidth(s))
+    .filter(
+      (s) => hasVisibleGlyph(s) && !isCmsPlaceholder(s) && !isChrome(s),
+    )
     .join(" — ")
     .trim();
   const source = body.length >= 40 ? body : structural;
