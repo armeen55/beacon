@@ -139,7 +139,7 @@ export function gscLowCtrCopy(query: string, impressions: number): string {
     query +
     "” " +
     impressions.toLocaleString("en-US") +
-    " times in the last 4 weeks and saw this page — but few clicked it. A clearer title can win those clicks."
+    " times in the last 90 days and saw this page — but few clicked it. A clearer title can win those clicks."
   );
 }
 
@@ -175,7 +175,7 @@ export function gscStrikingDistanceCopy(
     query +
     "\u201d \u2014 " +
     impressions.toLocaleString("en-US") +
-    " times in the last 4 weeks. Naming it in the title can push it into the top results."
+    " times in the last 90 days. Naming it in the title can push it into the top results."
   );
 }
 
