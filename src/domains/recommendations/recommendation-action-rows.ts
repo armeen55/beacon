@@ -915,7 +915,22 @@ export function priorityForRow(args: {
   readonly brandPrimaryShare: number;
   readonly needsHumanReview: boolean;
   readonly hasExactEdit: boolean;
+  /** Pivot (2026-06-13) — per-page Google Search demand. First-party demand
+   *  floors priority up independent of AEO. Impressions + striking-distance
+   *  position are used (robust); CTR is intentionally NOT used to elevate
+   *  until per-page totals land (the page+query CTR runs high). */
+  readonly gscImpressions?: number;
+  readonly gscPosition?: number;
 }): ActionRowPriority {
+  // GSC demand HIGH floor (pivot): a page with real first-party search demand
+  // is worth acting on regardless of AEO. Heavy impressions, or
+  // striking-distance (ranking ~5–20: one push from page one) with meaningful
+  // impressions → High.
+  const gscImpr = args.gscImpressions ?? 0;
+  const gscPos = args.gscPosition ?? 0;
+  if (gscImpr >= 1000) return "high";
+  if (gscImpr >= 300 && gscPos >= 5 && gscPos <= 20) return "high";
+
   // High floor: operator-flagged + high-severity + rich-observation
   // recs cannot fall below High.
   if (args.severity === "high" && args.observationCount >= 10) return "high";
@@ -954,6 +969,10 @@ export function priorityForRow(args: {
   ) {
     return "medium";
   }
+
+  // GSC demand MEDIUM floor: moderate first-party impressions mean the page
+  // has real search demand — it should never read as "thin/Low".
+  if (gscImpr >= 200) return "medium";
 
   // Genuinely thin — Low.
   if (
@@ -1421,6 +1440,8 @@ export function buildRecommendationActionRows(
           brandPrimaryShare,
           needsHumanReview,
           hasExactEdit: true,
+          gscImpressions: rec.gscSignal?.impressions28d,
+          gscPosition: rec.gscSignal?.position28d,
         });
         // Status is keyed off the question row's lifecycle (the
         // primary side of the pair). The validator-pairing guarantee
@@ -1568,6 +1589,8 @@ export function buildRecommendationActionRows(
           brandPrimaryShare,
           needsHumanReview,
           hasExactEdit: true,
+          gscImpressions: rec.gscSignal?.impressions28d,
+          gscPosition: rec.gscSignal?.position28d,
         });
         const status = statusForRow({
           responseStatus,
@@ -1720,6 +1743,8 @@ export function buildRecommendationActionRows(
       brandPrimaryShare,
       needsHumanReview,
       hasExactEdit: false,
+      gscImpressions: rec.gscSignal?.impressions28d,
+      gscPosition: rec.gscSignal?.position28d,
     });
     const status = statusForRow({
       responseStatus,

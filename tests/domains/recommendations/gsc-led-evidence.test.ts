@@ -6,7 +6,10 @@
 
 import { describe, it, expect } from "vitest";
 
-import { composeRowEvidenceSummary } from "@/domains/recommendations/recommendation-action-rows";
+import {
+  composeRowEvidenceSummary,
+  priorityForRow,
+} from "@/domains/recommendations/recommendation-action-rows";
 import type { LiveRecQueueItem } from "@/domains/recommendations/load-queue";
 import type { GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
 
@@ -68,5 +71,36 @@ describe("composeRowEvidenceSummary — GSC-led pivot", () => {
     };
     const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });
     expect(out).toMatch(/AI answer/);
+  });
+});
+
+describe("priorityForRow — GSC demand floors (pivot)", () => {
+  // A base row that the AEO rubric would rank Low (thin everything).
+  const thin = {
+    engineConfidence: "low" as const,
+    severity: "low" as const,
+    affectedPromptCount: 1,
+    observationCount: 2,
+    brandPrimaryShare: 0,
+    needsHumanReview: false,
+    hasExactEdit: false,
+  };
+
+  it("heavy impressions → High, even on otherwise-thin AEO", () => {
+    expect(priorityForRow({ ...thin, gscImpressions: 1500 })).toBe("high");
+  });
+
+  it("striking-distance (pos 5–20) + meaningful impressions → High", () => {
+    expect(priorityForRow({ ...thin, gscImpressions: 500, gscPosition: 8 })).toBe("high");
+    // outside striking distance (already page 1) → not auto-High on that rule
+    expect(priorityForRow({ ...thin, gscImpressions: 500, gscPosition: 2 })).not.toBe("high");
+  });
+
+  it("moderate impressions floor the row to Medium (never thin/Low)", () => {
+    expect(priorityForRow({ ...thin, gscImpressions: 250 })).toBe("medium");
+  });
+
+  it("no GSC signal → unchanged AEO-based priority (thin → Low)", () => {
+    expect(priorityForRow(thin)).toBe("low");
   });
 });
