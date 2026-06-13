@@ -41,6 +41,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getBusinessConfig } from "@/lib/business-config";
+import { getTenant } from "@/domains/tenants/store";
 import { log } from "@/lib/logger";
 
 import {
@@ -84,7 +85,19 @@ async function resolveProperty(
 ): Promise<string | null> {
   const env = process.env.BEACON_GSC_SITE_URL;
   if (env != null && env !== "") return env;
-  const domain = getBusinessConfig(tenantId).domain?.trim();
+  // Domain source: business-config first, then the tenant REGISTRY. On hosted
+  // (read-only lambda FS) the business-config files don't deploy, so the
+  // operator's Settings→Config domain only reaches the nightly sync via the
+  // registry (Supabase-backed). Without this fallback the hosted sync gets no
+  // domain → no_property_derivable → never runs.
+  let domain: string | undefined = getBusinessConfig(tenantId).domain?.trim();
+  if (!domain) {
+    try {
+      domain = (await getTenant(tenantId))?.domain?.trim() || undefined;
+    } catch {
+      /* registry unavailable — fall through to null */
+    }
+  }
   if (!domain) return null;
   // Auto-discover the property SHAPE the token actually owns. The account may
   // have a URL-prefix property (https://www.x.com/) rather than a domain
