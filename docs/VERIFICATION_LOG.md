@@ -7,6 +7,29 @@
 
 ---
 
+## 2026-06-13 (PM) — GSC first-party demand cards reach the queue (Gate 9 "other"-skip override)
+
+**Root cause (verified end-to-end, prod data):** 62 real GSC demand candidates (`gsc_low_ctr` + `gsc_striking_distance`) generated for tenant-iranopedia but 0 reached `recommended_edits`. The eligibility table already maps both to `customer-queue-ready` (deployed on origin/main); the block was promotion **Gate 9** in `safety-gates.ts` — content-edit families hard-skip `{utility, technical_asset, other}`. Iranopedia (content/encyclopedia) pages classify as **`other`** when `contentSiteMode` is unset on the **sync** config path → all 62 GSC title rewrites suppressed `skip_page_type`. Confirmed with a gate diagnostic: 62/62 → `skip_page_type`, page types 62/62 `other`. Also confirmed prod `business_config.contentSiteMode` was `null`, and `gsc_daily_rows` has 217,975 rows / 197 pages (last pull 21:19, AFTER the 08:38 nightly — so the morning run had no GSC data).
+
+**What changed:**
+- `src/domains/recommendation-intelligence/safety-gates.ts`: added `GSC_DEMAND_SIGNALS` set (`gsc_low_ctr`, `gsc_striking_distance` — each emits only above a per-query impressions floor) + surgical Gate 9 carve-out: first-party GSC demand overrides the AMBIGUOUS `other` verdict ONLY; `utility`/`technical_asset` stay hard-skipped for every signal. Tenant-agnostic; no per-tenant config required.
+- `tests/domains/recommendation-intelligence/safety-gates.test.ts`: +GSC-on-`other`→eligible, +GSC-on-`utility`/`technical_asset`→still `skip_page_type`.
+- `tests/architecture/recommendation-intelligence-page-classifier-applied-at-promotion.test.ts`: +GSC override cases (existing non-GSC-on-`other`→skip assertions unchanged & still green).
+- `docs/ARCHITECTURE_INVARIANTS_CATALOG.md`: documented the 2026-06-13 refinement of `recommendation-intelligence-page-classifier-applied-at-promotion`.
+- Prod data: `business_config.contentSiteMode=true` for tenant-iranopedia (jsonb_set, reversible).
+
+**Verified:**
+- `npm run typecheck` clean.
+- Targeted vitest: safety-gates + page-classifier-at-promotion + gsc-led-evidence = **57 passed**; promotion-eligibility + promote-to-queue = **53 passed**; architecture catalog-sync = **8 passed**.
+- Gate diagnostic after fix: 62/62 GSC candidates `skip_page_type`→**ELIGIBLE**.
+- Real promotion writer dry-run (prod data): candidate_count 387, eligible 40, promoted 40, **skipped 0**; edit_title family (cap 10) = **9 GSC demand rewrites** + 1 missing_title, with concrete drafted titles.
+- **Live write to prod** (`dryRun:false`, DATA_SOURCE=supabase): 40 promoted, sync_warning none. Prod SQL confirms **10 GSC cards** in iranopedia `recommended_edits` (status `recommended`): `/iran-flags` "iran flag" 9,137; `/persian-male-names` "muslim boy names" 1,447; `/tehran` "tehran population" 1,377; `/iran-animals/persian-onager` "onager" 1,340; `/cities` "iran population" 819; +5 more.
+
+**Commit:** `2ea1575` (LOCAL on `claude/iranopedia-blockers`, NOT pushed — ci-minutes/merge-gating rails; staged as operator push checkpoint).
+**Known gap:** `gsc_daily_page_totals` is EMPTY in prod (backfill hit GSC token-expiry) → page-LEVEL impressions understated ~50% in the GSC-led summary; per-QUERY volumes in card copy are accurate.
+
+---
+
 ## 2026-06-13 — Iranopedia-push blockers closed (one-founder invariant, server-only registry, de-brand truth)
 
 **What changed (branch `claude/iranopedia-blockers`, FF-merge to main):**
