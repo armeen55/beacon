@@ -62,20 +62,31 @@ export async function loadGscPageSignalsForTenant(
   now: Date = new Date(),
 ): Promise<Map<string, GscPageSignal>> {
   const out = new Map<string, GscPageSignal>();
-  type DailyRow = {
+  // Server-side aggregation via the gsc_page_signals_v1 RPC (2026-06-13).
+  // ONE GROUP BY returns COMPLETE per-page totals + the top-10 queries per
+  // page. This replaces the prior client-side pagination of raw
+  // gsc_daily_rows, which truncated a large site's window at an 80k-row
+  // safety cap (Iranopedia: ~208k rows in 90 days) and therefore summed an
+  // arbitrary, INCOMPLETE slice — the card's "in the last 90 days" counts
+  // were wrong and depended on read order (oldest- vs recent-biased). The
+  // RPC reads everything in a single round-trip and is exact + fast. We
+  // still page the RESULT by a unique order (page) purely as a safety net
+  // for a site with >1k distinct pages.
+  type RpcRow = {
     page: string;
-    query: string;
-    clicks: number;
-    impressions: number;
-    position: number;
-    date: string;
+    clicks: number | string;
+    impressions: number | string;
+    pos_weighted: number | string;
+    top_queries:
+      | Array<{
+          query: string;
+          clicks: number;
+          impressions: number;
+          position: number;
+        }>
+      | null;
   };
-  // PostgREST caps a single response (~1k rows) regardless of `.limit()`, so a
-  // busy 28-day window (Iranopedia: ~44k page+query+day rows) must be PAGED —
-  // a bare select truncated to an arbitrary handful of pages, starving the
-  // triggers + card evidence. Page through with a stable order until a short
-  // page or the safety bound. Keep whatever we've read on a mid-page error.
-  const rows: DailyRow[] = [];
+  const rpcRows: RpcRow[] = [];
   try {
     const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
       .toISOString()
@@ -83,85 +94,46 @@ export async function loadGscPageSignalsForTenant(
     const sb = getSupabaseAdmin();
     for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
       const { data, error } = await sb
-        .from("gsc_daily_rows")
-        .select("page, query, clicks, impressions, position, date")
-        .eq("tenant_id", tenantId)
-        .eq("is_final", true)
-        .gte("date", since)
-        // Order date DESCENDING so that when the window has more rows
-        // than the MAX_ROWS safety bound (Iranopedia: ~208k rows in 90
-        // days vs an 80k cap), the read keeps the MOST RECENT rows, not
-        // the oldest. Pre-fix (ascending) the cap summed Mar–mid-Apr and
-        // dropped the latest ~2 months, so the card's "in the last 90
-        // days" counts reflected stale spring data. Recent-truncated is
-        // strictly more correct + conservative (a sub-window undercount,
-        // never an overstatement). Real fix for full accuracy is a
-        // Postgres GROUP-BY RPC (parked). page/query keep ascending so
-        // the (date desc, page, query) order stays unique for paging.
-        .order("date", { ascending: false })
+        .rpc("gsc_page_signals_v1", { p_tenant: tenantId, p_since: since })
         .order("page")
-        .order("query")
         .range(offset, offset + PAGE_SIZE - 1);
       if (error) {
-        log.warn("[gsc-page-signals] page read failed", {
+        log.warn("[gsc-page-signals] rpc read failed", {
           tenantId,
           offset,
           error: error.message,
         });
         break;
       }
-      const batch = (data ?? []) as unknown as DailyRow[];
-      rows.push(...batch);
+      const batch = (data ?? []) as unknown as RpcRow[];
+      rpcRows.push(...batch);
       if (batch.length < PAGE_SIZE) break;
     }
   } catch {
     return out;
   }
-  if (rows.length === 0) return out;
+  if (rpcRows.length === 0) return out;
 
-  // page → query → accumulator
-  type QueryAcc = {
-    clicks: number;
-    impressions: number;
-    positionWeighted: number;
-  };
-  const byPage = new Map<string, Map<string, QueryAcc>>();
-  for (const r of rows) {
+  // Map the RPC's per-page aggregates into GscPageSignal. `pos_weighted`
+  // is Σ(position × impressions) over the window; divide by impressions
+  // for the impressions-weighted average position. `top_queries` arrive
+  // pre-ranked (top 10 by impressions) — cap to TOP_QUERIES_CAP.
+  for (const r of rpcRows) {
     const page = canonicalizeCitationUrl(r.page) ?? r.page;
-    let queries = byPage.get(page);
-    if (!queries) {
-      queries = new Map();
-      byPage.set(page, queries);
-    }
-    let acc = queries.get(r.query);
-    if (!acc) {
-      acc = { clicks: 0, impressions: 0, positionWeighted: 0 };
-      queries.set(r.query, acc);
-    }
-    acc.clicks += r.clicks ?? 0;
-    acc.impressions += r.impressions ?? 0;
-    acc.positionWeighted += (r.position ?? 0) * (r.impressions ?? 0);
-  }
-
-  for (const [page, queries] of byPage) {
-    let clicks = 0;
-    let impressions = 0;
-    let positionWeighted = 0;
-    const querySignals: GscQuerySignal[] = [];
-    for (const [query, acc] of queries) {
-      clicks += acc.clicks;
-      impressions += acc.impressions;
-      positionWeighted += acc.positionWeighted;
-      querySignals.push({
-        query,
-        clicks: acc.clicks,
-        impressions: acc.impressions,
-        ctr: acc.impressions > 0 ? acc.clicks / acc.impressions : 0,
-        position:
-          acc.impressions > 0 ? acc.positionWeighted / acc.impressions : 0,
-      });
-    }
-    querySignals.sort((a, b) => b.impressions - a.impressions);
+    const clicks = Number(r.clicks) || 0;
+    const impressions = Number(r.impressions) || 0;
+    const positionWeighted = Number(r.pos_weighted) || 0;
+    const querySignals: GscQuerySignal[] = (r.top_queries ?? []).map((q) => {
+      const qImpr = Number(q.impressions) || 0;
+      const qClicks = Number(q.clicks) || 0;
+      return {
+        query: q.query,
+        clicks: qClicks,
+        impressions: qImpr,
+        ctr: qImpr > 0 ? qClicks / qImpr : 0,
+        position: Number(q.position) || 0,
+      };
+    });
     out.set(page, {
       page,
       clicks28d: clicks,
