@@ -204,6 +204,39 @@ describe("applyPromotionSafetyGates — content-edit family + fix_* bypass", () 
     );
     expect(out.eligible).toBe(true);
   });
+
+  // Pivot 2026-06-13 — first-party Google Search demand overrides the
+  // classifier's AMBIGUOUS "other" verdict (a page Google ranks for
+  // queries is a real content page), so a demand-driven title rewrite
+  // reaches the queue even when contentSiteMode was never configured.
+  it.each(["gsc_low_ctr", "gsc_striking_distance"] as const)(
+    "GSC demand signal %s on 'other' is NOT skipped (demand overrides ambiguous classification)",
+    (signal) => {
+      const out = applyPromotionSafetyGates(
+        makeCandidate({ trigger_signal: signal, action_type: "edit_title" }),
+        baseCtx({ targetPageType: "other" }),
+      );
+      expect(out.eligible).toBe(true);
+      expect(out.suppression_reason).toBeNull();
+    },
+  );
+
+  // The override is SURGICAL: it relaxes ONLY the ambiguous "other"
+  // bucket, never the positive utility / technical_asset verdicts.
+  it.each(["utility", "technical_asset"] as const)(
+    "GSC demand signal STILL hard-skipped on positive verdict %s",
+    (pageType) => {
+      const out = applyPromotionSafetyGates(
+        makeCandidate({
+          trigger_signal: "gsc_low_ctr",
+          action_type: "edit_title",
+        }),
+        baseCtx({ targetPageType: pageType }),
+      );
+      expect(out.eligible).toBe(false);
+      expect(out.suppression_reason).toBe("skip_page_type");
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

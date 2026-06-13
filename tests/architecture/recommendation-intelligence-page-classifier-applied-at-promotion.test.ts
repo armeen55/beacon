@@ -10,6 +10,14 @@
  * Indexability fixes (`fix_*`) BYPASS this skip — operators may
  * need to repair sitemap / robots / status / canonical on any
  * URL kind.
+ *
+ * Pivot refinement (2026-06-13): first-party Google Search demand
+ * signals (`gsc_low_ctr` · `gsc_striking_distance`) override the
+ * classifier's AMBIGUOUS `other` verdict — a page Google ranks for
+ * queries is a real, trafficked content page. The override is
+ * surgical: it relaxes ONLY `other` (the "couldn't place it"
+ * bucket), NEVER the positive `utility` / `technical_asset`
+ * verdicts, which stay hard-skipped for every signal.
  */
 
 import { describe, it, expect } from "vitest";
@@ -95,6 +103,45 @@ describe("recommendation-intelligence-page-classifier-applied-at-promotion", () 
         // Eligible OR suppressed by a NON-page-type reason. The
         // `skip_page_type` reason must NEVER apply to fix_*.
         expect(out.suppression_reason).not.toBe("skip_page_type");
+      });
+    }
+  }
+
+  // First-party GSC demand overrides the AMBIGUOUS `other` verdict
+  // only.
+  const GSC_DEMAND_PAIRS: ReadonlyArray<readonly [string, ActionType]> = [
+    ["gsc_low_ctr", "edit_title"],
+    ["gsc_striking_distance", "edit_title"],
+  ];
+
+  for (const [signal, action] of GSC_DEMAND_PAIRS) {
+    it(`GSC demand ${signal}::${action} OVERRIDES skip on ambiguous 'other'`, () => {
+      const out = applyPromotionSafetyGates(makeCandidate(signal, action), {
+        tenantId: "tenant-x",
+        targetPageType: "other",
+        recommendedEdits: [],
+        recommendationResponses: [],
+        prerequisiteResolved: true,
+        now: NOW,
+      });
+      expect(out.suppression_reason).not.toBe("skip_page_type");
+      expect(out.eligible).toBe(true);
+    });
+
+    // ...but the positive `utility` / `technical_asset` verdicts
+    // stay hard-skipped even for GSC demand.
+    for (const pt of ["utility", "technical_asset"] as const) {
+      it(`GSC demand ${signal}::${action} STILL skipped on positive verdict ${pt}`, () => {
+        const out = applyPromotionSafetyGates(makeCandidate(signal, action), {
+          tenantId: "tenant-x",
+          targetPageType: pt,
+          recommendedEdits: [],
+          recommendationResponses: [],
+          prerequisiteResolved: true,
+          now: NOW,
+        });
+        expect(out.eligible).toBe(false);
+        expect(out.suppression_reason).toBe("skip_page_type");
       });
     }
   }

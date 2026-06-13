@@ -58,6 +58,21 @@ const CONTENT_EDIT_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
 const CONTENT_EDIT_SKIP_PAGE_TYPES: ReadonlySet<PageType> =
   new Set<PageType>(["utility", "technical_asset", "other"]);
 
+/** First-party Google Search demand signals (Insight Graph). Each
+ *  only emits above a real per-query impressions floor, so its
+ *  presence is ground truth that the target is a trafficked content
+ *  page — enough to override the page-classifier's AMBIGUOUS "other"
+ *  verdict at Gate 9 (the "couldn't place it" bucket), but NEVER the
+ *  positive "utility" / "technical_asset" verdicts. Pivot 2026-06-13:
+ *  first-party search demand is hierarchy tier 2; a page Google ranks
+ *  for queries is not a throwaway page, and its demand-driven title /
+ *  meta rewrite must reach the queue even when `contentSiteMode` was
+ *  never configured for the tenant. */
+const GSC_DEMAND_SIGNALS: ReadonlySet<string> = new Set<string>([
+  "gsc_low_ctr",
+  "gsc_striking_distance",
+]);
+
 const SIGNAL_STALE_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -157,7 +172,16 @@ export function applyPromotionSafetyGates(
       return suppress(tier, "missing_target_page_type");
     }
     if (CONTENT_EDIT_SKIP_PAGE_TYPES.has(ctx.targetPageType)) {
-      return suppress(tier, "skip_page_type");
+      // First-party Google Search demand overrides the classifier's
+      // ambiguous "other" verdict (see GSC_DEMAND_SIGNALS). Hard-skip
+      // on "utility" / "technical_asset" is NOT relaxed — those are
+      // positive classifications, not the unknown bucket.
+      const gscDemandOverridesOther =
+        ctx.targetPageType === "other" &&
+        GSC_DEMAND_SIGNALS.has(candidate.trigger_signal);
+      if (!gscDemandOverridesOther) {
+        return suppress(tier, "skip_page_type");
+      }
     }
   }
 
