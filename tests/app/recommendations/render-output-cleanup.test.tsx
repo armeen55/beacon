@@ -834,7 +834,7 @@ describe("W3 Step 3.5g — operator polish acceptance", () => {
     expect(html).toMatch(/sr-only/);
   });
 
-  it("ACCEPTANCE: evidence appends 'while competitors appear' when Ritz absent + competitor present", () => {
+  it("ACCEPTANCE: evidence appends 'while competitors appear' when owned page absent + competitor present", () => {
     const html = renderQueue([
       makeRow({
         clusterLabel: "Atherton older home rebuild",
@@ -851,9 +851,10 @@ describe("W3 Step 3.5g — operator polish acceptance", () => {
         },
       }),
     ]);
-    // Evidence reads "{N} AI answers; Ritz not cited for Atherton
+    // Evidence reads "{N} AI answers; your site isn't cited for Atherton
     // older-home rebuild queries while competitors appear."
-    expect(html).toMatch(/Ritz not cited for[^.]+while competitors appear/);
+    // React escapes the apostrophe to the &#x27; entity in rendered HTML.
+    expect(html).toMatch(/your site isn&#x27;t cited for[^.]+while competitors appear/);
   });
 
   it("ACCEPTANCE: evidence does NOT append 'while competitors appear' when no real competitor is present", () => {
@@ -875,7 +876,81 @@ describe("W3 Step 3.5g — operator polish acceptance", () => {
         },
       }),
     ]);
-    expect(html).toContain("Ritz not cited for");
+    expect(html).toContain("your site isn&#x27;t cited for");
     expect(html).not.toContain("while competitors appear");
+  });
+});
+
+describe("Multi-tenant de-brand — rendered non-Ritz (Iranopedia) recommendation", () => {
+  it("ACCEPTANCE: a fully rendered Iranopedia card contains ZERO 'Ritz' while exercising the de-branded evidence copy", () => {
+    const html = renderQueue([
+      makeRow(
+        {
+          stableKey: "rec-iranopedia-1",
+          // A different tenant, a different vertical. No "Ritz" in ANY input.
+          clusterLabel: "authentic Persian rugs in Los Angeles",
+          clusterKind: "geo",
+          reasoning:
+            "AI cites other directories for this cluster; this site has no dedicated page.",
+          evidence: {
+            promptCount: 6,
+            observationCount: 18,
+            categoryBreakdown: {},
+            // A real competitor entity → drives the suffix that USED to read
+            // "Ritz not cited for …", now "your site isn't cited for …".
+            dominantCompetitors: ["Tehran Bureau"],
+            descriptorsNearBrand: [],
+            maxSignalStrength: 80,
+            primaryCompetitors: [],
+            brandPrimaryPromptCount: 0,
+            fragmentedPromptCount: 0,
+          },
+        },
+        {
+          edits: [
+            {
+              id: "rec-iranopedia-1__add_h2_section__h2[new]:fa1",
+              tenant_id: "tenant-iranopedia",
+              rec_id: "rec-iranopedia-1",
+              action_type: "add_h2_section",
+              target_url: "https://iranopedia.com/guides/persian-rugs",
+              target_element_key: "h2[new]:fa1",
+              display_label: "How to identify an authentic Persian rug",
+              current_text: null,
+              proposed_text:
+                "Authentic Persian rugs are hand-knotted with natural dyes; check the reverse for even knot density and a signed end panel.",
+              why: "No owned page answers this buyer question yet.",
+              evidence: [],
+              expected_impact: null,
+              difficulty: "low",
+              confidence: "medium",
+              measurement_plan:
+                "Track citation rate on Persian-rug prompts for 14 days.",
+              risks: [],
+              source: "openai",
+              provider_name: "openai",
+              evidence_hash: "cafe1234",
+              model: "gpt-5-mini",
+              cost_usd: 0.0025,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              implementation_status: "recommended",
+              live_at: null,
+              live_snapshot_id: null,
+              live_match_confidence: null,
+              live_match_kind: null,
+              live_element_key: null,
+              not_found_reason: null,
+            },
+          ],
+        },
+      ),
+    ]);
+    // The de-branded evidence branch fired (proves the fixed copy path is
+    // exercised by this render, not just present in source).
+    expect(html).toContain("your site isn&#x27;t cited for");
+    // The core multi-tenant guarantee: one tenant's brand never leaks into
+    // another tenant's customer-facing recommendation card.
+    expect(html).not.toContain("Ritz");
   });
 });

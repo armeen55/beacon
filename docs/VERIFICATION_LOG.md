@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-13 — Iranopedia-push blockers closed (one-founder invariant, server-only registry, de-brand truth)
+
+**What changed (branch `claude/iranopedia-blockers`, FF-merge to main):**
+- **One-founder invariant (cross-tenant safety).** All 3 prod tenants were seeded `role='founder'`; `tenant-data.ts`'s legacy-untagged resolver used an unordered `.find(role==='founder')` → nondeterministic → legacy rows could attach to the wrong tenant. Fixed prod data (iranopedia→`paid_customer`, finglish→`beta_customer`, ritz stays `founder`) + `getFounderTenantIdForLegacyFallback` now THROWS on 0 or >1 founder (deterministic). Migration `migrations/2026-06-13_one_founder_tenant.sql` (idempotent).
+- **Registry hardening.** `src/domains/tenants/store.ts`: `import "server-only"`; `coerceTenantRole` maps legacy/invalid roles (e.g. "owner") to the least-privileged tier, NEVER founder; LOUD `console.error` when the hosted Supabase tenant read fails/returns 0 rows instead of silently falling back to the empty (undeployed) file registry.
+- **De-brand truth.** Catalog-registered the `no-ritz-in-recommendation-copy` arch ratchet; added a RENDERED Iranopedia recommendation test proving a non-Ritz card emits zero "Ritz" while exercising the de-branded evidence branch; `can-publish.ts` header comment corrected to owner-only; login/signup copy made precise ("pushes the eligible edits live … the rest come as paste-ready steps").
+
+**Verified:** `npm run typecheck` clean; **FULL `npx vitest run` = 787 files / 14,678 tests / 0 fail**; `npm run build` succeeds (server-only on store.ts did NOT break the client bundle → store is server-imported only). Prod Supabase post-fix: exactly 1 founder (`tenant-ritz-founder`); `tenant-iranopedia` = `paid_customer`, `publish_target='wix_cms'`, `status='active'`.
+
+**Note:** GitHub Actions minutes exhausted (resets ~18 days) → CI cannot run; merge gated on the FULL local gate above, not CI. Vercel deploys independently of Actions.
+
+---
+
 ## 2026-06-13 — 02:00→03:05 shift: cron root-cause, END-STATE empirical proof, GA4 producer-gap (PR #111), Profound SOV-gap sourced/parked
 
 **What changed:**

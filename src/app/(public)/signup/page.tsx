@@ -38,8 +38,9 @@ export default async function SignupPage({
           <p className="text-[12px] text-muted-foreground">
             Connect the tools you already use; Beacon finds evidence-backed
             edits to win AI citations and Google clicks, shows you the exact
-            diff, and publishes the ones you approve to your site (the rest stay
-            paste-ready). Magic-link sign-in — no password.
+            diff, and — for the ones you approve — pushes the eligible edits
+            live to your site; the rest come as paste-ready steps. Magic-link
+            sign-in — no password.
           </p>
         </div>
         <SignupForm sent={params.sent === "1"} error={params.error} />

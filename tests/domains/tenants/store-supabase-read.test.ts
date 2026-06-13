@@ -34,7 +34,7 @@ function row(over: Record<string, unknown> = {}): Record<string, unknown> {
     budget_range: "mixed",
     publish_target: "wix_cms",
     signup_date: "2026-05-01",
-    role: "owner",
+    role: "paid_customer",
     tos_accepted_at: null,
     discovered_competitors: ["a", 2, "b"],
     daily_budget_usd: 3,
@@ -77,6 +77,22 @@ describe("mapRowToTenant", () => {
     expect(t.id).toBe("tenant-iranopedia");
     expect(t.business_name).toBe("Iranopedia");
     expect(t.slug).toBe("iranopedia");
+  });
+
+  it("preserves a valid tier role", () => {
+    expect(mapRowToTenant(row({ role: "founder" })).role).toBe("founder");
+    expect(mapRowToTenant(row({ role: "beta_customer" })).role).toBe("beta_customer");
+    expect(mapRowToTenant(row({ role: "paid_customer" })).role).toBe("paid_customer");
+  });
+
+  it("coerces a legacy/invalid role to paid_customer — NEVER founder", () => {
+    // "owner" is a tenant_members membership role, not a tenant tier. A wrong
+    // founder tag would attach legacy untagged data to the wrong tenant via
+    // tenant-data.ts's founder fallback, so the safe default is the
+    // least-privileged tier.
+    for (const bad of ["owner", "admin", "member", "", null, undefined, 7]) {
+      expect(mapRowToTenant(row({ role: bad })).role).toBe("paid_customer");
+    }
   });
 });
 

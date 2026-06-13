@@ -23,8 +23,9 @@ export default async function LoginPage({
           <h1 className="text-xl font-semibold">Sign in to Beacon</h1>
           <p className="text-[12px] text-muted-foreground">
             Beacon finds your site&apos;s SEO &amp; AEO fixes, shows you the
-            exact change, and publishes the ones you approve. Magic-link
-            sign-in.
+            exact change, and — for the ones you approve — pushes the eligible
+            edits live to your site; the rest come as paste-ready steps.
+            Magic-link sign-in.
           </p>
         </div>
         <LoginForm

@@ -80,14 +80,26 @@ let cachedFounderId: string | null = null;
 async function getFounderTenantIdForLegacyFallback(): Promise<string> {
   if (cachedFounderId !== null) return cachedFounderId;
   const tenants = await listTenants();
-  const founder = tenants.find((t) => t.role === "founder");
-  if (!founder) {
+  const founders = tenants.filter((t) => t.role === "founder");
+  // EXACTLY one founder is required and DETERMINISTIC. `listTenants()` returns
+  // rows in unspecified order (Supabase has no ORDER BY here), so a plain
+  // `.find()` over >1 founder would pick a different tenant per process / per
+  // query and bind legacy untagged rows to the wrong tenant — a silent
+  // cross-tenant breach. Fail loud on 0 or >1 rather than guess.
+  if (founders.length === 0) {
     throw new Error(
       "No tenant with role='founder' found. The legacy-untagged tenant " +
-        "resolver requires exactly one founder tenant — check tenants.json.",
+        "resolver requires exactly one founder tenant — check the tenants registry.",
     );
   }
-  cachedFounderId = founder.id;
+  if (founders.length > 1) {
+    throw new Error(
+      `Ambiguous founder tenant: ${founders.length} tenants have role='founder' ` +
+        `(${founders.map((t) => t.id).join(", ")}). The legacy-untagged resolver requires ` +
+        `EXACTLY one — tag the others as a customer tier so untagged rows can't attach to the wrong tenant.`,
+    );
+  }
+  cachedFounderId = founders[0]!.id;
   return cachedFounderId;
 }
 

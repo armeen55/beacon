@@ -14,8 +14,11 @@ import "server-only";
  *     the single-operator dogfood path (Ritz, env-set, no user session)
  *     byte-identical.
  *   • Otherwise: allowed iff the logged-in user is a member of the
- *     CURRENT tenant with a publishing role (owner / admin / founder).
- *     A stranger can publish for THEIR tenant, never another's.
+ *     CURRENT tenant with a publishing role. The tenant_members.role
+ *     CHECK constraint allows exactly {owner, member}, so `owner` is
+ *     the ONLY publishing role (see PUBLISHING_ROLES below); `member`
+ *     is read-only. A stranger can publish for THEIR tenant, never
+ *     another's.
  *
  * Fail-CLOSED: any resolution error → not allowed. Publishing writes to a
  * customer's live site; ambiguity must never grant it.

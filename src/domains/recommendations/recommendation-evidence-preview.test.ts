@@ -21,7 +21,7 @@ import {
 // ── composeEvidencePreview — single-sentence facts ────────────────────────
 
 describe("composeEvidencePreview — share ≥ 30% with target", () => {
-  it("'Ritz is close: owned page cited 39%, needs more topical coverage.'", () => {
+  it("'You're close: owned page cited 39%, needs more topical coverage.'", () => {
     expect(
       composeEvidencePreview({
         affectedPromptCount: 5,
@@ -31,7 +31,7 @@ describe("composeEvidencePreview — share ≥ 30% with target", () => {
         hasResolvedTarget: true,
       }),
     ).toBe(
-      "Ritz is close: owned page cited 39%, needs more topical coverage.",
+      "You're close: owned page cited 39%, needs more topical coverage.",
     );
   });
 });
@@ -150,7 +150,7 @@ describe("composeEvidencePreview — generic-competitor leak filter", () => {
 });
 
 describe("composeEvidencePreview — generic competitor-dominant case", () => {
-  it("with sharePct present: 'Ritz cited X%; Y winning across N prompts.'", () => {
+  it("with sharePct present: 'Your page cited X%; Y winning across N prompts.'", () => {
     expect(
       composeEvidencePreview({
         affectedPromptCount: 6,
@@ -162,7 +162,7 @@ describe("composeEvidencePreview — generic competitor-dominant case", () => {
         hasResolvedTarget: false,
       }),
     ).toBe(
-      "Ritz cited 6%; Greenberg winning across 6 prompts.",
+      "Your page cited 6%; Greenberg winning across 6 prompts.",
     );
   });
 });
@@ -224,7 +224,7 @@ describe("composeRecommendedMove — action-aware single sentence", () => {
         topic: "structural remodel",
         pageName: "Whole Home Remodel",
       }),
-    ).toBe("Tighten the Whole Home Remodel copy + descriptors around structural remodel so AI ranks Ritz first.");
+    ).toBe("Tighten the Whole Home Remodel copy + descriptors around structural remodel so AI ranks your page first.");
   });
 
   it("merge_or_dedupe with pageName", () => {
@@ -254,7 +254,7 @@ describe("composeRecommendedMove — action-aware single sentence", () => {
         topic: null,
         pageName: null,
       }),
-    ).toBe("Keep an eye on this cluster — Ritz is currently winning.");
+    ).toBe("Keep an eye on this cluster — you're currently winning.");
   });
 
   it("needs_review action — operator-decision sentence", () => {

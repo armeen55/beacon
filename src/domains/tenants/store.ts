@@ -8,10 +8,27 @@
  * path — it's the registry OF tenants, not data that belongs to one.
  */
 
+// Registry reads can touch the Supabase service-role client (admin) via the
+// dynamic import below; pin this module server-only so it can never be pulled
+// into a client bundle (the dynamic import alone is not a hard guarantee).
+import "server-only";
+
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { BeaconTenant } from "./types";
 
 const STORE_NAME = "tenants";
+
+/** Coerce a raw `tenants.role` value to a valid BeaconTenantRole. The DB has
+ *  carried legacy/wrong values (e.g. "owner" — that's a tenant_members role,
+ *  NOT a tenant tier). Anything outside the tier union defaults to the
+ *  LEAST-privileged tier, never "founder": founder gates the legacy
+ *  single-tenant fallback in tenant-data.ts, so a wrong founder tag could
+ *  attach untagged data to the wrong tenant. */
+function coerceTenantRole(v: unknown): BeaconTenant["role"] {
+  return v === "founder" || v === "beta_customer" || v === "paid_customer"
+    ? v
+    : "paid_customer";
+}
 
 // ---------------------------------------------------------------------------
 // Read
@@ -37,7 +54,7 @@ export function mapRowToTenant(r: Record<string, unknown>): BeaconTenant {
     publish_target:
       pt === "wix_cms" || pt === "git_pr" || pt === "dev_note" ? pt : undefined,
     signup_date: String(r.signup_date ?? r.created_at ?? ""),
-    role: (r.role as BeaconTenant["role"]) ?? "owner",
+    role: coerceTenantRole(r.role),
     tos_accepted_at: (r.tos_accepted_at as string | null) ?? null,
     discovered_competitors: arr(r.discovered_competitors),
     daily_budget_usd:
@@ -66,11 +83,28 @@ export async function listTenants(): Promise<BeaconTenant[]> {
       const { data, error } = await getSupabaseAdmin()
         .from("tenants")
         .select("*");
-      if (!error && Array.isArray(data) && data.length > 0) {
+      if (error) {
+        // LOUD: on hosted the file fallback is the (undeployed, gitignored)
+        // registry → it returns []. An empty registry silently breaks the
+        // tenant switcher's name lookup AND routes every push to dev_note.
+        // Never let that fail silently — surface it in the function logs.
+        console.error(
+          `[tenants/store] Supabase tenants read FAILED (DATA_SOURCE=supabase): ${error.message}. ` +
+            `Falling back to the file registry, which is EMPTY on hosted — switcher + push routing will break until this is fixed.`,
+        );
+      } else if (!Array.isArray(data) || data.length === 0) {
+        console.error(
+          `[tenants/store] Supabase tenants read returned 0 rows (DATA_SOURCE=supabase). ` +
+            `The tenant registry is empty — was the tenants table seeded? Switcher + push routing will break.`,
+        );
+      } else {
         return data.map((r) => mapRowToTenant(r as Record<string, unknown>));
       }
-    } catch {
-      // fall through to the file store
+    } catch (e) {
+      console.error(
+        `[tenants/store] Supabase tenants read THREW (DATA_SOURCE=supabase): ` +
+          `${e instanceof Error ? e.message : String(e)}. Falling back to the file registry (EMPTY on hosted).`,
+      );
     }
   }
   return await readStore<BeaconTenant>(STORE_NAME);
