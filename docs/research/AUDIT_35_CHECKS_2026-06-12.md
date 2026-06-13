@@ -16,16 +16,33 @@ Confirmed issues (fix ledger):
   self-serve token card added; nightly harvester next.
 - **#13 (medium, open):** no originality/depth scoring vs competitor
   corpus before content-generation candidates; no G-E-A-T tracking.
-- **#26 (medium, open):** measurement loop — shipped edits' watch
-  windows verified for proof engine; see workflow output for the
-  specific deltas gap.
-- **#33 (medium, open):** Wix Blog vs CMS vs static distinction +
-  Data API caveats (PUT-replaces handled via PATCH-style merge;
-  blog/static unreachable by design today).
-- **#35 (medium, open):** connector test gaps (rate-limit retries,
-  malformed-response fixtures for the newest fetchers).
-- **#16 (low, known):** 8 AEO action types staged but generator-less
-  (LLM-gated by the operator-locked policy decision).
+- **#26 (✅ RESOLVED 2026-06-12, PR #81):** treatment dates anchor to
+  the linked edit's `live_at` instead of changelog accept-time, so the
+  post-window no longer counts pre-live days (was diluting lift).
+- **#33 (✅ RESOLVED 2026-06-12, PR #83):** push routing map doc
+  (create→insert / add_schema→product seoData PATCH / field:→CMS PUT
+  read-modify-write / blog→adapter), Wix ≤5-markups enforced on the
+  merged tag set, 1MB CMS-item ceiling.
+- **#35 (✅ RESOLVED 2026-06-12, PRs #83 + connector tests):** GSC got
+  429 exponential backoff (backfill volume warranted it); the
+  low-volume connectors (SEMrush 1 req/night, Profound 2+2·cat/night)
+  deliberately fail-soft-skip then idempotently re-pull next night
+  rather than retry — a 429 there is near-impossible and skip-repull
+  is simpler + safe. Malformed-response coverage: SEMrush (non-2xx,
+  200-ERROR-body, network fault, garbage CSV) + Profound (non-2xx,
+  unparseable 200 body, network fault, arity-broken envelope rows) all
+  proven fail-soft-null. Idempotent-sync contracts documented on the
+  GSC + SEMrush sync headers.
+- **#13 (✅ RESOLVED 2026-06-12, PR #84):** originality guard — a
+  keyword-gap brief that topically duplicates an existing page flips
+  to expanding that page (add_h2_section) instead of a new page.
+- **#16 (open, LLM-gated):** 8 AEO action types staged but
+  generator-less — gated by the operator-locked LLM-nightly policy
+  decision (PR #74 / branch claude/llm-flip-on). The deterministic
+  directive path now covers add_answer_block + add_proof_section
+  (#87/#94) without an LLM. The remaining generator-backed types await
+  the policy decision. This is the ONLY open audit item, and it is
+  operator-gated by design.
 
 Full machine-readable findings: the workflow run wf_58c89c84-98a
 output (session artifacts).
