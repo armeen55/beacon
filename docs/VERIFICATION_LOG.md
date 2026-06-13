@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-13 — Midnight→01:15 shift: AEO superpowers, measurement credibility, the U4 finding (PRs #93–#103 + parked #101)
+
+**What changed (all CI-gated green on main unless noted):**
+- #93 placebo p-value surfaced on the proof-engine diagnostic.
+- #94 (+#97 polish) AEO answer-block readiness trigger `missing_answer_block` — question-shaped pages lacking an early answer earn an add_answer_block directive; sourced (GEO study, Google snippet convention, Anthropic pronoun-penalty); prod-verified 23 iranopedia targets; candidates 310→332.
+- #98 AEO content directives measure against the Proof Engine (platform-aware windows), not just queue-clear.
+- #95/#96/#99/#100/#102 docs: night-shift log, deferred-superpower designs, the U4 decision doc + HANDOFF banner.
+- #103 audit truth-up: #13/#26/#33/#35 marked RESOLVED with PR refs; Profound malformed-body + network-fault fail-soft tests added (SEMrush already covered).
+- **#101 PARKED DRAFT (CI green, NOT merged):** α₂ approve-to-promote — engine (operatorApprovedDedupeKeys lifts the tier gate, inert by default) + per-tenant store + operator-mode approve/unapprove actions + "Promote to queue" button on /diagnostics/recommendation-triggers. Awaits operator decision U4 (docs/DECISION_approve_to_promote.md).
+
+**Verified:**
+- Full `npx vitest run` green at every gate (final 14,627–14,632 depending on slice); typecheck clean throughout; egress/render-isolation/no-queue-write/store-routing/operator-lock ratchets all green.
+- END-STATE walk, prod: cron 27460+ dispatches — answer-block FIRES (candidates 310→332, +22 ≈ the 23 verified question-page targets); 37 customer-queue-ready cards live for iranopedia (edit_meta/fix_schema/add_schema/change_h1/edit_title); Ritz proof persists 166 watching.
+- THE FINDING (verified in code + prod): all operator-review-only triggers (the night's AEO/content layer) fire + are visible on /diagnostics/recommendation-triggers but are auto-suppressed from the customer queue by operator-lock U4 (safety-gates.ts:135) — by design, awaiting the approve-to-promote affordance. Handled per the rails: decision queued + implementation parked (#101), nothing merged that touches the lock.
+- Hosted smoke (beacon-bice.vercel.app): /, /settings/connectors, /recommendations, /changes, /diagnostics/proof-engine all 200.
+- Three Supabase migrations applied via MCP this shift (clarity_daily_url_metrics, profound_rows, profound_agent_analytics).
+
+**Audit status:** all actionable 35-check items RESOLVED; only #16 (AEO generator-backed action types) remains — operator-gated by the LLM-nightly policy decision.
+
+
 ## 2026-06-12 — Midnight shift (cont.): measurement hardening + link-graph fix (PRs #86–#91)
 
 **What changed:**
