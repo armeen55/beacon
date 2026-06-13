@@ -477,7 +477,9 @@ export async function loadTriggerCandidatesForTenant(options: {
       ...clarityFriction({
         tenantId,
         snapshot,
-        signal: claritySignals.get(snapshot.url),
+        signal: claritySignals.get(
+          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
+        ),
       }),
     );
     // Insight Graph slice 2 (2026-06-12) — striking-distance keywords.

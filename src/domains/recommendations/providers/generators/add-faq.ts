@@ -176,13 +176,16 @@ function composeAnswerSeed(
   // placeholder.
   if (descriptors.length >= 2) {
     const descriptorList = descriptors.join(", ");
-    const clusterPhrase = cluster ? ` for ${cluster}` : "";
+    const clusterPhrase = cluster ? ` in the context of ${cluster}` : "";
+    // Vertical-NEUTRAL phrasing (review finding 2026-06-13): the old copy
+    // hardcoded builder framing ("our work … projects we deliver"), which is
+    // wrong for non-service tenants (e.g. an encyclopedia). "us" + "here"
+    // works for any entity; the descriptors carry the real, specific content.
     const answer =
-      `AI consistently describes our work${clusterPhrase} as ${descriptorList}. ` +
+      `AI consistently describes us${clusterPhrase} as ${descriptorList}. ` +
       `These themes show up across the answer engines that respond to ` +
       `questions like the one above, so the section below leads with ` +
-      `concrete examples of how those themes play out on the projects ` +
-      `we deliver.`;
+      `concrete examples of how each one applies here.`;
     if (evaluateFaqAnswer({ question: questionText, answer }).ok) {
       return answer;
     }
@@ -196,10 +199,9 @@ function composeAnswerSeed(
   // specific content to clear MIN_SPECIFIC_CONTENT_WORDS.
   if (descriptors.length === 1 && cluster) {
     const answer =
-      `AI describes our work in ${cluster} most often as ${descriptors[0]}. ` +
-      `The section below explains what that pattern looks like on the ` +
-      `ground for homeowners weighing the decision the question raises, ` +
-      `with examples drawn from comparable projects in the area.`;
+      `AI most often describes us, in the context of ${cluster}, as ${descriptors[0]}. ` +
+      `The section below explains what that looks like in practice for ` +
+      `anyone weighing the question above, with concrete examples.`;
     if (evaluateFaqAnswer({ question: questionText, answer }).ok) {
       return answer;
     }

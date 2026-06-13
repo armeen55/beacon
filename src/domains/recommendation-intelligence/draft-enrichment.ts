@@ -943,11 +943,21 @@ export function enrichPromotionRow(
   }
 
   if (fill === null) return row;
+  // Single chokepoint for the zero-width junk strip (review finding
+  // 2026-06-13): #105 only sanitized the META draft, but composeTitle /
+  // composeH1 / composeSchema / fix directives all pass raw snap.title /
+  // snap.h1 (which can carry U+200B/U+FEFF from the CMS) into customer-facing
+  // proposed_text + display_label. Strip every customer-facing string here so
+  // EVERY action type is covered. stripJunkZeroWidth preserves Persian ZWNJ
+  // (U+200C), so Iranopedia content is untouched.
   return {
     ...row,
-    display_label: fill.display_label,
-    current_text: fill.current_text,
-    proposed_text: fill.proposed_text,
+    display_label: stripJunkZeroWidth(fill.display_label),
+    current_text:
+      fill.current_text == null
+        ? fill.current_text
+        : stripJunkZeroWidth(fill.current_text),
+    proposed_text: stripJunkZeroWidth(fill.proposed_text),
     expected_impact: fill.expected_impact,
     measurement_plan: fill.measurement_plan,
   };
