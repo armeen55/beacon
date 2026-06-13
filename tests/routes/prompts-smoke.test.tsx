@@ -234,9 +234,10 @@ describe("/prompts route smoke", () => {
     const tree = await PromptsPage();
     const html = renderToStaticMarkup(tree as ReactElement);
 
-    // Page header
-    expect(html).toContain("Prompts");
-    expect(html).toContain("Decision view across your tracked prompts");
+    // Page header — pivot 2026-06-13: Prompts reframed as OPTIONAL
+    // AEO intelligence (secondary to the GSC/site-moves core).
+    expect(html).toContain("AI answers (optional)");
+    expect(html).toContain("Optional AI-answer intelligence");
 
     // At-a-glance strip
     expect(html).toMatch(/4<\/span>.*prompts/); // 4 prompts total

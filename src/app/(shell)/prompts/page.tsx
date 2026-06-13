@@ -142,8 +142,8 @@ export default async function PromptsPage({
   return (
     <div className="max-w-4xl">
       <PageHeader
-        title="Prompts"
-        description="Decision view across your tracked prompts. Grouped by how AI answers them."
+        title="AI answers (optional)"
+        description="Optional AI-answer intelligence — how AI assistants answer your buyers' questions, with or without you. Your core search-demand moves live on Today and Recommendations."
       />
 
       {totalPrompts === 0 ? (
