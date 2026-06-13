@@ -139,6 +139,36 @@ async function main() {
         ? `[scheduled-generation] SEMRUSH synced tenant=${tenantId} domain=${sem.domain} rows=${sem.rows_upserted}`
         : `[scheduled-generation] SEMRUSH skipped tenant=${tenantId} reason=${sem.reason}`,
     );
+    // Nightly producer (2026-06-13): refresh semrush_domain_metrics — the
+    // competitor SEED that syncSemrushKeywordGapForTenant reads. It was ONLY
+    // written by the operator diagnostics button, so the keyword_gap trigger
+    // was a permanent prod no-op (review finding). Runs BEFORE the gap fetch.
+    // Fail-soft (no_key / disconnected / no_domain → skip).
+    {
+      const { getBusinessConfig } = await import("../src/lib/business-config");
+      const semDomain = (getBusinessConfig(tenantId).domain ?? "")
+        .trim()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "");
+      if (semDomain) {
+        const { refreshSemrushDomainMetrics } = await import(
+          "../src/lib/connectors/semrush/persist-domain-metrics"
+        );
+        const dm = await refreshSemrushDomainMetrics({
+          tenantId,
+          domain: semDomain,
+        });
+        console.log(
+          dm.ok
+            ? `[scheduled-generation] SEMRUSH-DOMAIN refreshed tenant=${tenantId} domain=${semDomain}`
+            : `[scheduled-generation] SEMRUSH-DOMAIN skipped tenant=${tenantId} reason=${dm.reason}`,
+        );
+      } else {
+        console.log(
+          `[scheduled-generation] SEMRUSH-DOMAIN skipped tenant=${tenantId} reason=no_domain`,
+        );
+      }
+    }
     // Keyword-gap slice (2026-06-12): weekly (PT Monday) gap fetch —
     // 480 units max, inside the rotating budget slot. Fail-soft.
     const { syncSemrushKeywordGapForTenant } = await import(
@@ -191,6 +221,49 @@ async function main() {
   } catch (err) {
     console.warn(
       `::warning::[scheduled-generation] Profound sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // GA4 slice (2026-06-13): nightly URL-traffic sync so the page-value
+  // ranking weight (loadGa4PageValuesForTenant → promotion-writer) and
+  // the outcome surfaces receive fresh data WITHOUT an operator manually
+  // clicking the diagnostics refresh button. Dormant (no_token /
+  // no_property) until a GA4 key + property land. Failure-soft.
+  try {
+    const { syncGa4UrlTrafficForTenant } = await import(
+      "../src/lib/connectors/ga4/sync-url-traffic"
+    );
+    const ga4 = await syncGa4UrlTrafficForTenant({ tenantId });
+    console.log(
+      ga4.synced
+        ? `[scheduled-generation] GA4 synced tenant=${tenantId} property=${ga4.property} rows_fetched=${ga4.rows_fetched} rows_upserted=${ga4.rows_upserted}`
+        : `[scheduled-generation] GA4 skipped tenant=${tenantId} reason=${ga4.reason}`,
+    );
+  } catch (err) {
+    console.warn(
+      `::warning::[scheduled-generation] GA4 sync failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // CallRail slice (2026-06-13): nightly call-attribution refresh so the
+  // outcome surfaces (call counts on /today + /changes + the outcomes
+  // summary) receive fresh data WITHOUT an operator manually clicking the
+  // diagnostics button — they were starved (call_url_attribution was written
+  // ONLY by that button). Dormant (no_key / disconnected) until a CallRail
+  // key lands; the fetch defaults to CallRail's "recent" window. Fail-soft.
+  try {
+    const { refreshCallRailCalls } = await import(
+      "../src/lib/connectors/callrail/persist-url-calls"
+    );
+    const cr = await refreshCallRailCalls({ tenantId });
+    console.log(
+      cr.ok
+        ? `[scheduled-generation] CALLRAIL refreshed tenant=${tenantId} rows=${cr.rowsUpserted} persisted=${cr.persisted}`
+        : `[scheduled-generation] CALLRAIL skipped tenant=${tenantId} reason=${cr.reason}`,
+    );
+  } catch (err) {
+    console.warn(
+      `::warning::[scheduled-generation] CallRail refresh failed (generation continues): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
