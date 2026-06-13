@@ -190,24 +190,41 @@ export async function loadSemrushCannibalRowsForTenant(
     intent: string | null;
   }>
 > {
+  type Row = {
+    keyword: string;
+    position: number;
+    volume: number;
+    url: string;
+    intent: string | null;
+  };
+  // PostgREST caps a single response at ~1k rows regardless of `.limit()`,
+  // so the old `.limit(5_000)` silently returned only ~1k arbitrary,
+  // unordered rows — cannibalization detection (which needs EVERY
+  // (keyword, url) pair to spot a keyword ranking on multiple URLs) saw an
+  // incomplete subset on any site with >1k tracked keywords. Page through
+  // with a stable unique order (keyword, url) until a short page or bound.
+  const rows: Row[] = [];
   try {
     const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("semrush_organic_keywords")
-      .select("keyword, position, volume, url, intent")
-      .eq("tenant_id", tenantId)
-      .limit(5_000);
-    if (error) return [];
-    return (data ?? []) as Array<{
-      keyword: string;
-      position: number;
-      volume: number;
-      url: string;
-      intent: string | null;
-    }>;
+    const PAGE = 1_000;
+    const MAX = 50_000;
+    for (let offset = 0; offset < MAX; offset += PAGE) {
+      const { data, error } = await sb
+        .from("semrush_organic_keywords")
+        .select("keyword, position, volume, url, intent")
+        .eq("tenant_id", tenantId)
+        .order("keyword")
+        .order("url")
+        .range(offset, offset + PAGE - 1);
+      if (error) break;
+      const batch = (data ?? []) as Row[];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+    }
   } catch {
     return [];
   }
+  return rows;
 }
 
 /** Gap rows for the keyword-gap trigger (bounded; fail-soft empty). */
@@ -228,6 +245,9 @@ export async function loadSemrushKeywordGapsForTenant(
       .from("semrush_keyword_gaps")
       .select("keyword, competitor_domain, competitor_position, volume, difficulty")
       .eq("tenant_id", tenantId)
+      // Deterministic 500-row cap: order by volume so the bound keeps the
+      // HIGHEST-value gaps (not an arbitrary PostgREST slice).
+      .order("volume", { ascending: false })
       .limit(500);
     if (error) return [];
     return (data ?? []) as Array<{
