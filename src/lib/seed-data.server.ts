@@ -152,38 +152,47 @@ export const getResults = cache(async (): Promise<Result[]> => {
   return s.results!;
 });
 
+// Robustness (2026-06-13): these getters return `Promise<X[]>` and
+// every caller treats the result as an array (`.length`, `for…of`,
+// `.map`). The old `s.X!` was a non-null ASSERTION with no runtime
+// guarantee — when a tenant's state has a null/undefined array (new
+// or empty tenant, or a per-tenant state entry the seed never
+// populated), the assertion let `null` through and crashed the whole
+// shell (`changelogEntries.length` → TypeError on every page). A
+// missing list is an EMPTY list, never null — coalesce so one absent
+// array can never 500 an unrelated surface.
 export const getChangelogEntries = cache(
   async (): Promise<ChangelogEntry[]> => {
     const s = await ensureLoaded();
-    return s.changelogEntries!;
+    return s.changelogEntries ?? [];
   },
 );
 
 export const getOpportunities = cache(async (): Promise<Opportunity[]> => {
   const s = await ensureLoaded();
-  return s.opportunities!;
+  return s.opportunities ?? [];
 });
 
 export const getCompetitors = cache(async (): Promise<Competitor[]> => {
   const s = await ensureLoaded();
-  return s.competitors!;
+  return s.competitors ?? [];
 });
 
 export const getBriefs = cache(async (): Promise<Brief[]> => {
   const s = await ensureLoaded();
-  return s.briefs!;
+  return s.briefs ?? [];
 });
 
 export const getCompetitorSnapshots = cache(
   async (): Promise<CompetitorSnapshot[]> => {
     const s = await ensureLoaded();
-    return s.competitorSnapshots!;
+    return s.competitorSnapshots ?? [];
   },
 );
 
 export const getImportRuns = cache(async (): Promise<ImportRun[]> => {
   const s = await ensureLoaded();
-  return s.importRuns!;
+  return s.importRuns ?? [];
 });
 
 /**
