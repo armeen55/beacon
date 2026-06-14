@@ -878,6 +878,34 @@ export async function loadLifecycleSummaryForTenant(opts: {
       let repeatCitation30dWithBand = 0;
       let repeatCitation30dTotal = candidates.length;
       try {
+        // wave-4 #3 (2026-06-14): the per-edit loader previously fanned out
+        // getPromptAnswerObservations + getProfoundImportRuns PER candidate
+        // (2*N Supabase reads on this render path). Inject shared, already-
+        // loaded data so each per-edit call does ZERO reads: import-runs is
+        // global (fetched ONCE here), and `allObservations` (loaded above,
+        // since now-windowDays) is a superset of every per-edit
+        // [max(live_at, now-30d), now] window — computeRepeatCitation windows
+        // internally. Observations are injected only when the loader window
+        // covers the 30d repeat window; a narrower caller lets the loader do
+        // its own windowed fetch (correctness over the read-saving).
+        // Fetch the global import-runs ONCE. Defensive try/catch (not just
+        // .catch) because a repo without the method throws synchronously; on
+        // any failure we simply omit the dep and the per-edit loader falls
+        // back to its own read (correctness preserved, just no read-saving).
+        let sharedImportRuns: Awaited<
+          ReturnType<typeof repo.getProfoundImportRuns>
+        > = [];
+        try {
+          sharedImportRuns = await repo.getProfoundImportRuns();
+        } catch {
+          sharedImportRuns = [];
+        }
+        const repeatDeps = {
+          profoundImportRuns: sharedImportRuns,
+          ...(windowDays >= REPEAT_CITATION_TILE_WINDOW_DAYS
+            ? { promptAnswerObservations: allObservations }
+            : {}),
+        };
         const repeatResults = await Promise.all(
           candidates.map((row) =>
             loadRepeatCitationForEdit({
@@ -885,6 +913,7 @@ export async function loadLifecycleSummaryForTenant(opts: {
               recommendedEdit: row,
               windowDays: REPEAT_CITATION_TILE_WINDOW_DAYS,
               now,
+              deps: repeatDeps,
             }).catch(() => null),
           ),
         );

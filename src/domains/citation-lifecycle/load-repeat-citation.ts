@@ -123,6 +123,23 @@ export type LoadRepeatCitationForEditOptions = {
   recommendedEdit: RecommendedEditRow;
   now?: Date | string;
   windowDays?: number;
+  /**
+   * wave-4 #3 (2026-06-14) — optional pre-loaded inputs. When a batch caller
+   * (e.g. the Today edit-lifecycle tile) has ALREADY read these once, it
+   * passes them here so this per-edit call does ZERO Supabase reads instead
+   * of re-fetching per edit (the N+1 the tile fanned out). `profoundImportRuns`
+   * is global; `promptAnswerObservations` may be a SUPERSET of this edit's
+   * window — computeRepeatCitation windows internally, so the caller must only
+   * inject observations that cover [max(live_at, now-windowDays), now].
+   */
+  deps?: {
+    promptAnswerObservations?: Parameters<
+      typeof computeRepeatCitation
+    >[0]["promptAnswerObservations"];
+    profoundImportRuns?: Parameters<
+      typeof computeRepeatCitation
+    >[0]["profoundImportRuns"];
+  };
 };
 
 /**
@@ -159,11 +176,14 @@ export async function loadRepeatCitationForEdit(
       // Windowed read: only observations at-or-after live_at can
       // contribute to the in-window citation count. The `since`
       // filter pushes down to Postgres on the supabase backend.
+      // wave-4 #3 (2026-06-14): use caller-injected pre-loaded data when
+      // provided (batch callers read once + pass it in), else read per-edit.
       const [promptAnswerObservations, profoundImportRuns] = await Promise.all([
-        repo.getPromptAnswerObservations(
-          liveDateIso ? { since: liveDateIso } : undefined,
-        ),
-        repo.getProfoundImportRuns(),
+        options.deps?.promptAnswerObservations ??
+          repo.getPromptAnswerObservations(
+            liveDateIso ? { since: liveDateIso } : undefined,
+          ),
+        options.deps?.profoundImportRuns ?? repo.getProfoundImportRuns(),
       ]);
 
       // Path A pre-cutover branch — only reads cold-store shards
