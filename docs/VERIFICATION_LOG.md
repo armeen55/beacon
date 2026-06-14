@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-14 (overnight, 24-agent DOMAIN deep-audit) — 30 confirmed bugs; 3 fixed, 27 queued
+
+**Method:** a fresh **domain-by-domain** multi-agent workflow (`wf_6ff582e0-f3f`, 24 finders + adversarial verifiers, default-refute) — a DIFFERENT decomposition than the 12 prior lens-waves. **39 findings → 30 confirmed, 9 refuted** (3 critical, 15 high, 11 medium, 1 low). This DISPROVED the "surface is exhausted" conclusion: the domain decomposition surfaced real, reachable, verified defects the lens-waves missed (e.g. duplicate-id upsert crash on the core promote path; cross-tenant snapshot-id collision; global prompt-library on the render path).
+
+**Fixed this session (commit `16aa432`; full suite 800/14,797 green, typecheck clean):**
+- **HIGH (data-loss)** `promotion-writer.ts` — 3 customer-queue-ready triggers (gsc_low_ctr + gsc_striking_distance + semrush_striking_distance) emit `edit_title` for one underperforming page → identical promotion id + identical Supabase conflict key → "ON CONFLICT cannot affect row a second time" → the whole upsert chunk is rejected → operator's Promote silently fails to refresh the queue. Now dedups `mapped_rows` by id keeping the first (highest-priority, first-party) signal.
+- **MEDIUM (wrong-output)** `compute-indexability.ts` — `<meta robots="none">` now treated as noindex (Google's noindex,nofollow shorthand); was a GREEN verdict on a de-indexed page.
+- **MEDIUM (tenant-isolation)** `dual-write.ts` `syncGuardrailAlertsForUrl` — delete now tenant-scoped (`.eq("tenant_id").eq("url")`); audit #1 fixed the sibling but missed this URL-variant (latent cross-tenant wipe). Test mocks updated for the chained `.eq().eq()`.
+
+**Queued (full prioritized list + verified reachability + fixes in `docs/DOMAIN_AUDIT_FINDINGS_2026-06-14.md`):** the **3 CRITICALs** — (a) `daily-metric-snapshots/build-from-observations.ts:349` deterministic snapshot id has NO tenant segment while the PK is `id` alone → cross-tenant collision (needs an id-format change + backfill thought); (b) `onboard/review/launch-flow.ts` starter-prompt INSERT omits `tenant_id`; (c) `today-data.ts` reads the GLOBAL prompt-library on the render path → cross-tenant journey-coverage. Plus 12 HIGH (auth-middleware tenant fail-open to Ritz on a membership-read error, scan baseline read from empty disk on prod GitHub-Actions scans, changelog mutators swallow sync failures, briefs never persisted durably, opportunity mutators skip the dual-write, learning/url-change-patterns global-store bleed, GA4 10k-row silent truncation, suggested-copy guard hides valid add_schema JSON-LD, …). Each needs a tested, sometimes migration-aware fix — deliberately NOT rushed into the overnight close.
+
+---
+
 ## 2026-06-14 (overnight, multi-agent render audit) — honest empty/sparse states across customer surfaces (12 fixes)
 
 **Method:** a dynamic multi-agent Workflow audited all 15 customer surfaces for a NEWLY-ONBOARDED tenant's empty/sparse/error rendering (the sell-moment first impression — a lens prior waves, which used Ritz's mature data, never swept). One finder per surface → adversarial verify of each finding (default-to-refute on reachability). **31 findings, 24 confirmed, 7 refuted.** The refutations were solid verify-first wins (e.g. `/briefs` seeds non-empty demo data so the empty-table path is unreachable; `/settings/prompts` can't reach zero-prompts for an active tenant; `/topics`+`/local` are nav-hidden).
