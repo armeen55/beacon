@@ -201,6 +201,27 @@ export function hurtingTrendSuffix(_args: { transitions: number }): string {
   return "";
 }
 
+/**
+ * 2026-06-15 — lean PostgREST projection for /today's prompt_answer_
+ * observations read. The 23 columns every /today consumer (prompt-decision
+ * matrix, per-platform rollups, descriptor + competitor enrichment, top-pick
+ * page-intent) actually reads. Deliberately OMITS the five columns nothing on
+ * the /today render path touches: `metadata` (~5.9 MB / 60d — only the
+ * /recommendations packet builder reads it), `citation_domains`,
+ * `citation_categories`, `raw_search_queries`, `search_queries`. This is the
+ * fix for the /today canonical-read statement-timeout (silent-empty-dashboard
+ * class): the read dropped from ~17 MB to ~9 MB for a busy tenant.
+ * Verified by the `Map consumed observation fields` trace (no spread /
+ * Object.keys / write-back of observation rows on the /today path).
+ */
+const TODAY_OBSERVATION_COLUMNS =
+  "id, prompt_id, run_id, answer_hash, position, tracked_brand_mentioned, " +
+  "tracked_brand_cited, citation_count, owned_citation_count, mentions, " +
+  "observed_at, platform, topic, tenant_id, mention_position, citation_rank, " +
+  "primary_recommendation, descriptor_window, competitor_co_mentions, " +
+  "citation_domain_classes, answer_structure, citation_urls, " +
+  "competitor_descriptor_windows";
+
 export type TodayPageData = Omit<
   ComponentProps<typeof TodayClient>,
   | "onRespondToRec"
@@ -385,6 +406,19 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     const fresh = await loadFreshCanonicalData({
       observationsSince,
       snapshotsSince,
+      // EGRESS / TIMEOUT (2026-06-15) — the 60-day observation read was the
+      // single biggest canonical payload (~17 MB / 8.7k rows for a busy
+      // tenant) and the cause of the /today canonical-read statement-timeout
+      // (silent-empty-dashboard class). This lean projection omits the five
+      // columns nothing on the /today render path reads — `metadata`
+      // (~5.9 MB, only the /recommendations packet builder reads it),
+      // `citation_domains`, `citation_categories`, `raw_search_queries`,
+      // `search_queries` — cutting the read ~45%. Every column the matrix +
+      // descriptor/competitor rollups + top-pick page-intent read is kept.
+      // The /recommendations-live packet builder passes NO projection, so it
+      // still gets full rows (it needs `metadata` + `citation_urls`).
+      // CONTRACT: /today code MUST only read the columns listed here.
+      observationsColumns: TODAY_OBSERVATION_COLUMNS,
       // EGRESS — /today's ONLY snapshot consumer is the Command Center
       // Brain derivation (`deriveBrainFromTodayInputs`), which reads just
       // `date` (a 7-day count) and `.length` (a total count). Pull a lean

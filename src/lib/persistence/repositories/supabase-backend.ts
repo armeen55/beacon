@@ -829,9 +829,15 @@ export const supabaseBackend: SeedDataRepository = {
       // drops from ~15k to typically <500.
       getPromptAnswerObservations: (options) => {
         const queryOpts:
-          | { since?: string; sinceColumn?: string; eqColumn?: string; eqValue?: string }
+          | {
+              since?: string;
+              sinceColumn?: string;
+              eqColumn?: string;
+              eqValue?: string;
+              columns?: string;
+            }
           | undefined =
-          options?.since || options?.promptId
+          options?.since || options?.promptId || options?.columns
             ? {
                 ...(options?.since
                   ? { since: options.since, sinceColumn: "observed_at" }
@@ -839,6 +845,12 @@ export const supabaseBackend: SeedDataRepository = {
                 ...(options?.promptId
                   ? { eqColumn: "prompt_id", eqValue: options.promptId }
                   : {}),
+                // 2026-06-15 — lean projection pushdown (same as snapshots).
+                // /today omits the ~5.9 MB `metadata` + unused citation/
+                // search columns it never reads; the timeout-causing 17 MB
+                // observation read drops by ~45%. Callers MUST only read the
+                // columns they requested (file backend returns full rows).
+                ...(options?.columns ? { columns: options.columns } : {}),
               }
             : undefined;
         return queryAllPagedScoped<PromptAnswerObservation>(

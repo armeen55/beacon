@@ -352,6 +352,16 @@ export type FreshCanonicalDataOptions = {
    *  whose only snapshot consumer needs `date` for two counts — pulling
    *  the full JSONB-carrying rows was ~90% wasted egress. */
   snapshotsColumns?: string;
+  /** Optional lean PostgREST projection (comma-separated columns) for the
+   *  prompt_answer_observations read — same contract as `snapshotsColumns`.
+   *  /today (2026-06-15) passes the 23 columns its matrix + descriptor
+   *  rollups read and OMITS the heavy `metadata` (~5.9 MB / 60d for a busy
+   *  tenant) + `citation_domains` / `citation_categories` / search-query
+   *  columns it never touches — the read was ~17 MB and the dominant cause
+   *  of the /today canonical-read statement-timeout. The packet builder on
+   *  the /recommendations-live path (which DOES read `metadata`) passes no
+   *  projection, so it still gets full rows. */
+  observationsColumns?: string;
 };
 
 export async function loadFreshCanonicalData(
@@ -369,9 +379,17 @@ export async function loadFreshCanonicalData(
   const tenantId = await currentTenantId();
   const repo = getRepository();
   const tenantRepo = repo.forTenant(tenantId);
-  const observationsOpt = options?.observationsSince
-    ? { since: options.observationsSince }
-    : undefined;
+  const observationsOpt =
+    options?.observationsSince || options?.observationsColumns
+      ? {
+          ...(options.observationsSince
+            ? { since: options.observationsSince }
+            : {}),
+          ...(options.observationsColumns
+            ? { columns: options.observationsColumns }
+            : {}),
+        }
+      : undefined;
   const snapshotsOpt =
     options?.snapshotsSince || options?.snapshotsColumns
       ? {
