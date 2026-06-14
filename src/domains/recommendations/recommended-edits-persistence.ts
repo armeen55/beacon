@@ -562,6 +562,48 @@ export async function readRecommendedEditsLocal(): Promise<RecommendedEditRow[]>
  * `writeDotDataJson` no-ops there; the dual-write keeps the canonical
  * source up to date in Supabase.
  */
+/**
+ * Statuses that represent an operator decision or a live-verified state.
+ * A re-generation must NEVER reset these back to "recommended" — doing so
+ * silently un-accepts shipped work and corrupts the proof engine's
+ * treatment dates (audit #3, 2026-06-14). Forward-only contract shared by
+ * the local file writer and the promotion writer's Supabase sync.
+ */
+export const LIFECYCLE_LOCKED_STATUSES: ReadonlySet<ImplementationStatus> =
+  new Set<ImplementationStatus>([
+    "accepted",
+    "verified_live",
+    "verified_live_modified",
+    "partially_implemented",
+    "dismissed",
+  ]);
+
+/**
+ * Drop any incoming row whose persisted twin (same `id`) is in a
+ * lifecycle-locked state, so a nightly re-run never downgrades an
+ * operator-acted / live row back to "recommended". Pure; matches by the
+ * deterministic promotion id. Rows still in "recommended" (or absent) are
+ * left for the caller to overwrite/refresh as normal.
+ */
+export function dropLifecycleLockedRewrites<T extends { id: string }>(
+  incoming: ReadonlyArray<T>,
+  existing: ReadonlyArray<{
+    id: string;
+    implementation_status?: ImplementationStatus | null;
+  }>,
+): T[] {
+  const locked = new Set(
+    existing
+      .filter((e) =>
+        LIFECYCLE_LOCKED_STATUSES.has(
+          (e.implementation_status ?? "recommended") as ImplementationStatus,
+        ),
+      )
+      .map((e) => e.id),
+  );
+  return incoming.filter((r) => !locked.has(r.id));
+}
+
 export async function persistRecommendedEditsLocal(
   incoming: RecommendedEditRow[],
 ): Promise<void> {
@@ -569,7 +611,12 @@ export async function persistRecommendedEditsLocal(
   const existing = await readRecommendedEditsLocal();
   const byId = new Map<string, RecommendedEditRow>();
   for (const row of existing) byId.set(row.id, row);
-  for (const row of incoming) byId.set(row.id, row);
+  // Forward-only (audit #3): a re-generation re-stamps every row
+  // "recommended". Never let that overwrite a lifecycle-locked existing
+  // row (accepted / verified_live / dismissed / …) — preserve it verbatim.
+  for (const row of dropLifecycleLockedRewrites(incoming, existing)) {
+    byId.set(row.id, row);
+  }
   await writeDotDataJson(STORE, [...byId.values()]);
 }
 

@@ -62,7 +62,10 @@ import {
 import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import { syncRecommendedEdits } from "@/lib/persistence/dual-write";
-import { persistRecommendedEditsLocal } from "@/domains/recommendations/recommended-edits-persistence";
+import {
+  persistRecommendedEditsLocal,
+  dropLifecycleLockedRewrites,
+} from "@/domains/recommendations/recommended-edits-persistence";
 import { getRecommendationResponses } from "@/domains/product/recommendation-response-store";
 
 import {
@@ -236,10 +239,18 @@ export async function promoteEligibleCandidates(
   // `markRecommendedEditsAccepted` at lines 360–368.
   if (mapped_rows.length === 0) return baseResult;
 
-  await persistRecommendedEditsLocal(mapped_rows);
+  // Forward-only guard (audit #3, 2026-06-14): a re-run re-stamps every
+  // mapped row "recommended". `recommendedEdits` was read fresh at Stage 1
+  // (Supabase on prod, where the local file write no-ops), so dropping
+  // rewrites of lifecycle-locked rows here protects PROD from silently
+  // un-accepting shipped work / corrupting proof-engine treatment dates.
+  const writeRows = dropLifecycleLockedRewrites(mapped_rows, recommendedEdits);
+  if (writeRows.length === 0) return baseResult;
+
+  await persistRecommendedEditsLocal(writeRows);
 
   try {
-    await syncRecommendedEdits(mapped_rows, input.tenantId);
+    await syncRecommendedEdits(writeRows, input.tenantId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.warn("[promoteEligibleCandidates] dual-write failed", {
