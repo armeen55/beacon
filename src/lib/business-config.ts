@@ -535,13 +535,6 @@ export async function hydrateBusinessConfigFromSupabase(
   // resolution order.
   const resolved = getBusinessConfig(tenantId);
   if (!resolved.__placeholder) return resolved;
-  // Test-hermetic (2026-06-14, audit #2 follow-up): never reach for prod
-  // Supabase inside vitest. Now that the today / trigger / off-site loaders
-  // hydrate, an un-guarded read would pull real tenant config into unit +
-  // route tests (vitest loads .env.local with service-role creds). Tests
-  // exercise config via the sync env/file chain; prod/cron paths are
-  // unaffected.
-  if (process.env.VITEST) return null;
   if (_supabaseHydrateAttempted.has(tenantId)) return null;
   _supabaseHydrateAttempted.add(tenantId);
   try {

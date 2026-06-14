@@ -125,6 +125,12 @@ vi.mock("@/domains/recommendations/recommended-edits-persistence", () => ({
     if (mockState.persistThrows) throw new Error("local write failed");
     mockState.persistSpy!(rows);
   },
+  // audit #3 follow-up (2026-06-14): the writer now filters via the
+  // forward-only guard before persist+sync. These tests have no existing
+  // accepted/locked rows, so a pass-through (return all incoming) preserves
+  // their behavior. The guard's own logic is covered by
+  // forward-only-lifecycle.test.ts.
+  dropLifecycleLockedRewrites: <T,>(incoming: T) => incoming,
 }));
 
 vi.mock("@/lib/persistence/dual-write", () => ({

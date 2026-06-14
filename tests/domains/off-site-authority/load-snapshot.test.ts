@@ -46,6 +46,10 @@ vi.mock("@/lib/tenant-context", () => ({
 }));
 vi.mock("@/lib/business-config", () => ({
   getBusinessConfig: () => _spies.getBusinessConfig(),
+  // audit #2 follow-up (2026-06-14): the loader now also calls
+  // hydrateBusinessConfigFromSupabase, falling back to getBusinessConfig.
+  // Return null so the sync getBusinessConfig spy stays the source.
+  hydrateBusinessConfigFromSupabase: async () => null,
   // The real isPlaceholderConfig takes a config arg; the spy is
   // arity-0 here so it can be invoked from the loader without
   // surfacing the BusinessConfig type into this test file.
