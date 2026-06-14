@@ -3,24 +3,29 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // ---------------------------------------------------------------------------
 // Sprint 3 / Phase 3.3 regression tests — URL watcher on Vercel.
 //
-// Before Phase 3.2, writeUrlWatcherState called writeFileSync against
-// /vercel/path0/.data/url-watcher-state.json.tmp on every /changes and /
-// page render. That threw ENOENT because the Vercel lambda filesystem is
-// read-only. The exception was caught as "non-fatal" at the page boundary,
-// but it still polluted logs AND silently disabled the watcher pipeline
-// (writeRunningState was the very first line of runUrlWatcher, so the
-// whole pipeline died before it ran).
-//
-// Phase 3.2 routes state to module-level memory on Vercel. These tests
-// prove:
+// Phase 3.2 routes state to module-level memory on Vercel (the lambda FS is
+// read-only). audit #19 (2026-06-14): that memory is now keyed BY TENANT —
+// a single process-global var let a warm lambda share one tenant's
+// throttle/running state with every other tenant. These tests prove:
 //   (1) writeUrlWatcherState with VERCEL=1 does not throw
-//   (2) readUrlWatcherState after write returns the state (same-lambda)
+//   (2) read after write returns the state (same-lambda, same tenant)
 //   (3) read with no prior write returns null cleanly (no FS touch)
-//   (4) maybeRefreshUrlWatcher on Vercel surfaces the watcher pipeline
-//       without an ENOENT in the call stack
+//   (4) running/success round-trip touches no filesystem
+//   (5) throttle works against memory-stored success state
+//   (6) ISOLATION: tenant-A's state never leaks into tenant-B
 // ---------------------------------------------------------------------------
 
 const ORIGINAL_VERCEL_ENV = process.env.VERCEL;
+const T = "tenant-test-a";
+const STATS = {
+  urlsInHistory: 0,
+  experimentsUpdated: 0,
+  outcomesProcessed: 0,
+  outcomesRecorded: 0,
+  outcomeTransitions: 0,
+  patternsRebuilt: 0,
+  durationMs: 1,
+};
 
 describe("Sprint 3 / Phase 3.3 — URL watcher Vercel safety", () => {
   beforeEach(() => {
@@ -40,13 +45,16 @@ describe("Sprint 3 / Phase 3.3 — URL watcher Vercel safety", () => {
     const mod = await import("@/domains/product/url-watcher-state");
     mod.__resetVercelMemoryStateForTests();
     expect(() =>
-      mod.writeUrlWatcherState({
-        schemaVersion: 1,
-        phase: "running",
-        updatedAt: new Date().toISOString(),
-        trigger: "page-load",
-        message: "test",
-      }),
+      mod.writeUrlWatcherState(
+        {
+          schemaVersion: 1,
+          phase: "running",
+          updatedAt: new Date().toISOString(),
+          trigger: "page-load",
+          message: "test",
+        },
+        T,
+      ),
     ).not.toThrow();
   });
 
@@ -54,14 +62,17 @@ describe("Sprint 3 / Phase 3.3 — URL watcher Vercel safety", () => {
     const mod = await import("@/domains/product/url-watcher-state");
     mod.__resetVercelMemoryStateForTests();
     const now = new Date().toISOString();
-    mod.writeUrlWatcherState({
-      schemaVersion: 1,
-      phase: "success",
-      updatedAt: now,
-      lastSuccessAt: now,
-      trigger: "page-load",
-    });
-    const state = mod.readUrlWatcherState();
+    mod.writeUrlWatcherState(
+      {
+        schemaVersion: 1,
+        phase: "success",
+        updatedAt: now,
+        lastSuccessAt: now,
+        trigger: "page-load",
+      },
+      T,
+    );
+    const state = mod.readUrlWatcherState(T);
     expect(state).not.toBeNull();
     expect(state?.phase).toBe("success");
     expect(state?.lastSuccessAt).toBe(now);
@@ -70,57 +81,37 @@ describe("Sprint 3 / Phase 3.3 — URL watcher Vercel safety", () => {
   it("readUrlWatcherState returns null cleanly on a fresh cold-start (no prior write)", async () => {
     const mod = await import("@/domains/product/url-watcher-state");
     mod.__resetVercelMemoryStateForTests();
-    // Simulates a cold lambda that has never written state yet.
-    const state = mod.readUrlWatcherState();
-    expect(state).toBeNull();
+    expect(mod.readUrlWatcherState(T)).toBeNull();
   });
 
   it("writeRunningState → writeSuccessState round-trip does NOT touch the filesystem", async () => {
     const mod = await import("@/domains/product/url-watcher-state");
     mod.__resetVercelMemoryStateForTests();
-    // Phase 3.1 observation: the ENOENT used to fire at writeRunningState
-    // because it was the very first state write during runUrlWatcher. Prove
-    // that running it twice in a row (as the real pipeline does) succeeds
-    // without any FS access.
-    expect(() => mod.writeRunningState("page-load")).not.toThrow();
+    expect(() => mod.writeRunningState("page-load", T)).not.toThrow();
     expect(() =>
-      mod.writeSuccessState(
-        "page-load",
-        {
-          urlsInHistory: 0,
-          experimentsUpdated: 0,
-          outcomesProcessed: 0,
-          outcomesRecorded: 0,
-          outcomeTransitions: 0,
-          patternsRebuilt: 0,
-          durationMs: 1,
-        },
-        new Date().toISOString(),
-      ),
+      mod.writeSuccessState("page-load", STATS, new Date().toISOString(), T),
     ).not.toThrow();
-    const after = mod.readUrlWatcherState();
-    expect(after?.phase).toBe("success");
+    expect(mod.readUrlWatcherState(T)?.phase).toBe("success");
   });
 
   it("shouldRefreshUrlWatcher throttles correctly against memory-stored success state", async () => {
     const mod = await import("@/domains/product/url-watcher-state");
     mod.__resetVercelMemoryStateForTests();
-    // Simulate a successful run that just finished.
-    const now = new Date().toISOString();
-    mod.writeSuccessState(
-      "page-load",
-      {
-        urlsInHistory: 0,
-        experimentsUpdated: 0,
-        outcomesProcessed: 0,
-        outcomesRecorded: 0,
-        outcomeTransitions: 0,
-        patternsRebuilt: 0,
-        durationMs: 1,
-      },
-      now,
+    mod.writeSuccessState("page-load", STATS, new Date().toISOString(), T);
+    expect(mod.shouldRefreshUrlWatcher(mod.readUrlWatcherState(T))).toBe(false);
+  });
+
+  it("audit #19: state is isolated per tenant (A's running state never leaks to B)", async () => {
+    const mod = await import("@/domains/product/url-watcher-state");
+    mod.__resetVercelMemoryStateForTests();
+    // Tenant A is mid-run.
+    mod.writeRunningState("page-load", "tenant-a");
+    expect(mod.readUrlWatcherState("tenant-a")?.phase).toBe("running");
+    // Tenant B has no state of its own → must NOT see A's running state, so
+    // shouldRefreshUrlWatcher(B) is true (B runs its own pipeline).
+    expect(mod.readUrlWatcherState("tenant-b")).toBeNull();
+    expect(mod.shouldRefreshUrlWatcher(mod.readUrlWatcherState("tenant-b"))).toBe(
+      true,
     );
-    const state = mod.readUrlWatcherState();
-    expect(mod.shouldRefreshUrlWatcher(state)).toBe(false);
   });
 });

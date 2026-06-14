@@ -72,7 +72,11 @@ export const URL_WATCHER_STALE_RUNNING_MS = 10 * 60 * 1000;
  * warm lambdas throttle correctly, cold-start lambdas run the idempotent
  * pipeline once. No FS writes, no ENOENT.
  */
-let vercelMemoryState: UrlWatcherStateFile | null = null;
+// audit #19 (2026-06-14): keyed BY TENANT. A single process-global var meant
+// a warm Vercel lambda shared one tenant's throttle/running state with every
+// other tenant — tenant-A's phase="running" made tenant-B skip its own
+// pipeline refresh. The file path is tenant-keyed for the same reason.
+const _vercelMemoryByTenant = new Map<string, UrlWatcherStateFile>();
 
 function isVercel(): boolean {
   return process.env.VERCEL === "1";
@@ -83,16 +87,18 @@ function ensureDataDir(): void {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function statePath(): string {
-  return join(DATA_DIR, `${STATE_FILE_NAME}.json`);
+function statePath(tenantId: string): string {
+  return join(DATA_DIR, `${STATE_FILE_NAME}-${tenantId}.json`);
 }
 
-export function readUrlWatcherState(): UrlWatcherStateFile | null {
+export function readUrlWatcherState(
+  tenantId: string,
+): UrlWatcherStateFile | null {
   if (isVercel()) {
-    return vercelMemoryState;
+    return _vercelMemoryByTenant.get(tenantId) ?? null;
   }
   try {
-    const p = statePath();
+    const p = statePath(tenantId);
     if (!existsSync(p)) return null;
     const raw = JSON.parse(readFileSync(p, "utf8")) as UrlWatcherStateFile;
     if (raw.schemaVersion !== 1) return null;
@@ -103,13 +109,16 @@ export function readUrlWatcherState(): UrlWatcherStateFile | null {
   }
 }
 
-export function writeUrlWatcherState(state: UrlWatcherStateFile): void {
+export function writeUrlWatcherState(
+  state: UrlWatcherStateFile,
+  tenantId: string,
+): void {
   if (isVercel()) {
-    vercelMemoryState = state;
+    _vercelMemoryByTenant.set(tenantId, state);
     return;
   }
   ensureDataDir();
-  const path = statePath();
+  const path = statePath(tenantId);
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
   renameSync(tmp, path);
@@ -121,7 +130,7 @@ export function writeUrlWatcherState(state: UrlWatcherStateFile): void {
  * explicitly cleared.
  */
 export function __resetVercelMemoryStateForTests(): void {
-  vercelMemoryState = null;
+  _vercelMemoryByTenant.clear();
 }
 
 /** Milliseconds since the last successful run finished, or `null` if never. */
@@ -161,45 +170,59 @@ export function shouldRefreshUrlWatcher(state: UrlWatcherStateFile | null): bool
   return sinceSuccess >= URL_WATCHER_REFRESH_INTERVAL_MS;
 }
 
-export function writeRunningState(trigger: UrlWatcherTrigger): void {
-  writeUrlWatcherState({
-    schemaVersion: 1,
-    phase: "running",
-    updatedAt: new Date().toISOString(),
-    trigger,
-    message: "URL watcher refresh in progress",
-  });
+export function writeRunningState(
+  trigger: UrlWatcherTrigger,
+  tenantId: string,
+): void {
+  writeUrlWatcherState(
+    {
+      schemaVersion: 1,
+      phase: "running",
+      updatedAt: new Date().toISOString(),
+      trigger,
+      message: "URL watcher refresh in progress",
+    },
+    tenantId,
+  );
 }
 
 export function writeSuccessState(
   trigger: UrlWatcherTrigger,
   stats: NonNullable<UrlWatcherStateFile["stats"]>,
   startedAt: string,
+  tenantId: string,
 ): void {
   const now = new Date().toISOString();
-  writeUrlWatcherState({
-    schemaVersion: 1,
-    phase: "success",
-    updatedAt: now,
-    lastRunAt: startedAt,
-    lastSuccessAt: now,
-    trigger,
-    stats,
-    message: "URL watcher refresh complete",
-  });
+  writeUrlWatcherState(
+    {
+      schemaVersion: 1,
+      phase: "success",
+      updatedAt: now,
+      lastRunAt: startedAt,
+      lastSuccessAt: now,
+      trigger,
+      stats,
+      message: "URL watcher refresh complete",
+    },
+    tenantId,
+  );
 }
 
 export function writeFailedState(
   trigger: UrlWatcherTrigger,
   error: string,
   startedAt: string,
+  tenantId: string,
 ): void {
-  writeUrlWatcherState({
-    schemaVersion: 1,
-    phase: "failed",
-    updatedAt: new Date().toISOString(),
-    lastRunAt: startedAt,
-    trigger,
-    message: `URL watcher refresh failed: ${error}`,
-  });
+  writeUrlWatcherState(
+    {
+      schemaVersion: 1,
+      phase: "failed",
+      updatedAt: new Date().toISOString(),
+      lastRunAt: startedAt,
+      trigger,
+      message: `URL watcher refresh failed: ${error}`,
+    },
+    tenantId,
+  );
 }

@@ -38,6 +38,7 @@ import {
   type UrlWatcherTrigger,
 } from "./url-watcher-state";
 import { getChangelogEntries } from "@/lib/seed-data.server";
+import { currentTenantId } from "@/lib/tenant-context";
 import {
   materializeUrlOutcomes,
   getUrlChangeOutcomes,
@@ -71,13 +72,15 @@ export type UrlWatcherRunResult = {
 export async function maybeRefreshUrlWatcher(
   trigger: UrlWatcherTrigger = "page-load",
 ): Promise<UrlWatcherRunResult> {
-  const state = readUrlWatcherState();
+  // audit #19 (2026-06-14): per-tenant throttle/running state.
+  const tenantId = await currentTenantId();
+  const state = readUrlWatcherState(tenantId);
   if (!shouldRefreshUrlWatcher(state)) {
     const reason = state?.phase === "running" ? "already-running" : "throttled";
     return { ran: false, reason };
   }
 
-  return runUrlWatcher(trigger);
+  return runUrlWatcher(trigger, tenantId);
 }
 
 /**
@@ -88,11 +91,15 @@ export async function maybeRefreshUrlWatcher(
  */
 export async function runUrlWatcher(
   trigger: UrlWatcherTrigger,
+  tenantId?: string,
 ): Promise<UrlWatcherRunResult> {
+  // audit #19 (2026-06-14): resolve the tenant if a caller invoked this
+  // directly (maybeRefreshUrlWatcher passes it). State is per-tenant.
+  const resolvedTenantId = tenantId ?? (await currentTenantId());
   const startedAtISO = new Date().toISOString();
   const t0 = Date.now();
-  log.info("URL watcher run started", { trigger });
-  writeRunningState(trigger);
+  log.info("URL watcher run started", { trigger, tenantId: resolvedTenantId });
+  writeRunningState(trigger, resolvedTenantId);
 
   try {
     // 1. Rebuild URL citation history from existing citation shards (owned only).
@@ -130,13 +137,13 @@ export async function runUrlWatcher(
       durationMs,
     };
 
-    writeSuccessState(trigger, stats, startedAtISO);
+    writeSuccessState(trigger, stats, startedAtISO, resolvedTenantId);
     log.info("URL watcher run completed", { trigger, ...stats });
 
     return { ran: true, reason: "completed", stats };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    writeFailedState(trigger, message, startedAtISO);
+    writeFailedState(trigger, message, startedAtISO, resolvedTenantId);
     log.error("URL watcher run failed", {
       trigger,
       error: message,
