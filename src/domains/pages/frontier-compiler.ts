@@ -229,8 +229,15 @@ function compileMissingPage(
   });
 
   const missingPage: MissingPagePlan = {
+    // De-verticalized (2026-06-15): a geo page with no specific service uses
+    // the cluster's own topic, NOT the founder "Custom Home Builder" literal
+    // (which produced "{City} Custom Home Builder" titles for every vertical).
     suggestedTitle: f.geography
-      ? `${f.geography.charAt(0).toUpperCase() + f.geography.slice(1)} ${f.service ?? "Custom Home Builder"}`
+      ? `${f.geography.charAt(0).toUpperCase() + f.geography.slice(1)} ${
+          f.service
+            ? f.service.charAt(0).toUpperCase() + f.service.slice(1)
+            : f.topic
+        }`
       : f.service
         ? `${f.service.charAt(0).toUpperCase() + f.service.slice(1)} Services`
         : `${f.topic} Guide`,

@@ -674,8 +674,22 @@ export function generateFindings(opts: {
     //   medium — ≥2 missing types regardless of citations
     //   low    — 1 missing type
     const missingCount = coverage.missing_required.length;
+    // De-verticalized (2026-06-15): HIGH severity is gated on ANY content-
+    // bearing asset type with >50 citations — not just homepage/city_page,
+    // which excluded every content publisher's high-citation pages (articles,
+    // guides, hubs) from ever reaching HIGH. Infra/sitemap/directory/lead-form
+    // are not content assets and stay out.
+    const CONTENT_ASSET_TYPES = new Set([
+      "homepage",
+      "city_page",
+      "service_page",
+      "project_page",
+      "process_page",
+      "brand_page",
+      "hub_page",
+    ]);
     const severity: FindingSeverity =
-      (assetType === "homepage" || assetType === "city_page") && citations > 50
+      CONTENT_ASSET_TYPES.has(assetType) && citations > 50
         ? "high"
         : missingCount >= 2
           ? "medium"
