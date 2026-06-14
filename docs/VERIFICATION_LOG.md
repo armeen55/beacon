@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-14 (overnight, perf) — lean date-only projection on /today's canonical snapshot read (resolves the deferred DMS over-fetch)
+
+**Why:** the overnight audit deferred "/today DMS scope over-fetch" as a hot-path-risk item. Re-investigated with ground-truth: `/today`'s ONLY `daily_metric_snapshots` consumer is the Command Center Brain derivation (`deriveBrainFromTodayInputs`, typed `ReadonlyArray<{ date: string }>`), which reads just `date` (a 7-day count) and `.length` (a total count). Yet the windowed (120-day) read pulled FULL ~497-byte rows incl. the heavy JSONB `metadata` column. **DB-verified (execute_sql):** Ritz fetches **18,863 rows** per render to compute `total=18,863` + `recent7d=893` — ~9.4 MB egress, ~90% dead weight.
+
+**What changed (4 files, per-call opt-in):**
+- `types.ts`: `WindowedReadOptions` gains optional lean PostgREST `columns` projection (default `*`).
+- `supabase-backend.ts`: `getDailyMetricSnapshots` forwards `columns` into `queryAllPagedScoped` (already column-aware); `since` + `columns` thread independently.
+- `canonical-store.ts`: `FreshCanonicalDataOptions` gains `snapshotsColumns`, forwarded to the snapshot read.
+- `today-data.ts`: passes `snapshotsColumns: "id, date"` → ~8.4 MB egress saved per Ritz /today render.
+
+**Provably identical Brain numbers:** a column projection doesn't change the row SET or COUNT, and both consumed quantities are row-count/date-based. DB check confirms `id`+`date` non-null on every row (`id_date_present == total_rows`, both tenants). File backend still returns full in-memory rows (projection is a wire-cost optimization, not a contract). Per-call → `/prompts` + `today-v2` callers unaffected.
+
+**Verified:** typecheck clean; full suite **800 files / 14,790 tests** green (+4 new ratchets in `supabase-egress-windowing.test.ts` pinning the projection against silent regression to `*`); DB-level projection validity confirmed. **Rails:** read-path only, NOT pushed. Commit `7307100`.
+
+---
+
 ## 2026-06-14 (overnight, buyer's-eye walkthrough) — strip redundant parenthesized type tags from rec titles
 
 **How found:** a skeptical-buyer read of the actual rendered `/recommendations` queue (ground-truth, not code). The header copy + structure are strong (GSC-led value prop, evidence-strength tiers, "you approve every change yourself"). But queue titles carried redundant parenthesized type tags — "Design-build for modern Bay Area homes (H2)", "(FAQ)", "(section)" — the type already shows in its own TYPE column + the top-pick appends it, so the parenthetical is noise on the core action surface.
