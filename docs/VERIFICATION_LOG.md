@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-14 (overnight, wave-11) — perimeter audit: skip empty morning digest (MEDIUM) + surface refused Wix revert (LOW); 2 refuted
+
+**How found:** adversarial 4-lens Workflow audit (auth/tenant-resolution · Wix-push safety · morning-digest content · onboarding provisioning). 2 confirmed, **2 correctly refuted** (a `dry_run`-treated-as-live path — unreachable since `executePush` is called without `dryRun` and all dry_run returns are `if(dryRun)`-guarded; a `buildTrackedPromptRow` missing-`tenant_id` "blocks onboarding" — the asserted NOT-NULL/CHECK constraint migration is explicitly NOT-APPLIED, and task #65 addressed it, so no live break).
+
+**MEDIUM `scripts/run-morning-digest.ts`:** the aggregate digest carries `hasContent` (false ONLY when every tenant has zero pending recs AND no 24h push/verify receipts), computed but never gating the send — so a fully-quiet fleet day still emailed the operator a "nothing waiting today" digest (inbox noise vs the product's simplicity). Now skips the send when `!hasContent` (exit 0; the per-tenant loop is already done, so it's a single aggregate send — safe).
+
+**LOW `src/app/(shell)/diagnostics/wix/actions.ts`:** `revertPushFromForm` discarded `executePush`'s result, so a REFUSED revert (cap / non-destructive guard / freeze) failed silently. The action returns void (form contract), so it now LOGS the outcome loudly (warn + reason on refused) — visible in server logs. Operator-only diagnostics; Wix push frozen.
+
+**Verified:** typecheck clean; 81 morning-digest + push tests pass (no regression); `hasContent` already pinned by `morning-digest.test.ts`. **Rails honored:** single-operator posture, crons untouched (strictly less noise), NOT pushed.
+
+---
+
 ## 2026-06-14 (overnight, wave-10) — decision-engine audit: gsc evidence labels + fail-closed adjudicator budget; 1 deferred, 3 refuted
 
 **How found:** adversarial 4-lens Workflow audit (safety-gates/eligibility · lifecycle state-machine · budget/cost enforcement · trigger correctness). 4 confirmed MEDIUM, **3 correctly refuted** (gate-9/eligibility "impossible promotion" — KNOWN-OK GSC override; dual-write per-prompt-vs-chunk grain — doesn't drive budget decisions; gate-comment ambiguity — gate behavior is correct). Verify-first against the WORKTREE caught that one finding cited the main-repo path.
