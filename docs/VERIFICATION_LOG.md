@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-14 (overnight, wave-8) — MEDIUM: edit_meta content quality (drop colon-terminated section labels)
+
+**How found:** ground-truth inspection of the ACTUAL composed content in prod `recommended_edits.proposed_text` across action types (both tenants). Most content is high-quality + valid: `add_schema` emits valid Article + BreadcrumbList JSON-LD (escaped, on-topic), `add_faq`/`add_h2` are coherent prose, `fix_schema` is a clear directive, titles/H1s are clean. One defect surfaced.
+
+**Root cause:** `iranopedia.com/persian-kabobs/koobideh-kabob` had `edit_meta` proposed_text = `"Koobideh Kabob Recipe — Kabob Koobideh Ingredients: — Serving Info: — Cooking Time: — Estimated Nutrition Per Serving (2 Skewers): — Step 1: Prepare the"` — a list of section LABELS joined by " — " with no values, truncated mid-word. `composeMeta` (`draft-enrichment.ts`) falls back to a structural source (h1 + h2_list + card_texts) when `body_paragraph_sample` is empty (Wix hides body copy). On label-heavy pages (recipes / spec sheets) those headings are colon-terminated labels, so the "description" was a broken-looking placeholder a customer would paste into Google.
+
+**What changed:**
+- `src/domains/recommendation-intelligence/draft-enrichment.ts`: `composeMeta` structural filter now drops fragments ending in `":"` (section labels). Real prose stays; if filtering leaves < 40 chars, the existing "no fake drafts" guard emits nothing (better than a broken meta).
+- `tests/domains/recommendation-intelligence/draft-enrichment.test.ts`: +2 (labels dropped on a recipe page keeping prose; null when source is ONLY labels). Existing structural-fallback tests unaffected (their h2s aren't colon-terminated).
+
+**Verified:** `npm run typecheck` clean; 35 draft-enrichment tests pass. **Note:** the existing stale koobideh row persists (enrichment never overwrites a set `proposed_text` — intentional, preserves operator edits); the fix is forward-looking (no prod data mutation, per rails).
+
+**Rails honored:** deterministic, read-only prod inspection, NOT pushed.
+
+---
+
 ## 2026-06-14 (overnight, wave-7) — HIGH: per-tenant poll-health canary (fail-loud); stop a healthy tenant masking a failed one
 
 **How found:** adversarial 4-lens Workflow audit of the unattended nightly cron pipeline (tenant-coverage / fail-loud / idempotency / ordering-budget). 1 confirmed HIGH, 1 correctly refuted (a `syncGuardrailAlerts` unscoped-delete claim — the verifier confirmed it is ALREADY tenant-scoped on HEAD via `98f3eb7`, with a passing regression test; stale finding rejected).
