@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-15 (de-verticalization sweep — "tool for everyone", remove builder/Bay-Area hardcoding)
+
+**Directive:** Beacon must be vertical-agnostic — a tool for EVERYONE, not builders. Remove ALL builder/Bay-Area/Ritz hardcoding from product code paths a non-builder tenant hits.
+
+**Method:** a multi-agent discovery+adversarial-verify workflow (`wf_eff873be-385`, 98 agents, 10 finder dimensions × verify) → **88 candidates → 53 confirmed** real product hardcoding. Full evidence-backed list + per-finding fix + sweep status in `docs/DEVERTICALIZE_FINDINGS_2026-06-15.md`.
+
+**Fixed this sweep (12 commits, each typecheck-clean + full suite 800/14,793 green; NOT pushed) — the ACTIVE wrong-output leaks for non-builder tenants:**
+- `7e7e47c` query-index: DEFAULT_CITIES (Bay-Area cities silently filtered Iranopedia's query relevance — a real Persian-encyclopedia-judged-against-"atherton" bug), "bay area" homepage boost, SERVICE_KEYWORD_MAP builder synonyms → all tenant-driven / removed.
+- `36d026d` detect-changes: builder servicePatterns + Bay-Area locationPatterns → generic last-slug topic.
+- `9c57354`+`963ad62` morning-brief: "Bay Area" title fabrication (2 functions), builder section skeletons ("per sq ft"/"permits → construction"/"design-build"), "Custom Home Builder" anchor, builder stopwords → tenant-vocab-only / neutral.
+- `359eeea`+`97c8c4e` rec-title humanizer: BAY_AREA_CITIES geo default removed; composeRecommendedMove threads tenant services.
+- `98e43da` /today scannerKnownLocations Bay-Area list → tenant locations only; onboarding/settings copy → neutral.
+- `b2d57c3` competitor universe: builder demo-competitor fallback → honest-empty.
+- `6de2418` business-config placeholder directories → universal blocklist.
+- `12659fa` geo/normalize hardcoded "CA" → null. `9dd100d` profound entity-seed owned scope "Bay Area"/"custom home building" → null. `e251cb5` frontier title + content-asset severity gate.
+
+**Verified:** every commit gated on `npm run typecheck` + the full 800-file / 14,793-test suite (green). Test pins on the old founder defaults (extractGeoTag Bay-Area default, render-output-cleanup "Atherton" title, openai SYSTEM_PROMPT examples) were updated to the new contract or the change reverted where partial (openai prompt → deferred to the proper buildSystemPrompt refactor).
+
+**Deferred (tracked in the findings doc, M/L-effort + lower actual harm — mostly no-op/degrade-gracefully for non-builders):** openai SYSTEM_PROMPT (L — per-tenant buildSystemPrompt refactor), TOPIC_TAGS removal (high test-churn), geo region-term threading, entity-seed builder COMPETITOR_DOMAINS, onboarding scope-form grid (cosmetic), pages/expected-schema + classify-asset-type + frontier-planner + brand-assertions + page-classifier vertical-tuned logic.
+
+---
+
 ## 2026-06-15 (golden-path: crons OFF → on-demand cockpit + /today timeout fix)
 
 **Directive:** GitHub Actions cron schedules are OFF (no minutes); LLM authorized; build the golden path so the operator connects GSC/Clarity/GA4/Profound/Wix and the product works **forever, on-demand** (no nightly job). Goal: revive Iranopedia.
