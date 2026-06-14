@@ -628,9 +628,31 @@ export async function dismissRecommendation(
   log.info("Action started", { action, params: { stableKey, reason } });
 
   await ensureRecommendationResponsesSeeded();
-  // #54 (2026-06-11): capture WHY — the taste-learning signal.
-  await recordResponse(stableKey, "dismissed", { dismissReason: reason ?? null });
   const tenantId = await currentTenantId();
+  // audit #21 (2026-06-14): resolve + record the page URL so the 90-day
+  // PAGE-LEVEL dismiss cooldown (dedupe-cooldown.ts) actually activates.
+  // Without targetPageUrl that branch always short-circuits, so a dismissed
+  // card could re-promote on the same page the very next night — the
+  // operator's "no" didn't stick. Best-effort: a failed read leaves it null
+  // (key-level cooldown still applies, exactly as before).
+  let dismissedPageUrl: string | null = null;
+  try {
+    const allEdits = await getRepository()
+      .forTenant(tenantId)
+      .getRecommendedEdits();
+    dismissedPageUrl =
+      allEdits.find((e) => e.rec_id === stableKey)?.target_url ?? null;
+  } catch (e) {
+    log.warn("dismissRecommendation: edits read failed; page cooldown skipped", {
+      stableKey,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+  // #54 (2026-06-11): capture WHY — the taste-learning signal.
+  await recordResponse(stableKey, "dismissed", {
+    dismissReason: reason ?? null,
+    targetPageUrl: dismissedPageUrl,
+  });
   await persistResponses(tenantId);
 
   revalidatePath("/recommendations");

@@ -153,6 +153,11 @@ export async function loadChangePrimaryEvidence(
     tenantId,
     recommendedEdit.id,
     recommendedEdit.live_at ?? "no-live",
+    // audit #21 (2026-06-14): lifecycleStage is an INPUT to the computed
+    // copy but was absent from the key, so a page that gets its first
+    // citation while cached as "stuck" served stale null-evidence copy for
+    // the whole TTL. Key on it so a stage transition busts the cache.
+    lifecycleStage ?? "no-stage",
   ];
 
   const cached = unstable_cache(
