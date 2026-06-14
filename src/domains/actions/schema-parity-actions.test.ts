@@ -275,3 +275,32 @@ describe("buildSchemaParityActions — action shape", () => {
     expect(a.sourceChangeId).toBeNull();
   });
 });
+
+describe("buildSchemaParityActions — (none) schema sentinel (wave-10 visual ground-truth)", () => {
+  it("renders 'has no JSON-LD' (NOT 'has only (none) schema') for a page with zero schema", () => {
+    // Caught on /today's Next Best Action: "This brand page has only (none)
+    // schema." The detector writes "(none)" as the no-schema sentinel; it must
+    // not be parsed back as a present type.
+    const [a] = buildSchemaParityActions({
+      findings: [
+        finding({
+          url: "https://r.co/our-partners",
+          previousState: "schema_types: [(none)]",
+        }),
+      ],
+    });
+    expect(a).toBeDefined();
+    expect(a.rationale).toContain("has no JSON-LD");
+    expect(a.rationale).not.toContain("(none)");
+    expect(a.rationale).not.toContain("has only");
+  });
+
+  it("still lists the real present type when schema IS present", () => {
+    const [a] = buildSchemaParityActions({
+      findings: [
+        finding({ url: "https://r.co/x", previousState: "schema_types: [FAQPage]" }),
+      ],
+    });
+    expect(a.rationale).toContain("has only FAQPage schema");
+  });
+});

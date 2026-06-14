@@ -160,7 +160,17 @@ function extractPresentTypes(previousState: string | null): string[] {
   return inner
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    // wave-10 visual ground-truth (2026-06-14): the detector writes "(none)"
+    // / "none" as a sentinel for a page with NO schema (missing-schema.ts).
+    // It must NOT be parsed back as a PRESENT type — otherwise buildRationale
+    // renders the customer-facing "has only (none) schema" instead of the
+    // clean "has no JSON-LD" branch (caught on /today's Next Best Action card
+    // for Ritz's /our-partners: "This brand page has only (none) schema.").
+    .filter((s) => {
+      const lower = s.toLowerCase();
+      return lower !== "(none)" && lower !== "none";
+    });
 }
 
 /**
