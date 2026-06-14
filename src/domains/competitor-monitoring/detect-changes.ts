@@ -178,7 +178,13 @@ function extractPath(url: string): string {
   }
 }
 
-/** Infer a rough topic from URL path for contextual alerts */
+/** Infer a rough topic from URL path for contextual alerts.
+ *
+ * De-verticalized (2026-06-15): derive the topic generically from the URL's
+ * last meaningful slug segment (humanized) instead of hardcoded builder-service
+ * + Bay-Area location pattern lists. Works for any vertical — a competitor's
+ * /services/teeth-whitening → "Teeth Whitening", /cities/tehran → "Tehran",
+ * /blog/2024/best-crm → "Best Crm" — with zero industry assumptions. */
 function inferTopicFromPath(path: string): string | null {
   const segments = path
     .replace(/^\/+/, "")
@@ -187,28 +193,13 @@ function inferTopicFromPath(path: string): string | null {
 
   if (segments.length === 0) return null;
 
-  // Common builder site patterns
-  const servicePatterns = [
-    "kitchen", "bathroom", "remodel", "addition", "adu",
-    "custom-home", "new-construction", "renovation", "design-build",
-    "teardown", "rebuild", "whole-house",
-  ];
-  const locationPatterns = [
-    "palo-alto", "menlo-park", "atherton", "los-altos", "cupertino",
-    "saratoga", "mountain-view", "sunnyvale", "san-jose", "woodside",
-    "portola-valley", "redwood-city", "san-carlos", "burlingame",
-  ];
-
-  const fullPath = path.toLowerCase();
-  for (const s of servicePatterns) {
-    if (fullPath.includes(s)) {
-      return s.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    }
-  }
-  for (const l of locationPatterns) {
-    if (fullPath.includes(l)) {
-      return l.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    }
+  // Walk from the end to the first content-bearing slug (skip numeric ids /
+  // single chars / pure dates) and humanize it.
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const seg = segments[i].toLowerCase();
+    if (/^\d+$/.test(seg)) continue; // numeric id / year
+    if (seg.length < 2) continue;
+    return seg.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   return null;
