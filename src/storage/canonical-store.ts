@@ -352,6 +352,13 @@ export type FreshCanonicalDataOptions = {
    *  whose only snapshot consumer needs `date` for two counts — pulling
    *  the full JSONB-carrying rows was ~90% wasted egress. */
   snapshotsColumns?: string;
+  /** Skip the daily_metric_snapshots read entirely (resolves to []). For
+   *  callers that never consume snapshots — /recommendations' load-queue
+   *  builds the matrix from observations only and discards snapshots, so
+   *  reading them was ~9 MB + ~19 paged round-trips of pure waste per render
+   *  for a data-rich tenant. Additive: default false keeps every existing
+   *  caller's behavior unchanged. */
+  skipSnapshots?: boolean;
   /** Optional lean PostgREST projection (comma-separated columns) for the
    *  prompt_answer_observations read — same contract as `snapshotsColumns`.
    *  /today (2026-06-15) passes the 23 columns its matrix + descriptor
@@ -403,7 +410,11 @@ export async function loadFreshCanonicalData(
     tenantRepo.getTrackedPrompts(),
     tenantRepo.getPromptAnswerObservations(observationsOpt),
     tenantRepo.getTrackedEntities(),
-    tenantRepo.getDailyMetricSnapshots(snapshotsOpt),
+    // Skip the snapshot read for callers that never consume it (load-queue) —
+    // resolves to [] with zero DB round-trips instead of paging the full table.
+    options?.skipSnapshots
+      ? Promise.resolve([] as Awaited<ReturnType<typeof tenantRepo.getDailyMetricSnapshots>>)
+      : tenantRepo.getDailyMetricSnapshots(snapshotsOpt),
   ]);
   // `repo` is intentionally retained above for access to non-tenant-
   // scoped global stores (none used in this function today; reserved

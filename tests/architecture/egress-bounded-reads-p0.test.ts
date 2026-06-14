@@ -71,9 +71,12 @@ const SUPABASE_BACKEND_SRC = readFileSync(SUPABASE_BACKEND, "utf8");
 const REC_CLIENT_SRC = readFileSync(REC_CLIENT, "utf8");
 
 describe("EGRESS-P0.1 — /recommendations load-queue passes observations window", () => {
-  it("calls loadFreshCanonicalData with observationsSince + snapshotsSince", () => {
+  it("calls loadFreshCanonicalData with observationsSince + skipSnapshots", () => {
+    // 2026-06-15 — load-queue never consumes dailyMetricSnapshots, so it now
+    // SKIPS that read entirely (stronger than the prior bounded snapshotsSince
+    // window — was ~9 MB + ~19 paged round-trips of pure waste per render).
     expect(LOAD_QUEUE_SRC).toMatch(
-      /loadFreshCanonicalData\(\{[\s\S]{0,200}observationsSince[\s\S]{0,200}snapshotsSince/,
+      /loadFreshCanonicalData\(\{[\s\S]{0,200}observationsSince[\s\S]{0,200}skipSnapshots:\s*true/,
     );
   });
 

@@ -225,12 +225,14 @@ export async function loadLiveRecommendationQueue(
   // honest. Pinned by tests/architecture/egress-bounded-reads-p0.test.ts.
   const NOW_MS = Date.now();
   const observationsSince = new Date(NOW_MS - 60 * 86_400_000).toISOString();
-  const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  // 2026-06-15 — load-queue builds the matrix from observations only and
+  // never reads dailyMetricSnapshots (the destructure below omits it), so the
+  // snapshot read was ~9 MB + ~19 paged round-trips of pure waste per render
+  // for a data-rich tenant. skipSnapshots eliminates it. (page_snapshots —
+  // the page inventory — is a SEPARATE read further down and is unaffected.)
   const freshCanonRes = await trace.time("loadFreshCanonicalData", () =>
     safeCall(
-      () => loadFreshCanonicalData({ observationsSince, snapshotsSince }),
+      () => loadFreshCanonicalData({ observationsSince, skipSnapshots: true }),
       {
         trackedPrompts: [],
         promptAnswerObservations: [],
