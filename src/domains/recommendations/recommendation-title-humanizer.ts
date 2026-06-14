@@ -511,6 +511,20 @@ export function cleanDisplayLabel(
     "new section",
     "question",
     "answer",
+    // wave-12 buyer's-eye (2026-06-14): the bare (non-"new") type tags also
+    // leaked to the customer queue — e.g. "Design-build for modern Bay Area
+    // homes (H2)". They're redundant noise (the row already shows a TYPE
+    // column + the top-pick appends the type), so strip them like the "new"
+    // forms. Only unambiguous content-type tags — never a real parenthetical
+    // like "(no footprint increase)".
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "faq",
+    "section",
   ]);
   for (let i = 0; i < 3; i += 1) {
     const m = s.match(/\s*\(([^()]*)\)\s*$/);
@@ -519,6 +533,11 @@ export function cleanDisplayLabel(
     if (!NOISE_TAGS.has(inner)) break;
     s = s.slice(0, m.index ?? s.length).trim();
   }
+  // NB: only PARENTHESIZED type tags are treated as noise. A BARE trailing
+  // token (e.g. "Working H2") is preserved as legitimate content — pinned by
+  // recommendation-action-rows-faq-grouping.test.ts. (A bare "H2" that's
+  // actually an artifact — e.g. the Atherton label — is a generation-side
+  // issue, not a display one; the display layer must not guess.)
   return s;
 }
 

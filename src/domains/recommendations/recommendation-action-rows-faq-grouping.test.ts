@@ -442,6 +442,27 @@ describe("cleanDisplayLabel — trailing noise parentheticals", () => {
       "Working H2",
     );
   });
+
+  it("strips bare parenthesized type tags — (H2)/(FAQ)/(section) (wave-12 buyer's-eye)", () => {
+    // Caught on the customer queue: "Design-build for modern Bay Area homes
+    // (H2)" etc. The type already shows in its own column + the top-pick
+    // appends it, so the parenthesized tag is redundant noise. (A BARE
+    // trailing token stays — see the "Working H2" test above; the display
+    // layer never guesses whether a bare token is content or artifact.)
+    expect(
+      cleanDisplayLabel("Design-build for modern Bay Area homes (H2)"),
+    ).toBe("Design-build for modern Bay Area homes");
+    expect(cleanDisplayLabel("Why hire an architect-led firm (FAQ)")).toBe(
+      "Why hire an architect-led firm",
+    );
+    expect(cleanDisplayLabel("Underground basements (section)")).toBe(
+      "Underground basements",
+    );
+    // ...but a genuine parenthetical is still preserved.
+    expect(cleanDisplayLabel("Custom homes (no footprint increase)")).toBe(
+      "Custom homes (no footprint increase)",
+    );
+  });
 });
 
 // ── Operator-locked rule 7: defensive partitioner ─────────────────────
