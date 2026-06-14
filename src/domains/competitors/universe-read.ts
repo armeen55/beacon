@@ -10,10 +10,6 @@ import "server-only";
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import { getRepository } from "@/lib/persistence/repositories";
 import { hasActiveExperiment } from "@/lib/seed-data.server";
-import {
-  DEMO_CONFIGURED_COMPETITOR_ENTRIES,
-  DEMO_COMPETITOR_UNIVERSE_FINGERPRINT,
-} from "./universe-defaults";
 import { computeCompetitorUniverseFingerprint } from "./universe-fingerprint";
 import { normalizeCompetitorDomain } from "./universe-normalize";
 import type {
@@ -119,9 +115,17 @@ export async function loadCompetitorUniverseRuntime(): Promise<CompetitorUnivers
       fingerprint_mismatch: false,
     });
   }
-  return buildRuntime("demo_defaults_explicit", DEMO_CONFIGURED_COMPETITOR_ENTRIES, {
-    universe_version: null,
-    universe_fingerprint: DEMO_COMPETITOR_UNIVERSE_FINGERPRINT,
+  // De-verticalized (2026-06-15): a tenant with no configured competitor
+  // universe (and no active import) gets an HONEST EMPTY universe — NOT the
+  // bundled builder demo competitors (De Mattei Construction, Palo Alto
+  // Builders, Silicon Valley Custom Homes), which would surface a Bay-Area
+  // builder's rivals on every other vertical's /competitors page. The empty
+  // runtime renders as "No competitor universe configured — treat cited
+  // external domains as uncategorized", identical to the empty-import path.
+  const emptyFp = computeCompetitorUniverseFingerprint([]);
+  return buildRuntime("empty_import_mode", [], {
+    universe_version: 0,
+    universe_fingerprint: emptyFp,
     legacy_unversioned_file: false,
     fingerprint_mismatch: false,
   });
