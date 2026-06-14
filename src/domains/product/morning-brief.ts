@@ -911,7 +911,10 @@ function suggestTitleRewrite(
     // words from the top query. If yes, the title is already good.
     const queryContentWords = topQueryLower
       .split(/\s+/)
-      .filter((w) => w.length > 3 && !["best", "top", "builders", "builder", "home", "homes", "custom", "luxury", "the", "for", "and", "bay", "area", "which", "who", "should", "hire"].includes(w));
+      // De-verticalized (2026-06-15): generic English query stopwords ONLY.
+      // Removed builder/Bay-Area words (builders/home/custom/luxury/bay/area) —
+      // those are meaningful content words for other verticals, not stopwords.
+      .filter((w) => w.length > 3 && !["best", "top", "the", "for", "and", "which", "who", "should", "hire"].includes(w));
 
     const missingWords = queryContentWords.filter((w) => !titleLower.includes(w));
     if (missingWords.length < 2) return null; // Title already has the keywords
@@ -994,7 +997,8 @@ function suggestTitleRewrite(
       .replace(/^Shield: /, "")
       .replace(/ \([^)]+\)$/, "");
     const topicWords = primaryTopic.toLowerCase().split(/\s+/)
-      .filter((w) => w.length > 3 && !["the", "bay", "area"].includes(w));
+      // De-verticalized (2026-06-15): drop the Bay-Area-specific "bay"/"area".
+      .filter((w) => w.length > 3 && !["the"].includes(w));
     const titleHasKeys = topicWords.filter((w) => titleLower.includes(w));
     if (titleHasKeys.length >= topicWords.length * 0.6) return null;
 
@@ -1067,29 +1071,28 @@ function generateSectionSkeleton(
 
   // Generate section-specific skeletons
   const labelLower = gap.label.toLowerCase();
+  // De-verticalized (2026-06-15): vertical-neutral section skeletons — no
+  // builder/construction nouns ("per sq ft", "permits → construction",
+  // "design-build", "homeowner"). The scaffolds work for any vertical;
+  // {topic} carries the tenant's own subject.
   if (labelLower.includes("neighborhood") || labelLower.includes("area")) {
-    lines.push(`- H2: "Neighborhoods We Build In${city ? ` — ${city}` : ""}"`);
+    lines.push(`- H2: "Areas We Serve${city ? ` — ${city}` : ""}"`);
     lines.push("- Paragraph: 2-3 sentences about your coverage area (you write this)");
-    lines.push("- List: link to each neighborhood or sub-area you serve");
-    lines.push("- Include internal links to adjacent city pages");
+    lines.push("- List: link to each area or sub-region you serve");
+    lines.push("- Include internal links to adjacent location pages");
   } else if (labelLower.includes("cost") || labelLower.includes("pricing")) {
     lines.push(`- H2: "How Much Does ${topic || "This"} Cost?"`);
-    lines.push("- Paragraph: typical cost ranges for your area (e.g., $X-$Y per sq ft)");
-    lines.push("- Factors list: size, complexity, materials, site conditions, permits");
+    lines.push("- Paragraph: typical price ranges with context (e.g., $X–$Y)");
+    lines.push("- Factors list: scope, complexity, options, and what's included");
     lines.push("- Note: do NOT give a single number — give ranges with context");
   } else if (labelLower.includes("process") || labelLower.includes("timeline")) {
-    lines.push(`- H2: "Our ${topic || "Build"} Process"`);
-    lines.push("- Numbered steps: consultation → design → permits → construction → walkthrough");
-    lines.push("- Include typical timeline for each phase");
+    lines.push(`- H2: "Our ${topic || "Service"} Process"`);
+    lines.push("- Numbered steps: inquiry → consultation → delivery → follow-up");
+    lines.push("- Include a typical timeline for each phase");
   } else if (labelLower.includes("testimonial") || labelLower.includes("review")) {
     lines.push(`- H2: "What Our Clients Say${city ? ` in ${city}` : ""}"`);
-    lines.push("- 2-3 client quotes with names and project type");
+    lines.push("- 2-3 client quotes with names and context");
     lines.push("- Add Review schema (JSON-LD) for each testimonial");
-  } else if (labelLower.includes("design") || labelLower.includes("build")) {
-    lines.push(`- H2: "Design-Build${city ? ` in ${city}` : ""}: Architecture to Construction"`);
-    lines.push("- Paragraph: explain what design-build means for the homeowner");
-    lines.push("- Benefits list: single point of contact, cost control, faster timeline");
-    lines.push("- Include link to your /services/design-build page if it exists");
   } else if (labelLower.includes("comparison") || labelLower.includes("vs")) {
     lines.push(`- H2: "How We Compare${city ? ` in ${city}` : ""}"`);
     lines.push("- Comparison table with your top 4-5 competitors (see comparison table rec)");
@@ -1164,7 +1167,10 @@ function generateInternalLinkSteps(
           ?.replace(/ \([^)]+\)$/, "")
       : null;
 
-    const anchorText = citedTopic ?? `Custom Home Builder in ${cityName}`;
+    // De-verticalized (2026-06-15): the anchor falls back to the linked page's
+    // own name/location (cityName = its /locations/<city> segment or cleaned
+    // title), never a hardcoded "Custom Home Builder" vertical noun.
+    const anchorText = citedTopic ?? cityName;
     return `<a href="${cp.path}">${anchorText}</a>`;
   });
 
@@ -1307,9 +1313,13 @@ function generateQueryGapSteps(
     if (!titleLower.includes(phrase)) {
       const siteName = title.match(/\|\s*(.+)$/)?.[1]?.trim() ?? "";
       const suffix = siteName ? ` | ${siteName}` : "";
+      // De-verticalized (2026-06-15): no fabricated "Bay Area" region word when
+      // there's no city signal (cityName comes only from a /locations/<city>
+      // URL segment). The brand suffix already carries identity — a non-Bay-Area
+      // tenant must never get "… Bay Area" injected into a suggested title.
       const newTitle = cityName
         ? `Best ${phraseTitle} in ${cityName}${suffix}`
-        : `${phraseTitle} Bay Area${suffix}`;
+        : `${phraseTitle}${suffix}`;
 
       steps.push(
         `Change title from:\n  <title>${title}</title>\nto:\n  <title>${newTitle}</title>\n\nAI platforms search "${phrase}" (${freq}x frequency) but this phrase doesn't appear in your title or any H2. Adding it aligns the page with the most-searched query.`,
