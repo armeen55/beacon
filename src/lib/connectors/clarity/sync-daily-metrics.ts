@@ -54,7 +54,10 @@ export async function syncClarityDailyMetricsForTenant(args: {
       .upsert(rows, { onConflict: "tenant_id,date,url" });
     if (error) {
       log.warn("[clarity-sync] upsert failed", { tenantId, error: error.message });
-      return { synced: true, rows_upserted: 0 };
+      // audit #16 (2026-06-14): a failed upsert is NOT a successful sync.
+      // synced:true here made a persistence failure look identical to a
+      // no-traffic night (the June-3 "ok with zero rows" incident class).
+      return { synced: false, reason: "upsert_failed" };
     }
   } catch {
     return { synced: false, reason: "supabase_unavailable" };

@@ -236,7 +236,10 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     });
     const t = totals?.[0];
     if (t != null) {
-      await sb.from("gsc_daily_totals").upsert(
+      // audit #16 (2026-06-14): check { error } like the gsc_daily_rows +
+      // page-totals paths — this upsert previously swallowed failures, so a
+      // silent write failure was invisible in the nightly log.
+      const { error: totalsErr } = await sb.from("gsc_daily_totals").upsert(
         [
           {
             tenant_id: tenantId,
@@ -252,6 +255,13 @@ export async function syncGscSearchAnalyticsForTenant(args: {
         ],
         { onConflict: "tenant_id,property,date" },
       );
+      if (totalsErr) {
+        log.warn("[gsc-sa-sync] gsc_daily_totals upsert failed", {
+          tenantId,
+          day,
+          error: totalsErr.message,
+        });
+      }
     }
 
     // Per-PAGE ungrouped totals (dimensions=[page]). Unlike the page+query

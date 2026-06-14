@@ -185,7 +185,9 @@ export async function syncSemrushKeywordGapForTenant(args: {
         tenantId,
         error: error.message,
       });
-      return { synced: true, competitor, rows_upserted: 0 };
+      // audit #16 (2026-06-14): a failed upsert is NOT a successful sync —
+      // report it so the nightly runner warns instead of silently logging 0.
+      return { synced: false, reason: "upsert_failed" };
     }
     upserted = mapped.length;
   }
