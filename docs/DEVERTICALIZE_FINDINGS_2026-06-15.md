@@ -1,6 +1,37 @@
 # De-verticalization confirmed findings (workflow wf_eff873be-385, 2026-06-15)
 
-> ## SWEEP STATUS (2026-06-15) — 12 commits landed; highest-harm leaks eliminated
+> ## SWEEP STATUS (2026-06-15) — 21 commits landed; active leaks + config-threading done
+> **CONFIG-THREADING ROUND 2 (2026-06-15 PM) — vertical-tuned classifiers now tenant-driven:**
+> - `frontier-planner.ts` city/service frontier classification: dropped the hardcoded
+>   Bay-Area-city + builder-service regex → `getCurrentTenantFrontierVocab()` from
+>   BusinessConfig.locations/.services, threaded through all 4 call sites (`100256f`).
+> - `builder-benchmark.ts` competitor benchmark: dropped the 9-domain builder name map
+>   + 5-domain builder directory filter + " Construction"→"custom homes" rewrite →
+>   names from the tenant's competitor universe (domainToLabel), directories from
+>   config.directoryDomains (universal default), generic topic-label cleanup;
+>   `getCurrentTenantBenchmarkOpts()` threaded through /today line, /competitors,
+>   /diagnostics, settings/history (`3ed7837`).
+> - `opportunity-candidates/builders.ts` TOPIC_ADJACENCY builder map → adjacency
+>   derived from the tenant's OWN services (expand into other services); threaded
+>   serviceVocab via computeOpportunityCandidates at /expansion + /diagnostics (`291ac9b`).
+>
+> **RESIDUAL (deliberately left — risk/value justified, not oversight):**
+> - `openai.ts` SYSTEM_PROMPT builder/Ritz few-shot examples: PEDAGOGICAL (teach
+>   format rules — full entity name, no keyword-stuffed queries, evidence-grounded
+>   claims), NOT output-determining. The model applies the rules to the PACKET's
+>   actual tenant data, so a non-builder's LLM output uses their content, not builder
+>   content. Rewriting a ~700-line tuned + test-pinned prompt risks degrading output
+>   for ALL tenants; not worth doing under deadline. Proper fix remains a
+>   `buildSystemPrompt(packet)` refactor that injects the tenant brand into the few
+>   INSTRUCTIONAL "Ritz" references (vs the illustrative examples). (L, low harm.)
+> - `opportunity-candidates/builders.ts` DEFAULT_EXPANSION_CITIES: Bay-Area geo
+>   FALLBACK, fires only when a caller passes undefined cities. Normal path threads
+>   cfg.locations (tenant-aware). Kept per the #149-family "Ritz parity" decision;
+>   neutralizing to [] risks Ritz /expansion breadth. (No non-builder harm — they
+>   thread their own locations.)
+> - `query-fanout-audit.ts` KNOWN_GEO_TOKENS: UNWIRED feature (no production caller),
+>   so no output impact; de-vert deferred until it ships.
+>
 > **DONE (the active wrong-output leaks for non-builder tenants):**
 > - query-relevance: `query-index.ts` DEFAULT_CITIES (Bay-Area cities applied to
 >   Iranopedia's relevance) + "bay area" homepage boost + SERVICE_KEYWORD_MAP (`7e7e47c`)

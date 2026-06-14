@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-15 PM (de-vert config-threading round 2 — vertical-tuned classifiers → tenant-driven)
+
+**Directive (continued):** "remove ALL hardcoding for builders … go deep w dynamic workflow we are officially a tool for everyone." Round 1 removed the active wrong-output leaks; round 2 converts the remaining vertical-TUNED classifiers/scorers to read the tenant's own config vocabulary.
+
+**Fixed (3 commits, each typecheck-clean + full suite 14,793/14,793 green; NOT pushed):**
+- `100256f` frontier-planner: city/service frontier classification was a hardcoded Bay-Area-city + builder-service regex → `getCurrentTenantFrontierVocab()` (BusinessConfig.locations/.services), threaded through all 4 call sites (/topics ×3, package-actions). Empty vocab → topic_frontier (neutral default). No test pins computeFrontiers; Ritz unaffected (its config carries its own cities/services).
+- `3ed7837` builder-benchmark: dropped the 9-domain builder competitor name map + 5-domain builder directory filter (houzz/angi/diamondcertified) + " Construction"→"custom homes" rewrite. Names now from the tenant's competitor universe (`domainToLabel`); directories from `config.directoryDomains` (universal cross-industry default); generic topic-label cleanup. `getCurrentTenantBenchmarkOpts()` threaded through /today competitor line (directoryDomains from businessConfig), /competitors, /diagnostics Beacon score, settings/history. profound-adapter score path left on the universal default (sync builder; consumes only ownedAppearanceRate + competitor count). No test pins computeMarketBenchmark.
+- `291ac9b` opportunity-candidates: dropped the builder TOPIC_ADJACENCY map. findAdjacentTopics now derives adjacency from the tenant's OWN services (proven topic → expand into the tenant's other services); <2 configured services → no synthetic expansion. Threaded serviceVocab via computeOpportunityCandidates from businessConfig.services at /expansion + /diagnostics, mirroring the existing cities threading.
+
+**Residual (deliberately left — documented in DEVERTICALIZE_FINDINGS_2026-06-15.md):** openai.ts SYSTEM_PROMPT (pedagogical builder few-shots, not output-determining; ~700-line tuned + test-pinned — rewriting under deadline risks degrading all tenants); DEFAULT_EXPANSION_CITIES (Ritz-parity fallback, normal path threads cfg.locations); query-fanout-audit KNOWN_GEO_TOKENS (unwired feature, no output impact).
+
+---
+
 ## 2026-06-15 (de-verticalization sweep — "tool for everyone", remove builder/Bay-Area hardcoding)
 
 **Directive:** Beacon must be vertical-agnostic — a tool for EVERYONE, not builders. Remove ALL builder/Bay-Area/Ritz hardcoding from product code paths a non-builder tenant hits.
