@@ -259,12 +259,27 @@ export function tenantizeRows<
   });
 }
 
-export async function dualWriteTruncate(table: string): Promise<void> {
+/**
+ * Tenant-scoped truncate. CRITICAL ISOLATION FIX (2026-06-14): the prior
+ * `.delete().gte("id", "")` matched EVERY row and wiped ALL tenants' data
+ * (a single tenant's "Reset import" deleted import_runs/results/changelog/
+ * opportunities/competitors/attribution/candidate_links for every tenant).
+ * Every truncated table carries `tenant_id`, so the delete is now filtered
+ * to the caller's tenant. `tenantId` is REQUIRED — never truncate unscoped.
+ */
+export async function dualWriteTruncate(
+  table: string,
+  tenantId: string,
+): Promise<void> {
   if (!isDualWriteEnabled()) return;
+  if (!tenantId) {
+    console.error(`[dual-write] ${table}: truncate refused — missing tenantId`);
+    return;
+  }
 
   try {
     const sb = getSupabaseAdmin();
-    const { error } = await sb.from(table).delete().gte("id", "");
+    const { error } = await sb.from(table).delete().eq("tenant_id", tenantId);
     if (error) {
       console.error(
         `[dual-write] ${table}: truncate failed — ${error.message}`,
@@ -849,9 +864,13 @@ export async function syncGuardrailAlerts(
   try {
     // Delete-replace: guardrail_alerts has auto-increment integer PK,
     // no stable text key for upsert. Local file also fully replaces on each scan.
+    // CRITICAL ISOLATION FIX (2026-06-14): scope the delete to THIS tenant —
+    // the prior `.gte("id", 0)` wiped every tenant's alerts on each scan, so a
+    // Ritz nightly scan deleted Iranopedia's guardrail_alerts.
     const { error: delErr } = await sb
       .from("guardrail_alerts")
       .delete()
+      .eq("tenant_id", tenantId)
       .gte("id", 0);
     if (delErr) {
       console.error(
@@ -1428,8 +1447,12 @@ export async function syncPageElementInventory(
  * Clear all 7 import-path tables in Supabase (used by resetExperiment).
  * Best-effort — errors logged, never thrown.
  */
-export async function clearAllImportTables(): Promise<void> {
+export async function clearAllImportTables(tenantId: string): Promise<void> {
   if (!isDualWriteEnabled()) return;
+  if (!tenantId) {
+    console.error("[dual-write] clearAllImportTables refused — missing tenantId");
+    return;
+  }
 
   const tables = [
     "import_runs",
@@ -1442,6 +1465,6 @@ export async function clearAllImportTables(): Promise<void> {
   ];
 
   for (const t of tables) {
-    await dualWriteTruncate(t);
+    await dualWriteTruncate(t, tenantId);
   }
 }

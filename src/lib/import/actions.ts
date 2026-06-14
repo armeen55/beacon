@@ -542,7 +542,7 @@ export async function resetExperiment(
   if (!options.preserveTruthLabels) {
     await persistTruthLabels();
   }
-  await clearAllImportTables();
+  await clearAllImportTables(await currentTenantId());
 
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
