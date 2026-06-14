@@ -526,10 +526,17 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
     verdict = "helping";
   } else if (z <= -t.zBar && sustainDown >= t.sustainMin) {
     verdict = "hurting";
-  } else if (
-    Math.abs(z) >= t.zBarWeakSignal &&
-    (sustainUp >= t.sustainMin || sustainDown >= t.sustainMin)
-  ) {
+  } else if (z >= t.zBarWeakSignal && sustainUp >= t.sustainMin) {
+    // audit wave-2 #11 (2026-06-14): weak_signal is a POSITIVE-only tier —
+    // its locked customer copy is "Early signs of lift detected after this
+    // change". The old condition (|z| >= zBarWeakSignal && (sustainUp ||
+    // sustainDown)) let a DOWNWARD-trending URL (negative z + sustainDown)
+    // borrow that label, rendering "early signs of lift" on a page that is
+    // actually DECLINING — a false ROI claim, the exact thing the proof
+    // engine's computed-vs-weak discipline exists to prevent. Require
+    // positive z AND upward sustain; a weak decline now falls through to
+    // nothing_yet (honest "not yet measurable"), while a STRONG decline is
+    // still caught by the `hurting` tier above.
     verdict = "weak_signal";
   } else if (N >= t.nothingYetMinDays) {
     verdict = "nothing_yet";

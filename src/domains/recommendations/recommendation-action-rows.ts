@@ -1087,6 +1087,15 @@ export function composeRowEvidenceSummary(args: {
   // when both are known. Falls back to topic only / geo only / null.
   const topicGeoPhrase = topicGeoQueriesPhrase({ topic, geo });
 
+  // audit wave-2 #10 (2026-06-14): only lead with the AEO answer COUNT when
+  // it's real. With ZERO observations — a non-AEO-triggered card (content /
+  // schema / internal-link) that also lacks a GSC signal — "0 AI answers;"
+  // is noise, not the "why" (mirrors the #9 override-branch fix). Drop the
+  // count and let the structural clause stand (capitalized). When N > 0 the
+  // count is meaningful ("5 AI answers; your site isn't cited") and kept.
+  const leadSummary = (clause: string): string =>
+    N > 0 ? `${lead}; ${clause}` : clause.charAt(0).toUpperCase() + clause.slice(1);
+
   if (args.override && args.override.trim().length > 0) {
     const o = args.override.trim().replace(/\.$/, "");
     // audit #9 (2026-06-14): with NO GSC signal and ZERO AEO observations,
@@ -1136,17 +1145,17 @@ export function composeRowEvidenceSummary(args: {
   // ── Branch: zero brand share, has cluster + topic ──
   if (sharePct === 0 && topicGeoPhrase) {
     const tail = realCompetitorPresent ? " while competitors appear" : "";
-    return `${lead}; your site isn't cited for ${topicGeoPhrase}${tail}.`;
+    return `${leadSummary(`your site isn't cited for ${topicGeoPhrase}${tail}`)}.`;
   }
   // ── Branch: zero brand share, has target page ──
   if (sharePct === 0 && args.targetLabel !== "New page") {
     const tail = realCompetitorPresent ? " while competitors appear" : "";
-    return `${lead}; ${args.targetLabel} not cited${tail}.`;
+    return `${leadSummary(`${args.targetLabel} not cited${tail}`)}.`;
   }
   // ── Branch: zero brand share, no signal ──
   if (sharePct === 0) {
     const tail = realCompetitorPresent ? " while competitors appear" : "";
-    return `${lead}; your site isn't cited yet${tail}.`;
+    return `${leadSummary(`your site isn't cited yet${tail}`)}.`;
   }
   // ── Branch: brand cited but losing — has topic ──
   if (sharePct < 30 && topicGeoPhrase) {
