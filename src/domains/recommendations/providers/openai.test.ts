@@ -93,6 +93,7 @@ const ORIGINAL_ENV = { ...process.env };
 beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
   delete process.env.VERCEL;
+  delete process.env.NEXT_PHASE;
   delete process.env.BEACON_LLM_BUILD_OK;
   process.env.OPENAI_API_KEY = "sk-test-fixture";
 });
@@ -117,19 +118,36 @@ describe("openai provider — Vitest safety gate", () => {
   });
 });
 
-describe("openai provider — Vercel build guard", () => {
-  it("throws when VERCEL=1 and BEACON_LLM_BUILD_OK is not set", async () => {
-    process.env.VERCEL = "1";
+describe("openai provider — production-BUILD guard (not runtime)", () => {
+  it("throws during the Next.js production build (NEXT_PHASE) when BEACON_LLM_BUILD_OK is not set", async () => {
+    process.env.NEXT_PHASE = "phase-production-build";
     const fetchImpl = vi.fn();
     await expect(
       generateOpenAIBundle(makePacket(), { fetchImpl }),
-    ).rejects.toThrow(/Vercel build/);
+    ).rejects.toThrow(/production build/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("permits the call when VERCEL=1 AND BEACON_LLM_BUILD_OK=1", async () => {
-    process.env.VERCEL = "1";
+  it("permits the call during the build when BEACON_LLM_BUILD_OK=1", async () => {
+    process.env.NEXT_PHASE = "phase-production-build";
     process.env.BEACON_LLM_BUILD_OK = "1";
+    const fetchImpl = vi.fn(async () =>
+      makeChatResponse({ content: { recommendations: [] } }),
+    );
+    const bundle = await generateOpenAIBundle(makePacket(), {
+      fetchImpl,
+      now: FROZEN_NOW,
+    });
+    expect(bundle.recommendations).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("PERMITS a hosted RUNTIME call when VERCEL=1 but NOT building (2026-06-15 golden-path fix)", async () => {
+    // The old guard gated on VERCEL===1, which is true at runtime too, so it
+    // wrongly refused every hosted LLM request. The guard now keys on the
+    // build phase only, so a real Vercel runtime invocation must succeed.
+    process.env.VERCEL = "1";
+    delete process.env.NEXT_PHASE;
     const fetchImpl = vi.fn(async () =>
       makeChatResponse({ content: { recommendations: [] } }),
     );

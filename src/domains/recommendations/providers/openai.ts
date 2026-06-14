@@ -761,15 +761,20 @@ export async function generateOpenAIBundle(
     );
   }
 
-  // ── 0b. Build-environment safety gate ───────────────────────────────
-  // Vercel build never has a legitimate reason to call the LLM. Throw
-  // unless explicitly unblocked.
+  // ── 0b. Build-PHASE safety gate ─────────────────────────────────────
+  // The Next.js production BUILD never has a legitimate reason to call the
+  // LLM (prerender/route-collection must not spend tokens). Gate on the
+  // actual build phase — NOT `process.env.VERCEL`, which is "1" at RUNTIME
+  // too, so the old check refused every hosted request and silently blocked
+  // real LLM recommendations on Vercel (2026-06-15 golden-path fix). The
+  // BEACON_LLM_BUILD_OK escape hatch is preserved for an intentional
+  // build-time call.
   if (
-    process.env.VERCEL === "1" &&
+    process.env.NEXT_PHASE === "phase-production-build" &&
     process.env.BEACON_LLM_BUILD_OK !== "1"
   ) {
     throw new Error(
-      "[openai-provider] refusing to call OpenAI during Vercel build. " +
+      "[openai-provider] refusing to call OpenAI during the Next.js production build. " +
         "If this is intentional, set BEACON_LLM_BUILD_OK=1.",
     );
   }
