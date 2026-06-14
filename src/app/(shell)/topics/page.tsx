@@ -21,7 +21,7 @@ import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-stor
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { getRolloutExecutions, getPatternEvidence, getPageIssues } from "@/domains/pages/issues";
 import { getRolloutWaves } from "@/domains/pages/wave-planner";
-import { computeFrontiers, type FrontierOpportunity } from "@/domains/pages/frontier-planner";
+import { computeFrontiers, getCurrentTenantFrontierVocab, type FrontierOpportunity } from "@/domains/pages/frontier-planner";
 import {
   compileFrontierAttack, getAttackPackages, getTrackedMissingPages,
   computePackageProgress, derivePackageStatus,
@@ -436,12 +436,14 @@ export default async function TopicsPage() {
         const patterns = minePatterns(snaps, citMap, rows, rolloutExecutions, patternEvidence);
         const briefs = generateBriefs(snaps, citMap, patterns);
         const compEvidence = await getCompetitorEvidence(ci);
-        const frontiers0 = computeFrontiers(ci, snaps, briefs, rolloutWaves, patterns, compEvidence);
+        // De-verticalized: per-tenant city/service vocab for frontier classification.
+        const frontierVocab = await getCurrentTenantFrontierVocab();
+        const frontiers0 = computeFrontiers(ci, snaps, briefs, rolloutWaves, patterns, compEvidence, undefined, frontierVocab);
         const persistedAR = await getAssetResponsesMap();
         const arByTopic = persistedAR.size > 0
           ? persistedAR
           : new Map(computeAllAssetResponses(compEvidence, frontiers0).map(a => [a.topic, a]));
-        const frontiers = computeFrontiers(ci, snaps, briefs, rolloutWaves, patterns, compEvidence, arByTopic);
+        const frontiers = computeFrontiers(ci, snaps, briefs, rolloutWaves, patterns, compEvidence, arByTopic, frontierVocab);
         return frontiers.map(f => {
           const ar = arByTopic.get(f.topic);
           const ce = compEvidence.get(f.topic);
@@ -542,7 +544,8 @@ export default async function TopicsPage() {
         const [re2, pe2] = await Promise.all([gre2(), gpe2()]);
         const patterns2 = mp2(snaps2, citMap2, rows, re2, pe2);
         const briefs2 = gb2(snaps2, citMap2, patterns2);
-        const frontiers2 = computeFrontiers(ci2, snaps2, briefs2, rolloutWaves, patterns2);
+        const frontierVocab2 = await getCurrentTenantFrontierVocab();
+        const frontiers2 = computeFrontiers(ci2, snaps2, briefs2, rolloutWaves, patterns2, undefined, undefined, frontierVocab2);
         const frontier = frontiers2.find((f) => f.frontierKey === frontierKey);
         if (!frontier) return { success: false, handoffText: "" };
         const { compileFrontierAttack: cfa } = await import("@/domains/pages/frontier-compiler");

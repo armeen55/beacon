@@ -151,7 +151,7 @@ export async function refreshCompetitorEvidence(): Promise<{ success: boolean; t
   const { join } = await import("node:path");
   const { computeCompetitorEvidence, persistComputedEvidence } = await import("@/domains/pages/competitor-evidence");
   const { computeAllAssetResponses, persistComputedAssetResponses } = await import("@/domains/pages/asset-response");
-  const { computeFrontiers } = await import("@/domains/pages/frontier-planner");
+  const { computeFrontiers, getCurrentTenantFrontierVocab } = await import("@/domains/pages/frontier-planner");
   const { minePatterns, generateBriefs } = await import("@/domains/pages/playbook");
   const { getRolloutExecutions, getPatternEvidence } = await import("@/domains/pages/issues");
   const { getRolloutWaves } = await import("@/domains/pages/wave-planner");
@@ -196,7 +196,8 @@ export async function refreshCompetitorEvidence(): Promise<{ success: boolean; t
   const rows = computeScorecard(changelogEntries, results, opportunities, eventDecisions);
   const patterns = minePatterns(snaps, citMap, rows, rolloutExecutions, pe);
   const briefs = generateBriefs(snaps, citMap, patterns);
-  const frontiers = computeFrontiers(ci, snaps, briefs, rolloutWaves, patterns, summaries);
+  const frontierVocab = await getCurrentTenantFrontierVocab();
+  const frontiers = computeFrontiers(ci, snaps, briefs, rolloutWaves, patterns, summaries, undefined, frontierVocab);
 
   const assetResps = computeAllAssetResponses(summaries, frontiers);
   await persistComputedAssetResponses(assetResps);

@@ -17,6 +17,7 @@ import type { RolloutWave } from "./wave-planner";
 import type { FrontierCompetitiveSummary } from "./competitor-evidence";
 import type { AssetResponse } from "./asset-response";
 import { getSiteConfig } from "@/lib/site-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 
 // ── Types ──
 
@@ -98,6 +99,23 @@ export function _resetFrontierOpportunitiesForTests(): void {
 
 // ── Frontier Computation ──
 
+/** Resolve the current tenant's frontier vocab (cities + services) from
+ *  BusinessConfig, for `computeFrontiers`' city/service classification.
+ *  Fail-soft to empty (→ topic_frontier classification). De-verticalized
+ *  (2026-06-15): callers pass this so frontier classification is per-tenant,
+ *  not a hardcoded Bay-Area + builder regex. */
+export async function getCurrentTenantFrontierVocab(): Promise<{
+  cities: string[];
+  services: string[];
+}> {
+  try {
+    const cfg = await getBusinessConfigForCurrentTenant();
+    return { cities: cfg.locations ?? [], services: cfg.services ?? [] };
+  } catch {
+    return { cities: [], services: [] };
+  }
+}
+
 export function computeFrontiers(
   citationIndex: CitationEvidenceIndex,
   snapshots: PageSnapshot[],
@@ -105,7 +123,13 @@ export function computeFrontiers(
   waves: RolloutWave[],
   patterns: MinedPattern[],
   competitiveEvidence?: Map<string, FrontierCompetitiveSummary>,
-  assetResponses?: Map<string, AssetResponse>
+  assetResponses?: Map<string, AssetResponse>,
+  /** De-verticalized (2026-06-15): the tenant's OWN city + service vocabulary
+   *  (BusinessConfig.locations / .services) for classifying a topic as a
+   *  city_frontier / service_frontier — replaces a hardcoded Bay-Area + builder
+   *  regex. Omit/empty → no city/service classification (topic_frontier), the
+   *  correct neutral default for a tenant with no geo/service vocabulary. */
+  vocab?: { cities?: readonly string[]; services?: readonly string[] },
 ): FrontierOpportunity[] {
   const now = new Date().toISOString();
   const results: FrontierOpportunity[] = [];
@@ -166,15 +190,27 @@ export function computeFrontiers(
     let service: string | null = null;
 
     const topicLower = topic.topic.toLowerCase();
-    const cityMatch = topicLower.match(/^(atherton|palo alto|los altos|menlo park|cupertino|saratoga|emerald hills)/);
-    const serviceMatch = topicLower.match(/(whole home|remodel|renovation|teardown|rebuild|design.build|build on.*lot|architect.*plans)/);
+    // De-verticalized (2026-06-15): classify city/service frontier from the
+    // tenant's OWN vocabulary (vocab.cities/services), longest-name-first so
+    // multi-word terms win — NOT a hardcoded Bay-Area + builder regex. A tenant
+    // with no geo/service vocab falls through to topic_frontier.
+    const cityHit = (vocab?.cities ?? [])
+      .map((c) => c.trim().toLowerCase())
+      .filter((c) => c.length >= 2)
+      .sort((a, b) => b.length - a.length)
+      .find((c) => topicLower.startsWith(c) || topicLower.includes(` ${c}`));
+    const serviceHit = (vocab?.services ?? [])
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length >= 3)
+      .sort((a, b) => b.length - a.length)
+      .find((s) => topicLower.includes(s));
 
-    if (cityMatch) {
+    if (cityHit) {
       frontierType = "city_frontier";
-      geography = cityMatch[1];
-    } else if (serviceMatch) {
+      geography = cityHit;
+    } else if (serviceHit) {
       frontierType = "service_frontier";
-      service = serviceMatch[1];
+      service = serviceHit;
     } else if (topic.competitor_citations > topic.owned_citations * 10) {
       frontierType = "competitor_pressure_frontier";
     } else {
