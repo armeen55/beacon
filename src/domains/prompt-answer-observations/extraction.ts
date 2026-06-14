@@ -485,10 +485,14 @@ export function extractAnswerStructure(
   const bulletMarkers = (
     answerText.match(/(^|\n)\s*[-*+•·▪]\s+/g) ?? []
   ).length;
-  // Comparison language (case-insensitive).
+  // Comparison language (case-insensitive). Audit 2026-06-14: dropped the
+  // bare ambiguous tokens `whereas|while|than|over` — they fire on ordinary
+  // narrative ("over the years", "while you wait", "more than 5") and
+  // over-counted non-comparison answers into the "comparison" structure.
+  // Keep only unambiguous comparison phrases.
   const comparisonMarkers = (
     answerText.match(
-      /\b(?:vs\.?|versus|compared to|whereas|while|than|over|better than|worse than)\b/gi,
+      /\b(?:vs\.?|versus|compared to|better than|worse than)\b/gi,
     ) ?? []
   ).length;
 
