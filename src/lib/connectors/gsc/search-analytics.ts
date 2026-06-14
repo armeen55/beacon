@@ -24,7 +24,7 @@
 
 import "server-only";
 
-import { getGoogleConnectorToken } from "@/lib/connector-store";
+import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { log } from "@/lib/logger";
 
@@ -64,6 +64,35 @@ export async function resolveGscAccessToken(
   if (expiryStatus === "stale_under_7d") {
     try {
       const refreshed = await refreshGoogleAccessToken(token.refresh_token);
+      // wave-9 (2026-06-14): persist the refreshed access_token + new
+      // expires_at back to the connector store (mirrors google-reviews-sync,
+      // and the epoch-ms format evaluateExpiry reads). Pre-fix the refresh
+      // was in-memory ONLY, so every nightly GSC sync re-read the same stale
+      // token and refreshed AGAIN — burning a Google OAuth call per tenant
+      // per sync (~9/day across 3 tenants × 3 fires) for no reason. Best-
+      // effort: a persist failure must NOT fail the sync — the in-memory
+      // token is valid for THIS run; we just log so the operator can see it.
+      try {
+        await updateConnectorToken(
+          "google_gsc",
+          {
+            access_token: refreshed.access_token,
+            expires_at: Date.now() + refreshed.expires_in * 1000,
+          },
+          tenantId,
+        );
+      } catch (persistErr) {
+        log.warn(
+          "[gsc-search-analytics] refreshed token persist failed (continuing with in-memory token)",
+          {
+            tenantId,
+            error:
+              persistErr instanceof Error
+                ? persistErr.message
+                : String(persistErr),
+          },
+        );
+      }
       return refreshed.access_token;
     } catch (err) {
       log.warn("[gsc-search-analytics] token refresh failed", {

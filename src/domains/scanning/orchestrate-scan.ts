@@ -4,7 +4,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 
 import { log } from "@/lib/logger";
-import { currentTenantId } from "@/lib/tenant-context";
+import { currentTenantId, currentTenantSlug } from "@/lib/tenant-context";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { getSiteConfig } from "@/lib/site-config";
 import { isLifecycleEnabled } from "@/lib/flags";
@@ -175,10 +175,21 @@ export async function runWebsiteScan(opts: {
   const runId = `scan-${Date.now()}`;
   const startedAt = Date.now();
   // Phase 7.7b Commit 3 (2026-04-25): resolve tenantId once at the top
-  // and thread it into the dual-write block. Child-process env injection
-  // (Phase 7.7e) deferred — the spawned CLI still inherits BEACON_TENANT_ID
-  // implicitly from the parent process.
+  // and thread it into the dual-write block.
   const tenantId = await currentTenantId();
+  // wave-9 (2026-06-14): resolve the tenant SLUG per-call too and inject it
+  // explicitly into the spawned CLI env below. Previously the slug rode
+  // ambient `process.env` (the Phase-7.7e "deferred" note): the cron matrix
+  // sets BEACON_TENANT_SLUG per job so that path worked, but a hosted
+  // server-action / cron-route invocation resolves the tenant from the
+  // request (currentTenantId) while process.env.BEACON_TENANT_SLUG is a
+  // single global (or unset) — so the spawned scan-owned-pages.ts could
+  // route page_snapshots to the WRONG tenant's `.data/tenants/<slug>/` dir
+  // (or fail-loud). `currentTenantSlug()` resolves the registry slug for the
+  // CURRENT tenant (env fallback only when it matches the id), so the child
+  // always writes under the right tenant. Fail-loud (throws) on a genuine
+  // misconfiguration — consistent with currentTenantId() above.
+  const tenantSlug = await currentTenantSlug();
 
   // ── Stale-running detection & duplicate guard ──
   const priorState = readScanState();
@@ -233,6 +244,12 @@ export async function runWebsiteScan(opts: {
   const execEnv: NodeJS.ProcessEnv = {
     ...process.env,
     BEACON_TENANT_ID: tenantId,
+    // wave-9 (2026-06-14): explicit per-call slug (was riding ambient
+    // process.env). scan-owned-pages.ts requires BEACON_TENANT_SLUG to route
+    // tenant-scoped writes to .data/tenants/<slug>/; injecting the resolved
+    // current-tenant slug guarantees the child writes under the RIGHT tenant
+    // even when the ambient env carries a different (or no) slug.
+    BEACON_TENANT_SLUG: tenantSlug,
     NODE_NO_WARNINGS: "1",
     NODE_TLS_REJECT_UNAUTHORIZED: "0",
   };

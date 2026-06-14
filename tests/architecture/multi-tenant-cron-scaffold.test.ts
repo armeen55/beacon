@@ -408,3 +408,32 @@ describe("check-yesterday-poll.ts — multi-tenant fail-loud", () => {
     expect(CANARY_SCRIPT).not.toMatch(/process\.env\.BEACON_TENANT_ID/);
   });
 });
+
+// ── 6. orchestrate-scan.ts — per-call tenant SLUG injection (wave-9, 2026-06-14) ──
+//
+// runWebsiteScan spawns scripts/scan-owned-pages.ts, which REQUIRES
+// BEACON_TENANT_SLUG to route page_snapshots to .data/tenants/<slug>/.
+// Pre-fix the slug rode ambient process.env: the cron matrix set it per job
+// (worked), but a hosted server-action / cron-route invocation resolves the
+// tenant from the request while process.env carries a single global (or no)
+// slug — so the child could write a tenant's snapshots under the WRONG
+// tenant's dir (isolation) or fail. The fix resolves currentTenantSlug() (the
+// registry slug for the CURRENT tenant) and injects it explicitly, mirroring
+// the existing BEACON_TENANT_ID injection. These source-text invariants pin it.
+
+describe("orchestrate-scan.ts — per-call tenant slug injection", () => {
+  const SCAN_SRC = readFileSync(
+    resolve(REPO_ROOT, "src/domains/scanning/orchestrate-scan.ts"),
+    "utf8",
+  );
+
+  it("resolves the slug for the CURRENT tenant via currentTenantSlug()", () => {
+    expect(SCAN_SRC).toContain("currentTenantSlug");
+    expect(SCAN_SRC).toMatch(/const\s+tenantSlug\s*=\s*await\s+currentTenantSlug\(\)/);
+  });
+
+  it("injects BEACON_TENANT_SLUG into the spawned CLI env (not just BEACON_TENANT_ID)", () => {
+    expect(SCAN_SRC).toMatch(/BEACON_TENANT_ID:\s*tenantId/);
+    expect(SCAN_SRC).toMatch(/BEACON_TENANT_SLUG:\s*tenantSlug/);
+  });
+});
