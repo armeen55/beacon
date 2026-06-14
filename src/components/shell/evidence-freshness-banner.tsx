@@ -117,7 +117,10 @@ export function EvidenceFreshnessBanner({
           isStale ? "text-status-warning" : "text-foreground",
         )}
       >
-        {label} reflects the citation-evidence index built{" "}
+        {/* All callers pass a PLURAL label ("Change verdicts", "Topic
+            rankings", "Competitor rankings"), so the verb is plural "reflect"
+            — a future singular-label caller would need to revisit this. */}
+        {label} reflect the citation-evidence index built{" "}
         <span className="tabular-nums">{builtLabel}</span>
         {ageDays > 0 && <> ({ageDays}d ago)</>}
       </span>
