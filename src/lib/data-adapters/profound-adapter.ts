@@ -240,6 +240,8 @@ export function createProfoundAdapters(): BeaconDataAdapters {
       const decayDeclining = decayRes.filter((d) => d.status === "meaningful_decline" || d.status === "soft_decline").length;
       const decayTotal = decayRes.filter((d) => d.status !== "insufficient_history").length;
       const discReport = getDiscReport();
+      // Score path consumes only ownedAppearanceRate + competitor COUNT (no
+      // display names); the universal default directory filter is correct here.
       const benchmark = citIndex ? computeMarketBenchmark(citIndex, pageIssues) : null;
       const totalOwnedCit = citIndex?.by_page_and_topic.filter((r) => r.is_owned).reduce((s, r) => s + r.total_citations, 0) ?? 0;
 

@@ -26,9 +26,63 @@ export type MarketBenchmark = {
   topNextMoves: { label: string; href: string }[];
 };
 
+export type BenchmarkOpts = {
+  /** Tenant's directory/aggregator domains to exclude from "top competitors". */
+  directoryDomains?: readonly string[];
+  /** domain → display name, from the tenant's own competitor universe. */
+  competitorNames?: Record<string, string>;
+};
+
+/**
+ * Universal directory/aggregator/social domains excluded from "top
+ * competitors" for EVERY vertical (cross-industry, not builder-specific).
+ * A tenant's own configured directoryDomains override this via BenchmarkOpts.
+ */
+const DEFAULT_DIRECTORY_DOMAINS: readonly string[] = [
+  "yelp.com", "reddit.com", "facebook.com", "instagram.com",
+  "linkedin.com", "youtube.com", "wikipedia.org", "google.com",
+];
+
+/** Strip TLD + title-case a bare domain into a readable fallback label. */
+function prettifyDomain(domain: string): string {
+  const base = domain.replace(/^www\./, "").replace(/\.[a-z.]+$/i, "");
+  return base
+    .split(/[-.]/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ") || domain;
+}
+
+/**
+ * Resolve benchmark display options from the CURRENT tenant: its configured
+ * directory domains + its competitor-universe display names. Fail-soft to the
+ * universal defaults so a no-config tenant still gets sensible output.
+ * (Dynamic imports keep the pure compute module free of server-only deps.)
+ */
+export async function getCurrentTenantBenchmarkOpts(): Promise<BenchmarkOpts> {
+  try {
+    const [{ getBusinessConfigForCurrentTenant }, { loadCompetitorUniverseRuntime }] =
+      await Promise.all([
+        import("@/lib/business-config"),
+        import("@/domains/competitors/universe-read"),
+      ]);
+    const [cfg, universe] = await Promise.all([
+      getBusinessConfigForCurrentTenant(),
+      loadCompetitorUniverseRuntime(),
+    ]);
+    return {
+      directoryDomains: cfg.directoryDomains?.length ? cfg.directoryDomains : undefined,
+      competitorNames: universe.domainToLabel ?? {},
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function computeMarketBenchmark(
   citationIndex: CitationEvidenceIndex,
   issues: PersistedIssue[],
+  opts?: BenchmarkOpts,
 ): MarketBenchmark {
   const now = new Date().toISOString();
 
@@ -46,24 +100,21 @@ export function computeMarketBenchmark(
     compDomains.set(r.domain, (compDomains.get(r.domain) ?? 0) + r.total_citations);
   }
 
-  const COMP_NAMES: Record<string, string> = {
-    "constructelements.com": "Element Homes",
-    "valleyboutiquebuilders.com": "Valley Boutique Builders",
-    "homebuilderdigest.com": "Home Builder Digest",
-    "supplehomesinc.com": "Supple Homes",
-    "craftsmensguild.com": "Craftsmen's Guild",
-    "greenberg.construction": "Greenberg Construction",
-    "demattei.com": "De Mattei Construction",
-    "baysidebuildersgroup.com": "Bayside Builders",
-    "goldengategroupinc.com": "Golden Gate Group",
+  const directorySet = (opts?.directoryDomains ?? DEFAULT_DIRECTORY_DOMAINS).map((d) =>
+    d.toLowerCase()
+  );
+  const isDirectory = (domain: string): boolean => {
+    const d = domain.toLowerCase();
+    return directorySet.some((dir) => d === dir || d.endsWith(`.${dir}`));
   };
+  const names = opts?.competitorNames ?? {};
 
   const topComp = [...compDomains.entries()]
-    .filter(([d]) => !["houzz.com", "yelp.com", "angi.com", "reddit.com", "diamondcertified.org"].includes(d))
+    .filter(([d]) => !isDirectory(d))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([domain, mentions]) => ({
-      name: COMP_NAMES[domain] ?? domain.replace(/\.com$|\.construction$/, ""),
+      name: names[domain] ?? names[domain.toLowerCase()] ?? prettifyDomain(domain),
       domain,
       rate: totalCit > 0 ? Math.round((mentions / totalCit) * 100) : 0,
       mentions,
@@ -73,10 +124,14 @@ export function computeMarketBenchmark(
   const topicStats = citationIndex.by_topic.map((t) => {
     const ownRate = t.total_citations > 0 ? Math.round((t.owned_citations / t.total_citations) * 100) : 0;
     const compRate = t.total_citations > 0 ? Math.round((t.competitor_citations / t.total_citations) * 100) : 0;
-    const shortTopic = t.topic
-      .replace(/^Shield: /, "")
-      .replace(/ \(Bay Area\)$/, "")
-      .replace(/ Construction$/, " custom homes");
+    // Vertical-neutral topic label: drop a single-word label prefix
+    // (e.g. "Shield: ") and any trailing parenthetical qualifier
+    // (e.g. "(Bay Area)", "(Los Angeles)").
+    const shortTopic =
+      t.topic
+        .replace(/^\w+:\s+/, "")
+        .replace(/\s*\([^)]*\)\s*$/, "")
+        .trim() || t.topic;
     return { topic: shortTopic, fullTopic: t.topic, ownRate, compRate, gap: compRate - ownRate, total: t.total_citations };
   });
 

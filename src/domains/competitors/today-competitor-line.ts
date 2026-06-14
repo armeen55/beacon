@@ -8,14 +8,6 @@ import { competitorUniverseDriftNote } from "./universe-drift-copy";
 
 const NO_ISSUES: PersistedIssue[] = [];
 
-const DIRECTORY_SKIP = new Set([
-  "houzz.com",
-  "yelp.com",
-  "angi.com",
-  "reddit.com",
-  "diamondcertified.org",
-]);
-
 /**
  * Single honest paragraph for Today: configured universe vs citation sample domains.
  */
@@ -25,15 +17,20 @@ export function buildTodayCompetitorLine(opts: {
   primaryVisibilityRun: VisibilityObservationRun | null;
   /** Imported/seed competitor entity hostnames for “import row” overlap (optional). */
   importCompetitorDomains: string[];
+  /** Tenant's directory/aggregator domains to exclude from "top competitors". */
+  directoryDomains?: readonly string[];
 }): string | null {
-  const { universe, citationIndex, primaryVisibilityRun, importCompetitorDomains } =
+  const { universe, citationIndex, primaryVisibilityRun, importCompetitorDomains, directoryDomains } =
     opts;
   if (!citationIndex) return null;
 
-  const bench = computeMarketBenchmark(citationIndex, NO_ISSUES);
-  const top = bench.topCompetitors.filter(
-    (c) => !DIRECTORY_SKIP.has(c.domain)
-  );
+  // Directory exclusion + display names come from the tenant's own config +
+  // competitor universe (vertical-neutral) — no hardcoded builder directories.
+  const bench = computeMarketBenchmark(citationIndex, NO_ISSUES, {
+    directoryDomains,
+    competitorNames: universe.domainToLabel,
+  });
+  const top = bench.topCompetitors;
   if (top.length === 0) return null;
 
   const split = splitCitedDomainsByUniverse(

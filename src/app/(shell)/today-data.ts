@@ -1776,6 +1776,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     citationIndex: citIdx,
     primaryVisibilityRun: primaryVis,
     importCompetitorDomains: competitors.map((c) => c.domain),
+    directoryDomains: businessConfig.directoryDomains,
   });
 
   const nextCandidates: (TodayNextMove | null)[] = [];

@@ -147,14 +147,17 @@ export default async function CompetitorsPage() {
     getCurrentTenantFeatures(),
   ]);
 
-  const benchmark: MarketBenchmark | null = citIndex
-    ? computeMarketBenchmark(citIndex, await getPageIssues())
-    : null;
-
   // MT-2/MT-3B (2026-05-22) — tenant-aware config resolved once here
   // (no tenantId in scope on this page); threaded into competitor
   // classification + the local-operator surface below.
   const businessConfig = await getBusinessConfigForCurrentTenant();
+
+  const benchmark: MarketBenchmark | null = citIndex
+    ? computeMarketBenchmark(citIndex, await getPageIssues(), {
+        competitorNames: universe.domainToLabel,
+        directoryDomains: businessConfig.directoryDomains,
+      })
+    : null;
   const discovery = discoverCompetitorUniverse({
     citationIndex: citIndex,
     coMentionMatrix,

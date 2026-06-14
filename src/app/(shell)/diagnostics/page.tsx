@@ -84,7 +84,7 @@ import {
   loadLocalOperatorImport,
 } from "@/domains/local-operator/surface";
 import { LocalOperatorPanel } from "@/components/local-operator/local-operator-panel";
-import { computeMarketBenchmark } from "@/domains/pages/builder-benchmark";
+import { computeMarketBenchmark, getCurrentTenantBenchmarkOpts } from "@/domains/pages/builder-benchmark";
 import { analyzeAllExtractability, summarizeExtractability } from "@/domains/pages/extractability";
 import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel";
 import type { SnippetSignal } from "@/domains/competitors/snippet-types";
@@ -1488,7 +1488,9 @@ async function BeaconScoreSection({ ctx }: { ctx: DiagnosticsContext }) {
   const { siteDomain } = getSiteConfig();
   const citIndex = ctx.citationEvidenceIndex;
   const pageIssues = await getPageIssues();
-  const benchmark = citIndex ? computeMarketBenchmark(citIndex, pageIssues) : null;
+  const benchmark = citIndex
+    ? computeMarketBenchmark(citIndex, pageIssues, await getCurrentTenantBenchmarkOpts())
+    : null;
 
   const geoCoverage = computeGeoCoverage(ctx.pages, citIndex?.by_page_and_topic ?? [], ctx.activePrompts);
   const geoSummary = summarizeGeoCoverage(geoCoverage);

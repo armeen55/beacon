@@ -54,7 +54,9 @@ export default async function ResultsPage() {
     citIdx && citIdx.by_topic?.length
       ? buildResultsCompetitorUniverseSummary(
           universeRuntime,
-          computeMarketBenchmark(citIdx, [] as PersistedIssue[]).topCompetitors.map(
+          computeMarketBenchmark(citIdx, [] as PersistedIssue[], {
+            competitorNames: universeRuntime.domainToLabel,
+          }).topCompetitors.map(
             (c) => ({
               domain: c.domain,
               name: c.name,
