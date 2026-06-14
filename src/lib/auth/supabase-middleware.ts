@@ -44,7 +44,13 @@ function requireEnv(name: string): string {
  */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   if (process.env.BEACON_AUTH_DISABLED === "1") {
-    return NextResponse.next({ request });
+    // audit #7 (2026-06-14): even on the auth bypass, NEVER trust an inbound
+    // x-beacon-tenant header — currentTenantId() reads it before the env
+    // fallback, so an un-stripped header is trivial tenant impersonation
+    // (and masks isolation bugs in local/dogfood testing). Strip it here too.
+    const bypassHeaders = new Headers(request.headers);
+    bypassHeaders.delete("x-beacon-tenant");
+    return NextResponse.next({ request: { headers: bypassHeaders } });
   }
 
   // Perf bundle 7 (2026-05-12) — production-safe tracing gated by

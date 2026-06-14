@@ -97,16 +97,19 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     vi.restoreAllMocks();
   });
 
-  it("strips inbound x-beacon-tenant header (no auth needed)", async () => {
+  it("strips inbound x-beacon-tenant header on the AUTH-DISABLED bypass (audit #7)", async () => {
     process.env.BEACON_AUTH_DISABLED = "1";
     const req = makeRequest("/today", {
       headers: { "x-beacon-tenant": "tenant-attacker" },
     });
     const res = await updateSession(req);
-    // Auth-disabled bypass returns NextResponse.next({ request }) which
-    // forwards the original headers. The strip happens in the auth path.
-    // Smoke: the response is OK status (no redirect).
     expect(res.status).toBe(200);
+    // audit #7: the bypass MUST strip the inbound spoof too — currentTenantId()
+    // reads x-beacon-tenant before the env fallback, so an un-stripped header
+    // is tenant impersonation. The forwarded request header must NOT be the
+    // attacker value.
+    const forwarded = res.headers.get("x-middleware-request-x-beacon-tenant");
+    expect(forwarded).not.toBe("tenant-attacker");
   });
 
   it("authenticated user with exactly one tenant_members row gets x-beacon-tenant injected", async () => {
