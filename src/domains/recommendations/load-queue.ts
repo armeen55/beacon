@@ -144,7 +144,29 @@ export type LoadLiveRecommendationQueueOptions = {
   /** Override the "now" used by `buildPromptDecisionMatrix`. Useful
    *  for deterministic tests; defaults to `new Date()`. */
   now?: Date;
+  /** 2026-06-15 — when true, read prompt_answer_observations with the lean
+   *  column projection (drop `metadata` + the unused citation/search columns
+   *  the matrix + resolvePageIntent never touch). The PAGE wrapper sets this
+   *  (the cached page value strips observations after the matrix anyway); the
+   *  CLI / tests leave it OFF so `buildPacketForRec` still gets full rows
+   *  (the packet builder reads `metadata`). Cuts the ~17 MB observation read
+   *  ~45% for a data-rich tenant — the /recommendations half of the /today
+   *  egress/timeout fix. */
+  leanObservations?: boolean;
 };
+
+/** The 23 columns the /recommendations LIST render (matrix + resolvePageIntent)
+ *  reads — identical to /today's `TODAY_OBSERVATION_COLUMNS` (same consumers).
+ *  MUST stay in sync with it: both omit `metadata`, `citation_domains`,
+ *  `citation_categories`, `raw_search_queries`, `search_queries`. Pinned by
+ *  tests/architecture/egress-bounded-reads-p0.test.ts. */
+const LIST_OBSERVATION_COLUMNS =
+  "id, prompt_id, run_id, answer_hash, position, tracked_brand_mentioned, " +
+  "tracked_brand_cited, citation_count, owned_citation_count, mentions, " +
+  "observed_at, platform, topic, tenant_id, mention_position, citation_rank, " +
+  "primary_recommendation, descriptor_window, competitor_co_mentions, " +
+  "citation_domain_classes, answer_structure, citation_urls, " +
+  "competitor_descriptor_windows";
 
 async function safeCall<T>(
   fn: () => Promise<T> | T,
@@ -232,7 +254,17 @@ export async function loadLiveRecommendationQueue(
   // the page inventory — is a SEPARATE read further down and is unaffected.)
   const freshCanonRes = await trace.time("loadFreshCanonicalData", () =>
     safeCall(
-      () => loadFreshCanonicalData({ observationsSince, skipSnapshots: true }),
+      () =>
+        loadFreshCanonicalData({
+          observationsSince,
+          skipSnapshots: true,
+          // PAGE render only — matrix + resolvePageIntent never read the heavy
+          // dropped columns. CLI/tests leave leanObservations off so the packet
+          // builder still gets full rows.
+          ...(opts.leanObservations
+            ? { observationsColumns: LIST_OBSERVATION_COLUMNS }
+            : {}),
+        }),
       {
         trackedPrompts: [],
         promptAnswerObservations: [],
@@ -616,7 +648,13 @@ export async function loadLiveRecommendationQueueForPage(opts: {
   const { tenantId } = opts;
   const cached = unstable_cache(
     async () => {
-      const full = await loadLiveRecommendationQueue({ tenantId });
+      const full = await loadLiveRecommendationQueue({
+        tenantId,
+        // Page render builds the matrix then discards observations (below) —
+        // read them lean (no metadata). The CLI calls the raw loader without
+        // this so its packet builder still gets full rows.
+        leanObservations: true,
+      });
       // Strip the Map + heavy unused pipeline inputs — see header comment.
       // Keeping the cached value small is what lets `unstable_cache`
       // actually store it (the 23 MB observation array tripped the 2 MB

@@ -59,8 +59,11 @@ describe("Emergency P0 v4: /recommendations cached wrapper", () => {
     // Don't pin the exact tuple format — but require unstable_cache
     // import + invocation inside the wrapper.
     expect(loadQueueStripped).toMatch(/unstable_cache/);
-    // The cache call must include the loader.
-    expect(loadQueueStripped).toMatch(/loadLiveRecommendationQueue\(\s*\{\s*tenantId\s*\}\s*\)/);
+    // The cache call must include the loader, invoked with tenantId (plus any
+    // additional render-only options like leanObservations).
+    expect(loadQueueStripped).toMatch(
+      /loadLiveRecommendationQueue\(\s*\{[\s\S]*?\btenantId\b/,
+    );
   });
 
   it("cache options include a finite revalidate TTL + the tenant-scoped tag", () => {

@@ -87,6 +87,28 @@ describe("EGRESS-P0.1 — /recommendations load-queue passes observations window
   it("uses a 60-day observations window (operator-locked)", () => {
     expect(LOAD_QUEUE_SRC).toMatch(/60\s*\*\s*86_400_000/);
   });
+
+  it("the PAGE wrapper reads observations LEAN (drops metadata etc.)", () => {
+    // 2026-06-15 — the page render builds the matrix then strips observations,
+    // so it reads them with the lean projection (no ~5.9 MB metadata JSONB).
+    expect(LOAD_QUEUE_SRC).toMatch(/leanObservations:\s*true/);
+    const m = LOAD_QUEUE_SRC.match(
+      /const\s+LIST_OBSERVATION_COLUMNS\s*=([\s\S]*?);/,
+    );
+    expect(m).not.toBeNull();
+    const projection = (m?.[1] ?? "").toLowerCase();
+    for (const dropped of [
+      "metadata",
+      "citation_domains",
+      "citation_categories",
+      "raw_search_queries",
+      "search_queries",
+    ]) {
+      expect(new RegExp(`\\b${dropped}\\b`).test(projection)).toBe(false);
+    }
+    // citation_urls is READ by resolvePageIntent on the list path — must stay.
+    expect(/\bcitation_urls\b/.test(projection)).toBe(true);
+  });
 });
 
 describe("EGRESS-P0.2 — /settings/prompts reads only the small tracked_prompts table", () => {
