@@ -1836,7 +1836,7 @@ export function buildRecommendationActionRows(
             : metaKind === "review_decision"
               ? composeRecommendedMove({
                   action,
-                  topic: extractTopicTag(rec.clusterLabel ?? ""),
+                  topic: extractTopicTag(rec.clusterLabel ?? "", args.knownServices),
                   pageName:
                     resolvedUrl !== null
                       ? pageNameFromUrl(resolvedUrl)
@@ -1845,7 +1845,7 @@ export function buildRecommendationActionRows(
                 })
               : composeRecommendedMove({
                   action,
-                  topic: extractTopicTag(rec.clusterLabel ?? ""),
+                  topic: extractTopicTag(rec.clusterLabel ?? "", args.knownServices),
                   pageName: null,
                   resolution,
                 }),
