@@ -33,6 +33,22 @@
 >   builder-benchmark, competitors/classify-type (vertical-tuned classification/scoring).
 > See per-finding detail below for the exact fix + effort.
 
+> ## GROUND-TRUTH-DISCOVERED (2026-06-15, rendering Iranopedia — the workflow EXCLUDED seed-data so missed these)
+> - **DONE:** `log-change-sheet.tsx` placeholder "e.g. Palo Alto City Page" → neutral.
+> - **DEFERRED (M, tenant-isolation + seed):** the ⌘K command palette (`layout.tsx:97`)
+>   builds its "Changes" group from the **ambient, NON-tenant-scoped**
+>   `getChangelogEntries()` (seed-data.server) → shows the builder DEMO changelog
+>   (cl-1 "Kitchen Remodel", cl-2 "Palo Alto City Page") to EVERY tenant incl.
+>   Iranopedia. Fix = read changelog through `getRepository().forTenant(tenantId)`
+>   (mirror the proof-engine.ts 2026-06-12 fix), OR de-builder the `seed-data.ts`
+>   demo set. Shell-layout change (high blast radius) — do as a deliberate slice.
+>   Also a tenant-isolation concern (Iranopedia sees seed/global changelog).
+> - **NOTE:** `seed-data.ts` is heavily builder-themed demo data (cl-* changelog,
+>   "Kitchen Remodel"/"Palo Alto" topics). The workflow correctly classified it as
+>   seed (not product hardcoding), but it LEAKS wherever an ambient non-scoped
+>   reader (command palette) surfaces it. Audit ambient `getChangelogEntries()` /
+>   seed-fallback readers for tenant scoping.
+
 53 confirmed of 88. Status: [ ]=todo [x]=done [~]=already-fixed-this-session [defer]=dormant/low.
 
 ## [HIGH/M] src/domains/geo/normalize.ts :13-138

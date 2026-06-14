@@ -100,7 +100,7 @@ export function LogChangeButton({
               <FormInput
                 name="asset_name"
                 required
-                placeholder="e.g. Palo Alto City Page"
+                placeholder="e.g. Pricing page, Services hub"
               />
             </FormField>
 
