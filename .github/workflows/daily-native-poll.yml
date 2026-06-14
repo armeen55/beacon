@@ -356,12 +356,12 @@ jobs:
   # GitHub's failure email within minutes — not 45 min later via the
   # separate canary workflow.
   #
-  # Multi-tenant scaffold (2026-05-06): `check-yesterday-poll.ts` does not
-  # currently filter by tenant — it inspects all tenants' observation_runs
-  # for the day. With Ritz as the only active tenant today, behavior is
-  # unchanged. When a 2nd tenant is enabled, the script needs a `--tenant`
-  # flag and this job becomes a matrix; tracked in
-  # NEXT_PHASE_EXECUTION_PLAN.md.
+  # Multi-tenant fail-loud (2026-06-14): `check-yesterday-poll.ts` now checks
+  # EACH enabled tenant in ops/active-tenants.json independently and exits
+  # non-zero if ANY tenant is not ok — so a healthy Ritz poll can no longer
+  # mask a failed Iranopedia poll (the pre-fix single global query did). No
+  # matrix needed here: the script loops the fleet itself in one job. (A
+  # `--tenant <id>` flag exists for manual single-tenant checks.)
   #
   # `if: always()` so partial chunk failures don't skip the verify step.
   # The verify step itself decides whether the day landed enough data.

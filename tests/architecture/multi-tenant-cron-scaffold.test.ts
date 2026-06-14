@@ -366,3 +366,45 @@ describe("poll-canary.yml — single-tenant-by-documented-design", () => {
     );
   });
 });
+
+// ── 5. check-yesterday-poll.ts — multi-tenant fail-loud (wave-7, 2026-06-14) ──
+//
+// The poll-health canary (run by daily-native-poll.yml's verify-persistence
+// job AND poll-canary.yml) used to call ONE global `fetchPollHealthForDate(date)`
+// with no tenant, aggregating every tenant's runs into a single health view.
+// With Ritz + Iranopedia both enabled, a healthy Ritz poll could MASK a failed
+// Iranopedia poll: the job exited 0, no alert fired, and the operator never
+// learned Iranopedia's nightly poll silently broke. The fix loops every enabled
+// tenant and fails if ANY is not ok. These source-text invariants pin that so
+// the canary can't silently regress back to the masking global query.
+
+describe("check-yesterday-poll.ts — multi-tenant fail-loud", () => {
+  const CANARY_SCRIPT = readFileSync(
+    resolve(REPO_ROOT, "scripts/check-yesterday-poll.ts"),
+    "utf8",
+  );
+
+  it("resolves the tenant fleet from ops/active-tenants.json (same source the poll matrix uses)", () => {
+    expect(CANARY_SCRIPT).toContain("parseJsonFallback");
+    expect(CANARY_SCRIPT).toContain("active-tenants.json");
+  });
+
+  it("checks poll health PER TENANT (passes a tenantId to fetchPollHealthForDate)", () => {
+    expect(CANARY_SCRIPT).toMatch(
+      /fetchPollHealthForDate\(\s*date\s*,\s*target\.tenantId\s*\)/,
+    );
+  });
+
+  it("fails the job on a not-ok tenant and on a query error (non-zero exit)", () => {
+    expect(CANARY_SCRIPT).toMatch(/exitCode\s*=\s*1/);
+    expect(CANARY_SCRIPT).toMatch(/exitCode\s*=\s*2/);
+  });
+
+  it("does NOT gate tenant SELECTION on BEACON_TENANT_ID env (poll-canary pins it to the first tenant only)", () => {
+    // Selection is the enabled-fleet loop or the explicit `--tenant` flag —
+    // never the env, which would silently re-introduce the single-tenant
+    // blind spot the fix removed.
+    expect(CANARY_SCRIPT).toContain("--tenant");
+    expect(CANARY_SCRIPT).not.toMatch(/process\.env\.BEACON_TENANT_ID/);
+  });
+});
