@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-14 (overnight, buyer's-eye walkthrough) — strip redundant parenthesized type tags from rec titles
+
+**How found:** a skeptical-buyer read of the actual rendered `/recommendations` queue (ground-truth, not code). The header copy + structure are strong (GSC-led value prop, evidence-strength tiers, "you approve every change yourself"). But queue titles carried redundant parenthesized type tags — "Design-build for modern Bay Area homes (H2)", "(FAQ)", "(section)" — the type already shows in its own TYPE column + the top-pick appends it, so the parenthetical is noise on the core action surface.
+
+**Fix (`recommendation-title-humanizer.ts` `cleanDisplayLabel`):** added `h1`–`h6`/`faq`/`section` to the parenthesized NOISE_TAGS set (it already stripped the `(new H2)`/`(new FAQ)` forms). Genuine parentheticals (`(no footprint increase)`) preserved; BARE trailing tokens (`Working H2`) preserved — pinned by an existing test (an initial bare-strip attempt broke it and was reverted; the display layer must not guess whether a bare token is content or artifact).
+
+**Known-not-fixed (documented):** one stale label "Modernization without footprint expansion H2" (Atherton top pick) carries a BARE "H2" — a generation-side inconsistency (not display), persists via never-overwrite; normalizing the generator is a separate deliberate pass.
+
+**Verified:** typecheck clean; 81 humanizer + action-rows tests pass (+1 regression). Rails: display-only, NOT pushed.
+
+**`/changes` + `/today` walkthrough (no further fixes — both read well):** `/today` is premium + clean (GSC-led command center, honest empty states, "SECONDARY SIGNAL · AI ASSISTANT VISIBILITY", desktop + mobile responsive). `/changes` is clear + honest ("Every edit you've shipped … Google Search + AI impact", honest freshness caveats, no false causal claims, "Verdict tracking off" shown rather than fabricated). Two MINOR nits **documented, not fixed** (low-value + not cleanly fixable): (a) one stale change description shows a raw "prompt 319557d1" id — generation-side jargon in a persisted row (never-overwrite); (b) the evidence-freshness banner reads "Change verdicts reflects …" (plural-subject/singular-verb) — a generic shared component whose correct phrasing depends on every caller's label number, disproportionate to touch for a one-word slip. Verify-first call: not worth perturbing working surfaces for these.
+
+---
+
 ## 2026-06-14 (overnight, wave-12) — cross-tenant-brain PRIVACY audit: CLEAN, no action (already sound + test-pinned)
 
 **How found:** adversarial 2-lens privacy audit (aggregate anonymity + exposure gating) of the cross-tenant brain — the shared-brain wedge whose core risk is leaking one tenant's identifiable data into another's "network insight." **0 confirmed, 1 refuted.** The one finding (the internal `GlobalPattern.contributing_tenant_ids` field) was correctly refuted: the data flow shows tenant ids never reach a client/cross-tenant surface — callers extract only `PopulationEvidence` (`builder_count`/`positive_rate`/`median_days`/directional `narrative`/`seeded_warning`/`gate` — no ids/urls/names), and the cross-tenant surface uses the anonymized `CrossTenantPattern` model.
