@@ -119,7 +119,9 @@ export function ChangesV2Client({
         description="Track what shipped and whether AI visibility responded."
       />
 
-      <ProofCounterStrip counters={counters} />
+      {/* Only show the proof counters once there are real timeline rows —
+          a fresh tenant should see the calm empty state, not a strip of 0s. */}
+      {cardRows.length > 0 && <ProofCounterStrip counters={counters} />}
 
       {cardRows.length === 0 ? (
         <ChangesV2EmptyState />

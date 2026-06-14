@@ -79,9 +79,12 @@ export function EnrichmentV2({ data, className }: EnrichmentV2Props) {
           How AI described you this week
         </h2>
         <p className="text-[10px] text-muted-foreground/70 tabular-nums">
-          {data.brand.currentWindow.totalObservations} answer
-          {data.brand.currentWindow.totalObservations === 1 ? "" : "s"} ·{" "}
-          last {data.windowDays} days
+          {data.brand.currentWindow.totalObservations > 0
+            ? `${data.brand.currentWindow.totalObservations} answer${
+                data.brand.currentWindow.totalObservations === 1 ? "" : "s"
+              }`
+            : "No answers yet"}{" "}
+          · last {data.windowDays} days
         </p>
       </header>
 

@@ -776,6 +776,10 @@ function DescriptorCloud({
   drilldown: ReturnType<typeof buildPromptDrilldown>;
 }) {
   const hasAny = drilldown.descriptorsNearBrand.length > 0;
+  // Distinguish "no readings yet" (fresh tenant — nothing observed) from
+  // "observed but absent" (we read answers and your brand wasn't in them).
+  // The old copy claimed the latter even when there were zero observations.
+  const hasObservations = drilldown.classification.evidence.observationCount > 0;
   return (
     <section className="mb-6">
       <SectionHeading>Words AI used near you</SectionHeading>
@@ -791,10 +795,15 @@ function DescriptorCloud({
             </li>
           ))}
         </ul>
-      ) : (
+      ) : hasObservations ? (
         <p className="text-[12px] text-muted-foreground">
           AI hasn&apos;t described you on this prompt yet — your brand was
           not mentioned in any of the observed answers.
+        </p>
+      ) : (
+        <p className="text-[12px] text-muted-foreground">
+          No readings yet — Beacon will start collecting AI answers for this
+          prompt on the next daily check.
         </p>
       )}
     </section>

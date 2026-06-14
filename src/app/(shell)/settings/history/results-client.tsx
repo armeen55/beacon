@@ -521,7 +521,9 @@ export function ResultsClient({
 
       {sorted.length === 0 && (
         <div className="text-center py-8 text-[13px] text-muted-foreground">
-          No results match the current filters.
+          {results.length === 0
+            ? "No imported measurements yet — rows appear here after your first import or daily poll."
+            : "No results match the current filters."}
         </div>
       )}
     </div>

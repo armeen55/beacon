@@ -289,7 +289,11 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
         <MetricCard
           label="Sample"
           dataAttr="sample"
-          headline={`${currentSampledDays} day${currentSampledDays === 1 ? "" : "s"}`}
+          headline={
+            currentSampledDays > 0
+              ? `${currentSampledDays} day${currentSampledDays === 1 ? "" : "s"}`
+              : "—"
+          }
           sub={
             latestReadingDate
               ? {

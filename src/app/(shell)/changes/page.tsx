@@ -2,11 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import {
-  getOpportunities,
-  getResults,
-  hasActiveExperiment,
-} from "@/lib/seed-data.server";
+import { getOpportunities, getResults } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { getEventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
@@ -104,47 +100,6 @@ export default async function ChangeScorecardPage({
   const useV2 = shouldUseChangesV2(params);
   trace.data("use_v2", useV2 ? "true" : "false");
 
-  if (!(await hasActiveExperiment())) {
-    return (
-      <div>
-        <PageHeader
-          title="Changes"
-          description="Every change you've made. Newest first."
-        />
-        <section
-          className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5"
-          aria-labelledby="changes-import-empty-heading"
-        >
-          <h2
-            id="changes-import-empty-heading"
-            className="text-[13px] font-semibold text-foreground tracking-tight"
-          >
-            Import your data to see your real Changes workspace
-          </h2>
-          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            The changelog shows every change you&apos;ve imported plus every change
-            Beacon detects on your site. Import to get started.
-          </p>
-          <Link
-            href="/settings/import"
-            className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
-          >
-            Go to Import →
-          </Link>
-        </section>
-      </div>
-    );
-  }
-
-  // ── Refresh URL watcher if stale (≥6h since last success). No-op when
-  // throttled or if another run is already in flight. Never throws —
-  // page still renders on watcher failure.
-  try {
-    await maybeRefreshUrlWatcher("page-load");
-  } catch (err) {
-    console.error("[changes] URL watcher refresh error (non-fatal)", err);
-  }
-
   // Phase 1.2 (Sprint 1, 2026-04-24): single fresh repo read per request.
   // Every render-visible changelog value on this page derives from this
   // array. The prior implementation read from the module-level
@@ -155,6 +110,8 @@ export default async function ChangeScorecardPage({
   // entries. Honest error state below prevents a silent fallback to stale
   // cached data on repo failure.
   // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+  // Pivot (2026-06-14): these reads are now hoisted ABOVE the empty-state
+  // gate so the gate reflects real activity, not just file imports.
   const repository = getRepository().forTenant(await currentTenantId());
   let freshChangelogEntries: ChangelogEntry[];
   try {
@@ -182,6 +139,56 @@ export default async function ChangeScorecardPage({
     // Non-fatal: classifier degrades to source_system-only rules when
     // edits are missing. Log so a Supabase outage is observable.
     console.error("[changes] recommended_edits read failed (non-fatal)", err);
+  }
+
+  // Empty state — pivot (GSC-led, 2026-06-14): show it only when there is
+  // genuinely NO activity (no live changelog rows AND no recommended edits).
+  // Pre-pivot this gated on `hasActiveExperiment()` (import_runs > 0 ONLY),
+  // so a GSC-led tenant that shipped a change or has accepted recommendations
+  // — but never ran a file import — was wrongly told "Import your data" while
+  // its real Changes were hidden. Changes are produced by the recommend →
+  // ship flow + scan detection, not just file imports.
+  if (liveEntries.length === 0 && recommendedEdits.length === 0) {
+    return (
+      <div>
+        <PageHeader
+          title="Changes"
+          description="Every change you've made. Newest first."
+        />
+        <section
+          className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5"
+          aria-labelledby="changes-empty-heading"
+        >
+          <h2
+            id="changes-empty-heading"
+            className="text-[13px] font-semibold text-foreground tracking-tight"
+          >
+            No changes yet
+          </h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+            Every edit you ship — and every change Beacon detects on your site
+            — shows up here, newest first. Accept a recommendation to get your
+            first change tracked.
+          </p>
+          <Link
+            href="/recommendations"
+            className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+          >
+            Go to Recommendations →
+          </Link>
+        </section>
+      </div>
+    );
+  }
+
+  // ── Refresh URL watcher if stale (≥6h since last success). No-op when
+  // throttled or if another run is already in flight. Never throws —
+  // page still renders on watcher failure. Runs only once we know the
+  // tenant has activity (don't trigger scans for a brand-new empty tenant).
+  try {
+    await maybeRefreshUrlWatcher("page-load");
+  } catch (err) {
+    console.error("[changes] URL watcher refresh error (non-fatal)", err);
   }
   // Phase 6B.1 (2026-04-28) — canonical truth for lifecycle counts is
   // `recommended_edits.implementation_status`, NOT joined changelog

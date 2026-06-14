@@ -133,7 +133,10 @@ export default function ImportPage() {
       </p>
 
       {/* ── 1. Coverage strip ── */}
-      {coverage && (
+      {/* Only show the "At a glance" summary once something has actually been
+          imported — a fresh tenant should not see a box of bold 0s under copy
+          that says most accounts never need this page. */}
+      {coverage && (coverage.resultCount > 0 || coverage.changeCount > 0) && (
         <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4 mb-6">
           <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
           <div className="flex items-baseline gap-4 flex-wrap">

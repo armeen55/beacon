@@ -32,8 +32,8 @@ export default async function ObservationRunPage({
           <p className="text-[11px] text-muted-foreground mt-1">{v.scope_label}</p>
           {v.is_synthetic_wrapper && (
             <p className="text-[10px] text-status-warning mt-2 font-medium">
-              Synthetic wrapper — Beacon built this row from citation-evidence-index on disk; not a
-              separate export unless you add `visibility-observation-runs.json`.
+              This summary was assembled by Beacon from your existing data — it
+              is not a separate import or export.
             </p>
           )}
         </div>
@@ -55,7 +55,11 @@ export default async function ObservationRunPage({
           </div>
           <div>
             <dt className="text-muted-foreground">Source</dt>
-            <dd className="font-medium">{v.source}</dd>
+            <dd className="font-medium">
+              {v.is_synthetic_wrapper
+                ? "Demo data shipped with Beacon"
+                : v.source}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Status</dt>
@@ -80,11 +84,22 @@ export default async function ObservationRunPage({
         <div className="rounded-lg border border-border p-4 text-[11px] space-y-2">
           <p className="font-semibold text-foreground">Counts (rollup)</p>
           <ul className="text-muted-foreground space-y-1">
-            <li>Topic buckets: {v.counts.topic_buckets}</li>
-            <li>Page × topic rows: {v.counts.page_topic_rollup_rows}</li>
-            <li>Total citations processed: {v.counts.total_citations_accounted}</li>
-            <li>Distinct external domains (sample): {v.counts.distinct_external_domains_sampled}</li>
-            <li>Owned rollup rows: {v.counts.owned_rollup_rows}</li>
+            {v.is_synthetic_wrapper ? (
+              <li>No rollup data for this run yet.</li>
+            ) : (
+              <>
+                <li>Topic buckets: {v.counts.topic_buckets}</li>
+                <li>Page × topic rows: {v.counts.page_topic_rollup_rows}</li>
+                <li>
+                  Total citations processed: {v.counts.total_citations_accounted}
+                </li>
+                <li>
+                  Distinct external domains (sample):{" "}
+                  {v.counts.distinct_external_domains_sampled}
+                </li>
+                <li>Owned rollup rows: {v.counts.owned_rollup_rows}</li>
+              </>
+            )}
             {v.sample_result_row_count != null && v.sample_result_row_count > 0 && (
               <li className="text-foreground font-medium">
                 Declared Result rows at import: {v.sample_result_row_count} (verify with{" "}
