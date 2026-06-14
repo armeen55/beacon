@@ -22,7 +22,9 @@
 - **/prompts/[id]:** descriptor empty state distinguishes "No readings yet" from "observed but not mentioned".
 - **/recommendations:** GSC evidence lead floored at 100 impressions/90d (no false-precision demand stats on near-zero pages) — separate commit `fb60657` with +2 boundary tests.
 
-**Verified:** typecheck clean; full suite **800 files / 14,796 tests** green; /changes populated render ground-truthed. Render-path only, NOT pushed.
+**Verified:** typecheck clean; full suite **800 files / 14,797 tests** green; /changes populated render ground-truthed. Render-path only, NOT pushed.
+
+**Follow-on — MOBILE sweep + a whitespace regression caught by it (commit `2625651`):** ground-truthed the 5 customer surfaces at 375px. **/, /recommendations, /changes, /prompts all render premium on mobile** (KPI cards stack; the data tables scroll *within* their `overflow-x-auto` containers — the page never scrolls sideways). The sweep caught a **merged-word bug** on /settings/prompts ("100 prompts**run** in tomorrow's daily AI check") — my own earlier multi-line `{expr} run\n…` edit hit a JSX whitespace-trim quirk. Rebuilt that header + the sibling today enrichment-v2 header as single template-literal expressions (bulletproof; /settings/prompts render-verified "100 prompts run …"). **The settings-prompts smoke test passed both before AND after the bug — only the mobile screenshot caught it (ground-truth > tests, again).**
 
 ---
 
