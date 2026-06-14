@@ -211,17 +211,21 @@ const PLACEHOLDER_CONFIG: BusinessConfig = {
   keyPages: [],
   locationTerms: [],
   serviceTerms: [],
-  // Universal directory blocklist — these are AI-answer directory sources
-  // that pollute leaderboards regardless of industry. Safe in placeholder.
+  // Universal directory/aggregator blocklist — AI-answer sources that pollute
+  // ANY vertical's leaderboard (not real competitors). De-verticalized
+  // (2026-06-15): dropped the home-services-specific directories
+  // (houzz/angi/thumbtack/homeadvisor/buildzoom — those belong in a builder
+  // tenant's OWN config, not the universal placeholder) and kept only
+  // cross-industry channels.
   directoryDomains: [
-    "houzz.com",
     "yelp.com",
-    "angi.com",
     "reddit.com",
-    "thumbtack.com",
-    "homeadvisor.com",
-    "buildzoom.com",
     "bbb.org",
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "nextdoor.com",
+    "google.com",
   ],
   scanSettings: {
     preferredHour: 9,
