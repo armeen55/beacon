@@ -1089,7 +1089,10 @@ export function composeRowEvidenceSummary(args: {
 
   if (args.override && args.override.trim().length > 0) {
     const o = args.override.trim().replace(/\.$/, "");
-    return `${lead}; ${o}.`;
+    // audit #9 (2026-06-14): with NO GSC signal and ZERO AEO observations,
+    // don't lead with a misleading "0 AI answers; …" — the structural reason
+    // IS the honest "why". Keep the AEO count only when it's real (N > 0).
+    return N > 0 ? `${lead}; ${o}.` : `${o}.`;
   }
 
   // Find the first REAL competitor that's clearly winning (≥ 50%

@@ -845,9 +845,14 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       const repo = getRepository().forTenant(tenantId);
       const errors: string[] = [];
 
-      // Four parallel small reads.
+      // Five parallel small reads. audit #8 (2026-06-14): the GSC page
+      // signals were MISSING here, so the default v2 render path never
+      // attached gscSignal — composeRowEvidenceSummary fell through to the
+      // AEO "0 AI answers" branch on every card and the GSC priority floors
+      // never fired, making the entire GSC-led pivot invisible on prod.
       const { getChangelogEntries } = await import("@/lib/seed-data.server");
-      const [editsRes, responsesRes, promptsRes, changelogRes] = await Promise.all([
+      const [editsRes, responsesRes, promptsRes, changelogRes, gscRes] =
+        await Promise.all([
         safeCall(
           () => repo.getRecommendedEdits(),
           [] as RecommendedEditRow[],
@@ -868,17 +873,24 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
           [] as Array<{ id: string; source_rec_id?: string | null }>,
           "persisted: fetch changelog_entries",
         ),
+        safeCall(
+          () => loadGscPageSignalsForTenant(tenantId),
+          new Map<string, GscPageSignal>(),
+          "persisted: fetch gsc page signals",
+        ),
       ]);
 
       if (editsRes.error) errors.push(editsRes.error);
       if (responsesRes.error) errors.push(responsesRes.error);
       if (promptsRes.error) errors.push(promptsRes.error);
       if (changelogRes.error) errors.push(changelogRes.error);
+      if (gscRes.error) errors.push(gscRes.error);
 
       const recommendedEdits = editsRes.value;
       const responses = responsesRes.value;
       const trackedPrompts = promptsRes.value;
       const changelogEntries = changelogRes.value;
+      const gscByUrl = gscRes.value;
 
       // Group edits by rec_id. Skip edits that have no rec_id (legacy
       // rows that predate the column — extremely rare).
@@ -920,7 +932,17 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
         const edits = editsByRecId.get(recId)!;
         const rec = synthesizeLiveRecQueueItemFromEdits(recId, edits, idx + 1);
         const response = responseByRecId.get(recId) ?? null;
-        return { rec, response, edits };
+        // audit #8 (2026-06-14): attach the GSC signal by canonical target
+        // URL (mirrors the full loader) so composeRowEvidenceSummary leads
+        // with Google demand + the GSC priority floors fire on the v2 render.
+        const targetUrl = rec.resolution?.targetUrl ?? null;
+        const canonical =
+          targetUrl != null && targetUrl !== "needs_new_page"
+            ? canonicalizeCitationUrl(targetUrl)
+            : null;
+        const gscSignal =
+          canonical != null ? gscByUrl.get(canonical) ?? null : null;
+        return { rec: { ...rec, gscSignal }, response, edits };
       });
 
       return {
