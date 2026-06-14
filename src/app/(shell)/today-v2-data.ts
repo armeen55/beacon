@@ -60,7 +60,10 @@ import {
   ensureUrlChangeOutcomesSeeded,
   getUrlChangeOutcomes,
 } from "@/domains/attribution/url-change-outcome";
-import { getBusinessConfig } from "@/lib/business-config";
+import {
+  getBusinessConfig,
+  hydrateBusinessConfigFromSupabase,
+} from "@/lib/business-config";
 import {
   buildEnrichmentRollup,
   buildEnrichmentWindowRollup,
@@ -179,7 +182,9 @@ export async function loadTodayV2DescriptorsData(): Promise<TodayV2DescriptorsDa
   // resolved the tenant to warm downstream reads and discarded it; now we
   // pass it explicitly into the business-config read below.
   const tenantId = await currentTenantId();
-  const businessConfig = getBusinessConfig(tenantId);
+  const businessConfig =
+    (await hydrateBusinessConfigFromSupabase(tenantId)) ??
+    getBusinessConfig(tenantId);
   // Phase 1 (2026-05-12): descriptors uses the narrow 14d canonical pull
   // — see `loadCachedFreshCanonical14d` for rationale. The 7d / 14d
   // rollups never look further back than this, so the previous 60d
@@ -322,7 +327,9 @@ export type TodayV2VisibilityData = {
 
 export async function loadTodayV2VisibilityData(): Promise<TodayV2VisibilityData> {
   const tenantId = await currentTenantId();
-  const businessConfig = getBusinessConfig(tenantId);
+  const businessConfig =
+    (await hydrateBusinessConfigFromSupabase(tenantId)) ??
+    getBusinessConfig(tenantId);
   const brandName = businessConfig.name || "You";
 
   // ── Snapshot-backed visibility data ────────────────────────────────

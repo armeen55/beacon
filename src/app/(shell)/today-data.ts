@@ -113,7 +113,7 @@ import { getScanSettings, isScanOverdue } from "@/domains/scanning/scan-settings
 import { readScanState } from "@/domains/scanning/scan-state";
 import { FINDING_PRIORITY_ORDER } from "@/domains/scanning/types";
 // buildCompetitorRank / classifyCompetitorType moved to post-import milestone sync (Phase 1C-3)
-import { getBusinessConfig, getSectionAnalyzerConfig, getFaqTemplates } from "@/lib/business-config";
+import { getBusinessConfig, getSectionAnalyzerConfig, getFaqTemplates, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 import { getLocalPresenceSnapshot, buildTodayLocalAttention } from "@/lib/local-presence";
 import {
   computeLocalOperatorSurface,
@@ -251,7 +251,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // thread it through this loader, replacing the prior per-call no-arg
   // config reads at the brand-alias / stripWords / scanner /
   // local-operator sites below. tenantId is already resolved above.
-  const businessConfig = getBusinessConfig(tenantId);
+  // audit #2 (2026-06-14): hydrate from Supabase so the render sees the
+  // tenant's real config on Vercel (sync chain finds no .data → placeholder).
+  const businessConfig =
+    (await hydrateBusinessConfigFromSupabase(tenantId)) ??
+    getBusinessConfig(tenantId);
 
   // EGRESS-P0 (2026-05-07) — single-render memoization for
   // page_snapshots. Pre-fix the table was fetched twice per /today

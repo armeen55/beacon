@@ -69,7 +69,10 @@
 
 import "server-only";
 
-import { getBusinessConfig } from "@/lib/business-config";
+import {
+  getBusinessConfig,
+  hydrateBusinessConfigFromSupabase,
+} from "@/lib/business-config";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { PageSnapshot } from "@/domains/pages/types";
 import type { OwnedUrlIndexability } from "@/domains/indexability/types";
@@ -231,7 +234,17 @@ export async function loadTriggerCandidatesForTenant(options: {
   // running predicates with an unknown config shape.
   let businessConfig: BusinessConfig;
   try {
-    businessConfig = getBusinessConfig(tenantId);
+    // CRITICAL (audit #2, 2026-06-14): the SYNC getBusinessConfig never
+    // consults Supabase, so on Vercel (no .data files) a self-served
+    // tenant resolves to the neutral placeholder — contentSiteMode is
+    // absent → page-classifier returns "other" → Gate 9 suppresses every
+    // content-edit candidate → Iranopedia gets ZERO recommendations.
+    // Hydrate from the durable per-tenant Supabase row first (it runs the
+    // env/file sync chain internally, preserving priority), falling back
+    // to the sync placeholder only when there's no row.
+    businessConfig =
+      (await hydrateBusinessConfigFromSupabase(tenantId)) ??
+      getBusinessConfig(tenantId);
   } catch (err) {
     console.error(
       `[trigger-loader] business config unavailable for ${tenantId}: ${err instanceof Error ? err.message : String(err)}`,

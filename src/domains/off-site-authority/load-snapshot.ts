@@ -39,6 +39,7 @@ import "server-only";
 
 import {
   getBusinessConfig,
+  hydrateBusinessConfigFromSupabase,
   isPlaceholderConfig,
 } from "@/lib/business-config";
 import { readLocalReviews } from "@/lib/local-reviews-store";
@@ -76,7 +77,11 @@ export async function loadOffSitePresenceSnapshot(
   // scope (resolved above), so pass it explicitly instead of the
   // deprecated no-arg path. Makes the off-site C7d/C7e data path
   // tenant-correct end-to-end (downstream compute is pure/injected).
-  const businessConfig = getBusinessConfig(tenantId);
+  // audit #2 (2026-06-14): hydrate from Supabase so off-site presence sees
+  // the tenant's real config on Vercel (sync chain → placeholder there).
+  const businessConfig =
+    (await hydrateBusinessConfigFromSupabase(tenantId)) ??
+    getBusinessConfig(tenantId);
   const businessConfigIsPlaceholder = isPlaceholderConfig(businessConfig);
   const brandName =
     typeof businessConfig.name === "string" && businessConfig.name.length > 0

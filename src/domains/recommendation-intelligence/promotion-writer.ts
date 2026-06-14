@@ -55,7 +55,10 @@ import "server-only";
  * directly, NOT the LLM-orchestrator path.
  */
 
-import { getBusinessConfig } from "@/lib/business-config";
+import {
+  getBusinessConfig,
+  hydrateBusinessConfigFromSupabase,
+} from "@/lib/business-config";
 import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import { syncRecommendedEdits } from "@/lib/persistence/dual-write";
@@ -140,7 +143,15 @@ export async function promoteEligibleCandidates(
   }
   const enrichmentCtx: DraftEnrichmentContext = { snapshotByUrl };
 
-  const businessConfig = getBusinessConfig(input.tenantId);
+  // CRITICAL (audit #2, 2026-06-14): hydrate from the durable per-tenant
+  // Supabase row so page-classification at promotion sees the tenant's real
+  // contentSiteMode/urlPatterns on Vercel (where the sync chain finds no
+  // .data files and returns the placeholder → all pages "other" → Gate 9
+  // suppresses every content-edit card). Falls back to the sync config when
+  // there's no Supabase row.
+  const businessConfig =
+    (await hydrateBusinessConfigFromSupabase(input.tenantId)) ??
+    getBusinessConfig(input.tenantId);
 
   // Fusion slice (2026-06-12): GA4 page-value weights, keyed by the
   // candidates' target_url form. Fail-soft to neutral.
