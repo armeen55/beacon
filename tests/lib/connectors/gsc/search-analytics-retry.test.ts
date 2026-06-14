@@ -81,4 +81,42 @@ describe("gscSearchAnalyticsQuery 429 backoff", () => {
     expect(out).toBeNull();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  // wave-11 follow-on (2026-06-14): a 401/403 must SIGNAL auth failure so the
+  // sync surfaces synced:false (fail-loud) instead of treating a dead/expired
+  // GSC grant as "0 rows" (silent stale GSC).
+  it("invokes onAuthFailure(status) on a 401 and still returns null", async () => {
+    const onAuthFailure = vi.fn();
+    const out = await gscSearchAnalyticsQuery(ARGS, {
+      fetchImpl: (async () =>
+        new Response("unauthorized", { status: 401 })) as unknown as typeof fetch,
+      sleep: async () => {},
+      onAuthFailure,
+    });
+    expect(out).toBeNull();
+    expect(onAuthFailure).toHaveBeenCalledWith(401);
+  });
+
+  it("invokes onAuthFailure(403) on a permission/scope failure", async () => {
+    const onAuthFailure = vi.fn();
+    await gscSearchAnalyticsQuery(ARGS, {
+      fetchImpl: (async () =>
+        new Response("denied", { status: 403 })) as unknown as typeof fetch,
+      sleep: async () => {},
+      onAuthFailure,
+    });
+    expect(onAuthFailure).toHaveBeenCalledWith(403);
+  });
+
+  it("does NOT invoke onAuthFailure on a non-auth failure (500)", async () => {
+    const onAuthFailure = vi.fn();
+    const out = await gscSearchAnalyticsQuery(ARGS, {
+      fetchImpl: (async () =>
+        new Response("boom", { status: 500 })) as unknown as typeof fetch,
+      sleep: async () => {},
+      onAuthFailure,
+    });
+    expect(out).toBeNull();
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
 });

@@ -124,6 +124,14 @@ export async function gscSearchAnalyticsQuery(
     fetchImpl?: typeof fetch;
     /** Test seam — defaults to a real timer sleep. */
     sleep?: (ms: number) => Promise<void>;
+    /**
+     * wave-11 follow-on (2026-06-14): invoked with the HTTP status on an
+     * AUTH failure (401/403). Lets the caller (the sync) surface a fail-LOUD
+     * `synced:false` instead of swallowing a dead/expired GSC grant as
+     * "0 rows" (silent stale GSC — the pivot's core signal). Optional, so the
+     * only caller (pullDayRows) opts in; the function still returns null.
+     */
+    onAuthFailure?: (status: number) => void;
   } = {},
 ): Promise<GscSearchAnalyticsRow[] | null> {
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -175,6 +183,21 @@ export async function gscSearchAnalyticsQuery(
         return null;
       }
       if (!res.ok) {
+        // wave-11 follow-on (2026-06-14): a 401/403 means the GSC grant
+        // expired or lost scope. Pre-fix this was a quiet warn -> null, so the
+        // sync recorded "0 rows" and stopped, GREEN, and the operator never
+        // learned the token died -> stale GSC demand silently. Signal it
+        // (onAuthFailure) so the sync returns synced:false, and log LOUDLY.
+        // (Auto-refresh-retry — mirroring ga4/data-api.ts — is a tracked,
+        // separate follow-on; this stops the SILENCE.)
+        if (res.status === 401 || res.status === 403) {
+          log.error(
+            "[gsc-search-analytics] AUTH FAILURE — GSC token expired or lost scope; reconnect GSC",
+            { status: res.status, siteUrl: args.siteUrl, startDate: args.startDate },
+          );
+          deps.onAuthFailure?.(res.status);
+          return null;
+        }
         log.warn("[gsc-search-analytics] non-2xx from searchanalytics.query", {
           status: res.status,
           siteUrl: args.siteUrl,
@@ -279,19 +302,25 @@ export async function pullDayRows(args: {
   day: string;
   dimensions: string[];
   dataState?: "final" | "all";
+  /** wave-11 follow-on: forwarded to the query so an auth (401/403) failure
+   *  surfaces to the sync (fail-loud) instead of looking like an empty day. */
+  onAuthFailure?: (status: number) => void;
 }): Promise<GscSearchAnalyticsRow[] | null> {
   const out: GscSearchAnalyticsRow[] = [];
   let startRow = 0;
   for (;;) {
-    const page = await gscSearchAnalyticsQuery({
-      accessToken: args.accessToken,
-      siteUrl: args.siteUrl,
-      startDate: args.day,
-      endDate: args.day,
-      dimensions: args.dimensions,
-      dataState: args.dataState,
-      startRow,
-    });
+    const page = await gscSearchAnalyticsQuery(
+      {
+        accessToken: args.accessToken,
+        siteUrl: args.siteUrl,
+        startDate: args.day,
+        endDate: args.day,
+        dimensions: args.dimensions,
+        dataState: args.dataState,
+        startRow,
+      },
+      { onAuthFailure: args.onAuthFailure },
+    );
     if (page == null) return out.length > 0 ? out : null;
     out.push(...page);
     if (page.length < GSC_SA_ROW_LIMIT) break;

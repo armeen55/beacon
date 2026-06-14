@@ -176,6 +176,12 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   const sb = getSupabaseAdmin();
   let days = 0;
   let rowsUpserted = 0;
+  // wave-11 follow-on (2026-06-14): set by pullDayRows -> the query on a GSC
+  // AUTH failure (401/403). Pre-fix the run stopped and reported synced:true
+  // (GREEN) on a dead/expired grant, hiding stale GSC demand (the pivot's core
+  // signal) from the operator. Now we surface synced:false so the caller logs
+  // a visible skip and the operator knows to reconnect GSC.
+  let authFailureStatus: number | null = null;
   for (let day = startDay; day <= lastFinalDay; day = addDays(day, 1)) {
     const rows = await pullDayRows({
       accessToken,
@@ -183,9 +189,19 @@ export async function syncGscSearchAnalyticsForTenant(args: {
       day,
       dimensions: ["page", "query"],
       dataState: "final",
+      onAuthFailure: (status) => {
+        authFailureStatus = status;
+      },
     });
+    if (authFailureStatus !== null) {
+      log.error(
+        "[gsc-sa-sync] GSC auth failure — token expired or lost scope; reconnect GSC",
+        { tenantId, property, status: authFailureStatus },
+      );
+      return { synced: false, reason: `gsc_auth_failed_${authFailureStatus}` };
+    }
     if (rows == null) {
-      // Auth/quota/network — stop here; UPSERTs so far are kept and
+      // Quota/network — stop here; UPSERTs so far are kept and
       // the next run's re-pull window resumes cleanly.
       log.warn("[gsc-sa-sync] day pull failed; stopping run", {
         tenantId,
