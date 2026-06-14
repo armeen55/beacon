@@ -41,12 +41,27 @@ type PlatformRow = {
 };
 
 /**
- * Fetch platform-scope derived snapshot rows for one ISO date.
+ * Fetch platform-scope derived snapshot rows for one ISO date, scoped to
+ * one tenant.
+ *
+ * audit wave-2 #1 (2026-06-14) — CRITICAL cross-tenant fix. This reads via
+ * the service-role admin client, which BYPASSES RLS, so the tenant filter
+ * MUST be applied in the query. Without it the headline /today KPIs
+ * ("Times AI recommended you" / "How often AI mentions you") summed
+ * `citation_count`/`mention_count` across EVERY tenant's derived platform
+ * rows for the date — one customer saw other customers' numbers folded
+ * into their core dashboard tile. `tenantId` is REQUIRED (no cross-tenant
+ * default) so the isolation contract is enforced by the type system, the
+ * same way the sibling today-primary-share.ts binds .forTenant(tenantId).
  */
-async function fetchPlatformRowsForDate(dateISO: string): Promise<PlatformRow[]> {
+async function fetchPlatformRowsForDate(
+  dateISO: string,
+  tenantId: string,
+): Promise<PlatformRow[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("daily_metric_snapshots")
     .select("platform, mention_count, citation_count, visibility_score, share_of_voice")
+    .eq("tenant_id", tenantId)
     .eq("date", dateISO)
     .eq("source_type", "derived")
     .eq("scope_type", "platform");
@@ -87,20 +102,21 @@ export function aggregateDerivedPlatformRows(
  * Default clock is `Date.now()`; overridable for tests.
  */
 export async function fetchTodayDerivedKpis(
-  options?: { now?: Date },
+  options: { tenantId: string; now?: Date },
 ): Promise<TodayDerivedKpis | null> {
-  const now = options?.now ?? new Date();
+  const { tenantId } = options;
+  const now = options.now ?? new Date();
   const todayISO = now.toISOString().slice(0, 10);
   const yesterdayISO = new Date(now.getTime() - 86_400_000)
     .toISOString()
     .slice(0, 10);
 
-  const todayRows = await fetchPlatformRowsForDate(todayISO);
+  const todayRows = await fetchPlatformRowsForDate(todayISO, tenantId);
   if (todayRows.length > 0) {
     return aggregateDerivedPlatformRows(todayISO, false, todayRows);
   }
 
-  const yesterdayRows = await fetchPlatformRowsForDate(yesterdayISO);
+  const yesterdayRows = await fetchPlatformRowsForDate(yesterdayISO, tenantId);
   if (yesterdayRows.length > 0) {
     return aggregateDerivedPlatformRows(yesterdayISO, true, yesterdayRows);
   }

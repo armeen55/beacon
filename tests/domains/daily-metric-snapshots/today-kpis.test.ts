@@ -1,6 +1,52 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { aggregateDerivedPlatformRows } from "@/domains/daily-metric-snapshots/today-kpis";
+// audit wave-2 #1 (2026-06-14): capture the .eq() filters applied to the
+// daily_metric_snapshots query so we can pin that EVERY read is tenant-scoped
+// (the RLS-bypassing admin client makes this the only thing standing between
+// one tenant's dashboard and another's numbers).
+const _eqCalls: Array<[string, unknown]> = [];
+vi.mock("@/lib/persistence/supabase", () => {
+  const builder: Record<string, unknown> = {};
+  builder.from = () => builder;
+  builder.select = () => builder;
+  builder.eq = (col: string, val: unknown) => {
+    _eqCalls.push([col, val]);
+    return builder;
+  };
+  // The query is awaited; resolve to an empty result so both date probes
+  // return [] (the assertion is about the filters, not the rows).
+  (builder as { then: unknown }).then = (resolve: (v: unknown) => unknown) =>
+    resolve({ data: [], error: null });
+  return { getSupabaseAdmin: () => builder };
+});
+
+import {
+  aggregateDerivedPlatformRows,
+  fetchTodayDerivedKpis,
+} from "@/domains/daily-metric-snapshots/today-kpis";
+
+beforeEach(() => {
+  _eqCalls.length = 0;
+});
+
+describe("fetchTodayDerivedKpis — tenant isolation (wave-2 #1)", () => {
+  it("filters daily_metric_snapshots by tenant_id on every date probe", async () => {
+    await fetchTodayDerivedKpis({
+      tenantId: "tenant-iranopedia",
+      now: new Date("2026-06-13T12:00:00Z"),
+    });
+    // Both today + yesterday probes ran (today returned []), each must carry
+    // the tenant filter. No probe may omit it.
+    const tenantFilters = _eqCalls.filter(([c]) => c === "tenant_id");
+    expect(tenantFilters.length).toBeGreaterThanOrEqual(2);
+    for (const [, val] of tenantFilters) {
+      expect(val).toBe("tenant-iranopedia");
+    }
+    // Defense-in-depth: there is NO query path that filtered date but not tenant.
+    const dateFilters = _eqCalls.filter(([c]) => c === "date").length;
+    expect(tenantFilters.length).toBe(dateFilters);
+  });
+});
 
 describe("aggregateDerivedPlatformRows", () => {
   it("sums citation_count and mention_count across rows", () => {

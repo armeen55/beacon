@@ -477,7 +477,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Supabase hiccup at render-time degrades to null.
   let todayKpis: TodayDerivedKpis | null = null;
   try {
-    todayKpis = await fetchTodayDerivedKpis();
+    // audit wave-2 #1 (2026-06-14): MUST pass tenantId — the KPI read uses
+    // the RLS-bypassing admin client, so omitting it summed every tenant's
+    // citations/mentions into this tenant's headline tiles.
+    todayKpis = await fetchTodayDerivedKpis({ tenantId });
   } catch (err) {
     console.error("Today derived KPI fetch failed:", err);
     todayKpis = null;
