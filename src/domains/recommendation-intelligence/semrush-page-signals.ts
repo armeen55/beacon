@@ -52,22 +52,35 @@ export async function loadSemrushPageSignalsForTenant(
     difficulty: number | null;
     intent: string | null;
   };
-  let rows: Row[] = [];
+  const rows: Row[] = [];
   try {
     const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("semrush_organic_keywords")
-      .select("keyword, position, volume, url, difficulty, intent")
-      .eq("tenant_id", tenantId)
-      .limit(MAX_ROWS);
-    if (error) {
-      log.warn("[semrush-page-signals] read failed", {
-        tenantId,
-        error: error.message,
-      });
-      return out;
+    // audit wave-2 #3 (2026-06-14): PostgREST caps a single response at ~1000
+    // rows regardless of .limit(), so the old `.limit(5000)` read silently
+    // truncated a busy domain's keyword set to an arbitrary 1000 — and the
+    // per-page grouping below then produced INCOMPLETE strikingDistance lists
+    // (missing cards for any page whose keywords fell past the cut). Page
+    // through in 1000-row chunks, stably ordered, under the safety bound.
+    const PAGE = 1000;
+    for (let from = 0; from < MAX_ROWS; from += PAGE) {
+      const { data, error } = await sb
+        .from("semrush_organic_keywords")
+        .select("keyword, position, volume, url, difficulty, intent")
+        .eq("tenant_id", tenantId)
+        .order("url")
+        .order("keyword")
+        .range(from, from + PAGE - 1);
+      if (error) {
+        log.warn("[semrush-page-signals] read failed", {
+          tenantId,
+          error: error.message,
+        });
+        break;
+      }
+      const batch = (data ?? []) as unknown as Row[];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
     }
-    rows = (data ?? []) as unknown as Row[];
   } catch {
     return out;
   }

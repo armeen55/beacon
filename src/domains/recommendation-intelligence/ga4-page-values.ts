@@ -37,26 +37,39 @@ export async function loadGa4PageValuesForTenant(
     engaged_sessions: number;
     conversions: number;
   };
-  let rows: Row[] = [];
+  const rows: Row[] = [];
   try {
     const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
       .toISOString()
       .slice(0, 10);
     const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("ga4_url_traffic")
-      .select("url, sessions, engaged_sessions, conversions")
-      .eq("tenant_id", tenantId)
-      .gte("date", since)
-      .limit(MAX_ROWS);
-    if (error) {
-      log.warn("[ga4-page-values] read failed", {
-        tenantId,
-        error: error.message,
-      });
-      return out;
+    // audit wave-2 #5 (2026-06-14): PostgREST caps a response at ~1000 rows
+    // regardless of .limit(), so the old `.limit(25000)` read silently
+    // truncated to an arbitrary 1000 url×day rows — then the per-page SUM
+    // below understated sessions/conversions, skewing the GA4 priority
+    // weight (a high-value page could weigh neutral because its rows fell
+    // past the cut). Page through in 1000-row chunks, stably ordered.
+    const PAGE = 1000;
+    for (let from = 0; from < MAX_ROWS; from += PAGE) {
+      const { data, error } = await sb
+        .from("ga4_url_traffic")
+        .select("url, sessions, engaged_sessions, conversions")
+        .eq("tenant_id", tenantId)
+        .gte("date", since)
+        .order("date")
+        .order("url")
+        .range(from, from + PAGE - 1);
+      if (error) {
+        log.warn("[ga4-page-values] read failed", {
+          tenantId,
+          error: error.message,
+        });
+        break;
+      }
+      const batch = (data ?? []) as unknown as Row[];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
     }
-    rows = (data ?? []) as unknown as Row[];
   } catch {
     return out;
   }

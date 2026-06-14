@@ -12,19 +12,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const _rows = { current: [] as unknown[] };
-vi.mock("@/lib/persistence/supabase", () => ({
-  getSupabaseAdmin: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          gte: () => ({
-            limit: () => Promise.resolve({ data: _rows.current, error: null }),
-          }),
-        }),
-      }),
-    }),
-  }),
-}));
+// audit wave-2 #4 (2026-06-14): the loader now PAGES via .order().range()
+// instead of a single .limit() (PostgREST 1000-row cap fix). Chainable
+// builder resolves at .range(); since the fixtures are <1000 rows, the
+// loader's loop breaks after the first page (batch.length < PAGE).
+vi.mock("@/lib/persistence/supabase", () => {
+  const make = () => {
+    const b: Record<string, unknown> = {};
+    b.from = () => b;
+    b.select = () => b;
+    b.eq = () => b;
+    b.gte = () => b;
+    b.order = () => b;
+    b.range = () => Promise.resolve({ data: _rows.current, error: null });
+    return b;
+  };
+  return { getSupabaseAdmin: () => make() };
+});
 vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
