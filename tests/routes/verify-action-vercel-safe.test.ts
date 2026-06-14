@@ -325,14 +325,21 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
       else process.env.DUAL_WRITE = originalDualWriteEnv;
     });
 
-    it("still does a global delete-replace (`.gte('id', 0)`) — behavior unchanged by Phase 4.5", async () => {
+    it("scopes the delete-replace to the tenant — `.eq('tenant_id', …).gte('id', 0)` (audit #1)", async () => {
       process.env.DUAL_WRITE = "true";
 
       const captured: { deleteChain: string[] } = { deleteChain: [] };
+      // audit #1 (2026-06-14): syncGuardrailAlerts now filters the delete by
+      // tenant_id BEFORE the id range — the prior unscoped `.gte('id', 0)`
+      // wiped EVERY tenant's alerts on each scan. The mock supports `.eq().gte()`.
+      const gteStep = (column: string, value: number) => {
+        captured.deleteChain.push(`gte(${column},${value})`);
+        return Promise.resolve({ error: null });
+      };
       const deleteMock = vi.fn(() => ({
-        gte: (column: string, value: number) => {
-          captured.deleteChain.push(`gte(${column},${value})`);
-          return Promise.resolve({ error: null });
+        eq: (column: string, value: string) => {
+          captured.deleteChain.push(`eq(${column},${value})`);
+          return { gte: gteStep };
         },
       }));
       const insertMock = vi.fn(async () => ({ error: null }));
@@ -364,10 +371,10 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
         "tenant-test",
       );
 
-      // Global helper signature: delete().gte("id", 0) — a global wipe.
-      // Phase 4.5 must NOT alter this. Both are necessary: global for
-      // orchestrate-scan, URL-scoped for verify-action.
+      // audit #1: the delete is now tenant-scoped (eq(tenant_id,…)) THEN the
+      // id range — never an all-tenant wipe.
       expect(deleteMock).toHaveBeenCalled();
+      expect(captured.deleteChain).toContain("eq(tenant_id,tenant-test)");
       expect(captured.deleteChain).toContain("gte(id,0)");
       expect(insertMock).toHaveBeenCalled();
     });

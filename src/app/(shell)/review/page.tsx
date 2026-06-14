@@ -1,8 +1,9 @@
 import {
   getResults,
-  getChangelogEntries,
   getOpportunities,
 } from "@/lib/seed-data.server";
+import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { discoverCandidates, warmPageRegistry } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
@@ -94,11 +95,17 @@ const DECISIONABILITY_ORDER: Record<Decisionability, number> = {
   ambiguous: 2,
 };
 
+// audit #20 (2026-06-14): always SSR + read the changelog fresh per request.
+// The seed-data process-cache never re-reads within a warm lambda, so an
+// Accept on /recommendations was invisible here. Mirrors /changes.
+export const dynamic = "force-dynamic";
+
 export default async function ReviewPage() {
   await warmPageRegistry();
+  const repo = getRepository().forTenant(await currentTenantId());
   const [results, changelogEntries, opportunities, candidateLinks, eventDecisions] = await Promise.all([
     getResults(),
-    getChangelogEntries(),
+    repo.getChangelogEntries(),
     getOpportunities(),
     getCandidateLinks(),
     getEventDecisions(),

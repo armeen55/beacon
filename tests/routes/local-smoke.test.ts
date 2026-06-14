@@ -62,16 +62,34 @@ vi.mock("@/lib/connector-store", async () => {
 
 import { saveConnectorToken } from "@/lib/connector-store";
 
+// Hermeticity (2026-06-14): the import-runs json-store has an anti-race
+// guard that REFUSES to overwrite a non-empty file with `[]` (so a startup
+// race never flushes an empty array). The global test fixture seeds an
+// import-run, so `writeStore("import-runs", [])` is a no-op and the
+// freshness read leaks the fixture's "Last imported …". Seed a single
+// NON-qualifying run instead (imported_count: 0 → excluded by the manual-
+// review filter in lastManualReviewsImportCompletedAt) — non-empty, so the
+// guard allows the overwrite, and freshness still reads "No imports yet".
+const NO_MANUAL_IMPORTS: ImportRun[] = [
+  {
+    id: "test-noop-import",
+    entity_type: "reviews",
+    source_system: "manual_csv",
+    imported_count: 0,
+    completed_at: "2026-01-01T00:00:00.000Z",
+  } as unknown as ImportRun,
+];
+
 describe("Local presence route smoke", () => {
   beforeEach(async () => {
     await writeStore("local-reviews", []);
-    await writeStore("import-runs", []);
+    await writeStore("import-runs", NO_MANUAL_IMPORTS);
     _tokenStore = new Map();
   });
 
   afterEach(async () => {
     await writeStore("local-reviews", []);
-    await writeStore("import-runs", []);
+    await writeStore("import-runs", NO_MANUAL_IMPORTS);
     _tokenStore = new Map();
   });
 

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   getResults,
-  getChangelogEntries,
   getOpportunities,
 } from "@/lib/seed-data.server";
 import { getEventDecisions } from "@/domains/attribution/store";
@@ -53,6 +52,11 @@ type NextMove =
   | "push_supporting"
   | "too_early";
 
+// audit #20 (2026-06-14): always SSR — this is a live customer surface that
+// must reflect changelog writes from other lambdas (e.g. an Accept on
+// /recommendations), not a process-cached snapshot. Mirrors /changes.
+export const dynamic = "force-dynamic";
+
 export default async function TopicsPage() {
   // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
   const repo = getRepository().forTenant(await currentTenantId());
@@ -60,7 +64,10 @@ export default async function TopicsPage() {
   await warmPageRegistry();
   const [results, changelogEntries, opportunities, eventDecisions, rolloutExecutions, patternEvidence, pageIssues, rolloutWaves, attackPackages, trackedMissingPages, citationEvidenceIndex] = await Promise.all([
     getResults(),
-    getChangelogEntries(),
+    // audit #20 (2026-06-14): fresh tenant-scoped read (the seed-data
+    // getChangelogEntries process-cache never re-reads within a warm lambda,
+    // so an Accept on /recommendations was invisible here). Mirrors /changes.
+    repo.getChangelogEntries(),
     getOpportunities(),
     getEventDecisions(),
     getRolloutExecutions(),
