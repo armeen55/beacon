@@ -73,18 +73,14 @@
 name: Daily scheduled scan
 
 on:
-  schedule:
-    # 04:00 UTC = ~9 PM PT (PDT) / ~8 PM PT prev-day (PST). Off-peak on
-    # GitHub Actions and 3 hours before the 07:00 UTC native poll, so
-    # fresh inventory + lifecycle stamps land before the poll captures
-    # the day's observations.
-    - cron: "0 4 * * *"
-  # Manual trigger from the Actions tab — use after first deploy to verify
-  # end-to-end before relying on the schedule.
+  # 2026-06-15: nightly cron removed — operator disabled ALL GitHub Actions to
+  # conserve minutes (no nightly crons). The scan runs on-demand: a manual
+  # dispatch, or the launch-time first-scan (`only_tenant`). Re-add `schedule:`
+  # to restore nightly fleet scans.
   #
   # North-star onboarding (2026-06-11): optional `only_tenant` scopes a
   # dispatch to ONE tenant (the launch-time first-scan path). Absent →
-  # full fleet matrix, byte-identical to the scheduled run.
+  # full fleet matrix.
   workflow_dispatch:
     inputs:
       only_tenant:

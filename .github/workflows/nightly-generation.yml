@@ -42,8 +42,10 @@
 name: Nightly recommendation generation
 
 on:
-  schedule:
-    - cron: "30 5 * * *"
+  # 2026-06-15: nightly cron removed — operator disabled ALL GitHub Actions to
+  # conserve minutes and does not want nightly crons. Recommendation generation
+  # is now on-demand (in-app trigger / manual dispatch). Re-add a `schedule:`
+  # block here only to restore scheduled runs.
   workflow_dispatch:
 
 concurrency:

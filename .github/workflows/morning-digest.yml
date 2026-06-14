@@ -24,8 +24,9 @@
 name: Morning digest
 
 on:
-  schedule:
-    - cron: "0 14 * * *"
+  # 2026-06-15: nightly cron removed — operator disabled ALL GitHub Actions to
+  # conserve minutes (no nightly crons). The morning digest is on-demand now
+  # (manual dispatch / in-app send). Re-add `schedule:` to restore.
   workflow_dispatch:
 
 concurrency:
