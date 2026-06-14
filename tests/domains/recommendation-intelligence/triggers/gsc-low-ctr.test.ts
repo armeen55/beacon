@@ -50,10 +50,10 @@ function snap(over: Partial<PageSnapshot> = {}): PageSnapshot {
 function signal(over: Partial<GscPageSignal> = {}): GscPageSignal {
   return {
     page: "https://example.com/persian-tea-houses",
-    clicks28d: 12,
-    impressions28d: 900,
-    ctr28d: 0.013,
-    position28d: 3.2,
+    clicks90d: 12,
+    impressions90d: 900,
+    ctr90d: 0.013,
+    position90d: 3.2,
     topQueries: [
       // position 3 → benchmark 10.2%; ctr 1.0% < 5.1% threshold → FIRES
       { query: "persian tea houses", clicks: 5, impressions: 500, ctr: 0.01, position: 3.1 },

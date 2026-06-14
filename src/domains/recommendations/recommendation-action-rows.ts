@@ -1070,11 +1070,11 @@ export function composeRowEvidenceSummary(args: {
   // secondary signal (surfaced as a chip, not the lead). Falls through to the
   // AEO summary when the page has no GSC data. ──
   const gsc = args.rec.gscSignal;
-  if (gsc != null && gsc.impressions28d > 0) {
-    const clicks = Math.round(gsc.clicks28d).toLocaleString();
-    const imp = Math.round(gsc.impressions28d).toLocaleString();
-    const ctrPct = (gsc.ctr28d * 100).toFixed(1);
-    const pos = gsc.position28d.toFixed(1);
+  if (gsc != null && gsc.impressions90d > 0) {
+    const clicks = Math.round(gsc.clicks90d).toLocaleString();
+    const imp = Math.round(gsc.impressions90d).toLocaleString();
+    const ctrPct = (gsc.ctr90d * 100).toFixed(1);
+    const pos = gsc.position90d.toFixed(1);
     return `${clicks} clicks · ${imp} impressions · ${ctrPct}% CTR · avg position ${pos} (90-day Google Search)`;
   }
 
@@ -1443,8 +1443,8 @@ export function buildRecommendationActionRows(
           brandPrimaryShare,
           needsHumanReview,
           hasExactEdit: true,
-          gscImpressions: rec.gscSignal?.impressions28d,
-          gscPosition: rec.gscSignal?.position28d,
+          gscImpressions: rec.gscSignal?.impressions90d,
+          gscPosition: rec.gscSignal?.position90d,
         });
         // Status is keyed off the question row's lifecycle (the
         // primary side of the pair). The validator-pairing guarantee
@@ -1495,7 +1495,7 @@ export function buildRecommendationActionRows(
           // Pivot 2026-06-13: first-party Google Search demand floors
           // the confidence label (never "Needs more evidence" when the
           // page is provably trafficked).
-          gscImpressions: rec.gscSignal?.impressions28d,
+          gscImpressions: rec.gscSignal?.impressions90d,
         });
         rows.push({
           id: `${rec.stableKey}::faq-pair::${hash}`,
@@ -1596,8 +1596,8 @@ export function buildRecommendationActionRows(
           brandPrimaryShare,
           needsHumanReview,
           hasExactEdit: true,
-          gscImpressions: rec.gscSignal?.impressions28d,
-          gscPosition: rec.gscSignal?.position28d,
+          gscImpressions: rec.gscSignal?.impressions90d,
+          gscPosition: rec.gscSignal?.position90d,
         });
         const status = statusForRow({
           responseStatus,
@@ -1629,7 +1629,7 @@ export function buildRecommendationActionRows(
           // Pivot 2026-06-13: first-party Google Search demand floors
           // the confidence label (never "Needs more evidence" when the
           // page is provably trafficked).
-          gscImpressions: rec.gscSignal?.impressions28d,
+          gscImpressions: rec.gscSignal?.impressions90d,
         });
         rows.push({
           id: `${rec.stableKey}::${edit.id}`,
@@ -1754,8 +1754,8 @@ export function buildRecommendationActionRows(
       brandPrimaryShare,
       needsHumanReview,
       hasExactEdit: false,
-      gscImpressions: rec.gscSignal?.impressions28d,
-      gscPosition: rec.gscSignal?.position28d,
+      gscImpressions: rec.gscSignal?.impressions90d,
+      gscPosition: rec.gscSignal?.position90d,
     });
     const status = statusForRow({
       responseStatus,
@@ -1784,7 +1784,7 @@ export function buildRecommendationActionRows(
       hasTopCompetitor: topCompetitor !== null,
       // Pivot 2026-06-13: first-party Google Search demand floors the
       // confidence label for meta-action rows too.
-      gscImpressions: rec.gscSignal?.impressions28d,
+      gscImpressions: rec.gscSignal?.impressions90d,
     });
     rows.push({
       id: `${rec.stableKey}::${metaKind}`,

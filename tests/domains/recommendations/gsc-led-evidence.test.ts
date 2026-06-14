@@ -39,10 +39,10 @@ describe("composeRowEvidenceSummary — GSC-led pivot", () => {
   it("leads with GSC demand (clicks/impressions/CTR/position) when a signal is present", () => {
     const gsc: GscPageSignal = {
       page: "https://www.iranopedia.com/persian-kabobs/koobideh-kabob",
-      clicks28d: 27,
-      impressions28d: 3842,
-      ctr28d: 0.007,
-      position28d: 8.94,
+      clicks90d: 27,
+      impressions90d: 3842,
+      ctr90d: 0.007,
+      position90d: 8.94,
       topQueries: [],
     };
     const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });
@@ -63,10 +63,10 @@ describe("composeRowEvidenceSummary — GSC-led pivot", () => {
   it("ignores a zero-impression GSC signal (no demand → AEO lead)", () => {
     const gsc: GscPageSignal = {
       page: "x",
-      clicks28d: 0,
-      impressions28d: 0,
-      ctr28d: 0,
-      position28d: 0,
+      clicks90d: 0,
+      impressions90d: 0,
+      ctr90d: 0,
+      position90d: 0,
       topQueries: [],
     };
     const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });

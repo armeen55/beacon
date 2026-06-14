@@ -6,8 +6,8 @@
  *
  * Rule A — "high impressions, low CTR → rewrite the title":
  *   For a page's top queries, when
- *     position ≤ 5 (rounded)          AND
- *     impressions ≥ 200 over 28 days  AND
+ *     position ≤ 5 (rounded)             AND
+ *     impressions ≥ 200 over the window  AND
  *     ctr < 0.5 × expected_ctr(position)
  *   the page earns ONE edit_title candidate carrying the worst
  *   under-performing query + its exact numbers as evidence.
@@ -22,8 +22,11 @@
  *   • The title is the lever per Google's title-link doc: it is
  *     "often the primary piece of information people use to decide
  *     which result to click".
- *   • 28-day aggregation: single-day CTR is too noisy (all sources
- *     aggregate before thresholding).
+ *   • 90-day aggregation (operator pref 2026-06-13; audit #15 de-misnamed
+ *     the fields 2026-06-14): single-day CTR is too noisy (all sources
+ *     aggregate before thresholding). The 200-impression floor is a
+ *     sample-size floor for a meaningful CTR — it is window-agnostic, so
+ *     it stays 200 across the window change (NOT scaled to the window).
  *
  * These constants are RESEARCH-DERIVED calibration, not business
  * vocabulary — they apply to any vertical/geo/language because the
@@ -49,7 +52,7 @@ import type { GscPageSignal, GscQuerySignal } from "../gsc-page-signals";
 export type GscLowCtrInput = {
   tenantId: string;
   snapshot: PageSnapshot;
-  /** Pre-loaded 28-day signal for this snapshot's page, or undefined
+  /** Pre-loaded 90-day signal for this snapshot's page, or undefined
    *  when GSC has no data for it (or isn't connected). */
   signal: GscPageSignal | undefined;
 };
@@ -64,7 +67,7 @@ export const EXPECTED_CTR_BY_POSITION: Record<number, number> = {
   5: 0.051,
 };
 
-const MIN_IMPRESSIONS_28D = 200;
+const MIN_IMPRESSIONS = 200;
 const CTR_SHORTFALL_FACTOR = 0.5;
 
 /** The under-performing queries for a page, worst shortfall first. */
@@ -73,7 +76,7 @@ export function underperformingQueries(
 ): GscQuerySignal[] {
   const out: Array<{ q: GscQuerySignal; shortfall: number }> = [];
   for (const q of signal.topQueries) {
-    if (q.impressions < MIN_IMPRESSIONS_28D) continue;
+    if (q.impressions < MIN_IMPRESSIONS) continue;
     const pos = Math.round(q.position);
     const expected = EXPECTED_CTR_BY_POSITION[pos];
     if (expected == null) continue; // outside the sourced 1–5 band
@@ -145,9 +148,9 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
       customer_copy: gscLowCtrCopy(worst.query, worst.impressions),
       operator_evidence:
         "signal=gsc_low_ctr; window=28d; page_impressions=" +
-        signal.impressions28d +
+        signal.impressions90d +
         "; page_ctr=" +
-        pct(signal.ctr28d) +
+        pct(signal.ctr90d) +
         "; underperforming=" +
         losers
           .map(
@@ -186,7 +189,7 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
  */
 const STRIKING_MIN_POS = 4;
 const STRIKING_MAX_POS = 15;
-const STRIKING_MIN_IMPRESSIONS_28D = 100;
+const STRIKING_MIN_IMPRESSIONS = 100;
 
 function titleContains(text: string | null | undefined, q: string): boolean {
   const hay = (text ?? "").toLowerCase();
@@ -209,7 +212,7 @@ export function gscStrikingDistance(
   const target = signal.topQueries
     .filter(
       (q) =>
-        q.impressions >= STRIKING_MIN_IMPRESSIONS_28D &&
+        q.impressions >= STRIKING_MIN_IMPRESSIONS &&
         q.position >= STRIKING_MIN_POS &&
         q.position <= STRIKING_MAX_POS &&
         !titleContains(snapshot.title, q.query),

@@ -1,14 +1,19 @@
 /**
  * Insight Graph slice 1 (2026-06-12) — per-page GSC Search Analytics
  * signal loader. Aggregates the tenant's synced `gsc_daily_rows`
- * (page+query grain, final days only) over the trailing 28-day window
+ * (page+query grain, final days only) over the trailing 90-day window
  * into one signal object per page — the pure input the GSC-driven
  * trigger predicates consume (same pattern as the indexability batch
  * loader: this module does the I/O, predicates stay pure).
  *
- * 28-day window: single-day CTR is too noisy for recommendations —
- * the practitioner sources behind the trigger rules all aggregate
- * before applying thresholds (cited in the slice commit).
+ * 90-day window (audit #15, 2026-06-14 — was mislabeled "28d" in field
+ * names while WINDOW_DAYS has been 90 since the 2026-06-13 operator
+ * pref; renamed `*28d` → `*90d` for honesty): single-day CTR is too
+ * noisy for recommendations — the practitioner sources behind the
+ * trigger rules all aggregate before applying thresholds (cited in the
+ * slice commit). The longer window also steadies CTR/position and
+ * surfaces more pages. NOTE: the `*90d` suffix tracks WINDOW_DAYS — if
+ * that constant changes, rename the GscPageSignal fields to match.
  *
  * Fail-soft: missing table / no rows / Supabase error → empty Map.
  */
@@ -32,12 +37,12 @@ export type GscQuerySignal = {
 export type GscPageSignal = {
   /** Canonicalized page URL (map key, repeated for convenience). */
   page: string;
-  clicks28d: number;
-  impressions28d: number;
+  clicks90d: number;
+  impressions90d: number;
   /** clicks/impressions over the window (0–1). */
-  ctr28d: number;
+  ctr90d: number;
   /** Impressions-weighted average position over the window. */
-  position28d: number;
+  position90d: number;
   /** Top queries by impressions (capped). */
   topQueries: GscQuerySignal[];
 };
@@ -47,8 +52,8 @@ export type GscPageSignal = {
  *  sync backfills up to ~90 days, so this captures it all as it accumulates. */
 const WINDOW_DAYS = 90;
 const TOP_QUERIES_CAP = 8;
-/** Bounded read: per-tenant page+query rows over 28 days. At page+query+day
- *  grain a busy site easily exceeds 20k rows in 28 days; the old 20k cap (with
+/** Bounded read: per-tenant page+query rows over the 90-day window. At
+ *  page+query+day grain a busy site easily exceeds 20k rows in 90 days; the old 20k cap (with
  *  no ORDER BY) truncated to an arbitrary handful of pages — starving both the
  *  GSC triggers and the card evidence. 80k covers Iranopedia's current ~44k
  *  in-window rows fully so EVERY page aggregates. (Scale follow-up: move to a
@@ -136,10 +141,10 @@ export async function loadGscPageSignalsForTenant(
     });
     out.set(page, {
       page,
-      clicks28d: clicks,
-      impressions28d: impressions,
-      ctr28d: impressions > 0 ? clicks / impressions : 0,
-      position28d: impressions > 0 ? positionWeighted / impressions : 0,
+      clicks90d: clicks,
+      impressions90d: impressions,
+      ctr90d: impressions > 0 ? clicks / impressions : 0,
+      position90d: impressions > 0 ? positionWeighted / impressions : 0,
       topQueries: querySignals.slice(0, TOP_QUERIES_CAP),
     });
   }
@@ -192,10 +197,10 @@ export async function loadGscPageSignalsForTenant(
     }
     for (const [page, acc] of totalsByPage) {
       const totals = {
-        clicks28d: acc.clicks,
-        impressions28d: acc.impressions,
-        ctr28d: acc.impressions > 0 ? acc.clicks / acc.impressions : 0,
-        position28d:
+        clicks90d: acc.clicks,
+        impressions90d: acc.impressions,
+        ctr90d: acc.impressions > 0 ? acc.clicks / acc.impressions : 0,
+        position90d:
           acc.impressions > 0 ? acc.positionWeighted / acc.impressions : 0,
       };
       const existing = out.get(page);

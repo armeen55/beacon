@@ -53,10 +53,10 @@ function snap(over: Partial<PageSnapshot> = {}): PageSnapshot {
 function signal(over: Partial<GscPageSignal> = {}): GscPageSignal {
   return {
     page: "https://iranopedia.com/chaharshanbe-suri",
-    clicks28d: 40,
-    impressions28d: 3000,
-    ctr28d: 0.013,
-    position28d: 6.2,
+    clicks90d: 40,
+    impressions90d: 3000,
+    ctr90d: 0.013,
+    position90d: 6.2,
     topQueries: [
       { query: "what is chaharshanbe suri", clicks: 20, impressions: 1500, ctr: 0.013, position: 5.1 },
       { query: "persian fire festival", clicks: 10, impressions: 600, ctr: 0.016, position: 7.0 },

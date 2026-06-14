@@ -85,7 +85,7 @@ export type DeriveConfidenceInput = {
   hasTopCompetitor: boolean;
   /**
    * Pivot 2026-06-13 — first-party Google Search demand for the target
-   * page (28-day impressions, from `gscSignal.impressions28d`). Real
+   * page (90-day impressions, from `gscSignal.impressions90d`). Real
    * search demand is strong first-party evidence that exists
    * INDEPENDENTLY of AI-citation grounding: a page Google shows for
    * queries thousands of times is not "thin" just because few AI
