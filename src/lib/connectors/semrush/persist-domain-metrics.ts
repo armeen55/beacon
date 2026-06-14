@@ -16,6 +16,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { updateConnectorToken } from "@/lib/connector-store";
+import { log } from "@/lib/logger";
 import {
   fetchDomainOverview,
   fetchOrganicCompetitors,
@@ -128,7 +129,20 @@ async function upsertSnapshot(
     },
     { onConflict: "tenant_id,domain" },
   );
-  if (error != null) return false; // incl. 42P01 pre-migration window.
+  if (error != null) {
+    // audit wave-2 #9 (2026-06-14): don't swallow the write failure
+    // silently — the caller returns ok:true with persisted=false, so
+    // without this line a failed snapshot write left NO trace anywhere
+    // (the keyword-gap trigger then reads a stale/absent competitor seed
+    // with no clue why). 42P01 (pre-migration) is expected/benign but
+    // still worth a one-line breadcrumb.
+    log.warn("[semrush-domain-metrics] snapshot upsert failed", {
+      tenantId: snapshot.tenant_id,
+      domain: snapshot.domain,
+      error: error.message,
+    });
+    return false;
+  }
   return true;
 }
 

@@ -158,11 +158,21 @@ async function main() {
           tenantId,
           domain: semDomain,
         });
-        console.log(
-          dm.ok
-            ? `[scheduled-generation] SEMRUSH-DOMAIN refreshed tenant=${tenantId} domain=${semDomain}`
-            : `[scheduled-generation] SEMRUSH-DOMAIN skipped tenant=${tenantId} reason=${dm.reason}`,
-        );
+        // audit wave-2 #9 (2026-06-14): surface a SUCCESSFUL fetch whose
+        // WRITE failed (ok:true, persisted:false) as a warning instead of
+        // logging "refreshed" — otherwise a silently-dropped snapshot reads
+        // as success and the stale competitor seed has no breadcrumb.
+        if (dm.ok && !dm.persisted) {
+          console.warn(
+            `::warning::[scheduled-generation] SEMRUSH-DOMAIN fetched but NOT persisted tenant=${tenantId} domain=${semDomain} (write failed — see [semrush-domain-metrics] warning above)`,
+          );
+        } else {
+          console.log(
+            dm.ok
+              ? `[scheduled-generation] SEMRUSH-DOMAIN refreshed tenant=${tenantId} domain=${semDomain}`
+              : `[scheduled-generation] SEMRUSH-DOMAIN skipped tenant=${tenantId} reason=${dm.reason}`,
+          );
+        }
       } else {
         console.log(
           `[scheduled-generation] SEMRUSH-DOMAIN skipped tenant=${tenantId} reason=no_domain`,

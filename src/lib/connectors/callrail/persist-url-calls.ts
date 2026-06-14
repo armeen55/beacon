@@ -15,6 +15,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { updateConnectorToken } from "@/lib/connector-store";
+import { log } from "@/lib/logger";
 import { callrailFetchCalls, type CallRailFetchDeps } from "./client";
 import { groupCallsByUrlDay } from "./calls-by-url";
 import type { CallRailQualifiedRule } from "./types";
@@ -67,7 +68,13 @@ export async function refreshCallRailCalls(
   } catch {
     /* best-effort */
   }
-  return { ok: true, rowsUpserted: rows.length, persisted };
+  // audit wave-2 #6 (2026-06-14): rowsUpserted must reflect REALITY — when
+  // the Supabase write failed (persisted=false) the old code still reported
+  // rowsUpserted=rows.length, so the operator's diagnostic showed "N calls
+  // synced" on a write that wrote nothing. `ok` stays true (the CallRail
+  // FETCH succeeded); `persisted=false` is the write-failure signal the
+  // caller surfaces, and upsertRows now logs WHY.
+  return { ok: true, rowsUpserted: persisted ? rows.length : 0, persisted };
 }
 
 async function upsertRows(
@@ -93,7 +100,16 @@ async function upsertRows(
   const { error } = await admin
     .from(TABLE)
     .upsert(payload, { onConflict: "tenant_id,url,date" });
-  return error == null;
+  if (error != null) {
+    // audit wave-2 #6: never swallow a write failure silently.
+    log.warn("[callrail] call_url_attribution upsert failed", {
+      tenantId,
+      rows: payload.length,
+      error: error.message,
+    });
+    return false;
+  }
+  return true;
 }
 
 /**

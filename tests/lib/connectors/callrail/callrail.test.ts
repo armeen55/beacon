@@ -139,15 +139,17 @@ describe("refreshCallRailCalls — assembly", () => {
       { landing_page_url: "https://ritzbuilders.com/adu", answered: true, duration: 5, lead_status: "not_scored", start_time: "2026-06-01T12:00:00Z" },
     ],
   };
-  it("groups + reports rowsUpserted (persisted false without Supabase)", async () => {
+  it("reports rowsUpserted=0 when the write did NOT persist (wave-2 #6: honest count)", async () => {
     const r = await refreshCallRailCalls(
       { tenantId: "t", now: new Date("2026-06-09T00:00:00Z") },
       { token: TOKEN, fetchImpl: (async () => fakeRes(body)) as unknown as typeof fetch },
     );
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(true); // the CallRail FETCH succeeded
     if (r.ok) {
-      expect(r.rowsUpserted).toBe(1); // one URL/day
-      expect(r.persisted).toBe(false); // no admin client in test
+      // No admin client in test → upsert can't persist. rowsUpserted must
+      // reflect REALITY (0 written), not the pre-fix lie of rows.length.
+      expect(r.persisted).toBe(false);
+      expect(r.rowsUpserted).toBe(0);
     }
   });
   it("passes through no_key", async () => {
