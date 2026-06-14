@@ -56,6 +56,9 @@ export function isDecaying(s: GscDecaySignal): boolean {
 export function gscDecay(input: GscDecayInput): RecommendationCandidateRow[] {
   const { tenantId, snapshot, signal } = input;
   if (isNonHtmlAsset(snapshot.url)) return [];
+  // audit #10 (2026-06-14): don't emit a "refresh your intro" card for a
+  // dead URL (GSC keeps rows for pages that have since gone 404/5xx).
+  if (snapshot.http_status >= 400) return [];
   if (signal == null || !isDecaying(signal)) return [];
 
   const actionType = "update_intro" as const;

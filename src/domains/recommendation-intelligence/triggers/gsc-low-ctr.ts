@@ -87,6 +87,10 @@ export function underperformingQueries(
 export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
   const { tenantId, snapshot, signal } = input;
   if (isNonHtmlAsset(snapshot.url)) return [];
+  // audit #10 (2026-06-14): GSC retains rows for URLs that have since gone
+  // 404/5xx; don't emit a title-rewrite card for a dead page (mirrors
+  // answer-block-readiness). Other per-page triggers already guard this.
+  if (snapshot.http_status >= 400) return [];
   if (signal == null) return [];
 
   const losers = underperformingQueries(signal);
@@ -196,6 +200,10 @@ export function gscStrikingDistance(
 ): RecommendationCandidateRow[] {
   const { tenantId, snapshot, signal } = input;
   if (isNonHtmlAsset(snapshot.url)) return [];
+  // audit #10 (2026-06-14): GSC retains rows for URLs that have since gone
+  // 404/5xx; don't emit a title-rewrite card for a dead page (mirrors
+  // answer-block-readiness). Other per-page triggers already guard this.
+  if (snapshot.http_status >= 400) return [];
   if (signal == null) return [];
 
   const target = signal.topQueries

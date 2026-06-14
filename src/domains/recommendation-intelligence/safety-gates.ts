@@ -50,6 +50,15 @@ const CONTENT_EDIT_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
   "add_faq",
   "add_schema",
   "add_internal_link",
+  // audit #11 (2026-06-14): these were missing, so Gates 7-9 were bypassed
+  // and a decay/friction/answer card on a /contact or /privacy page could
+  // reach the customer queue. `update_intro` (gsc_decay) is customer-queue-
+  // ready so this is the live fix; fix_page_experience + add_answer_block
+  // are operator-review-only today (suppressed earlier) but gated for when
+  // they graduate.
+  "update_intro",
+  "fix_page_experience",
+  "add_answer_block",
 ]);
 
 /** Page types where content-edit promotion is suppressed.
@@ -71,6 +80,11 @@ const CONTENT_EDIT_SKIP_PAGE_TYPES: ReadonlySet<PageType> =
 const GSC_DEMAND_SIGNALS: ReadonlySet<string> = new Set<string>([
   "gsc_low_ctr",
   "gsc_striking_distance",
+  // audit #11 (2026-06-14): gsc_decay is also first-party-demand-backed (it
+  // fires only on pages with prior GSC clicks), so a genuinely-ranked
+  // content page mis-classified "other" keeps the override now that
+  // update_intro runs through Gate 9.
+  "gsc_decay",
 ]);
 
 const SIGNAL_STALE_DAYS = 90;
