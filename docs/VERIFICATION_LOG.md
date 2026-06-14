@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-14 (overnight, follow-on) — GSC Search-Analytics auth failure now FAIL-LOUD (resolves wave-9 #2 fail-loud half)
+
+**Why:** the GSC SA sync is the pivot's core demand signal. A 401/403 mid-sync made `gscSearchAnalyticsQuery` return `null` (quiet warn); the sync treated that like "no more rows", stopped, and returned `synced:true` — a dead/expired GSC grant looked GREEN and the operator never learned demand data went stale. (Wave-9 flagged this as #2 and deferred the whole thing as "edge-case + deliberate refactor"; on reflection the FAIL-LOUD half is high-value + bounded, so it's now done.)
+
+**What changed (fully contained — `gscSearchAnalyticsQuery`'s only caller is `pullDayRows`, same file):**
+- `search-analytics.ts`: optional `deps.onAuthFailure(status)`; on 401/403 → `log.error` (loud) + signal caller, still returns null. `pullDayRows` forwards it.
+- `sync-search-analytics.ts`: tracks the auth-failure status and returns `{ synced:false, reason: 'gsc_auth_failed_<status>' }` → `run-scheduled-generation` logs a visible skip so the operator reconnects GSC. Quota/network failures keep the prior fail-soft (synced:true, partial rows, clean re-pull).
+- `search-analytics-retry.test.ts`: +3 (onAuthFailure fires on 401 + 403, not on 500).
+
+**Still deferred (separate tracked follow-on):** the auto-refresh-RETRY on 401 (mirror `ga4/data-api.ts`) — recovery is lower-value + a bigger change than surfacing the failure.
+
+**Verified:** typecheck clean; 95 gsc tests pass (no regression) + 3 new. **Rails:** crons untouched (strictly more honest), NOT pushed.
+
+---
+
 ## 2026-06-14 (overnight, wave-11) — perimeter audit: skip empty morning digest (MEDIUM) + surface refused Wix revert (LOW); 2 refuted
 
 **How found:** adversarial 4-lens Workflow audit (auth/tenant-resolution · Wix-push safety · morning-digest content · onboarding provisioning). 2 confirmed, **2 correctly refuted** (a `dry_run`-treated-as-live path — unreachable since `executePush` is called without `dryRun` and all dry_run returns are `if(dryRun)`-guarded; a `buildTrackedPromptRow` missing-`tenant_id` "blocks onboarding" — the asserted NOT-NULL/CHECK constraint migration is explicitly NOT-APPLIED, and task #65 addressed it, so no live break).
