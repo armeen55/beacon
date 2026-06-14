@@ -23,6 +23,7 @@ import {
   refreshAllDataSourcesFromForm,
   runPerplexityReadingFromForm,
   runOpenAiReadingFromForm,
+  recomputeProofFromForm,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -175,12 +176,35 @@ export default async function ConnectorsDiagnosticPage() {
         </div>
       </section>
 
+      {/* On-demand Proof Engine recompute (2026-06-15) — crons off. The
+          causal Proof Engine (classifies each shipped edit Helping / Hurting /
+          Nothing-Yet vs natural-control pages) used to recompute only in the
+          nightly job. Deterministic, no paid API — safe to click any time. */}
+      <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Recompute causal proof
+        </h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Re-grades every shipped edit against comparable untouched pages and
+          refreshes the Proof tile + Changes scorecard. Run after a data
+          refresh or after shipping edits. Deterministic — no AI spend.
+        </p>
+        <form action={recomputeProofFromForm}>
+          <button
+            type="submit"
+            className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white"
+          >
+            Recompute proof
+          </button>
+        </form>
+      </section>
+
       <p className="text-xs text-muted-foreground">
         Refreshing pulls fresh data from each connected source into
         Beacon&apos;s cache — that&apos;s what keeps Today, Recommendations, and
         the Changes detail current now that nightly crons are off. GSC, GA4,
         Clarity, Profound, Semrush + CallRail all refresh in the batch above;
-        the AI reading is a separate (paid) poll, run on demand.
+        the AI reading and the proof recompute are separate on-demand actions.
       </p>
     </div>
   );

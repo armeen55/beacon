@@ -36,6 +36,7 @@ vi.mock("@/app/(shell)/diagnostics/connectors/actions", () => ({
   refreshAllDataSourcesFromForm: async () => {},
   runPerplexityReadingFromForm: async () => {},
   runOpenAiReadingFromForm: async () => {},
+  recomputeProofFromForm: async () => {},
 }));
 
 import ConnectorsDiagnosticPage from "@/app/(shell)/diagnostics/connectors/page";
@@ -73,6 +74,9 @@ describe("/diagnostics/connectors — rows", () => {
     expect(html).toContain("Run today&#x27;s AI reading");
     expect(html).toContain("Run Perplexity reading");
     expect(html).toContain("Run ChatGPT reading");
+    // 2026-06-15 — on-demand Proof Engine recompute (crons off)
+    expect(html).toContain("Recompute causal proof");
+    expect(html).toContain("Recompute proof");
   });
 
   it("disables refresh + shows empty note when none connected", async () => {

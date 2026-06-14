@@ -317,3 +317,75 @@ export async function runOpenAiReadingFromForm(
 ): Promise<void> {
   await runTodaysReadingForPlatform("openai");
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// ON-DEMAND Proof Engine recompute (2026-06-15) — crons off.
+//
+// buildAndPersistTenantProof is the causal Proof Engine: it classifies every
+// shipped edit Helping / Hurting / Nothing-Yet against natural-control pages
+// (diff-in-diff) and persists the customer-facing outcomes that the Proof tile
+// (loadProvenWins) + Changes scorecard read. Its ONLY caller used to be the
+// nightly generation script — with that cron gone, the proof would never
+// recompute. This surfaces it as an operator gesture.
+//
+// 100% deterministic, NO paid API (reads existing changelog + edits + citation
+// history → Supabase). Safe to click any time; best-effort.
+// ─────────────────────────────────────────────────────────────────────
+
+export type RecomputeProofResult =
+  | {
+      ok: true;
+      events_classified: number;
+      computed: number;
+      weak: number;
+      watching: number;
+      persisted: number;
+    }
+  | { ok: false; reason: string };
+
+export async function recomputeProofNow(): Promise<RecomputeProofResult> {
+  const action = "recomputeProofNow";
+  const t0 = Date.now();
+  if (!isOperatorModeServer()) {
+    return { ok: false, reason: "not_operator" };
+  }
+  log.info("Action started", { action });
+  try {
+    const tenantId = await currentTenantId();
+    const { buildAndPersistTenantProof } = await import(
+      "@/domains/attribution/proof-engine"
+    );
+    const proof = await buildAndPersistTenantProof(tenantId);
+    revalidatePath(ROUTE);
+    log.info("Action completed", {
+      action,
+      durationMs: Date.now() - t0,
+      computed: proof.computed,
+      watching: proof.watching,
+      persisted: proof.persisted,
+    });
+    return {
+      ok: true,
+      events_classified: proof.events_classified,
+      computed: proof.computed,
+      weak: proof.weak,
+      watching: proof.watching,
+      persisted: proof.persisted,
+    };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: err.slice(0, 500),
+    });
+    return { ok: false, reason: err.slice(0, 200) };
+  }
+}
+
+// Void-returning <form action> wrapper the page binds.
+export async function recomputeProofFromForm(
+  _formData: FormData,
+): Promise<void> {
+  await recomputeProofNow();
+}
