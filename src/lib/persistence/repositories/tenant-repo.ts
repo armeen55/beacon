@@ -146,6 +146,12 @@ export function buildTenantRepo(
       filterByTenantId(await base.getPageSummaries(), tenantId),
     getPageSnapshots: async () =>
       filterByTenantId(await base.getPageSnapshots(), tenantId),
+    // audit #12 (2026-06-14) — the file backend's getPageSnapshots reads
+    // every row off disk (no 500-row cap), so the generation read is the
+    // same tenant-filtered full set. The cap only exists on the Supabase
+    // tenant-scoped reader; here there's nothing to un-cap.
+    getAllPageSnapshotsForGeneration: async () =>
+      filterByTenantId(await base.getPageSnapshots(), tenantId),
     getPageSnapshotLinkGraphs: async () =>
       filterByTenantId(await base.getPageSnapshotLinkGraphs(), tenantId),
     getPageElementInventory: async () =>

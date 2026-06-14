@@ -911,6 +911,66 @@ export const supabaseBackend: SeedDataRepository = {
         return latest;
       },
 
+      // audit #12 (2026-06-14) — fully-paginated "latest snapshot per
+      // page" read for the NIGHTLY GENERATION path. The capped
+      // getPageSnapshots() above protects the hot web surfaces, but its
+      // .limit(500) silently drops pages for large content sites (a
+      // single Iranopedia scan already writes >430 rows/2d), starving
+      // every trigger of the pages past the cap. This pages through ALL
+      // of the tenant's rows with the SAME lean projection (no heavy
+      // payload fields → egress-safe) and the same page_id dedup. Runs
+      // once per generation (cron), never on a web request, so the
+      // unbounded read can't re-trigger the EGRESS-P0 incident.
+      //
+      // NOTE: the projection string is duplicated (not factored to a
+      // const) on purpose — the EGRESS-P0.4 pin asserts the capped
+      // method's inline `.select("id, page_id, ...")` literal verbatim.
+      getAllPageSnapshotsForGeneration: async () => {
+        const t0 = Date.now();
+        const PAGE = 1000;
+        const sb = getSupabaseAdmin();
+        const all: PageSnapshot[] = [];
+        let from = 0;
+        for (;;) {
+          const { data, error } = await sb
+            .from("page_snapshots")
+            .select(
+              "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id",
+            )
+            .eq("tenant_id", tenantId)
+            .order("fetched_at", { ascending: false })
+            .range(from, from + PAGE - 1);
+          if (error)
+            throw new Error(
+              `Supabase query failed on page_snapshots (generation): ${error.message}`,
+            );
+          const rows = (data ?? []) as PageSnapshot[];
+          all.push(...rows);
+          if (rows.length < PAGE) break;
+          from += PAGE;
+        }
+        // Dedup to the latest snapshot per page. The global
+        // fetched_at-DESC order across pages means the FIRST occurrence
+        // of each page_id is its newest snapshot.
+        const seen = new Set<string>();
+        const latest: PageSnapshot[] = [];
+        for (const row of all) {
+          if (!seen.has(row.page_id)) {
+            seen.add(row.page_id);
+            latest.push(row);
+          }
+        }
+        logEgress({
+          table: "page_snapshots[generation-paged+dedup+projected]",
+          rows: latest.length,
+          data: all,
+          durationMs: Date.now() - t0,
+          tenantId,
+          filter: "paged dedup_by=page_id projected_columns",
+        });
+        return latest;
+      },
+
       // Link-graph feed (2026-06-12): tenant-scoped variant of the
       // scoped internal_links read (see base impl note) — placed AFTER
       // getPageSnapshots so the egress pin's block regex anchors on the

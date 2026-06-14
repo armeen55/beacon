@@ -263,6 +263,26 @@ export interface TenantRepository {
    *  `SeedDataRepository.getPageSummaries` docstring. */
   getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
+  /**
+   * audit #12 (2026-06-14) — fully-paginated, tenant-scoped
+   * "latest snapshot per page" read for the NIGHTLY GENERATION path only.
+   *
+   * `getPageSnapshots()` is hard-capped at 500 rows (EGRESS-P0) to protect
+   * the hot web surfaces (/today, /recommendations, /changes), which call
+   * it on every page load. That cap silently DROPS pages for large content
+   * sites: a single Iranopedia scan already writes >430 snapshot rows in
+   * 2 days, so a tenant a little past ~250 pages would have its later pages
+   * vanish from every trigger (the same silent-truncation class as the
+   * `getPages()` 1000-row incident). The generation pipeline MUST see every
+   * page, so this pages through ALL of the tenant's rows with the same lean
+   * projection + page_id dedup. It runs once per generation (cron), so the
+   * unbounded read is egress-safe — the cap only matters on the web path.
+   *
+   * OPTIONAL: only the real backends implement it. Generation callers fall
+   * back to `getPageSnapshots()` when a backend (or a test fake) omits it,
+   * preserving prior behavior.
+   */
+  getAllPageSnapshotsForGeneration?(): Promise<PageSnapshot[]>;
   /** Scoped link-graph read — see PageSnapshotLinkGraph. */
   getPageSnapshotLinkGraphs(): Promise<PageSnapshotLinkGraph[]>;
   /**

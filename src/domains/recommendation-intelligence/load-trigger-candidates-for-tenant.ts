@@ -199,7 +199,15 @@ export async function loadTriggerCandidatesForTenant(options: {
   let snapshots: PageSnapshot[];
   try {
     const repo = getRepository().forTenant(tenantId);
-    const all = await repo.getPageSnapshots();
+    // audit #12 (2026-06-14): the GENERATION path must see EVERY page, not
+    // the 500-most-recent rows the egress-pinned web reader returns. A
+    // single large-tenant scan already exceeds the cap, so the un-capped,
+    // fully-paginated generation read keeps later pages from silently
+    // vanishing from every trigger. Fall back to the capped read for
+    // backends / test fakes that don't implement it.
+    const all = repo.getAllPageSnapshotsForGeneration
+      ? await repo.getAllPageSnapshotsForGeneration()
+      : await repo.getPageSnapshots();
     snapshots = Array.isArray(all) ? all.filter((s) => s != null) : [];
     // Link-graph feed (2026-06-12 night shift): the egress-lean
     // snapshot projection deliberately omits internal_links, which

@@ -131,7 +131,17 @@ export async function promoteEligibleCandidates(
     loadTriggerCandidatesForTenant({ tenantId: input.tenantId }),
     getRepository().forTenant(input.tenantId).getRecommendedEdits(),
     getRecommendationResponses(),
-    getRepository().forTenant(input.tenantId).getPageSnapshots(),
+    // audit #12 (2026-06-14): this builds snapshotByUrl for draft
+    // enrichment — it must cover EVERY page, not the 500-most-recent the
+    // egress-pinned web reader caps at, or large-tenant cards past the cap
+    // get empty "go look at this page" directives. Use the un-capped
+    // generation read (fallback keeps file/test backends working).
+    (() => {
+      const repo = getRepository().forTenant(input.tenantId);
+      return repo.getAllPageSnapshotsForGeneration
+        ? repo.getAllPageSnapshotsForGeneration()
+        : repo.getPageSnapshots();
+    })(),
   ]);
 
   // Draft enrichment context (P0 wall 3, 2026-06-10): latest snapshot
