@@ -114,15 +114,23 @@ async function upsertRows(
 
 /**
  * Sum qualified calls for ONE canonical URL on/after `sinceUtcDate`
- * (YYYY-MM-DD). Soft-fails to 0 (no Supabase / no table / no rows) so
- * the Mode A feed degrades to today's behavior when CallRail is absent.
- * Matches the canonical URL and its trailing-slash variant (mirrors the
- * Mode A GA4 URL-scoped read).
+ * (YYYY-MM-DD), optionally bounded above by `untilUtcDate` (inclusive).
+ * Soft-fails to 0 (no Supabase / no table / no rows) so the Mode A feed
+ * degrades to today's behavior when CallRail is absent. Matches the
+ * canonical URL and its trailing-slash variant (mirrors the Mode A GA4
+ * URL-scoped read).
+ *
+ * wave-5 #6 (2026-06-14): `untilUtcDate` exists so this sum covers exactly
+ * the SAME [live_at, now] window the Mode A session count uses — the two
+ * are rendered together as "M sessions and K calls", so an unbounded call
+ * window (counting calls dated after `now`) would mismatch the paired
+ * session figure.
  */
 export async function loadQualifiedCallCountForUrl(args: {
   tenantId: string;
   canonicalUrl: string;
   sinceUtcDate: string;
+  untilUtcDate?: string;
 }): Promise<number> {
   if (args.canonicalUrl === "") return 0;
   // Soft-fail read: ANY problem (no Supabase, missing table, unexpected
@@ -131,12 +139,16 @@ export async function loadQualifiedCallCountForUrl(args: {
   try {
     const admin = getSupabaseAdmin();
     const variants = [args.canonicalUrl, `${args.canonicalUrl}/`];
-    const { data, error } = await admin
+    let query = admin
       .from(TABLE)
       .select("qualified_calls,url,date")
       .eq("tenant_id", args.tenantId)
       .in("url", variants)
       .gte("date", args.sinceUtcDate);
+    if (args.untilUtcDate) {
+      query = query.lte("date", args.untilUtcDate);
+    }
+    const { data, error } = await query;
     if (error != null || !Array.isArray(data)) return 0;
     let n = 0;
     for (const row of data as Array<{ qualified_calls?: number }>) {

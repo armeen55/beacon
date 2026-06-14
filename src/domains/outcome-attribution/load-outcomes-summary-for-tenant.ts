@@ -238,6 +238,15 @@ export async function loadOutcomesSummaryForTenant(
       let sumSessions = 0;
       let sumEngaged = 0;
       let sumCalls = 0;
+      // wave-5 #1 (2026-06-14): the headline "N live edits received M sessions
+      // and K calls from changed pages" must count each changed PAGE's traffic
+      // ONCE. A single URL can carry multiple edits (the row id is
+      // recId__actionType__elementKey), each independently verified_live, and
+      // each edit's matchingRows is the SAME page's GA4 rows — so summing per
+      // edit double-counted (Nx) the page's sessions AND qualified calls.
+      // Eligibility counts below stay per-edit (correct); the traffic/call
+      // SUMS are deduped by canonical URL.
+      const summedUrls = new Set<string>();
       for (const { edit, canonicalTargetUrl } of perEditCanonical) {
         if (canonicalTargetUrl == null) {
           // Mode A would return ineligible: no_target_url; pre-filter
@@ -261,6 +270,9 @@ export async function loadOutcomesSummaryForTenant(
               tenantId,
               canonicalUrl: canonicalTargetUrl,
               sinceUtcDate: callsSince,
+              // wave-5 #6 (2026-06-14): bound the call window at `now` so it
+              // matches the [live_at, now] session window rendered beside it.
+              untilUtcDate: todayUtc,
             })
           : 0;
         const result: ModeAResult = computeModeATrafficAttribution({
@@ -271,9 +283,15 @@ export async function loadOutcomesSummaryForTenant(
         });
         if (result.kind === "eligible") {
           eligible++;
-          sumSessions += result.post_live_sessions;
-          sumEngaged += result.post_live_engaged_sessions;
-          sumCalls += result.post_live_qualified_calls;
+          // Add this page's traffic/calls to the tenant-wide totals only the
+          // FIRST time we see the URL — subsequent same-URL edits still count
+          // toward `eligible` but must not re-add the same page's numbers.
+          if (!summedUrls.has(canonicalTargetUrl)) {
+            summedUrls.add(canonicalTargetUrl);
+            sumSessions += result.post_live_sessions;
+            sumEngaged += result.post_live_engaged_sessions;
+            sumCalls += result.post_live_qualified_calls;
+          }
         } else if (result.kind === "still_learning_outcome") {
           stillLearning++;
         } else {

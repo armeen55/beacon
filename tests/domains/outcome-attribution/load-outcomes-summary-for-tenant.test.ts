@@ -429,6 +429,43 @@ describe("loadOutcomesSummaryForTenant — URL-scoped SELECT", () => {
     ]);
   });
 
+  it("does NOT double-count sessions/calls when two eligible edits share one URL (wave-5 #1)", async () => {
+    // Two distinct edits (different action types) on the SAME page, both
+    // verified_live + eligible. The page's traffic/calls must be counted
+    // ONCE — the pre-fix per-edit sum doubled them.
+    _editsToReturn = [
+      makeEdit({
+        id: "e-1",
+        live_at: "2026-05-15T00:00:00Z",
+        target_url: "https://ritzbuilders.com/services/whole-home-remodel",
+      }),
+      makeEdit({
+        id: "e-2",
+        live_at: "2026-05-16T00:00:00Z",
+        target_url: "http://www.ritzbuilders.com/services/whole-home-remodel/",
+      }),
+    ];
+    _computeMock.mockReturnValue({
+      kind: "eligible",
+      post_live_sessions: 40,
+      post_live_engaged_sessions: 25,
+      post_live_qualified_calls: 3,
+      canonical_target_url:
+        "https://ritzbuilders.com/services/whole-home-remodel",
+    });
+    const summary = await loadOutcomesSummaryForTenant({
+      tenantId: "tenant-test",
+      now: NOW,
+    });
+    if (summary.status !== "ok") throw new Error("expected ok summary");
+    // BOTH edits count toward eligibility...
+    expect(summary.eligible_edits).toBe(2);
+    // ...but the page's traffic/calls are summed ONCE (not 80 / 50 / 6).
+    expect(summary.sum_post_live_sessions).toBe(40);
+    expect(summary.sum_post_live_engaged_sessions).toBe(25);
+    expect(summary.sum_post_live_qualified_calls).toBe(3);
+  });
+
   it("includes the exact column projection (no over-select)", async () => {
     _editsToReturn = [
       makeEdit({ live_at: "2026-05-15T00:00:00Z" }),
