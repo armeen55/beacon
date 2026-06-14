@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-14 (overnight, wave-7) — HIGH: per-tenant poll-health canary (fail-loud); stop a healthy tenant masking a failed one
+
+**How found:** adversarial 4-lens Workflow audit of the unattended nightly cron pipeline (tenant-coverage / fail-loud / idempotency / ordering-budget). 1 confirmed HIGH, 1 correctly refuted (a `syncGuardrailAlerts` unscoped-delete claim — the verifier confirmed it is ALREADY tenant-scoped on HEAD via `98f3eb7`, with a passing regression test; stale finding rejected).
+
+**Root cause:** `scripts/check-yesterday-poll.ts` (the poll-health canary, run by `daily-native-poll.yml` verify-persistence job AND `poll-canary.yml`) called one GLOBAL `fetchPollHealthForDate(date)` with no `tenantId`, so `poll-health.ts` omitted the `.eq("tenant_id", …)` filter and aggregated EVERY tenant's runs into a single health view. With Ritz + Iranopedia both enabled (since 2026-06-10), a healthy Ritz poll masks a failed Iranopedia poll → the job exits 0, no GitHub failure alert fires, and the operator never learns the showcase tenant's nightly poll silently broke. Explicitly a deferred gap in `NEXT_PHASE_EXECUTION_PLAN.md §3` whose deferral condition ("not required while only Ritz is enabled") was invalidated by Iranopedia's enablement.
+
+**What changed:**
+- `scripts/check-yesterday-poll.ts`: new `resolveTargets()` — checks EVERY enabled tenant from `ops/active-tenants.json` (reuses `list-active-tenants.parseJsonFallback`, so the canary verifies the SAME fleet the poll matrix runs), or a single tenant via an explicit `--tenant <id>` flag. Loops per tenant, calls `fetchPollHealthForDate(date, tenantId)`, exits non-zero if ANY tenant is not ok (error > not-ok > ok precedence). Selection deliberately NOT gated on `BEACON_TENANT_ID` env (poll-canary pins it to the first tenant — would re-introduce the blind spot). JSON-missing → single global check as a logged backward-compatible last resort.
+- `.github/workflows/daily-native-poll.yml`: updated the now-stale "scaffold — does not filter by tenant" comment (comment-only; job unchanged — no matrix needed, the script loops the fleet itself).
+- `tests/architecture/multi-tenant-cron-scaffold.test.ts`: +4 source-text invariants pinning the per-tenant fail-loud contract.
+
+**Verified:**
+- `npm run typecheck` clean.
+- Ran the canary READ-ONLY against prod for 2026-06-13: now reports Ritz + Iranopedia SEPARATELY (`tenant-iranopedia` perplexity ok / 50 prompts; `tenant-ritz-founder` pending) — the old global query would have blended them into one verdict. Exit 1 (not-ok), correct.
+- `multi-tenant-cron-scaffold.test.ts` + `list-active-tenants.test.ts`: 51 passed.
+
+**Rails honored:** read-only verification, no YAML matrix risk, deterministic, crons untouched (behavior strictly more correct), NOT pushed.
+
+---
+
 ## 2026-06-14 (overnight, wave-6) — CRITICAL: main dashboard silently rendering EMPTY (canonical-read statement timeout) + 2 customer-surface polish fixes
 
 **How found:** a 6-lens adversarial workflow audit of the customer-facing render/copy/empty-state surfaces (9 agents, 311 tool-uses) came back nearly clean (2 medium findings, 1 refuted). The real bug was caught by running the ACTUAL dev server in parallel (ground truth a code-reading agent cannot get): `/` rendered the Suspense skeleton then an EMPTY `main`.
