@@ -107,6 +107,13 @@ const METRO_MAP: Record<string, string> = {
   "concord": "east bay",
 };
 
+// Bay-Area DEFAULT region taxonomy (founder tenant). De-verticalized
+// (2026-06-15): this is the legacy default — a non-Bay-Area tenant's own
+// region terms are not recognized here, so coverage.ts's region-drop filter
+// is a no-op for them (their region-wide labels are treated as cities). The
+// proper fix is to thread per-tenant region terms (BusinessConfig) into
+// isRegionTerm + computeGeoCoverage — tracked in
+// docs/DEVERTICALIZE_FINDINGS_2026-06-15.md (geo/normalize.ts, M-effort).
 const REGION_TERMS = new Set([
   "bay area", "silicon valley", "south bay", "peninsula",
   "east bay", "north bay", "mid-peninsula", "coastside",
@@ -133,7 +140,10 @@ export function normalizeCity(raw: string): NormalizedCity {
     canonical,
     variants: cleaned !== canonical ? [cleaned] : [],
     metro,
-    state: "CA",
+    // De-verticalized (2026-06-15): do NOT hardcode "CA" — state is unknown
+    // without per-tenant geo config (this field is currently unread; null is
+    // honest and prevents future mis-use for non-California tenants).
+    state: null,
     confidence,
   };
 }
