@@ -82,8 +82,14 @@ export function buildEntitySeed(accountId: string): {
       name: entityDisplayName,
       domain,
       url: `https://${domain}`,
-      location_scope: "Bay Area",
-      service_scope: "custom home building",
+      // De-verticalized (2026-06-15): the owned brand entity no longer gets a
+      // hardcoded "Bay Area" / "custom home building" scope — that stamped a
+      // founder-vertical scope onto EVERY tenant's owned entity on Profound
+      // import. null (unknown) is honest + matches the non-owned entities; a
+      // per-tenant scope from BusinessConfig (locations/services) is a tracked
+      // follow-up (see docs/DEVERTICALIZE_FINDINGS_2026-06-15.md).
+      location_scope: null,
+      service_scope: null,
       is_owned: true,
       is_active: true,
       metadata: {},
