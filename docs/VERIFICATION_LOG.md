@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-15 (golden-path: crons OFF → on-demand cockpit + /today timeout fix)
+
+**Directive:** GitHub Actions cron schedules are OFF (no minutes); LLM authorized; build the golden path so the operator connects GSC/Clarity/GA4/Profound/Wix and the product works **forever, on-demand** (no nightly job). Goal: revive Iranopedia.
+
+**What changed (branch `claude/iranopedia-blockers`, NOT pushed; each commit: typecheck clean + full suite 800/14,789 green):**
+- **`4ac7cc2` AEO poll on-demand** — `runTodaysReadingForPlatform` operator action + "Run today's AI reading" (Perplexity/ChatGPT) on `/diagnostics/connectors`. The native poll (the "how AI describes you" data) was reachable only via the CRON_SECRET route/CLI; now in-app, budget-guarded (same-day repeat = no-op).
+- **`6b9d13b` honest connector copy** — killed 3 stale cron-cadence claims on `/settings/connectors` (GSC "daily refresh cadence", Semrush "Syncs nightly", Clarity "saves a little each day") → on-demand language. Copy only.
+- **`055d7bd` golden-path runbook + env** — `docs/GOLDEN_PATH_SETUP.md` (one-time Vercel env vars w/ file:line, connect steps, on-demand refresh loop, V2 fast-path) + the missing golden-path flags added to `.env.local.example`. Key finding: the DEFAULT legacy surfaces generate recs LIVE on render, so the zero-extra-setup path is connect + refresh + open the page.
+- **`dd03197` Proof recompute on-demand** — `recomputeProofNow` action + "Recompute causal proof" button. `buildAndPersistTenantProof` had ONE caller (the dead nightly script); the Proof tile would have gone stale. Deterministic, no paid API. This closed the last silent cron dependency on the operator-facing path.
+- **`71893c9` /today observation projection (timeout fix)** — ground-truth render of `/` for Ritz hit Supabase statement timeouts on the `prompt_answer_observations` read (the memory-flagged silent-empty-dashboard class). Root cause: 60-day window pulls 8,751 rows / ~17 MB with `select(*)`; `metadata` JSONB alone ~5.9 MB (TOASTed). Fix: lean `observationsColumns` projection (23 cols /today reads; drops metadata + 4 unused), read cut ~45%. /recommendations-live keeps full rows (packet builder needs metadata).
+
+**Verification (ground-truth, real dev server vs real Supabase):** `/diagnostics/connectors` renders all 3 on-demand sections (Refresh all · Run AI reading · Recompute proof); `/`, `/recommendations`, `/settings/connectors` all 200; `/` re-render after the projection 12.5s→~9s and the dashboard fully populates (prompts/visibility/top-pick, zero empty-state phrases). Indexes confirmed present (`idx_pao_tenant_observed_at`); EXPLAIN of the projected query ~440ms at OFFSET 8000 — the timeout is cold-cache/TOAST cost, mitigated by the projection.
+
+**Cron-orphan audit (vs `scripts/run-scheduled-generation.ts`):** refresh (Refresh-all), AEO poll, proof recompute, promotion (`/diagnostics/recommendation-triggers`, env-gated), Wix URL map (`/diagnostics/wix`), observation-run sync (inside poll) all have on-demand paths. Queue sweeper (`sweepQueueForTenant`) remains nightly-only but is V2/promotion-path hygiene (30d TTL), not a default-path blocker.
+
+**Residual (queued, task #73):** legacy `/today` still reads ~8.7k rows / 9 paged round-trips for the data-rich Ritz tenant (~9s, cold-start timeout risk) — fine for new/small tenants (Iranopedia 200 obs). Deeper fix = `BEACON_TODAY_V2` persisted surface or a server-side aggregate RPC.
+
+---
+
 ## 2026-06-14 (overnight, 24-agent DOMAIN deep-audit) — 30 confirmed bugs; 3 fixed, 27 queued
 
 **Method:** a fresh **domain-by-domain** multi-agent workflow (`wf_6ff582e0-f3f`, 24 finders + adversarial verifiers, default-refute) — a DIFFERENT decomposition than the 12 prior lens-waves. **39 findings → 30 confirmed, 9 refuted** (3 critical, 15 high, 11 medium, 1 low). This DISPROVED the "surface is exhausted" conclusion: the domain decomposition surfaced real, reachable, verified defects the lens-waves missed (e.g. duplicate-id upsert crash on the core promote path; cross-tenant snapshot-id collision; global prompt-library on the render path).
