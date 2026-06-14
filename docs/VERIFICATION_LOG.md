@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-14 (overnight, wave-9) — ingestion/mutation audit: scan tenant-slug isolation (HIGH) + GSC token persist (MEDIUM); 401-retry deferred; 1 refuted
+
+**How found:** adversarial 3-lens Workflow audit (connector lifecycle / scan-crawl correctness / server-action mutation safety). 3 confirmed, 1 correctly refuted (a `syncGuardrailAlerts` "unscoped global delete" — verifier confirmed it's ALREADY tenant-scoped on HEAD via `98f3eb7`; stale finding rejected). Verify-first also corrected the CRITICAL finding's severity (see #1).
+
+**#1 (HIGH — scan tenant isolation) `src/domains/scanning/orchestrate-scan.ts`:** `runWebsiteScan` spawned `scan-owned-pages.ts` injecting `BEACON_TENANT_ID` per-call but letting `BEACON_TENANT_SLUG` ride ambient `process.env` (a Phase-7.7e "deferred" note). The cron matrix sets the slug per job (worked), but a hosted server-action / cron-route invocation resolves the tenant from the request while `process.env` carries a single global (or no) slug → the spawned CLI (which requires the slug to route `.data/tenants/<slug>/` writes) could write a tenant's `page_snapshots` under the WRONG tenant's dir, or fail. Fix: resolve `currentTenantSlug()` (registry slug for the CURRENT tenant) + inject it explicitly. **Verify-first correction:** the audit claimed a failed scan "overwrites prior snapshots with an empty array" (CRITICAL data-loss) — FALSE: on CLI failure `runWebsiteScan` `return`s `phase:"failed"` BEFORE the sync block, so prior snapshots are untouched. Real impact is slug-routing, downgraded CRITICAL→HIGH.
+
+**#3 (MEDIUM — GSC token efficiency) `src/lib/connectors/gsc/search-analytics.ts`:** `resolveGscAccessToken` refreshed the access token in-memory but never persisted it, so every nightly GSC sync re-read the stale token and refreshed AGAIN (~9 wasted Google OAuth calls/day across 3 tenants × 3 fires) + masked persistence health. Fix: persist `{access_token, expires_at: Date.now()+expires_in*1000}` via `updateConnectorToken("google_gsc", …, tenantId)` — mirrors `google-reviews-sync` + the epoch-ms format `evaluateExpiry` reads (verified consistent). Best-effort: a persist failure logs but does NOT break the sync.
+
+**#2 (HIGH — GSC 401 mid-sync retry) DEFERRED with rationale:** `gscSearchAnalyticsQuery` treats 401 as fatal-null (unlike GA4's `data-api.ts` which refreshes + retries on 401). Real, but edge-case: the token is freshly resolved at sync start + the 4-day repull window self-heals, so a 401 needs a >1hr sync to hit mid-pagination expiry. The proper fix mirrors GA4's discriminated-result 401-refresh-retry, which requires threading refresh into `gscSearchAnalyticsQuery` + a return-type change across all callers — a deliberate refactor, not a 3am change. Tracked for a focused follow-up.
+
+**What changed:**
+- `src/domains/scanning/orchestrate-scan.ts`: `currentTenantSlug()` resolved + `BEACON_TENANT_SLUG` injected into the spawned CLI env.
+- `src/lib/connectors/gsc/search-analytics.ts`: persist refreshed token (best-effort).
+- `tests/architecture/multi-tenant-cron-scaffold.test.ts`: +2 source-text invariants (slug resolution + injection).
+- `tests/lib/connectors/gsc/search-analytics-token-persist.test.ts`: NEW — +2 behavioral (persists for the tenant; survives a persist failure).
+
+**Verified:** `npm run typecheck` clean; 145 gsc+scanning tests pass (no regression); 4 new regression tests green.
+
+**Rails honored:** deterministic, single-operator posture respected (no premature SaaS hardening), crons untouched (behavior strictly more correct), NOT pushed.
+
+---
+
 ## 2026-06-14 (overnight, wave-8) — MEDIUM: edit_meta content quality (drop colon-terminated section labels)
 
 **How found:** ground-truth inspection of the ACTUAL composed content in prod `recommended_edits.proposed_text` across action types (both tenants). Most content is high-quality + valid: `add_schema` emits valid Article + BreadcrumbList JSON-LD (escaped, on-topic), `add_faq`/`add_h2` are coherent prose, `fix_schema` is a clear directive, titles/H1s are clean. One defect surfaced.
