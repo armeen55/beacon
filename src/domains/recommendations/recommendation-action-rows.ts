@@ -1069,8 +1069,15 @@ export function composeRowEvidenceSummary(args: {
   // position are the primary "why now" evidence; AEO citations are a
   // secondary signal (surfaced as a chip, not the lead). Falls through to the
   // AEO summary when the page has no GSC data. ──
+  // Minimum 90-day page impressions before we LEAD with the precise Google
+  // Search stat line. Below this, clicks/CTR/avg-position are noise — a page
+  // with a handful of impressions has no demand signal worth quoting to four
+  // significant figures — so fall through to the AEO/structural "why". 100
+  // matches the page-level STRIKING_MIN_IMPRESSIONS the triggers gate on
+  // (gsc-low-ctr.ts), so the lead and the trigger predicates agree.
+  const GSC_EVIDENCE_MIN_IMPRESSIONS_90D = 100;
   const gsc = args.rec.gscSignal;
-  if (gsc != null && gsc.impressions90d > 0) {
+  if (gsc != null && gsc.impressions90d >= GSC_EVIDENCE_MIN_IMPRESSIONS_90D) {
     const clicks = Math.round(gsc.clicks90d).toLocaleString();
     const imp = Math.round(gsc.impressions90d).toLocaleString();
     const ctrPct = (gsc.ctr90d * 100).toFixed(1);

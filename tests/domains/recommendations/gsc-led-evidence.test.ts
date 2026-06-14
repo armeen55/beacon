@@ -72,6 +72,37 @@ describe("composeRowEvidenceSummary — GSC-led pivot", () => {
     const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });
     expect(out).toMatch(/AI answer/);
   });
+
+  it("does NOT lead with the GSC stat below the 90-day impression floor (false precision)", () => {
+    // 40 impressions over 90 days has no demand worth quoting to 4 sig figs;
+    // the lead must fall through to the AEO/structural summary (floor = 100).
+    const gsc: GscPageSignal = {
+      page: "x",
+      clicks90d: 1,
+      impressions90d: 40,
+      ctr90d: 0.025,
+      position90d: 42.1,
+      topQueries: [],
+    };
+    const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });
+    expect(out).not.toContain("Google Search");
+    expect(out).not.toContain("impressions");
+    expect(out).toMatch(/AI answer/);
+  });
+
+  it("leads with the GSC stat exactly at the impression floor (100)", () => {
+    const gsc: GscPageSignal = {
+      page: "x",
+      clicks90d: 2,
+      impressions90d: 100,
+      ctr90d: 0.02,
+      position90d: 12.0,
+      topQueries: [],
+    };
+    const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });
+    expect(out).toContain("100 impressions");
+    expect(out).toContain("Google Search");
+  });
 });
 
 describe("priorityForRow — GSC demand floors (pivot)", () => {
