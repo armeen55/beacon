@@ -1,7 +1,11 @@
 # De-verticalization confirmed findings (workflow wf_eff873be-385, 2026-06-15)
 
-> ## SWEEP STATUS (2026-06-15) — 21 commits landed; active leaks + config-threading done
+> ## SWEEP STATUS (2026-06-15) — active leaks + config-threading done; ground-truth verified
 > **CONFIG-THREADING ROUND 2 (2026-06-15 PM) — vertical-tuned classifiers now tenant-driven:**
+> - `seed-data.server.ts` seed fallback now fires ONLY for the seed-owner tenant
+>   (`a29f571`) — was bleeding the founder's builder demo (changelog/results/
+>   opportunities/competitors) into EVERY import-less tenant; ground-truth-found
+>   via Iranopedia's ⌘K palette + fixed + re-verified both directions.
 > - `frontier-planner.ts` city/service frontier classification: dropped the hardcoded
 >   Bay-Area-city + builder-service regex → `getCurrentTenantFrontierVocab()` from
 >   BusinessConfig.locations/.services, threaded through all 4 call sites (`100256f`).
@@ -66,19 +70,17 @@
 
 > ## GROUND-TRUTH-DISCOVERED (2026-06-15, rendering Iranopedia — the workflow EXCLUDED seed-data so missed these)
 > - **DONE:** `log-change-sheet.tsx` placeholder "e.g. Palo Alto City Page" → neutral.
-> - **DEFERRED (M, tenant-isolation + seed):** the ⌘K command palette (`layout.tsx:97`)
->   builds its "Changes" group from the **ambient, NON-tenant-scoped**
->   `getChangelogEntries()` (seed-data.server) → shows the builder DEMO changelog
->   (cl-1 "Kitchen Remodel", cl-2 "Palo Alto City Page") to EVERY tenant incl.
->   Iranopedia. Fix = read changelog through `getRepository().forTenant(tenantId)`
->   (mirror the proof-engine.ts 2026-06-12 fix), OR de-builder the `seed-data.ts`
->   demo set. Shell-layout change (high blast radius) — do as a deliberate slice.
->   Also a tenant-isolation concern (Iranopedia sees seed/global changelog).
-> - **NOTE:** `seed-data.ts` is heavily builder-themed demo data (cl-* changelog,
->   "Kitchen Remodel"/"Palo Alto" topics). The workflow correctly classified it as
->   seed (not product hardcoding), but it LEAKS wherever an ambient non-scoped
->   reader (command palette) surfaces it. Audit ambient `getChangelogEntries()` /
->   seed-fallback readers for tenant scoping.
+> - **DONE (`a29f571`, root-caused deeper than the palette):** the ⌘K command
+>   palette's builder-changelog leak ("Custom Home Building" cl-2/cl-3) was NOT a
+>   palette bug — it was `seed-data.server.ts loadFromRepoOrSeed`, which fell back
+>   to the FOUNDER's builder demo seed for ANY tenant with no `import_runs`. A
+>   GSC-led content tenant (Iranopedia) has real data but never imported a CSV →
+>   got Ritz's demo across getChangelogEntries / getResults / getOpportunities /
+>   getCompetitors / getBriefs. Fix: the seed only falls back for its OWNER tenant
+>   (derived from the seed's own `tenant_id`); every other import-less tenant gets
+>   EMPTY (honest empty states). GROUND-TRUTH VERIFIED both ways on the real dev
+>   server: as Iranopedia the palette leak is gone; restored to Ritz the founder
+>   keeps its full dataset. This resolves the whole class — not just the palette.
 
 53 confirmed of 88. Status: [ ]=todo [x]=done [~]=already-fixed-this-session [defer]=dormant/low.
 
