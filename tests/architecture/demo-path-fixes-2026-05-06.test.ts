@@ -443,4 +443,24 @@ describe("Demo-path bundle 2026-05-06 — cross-cutting negative invariants", ()
   it("rendered today-client.tsx: NO '(URL-level Z-score)' substring (comments stripped)", () => {
     expect(stripComments(TODAY_CLIENT)).not.toMatch(/\(URL-level Z-score\)/);
   });
+
+  // Pivot (GSC-led, 2026-06-14): /changes must show its empty state based on
+  // REAL activity (changelog rows OR recommended edits), never on file
+  // import-runs alone. Pre-pivot it gated on `hasActiveExperiment()`
+  // (import_runs > 0), so a GSC-led tenant that shipped changes / accepted
+  // recommendations but never imported a file was wrongly told "Import your
+  // data" while its real Changes were hidden (live for Iranopedia: 0 changelog
+  // + 0 imports + 70 recommended_edits). This ratchet stops a regression to
+  // the import-only gate.
+  it("pivot: /changes gates its empty state on real activity, not hasActiveExperiment", () => {
+    const stripped = stripComments(CHANGES_PAGE);
+    expect(
+      stripped,
+      "changes/page.tsx must NOT gate the empty state on hasActiveExperiment (import-runs only)",
+    ).not.toMatch(/hasActiveExperiment/);
+    expect(
+      stripped,
+      "changes/page.tsx empty state must gate on liveEntries + recommendedEdits being empty",
+    ).toMatch(/liveEntries\.length === 0\s*&&\s*recommendedEdits\.length === 0/);
+  });
 });
