@@ -92,8 +92,16 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // latest-per-URL, so the diff only exists at that moment); read by
   // move detection ("steal this move").
   "competitor-structural-changes",
+  // De-vert/isolation (2026-06-15): competitor-monitoring holds a tenant's
+  // OWN competitor sitemap snapshots + recentChanges (which feed Today's
+  // competitor alerts). It was GLOBAL — so every tenant read the founder's
+  // builder competitors (Iranopedia's dashboard showed "De Mattei
+  // Construction"), and concurrent crawls clobbered one shared file.
+  // Now per-tenant: each tenant gets its own snapshots; an un-crawled tenant
+  // gets EMPTY_STATE (no cross-tenant bleed).
+  "competitor-monitoring",
   // 2026-06-09 §competitor-intel — durable history of sitemap-level
-  // competitor page changes (added/updated). The shared
+  // competitor page changes (added/updated). The per-tenant
   // competitor-monitoring state REPLACES recentChanges on every crawl
   // (Today's alerts read it); move detection needs a rolling window,
   // so each refresh appends here too.
@@ -183,7 +191,6 @@ export const GLOBAL_STORES = new Set<string>([
   "confidence-calibration",
   "business-config",
   "competitor-universe",
-  "competitor-monitoring",
   "exit-gates",
   "milestone-state",
   "scan-state",

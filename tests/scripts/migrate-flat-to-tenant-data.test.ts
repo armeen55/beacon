@@ -84,9 +84,12 @@ describe("Phase 7.8a — store classification (sanity)", () => {
     expect(SINGLETON_STORES.size).toBeGreaterThanOrEqual(9);
   });
 
-  it("GLOBAL_STORES has the expected breadth (>= 22 after Phase 7.8a.1)", () => {
-    // 16 inherited + 6 added in 7.8a.1.
-    expect(GLOBAL_STORES.size).toBeGreaterThanOrEqual(22);
+  it("GLOBAL_STORES has the expected breadth (>= 21)", () => {
+    // 16 inherited + 6 added in 7.8a.1 = 22, then -1 (de-vert 2026-06-15):
+    // "competitor-monitoring" moved GLOBAL → TENANT_SCOPED (it holds a
+    // tenant's OWN competitor snapshots/alerts; being global bled the
+    // founder's builder competitors onto every tenant's dashboard).
+    expect(GLOBAL_STORES.size).toBeGreaterThanOrEqual(21);
   });
 
   it("GLOBAL_STORES includes the canonical globals", () => {
