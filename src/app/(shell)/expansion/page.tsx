@@ -84,14 +84,19 @@ export default async function ExpansionPage() {
     getOpportunities(),
   ]);
   // #149-family (2026-06-11): geo-expansion uses the TENANT'S cities.
+  // De-vert (2026-06-15): topic-expansion adjacency uses the TENANT'S services.
   let expansionCities: string[] | undefined;
+  let expansionServices: string[] | undefined;
   try {
     const { getBusinessConfigForCurrentTenant } = await import(
       "@/lib/business-config"
     );
-    expansionCities = (await getBusinessConfigForCurrentTenant()).locations;
+    const cfg = await getBusinessConfigForCurrentTenant();
+    expansionCities = cfg.locations;
+    expansionServices = cfg.services;
   } catch {
     expansionCities = undefined; // founder default
+    expansionServices = undefined; // no synthetic topic expansion
   }
   const allCandidates = computeOpportunityCandidates(
     results,
@@ -99,6 +104,7 @@ export default async function ExpansionPage() {
     opportunities,
     await getCandidateLinks(),
     expansionCities,
+    expansionServices,
   );
   const summary = summarizeCandidates(allCandidates);
   const fresh = newCandidates(allCandidates);

@@ -777,7 +777,7 @@ export default async function DiagnosticsPage() {
 
       {/* Expansion Intelligence */}
       {isExperimentActive && (() => {
-        const expCandidates = computeOpportunityCandidates(results, changelogEntries, opportunities, candidateLinks, businessConfig.locations);
+        const expCandidates = computeOpportunityCandidates(results, changelogEntries, opportunities, candidateLinks, businessConfig.locations, businessConfig.services);
         const es = summarizeCandidates(expCandidates);
         if (expCandidates.length === 0) return null;
         return (

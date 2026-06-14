@@ -17,6 +17,9 @@ export function computeOpportunityCandidates(
    *  tenant. Absent → founder default (Ritz parity); an injected EMPTY
    *  list means "no geo expansion" (content tenants). */
   cities?: ReadonlyArray<string>,
+  /** Tenant service vocabulary for topic-expansion adjacency. Absent/empty →
+   *  no synthetic topic-expansion candidates (vertical-neutral). */
+  services?: ReadonlyArray<string>,
 ): OpportunityCandidate[] {
   const { patterns, clusters } = computePatterns(
     results,
@@ -25,5 +28,5 @@ export function computeOpportunityCandidates(
     candidateLinks
   );
 
-  return generateCandidates(patterns, clusters, changes, opportunities, cities);
+  return generateCandidates(patterns, clusters, changes, opportunities, cities, services);
 }

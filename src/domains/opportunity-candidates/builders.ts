@@ -30,32 +30,6 @@ const DEFAULT_EXPANSION_CITIES = [
   "Burlingame",
 ];
 
-const TOPIC_ADJACENCY: Record<string, string[]> = {
-  "custom home builder": [
-    "modern home builder",
-    "luxury home builder",
-    "design-build firm",
-    "contemporary home builder",
-  ],
-  construction: [
-    "home renovation",
-    "whole home remodel",
-    "new construction",
-    "ADU builder",
-  ],
-  "home builder": [
-    "custom home builder",
-    "luxury home builder",
-    "design-build contractor",
-  ],
-  renovation: [
-    "whole home renovation",
-    "kitchen remodel",
-    "bathroom remodel",
-    "home addition",
-  ],
-};
-
 /**
  * Generate opportunity candidates from patterns, clusters, and existing opportunities.
  * All generation is deterministic and explainable.
@@ -67,6 +41,9 @@ export function generateCandidates(
   opportunities: Opportunity[],
   /** Tenant geo-expansion vocabulary. Defaults to the founder list. */
   cities: ReadonlyArray<string> = DEFAULT_EXPANSION_CITIES,
+  /** Tenant service vocabulary for topic-expansion adjacency. Empty (default)
+   *  → no synthetic topic-expansion candidates (vertical-neutral). */
+  serviceVocab: ReadonlyArray<string> = [],
 ): OpportunityCandidate[] {
   const candidates: OpportunityCandidate[] = [];
   const existingTopics = new Set(
@@ -87,7 +64,7 @@ export function generateCandidates(
       ...generateAdjacentCityCandidates(pattern, existingCities, existingTopics, clusters, changes, cities)
     );
     candidates.push(
-      ...generateTopicExpansionCandidates(pattern, existingTopics, clusters, changes)
+      ...generateTopicExpansionCandidates(pattern, existingTopics, clusters, changes, serviceVocab)
     );
     candidates.push(
       ...generateCoverageGapCandidates(pattern, opportunities, clusters, changes)
@@ -168,13 +145,14 @@ function generateTopicExpansionCandidates(
   pattern: Pattern,
   existingTopics: Set<string>,
   clusters: ActionCluster[],
-  changes: ChangelogEntry[]
+  changes: ChangelogEntry[],
+  serviceVocab: ReadonlyArray<string>
 ): OpportunityCandidate[] {
   const candidates: OpportunityCandidate[] = [];
   const topicBase = extractTopicBase(pattern, changes);
   if (!topicBase) return candidates;
 
-  const adjacentTopics = findAdjacentTopics(topicBase);
+  const adjacentTopics = findAdjacentTopics(topicBase, serviceVocab);
   if (adjacentTopics.length === 0) return candidates;
 
   for (const adjTopic of adjacentTopics) {
@@ -304,12 +282,30 @@ function extractTopicBase(pattern: Pattern, changes: ChangelogEntry[]): string |
   return [...topicCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
-function findAdjacentTopics(topicBase: string): string[] {
+/**
+ * Vertical-neutral topic adjacency: if the proven topic corresponds to one of
+ * the tenant's OWN services, suggest expanding the same change strategy into
+ * the tenant's OTHER services. No hardcoded vertical vocabulary — a tenant with
+ * no configured services gets no synthetic topic-expansion candidates.
+ */
+function findAdjacentTopics(
+  topicBase: string,
+  serviceVocab: ReadonlyArray<string>
+): string[] {
+  const services = serviceVocab
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 3);
+  if (services.length < 2) return [];
+
   const lower = topicBase.toLowerCase();
-  for (const [key, adjacents] of Object.entries(TOPIC_ADJACENCY)) {
-    if (lower.includes(key)) return adjacents;
-  }
-  return [];
+  const matched = services.find(
+    (s) => lower.includes(s.toLowerCase()) || s.toLowerCase().includes(lower)
+  );
+  if (!matched) return [];
+
+  return services
+    .filter((s) => s.toLowerCase() !== matched.toLowerCase())
+    .slice(0, 4);
 }
 
 function normKey(s: string): string {
