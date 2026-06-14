@@ -34,6 +34,8 @@ vi.mock("@/lib/connector-store", () => ({
 
 vi.mock("@/app/(shell)/diagnostics/connectors/actions", () => ({
   refreshAllDataSourcesFromForm: async () => {},
+  runPerplexityReadingFromForm: async () => {},
+  runOpenAiReadingFromForm: async () => {},
 }));
 
 import ConnectorsDiagnosticPage from "@/app/(shell)/diagnostics/connectors/page";
@@ -58,12 +60,19 @@ describe("/diagnostics/connectors — gate", () => {
 });
 
 describe("/diagnostics/connectors — rows", () => {
-  it("lists all three cache-backed connectors", async () => {
+  it("lists all six cache-backed connectors + the on-demand AI reading", async () => {
     const html = await render();
+    expect(html).toContain("Google Search Console");
     expect(html).toContain("Google Analytics 4");
+    expect(html).toContain("Microsoft Clarity");
+    expect(html).toContain("Profound");
     expect(html).toContain("CallRail");
     expect(html).toContain("Semrush");
     expect(html).toContain("Refresh all connected sources");
+    // 2026-06-15 — on-demand AEO poll (crons off)
+    expect(html).toContain("Run today&#x27;s AI reading");
+    expect(html).toContain("Run Perplexity reading");
+    expect(html).toContain("Run ChatGPT reading");
   });
 
   it("disables refresh + shows empty note when none connected", async () => {

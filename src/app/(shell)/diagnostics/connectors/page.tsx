@@ -19,7 +19,11 @@ import {
   getConnectorInfo,
   type ConnectorProvider,
 } from "@/lib/connector-store";
-import { refreshAllDataSourcesFromForm } from "./actions";
+import {
+  refreshAllDataSourcesFromForm,
+  runPerplexityReadingFromForm,
+  runOpenAiReadingFromForm,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +40,10 @@ const CONNECTORS: ReadonlyArray<{
   provider: ConnectorProvider;
   href: string;
 }> = [
+  { label: "Google Search Console", provider: "google_gsc", href: "/settings/connectors" },
   { label: "Google Analytics 4", provider: "google_ga4", href: "/diagnostics/outcome-attribution" },
+  { label: "Microsoft Clarity", provider: "clarity", href: "/settings/connectors" },
+  { label: "Profound", provider: "profound", href: "/settings/connectors" },
   { label: "CallRail", provider: "callrail", href: "/diagnostics/callrail" },
   { label: "Semrush", provider: "semrush", href: "/diagnostics/semrush" },
 ];
@@ -134,11 +141,46 @@ export default async function ConnectorsDiagnosticPage() {
         )}
       </section>
 
+      {/* On-demand AEO reading (2026-06-15) — crons are off; run the native
+          poll from here. One platform per click (each ~runs in well under the
+          serverless cap for a typical prompt library); the UTC-day budget
+          guard makes a same-day repeat a no-op, so clicks never double-spend.
+          Uses paid LLM APIs (operator-authorized). */}
+      <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Run today&apos;s AI reading
+        </h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Polls the AI assistants for your tracked prompts and refreshes the
+          &ldquo;how AI describes you&rdquo; data on Today + Prompts. Run each
+          platform once; re-running the same day is a no-op (budget-guarded).
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <form action={runPerplexityReadingFromForm}>
+            <button
+              type="submit"
+              className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white"
+            >
+              Run Perplexity reading
+            </button>
+          </form>
+          <form action={runOpenAiReadingFromForm}>
+            <button
+              type="submit"
+              className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white"
+            >
+              Run ChatGPT reading
+            </button>
+          </form>
+        </div>
+      </section>
+
       <p className="text-xs text-muted-foreground">
-        Refreshing pulls fresh data from each connected source into Beacon&apos;s
-        cache — that&apos;s what keeps the outcome attribution on Today and the
-        Changes detail current. GSC inspects URLs on demand, so it isn&apos;t
-        part of this batch.
+        Refreshing pulls fresh data from each connected source into
+        Beacon&apos;s cache — that&apos;s what keeps Today, Recommendations, and
+        the Changes detail current now that nightly crons are off. GSC, GA4,
+        Clarity, Profound, Semrush + CallRail all refresh in the batch above;
+        the AI reading is a separate (paid) poll, run on demand.
       </p>
     </div>
   );
