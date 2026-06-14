@@ -81,6 +81,12 @@ describe("Section 6 C2 — Profound importer: platform row", () => {
     const platformRow = rows.find((r) => r.scope_type === "platform");
     expect(platformRow).toBeDefined();
     expect(platformRow!.primary_recommendation_count).toBe(2);
+    // wave-5 #5 (2026-06-14): the platform-scope id matches the native
+    // builder's single-platform format (derived-<date>-platform-<slug>),
+    // NOT the pre-fix doubled `...-platform-perplexity-perplexity`, so the
+    // legacy + native rows for the same (date, platform) scope DEDUP instead
+    // of coexisting and double-counting in today-kpis.
+    expect(platformRow!.id).toBe("derived-2026-05-15-platform-perplexity");
   });
 });
 

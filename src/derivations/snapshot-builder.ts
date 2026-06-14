@@ -171,7 +171,20 @@ export function buildDerivedSnapshots(
         ? Math.round((acc.owned_cited / acc.citation_count || 0) * 10000) / 100
         : null;
 
-    const id = `derived-${acc.date}-${slugify(acc.scope_type)}-${slugify(acc.scope_id)}-${slugify(acc.platform)}`;
+    // wave-5 #5 (2026-06-14): the platform-scope id MUST match the native
+    // builder's `derived-${date}-platform-${platformSlug}`
+    // (build-from-observations.ts). For a platform-scope row scope_id IS the
+    // platform, so the general format appended the platform a SECOND time
+    // (`...-platform-X-X`), giving a DIVERGENT id for the same logical
+    // (date, platform) scope. Persistence keys on id alone, so the legacy
+    // (Profound) and native rows coexisted and today-kpis double-counted
+    // citations/mentions whenever a Profound import overlapped native-polled
+    // dates. Omit the redundant platform suffix for platform scope; topic /
+    // entity rows keep it (those genuinely are per-platform).
+    const id =
+      acc.scope_type === "platform"
+        ? `derived-${acc.date}-platform-${slugify(acc.scope_id)}`
+        : `derived-${acc.date}-${slugify(acc.scope_type)}-${slugify(acc.scope_id)}-${slugify(acc.platform)}`;
 
     snapshots.push({
       id,
