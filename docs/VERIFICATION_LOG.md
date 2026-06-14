@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-14 (overnight, wave-12) — cross-tenant-brain PRIVACY audit: CLEAN, no action (already sound + test-pinned)
+
+**How found:** adversarial 2-lens privacy audit (aggregate anonymity + exposure gating) of the cross-tenant brain — the shared-brain wedge whose core risk is leaking one tenant's identifiable data into another's "network insight." **0 confirmed, 1 refuted.** The one finding (the internal `GlobalPattern.contributing_tenant_ids` field) was correctly refuted: the data flow shows tenant ids never reach a client/cross-tenant surface — callers extract only `PopulationEvidence` (`builder_count`/`positive_rate`/`median_days`/directional `narrative`/`seeded_warning`/`gate` — no ids/urls/names), and the cross-tenant surface uses the anonymized `CrossTenantPattern` model.
+
+**No code change.** The privacy contract is already durably pinned by `tests/global-patterns/privacy-and-gates.test.ts` (CX4.7): GlobalPattern has no tenant_id/domain/URL/change_description; `PopulationEvidence` excludes `contributing_tenant_ids`; confidence gates suppress <3 distinct tenants, seeded_warning 3–9, confirmed ≥10. Brain privacy is sound + protected for activation. This closes the overnight audit sweep — 18 dimensions covered; the last (highest-stakes) needed nothing.
+
+---
+
 ## 2026-06-14 (overnight, follow-on) — GSC Search-Analytics auth failure now FAIL-LOUD (resolves wave-9 #2 fail-loud half)
 
 **Why:** the GSC SA sync is the pivot's core demand signal. A 401/403 mid-sync made `gscSearchAnalyticsQuery` return `null` (quiet warn); the sync treated that like "no more rows", stopped, and returned `synced:true` — a dead/expired GSC grant looked GREEN and the operator never learned demand data went stale. (Wave-9 flagged this as #2 and deferred the whole thing as "edge-case + deliberate refactor"; on reflection the FAIL-LOUD half is high-value + bounded, so it's now done.)
