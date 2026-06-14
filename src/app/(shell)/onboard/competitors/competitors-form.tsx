@@ -3,7 +3,7 @@
 /**
  * competitors-form — Gap C.3 (2026-05-07).
  *
- * Step 3 of the onboarding wizard: 1-5 builders the operator wants
+ * Step 3 of the onboarding wizard: 1-5 competitors the operator wants
  * Beacon to compare them against.
  *
  * Field semantics: COMPANY NAMES, not URLs. The validator rejects
@@ -77,7 +77,7 @@ export function CompetitorsForm({
           value={competitorsText}
           onChange={(e) => setCompetitorsText(e.target.value)}
           placeholder={
-            "De Mattei Construction\nKasten Builders\nSupple Homes"
+            "Competitor One\nCompetitor Two\nCompetitor Three"
           }
           aria-invalid={Boolean(fieldErrors.competitors)}
           aria-describedby={

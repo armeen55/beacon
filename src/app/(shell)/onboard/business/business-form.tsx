@@ -75,7 +75,7 @@ export function BusinessForm({
           required
           value={businessName}
           onChange={(e) => setBusinessName(e.target.value)}
-          placeholder="Acme Builders"
+          placeholder="Acme Co"
           aria-invalid={Boolean(fieldErrors.businessName)}
           aria-describedby={
             fieldErrors.businessName ? "businessName-error" : undefined

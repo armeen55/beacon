@@ -1203,16 +1203,15 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ]),
   );
 
-  // Known city/location labels for the city-filter. Expand beyond
-  // businessConfig.locations to include commonly-co-occurring neighbors
-  // that AI frequently mentions together.
+  // Known city/location labels for the city-filter. De-verticalized
+  // (2026-06-15): use ONLY the tenant's own configured locations — the prior
+  // hardcoded Bay-Area/California neighbor list mis-suppressed cities for every
+  // other geo (and was meaningless for content sites / national brands). A
+  // tenant with no locations gets an empty list (no city suppression), which
+  // is correct. (If neighbor-metro expansion is wanted later, make it
+  // per-tenant config, not a code literal.)
   const scannerKnownLocations: string[] = [
     ...(scannerBusinessConfig.locations ?? []),
-    "Atherton", "Menlo Park", "Palo Alto", "Los Altos", "Los Altos Hills",
-    "Cupertino", "Saratoga", "Portola Valley", "Woodside", "Mountain View",
-    "Emerald Hills", "Redwood City", "San Carlos", "Hillsborough",
-    "Silicon Valley", "Bay Area", "San Francisco", "Peninsula",
-    "California", "CA", "USA",
   ];
 
   const allRecommendations = computeRecommendations({

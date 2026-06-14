@@ -116,7 +116,7 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
               onChange={(e) => setFormText(e.target.value)}
               rows={3}
               required
-              placeholder="e.g. Best luxury home builder in Palo Alto?"
+              placeholder="e.g. Who are the best [your service] in [your city]?"
               className="w-full text-[13px] rounded-md border border-border/60 bg-background px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-primary/40"
             />
           </div>
@@ -130,7 +130,7 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
                 value={formTopic}
                 onChange={(e) => setFormTopic(e.target.value)}
                 required
-                placeholder="e.g. Palo Alto Construction"
+                placeholder="e.g. [city] [service]"
                 className="w-full text-[13px] rounded-md border border-border/60 bg-background px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-primary/40"
               />
             </div>

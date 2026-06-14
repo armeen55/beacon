@@ -39,7 +39,7 @@ export default async function OnboardCompetitorsPage() {
     <OnboardingShell
       step={3}
       title="Competitors to watch"
-      subtitle="Pick the builders you want Beacon to compare you against."
+      subtitle="Pick the competitors you want Beacon to compare you against."
     >
       <div className="space-y-6">
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3">
