@@ -435,10 +435,13 @@ describe("runNativePoll", () => {
     // Chunk mode does NOT consult the 20-hr guard
     expect(hasRecent).not.toHaveBeenCalled();
     // Chunk mode DOES consult the 15-min retry guard, with the chunk identity
+    // AND the tenantId (wave-3 fix: the dedupe is tenant-scoped so concurrent
+    // same-offset polls across tenants don't suppress each other).
     expect(hasRecentChunk).toHaveBeenCalledWith(
       "perplexity-native-poll",
       50,
       25,
+      "tenant-ritz-founder",
     );
     expect(adapterSpy).toHaveBeenCalledWith(
       "perplexity",
@@ -475,6 +478,7 @@ describe("runNativePoll", () => {
       "perplexity-native-poll",
       25,
       25,
+      "tenant-ritz-founder",
     );
     expect(adapterSpy).not.toHaveBeenCalled();
     expect(sync.syncObservationRuns).not.toHaveBeenCalled();

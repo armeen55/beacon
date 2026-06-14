@@ -200,6 +200,7 @@ export type RunNativePollDeps = {
     source: string,
     offset: number,
     limit: number | null,
+    tenantId?: string,
   ) => Promise<boolean>;
   /** Sync wrappers — all default to real dual-write helpers. */
   syncObservationRuns?: typeof realSyncRuns;
@@ -389,7 +390,12 @@ export async function runNativePoll(
   // Both guards respect force=true.
   if (!force) {
     if (isChunked) {
-      const recentChunk = await hasRecentChunk(source, chunkOffset, chunkLimit);
+      const recentChunk = await hasRecentChunk(
+        source,
+        chunkOffset,
+        chunkLimit,
+        tenantId,
+      );
       if (recentChunk) {
         return {
           status: "skipped_chunk_recently_ran",
@@ -745,6 +751,7 @@ async function defaultHasRecentChunk(
   source: string,
   offset: number,
   limit: number | null,
+  tenantId?: string,
 ): Promise<boolean> {
   try {
     const sb = getSupabaseAdmin();
@@ -754,7 +761,7 @@ async function defaultHasRecentChunk(
     // Match on scope_label suffix that embeds chunk identity:
     //   "Native <platform> poll · chunk offset=<N> limit=<M> · ..."
     const chunkLabel = `%chunk offset=${offset} limit=${limit ?? "all"}%`;
-    const { data, error } = await sb
+    let query = sb
       .from("observation_runs")
       .select("run_id")
       .eq("source", source)
@@ -762,6 +769,16 @@ async function defaultHasRecentChunk(
       .ilike("scope_label", chunkLabel)
       .gt("completed_at", cutoff)
       .limit(1);
+    // audit wave-3 (2026-06-14): scope the chunk-dedupe to THIS tenant. The
+    // scope_label embeds only "chunk offset=N limit=M" (NOT the tenant), and
+    // the nightly poll matrix runs all tenants CONCURRENTLY (fail-fast:false,
+    // no max-parallel), so without this filter tenant A completing chunk
+    // offset=0 would suppress tenant B's poll of ITS OWN offset=0 prompts
+    // within the 15-min window — a cross-tenant poll-suppression race that
+    // drops B's data for that run. The sibling defaultHasRecentRun already
+    // scopes by tenant_id; match it. (Caller always passes tenantId in prod.)
+    if (tenantId) query = query.eq("tenant_id", tenantId);
+    const { data, error } = await query;
     if (error) {
       console.error(
         `[runNativePoll] chunk-retry-dedupe query failed (fail-open): ${error.message}`,
