@@ -1,5 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "_comment_crons": "2026-06-15: operator wants NO nightly crons. The Vercel cron for /api/cron/poll-watchdog was removed (it watched the now-removed GitHub-Actions poll schedule). The route stays callable on-demand. To restore scheduled polling, re-add a crons entry here.",
   "crons": []
 }
