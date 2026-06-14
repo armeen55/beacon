@@ -48,7 +48,11 @@ function snap(over: Partial<PageSnapshot> = {}): PageSnapshot {
   };
 }
 
-function input(features: Partial<Record<string, boolean>>, cited: boolean): PageShapeInput {
+function input(
+  features: Partial<Record<string, boolean>>,
+  cited: boolean,
+  tenantBucket = 0,
+): PageShapeInput {
   return {
     features: {
       faq_block: false,
@@ -59,6 +63,7 @@ function input(features: Partial<Record<string, boolean>>, cited: boolean): Page
       ...features,
     },
     cited,
+    tenantBucket,
   } as PageShapeInput;
 }
 
@@ -99,10 +104,10 @@ describe("extractPageShape — structural only", () => {
 describe("aggregatePageShapePatterns", () => {
   it("computes cited rates per side and the lift when both sides qualify", () => {
     const inputs: PageShapeInput[] = [
-      // 10 FAQ pages, 6 cited (60%)
-      ...Array.from({ length: 10 }, (_, i) => input({ faq_block: true }, i < 6)),
-      // 10 non-FAQ pages, 2 cited (20%)
-      ...Array.from({ length: 10 }, (_, i) => input({}, i < 2)),
+      // 10 FAQ pages, 6 cited (60%) — spread across 2 tenants (buckets 0/1)
+      ...Array.from({ length: 10 }, (_, i) => input({ faq_block: true }, i < 6, i % 2)),
+      // 10 non-FAQ pages, 2 cited (20%) — also spread across 2 tenants
+      ...Array.from({ length: 10 }, (_, i) => input({}, i < 2, i % 2)),
     ];
     const p = aggregatePageShapePatterns(inputs).find((x) => x.feature === "faq_block")!;
     expect(p.withPages).toBe(10);
@@ -135,8 +140,8 @@ describe("aggregatePageShapePatterns", () => {
 describe("formatNetworkInsight", () => {
   it("renders the strongest qualifying lift in plain English with checkable counts", () => {
     const inputs: PageShapeInput[] = [
-      ...Array.from({ length: 10 }, (_, i) => input({ faq_block: true }, i < 6)),
-      ...Array.from({ length: 10 }, (_, i) => input({}, i < 2)),
+      ...Array.from({ length: 10 }, (_, i) => input({ faq_block: true }, i < 6, i % 2)),
+      ...Array.from({ length: 10 }, (_, i) => input({}, i < 2, i % 2)),
     ];
     const line = formatNetworkInsight(aggregatePageShapePatterns(inputs));
     expect(line).toContain("question-and-answer section");
@@ -146,9 +151,28 @@ describe("formatNetworkInsight", () => {
 
   it("returns null when nothing clears the lift bar", () => {
     const inputs: PageShapeInput[] = [
-      ...Array.from({ length: 10 }, (_, i) => input({ faq_block: true }, i < 3)),
-      ...Array.from({ length: 10 }, (_, i) => input({}, i < 3)),
+      ...Array.from({ length: 10 }, (_, i) => input({ faq_block: true }, i < 3, i % 2)),
+      ...Array.from({ length: 10 }, (_, i) => input({}, i < 3, i % 2)),
     ];
     expect(formatNetworkInsight(aggregatePageShapePatterns(inputs))).toBeNull();
+  });
+});
+
+describe("aggregatePageShapePatterns — distinct-tenant gate (wave-5 #4)", () => {
+  it("suppresses lift when ALL pages come from a SINGLE tenant", () => {
+    // A strong 3x pattern (60% vs 20%) with ample pages per side — but every
+    // page is tenant bucket 0. A cross-tenant claim must NOT be made from one
+    // tenant's pages, so lift stays null.
+    const inputs: PageShapeInput[] = [
+      ...Array.from({ length: 10 }, (_, i) => input({ faq_block: true }, i < 6, 0)),
+      ...Array.from({ length: 10 }, (_, i) => input({}, i < 2, 0)),
+    ];
+    const p = aggregatePageShapePatterns(inputs).find(
+      (x) => x.feature === "faq_block",
+    )!;
+    // Counts/rates still compute (privacy-safe), but the LIFT is gated.
+    expect(p.withPages).toBe(10);
+    expect(p.citedRateWith).toBeCloseTo(0.6);
+    expect(p.lift).toBeNull();
   });
 });

@@ -45,7 +45,12 @@ export async function loadPageShapePatterns(): Promise<PageShapePattern[]> {
   if (tenants.length < 2) return [];
 
   const inputs: PageShapeInput[] = [];
+  // wave-5 #4 (2026-06-14): assign each tenant an ANONYMOUS integer index so
+  // the aggregate can count DISTINCT contributing tenants per split side
+  // (never carrying the tenant id/domain into the pooled inputs — privacy).
+  let tenantBucket = -1;
   for (const t of tenants) {
+    tenantBucket += 1;
     try {
       const repo = getRepository().forTenant(t.id);
       const [snapshots, observations] = await Promise.all([
@@ -69,7 +74,11 @@ export async function loadPageShapePatterns(): Promise<PageShapePattern[]> {
 
       for (const [key, snap] of latestByUrl) {
         if (snap.http_status >= 400) continue;
-        inputs.push({ features: extractPageShape(snap), cited: cited.has(key) });
+        inputs.push({
+          features: extractPageShape(snap),
+          cited: cited.has(key),
+          tenantBucket,
+        });
       }
     } catch {
       // Soft-skip this tenant; the pool degrades rather than throwing.

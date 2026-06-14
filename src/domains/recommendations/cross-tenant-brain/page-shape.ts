@@ -61,6 +61,14 @@ export type PageShapeInput = {
   features: PageShapeFeatures;
   /** Was this page's URL cited by any AI answer for its tenant? */
   cited: boolean;
+  /**
+   * wave-5 #4 (2026-06-14) — ANONYMOUS per-tenant discriminator (a small
+   * integer index assigned at load time, NEVER the tenant id/domain). Used
+   * ONLY to count DISTINCT contributing tenants per split side so a
+   * "X pages cited N× more often" network claim can't be made from a single
+   * tenant's pages. Privacy-safe: an opaque index reveals nothing.
+   */
+  tenantBucket: number;
 };
 
 export type PageShapePattern = {
@@ -80,6 +88,16 @@ export type PageShapePattern = {
 export const PAGE_SHAPE_MIN_PAGES_PER_SIDE = 10;
 
 /**
+ * wave-5 #4 (2026-06-14) — minimum DISTINCT tenants on EACH side before a
+ * cross-tenant lift is emitted. A "pages like yours get cited more" claim is
+ * only honestly cross-tenant when both sides draw from ≥2 different tenants;
+ * otherwise one tenant's pages alone could manufacture the pattern. (The
+ * loader already requires ≥2 active tenants to run at all; this ensures the
+ * SPLIT itself is multi-tenant, not just the pool.)
+ */
+export const PAGE_SHAPE_MIN_TENANTS_PER_SIDE = 2;
+
+/**
  * Aggregate the cross-tenant pool into per-feature patterns. Pure.
  * Outputs carry counts + rates ONLY (privacy-safe by construction).
  */
@@ -92,12 +110,17 @@ export function aggregatePageShapePatterns(
     let withCited = 0;
     let withoutPages = 0;
     let withoutCited = 0;
+    // wave-5 #4: count DISTINCT contributing tenants on each side.
+    const withTenants = new Set<number>();
+    const withoutTenants = new Set<number>();
     for (const i of inputs) {
       if (i.features[feature]) {
         withPages++;
+        withTenants.add(i.tenantBucket);
         if (i.cited) withCited++;
       } else {
         withoutPages++;
+        withoutTenants.add(i.tenantBucket);
         if (i.cited) withoutCited++;
       }
     }
@@ -106,6 +129,9 @@ export function aggregatePageShapePatterns(
     const lift =
       withPages >= PAGE_SHAPE_MIN_PAGES_PER_SIDE &&
       withoutPages >= PAGE_SHAPE_MIN_PAGES_PER_SIDE &&
+      // wave-5 #4: both sides must be genuinely multi-tenant, else suppress.
+      withTenants.size >= PAGE_SHAPE_MIN_TENANTS_PER_SIDE &&
+      withoutTenants.size >= PAGE_SHAPE_MIN_TENANTS_PER_SIDE &&
       citedRateWithout > 0
         ? citedRateWith / citedRateWithout
         : null;

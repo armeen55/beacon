@@ -293,14 +293,20 @@ export async function aggregateTenantOutcomes(
       (prevTotal + outcome.normalized_citation_delta_pct) /
       pattern.sample_count;
 
-    // Update median days (simplified: running average for v1)
+    // Update median days (simplified: running average over POSITIVE samples
+    // for v1). wave-5 #3 (2026-06-14): this updates ONLY for positive samples,
+    // so the running-mean divisor/multiplier must be the POSITIVE-sample
+    // count — NOT the total sample_count, which includes the no_change /
+    // regression samples that never contributed a days value and biased the
+    // mean toward 0 as the non-positive share grew (a wrong customer-facing
+    // "typically within N days" claim). `positiveCount` (computed above) is
+    // the count of positive samples BEFORE this one; a citation-gained
+    // outcome always has days_after > 0, so it equals the positive-days count.
     if (isPositive && outcome.days_after > 0) {
-      const prevDays =
-        pattern.median_days_to_signal * (pattern.sample_count - 1);
-      pattern.median_days_to_signal =
-        Math.round(
-          (prevDays + outcome.days_after) / pattern.sample_count,
-        );
+      const prevDays = pattern.median_days_to_signal * positiveCount;
+      pattern.median_days_to_signal = Math.round(
+        (prevDays + outcome.days_after) / (positiveCount + 1),
+      );
     }
 
     pattern.last_observed = outcome.changed_at;
