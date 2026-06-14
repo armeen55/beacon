@@ -200,8 +200,9 @@ export type IsInCooldownInput = {
  * must wait past). Anchor preference per row:
  * `live_at > updated_at > created_at`. Rows with no usable
  * anchor or window=0 are skipped. Cross-tenant rows ignored.
- * `recommendationResponses`: only `dismissed` with matching
- * `targetPageUrl` honored (90-day window).
+ * `recommendationResponses`: only `dismissed` whose `recId` matches
+ * this candidate's `promotion-<cooldownKey[0:16]>` — i.e. the SAME
+ * (page × action), not the whole URL — honored (90-day window).
  * Pure; no I/O.
  */
 export function isInCooldown(args: IsInCooldownInput): CooldownResult {
@@ -232,10 +233,21 @@ export function isInCooldown(args: IsInCooldownInput): CooldownResult {
   }
 
   if (args.targetUrl != null) {
+    // wave-4 (2026-06-14): scope the dismissed-response cooldown to the SAME
+    // (page × action), NOT the whole URL. The recommended_edits branch above
+    // already scopes by action_type + cooldownKey; this branch previously
+    // matched on targetPageUrl ALONE, so dismissing ONE card on page P (e.g.
+    // a cosmetic edit_title) silently put EVERY other action on P — including
+    // an urgent bad_http_status::fix_status_code — into a 90-day customer-
+    // queue cooldown. A promotion rec's id is `promotion-<sha1(tenant::
+    // action::url).slice(0,16)>`, so the dismissed response's recId uniquely
+    // encodes (tenant × action × url); matching it confines the suppression
+    // to the exact card the operator rejected. (RecommendationResponse has no
+    // action_type field, so recId is the available action-scoping signal.)
+    const expectedRecId = `promotion-${args.cooldownKey.slice(0, 16)}`;
     for (const resp of args.recommendationResponses) {
       if (resp.status !== "dismissed") continue;
-      if (resp.targetPageUrl == null) continue;
-      if (resp.targetPageUrl !== args.targetUrl) continue;
+      if (resp.recId !== expectedRecId) continue;
       const anchorAt = new Date(resp.respondedAt);
       if (Number.isNaN(anchorAt.getTime())) continue;
       candidates.push({

@@ -406,7 +406,12 @@ describe("isInCooldown", () => {
   });
 
   // ── Response-store integration ──────────────────────────────
-  it("dismissed response with matching targetPageUrl fires (90d window)", () => {
+  // wave-4 (2026-06-14): the dismissed-response cooldown matches on recId
+  // (= `promotion-<cooldownKey[0:16]>`), scoping to the SAME (page × action)
+  // — NOT targetPageUrl alone (which buried every action on a page after one
+  // dismissal). recId for the candidate's own (tenant×action×url):
+  const SELF_REC_ID = `promotion-${cooldownKey().slice(0, 16)}`;
+  it("dismissed response with the candidate's own recId fires (90d window)", () => {
     const r = isInCooldown({
       cooldownKey: cooldownKey(),
       tenantId: TENANT,
@@ -415,7 +420,7 @@ describe("isInCooldown", () => {
       recommendedEdits: [],
       recommendationResponses: [
         {
-          recId: "rec-1",
+          recId: SELF_REC_ID,
           status: "dismissed",
           respondedAt: "2026-05-10T00:00:00.000Z",
           targetPageUrl: URL,
@@ -427,7 +432,35 @@ describe("isInCooldown", () => {
     expect(r.reason).toBe("cooldown_dismissed_recommendation_responses");
   });
 
-  it("response without targetPageUrl ignored", () => {
+  it("dismissed response for a DIFFERENT action on the SAME url does NOT cool down this action (wave-4 cross-action fix)", () => {
+    // A dismissed fix_status_code card on URL must not suppress an edit_title
+    // candidate on the same URL. Its recId encodes the OTHER action.
+    const otherActionRecId = `promotion-${buildPromotionCooldownKey({
+      tenantId: TENANT,
+      actionType: "fix_status_code",
+      targetUrl: URL,
+    }).slice(0, 16)}`;
+    expect(
+      isInCooldown({
+        cooldownKey: cooldownKey(), // edit_title candidate
+        tenantId: TENANT,
+        actionType: ACTION,
+        targetUrl: URL,
+        recommendedEdits: [],
+        recommendationResponses: [
+          {
+            recId: otherActionRecId,
+            status: "dismissed",
+            respondedAt: "2026-05-10T00:00:00.000Z",
+            targetPageUrl: URL, // SAME url — but different action
+          },
+        ],
+        now: NOW,
+      }).in_cooldown,
+    ).toBe(false);
+  });
+
+  it("response with a non-matching recId is ignored (even with matching targetPageUrl)", () => {
     expect(
       isInCooldown({
         cooldownKey: cooldownKey(),
@@ -437,9 +470,10 @@ describe("isInCooldown", () => {
         recommendedEdits: [],
         recommendationResponses: [
           {
-            recId: "rec-1",
+            recId: "rec-1", // not the candidate's promotion-<...> recId
             status: "dismissed",
             respondedAt: "2026-05-10T00:00:00.000Z",
+            targetPageUrl: URL,
           },
         ],
         now: NOW,
