@@ -222,13 +222,22 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
     it("URL-scoped delete: only rows with matching url are deleted", async () => {
       process.env.DUAL_WRITE = "true";
 
-      const captured: { eq?: [string, string] } = {};
-      const deleteMock = vi.fn(() => ({
-        eq: (column: string, value: string) => {
-          captured.eq = [column, value];
-          return Promise.resolve({ error: null });
-        },
-      }));
+      // audit 2026-06-14: the URL-variant delete is now ALSO tenant-scoped
+      // (`.eq("tenant_id", …).eq("url", …)`) so it can't wipe another tenant's
+      // alerts at the same URL. The mock supports the chained `.eq().eq()` and
+      // is awaitable at the end of the chain.
+      const captured: { eqs: [string, string][] } = { eqs: [] };
+      const deleteMock = vi.fn(() => {
+        const chain = {
+          eq: (column: string, value: string) => {
+            captured.eqs.push([column, value]);
+            return chain;
+          },
+          then: (resolve: (v: { error: null }) => void) =>
+            resolve({ error: null }),
+        };
+        return chain;
+      });
       const insertMock = vi.fn(async () => ({ error: null }));
 
       vi.doMock("@/lib/persistence/supabase", () => ({
@@ -249,10 +258,11 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
         "tenant-test",
       );
 
-      // The delete must scope to the URL column — NOT a global
-      // `.gte("id", 0)` wipe.
+      // The delete must scope to BOTH tenant_id AND the URL — never an
+      // all-tenant wipe at the URL, and never a global `.gte("id", 0)` wipe.
       expect(deleteMock).toHaveBeenCalled();
-      expect(captured.eq).toEqual([
+      expect(captured.eqs).toContainEqual(["tenant_id", "tenant-test"]);
+      expect(captured.eqs).toContainEqual([
         "url",
         "https://ritzbuilders.com/services",
       ]);
@@ -262,9 +272,15 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
     it("empty alerts array: deletes the URL's rows, does NOT insert", async () => {
       process.env.DUAL_WRITE = "true";
 
-      const deleteMock = vi.fn(() => ({
-        eq: () => Promise.resolve({ error: null }),
-      }));
+      // Chainable `.eq().eq()` (tenant_id then url), awaitable at the end.
+      const deleteMock = vi.fn(() => {
+        const chain = {
+          eq: () => chain,
+          then: (resolve: (v: { error: null }) => void) =>
+            resolve({ error: null }),
+        };
+        return chain;
+      });
       const insertMock = vi.fn(async () => ({ error: null }));
 
       vi.doMock("@/lib/persistence/supabase", () => ({

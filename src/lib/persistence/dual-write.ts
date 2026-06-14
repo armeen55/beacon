@@ -979,9 +979,15 @@ export async function syncGuardrailAlertsForUrl(
 
   const sb = getSupabaseAdmin();
   try {
+    // Tenant-scope the delete (audit 2026-06-14): the sibling
+    // syncGuardrailAlerts was tenant-scoped by audit #1 (98f3eb7) but this
+    // URL-variant was missed — a bare `.eq("url", url)` deletes every
+    // tenant's alerts at that URL. Latent today (distinct domains) but a
+    // cross-tenant wipe the moment two tenants share a URL string.
     const { error: delErr } = await sb
       .from("guardrail_alerts")
       .delete()
+      .eq("tenant_id", tenantId)
       .eq("url", url);
     if (delErr) {
       console.error(

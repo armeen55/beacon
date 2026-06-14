@@ -129,6 +129,11 @@ function detectNoindex(robotsMeta: string | null): boolean {
   return tokens.some((t) => {
     // Exact match on the bare directive.
     if (t === "noindex") return true;
+    // `none` is Google's shorthand for `noindex, nofollow` — a page with
+    // `<meta name="robots" content="none">` is de-indexed exactly like
+    // noindex. Pre-fix it slipped through as "indexable", so a silently
+    // de-indexed page showed a GREEN indexability verdict.
+    if (t === "none") return true;
     // Defensive: allow `noindex` followed by directive-specific
     // suffixes (e.g. `noindex` directive sometimes appears with
     // trailing version markers in non-standard CMS output).

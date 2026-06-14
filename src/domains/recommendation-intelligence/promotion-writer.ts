@@ -213,17 +213,37 @@ export async function promoteEligibleCandidates(
   // are pure and never change the row id / element-key identity.
   const editFeedback = computeEditFeedback(recommendedEdits, now);
   const eligibleResults = promotion.filter((r) => r.eligible);
-  const mapped_rows: DeterministicPromotionEditRow[] = [];
+  const collectedRows: DeterministicPromotionEditRow[] = [];
   for (const result of eligibleResults) {
     const row = promotionResultToRecommendedEditRow(result, now);
     if (row != null) {
-      mapped_rows.push(
+      collectedRows.push(
         applyEditFeedbackToRow(
           enrichPromotionRow(row, result.candidate, enrichmentCtx),
           editFeedback,
         ),
       );
     }
+  }
+  // Dedup by row.id, keeping the FIRST (highest-priority) occurrence
+  // (audit 2026-06-14). Several customer-queue-ready triggers can emit the
+  // same action_type on the same page — e.g. gsc_low_ctr,
+  // gsc_striking_distance, and semrush_striking_distance all emit `edit_title`
+  // for one underperforming URL. Their dedupe_key differs (topic), but the
+  // promotion id = `${cooldown_key.slice(0,16)}__${action_type}__null`
+  // (cooldown_key has no topic) collides, AND the Supabase conflict key
+  // (tenant_id, rec_id, action_type, target_element_key=NULL) collides. An
+  // un-deduped upsert chunk then hits "ON CONFLICT DO UPDATE cannot affect
+  // row a second time" and the WHOLE chunk is rejected → the operator clicks
+  // Promote, gets a sync warning, and the customer queue silently fails to
+  // refresh. eligibleResults is priority-DESC, so first = the strongest
+  // signal (first-party gsc_low_ctr over the weaker striking/third-party one).
+  const seenRowIds = new Set<string>();
+  const mapped_rows: DeterministicPromotionEditRow[] = [];
+  for (const row of collectedRows) {
+    if (seenRowIds.has(row.id)) continue;
+    seenRowIds.add(row.id);
+    mapped_rows.push(row);
   }
 
   const candidate_count = triggerCandidates.length;
