@@ -187,7 +187,19 @@ export async function revertPushFromForm(formData: FormData): Promise<void> {
   if (!revert.ok) return;
 
   const { executePush } = await import("@/domains/push/push-service");
-  await executePush({ tenantId, edit: revert.edit });
+  // wave-11 (2026-06-14): surface the revert outcome. Previously the result
+  // was discarded, so a REFUSED revert (daily cap / non-destructive guard /
+  // freeze) failed SILENTLY — the operator saw nothing. This action returns
+  // void (form contract), so log loudly rather than swallow: a refused revert
+  // is now visible in the server logs instead of vanishing.
+  const pushResult = await executePush({ tenantId, edit: revert.edit });
+  if (pushResult.kind === "refused") {
+    console.warn(
+      `[wix-revert] revert push REFUSED for edit ${editId}: ${pushResult.reason}`,
+    );
+  } else {
+    console.log(`[wix-revert] revert push for edit ${editId}: ${pushResult.kind}`);
+  }
   revalidatePath(ROUTE);
 }
 

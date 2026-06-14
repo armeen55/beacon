@@ -158,6 +158,19 @@ async function main() {
   const dateLabel = now.toISOString().slice(0, 10);
   const digest = composeMorningDigest(sections, { appBaseUrl, dateLabel, networkInsight });
 
+  // wave-11 (2026-06-14): skip the send on a genuinely quiet day. `hasContent`
+  // is false ONLY when EVERY tenant has zero pending recs AND no push/verify
+  // receipts in the last 24h. It was computed but never gated the send — so a
+  // fully-quiet fleet still emailed the operator a "nothing waiting today"
+  // digest, inbox noise that cuts against the product's simplicity. The loop
+  // above is already done, so exit 0 here is correct (a quiet day is success).
+  if (!digest.hasContent) {
+    console.log(
+      `[morning-digest] nothing to report for ${dateLabel} (no pending recs + no 24h receipts across the fleet) — skipping send`,
+    );
+    process.exit(0);
+  }
+
   const result = await sendEmail({
     to: cfg.defaultTo,
     subject: digest.subject,
