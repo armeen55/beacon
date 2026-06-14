@@ -53,7 +53,21 @@ async function main() {
 
   const sections: DigestTenantSection[] = [];
   for (const t of tenants) {
-    const rows = await getRepository().forTenant(t.id).getRecommendedEdits();
+    // audit wave-2 #7 (2026-06-14): one tenant's transient primary-read
+    // failure must NOT blackhole the WHOLE fleet's morning digest. Every
+    // secondary read in this loop body was already wrapped; this primary
+    // getRecommendedEdits() was the lone unguarded read, so a single bad
+    // tenant threw out of the loop → the entire digest send aborted (no
+    // email for anyone). Skip just the failing tenant and keep going.
+    let rows: import("@/domains/recommendations/recommended-edits-persistence").RecommendedEditRow[];
+    try {
+      rows = await getRepository().forTenant(t.id).getRecommendedEdits();
+    } catch (e) {
+      console.warn(
+        `::warning::[morning-digest] ${t.id}: recommended-edits read failed — skipping this tenant's section: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      continue;
+    }
     const sel = selectDigestRows(rows, now);
     const feedback = computeEditFeedback(rows, now);
     const shipped = feedback.overall.asProposed + feedback.overall.modified;

@@ -362,19 +362,55 @@ export async function runWebsiteScan(opts: {
       });
     }
 
-    // Dual-write scan outputs to Supabase (best-effort, errors logged)
+    // Dual-write scan outputs to Supabase (best-effort, errors logged).
+    //
+    // audit wave-2 #2 (2026-06-14): these were NOT individually guarded
+    // despite the "best-effort, errors logged" promise — and dualWriteUpsert
+    // DELIBERATELY re-throws on transient/persistent failure (the Bug-1 fix).
+    // So a transient PostgREST/network blip in syncPageSnapshots propagated
+    // out of runWebsiteScan → run-scheduled-scan.ts process.exit(2), which
+    // (a) skipped the website_crawl observation_run heartbeat below — the
+    // row the poll-watchdog keys recovery on, forcing a wasteful full
+    // re-dispatch of daily-scan.yml — and (b) skipped the lifecycle live_at
+    // stamping further down. Each write now fails soft on its own (matching
+    // the inventory dual-write just below), so one connector blip degrades
+    // only that write. The website_crawl heartbeat is persisted in its own
+    // guarded step so it lands even if a snapshot/guardrail write blips.
     const syncSnaps =
       (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [];
     const syncGuards =
       (await readDotDataJson<GuardrailAlert[]>("page-guardrails")) ?? [];
-    await syncPageSnapshots(syncSnaps, tenantId);
-    await syncGuardrailAlerts(syncGuards, tenantId);
-    const syncRuns =
-      (await readDotDataJson<import("@/domains/observations/types").ObservationRun[]>(
-        "observation-runs",
-      )) ?? [];
-    if (syncRuns.length > 0) {
-      await syncObservationRuns(syncRuns, tenantId);
+    try {
+      await syncPageSnapshots(syncSnaps, tenantId);
+    } catch (e) {
+      log.warn("Page snapshots dual-write failed", {
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+    try {
+      await syncGuardrailAlerts(syncGuards, tenantId);
+    } catch (e) {
+      log.warn("Guardrail alerts dual-write failed", {
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+    let syncRunsLen = 0;
+    try {
+      const syncRuns =
+        (await readDotDataJson<import("@/domains/observations/types").ObservationRun[]>(
+          "observation-runs",
+        )) ?? [];
+      syncRunsLen = syncRuns.length;
+      if (syncRuns.length > 0) {
+        await syncObservationRuns(syncRuns, tenantId);
+      }
+    } catch (e) {
+      log.warn("Observation runs (website_crawl heartbeat) dual-write failed", {
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
 
     // Sprint 6A.1 Phase 6 — dual-write the inventory rows the CLI wrote
@@ -403,7 +439,7 @@ export async function runWebsiteScan(opts: {
       step: "dual_write_scan_outputs",
       snapshots: syncSnaps.length,
       guardrails: syncGuards.length,
-      observationRuns: syncRuns.length,
+      observationRuns: syncRunsLen,
       pageElements: inventoryRowCount,
     });
 
