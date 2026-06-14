@@ -141,6 +141,31 @@ describe("Phase 7.8a — store classification (sanity)", () => {
   });
 });
 
+// ── De-vert isolation ratchets (2026-06-15) ──────────────────────────
+// Pin the two ground-truth-found leaks (dev server rendered as
+// tenant-iranopedia) so they can't silently regress:
+//   1. competitor-monitoring was GLOBAL → every tenant's dashboard showed the
+//      founder's "De Mattei Construction" competitor alerts.
+//   2. seed-data.server fell back to the founder's builder demo seed for any
+//      tenant with no import_runs → Iranopedia's ⌘K showed "Custom Home Building".
+describe("de-vert isolation ratchets — founder data must not bleed to other tenants", () => {
+  it("competitor-monitoring is TENANT_SCOPED, not GLOBAL", () => {
+    expect(TENANT_SCOPED_STORES.has("competitor-monitoring")).toBe(true);
+    expect(GLOBAL_STORES.has("competitor-monitoring")).toBe(false);
+  });
+
+  it("seed-data.server gates the demo-seed fallback on the seed-owner tenant", () => {
+    // The else-branch (import-less, NON-owner tenant) must return empty arrays,
+    // never the founder seed. Only `tenantId === SEED_OWNER_TENANT_ID` gets it.
+    const src = readFileSync(
+      join(process.cwd(), "src/lib/seed-data.server.ts"),
+      "utf8",
+    );
+    expect(src).toMatch(/SEED_OWNER_TENANT_ID/);
+    expect(src).toMatch(/tenantId === SEED_OWNER_TENANT_ID/);
+  });
+});
+
 // ── Dry-run writes nothing ──────────────────────────────────────────
 
 describe("Phase 7.8a — dry-run", () => {
