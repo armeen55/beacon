@@ -46,6 +46,57 @@ describe("today canonical read — date-windowed (CRITICAL silent-empty guard)",
   });
 });
 
+describe("today canonical read — lean observation projection (egress + timeout guard)", () => {
+  // 2026-06-15 — the 60-day observation window is ~17 MB / 8.7k rows for a
+  // data-rich tenant with select(*); the `metadata` JSONB alone is ~5.9 MB and
+  // is read ONLY by the /recommendations packet builder, never on /today.
+  // /today MUST pass a lean column projection (drop metadata + the other unused
+  // columns) or it re-opens the statement-timeout -> silent-empty-dashboard
+  // class. See commit 71893c9 + project_today_observation_egress memory.
+  it("passes observationsColumns into loadFreshCanonicalData", () => {
+    expect(TODAY_DATA).toMatch(/observationsColumns:\s*TODAY_OBSERVATION_COLUMNS/);
+  });
+
+  it("the projection OMITS the heavy/unused columns (must never be re-added)", () => {
+    // Isolate the projection constant's literal so we only assert on it.
+    const m = TODAY_DATA.match(
+      /const\s+TODAY_OBSERVATION_COLUMNS\s*=([\s\S]*?);/,
+    );
+    expect(m).not.toBeNull();
+    const projection = (m?.[1] ?? "").toLowerCase();
+    for (const dropped of [
+      "metadata",
+      "citation_domains",
+      "citation_categories",
+      "raw_search_queries",
+      "search_queries",
+    ]) {
+      // word-boundary so `citation_domains` doesn't match `citation_domain_classes`
+      expect(new RegExp(`\\b${dropped}\\b`).test(projection)).toBe(false);
+    }
+  });
+
+  it("the projection KEEPS the columns /today's matrix + rollups read", () => {
+    const m = TODAY_DATA.match(
+      /const\s+TODAY_OBSERVATION_COLUMNS\s*=([\s\S]*?);/,
+    );
+    const projection = (m?.[1] ?? "").toLowerCase();
+    for (const kept of [
+      "prompt_id",
+      "observed_at",
+      "platform",
+      "primary_recommendation",
+      "competitor_co_mentions",
+      "competitor_descriptor_windows",
+      "citation_urls",
+      "mentions",
+      "answer_structure",
+    ]) {
+      expect(new RegExp(`\\b${kept}\\b`).test(projection)).toBe(true);
+    }
+  });
+});
+
 describe("today canonical read — composite (tenant_id, date) indexes exist", () => {
   it("the index migration is recorded in the schema-of-record", () => {
     expect(existsSync(MIGRATION)).toBe(true);
