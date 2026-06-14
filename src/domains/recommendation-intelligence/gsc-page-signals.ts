@@ -165,22 +165,21 @@ export async function loadGscPageSignalsForTenant(
       string,
       { clicks: number; impressions: number; positionWeighted: number }
     >();
+    // audit #24 (2026-06-14): server-side GROUP BY via gsc_page_totals_v1
+    // (one row per page, pos_weighted = Σ position*impressions) replaces
+    // paging the raw daily page-totals client-side. Page the RESULT by
+    // `page` purely as a safety net for a site with >1k distinct pages.
     for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
       const { data, error } = await sbTotals
-        .from("gsc_daily_page_totals")
-        .select("page, clicks, impressions, position, date")
-        .eq("tenant_id", tenantId)
-        .eq("is_final", true)
-        .gte("date", sinceTotals)
-        .order("date")
+        .rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: sinceTotals })
         .order("page")
         .range(offset, offset + PAGE_SIZE - 1);
       if (error) break;
       const batch = (data ?? []) as unknown as Array<{
         page: string;
-        clicks: number;
-        impressions: number;
-        position: number;
+        clicks: number | string;
+        impressions: number | string;
+        pos_weighted: number | string;
       }>;
       for (const r of batch) {
         const page = canonicalizeCitationUrl(r.page) ?? r.page;
@@ -189,9 +188,10 @@ export async function loadGscPageSignalsForTenant(
           acc = { clicks: 0, impressions: 0, positionWeighted: 0 };
           totalsByPage.set(page, acc);
         }
-        acc.clicks += r.clicks ?? 0;
-        acc.impressions += r.impressions ?? 0;
-        acc.positionWeighted += (r.position ?? 0) * (r.impressions ?? 0);
+        // pos_weighted already arrives impressions-weighted from the RPC.
+        acc.clicks += Number(r.clicks) || 0;
+        acc.impressions += Number(r.impressions) || 0;
+        acc.positionWeighted += Number(r.pos_weighted) || 0;
       }
       if (batch.length < PAGE_SIZE) break;
     }
@@ -246,80 +246,83 @@ export async function loadGscDecaySignalsForTenant(
   now: Date = new Date(),
 ): Promise<Map<string, GscDecaySignal>> {
   const out = new Map<string, GscDecaySignal>();
-  type Row = {
-    page: string;
-    clicks: number;
-    impressions: number;
-    position: number;
-    date: string;
-  };
-  let rows: Row[] = [];
   const splitMs = now.getTime() - DECAY_WINDOW_DAYS * 86_400_000;
   const split = new Date(splitMs).toISOString().slice(0, 10);
   const since = new Date(splitMs - DECAY_WINDOW_DAYS * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  // PostgREST caps a single response at ~1k rows regardless of `.limit()`.
-  // The old single `.limit(40_000)` read therefore returned an arbitrary,
-  // UNORDERED handful of the ~88k+ page+query+day rows a busy site has in
-  // the 2×28-day decay window — so the now-vs-prior per-page sums were
-  // both incomplete AND non-deterministic, silently corrupting decay
-  // detection (a page's clicks split across the window boundary by a
-  // truncated subset). Page through with a stable unique order (date,
-  // page, query — query ordered though not selected) until a short page
-  // or the safety bound, mirroring loadGscPageSignalsForTenant. Decay's
-  // window is 2× the page-signals window, so allow a higher bound.
+  // audit #24 (2026-06-14): server-side split-window GROUP BY via
+  // gsc_decay_v1 returns ONE row per page with now/prior aggregates
+  // (pos_w = Σ position*impressions per window). This replaces paging the
+  // ~135k raw page+query+day rows a busy site has in the 2×28-day window
+  // client-side every run — 80-160 PostgREST round-trips that ALSO risked
+  // SILENTLY TRUNCATING at the 160k cap as the site grows, corrupting the
+  // now-vs-prior decay sums. The result is re-canonicalized + merged
+  // app-side (two raw pages can canonicalize to one); paging the RESULT by
+  // `page` is just a safety net for a site with >1k distinct pages.
   const DECAY_MAX_ROWS = 160_000;
+  type Acc = {
+    clicks: number;
+    impressions: number;
+    positionWeighted: number;
+  };
+  type RpcRow = {
+    page: string;
+    clicks_now: number | string;
+    impressions_now: number | string;
+    pos_w_now: number | string;
+    clicks_prior: number | string;
+    impressions_prior: number | string;
+    pos_w_prior: number | string;
+  };
+  const nowAcc = new Map<string, Acc>();
+  const priorAcc = new Map<string, Acc>();
   try {
     const sb = getSupabaseAdmin();
     for (let offset = 0; offset < DECAY_MAX_ROWS; offset += PAGE_SIZE) {
       const { data, error } = await sb
-        .from("gsc_daily_rows")
-        .select("page, clicks, impressions, position, date")
-        .eq("tenant_id", tenantId)
-        .eq("is_final", true)
-        .gte("date", since)
-        .order("date")
+        .rpc("gsc_decay_v1", {
+          p_tenant: tenantId,
+          p_since: since,
+          p_split: split,
+        })
         .order("page")
-        .order("query")
         .range(offset, offset + PAGE_SIZE - 1);
       if (error) {
-        // Keep whatever we've read so far rather than dropping the page.
-        log.warn("[gsc-decay-signals] page read failed", {
+        log.warn("[gsc-decay-signals] rpc read failed", {
           tenantId,
           offset,
           error: error.message,
         });
         break;
       }
-      const batch = (data ?? []) as unknown as Row[];
-      rows.push(...batch);
+      const batch = (data ?? []) as unknown as RpcRow[];
+      for (const r of batch) {
+        const page = canonicalizeCitationUrl(r.page) ?? r.page;
+        let n = nowAcc.get(page);
+        if (!n) {
+          n = { clicks: 0, impressions: 0, positionWeighted: 0 };
+          nowAcc.set(page, n);
+        }
+        // pos_w_* already arrive impressions-weighted from the RPC.
+        n.clicks += Number(r.clicks_now) || 0;
+        n.impressions += Number(r.impressions_now) || 0;
+        n.positionWeighted += Number(r.pos_w_now) || 0;
+        let p = priorAcc.get(page);
+        if (!p) {
+          p = { clicks: 0, impressions: 0, positionWeighted: 0 };
+          priorAcc.set(page, p);
+        }
+        p.clicks += Number(r.clicks_prior) || 0;
+        p.impressions += Number(r.impressions_prior) || 0;
+        p.positionWeighted += Number(r.pos_w_prior) || 0;
+      }
       if (batch.length < PAGE_SIZE) break;
     }
   } catch {
     return out;
   }
-  if (rows.length === 0) return out;
-
-  type Acc = {
-    clicks: number;
-    impressions: number;
-    positionWeighted: number;
-  };
-  const nowAcc = new Map<string, Acc>();
-  const priorAcc = new Map<string, Acc>();
-  for (const r of rows) {
-    const page = canonicalizeCitationUrl(r.page) ?? r.page;
-    const bucket = r.date >= split ? nowAcc : priorAcc;
-    let acc = bucket.get(page);
-    if (!acc) {
-      acc = { clicks: 0, impressions: 0, positionWeighted: 0 };
-      bucket.set(page, acc);
-    }
-    acc.clicks += r.clicks ?? 0;
-    acc.impressions += r.impressions ?? 0;
-    acc.positionWeighted += (r.position ?? 0) * (r.impressions ?? 0);
-  }
+  if (nowAcc.size === 0 && priorAcc.size === 0) return out;
   const pages = new Set([...nowAcc.keys(), ...priorAcc.keys()]);
   for (const page of pages) {
     const n = nowAcc.get(page);
