@@ -91,6 +91,10 @@ async function handle(request: NextRequest): Promise<NextResponse> {
   }
 
   // ── read today's observation_runs ─────────────────────────────────
+  // tenant-isolation-exempt: the poll-watchdog is a FLEET-WIDE cron — it
+  // reads every tenant's runs for the day, then groups by tenant_id to decide
+  // per-tenant re-dispatch (shouldDispatchScan keys on tenant). Not a customer
+  // surface; a tenant filter here would defeat its purpose.
   const todayUtcStart = new Date(
     `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
   ).toISOString();

@@ -129,6 +129,10 @@ export async function verifyBudgetLedger(
   const dayEnd = `${date}T23:59:59.999Z`;
 
   // 1. Ledger rows for this date.
+  // tenant-isolation-exempt: this is a FLEET-WIDE operator/CI ledger-integrity
+  // verifier — it intentionally reads every tenant's rows for the date and
+  // reports per-tenant (tenant_id is selected + grouped downstream). Not a
+  // customer surface.
   const { data: ledgerData, error: ledgerErr } = await supabase
     .from("llm_budget_ledger")
     .select("tenant_id, platform, spent_usd, call_count, prompt_count, chunk_count, last_run_id")
@@ -159,6 +163,7 @@ export async function verifyBudgetLedger(
   }
 
   // 2. observation_runs for this date.
+  // tenant-isolation-exempt: fleet-wide ledger verifier (see note 1 above).
   const { data: runsData, error: runsErr } = await supabase
     .from("observation_runs")
     .select("run_id, source, status, scope_label, tenant_id, completed_at")
@@ -189,6 +194,8 @@ export async function verifyBudgetLedger(
   }
 
   // 3. prompt_answer_observations counts for this date by platform label.
+  // tenant-isolation-exempt: fleet-wide ledger verifier (see note 1 above) —
+  // the day-total observation counts span all tenants by design.
   const obsCounts = new Map<string, number>();
   for (const pair of PLATFORM_PAIRS) {
     const { count, error } = await supabase
