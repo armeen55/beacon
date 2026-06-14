@@ -916,25 +916,21 @@ function suggestTitleRewrite(
     const missingWords = queryContentWords.filter((w) => !titleLower.includes(w));
     if (missingWords.length < 2) return null; // Title already has the keywords
 
-    // Build a natural-sounding title from the query's intent
-    // Extract city if present
-    const cityMatch = topQueryLower.match(/\b(atherton|menlo park|palo alto|los altos|cupertino|saratoga|woodside|bay area)\b/);
-    const city = cityMatch
-      ? cityMatch[1].split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+    // Build a natural-sounding title from the query's intent.
+    // De-verticalized (2026-06-15): extract a city ONLY from this tenant's
+    // configured locations (no hardcoded Bay-Area regex). A non-local / non-geo
+    // tenant has no cities → no city in the title.
+    const cityHit = (cities ?? [])
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean)
+      .find((c) => topQueryLower.includes(c));
+    const city = cityHit
+      ? cityHit.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
       : null;
 
-    // Extract the core intent (what kind of service)
+    // Extract the core intent (what kind of service) purely from the tenant's
+    // OWN vocabulary — no hardcoded builder service patterns.
     const intentWords: string[] = [];
-    const servicePatterns = [
-      /whole[- ]home (?:remodel|renovation)/i,
-      /teardown (?:and |& )?rebuild/i,
-      /design[- ]build/i,
-      /custom home/i,
-      /home renovation/i,
-      /structural (?:home )?renovation/i,
-      /architect[- ]designed/i,
-      /ground[- ]up/i,
-    ];
     // Tenant vocabulary FIRST (2026-06-11): the tenant's own service
     // phrases beat the builder patterns — "best catering in tucson"
     // yields "catering", never builder vocabulary.
@@ -947,13 +943,6 @@ function suggestTitleRewrite(
         if (topQueryLower.includes(phrase)) { intentWords.push(phrase); break; }
       }
     }
-    if (intentWords.length === 0) {
-      for (const pattern of servicePatterns) {
-        const match = topQuery.match(pattern);
-        if (match) { intentWords.push(match[0]); break; }
-      }
-    }
-
     if (intentWords.length === 0 && vocab?.industry) {
       intentWords.push(vocab.industry);
     }
