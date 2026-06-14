@@ -287,14 +287,27 @@ export async function loadTriggerCandidatesForTenant(options: {
   // Search Analytics page signals (28-day aggregates). Soft-fail to
   // an empty map — no GSC connection (or no synced rows yet) simply
   // means the gsc_low_ctr predicate never fires.
+  // audit #17 (2026-06-14): GSC and Clarity are INDEPENDENT connectors —
+  // give each its own try/catch (matching the decay/semrush blocks below).
+  // Previously both ran in one try, so a GSC throw skipped the Clarity load
+  // entirely: every clarity_friction rec silently vanished on a GSC hiccup,
+  // and the lone error message named only GSC so the Clarity outage was
+  // invisible. One connector failing must not be collateral damage for the
+  // other.
   let gscSignals: Map<string, GscPageSignal> = new Map();
   let claritySignals: Map<string, import("./clarity-page-signals").ClarityPageSignal> = new Map();
   try {
     gscSignals = await loadGscPageSignalsForTenant(tenantId);
-    claritySignals = await loadClarityPageSignalsForTenant(tenantId);
   } catch (err) {
     console.error(
       `[trigger-loader] gsc page-signals load failed for ${tenantId} (gsc predicates skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  try {
+    claritySignals = await loadClarityPageSignalsForTenant(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] clarity page-signals load failed for ${tenantId} (clarity_friction skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   // Decay slice (2026-06-12): two consecutive 28d windows per page.
