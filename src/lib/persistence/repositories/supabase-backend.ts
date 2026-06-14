@@ -847,14 +847,26 @@ export const supabaseBackend: SeedDataRepository = {
           queryOpts,
         );
       },
-      getDailyMetricSnapshots: (options) =>
-        queryAllPagedScoped<DailyMetricSnapshot>(
+      getDailyMetricSnapshots: (options) => {
+        // Thread `since` (date-window, predicate pushdown) and `columns`
+        // (lean projection) independently — /today passes `columns` alone
+        // to fetch a date-only projection for its two count consumers
+        // without changing the window.
+        const queryOpts =
+          options?.since || options?.columns
+            ? {
+                ...(options?.since
+                  ? { since: options.since, sinceColumn: "date" }
+                  : {}),
+                ...(options?.columns ? { columns: options.columns } : {}),
+              }
+            : undefined;
+        return queryAllPagedScoped<DailyMetricSnapshot>(
           "daily_metric_snapshots",
           tenantId,
-          options?.since
-            ? { since: options.since, sinceColumn: "date" }
-            : undefined,
-        ),
+          queryOpts,
+        );
+      },
 
       // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first).
       //

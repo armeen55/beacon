@@ -345,6 +345,13 @@ export type FreshCanonicalDataOptions = {
   /** ISO date string. When set, daily_metric_snapshots are filtered at
    *  the DB with `for_date >= since`. */
   snapshotsSince?: string;
+  /** Optional lean PostgREST projection (comma-separated columns) for the
+   *  daily_metric_snapshots read, pushed to the DB so only those columns
+   *  cross the wire. The caller MUST only read the columns it requested
+   *  (the file backend returns full rows regardless). Used by /today,
+   *  whose only snapshot consumer needs `date` for two counts — pulling
+   *  the full JSONB-carrying rows was ~90% wasted egress. */
+  snapshotsColumns?: string;
 };
 
 export async function loadFreshCanonicalData(
@@ -365,9 +372,15 @@ export async function loadFreshCanonicalData(
   const observationsOpt = options?.observationsSince
     ? { since: options.observationsSince }
     : undefined;
-  const snapshotsOpt = options?.snapshotsSince
-    ? { since: options.snapshotsSince }
-    : undefined;
+  const snapshotsOpt =
+    options?.snapshotsSince || options?.snapshotsColumns
+      ? {
+          ...(options.snapshotsSince ? { since: options.snapshotsSince } : {}),
+          ...(options.snapshotsColumns
+            ? { columns: options.snapshotsColumns }
+            : {}),
+        }
+      : undefined;
   const [prompts, observations, entities, snapshots] = await Promise.all([
     tenantRepo.getTrackedPrompts(),
     tenantRepo.getPromptAnswerObservations(observationsOpt),

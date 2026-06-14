@@ -214,3 +214,61 @@ describe("E3 / EGRESS-P0 — page_snapshots read is bounded by LIMIT", () => {
     }
   });
 });
+
+describe("EGRESS lean projection — /today's snapshot read pulls date-only columns", () => {
+  // 2026-06-14 — /today's ONLY daily_metric_snapshots consumer is the
+  // Command Center Brain derivation (`deriveBrainFromTodayInputs`), which
+  // reads just `date` (a 7-day count) + `.length` (a total count). The
+  // windowed (120-day) read could be thousands of rows; pulling the full
+  // ~497-byte JSONB-carrying rows for two counts was ~90% wasted egress.
+  // The lean `columns` projection (threaded types → backend → store →
+  // page) drops every row to ~50 bytes. These source-text pins stop the
+  // projection from silently regressing back to `*`.
+  it("WindowedReadOptions declares an optional lean `columns` projection", () => {
+    const src = readFileSync(REPO_TYPES, "utf-8");
+    expect(
+      src.match(/columns\?:\s*string/),
+      "WindowedReadOptions must expose an optional `columns` projection (lean egress)",
+    ).not.toBeNull();
+  });
+
+  it("supabase-backend threads `columns` into the daily_metric_snapshots query", () => {
+    const src = readFileSync(SUPABASE_BACKEND, "utf-8");
+    // getDailyMetricSnapshots must forward options.columns into the
+    // paged-scoped query opts (queryAllPagedScoped honors `columns`).
+    expect(
+      src.match(/options\?\.columns\s*\?\s*\{\s*columns:\s*options\.columns/),
+      "supabase getDailyMetricSnapshots must thread options.columns into queryAllPagedScoped",
+    ).not.toBeNull();
+  });
+
+  it("canonical-store exposes snapshotsColumns and threads it to the snapshot read", () => {
+    const src = readFileSync(CANONICAL_STORE, "utf-8");
+    expect(src.includes("snapshotsColumns?: string")).toBe(true);
+    // The snapshotsOpt builder must forward snapshotsColumns as `columns`.
+    expect(
+      src.match(/columns:\s*options\.snapshotsColumns/),
+      "loadFreshCanonicalData must thread snapshotsColumns into the daily_metric_snapshots read",
+    ).not.toBeNull();
+  });
+
+  it("today-data.ts requests a date-only snapshot projection (not the full row)", () => {
+    const src = readFileSync(TODAY_DATA, "utf-8");
+    // The lean projection must include `date` (the only consumed column)
+    // and MUST NOT pull the heavy JSONB/metric payload (i.e. not `*`).
+    const m = src.match(/snapshotsColumns:\s*"([^"]+)"/);
+    expect(
+      m,
+      "today-data.ts must pass an explicit lean snapshotsColumns projection",
+    ).not.toBeNull();
+    const cols = (m?.[1] ?? "").toLowerCase();
+    expect(cols.includes("date"), "projection must include `date`").toBe(true);
+    expect(cols.includes("*"), "projection must not be the full row").toBe(
+      false,
+    );
+    expect(
+      cols.includes("metadata"),
+      "projection must not pull the heavy JSONB metadata column",
+    ).toBe(false);
+  });
+});

@@ -385,6 +385,13 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     const fresh = await loadFreshCanonicalData({
       observationsSince,
       snapshotsSince,
+      // EGRESS — /today's ONLY snapshot consumer is the Command Center
+      // Brain derivation (`deriveBrainFromTodayInputs`), which reads just
+      // `date` (a 7-day count) and `.length` (a total count). Pull a lean
+      // date-only projection so the full ~497-byte JSONB-carrying rows
+      // (~90% dead weight here) never cross the wire. The window above
+      // (120d) can be thousands of rows; this caps each to ~50 bytes.
+      snapshotsColumns: "id, date",
     });
     trackedPrompts = fresh.trackedPrompts;
     promptAnswerObservations = fresh.promptAnswerObservations;

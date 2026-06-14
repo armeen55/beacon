@@ -241,6 +241,18 @@ export type WindowedReadOptions = {
    *  read at the database with `<column> >= since` so the rows never
    *  cross the wire. */
   since?: string;
+  /**
+   * Optional lean PostgREST projection (comma-separated columns) pushed
+   * to the DB so only the requested columns cross the wire. Default `*`.
+   * The Supabase backend honors it (via `queryAllPagedScoped`); the file
+   * backend returns full in-memory rows (the projection is a wire-cost
+   * optimization, not a contract — callers MUST only read columns they
+   * requested). Used by /today's canonical `daily_metric_snapshots`
+   * read, whose sole consumer (`deriveBrainFromTodayInputs`, typed
+   * `{ date: string }[]`) needs only `date` for two counts, so pulling
+   * the full ~497-byte JSONB-carrying rows was ~90% wasted egress.
+   */
+  columns?: string;
 };
 
 /**
