@@ -93,8 +93,8 @@ on:
   # from the in-app "Run today's reading" action. The UTC-day budget guard
   # (runNativePoll's defaultHasRecentRun) + per-run cost ceiling
   # (BEACON_PER_RUN_BUDGET_USD) still apply, so a manual re-fire on the same day
-  # is a no-op. Re-add a `schedule:` block (e.g. `- cron: "0 7 * * *"`) only to
-  # restore automated nightly polling.
+  # is a no-op. Re-add a `schedule:` block (a daily 07:00-UTC cron, say) only
+  # to restore automated nightly polling.
   workflow_dispatch:
 
 # Prevent overlapping runs (e.g. if a previous day's workflow is still going

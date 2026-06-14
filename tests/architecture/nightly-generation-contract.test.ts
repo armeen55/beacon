@@ -35,8 +35,12 @@ const RUNNER = readFileSync(
 );
 
 describe("nightly-generation.yml — schedule + matrix", () => {
-  it("fires at 05:30 UTC (after the 04:00 scan, before the 07:00 poll)", () => {
-    expect(YAML).toMatch(/cron:\s*"30 5 \* \* \*"/);
+  it("declares NO cron (2026-06-15: crons off) but keeps workflow_dispatch", () => {
+    // Operator disabled all GitHub Actions + removed nightly crons; generation
+    // runs on-demand (in-app refresh / manual dispatch). Re-add `cron: "30 5
+    // * * *"` only to restore the nightly schedule.
+    expect(YAML).not.toMatch(/-\s*cron:/);
+    expect(YAML).toMatch(/workflow_dispatch:/);
   });
 
   it("computes the matrix via the shared lister (DB-preferred)", () => {

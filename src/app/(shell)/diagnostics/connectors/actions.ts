@@ -26,18 +26,55 @@
 import { revalidatePath } from "next/cache";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { currentTenantId } from "@/lib/tenant-context";
 import { refreshTenantGa4Traffic } from "@/app/(shell)/diagnostics/outcome-attribution/actions";
 import { refreshSemrushMetrics } from "@/app/(shell)/diagnostics/semrush/actions";
 import { refreshCallRailMetrics } from "@/app/(shell)/diagnostics/callrail/actions";
+// 2026-06-15 — crons off: the GSC / Profound / Clarity sync engines (pure
+// HTTP→Supabase, Vercel-safe) are now part of the one-click on-demand refresh
+// so connecting those sources actually pulls data with no nightly job.
+import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
+import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
+import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 
 const ROUTE = "/diagnostics/connectors";
 
 export type ConnectorRefreshOutcome = {
-  provider: "ga4" | "callrail" | "semrush";
+  provider: "gsc" | "ga4" | "callrail" | "semrush" | "profound" | "clarity";
   /** refreshed = data pulled · skipped = not connected · failed = pull errored */
   outcome: "refreshed" | "skipped" | "failed";
   detail: string;
 };
+
+/** Map a connector sync engine's `{synced, reason?, ...counts}` discriminated
+ *  result into a classified outcome without coupling to each engine's exact
+ *  field names. Reads common count fields defensively. */
+function outcomeFor(
+  provider: ConnectorRefreshOutcome["provider"],
+  result: unknown,
+): ConnectorRefreshOutcome {
+  const r = (result ?? {}) as {
+    synced?: boolean;
+    reason?: string;
+    rows_upserted?: number;
+    rows?: number;
+    citation_rows?: number;
+    days?: number;
+  };
+  if (r.synced) {
+    const n = r.rows_upserted ?? r.rows ?? r.citation_rows;
+    const detail =
+      n != null
+        ? `${n.toLocaleString()} row${n === 1 ? "" : "s"}${r.days != null ? ` · ${r.days}d` : ""}`
+        : "synced";
+    return { provider, outcome: "refreshed", detail };
+  }
+  return {
+    provider,
+    outcome: classify(r.reason),
+    detail: r.reason ?? "skipped",
+  };
+}
 
 export type RefreshAllDataSourcesResult =
   | {
@@ -49,13 +86,24 @@ export type RefreshAllDataSourcesResult =
     }
   | { ok: false; reason: "not_operator" };
 
-/** Reasons that mean "connector simply isn't set up" — a skip, not a failure. */
+/** Reasons that mean "connector simply isn't set up" — a skip, not a failure.
+ *  Includes the dormant-until-key reasons of every connector so an unconnected
+ *  source shows "not connected", never an alarming "failed". (Genuine failures
+ *  like supabase_unavailable / upsert_failed are intentionally NOT here.) */
 const NOT_CONNECTED_REASONS = new Set([
   "no_token",
   "no_key",
   "no_property",
   "no_domain",
   "disconnected",
+  // GSC
+  "no_usable_gsc_token",
+  "no_property_derivable",
+  // Profound (dormant until key + category configured)
+  "no_key_or_api_error",
+  "no_categories_configured",
+  // Clarity (dormant until token)
+  "no_token_or_api_error",
 ]);
 
 function classify(
@@ -70,6 +118,21 @@ export async function refreshAllDataSources(): Promise<RefreshAllDataSourcesResu
   if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
 
   const results: ConnectorRefreshOutcome[] = [];
+  const tenantId = await currentTenantId();
+
+  // Google Search Console — the core / highest-priority source (the GSC-led
+  // pivot leads every recommendation with first-party search demand). Pure
+  // HTTP→Supabase, Vercel-safe; first run on a cold tenant auto-backfills.
+  try {
+    const gsc = await syncGscSearchAnalyticsForTenant({ tenantId });
+    results.push(outcomeFor("gsc", gsc));
+  } catch (e) {
+    results.push({
+      provider: "gsc",
+      outcome: "failed",
+      detail: e instanceof Error ? e.message.slice(0, 120) : "error",
+    });
+  }
 
   // GA4 traffic.
   const ga4 = await refreshTenantGa4Traffic();
@@ -127,6 +190,31 @@ export async function refreshAllDataSources(): Promise<RefreshAllDataSourcesResu
           detail: semrush.reason,
         },
   );
+
+  // Profound (AI-visibility, secondary signal). Dormant-honest until a key
+  // is connected; pure HTTP→Supabase.
+  try {
+    const profound = await syncProfoundNightlyForTenant({ tenantId });
+    results.push(outcomeFor("profound", profound));
+  } catch (e) {
+    results.push({
+      provider: "profound",
+      outcome: "failed",
+      detail: e instanceof Error ? e.message.slice(0, 120) : "error",
+    });
+  }
+
+  // Microsoft Clarity (page-friction signal → clarity_friction trigger).
+  try {
+    const clarity = await syncClarityDailyMetricsForTenant({ tenantId });
+    results.push(outcomeFor("clarity", clarity));
+  } catch (e) {
+    results.push({
+      provider: "clarity",
+      outcome: "failed",
+      detail: e instanceof Error ? e.message.slice(0, 120) : "error",
+    });
+  }
 
   revalidatePath(ROUTE);
   return {

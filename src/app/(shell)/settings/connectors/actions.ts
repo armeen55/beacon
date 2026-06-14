@@ -30,6 +30,14 @@ import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
+// On-demand connector syncs (2026-06-15) — with all crons/Actions off, these
+// existing per-tenant sync engines (HTTP + Supabase, Vercel-safe) must be
+// triggerable from the product. Each "Sync now" action wraps one.
+import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
+import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
+import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
+import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
+import { syncSemrushOrganicKeywordsForTenant } from "@/lib/connectors/semrush/sync-organic-keywords";
 
 export async function getGoogleGscConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("google_gsc");
@@ -644,4 +652,111 @@ export async function disconnectClarity(): Promise<{ success: boolean; error?: s
     log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
     return { success: false, error: err };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ON-DEMAND "Sync now" actions (2026-06-15) — golden path with crons OFF.
+//
+// All GitHub Actions + the Vercel cron are disabled. The per-tenant sync
+// engines (syncGscSearchAnalyticsForTenant / syncGa4UrlTrafficForTenant /
+// syncProfoundNightlyForTenant / syncClarityDailyMetricsForTenant /
+// syncSemrushOrganicKeywordsForTenant) are all pure HTTP→Supabase (no
+// subprocess, Vercel-safe) and were previously reachable ONLY from the
+// nightly script. These actions surface each as an operator-clickable
+// "Sync now" so connecting a source actually pulls data. Each is fail-soft
+// and returns a normalized {ok, detail?, error?} the card renders. They are
+// idempotent (each sync has its own dedupe/watermark/UTC-day guard).
+// ─────────────────────────────────────────────────────────────────────
+
+export type ConnectorSyncNowResult = {
+  ok: boolean;
+  detail?: string;
+  error?: string;
+};
+
+/**
+ * Normalize a connector sync engine's discriminated result into the UI
+ * shape WITHOUT coupling to each connector's exact fields. The engines all
+ * carry a `synced` boolean discriminant; on success they expose some of
+ * {rows_upserted, rows, imported, days, citation_rows}; on skip they expose
+ * a `reason`. We read those defensively so one summarizer serves all five.
+ */
+function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
+  const r = (result ?? {}) as {
+    synced?: boolean;
+    reason?: string;
+    rows_upserted?: number;
+    rows?: number;
+    imported?: number;
+    days?: number;
+    citation_rows?: number;
+  };
+  if (r.synced) {
+    const bits: string[] = [];
+    const rowCount = r.rows_upserted ?? r.rows ?? r.imported ?? r.citation_rows;
+    if (rowCount != null) bits.push(`${rowCount.toLocaleString()} row${rowCount === 1 ? "" : "s"}`);
+    if (r.days != null) bits.push(`${r.days} day${r.days === 1 ? "" : "s"}`);
+    return { ok: true, detail: bits.length ? `Synced ${bits.join(" · ")}.` : "Synced." };
+  }
+  return {
+    ok: false,
+    error: r.reason ? `Sync skipped: ${r.reason}.` : "Sync did not complete (not connected yet?).",
+  };
+}
+
+async function runConnectorSyncNow(
+  action: string,
+  run: (tenantId: string) => Promise<unknown>,
+): Promise<ConnectorSyncNowResult> {
+  const t0 = Date.now();
+  log.info("Action started", { action });
+  try {
+    const tenantId = await currentTenantId();
+    const result = await run(tenantId);
+    revalidatePath("/settings/connectors");
+    const summary = summarizeConnectorSync(result);
+    log.info("Action completed", { action, durationMs: Date.now() - t0, ok: summary.ok });
+    return summary;
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
+    return { ok: false, error: err.slice(0, 500) };
+  }
+}
+
+/** Pull the latest Google Search Console search-analytics for this tenant.
+ *  First click on a cold tenant auto-backfills the watermark window; click
+ *  again to extend history further. */
+export async function syncGscNow(): Promise<ConnectorSyncNowResult> {
+  return runConnectorSyncNow("syncGscNow", (tenantId) =>
+    syncGscSearchAnalyticsForTenant({ tenantId }),
+  );
+}
+
+/** Pull GA4 URL traffic for the selected property. */
+export async function syncGa4Now(): Promise<ConnectorSyncNowResult> {
+  return runConnectorSyncNow("syncGa4Now", (tenantId) =>
+    syncGa4UrlTrafficForTenant({ tenantId }),
+  );
+}
+
+/** Pull Profound AI-visibility/citation rows for this tenant. */
+export async function syncProfoundNow(): Promise<ConnectorSyncNowResult> {
+  return runConnectorSyncNow("syncProfoundNow", (tenantId) =>
+    syncProfoundNightlyForTenant({ tenantId }),
+  );
+}
+
+/** Pull Microsoft Clarity daily friction metrics for this tenant. */
+export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
+  return runConnectorSyncNow("syncClarityNow", (tenantId) =>
+    syncClarityDailyMetricsForTenant({ tenantId }),
+  );
+}
+
+/** Pull SEMrush organic keywords (supporting evidence) for this tenant. */
+export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
+  return runConnectorSyncNow("syncSemrushNow", (tenantId) =>
+    syncSemrushOrganicKeywordsForTenant({ tenantId }),
+  );
 }

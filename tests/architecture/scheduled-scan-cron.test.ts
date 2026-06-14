@@ -34,11 +34,11 @@ const SCRIPT = read("scripts/run-scheduled-scan.ts");
 const ROUTE = read("src/app/api/cron/scan/route.ts");
 
 describe("Phase 5 — daily-scan workflow YAML structure", () => {
-  it("declares schedule + workflow_dispatch triggers", () => {
+  it("declares workflow_dispatch and NO cron (2026-06-15: crons off, on-demand only)", () => {
     expect(WORKFLOW).toMatch(/^on:\s*$/m);
-    // The cron is preceded by comment lines under `schedule:`; allow any
-    // intervening whitespace + comment lines.
-    expect(WORKFLOW).toMatch(/schedule:[\s\S]*?-\s*cron:\s*["']?0\s+4\s+\*\s+\*\s+\*["']?/);
+    // Operator disabled all GitHub Actions + removed nightly crons; the scan
+    // runs on-demand (manual dispatch / launch-time first scan). No cron line.
+    expect(WORKFLOW).not.toMatch(/-\s*cron:/);
     expect(WORKFLOW).toMatch(/workflow_dispatch:/);
   });
 
@@ -126,19 +126,14 @@ describe("Phase 5 — daily-scan workflow YAML structure", () => {
   });
 });
 
-describe("Phase 5 — cron schedule ordering vs native poll", () => {
-  it("daily-scan runs at 04:00 UTC; daily-native-poll runs at 07:00 UTC; scan runs FIRST", () => {
-    // Extract the cron strings from both workflow YAMLs and assert the
-    // scan's hour is strictly less than the poll's hour. This pins the
-    // ordering operator chose: scan before poll so fresh inventory +
-    // lifecycle stamps land before the day's observations are captured.
-    const scanCron = WORKFLOW.match(/cron:\s*["']?(0\s+\d+\s+\*\s+\*\s+\*)["']?/);
-    const pollCron = POLL_WORKFLOW.match(/cron:\s*["']?(0\s+\d+\s+\*\s+\*\s+\*)["']?/);
-    expect(scanCron, "daily-scan cron not found").not.toBeNull();
-    expect(pollCron, "daily-native-poll cron not found").not.toBeNull();
-    const scanHour = parseInt(scanCron![1].split(/\s+/)[1], 10);
-    const pollHour = parseInt(pollCron![1].split(/\s+/)[1], 10);
-    expect(scanHour).toBeLessThan(pollHour);
+describe("Phase 5 — no nightly crons (2026-06-15: on-demand only)", () => {
+  it("neither daily-scan nor daily-native-poll declares a cron schedule", () => {
+    // The operator removed all nightly crons; scan + poll run on-demand.
+    // (When the scan ran on a cron it fired BEFORE the poll — that ordering
+    // is now moot. Re-adding either cron should re-introduce + re-assert the
+    // scan-before-poll ordering here.)
+    expect(WORKFLOW).not.toMatch(/-\s*cron:/);
+    expect(POLL_WORKFLOW).not.toMatch(/-\s*cron:/);
   });
 });
 
