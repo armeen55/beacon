@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-06-14 (overnight, wave-6) — CRITICAL: main dashboard silently rendering EMPTY (canonical-read statement timeout) + 2 customer-surface polish fixes
+
+**How found:** a 6-lens adversarial workflow audit of the customer-facing render/copy/empty-state surfaces (9 agents, 311 tool-uses) came back nearly clean (2 medium findings, 1 refuted). The real bug was caught by running the ACTUAL dev server in parallel (ground truth a code-reading agent cannot get): `/` rendered the Suspense skeleton then an EMPTY `main`.
+
+**Root cause (verified end-to-end against prod):** `loadTodayPageData → loadFreshCanonicalData → queryAllPagedScoped` runs two date-windowed, tenant-scoped, OFFSET-paginated reads:
+- `prompt_answer_observations WHERE tenant_id=$1 AND observed_at>=$2`
+- `daily_metric_snapshots WHERE tenant_id=$1 AND date>=$2`
+
+Neither table had a composite `(tenant_id, <date>)` index (PAO's only tenant-leading index has an *expression* 4th column `observed_at::date`, unusable for a `timestamptz` range). `EXPLAIN (ANALYZE)` on prod (Ritz, 21,047 rows, width=1684 wide-JSONB): a single PAO read was a **Seq Scan, 3,670 ms** (`Rows Removed by Filter: 12196`). PostgREST `.range()` re-runs that full seq scan for EVERY 1000-row OFFSET page (~9 pages) → cumulative ≫ the 8s Postgres `statement_timeout`. The read throws `canceling statement due to statement timeout`; the caller catches it (`[today] fresh canonical read failed — continuing with empty canonical arrays`) → blank Today with no error shown. Same missing index also timed out poll-health's single-day per-platform obs-count.
+
+**What changed:**
+- `migrations/2026-06-14_today_canonical_read_tenant_date_indexes.sql`: `create index idx_pao_tenant_observed_at on prompt_answer_observations (tenant_id, observed_at)` + `idx_dms_tenant_date on daily_metric_snapshots (tenant_id, date)`. **Applied to prod via MCP** (additive + reversible; ~21k/19k rows so CREATE INDEX locks for ms).
+- `src/components/today/how-we-know-panel.tsx`: `resultsRowCount` now `.toLocaleString()` (was "5234"; matches line 104's `totalObservations`).
+- `src/components/today/today-scoreboard.tsx`: on genuine `isFirstRunNoData`, the "Times AI recommended you" + "Your pages AI sends people to" KPI values render the "—" awaiting-reading placeholder (the ai-visibility-hero pattern) instead of a bold literal 0 a buyer misreads as a measured zero; a REAL measured zero (data exists, asOfDate set) still renders "0".
+- `src/components/today/today-scoreboard.test.tsx`: NEW — pins both directions of that honesty contract.
+
+**Verified:**
+- `EXPLAIN (ANALYZE)` post-index: PAO query is now `Index Scan using idx_pao_tenant_observed_at`; worst page (OFFSET 8000) **3,670 ms → 93 ms (~39×)**. DMS stays a fast Seq Scan for Ritz (30 ms; 99% of rows are inside the 120-day window so the planner correctly declines the index — `idx_dms_tenant_date` pays off for selective tenants + as history grows).
+- End-to-end: dev-server `/` now renders full data ("Beacon Command Center", "30,417 readings analyzed", "TOP MOVEMENT +1083% /locations/palo-alto", "NEXT BEST ACTION: Add 2 missing schema types to /our-partners") in ~4s local (laptop→Supabase round-trip latency; ~2-4s expected on Vercel same-region) — was EMPTY before.
+- `npm run typecheck` clean; `src/components/today/` suite 182 passed (incl. new 2 scoreboard tests).
+
+**Rails honored:** deterministic, zero paid-LLM, crons untouched, NOT pushed, additive+reversible migration only.
+
+---
+
 ## 2026-06-13 (PM) — GSC first-party demand cards reach the queue (Gate 9 "other"-skip override)
 
 **Root cause (verified end-to-end, prod data):** 62 real GSC demand candidates (`gsc_low_ctr` + `gsc_striking_distance`) generated for tenant-iranopedia but 0 reached `recommended_edits`. The eligibility table already maps both to `customer-queue-ready` (deployed on origin/main); the block was promotion **Gate 9** in `safety-gates.ts` — content-edit families hard-skip `{utility, technical_asset, other}`. Iranopedia (content/encyclopedia) pages classify as **`other`** when `contentSiteMode` is unset on the **sync** config path → all 62 GSC title rewrites suppressed `skip_page_type`. Confirmed with a gate diagnostic: 62/62 → `skip_page_type`, page types 62/62 `other`. Also confirmed prod `business_config.contentSiteMode` was `null`, and `gsc_daily_rows` has 217,975 rows / 197 pages (last pull 21:19, AFTER the 08:38 nightly — so the morning run had no GSC data).
