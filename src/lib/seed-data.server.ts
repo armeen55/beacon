@@ -90,6 +90,20 @@ function emptyState(): State {
 // entries, so they can't race-clobber a single shared `_state`.
 const _stateByTenant = new Map<string, State>();
 
+/**
+ * The seed (`./seed-data`) is the FOUNDER's demo dataset — every row is
+ * `tenant_id: "tenant-ritz-founder"` (a builder). It may only be used as the
+ * empty-state fallback for the tenant that OWNS it; returning it for any other
+ * tenant bleeds builder demo content (changelog "Custom Home Building",
+ * competitors, opportunities) into unrelated verticals — e.g. it surfaced in
+ * Iranopedia's ⌘K Changes group. Derived from the seed itself so it tracks the
+ * data, not a hardcoded literal.
+ */
+const SEED_OWNER_TENANT_ID =
+  seed.changelogEntries[0]?.tenant_id ??
+  seed.results[0]?.tenant_id ??
+  "tenant-ritz-founder";
+
 async function loadFromRepoOrSeed(tenantId: string): Promise<State> {
   const cached = _stateByTenant.get(tenantId);
   if (cached && cached.importRuns !== null) return cached;
@@ -116,13 +130,25 @@ async function loadFromRepoOrSeed(tenantId: string): Promise<State> {
     state.competitors = comps;
     state.briefs = [];
     state.competitorSnapshots = [];
-  } else {
+  } else if (tenantId === SEED_OWNER_TENANT_ID) {
+    // Founder/demo tenant with no import yet → show the demo dataset.
     state.results = [...seed.results];
     state.changelogEntries = [...seed.changelogEntries];
     state.opportunities = [...seed.opportunities];
     state.competitors = [...seed.competitors];
     state.briefs = [...seed.briefs];
     state.competitorSnapshots = [...seed.competitorSnapshots];
+  } else {
+    // Any OTHER tenant with no import_runs (e.g. a GSC-led content tenant
+    // like Iranopedia that has real data but never imported a CSV) → EMPTY,
+    // never the founder's builder demo data. Surfaces render honest empty
+    // states; tenant-specific data still loads via its own scoped loaders.
+    state.results = [];
+    state.changelogEntries = [];
+    state.opportunities = [];
+    state.competitors = [];
+    state.briefs = [];
+    state.competitorSnapshots = [];
   }
   return state;
 }
