@@ -17,7 +17,9 @@
 
 **#1 (DEFERRED — lifecycle) `match-runner/transitions.ts`:** a `pushed` edit whose later re-scan returns `not_found` stays sticky (no-op) — real, but (a) LATENT (Wix push is FROZEN, so no rows reach `pushed`), and (b) `not_found` is intentionally sticky for non-`accepted` states (anti-flap), so a `pushed → ?` transition is a product-design decision, not a clear-cut bug. Verify-first also corrected the audit's overstated "falls through ALL branches": only `pushed + not_found` is the no-op (verified_live / needs_review / wrong_page / partial DO transition). Tracked for a deliberate decision.
 
-**Verified:** `npm run typecheck` clean; 56 targeted tests pass (gsc-low-ctr + budget + cost); +5 pure budget-boundary regression tests. **Rails honored:** deterministic, single-operator posture, crons untouched, NOT pushed.
+**Visual ground-truth follow-on (`a2145c9`) — `(none)` placeholder in customer copy:** a screenshot of `/today`'s prominent Next Best Action card showed *"This brand page has only **(none)** schema."* for Ritz's `/our-partners`. `schema-parity-actions.ts:extractPresentTypes` parsed the detector's no-schema sentinel `schema_types: [(none)]` back into `present: ["(none)"]`, so `buildRationale` took the "has only X schema" branch instead of the clean "has no JSON-LD" branch. Fixed by filtering the `(none)`/`none` sentinel at the parse boundary (+2 tests). Caught by VISUAL inspection — a text scan wouldn't flag `(none)` as wrong.
+
+**Verified:** `npm run typecheck` clean; 56 targeted tests pass (gsc-low-ctr + budget + cost) + 19 schema-parity (incl. 2 new); +5 pure budget-boundary regression tests. **Rails honored:** deterministic, single-operator posture, crons untouched, NOT pushed.
 
 ---
 
