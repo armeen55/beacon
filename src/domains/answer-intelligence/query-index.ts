@@ -43,18 +43,13 @@ export type QueryKeywordIndex = {
 // City extraction
 // ---------------------------------------------------------------------------
 
-/**
- * Multi-property (2026-06-10): DEFAULT city vocabulary — the founder
- * tenant's Bay-Area service area. Tenant-aware callers thread their own
- * `cities` (from BusinessConfig.locations) through the exported
- * functions; this list is only the fallback when none are provided, so
- * Ritz behavior is byte-identical with no caller changes.
- */
-const DEFAULT_CITIES = [
-  "atherton", "menlo park", "palo alto", "los altos", "los altos hills",
-  "cupertino", "saratoga", "woodside", "portola valley", "mountain view",
-  "sunnyvale", "san jose", "emerald hills", "bay area",
-];
+// De-verticalized (2026-06-15): there is NO default city vocabulary. City
+// matching is purely per-tenant — callers thread the tenant's own `cities`
+// (from BusinessConfig.locations). A tenant with no configured locations (a
+// content site, a national brand, any non-local business) gets NO city
+// filtering, which is correct: it has no service-area geography. Previously
+// this fell back to the founder tenant's Bay-Area list, which silently applied
+// "atherton"/"palo alto" relevance filtering to every vertical.
 
 function extractCityFromQuery(
   query: string,
@@ -88,8 +83,9 @@ function extractCityFromQuery(
 export function buildQueryKeywordIndex(
   citationIndex: CitationEvidenceIndex | null,
   observations: PromptAnswerObservation[],
-  /** Tenant city vocabulary (lowercase). Defaults to the founder list. */
-  cities: ReadonlyArray<string> = DEFAULT_CITIES,
+  /** Tenant city vocabulary (lowercase). Defaults to NONE — a tenant with no
+   *  configured service-area locations gets no city-relevance filtering. */
+  cities: ReadonlyArray<string> = [],
 ): QueryKeywordIndex {
 
   // Step 1: Extract all fan-out queries grouped by topic
@@ -305,18 +301,6 @@ function queryHasSpecificCity(
 }
 
 /**
- * Service-specific keywords — the core terms that distinguish a service page.
- * Used to ensure service page queries actually match the service being offered.
- */
-const SERVICE_KEYWORD_MAP: Record<string, string[]> = {
-  "whole-home-remodel": ["remodel", "renovation", "renovate", "whole home", "whole-home"],
-  "new-construction": ["construction", "build", "ground-up", "new home", "custom home"],
-  "adu": ["adu", "addition", "accessory dwelling"],
-  "design-build": ["design-build", "design build", "architect"],
-  "teardown": ["teardown", "tear-down", "tear down", "rebuild", "demolition"],
-};
-
-/**
  * Get fan-out queries filtered by relevance to a specific page.
  *
  * Unlike getQueriesForPage (which returns an unfiltered dump), this
@@ -341,8 +325,9 @@ export function getRelevantQueriesForPage(
     h2_list?: string[];
   } | null,
   topN: number = 10,
-  /** Tenant city vocabulary (lowercase). Defaults to the founder list. */
-  cities: ReadonlyArray<string> = DEFAULT_CITIES,
+  /** Tenant city vocabulary (lowercase). Defaults to NONE — a tenant with no
+   *  configured service-area locations gets no city-relevance filtering. */
+  cities: ReadonlyArray<string> = [],
 ): string[] {
   const normalizedUrl = pageUrl.replace(/\/+$/, "").toLowerCase();
   const path = normalizedUrl.replace(/^https?:\/\/[^/]+/, "");
@@ -367,17 +352,18 @@ export function getRelevantQueriesForPage(
   }
   for (const sw of serviceWords) pageKeywords.add(sw);
 
-  // Determine service-specific required keywords for service pages
+  // Determine service-specific required keywords for service pages.
+  // De-verticalized (2026-06-15): derive the required terms from the page's
+  // OWN signals — the URL service slug words plus the page's H1/H2/title
+  // keywords — instead of a hardcoded builder service→synonym map
+  // (whole-home-remodel→renovation, adu, teardown, …) that only ever matched
+  // the founder vertical. This works for any vertical (a dentist's
+  // /services/teeth-whitening filters on "teeth"/"whitening" from its own
+  // page) with no industry assumptions baked in.
   const isServicePage = serviceWords.length > 0;
   let serviceRequiredTerms: string[] = [];
   if (isServicePage) {
-    // Find the most specific match from the keyword map
-    const pathSlug = path.match(/\/services?\/([\w-]+)/i)?.[1] ?? "";
-    serviceRequiredTerms = SERVICE_KEYWORD_MAP[pathSlug] ?? [];
-    // Fallback: use the service words from the path itself
-    if (serviceRequiredTerms.length === 0) {
-      serviceRequiredTerms = serviceWords;
-    }
+    serviceRequiredTerms = [...new Set([...serviceWords, ...pageKeywords])];
   }
 
   // Score each query by relevance
@@ -388,8 +374,10 @@ export function getRelevantQueriesForPage(
     let relevance = 0;
 
     if (isHomepage) {
-      // Homepage: all broad queries are relevant, slight boost for "bay area"
-      relevance = qLower.includes("bay area") ? 1.2 : 1.0;
+      // Homepage: all broad queries are relevant. De-verticalized (2026-06-15):
+      // removed the founder-specific "bay area" boost — a tenant's own geography
+      // is not knowable here and a hardcoded region biases every other vertical.
+      relevance = 1.0;
     } else if (city) {
       // City page: query MUST contain the city name
       if (!qLower.includes(city)) continue;

@@ -1145,18 +1145,19 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Build query keyword index from fan-out data — unlocks 5,289 real search
   // queries for keyword optimization recs AND morning brief step generation.
   // Phase 4.9: using fresh `promptAnswerObservations` from outer scope.
-  // Audit #37b: pass THIS tenant's cities (business-config locations) so
-  // city extraction isn't hardcoded to the Bay Area. Empty for non-geo
-  // tenants → no city matching, which is correct (a content site has no
-  // service-area geography). Falls back to the founder default only when
-  // the tenant has no configured locations.
+  // Audit #37b + de-verticalize (2026-06-15): pass THIS tenant's cities
+  // (business-config locations). Empty for non-geo tenants → no city matching,
+  // which is correct (a content site / national brand has no service-area
+  // geography). Pass the array DIRECTLY (no founder fallback) — query-index's
+  // default is now [] (no city vocabulary), so a tenant with zero locations
+  // gets zero city filtering instead of the founder's Bay-Area list.
   const tenantCities = (businessConfig.locations ?? [])
     .map((c) => c.toLowerCase().trim())
     .filter(Boolean);
   const queryIndex = buildQueryKeywordIndex(
     citationEvidenceIndex,
     promptAnswerObservations,
-    tenantCities.length > 0 ? tenantCities : undefined,
+    tenantCities,
   );
 
   // Phase 7 Part 1b (2026-04-18): load answer-texts from disk so the
