@@ -562,6 +562,20 @@ export async function loadLiveRecommendationQueue(
 //       page render. Test fixtures and the CLI continue to use the
 //       uncached `loadLiveRecommendationQueue` directly.
 //
+// wave-6 (2026-06-14) — it ALSO strips the heavy pipeline-INPUT fields the
+// legacy page render never reads: `promptAnswerObservations` (the full
+// per-tenant observation array — ~21k wide-JSONB rows / ~23 MB for Ritz),
+// `pageInventory`, `trackedEntities`, and
+// `competitorBlueprintBrandScrubAliases`. Next's `unstable_cache` REJECTS
+// any value over 2 MB ("items over 2MB can not be cached"); the 23 MB
+// payload made the cache-set throw an unhandledRejection on EVERY
+// /recommendations render (the default legacy path) AND meant the cache
+// could never populate, so each render re-ran the full ~10 s pipeline with
+// zero cache benefit. Dropping the unused inputs keeps the cached value
+// small (only queue/watchlist/matrix/recommendedEdits/trackedPrompts/errors,
+// which is all the render consumes), so the cache actually works. The page
+// fetches competitorNames itself; the CLI/tests use the uncached loader.
+//
 // Cache scope: per-tenant. The cache key is `["recs-queue:v1", tenantId]`;
 // no cross-tenant bleed is possible. `revalidateTag` is also tenant-scoped.
 // ---------------------------------------------------------------------------
@@ -575,10 +589,17 @@ export function buildRecQueueCacheTag(tenantId: string): string {
 
 const REC_QUEUE_CACHE_TTL_SECONDS = 60;
 
-/** Page-render-only shape — drops the non-serializable Map field. */
+/** Page-render-only shape — drops the non-serializable Map field plus the
+ *  heavy pipeline-INPUT fields the page render never reads (so the cached
+ *  value stays under Next's 2 MB `unstable_cache` ceiling). See the header
+ *  comment for the full rationale. */
 export type PageShapedLiveRecommendationQueue = Omit<
   LiveRecommendationQueue,
-  "competitorPageSnapshotsByUrl"
+  | "competitorPageSnapshotsByUrl"
+  | "promptAnswerObservations"
+  | "pageInventory"
+  | "trackedEntities"
+  | "competitorBlueprintBrandScrubAliases"
 >;
 
 /**
@@ -594,9 +615,23 @@ export async function loadLiveRecommendationQueueForPage(opts: {
   const cached = unstable_cache(
     async () => {
       const full = await loadLiveRecommendationQueue({ tenantId });
-      // Strip Map — see header comment.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { competitorPageSnapshotsByUrl: _drop, ...rest } = full;
+      // Strip the Map + heavy unused pipeline inputs — see header comment.
+      // Keeping the cached value small is what lets `unstable_cache`
+      // actually store it (the 23 MB observation array tripped the 2 MB
+      // ceiling and threw an unhandledRejection on every render).
+      const {
+        competitorPageSnapshotsByUrl: _dropMap,
+        promptAnswerObservations: _dropObs,
+        pageInventory: _dropInv,
+        trackedEntities: _dropEntities,
+        competitorBlueprintBrandScrubAliases: _dropAliases,
+        ...rest
+      } = full;
+      void _dropMap;
+      void _dropObs;
+      void _dropInv;
+      void _dropEntities;
+      void _dropAliases;
       return rest;
     },
     ["recs-queue:v1", tenantId],
