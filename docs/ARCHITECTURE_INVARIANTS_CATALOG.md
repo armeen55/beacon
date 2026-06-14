@@ -119,6 +119,7 @@
 | name | source test file | section | purpose (one sentence) | status | retirement-condition | last-verified |
 |---|---|---|---|---|---|---|
 | egress-bounded-reads-p0 | `tests/architecture/egress-bounded-reads-p0.test.ts` | EGRESS-P0 (2026-05-07) | Pins the bounded-read contracts that drop steady-state Supabase egress. | active | Permanent — egress safety. | 2026-05-14 |
+| generation-snapshots-unbounded | `tests/architecture/generation-snapshots-unbounded.test.ts` | audit #12 (2026-06-14) | Pins the generation-path page_snapshots read as fully paginated + egress-lean (un-capped) while the web reader stays at LIMIT 500. | active | Permanent — generation completeness. | 2026-06-14 |
 | supabase-egress-windowing | `tests/architecture/supabase-egress-windowing.test.ts` | E1-E5 (operator audit, 2026-05-05) | Pins the windowed read contract for `loadFreshCanonicalData`-shaped paths. | active | Permanent — egress safety. | 2026-05-14 |
 | deploy-settings-prompts-dynamic | `tests/architecture/deploy-settings-prompts-dynamic.test.ts` | Deploy hardening (2026-05-12) | Source-level pin for `/settings/prompts` dynamic rendering (prevents prerender timeout). | active | Permanent — deploy safety. | 2026-05-14 |
 | perf-load-queue-trace | `tests/architecture/perf-load-queue-trace.test.ts` | Emergency P0 (2026-05-12) | Pins granular trace labels inside `loadLiveRecommendationQueue`. | active | Permanent — perf-trace coverage. | 2026-05-14 |
