@@ -62,47 +62,77 @@ export async function resolveGscAccessToken(
   const expiryStatus = evaluateExpiry({ token, now });
   if (expiryStatus === "stale_over_7d") return null;
   if (expiryStatus === "stale_under_7d") {
-    try {
-      const refreshed = await refreshGoogleAccessToken(token.refresh_token);
-      // wave-9 (2026-06-14): persist the refreshed access_token + new
-      // expires_at back to the connector store (mirrors google-reviews-sync,
-      // and the epoch-ms format evaluateExpiry reads). Pre-fix the refresh
-      // was in-memory ONLY, so every nightly GSC sync re-read the same stale
-      // token and refreshed AGAIN — burning a Google OAuth call per tenant
-      // per sync (~9/day across 3 tenants × 3 fires) for no reason. Best-
-      // effort: a persist failure must NOT fail the sync — the in-memory
-      // token is valid for THIS run; we just log so the operator can see it.
-      try {
-        await updateConnectorToken(
-          "google_gsc",
-          {
-            access_token: refreshed.access_token,
-            expires_at: Date.now() + refreshed.expires_in * 1000,
-          },
-          tenantId,
-        );
-      } catch (persistErr) {
-        log.warn(
-          "[gsc-search-analytics] refreshed token persist failed (continuing with in-memory token)",
-          {
-            tenantId,
-            error:
-              persistErr instanceof Error
-                ? persistErr.message
-                : String(persistErr),
-          },
-        );
-      }
-      return refreshed.access_token;
-    } catch (err) {
-      log.warn("[gsc-search-analytics] token refresh failed", {
-        tenantId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return null;
-    }
+    return refreshAndPersistGscToken(tenantId, token.refresh_token);
   }
   return token.access_token;
+}
+
+/**
+ * Refresh the GSC access token via the long-lived refresh token and persist
+ * it back to the connector store. Returns the new access token, or null if
+ * the refresh ITSELF fails (refresh token dead/revoked → the operator
+ * genuinely must reconnect). Best-effort persist (a persist failure does NOT
+ * fail the refresh — the in-memory token is valid for this run).
+ *
+ * wave-9 (2026-06-14): persisting the refreshed token (mirrors
+ * google-reviews-sync, epoch-ms format `evaluateExpiry` reads) stopped every
+ * nightly sync re-refreshing the same stale token (~9 wasted OAuth calls/day).
+ */
+async function refreshAndPersistGscToken(
+  tenantId: string,
+  refreshToken: string,
+): Promise<string | null> {
+  try {
+    const refreshed = await refreshGoogleAccessToken(refreshToken);
+    try {
+      await updateConnectorToken(
+        "google_gsc",
+        {
+          access_token: refreshed.access_token,
+          expires_at: Date.now() + refreshed.expires_in * 1000,
+        },
+        tenantId,
+      );
+    } catch (persistErr) {
+      log.warn(
+        "[gsc-search-analytics] refreshed token persist failed (continuing with in-memory token)",
+        {
+          tenantId,
+          error:
+            persistErr instanceof Error
+              ? persistErr.message
+              : String(persistErr),
+        },
+      );
+    }
+    return refreshed.access_token;
+  } catch (err) {
+    log.warn("[gsc-search-analytics] token refresh failed", {
+      tenantId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Force a token refresh regardless of the locally-evaluated expiry — used
+ * when Google returns a mid-sync 401 on a token we thought was still fresh
+ * (server-side revocation, clock skew, or a token that expired DURING a long
+ * paginated pull). Mirrors `ga4/data-api.ts`'s one-shot 401 refresh-retry, so
+ * an expired-but-recoverable access token self-heals instead of bugging the
+ * operator to reconnect. Returns the new access token, or null when there is
+ * no usable grant to refresh (→ caller fails LOUD: genuine reconnect needed).
+ */
+export async function forceRefreshGscAccessToken(
+  tenantId: string,
+): Promise<string | null> {
+  const token = await getGoogleConnectorToken("gsc", tenantId);
+  if (token == null || !token.refresh_token) return null;
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return null;
+  }
+  return refreshAndPersistGscToken(tenantId, token.refresh_token);
 }
 
 /**
@@ -132,6 +162,17 @@ export async function gscSearchAnalyticsQuery(
      * only caller (pullDayRows) opts in; the function still returns null.
      */
     onAuthFailure?: (status: number) => void;
+    /**
+     * wave-11 follow-on (2026-06-14): one-shot 401 refresh-retry (mirrors
+     * ga4/data-api.ts). On a 401 — a RECOVERABLE access-token expiry — this
+     * is invoked to mint a fresh token via the long-lived refresh token; the
+     * request is then retried ONCE with the new token. Only if the refresh
+     * (or the retry) also fails do we fail LOUD via onAuthFailure. 403 (scope
+     * loss) is NOT retried — a refresh can't restore a revoked scope.
+     * Optional + at-most-once, so back-compat is preserved (no dep → the
+     * prior fail-loud-on-401 behavior).
+     */
+    refreshAccessToken?: () => Promise<string | null>;
   } = {},
 ): Promise<GscSearchAnalyticsRow[] | null> {
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -141,6 +182,10 @@ export async function gscSearchAnalyticsQuery(
     "https://www.googleapis.com/webmasters/v3/sites/" +
     encodeURIComponent(args.siteUrl) +
     "/searchAnalytics/query";
+  // The token can be refreshed once mid-flight on a 401 (see below); use a
+  // local so the retry uses the new token.
+  let accessToken = args.accessToken;
+  let didAuthRefresh = false;
   // Audit hardening #35 (2026-06-12): 429s retry with the connector's
   // own exponential backoff (quota-stagger.backoffDelayMs — 1s/2s/4s,
   // then give up). Other failures stay single-shot fail-soft.
@@ -149,7 +194,7 @@ export async function gscSearchAnalyticsQuery(
       const res = await fetchImpl(endpoint, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${args.accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -186,10 +231,31 @@ export async function gscSearchAnalyticsQuery(
         // wave-11 follow-on (2026-06-14): a 401/403 means the GSC grant
         // expired or lost scope. Pre-fix this was a quiet warn -> null, so the
         // sync recorded "0 rows" and stopped, GREEN, and the operator never
-        // learned the token died -> stale GSC demand silently. Signal it
-        // (onAuthFailure) so the sync returns synced:false, and log LOUDLY.
-        // (Auto-refresh-retry — mirroring ga4/data-api.ts — is a tracked,
-        // separate follow-on; this stops the SILENCE.)
+        // learned the token died -> stale GSC demand silently.
+        //
+        // A 401 is a RECOVERABLE access-token expiry: try ONE refresh-retry
+        // (mirrors ga4/data-api.ts) so an expired-but-refreshable token self-
+        // heals instead of bugging the operator to reconnect. Only if the
+        // refresh OR the retry also fails do we fail LOUD (onAuthFailure ->
+        // sync returns synced:false). 403 (scope loss) is NOT retried — a
+        // refresh can't restore a revoked scope.
+        if (
+          res.status === 401 &&
+          !didAuthRefresh &&
+          deps.refreshAccessToken != null
+        ) {
+          const refreshed = await deps.refreshAccessToken();
+          if (refreshed) {
+            log.warn(
+              "[gsc-search-analytics] 401 — refreshed token, retrying once",
+              { siteUrl: args.siteUrl, startDate: args.startDate },
+            );
+            accessToken = refreshed;
+            didAuthRefresh = true;
+            continue;
+          }
+          // refresh failed (refresh token dead) — fall through to fail-loud.
+        }
         if (res.status === 401 || res.status === 403) {
           log.error(
             "[gsc-search-analytics] AUTH FAILURE — GSC token expired or lost scope; reconnect GSC",
@@ -305,13 +371,26 @@ export async function pullDayRows(args: {
   /** wave-11 follow-on: forwarded to the query so an auth (401/403) failure
    *  surfaces to the sync (fail-loud) instead of looking like an empty day. */
   onAuthFailure?: (status: number) => void;
+  /** wave-11 follow-on: one-shot 401 refresh-retry. Forwarded to the query;
+   *  a successful refresh is cached here so later pages of the same day reuse
+   *  the new token (no per-page re-refresh). */
+  refreshAccessToken?: () => Promise<string | null>;
 }): Promise<GscSearchAnalyticsRow[] | null> {
   const out: GscSearchAnalyticsRow[] = [];
   let startRow = 0;
+  // Track the live token so a mid-pagination refresh propagates to later pages.
+  let currentToken = args.accessToken;
+  const refreshAccessToken = args.refreshAccessToken
+    ? async () => {
+        const next = await args.refreshAccessToken!();
+        if (next) currentToken = next;
+        return next;
+      }
+    : undefined;
   for (;;) {
     const page = await gscSearchAnalyticsQuery(
       {
-        accessToken: args.accessToken,
+        accessToken: currentToken,
         siteUrl: args.siteUrl,
         startDate: args.day,
         endDate: args.day,
@@ -319,7 +398,7 @@ export async function pullDayRows(args: {
         dataState: args.dataState,
         startRow,
       },
-      { onAuthFailure: args.onAuthFailure },
+      { onAuthFailure: args.onAuthFailure, refreshAccessToken },
     );
     if (page == null) return out.length > 0 ? out : null;
     out.push(...page);

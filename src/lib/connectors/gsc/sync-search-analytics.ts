@@ -47,6 +47,7 @@ import { log } from "@/lib/logger";
 import {
   pullDayRows,
   resolveGscAccessToken,
+  forceRefreshGscAccessToken,
   gscListSites,
   pickGscPropertyForDomain,
 } from "./search-analytics";
@@ -192,6 +193,9 @@ export async function syncGscSearchAnalyticsForTenant(args: {
       onAuthFailure: (status) => {
         authFailureStatus = status;
       },
+      // Self-heal a recoverable 401 (expired access token) mid-sync via the
+      // refresh token, retrying once before the fail-loud above fires.
+      refreshAccessToken: () => forceRefreshGscAccessToken(tenantId),
     });
     if (authFailureStatus !== null) {
       log.error(
@@ -249,6 +253,7 @@ export async function syncGscSearchAnalyticsForTenant(args: {
       day,
       dimensions: [],
       dataState: "final",
+      refreshAccessToken: () => forceRefreshGscAccessToken(tenantId),
     });
     const t = totals?.[0];
     if (t != null) {
@@ -291,6 +296,7 @@ export async function syncGscSearchAnalyticsForTenant(args: {
       day,
       dimensions: ["page"],
       dataState: "final",
+      refreshAccessToken: () => forceRefreshGscAccessToken(tenantId),
     });
     if (pageTotals != null && pageTotals.length > 0) {
       const pageRows = pageTotals

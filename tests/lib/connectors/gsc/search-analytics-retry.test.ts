@@ -120,3 +120,83 @@ describe("gscSearchAnalyticsQuery 429 backoff", () => {
     expect(onAuthFailure).not.toHaveBeenCalled();
   });
 });
+
+// wave-11 follow-on (2026-06-14): a 401 is a RECOVERABLE access-token expiry.
+// When the caller supplies `refreshAccessToken`, the query mints a fresh token
+// and retries ONCE before failing loud (mirrors ga4/data-api.ts) — so an
+// expired-but-refreshable GSC grant self-heals instead of bugging the operator
+// to reconnect. 403 (scope loss) is NOT retried.
+describe("gscSearchAnalyticsQuery 401 refresh-retry", () => {
+  it("refreshes + retries once on a 401, returns the rows, does NOT fail loud", async () => {
+    const onAuthFailure = vi.fn();
+    const refreshAccessToken = vi.fn(async () => "newtok");
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("unauthorized", { status: 401 }))
+      .mockResolvedValueOnce(
+        resRows([{ keys: ["p", "q"], clicks: 1, impressions: 9, ctr: 0.1, position: 3 }]),
+      );
+    const out = await gscSearchAnalyticsQuery(ARGS, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+      onAuthFailure,
+      refreshAccessToken,
+    });
+    expect(out).toHaveLength(1);
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(onAuthFailure).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    // The retry must use the REFRESHED token in the Authorization header.
+    const retryHeaders = (fetchImpl.mock.calls[1]![1] as RequestInit)
+      .headers as Record<string, string>;
+    expect(retryHeaders.Authorization).toBe("Bearer newtok");
+  });
+
+  it("fails loud (onAuthFailure + null) when the refresh itself fails", async () => {
+    const onAuthFailure = vi.fn();
+    const refreshAccessToken = vi.fn(async () => null); // refresh token dead
+    const fetchImpl = vi.fn(async () => new Response("unauthorized", { status: 401 }));
+    const out = await gscSearchAnalyticsQuery(ARGS, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+      onAuthFailure,
+      refreshAccessToken,
+    });
+    expect(out).toBeNull();
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(onAuthFailure).toHaveBeenCalledWith(401);
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // no retry when refresh fails
+  });
+
+  it("retries at most ONCE — a second 401 fails loud (no infinite loop)", async () => {
+    const onAuthFailure = vi.fn();
+    const refreshAccessToken = vi.fn(async () => "newtok");
+    const fetchImpl = vi.fn(async () => new Response("unauthorized", { status: 401 }));
+    const out = await gscSearchAnalyticsQuery(ARGS, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+      onAuthFailure,
+      refreshAccessToken,
+    });
+    expect(out).toBeNull();
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1); // exactly one refresh
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // original + one retry
+    expect(onAuthFailure).toHaveBeenCalledWith(401);
+  });
+
+  it("does NOT refresh-retry a 403 (scope loss) even when refreshAccessToken is given", async () => {
+    const onAuthFailure = vi.fn();
+    const refreshAccessToken = vi.fn(async () => "newtok");
+    const fetchImpl = vi.fn(async () => new Response("denied", { status: 403 }));
+    const out = await gscSearchAnalyticsQuery(ARGS, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+      onAuthFailure,
+      refreshAccessToken,
+    });
+    expect(out).toBeNull();
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+    expect(onAuthFailure).toHaveBeenCalledWith(403);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
