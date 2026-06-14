@@ -475,6 +475,49 @@ export async function syncTenantBusinessConfig(
   }
 }
 
+/**
+ * wave-4 #2 (2026-06-14) — CONFIRMED business_config upsert for the
+ * ONBOARDING path. Unlike syncTenantBusinessConfig (fire-and-forget,
+ * DUAL_WRITE-gated, void), this RETURNS whether the row durably landed and
+ * is NOT gated on DUAL_WRITE — onboarding MUST persist the config row
+ * regardless of the nightly-mirror flag, because on Vercel (where the file
+ * write is skipped) the Supabase row is the ONLY durable channel and an
+ * active tenant must never exist without a config (every downstream engine
+ * reads it). The launch flow gates the status→active flip on a true result.
+ */
+export async function syncTenantBusinessConfigConfirmed(
+  tenantId: string,
+  config: BusinessConfig,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!tenantId || tenantId === "current") {
+    return { ok: false, reason: "invalid_tenant_id" };
+  }
+  try {
+    const sb = getSupabaseAdmin();
+    const { error } = await sb.from("business_config").upsert(
+      {
+        id: tenantId,
+        data: config,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
+    if (error) {
+      console.error(
+        `[dual-write] business_config(${tenantId}) CONFIRMED upsert failed: ${error.message}`,
+      );
+      return { ok: false, reason: error.message };
+    }
+    return { ok: true };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error(
+      `[dual-write] business_config(${tenantId}) CONFIRMED upsert threw: ${reason}`,
+    );
+    return { ok: false, reason };
+  }
+}
+
 /** Map camelCase ChangeContract to snake_case DB row. PK: contract_id.
  *  Phase 1 Stage C (2026-05-09): tenant_id is the canonical scoping column;
  *  account_id is retained additively for compatibility (cleanup in a later

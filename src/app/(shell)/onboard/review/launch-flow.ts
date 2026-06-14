@@ -176,7 +176,27 @@ export async function executeLaunchTransaction(args: {
           ? ` (derived: ${configResult.derivedFields.join(", ")})`
           : ""),
     );
+    // wave-4 #2 (2026-06-14): the durable config write did NOT land (Vercel
+    // Supabase upsert failed). DO NOT proceed to the status→active flip — an
+    // active tenant without a config row resolves PLACEHOLDER_CONFIG in every
+    // downstream engine (generic recs, "other" page classification → zero
+    // content cards). Abort with the tenant still pending_onboarding so a
+    // retry re-persists; nothing partial is left active.
+    if (configResult.outcome === "persist_failed") {
+      console.error(
+        `[onboard/review] config persist FAILED for ${tenant.id} (${configResult.persistError ?? "unknown"}) — aborting launch; tenant stays pending_onboarding`,
+      );
+      return { kind: "error", error: "config_persist_failed" };
+    }
   } catch (e) {
+    // Failure-soft BY CONTRACT (pinned by the "config derivation FAILING
+    // never blocks the launch" test): an unexpected derivation throw must
+    // not block a stranger's signup. Note deriveAndPersistTenantConfig is
+    // itself failure-soft (unreachable site → typed-only config, still
+    // saved), so this catch is for truly-unexpected throws only. The
+    // DB-write failure path — the wave-4 #2 finding — is handled above via
+    // the persist_failed outcome, which DOES abort (a missing config row is
+    // a different, harder failure than a site that wouldn't load).
     console.error(
       "[onboard/review] config derivation threw — launching without it:",
       e instanceof Error ? e.message : e,

@@ -20,6 +20,7 @@
  */
 
 import { saveBusinessConfig, type BusinessConfig } from "@/lib/business-config";
+import { syncTenantBusinessConfigConfirmed } from "@/lib/persistence/dual-write";
 import type { PoliteFetchDeps } from "@/domains/competitor-intel/polite-fetch";
 import type { TenantSegment } from "@/domains/tenants/types";
 import {
@@ -56,9 +57,18 @@ export type LaunchConfigArgs = {
 } & PoliteFetchDeps;
 
 export type LaunchConfigResult = {
-  outcome: "derived_and_saved" | "typed_only_saved" | "skipped_no_domain";
+  outcome:
+    | "derived_and_saved"
+    | "typed_only_saved"
+    | "skipped_no_domain"
+    // wave-4 #2 (2026-06-14): the durable config write did NOT land. The
+    // caller MUST NOT flip the tenant active — an active tenant without a
+    // config row resolves PLACEHOLDER_CONFIG in every downstream engine.
+    | "persist_failed";
   /** Field names the site derivation actually contributed. */
   derivedFields: string[];
+  /** Set when outcome is "persist_failed" — the Supabase upsert error. */
+  persistError?: string;
   /** The persisted config (undefined only when skipped) — the launch
    *  flow threads services/industry/locations into prompt generation. */
   config?: Partial<BusinessConfig>;
@@ -104,7 +114,32 @@ export async function deriveAndPersistTenantConfig(
     competitors: args.competitors,
   });
 
-  saveBusinessConfig(args.tenantId, config);
+  // saveBusinessConfig merges the patch with the current config and returns
+  // the full BusinessConfig actually persisted — confirm THAT (not the
+  // partial patch) so the durable row matches what every reader expects.
+  const savedConfig = saveBusinessConfig(args.tenantId, config);
+
+  // wave-4 #2 (2026-06-14): an active tenant must NEVER exist without a
+  // durable config (the launch contract). saveBusinessConfig writes the
+  // per-tenant FILE only off-Vercel; on Vercel the Supabase row is the sole
+  // durable channel and its write is fire-and-forget + error-swallowing.
+  // Confirm the row landed on Vercel and report persist_failed if not, so
+  // executeLaunchTransaction refuses to flip the tenant active. Off-Vercel
+  // the file write IS the durable channel, so no confirmation is needed.
+  if (process.env.VERCEL === "1") {
+    const persisted = await syncTenantBusinessConfigConfirmed(
+      args.tenantId,
+      savedConfig,
+    );
+    if (!persisted.ok) {
+      return {
+        outcome: "persist_failed",
+        derivedFields: [],
+        suggestedSegment: null,
+        persistError: persisted.reason,
+      };
+    }
+  }
 
   const typedOrStructural = new Set([
     "name",

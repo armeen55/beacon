@@ -865,6 +865,31 @@ describe("executeLaunchTransaction — site-derived config → prompts", () => {
     expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
     expect(store.tenants[0].status).toBe("active");
   });
+
+  it("config persist_failed (durable write did NOT land) ABORTS the launch — tenant stays pending [wave-4 #2]", async () => {
+    // Contrast with the failure-soft test above: an unreachable SITE never
+    // blocks launch, but a failed durable CONFIG WRITE (Vercel Supabase
+    // upsert errored) must — an active tenant without a config row resolves
+    // PLACEHOLDER_CONFIG in every downstream engine.
+    const { client, store } = makeMockSupabase({
+      tenants: [{ ...PENDING_TENANT }],
+    });
+    const persistFailedStub = vi.fn(async () => ({
+      outcome: "persist_failed" as const,
+      derivedFields: [] as string[],
+      suggestedSegment: null,
+      persistError: "supabase upsert timed out",
+    }));
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: persistFailedStub as never,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "error", error: "config_persist_failed" });
+    // Must NOT have flipped active — no config-less active tenant.
+    expect(store.tenants[0].status).toBe("pending_onboarding");
+  });
 });
 
 describe("executeLaunchTransaction — derived segment rides the activation UPDATE", () => {
