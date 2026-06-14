@@ -698,9 +698,9 @@ export function ConnectorsClient({
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {google.status === "connected" ? (
               <>
-                Beacon reads URL Inspection + Search Analytics data on a daily
-                refresh cadence. Read-only access — no writes to your
-                Search Console property.
+                Beacon reads URL Inspection + Search Analytics data. Read-only
+                access — no writes to your Search Console property. Pull the
+                latest any time with Refresh on Data sources.
               </>
             ) : (
               <>
@@ -1061,7 +1061,8 @@ export function ConnectorsClient({
               <p className="text-[12px] text-muted-foreground">
                 Connect your Semrush API key so Beacon can see which
                 searches you rank for, which rivals beat you, and where
-                the gaps are. Syncs nightly within a strict unit budget.
+                the gaps are. Pulls fresh data on demand, within a strict
+                unit budget.
               </p>
             )}
           </div>
@@ -1198,7 +1199,8 @@ export function ConnectorsClient({
                 Connect a Clarity API token so Beacon can see where
                 visitors get stuck on each page (rage clicks, dead
                 clicks, scroll depth). Clarity only shares the last 1-3
-                days, so Beacon saves a little each day to build history.
+                days, so refresh every couple of days to build history
+                without gaps.
               </p>
             )}
           </div>
