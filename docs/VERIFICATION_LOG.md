@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-14 (overnight, multi-agent render audit) — honest empty/sparse states across customer surfaces (12 fixes)
+
+**Method:** a dynamic multi-agent Workflow audited all 15 customer surfaces for a NEWLY-ONBOARDED tenant's empty/sparse/error rendering (the sell-moment first impression — a lens prior waves, which used Ritz's mature data, never swept). One finder per surface → adversarial verify of each finding (default-to-refute on reachability). **31 findings, 24 confirmed, 7 refuted.** The refutations were solid verify-first wins (e.g. `/briefs` seeds non-empty demo data so the empty-table path is unreachable; `/settings/prompts` can't reach zero-prompts for an active tenant; `/topics`+`/local` are nav-hidden).
+
+**Triage by the authoritative nav (`navigation.ts`): Today · Recommendations · Prompts · Changes · Settings.** Fixed the 12 findings on those + their reachable sub-pages; **deferred** findings on nav-hidden / operator-only surfaces (`/local`, `/topics`, `/competitors`, `/expansion`, `/review`) — the codebase already marks them "half-broken placeholders, revisit once rebuilt", and the root-cause `loadFromRepoOrSeed` seed-gate change has broad blast radius (not a 5am change).
+
+**Fixed (commits `fb60657` + `0a11ab2`):**
+- **/changes (HIGH, pivot):** empty-state gated on `hasActiveExperiment()` (import_runs only) → a GSC-led tenant that shipped changes / has recs but never imported a file was told "Import your data". **Live for Iranopedia** (0 changelog + 0 imports + **70 recommended_edits** → was "import", now its real workspace). Hoisted the changelog + recs reads above the gate; show empty only when genuinely no activity; GSC-led copy + Recommendations CTA; watcher still runs only past the gate. Ground-truth: Ritz populated path renders 200 + full 289-row workspace (restructure safe).
+- **/changes v2:** ProofCounterStrip only renders with rows (no strip of 0s).
+- **Today:** hero "Sample" → "—" (not "0 days"), matching siblings; descriptors "No answers yet" (not "0 answers").
+- **Settings:** /prompts "No prompts set up yet…" (not "0 prompts run"); /import hides the "At a glance" 0-strip when nothing imported; /history distinguishes "No imported measurements yet" from "No results match filters".
+- **/observations/[id]** (synthetic/seed runs): plain-English Source (not a raw `.ts` path), plain synthetic-wrapper copy (no internal filenames), "No rollup data yet" (not five "0"s).
+- **/prompts/[id]:** descriptor empty state distinguishes "No readings yet" from "observed but not mentioned".
+- **/recommendations:** GSC evidence lead floored at 100 impressions/90d (no false-precision demand stats on near-zero pages) — separate commit `fb60657` with +2 boundary tests.
+
+**Verified:** typecheck clean; full suite **800 files / 14,796 tests** green; /changes populated render ground-truthed. Render-path only, NOT pushed.
+
+---
+
 ## 2026-06-14 (overnight, robustness) — GSC Search-Analytics 401 refresh-retry (resolves the LAST deferred GSC item — auto-recovery)
 
 **Why:** the GSC demand signal is the pivot's core. wave-9 shipped the fail-LOUD half (401/403 → `synced:false`, operator-visible "reconnect GSC") but DEFERRED the auto-recovery half, fearing "a deliberate return-type refactor." On reflection it's additive (like the existing `onAuthFailure` dep), bounded (single caller), has a reference impl (`ga4/data-api.ts`), and gives a real premium property: an expired-but-RECOVERABLE access token self-heals instead of bugging the operator to reconnect.
