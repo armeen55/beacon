@@ -248,6 +248,48 @@ describe("enrichPromotionRow — content drafts", () => {
     expect(out.proposed_text).not.toContain("Explore More");
   });
 
+  it("edit_meta: drops colon-terminated section LABELS so a recipe/spec page isn't a broken label list", () => {
+    // Caught live on iranopedia.com/persian-kabobs/koobideh-kabob: the
+    // structural fallback joined the page's section headings
+    // ("Ingredients:", "Serving Info:", "Cooking Time:") with " — ",
+    // producing a meta description that reads as broken placeholder. Labels
+    // (fragments ending in ":") must be dropped; real prose stays.
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(
+        snap({
+          body_paragraph_sample: [],
+          h1: "Koobideh Kabob Recipe",
+          h2_list: ["Ingredients:", "Serving Info:", "Cooking Time:"],
+          card_texts: [
+            "Combine ground beef with grated onion, salt, and pepper, then knead until the mixture is smooth and holds together on the skewer.",
+          ],
+        }),
+      ),
+    );
+    expect(out.proposed_text).not.toBeNull();
+    expect(out.proposed_text!).not.toMatch(/Ingredients:|Serving Info:|Cooking Time:/);
+    expect(out.proposed_text!).toContain("Koobideh Kabob Recipe");
+    expect(out.proposed_text!).toContain("Combine ground beef");
+  });
+
+  it("edit_meta: refuses when the structural source is ONLY section labels (all colon-terminated)", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(
+        snap({
+          body_paragraph_sample: [],
+          h1: "Specs:",
+          h2_list: ["Dimensions:", "Weight:", "Materials:"],
+          card_texts: [],
+        }),
+      ),
+    );
+    expect(out.proposed_text).toBeNull(); // all labels filtered → < 40 chars → no fake draft
+  });
+
   it("edit_meta: drops zero-width-only chunks (no \"Kabob Barg \u2014 \u200b \u2014\" garbage)", () => {
     // Wix injects ZERO-WIDTH SPACE into empty headings/cards; they
     // survive .trim() and previously joined as 1-char chunks. Caught

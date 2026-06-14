@@ -370,7 +370,20 @@ function composeMeta(
     // hasVisibleGlyph rejects chunks with no real glyph.
     .map((s) => stripJunkZeroWidth(s))
     .filter(
-      (s) => hasVisibleGlyph(s) && !isCmsPlaceholder(s) && !isChrome(s),
+      (s) =>
+        hasVisibleGlyph(s) &&
+        !isCmsPlaceholder(s) &&
+        !isChrome(s) &&
+        // Drop section-LABEL fragments (e.g. "Ingredients:", "Serving Info:",
+        // "Cooking Time:"). On label-heavy pages whose body copy the extractor
+        // can't see (recipes / spec sheets on Wix), the structural source was
+        // otherwise just a colon-terminated heading list joined by " — " — a
+        // meta description that reads as broken placeholder when pasted
+        // ("…Ingredients: — Serving Info: — Cooking Time: —…", caught live on
+        // iranopedia.com/persian-kabobs/koobideh-kabob). A real description
+        // value never ends in a bare colon; if filtering leaves < 40 chars of
+        // prose, the guard below emits NO draft — better than a broken one.
+        !s.trim().endsWith(":"),
     )
     .join(" — ")
     .trim();
