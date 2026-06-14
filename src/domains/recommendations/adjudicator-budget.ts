@@ -68,13 +68,36 @@ export type BudgetCheckResult =
   | { allowed: true; remaining: number }
   | { allowed: false; reason: string };
 
+/**
+ * Pure budget-boundary decision (wave-10, 2026-06-14). Blocks when spend is
+ * ALREADY at/over the cap, OR when this call's projected cost would push the
+ * total OVER it.
+ *
+ * The first clause (`spendUsd >= capUsd`) makes the cap fail-closed AT the
+ * boundary — matching the native-polling path (`budget.ts`: `spent >= cap`)
+ * and `monthly.ts`. Pre-fix the check was only `spendUsd + projected > capUsd`,
+ * so with `projected = 0` (cost unknown at call time — the DEFAULT, since
+ * adjudicate.ts calls checkBudget without a projected cost) a call made at
+ * spend EXACTLY == cap slipped through (`cap + 0 > cap` is false), letting the
+ * adjudicator exceed its monthly cap by one call. The second clause still lets
+ * a KNOWN-cost call land exactly on the cap from below (not over-strict).
+ * Matters once `BEACON_LLM_PROVIDER` flips off `deterministic`.
+ */
+export function isOverAdjudicatorBudget(
+  spendUsd: number,
+  projectedCostUsd: number,
+  capUsd: number,
+): boolean {
+  return spendUsd >= capUsd || spendUsd + projectedCostUsd > capUsd;
+}
+
 export async function checkBudget(
   opts: { now?: Date; projectedCostUsd?: number } = {},
 ): Promise<BudgetCheckResult> {
   const now = opts.now ?? new Date();
   const state = await readState(now);
   const projected = opts.projectedCostUsd ?? 0;
-  if (state.spendUsd + projected > state.capUsd) {
+  if (isOverAdjudicatorBudget(state.spendUsd, projected, state.capUsd)) {
     return {
       allowed: false,
       reason: `Monthly adjudicator budget cap reached (${state.spendUsd.toFixed(4)} / ${state.capUsd} USD this ${state.monthKey}).`,

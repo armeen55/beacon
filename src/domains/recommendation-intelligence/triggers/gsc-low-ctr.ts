@@ -120,7 +120,7 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
           kind: "page_snapshot",
           ref: targetUrl,
           detail:
-            "gsc_28d query=" +
+            "gsc_90d query=" +
             worst.query +
             "; impressions=" +
             worst.impressions +
@@ -147,7 +147,7 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
       ),
       customer_copy: gscLowCtrCopy(worst.query, worst.impressions),
       operator_evidence:
-        "signal=gsc_low_ctr; window=28d; page_impressions=" +
+        "signal=gsc_low_ctr; window=90d; page_impressions=" +
         signal.impressions90d +
         "; page_ctr=" +
         pct(signal.ctr90d) +
@@ -237,7 +237,7 @@ export function gscStrikingDistance(
           kind: "page_snapshot",
           ref: targetUrl,
           detail:
-            "gsc_28d striking query=" +
+            "gsc_90d striking query=" +
             target.query +
             "; impressions=" +
             target.impressions +
@@ -260,7 +260,7 @@ export function gscStrikingDistance(
         target.impressions,
       ),
       operator_evidence:
-        "signal=gsc_striking_distance; band=4-15; window=28d; query=" +
+        "signal=gsc_striking_distance; band=4-15; window=90d; query=" +
         target.query +
         "; impressions=" +
         target.impressions +
