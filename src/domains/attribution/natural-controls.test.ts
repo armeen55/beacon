@@ -325,6 +325,30 @@ describe("findControls", () => {
     expect(res.excluded.below_baseline_floor).toBe(1);
   });
 
+  it("at ZERO treated baseline, excludes a high-baseline control (wave-5 #2 level-match at low end)", () => {
+    // treatedPreAvg=0: the ratio level-filter is undefined and used to be
+    // SKIPPED, admitting this 5 cit/day control as 'comparable' to a 0
+    // cit/day treated URL and biasing the diff-in-diff. The fix level-matches
+    // at the low end → a >=0.5 cit/day candidate is excluded.
+    const treated = constantSeries(treatedUrl, "2026-04-01", 28, 0);
+    const cHigh = constantSeries("/locations/c-high", "2026-04-01", 28, 5);
+    const history = historyWith(treated, cHigh);
+    const res = findControls({
+      treatedUrl,
+      treatedUrlType: "location",
+      treatedPreAvg: 0,
+      treatedPreSlope: 0,
+      window,
+      history,
+      treatmentIndex: new Map(),
+      config: DEFAULT_CONFIG,
+      platform: null,
+      inferUrlType: inferTestUrlType,
+    });
+    expect(res.controls.length).toBe(0);
+    expect(res.excluded.baseline_similarity_fail).toBe(1);
+  });
+
   it("excludes candidates with zero platform activity when filtering by platform", () => {
     // c1 has 5 cit/day on ChatGPT, 0 on Perplexity.
     const treated = mkSeries(treatedUrl, daysFrom("2026-04-01", 28).map((d) => ({ date: d, count: 5, by_platform: { Perplexity: 5 } })));

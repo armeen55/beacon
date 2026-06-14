@@ -492,6 +492,18 @@ export function findControls(opts: {
         excluded.baseline_similarity_fail += 1;
         continue;
       }
+    } else {
+      // wave-5 #2 (2026-06-14): treatedPreAvg is 0, so the ratio test is
+      // undefined and was SKIPPED — which admitted controls of ANY baseline
+      // level (e.g. a 20 cit/day page) as "comparable" to a 0 cit/day treated
+      // URL, biasing control_delta and therefore the computed adjusted_lift.
+      // Level-match at the LOW end instead: a comparable control must ALSO be
+      // near-zero baseline. Reuse the existing minMuPreForRelative "near zero"
+      // threshold (0.5 cit/day) rather than invent a new constant.
+      if (pre >= opts.config.minMuPreForRelative) {
+        excluded.baseline_similarity_fail += 1;
+        continue;
+      }
     }
 
     // Trend similarity
