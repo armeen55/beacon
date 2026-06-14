@@ -28,6 +28,12 @@ Neither table had a composite `(tenant_id, <date>)` index (PAO's only tenant-lea
 - End-to-end: dev-server `/` now renders full data ("Beacon Command Center", "30,417 readings analyzed", "TOP MOVEMENT +1083% /locations/palo-alto", "NEXT BEST ACTION: Add 2 missing schema types to /our-partners") in ~4s local (laptop→Supabase round-trip latency; ~2-4s expected on Vercel same-region) — was EMPTY before.
 - `npm run typecheck` clean; `src/components/today/` suite 182 passed (incl. new 2 scoreboard tests).
 
+**Second find from the same ground-truth route sweep — /recommendations unhandledRejection:**
+- The route sweep (RSC-fetched all 7 core customer routes, sequentially) flagged `/recommendations` at 10.9s; the log showed `Failed to set Next.js data cache for unstable_cache ... items over 2MB can not be cached (23375033 bytes)` thrown as an `unhandledRejection` from `RecommendationsAsyncContent` (page.tsx:241).
+- **Root cause:** `/recommendations` defaults to the LEGACY path (`shouldUseRecommendationsV2` → false unless `BEACON_RECOMMENDATIONS_V2=true`). `loadLiveRecommendationQueueForPage` wraps the result in `unstable_cache`, but the page shape still carried the full `promptAnswerObservations` array (~21k wide-JSONB rows / 23 MB for Ritz). Next's data cache rejects >2 MB → the set threw (unhandledRejection — serverless-lambda stability risk) AND the cache never populated → every render re-ran the ~10 s pipeline.
+- **Fix (`src/domains/recommendations/load-queue.ts`):** extended `PageShapedLiveRecommendationQueue`'s `Omit` to also drop `promptAnswerObservations`, `pageInventory`, `trackedEntities`, `competitorBlueprintBrandScrubAliases` (mirrors the existing `competitorPageSnapshotsByUrl` strip). The legacy render consumes only `queue`/`watchlist`/`matrix`/`recommendedEdits`/`trackedPrompts`/`errors` (verified by grep + enforced by typecheck on the narrower return type).
+- **Verified:** typecheck clean; 1151 recommendations-domain tests pass; ground-truth warm render now a **689 ms cache HIT** (was ~10 s every render) with the RSC payload unchanged (~110 KB) → cache populates, no unhandledRejection. The other 5 swept routes (/changes 873ms, /review, /expansion, /local, /competitors, /prompts) all returned 200 in <2.3 s, clean.
+
 **Rails honored:** deterministic, zero paid-LLM, crons untouched, NOT pushed, additive+reversible migration only.
 
 ---
