@@ -362,7 +362,7 @@ export default async function TopicsPage() {
     <div className="max-w-5xl">
       <PageHeader
         title="Opportunities"
-        description="Pick a topic to see where you can win next — from citations, page scans, and visibility shifts. Detail panels stay optional."
+        description="Pick a topic to see where you can win next — from Google Search demand, page scans, and AI citations. Detail panels stay optional."
       />
 
       {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. Topic

@@ -266,7 +266,7 @@ export default async function ReviewPage() {
     <div className="max-w-4xl">
       <PageHeader
         title="Review"
-        description="Why did visibility change? Lock a cause for each shift."
+        description="Why did your Google Search + AI visibility change? Lock a cause for each shift in clicks, impressions, and citations."
       />
 
       <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
