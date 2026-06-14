@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-14 (overnight, wave-10) — decision-engine audit: gsc evidence labels + fail-closed adjudicator budget; 1 deferred, 3 refuted
+
+**How found:** adversarial 4-lens Workflow audit (safety-gates/eligibility · lifecycle state-machine · budget/cost enforcement · trigger correctness). 4 confirmed MEDIUM, **3 correctly refuted** (gate-9/eligibility "impossible promotion" — KNOWN-OK GSC override; dual-write per-prompt-vs-chunk grain — doesn't drive budget decisions; gate-comment ambiguity — gate behavior is correct). Verify-first against the WORKTREE caught that one finding cited the main-repo path.
+
+**#3/#4 (MEDIUM — operator honesty) `triggers/gsc-low-ctr.ts`:** four evidence/operator_evidence labels still read `gsc_28d` / `window=28d`, but the `GscPageSignal` window is 90 days (the trigger reads `signal.impressions90d`/`ctr90d`; audit #15 renamed the fields *28d→*90d but missed these strings). Relabeled to `90d` — operator diagnostics now match the real window. No behavioral change.
+
+**#2 (MEDIUM — cost control) `recommendations/adjudicator-budget.ts`:** `checkBudget` used only `spendUsd + projected > capUsd`. With `projected = 0` (the default — `adjudicate.ts` calls without a projected cost), a call at spend EXACTLY == cap slipped through (`cap + 0 > cap` is false), letting the adjudicator exceed its monthly cap by one call — inconsistent with the native-polling path's fail-closed `spent >= cap`. Extracted a pure `isOverAdjudicatorBudget()` that blocks at-or-over the cap OR when a known projected cost would exceed it (still allows a known-cost call to land exactly on the cap from below — not over-strict). Matters once `BEACON_LLM_PROVIDER` flips off `deterministic`.
+
+**#1 (DEFERRED — lifecycle) `match-runner/transitions.ts`:** a `pushed` edit whose later re-scan returns `not_found` stays sticky (no-op) — real, but (a) LATENT (Wix push is FROZEN, so no rows reach `pushed`), and (b) `not_found` is intentionally sticky for non-`accepted` states (anti-flap), so a `pushed → ?` transition is a product-design decision, not a clear-cut bug. Verify-first also corrected the audit's overstated "falls through ALL branches": only `pushed + not_found` is the no-op (verified_live / needs_review / wrong_page / partial DO transition). Tracked for a deliberate decision.
+
+**Verified:** `npm run typecheck` clean; 56 targeted tests pass (gsc-low-ctr + budget + cost); +5 pure budget-boundary regression tests. **Rails honored:** deterministic, single-operator posture, crons untouched, NOT pushed.
+
+---
+
 ## 2026-06-14 (overnight, wave-9) — ingestion/mutation audit: scan tenant-slug isolation (HIGH) + GSC token persist (MEDIUM); 401-retry deferred; 1 refuted
 
 **How found:** adversarial 3-lens Workflow audit (connector lifecycle / scan-crawl correctness / server-action mutation safety). 3 confirmed, 1 correctly refuted (a `syncGuardrailAlerts` "unscoped global delete" — verifier confirmed it's ALREADY tenant-scoped on HEAD via `98f3eb7`; stale finding rejected). Verify-first also corrected the CRITICAL finding's severity (see #1).
