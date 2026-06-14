@@ -24,6 +24,8 @@ import type { ImportRun } from "@/lib/import/types";
 import { normalizePlatform } from "@/lib/platform";
 import { writeStore } from "@/lib/persistence/json-store";
 import { getImportRuns } from "@/lib/seed-data.server";
+import { extractCityFromText } from "@/domains/pages/classify";
+import { getBusinessConfig } from "@/lib/business-config";
 import {
   syncChangelogEntries,
   syncImportRuns,
@@ -52,6 +54,13 @@ export function canonicalSnapshotsToResults(
   }
   const topicSnapshots = snapshots.filter(
     (s) => s.scope_type === "topic" && s.source_type === "derived"
+  );
+
+  // City classification uses the TENANT'S configured locations (same source
+  // + lowercasing as the page-discovery path). A content tenant with no
+  // locations → [] → no false Bay-Area city tags on imported topics.
+  const tenantCities = (getBusinessConfig(tenantId).locations ?? []).map((c) =>
+    c.toLowerCase().trim(),
   );
 
   const grouped = new Map<string, DailyMetricSnapshot[]>();
@@ -89,7 +98,7 @@ export function canonicalSnapshotsToResults(
         delta,
         delta_percentage: deltaPct,
         topic: snap.scope_id,
-        city: extractCity(snap.scope_id),
+        city: extractCityFromText(snap.scope_id, tenantCities),
         url_measured: null,
         attributed_changelog_ids: [],
         notes: null,
@@ -106,36 +115,6 @@ export function canonicalSnapshotsToResults(
   }
 
   return results;
-}
-
-/**
- * Try to extract a city name from a topic string.
- * Topics like "Menlo Park", "Los Altos" become city; compound topics
- * like "Custom Home Builder Bay Area" get the trailing geo portion.
- */
-function extractCity(topic: string): string | null {
-  const KNOWN_CITIES = [
-    "Menlo Park",
-    "Los Altos",
-    "Palo Alto",
-    "Saratoga",
-    "Atherton",
-    "Woodside",
-    "Portola Valley",
-    "Los Altos Hills",
-    "Mountain View",
-    "San Jose",
-    "Sunnyvale",
-    "Campbell",
-    "Cupertino",
-    "San Mateo",
-    "Bay Area",
-  ];
-  const lower = topic.toLowerCase();
-  for (const city of KNOWN_CITIES) {
-    if (lower.includes(city.toLowerCase())) return city;
-  }
-  return null;
 }
 
 // ── Changelog CSV → ChangelogEntry bridge ───────────────────────────

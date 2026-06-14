@@ -257,9 +257,9 @@ export function ChangeContractUI({ contracts, onCreateContract, onVerifyContract
               Context (city, service, topic, live date)
             </summary>
             <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Field label="City" value={city} onChange={setCity} placeholder="Menlo Park" />
-              <Field label="Service" value={service} onChange={setService} placeholder="Custom homes" />
-              <Field label="Topic" value={topic} onChange={setTopic} placeholder="Menlo Park Construction" />
+              <Field label="City" value={city} onChange={setCity} placeholder="City or area" />
+              <Field label="Service" value={service} onChange={setService} placeholder="Service or product" />
+              <Field label="Topic" value={topic} onChange={setTopic} placeholder="Topic" />
               <Field label="When it went live" value={dateLive} onChange={setDateLive} placeholder="2026-04-08" />
             </div>
           </details>
