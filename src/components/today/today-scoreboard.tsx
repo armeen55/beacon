@@ -143,7 +143,13 @@ export function TodayScoreboard({
       <div className="grid grid-cols-1 gap-3">
         <KpiCard
           label="Times AI recommended you"
-          value={scoreboard.totalCitations}
+          // D3 follow-up (wave-6, 2026-06-14): on genuine first-run-no-data,
+          // show the "—" awaiting-reading placeholder (the ai-visibility-hero
+          // pattern) instead of a bold literal 0, which a non-technical buyer
+          // misreads as "AI recommended us zero times" (a negative fact)
+          // rather than "no reading collected yet". A REAL measured zero
+          // (data exists, asOfDate set) still renders "0".
+          value={isFirstRunNoData ? "—" : scoreboard.totalCitations}
           delta={asOfDate ? null : wowCit}
           deltaSuffix="%"
           meta={
@@ -177,7 +183,7 @@ export function TodayScoreboard({
         )}
         <KpiCard
           label="Your pages AI sends people to"
-          value={scoreboard.citedPageCount}
+          value={isFirstRunNoData ? "—" : scoreboard.citedPageCount}
           meta={
             scoreboard.citedPageCount > 0
               ? "pages where AI links directly to you"

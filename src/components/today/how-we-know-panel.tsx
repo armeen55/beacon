@@ -68,7 +68,7 @@ export function HowWeKnowPanel({
           <ul className="mt-1.5 space-y-0.5 list-disc pl-4">
             <li>
               Rows in sample:{" "}
-              <span className="font-medium text-foreground tabular-nums">{context.resultsRowCount}</span>
+              <span className="font-medium text-foreground tabular-nums">{context.resultsRowCount.toLocaleString()}</span>
               {context.resultsThrough && (
                 <span className="text-muted-foreground/80"> · through {context.resultsThrough}</span>
               )}
