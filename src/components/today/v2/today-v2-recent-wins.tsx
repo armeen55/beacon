@@ -89,8 +89,8 @@ export function TodayV2RecentWins(props: RecentWinsProps) {
           No measured wins yet.
         </p>
         <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-          When a change you ship lifts AI visibility, the proof shows up here.
-          Typically 3–7 days after the change goes live.
+          When a change you ship lifts your search or AI visibility, the proof
+          shows up here. Typically 3–7 days after the change goes live.
         </p>
         <div className="mt-auto pt-4">
           <Link

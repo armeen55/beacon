@@ -138,8 +138,11 @@ describe("Gap F.1 — waiting-state component is customer-safe", () => {
   });
 
   it("renders the required customer-safe headline + supporting copy", () => {
+    // Pivot reframe (audit #22, 2026-06-14): headline no longer positions
+    // the whole product as an "AI visibility" reading — Beacon leads with
+    // the site's own search demand, AI-answer visibility is one signal.
     expect(WAITING_SRC).toMatch(
-      /Beacon is preparing your first AI visibility reading/,
+      /Beacon is preparing your first reading/,
     );
     expect(WAITING_SRC).toMatch(
       /Your first dashboard will appear after the next daily reading/,

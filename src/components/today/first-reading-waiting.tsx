@@ -1,9 +1,16 @@
 /**
  * first-reading-waiting — Gap F.1 (2026-05-07).
  *
- * The "Beacon is preparing your first AI visibility reading" surface
- * that /today renders when a freshly launched tenant has prompts but
- * no observations yet.
+ * The "Beacon is preparing your first reading" surface that /today
+ * renders when a freshly launched tenant has prompts but no
+ * observations yet.
+ *
+ * Pivot framing (2026-06-14, audit #22): Beacon leads with your site's
+ * own search demand + content, and tracks AI-answer visibility as one
+ * additional signal — so the copy no longer positions the whole product
+ * as an "AI visibility" reading. Claims here stay generic ("your first
+ * reading") because this fresh-tenant screen can't assume which
+ * connectors (GSC/GA4) are wired yet.
  *
  * Pure presentation. Receives a context object from the resolver.
  * No data fetch, no client interactivity beyond the in-page link.
@@ -30,12 +37,12 @@ export function FirstReadingWaiting({
       <div className="w-full max-w-xl space-y-6">
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight">
-            Beacon is preparing your first AI visibility reading.
+            Beacon is preparing your first reading.
           </h1>
           <p className="text-[14px] text-muted-foreground">
             Your first dashboard will appear after the next daily reading.
-            We&apos;ll start tracking how AI search engines describe your
-            business {context.nextReadingDescription}.
+            Beacon analyzes your website and tracks how AI search engines
+            describe your business {context.nextReadingDescription}.
           </p>
         </div>
 
@@ -113,14 +120,15 @@ export function FirstReadingWaiting({
           <p className="font-medium">What happens next</p>
           <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
             <li>
-              We&apos;ll ask the AI search engines about your business {context.nextReadingDescription}.
+              Beacon reviews your website&apos;s pages and asks the AI search
+              engines about your business {context.nextReadingDescription}.
             </li>
             <li>
-              Your dashboard will fill in with how each engine describes you,
-              who they compare you to, and where you rank.
+              Your dashboard will fill in with the search demand for your
+              pages, how AI engines describe you, and who they compare you to.
             </li>
             <li>
-              Once readings start coming in, you&apos;ll see suggestions for
+              Once your first reading comes in, you&apos;ll see suggestions for
               the next move you can make.
             </li>
           </ol>

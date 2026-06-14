@@ -46,7 +46,7 @@ export function TodayV2DoToday({
         </p>
         <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
           Beacon is watching for the next recommendation. New ones appear when
-          AI visibility shifts on a tracked prompt.
+          it spots fresh search demand or a content gap on your pages.
         </p>
         <div className="mt-auto pt-4">
           <Link

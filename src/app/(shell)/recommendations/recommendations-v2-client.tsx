@@ -193,7 +193,7 @@ export function RecommendationsV2Client({
   const headerSubline = (
     <span data-recommendations-v2-header-subline="true">
       Beacon turns your Google Search demand + AI-answer gaps into safe,
-      review-gated website edits — approve to push live to Wix.{" "}
+      review-gated website edits — you approve every change yourself.{" "}
       <span className="text-muted-foreground/80">
         Updated {matrixDate}.
       </span>
@@ -317,7 +317,8 @@ function RecommendationsV2EmptyState() {
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
         Beacon is watching for the next clear opportunity. New recommendations
-        appear when AI visibility shifts on a tracked prompt.
+        appear when it spots fresh search demand or a content gap on your
+        pages.
       </p>
     </div>
   );
@@ -339,8 +340,8 @@ function RecommendationsV2CalmState({
       </p>
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
         {inFlightCount > 0
-          ? `Beacon is measuring ${inFlightCount} change${inFlightCount === 1 ? "" : "s"} you've already shipped. New recommendations appear when AI visibility shifts.`
-          : "Beacon is watching for the next clear opportunity. New recommendations appear when AI visibility shifts on a tracked prompt."}
+          ? `Beacon is measuring ${inFlightCount} change${inFlightCount === 1 ? "" : "s"} you've already shipped. New recommendations appear when it spots fresh search demand or a content gap.`
+          : "Beacon is watching for the next clear opportunity. New recommendations appear when it spots fresh search demand or a content gap on your pages."}
       </p>
     </div>
   );
