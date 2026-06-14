@@ -277,39 +277,6 @@ export function extractTopicTag(
 // ── Geo patterns ────────────────────────────────────────────────────────
 
 /**
- * Bay Area cities Beacon tracks (operator-curated). Used to extract
- * geographic context from cluster labels. Order doesn't matter; the
- * first city matched in the label wins.
- */
-const BAY_AREA_CITIES: ReadonlyArray<string> = [
-  // City name sort matters: longer, more-specific names FIRST so
-  // "Los Altos Hills" beats "Los Altos" and "Bay Area" never beats
-  // a real city.
-  "Los Altos Hills",
-  "Atherton",
-  "Palo Alto",
-  "Los Altos",
-  "Menlo Park",
-  "Woodside",
-  "Portola Valley",
-  "Mountain View",
-  "Cupertino",
-  "Saratoga",
-  "Los Gatos",
-  "Hillsborough",
-  "Belmont",
-  "San Carlos",
-  "Burlingame",
-  "Redwood City",
-  "San Mateo",
-  "Sunnyvale",
-  // Bay-Area-wide marker — used as a fallback when no individual
-  // city is mentioned. Lower than every named city so a phrase like
-  // "Atherton custom home Bay Area" still surfaces "Atherton".
-  "Bay Area",
-];
-
-/**
  * Extract a city name from a label. Returns the city in its canonical
  * capitalization, or null when no city is mentioned.
  *
@@ -334,9 +301,13 @@ export function extractGeoTag(
   // parity). An INJECTED EMPTY list means "this tenant has no geo
   // vocabulary" (content publishers) and matches NOTHING — it must not
   // fall back to another tenant's cities.
+  // De-verticalized (2026-06-15): there is NO founder-city fallback. undefined
+  // (un-threaded) and an injected EMPTY list both mean "no geo vocabulary" →
+  // match nothing. Every product caller threads the tenant's own cities
+  // (BusinessConfig.locations).
   const cities =
     knownCities === undefined
-      ? BAY_AREA_CITIES
+      ? []
       : [...knownCities]
           .map((c) => c.trim())
           .filter((c) => c.length > 0)

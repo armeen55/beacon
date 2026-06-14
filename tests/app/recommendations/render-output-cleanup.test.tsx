@@ -254,9 +254,12 @@ describe("W3 Step 3.5e — concrete row title (no cluster descriptions)", () => 
     const html = renderQueue([
       { rec, response: null, edits: [] },
     ]);
-    // W3 §3.5f — decision-style topics get the "decision page"
-    // suffix so the title reads as a real operator decision.
-    expect(html).toContain("Create an Atherton older-home rebuild decision page");
+    // W3 §3.5f — decision-style topics get the "decision page" suffix so the
+    // title reads as a real operator decision. De-verticalized (2026-06-15):
+    // this render path threads no tenant cities, so "Atherton" is NOT
+    // geo-extracted (no founder Bay-Area default) — the title is the
+    // vertical-neutral topic only.
+    expect(html).toContain("Create an older-home rebuild decision page");
     expect(html).not.toContain("Create a page for this scenario");
     expect(html).not.toContain("Create a page for this buying scenario");
     expect(html).not.toContain("Pick a direction for this opportunity");

@@ -125,31 +125,36 @@ describe("extractTopicTag — operator-locked phrase patterns", () => {
   });
 });
 
-// ── extractGeoTag — Bay Area cities ───────────────────────────────────────
+// ── extractGeoTag — matches the tenant's INJECTED cities ──────────────────
+// De-verticalized (2026-06-15): there is no founder Bay-Area default; the
+// matching logic is exercised with an explicit injected city list (any
+// vertical threads its own BusinessConfig.locations).
 
-describe("extractGeoTag — Bay Area cities", () => {
+describe("extractGeoTag — matches injected tenant cities", () => {
+  const CITIES = ["Atherton", "Palo Alto", "Mountain View"];
+
   it("'best builders Atherton' → Atherton", () => {
-    expect(extractGeoTag("best builders Atherton")).toBe("Atherton");
+    expect(extractGeoTag("best builders Atherton", CITIES)).toBe("Atherton");
   });
 
   it("'palo alto kitchen remodel' → Palo Alto (case-insensitive)", () => {
-    expect(extractGeoTag("palo alto kitchen remodel")).toBe("Palo Alto");
+    expect(extractGeoTag("palo alto kitchen remodel", CITIES)).toBe("Palo Alto");
   });
 
   it("'Mountain View' (multi-word) is matched", () => {
-    expect(extractGeoTag("contractors in Mountain View")).toBe("Mountain View");
+    expect(extractGeoTag("contractors in Mountain View", CITIES)).toBe("Mountain View");
   });
 
   it("'Mountainview' (single word, no space) does NOT match Mountain View", () => {
-    expect(extractGeoTag("Mountainview")).toBeNull();
+    expect(extractGeoTag("Mountainview", CITIES)).toBeNull();
   });
 
   it("no city → null", () => {
-    expect(extractGeoTag("kitchen remodel cost")).toBeNull();
+    expect(extractGeoTag("kitchen remodel cost", CITIES)).toBeNull();
   });
 
   it("empty string → null", () => {
-    expect(extractGeoTag("")).toBeNull();
+    expect(extractGeoTag("", CITIES)).toBeNull();
   });
 });
 
@@ -223,6 +228,7 @@ describe("humanizeRecTitle — operator-readable titles", () => {
       humanizeRecTitle({
         clusterLabel: "Atherton older home rebuild",
         resolution: resolution as PageIntentResolution,
+        knownCities: ["Atherton"],
       }),
     ).toBe("Create an Atherton older-home rebuild decision page");
   });
@@ -251,6 +257,7 @@ describe("humanizeRecTitle — operator-readable titles", () => {
       humanizeRecTitle({
         clusterLabel: "Atherton",
         resolution: resolution as PageIntentResolution,
+        knownCities: ["Atherton"],
       }),
     ).toBe("Create a dedicated Atherton page");
   });
@@ -351,6 +358,7 @@ describe("humanizeRecTitle — operator-readable titles", () => {
       humanizeRecTitle({
         clusterLabel: "Atherton older home rebuild",
         resolution: resolution as PageIntentResolution,
+        knownCities: ["Atherton"],
       }),
     ).toBe("Decide direction for Atherton older-home rebuild");
   });
@@ -421,8 +429,11 @@ describe("extractGeoTag — injected per-tenant cities (#149)", () => {
     expect(extractGeoTag("best builders in Atherton", [])).toBeNull();
   });
 
-  it("un-threaded callers (undefined) keep the legacy Bay-Area default", () => {
-    expect(extractGeoTag("best builders in Atherton")).toBe("Atherton");
+  it("un-threaded callers (undefined cities) match NOTHING — no founder default", () => {
+    // De-verticalized (2026-06-15): there is no hardcoded Bay-Area fallback.
+    // A caller that passes no cities gets no geo tag (every product caller
+    // threads the tenant's own BusinessConfig.locations).
+    expect(extractGeoTag("best builders in Atherton")).toBeNull();
   });
 
   it("humanizeRecTitle threads knownCities through to geo extraction", () => {
