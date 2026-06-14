@@ -43,6 +43,10 @@ import {
 } from "@/lib/cost/budget";
 import { checkMonthlyBudget } from "@/lib/cost/monthly";
 import {
+  getTenantSpentTodayUsd,
+  getTenantSpentThisMonthUsd,
+} from "@/lib/cost/budget-ledger-supabase";
+import {
   extractMentionPosition,
   extractCitationRank,
   rankEntitiesByFirstAppearance,
@@ -255,7 +259,17 @@ export async function pollPerplexityForTenant(
   // skipReason="budget_blocked" so operators / poll-canary can detect.
   // Skipping here counts ALL prompts in this chunk as `promptsSkippedBudget`.
   if (prompts.length > 0) {
-    const tenantBudget = checkTenantBudget(tenantId);
+    // audit #4 (2026-06-14): source daily + monthly spend from the durable
+    // Supabase ledger. The file-backed caps silently fail-open wherever
+    // `.data` is read-only/ephemeral (Vercel + every GitHub Actions run);
+    // recordSpendDualWrite keeps Supabase authoritative. null on read error
+    // → checks fall back to the file ledger, with the always-on per-run
+    // cost ceiling as the backstop.
+    const supaSpentTodayUsd = await getTenantSpentTodayUsd(tenantId, now());
+    const supaSpentMonthUsd = await getTenantSpentThisMonthUsd(tenantId, now());
+    const tenantBudget = checkTenantBudget(tenantId, {
+      spentTodayUsd: supaSpentTodayUsd,
+    });
     if (!tenantBudget.allowed) {
       skipReason = "budget_blocked";
       budgetReason = tenantBudget.reason ?? "tenant daily cap reached";
@@ -267,7 +281,11 @@ export async function pollPerplexityForTenant(
           `percent=${tenantBudget.percent}% promptsSkipped=${promptsSkippedBudget}`,
       );
     } else {
-      const monthlyBudget = checkMonthlyBudget({ tenantId, now: now() });
+      const monthlyBudget = checkMonthlyBudget({
+        tenantId,
+        now: now(),
+        spentUsd: supaSpentMonthUsd,
+      });
       if (!monthlyBudget.allowed) {
         skipReason = "budget_blocked";
         budgetReason = monthlyBudget.reason ?? "monthly cap reached";

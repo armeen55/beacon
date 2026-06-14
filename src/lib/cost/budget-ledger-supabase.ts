@@ -293,3 +293,36 @@ export async function getTenantSpentTodayUsd(
     return null;
   }
 }
+
+/**
+ * audit #4 (2026-06-14) — this-MONTH TOTAL spend for a tenant from
+ * `llm_budget_ledger` (the durable cross-run ledger). The file-backed
+ * monthly cap silently fail-opens wherever `.data` is ephemeral/read-only
+ * (Vercel + every GitHub Actions run), so the monthly cap is sourced from
+ * Supabase. Same fail-OPEN-on-error contract as getTenantSpentTodayUsd:
+ * null on read error → caller falls back to the file ledger, with the
+ * per-run cost ceiling as the always-on backstop.
+ */
+export async function getTenantSpentThisMonthUsd(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<number | null> {
+  if (typeof tenantId !== "string" || tenantId.trim() === "") return 0;
+  try {
+    const supabase = getSupabaseAdmin();
+    const monthStart = `${todayUtcDate(now).slice(0, 7)}-01`; // YYYY-MM-01
+    const { data, error } = await supabase
+      .from("llm_budget_ledger")
+      .select("spent_usd")
+      .eq("tenant_id", tenantId)
+      .gte("date_utc", monthStart);
+    if (error || !Array.isArray(data)) return null;
+    let total = 0;
+    for (const row of data as Array<{ spent_usd?: number }>) {
+      if (typeof row.spent_usd === "number") total += row.spent_usd;
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}

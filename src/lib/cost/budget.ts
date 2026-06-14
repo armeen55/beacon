@@ -66,17 +66,37 @@ export type PerRunBudgetCheck = {
 // Config
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse a USD cap env var, FAILING LOUD on a non-numeric / non-positive
+ * value (audit #5, 2026-06-14). The prior `env ? parseFloat(env) : default`
+ * turned a fat-fingered value ("disabled", "$10", "10 USD") into NaN, and
+ * `spent >= NaN` is always false — silently DISABLING that runaway-spend
+ * cap with zero signal. A misconfigured cap must crash, not quietly open.
+ */
+export function readCapEnvUsd(name: string, fallback: number): number {
+  const env = process.env[name];
+  if (env === undefined || env.trim() === "") return fallback;
+  const parsed = Number(env);
+  // Reject NaN / Infinity / negatives — those silently fail-OPEN
+  // (`spent >= NaN` is always false → cap disabled). A cap of exactly 0 is
+  // ALLOWED: it's a valid "block all spend" (fail-CLOSED) operator setting,
+  // handled by the percent()/`spent >= 0` paths downstream.
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(
+      `[budget] invalid cap env ${name}=${JSON.stringify(env)} — must be a non-negative number (got ${parsed})`,
+    );
+  }
+  return parsed;
+}
+
 function perTenantCapUsd(): number {
-  const env = process.env.BEACON_DAILY_BUDGET_USD_PER_TENANT;
-  // Sprint 6A.3b (2026-04-26) — bumped default $5 → $10. Operator-set
-  // value for full-native daily polling. Caps are runaway protection,
+  // Sprint 6A.3b (2026-04-26) — default $10. Caps are runaway protection,
   // not throttling — set high enough that normal operation never trips.
-  return env ? parseFloat(env) : 10.0;
+  return readCapEnvUsd("BEACON_DAILY_BUDGET_USD_PER_TENANT", 10.0);
 }
 
 function globalCapUsd(): number {
-  const env = process.env.BEACON_DAILY_BUDGET_GLOBAL_USD;
-  return env ? parseFloat(env) : 20.0;
+  return readCapEnvUsd("BEACON_DAILY_BUDGET_GLOBAL_USD", 20.0);
 }
 
 /**
@@ -94,8 +114,7 @@ function globalCapUsd(): number {
  * Vercel env var, update it to "8" — env wins over this default.
  */
 export function perRunCapUsd(): number {
-  const env = process.env.BEACON_PER_RUN_BUDGET_USD;
-  return env ? parseFloat(env) : 8.0;
+  return readCapEnvUsd("BEACON_PER_RUN_BUDGET_USD", 8.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -177,11 +196,27 @@ function sumGlobalToday(entries: SpendEntry[], date: string): number {
  * Sprint 6A.3b (2026-04-26) — `percent` field added on every return for
  * richer cron-log lines ("28% of $10").
  */
-export function checkTenantBudget(tenantId: string): BudgetCheck {
+export function checkTenantBudget(
+  tenantId: string,
+  opts: {
+    /**
+     * audit #4 (2026-06-14): inject today's spend from the durable Supabase
+     * ledger. The file ledger is empty wherever `.data` is read-only/
+     * ephemeral (Vercel + GitHub Actions), so without this the daily cap
+     * silently fail-opens. When provided (a number), it overrides the file
+     * read; when null/undefined (Supabase unreadable), falls back to the
+     * file (per-run cap remains the backstop).
+     */
+    spentTodayUsd?: number | null;
+  } = {},
+): BudgetCheck {
   const entries = readLedger();
   const date = todayYmd();
 
-  const tenantSpent = sumForTenantToday(entries, tenantId, date);
+  const tenantSpent =
+    typeof opts.spentTodayUsd === "number"
+      ? opts.spentTodayUsd
+      : sumForTenantToday(entries, tenantId, date);
   const tenantCap = perTenantCapUsd();
   if (tenantSpent >= tenantCap) {
     return {

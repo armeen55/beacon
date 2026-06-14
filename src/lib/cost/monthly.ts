@@ -18,6 +18,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readCapEnvUsd } from "@/lib/cost/budget";
 
 // ---------------------------------------------------------------------------
 // Types — mirror the BudgetCheck shape from `./budget.ts` so cron logging
@@ -47,8 +48,9 @@ export type MonthlyBudgetCheck = {
  * normal full-native operation never trips. Override via env.
  */
 export function monthlyCapUsd(): number {
-  const env = process.env.BEACON_MONTHLY_BUDGET_USD;
-  return env ? parseFloat(env) : 200.0;
+  // audit #5 (2026-06-14): fail loud on a non-numeric cap env instead of
+  // silently disabling the monthly cap via NaN.
+  return readCapEnvUsd("BEACON_MONTHLY_BUDGET_USD", 200.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,14 @@ export type CheckMonthlyBudgetOpts = {
   tenantId?: string;
   /** Frozen `now` for deterministic tests. */
   now?: Date;
+  /**
+   * audit #4 (2026-06-14): inject this-month spend from the durable
+   * Supabase ledger. The file ledger is empty wherever `.data` is
+   * read-only/ephemeral (Vercel + GitHub Actions), so without this the
+   * monthly cap silently fail-opens. When a number, overrides the file
+   * read; null/undefined falls back to the file.
+   */
+  spentUsd?: number | null;
 };
 
 /**
@@ -137,8 +147,10 @@ export function checkMonthlyBudget(
 ): MonthlyBudgetCheck {
   const now = opts.now ?? new Date();
   const monthKey = currentMonthKey(now);
-  const entries = readLedger();
-  const spent = sumMonthly(entries, monthKey, opts.tenantId);
+  const spent =
+    typeof opts.spentUsd === "number"
+      ? opts.spentUsd
+      : sumMonthly(readLedger(), monthKey, opts.tenantId);
   const cap = monthlyCapUsd();
   const scope = opts.tenantId ? "tenant" : "global";
 
