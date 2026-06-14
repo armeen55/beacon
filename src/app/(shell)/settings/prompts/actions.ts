@@ -30,10 +30,17 @@ export async function togglePromptActive(
     params: { promptId, isActive },
   });
   try {
+    // audit wave-2 #8 (2026-06-14): scope the update to the CURRENT tenant.
+    // The admin client bypasses RLS, so a bare .eq("id", promptId) let any
+    // caller toggle ANOTHER tenant's prompt by id (IDOR). tracked_prompts is
+    // scoped by tenant_id (reads filter on it); match that here so a foreign
+    // id updates 0 rows.
+    const tenantId = await currentTenantId();
     const { error } = await getSupabaseAdmin()
       .from("tracked_prompts")
       .update({ is_active: isActive, updated_at: new Date().toISOString() })
-      .eq("id", promptId);
+      .eq("id", promptId)
+      .eq("tenant_id", tenantId);
     if (error) throw new Error(error.message);
     revalidatePath("/settings/prompts");
     revalidatePath("/prompts");
@@ -96,13 +103,20 @@ export async function createPrompt(
 
   const nowIso = new Date().toISOString();
   const promptId = `prompt-${randomUUID()}`;
+  const tenantId = await currentTenantId();
 
   try {
     const { error } = await getSupabaseAdmin()
       .from("tracked_prompts")
       .insert({
         id: promptId,
-        account_id: await currentTenantId(),
+        // audit wave-2 #8 follow-on (2026-06-14): tenant_id was NEVER set on
+        // insert — it defaults to '' which the tracked_prompts_tenant_id_
+        // nonempty_chk CHECK rejects, so a UI-added prompt's INSERT FAILED
+        // outright (and would not be tenant-scoped for reads/toggle even if
+        // it landed). Set it explicitly to the current tenant.
+        tenant_id: tenantId,
+        account_id: tenantId,
         text,
         topic_id: topicId,
         location_scope: input.location_scope?.trim() || null,
