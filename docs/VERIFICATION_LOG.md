@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-14 (overnight, robustness) — GSC Search-Analytics 401 refresh-retry (resolves the LAST deferred GSC item — auto-recovery)
+
+**Why:** the GSC demand signal is the pivot's core. wave-9 shipped the fail-LOUD half (401/403 → `synced:false`, operator-visible "reconnect GSC") but DEFERRED the auto-recovery half, fearing "a deliberate return-type refactor." On reflection it's additive (like the existing `onAuthFailure` dep), bounded (single caller), has a reference impl (`ga4/data-api.ts`), and gives a real premium property: an expired-but-RECOVERABLE access token self-heals instead of bugging the operator to reconnect.
+
+**What changed (2 files + test):**
+- `search-analytics.ts`: extracted `refreshAndPersistGscToken` from `resolveGscAccessToken`; added `forceRefreshGscAccessToken(tenantId)` (refreshes regardless of locally-evaluated expiry — for a server-side 401 on a token we thought fresh). `gscSearchAnalyticsQuery` gains optional `deps.refreshAccessToken`: on a **401** (NOT 403 — a refresh can't restore a revoked scope) it mints a fresh token + retries ONCE; only if the refresh OR the retry also fails does it fail loud (`onAuthFailure`). `pullDayRows` forwards it, caching a successful refresh so later pages of the same day reuse the new token (no per-page re-refresh).
+- `sync-search-analytics.ts`: all 3 `pullDayRows` calls pass `refreshAccessToken: () => forceRefreshGscAccessToken(tenantId)`.
+
+**Safety:** back-compat preserved (no dep → prior fail-loud-on-401; the existing line-88 test still passes). 403 fails loud immediately. At-most-once retry (`didAuthRefresh` guard) — no infinite loop on repeated 401s.
+
+**Verified:** typecheck clean; full suite **800 files / 14,794 tests** green (+4: refresh→retry→rows; refresh-fails→fail-loud; second-401→fail-loud-once; 403-never-refreshed). **Rails:** crons strictly MORE robust (never break nightly crons honored), NOT pushed. Commit `64772c5`.
+
+---
+
 ## 2026-06-14 (overnight, perf) — lean date-only projection on /today's canonical snapshot read (resolves the deferred DMS over-fetch)
 
 **Why:** the overnight audit deferred "/today DMS scope over-fetch" as a hot-path-risk item. Re-investigated with ground-truth: `/today`'s ONLY `daily_metric_snapshots` consumer is the Command Center Brain derivation (`deriveBrainFromTodayInputs`, typed `ReadonlyArray<{ date: string }>`), which reads just `date` (a 7-day count) and `.length` (a total count). Yet the windowed (120-day) read pulled FULL ~497-byte rows incl. the heavy JSONB `metadata` column. **DB-verified (execute_sql):** Ritz fetches **18,863 rows** per render to compute `total=18,863` + `recent7d=893` — ~9.4 MB egress, ~90% dead weight.
