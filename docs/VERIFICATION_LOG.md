@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-14 (Fusion roadmap + `profound_aeo_gap` trigger — the AEO source finally drives recs)
+
+**Directive:** autonomous /goal — make Beacon the best SEO/AEO merge of GSC+GA4+SEMrush+Profound+Clarity+Wix. After 21 UX_TEARDOWN batches the safe-high-value finding tier was harvested, so per the goal's research clause: design the next fusion capabilities, then build the highest-leverage one.
+
+**Shipped (pushed to main):**
+- **`docs/FUSION_ROADMAP_2026-06.md`** (`2ae94f3`) — research + design (grounded in real vendor API capabilities + the codebase's current fusion). Per-source capability-vs-gap tables (each citing the real loader/connector file), a 10-item leverage-ranked roadmap, quick-wins, honest caveats (e.g. GSC AI-Overviews impressions are UI-only, not in the API). **Headline finding:** no recommendation trigger consumed ANY Profound data.
+- **`profound_aeo_gap` trigger** (`bcb52b7`) — first trigger to fuse Profound (the post-pivot SOLE AEO source) into the rec engine. New `profound-topic-signals.ts` loader (tenant-scoped read of `profound_visibility_rows`, paged, fail-soft, no API/migration; own-brand id via config-driven `buildOwnAliasSet`) + pure predicate `triggers/profound-aeo-gap.ts` (executions≥10, ownMentions==0, competitor mentions≥2; one emission/worst gap; `add_answer_block`, operator-review-only; `@no-classifier-required` topic-level opt-out). Wired into `load-trigger-candidates-for-tenant.ts` (PREDICATE_COUNT 16→17, tenant-level pre-load, fail-soft). Un-parks the prior SOV-gap design (was blocked on opaque `category_id`) by framing copy on the competitor name + answer count instead of a topic phrase.
+
+**Verified:**
+- `npm run typecheck` clean · full `npx vitest run` **14,892 passed** (806 files; dev server DOWN — no contention) · `npm run build` exit 0.
+- Reconciled the 3 ratchet failures the new predicate caused (all "assert old behavior" pins, updated in the same change): diagnostics `predicates_run` count 16→17 (2 pins) + the `page-classifier-applied` invariant (added the sanctioned `@no-classifier-required` JSDoc tag — the trigger is topic-level, anchors to the always-HTML site root, so neither classifier helper applies).
+- **GROUND-TRUTH (real loader+trigger vs prod Supabase, all 3 tenants):** every `profound_*` table is EMPTY (0 rows) and NO tenant has a `profound` connector token → Profound has never been connected. Trigger correctly **verified-dormant** (loader runs clean, fail-soft confirmed, abstains on empty data; fires when data lands). **Implication:** the pivot's entire AEO half is gated on ONE operator action — connect Profound + Pull — not on code. #1 AEO operator-action blocker.
+
 ## 2026-06-14 (/changes mobile responsiveness — 3 phone-unusable findings, legacy surface)
 
 **Directive:** the `/changes` "what changed + did it work" surface is unusable on a ~360px phone. Fix 3 responsive findings (CSS/markup only, no logic/data/copy changes). Default surface is **legacy** (`shouldUseChangesV2` returns false unless `?v2=1` / `BEACON_CHANGES_V2=true`, which is not set) — v2 already uses responsive card layouts, so all three live in `src/app/(shell)/changes/scorecard-client.tsx`.
