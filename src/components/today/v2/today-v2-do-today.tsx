@@ -110,17 +110,17 @@ export function TodayV2DoToday({
         </p>
       )}
 
-      <div className="mt-auto pt-4 flex items-center gap-3 text-[12px] font-semibold">
+      <div className="mt-auto pt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-[12px] font-semibold">
         <Link
           href={primaryAction.href}
-          className="text-accent-primary hover:underline"
+          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-md bg-accent-primary px-4 py-2.5 text-background transition-colors hover:bg-accent-primary/90 sm:w-auto"
           data-today-v2-cta="primary"
         >
           Open the brief →
         </Link>
         <Link
           href="/recommendations"
-          className="text-muted-foreground hover:text-foreground"
+          className="inline-flex min-h-[44px] items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
           data-today-v2-cta="view-all"
         >
           See all

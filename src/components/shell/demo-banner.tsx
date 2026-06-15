@@ -34,10 +34,10 @@ export function DemoBanner() {
       <button
         type="button"
         onClick={() => setDismissed(true)}
-        className="shrink-0 rounded p-1 text-foreground-secondary/60 hover:bg-foreground/[0.06] hover:text-foreground transition-colors"
+        className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded text-foreground-secondary/60 hover:bg-foreground/[0.06] hover:text-foreground transition-colors"
         aria-label="Dismiss demo banner"
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="h-4 w-4" />
       </button>
     </div>
   );

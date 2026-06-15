@@ -64,6 +64,38 @@ export default async function LocalPresencePage() {
           : null
       : null;
 
+  // Day-zero guard (#145): a brand-new tenant with no listing identity AND no
+  // stored reviews would otherwise see a full 0-100 scorecard of "Never synced"
+  // rows that reads as broken. Show a single honest empty state instead.
+  if (!snapshot.hasListing && !snapshot.hasReviews) {
+    return (
+      <div className="max-w-3xl space-y-8">
+        <PageHeader
+          title="Local presence"
+          description="Listing identity, health, completeness, and stored reviews from Config, import, and optional on-demand sync — read-only; not live directory truth."
+        />
+        <section className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 py-8 text-center space-y-3">
+          <p className="text-[14px] font-semibold text-foreground">No local presence data yet</p>
+          <p className="mx-auto max-w-md text-[12px] text-muted-foreground leading-relaxed">
+            Add your business details in Config and connect or import a reviews source — then
+            Beacon shows your listing health, NAP consistency, and review sentiment here.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-4 pt-1 text-[12px] font-medium">
+            <Link href="/settings/config" className="text-accent-primary hover:underline">
+              Add business details →
+            </Link>
+            <Link href="/settings/connectors" className="text-muted-foreground hover:text-foreground">
+              Connect a reviews source
+            </Link>
+            <Link href="/settings/import" className="text-muted-foreground hover:text-foreground">
+              Import reviews
+            </Link>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl space-y-8">
       <PageHeader
