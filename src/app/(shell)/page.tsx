@@ -30,6 +30,7 @@ import {
 } from "./today-v2-skeleton";
 import {
   TodayV2ActionCardsSection,
+  TodayV2AllSourceSummarySection,
   TodayV2DescriptorsSection,
   TodayV2BeaconLearnedSection,
   TodayV2EditLifecycleSection,
@@ -38,9 +39,10 @@ import {
   TodayV2OffSiteAuthoritySection,
   TodayV2VisibilityGroupSection,
 } from "./today-v2-sections";
-import { loadTodayV2GateData } from "./today-v2-data";
+import { loadTodayV2GateData, loadTodayV2HasAeoData } from "./today-v2-data";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import { DataSourcesStrip } from "@/components/today/data-sources-strip";
+import { CollapsibleSection } from "@/components/today/collapsible-section";
 import { respondToRecommendation } from "./recommendation-actions";
 import { confirmFindingAsChange, resolveFinding } from "./finding-actions";
 import { loadTodayPageData } from "./today-data";
@@ -231,6 +233,14 @@ async function TodayV2SectionedContent() {
     return <FirstReadingWaiting context={gate.firstReading.context} />;
   }
 
+  // All-source command-center reorder (2026-06-15). Beacon is NOT an
+  // AEO-only tool — AEO is one source among equals. So the page now LEADS
+  // with the all-source stat row + the universal action/outcome layer,
+  // and DEMOTES the AEO visibility hero + descriptors into one collapsible
+  // "AI answers" block lower on the page. The collapsible opens by default
+  // only when the tenant actually has AEO data (so it never opens blank).
+  const hasAeoData = await loadTodayV2HasAeoData();
+
   return (
     <div className="space-y-6">
       {/* "Your data sources" quick-connect strip (2026-06-15) — mounted
@@ -242,11 +252,24 @@ async function TodayV2SectionedContent() {
       <Suspense fallback={null}>
         <DataSourcesStrip />
       </Suspense>
-      <Suspense fallback={<TodayV2VisibilityGroupSkeleton />}>
-        <TodayV2VisibilityGroupSection />
+      {/* All-source stat row (2026-06-15) — the unified command-center
+          scoreboard: one tiny card per source that HAS data (Search /
+          Visits / Rankings / Experience / AI answers as equals). Its own
+          Suspense boundary with a null fallback so its added Supabase
+          reads (the #72 statement-timeout class) never block the rest of
+          the page streaming; the section self-hides when no source has
+          data. Default-on — the self-hide is the safety. */}
+      <Suspense fallback={null}>
+        <TodayV2AllSourceSummarySection />
       </Suspense>
+      {/* Universal action layer — promoted up to sit right under the
+          scoreboard (Do today / Working / Recent wins). */}
       <Suspense fallback={<TodayV2ActionCardsSkeleton />}>
         <TodayV2ActionCardsSection />
+      </Suspense>
+      {/* GA4-grounded edit outcomes — behavior/SEO-adjacent, kept high. */}
+      <Suspense fallback={<TodayV2EditOutcomesSkeleton />}>
+        <TodayV2EditOutcomesSection />
       </Suspense>
       <Suspense fallback={<TodayV2EditLifecycleSkeleton />}>
         <TodayV2EditLifecycleSection />
@@ -257,9 +280,6 @@ async function TodayV2SectionedContent() {
           reserves no layout. */}
       <Suspense fallback={null}>
         <TodayV2BeaconLearnedSection />
-      </Suspense>
-      <Suspense fallback={<TodayV2EditOutcomesSkeleton />}>
-        <TodayV2EditOutcomesSection />
       </Suspense>
       {/* Proven results (2026-06-11) — the causal Proof Engine's measured
           wins. Self-hides until there's a real computed lift, so a null
@@ -274,9 +294,28 @@ async function TodayV2SectionedContent() {
       <Suspense fallback={null}>
         <TodayV2OffSiteAuthoritySection />
       </Suspense>
-      <Suspense fallback={<TodayV2DescriptorsSkeleton />}>
-        <TodayV2DescriptorsSection />
-      </Suspense>
+      {/* DEMOTED "AI answers" block (2026-06-15) — the AEO visibility
+          group (hero + trend chart + leaderboard, kept in ONE Suspense so
+          they share visibilityWindow client state — never split) and the
+          AEO descriptors, wrapped in a single collapsible container so AEO
+          reads as one-section-among-equals. <details>-based collapse keeps
+          the heavy subtree out of view by default; opens automatically
+          only when the tenant has AEO data. */}
+      <CollapsibleSection
+        title="AI answers"
+        subtitle="How AI assistants see and recommend you"
+        defaultOpen={hasAeoData}
+        sectionKey="ai-answers"
+      >
+        <div className="space-y-6">
+          <Suspense fallback={<TodayV2VisibilityGroupSkeleton />}>
+            <TodayV2VisibilityGroupSection />
+          </Suspense>
+          <Suspense fallback={<TodayV2DescriptorsSkeleton />}>
+            <TodayV2DescriptorsSection />
+          </Suspense>
+        </div>
+      </CollapsibleSection>
     </div>
   );
 }

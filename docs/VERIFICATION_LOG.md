@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-06-15 PM (all-source command center — Today rebuilt from AEO-first → unified scoreboard)
+
+**Trigger:** owner — "we are NOT an AEO tracking tool; AEO is 30–50% of what we do. The `/` dashboard should show all-in-one stats across GSC + GA4 + SEMrush + Clarity + AEO, whatever data we have." Design workflow produced the plan + verified per-tenant data; executed buildSteps 1 + 2 (the shippable core).
+
+**Changed (NOT committed — local quality gate only, per CI-minutes pref):**
+- **STEP 1 — top all-source stat row (pure-additive):**
+  - `loadTodayV2AllSourceSummaryData()` (today-v2-data.ts, `React.cache`) — resolves `currentTenantId()` once, runs all 6 reads in one `Promise.all`, each fail-soft (`.catch → empty Map/null`): GSC page signals + GSC decay + GA4 page values + Clarity page signals + SEMrush page signals + `fetchTodayDerivedKpis`. Plus a tiny `claritySpansMultipleDays` probe (distinct-date count) for the honesty label.
+  - PURE helper `src/domains/today-summary/build-source-stat-cards.ts` (+ 14-case unit test) — reduces each Map/KPIs to its 2–4 headline numbers; **gates on DATA PRESENCE not connector status** (GSC Σimpr>0; GA4 Σsessions>0; SEMrush non-empty + ≥1 keyword; Clarity Σsessions>0; AEO KPIs non-null + not all-zero). GSC position is impressions-weighted from summed counts; site CTR/Clarity rates recomputed from sums (never averaged per-page rates); GSC 28d before/after delta only when prior-window impressions exist; Clarity "building history" label + absolute counts when only 1 day deep.
+  - Presentational `src/components/today/all-source-stat-row.tsx` — responsive grid of small cards reusing existing styling (rounded-lg border-border/60 bg-surface-inset, text-[12px] labels, tabular-nums). Plain English, no jargon, no "Profound" (says "AI answers"). No client JS.
+  - Server section `TodayV2AllSourceSummarySection` (today-v2-sections.tsx) → returns null when zero cards qualify.
+  - Mounted in page.tsx right after the DataSourcesStrip Suspense, in its OWN `<Suspense fallback={null}>`. **Default-on** — the self-hide (null when no data) is the safety, no env flag.
+- **STEP 2 — demote AEO (composition reorder, no prop rewrite):** promoted `TodayV2ActionCardsSection` + `TodayV2EditOutcomesSection` to right under the stat row; demoted `TodayV2VisibilityGroupSection` (hero+chart+leaderboard, kept in ONE Suspense — shared visibilityWindow state) + `TodayV2DescriptorsSection` into a new collapsible `src/components/today/collapsible-section.tsx` (`<details>`/`<summary>`-based so the heavy subtree isn't eagerly displayed; `defaultOpen` = tenant has recent AEO observations, via new `loadTodayV2HasAeoData` probe).
+
+**Perf posture (the #72 statement-timeout class):** stat row in its own Suspense (null fallback so it never blocks page streaming); loader `React.cache`-memoized; every source loader fail-soft so one slow/empty source never blocks. Tenant-scoped throughout; on-demand (fresh each render); no cron/nightly copy.
+
+**Verified:** `npm run typecheck` clean. Targeted tests green — new helper (14), `tests/components/today/` (all), perf-today-section-streaming, main-product-final-confidence-sweep, forbidden-customer-vocabulary, today-command-center-contract, ux6-2-vocab-hierarchy, today-smoke, today-section-order, recommendation-intelligence-customer-copy-vocab, today-first-reading/empty-state/action-card-copy. Full architecture `-t "today"` (41 files, 1,574 pass). Did NOT run the full single-shot suite (sandbox worker limit) and did NOT commit/push per instructions.
+
+**Iranopedia outcome (from verified per-tenant data):** stat row will show **GSC** (rich: ~12,019 clicks / 791,710 impr / pos / CTR + 28d delta when prior window present) + **Clarity** ("building history", 214 visits, recomputed rates). **GA4 hidden** (connected-but-empty, 0 rows → empty Map → no "0 sessions" card), **SEMrush hidden** (not connected → empty Map), **AEO card hidden** (derived rollup null with crons off — raw Perplexity observations still surface inside the demoted, default-OPEN "AI answers" block since `loadTodayV2HasAeoData` sees 200 recent obs).
+
+---
+
 ## 2026-06-15 PM (operator live-app feedback — isDemoMode bug + connect-strip + rec evidence)
 
 **Trigger:** owner reported Today showing "Connect your data sources" despite GSC connected; asked for partial-data-with-one-connection, one-click connect on the main screen, and super-specific evidence per recommendation.

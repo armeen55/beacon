@@ -95,6 +95,19 @@ import {
   computeTodayPrimaryShare,
   type TodayPrimaryShare,
 } from "@/domains/daily-metric-snapshots/today-primary-share";
+import {
+  loadGscPageSignalsForTenant,
+  loadGscDecaySignalsForTenant,
+} from "@/domains/recommendation-intelligence/gsc-page-signals";
+import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
+import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
+import { loadSemrushPageSignalsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
+import { fetchTodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
+import {
+  buildSourceStatCards,
+  type SourceStatCard,
+} from "@/domains/today-summary/build-source-stat-cards";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
 // ─────────────────────────────────────────────────────────────────────
 // Shared upstream — memoized via React.cache so multiple section
@@ -167,6 +180,131 @@ export const loadCachedFreshCanonical14d = cache(async () => {
  */
 export const loadCachedTodayPageData = cache(async () => {
   return await loadTodayPageData();
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// All-source summary stat row (2026-06-15) — the unified command-center
+// scoreboard. Adds the four SEO/behavior loaders (GSC / GA4 / SEMrush /
+// Clarity) to the "/" render path alongside the AEO KPIs that already
+// load here, reduces each to its 2–4 headline numbers, and returns ONLY
+// the cards whose source has REAL data (gate on data presence, never on
+// connector status). Beacon is not an AEO-only tool — AEO is one card
+// among equals.
+//
+// PERF (task #72 statement-timeout class): every loader is fail-soft
+// (empty Map / null on any error) so one slow or empty source never
+// blocks the others, the whole thing runs in ONE Promise.all, and the
+// result is memoized via React.cache. The page mounts this section in
+// its OWN <Suspense> boundary so it never blocks the rest of the page
+// streaming. Tenant resolved ONCE and threaded into every loader.
+// ─────────────────────────────────────────────────────────────────────
+
+export type TodayV2AllSourceSummaryData = {
+  cards: SourceStatCard[];
+};
+
+/**
+ * Probe whether Clarity has more than one distinct day of synced data
+ * for the tenant — drives the "building history" honesty label so we
+ * never imply a trend off a single day (plan risk: Clarity one day
+ * deep). Tiny bounded read (a handful of date rows), fail-soft to
+ * `false` (treat thin data conservatively). The per-URL Clarity signal
+ * loader doesn't carry dates, so this is a separate minimal lookup.
+ */
+async function claritySpansMultipleDays(
+  tenantId: string,
+  now: Date,
+): Promise<boolean> {
+  try {
+    const since = new Date(now.getTime() - 28 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const { data, error } = await getSupabaseAdmin()
+      .from("clarity_daily_url_metrics")
+      .select("date")
+      .eq("tenant_id", tenantId)
+      .gte("date", since)
+      .order("date", { ascending: false })
+      .limit(200);
+    if (error || !data) return false;
+    const distinct = new Set(
+      (data as Array<{ date: string }>).map((r) => r.date),
+    );
+    return distinct.size > 1;
+  } catch {
+    return false;
+  }
+}
+
+export const loadTodayV2AllSourceSummaryData = cache(
+  async (): Promise<TodayV2AllSourceSummaryData> => {
+    const tenantId = await currentTenantId();
+    const now = new Date();
+
+    // Run every source read in parallel; each is independently fail-soft
+    // so a slow / empty / erroring source degrades to empty (no card)
+    // without blocking the rest. `.catch` belt-and-suspenders on top of
+    // each loader's own internal try/catch.
+    const [gsc, gscDecay, ga4, clarity, semrush, aeo, clarityMultiDay] =
+      await Promise.all([
+        loadGscPageSignalsForTenant(tenantId, now).catch((err) => {
+          console.error("[today-v2] all-source GSC load failed:", err);
+          return new Map();
+        }),
+        loadGscDecaySignalsForTenant(tenantId, now).catch((err) => {
+          console.error("[today-v2] all-source GSC decay load failed:", err);
+          return new Map();
+        }),
+        loadGa4PageValuesForTenant(tenantId, now).catch((err) => {
+          console.error("[today-v2] all-source GA4 load failed:", err);
+          return new Map();
+        }),
+        loadClarityPageSignalsForTenant(tenantId, now).catch((err) => {
+          console.error("[today-v2] all-source Clarity load failed:", err);
+          return new Map();
+        }),
+        loadSemrushPageSignalsForTenant(tenantId).catch((err) => {
+          console.error("[today-v2] all-source SEMrush load failed:", err);
+          return new Map();
+        }),
+        fetchTodayDerivedKpis({ tenantId, now }).catch((err) => {
+          console.error("[today-v2] all-source AEO KPIs load failed:", err);
+          return null;
+        }),
+        claritySpansMultipleDays(tenantId, now),
+      ]);
+
+    const cards = buildSourceStatCards(
+      { gsc, gscDecay, ga4, clarity, semrush, aeo },
+      clarityMultiDay,
+    );
+    return { cards };
+  },
+);
+
+/**
+ * Whether the tenant has any AEO ("AI answers") data worth surfacing —
+ * drives whether the demoted, collapsible AI-answers block opens by
+ * default (open when there's data; collapsed when empty so it never
+ * opens to a blank section). Checks recent raw `prompt_answer_
+ * observations` (the same signal the demoted descriptors + visibility
+ * sections render from) rather than the derived rollup, because crons
+ * are off so the rollup can be empty even when raw observations exist.
+ *
+ * Tiny tenant-scoped bounded read; fail-soft to `false`. Memoized so
+ * the page can call it cheaply alongside the section mounts.
+ */
+export const loadTodayV2HasAeoData = cache(async (): Promise<boolean> => {
+  try {
+    const tenantId = await currentTenantId();
+    const repo = getRepository().forTenant(tenantId);
+    const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const recentObs = await repo.getPromptAnswerObservations({ since });
+    return recentObs.length > 0;
+  } catch (err) {
+    console.error("[today-v2] hasAeoData probe failed:", err);
+    return false;
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────

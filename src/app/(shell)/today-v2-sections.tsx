@@ -29,9 +29,11 @@ import "server-only";
 
 import {
   loadTodayV2ActionCardsData,
+  loadTodayV2AllSourceSummaryData,
   loadTodayV2DescriptorsData,
   loadTodayV2VisibilityData,
 } from "./today-v2-data";
+import { AllSourceStatRow } from "@/components/today/all-source-stat-row";
 import { TodayV2VisibilityGroupClient } from "./today-v2-visibility-group-client";
 import { TodayV2DoToday } from "@/components/today/v2/today-v2-do-today";
 import { TodayV2Working } from "@/components/today/v2/today-v2-working";
@@ -57,6 +59,20 @@ import {
 } from "@/components/today/beacon-learned-tile";
 import { isBrainLearnedTileEnabled } from "@/domains/recommendations/cross-tenant-brain/config";
 import { BRAIN_SAMPLE_THRESHOLDS } from "@/domains/recommendations/cross-tenant-brain/thresholds";
+
+/**
+ * All-source summary stat row (2026-06-15) — the unified command
+ * center's top scoreboard. Awaits the fail-soft all-source loader,
+ * builds the per-source cards (data-presence gated, NOT connector
+ * gated), and renders the row. Returns null when ZERO cards qualify so
+ * a tenant with no data anywhere reserves no layout. Ships default-on:
+ * the self-hide is the safety, not an env flag.
+ */
+export async function TodayV2AllSourceSummarySection() {
+  const { cards } = await loadTodayV2AllSourceSummaryData();
+  if (cards.length === 0) return null;
+  return <AllSourceStatRow cards={cards} />;
+}
 
 export async function TodayV2VisibilityGroupSection() {
   const data = await loadTodayV2VisibilityData();
