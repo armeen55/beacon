@@ -1400,6 +1400,33 @@ export function RowDrawer({
           operator-only. */}
       <WhyRankedHere row={row} />
 
+      {/* 2026-06-15 — super-specific evidence on the DEFAULT (legacy) surface:
+          exact search demand, current rank, click-through vs typical, and
+          SEMrush volume/difficulty. The data rides row.detail (built by
+          buildRecommendationActionRows); this mirrors the v2 [id] detail so
+          the owner sees the "why" with real numbers wherever they review. */}
+      {(() => {
+        const evidenceLines = [
+          ...(d.gscEvidenceLines ?? []),
+          ...(d.semrushEvidenceLines ?? []),
+        ];
+        if (evidenceLines.length === 0) return null;
+        return (
+          <DrawerSection title="Why this, why now">
+            <ul className="space-y-1.5" data-rec-evidence-lines="true">
+              {evidenceLines.map((line) => (
+                <li
+                  key={line.key}
+                  className="text-[12px] leading-relaxed text-muted-foreground"
+                >
+                  {line.detail}
+                </li>
+              ))}
+            </ul>
+          </DrawerSection>
+        );
+      })()}
+
       {/* Section: Exact recommended change */}
       {hasExactCopy && (
         <DrawerSection title="Exact recommended change">
