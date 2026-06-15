@@ -675,6 +675,50 @@ export type ConnectorSyncNowResult = {
 };
 
 /**
+ * #87/#88 honesty fix (2026-06-14) — reasons that genuinely mean "this
+ * source simply isn't connected / has nothing yet": a benign skip, NOT a
+ * failure. Everything NOT in this set (auth expired, supabase down, upsert
+ * failed, …) is surfaced as a real failure so the owner is told to act.
+ *
+ *   • no_token / no_key / no_property / no_domain / disconnected — never set up.
+ *   • no_property_derivable — GSC connected but no domain configured yet.
+ *   • no_categories_configured — Profound key works, workspace empty.
+ */
+const BENIGN_SKIP_REASONS = new Set([
+  "no_token",
+  "no_key",
+  "no_property",
+  "no_domain",
+  "disconnected",
+  "no_property_derivable",
+  "no_categories_configured",
+  // GSC: token store genuinely had no row → never connected (#87).
+  "no_usable_gsc_token",
+  // Profound: no key connected yet (#88) — distinct from profound_api_error.
+  "no_profound_key",
+  // Clarity: no token connected yet — distinct from a real API error. (The
+  // engine still uses the legacy combined reason; treat it as a skip so an
+  // unconnected source never alarms. A genuine upsert_failed stays a failure.)
+  "no_token_or_api_error",
+]);
+
+/**
+ * #87 (2026-06-14) — reasons that mean "you WERE connected but the auth
+ * broke": an honest FAILURE that tells the owner to reconnect, never a
+ * harmless "skipped". Each maps to plain-English copy (no jargon).
+ */
+const RECONNECT_REASONS: Record<string, string> = {
+  // GSC: token row exists but the grant expired / went stale (>7d).
+  gsc_token_expired:
+    "Your Google connection expired — reconnect Google to refresh.",
+  // GSC: a mid-sync 401/403 the refresh couldn't recover (revoked / lost scope).
+  gsc_auth_failed_401:
+    "Your Google connection expired — reconnect Google to refresh.",
+  gsc_auth_failed_403:
+    "Google revoked access for this site — reconnect Google to refresh.",
+};
+
+/**
  * Normalize a connector sync engine's discriminated result into the UI
  * shape WITHOUT coupling to each connector's exact fields. The engines all
  * carry a `synced` boolean discriminant; on success they expose some of
@@ -693,28 +737,97 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
   };
   if (r.synced) {
     const bits: string[] = [];
+    // #88 (2026-06-14) — a successful sync that returned zero rows is an OK
+    // state, not a failure. Profound especially: a synced run with zero
+    // citations means the engine ran fine and there's simply nothing yet —
+    // distinct from an auth/API error (which fails below as profound_api_error).
     const rowCount = r.rows_upserted ?? r.rows ?? r.imported ?? r.citation_rows;
     if (rowCount != null) bits.push(`${rowCount.toLocaleString()} row${rowCount === 1 ? "" : "s"}`);
     if (r.days != null) bits.push(`${r.days} day${r.days === 1 ? "" : "s"}`);
-    return { ok: true, detail: bits.length ? `Synced ${bits.join(" · ")}.` : "Synced." };
+    if (bits.length) return { ok: true, detail: `Synced ${bits.join(" · ")}.` };
+    return { ok: true, detail: "Synced — nothing new found yet." };
   }
+  // #87 — auth broke: an honest, plain-English reconnect prompt (a FAILURE).
+  if (r.reason != null && RECONNECT_REASONS[r.reason] != null) {
+    return { ok: false, error: RECONNECT_REASONS[r.reason] };
+  }
+  // Benign skip — the source isn't connected yet. Not an alarming failure.
+  if (r.reason != null && BENIGN_SKIP_REASONS.has(r.reason)) {
+    return { ok: false, error: "Not connected yet — connect this source to sync." };
+  }
+  // Anything else (supabase_unavailable, upsert_failed, no_key_or_api_error,
+  // …) is a real failure — surface it honestly rather than as a tidy skip.
   return {
     ok: false,
-    error: r.reason ? `Sync skipped: ${r.reason}.` : "Sync did not complete (not connected yet?).",
+    error: r.reason ? `Sync failed: ${r.reason}.` : "Sync did not complete.",
   };
+}
+
+/**
+ * Map a "Sync now" action to the connector token-store provider whose
+ * `last_synced_at` should be stamped on a successful pull (#72/#85). Only
+ * providers backed by the connector store are listed.
+ */
+type FreshnessProvider =
+  | "google_gsc"
+  | "google_ga4"
+  | "semrush"
+  | "profound"
+  | "clarity";
+
+async function writeLastSyncedAt(
+  provider: FreshnessProvider,
+  tenantId: string,
+): Promise<void> {
+  // Best-effort: a freshness-write failure must never turn a successful sync
+  // into a reported failure. updateConnectorToken is a no-op when the row is
+  // missing (e.g. soft-disconnected), so this is safe to call unconditionally.
+  // Switch routes to the right overload (each provider has a distinct patch
+  // type; all five accept last_synced_at).
+  try {
+    const patch = { last_synced_at: now() };
+    switch (provider) {
+      case "google_gsc":
+      case "google_ga4":
+        await updateConnectorToken(provider, patch, tenantId);
+        break;
+      case "semrush":
+        await updateConnectorToken(provider, patch, tenantId);
+        break;
+      case "profound":
+        await updateConnectorToken(provider, patch, tenantId);
+        break;
+      case "clarity":
+        await updateConnectorToken(provider, patch, tenantId);
+        break;
+    }
+  } catch (e) {
+    log.warn("Freshness write failed (sync still succeeded)", {
+      provider,
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+  }
 }
 
 async function runConnectorSyncNow(
   action: string,
   run: (tenantId: string) => Promise<unknown>,
+  /** Connector-store provider whose last_synced_at to stamp on success
+   *  (#72/#85). Omit for sources without a freshness row. */
+  freshnessProvider?: FreshnessProvider,
 ): Promise<ConnectorSyncNowResult> {
   const t0 = Date.now();
   log.info("Action started", { action });
   try {
     const tenantId = await currentTenantId();
     const result = await run(tenantId);
-    revalidatePath("/settings/connectors");
     const summary = summarizeConnectorSync(result);
+    // #72/#85 — stamp freshness ONLY on a genuinely successful pull so the
+    // connector card + freshness label stop saying "never refreshed".
+    if (summary.ok && freshnessProvider != null) {
+      await writeLastSyncedAt(freshnessProvider, tenantId);
+    }
+    revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0, ok: summary.ok });
     return summary;
   } catch (e) {
@@ -728,35 +841,45 @@ async function runConnectorSyncNow(
  *  First click on a cold tenant auto-backfills the watermark window; click
  *  again to extend history further. */
 export async function syncGscNow(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow("syncGscNow", (tenantId) =>
-    syncGscSearchAnalyticsForTenant({ tenantId }),
+  return runConnectorSyncNow(
+    "syncGscNow",
+    (tenantId) => syncGscSearchAnalyticsForTenant({ tenantId }),
+    "google_gsc",
   );
 }
 
 /** Pull GA4 URL traffic for the selected property. */
 export async function syncGa4Now(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow("syncGa4Now", (tenantId) =>
-    syncGa4UrlTrafficForTenant({ tenantId }),
+  return runConnectorSyncNow(
+    "syncGa4Now",
+    (tenantId) => syncGa4UrlTrafficForTenant({ tenantId }),
+    "google_ga4",
   );
 }
 
 /** Pull Profound AI-visibility/citation rows for this tenant. */
 export async function syncProfoundNow(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow("syncProfoundNow", (tenantId) =>
-    syncProfoundNightlyForTenant({ tenantId }),
+  return runConnectorSyncNow(
+    "syncProfoundNow",
+    (tenantId) => syncProfoundNightlyForTenant({ tenantId }),
+    "profound",
   );
 }
 
 /** Pull Microsoft Clarity daily friction metrics for this tenant. */
 export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow("syncClarityNow", (tenantId) =>
-    syncClarityDailyMetricsForTenant({ tenantId }),
+  return runConnectorSyncNow(
+    "syncClarityNow",
+    (tenantId) => syncClarityDailyMetricsForTenant({ tenantId }),
+    "clarity",
   );
 }
 
 /** Pull SEMrush organic keywords (supporting evidence) for this tenant. */
 export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow("syncSemrushNow", (tenantId) =>
-    syncSemrushOrganicKeywordsForTenant({ tenantId }),
+  return runConnectorSyncNow(
+    "syncSemrushNow",
+    (tenantId) => syncSemrushOrganicKeywordsForTenant({ tenantId }),
+    "semrush",
   );
 }

@@ -464,6 +464,12 @@ type WixConnectorPatch = Partial<
     "api_key" | "site_id" | "last_synced_at" | "disconnected_at"
   >
 >;
+type ProfoundConnectorPatch = Partial<
+  Pick<ProfoundConnectorToken, "api_key" | "last_synced_at" | "disconnected_at">
+>;
+type ClarityConnectorPatch = Partial<
+  Pick<ClarityConnectorToken, "api_token" | "last_synced_at" | "disconnected_at">
+>;
 
 export async function updateConnectorToken(
   provider: "google_gsc" | "google_gbp" | "google_ga4",
@@ -491,13 +497,25 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
+  provider: "profound",
+  patch: ProfoundConnectorPatch,
+  tenantId?: string,
+): Promise<void>;
+export async function updateConnectorToken(
+  provider: "clarity",
+  patch: ClarityConnectorPatch,
+  tenantId?: string,
+): Promise<void>;
+export async function updateConnectorToken(
   provider: ConnectorProvider,
   patch:
     | GoogleConnectorPatch
     | YelpConnectorPatch
     | SemrushConnectorPatch
     | CallRailConnectorPatch
-    | WixConnectorPatch,
+    | WixConnectorPatch
+    | ProfoundConnectorPatch
+    | ClarityConnectorPatch,
   tenantId?: string,
 ): Promise<void> {
   const tid = await resolveTenantId(tenantId);

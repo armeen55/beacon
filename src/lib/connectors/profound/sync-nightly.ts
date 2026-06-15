@@ -27,6 +27,7 @@ import { getBusinessConfig } from "@/lib/business-config";
 
 import {
   fetchProfoundCategories,
+  profoundKeyPresent,
   queryProfoundReport,
   queryProfoundV2Report,
   type ProfoundFetchDeps,
@@ -75,7 +76,18 @@ export async function syncProfoundNightlyForTenant(
   const now = args.now ?? new Date();
 
   const categories = await fetchProfoundCategories(tenantId, deps);
-  if (categories == null) return { synced: false, reason: "no_key_or_api_error" };
+  if (categories == null) {
+    // #88 (2026-06-14) — fetchProfoundCategories returns null for BOTH "no key
+    // connected" and "key present but the API call failed". Split the two so
+    // the UI can show an honest "not connected yet" skip vs a real API/auth
+    // FAILURE. Classification only — no extra fetch (key presence is a store
+    // read). Zero genuine results is handled below as synced:true, rows:0.
+    const hasKey = await profoundKeyPresent(tenantId, deps);
+    return {
+      synced: false,
+      reason: hasKey ? "profound_api_error" : "no_profound_key",
+    };
+  }
   if (categories.length === 0) {
     // Key works but the Profound workspace has no category configured —
     // every report call requires one; tell the operator honestly.

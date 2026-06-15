@@ -151,6 +151,40 @@ describe("refreshAllDataSources — classification", () => {
     expect(r.results.find((x) => x.provider === "clarity")!.outcome).toBe("failed");
   });
 
+  // #87/#88 (2026-06-14) — the engines now distinguish "never connected"
+  // (benign skip) from "connected but auth broke / API errored" (failed).
+  it("a CONNECTED-but-expired GSC token (gsc_token_expired) is a FAILURE, not a skip", async () => {
+    _gsc = { synced: false, reason: "gsc_token_expired" };
+    const r = await refreshAllDataSources();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.results.find((x) => x.provider === "gsc")!.outcome).toBe("failed");
+  });
+
+  it("Profound with a key but a failed API call (profound_api_error) is a FAILURE", async () => {
+    _profound = { synced: false, reason: "profound_api_error" };
+    const r = await refreshAllDataSources();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.results.find((x) => x.provider === "profound")!.outcome).toBe("failed");
+  });
+
+  it("Profound with NO key (no_profound_key) is a benign skip", async () => {
+    _profound = { synced: false, reason: "no_profound_key" };
+    const r = await refreshAllDataSources();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.results.find((x) => x.provider === "profound")!.outcome).toBe("skipped");
+  });
+
+  it("Profound zero genuine results (synced:true, citation_rows:0) is refreshed, not failed", async () => {
+    _profound = { synced: true, citation_rows: 0 };
+    const r = await refreshAllDataSources();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.results.find((x) => x.provider === "profound")!.outcome).toBe("refreshed");
+  });
+
   it("runs every source even when the first fails", async () => {
     _gsc = { synced: false, reason: "supabase_unavailable" };
     await refreshAllDataSources();

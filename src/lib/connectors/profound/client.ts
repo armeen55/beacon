@@ -45,6 +45,22 @@ async function defaultGetApiKey(tenantId: string): Promise<string | null> {
   return token.api_key || null;
 }
 
+/**
+ * #88 (2026-06-14) — does this tenant have a usable Profound key? Pure
+ * classification (no HTTP), reusing the SAME key resolver the fetch uses
+ * (test seam honored). Lets the sync split the old `no_key_or_api_error`
+ * conflation into an honest "not connected yet" (no key) vs "the API call
+ * failed" (key present but the request errored) — so a real auth/API error
+ * never hides behind a benign "skipped" and zero-results never looks failed.
+ */
+export async function profoundKeyPresent(
+  tenantId: string,
+  deps: ProfoundFetchDeps = {},
+): Promise<boolean> {
+  const getApiKey = deps.getApiKey ?? defaultGetApiKey;
+  return (await getApiKey(tenantId)) != null;
+}
+
 async function profoundRequest(
   args: {
     tenantId: string;

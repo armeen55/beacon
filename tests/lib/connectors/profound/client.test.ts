@@ -19,9 +19,13 @@ vi.mock("@/lib/logger", () => ({
 import {
   decodeProfoundEnvelope,
   fetchProfoundCategories,
+  profoundKeyPresent,
   queryProfoundReport,
 } from "@/lib/connectors/profound/client";
-import { profoundEstDateString } from "@/lib/connectors/profound/sync-nightly";
+import {
+  profoundEstDateString,
+  syncProfoundNightlyForTenant,
+} from "@/lib/connectors/profound/sync-nightly";
 
 describe("decodeProfoundEnvelope (positional contract)", () => {
   const DIMS = ["date", "model", "root_domain", "url"] as const;
@@ -181,6 +185,40 @@ describe("fail-soft contract", () => {
         getApiKey: async () => "k",
       }),
     ).toEqual([{ id: "c2", name: "Tea" }]);
+  });
+});
+
+// #88 (2026-06-14) — Profound 0-rows / no-key / api-error were all conflated
+// into one `no_key_or_api_error` reason, making a real auth/API failure look
+// like a harmless skip and zero genuine results look like a failure. The sync
+// now splits "no key connected" (benign) from "key present, call failed"
+// (real failure); a successful zero-result run stays synced:true.
+describe("profoundKeyPresent (honest no-key vs api-error split, #88)", () => {
+  it("true when a key resolves, false when none", async () => {
+    expect(await profoundKeyPresent("t", { getApiKey: async () => "k" })).toBe(true);
+    expect(await profoundKeyPresent("t", { getApiKey: async () => null })).toBe(false);
+  });
+});
+
+describe("syncProfoundNightlyForTenant — honest failure classification (#88)", () => {
+  it("no key connected → reason no_profound_key (a benign skip)", async () => {
+    const out = await syncProfoundNightlyForTenant(
+      { tenantId: "t" },
+      { getApiKey: async () => null },
+    );
+    expect(out).toEqual({ synced: false, reason: "no_profound_key" });
+  });
+
+  it("key present but the categories call fails → reason profound_api_error (a real failure)", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 401 }));
+    const out = await syncProfoundNightlyForTenant(
+      { tenantId: "t" },
+      {
+        getApiKey: async () => "k",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      },
+    );
+    expect(out).toEqual({ synced: false, reason: "profound_api_error" });
   });
 });
 

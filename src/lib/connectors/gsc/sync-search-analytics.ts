@@ -41,6 +41,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getBusinessConfig } from "@/lib/business-config";
+import { getGoogleConnectorToken } from "@/lib/connector-store";
 import { getTenant } from "@/domains/tenants/store";
 import { log } from "@/lib/logger";
 
@@ -78,6 +79,43 @@ function addDays(isoDate: string, days: number): string {
   const t = new Date(isoDate + "T12:00:00Z");
   t.setUTCDate(t.getUTCDate() + days);
   return t.toISOString().slice(0, 10);
+}
+
+const GSC_REQUIRED_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
+
+/**
+ * #87 (2026-06-14) — classify WHY resolveGscAccessToken returned null so the
+ * "Sync now" summary can be honest. Pure classification over the stored token
+ * (no HTTP): an absent token row means the owner never connected GSC (benign
+ * skip → `no_usable_gsc_token`); a present token that is soft-disconnected,
+ * lost its scope, or is expired/stale means the connection BROKE and the owner
+ * must reconnect (failure → `gsc_token_expired`). Mirrors the exact null
+ * branches in resolveGscAccessToken so the two stay in lockstep.
+ */
+async function classifyMissingGscToken(
+  tenantId: string,
+  now: Date,
+): Promise<string> {
+  let token;
+  try {
+    token = await getGoogleConnectorToken("gsc", tenantId);
+  } catch {
+    // Token store unreadable — can't prove a broken connection; treat as the
+    // benign "not connected" skip rather than alarm the owner.
+    return "no_usable_gsc_token";
+  }
+  // Genuinely never connected (no row at all).
+  if (token == null) return "no_usable_gsc_token";
+  // A row exists, so the owner DID connect at some point. Missing scope,
+  // soft-disconnect, or an expired/stale grant all mean "reconnect".
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(GSC_REQUIRED_SCOPE)) {
+    return "gsc_token_expired";
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return "gsc_token_expired";
+  }
+  // expires within / past window, or a stale_under_7d refresh that just failed.
+  return "gsc_token_expired";
 }
 
 async function resolveProperty(
@@ -148,7 +186,14 @@ export async function syncGscSearchAnalyticsForTenant(args: {
 
   const accessToken = await resolveGscAccessToken(tenantId, now);
   if (accessToken == null) {
-    return { synced: false, reason: "no_usable_gsc_token" };
+    // #87 (2026-06-14) — distinguish "never connected" (a benign skip) from
+    // "connected but the grant expired/went stale" (a FAILURE that must tell
+    // the owner to reconnect). resolveGscAccessToken returns null for BOTH;
+    // we re-read the token row here (classification only — no fetch) to emit
+    // the honest reason. A present-but-stale/disconnected/scope-lost token →
+    // gsc_token_expired; a genuinely absent token → no_usable_gsc_token.
+    const reason = await classifyMissingGscToken(tenantId, now);
+    return { synced: false, reason };
   }
   const property = await resolveProperty(tenantId, accessToken);
   if (property == null) {

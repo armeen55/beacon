@@ -21,6 +21,11 @@
  *
  * Success: ?connected=<provider> so the Settings UI can show the
  * correct success copy per provider.
+ *
+ * Degraded success (#90): ?connected=<provider>&warning=missing_refresh_token
+ * when Google returned no refresh token — the grant works now but WILL die
+ * and can't self-heal, so the UI shows a reconnect warning, not a clean
+ * "connected successfully".
  */
 
 import { NextResponse } from "next/server";
@@ -159,6 +164,21 @@ export async function GET(request: Request): Promise<NextResponse> {
     expiresIn: tokens.expires_in,
     hasRefresh: !!tokens.refresh_token,
   });
+
+  // #90 (2026-06-14) — a token grant with NO refresh_token is guaranteed to
+  // die once the short-lived access token expires (and cannot self-heal),
+  // even though the auth URL already requests access_type=offline +
+  // prompt=consent. This happens when the user previously granted offline
+  // access on an OLD consent (Google then omits the refresh token on
+  // re-consent for the same client) or revoked it externally. Reporting a
+  // clean "connected successfully" here is dishonest — surface a WARNING that
+  // tells the owner to reconnect so a fresh refresh token is issued.
+  if (!tokens.refresh_token) {
+    return settingsRedirect(request, {
+      connected: provider,
+      warning: "missing_refresh_token",
+    });
+  }
 
   return settingsRedirect(request, { connected: provider });
 }

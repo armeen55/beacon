@@ -101,10 +101,14 @@ const NOT_CONNECTED_REASONS = new Set([
   "no_property",
   "no_domain",
   "disconnected",
-  // GSC
+  // GSC — genuinely no token row (#87). A CONNECTED-but-expired grant now
+  // reports gsc_token_expired (intentionally NOT here → classifies as failed).
   "no_usable_gsc_token",
   "no_property_derivable",
-  // Profound (dormant until key + category configured)
+  // Profound — no key connected yet (#88). A key-present API error now reports
+  // profound_api_error (intentionally NOT here → failed). Legacy combined
+  // reason kept for back-compat with callers that haven't been re-deployed.
+  "no_profound_key",
   "no_key_or_api_error",
   "no_categories_configured",
   // Clarity (dormant until token)

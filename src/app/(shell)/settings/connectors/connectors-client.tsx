@@ -89,6 +89,12 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and BEACON_OAUTH_STATE_SECRET in your environment.",
 };
 
+/** #90 (2026-06-14) — honest copy when Google returns no refresh token: the
+ *  connection works for now but will stop on its own. Plain-English (no
+ *  "refresh token" jargon) so a non-technical owner knows to reconnect. */
+const MISSING_REFRESH_TOKEN_WARNING =
+  "Google connected, but didn't grant ongoing access — this connection will stop working soon. Please click Connect again and allow access when Google asks.";
+
 function formatDate(iso: string | null): string {
   if (!iso) return "Never";
   try {
@@ -174,12 +180,21 @@ export function ConnectorsClient({
   useEffect(() => {
     const err = searchParams.get("error");
     const connected = searchParams.get("connected");
+    // #90 (2026-06-14) — Google returned no refresh token. The connection
+    // works now but will quietly die and can't self-heal; show an honest
+    // reconnect warning instead of a clean "connected successfully".
+    const warning = searchParams.get("warning");
+    const missingRefresh = warning === "missing_refresh_token";
     if (err) {
       setError(ERROR_MESSAGES[err] ?? `Connection error: ${err}`);
       window.history.replaceState(null, "", "/settings/connectors");
     }
     if (connected === "google_gsc") {
-      setSuccess("Google Search Console connected successfully.");
+      if (missingRefresh) {
+        setError(MISSING_REFRESH_TOKEN_WARNING);
+      } else {
+        setSuccess("Google Search Console connected successfully.");
+      }
       startTransition(async () => {
         const status = await getGoogleGscConnectorStatus();
         setGoogle(status);
@@ -187,9 +202,13 @@ export function ConnectorsClient({
       window.history.replaceState(null, "", "/settings/connectors");
     }
     if (connected === "google_ga4") {
-      setSuccess(
-        "Google Analytics connected. Choose a property to finish setup.",
-      );
+      if (missingRefresh) {
+        setError(MISSING_REFRESH_TOKEN_WARNING);
+      } else {
+        setSuccess(
+          "Google Analytics connected. Choose a property to finish setup.",
+        );
+      }
       startTransition(async () => {
         const status = await getGoogleGa4ConnectorStatus();
         setGa4(status);
