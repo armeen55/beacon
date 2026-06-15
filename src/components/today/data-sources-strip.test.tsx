@@ -7,11 +7,16 @@
  *
  *   1. Not-connected sources render a labeled "Connect" link pointing at the
  *      real connect entry point (the connectors page / its card anchor).
- *   2. Connected sources render a "Connected" state (✓) — never a Connect
- *      link — and show last-synced copy when available.
- *   3. ALL six connected → the heavy strip collapses to a tiny
- *      "All data sources connected" confirmation (no per-source list).
- *   4. Connect affordances are accessible (each carries an aria-label naming
+ *   2. Connected (fully healthy) sources render a "Connected" state (✓) —
+ *      never a Connect link — and show last-synced copy when available.
+ *   3. needs_attention sources (connected in the token store but NOT actually
+ *      delivering data — e.g. GA4 with no property picked, or never synced)
+ *      render an honest ⚠ treatment with the plain-English reason — NEVER the
+ *      success-green ✓ — and deep-link to the connectors page to fix it.
+ *   4. ALL six fully connected → the heavy strip collapses to a tiny
+ *      "All data sources connected" confirmation (no per-source list). A
+ *      single needs_attention source keeps the full strip visible.
+ *   5. Connect affordances are accessible (each carries an aria-label naming
  *      the source) and tap-target sized (min-h-[44px]).
  *
  * Markup-only assertions (renderToStaticMarkup) — no behavior to drive.
@@ -28,30 +33,40 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { DataSourcesStripView } from "./data-sources-strip";
-import type { ConnectorProvider } from "@/lib/connector-store";
+import type { ConnectorHealth, ConnectorProvider } from "@/lib/connector-store";
 
 type StatusInput = {
   provider: ConnectorProvider;
   label: string;
-  connected: boolean;
+  /** `connected: true` is sugar for a fully-healthy source (health "connected"). */
+  connected?: boolean;
+  health?: ConnectorHealth;
+  healthReason?: string | null;
   lastSynced?: string | null;
 };
 
 const ALL_SIX: StatusInput[] = [
-  { provider: "google_gsc", label: "Google Search Console", connected: false },
-  { provider: "google_ga4", label: "Google Analytics 4", connected: false },
-  { provider: "semrush", label: "SEMrush", connected: false },
-  { provider: "clarity", label: "Microsoft Clarity", connected: false },
-  { provider: "profound", label: "Profound", connected: false },
-  { provider: "wix", label: "Wix", connected: false },
+  { provider: "google_gsc", label: "Google Search Console" },
+  { provider: "google_ga4", label: "Google Analytics 4" },
+  { provider: "semrush", label: "SEMrush" },
+  { provider: "clarity", label: "Microsoft Clarity" },
+  { provider: "profound", label: "Profound" },
+  { provider: "wix", label: "Wix" },
 ];
+
+function resolveHealth(patch: Partial<StatusInput> | undefined): ConnectorHealth {
+  if (patch?.health != null) return patch.health;
+  if (patch?.connected === true) return "connected";
+  return "not_connected";
+}
 
 function statuses(over: Partial<Record<ConnectorProvider, Partial<StatusInput>>> = {}) {
   return ALL_SIX.map((s) => {
     const patch = over[s.provider];
     return {
       source: { provider: s.provider, label: s.label, cardAnchor: null },
-      connected: patch?.connected ?? s.connected,
+      health: resolveHealth(patch),
+      healthReason: patch?.healthReason ?? null,
       lastSynced: patch?.lastSynced ?? null,
     };
   });
@@ -104,6 +119,80 @@ describe("DataSourcesStripView — connected state", () => {
     expect(html).toContain("synced 2 days ago");
     expect(html).toContain(
       'aria-label="Google Analytics 4: connected, synced 2 days ago"',
+    );
+  });
+});
+
+describe("DataSourcesStripView — needs_attention state", () => {
+  it("renders a ⚠ treatment (not the success ✓) with the reason for a connected-but-not-delivering source", () => {
+    const html = render({
+      google_ga4: {
+        health: "needs_attention",
+        healthReason:
+          "Connected — pick your Analytics property to start pulling data.",
+      },
+    });
+    // The honest reason is the visible text.
+    expect(html).toContain(
+      "Connected — pick your Analytics property to start pulling data.",
+    );
+    // Warning glyph present; the success glyph must NOT be used for this source.
+    expect(html).toContain("⚠");
+    // Accessible name says "needs attention" + the reason — never "connected".
+    expect(html).toContain('aria-label="Google Analytics 4: needs attention.');
+    expect(html).not.toContain('aria-label="Google Analytics 4: connected"');
+    // It deep-links to the connectors page to fix it (not a passive label).
+    expect(html).toContain('href="/settings/connectors"');
+    // It is NOT presented as a plain "Connect →" not-connected source either.
+    expect(html).not.toContain('aria-label="Connect Google Analytics 4"');
+  });
+
+  it("renders the never-synced reason for a connected source with no first reading", () => {
+    const html = render({
+      semrush: {
+        health: "needs_attention",
+        healthReason: "Connected — click Refresh my data to pull your first reading.",
+      },
+    });
+    expect(html).toContain(
+      "Connected — click Refresh my data to pull your first reading.",
+    );
+    expect(html).toContain('aria-label="SEMrush: needs attention.');
+    expect(html).toContain("min-h-[44px]");
+  });
+
+  it("does NOT use the success-green ✓ markup for a needs_attention source", () => {
+    const onlyAttention = render({
+      google_ga4: {
+        health: "needs_attention",
+        healthReason:
+          "Connected — pick your Analytics property to start pulling data.",
+      },
+    });
+    // The success-state border class only appears on a fully-healthy ✓ chip,
+    // which this fixture has none of.
+    expect(onlyAttention).not.toContain("border-status-success/40");
+    // Honest copy invariant still holds — no phantom-automation claims.
+    expect(onlyAttention).not.toMatch(/automatically|on a schedule|nightly/i);
+  });
+
+  it("keeps the full strip visible (no all-connected collapse) when one source needs attention", () => {
+    const html = render({
+      google_gsc: { connected: true },
+      google_ga4: {
+        health: "needs_attention",
+        healthReason:
+          "Connected — pick your Analytics property to start pulling data.",
+      },
+      semrush: { connected: true },
+      clarity: { connected: true },
+      profound: { connected: true },
+      wix: { connected: true },
+    });
+    // The collapse confirmation must NOT appear while a source needs attention.
+    expect(html).not.toContain("All data sources connected");
+    expect(html).toContain(
+      "Connected — pick your Analytics property to start pulling data.",
     );
   });
 });

@@ -398,6 +398,138 @@ export async function getConnectorInfo(
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Honest connector health (derived) — 2026-06-15
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Derived per-source health, beyond the binary connected/disconnected the
+ * token row stores. The owner-reported trust bug: a source can be
+ * `status: "connected"` (a token row exists, no `disconnected_at`) yet
+ * deliver ZERO data — because the operator never picked a GA4 property, or
+ * never ran a first refresh. A blanket green ✓ for those states is a lie.
+ *
+ *   • "connected"       — connected AND has reliably delivered (or can).
+ *   • "needs_attention" — connected but provably not yet delivering data,
+ *                         with an actionable plain-English reason.
+ *   • "not_connected"   — no token / soft-disconnected.
+ *
+ * RELIABILITY NOTE (deliberately conservative — honesty over coverage):
+ *
+ *   We only flag `needs_attention` from signals that are PROVABLE at render
+ *   time by reading the persisted token row (no live HTTP):
+ *     1. GA4 connected but `ga4_property_id` is null/empty → 0 rows ever.
+ *     2. Connected but `last_synced_at` is null → never pulled a reading.
+ *     3. Connected + `last_synced_at` older than STALE_DAYS → soft hint.
+ *
+ *   We deliberately do NOT derive a live "reconnect / token expired" state
+ *   here. OAuth *access* tokens expire hourly but the *refresh* token is
+ *   what matters — so `expires_at < now` alone is NOT "needs reconnect"
+ *   (the next refresh silently heals it). The only authoritative
+ *   reconnect signal is a FAILED refresh, which the GSC/GA4 syncs classify
+ *   transiently (`gsc_token_expired` / `token_expired`) but do NOT persist
+ *   to the token row. Surfacing live reconnect state would require
+ *   persisting that auth-failure marker on the token row from the sync path
+ *   — tracked as a follow-up (see report). Until then we stay silent rather
+ *   than fake a reconnect prompt from `expires_at`.
+ */
+export type ConnectorHealth = "connected" | "needs_attention" | "not_connected";
+
+export type ConnectorHealthInfo = ConnectorInfo & {
+  health: ConnectorHealth;
+  /** Plain-English, customer-facing, actionable. null when health is a
+   *  plain "connected" or "not_connected" with nothing to say. */
+  healthReason: string | null;
+};
+
+/** Connected-but-no-data is more than this many days stale → soft hint. */
+const STALE_DAYS = 14;
+
+/** Providers that require a per-source selection before any data can flow. */
+function requiresPropertySelection(provider: ConnectorProvider): boolean {
+  // GA4 pulls zero rows until the operator picks a property. (GBP needs a
+  // location, but GBP is not a strip data source.)
+  return provider === "google_ga4";
+}
+
+/**
+ * Derive honest health for a single provider from its persisted token row.
+ * Fail-soft: a token-store read error degrades to `not_connected` (never
+ * throws, never blocks a render). Tenant-scoping is preserved end-to-end via
+ * `getConnectorInfo` → `getConnectorToken`.
+ */
+export async function getConnectorHealth(
+  provider: ConnectorProvider,
+  tenantId?: string,
+  now: number = Date.now(),
+): Promise<ConnectorHealthInfo> {
+  let info: ConnectorInfo;
+  try {
+    info = await getConnectorInfo(provider, tenantId);
+  } catch {
+    return {
+      status: "disconnected",
+      connected_at: null,
+      expires_at: null,
+      last_synced_at: null,
+      health: "not_connected",
+      healthReason: null,
+    };
+  }
+
+  if (info.status !== "connected") {
+    return { ...info, health: "not_connected", healthReason: null };
+  }
+
+  // Connected, but is it actually able to deliver data?
+
+  // 1. GA4 connected, no property picked → 0 rows will ever sync.
+  if (
+    requiresPropertySelection(provider) &&
+    (info.ga4_property_id == null || info.ga4_property_id === "")
+  ) {
+    return {
+      ...info,
+      health: "needs_attention",
+      healthReason:
+        "Connected — pick your Analytics property to start pulling data.",
+    };
+  }
+
+  // Data-freshness rules apply ONLY to read sources. Wix is publish-only —
+  // it never "pulls a reading", so a connected Wix is always healthy (a
+  // missing/old last_synced_at just means nothing's been published, not a
+  // problem). Skipping it here also avoids the "pull your first reading"
+  // copy nonsensically appearing on Wix.
+  if (provider === "wix") {
+    return { ...info, health: "connected", healthReason: null };
+  }
+
+  // 2. Connected + stale beyond STALE_DAYS → soft, non-alarming hint. Only
+  // fires when last_synced_at is a REAL timestamp that is genuinely old. We
+  // deliberately do NOT alarm on a null/empty last_synced_at: it is an
+  // unreliable "never synced" signal (e.g. GSC can hold 90 days of data with
+  // a null marker because the marker predates last-synced stamping), and a
+  // false ⚠ on a source that actually has data is worse than staying quiet.
+  if (info.last_synced_at != null && info.last_synced_at !== "") {
+    const lastSynced = Date.parse(info.last_synced_at);
+    if (Number.isFinite(lastSynced)) {
+      const days = Math.floor(
+        Math.max(0, now - lastSynced) / (24 * 60 * 60 * 1000),
+      );
+      if (days >= STALE_DAYS) {
+        return {
+          ...info,
+          health: "needs_attention",
+          healthReason: `Last pulled ${days} days ago — Refresh to update.`,
+        };
+      }
+    }
+  }
+
+  return { ...info, health: "connected", healthReason: null };
+}
+
 /**
  * The read data-source connectors that, when ANY is connected, mean the
  * tenant is operating on its own LIVE data — not demo/sample content.

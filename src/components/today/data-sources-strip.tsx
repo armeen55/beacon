@@ -1,8 +1,9 @@
 import Link from "next/link";
 
 import {
-  getConnectorInfo,
-  type ConnectorInfo,
+  getConnectorHealth,
+  type ConnectorHealth,
+  type ConnectorHealthInfo,
   type ConnectorProvider,
 } from "@/lib/connector-store";
 import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
@@ -17,7 +18,13 @@ import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
  * page.
  *
  * Reuse contract (no new OAuth flow):
- *   - Connection status comes from `getConnectorInfo(provider, tenantId)`.
+ *   - Connection HEALTH comes from `getConnectorHealth(provider, tenantId)` —
+ *     an honest three-state derive (connected / needs_attention /
+ *     not_connected). A source can be `connected` in the token store yet not
+ *     actually deliver data (GA4 with no property picked; never synced; very
+ *     stale). Those render a ⚠ "needs attention" treatment with a plain-
+ *     English reason — NOT the success-green ✓ — so the owner is never told a
+ *     broken source is fine.
  *   - The CONNECT target for every not-connected source is the existing
  *     connectors page (`/settings/connectors`). That page already owns the
  *     real connect entry points — the Google OAuth `getGoogleAuthUrl` server
@@ -98,31 +105,39 @@ function formatLastSynced(iso: string | null, now: number): string | null {
 
 type SourceStatus = {
   source: DataSource;
-  connected: boolean;
+  /** Honest three-state health (connected / needs_attention / not_connected). */
+  health: ConnectorHealth;
+  /** Plain-English reason for a needs_attention source; null otherwise. */
+  healthReason: string | null;
   lastSynced: string | null;
 };
 
 /**
- * Read every source's status in parallel, fail-soft per provider. A read
- * error → treated as not-connected (shows a Connect link) so the strip never
+ * Read every source's health in parallel, fail-soft per provider. A read
+ * error → treated as not_connected (shows a Connect link) so the strip never
  * blocks the command-center render.
  */
 async function readStatuses(tenantId?: string): Promise<SourceStatus[]> {
   const now = Date.now();
   return Promise.all(
     DATA_SOURCES.map(async (source) => {
-      let info: ConnectorInfo | null = null;
+      let info: ConnectorHealthInfo | null = null;
       try {
-        info = await getConnectorInfo(source.provider, tenantId);
+        info = await getConnectorHealth(source.provider, tenantId, now);
       } catch {
         info = null;
       }
+      const health = info?.health ?? "not_connected";
       return {
         source,
-        connected: info?.status === "connected",
+        health,
+        healthReason: info?.healthReason ?? null,
+        // Only show "synced X ago" on the fully-healthy state — a
+        // needs_attention source carries its own reason instead, and a
+        // not_connected one has no sync to report.
         lastSynced:
-          info?.status === "connected"
-            ? formatLastSynced(info.last_synced_at, now)
+          health === "connected"
+            ? formatLastSynced(info?.last_synced_at ?? null, now)
             : null,
       };
     }),
@@ -132,7 +147,7 @@ async function readStatuses(tenantId?: string): Promise<SourceStatus[]> {
 /**
  * Server component island. Pass the tenant id (the caller already resolves
  * `currentTenantId()` on the command-center path); omit it to let
- * `getConnectorInfo` resolve the current tenant.
+ * `getConnectorHealth` resolve the current tenant.
  */
 export async function DataSourcesStrip({
   tenantId,
@@ -152,12 +167,18 @@ export function DataSourcesStripView({
 }: {
   statuses: SourceStatus[];
 }) {
-  const allConnected = statuses.every((s) => s.connected);
+  // All-connected collapse only when EVERY source is fully healthy — a
+  // connected-but-needs-attention source keeps the full strip visible so its
+  // ⚠ reason is never hidden behind a green "all good" confirmation.
+  const allConnected = statuses.every((s) => s.health === "connected");
   // The READ sources a one-click refresh pulls (Wix is publish-only and never
   // counts toward what "Refresh my data" can do). Mirrors REFRESH_ALL_SOURCES
-  // in settings/connectors/actions.ts.
+  // in settings/connectors/actions.ts. A needs_attention source still has a
+  // live token, so it counts toward what a refresh will attempt.
   const connectedCount = statuses.filter(
-    (s) => s.connected && s.source.provider !== "wix",
+    (s) =>
+      (s.health === "connected" || s.health === "needs_attention") &&
+      s.source.provider !== "wix",
   ).length;
 
   if (allConnected) {
@@ -203,15 +224,15 @@ export function DataSourcesStripView({
         </div>
       </div>
       <ul className="mt-2 flex flex-wrap gap-2">
-        {statuses.map(({ source, connected, lastSynced }) => {
-          // What Beacon does automatically with this source, in plain English
-          // (same copy as the connectors page) — surfaced as a hover tooltip +
-          // folded into the accessible name so the "why connect this?" answer
-          // is right here on Today, not only on the settings page.
+        {statuses.map(({ source, health, healthReason, lastSynced }) => {
+          // What Beacon does with this source, in plain English (same copy as
+          // the connectors page) — surfaced as a hover tooltip + folded into
+          // the accessible name so the "why connect this?" answer is right
+          // here on Today, not only on the settings page.
           const automated = CONNECTOR_CAPABILITY[source.provider]?.automated;
           return (
           <li key={source.provider}>
-            {connected ? (
+            {health === "connected" ? (
               <span
                 className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-status-success/40 bg-status-success/[0.06] px-3 py-2 text-[12px] text-foreground"
                 title={automated}
@@ -225,6 +246,26 @@ export function DataSourcesStripView({
                   <span className="text-muted-foreground">· {lastSynced}</span>
                 ) : null}
               </span>
+            ) : health === "needs_attention" ? (
+              // Connected in the token store, but provably NOT delivering data
+              // yet (no GA4 property picked / never synced / very stale). Honest
+              // ⚠ treatment — NOT the success green ✓ — plus the actionable
+              // reason and a deep-link to fix it on the connectors page. The
+              // reason is the visible text AND the accessible name.
+              <Link
+                href={connectHref(source)}
+                title={automated}
+                aria-label={`${source.label}: needs attention. ${healthReason ?? ""}`.trim()}
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-status-warning/50 bg-status-warning/[0.08] px-3 py-2 text-[12px] text-foreground transition-colors hover:border-status-warning/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-warning/40"
+              >
+                <span aria-hidden="true" className="text-status-warning">
+                  ⚠
+                </span>
+                <span className="font-medium">{source.label}</span>
+                {healthReason ? (
+                  <span className="text-muted-foreground">· {healthReason}</span>
+                ) : null}
+              </Link>
             ) : (
               <Link
                 href={connectHref(source)}

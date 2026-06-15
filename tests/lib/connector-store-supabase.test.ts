@@ -127,6 +127,7 @@ import {
   getGoogleConnectorToken,
   getYelpConnectorToken,
   getConnectorInfo,
+  getConnectorHealth,
   saveConnectorToken,
   updateConnectorToken,
   deleteConnectorToken,
@@ -159,6 +160,18 @@ function gbpToken(overrides?: Partial<GoogleConnectorToken>): GoogleConnectorTok
     expires_at: Date.now() + 3600_000,
     connected_at: "2026-05-16T10:00:00Z",
     scopes: ["https://www.googleapis.com/auth/business.manage"],
+    ...overrides,
+  };
+}
+
+function ga4Token(overrides?: Partial<GoogleConnectorToken>): GoogleConnectorToken {
+  return {
+    provider: "google_ga4",
+    access_token: "ga4-access",
+    refresh_token: "ga4-refresh",
+    expires_at: Date.now() + 3600_000,
+    connected_at: "2026-05-18T10:00:00Z",
+    scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
     ...overrides,
   };
 }
@@ -374,6 +387,91 @@ describe("connector-store — isTokenExpired", () => {
 
   it("returns false for yelp tokens (no expiry concept)", () => {
     expect(isTokenExpired(yelpToken())).toBe(false);
+  });
+});
+
+describe("connector-store — getConnectorHealth (honest derived state)", () => {
+  const NOW = Date.parse("2026-06-15T12:00:00Z");
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("not_connected when no token row exists", async () => {
+    const h = await getConnectorHealth("google_gsc", "tenant-missing", NOW);
+    expect(h.health).toBe("not_connected");
+    expect(h.healthReason).toBeNull();
+  });
+
+  it("not_connected when the token is soft-disconnected", async () => {
+    await saveConnectorToken(
+      gscToken({ disconnected_at: "2026-06-10T00:00:00Z" }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("not_connected");
+  });
+
+  it("GA4 connected but NO property picked → needs_attention with the pick-property reason", async () => {
+    await saveConnectorToken(
+      ga4Token({ last_synced_at: "2026-06-14T00:00:00Z" }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_ga4", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe(
+      "Connected — pick your Analytics property to start pulling data.",
+    );
+  });
+
+  it("connected with a null last_synced_at → stays healthy (no false 'never synced' alarm)", async () => {
+    // A null/empty last_synced_at is an UNRELIABLE 'never synced' signal — e.g.
+    // GSC can hold 90 days of data with a null marker (marker predates
+    // last-synced stamping). We deliberately do NOT raise a ⚠ here; a false
+    // alarm on a source that actually has data is worse than staying quiet.
+    await saveConnectorToken(gscToken(), "tenant-a"); // no last_synced_at
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("connected");
+    expect(h.healthReason).toBeNull();
+  });
+
+
+  it("connected + synced recently → healthy connected, no reason", async () => {
+    await saveConnectorToken(
+      gscToken({ last_synced_at: new Date(NOW - 2 * DAY).toISOString() }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("connected");
+    expect(h.healthReason).toBeNull();
+  });
+
+  it("connected but stale beyond 14 days → needs_attention with a soft stale hint", async () => {
+    await saveConnectorToken(
+      gscToken({ last_synced_at: new Date(NOW - 20 * DAY).toISOString() }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe("Last pulled 20 days ago — Refresh to update.");
+  });
+
+  it("GA4 with property + recent sync → healthy connected", async () => {
+    await saveConnectorToken(
+      ga4Token({
+        ga4_property_id: "123456789",
+        last_synced_at: new Date(NOW - 1 * DAY).toISOString(),
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_ga4", "tenant-a", NOW);
+    expect(h.health).toBe("connected");
+  });
+
+  it("preserves tenant isolation — tenant A's health is not derived from tenant B's token", async () => {
+    await saveConnectorToken(
+      gscToken({ last_synced_at: new Date(NOW - 2 * DAY).toISOString() }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-b", NOW);
+    expect(h.health).toBe("not_connected");
   });
 });
 
