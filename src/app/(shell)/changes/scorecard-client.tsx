@@ -334,8 +334,14 @@ export function ScorecardTable({
   return (
     <div>
       {/* Phase 6A.2 lifecycle tabs. Default = live_verified so operators
-          land on lifecycle truth, not the 291-row legacy mix. */}
-      <div className="flex items-center gap-1 mb-4 border-b border-border/40 pb-2 overflow-x-auto">
+          land on lifecycle truth, not the 291-row legacy mix.
+
+          #411 (mobile affordance): the tab row scrolls horizontally on
+          narrow screens. A right-edge fade overlay signals there are more
+          tabs/controls off-screen so users know to swipe. Desktop is
+          unchanged — the fade is invisible once everything fits. */}
+      <div className="relative mb-4 border-b border-border/40">
+        <div className="flex items-center gap-1 pb-2 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {LIFECYCLE_TAB_ORDER
           // Hide a tab when it has zero rows, EXCEPT live_verified and
           // all — live_verified must always be visible (operator
@@ -373,19 +379,33 @@ export function ScorecardTable({
         >
           Export CSV
         </button>
+        </div>
+        {/* #411 — right-edge scroll affordance. Fades the trailing tab so
+            it reads as "there's more here, swipe →". Pointer-events-none so
+            it never blocks taps; hidden on md+ where the row always fits. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent md:hidden"
+        />
       </div>
 
-      <div className="border border-border/70 rounded-lg overflow-hidden">
-        <table className="w-full text-[12px]">
+      {/* #404 (mobile): the wrapper is overflow-x-auto so the table can
+          scroll horizontally on a ~360px phone instead of bleeding past the
+          viewport. Fixed column widths are gated behind md: so on small
+          screens cells size to content / wrap (the Change column keeps the
+          flexible width it always had). Desktop (md+) keeps the original
+          fixed-width 5-column layout untouched. */}
+      <div className="border border-border/70 rounded-lg overflow-x-auto">
+        <table className="w-full min-w-[480px] text-[12px]">
           <thead>
             <tr className="border-b border-border bg-surface-inset text-[10px] text-muted-foreground">
-              <th className="text-left px-2.5 py-1.5 font-medium w-[90px]">When</th>
+              <th className="text-left px-2.5 py-1.5 font-medium md:w-[90px]">When</th>
               <th className="text-left px-2.5 py-1.5 font-medium">Change</th>
-              <th className="text-left px-2.5 py-1.5 font-medium w-[120px]">Status</th>
-              <th className="text-left px-2.5 py-1.5 font-medium w-[80px] tabular-nums">
+              <th className="text-left px-2.5 py-1.5 font-medium md:w-[120px]">Status</th>
+              <th className="text-left px-2.5 py-1.5 font-medium md:w-[80px] tabular-nums">
                 Delta
               </th>
-              <th className="w-[32px]" />
+              <th className="md:w-[32px]" />
             </tr>
           </thead>
           <tbody>
@@ -576,7 +596,7 @@ function ChangeRow({
           : {})}
         title={isStalePending ? staleTooltip : undefined}
       >
-        <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
+        <td className="px-2.5 py-2 text-muted-foreground tabular-nums md:whitespace-nowrap align-top text-[11px]">
           <span>{dateStr}</span>
           {/* Phase 6A.3 (2026-04-28) — replaces the previous tiny
               source_system subtitle ("imported" / "scan · auto-caught")
@@ -632,7 +652,7 @@ function ChangeRow({
             </div>
           )}
         </td>
-        <td className="px-2.5 py-2 align-top max-w-[380px]">
+        <td className="px-2.5 py-2 align-top md:max-w-[380px]">
           {/* Phase 6B.1 follow-up (2026-04-28) — synthetic pending rows
               don't have a real /changes/[id] detail page (they're built
               from recommended_edits at render time). Linking to
@@ -672,7 +692,7 @@ function ChangeRow({
               {ch.change_description}
             </p>
             {ch.url ? (
-              <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate max-w-[340px]">
+              <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate max-w-full md:max-w-[340px]">
                 {ch.url}
               </p>
             ) : (
@@ -682,7 +702,7 @@ function ChangeRow({
             )}
           </Link>
         </td>
-        <td className="px-2.5 py-2 align-top whitespace-nowrap">
+        <td className="px-2.5 py-2 align-top md:whitespace-nowrap">
           {outcome ? (
             // Phase 6A.6 — verified-live rows still in bake window MUST
             // override a stale stored outcome (the outcome was computed
@@ -769,7 +789,7 @@ function ChangeRow({
             </span>
           )}
         </td>
-        <td className="px-2.5 py-2 align-top whitespace-nowrap tabular-nums">
+        <td className="px-2.5 py-2 align-top md:whitespace-nowrap tabular-nums">
           <span className={`text-[12px] font-semibold ${deltaColor}`}>
             {deltaStr}
           </span>
@@ -795,6 +815,12 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
   const sc = row.scorecard;
   const isTooEarly = v?.verdict === "too_early";
   const ro = row.readyOn ?? null;
+  // #412 (mobile): the raw Greek-letter math block (mu_pre, sigma, z,
+  // sustain) is unreadable on a phone and is secondary to the plain-
+  // English verdict above it. Collapse it behind a "Show the math"
+  // toggle on small screens (default closed). Desktop (md+) always
+  // shows it — the toggle button and the collapse only apply below md.
+  const [showMath, setShowMath] = useState(false);
 
   return (
     <tr className="border-b border-border bg-surface-inset/20">
@@ -923,7 +949,24 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
                   });
                   return <WhyThisVerdict provenance={prov} />;
                 })()}
-                <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 text-[11px] font-mono leading-relaxed">
+                {/* #412 — mobile-only toggle for the raw math block. The
+                    plain-English summary + WhyThisVerdict above stay
+                    visible by default; the Greek-letter math is opt-in on
+                    a phone. Hidden on md+ where the block always shows. */}
+                <button
+                  type="button"
+                  onClick={() => setShowMath((s) => !s)}
+                  aria-expanded={showMath}
+                  className="md:hidden inline-flex items-center gap-1 text-[11px] font-semibold text-accent-primary hover:text-accent-primary/85"
+                >
+                  {showMath ? "Hide the math" : "Show the math"}
+                  <span aria-hidden>{showMath ? "▾" : "▸"}</span>
+                </button>
+                <div
+                  className={`${
+                    showMath ? "block" : "hidden"
+                  } md:block rounded-md border border-border/60 bg-background/50 px-3 py-2 text-[11px] font-mono leading-relaxed overflow-x-auto`}
+                >
                   <MathRow
                     label="Before change (per day)"
                     value={`${v.explanation.math.mu_pre}/day`}
@@ -971,7 +1014,11 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
                     }
                   />
                 </div>
-                <p className="text-[10px] text-muted-foreground italic">
+                <p
+                  className={`${
+                    showMath ? "block" : "hidden"
+                  } md:block text-[10px] text-muted-foreground italic`}
+                >
                   Confidence: <span className="font-medium">{v.confidence}</span>
                 </p>
               </div>
@@ -1081,7 +1128,7 @@ function MathRow({
 }) {
   return (
     <div className="flex items-baseline gap-2 py-0.5">
-      <span className="text-muted-foreground min-w-[140px]">{label}</span>
+      <span className="text-muted-foreground md:min-w-[140px]">{label}</span>
       <span className="text-foreground font-semibold">{value}</span>
       {note && (
         <span className="text-muted-foreground/70 text-[10px] ml-auto">

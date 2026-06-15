@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-14 (/changes mobile responsiveness — 3 phone-unusable findings, legacy surface)
+
+**Directive:** the `/changes` "what changed + did it work" surface is unusable on a ~360px phone. Fix 3 responsive findings (CSS/markup only, no logic/data/copy changes). Default surface is **legacy** (`shouldUseChangesV2` returns false unless `?v2=1` / `BEACON_CHANGES_V2=true`, which is not set) — v2 already uses responsive card layouts, so all three live in `src/app/(shell)/changes/scorecard-client.tsx`.
+
+**Fixed (NOT committed/pushed; typecheck clean; targeted changes tests green):**
+- **#404 (CRITICAL) — scorecard table overflows on a phone.** The 5-column table had `overflow-hidden` (clipped horizontal bleed), fixed `w-[90/120/80/32px]` columns, and `whitespace-nowrap` + `max-w-[380px]/[340px]` cells that forced the table wider than the viewport. Reused the repo's proven recommendations-table idiom: changed the wrapper to `overflow-x-auto`, added `min-w-[480px]` so the table scrolls cleanly rather than collapsing, and gated every rigid constraint behind `md:` (`md:w-[…]`, `md:whitespace-nowrap`, `md:max-w-[…]`, URL `max-w-full md:max-w-[340px]`). Below md the cells size to content / wrap; at md+ the original fixed-width 5-column desktop layout is byte-for-byte unchanged.
+- **#411 — tab bar had no scroll affordance.** The lifecycle-tab row (`overflow-x-auto`, 11px) gave no hint that tabs/Export-CSV were off-screen on mobile. Wrapped the scroll region in a `relative` container (moved `border-b` to it), hid the scrollbar, and added a `pointer-events-none absolute right-0 w-10 bg-gradient-to-l from-background … md:hidden` fade overlay so the trailing tab fades → "swipe for more". Invisible/inert on md+.
+- **#412 — Z-score math block unreadable on a phone.** Tapping a row opens `ExpandPanel`; its "Explain this verdict" section renders the plain-English `WhyThisVerdict` summary followed by a `font-mono` block of Greek-letter rows (mu_pre, sigma, z, sustain) + Confidence. Added a `showMath` state (default collapsed) with an `md:hidden` "Show the math / Hide the math" toggle (`aria-expanded`); the math `<div>` and Confidence line are `${showMath ? "block" : "hidden"} md:block` so they collapse on mobile but always show on desktop. Also relaxed `MathRow` label `min-w-[140px]` → `md:min-w-[140px]` and made the block `overflow-x-auto`. The plain-English verdict stays visible by default; the math is opt-in on a phone.
+
+**Tests:** no markup-pinning tests broke — the architecture tests over `scorecard-client.tsx` assert only copy/logic tokens I did not touch (`label="Change strength"`, the `canMarkShipped`/`accepted` gate, the D5 stale-pending pill/tooltip copy). `npm run typecheck` clean. Targeted run: `changes-stale-pending-affordance` + `mark-shipped-accepted-only` + `demo-path-fixes-2026-05-06(-bis)` + `customer-readiness-round-1` + `main-product-final-confidence-sweep` + `changes-smoke` + `changes-page-reads-fresh` + `changes-v2-switcher` + `changes-v2-client` + co-located `change-drilldown-early-signal` / `attribution-drilldown-proof-lead` = **all green** (71 + 956 across the two runs). Full suite NOT run, no commit/push per instructions.
+
+---
+
 ## 2026-06-14 (dashboard metric-honesty — 4 trust-eroding /today numbers made honest)
 
 **Directive:** the `/` Today surface showed misleading numbers a skeptical owner catches. Fix four specific metric-honesty findings; make numbers honest (placeholder / labelled / qualified), reuse the existing awaiting-data + sample-quality patterns, do not fabricate. Default surface is legacy (`BEACON_TODAY_V2=false`).
