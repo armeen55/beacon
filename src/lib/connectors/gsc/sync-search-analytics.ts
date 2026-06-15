@@ -41,7 +41,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getBusinessConfig } from "@/lib/business-config";
-import { getGoogleConnectorToken } from "@/lib/connector-store";
+import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
 import { getTenant } from "@/domains/tenants/store";
 import { log } from "@/lib/logger";
 
@@ -116,6 +116,35 @@ async function classifyMissingGscToken(
   }
   // expires within / past window, or a stale_under_7d refresh that just failed.
   return "gsc_token_expired";
+}
+
+/**
+ * Reconnect signal (2026-06-15) — persist the auth-failure marker onto the
+ * google_gsc token row so getConnectorHealth can surface a "Reconnect Google"
+ * state from a render (no live HTTP). FAIL-SOFT by contract: a token-write
+ * error here must NEVER change the sync's own return value or throw — the
+ * sync's outcome is already decided. Tenant-scoped (RAILS: isolation sacred).
+ *   • stampGscAuthFailure  → set auth_failed_at = now ISO (sync ended in auth failure)
+ *   • clearGscAuthFailure  → set auth_failed_at = null  (sync succeeded, auth OK)
+ */
+async function stampGscAuthFailure(tenantId: string, now: Date): Promise<void> {
+  try {
+    await updateConnectorToken(
+      "google_gsc",
+      { auth_failed_at: now.toISOString() },
+      tenantId,
+    );
+  } catch {
+    /* fail-soft — never alter the sync outcome */
+  }
+}
+
+async function clearGscAuthFailure(tenantId: string): Promise<void> {
+  try {
+    await updateConnectorToken("google_gsc", { auth_failed_at: null }, tenantId);
+  } catch {
+    /* fail-soft — never alter the sync outcome */
+  }
 }
 
 async function resolveProperty(
@@ -193,8 +222,24 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     // the honest reason. A present-but-stale/disconnected/scope-lost token →
     // gsc_token_expired; a genuinely absent token → no_usable_gsc_token.
     const reason = await classifyMissingGscToken(tenantId, now);
+    // Reconnect signal (2026-06-15): only an EXPIRED/BROKEN grant
+    // (gsc_token_expired) means the operator must reconnect; a genuinely
+    // never-connected tenant (no_usable_gsc_token) must NOT be stamped — that
+    // would fabricate a "Reconnect" prompt on a source the owner never wired.
+    // Fail-soft (never alters this return).
+    if (reason === "gsc_token_expired") {
+      await stampGscAuthFailure(tenantId, now);
+    }
     return { synced: false, reason };
   }
+  // Reconnect signal (2026-06-15): a usable access token resolved — the grant
+  // is alive and authenticating. Clear any prior auth-failure marker so the
+  // strip drops back to a plain "connected" ✓. This is the single
+  // clear-on-success point: every path from here to a `synced:true` return had
+  // working auth; the only auth-failure path below (a mid-sync 401/403 that
+  // survives the refresh-retry) RE-stamps after this clear, so the marker stays
+  // correct. Fail-soft (never alters the sync outcome).
+  await clearGscAuthFailure(tenantId);
   const property = await resolveProperty(tenantId, accessToken);
   if (property == null) {
     return { synced: false, reason: "no_property_derivable" };
@@ -247,6 +292,10 @@ export async function syncGscSearchAnalyticsForTenant(args: {
         "[gsc-sa-sync] GSC auth failure — token expired or lost scope; reconnect GSC",
         { tenantId, property, status: authFailureStatus },
       );
+      // Reconnect signal (2026-06-15): a mid-sync 401/403 that survived the
+      // one refresh-retry proves the grant is dead → stamp so the strip can
+      // surface "Reconnect Google". Fail-soft (never alters this return).
+      await stampGscAuthFailure(tenantId, now);
       return { synced: false, reason: `gsc_auth_failed_${authFailureStatus}` };
     }
     if (rows == null) {

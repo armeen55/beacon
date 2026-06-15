@@ -110,6 +110,18 @@ export type GoogleConnectorToken = {
    *  Absent on legacy rows (pre-J5). Applies to GSC + GA4 (GBP retains
    *  destructive delete path per Section 7 lock). */
   disconnected_at?: string;
+  /** Reconnect signal (2026-06-15). ISO 8601 timestamp stamped by the
+   *  GSC/GA4 sync paths when a sync TERMINATES in an auth failure — the
+   *  refresh token itself is dead/revoked/scope-lost (gsc_token_expired,
+   *  gsc_auth_failed_401/403, GA4 token_expired). This is the only
+   *  authoritative "needs reconnect" signal: an `expires_at < now` alone
+   *  is NOT, because the next refresh silently heals it. CLEARED (set to
+   *  null) on a successful sync (synced:true, auth OK — even 0 rows).
+   *  `getConnectorHealth` reads this to surface a "Reconnect" state. The
+   *  write is fail-soft from the sync path (a token-write error never
+   *  changes the sync's own outcome). Absent on legacy rows. google_gsc
+   *  + google_ga4 only. */
+  auth_failed_at?: string | null;
 };
 
 /** Yelp Fusion — API key (never sent to the client). */
@@ -227,6 +239,11 @@ export type ConnectorInfo = {
   ga4_property_display_name?: string | null;
   /** GA4 account display name (google_ga4 only). */
   ga4_account_display_name?: string | null;
+  /** Reconnect signal (Google only, 2026-06-15). ISO 8601 timestamp set by
+   *  the sync path when the last sync ended in an auth failure (dead/revoked
+   *  refresh token); null/absent when the connection is healthy. Read by
+   *  `getConnectorHealth` to surface a "Reconnect" state. */
+  auth_failed_at?: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -370,6 +387,10 @@ export async function getConnectorInfo(
       ga4_property_id: token.ga4_property_id ?? null,
       ga4_property_display_name: token.ga4_property_display_name ?? null,
       ga4_account_display_name: token.ga4_account_display_name ?? null,
+      // Reconnect signal (2026-06-15) — carried through so
+      // getConnectorHealth can surface a "Reconnect Google" state without a
+      // second token read. Null on healthy connections + non-Google providers.
+      auth_failed_at: token.auth_failed_at ?? null,
     } as const;
     if (token.disconnected_at != null && token.disconnected_at !== "") {
       return {
@@ -418,20 +439,22 @@ export async function getConnectorInfo(
  *
  *   We only flag `needs_attention` from signals that are PROVABLE at render
  *   time by reading the persisted token row (no live HTTP):
+ *     0. `auth_failed_at` set → the last sync proved the grant is dead →
+ *        Reconnect (HIGHEST priority — see below).
  *     1. GA4 connected but `ga4_property_id` is null/empty → 0 rows ever.
  *     2. Connected but `last_synced_at` is null → never pulled a reading.
  *     3. Connected + `last_synced_at` older than STALE_DAYS → soft hint.
  *
- *   We deliberately do NOT derive a live "reconnect / token expired" state
- *   here. OAuth *access* tokens expire hourly but the *refresh* token is
- *   what matters — so `expires_at < now` alone is NOT "needs reconnect"
- *   (the next refresh silently heals it). The only authoritative
- *   reconnect signal is a FAILED refresh, which the GSC/GA4 syncs classify
- *   transiently (`gsc_token_expired` / `token_expired`) but do NOT persist
- *   to the token row. Surfacing live reconnect state would require
- *   persisting that auth-failure marker on the token row from the sync path
- *   — tracked as a follow-up (see report). Until then we stay silent rather
- *   than fake a reconnect prompt from `expires_at`.
+ *   We still do NOT derive reconnect state from `expires_at`. OAuth *access*
+ *   tokens expire hourly but the *refresh* token is what matters — so
+ *   `expires_at < now` alone is NOT "needs reconnect" (the next refresh
+ *   silently heals it). The only authoritative reconnect signal is a FAILED
+ *   refresh. The GSC/GA4 syncs classify that failure transiently
+ *   (`gsc_token_expired` / `gsc_auth_failed_*` / GA4 `token_expired`) AND now
+ *   PERSIST it onto the token row as `auth_failed_at` (set on the sync's
+ *   auth-failure terminal branch, cleared on a successful sync). That
+ *   persisted marker is what we read here — no live HTTP, no `expires_at`
+ *   guessing.
  */
 export type ConnectorHealth = "connected" | "needs_attention" | "not_connected";
 
@@ -482,6 +505,24 @@ export async function getConnectorHealth(
   }
 
   // Connected, but is it actually able to deliver data?
+
+  // 0. Reconnect (HIGHEST priority — most urgent + most actionable). The
+  // sync path stamps `auth_failed_at` when a Google sync TERMINATES in an
+  // auth failure (the refresh token is dead/revoked/scope-lost). This is the
+  // only authoritative reconnect signal — see the field doc on
+  // GoogleConnectorToken. It outranks the GA4-no-property and stale rules:
+  // those describe a working connection that just needs a nudge, whereas this
+  // is a BROKEN connection that delivers nothing until the operator
+  // re-authorizes. Read off info.auth_failed_at (carried through from the
+  // token row by getConnectorInfo). Cleared back to null by the next
+  // successful sync, which silently returns this to plain "connected".
+  if (info.auth_failed_at != null && info.auth_failed_at !== "") {
+    return {
+      ...info,
+      health: "needs_attention",
+      healthReason: "Reconnect Google to refresh — the connection expired.",
+    };
+  }
 
   // 1. GA4 connected, no property picked → 0 rows will ever sync.
   if (
@@ -612,6 +653,9 @@ type GoogleConnectorPatch = Partial<
     // J5 (2026-05-18) — soft-disconnect / reconnect flow patches the
     // payload's disconnected_at without touching the OAuth tokens.
     | "disconnected_at"
+    // 2026-06-15 — auth-failure reconnect signal, set on sync auth
+    // failure / cleared on sync success by the GSC + GA4 sync paths.
+    | "auth_failed_at"
   >
 >;
 type YelpConnectorPatch = Partial<

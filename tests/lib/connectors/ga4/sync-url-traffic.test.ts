@@ -7,14 +7,24 @@
  *   • token + property + persist ok → { synced:true, property, counts }, persist called
  *     with the computeRefreshDateRange-derived window
  *   • persist non-ok → { synced:false, reason } passthrough (never throws)
+ *
+ * Reconnect signal (2026-06-15): the sync also stamps/clears `auth_failed_at`
+ * on the google_ga4 token row via updateConnectorToken so getConnectorHealth
+ * can surface a "Reconnect Google" state:
+ *   • persist token_expired → updateConnectorToken sets auth_failed_at = now ISO
+ *   • persist ok            → updateConnectorToken clears auth_failed_at = null
+ *   • other persist failures → NOT stamped (only token_expired is auth failure)
+ *   • a token-write error is fail-soft (sync return value unchanged, no throw)
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ─── Mocks (hoisted) ─────────────────────────────────────────────────
 const _getTokenMock = vi.fn();
+const _updateTokenMock = vi.fn();
 vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: (...a: unknown[]) => _getTokenMock(...a),
+  updateConnectorToken: (...a: unknown[]) => _updateTokenMock(...a),
 }));
 
 const _getRecommendedEditsMock = vi.fn();
@@ -43,9 +53,11 @@ import { computeRefreshDateRange } from "@/lib/connectors/ga4/persist-url-traffi
 
 beforeEach(() => {
   _getTokenMock.mockReset();
+  _updateTokenMock.mockReset();
   _getRecommendedEditsMock.mockReset();
   _persistMock.mockReset();
   _getRecommendedEditsMock.mockResolvedValue([]);
+  _updateTokenMock.mockResolvedValue(undefined);
 });
 
 describe("syncGa4UrlTrafficForTenant — dormant until key", () => {
@@ -114,5 +126,59 @@ describe("syncGa4UrlTrafficForTenant — delegation", () => {
     _persistMock.mockResolvedValue({ ok: false, reason: "quota_exceeded" });
     const r = await syncGa4UrlTrafficForTenant({ tenantId: "t1" });
     expect(r).toEqual({ synced: false, reason: "quota_exceeded" });
+  });
+});
+
+describe("syncGa4UrlTrafficForTenant — reconnect signal (auth_failed_at)", () => {
+  const okToken = {
+    provider: "google_ga4" as const,
+    ga4_property_id: "properties/123",
+  };
+
+  it("persist token_expired → stamps auth_failed_at on the google_ga4 token (tenant-scoped)", async () => {
+    _getTokenMock.mockResolvedValue(okToken);
+    _persistMock.mockResolvedValue({ ok: false, reason: "token_expired" });
+    const r = await syncGa4UrlTrafficForTenant({ tenantId: "t1" });
+    expect(r).toEqual({ synced: false, reason: "token_expired" });
+    expect(_updateTokenMock).toHaveBeenCalledTimes(1);
+    const [provider, patch, tenantId] = _updateTokenMock.mock.calls[0]!;
+    expect(provider).toBe("google_ga4");
+    expect(typeof (patch as { auth_failed_at: unknown }).auth_failed_at).toBe(
+      "string",
+    );
+    expect(tenantId).toBe("t1");
+  });
+
+  it("persist ok → clears auth_failed_at (sets null) on the google_ga4 token", async () => {
+    _getTokenMock.mockResolvedValue(okToken);
+    _persistMock.mockResolvedValue({ ok: true, rows_fetched: 3, rows_upserted: 3 });
+    const r = await syncGa4UrlTrafficForTenant({ tenantId: "t1" });
+    expect(r.synced).toBe(true);
+    expect(_updateTokenMock).toHaveBeenCalledTimes(1);
+    const [provider, patch, tenantId] = _updateTokenMock.mock.calls[0]!;
+    expect(provider).toBe("google_ga4");
+    expect((patch as { auth_failed_at: unknown }).auth_failed_at).toBeNull();
+    expect(tenantId).toBe("t1");
+  });
+
+  it("non-auth persist failure (quota_exceeded) does NOT stamp", async () => {
+    _getTokenMock.mockResolvedValue(okToken);
+    _persistMock.mockResolvedValue({ ok: false, reason: "quota_exceeded" });
+    await syncGa4UrlTrafficForTenant({ tenantId: "t1" });
+    expect(_updateTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("a token-write error is fail-soft — the sync return value is unchanged, no throw", async () => {
+    _getTokenMock.mockResolvedValue(okToken);
+    _persistMock.mockResolvedValue({ ok: false, reason: "token_expired" });
+    _updateTokenMock.mockRejectedValue(new Error("supabase down"));
+    const r = await syncGa4UrlTrafficForTenant({ tenantId: "t1" });
+    expect(r).toEqual({ synced: false, reason: "token_expired" });
+  });
+
+  it("no token → never stamps (dormant-until-key, not a reconnect)", async () => {
+    _getTokenMock.mockResolvedValue(null);
+    await syncGa4UrlTrafficForTenant({ tenantId: "t1" });
+    expect(_updateTokenMock).not.toHaveBeenCalled();
   });
 });

@@ -100,29 +100,36 @@ describe("computeRefreshDateRange — pure policy", () => {
   const NOW = new Date("2026-05-19T12:00:00Z");
   // 2026-05-19 UTC
 
-  it("defaults to last 90 days when no edits supplied", () => {
+  // 2026-06-15: lookback widened to GA4's ~14-month retention ceiling
+  // (DEFAULT == MAX == 420 days) so a refresh pulls the FULL history GA4
+  // holds, not a 3-6 month slice. With default == cap, the window is always
+  // exactly the last 420 days (2026-05-19 − 420d = 2025-03-25); the per-edit
+  // expand/clamp logic still runs but resolves to that same floor.
+  const FULL_WINDOW_START = "2025-03-25"; // 2026-05-19 − 420d
+
+  it("defaults to the full ~14-month (420-day) window when no edits supplied", () => {
     const r = computeRefreshDateRange([], NOW);
     expect(r.endDate).toBe("2026-05-19");
-    expect(r.startDate).toBe("2026-02-18"); // 2026-05-19 − 90d
+    expect(r.startDate).toBe(FULL_WINDOW_START);
   });
 
-  it("defaults to last 90 days when all edits have null live_at", () => {
+  it("defaults to the full window when all edits have null live_at", () => {
     const r = computeRefreshDateRange(
       [{ live_at: null }, { live_at: "" }, {}],
       NOW,
     );
-    expect(r.startDate).toBe("2026-02-18");
+    expect(r.startDate).toBe(FULL_WINDOW_START);
   });
 
-  it("ignores malformed live_at strings (defaults to 90-day window)", () => {
+  it("ignores malformed live_at strings (defaults to the full window)", () => {
     const r = computeRefreshDateRange(
       [{ live_at: "not-a-date" }, { live_at: "garbage" }],
       NOW,
     );
-    expect(r.startDate).toBe("2026-02-18");
+    expect(r.startDate).toBe(FULL_WINDOW_START);
   });
 
-  it("keeps 90-day default when all edits are within the default window", () => {
+  it("keeps the full-window start when all edits are within it", () => {
     const r = computeRefreshDateRange(
       [
         { live_at: "2026-04-01T00:00:00Z" },
@@ -130,27 +137,26 @@ describe("computeRefreshDateRange — pure policy", () => {
       ],
       NOW,
     );
-    expect(r.startDate).toBe("2026-02-18");
+    expect(r.startDate).toBe(FULL_WINDOW_START);
   });
 
-  it("expands startDate back to min(live_at) when an edit is older than 90 days", () => {
+  it("an edit within the 420-day window does not move the start (default already covers it)", () => {
     const r = computeRefreshDateRange(
       [
-        { live_at: "2026-01-15T00:00:00Z" }, // older than 90d
+        { live_at: "2026-01-15T00:00:00Z" }, // within 420d → no expansion
         { live_at: "2026-04-01T00:00:00Z" },
       ],
       NOW,
     );
-    expect(r.startDate).toBe("2026-01-15");
+    expect(r.startDate).toBe(FULL_WINDOW_START);
   });
 
-  it("clamps to 180-day cap when min(live_at) is older than the cap", () => {
+  it("clamps to the 420-day cap when min(live_at) is older than the cap", () => {
     const r = computeRefreshDateRange(
-      [{ live_at: "2025-01-01T00:00:00Z" }], // > 180 days ago
+      [{ live_at: "2025-01-01T00:00:00Z" }], // > 420 days ago
       NOW,
     );
-    // 2026-05-19 − 180d = 2025-11-20
-    expect(r.startDate).toBe("2025-11-20");
+    expect(r.startDate).toBe(FULL_WINDOW_START);
   });
 
   it("returns YYYY-MM-DD strings only (no time component)", () => {
@@ -166,8 +172,10 @@ describe("computeRefreshDateRange — pure policy", () => {
   });
 
   it("exposes locked defaults via __testing for visibility", () => {
-    expect(__testing.DEFAULT_LOOKBACK_DAYS).toBe(90);
-    expect(__testing.MAX_LOOKBACK_DAYS).toBe(180);
+    // Widened 2026-06-15 to GA4's ~14-month retention ceiling so refreshes
+    // pull the full available history.
+    expect(__testing.DEFAULT_LOOKBACK_DAYS).toBe(420);
+    expect(__testing.MAX_LOOKBACK_DAYS).toBe(420);
     expect(__testing.TABLE).toBe("ga4_url_traffic");
   });
 });

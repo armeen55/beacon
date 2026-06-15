@@ -409,6 +409,92 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     expect(h.health).toBe("not_connected");
   });
 
+  const RECONNECT_REASON = "Reconnect Google to refresh — the connection expired.";
+
+  it("auth_failed_at set → needs_attention with the Reconnect reason (GSC)", async () => {
+    await saveConnectorToken(
+      gscToken({
+        auth_failed_at: "2026-06-15T03:00:00Z",
+        last_synced_at: new Date(NOW - 2 * DAY).toISOString(),
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe(RECONNECT_REASON);
+  });
+
+  it("auth_failed_at OUTRANKS a no-property GA4 token (most urgent wins)", async () => {
+    // Both conditions hold: the GA4 grant expired AND no property is picked.
+    // The reconnect signal is the most urgent + actionable → it must win.
+    await saveConnectorToken(
+      ga4Token({
+        auth_failed_at: "2026-06-15T03:00:00Z",
+        // ga4_property_id deliberately absent → would otherwise trigger the
+        // pick-property reason.
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_ga4", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe(RECONNECT_REASON);
+  });
+
+  it("auth_failed_at OUTRANKS a stale last_synced_at", async () => {
+    await saveConnectorToken(
+      gscToken({
+        auth_failed_at: "2026-06-15T03:00:00Z",
+        last_synced_at: new Date(NOW - 30 * DAY).toISOString(), // 30d → stale rule
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe(RECONNECT_REASON);
+  });
+
+  it("auth_failed_at = null → unchanged behavior (healthy connected)", async () => {
+    await saveConnectorToken(
+      gscToken({
+        auth_failed_at: null,
+        last_synced_at: new Date(NOW - 2 * DAY).toISOString(),
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("connected");
+    expect(h.healthReason).toBeNull();
+  });
+
+  it("auth_failed_at empty string → treated as unset (no false Reconnect)", async () => {
+    await saveConnectorToken(
+      gscToken({
+        auth_failed_at: "",
+        last_synced_at: new Date(NOW - 2 * DAY).toISOString(),
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("connected");
+    expect(h.healthReason).toBeNull();
+  });
+
+  it("a soft-disconnected token with auth_failed_at → still not_connected (disconnect wins)", async () => {
+    // A soft-disconnected source is reported not_connected regardless of the
+    // auth marker — the operator chose to disconnect; the strip shows Connect,
+    // not Reconnect.
+    await saveConnectorToken(
+      gscToken({
+        disconnected_at: "2026-06-10T00:00:00Z",
+        auth_failed_at: "2026-06-15T03:00:00Z",
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("not_connected");
+    expect(h.healthReason).toBeNull();
+  });
+
   it("GA4 connected but NO property picked → needs_attention with the pick-property reason", async () => {
     await saveConnectorToken(
       ga4Token({ last_synced_at: "2026-06-14T00:00:00Z" }),

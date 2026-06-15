@@ -32,7 +32,7 @@
 
 import "server-only";
 
-import { getGoogleConnectorToken } from "@/lib/connector-store";
+import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
 import { getRepository } from "@/lib/persistence/repositories";
 
 import {
@@ -77,12 +77,51 @@ export async function syncGa4UrlTrafficForTenant(args: {
     endDate,
   });
   if (!result.ok) {
+    // Reconnect signal (2026-06-15): ONLY a `token_expired` outcome proves the
+    // GA4 grant is dead → stamp the token so getConnectorHealth surfaces
+    // "Reconnect Google". Other failures (quota_exceeded, admin_unavailable,
+    // persist_failed, invalid_args, …) are NOT auth failures and must not
+    // fabricate a reconnect prompt. Fail-soft — the stamp never alters this
+    // return value or throws.
+    if (result.reason === "token_expired") {
+      await stampGa4AuthFailure(tenantId, now);
+    }
     return { synced: false, reason: result.reason };
   }
+  // Auth proved good (data fetched + persisted) → clear any prior marker so
+  // the strip drops back to a plain "connected" ✓. Fail-soft.
+  await clearGa4AuthFailure(tenantId);
   return {
     synced: true,
     property: propertyId,
     rows_fetched: result.rows_fetched,
     rows_upserted: result.rows_upserted,
   };
+}
+
+/**
+ * Reconnect signal (2026-06-15) — persist the auth-failure marker onto the
+ * google_ga4 token row so getConnectorHealth can surface "Reconnect Google"
+ * from a render. FAIL-SOFT by contract: a token-write error here must NEVER
+ * change the sync's return value or throw. Tenant-scoped (RAILS: isolation
+ * sacred).
+ */
+async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
+  try {
+    await updateConnectorToken(
+      "google_ga4",
+      { auth_failed_at: now.toISOString() },
+      tenantId,
+    );
+  } catch {
+    /* fail-soft — never alter the sync outcome */
+  }
+}
+
+async function clearGa4AuthFailure(tenantId: string): Promise<void> {
+  try {
+    await updateConnectorToken("google_ga4", { auth_failed_at: null }, tenantId);
+  } catch {
+    /* fail-soft — never alter the sync outcome */
+  }
 }
