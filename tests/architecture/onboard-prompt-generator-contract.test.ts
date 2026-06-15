@@ -23,8 +23,6 @@ const REVIEW_PAGE = join(
   REPO_ROOT,
   "src/app/(shell)/onboard/review/page.tsx",
 );
-const LISTER = join(REPO_ROOT, "scripts/list-active-tenants.ts");
-
 const GENERATOR_SRC = readFileSync(GENERATOR, "utf8");
 const REVIEW_SRC = readFileSync(REVIEW_PAGE, "utf8");
 
@@ -226,12 +224,11 @@ describe("Gap E.1 — /onboard/review page itself is read-only (writes go throug
   });
 });
 
-describe("Gap E.1 — pending tenants remain excluded from cron polling", () => {
-  it("scripts/list-active-tenants.ts still filters status='active' (Gap A guard intact)", () => {
-    const lister = readFileSync(LISTER, "utf8");
-    expect(lister).toMatch(/\.eq\(\s*"status"\s*,\s*"active"\s*\)/);
-  });
-
+describe("Gap E.1 — pending tenants stay pending through onboarding", () => {
+  // De-bloat (2026-06-15): the `list-active-tenants.ts filters
+  // status='active'` assertion was removed with the deleted cron-matrix
+  // lister. The surviving preview-only contract below is the live
+  // invariant.
   it("/onboard/review never inserts into tracked_prompts (preview-only contract)", () => {
     expect(REVIEW_SRC).not.toMatch(/\.from\(["']tracked_prompts["']\)/);
   });

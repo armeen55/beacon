@@ -27,7 +27,6 @@ const WAITING_COMPONENT = join(
 );
 const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
 const TODAY_CLIENT = join(REPO_ROOT, "src/app/(shell)/today-client.tsx");
-const LISTER = join(REPO_ROOT, "scripts/list-active-tenants.ts");
 
 const DETECTOR_SRC = readFileSync(DETECTOR, "utf8");
 const WAITING_SRC = readFileSync(WAITING_COMPONENT, "utf8");
@@ -278,11 +277,10 @@ describe("Gap F.1 — Ritz-shaped tenant unchanged", () => {
     // this test catches it.
     expect(DETECTOR_SRC).toMatch(/observationCount\s*>\s*0/);
   });
-
-  it("scripts/list-active-tenants.ts still filters status='active' (Gap A intact)", () => {
-    const lister = readFileSync(LISTER, "utf8");
-    expect(lister).toMatch(/\.eq\(\s*"status"\s*,\s*"active"\s*\)/);
-  });
+  // De-bloat (2026-06-15): the `scripts/list-active-tenants.ts still
+  // filters status='active'` assertion was removed with the lister —
+  // it was the cron-matrix plumbing for the deleted scheduled poll/scan/
+  // generation workflows and has no live consumer post-pivot.
 });
 
 describe("Gap F.1 — does NOT trigger any immediate poll or paid API", () => {

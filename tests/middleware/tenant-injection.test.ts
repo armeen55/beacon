@@ -10,9 +10,8 @@
  *      /login?error=multiple_tenants (schema has no primary indicator yet).
  *   5. Unauthenticated request to a private path still redirects to
  *      /login?next=... (preserves Phase 2 auth gate).
- *   6. /api/poll/run remains in the machine-auth allowlist (no redirect).
- *   7. BEACON_AUTH_DISABLED=1 still bypasses everything (no tenant lookup).
- *   8. Resolver reads injected header in preference to env (smoke that the
+ *   6. BEACON_AUTH_DISABLED=1 still bypasses everything (no tenant lookup).
+ *   7. Resolver reads injected header in preference to env (smoke that the
  *      Phase 7.3 + 7.4 contract works end-to-end).
  */
 
@@ -175,52 +174,13 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     expect(location).toContain("next=%2Ftoday");
   });
 
-  it("/api/poll/run is in the machine-auth allowlist (no redirect even when unauthenticated)", async () => {
-    supabaseState.user = null;
-    const req = makeRequest("/api/poll/run");
-    const res = await updateSession(req);
-    // Allowlisted: middleware lets the request through; the route handler
-    // enforces its own bearer auth. No redirect.
-    expect(res.status).toBe(200);
-  });
-
-  // 2026-05-11 — cron-middleware fix. Pre-fix the middleware redirected
-  // /api/cron/* to /login before the route handler's CRON_SECRET bearer
-  // check ran, silently breaking the daily-native-poll workflow's
-  // rebuild-citation-evidence-index step. The route handlers already
-  // enforce `Authorization: Bearer ${CRON_SECRET}` themselves.
-  it("/api/cron/rebuild-citation-evidence-index is in the machine-auth allowlist (no redirect when unauthenticated)", async () => {
-    supabaseState.user = null;
-    const req = makeRequest("/api/cron/rebuild-citation-evidence-index");
-    const res = await updateSession(req);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("location")).toBeNull();
-  });
-
-  it("/api/cron/scan is in the machine-auth allowlist (no redirect when unauthenticated)", async () => {
-    supabaseState.user = null;
-    const req = makeRequest("/api/cron/scan");
-    const res = await updateSession(req);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("location")).toBeNull();
-  });
-
-  // 2026-05-11 Automation Reliability Bundle — Vercel-cron watchdog
-  // that dispatches the daily-native-poll workflow when GitHub
-  // Actions' scheduler misses a fire window.
-  it("/api/cron/poll-watchdog is in the machine-auth allowlist (no redirect when unauthenticated)", async () => {
-    supabaseState.user = null;
-    const req = makeRequest("/api/cron/poll-watchdog");
-    const res = await updateSession(req);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("location")).toBeNull();
-  });
-
-  it("sibling /api/cron/* paths NOT in the explicit allowlist still redirect (exact-match contract)", async () => {
-    // The allowlist uses exact-match, not prefix, so a future
-    // /api/cron/something-new path that hasn't been deliberately
-    // added MUST still redirect. Pin this so a regression to
-    // `path.startsWith("/api/cron/")` is caught.
+  // De-bloat (2026-06-15): the native-poll/cron scheduled-writer routes
+  // (/api/poll/run, /api/cron/scan, /api/cron/rebuild-citation-evidence-index,
+  // /api/cron/poll-watchdog) were deleted with the abandoned scheduled
+  // automation. The machine-auth allowlist that exposed them is gone, so
+  // every /api/* path now follows the standard auth gate. This pins that
+  // no /api/* path is silently exempted from auth anymore.
+  it("/api/* paths are NOT exempt from auth (no machine-auth allowlist remains)", async () => {
     supabaseState.user = null;
     const req = makeRequest("/api/cron/some-future-route");
     const res = await updateSession(req);

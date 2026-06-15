@@ -199,16 +199,9 @@ describe("Gap B — provisioner does not self-activate the tenant", () => {
   });
 });
 
-describe("Gap B — pending tenants are NOT picked up by Gap A's lister", () => {
-  it("list-active-tenants script filters status='active'; pending_onboarding is excluded", () => {
-    // Cross-check the lister's filter clause. This invariant exists
-    // ALSO in the Gap A test suite; pinning it here too ensures Gap B
-    // can't be deployed in a state where pending tenants accidentally
-    // get polled.
-    const lister = readFileSync(
-      join(REPO_ROOT, "scripts/list-active-tenants.ts"),
-      "utf8",
-    );
-    expect(lister).toMatch(/\.eq\(\s*"status"\s*,\s*"active"\s*\)/);
-  });
-});
+// De-bloat (2026-06-15): "Gap B — pending tenants are NOT picked up by
+// Gap A's lister" was removed with scripts/list-active-tenants.ts. The
+// lister was the cron-matrix plumbing for the deleted scheduled
+// poll/scan/generation workflows; with the crons gone there is no lister
+// to exclude pending tenants from. The pending_onboarding default on the
+// provisioned row is still pinned above (Gap A / provisioning-defaults).

@@ -13,13 +13,9 @@
     "data:registry": "npx tsx --require ./scripts/mock-server-only.cjs scripts/build-page-registry.ts",
     "data:score-snapshot": "npx tsx --require ./scripts/mock-server-only.cjs scripts/score-snapshot.ts",
     "data:sample": "npx tsx --require ./scripts/mock-server-only.cjs scripts/sample-visibility.ts",
-    "data:poll-perplexity": "npx tsx --require ./scripts/mock-server-only.cjs scripts/poll-perplexity.ts",
-    "data:poll-openai": "npx tsx --require ./scripts/mock-server-only.cjs scripts/poll-openai.ts",
     "data:backfill-db": "npx tsx scripts/backfill-to-supabase.ts",
     "data:parity": "npx tsx scripts/compare-parity.ts",
-    "verify:daily-poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-daily-poll.ts",
     "verify:brain-health": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-brain-health-watchdog.ts",
-    "cron:poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/cron-poll.ts",
     "backfill:section6": "npx tsx --require ./scripts/mock-server-only.cjs scripts/backfill-section6-primary-recommendation.ts",
     "test": "vitest run"
   },

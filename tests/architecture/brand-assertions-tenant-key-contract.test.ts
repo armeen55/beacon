@@ -10,18 +10,21 @@
  * / `getBrandNameStyle` silently returned `[]` / `null` in production —
  * disabling the LLM brand-assertion guidance + the validator
  * brand-name-style gate. The slug-based unit test stayed green, masking
- * the bug. This invariant would have caught it: it asserts every
- * registry key is an `ops/active-tenants.json` tenantId AND no key is a
- * slug.
+ * the bug. This invariant catches it: it asserts every registry key
+ * matches the canonical `BeaconTenant.id` format (`tenant-<slug>`, see
+ * `src/domains/tenants/types.ts`) — which a bare slug can never satisfy —
+ * AND that the slug-shaped form of each id is NOT itself a key.
  *
- * Protects Customer 2: a future tenant registered under a slug (instead
- * of their tenantId) trips this invariant before it can silently
- * return `[]` in production.
+ * (2026-06-15) De-cron de-bloat: the canonical active-tenant list moved to
+ * Supabase (`src/domains/tenants/store.ts::listTenants`, async) and the
+ * static `ops/active-tenants.json` fleet file — only ever read by the
+ * deleted cron matrix — was removed. This pin is now structural + needs no
+ * external data file, so it keeps protecting Customer 2 (a tenant
+ * registered under a slug instead of its id trips the format check before
+ * it can silently return `[]` in production).
  */
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import {
   __brandRegistryKeys,
@@ -29,16 +32,9 @@ import {
   getBrandNameStyle,
 } from "@/domains/recommendations/brand-assertions";
 
-const REPO_ROOT = resolve(__dirname, "..", "..");
-const ACTIVE_TENANTS_FILE = resolve(REPO_ROOT, "ops", "active-tenants.json");
-
-type ActiveTenant = { tenantId: string; slug: string };
-
-const activeTenants: ActiveTenant[] = JSON.parse(
-  readFileSync(ACTIVE_TENANTS_FILE, "utf-8"),
-);
-const ACTIVE_TENANT_IDS = new Set(activeTenants.map((t) => t.tenantId));
-const ACTIVE_SLUGS = new Set(activeTenants.map((t) => t.slug));
+// Canonical BeaconTenant.id format (src/domains/tenants/types.ts: `id: "tenant-<slug>"`).
+// A bare slug ("ritz-builders") can never match this — that is the bug guard.
+const TENANT_ID_FORMAT = /^tenant-[a-z0-9-]+$/;
 
 const ALL_REGISTRY_KEYS = [
   ...__brandRegistryKeys.assertions,
@@ -46,71 +42,48 @@ const ALL_REGISTRY_KEYS = [
 ];
 
 describe("brand-assertions-tenant-key-contract", () => {
-  it("ops/active-tenants.json has at least one tenant with distinct id + slug (otherwise this pin is vacuous)", () => {
-    expect(activeTenants.length).toBeGreaterThan(0);
-    // Ritz specifically has a non-equal id vs slug — the exact shape
-    // that caused the bug. Pin it so the regression context stays clear.
-    const ritz = activeTenants.find((t) => t.tenantId === "tenant-ritz-founder");
-    expect(ritz, "expected tenant-ritz-founder in active-tenants.json").toBeDefined();
-    expect(ritz!.slug).not.toBe(ritz!.tenantId);
-  });
-
   it("registries are non-empty (at least one tenant is curated)", () => {
     expect(__brandRegistryKeys.assertions.length).toBeGreaterThan(0);
     expect(__brandRegistryKeys.nameStyles.length).toBeGreaterThan(0);
   });
 
-  it("every TENANT_ASSERTIONS key is an active-tenants tenantId", () => {
+  it("every TENANT_ASSERTIONS key is a canonical BeaconTenant.id (tenant-<slug>), never a bare slug", () => {
     for (const key of __brandRegistryKeys.assertions) {
       expect(
-        ACTIVE_TENANT_IDS.has(key),
-        `TENANT_ASSERTIONS key "${key}" is not an ops/active-tenants.json tenantId`,
+        TENANT_ID_FORMAT.test(key),
+        `TENANT_ASSERTIONS key "${key}" is not a tenantId (expected /^tenant-/). Registries MUST be keyed by BeaconTenant.id, not a slug.`,
       ).toBe(true);
     }
   });
 
-  it("every TENANT_NAME_STYLES key is an active-tenants tenantId", () => {
+  it("every TENANT_NAME_STYLES key is a canonical BeaconTenant.id (tenant-<slug>), never a bare slug", () => {
     for (const key of __brandRegistryKeys.nameStyles) {
       expect(
-        ACTIVE_TENANT_IDS.has(key),
-        `TENANT_NAME_STYLES key "${key}" is not an ops/active-tenants.json tenantId`,
+        TENANT_ID_FORMAT.test(key),
+        `TENANT_NAME_STYLES key "${key}" is not a tenantId (expected /^tenant-/). Registries MUST be keyed by BeaconTenant.id, not a slug.`,
       ).toBe(true);
-    }
-  });
-
-  it("NO registry key equals an active-tenants slug (the slug-vs-id bug guard)", () => {
-    for (const key of ALL_REGISTRY_KEYS) {
-      expect(
-        ACTIVE_SLUGS.has(key),
-        `registry key "${key}" equals a slug — registries MUST be keyed by tenantId, not slug`,
-      ).toBe(false);
     }
   });
 
   // Behavioral regression: the exact production path that was broken.
-  // For every registered tenant, looking up by tenantId returns a
-  // non-empty result, and looking up by its slug returns the empty
-  // default (no alias).
-  describe("behavioral — tenantId lookup works, slug lookup is empty (no alias)", () => {
-    for (const t of activeTenants) {
-      const isAssertionRegistered = __brandRegistryKeys.assertions.includes(
-        t.tenantId,
-      );
-      if (!isAssertionRegistered) continue;
-      it(`${t.tenantId}: getBrandAssertions(tenantId) is non-empty; getBrandAssertions(slug) is empty`, () => {
-        expect(getBrandAssertions(t.tenantId).length).toBeGreaterThan(0);
-        expect(getBrandAssertions(t.slug)).toEqual([]);
+  // For every registered tenant id, lookup by the id returns a non-empty
+  // result, and lookup by the slug-shaped form (id minus the `tenant-`
+  // prefix) returns the empty default — proving the registry is keyed by
+  // the full id, not a slug.
+  describe("behavioral — tenantId lookup works, slug-shaped lookup is empty (no alias)", () => {
+    for (const key of __brandRegistryKeys.assertions) {
+      const slugShaped = key.replace(/^tenant-/, "");
+      it(`${key}: getBrandAssertions(id) is non-empty; getBrandAssertions(slug-form) is empty`, () => {
+        expect(getBrandAssertions(key).length).toBeGreaterThan(0);
+        expect(getBrandAssertions(slugShaped)).toEqual([]);
       });
     }
 
-    for (const t of activeTenants) {
-      const isStyleRegistered = __brandRegistryKeys.nameStyles.includes(
-        t.tenantId,
-      );
-      if (!isStyleRegistered) continue;
-      it(`${t.tenantId}: getBrandNameStyle(tenantId) is non-null; getBrandNameStyle(slug) is null`, () => {
-        expect(getBrandNameStyle(t.tenantId)).not.toBeNull();
-        expect(getBrandNameStyle(t.slug)).toBeNull();
+    for (const key of __brandRegistryKeys.nameStyles) {
+      const slugShaped = key.replace(/^tenant-/, "");
+      it(`${key}: getBrandNameStyle(id) is non-null; getBrandNameStyle(slug-form) is null`, () => {
+        expect(getBrandNameStyle(key)).not.toBeNull();
+        expect(getBrandNameStyle(slugShaped)).toBeNull();
       });
     }
   });

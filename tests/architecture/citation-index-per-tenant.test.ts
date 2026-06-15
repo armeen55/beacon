@@ -25,8 +25,6 @@ import { resolve } from "node:path";
 const ROOT = resolve(__dirname, "../..");
 const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
 
-const ROUTE = read("src/app/api/cron/rebuild-citation-evidence-index/route.ts");
-const CLI = read("scripts/rebuild-citation-evidence-index-native.ts");
 const DUAL = read("src/lib/persistence/dual-write.ts");
 const BACKEND = read("src/lib/persistence/repositories/supabase-backend.ts");
 const WRAPPER = read("src/lib/persistence/repositories/tenant-repo.ts");
@@ -36,27 +34,15 @@ const AI_MIGRATION = read("migrations/2026-06-11_answer_intelligence_index_per_t
 const AI_STORE = read("src/domains/answer-intelligence/store.ts");
 
 describe("citation_evidence_index — per-tenant invariants", () => {
-  it("cron route loops active tenants and scopes both reads", () => {
-    expect(ROUTE).toMatch(/fetchActiveTenantIds/);
-    expect(ROUTE).toMatch(/fetchNativeObservations\(tenantId\)/);
-    expect(ROUTE).toMatch(/fetchTrackedEntities\(tenantId\)/);
-    expect(ROUTE).toMatch(/\.eq\("tenant_id", tenantId\)/);
-  });
-
-  it("cron route upserts stamp tenant_id with the composite conflict key", () => {
-    expect(ROUTE).toMatch(/tenant_id: tenantId/);
-    expect(ROUTE).toMatch(/onConflict:\s*"tenant_id,id"/);
-    // The pre-fix global-singleton write is gone.
-    expect(ROUTE).not.toMatch(/onConflict:\s*"id"/);
-  });
-
-  it("CLI rebuild requires BEACON_TENANT_ID and scopes + stamps", () => {
-    expect(CLI).toMatch(/BEACON_TENANT_ID is required/);
-    expect(CLI).toMatch(/fetchNativeObservations\(tenantId\)/);
-    expect(CLI).toMatch(/tenant_id: tenantId/);
-    expect(CLI).toMatch(/onConflict:\s*"tenant_id,id"/);
-  });
-
+  // De-bloat (2026-06-15): the cron rebuild route
+  // (src/app/api/cron/rebuild-citation-evidence-index/route.ts) and its CLI
+  // sibling (scripts/rebuild-citation-evidence-index-native.ts) were the
+  // scheduled native-poll writers and were deleted with the abandoned
+  // automation. The per-tenant invariants below still pin the surviving
+  // write/read chain (dual-write sync, the scoped backend read, the
+  // tenant-repo facade, the app-layer store cache, the migration mirror)
+  // that the live Profound import-orchestrator rebuild + customer surfaces
+  // depend on.
   it("syncCitationEvidenceIndex requires + stamps tenantId", () => {
     expect(DUAL).toMatch(
       /export async function syncCitationEvidenceIndex\(\s*index: CitationEvidenceIndex,\s*tenantId: string,?\s*\)/,

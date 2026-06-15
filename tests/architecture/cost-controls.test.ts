@@ -21,10 +21,6 @@ import { join, resolve } from "node:path";
 const REPO_ROOT = resolve(__dirname, "../..");
 const SRC_ROOT = resolve(REPO_ROOT, "src");
 const POLL_ADAPTER_PATH = resolve(SRC_ROOT, "adapters/perplexity/poll.ts");
-const POLL_ROUTE_PATH = resolve(
-  SRC_ROOT,
-  "app/api/poll/run/route.ts",
-);
 
 function* walk(dir: string): Generator<string> {
   let entries: string[];
@@ -114,38 +110,13 @@ describe("Sprint 6A.3e — polling adapter imports/uses cost controls", () => {
   });
 });
 
-// ── Poll route checks BEACON_POLL_DISABLED before runNativePoll ────────
-
-describe("Sprint 6A.3e — poll route checks BEACON_POLL_DISABLED before runNativePoll", () => {
-  const routeSrc = readFileSync(POLL_ROUTE_PATH, "utf8");
-
-  it("references BEACON_POLL_DISABLED env var", () => {
-    expect(routeSrc).toMatch(/BEACON_POLL_DISABLED/);
-  });
-
-  it("returns the disabled status payload", () => {
-    expect(routeSrc).toMatch(/status:\s*"disabled"/);
-  });
-
-  it("the disabled-check block appears BEFORE any runNativePoll call", () => {
-    const disabledIdx = routeSrc.search(/status:\s*"disabled"/);
-    const runIdx = routeSrc.search(/\brunNativePoll\s*\(/);
-    expect(disabledIdx).toBeGreaterThan(0);
-    expect(runIdx).toBeGreaterThan(0);
-    // `disabled` payload must be defined earlier in the file than the
-    // first runNativePoll call so the early-return short-circuits the
-    // poll runner.
-    expect(disabledIdx).toBeLessThan(runIdx);
-  });
-
-  it("the auth check appears BEFORE the kill-switch check (no kill-switch auth bypass)", () => {
-    const authIdx = routeSrc.search(/error:\s*"unauthorized"/);
-    const disabledIdx = routeSrc.search(/status:\s*"disabled"/);
-    expect(authIdx).toBeGreaterThan(0);
-    expect(disabledIdx).toBeGreaterThan(0);
-    expect(authIdx).toBeLessThan(disabledIdx);
-  });
-});
+// De-bloat (2026-06-15): the BEACON_POLL_DISABLED kill-switch + auth-order
+// invariants previously pinned src/app/api/poll/run/route.ts, the
+// CRON_SECRET-gated HTTP trigger deleted with the abandoned scheduled
+// native poll. The on-demand "Run today's AI reading" action calls
+// runNativePoll directly as a server action (it never went through that
+// route), so the engine's own budget/dedup guards — pinned above on the
+// kept adapters/perplexity/poll.ts — remain the live cost-control surface.
 
 // ── cost-ledger.json write isolation ───────────────────────────────────
 

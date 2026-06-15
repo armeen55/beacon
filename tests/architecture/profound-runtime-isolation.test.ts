@@ -2,33 +2,32 @@
  * Architecture invariant — Profound runtime isolation (May 10, 2026).
  *
  * Profound's API access expires on 2026-05-10. The 2026-05-06 readiness
- * audit confirmed that Beacon's daily operation is Profound-free: the
- * 07:00 UTC cron, every `/api/*` route, every scheduled-job script,
- * and every shell route outside `/settings/import` operate without
- * touching `src/adapters/profound`. The Advanced-gated import button
- * on `/settings/import` is the ONE exception — it's the legacy import
- * surface and is allowed to call `importProfoundData()`.
+ * audit confirmed that Beacon's runtime is Profound-free: every `/api/*`
+ * route and every shell route outside `/settings/import` operate without
+ * touching `src/adapters/profound`. The Advanced-gated import button on
+ * `/settings/import` is the ONE exception — it's the legacy import surface
+ * and is allowed to call `importProfoundData()`.
  *
  * This invariant pins that posture forward. If a future PR
  * accidentally re-introduces a Profound runtime dependency — by
- * importing the adapter from a cron route, a /api/* handler, a daily
- * script, a non-import shell route, or by adding a `PROFOUND_*` env
- * var to a workflow — the build fails before the regression can
- * silently land in production.
+ * importing the adapter from a /api/* handler, a non-import shell
+ * route, or by adding a `PROFOUND_*` env var — the build fails before
+ * the regression can silently land in production.
+ *
+ * De-bloat (2026-06-15): the scheduled-automation items (daily cron
+ * workflows + scheduled-job scripts) were dropped because those
+ * artifacts were deleted with the abandoned native-poll cron. The
+ * surviving runtime-isolation items below are the live posture.
  *
  * Pinned (per operator brief):
- *   1. No daily cron workflow imports or references Profound.
- *   2. No `/api/*` route imports from `src/adapters/profound`.
- *   3. No scheduled-job script imports from `src/adapters/profound`.
- *   4. No shell route outside `/settings/import` imports or
+ *   1. No `/api/*` route imports from `src/adapters/profound`.
+ *   2. No shell route outside `/settings/import` imports or
  *      references `src/adapters/profound`, `runProfoundImport`,
  *      `bridgeProfoundResults`, or `importProfoundData`.
- *   5. `/settings/import` is the ONLY UI path allowed to call
+ *   3. `/settings/import` is the ONLY UI path allowed to call
  *      `importProfoundData`.
- *   6. No `PROFOUND_*` env vars appear in workflows, package
+ *   4. No `PROFOUND_*` env vars appear in workflows, package
  *      scripts, or env examples.
- *   7. `.github/workflows/daily-native-poll.yml` remains Profound-
- *      free.
  *
  * See `docs/PROFOUND_MAY_10_READINESS.md` for the operator-readable
  * checklist this invariant protects.
@@ -42,7 +41,6 @@ const REPO_ROOT = resolve(__dirname, "../..");
 const WORKFLOWS_DIR = join(REPO_ROOT, ".github/workflows");
 const API_ROOT = join(REPO_ROOT, "src/app/api");
 const SHELL_ROOT = join(REPO_ROOT, "src/app/(shell)");
-const SCRIPTS_DIR = join(REPO_ROOT, "scripts");
 const ENV_EXAMPLE = join(REPO_ROOT, ".env.local.example");
 const PACKAGE_JSON = join(REPO_ROOT, "package.json");
 const VERCEL_JSON = join(REPO_ROOT, "vercel.json");
@@ -58,39 +56,6 @@ function stripComments(src: string): string {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
-}
-
-/**
- * YAML-flavored comment strip: drops `#` line comments so a workflow
- * file can carry historical context in comments ("the endpoint reads
- * observations from Supabase, not from the 2026-04-15-frozen Profound
- * import") without tripping the negative invariant. Active config
- * (env: blocks, run: blocks, with: blocks, etc.) stays intact.
- *
- * Matches a `#` only when it's not inside a quoted string. Beacon's
- * workflow YAMLs don't use `#` inside quoted strings today, so the
- * simpler line-anchored regex is sufficient. If that ever changes,
- * tighten the regex.
- */
-function stripYamlComments(src: string): string {
-  return src
-    .split("\n")
-    .map((line) => {
-      // Whole-line comments.
-      if (/^\s*#/.test(line)) return "";
-      // Trailing `# …` comments — drop everything from the first `#`
-      // that isn't inside a quoted string. Cheap two-state walker.
-      let inSingle = false;
-      let inDouble = false;
-      for (let i = 0; i < line.length; i += 1) {
-        const ch = line[i];
-        if (ch === "'" && !inDouble) inSingle = !inSingle;
-        else if (ch === '"' && !inSingle) inDouble = !inDouble;
-        else if (ch === "#" && !inSingle && !inDouble) return line.slice(0, i);
-      }
-      return line;
-    })
-    .join("\n");
 }
 
 /**
@@ -154,76 +119,11 @@ function findProfoundReferences(srcCode: string): string[] {
   return [...new Set(hits)];
 }
 
-/**
- * Scripts that the operator (or the daily-cron workflows) actually
- * invoke from a scheduled or daily-routine context. The operator
- * audit (2026-05-06) classified these as "daily-routine" — they
- * MUST be Profound-free at runtime.
- *
- * Sources (cross-checked against `.github/workflows/`):
- *   - daily-native-poll.yml curls /api/poll/run + /api/cron/rebuild-…
- *     (no scripts), but verify-persistence step runs
- *     `scripts/check-yesterday-poll.ts`.
- *   - poll-canary.yml runs `scripts/check-yesterday-poll.ts` +
- *     `scripts/canary-persistence-write.ts`.
- *   - daily-scan.yml runs `scripts/run-scheduled-scan.ts`.
- *   - Operator daily verification: `scripts/verify-daily-poll.ts`.
- *   - Operator daily fallback: `scripts/poll-perplexity.ts`,
- *     `scripts/poll-openai.ts`,
- *     `scripts/rebuild-citation-evidence-index-native.ts`.
- *
- * If a future workflow adds a new daily script, append it here.
- */
-const DAILY_ROUTINE_SCRIPTS = [
-  "check-yesterday-poll.ts",
-  "canary-persistence-write.ts",
-  "run-scheduled-scan.ts",
-  "verify-daily-poll.ts",
-  "poll-perplexity.ts",
-  "poll-openai.ts",
-  "rebuild-citation-evidence-index-native.ts",
-] as const;
-
 // ────────────────────────────────────────────────────────────────────────
-// 1. No daily cron workflow imports or references Profound
+// 1. No /api/* route imports from src/adapters/profound
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Profound runtime isolation — Item 1: no cron workflow references Profound", () => {
-  // Only daily-cron workflows are scoped; ci.yml is a build-time check
-  // (it runs `npm run test`, which itself is Profound-free at runtime).
-  const DAILY_WORKFLOWS = [
-    "daily-native-poll.yml",
-    "poll-canary.yml",
-    "daily-scan.yml",
-  ] as const;
-
-  for (const workflow of DAILY_WORKFLOWS) {
-    it(`.github/workflows/${workflow} contains zero Profound references in active config`, () => {
-      const path = join(WORKFLOWS_DIR, workflow);
-      expect(existsSync(path), `${workflow} must exist`).toBe(true);
-      // Strip YAML `#` comments so historical context in docstrings
-      // (e.g. "the endpoint reads observations from Supabase, not from
-      // the frozen Profound import") doesn't trip the negative
-      // invariant. Active config — env: blocks, run: scripts, with:
-      // params — stays intact.
-      const code = stripYamlComments(readFileSync(path, "utf-8"));
-      const found = /[Pp]rofound|PROFOUND_/.test(code);
-      expect(
-        found,
-        `${workflow} must not reference Profound in active config (comments OK). ` +
-          `Daily cron must remain Profound-free per the May-10-expiry ` +
-          `contract. If a future migration genuinely needs Profound here, ` +
-          `the architecture invariant has to be relaxed in the same PR.`,
-      ).toBe(false);
-    });
-  }
-});
-
-// ────────────────────────────────────────────────────────────────────────
-// 2. No /api/* route imports from src/adapters/profound
-// ────────────────────────────────────────────────────────────────────────
-
-describe("Profound runtime isolation — Item 2: /api/* routes are Profound-free", () => {
+describe("Profound runtime isolation — Item 1: /api/* routes are Profound-free", () => {
   const apiFiles = walkTs(API_ROOT).filter((f) => !f.endsWith(".test.ts"));
 
   it("at least one /api route was discovered", () => {
@@ -241,48 +141,18 @@ describe("Profound runtime isolation — Item 2: /api/* routes are Profound-free
       expect(
         hits,
         `${rel} must not reference Profound runtime entry points. ` +
-          `Daily cron routes (poll/run, rebuild-citation-evidence-index, ` +
-          `scan) all read from native Supabase tables; no /api/* path is ` +
-          `allowed to depend on src/adapters/profound.`,
+          `/api/* routes read from native Supabase tables; no /api/* path ` +
+          `is allowed to depend on src/adapters/profound.`,
       ).toEqual([]);
     });
   }
 });
 
 // ────────────────────────────────────────────────────────────────────────
-// 3. No scheduled-job script imports from src/adapters/profound
+// 2. No shell route outside /settings/import imports from Profound
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Profound runtime isolation — Item 3: scheduled-job scripts are Profound-free", () => {
-  for (const scriptName of DAILY_ROUTINE_SCRIPTS) {
-    const path = join(SCRIPTS_DIR, scriptName);
-    it(`scripts/${scriptName} imports nothing from src/adapters/profound`, () => {
-      if (!existsSync(path)) {
-        // If a script is renamed/removed, surface the gap explicitly
-        // so the allowlist stays in sync with reality.
-        throw new Error(
-          `scripts/${scriptName} not found at ${path}. The daily-routine ` +
-            `allowlist in this invariant has drifted; either the script ` +
-            `was renamed or the workflow YAML changed. Update ` +
-            `DAILY_ROUTINE_SCRIPTS in this test to match.`,
-        );
-      }
-      const code = stripComments(readFileSync(path, "utf-8"));
-      const hits = findProfoundReferences(code);
-      expect(
-        hits,
-        `scripts/${scriptName} is in the daily-routine allowlist and must ` +
-          `not reference Profound runtime entry points. Found: ${hits.join(", ")}`,
-      ).toEqual([]);
-    });
-  }
-});
-
-// ────────────────────────────────────────────────────────────────────────
-// 4. No shell route outside /settings/import imports from Profound
-// ────────────────────────────────────────────────────────────────────────
-
-describe("Profound runtime isolation — Item 4: shell routes outside /settings/import are Profound-free", () => {
+describe("Profound runtime isolation — Item 2: shell routes outside /settings/import are Profound-free", () => {
   const shellFiles = walkTs(SHELL_ROOT).filter(
     (f) => !f.endsWith(".test.ts") && !f.endsWith(".test.tsx"),
   );
@@ -318,10 +188,10 @@ describe("Profound runtime isolation — Item 4: shell routes outside /settings/
 });
 
 // ────────────────────────────────────────────────────────────────────────
-// 5. /settings/import is the ONLY UI path that calls importProfoundData
+// 3. /settings/import is the ONLY UI path that calls importProfoundData
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Profound runtime isolation — Item 5: /settings/import is the only importProfoundData caller", () => {
+describe("Profound runtime isolation — Item 3: /settings/import is the only importProfoundData caller", () => {
   // Walk the entire UI tree (shell + public + api). The ONE allowed
   // caller is `src/app/(shell)/settings/import/import-page.tsx`. The
   // ONE allowed definition site is `src/adapters/profound/actions.ts`.
@@ -368,10 +238,10 @@ describe("Profound runtime isolation — Item 5: /settings/import is the only im
 });
 
 // ────────────────────────────────────────────────────────────────────────
-// 6. No PROFOUND_* env vars in workflows, package scripts, or env examples
+// 4. No PROFOUND_* env vars in workflows, package scripts, or env examples
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Profound runtime isolation — Item 6: zero PROFOUND_* env vars", () => {
+describe("Profound runtime isolation — Item 4: zero PROFOUND_* env vars", () => {
   const ENV_VAR_RE = /\bPROFOUND_[A-Z][A-Z0-9_]*\b/;
 
   it(".env.local.example has no PROFOUND_* vars", () => {
@@ -417,38 +287,6 @@ describe("Profound runtime isolation — Item 6: zero PROFOUND_* env vars", () =
       offenders,
       `Workflow files must not declare PROFOUND_* env vars. Offenders: ${offenders.join(", ")}`,
     ).toEqual([]);
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────
-// 7. Daily native-poll workflow remains Profound-free (canonical pin)
-// ────────────────────────────────────────────────────────────────────────
-
-describe("Profound runtime isolation — Item 7: daily-native-poll.yml is Profound-free", () => {
-  // This is the most-visited workflow (07:00 UTC daily) and the one
-  // most likely to silently regress if a future migration accidentally
-  // re-introduces Profound. Pin it explicitly.
-  const path = join(WORKFLOWS_DIR, "daily-native-poll.yml");
-
-  it("file exists at the canonical path", () => {
-    expect(existsSync(path)).toBe(true);
-  });
-
-  it("contains zero references to Profound (case-insensitive) or PROFOUND_* env vars in active config", () => {
-    const code = stripYamlComments(readFileSync(path, "utf-8"));
-    expect(/[Pp]rofound|PROFOUND_/.test(code)).toBe(false);
-  });
-
-  it("invokes only the native polling endpoints + native rebuild + native verify", () => {
-    const src = readFileSync(path, "utf-8");
-    // Positive invariants: must call /api/poll/run for both platforms
-    // (perplexity + openai) and must call the native rebuild route.
-    // If a future migration drops one of these, the invariant fails
-    // and surfaces the pipeline change for review.
-    expect(src).toMatch(/\/api\/poll\/run/);
-    expect(src).toMatch(/perplexity/);
-    expect(src).toMatch(/openai/);
-    expect(src).toMatch(/rebuild-citation-evidence-index/);
   });
 });
 

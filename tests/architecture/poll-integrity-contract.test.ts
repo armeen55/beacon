@@ -18,18 +18,6 @@ const POLL_INTEGRITY_SRC = readFileSync(
   resolve(__dirname, "../../src/domains/observations/poll-integrity.ts"),
   "utf-8",
 );
-const DAILY_POLL_WORKFLOW = readFileSync(
-  resolve(__dirname, "../../.github/workflows/daily-native-poll.yml"),
-  "utf-8",
-);
-const CANARY_WORKFLOW = readFileSync(
-  resolve(__dirname, "../../.github/workflows/poll-canary.yml"),
-  "utf-8",
-);
-const CANARY_SCRIPT = readFileSync(
-  resolve(__dirname, "../../scripts/canary-persistence-write.ts"),
-  "utf-8",
-);
 const DUAL_WRITE_SRC = readFileSync(
   resolve(__dirname, "../../src/lib/persistence/dual-write.ts"),
   "utf-8",
@@ -74,7 +62,7 @@ describe("R2 — paid-call reconciliation guards", () => {
     );
   });
 
-  it("run-poll throws when reconciliation fails (so /api/poll/run returns 5xx)", () => {
+  it("run-poll throws when reconciliation fails (the on-demand reading action surfaces the error)", () => {
     expect(RUN_POLL_SRC).toMatch(
       /PERSISTENCE RECONCILIATION FAILED for run=/,
     );
@@ -146,68 +134,14 @@ describe("R3 — raw-response safety net", () => {
   });
 });
 
-describe("R4 — GitHub Actions verify-persistence step", () => {
-  it("daily-native-poll workflow has a verify-persistence job that runs always", () => {
-    expect(DAILY_POLL_WORKFLOW).toMatch(/verify-persistence:/);
-    expect(DAILY_POLL_WORKFLOW).toMatch(
-      /Verify persistence \(Operator R4 contract\)/,
-    );
-    // if: always() so partial chunk failures still verify.
-    const start = DAILY_POLL_WORKFLOW.indexOf("verify-persistence:");
-    const slice = DAILY_POLL_WORKFLOW.slice(start);
-    expect(slice).toMatch(/if:\s*always\(\)/);
-  });
-
-  it("verify-persistence step runs check-yesterday-poll.ts (the canary script)", () => {
-    expect(DAILY_POLL_WORKFLOW).toMatch(/scripts\/check-yesterday-poll\.ts/);
-  });
-
-  it("verify-persistence step depends on both poll jobs + the index rebuild", () => {
-    const start = DAILY_POLL_WORKFLOW.indexOf("verify-persistence:");
-    const slice = DAILY_POLL_WORKFLOW.slice(start);
-    // 2026-05-06 multi-tenant-cron-scaffold refactor: `compute-matrix`
-    // was prepended to the dependency list so the matrix output flows
-    // through to verify-persistence. The R4 contract here is just that
-    // ALL THREE upstream jobs (poll-perplexity, poll-openai, rebuild)
-    // remain in `needs` — preserved by the new shape.
-    expect(slice).toMatch(/needs:[\s\S]{0,120}poll-perplexity/);
-    expect(slice).toMatch(/needs:[\s\S]{0,120}poll-openai/);
-    expect(slice).toMatch(
-      /needs:[\s\S]{0,120}rebuild-citation-evidence-index/,
-    );
-  });
-});
-
-describe("R5 — canary verifies persistence end-to-end", () => {
-  it("canary script writes through the production dual-write path", () => {
-    expect(CANARY_SCRIPT).toMatch(/syncPromptAnswerObservations/);
-    expect(CANARY_SCRIPT).toMatch(/syncDailyMetricSnapshots/);
-  });
-
-  it("canary script READS BACK the rows to verify they actually landed", () => {
-    expect(CANARY_SCRIPT).toMatch(/observation upsert succeeded silently but row not in Supabase/);
-    expect(CANARY_SCRIPT).toMatch(/snapshot upsert succeeded silently but row not in Supabase/);
-  });
-
-  it("canary script CLEANS UP its rows (no metric pollution)", () => {
-    expect(CANARY_SCRIPT).toMatch(/tryDeleteRow.*prompt_answer_observations/);
-    expect(CANARY_SCRIPT).toMatch(/tryDeleteRow.*daily_metric_snapshots/);
-  });
-
-  it("canary writes competitor_descriptor_windows so future column-drift fails LOUD here", () => {
-    expect(CANARY_SCRIPT).toMatch(/competitor_descriptor_windows:\s*\{/);
-  });
-
-  it("canary tags rows with metadata.canary:true so consumers can filter", () => {
-    expect(CANARY_SCRIPT).toMatch(/canary:\s*true/);
-  });
-
-  it("poll-canary workflow runs the persistence-write canary AFTER check-yesterday-poll", () => {
-    expect(CANARY_WORKFLOW).toMatch(/canary-persistence-write\.ts/);
-    // Both steps must exist in the canary workflow.
-    expect(CANARY_WORKFLOW).toMatch(/check-yesterday-poll\.ts/);
-  });
-});
+// De-bloat (2026-06-15): R4 (GitHub Actions verify-persistence step) and
+// R5 (end-to-end persistence canary) pinned the deleted scheduled
+// automation — daily-native-poll.yml / poll-canary.yml and
+// scripts/canary-persistence-write.ts / check-yesterday-poll.ts. Those
+// workflows + scripts were removed with the abandoned native-poll cron.
+// The engine-side persistence-integrity contract (R1-R3, R6) below still
+// pins the live run-poll.ts / poll-integrity.ts / dual-write.ts behavior
+// the on-demand "Run today's AI reading" action depends on.
 
 describe("R6 — auto-disable on persistence failure", () => {
   it("checkPersistenceGate is the gate function, blocks when latest run failed persistence", () => {

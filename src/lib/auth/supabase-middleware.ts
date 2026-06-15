@@ -15,9 +15,7 @@ function requireEnv(name: string): string {
 /**
  * Phase 2 auth gate. Single-user dogfood: any authenticated Supabase user
  * may access the shell; unauthenticated users are redirected to /login.
- * Public paths: /login, /auth/*, static assets, and a narrow allowlist of
- * machine-auth API endpoints that protect themselves with their own bearer
- * tokens (see below).
+ * Public paths: /login, /signup, /auth/*, and static assets.
  *
  * Sprint 7 Phase 7.4 (2026-04-25): tenant injection.
  *   - Strip any inbound `x-beacon-tenant` header (never trust client).
@@ -29,14 +27,6 @@ function requireEnv(name: string): string {
  *     a primary is added, multi-tenant memberships are unsupported.
  *   - Transient DB errors fall through; the resolver uses BEACON_TENANT_ID
  *     env fallback so a Supabase blip doesn't strand authenticated requests.
- *
- * Machine-auth allowlist:
- * - /api/poll/run — Phase 5 Step 1. Hosted trigger for native polling.
- *   Handler at src/app/api/poll/run/route.ts requires
- *   `Authorization: Bearer ${CRON_SECRET}`. Session-cookie auth would be
- *   wrong here since cron / curl have no session. Allowlist is an exact
- *   path match (not a prefix) so future /api/poll/* endpoints have to be
- *   added deliberately.
  *
  * Set BEACON_AUTH_DISABLED=1 in .env.local to bypass (useful for CLI scripts
  * and pre-auth local dev while we iterate). In prod / hosted dogfood the
@@ -111,30 +101,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     path.startsWith("/signup") ||
     path.startsWith("/auth") ||
     path.startsWith("/_next") ||
-    path === "/favicon.ico" ||
-    // Machine-auth endpoints (see allowlist note in docstring). Exact match
-    // only — NOT a prefix — so this cannot accidentally expose sibling
-    // routes added later without a deliberate middleware edit.
-    path === "/api/poll/run" ||
-    // 2026-05-11 cron-middleware fix — both cron routes already enforce
-    // `Authorization: Bearer ${CRON_SECRET}` themselves
-    // (src/app/api/cron/rebuild-citation-evidence-index/route.ts and
-    // src/app/api/cron/scan/route.ts). Pre-fix the middleware redirected
-    // these to /login before the handler ever saw the request, which
-    // silently broke the daily-native-poll workflow's
-    // rebuild-citation-evidence-index step (curl received 307 → exit 0
-    // → workflow stayed green → /pages, /competitors, /topics stayed
-    // stale). Exact-match allowlist follows the existing /api/poll/run
-    // pattern — NOT a prefix — so sibling routes added later require a
-    // deliberate middleware edit.
-    path === "/api/cron/rebuild-citation-evidence-index" ||
-    path === "/api/cron/scan" ||
-    // 2026-05-11 Automation Reliability Bundle — Vercel-cron-invoked
-    // watchdog that detects skipped GitHub Actions schedules and
-    // dispatches the daily-native-poll workflow. Same exact-match
-    // pattern as the other machine-auth endpoints; the route handler
-    // enforces its own `Authorization: Bearer ${CRON_SECRET}` check.
-    path === "/api/cron/poll-watchdog";
+    path === "/favicon.ico";
 
   if (!user && !isPublic) {
     trace.data("decision", "redirect_login");

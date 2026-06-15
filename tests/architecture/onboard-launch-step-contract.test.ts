@@ -35,8 +35,6 @@ const LAUNCH_FLOW = join(
   REPO_ROOT,
   "src/app/(shell)/onboard/review/launch-flow.ts",
 );
-const LISTER = join(REPO_ROOT, "scripts/list-active-tenants.ts");
-
 const REVIEW_SRC = readFileSync(REVIEW_PAGE, "utf8");
 const LAUNCH_FORM_SRC = readFileSync(LAUNCH_FORM, "utf8");
 const LAUNCH_ACTIONS_SRC = readFileSync(LAUNCH_ACTIONS, "utf8");
@@ -303,12 +301,11 @@ describe("Gap C.4 — launchTenant server action contract", () => {
   });
 });
 
-describe("Gap C.4 — pending tenants remain excluded from cron until Launch", () => {
-  it("scripts/list-active-tenants.ts still filters status='active' (Gap A guard intact)", () => {
-    const lister = readFileSync(LISTER, "utf8");
-    expect(lister).toMatch(/\.eq\(\s*"status"\s*,\s*"active"\s*\)/);
-  });
-
+describe("Gap C.4 — tenants stay pending until Launch sets status='active'", () => {
+  // De-bloat (2026-06-15): the `list-active-tenants.ts filters
+  // status='active'` assertion was removed with the deleted cron-matrix
+  // lister. The surviving guard below — only the launch action sets
+  // status='active' — is the live invariant.
   it("the only place status='active' is set in onboarding code is the launch action", () => {
     // Sweep onboarding action files: only review/actions.ts may set
     // status='active'. C.1/C.2/C.3 actions must never do so.

@@ -22,8 +22,6 @@ const SCOPE_PAGE = join(REPO_ROOT, "src/app/(shell)/onboard/scope/page.tsx");
 const ONBOARD_SHELL = join(REPO_ROOT, "src/components/onboard/onboarding-shell.tsx");
 const ACCESS_GUARD = join(REPO_ROOT, "src/domains/onboarding/access.ts");
 const VALIDATION = join(REPO_ROOT, "src/domains/onboarding/profile-validation.ts");
-const LISTER = join(REPO_ROOT, "scripts/list-active-tenants.ts");
-
 const BUSINESS_PAGE_SRC = readFileSync(BUSINESS_PAGE, "utf8");
 const BUSINESS_FORM_SRC = readFileSync(BUSINESS_FORM, "utf8");
 const BUSINESS_ACTIONS_SRC = readFileSync(BUSINESS_ACTIONS, "utf8");
@@ -271,12 +269,11 @@ describe("Gap C.1 — OnboardingShell + validation exports", () => {
   });
 });
 
-describe("Gap C.1 — pending tenants remain excluded from cron", () => {
-  it("scripts/list-active-tenants.ts still filters status='active'", () => {
-    const lister = readFileSync(LISTER, "utf8");
-    expect(lister).toMatch(/\.eq\(\s*"status"\s*,\s*"active"\s*\)/);
-  });
-
+describe("Gap C.1 — pending tenants stay pending through onboarding", () => {
+  // De-bloat (2026-06-15): the `list-active-tenants.ts filters
+  // status='active'` assertion was removed with the deleted cron-matrix
+  // lister. The surviving guard below — onboarding never flips a tenant
+  // to 'active' on its own — is the live invariant.
   it("nothing in /onboard/* code flips a tenant to status='active'", () => {
     const allOnboardSrc = [
       BUSINESS_PAGE_SRC,

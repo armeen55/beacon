@@ -37,8 +37,6 @@ const VALIDATION = join(
   REPO_ROOT,
   "src/domains/onboarding/competitors-validation.ts",
 );
-const LISTER = join(REPO_ROOT, "scripts/list-active-tenants.ts");
-
 const COMPETITORS_PAGE_SRC = readFileSync(COMPETITORS_PAGE, "utf8");
 const COMPETITORS_FORM_SRC = readFileSync(COMPETITORS_FORM, "utf8");
 const COMPETITORS_ACTIONS_SRC = readFileSync(COMPETITORS_ACTIONS, "utf8");
@@ -253,12 +251,11 @@ describe("Gap C.3 — competitors-validation exports + constants", () => {
   });
 });
 
-describe("Gap C.3 — pending tenants remain excluded from cron", () => {
-  it("scripts/list-active-tenants.ts still filters status='active'", () => {
-    const lister = readFileSync(LISTER, "utf8");
-    expect(lister).toMatch(/\.eq\(\s*"status"\s*,\s*"active"\s*\)/);
-  });
-
+describe("Gap C.3 — pending tenants stay pending through onboarding", () => {
+  // De-bloat (2026-06-15): the `list-active-tenants.ts filters
+  // status='active'` assertion was removed with the deleted cron-matrix
+  // lister. The surviving guard below — onboarding never flips a tenant
+  // to 'active' on its own — is the live invariant.
   it("nothing in /onboard/competitors or /onboard/review flips status to 'active'", () => {
     const all = [
       COMPETITORS_PAGE_SRC,
