@@ -10,6 +10,7 @@ import {
   getCompetitors,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
+import { hasAnyConnectedDataSource } from "@/lib/connector-store";
 import { getEventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
@@ -712,8 +713,14 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     topPick = null;
   }
 
-  // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
-  const isDemoMode = !hasActiveExperiment();
+  // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed
+  // data, not operator briefing — UNLESS a real data source is connected, in
+  // which case the tenant is on its own live data and is NOT demo. (2026-06-15:
+  // also fixes a dropped `await` — hasActiveExperiment is async, so the prior
+  // `!hasActiveExperiment()` was always false. Now correct + connector-aware,
+  // matching the V2 gate + the shell.)
+  const isDemoMode =
+    !(await hasActiveExperiment()) && !(await hasAnyConnectedDataSource());
 
   // Overdue signal for client-side scan trigger (Phase 1A-5); scan never runs during this render.
   const scanSettings = getScanSettings();

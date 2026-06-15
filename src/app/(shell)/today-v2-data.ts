@@ -49,6 +49,7 @@ import { cache } from "react";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { hasActiveExperiment } from "@/lib/seed-data.server";
+import { hasAnyConnectedDataSource } from "@/lib/connector-store";
 import {
   ensureCanonicalStoresSeeded,
   loadFreshCanonicalData,
@@ -895,8 +896,15 @@ export type TodayV2GateData = {
 };
 
 export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
-  // hasActiveExperiment is an async cached getter.
-  const isDemoMode = !(await hasActiveExperiment());
+  // "Demo mode" (→ the connect-prompt) ONLY when the tenant has NO CSV import
+  // AND no real data source connected. A GSC- (or GA4/SEMrush/Clarity/Profound/
+  // Wix-) connected tenant is operating on its own live data, so it sees its
+  // real command center — never the connect-prompt — even before its first CSV
+  // import or first reading. Mirrors the shell's hasRealConnector gate
+  // (layout.tsx) so the two never disagree. (2026-06-15 fix: GSC-connected
+  // tenants were wrongly shown "Connect your data sources".)
+  const isDemoMode =
+    !(await hasActiveExperiment()) && !(await hasAnyConnectedDataSource());
   // Phase 1 (2026-05-12): the gate used to call `loadCachedFreshCanonical`
   // (60d obs pull) just to inspect observationCount > 0 and active prompt
   // count. Now we read a narrow 7d obs window + tracked_prompts directly

@@ -398,6 +398,45 @@ export async function getConnectorInfo(
   };
 }
 
+/**
+ * The read data-source connectors that, when ANY is connected, mean the
+ * tenant is operating on its own LIVE data — not demo/sample content.
+ * (google_gbp + callrail + yelp are excluded: GBP rides the gsc grant,
+ * CallRail/Yelp are auxiliary, not a primary visibility/SEO/AEO source.)
+ */
+const REAL_DATA_SOURCE_PROVIDERS: ConnectorProvider[] = [
+  "google_gsc",
+  "google_ga4",
+  "semrush",
+  "profound",
+  "clarity",
+  "wix",
+];
+
+/**
+ * True when the tenant has at least one real data source connected.
+ * The single source of truth for "is this a real (non-demo) tenant" used
+ * by the shell + the Today gate so a GSC-connected (but never-CSV-imported)
+ * tenant sees its real command center, not the connect-prompt. Fail-soft:
+ * a token-read error counts as not-connected for that provider (never
+ * blocks the render). Parallel reads (cached tokens).
+ */
+export async function hasAnyConnectedDataSource(
+  tenantId?: string,
+): Promise<boolean> {
+  const checks = await Promise.all(
+    REAL_DATA_SOURCE_PROVIDERS.map(async (provider) => {
+      try {
+        const info = await getConnectorInfo(provider, tenantId);
+        return info.status === "connected";
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return checks.some(Boolean);
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Write API (throws on failure — OAuth callback must surface errors)
 // ─────────────────────────────────────────────────────────────────────
