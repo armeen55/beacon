@@ -95,10 +95,7 @@ import {
   computeTodayPrimaryShare,
   type TodayPrimaryShare,
 } from "@/domains/daily-metric-snapshots/today-primary-share";
-import {
-  loadGscPageSignalsForTenant,
-  loadGscDecaySignalsForTenant,
-} from "@/domains/recommendation-intelligence/gsc-page-signals";
+import { loadGscSiteTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { loadSemrushPageSignalsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
@@ -245,15 +242,18 @@ export const loadTodayV2AllSourceSummaryData = cache(
     // so a slow / empty / erroring source degrades to empty (no card)
     // without blocking the rest. `.catch` belt-and-suspenders on top of
     // each loader's own internal try/catch.
-    const [gsc, gscDecay, ga4, clarity, semrush, aeo, clarityMultiDay] =
+    // GSC summary card reads the LIGHT per-day site-totals table
+    // (`gsc_daily_totals`, ~91 rows for a 90-day window) instead of the
+    // heavy ~200-page per-page signal loader (~6.4s for Iranopedia). Same
+    // headline numbers — total clicks/impressions, impressions-weighted
+    // avg position, site CTR, 28d/prior-28d clicks split for the arrow —
+    // in one tiny indexed read, so the card streams instantly. Fail-soft
+    // to null (→ no GSC card; never a zero card).
+    const [gscSiteTotals, ga4, clarity, semrush, aeo, clarityMultiDay] =
       await Promise.all([
-        loadGscPageSignalsForTenant(tenantId, now).catch((err) => {
+        loadGscSiteTotalsForTenant(tenantId, now).catch((err) => {
           console.error("[today-v2] all-source GSC load failed:", err);
-          return new Map();
-        }),
-        loadGscDecaySignalsForTenant(tenantId, now).catch((err) => {
-          console.error("[today-v2] all-source GSC decay load failed:", err);
-          return new Map();
+          return null;
         }),
         loadGa4PageValuesForTenant(tenantId, now).catch((err) => {
           console.error("[today-v2] all-source GA4 load failed:", err);
@@ -275,7 +275,7 @@ export const loadTodayV2AllSourceSummaryData = cache(
       ]);
 
     const cards = buildSourceStatCards(
-      { gsc, gscDecay, ga4, clarity, semrush, aeo },
+      { gscSiteTotals, ga4, clarity, semrush, aeo },
       clarityMultiDay,
     );
     return { cards };

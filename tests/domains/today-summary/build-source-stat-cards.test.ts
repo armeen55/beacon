@@ -13,36 +13,20 @@ import {
   buildSourceStatCards,
   type AllSourceStatInputs,
 } from "@/domains/today-summary/build-source-stat-cards";
-import type {
-  GscPageSignal,
-  GscDecaySignal,
-} from "@/domains/recommendation-intelligence/gsc-page-signals";
+import type { GscSiteTotals } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import type { Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import type { SemrushPageSignal } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import type { TodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
 
-function gscSignal(p: Partial<GscPageSignal>): GscPageSignal {
+function gscTotals(p: Partial<GscSiteTotals>): GscSiteTotals {
   return {
-    page: "https://x.com/a",
     clicks90d: 0,
     impressions90d: 0,
+    avgPosition90d: 0,
     ctr90d: 0,
-    position90d: 0,
-    topQueries: [],
-    ...p,
-  };
-}
-
-function decaySignal(p: Partial<GscDecaySignal>): GscDecaySignal {
-  return {
-    page: "https://x.com/a",
-    clicksNow: 0,
-    positionNow: 0,
-    impressionsNow: 0,
-    clicksPrior: 0,
-    positionPrior: 0,
-    impressionsPrior: 0,
+    clicks28d: 0,
+    clicksPrev28d: 0,
     ...p,
   };
 }
@@ -73,8 +57,7 @@ function semrushSignal(p: Partial<SemrushPageSignal>): SemrushPageSignal {
 
 function emptyInputs(): AllSourceStatInputs {
   return {
-    gsc: new Map(),
-    gscDecay: new Map(),
+    gscSiteTotals: null,
     ga4: new Map(),
     clarity: new Map(),
     semrush: new Map(),
@@ -123,42 +106,64 @@ describe("buildSourceStatCards — empty / gating", () => {
 });
 
 describe("buildSourceStatCards — GSC math", () => {
-  it("emits a GSC card with impressions-weighted position + site CTR from summed counts", () => {
+  it("emits a GSC card with the site-totals' impressions-weighted position + site CTR", () => {
     const inputs = emptyInputs();
-    inputs.gsc = new Map([
-      // page A: 100 clicks / 1000 impr, pos 5
-      ["a", gscSignal({ clicks90d: 100, impressions90d: 1000, position90d: 5 })],
-      // page B: 50 clicks / 9000 impr, pos 10
-      ["b", gscSignal({ clicks90d: 50, impressions90d: 9000, position90d: 10 })],
-    ]);
+    // Equivalent to the old two-page case: Σ clicks 150, Σ impr 10,000,
+    // impressions-weighted position (5*1000 + 10*9000)/10000 = 9.5,
+    // site CTR 150/10000 = 1.5%. The loader pre-aggregates these.
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 150,
+      impressions90d: 10_000,
+      avgPosition90d: 9.5,
+      ctr90d: 0.015,
+    });
     const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
     expect(card).toBeDefined();
     const labels = Object.fromEntries(card!.stats.map((s) => [s.label, s.value]));
-    // Σ clicks = 150, Σ impr = 10,000 → compact "10K"
+    // Σ impr = 10,000 → compact "10K"
     expect(labels["Impressions"]).toBe("10K");
-    // impressions-weighted position = (5*1000 + 10*9000)/10000 = 9.5
+    // impressions-weighted position from the loader
     expect(labels["Avg. position"]).toBe("9.5");
     // site CTR = 150/10000 = 1.5%
     expect(labels["Click rate"]).toBe("1.5%");
   });
 
-  it("does NOT show a before/after delta when there is no prior window", () => {
+  it("returns NO card when site-totals is null (GSC has no data)", () => {
     const inputs = emptyInputs();
-    inputs.gsc = new Map([["a", gscSignal({ clicks90d: 100, impressions90d: 1000, position90d: 5 })]]);
-    // decay has 'now' but zero prior — no comparison possible.
-    inputs.gscDecay = new Map([
-      ["a", decaySignal({ clicksNow: 30, impressionsNow: 400, clicksPrior: 0, impressionsPrior: 0 })],
-    ]);
+    inputs.gscSiteTotals = null;
+    expect(buildSourceStatCards(inputs).find((c) => c.key === "gsc")).toBeUndefined();
+  });
+
+  it("returns NO card when site-totals impressions are zero (never a zero card)", () => {
+    const inputs = emptyInputs();
+    inputs.gscSiteTotals = gscTotals({ clicks90d: 0, impressions90d: 0 });
+    expect(buildSourceStatCards(inputs).find((c) => c.key === "gsc")).toBeUndefined();
+  });
+
+  it("does NOT show a before/after delta when there is no prior 28-day window", () => {
+    const inputs = emptyInputs();
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 100,
+      impressions90d: 1000,
+      avgPosition90d: 5,
+      ctr90d: 0.1,
+      clicks28d: 30,
+      clicksPrev28d: 0,
+    });
     const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
     expect(card!.subline).toBeNull();
   });
 
   it("shows an UP before/after delta when clicks rose vs the prior 28 days", () => {
     const inputs = emptyInputs();
-    inputs.gsc = new Map([["a", gscSignal({ clicks90d: 100, impressions90d: 1000, position90d: 5 })]]);
-    inputs.gscDecay = new Map([
-      ["a", decaySignal({ clicksNow: 120, impressionsNow: 500, clicksPrior: 100, impressionsPrior: 480 })],
-    ]);
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 100,
+      impressions90d: 1000,
+      avgPosition90d: 5,
+      ctr90d: 0.1,
+      clicks28d: 120,
+      clicksPrev28d: 100,
+    });
     const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
     expect(card!.subline?.tone).toBe("up");
     expect(card!.subline?.text).toContain("+20%");
@@ -246,7 +251,12 @@ describe("buildSourceStatCards — SEMrush + AEO present", () => {
 describe("buildSourceStatCards — ordering (search-first, AEO one-among-equals)", () => {
   it("orders cards GSC → GA4 → SEMrush → Clarity → AEO", () => {
     const inputs = emptyInputs();
-    inputs.gsc = new Map([["a", gscSignal({ clicks90d: 1, impressions90d: 100, position90d: 5 })]]);
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 1,
+      impressions90d: 100,
+      avgPosition90d: 5,
+      ctr90d: 0.01,
+    });
     inputs.ga4 = new Map([["a", ga4Value({ sessions28d: 100, engaged28d: 60 })]]);
     inputs.semrush = new Map([
       ["a", semrushSignal({ keywords: [{ keyword: "k", position: 5, volume: 100, difficulty: null, intent: null }] })],
@@ -261,10 +271,14 @@ describe("buildSourceStatCards — ordering (search-first, AEO one-among-equals)
 describe("buildSourceStatCards — Iranopedia ground-truth shape", () => {
   it("shows GSC + Clarity, hides GA4/SEMrush/AEO (matches verified per-tenant data)", () => {
     const inputs = emptyInputs();
-    // GSC rich
-    inputs.gsc = new Map([
-      ["a", gscSignal({ clicks90d: 12019, impressions90d: 791710, position90d: 8 })],
-    ]);
+    // GSC rich — Iranopedia ground truth from gsc_daily_totals (90d):
+    // ~10,858 clicks / ~702,598 impressions.
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 10_858,
+      impressions90d: 702_598,
+      avgPosition90d: 8,
+      ctr90d: 10_858 / 702_598,
+    });
     // GA4 connected-but-empty → empty Map
     inputs.ga4 = new Map();
     // SEMrush not connected → empty Map

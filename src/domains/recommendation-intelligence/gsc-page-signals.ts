@@ -218,6 +218,114 @@ export async function loadGscPageSignalsForTenant(
   return out;
 }
 
+// ── Site totals slice (2026-06-15) — light per-day site-totals read ──
+
+export type GscSiteTotals = {
+  /** Σ clicks over the trailing 90-day window. */
+  clicks90d: number;
+  /** Σ impressions over the trailing 90-day window. */
+  impressions90d: number;
+  /** Impressions-weighted average position = Σ(position×impr)/Σimpr. */
+  avgPosition90d: number;
+  /** Site CTR = Σclicks/Σimpressions over the window (0–1). */
+  ctr90d: number;
+  /** Σ clicks over the trailing 28 days (for the before/after delta). */
+  clicks28d: number;
+  /** Σ clicks over days 28–56 ago (the prior 28-day window). */
+  clicksPrev28d: number;
+};
+
+/**
+ * INSTANT GSC summary read (2026-06-15). The headline GSC stat card needs
+ * only site-level totals — total clicks/impressions, impressions-weighted
+ * average position, site CTR, and a 28d/prior-28d clicks split for the
+ * before/after arrow. The full per-page signal loader
+ * (`loadGscPageSignalsForTenant`) reads ~200 pages of page+query grain and
+ * takes seconds; this reads the tiny `gsc_daily_totals` table instead —
+ * ONE row per (property, day), ~91 rows for a 90-day window — and sums it
+ * in a single indexed, tenant-scoped read. That makes the summary card
+ * stream instantly.
+ *
+ * `gsc_daily_totals` is the property-level ungrouped totals row GSC reports
+ * per day (the honest property truth — see sync-search-analytics.ts). If a
+ * tenant has multiple `property` rows for a given date, we SUM across
+ * properties (the page-signal loaders also aggregate every property the
+ * tenant has). Positions are impressions-weighted using each day's
+ * impressions, exactly mirroring the per-page card's position math.
+ *
+ * Fail-soft: missing table / no rows / Supabase error → null (→ no GSC
+ * card; the caller never shows a zero/empty card).
+ */
+export async function loadGscSiteTotalsForTenant(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<GscSiteTotals | null> {
+  try {
+    const since90 = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    // Window boundaries for the 28d / prior-28d clicks split (string-
+    // comparable YYYY-MM-DD; the table stores `date` as a date column).
+    const since28 = new Date(now.getTime() - 28 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const since56 = new Date(now.getTime() - 56 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("gsc_daily_totals")
+      .select("date, clicks, impressions, position")
+      .eq("tenant_id", tenantId)
+      .gte("date", since90)
+      .order("date", { ascending: true });
+    if (error || !data || data.length === 0) return null;
+
+    const rows = data as Array<{
+      date: string;
+      clicks: number | string | null;
+      impressions: number | string | null;
+      position: number | string | null;
+    }>;
+
+    let clicks90d = 0;
+    let impressions90d = 0;
+    let positionWeighted90d = 0;
+    let clicks28d = 0;
+    let clicksPrev28d = 0;
+    for (const r of rows) {
+      const clicks = Number(r.clicks) || 0;
+      const impressions = Number(r.impressions) || 0;
+      const position = Number(r.position) || 0;
+      clicks90d += clicks;
+      impressions90d += impressions;
+      // Impressions-weight each day's position so the site number is
+      // impressions-weighted, never an unweighted average of daily positions.
+      positionWeighted90d += position * impressions;
+      // 28d / prior-28d clicks split (multiple property rows per date sum
+      // naturally — we accumulate per-row, not per-date).
+      if (r.date >= since28) {
+        clicks28d += clicks;
+      } else if (r.date >= since56) {
+        clicksPrev28d += clicks;
+      }
+    }
+    if (impressions90d <= 0) return null;
+
+    return {
+      clicks90d,
+      impressions90d,
+      avgPosition90d: positionWeighted90d / impressions90d,
+      ctr90d: clicks90d / impressions90d,
+      clicks28d,
+      clicksPrev28d,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── Decay slice (2026-06-12) — split-window decay signals ────────────
 
 export type GscDecaySignal = {

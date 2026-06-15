@@ -4,31 +4,29 @@
  *
  * Beacon is NOT an AEO-only tool: AEO ("AI answers") is one source
  * among equals alongside GSC search, GA4 traffic, SEMrush rankings,
- * and Clarity friction. This helper takes the five already-loaded
- * per-page Maps (+ the AEO KPIs object) and reduces each to its 2–4
- * headline numbers, returning ONE compact card per source.
+ * and Clarity friction. This helper takes the GSC site-totals object,
+ * three per-page Maps (GA4 / SEMrush / Clarity), and the AEO KPIs
+ * object, and reduces each to its 2–4 headline numbers, returning ONE
+ * compact card per source.
  *
  * GATING CONTRACT (the whole point — see plan risk "GATING TRAP"):
  *   Cards gate on DATA PRESENCE, never on connector status. A source
  *   that is OAuth-connected but has synced zero rows (e.g. Iranopedia's
  *   GA4) yields an EMPTY Map → no card. A source with real raw data
  *   must never be hidden by a connect check. Concretely:
- *     - GSC:     emit iff Σ impressions90d > 0
+ *     - GSC:     emit iff site-totals is non-null AND impressions90d > 0
  *     - GA4:     emit iff Σ sessions28d > 0   (connected-but-empty → no card)
  *     - SEMrush: emit iff the Map is non-empty
  *     - Clarity: emit iff Σ sessions > 0
  *     - AEO:     emit iff the KPIs object is non-null
  *   So a card always shows REAL numbers or doesn't show at all.
  *
- * Pure: no I/O, no Date.now (the loader passes a stable `now`-free
- * shape — deltas come from the decay Map). Unit-tested in
- * `build-source-stat-cards.test.ts`.
+ * Pure: no I/O, no Date.now (the loaders pass a stable `now`-free shape
+ * — the GSC delta comes from the site-totals' 28d/prior-28d clicks
+ * split). Unit-tested in `build-source-stat-cards.test.ts`.
  */
 
-import type {
-  GscPageSignal,
-  GscDecaySignal,
-} from "@/domains/recommendation-intelligence/gsc-page-signals";
+import type { GscSiteTotals } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import type { Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import type { SemrushPageSignal } from "@/domains/recommendation-intelligence/semrush-page-signals";
@@ -63,8 +61,8 @@ export type SourceStatCard = {
 };
 
 export type AllSourceStatInputs = {
-  gsc: Map<string, GscPageSignal>;
-  gscDecay: Map<string, GscDecaySignal>;
+  /** Light per-day site-totals read (or null when GSC has no data). */
+  gscSiteTotals: GscSiteTotals | null;
   ga4: Map<string, Ga4PageValue>;
   clarity: Map<string, ClarityPageSignal>;
   semrush: Map<string, SemrushPageSignal>;
@@ -111,47 +109,30 @@ function fmtSignedPct(fraction: number): string {
 /**
  * GSC card: site clicks + impressions (compact), impressions-weighted
  * avg position, and site CTR (Σclicks/Σimpressions, NOT the average of
- * per-page CTRs). Sub-line is the 28d clicks before/after delta from the
- * decay Map — shown only when prior-window impressions exist so we never
- * imply a trend off a single window.
+ * per-page CTRs). Consumes the LIGHT per-day site-totals object (one
+ * tiny `gsc_daily_totals` read) instead of summing the ~200-page signal
+ * Map, so the card streams instantly. Sub-line is the 28d clicks
+ * before/after delta (clicks28d vs clicksPrev28d) — shown only when the
+ * prior 28-day window has clicks so we never imply a trend off a single
+ * window.
  */
-function buildGscCard(
-  gsc: Map<string, GscPageSignal>,
-  decay: Map<string, GscDecaySignal>,
-): SourceStatCard | null {
-  let clicks = 0;
-  let impressions = 0;
-  let positionWeighted = 0;
-  for (const s of gsc.values()) {
-    clicks += s.clicks90d;
-    impressions += s.impressions90d;
-    // Re-weight position by impressions from the SUMMED counts so the
-    // site number is impressions-weighted, never an unweighted average
-    // of per-page positions.
-    positionWeighted += s.position90d * s.impressions90d;
-  }
-  // Gate on DATA presence: no impressions → no card (covers empty Map).
-  if (impressions <= 0) return null;
+function buildGscCard(totals: GscSiteTotals | null): SourceStatCard | null {
+  // Gate on DATA presence: no data / no impressions → no card.
+  if (totals == null || totals.impressions90d <= 0) return null;
 
-  const avgPosition = positionWeighted / impressions;
-  const siteCtr = clicks / impressions;
-
-  // Before/after arrow from the decay split-window. Sum both windows;
-  // only show the delta when the prior window has impressions (otherwise
-  // it's a first-window number with nothing to compare against).
-  let clicksNow = 0;
-  let clicksPrior = 0;
-  let impressionsPrior = 0;
-  for (const d of decay.values()) {
-    clicksNow += d.clicksNow;
-    clicksPrior += d.clicksPrior;
-    impressionsPrior += d.impressionsPrior;
-  }
+  // Before/after arrow from the 28d / prior-28d clicks split. Only show
+  // the delta when the prior window has clicks (otherwise it's a first-
+  // window number with nothing to compare against).
   let subline: SourceSubline | null = null;
-  if (impressionsPrior > 0 && clicksPrior > 0) {
-    const deltaFraction = (clicksNow - clicksPrior) / clicksPrior;
+  if (totals.clicksPrev28d > 0) {
+    const deltaFraction =
+      (totals.clicks28d - totals.clicksPrev28d) / totals.clicksPrev28d;
     const tone: SourceSubline["tone"] =
-      clicksNow > clicksPrior ? "up" : clicksNow < clicksPrior ? "down" : "neutral";
+      totals.clicks28d > totals.clicksPrev28d
+        ? "up"
+        : totals.clicks28d < totals.clicksPrev28d
+          ? "down"
+          : "neutral";
     subline = {
       text: `Clicks ${fmtSignedPct(deltaFraction)} vs the prior 28 days`,
       tone,
@@ -162,10 +143,10 @@ function buildGscCard(
     key: "gsc",
     source: "Search (Google)",
     stats: [
-      { label: "Clicks (90d)", value: fmtCompact(clicks) },
-      { label: "Impressions", value: fmtCompact(impressions) },
-      { label: "Avg. position", value: fmtPosition(avgPosition) },
-      { label: "Click rate", value: fmtPct(siteCtr) },
+      { label: "Clicks (90d)", value: fmtCompact(totals.clicks90d) },
+      { label: "Impressions", value: fmtCompact(totals.impressions90d) },
+      { label: "Avg. position", value: fmtPosition(totals.avgPosition90d) },
+      { label: "Click rate", value: fmtPct(totals.ctr90d) },
     ],
     subline,
   };
@@ -341,7 +322,7 @@ export function buildSourceStatCards(
   claritySpansMultipleDays = false,
 ): SourceStatCard[] {
   const cards: Array<SourceStatCard | null> = [
-    buildGscCard(inputs.gsc, inputs.gscDecay),
+    buildGscCard(inputs.gscSiteTotals),
     buildGa4Card(inputs.ga4),
     buildSemrushCard(inputs.semrush),
     buildClarityCard(inputs.clarity, claritySpansMultipleDays),
