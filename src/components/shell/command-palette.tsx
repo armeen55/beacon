@@ -75,12 +75,25 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
         // and `g+m` (→ /competitors) routed to URLs that have been
         // hidden from the sidebar since 2026-04-22 (Phase 3.5F
         // "Surface Trust"); the shortcuts were dead wiring exposing
-        // hidden surfaces via CMD+K. Keep `g+t`, `g+c`, `g+s` —
-        // these align 1:1 with `navigationGroups` in
-        // `src/lib/navigation.ts`.
+        // hidden surfaces via CMD+K.
+        //
+        // 2026-06-14 — extended to cover ALL six customer routes in
+        // `navigationGroups` (`src/lib/navigation.ts`). Previously the
+        // map only implemented t/c/s while the help dialog + palette
+        // labels advertised G P / G M / G R — shortcuts the handler
+        // never fired. The map below aligns 1:1 with the customer nav;
+        // keys are chosen to avoid colliding with ⌘K / ? . `g+k` →
+        // Connectors (mnemonic: "connectors"; `g+c` is taken by
+        // Changes). Keep this in lockstep with the help dialog's
+        // Navigation group and `NAV_SHORTCUTS` in
+        // `src/app/(shell)/layout.tsx`; the architecture test
+        // `customer-nav-exposure.test.ts` enforces no hidden routes.
         const routes: Record<string, string> = {
           t: "/",
+          r: "/recommendations",
+          p: "/prompts",
           c: "/changes",
+          k: "/settings/connectors",
           s: "/settings",
         };
         if (routes[e.key]) {
@@ -270,9 +283,10 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
 
               <HelpGroup title="Navigation">
                 <HelpRow keys="G T" label="Today" />
-                <HelpRow keys="G P" label="Pages" />
-                <HelpRow keys="G M" label="Market" />
+                <HelpRow keys="G R" label="Recommendations" />
+                <HelpRow keys="G P" label="Prompts" />
                 <HelpRow keys="G C" label="Changes" />
+                <HelpRow keys="G K" label="Connectors" />
                 <HelpRow keys="G S" label="Settings" />
               </HelpGroup>
             </div>

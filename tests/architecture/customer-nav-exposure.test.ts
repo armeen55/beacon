@@ -17,9 +17,11 @@
  *
  *   2. CMD+K KEYBOARD SHORTCUTS — the `g+<key>` shortcuts in
  *      `command-palette.tsx` only target customer-surface routes.
- *      Specifically: no shortcut routes to /pages, /competitors,
- *      /local, /topics, /diagnostics/*, /audit, /rank, /moves,
- *      /review, /expansion, /changes/truth.
+ *      The map covers all six customer routes (g+t→/, g+r→
+ *      /recommendations, g+p→/prompts, g+c→/changes, g+k→
+ *      /settings/connectors, g+s→/settings). No shortcut routes to
+ *      /pages, /competitors, /local, /topics, /diagnostics/*, /audit,
+ *      /rank, /moves, /review, /expansion, /changes/truth.
  *
  *   3. CMD+K PALETTE GROUPS — the layout-built `paletteItems` only
  *      reference customer-surface routes (Navigate group via
@@ -136,10 +138,17 @@ describe("customer nav exposure — Invariant 2: CMD+K shortcuts target only cus
     }
   });
 
-  it("the 3 expected shortcuts (g+t, g+c, g+s) are wired", () => {
+  it("the customer-route shortcuts (g+t/r/p/c/k/s) are wired 1:1 with the nav", () => {
+    // 2026-06-14 — the g+<key> map was widened from t/c/s to cover ALL
+    // six customer routes in `navigationGroups` so the help dialog +
+    // palette labels stop advertising shortcuts the handler never fired.
+    // Every target below is a customer-surface route; none is forbidden.
     const src = readSrc("src/components/shell/command-palette.tsx");
     expect(src).toMatch(/t:\s*"\/"/);
+    expect(src).toMatch(/r:\s*"\/recommendations"/);
+    expect(src).toMatch(/p:\s*"\/prompts"/);
     expect(src).toMatch(/c:\s*"\/changes"/);
+    expect(src).toMatch(/k:\s*"\/settings\/connectors"/);
     expect(src).toMatch(/s:\s*"\/settings"/);
   });
 });

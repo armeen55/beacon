@@ -27,17 +27,23 @@ import {
 // T-CustomerNav (2026-05-08) — keys aligned with `navigationGroups`
 // in `src/lib/navigation.ts`. Pre-T-CustomerNav this map carried
 // dead entries for routes hidden from the sidebar 2026-04-17 /
-// 2026-04-22 (/pages, /competitors, /local). The lookup
-// `NAV_SHORTCUTS[n.href]` was always over `allNavItems` (5 entries),
-// so the dead keys were never hit — but the map shape was the
-// audit's source for "competitor in customer surface" smell.
-// Keep this in lockstep with `navigationGroups`; the architecture
-// test `customer-nav-exposure.test.ts` enforces alignment.
+// 2026-04-22 (/pages, /competitors, /local).
+//
+// 2026-06-14 — these palette labels MUST match the actual g+<key>
+// handler in `command-palette.tsx`. Previously this map advertised
+// `G R` / `G P` next to Recommendations / Prompts and omitted
+// Connectors entirely, while the handler only fired on t/c/s — so
+// the palette promised shortcuts that did nothing and hid the one
+// new customer surface. Now all six customer routes carry the exact
+// key the handler implements (`g+k` → Connectors). Keep this in
+// lockstep with the handler + the help dialog; the architecture test
+// `customer-nav-exposure.test.ts` enforces no hidden routes.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   "/recommendations": "G R",
   "/prompts": "G P",
   "/changes": "G C",
+  "/settings/connectors": "G K",
   "/settings": "G S",
 };
 
