@@ -64,7 +64,7 @@ function SidebarContent() {
       </div>
 
       <ScrollArea className="flex-1 py-3">
-        <nav className="flex flex-col gap-5 px-3">
+        <nav aria-label="Primary" className="flex flex-col gap-5 px-3">
           {navigationGroups.map((group, groupIndex) => (
             <div key={group.label || `nav-group-${groupIndex}`}>
               {group.label && (
@@ -87,6 +87,7 @@ function SidebarContent() {
                       key={item.href}
                       href={item.href}
                       prefetch={false}
+                      aria-current={isActive ? "page" : undefined}
                       className={cn(
                         "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
                         isActive

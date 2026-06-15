@@ -37,8 +37,14 @@ export function LoginForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-3">
-      <label className="block text-[12px] text-muted-foreground">Email</label>
+      <label
+        htmlFor="login-email"
+        className="block text-[12px] text-muted-foreground"
+      >
+        Email
+      </label>
       <input
+        id="login-email"
         type="email"
         required
         autoFocus

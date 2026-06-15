@@ -111,8 +111,9 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
   return (
     <div className="max-w-xl space-y-6">
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Business name</label>
+        <label htmlFor="config-name" className="mb-1.5 block text-[12px] font-medium text-foreground">Business name</label>
         <input
+          id="config-name"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -120,8 +121,9 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Website domain</label>
+        <label htmlFor="config-domain" className="mb-1.5 block text-[12px] font-medium text-foreground">Website domain</label>
         <input
+          id="config-domain"
           type="text"
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
@@ -130,8 +132,9 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Phone</label>
+        <label htmlFor="config-phone" className="mb-1.5 block text-[12px] font-medium text-foreground">Phone</label>
         <input
+          id="config-phone"
           type="tel"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
@@ -140,8 +143,9 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Address</label>
+        <label htmlFor="config-address" className="mb-1.5 block text-[12px] font-medium text-foreground">Address</label>
         <input
+          id="config-address"
           type="text"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
@@ -150,13 +154,14 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">
+        <label htmlFor="config-yelp" className="mb-1.5 block text-[12px] font-medium text-foreground">
           Yelp business ID or alias
         </label>
         <p className="mb-2 text-[11px] text-muted-foreground">
           Used when you sync Yelp reviews from Settings → Connectors. Find this in your Yelp business URL or Fusion documentation.
         </p>
         <input
+          id="config-yelp"
           type="text"
           value={yelpBusinessId}
           onChange={(e) => setYelpBusinessId(e.target.value)}
@@ -165,8 +170,9 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Industry</label>
+        <label htmlFor="config-industry" className="mb-1.5 block text-[12px] font-medium text-foreground">Industry</label>
         <select
+          id="config-industry"
           value={industry}
           onChange={(e) => setIndustry(e.target.value)}
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
@@ -182,9 +188,10 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         </select>
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Service areas / locations</label>
+        <label htmlFor="config-locations" className="mb-1.5 block text-[12px] font-medium text-foreground">Service areas / locations</label>
         <p className="mb-2 text-[11px] text-muted-foreground">Comma-separated cities or regions you serve.</p>
         <input
+          id="config-locations"
           type="text"
           value={locationsLine}
           onChange={(e) => setLocationsLine(e.target.value)}
@@ -192,9 +199,10 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Key services</label>
+        <label htmlFor="config-services" className="mb-1.5 block text-[12px] font-medium text-foreground">Key services</label>
         <p className="mb-2 text-[11px] text-muted-foreground">Comma-separated services you want to track.</p>
         <input
+          id="config-services"
           type="text"
           value={servicesLine}
           onChange={(e) => setServicesLine(e.target.value)}
@@ -202,9 +210,10 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">Known competitors</label>
+        <label htmlFor="config-competitors" className="mb-1.5 block text-[12px] font-medium text-foreground">Known competitors</label>
         <p className="mb-2 text-[11px] text-muted-foreground">Comma-separated competitor domains.</p>
         <input
+          id="config-competitors"
           type="text"
           value={competitorsLine}
           onChange={(e) => setCompetitorsLine(e.target.value)}
@@ -213,7 +222,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
       </div>
 
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">
+        <label htmlFor="config-content-rules" className="mb-1.5 block text-[12px] font-medium text-foreground">
           Content rules
         </label>
         <p className="mb-2 text-[11px] text-muted-foreground">
@@ -222,6 +231,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           Farsi.&rdquo;
         </p>
         <textarea
+          id="config-content-rules"
           rows={4}
           value={contentRulesLine}
           onChange={(e) => setContentRulesLine(e.target.value)}
@@ -232,7 +242,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
       </div>
 
       <div>
-        <label className="mb-1.5 block text-[12px] font-medium text-foreground">
+        <label htmlFor="config-flagged-terms" className="mb-1.5 block text-[12px] font-medium text-foreground">
           Banned terms
         </label>
         <p className="mb-2 text-[11px] text-muted-foreground">
@@ -240,6 +250,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           outright — they can never reach your review queue.
         </p>
         <input
+          id="config-flagged-terms"
           type="text"
           value={flaggedTermsLine}
           onChange={(e) => setFlaggedTermsLine(e.target.value)}

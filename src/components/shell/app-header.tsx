@@ -33,7 +33,7 @@ function useBreadcrumb(pathname: string) {
 
 export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
   const pathname = usePathname();
-  const { toggleSidebar } = useShell();
+  const { toggleSidebar, sidebarOpen } = useShell();
   const { title, parent } = useBreadcrumb(pathname);
 
   return (
@@ -41,8 +41,10 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 md:hidden"
+        className="h-11 w-11 md:hidden"
         onClick={toggleSidebar}
+        aria-label="Open navigation menu"
+        aria-expanded={sidebarOpen}
       >
         <Menu className="h-4 w-4" />
       </Button>

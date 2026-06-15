@@ -161,6 +161,9 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
         >
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command palette"
             className="relative w-full max-w-lg rounded-xl border border-border bg-background shadow-2xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
@@ -175,6 +178,7 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
                 }}
                 onKeyDown={handlePaletteKeyDown}
                 placeholder="Search Beacon..."
+                aria-label="Search Beacon"
                 className="w-full bg-transparent py-3 text-[14px] outline-none placeholder:text-muted-foreground/50"
               />
               <kbd className="text-[10px] text-muted-foreground/60 border border-border rounded px-1.5 py-0.5 shrink-0">
@@ -243,11 +247,14 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
         >
           <div className="absolute inset-0 bg-black/40" />
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shortcuts-dialog-title"
             className="relative w-full max-w-sm rounded-xl border border-border bg-background shadow-2xl overflow-hidden p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[13px] font-semibold">
+              <h3 id="shortcuts-dialog-title" className="text-[13px] font-semibold">
                 Keyboard shortcuts
               </h3>
               <kbd className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">

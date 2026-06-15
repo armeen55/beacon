@@ -195,12 +195,22 @@ export default async function ShellLayout({
 
   return (
     <ShellProvider badges={badges} isDemoMode={isDemoMode}>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-foreground focus:px-4 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-background"
+      >
+        Skip to content
+      </a>
       <div className="flex h-screen overflow-hidden">
         <AppSidebar />
         <MobileSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppHeader rightSlot={<TenantSwitcher />} />
-          <main className="flex-1 overflow-y-auto">
+          <main
+            id="main-content"
+            aria-label="Main content"
+            className="flex-1 overflow-y-auto"
+          >
             <DemoBannerGate />
             <div className="mx-auto max-w-[1120px] p-6 lg:p-8">{children}</div>
           </main>

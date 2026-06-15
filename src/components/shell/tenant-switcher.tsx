@@ -64,7 +64,7 @@ export async function TenantSwitcher() {
           <input type="hidden" name="tenant_id" value={t.id} />
           <button
             type="submit"
-            className="rounded-md px-2 py-0.5 text-muted-foreground transition-colors hover:bg-surface-inset/60 hover:text-foreground"
+            className="inline-flex min-h-11 items-center rounded-md px-2 py-0.5 text-muted-foreground transition-colors hover:bg-surface-inset/60 hover:text-foreground md:min-h-0"
             title={`Switch to ${t.name}`}
           >
             {t.name}
