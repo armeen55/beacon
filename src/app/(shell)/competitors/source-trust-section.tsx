@@ -47,8 +47,8 @@ export function SourceTrustSection({ index }: { index: SourceTrustIndex }) {
           ))}
 
           <p className="text-[10px] text-muted-foreground/60">
-            Computed {new Date(index.computed_at).toLocaleDateString()} from citation evidence. Native-poll
-            integration is rebuilding this index — see the freshness banner above the page.
+            Computed {new Date(index.computed_at).toLocaleDateString()} from your last citation pull.
+            Refresh your connected data to update this index.
           </p>
         </div>
       </details>

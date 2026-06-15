@@ -149,7 +149,7 @@ export default async function PromptsPage({
       {totalPrompts === 0 ? (
         <EmptyState
           title="No active prompts"
-          body="Add prompts in Settings → Prompts to start daily polling."
+          body="Add prompts in Settings → Prompts, then refresh your connected data to read how AI answers them."
           cta={{ href: "/settings/prompts", label: "Manage prompts →" }}
         />
       ) : !hasAnyNativeObservations ? (

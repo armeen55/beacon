@@ -3,9 +3,11 @@
  *
  * Renders the Proof Engine's `computed` + positive-lift wins (the strongest,
  * control-backed evidence Beacon has) as plain-English "we measured this"
- * cards. Distinct from the Z-score "Recent wins" rail: this states
- * cause-and-effect ("+N more AI citations a day than comparable pages that
- * didn't change"), the only ROI claim in the category that survives scrutiny.
+ * cards. Distinct from the Z-score "Recent wins" rail: this states a strong,
+ * control-backed signal ("+N more AI citations a day than comparable pages
+ * that didn't change"). Copy aligned to /settings/methodology: it is the
+ * strongest evidence in the category, but framed as a signal associated with
+ * the change — never proven causation or revenue.
  *
  * Pure presentational. SELF-HIDES when there are no proven wins, so the home
  * screen stays quiet until the engine has a real causal result — never a
@@ -45,7 +47,7 @@ export function TodayV2ProvenResults({
           Proven by Beacon
         </span>
         <span className="text-[10px] text-muted-foreground">
-          measured cause-and-effect
+          strong signal vs. comparable pages
         </span>
       </div>
       <ul className="mt-3 space-y-3">

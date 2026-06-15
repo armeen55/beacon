@@ -20,6 +20,7 @@ import {
 import { PromptDetailV2Client } from "./prompt-detail-v2-client";
 import { PromptDetailV2NotFound } from "./prompt-detail-v2-not-found";
 import { computePromptPrimaryShare } from "@/domains/daily-metric-snapshots/prompt-primary-share";
+import { structureLabel } from "@/lib/structure-labels";
 
 // 2026-05-15 — Section 6 C5 prerender safety. Mirrors
 // `/diagnostics/page.tsx`'s post-fix pattern. The v2 branch reads
@@ -826,7 +827,12 @@ function AnswerShapeCallout({
 }) {
   const s = drilldown.dominantAnswerStructure!;
   const pct = Math.round(s.share * 100);
-  const pretty = s.structure.replace(/_/g, " ");
+  // Route through the shared STRUCTURE_LABEL map so we render plain English
+  // ("Ranked list", "Side-by-side comparison") instead of leaking raw enum
+  // keys via a naive underscore-replace. Lowercase the first letter for the
+  // in-sentence "came back as a …" phrasing.
+  const label = structureLabel(s.structure);
+  const pretty = label.charAt(0).toLowerCase() + label.slice(1);
   return (
     <section className="mb-6">
       <SectionHeading>Answer shape</SectionHeading>

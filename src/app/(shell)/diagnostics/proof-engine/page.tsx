@@ -6,11 +6,11 @@ import "server-only";
  *
  * The customer /changes/[id] drilldown shows ONE change's causal proof. This
  * is the operator's whole-tenant view: the status histogram across every
- * attributed change, the top causally-proven wins (plain-English), and the
- * per-bucket forecast base rates the Move Forecast reads. It's the artifact
- * the founder uses to validate + trust + sell the wedge ("Beacon proved these
- * N changes drove citations") — and the fastest way to confirm the nightly
- * Proof Engine is producing real `computed` outcomes for a tenant.
+ * attributed change, the top measured wins (plain-English, labelled strong
+ * vs early signal), and the per-bucket forecast base rates the Move Forecast
+ * reads. It's the artifact the founder uses to validate + trust + sell the
+ * wedge — and the fastest way to confirm the Proof Engine is producing real
+ * `computed` outcomes for a tenant.
  *
  * Read-only: reads the durably-persisted `change_outcomes_v2` (via
  * loadAllChangeOutcomes, which hydrates from Supabase on hosted). Operator-
@@ -26,6 +26,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { loadAllChangeOutcomes } from "@/domains/attribution/change-outcome-store";
 import type { StoredChangeOutcome } from "@/domains/attribution/change-outcome-store";
 import { buildProofSentence } from "@/domains/attribution/proof-sentence";
+import { isPlaceboSignificant } from "@/domains/attribution/placebo-inference";
 import {
   buildCausalSelfForecast,
   type CausalSelfForecast,
@@ -136,8 +137,8 @@ export default async function ProofEngineDiagnosticPage() {
           Causal diff-in-differences outcomes for{" "}
           <span className="font-mono">{tenantId}</span>. Read-only;
           recomputed when you refresh. {outcomes.length} attributed change
-          {outcomes.length === 1 ? "" : "s"} · {computedCount} causally
-          computed.
+          {outcomes.length === 1 ? "" : "s"} · {computedCount} with a measured
+          lift.
         </p>
       </header>
 
@@ -174,34 +175,68 @@ export default async function ProofEngineDiagnosticPage() {
         </section>
       )}
 
-      {/* Top proven wins */}
+      {/* Top measured wins. Honest framing (#425, 2026-06-14): this list shows
+          every computed + positive-lift outcome, including low/medium and
+          placebo-FAILED ones — so the header can't claim they're all "proven."
+          Each row is labelled by the SAME bar the engine uses (high confidence
+          AND placebo-significant ⟹ strong signal; anything weaker ⟹ early
+          signal, not yet conclusive). This is display-only: it reads
+          confidence + placebo_p that the engine already computed, and does not
+          change the filter, the p-value, or the confidence gate. */}
       {wins.length > 0 && (
         <section className="rounded-lg border border-status-success/30 bg-status-success/[0.04] px-5 py-4">
           <h2 className="text-[10px] font-semibold uppercase tracking-wider text-status-success">
-            Top causally-proven wins
+            Top measured wins
           </h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Strongest first. &quot;Strong signal&quot; = high confidence and
+            placebo-significant; weaker rows are labelled &quot;early
+            signal&quot; — measured, not yet conclusive.
+          </p>
           <ul className="mt-3 space-y-3">
             {wins.map((o) => {
               const proof = buildProofSentence(o);
+              const overall = o.computed!.overall!;
+              // Display label only — reuses the engine's own predicate, no new
+              // threshold, no change to the gate or computation.
+              const isStrong =
+                o.confidence === "high" &&
+                isPlaceboSignificant(overall.placebo_p ?? null);
               return (
                 <li key={o.source_id} className="border-b border-border/20 pb-2 last:border-b-0">
                   <Link
                     href={`/changes/${encodeURIComponent(o.source_id)}`}
                     className="group block"
                   >
-                    <p className={`text-[13px] font-medium leading-snug ${TONE_CLASS[proof.tone]}`}>
-                      {proof.headline}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider ${
+                          isStrong
+                            ? "bg-status-success/15 text-status-success"
+                            : "bg-status-warning/15 text-status-warning"
+                        }`}
+                      >
+                        {isStrong ? "Strong signal" : "Early signal"}
+                      </span>
+                      <p className={`text-[13px] font-medium leading-snug ${TONE_CLASS[proof.tone]}`}>
+                        {proof.headline}
+                      </p>
+                    </div>
                     <p className="mt-0.5 text-[11px] text-muted-foreground font-mono">
                       {o.primary_bucket} · {o.url ?? "(no url)"} · +
-                      {o.computed!.overall!.adjusted_lift} cit/day ·{" "}
+                      {overall.adjusted_lift} cit/day ·{" "}
                       {o.confidence}
+                      {/* Sample/control transparency (#425): show how many
+                          comparable untreated pages + pre/post days back this
+                          number, so a thin sample isn't hidden. */}
+                      {` · ${overall.controls_used} control${overall.controls_used === 1 ? "" : "s"}`}
+                      {` · ${overall.pre_days_observed}d→${overall.post_days_observed}d`}
                       {/* Placebo inference (#88, 2026-06-12): the share of
                           leave-one-out control pseudo-lifts at least as
                           extreme as this one — small p = few untreated
                           pages moved this much by chance. */}
-                      {typeof o.computed!.overall!.placebo_p === "number"
-                        ? ` · placebo p=${o.computed!.overall!.placebo_p.toFixed(2)}`
+                      {typeof overall.placebo_p === "number"
+                        ? ` · placebo p=${overall.placebo_p.toFixed(2)}`
                         : ""}
                     </p>
                   </Link>

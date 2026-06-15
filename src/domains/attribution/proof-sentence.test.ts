@@ -1,10 +1,12 @@
 /**
  * proof-sentence — plain-English voice of the causal Proof Engine.
  *
- * Pins the honesty rules: cause-and-effect language ONLY for `computed`,
- * confidence tier always spoken, weak/insufficient/zero/ineligible all
- * render as "still measuring" / "nothing to measure" (never a causal claim),
- * and low-confidence computed results are softened, not overstated.
+ * Pins the honesty rules: the strong-signal "associated with the lift" claim
+ * ONLY for `computed` + `high` confidence (and it never claims proven
+ * causation or revenue — aligned to /settings/methodology), confidence tier
+ * always spoken, weak/insufficient/zero/ineligible all render as "still
+ * measuring" / "nothing to measure" (never a causal claim), and low/medium
+ * computed results are softened, not overstated.
  */
 
 import { describe, it, expect } from "vitest";
@@ -75,7 +77,7 @@ function outcome(
 }
 
 describe("buildProofSentence", () => {
-  it("computed + positive lift → helping, with cause-and-effect language", () => {
+  it("computed + high confidence → helping, strong-signal language WITHOUT proven-causation/revenue overclaim", () => {
     const s = buildProofSentence(
       outcome("computed", { adjusted_lift: 2, relative_lift: 0.5, controls_used: 3 }),
     );
@@ -84,7 +86,12 @@ describe("buildProofSentence", () => {
     expect(s.headline).toContain("comparable pages that didn't change");
     expect(s.headline).toContain("+50% more");
     expect(s.sub).toContain("3 similar pages");
-    expect(s.sub.toLowerCase()).toContain("cause-and-effect");
+    // Strong-signal framing, aligned to /settings/methodology.
+    expect(s.sub.toLowerCase()).toContain("strong signal");
+    expect(s.sub.toLowerCase()).toContain("associated with");
+    // Honesty: must NOT claim proven cause-and-effect or revenue.
+    expect(s.sub.toLowerCase()).not.toContain("that's cause-and-effect");
+    expect(s.sub.toLowerCase()).toContain("not proof of causation or revenue");
   });
 
   it("computed + low confidence → helping but SOFTENED, never overstated", () => {
@@ -93,9 +100,8 @@ describe("buildProofSentence", () => {
     );
     expect(s.tone).toBe("helping");
     expect(s.sub.toLowerCase()).toContain("early");
-    // The hard "cause-and-effect, not coincidence" claim is reserved for
-    // non-low confidence.
-    expect(s.sub.toLowerCase()).not.toContain("cause-and-effect");
+    // The strong-signal claim is reserved for high confidence.
+    expect(s.sub.toLowerCase()).not.toContain("strong signal");
   });
 
   it("singular citation reads grammatically (+1 citation, no 's')", () => {

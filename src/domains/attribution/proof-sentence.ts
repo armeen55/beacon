@@ -9,12 +9,15 @@
  * the lift") is worthless if they can't read it.
  *
  * This turns one StoredChangeOutcome into ONE honest plain-English sentence
- * (+ a supporting caveat line). Deterministic, pure, no I/O. The causal
+ * (+ a supporting caveat line). Deterministic, pure, no I/O. The comparative
  * framing ("more than comparable pages that DIDN'T change") is exactly what
  * diff-in-differences licenses — and the honesty rules below mirror the
- * engine's own computed-vs-weak_estimate discipline:
- *   • a cause-and-effect claim ONLY for `computed` outcomes (≥ minControls
- *     comparable untreated pages); the confidence tier is spoken, not hidden;
+ * engine's own computed-vs-weak_estimate discipline AND /settings/methodology
+ * (which states Beacon measures correlation, not proven causation or revenue):
+ *   • the strong-signal "associated with the lift" claim ONLY for `computed`
+ *     outcomes (≥ minControls comparable untreated pages) at `high`
+ *     confidence; it stops short of claiming proven causation or revenue, and
+ *     the confidence tier is spoken, not hidden;
  *   • `weak_estimate` / `no_controls` / `insufficient_*` / `zero_signal` are
  *     "still measuring" — explicitly NOT a causal claim;
  *   • parallel-trends is unverifiable from data, so even a high-confidence
@@ -90,19 +93,22 @@ export function buildProofSentence(outcome: StoredChangeOutcome): ProofSentence 
     const conf = confidencePhrase(confidence);
 
     if (lift >= FLAT_LIFT_THRESHOLD) {
-      // Honesty gate (2026-06-13): "cause-and-effect, not coincidence" is the
-      // HARD causal claim — reserve it for `high`, which is the only tier the
-      // engine grants AFTER the placebo test passes (natural-controls.ts caps
-      // high→medium when the lift isn't placebo-significant, i.e. "untreated
-      // pages moved this much by chance"). A `medium` result is a real measured
-      // signal but NOT yet placebo-proven (or has thin controls / low
-      // baseline), so it must read "promising, not proven" — never "cause and
-      // effect." `low` stays the early-read hint.
+      // Honesty gate (2026-06-13, copy aligned to /settings/methodology
+      // 2026-06-14): the strongest claim is reserved for `high`, the only tier
+      // the engine grants AFTER the placebo test passes (natural-controls.ts
+      // caps high→medium when the lift isn't placebo-significant, i.e.
+      // "untreated pages moved this much by chance"). Even then, methodology is
+      // explicit that Beacon measures correlation, not proven causation, and
+      // never revenue — so the high-tier line says the change is *associated*
+      // with the lift vs. comparable pages and calls it a strong signal, not
+      // proof. A `medium` result is a real measured signal but NOT yet
+      // placebo-proven (or has thin controls / low baseline), so it reads
+      // "promising, not conclusive." `low` stays the early-read hint.
       const softener =
         confidence === "low"
           ? " It's an early read, so treat it as a hint rather than a guarantee."
           : confidence === "high"
-            ? " That's cause-and-effect, not just a coincidence of timing."
+            ? " That's a strong signal this change is associated with the lift — not just a coincidence of timing — though it's not proof of causation or revenue."
             : " It's a real measured signal, but not yet conclusive — with the evidence so far it could still be partly timing, so treat it as promising rather than proven.";
       return {
         tone: "helping",

@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { structureLabel } from "@/lib/structure-labels";
 import type {
   EnrichmentRollup,
   PlatformEnrichmentRollup,
@@ -86,7 +87,7 @@ export function EnrichmentBadges({ rollup, className }: EnrichmentBadgesProps) {
           {rollup.answerStructures.map((s, i) => (
             <span key={s.structure}>
               <span className="font-medium text-foreground">
-                {s.structure.replace(/_/g, " ")}
+                {structureLabel(s.structure)}
               </span>
               <span className="tabular-nums ml-0.5">
                 &nbsp;{s.count}
