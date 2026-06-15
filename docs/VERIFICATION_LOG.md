@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-14 (Fusion item #3 — bounded fusion corroboration bonus in the priority score)
+
+**Directive:** implement FUSION_ROADMAP item #3 — a bounded, additive "fusion corroboration bonus" so a page carrying ≥2 DISTINCT independent signal classes (GSC-demand / Clarity-friction / GA4-value) earns a small ranking nudge. Conservative + additive only, capped strictly below the index-blocker ceiling, no suppression, `priority-score.ts` stays a pure function.
+
+**Built (NOT committed/pushed; typecheck clean; targeted tests green):**
+- **`src/domains/recommendation-intelligence/priority-score.ts`** — new `signal_class_count?: number` input + `fusionCorroborationBonus()` (0 for <2 classes; +2 at 2; +3 cap at 3+). Wired as a new additive term inside `priorityScore`. For NON-index-blocker rows the bonus is clamped to `FUSION_BONUS_NON_BLOCKER_HEADROOM` (= `min-index-blocker-base 45 − (max-content-severity 28 + max-upside 15) − 1 = 1`, computed from the live SEVERITY table) so a corroborated content play can NEVER reach a comparable index blocker on the same page; index-blocker rows take the full bonus (corroboration only lifts a blocker). Pure — no I/O added.
+- **`src/domains/recommendation-intelligence/promote-to-queue.ts`** — `buildSignalClassCountByUrl()`: one pure pre-pass over the FULL tenant candidate batch (the only seam where every candidate is visible) computing the distinct-signal-class COUNT per canonicalized `target_url`. Class map confirmed from trigger source: GSC-demand = `{gsc_low_ctr, gsc_striking_distance, gsc_decay}`; Clarity-friction = `{clarity_friction}`; GA4-value = page whose `ga4ValueWeight` is strictly above the 1.0 baseline (consumes the already-passed `ga4ValueWeightByUrl`). Same-class duplicates corroborate once. Threaded the per-URL count into `priorityScore` alongside the existing GA4 weight. Tenant-isolated (batch is already one tenant's set).
+
+**Seam rationale:** `selectPromotableCandidates` already receives the full per-tenant candidate batch + the GA4 value-weight map; it is the existing place GA4 weights are threaded into the scorer. Adding the class-count there mirrors that pattern exactly and keeps `priority-score.ts` I/O-free (the predicate-purity invariant scans only `triggers/`, but the change holds the pure-function convention regardless).
+
+**Tests added:** `priority-score.test.ts` — component (`fusionCorroborationBonus` 0/1/2/3/cap/monotonic) + in-score (1-class byte-identical to today; 2-class bounded nudge; 3≥2; never reduces a score; **HARD CEILING** asserts a corroborated max-severity content row with full upside + 3 classes + max value weight stays strictly below a min-severity index blocker across ALL 8 page types; headroom in-range; blocker takes full bonus 53→56). `promote-to-queue.test.ts` — `buildSignalClassCountByUrl` (same-class once; GSC+Clarity=2; +GA4 above baseline=3; baseline 1.0 excluded; non-fusion signals contribute 0; per-URL scoping) + end-to-end re-rank (2-class page outranks identical single-signal page; single-signal score unchanged = 40).
+
+**Verified:**
+- `npm run typecheck` clean.
+- Targeted runs all green: `priority-score` + `priority-score-contract` + `promote-to-queue` + `max-rows-per-page` + `max-rows-per-family` = **64 passed**; `promotion-writer` + `recommendation-trigger-predicates-purity` + `recommendation-intelligence-no-queue-write` = **35 passed**.
+- **No existing pins moved** — all prior priority-score / contract assertions exercise 0/1-class candidates (`signal_class_count` absent → 0 bonus), so they are byte-identical. The bonus is purely additive on top of the existing formula.
+- **Central gate (dev server DOWN):** full `npx vitest run` **14,911 passed** (806 files) + `npm run build` exit 0 + typecheck clean → committed + pushed to main.
+
 ## 2026-06-14 (Fusion roadmap + `profound_aeo_gap` trigger — the AEO source finally drives recs)
 
 **Directive:** autonomous /goal — make Beacon the best SEO/AEO merge of GSC+GA4+SEMrush+Profound+Clarity+Wix. After 21 UX_TEARDOWN batches the safe-high-value finding tier was harvested, so per the goal's research clause: design the next fusion capabilities, then build the highest-leverage one.

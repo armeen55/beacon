@@ -41,6 +41,90 @@ import {
 } from "@/domains/recommendation-intelligence/safety-gates";
 
 // ---------------------------------------------------------------------------
+// Fusion corroboration (FUSION_ROADMAP item #3, 2026-06-14)
+// ---------------------------------------------------------------------------
+
+/**
+ * Independent signal CLASSES a target_url can carry. Two candidates on
+ * the same page from the SAME class (e.g. gsc_low_ctr + gsc_striking_
+ * distance) corroborate only ONCE — they are the same kind of evidence
+ * (first-party demand). Corroboration means ≥2 DISTINCT classes.
+ *
+ * Mapping confirmed from the trigger source (2026-06-14):
+ *   • gsc-low-ctr.ts        → "gsc_low_ctr", "gsc_striking_distance"
+ *   • gsc-decay.ts          → "gsc_decay"
+ *   • clarity-friction.ts   → "clarity_friction"
+ *   • GA4 value             → not a trigger; a page carries it when its
+ *                             ga4ValueWeight is ABOVE the 1.0 baseline
+ *                             (ga4-page-values.ts::ga4ValueWeight returns
+ *                             exactly 1.0 for a page with no GA4 mass).
+ */
+const GSC_DEMAND_SIGNALS: ReadonlySet<string> = new Set([
+  "gsc_low_ctr",
+  "gsc_striking_distance",
+  "gsc_decay",
+]);
+const CLARITY_FRICTION_SIGNALS: ReadonlySet<string> = new Set([
+  "clarity_friction",
+]);
+
+/** The GA4 weight is "above baseline" (the page has real value mass)
+ *  when it exceeds 1.0. ga4ValueWeight floors at exactly 1.0. A small
+ *  epsilon guards float noise. */
+const GA4_BASELINE_WEIGHT = 1.0;
+const GA4_WEIGHT_EPSILON = 1e-9;
+
+/**
+ * Per-target_url COUNT of distinct independent signal classes present
+ * across the whole tenant candidate batch. Pure — computed at this seam
+ * (the only place the full batch is visible at once) and threaded into
+ * the scorer as a scalar so `priority-score.ts` stays I/O-free.
+ *
+ * Tenant isolation: the batch passed in is already one tenant's
+ * candidate set (the loader is tenant-scoped); the GA4 weight map is the
+ * same per-tenant map used for the value weight. No cross-tenant read.
+ */
+export function buildSignalClassCountByUrl(
+  triggerCandidates: ReadonlyArray<RecommendationCandidateRow>,
+  ga4ValueWeightByUrl?: ReadonlyMap<string, number>,
+): Map<string, number> {
+  // Accumulate the set of classes per canonicalized URL.
+  const classesByUrl = new Map<string, Set<string>>();
+  const add = (url: string | null, klass: string): void => {
+    if (url == null) return;
+    const key = canonicalizeCitationUrl(url) ?? url;
+    const set = classesByUrl.get(key) ?? new Set<string>();
+    set.add(klass);
+    classesByUrl.set(key, set);
+  };
+
+  for (const c of triggerCandidates) {
+    if (GSC_DEMAND_SIGNALS.has(c.trigger_signal)) add(c.target_url, "gsc_demand");
+    else if (CLARITY_FRICTION_SIGNALS.has(c.trigger_signal))
+      add(c.target_url, "clarity_friction");
+  }
+
+  // GA4-value class: a page counts when its value weight beats baseline,
+  // regardless of which trigger fired on it — but only for URLs that
+  // already appear in this tenant's candidate batch (the GA4 class only
+  // corroborates an existing recommendation; it never invents one).
+  if (ga4ValueWeightByUrl != null) {
+    for (const c of triggerCandidates) {
+      if (c.target_url == null) continue;
+      const key = canonicalizeCitationUrl(c.target_url) ?? c.target_url;
+      const w = ga4ValueWeightByUrl.get(key);
+      if (w != null && w > GA4_BASELINE_WEIGHT + GA4_WEIGHT_EPSILON) {
+        add(c.target_url, "ga4_value");
+      }
+    }
+  }
+
+  const out = new Map<string, number>();
+  for (const [url, set] of classesByUrl) out.set(url, set.size);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Locked caps (Section 4.5.O7 + O8)
 // ---------------------------------------------------------------------------
 
@@ -95,6 +179,15 @@ export type SelectPromotableCandidatesInput = {
 export function selectPromotableCandidates(
   input: SelectPromotableCandidatesInput,
 ): PromotionResult[] {
+  // Fusion corroboration (item #3): one pre-pass over the FULL batch
+  // (the only place every candidate is visible) to count the distinct
+  // independent signal classes per target_url. Threaded into the scorer
+  // as a scalar so priority-score.ts does no I/O.
+  const signalClassCountByUrl = buildSignalClassCountByUrl(
+    input.triggerCandidates,
+    input.ga4ValueWeightByUrl,
+  );
+
   // Stage 1 — per-candidate gate + score + key build.
   const stage1: PromotionResult[] = input.triggerCandidates.map((candidate) => {
     const pageType =
@@ -128,6 +221,17 @@ export function selectPromotableCandidates(
       page_value_weight:
         candidate.target_url != null
           ? input.ga4ValueWeightByUrl?.get(
+              canonicalizeCitationUrl(candidate.target_url) ??
+                candidate.target_url,
+            )
+          : undefined,
+      // Fusion corroboration slice (item #3, 2026-06-14): the count of
+      // distinct independent signal classes this URL carries across the
+      // batch. ≥2 ⇒ a bounded additive nudge in the scorer; 0/1 ⇒ no
+      // change (the scorer treats absent as 0).
+      signal_class_count:
+        candidate.target_url != null
+          ? signalClassCountByUrl.get(
               canonicalizeCitationUrl(candidate.target_url) ??
                 candidate.target_url,
             )

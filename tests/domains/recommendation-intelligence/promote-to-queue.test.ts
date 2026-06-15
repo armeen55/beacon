@@ -15,6 +15,7 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_ROWS_PER_FAMILY,
   MAX_ROWS_PER_PAGE,
+  buildSignalClassCountByUrl,
   selectPromotableCandidates,
 } from "@/domains/recommendation-intelligence/promote-to-queue";
 import type { RecommendationCandidateRow } from "@/domains/recommendation-intelligence/emitter/candidate-row";
@@ -463,5 +464,144 @@ describe("selectPromotableCandidates — determinism + output shape", () => {
     });
     expect(out[0]!.eligible).toBe(false);
     expect(out[0]!.suppression_reason).toBe("missing_target_page_type");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fusion corroboration (FUSION_ROADMAP item #3, 2026-06-14)
+// ---------------------------------------------------------------------------
+
+describe("buildSignalClassCountByUrl", () => {
+  const URL = "https://example.com/page";
+
+  it("two candidates of the SAME class corroborate only ONCE", () => {
+    // gsc_low_ctr + gsc_striking_distance are both the GSC-demand class.
+    const counts = buildSignalClassCountByUrl([
+      makeCandidate({ target_url: URL, trigger_signal: "gsc_low_ctr" }),
+      makeCandidate({
+        target_url: URL,
+        trigger_signal: "gsc_striking_distance",
+      }),
+    ]);
+    expect(counts.get(URL)).toBe(1);
+  });
+
+  it("GSC-demand + Clarity-friction on the same URL → 2 distinct classes", () => {
+    const counts = buildSignalClassCountByUrl([
+      makeCandidate({ target_url: URL, trigger_signal: "gsc_striking_distance" }),
+      makeCandidate({ target_url: URL, trigger_signal: "clarity_friction" }),
+    ]);
+    expect(counts.get(URL)).toBe(2);
+  });
+
+  it("GA4 value above baseline adds a third class to a corroborated URL", () => {
+    const counts = buildSignalClassCountByUrl(
+      [
+        makeCandidate({ target_url: URL, trigger_signal: "gsc_decay" }),
+        makeCandidate({ target_url: URL, trigger_signal: "clarity_friction" }),
+      ],
+      new Map([[URL, 1.25]]), // > 1.0 baseline
+    );
+    expect(counts.get(URL)).toBe(3);
+  });
+
+  it("GA4 weight at the 1.0 baseline does NOT add a value class", () => {
+    const counts = buildSignalClassCountByUrl(
+      [makeCandidate({ target_url: URL, trigger_signal: "gsc_low_ctr" })],
+      new Map([[URL, 1.0]]), // exactly baseline → not above
+    );
+    expect(counts.get(URL)).toBe(1);
+  });
+
+  it("non-fusion trigger signals contribute no class", () => {
+    const counts = buildSignalClassCountByUrl([
+      makeCandidate({ target_url: URL, trigger_signal: "missing_title" }),
+      makeCandidate({ target_url: URL, trigger_signal: "sitemap_missing" }),
+    ]);
+    // No GSC/Clarity/GA4 class present → URL not in the map (count 0).
+    expect(counts.get(URL) ?? 0).toBe(0);
+  });
+
+  it("classes are scoped per-URL (no cross-URL bleed)", () => {
+    const A = "https://example.com/a";
+    const B = "https://example.com/b";
+    const counts = buildSignalClassCountByUrl([
+      makeCandidate({ target_url: A, trigger_signal: "gsc_low_ctr" }),
+      makeCandidate({ target_url: B, trigger_signal: "clarity_friction" }),
+    ]);
+    // Each URL has exactly ONE class; neither reaches the ≥2 threshold.
+    expect(counts.get(A)).toBe(1);
+    expect(counts.get(B)).toBe(1);
+  });
+});
+
+describe("selectPromotableCandidates — fusion re-rank (item #3)", () => {
+  it("a 2-class-corroborated content page outranks an identical single-signal page", () => {
+    const FUSED = "https://example.com/fused";
+    const SOLO = "https://example.com/solo";
+    const out = selectPromotableCandidates({
+      tenantId: TENANT,
+      triggerCandidates: [
+        // FUSED carries GSC-demand + Clarity-friction (2 classes).
+        makeCandidate({
+          target_url: FUSED,
+          trigger_signal: "gsc_striking_distance",
+          action_type: "edit_title",
+          confidence: "high",
+        }),
+        makeCandidate({
+          target_url: FUSED,
+          trigger_signal: "clarity_friction",
+          action_type: "edit_meta",
+          confidence: "high",
+        }),
+        // SOLO carries only GSC-demand (1 class) — same trigger as FUSED's
+        // GSC card so the ONLY difference is the corroboration.
+        makeCandidate({
+          target_url: SOLO,
+          trigger_signal: "gsc_striking_distance",
+          action_type: "edit_title",
+          confidence: "high",
+        }),
+      ],
+      recommendedEdits: [],
+      recommendationResponses: [],
+      pageTypeByUrl: pageTypeMap([
+        [FUSED, "service"],
+        [SOLO, "service"],
+      ]),
+      now: NOW,
+    });
+    const fusedGsc = out.find(
+      (r) =>
+        r.candidate.target_url === FUSED &&
+        r.candidate.trigger_signal === "gsc_striking_distance",
+    )!;
+    const soloGsc = out.find((r) => r.candidate.target_url === SOLO)!;
+    expect(fusedGsc.priority_score).toBeGreaterThan(soloGsc.priority_score);
+  });
+
+  it("a single-signal page scores identically with and without the fusion pre-pass", () => {
+    // One URL, one GSC card, no second class → corroboration is a no-op.
+    const URL = "https://example.com/single";
+    const input = {
+      tenantId: TENANT,
+      triggerCandidates: [
+        makeCandidate({
+          target_url: URL,
+          trigger_signal: "gsc_low_ctr",
+          action_type: "edit_title",
+          confidence: "high",
+        }),
+      ],
+      recommendedEdits: [],
+      recommendationResponses: [],
+      pageTypeByUrl: pageTypeMap([[URL, "service"]]),
+      now: NOW,
+    };
+    const out = selectPromotableCandidates(input);
+    // Bare gsc_low_ctr/edit_title/service/high:
+    // (28 + 0 + 12) * 1.0 / 1.0 = 40, no fusion term.
+    expect(out[0]!.priority_score).toBe(40);
   });
 });

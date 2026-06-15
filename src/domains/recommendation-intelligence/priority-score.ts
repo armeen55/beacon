@@ -14,11 +14,16 @@
  *   • EFFORT          divisor per action_type         (1.0–1.5)
  *
  * Formula (kept in sync with priorityScore() below — audit check
- * #23, 2026-06-12):
- *   round((SEVERITY + INDEX_BLOCKER + PAGE_IMPORTANCE + UPSIDE_BONUS)
+ * #23, 2026-06-12; fusion item #3, 2026-06-14):
+ *   round((SEVERITY + INDEX_BLOCKER + PAGE_IMPORTANCE + UPSIDE_BONUS
+ *          + FUSION_CORROBORATION_BONUS)
  *         * VALUE_WEIGHT * CONFIDENCE * PREREQ * SAFETY / EFFORT)
- * where UPSIDE_BONUS = min(15, 4*log10(1+gsc_upside_clicks)) and
- * VALUE_WEIGHT = bounded GA4 page-value multiplier (1.0-1.5).
+ * where UPSIDE_BONUS = min(15, 4*log10(1+gsc_upside_clicks)),
+ * VALUE_WEIGHT = bounded GA4 page-value multiplier (1.0-1.5), and
+ * FUSION_CORROBORATION_BONUS is a tiny additive nudge (0/2/3) when the
+ * target_url carries ≥2 DISTINCT independent signal classes — clamped
+ * for non-blocker rows so a corroborated content play can never reach a
+ * comparable index blocker on the same page (see fusionCorroborationBonus).
  * NOTE on "risk": the recommended_edits `risks: string[]` field is
  * POST-promotion operator-facing metadata (it does not exist at
  * scoring time); pre-promotion risk gating is `safety_flags`, which
@@ -191,11 +196,25 @@ export type PriorityScoreInput = {
    *  the SAME page scale equally (the locked blocker-vs-polish
    *  ordering is unaffected). */
   page_value_weight?: number;
+  /** Fusion corroboration slice (item #3, 2026-06-14): the COUNT of
+   *  DISTINCT independent signal CLASSES the candidate's target_url
+   *  carries across the whole tenant batch (GSC-demand / Clarity-
+   *  friction / GA4-value). Computed at the promotion seam where all
+   *  candidates are visible; threaded in as a pure scalar (the scorer
+   *  does NO I/O). A page corroborated by ≥2 independent classes is a
+   *  higher-confidence target than any single signal — it earns a
+   *  small additive nudge (see `fusionCorroborationBonus`). Optional —
+   *  0/1/absent ⇒ zero bonus (exact pre-fusion behavior). */
+  signal_class_count?: number;
 };
 
 /**
  * Pure score. Deterministic. Bounded above by
- * `(30 + 25 + 15) * 1.0 * 1 * 1 / 1.0 = 70`. Always returns a
+ * `(30 + 25 + 15 + 15 + 3) * 1.5 / 1.0` (severity + index-blocker +
+ * page-importance + upside cap + fusion-corroboration cap, all under
+ * the GA4 value weight). For an index-blocker with no upside the
+ * familiar `30 + 25 + 15 = 70` base still holds; the +3 corroboration
+ * cap only ever LIFTS a blocker further above content. Always returns a
  * non-negative integer.
  */
 /**
@@ -213,6 +232,75 @@ export function upsideBonus(upsideClicks90d: number | undefined): number {
   return Math.min(MAX_UPSIDE_BONUS, Math.round(4 * Math.log10(1 + upsideClicks90d)));
 }
 
+/**
+ * Fusion corroboration slice (FUSION_ROADMAP item #3, 2026-06-14): a
+ * bounded additive nudge for a target_url corroborated by ≥2 DISTINCT
+ * independent signal CLASSES (GSC-demand / Clarity-friction / GA4-
+ * value). The product thesis is "fewer, higher-confidence recs, each
+ * backed by 2+ independent signals": a page in striking distance that
+ * ALSO frustrates valuable visitors is a higher-confidence rewrite than
+ * any single signal, so it earns a small re-rank within the already-
+ * eligible set. Pure re-rank — NEVER reduces a score, NEVER suppresses
+ * a candidate.
+ *
+ * Bound (deliberately tiny — a nudge, not a term): +2 at 2 classes, +3
+ * at 3 classes, capped at MAX_FUSION_CORROBORATION_BONUS = 3. 0/1 class
+ * ⇒ 0 (byte-identical to pre-fusion behavior).
+ *
+ * Why it sits STRICTLY BELOW the index-blocker ceiling: the +25
+ * INDEX_BLOCKER bonus must keep a true index blocker outranking any
+ * content play on the SAME page. The widest a corroborated content
+ * candidate can stretch is the highest GSC-demand severity
+ * (gsc_low_ctr = 28) + the full upside cap (15) = base 43 (+page); a
+ * minimum-severity index blocker on the same page is severity 20 + 25
+ * = 45 (+page) — a 2-point margin. Capping this bonus at 3 would
+ * threaten that margin, so the scorer (see `priorityScore`) clamps the
+ * applied corroboration bonus to AT MOST `(index-blocker headroom − 1)`
+ * for non-blocker rows, guaranteeing a corroborated non-blocker can
+ * never reach a comparable index blocker. The headroom is computed from
+ * the live SEVERITY ceiling so it stays correct if severities are
+ * retuned. Index-blocker rows take the full (uncapped-by-headroom)
+ * bonus — corroboration only ever LIFTS a blocker, never demotes it.
+ */
+export const MAX_FUSION_CORROBORATION_BONUS = 3;
+export function fusionCorroborationBonus(
+  signalClassCount: number | undefined,
+): number {
+  if (signalClassCount == null || signalClassCount < 2) return 0;
+  // +2 at exactly 2 classes; +3 (the cap) at 3+ classes.
+  return Math.min(MAX_FUSION_CORROBORATION_BONUS, signalClassCount);
+}
+
+/**
+ * The strict ceiling the corroboration bonus must never break: a
+ * corroborated NON-index-blocker must stay below a comparable index
+ * blocker on the same page. Headroom = (min index-blocker base) −
+ * (max content base + max upside) at equal page importance, where the
+ * page-importance term and value-weight multiplier cancel because they
+ * apply equally to both rows on the SAME page. Computed once from the
+ * live SEVERITY table so it tracks any future retune.
+ *
+ *   min index-blocker base  = MIN_INDEX_BLOCKER_SEVERITY + 25
+ *   max content base + lift = MAX_CONTENT_SEVERITY + MAX_UPSIDE_BONUS
+ *
+ * A non-blocker row's corroboration bonus is clamped to
+ * (headroom − 1) so the strict inequality always holds.
+ */
+const INDEX_BLOCKER_BONUS = 25;
+// Lowest severity that can co-occur with the +25 index-blocker bonus
+// (sitemap_missing / canonical_mismatch).
+const MIN_INDEX_BLOCKER_SEVERITY = 20;
+// Highest severity a corroboration-eligible content signal carries
+// (gsc_low_ctr = 28 is the max among the GSC-demand / Clarity classes).
+const MAX_CORROBORATED_CONTENT_SEVERITY = 28;
+export const FUSION_BONUS_NON_BLOCKER_HEADROOM = Math.max(
+  0,
+  MIN_INDEX_BLOCKER_SEVERITY +
+    INDEX_BLOCKER_BONUS -
+    (MAX_CORROBORATED_CONTENT_SEVERITY + MAX_UPSIDE_BONUS) -
+    1,
+);
+
 export function priorityScore(c: PriorityScoreInput): number {
   const severity = SEVERITY_BY_TRIGGER_SIGNAL[c.trigger_signal] ?? 0;
   const indexBlocker =
@@ -229,8 +317,22 @@ export function priorityScore(c: PriorityScoreInput): number {
     1.5,
     Math.max(1, c.page_value_weight ?? 1),
   );
+  // Fusion corroboration nudge (item #3). For NON-index-blocker rows
+  // the bonus is additionally clamped to the headroom that keeps a
+  // corroborated content play strictly below a comparable index
+  // blocker on the same page; index-blocker rows take the full bonus
+  // (corroboration only ever lifts a blocker further above content).
+  const rawCorroboration = fusionCorroborationBonus(c.signal_class_count);
+  const corroborationBonus =
+    indexBlocker > 0
+      ? rawCorroboration
+      : Math.min(rawCorroboration, FUSION_BONUS_NON_BLOCKER_HEADROOM);
   const raw =
-    ((severity + indexBlocker + pageImportance + upsideBonus(c.upside_clicks_90d)) *
+    ((severity +
+      indexBlocker +
+      pageImportance +
+      upsideBonus(c.upside_clicks_90d) +
+      corroborationBonus) *
       valueWeight *
       conf *
       prereq *
