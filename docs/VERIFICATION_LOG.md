@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-15 PM-4 (honest connector health + persisted "Reconnect" signal — PUSHED to main)
+
+**Trigger:** continuing the data-machine work — a connected source could show a confident green ✓ while delivering nothing (owner's "idk why it keeps limiting my data").
+
+- **`78ba25a` honest connector health** (`getConnectorHealth` in connector-store + the data-sources strip): derives `connected | needs_attention | not_connected` + a plain-English reason from the persisted token. RELIABLE signals only — GA4-connected-but-no-property → "pick your Analytics property"; genuinely stale (real `last_synced_at` ≥14d) → soft "Last pulled N days ago". Deliberately does NOT alarm on a null `last_synced_at` (GSC holds 90d of data with a null marker) and EXCLUDES Wix (publish-only). Ground-truth (preview, Iranopedia): strip reads GSC ✓ / GA4 ✓ / Clarity ✓ / Wix ✓ — earlier FALSE ⚠ on GSC + Wix gone.
+- **`8c55a9c` persisted auth-failure → "Reconnect"**: added `auth_failed_at` to the Google token; the GSC + GA4 syncs fail-soft STAMP it on an auth-failure terminal branch (`gsc_token_expired` / mid-sync 401·403 / GA4 `token_expired`) and CLEAR it on a successful sync. `getConnectorHealth` surfaces it FIRST → "Reconnect Google to refresh — the connection expired." This is the only authoritative needs-reconnect signal (`expires_at<now` alone isn't — refresh heals it). Closes the loop with the "Refresh my data" button: a prod refresh that hits an expired grant now leaves a persistent ⚠ Reconnect instead of a misleading ✓. Also fixed a self-introduced regression (GA4 420d window broke the persist-url-traffic 90/180 assertions → updated to the 420-day reality).
+- **FULL-SUITE GATE (chunked, all green after all session commits):** src 3185 · architecture 5723 · app 699 · domains 2874 · lib+components+integration 958 — ≈13.4k tests, ZERO failures. typecheck + build PASS.
+
+**Session tally (12 commits, origin/main `8531612 → 8c55a9c`):** V2 unified dashboard = default + 40s→6s perf unblock; before/after on recs (+ snapshot backfill); GA4 14-month window; one-click "Refresh my data"; honest connector health + persisted Reconnect signal.
+
+---
+
 ## 2026-06-15 PM-3 (MAX data windows + one-click "Refresh my data" machine — PUSHED to main)
 
 **Trigger:** owner — "Clarity/GA4/GSC have months/years of data, you're limiting it; extract it all; figure out the best merge for an ever-working MACHINE."
