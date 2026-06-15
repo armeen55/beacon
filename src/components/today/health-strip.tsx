@@ -17,9 +17,29 @@ export type HealthStripProps = {
 
 type DotStatus = "good" | "warn" | "bad" | "neutral";
 
-function statusDot(status: DotStatus) {
+/** a11y #399: plain-English status word so the color dot isn't the only cue. */
+function dotStatusWord(status: DotStatus): string {
+  switch (status) {
+    case "good":
+      return "ok";
+    case "warn":
+      return "needs attention";
+    case "bad":
+      return "problem";
+    case "neutral":
+      return "no data";
+  }
+}
+
+// a11y #399: the dots conveyed data/scan/local status by color alone with no
+// text alternative. Give each dot role="img" + an aria-label ("Data: ok") so a
+// screen reader announces the status the color encodes. Visual size/shape
+// unchanged. The `label` names which signal this dot belongs to.
+function statusDot(status: DotStatus, label: string) {
   return (
     <span
+      role="img"
+      aria-label={`${label}: ${dotStatusWord(status)}`}
       className={cn(
         "h-2 w-2 rounded-full shrink-0",
         status === "good" && "bg-status-success",
@@ -96,17 +116,24 @@ export function HealthStrip({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
+          // a11y #399: the toggle that opens the "how we know" panel had no
+          // expanded/collapsed state exposed to assistive tech and only an
+          // implicit name. aria-expanded reflects state; aria-controls +
+          // aria-label give it a stable accessible name.
+          aria-expanded={expanded}
+          aria-controls="health-strip-how-we-know"
+          aria-label="Data status — show how we know"
           className="flex items-center gap-1.5 hover:text-foreground transition-colors"
         >
-          {statusDot(dataStatus)}
+          {statusDot(dataStatus, "Data")}
           <span>Data: <span className="font-medium">{coverageLabel(coverageState)}</span></span>
         </button>
         <span className="flex items-center gap-1.5">
-          {statusDot(scanStatus)}
+          {statusDot(scanStatus, "Scan")}
           <span>Scan: <span className="font-medium">{scanAgeLabel(crawlAgeDays, hasScanRun)}</span></span>
         </span>
         <span className="flex items-center gap-1.5">
-          {statusDot(localStatus)}
+          {statusDot(localStatus, "Local")}
           <span>Local: <span className="font-medium">{localNeedsAttention ? "needs review" : "ok"}</span></span>
         </span>
         {/* Methodology link removed 2026-04-17 (Day 3 trust cleanup). Route still
@@ -114,7 +141,9 @@ export function HealthStrip({
             daily-view HealthStrip because Settings also removed the tab today. */}
       </div>
       {expanded && (
-        <HowWeKnowPanel context={proofContext} variant="today" />
+        <div id="health-strip-how-we-know">
+          <HowWeKnowPanel context={proofContext} variant="today" />
+        </div>
       )}
     </div>
   );

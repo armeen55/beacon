@@ -184,3 +184,41 @@ describe("TodayScoreboard — #376 mention-rate sample-size honesty", () => {
     expect(html).not.toContain("can swing day to day");
   });
 });
+
+describe("TodayScoreboard — #387 non-color delta cue (a11y)", () => {
+  it("renders a ▲ glyph + 'up … vs last week' aria-label for a positive week-over-week delta", () => {
+    const html = renderToStaticMarkup(
+      <TodayScoreboard
+        // Real measured data (resultCount > 0) with NO as-of date, so the
+        // week-over-week delta pill renders on the citations tile.
+        scoreboard={scoreboard({
+          totalCitations: 120,
+          resultCount: 50,
+          weekOverWeekCitations: 12,
+          derivedKpiAsOfDate: null,
+        })}
+        health={health()}
+      />,
+    );
+    // Direction is no longer color-only: a non-color glyph rides along…
+    expect(html).toContain("▲");
+    // …and a screen-reader label spells out direction + magnitude.
+    expect(html).toContain('aria-label="up 12% vs last week"');
+  });
+
+  it("renders a ▼ glyph + 'down …' aria-label for a negative delta", () => {
+    const html = renderToStaticMarkup(
+      <TodayScoreboard
+        scoreboard={scoreboard({
+          totalCitations: 120,
+          resultCount: 50,
+          weekOverWeekCitations: -3,
+          derivedKpiAsOfDate: null,
+        })}
+        health={health()}
+      />,
+    );
+    expect(html).toContain("▼");
+    expect(html).toContain('aria-label="down 3% vs last week"');
+  });
+});

@@ -445,12 +445,22 @@ function MetricToggle({
   metric: VisibilityMetric;
   onChange: (m: VisibilityMetric) => void;
 }) {
+  // a11y #398: the active pill was conveyed by color only (bg-foreground), with
+  // no toggle semantics for assistive tech. Mark the group as a tablist and
+  // each pill as a tab with aria-selected, matching the ViewToggle pattern
+  // already used elsewhere (src/components/viz/view-toggle.tsx).
   return (
-    <div className="inline-flex rounded-md border border-border/60 bg-surface-inset/30 p-0.5 shrink-0">
+    <div
+      role="tablist"
+      aria-label="Metric"
+      className="inline-flex rounded-md border border-border/60 bg-surface-inset/30 p-0.5 shrink-0"
+    >
       {METRICS.map((m) => (
         <button
           key={m}
           type="button"
+          role="tab"
+          aria-selected={metric === m}
           onClick={() => onChange(m)}
           className={cn(
             "px-2.5 py-1 rounded-sm text-[10px] font-semibold transition-colors whitespace-nowrap",
@@ -477,12 +487,20 @@ function TimeRangeToggle({
   value: number;
   onChange: (days: number) => void;
 }) {
+  // a11y #398 (same defect class as the metric pills): active range was
+  // color-only. Same tablist/tab + aria-selected treatment.
   return (
-    <div className="inline-flex rounded-md border border-border/60 bg-surface-inset/30 p-0.5 shrink-0">
+    <div
+      role="tablist"
+      aria-label="Time range"
+      className="inline-flex rounded-md border border-border/60 bg-surface-inset/30 p-0.5 shrink-0"
+    >
       {TIME_RANGES.map((r) => (
         <button
           key={r.days}
           type="button"
+          role="tab"
+          aria-selected={value === r.days}
           onClick={() => onChange(r.days)}
           className={cn(
             "px-2 py-1 rounded-sm text-[10px] font-semibold transition-colors whitespace-nowrap tabular-nums",

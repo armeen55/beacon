@@ -110,6 +110,14 @@ function SidebarContent() {
                             "inline-flex items-center justify-center min-w-[18px] h-[16px] rounded-full text-[9px] font-semibold tabular-nums px-1",
                             badgeStyle
                           )}
+                          // a11y #421: the red/amber count badge conveyed
+                          // urgency by color + a bare number with no label. An
+                          // explicit aria-label on the badge gives screen-reader
+                          // users "3 need attention" instead of a stray "3", so
+                          // the meaning is no longer color+number alone. (The
+                          // aria-label supplies the accessible name; the visible
+                          // number stays as-is for sighted users.)
+                          aria-label={`${badge} need attention`}
                         >
                           {badge}
                         </span>
