@@ -288,6 +288,10 @@ export function RecommendationV2Card({
   // visits), built from the rec's GSC signal. Shown UNDER the page-level
   // stat strip so the owner sees the specific number that drives the card.
   const gscEvidenceLines = row.detail.gscEvidenceLines ?? [];
+  // 2026-06-15 follow-up — SEMrush evidence (exact search volume + keyword
+  // difficulty + current rank), built from the rec's SEMrush signal.
+  // Default [] mirrors the GSC guard so a row without it never crashes.
+  const semrushEvidenceLines = row.detail.semrushEvidenceLines ?? [];
 
   return (
     <article
@@ -420,6 +424,30 @@ export function RecommendationV2Card({
               key={line.key}
               className="text-[11px] leading-snug"
               data-recommendation-v2-gsc-evidence-line={line.key}
+            >
+              <span className="font-semibold text-foreground">
+                {line.value}
+              </span>{" "}
+              <span className="text-muted-foreground">{line.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* 2026-06-15 follow-up — SEMrush evidence: the SPECIFIC keyword, its
+          monthly search volume, its difficulty (when known), and the current
+          rank. Honest: rendered only when the SEMrush signal carried a
+          striking-distance keyword. Reuses the same list UI as the GSC lines. */}
+      {semrushEvidenceLines.length > 0 && (
+        <ul
+          className="mt-2.5 space-y-1"
+          data-recommendation-v2-semrush-evidence="true"
+        >
+          {semrushEvidenceLines.map((line) => (
+            <li
+              key={line.key}
+              className="text-[11px] leading-snug"
+              data-recommendation-v2-semrush-evidence-line={line.key}
             >
               <span className="font-semibold text-foreground">
                 {line.value}

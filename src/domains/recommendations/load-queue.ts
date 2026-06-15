@@ -72,6 +72,10 @@ import {
   loadGscPageSignalsForTenant,
   type GscPageSignal,
 } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import {
+  loadSemrushPageSignalsForTenant,
+  type SemrushPageSignal,
+} from "@/domains/recommendation-intelligence/semrush-page-signals";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 /**
@@ -88,6 +92,12 @@ export type LiveRecQueueItem = PrioritizedRecommendation & {
    *  when the page has no GSC data. Lets the card lead with first-party search
    *  demand instead of AEO citations. */
   gscSignal?: GscPageSignal | null;
+  /** 2026-06-15 follow-up — per-page SEMrush keyword signal for this rec's
+   *  target URL (ranked keywords with VOLUME / DIFFICULTY (KD) / POSITION, plus
+   *  the striking-distance shortlist), or null when the page has no SEMrush
+   *  data. Lets the card quote the exact search volume + keyword difficulty +
+   *  current rank the owner asked for in the "why". */
+  semrushSignal?: SemrushPageSignal | null;
 };
 
 /**
@@ -479,6 +489,20 @@ export async function loadLiveRecommendationQueue(
   if (gscRes.error) errors.push(gscRes.error);
   const gscByUrl = gscRes.value;
 
+  // 2026-06-15 follow-up — per-page SEMrush signals so each card can quote
+  // the exact search volume + keyword difficulty + current rank (the owner's
+  // requested "why"). Already-synced data only (no new API call); one bounded
+  // tenant-scoped Supabase read; soft-fail to empty so the queue still renders.
+  const semrushRes = await trace.time("loadSemrushPageSignals", () =>
+    safeCall(
+      () => loadSemrushPageSignalsForTenant(tenantId),
+      new Map<string, SemrushPageSignal>(),
+      "load SEMrush page signals",
+    ),
+  );
+  if (semrushRes.error) errors.push(semrushRes.error);
+  const semrushByUrl = semrushRes.value;
+
   trace.mark("decoration_loop_start");
   const decoratedQueue: LiveRecQueueItem[] = prioritized.queue.map((rec) => {
     const edits = editsByRecId.get(rec.stableKey) ?? [];
@@ -521,7 +545,9 @@ export async function loadLiveRecommendationQueue(
         ? canonicalizeCitationUrl(targetUrl)
         : null;
     const gscSignal = canonical != null ? gscByUrl.get(canonical) ?? null : null;
-    return { ...rec, engineConfidence, gscSignal };
+    const semrushSignal =
+      canonical != null ? semrushByUrl.get(canonical) ?? null : null;
+    return { ...rec, engineConfidence, gscSignal, semrushSignal };
   });
   trace.mark("decoration_loop_end");
   trace.data("queue_count", decoratedQueue.length);
@@ -926,8 +952,14 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       // AEO "0 AI answers" branch on every card and the GSC priority floors
       // never fired, making the entire GSC-led pivot invisible on prod.
       const { getChangelogEntries } = await import("@/lib/seed-data.server");
-      const [editsRes, responsesRes, promptsRes, changelogRes, gscRes] =
-        await Promise.all([
+      const [
+        editsRes,
+        responsesRes,
+        promptsRes,
+        changelogRes,
+        gscRes,
+        semrushRes,
+      ] = await Promise.all([
         safeCall(
           () => repo.getRecommendedEdits(),
           [] as RecommendedEditRow[],
@@ -953,6 +985,14 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
           new Map<string, GscPageSignal>(),
           "persisted: fetch gsc page signals",
         ),
+        // 2026-06-15 follow-up — SEMrush per-page signals so the v2 card can
+        // quote the exact search volume + keyword difficulty + current rank
+        // (the owner's "why"). Already-synced data only; soft-fail to empty.
+        safeCall(
+          () => loadSemrushPageSignalsForTenant(tenantId),
+          new Map<string, SemrushPageSignal>(),
+          "persisted: fetch semrush page signals",
+        ),
       ]);
 
       if (editsRes.error) errors.push(editsRes.error);
@@ -960,12 +1000,14 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       if (promptsRes.error) errors.push(promptsRes.error);
       if (changelogRes.error) errors.push(changelogRes.error);
       if (gscRes.error) errors.push(gscRes.error);
+      if (semrushRes.error) errors.push(semrushRes.error);
 
       const recommendedEdits = editsRes.value;
       const responses = responsesRes.value;
       const trackedPrompts = promptsRes.value;
       const changelogEntries = changelogRes.value;
       const gscByUrl = gscRes.value;
+      const semrushByUrl = semrushRes.value;
 
       // Group edits by rec_id. Skip edits that have no rec_id (legacy
       // rows that predate the column — extremely rare).
@@ -1017,7 +1059,9 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
             : null;
         const gscSignal =
           canonical != null ? gscByUrl.get(canonical) ?? null : null;
-        return { rec: { ...rec, gscSignal }, response, edits };
+        const semrushSignal =
+          canonical != null ? semrushByUrl.get(canonical) ?? null : null;
+        return { rec: { ...rec, gscSignal, semrushSignal }, response, edits };
       });
 
       return {

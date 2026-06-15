@@ -45,6 +45,7 @@ import { shouldExcludeFromCompetitorRanking } from "./entity-pollution-filter";
 import { deriveConfidence } from "./derived-confidence";
 import {
   buildGscEvidenceLines,
+  buildSemrushEvidenceLines,
   type EvidenceLine,
 } from "@/domains/recommendation-intelligence/evidence-summary";
 import {
@@ -204,6 +205,17 @@ export type ActionRowDetail = {
    * "why". Honest: only numbers actually present on the signal.
    */
   readonly gscEvidenceLines: ReadonlyArray<EvidenceLine>;
+  /**
+   * Customer-facing SEMrush evidence bullets (2026-06-15 follow-up) — the
+   * owner-requested "why": the exact keyword, its monthly search VOLUME,
+   * its keyword DIFFICULTY (KD) with a plain band ("difficulty 31
+   * (low/winnable)"), and the current rank. Built by
+   * `buildSemrushEvidenceLines` from the rec's attached `semrushSignal`
+   * (its striking-distance shortlist). Empty when the page has no SEMrush
+   * striking-distance keyword — the card/drawer then keep their GSC lines /
+   * prose "why". Honest: difficulty clause omitted when KD is absent.
+   */
+  readonly semrushEvidenceLines: ReadonlyArray<EvidenceLine>;
   /**
    * T4.2 (2026-05-06) — derived evidence depth: count of distinct
    * grounding-signal categories present on this row. Categories scanned:
@@ -1455,6 +1467,10 @@ export function buildRecommendationActionRows(
     // Depends only on the rec's attached GSC signal, so it's the same for
     // every row this rec emits — compute once, share across push sites.
     const gscEvidenceLines = buildGscEvidenceLines(rec.gscSignal);
+    // Customer-facing SEMrush evidence (2026-06-15 follow-up): exact search
+    // volume + keyword difficulty + current rank. Same for every row this
+    // rec emits — compute once, share across the three push sites below.
+    const semrushEvidenceLines = buildSemrushEvidenceLines(rec.semrushSignal);
 
     // ── Path A: renderable specific edits → group FAQ Q+A pairs into
     // one row, then emit one row per non-FAQ edit. Orphan FAQ rows
@@ -1595,6 +1611,7 @@ export function buildRecommendationActionRows(
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
             gscEvidenceLines,
+            semrushEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
             evidenceDepth: faqPairEvidenceDepth,
             // T4.4 — customer-safe derived confidence label (hoisted above).
@@ -1723,6 +1740,7 @@ export function buildRecommendationActionRows(
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
             gscEvidenceLines,
+            semrushEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
             evidenceDepth: editEvidenceDepth,
             // T4.4 — customer-safe derived confidence label (hoisted above).
@@ -1902,6 +1920,7 @@ export function buildRecommendationActionRows(
         affectedPromptCount: rec.evidence.promptCount,
         observationCount: rec.evidence.observationCount,
         gscEvidenceLines,
+        semrushEvidenceLines,
         // T4.2 — meta rows have no edit-level evidence; depth = 0.
         evidenceDepth: 0,
         // T4.4 — meta-row derived confidence (hoisted above).

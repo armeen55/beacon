@@ -139,6 +139,10 @@ export function RecommendationDetailClient({
   // impressions + rank + click-through vs typical + recoverable visits),
   // built from the rec's GSC signal. Empty when no quotable query.
   const gscEvidenceLines = row.detail.gscEvidenceLines ?? [];
+  // 2026-06-15 follow-up — SEMrush evidence (exact search volume + keyword
+  // difficulty + current rank), built from the rec's SEMrush signal. Default
+  // [] mirrors the GSC guard so a row without it never crashes.
+  const semrushEvidenceLines = row.detail.semrushEvidenceLines ?? [];
   const measurementPlan = row.detail.measurementPlan?.trim() || null;
   const competitor = row.detail.topCompetitor;
   const observationCount = row.detail.observationCount;
@@ -293,6 +297,26 @@ export function RecommendationDetailClient({
                 key={line.key}
                 className="text-[13px] text-foreground/85 leading-relaxed"
                 data-recommendation-detail-gsc-evidence-line={line.key}
+              >
+                {line.detail ?? `${line.value} — ${line.label}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* 2026-06-15 follow-up — SEMrush "why this, why now": the specific
+            keyword, its monthly search volume, its difficulty (when known),
+            and the current rank. Rendered only when the SEMrush signal carried
+            a striking-distance keyword. Reuses the GSC list UI. */}
+        {semrushEvidenceLines.length > 0 && (
+          <ul
+            className="space-y-1.5 max-w-2xl"
+            data-recommendation-detail-semrush-evidence="true"
+          >
+            {semrushEvidenceLines.map((line) => (
+              <li
+                key={line.key}
+                className="text-[13px] text-foreground/85 leading-relaxed"
+                data-recommendation-detail-semrush-evidence-line={line.key}
               >
                 {line.detail ?? `${line.value} — ${line.label}`}
               </li>

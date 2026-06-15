@@ -22,16 +22,23 @@
  * The render layer (v2 card + detail drawer) calls this and renders the
  * returned bullets; it owns no number logic of its own.
  *
- * SCOPE NOTE: only the Google Search signal (`gscSignal`) is attached to a
- * recommendation on the render path today (load-queue.ts decorates it; the
- * SEMrush keyword-difficulty/volume, Microsoft Clarity friction rates, and
- * AI-assistant answer counts live only in the candidate `evidence` array at
- * generation time and are NOT carried onto the rendered row). Enriching
- * those is a follow-up that first needs those signals threaded onto
- * `LiveRecQueueItem` — see the report. This helper covers the data we have.
+ * SCOPE NOTE (2026-06-15 follow-up): the Google Search signal (`gscSignal`)
+ * AND the SEMrush keyword signal (`semrushSignal`) are now both attached to a
+ * recommendation on the render path (load-queue.ts decorates both). SEMrush
+ * carries the third-party search VOLUME, keyword DIFFICULTY (KD), and current
+ * POSITION per ranked keyword — `buildSemrushEvidenceLines` turns that into
+ * the owner-requested "volume + difficulty + rank" line. Microsoft Clarity
+ * friction rates and AI-assistant answer counts still live only in the
+ * candidate `evidence` array at generation time and are NOT carried onto the
+ * rendered row — enriching those remains a follow-up that first needs those
+ * signals threaded onto `LiveRecQueueItem`.
  */
 
 import type { GscPageSignal, GscQuerySignal } from "./gsc-page-signals";
+import type {
+  SemrushKeywordSignal,
+  SemrushPageSignal,
+} from "./semrush-page-signals";
 import { EXPECTED_CTR_BY_POSITION } from "./triggers/gsc-low-ctr";
 
 /** One scannable evidence bullet. `value` is the bold number/phrase, `label`
@@ -181,4 +188,77 @@ export function buildGscEvidenceLines(
   }
 
   return lines;
+}
+
+// ── SEMrush evidence (2026-06-15 follow-up) ──────────────────────────
+//
+// The owner explicitly wants the SEMrush numbers — third-party search
+// VOLUME, keyword DIFFICULTY (KD), and current POSITION — in the "why":
+// e.g. "‘persian rugs’ — search volume 2,400, difficulty 31
+// (low/winnable); you rank #12, one content pass from page one."
+//
+// `SemrushPageSignal` (semrush-page-signals.ts) carries all four real
+// fields per keyword (keyword / volume / difficulty:number|null /
+// position) and a pre-filtered `strikingDistance` list (band 4–20,
+// volume ≥ 10, sorted volume-desc). We quote the highest-volume
+// striking-distance keyword — the same "one push from page one" play the
+// trigger acts on — using ONLY numbers the signal actually carries.
+//
+// HONESTY RAILS (same as the GSC helper): difficulty (KD) is OMITTED
+// when null (SEMrush doesn't always return it); we never invent a band.
+
+/** Plain-English difficulty band. SEMrush KD is 0–100; the bands mirror
+ *  the practitioner convention the keyword-gap trigger already uses
+ *  (MAX_DIFFICULTY = 49 for "small-site winnable"): <30 low / 30–60
+ *  medium / >60 hard. Returned as a parenthetical qualifier the owner
+ *  can read without knowing what "KD" means. */
+function difficultyBand(kd: number): "low/winnable" | "medium" | "hard" {
+  if (kd < 30) return "low/winnable";
+  if (kd <= 60) return "medium";
+  return "hard";
+}
+
+/**
+ * Build the customer-facing SEMrush evidence bullets for a recommendation
+ * from its attached per-page SEMrush signal. Returns [] when the signal is
+ * absent or carries no quotable striking-distance keyword — the caller
+ * then keeps its existing prose "why" / GSC lines.
+ *
+ * One line: the highest-volume striking-distance keyword, with its monthly
+ * search volume, its difficulty (only when present), and the current rank.
+ * Number-rich, plain English, no jargon, no fabrication.
+ */
+export function buildSemrushEvidenceLines(
+  signal: SemrushPageSignal | null | undefined,
+): EvidenceLine[] {
+  if (signal == null) return [];
+
+  // Quote the strongest "one push from page one" keyword — highest volume
+  // in the pre-filtered striking band (already sorted volume-desc).
+  const target: SemrushKeywordSignal | undefined = signal.strikingDistance[0];
+  if (target == null) return [];
+
+  const rank = Math.round(target.position);
+  const volume = n(target.volume);
+  const kd = target.difficulty;
+
+  // Label (card): compact stat strip. Difficulty clause omitted when KD
+  // is absent.
+  const kdLabel =
+    kd != null ? ` · difficulty ${Math.round(kd)} (${difficultyBand(kd)})` : "";
+
+  // Detail (drawer): the full "why now" sentence.
+  const kdSentence =
+    kd != null
+      ? ` Keyword difficulty is ${Math.round(kd)} (${difficultyBand(kd)}).`
+      : "";
+
+  return [
+    {
+      key: "semrush_striking_keyword",
+      value: `“${target.keyword}”`,
+      label: `search volume ${volume}${kdLabel} · you rank #${rank}`,
+      detail: `“${target.keyword}” gets about ${volume} searches a month and you rank #${rank} — just short of page one.${kdSentence} One content pass could push it onto page one.`,
+    },
+  ];
 }

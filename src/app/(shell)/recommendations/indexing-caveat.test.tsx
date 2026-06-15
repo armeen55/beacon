@@ -72,6 +72,7 @@ function makeRow(args: {
       affectedPromptCount: 0,
       observationCount: 5,
       gscEvidenceLines: [],
+      semrushEvidenceLines: [],
       evidenceDepth: 1,
       derivedConfidence: "strong_evidence",
       faqAnswerText: null,
