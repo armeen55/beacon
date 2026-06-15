@@ -18,7 +18,11 @@ vi.mock("next/cache", () => ({
   updateTag: vi.fn(),
 }));
 
-import { RecommendationsV2Client } from "@/app/(shell)/recommendations/recommendations-v2-client";
+import {
+  RecommendationsV2Client,
+  resolveQueueKeyAction,
+  runBulkAccept,
+} from "@/app/(shell)/recommendations/recommendations-v2-client";
 import type {
   RecommendationQueueRow,
   RecommendationWatchRow,
@@ -487,5 +491,153 @@ describe("Bundle 2A V — v2 classification contract (post-Bundle-2A audit)", ()
       html.match(/data-recommendation-v2-status="[^"]*"/g) ?? [];
     expect(cardStatuses).not.toContain('data-recommendation-v2-status="dismissed"');
     expect(cardStatuses).not.toContain('data-recommendation-v2-status="deferred"');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Bulk-select slice (2026-06-14) — multi-select, bulk accept, keyboard
+//
+// Behavior is locked through the SAME pure helpers the component calls
+// (no DOM test library in this stack — see the file header and
+// recommendation-detail-actions.test.tsx). The render assertions cover
+// the selectable checkboxes; the helper tests cover the batch loop +
+// keyboard map; the no-flag invariant pins that the surface is opt-in
+// to the live wiring (cards stay selectable on every actionable render).
+// ─────────────────────────────────────────────────────────────────────
+
+describe("Bulk-select — selectable cards render", () => {
+  it("renders a selection checkbox on each actionable Suggested card", () => {
+    const queue = [
+      makeRec({ stableKey: "r1" }),
+      makeRec({ stableKey: "r2" }),
+    ];
+    const html = renderV2(queue);
+    const selects = html.match(/data-recommendation-v2-select="true"/g) ?? [];
+    expect(selects.length).toBe(2);
+    // Each defaults to unselected.
+    const unselected =
+      html.match(/data-recommendation-v2-selected="false"/g) ?? [];
+    expect(unselected.length).toBe(2);
+  });
+
+  it("does not render the bulk action bar at zero selection (initial render)", () => {
+    // The bar is selection-driven; on first server render nothing is
+    // selected, so the bar markup must be absent.
+    const html = renderV2([makeRec({ stableKey: "r1" })]);
+    expect(html).not.toContain('data-recommendations-v2-bulk-bar="true"');
+  });
+});
+
+describe("Bulk-select — runBulkAccept (batch loop over the existing accept)", () => {
+  it("(a) accepting 2 selected calls the per-row accept twice, once per id", async () => {
+    const acceptOne = vi.fn().mockResolvedValue(true);
+    const result = await runBulkAccept(["id-1", "id-2"], acceptOne);
+    expect(acceptOne).toHaveBeenCalledTimes(2);
+    expect(acceptOne).toHaveBeenNthCalledWith(1, "id-1");
+    expect(acceptOne).toHaveBeenNthCalledWith(2, "id-2");
+    expect(result.succeeded).toEqual(["id-1", "id-2"]);
+    expect(result.failed).toEqual([]);
+  });
+
+  it("emits monotonic progress (done/total) for the 'Accepting X of N' readout", async () => {
+    const acceptOne = vi.fn().mockResolvedValue(true);
+    const progress: Array<[number, number]> = [];
+    await runBulkAccept(["a", "b", "c"], acceptOne, (done, total) =>
+      progress.push([done, total]),
+    );
+    expect(progress).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+  });
+
+  it("keeps failed ids separate so they stay selected for retry; succeeded drop out", async () => {
+    // First id fails, second succeeds — partial-failure contract.
+    const acceptOne = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const result = await runBulkAccept(["bad", "good"], acceptOne);
+    expect(result.failed).toEqual(["bad"]);
+    expect(result.succeeded).toEqual(["good"]);
+  });
+});
+
+describe("Bulk-select — resolveQueueKeyAction (keyboard map)", () => {
+  it("(b) j moves the focused card down, k moves it up (clamped)", () => {
+    // j from index 0 of a 3-card queue → focus index 1.
+    expect(
+      resolveQueueKeyAction("j", { focusedIndex: 0, count: 3 }),
+    ).toEqual({ kind: "focus", index: 1 });
+    // j clamps at the last card.
+    expect(
+      resolveQueueKeyAction("j", { focusedIndex: 2, count: 3 }),
+    ).toEqual({ kind: "focus", index: 2 });
+    // k moves up.
+    expect(
+      resolveQueueKeyAction("k", { focusedIndex: 2, count: 3 }),
+    ).toEqual({ kind: "focus", index: 1 });
+    // k from -1 (nothing focused yet) lands on the first card.
+    expect(
+      resolveQueueKeyAction("k", { focusedIndex: -1, count: 3 }),
+    ).toEqual({ kind: "focus", index: 0 });
+  });
+
+  it("(c) 'a' accepts the focused card", () => {
+    expect(
+      resolveQueueKeyAction("a", {
+        focusedIndex: 1,
+        count: 3,
+        focusedAcceptState: "idle",
+      }),
+    ).toEqual({ kind: "accept", index: 1 });
+  });
+
+  it("'a' is a no-op when the focused card is already accepted or pending", () => {
+    expect(
+      resolveQueueKeyAction("a", {
+        focusedIndex: 0,
+        count: 2,
+        focusedAcceptState: "accepted",
+      }),
+    ).toBeNull();
+    expect(
+      resolveQueueKeyAction("a", {
+        focusedIndex: 0,
+        count: 2,
+        focusedAcceptState: "pending",
+      }),
+    ).toBeNull();
+  });
+
+  it("'x' toggles selection of the focused card (but not an accepted one)", () => {
+    expect(
+      resolveQueueKeyAction("x", {
+        focusedIndex: 0,
+        count: 2,
+        focusedAcceptState: "idle",
+      }),
+    ).toEqual({ kind: "toggle", index: 0 });
+    expect(
+      resolveQueueKeyAction("x", {
+        focusedIndex: 0,
+        count: 2,
+        focusedAcceptState: "accepted",
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores unrelated keys and an empty queue", () => {
+    expect(
+      resolveQueueKeyAction("z", { focusedIndex: 0, count: 3 }),
+    ).toBeNull();
+    expect(
+      resolveQueueKeyAction("j", { focusedIndex: 0, count: 0 }),
+    ).toBeNull();
+    // a/x with no focused row resolve to null (can't act on nothing).
+    expect(
+      resolveQueueKeyAction("a", { focusedIndex: -1, count: 3 }),
+    ).toBeNull();
   });
 });

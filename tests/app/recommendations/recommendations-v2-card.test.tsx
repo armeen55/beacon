@@ -257,3 +257,39 @@ describe("RecommendationV2Card — one-tap Accept", () => {
     expect(html).toContain('data-recommendation-v2-cta="primary"');
   });
 });
+
+// ── Bulk-select slice (2026-06-14) — selection checkbox + focus ring ──
+describe("RecommendationV2Card — bulk-select affordances", () => {
+  it("renders a labelled selection checkbox when selectable", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card row={makeRow()} selectable selected={false} />,
+    );
+    expect(html).toContain('data-recommendation-v2-select="true"');
+    expect(html).toContain('data-recommendation-v2-selected="false"');
+    expect(html).toContain('type="checkbox"');
+    // Accessible label references the row title.
+    expect(html).toContain("Select recommendation:");
+  });
+
+  it("reflects the checked state and selected styling when selected", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card row={makeRow()} selectable selected />,
+    );
+    expect(html).toContain('data-recommendation-v2-selected="true"');
+    expect(html).toContain("checked");
+  });
+
+  it("renders NO checkbox when not selectable (default)", () => {
+    const html = renderToStaticMarkup(<RecommendationV2Card row={makeRow()} />);
+    expect(html).not.toContain('data-recommendation-v2-select="true"');
+    expect(html).not.toContain('data-recommendation-v2-selected');
+  });
+
+  it("draws the keyboard focus ring when isFocused", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card row={makeRow()} isFocused />,
+    );
+    expect(html).toContain('data-recommendation-v2-focused="true"');
+    expect(html).toContain("ring-2");
+  });
+});

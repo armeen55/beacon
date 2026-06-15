@@ -186,6 +186,19 @@ export type RecommendationV2CardProps = {
    *  list/v2 client. Optional; UUID + long-hex + internal-token
    *  detection still fires when this is empty or omitted. */
   competitorNames?: ReadonlyArray<string>;
+  /** Bulk-select slice (2026-06-14): when true, the card renders a
+   *  selection checkbox in the header so power users can batch-accept.
+   *  Only the parent's actionable cards opt in (already-accepted /
+   *  dismissed rows never pass this). Presentation-only — `selected`
+   *  drives the checked state, `onToggleSelect` reports the toggle. */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  /** Bulk-select slice — keyboard focus highlight. When true the card
+   *  draws a subtle accent focus ring so the j/k "focused card" is
+   *  visible. Drives no behavior on its own; the parent owns the
+   *  keyboard map. */
+  isFocused?: boolean;
 };
 
 export function RecommendationV2Card({
@@ -197,6 +210,10 @@ export function RecommendationV2Card({
   acceptState = "idle",
   acceptError,
   onRetry,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+  isFocused = false,
 }: RecommendationV2CardProps) {
   const chips = deriveEvidenceChips(row);
   const target = row.targetUrl && row.targetUrl !== "needs_new_page"
@@ -232,21 +249,42 @@ export function RecommendationV2Card({
     <article
       className={cn(
         "rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5 transition-colors hover:border-accent-primary/40 hover:bg-surface-inset/50",
+        selected && "border-accent-primary/50 bg-accent-primary/[0.04]",
+        isFocused && "ring-2 ring-accent-primary/50 ring-offset-1 ring-offset-background",
         className,
       )}
       data-recommendation-v2-card="true"
       data-recommendation-v2-status={row.status}
+      data-recommendation-v2-selected={selectable ? String(selected) : undefined}
+      data-recommendation-v2-focused={isFocused ? "true" : undefined}
     >
-      {/* Header — status pill (left) · confidence (right) */}
+      {/* Header — [checkbox] status pill (left) · confidence (right) */}
       <header className="flex items-center justify-between gap-3">
-        <span
-          className={cn(
-            "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider",
-            STATUS_PILL_TONE[row.status],
+        <span className="inline-flex items-center gap-2">
+          {selectable && (
+            <label
+              className="inline-flex items-center cursor-pointer"
+              data-recommendation-v2-select-label="true"
+            >
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={onToggleSelect}
+                className="h-3.5 w-3.5 rounded border-border/70 text-accent-primary focus:ring-accent-primary/50 cursor-pointer"
+                data-recommendation-v2-select="true"
+                aria-label={`Select recommendation: ${row.title}`}
+              />
+            </label>
           )}
-          data-recommendation-v2-status-pill="true"
-        >
-          {statusLabel(row.status)}
+          <span
+            className={cn(
+              "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider",
+              STATUS_PILL_TONE[row.status],
+            )}
+            data-recommendation-v2-status-pill="true"
+          >
+            {statusLabel(row.status)}
+          </span>
         </span>
         <span
           className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80"

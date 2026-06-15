@@ -29,8 +29,7 @@
  * logic changes.
  */
 
-import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import {
   buildRecommendationActionRows,
@@ -93,6 +92,92 @@ const IN_FLIGHT_STATUSES: ReadonlySet<ActionRowStatus> = new Set<ActionRowStatus
 
 const MAX_SUGGESTED_CARDS = 7;
 
+// ─────────────────────────────────────────────────────────────────────
+// Bulk-select slice (2026-06-14) — pure helpers
+//
+// Behavior lives in pure functions so it can be locked by Node-only
+// tests (this codebase has no DOM test library; the convention is
+// renderToStaticMarkup for output + pure helpers for behavior — see
+// recommendation-detail-actions.test.tsx). The component below calls
+// EXACTLY these helpers, so a test of the helper is a test of the
+// real code path.
+// ─────────────────────────────────────────────────────────────────────
+
+/** The intent a queue keypress resolves to. `null` = ignore the key. */
+export type QueueKeyAction =
+  | { kind: "focus"; index: number }
+  | { kind: "accept"; index: number }
+  | { kind: "toggle"; index: number };
+
+/**
+ * Map a queue keypress to an intent. Pure; no DOM, no React. Guards:
+ *   - empty queue → null
+ *   - j / k → clamp focus within [0, count-1] (k from -1 lands on 0)
+ *   - a → accept the focused row, UNLESS it is already accepted/pending
+ *   - x → toggle the focused row's selection, UNLESS already accepted
+ *   - any other key, or no focused row for a/x → null
+ */
+export function resolveQueueKeyAction(
+  key: string,
+  ctx: {
+    focusedIndex: number;
+    count: number;
+    /** accept-state of the focused row, when one is focused. */
+    focusedAcceptState?: "idle" | "pending" | "accepted" | "error";
+  },
+): QueueKeyAction | null {
+  const { focusedIndex, count } = ctx;
+  if (count === 0) return null;
+
+  if (key === "j") {
+    return { kind: "focus", index: Math.min(focusedIndex + 1, count - 1) };
+  }
+  if (key === "k") {
+    return { kind: "focus", index: focusedIndex <= 0 ? 0 : focusedIndex - 1 };
+  }
+
+  const hasFocusedRow = focusedIndex >= 0 && focusedIndex < count;
+  if (!hasFocusedRow) return null;
+
+  if (key === "a") {
+    if (
+      ctx.focusedAcceptState === "accepted" ||
+      ctx.focusedAcceptState === "pending"
+    ) {
+      return null;
+    }
+    return { kind: "accept", index: focusedIndex };
+  }
+  if (key === "x") {
+    if (ctx.focusedAcceptState === "accepted") return null;
+    return { kind: "toggle", index: focusedIndex };
+  }
+  return null;
+}
+
+/**
+ * Run the EXISTING per-row accept across a batch, sequentially, with a
+ * per-step progress callback. Returns the ids that succeeded vs failed
+ * so the caller can clear succeeded rows and keep failed ones selected
+ * for the existing per-card retry. Pure orchestration — `acceptOne` is
+ * the (already-wired) per-row accept.
+ */
+export async function runBulkAccept(
+  ids: string[],
+  acceptOne: (id: string) => Promise<boolean>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ succeeded: string[]; failed: string[] }> {
+  const succeeded: string[] = [];
+  const failed: string[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    const ok = await acceptOne(ids[i]);
+    if (ok) succeeded.push(ids[i]);
+    else failed.push(ids[i]);
+    onProgress?.(i + 1, ids.length);
+  }
+  return { succeeded, failed };
+}
+
 export type RecommendationsV2ClientProps = {
   queue: RecommendationQueueRow[];
   // 2026-05-13 follow-up — the customer-facing watchlist footer link
@@ -147,38 +232,73 @@ export function RecommendationsV2Client({
   // failure among many is attributable.
   const [acceptErrors, setAcceptErrors] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
-  const acceptRow = (rowId: string, payload: RecommendationActionPayload) => {
-    setAcceptStates((s) => ({ ...s, [rowId]: "pending" }));
-    setAcceptErrors((e) => {
-      if (!(rowId in e)) return e;
-      const next = { ...e };
-      delete next[rowId];
-      return next;
-    });
-    startTransition(async () => {
+
+  // Bulk-select slice (2026-06-14): batch-accept for power users /
+  // agencies. Multi-select tracks the chosen actionable row ids;
+  // `bulkProgress` drives the "Accepting X of N…" announcement; the
+  // focused-card highlight powers j/k keyboard nav. The batch loop
+  // reuses the SAME per-row accept (acceptRowAsync) — no new server
+  // action, no data-flow change.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkProgress, setBulkProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+
+  // Core single-accept, awaitable. Returns whether the accept
+  // succeeded so the bulk loop can keep failed rows selected. Shares
+  // the exact optimistic state machine (`acceptStates`/`acceptErrors`)
+  // the per-card button + retry already use.
+  const acceptRowAsync = useCallback(
+    async (
+      rowId: string,
+      payload: RecommendationActionPayload,
+    ): Promise<boolean> => {
+      setAcceptStates((s) => ({ ...s, [rowId]: "pending" }));
+      setAcceptErrors((e) => {
+        if (!(rowId in e)) return e;
+        const next = { ...e };
+        delete next[rowId];
+        return next;
+      });
       try {
         const res = await acceptRecommendation(payload);
         if (res.success) {
           setAcceptStates((s) => ({ ...s, [rowId]: "accepted" }));
-        } else {
-          // Action ran but reported a failure — surface its actual error.
-          setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
-          setAcceptErrors((e) => ({
-            ...e,
-            [rowId]:
-              res.error ??
-              "Something went wrong — please try again, or refresh your data.",
-          }));
+          return true;
         }
+        // Action ran but reported a failure — surface its actual error.
+        setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
+        setAcceptErrors((e) => ({
+          ...e,
+          [rowId]:
+            res.error ??
+            "Something went wrong — please try again, or refresh your data.",
+        }));
+        return false;
       } catch (err) {
         setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
         setAcceptErrors((e) => ({
           ...e,
           [rowId]: err instanceof Error ? err.message : String(err),
         }));
+        return false;
       }
-    });
-  };
+    },
+    [],
+  );
+
+  // Per-row Accept / retry (single card). Keeps the existing
+  // transition-wrapped, fire-and-forget ergonomics of the button.
+  const acceptRow = useCallback(
+    (rowId: string, payload: RecommendationActionPayload) => {
+      startTransition(() => {
+        void acceptRowAsync(rowId, payload);
+      });
+    },
+    [acceptRowAsync],
+  );
 
   // Build typed action rows from the same queue the legacy table consumes.
   // Pure projection — no new I/O, no math change.
@@ -212,6 +332,175 @@ export function RecommendationsV2Client({
   );
 
   const hasMoreActionable = actionableRows.length > MAX_SUGGESTED_CARDS;
+
+  // Bulk-select slice — single source of truth for the accept payload
+  // both the per-card button AND the batch loop send. Identical to the
+  // inline payload the one-tap slice built; extracted so the two paths
+  // can't drift.
+  const payloadFor = useCallback(
+    (row: RecommendationActionRow): RecommendationActionPayload => ({
+      stableKey: row.sourceRecommendationId,
+      // Placeholder type — the server action reads the canonical rec
+      // from the store by stableKey (same contract the legacy table uses).
+      type: "create_cluster_page",
+      title: row.title,
+      description: row.evidenceSummary ?? row.title,
+      clusterLabel: null,
+      clusterKind: null,
+    }),
+    [],
+  );
+
+  // Selectable row ids are exactly the visible Suggested cards that are
+  // not already accepted (an accepted card has nothing left to batch).
+  const selectableIds = useMemo(
+    () =>
+      suggested
+        .filter((r) => acceptStates[r.id] !== "accepted")
+        .map((r) => r.id),
+    [suggested, acceptStates],
+  );
+
+  // Keep the selection from referencing rows that scrolled out of the
+  // visible/selectable set (e.g. after "Show fewer"). Prune silently.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const allowed = new Set(selectableIds);
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (allowed.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [selectableIds]);
+
+  const toggleSelect = useCallback((rowId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(selectableIds));
+  }, [selectableIds]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const selectedCount = selectedIds.size;
+  const allSelected =
+    selectableIds.length > 0 && selectedCount === selectableIds.length;
+  const isBulkAccepting = bulkProgress != null;
+
+  // Batch-accept: loop the EXISTING per-row accept sequentially so the
+  // changelog fan-out / attribution clock stay identical to single
+  // Accept. Succeeded rows drop out of the selection; failed rows stay
+  // selected and surface the existing per-card error + "Try again".
+  const acceptSelected = useCallback(() => {
+    const ids = suggested
+      .map((r) => r.id)
+      .filter((id) => selectedIds.has(id));
+    if (ids.length === 0 || isBulkAccepting) return;
+    const rowById = new Map(suggested.map((r) => [r.id, r]));
+    startTransition(() => {
+      void (async () => {
+        setBulkProgress({ done: 0, total: ids.length });
+        const { failed } = await runBulkAccept(
+          ids,
+          async (id) => {
+            const row = rowById.get(id);
+            if (!row) return false;
+            return acceptRowAsync(id, payloadFor(row));
+          },
+          (done, total) => setBulkProgress({ done, total }),
+        );
+        // Clear succeeded rows; keep failed ones selected for retry.
+        setSelectedIds(new Set(failed));
+        setBulkProgress(null);
+      })();
+    });
+  }, [suggested, selectedIds, isBulkAccepting, acceptRowAsync, payloadFor]);
+
+  // Keyboard nav — scoped to the queue. Fires only when focus is NOT in
+  // an input/textarea/contentEditable AND focus is within (or nothing
+  // outside) the queue container. Uses plain j/k/a/x with no modifiers
+  // so it never collides with the global ⌘K / ? / g-nav handlers
+  // (command-palette.tsx), which only consume `k` when a `g` is pending.
+  const queueRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      // Scope: only act when the queue exists and focus is either inside
+      // the queue or on the document body (no other widget owns focus).
+      const container = queueRef.current;
+      if (!container) return;
+      const active = document.activeElement;
+      const focusElsewhere =
+        active != null &&
+        active !== document.body &&
+        !container.contains(active);
+      if (focusElsewhere) return;
+      if (suggested.length === 0) return;
+      if (e.key !== "j" && e.key !== "k" && e.key !== "a" && e.key !== "x") {
+        return;
+      }
+
+      const focusedRow = suggested[focusedIndex];
+      const action = resolveQueueKeyAction(e.key, {
+        focusedIndex,
+        count: suggested.length,
+        focusedAcceptState: focusedRow
+          ? acceptStates[focusedRow.id] ?? "idle"
+          : undefined,
+      });
+      if (!action) return;
+      e.preventDefault();
+
+      if (action.kind === "focus") {
+        setFocusedIndex(action.index);
+        return;
+      }
+      const row = suggested[action.index];
+      if (!row) return;
+      if (action.kind === "accept") {
+        acceptRow(row.id, payloadFor(row));
+      } else {
+        toggleSelect(row.id);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    suggested,
+    focusedIndex,
+    acceptStates,
+    acceptRow,
+    payloadFor,
+    toggleSelect,
+  ]);
+
+  // Keep the focused index in-bounds when the visible set shrinks.
+  useEffect(() => {
+    setFocusedIndex((i) =>
+      i >= suggested.length ? suggested.length - 1 : i,
+    );
+  }, [suggested.length]);
 
   // Friendly date label for the page header microcopy. Already
   // formatted server-side as YYYY-MM-DD; keep it operator-safe by
@@ -251,22 +540,28 @@ export function RecommendationsV2Client({
         <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-5">
           {/* Suggested stack */}
           <section
+            ref={queueRef}
             className="space-y-3"
             data-recommendations-v2-section="suggested"
             aria-label="Suggested recommendations"
           >
-            {suggested.map((row) => {
-              const acceptPayload: RecommendationActionPayload = {
-                stableKey: row.sourceRecommendationId,
-                // Placeholder type — the server action reads the
-                // canonical rec from the store by stableKey (same
-                // contract the legacy table uses).
-                type: "create_cluster_page",
-                title: row.title,
-                description: row.evidenceSummary ?? row.title,
-                clusterLabel: null,
-                clusterKind: null,
-              };
+            {/* Bulk action bar — appears only once ≥1 card is selected
+                (spec: ≥1 selected). "Select all" then expands to every
+                selectable card; "Clear selection" / "Select none"
+                collapses back. */}
+            {selectedCount > 0 && (
+              <RecommendationsV2BulkBar
+                selectedCount={selectedCount}
+                allSelected={allSelected}
+                bulkProgress={bulkProgress}
+                onAcceptSelected={acceptSelected}
+                onSelectAll={selectAll}
+                onClearSelection={clearSelection}
+              />
+            )}
+
+            {suggested.map((row, index) => {
+              const isAccepted = acceptStates[row.id] === "accepted";
               return (
                 <RecommendationV2Card
                   key={row.id}
@@ -274,8 +569,12 @@ export function RecommendationsV2Client({
                   competitorNames={competitorNames}
                   acceptState={acceptStates[row.id] ?? "idle"}
                   acceptError={acceptErrors[row.id]}
-                  onAccept={() => acceptRow(row.id, acceptPayload)}
-                  onRetry={() => acceptRow(row.id, acceptPayload)}
+                  onAccept={() => acceptRow(row.id, payloadFor(row))}
+                  onRetry={() => acceptRow(row.id, payloadFor(row))}
+                  selectable={!isAccepted}
+                  selected={selectedIds.has(row.id)}
+                  onToggleSelect={() => toggleSelect(row.id)}
+                  isFocused={focusedIndex === index}
                 />
               );
             })}
@@ -326,6 +625,84 @@ export function RecommendationsV2Client({
           when a v2 watchlist surface lands, restore this footer with
           a v2 href. The `watchlist` prop is intentionally still
           accepted so the page-level loader contract doesn't change. */}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Bulk action bar (bulk-select slice, 2026-06-14)
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Sticky bar that appears at the top of the Suggested stack whenever at
+ * least one card is selected. Offers "Accept N selected", a select-all /
+ * select-none toggle, and "Clear selection". During a batch it swaps the
+ * Accept label for a live "Accepting X of N…" progress readout.
+ *
+ * Accessibility: the bar is a labelled region with aria-live="polite"
+ * so the selection count + progress are announced; the controls are
+ * plain buttons (no focus trap).
+ */
+function RecommendationsV2BulkBar({
+  selectedCount,
+  allSelected,
+  bulkProgress,
+  onAcceptSelected,
+  onSelectAll,
+  onClearSelection,
+}: {
+  selectedCount: number;
+  allSelected: boolean;
+  bulkProgress: { done: number; total: number } | null;
+  onAcceptSelected: () => void;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
+}) {
+  const busy = bulkProgress != null;
+  return (
+    <div
+      className="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent-primary/30 bg-accent-primary/[0.06] px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-accent-primary/[0.06]"
+      role="region"
+      aria-label="Bulk actions for selected recommendations"
+      aria-live="polite"
+      data-recommendations-v2-bulk-bar="true"
+    >
+      <span className="text-[12px] font-medium text-foreground">
+        {busy && bulkProgress
+          ? `Accepting ${Math.min(bulkProgress.done + 1, bulkProgress.total)} of ${bulkProgress.total}…`
+          : `${selectedCount} selected`}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={allSelected ? onClearSelection : onSelectAll}
+          disabled={busy}
+          className="rounded-md border border-border/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 disabled:opacity-50"
+          data-recommendations-v2-bulk-cta="select-all"
+        >
+          {allSelected ? "Select none" : "Select all"}
+        </button>
+        <button
+          type="button"
+          onClick={onClearSelection}
+          disabled={busy}
+          className="rounded-md border border-border/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 disabled:opacity-50"
+          data-recommendations-v2-bulk-cta="clear"
+        >
+          Clear selection
+        </button>
+        <button
+          type="button"
+          onClick={onAcceptSelected}
+          disabled={busy || selectedCount === 0}
+          className="rounded-md bg-accent-primary px-3 py-1 text-[11px] font-semibold text-white hover:bg-accent-primary/90 disabled:opacity-60"
+          data-recommendations-v2-bulk-cta="accept-selected"
+        >
+          {busy && bulkProgress
+            ? `Accepting ${Math.min(bulkProgress.done + 1, bulkProgress.total)} of ${bulkProgress.total}…`
+            : `Accept ${selectedCount} selected`}
+        </button>
+      </div>
     </div>
   );
 }
