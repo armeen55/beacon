@@ -141,15 +141,41 @@ export function RecommendationsV2Client({
   const [acceptStates, setAcceptStates] = useState<
     Record<string, "pending" | "accepted" | "error">
   >({});
+  // #316 — capture the per-row error message so a failed card can show
+  // WHICH error happened (the action returns `{error}` on the success:false
+  // path) and the owner can retry that exact card. Keyed by rowId so one
+  // failure among many is attributable.
+  const [acceptErrors, setAcceptErrors] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
   const acceptRow = (rowId: string, payload: RecommendationActionPayload) => {
     setAcceptStates((s) => ({ ...s, [rowId]: "pending" }));
+    setAcceptErrors((e) => {
+      if (!(rowId in e)) return e;
+      const next = { ...e };
+      delete next[rowId];
+      return next;
+    });
     startTransition(async () => {
       try {
-        await acceptRecommendation(payload);
-        setAcceptStates((s) => ({ ...s, [rowId]: "accepted" }));
-      } catch {
+        const res = await acceptRecommendation(payload);
+        if (res.success) {
+          setAcceptStates((s) => ({ ...s, [rowId]: "accepted" }));
+        } else {
+          // Action ran but reported a failure — surface its actual error.
+          setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
+          setAcceptErrors((e) => ({
+            ...e,
+            [rowId]:
+              res.error ??
+              "Something went wrong — please try again, or refresh your data.",
+          }));
+        }
+      } catch (err) {
         setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
+        setAcceptErrors((e) => ({
+          ...e,
+          [rowId]: err instanceof Error ? err.message : String(err),
+        }));
       }
     });
   };
@@ -229,27 +255,30 @@ export function RecommendationsV2Client({
             data-recommendations-v2-section="suggested"
             aria-label="Suggested recommendations"
           >
-            {suggested.map((row) => (
-              <RecommendationV2Card
-                key={row.id}
-                row={row}
-                competitorNames={competitorNames}
-                acceptState={acceptStates[row.id] ?? "idle"}
-                onAccept={() =>
-                  acceptRow(row.id, {
-                    stableKey: row.sourceRecommendationId,
-                    // Placeholder type — the server action reads the
-                    // canonical rec from the store by stableKey (same
-                    // contract the legacy table uses).
-                    type: "create_cluster_page",
-                    title: row.title,
-                    description: row.evidenceSummary ?? row.title,
-                    clusterLabel: null,
-                    clusterKind: null,
-                  })
-                }
-              />
-            ))}
+            {suggested.map((row) => {
+              const acceptPayload: RecommendationActionPayload = {
+                stableKey: row.sourceRecommendationId,
+                // Placeholder type — the server action reads the
+                // canonical rec from the store by stableKey (same
+                // contract the legacy table uses).
+                type: "create_cluster_page",
+                title: row.title,
+                description: row.evidenceSummary ?? row.title,
+                clusterLabel: null,
+                clusterKind: null,
+              };
+              return (
+                <RecommendationV2Card
+                  key={row.id}
+                  row={row}
+                  competitorNames={competitorNames}
+                  acceptState={acceptStates[row.id] ?? "idle"}
+                  acceptError={acceptErrors[row.id]}
+                  onAccept={() => acceptRow(row.id, acceptPayload)}
+                  onRetry={() => acceptRow(row.id, acceptPayload)}
+                />
+              );
+            })}
 
             {hasMoreActionable && (
               <p className="pt-2 text-[11px] text-muted-foreground/80">

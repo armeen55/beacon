@@ -688,9 +688,10 @@ const BENIGN_SKIP_REASONS = new Set([
   "no_token",
   "no_key",
   "no_property",
-  "no_domain",
   "disconnected",
-  "no_property_derivable",
+  // #208 — `no_domain` / `no_property_derivable` now route to the more
+  // specific NEEDS_DOMAIN_REASONS copy ("set your website domain in
+  // Config") instead of the generic "not connected yet" line.
   "no_categories_configured",
   // GSC: token store genuinely had no row → never connected (#87).
   "no_usable_gsc_token",
@@ -717,6 +718,43 @@ const RECONNECT_REASONS: Record<string, string> = {
   gsc_auth_failed_403:
     "Google revoked access for this site — reconnect Google to refresh.",
 };
+
+/**
+ * #208 — plain-English copy for genuine FAILURE reason codes the sync
+ * engines emit. Pre-fix these fell through to "Sync failed: <raw_code>."
+ * which leaks an internal token (e.g. "supabase_unavailable",
+ * "no_key_or_api_error") to a non-technical owner. Anything still NOT in
+ * this map keeps the generic "Sync didn't finish" fallback below — never
+ * the raw code.
+ */
+const FAILED_REASON_COPY: Record<string, string> = {
+  // Beacon's database was briefly unreachable — transient, retry works.
+  supabase_unavailable:
+    "Beacon couldn't reach its database just now — please try again in a moment.",
+  // Writing the pulled rows failed — transient, retry works.
+  upsert_failed:
+    "Beacon pulled your data but couldn't save it — please try again in a moment.",
+  // SEMrush: the key is missing OR the API rejected the request.
+  no_key_or_api_error:
+    "Couldn't reach SEMrush — check the API key on this card, then try again.",
+  // Profound: the key is present but the API returned an error.
+  profound_api_error:
+    "Couldn't reach Profound — check the API key on this card, then try again.",
+  // Profound: no competitor configured yet to pull citations against.
+  no_known_competitor:
+    "Add at least one competitor in Settings → Config, then sync again.",
+};
+
+/**
+ * #208 — reasons that mean "you're connected, but Beacon needs your
+ * website domain in Config before it can pull data". A benign,
+ * actionable state — not an alarming failure, but distinct from the
+ * generic "not connected yet" so the owner knows the exact next step.
+ */
+const NEEDS_DOMAIN_REASONS = new Set([
+  "no_property_derivable",
+  "no_domain",
+]);
 
 /**
  * Normalize a connector sync engine's discriminated result into the UI
@@ -751,15 +789,33 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
   if (r.reason != null && RECONNECT_REASONS[r.reason] != null) {
     return { ok: false, error: RECONNECT_REASONS[r.reason] };
   }
+  // #208 — connected, but Beacon needs the website domain set in Config
+  // before it can pull. A specific, actionable next step (not a raw code).
+  if (r.reason != null && NEEDS_DOMAIN_REASONS.has(r.reason)) {
+    return {
+      ok: false,
+      error: "Set your website domain in Settings → Config, then sync again.",
+    };
+  }
+  // #208 — GA4 ran fine but there's simply no traffic data yet. A benign
+  // "nothing yet" state, not a failure to alarm the owner about.
+  if (r.reason === "no_traffic_data") {
+    return { ok: true, detail: "Synced — no traffic data yet." };
+  }
   // Benign skip — the source isn't connected yet. Not an alarming failure.
   if (r.reason != null && BENIGN_SKIP_REASONS.has(r.reason)) {
     return { ok: false, error: "Not connected yet — connect this source to sync." };
   }
-  // Anything else (supabase_unavailable, upsert_failed, no_key_or_api_error,
-  // …) is a real failure — surface it honestly rather than as a tidy skip.
+  // #208 — known real-failure reason codes get plain-English copy instead
+  // of leaking the raw token (supabase_unavailable, upsert_failed, …).
+  if (r.reason != null && FAILED_REASON_COPY[r.reason] != null) {
+    return { ok: false, error: FAILED_REASON_COPY[r.reason] };
+  }
+  // Anything still unmapped is a real failure — keep it honest, but never
+  // surface the raw reason code to a non-technical owner.
   return {
     ok: false,
-    error: r.reason ? `Sync failed: ${r.reason}.` : "Sync did not complete.",
+    error: "Sync didn't finish — please try again in a moment.",
   };
 }
 

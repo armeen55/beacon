@@ -168,6 +168,14 @@ export type RecommendationV2CardProps = {
    *  `acceptState`. */
   onAccept?: () => void;
   acceptState?: "idle" | "pending" | "accepted" | "error";
+  /** #316 — the actual error text from a failed Accept (the server action
+   *  returns `{error}`). Rendered on the error state so the owner can see
+   *  WHAT failed instead of a generic line. Optional. */
+  acceptError?: string;
+  /** #316 — retry the Accept for this specific card. When provided, the
+   *  error state renders a "Try again" button so a failed card isn't a
+   *  dead end. Defaults to `onAccept` semantics in the parent. */
+  onRetry?: () => void;
   /** When provided, "Review" links to a custom href. Defaults to the
    *  Bundle 2B detail page at `/recommendations/<encoded-row-id>`,
    *  which renders the 5-act brief for this row. */
@@ -187,6 +195,8 @@ export function RecommendationV2Card({
   competitorNames,
   onAccept,
   acceptState = "idle",
+  acceptError,
+  onRetry,
 }: RecommendationV2CardProps) {
   const chips = deriveEvidenceChips(row);
   const target = row.targetUrl && row.targetUrl !== "needs_new_page"
@@ -331,9 +341,27 @@ export function RecommendationV2Card({
                 : "Accept"}
           </button>
         )}
+        {/* #316 — failed Accept: surface the ACTUAL error (not a generic
+            line) AND a per-card retry so one failure among many is both
+            attributable and recoverable. */}
         {acceptState === "error" && (
-          <span className="text-status-danger font-normal">
-            Something went wrong — try again.
+          <span
+            className="flex items-center gap-2 font-normal"
+            data-recommendation-v2-accept-error="true"
+          >
+            <span className="text-status-danger">
+              {acceptError ?? "Something went wrong."}
+            </span>
+            {onRetry != null && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="rounded-md border border-status-danger/40 px-2 py-1 text-status-danger hover:bg-status-danger/[0.06]"
+                data-recommendation-v2-cta="retry-accept"
+              >
+                Try again
+              </button>
+            )}
           </span>
         )}
         <Link

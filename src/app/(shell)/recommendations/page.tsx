@@ -85,6 +85,86 @@ async function safeCall<T>(fn: () => Promise<T> | T, fallback: T, label: string)
 }
 
 /**
+ * #300 — translate the loader's internal `errors` strings (each prefixed
+ * with a `safeCall` label like "fetch fresh recommendation responses:
+ * <message>") into plain-English layer names a non-technical owner can
+ * read. Returns a de-duplicated, ordered list. We only name layers we can
+ * confidently recognize from the label prefix — anything unrecognized
+ * collapses to a generic "some signals" entry rather than leaking a raw
+ * code or fabricating detail.
+ */
+function degradedLayersFromErrors(errors: string[]): string[] {
+  const seen = new Set<string>();
+  const layers: string[] = [];
+  const add = (name: string) => {
+    if (!seen.has(name)) {
+      seen.add(name);
+      layers.push(name);
+    }
+  };
+  for (const raw of errors) {
+    const label = raw.split(":")[0]?.toLowerCase() ?? "";
+    if (label.includes("recommendation response") || label.includes("response")) {
+      add("your accept/dismiss history");
+    } else if (label.includes("changelog") || label.includes("change")) {
+      add("your change log");
+    } else if (label.includes("gsc") || label.includes("page signal")) {
+      add("Google Search data");
+    } else if (label.includes("competitor")) {
+      add("competitor data");
+    } else if (
+      label.includes("snapshot") ||
+      label.includes("inventory") ||
+      label.includes("page") ||
+      label.includes("canonical")
+    ) {
+      add("your website pages");
+    } else if (
+      label.includes("candidate") ||
+      label.includes("prioriti") ||
+      label.includes("matrix") ||
+      label.includes("intent") ||
+      label.includes("generate")
+    ) {
+      add("the recommendation engine");
+    } else {
+      add("some signals");
+    }
+  }
+  return layers;
+}
+
+/**
+ * #300 — honest, actionable degraded-data banner. Names which layer(s)
+ * couldn't load (when recognizable) and tells the owner what to do next.
+ * Keeps the legacy "Some recommendation data couldn't load." sentence as
+ * the lead so existing copy + tests stay stable.
+ */
+function DataDegradedBanner({ errors }: { errors: string[] }) {
+  const layers = degradedLayersFromErrors(errors);
+  const layerText =
+    layers.length > 0
+      ? ` We couldn't load ${joinWithAnd(layers)}.`
+      : "";
+  return (
+    <div
+      className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
+      role="status"
+    >
+      Some recommendation data couldn&apos;t load.{layerText} Showing what we
+      have — some signals are still loading. Refresh your connected data
+      (Settings → Connectors) to retry.
+    </div>
+  );
+}
+
+function joinWithAnd(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+/**
  * Streaming bundle (2026-05-12) — page.tsx now flushes the route frame
  * + Suspense fallback skeleton instantly. The slow data load happens
  * inside `RecommendationsV2Async` / `RecommendationsLegacyAsync` —
@@ -202,14 +282,7 @@ export async function RecommendationsAsyncContent({
       });
       return (
         <div className="max-w-5xl">
-          {errors.length > 0 && (
-            <div
-              className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
-              role="status"
-            >
-              Some recommendation data couldn&apos;t load. Showing what we have.
-            </div>
-          )}
+          {errors.length > 0 && <DataDegradedBanner errors={errors} />}
           <RecommendationsV2Client
             queue={persisted.queue}
             watchlist={persisted.watchlist}
@@ -314,14 +387,7 @@ export async function RecommendationsAsyncContent({
           title="Recommendations"
           description="Beacon turns your Google Search demand + AI-answer gaps into safe, review-gated website edits. Each card shows the evidence and the exact change; you approve every change yourself."
         />
-        {errors.length > 0 && (
-          <div
-            className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
-            role="status"
-          >
-            Some recommendation data couldn&apos;t load. Showing what we have.
-          </div>
-        )}
+        {errors.length > 0 && <DataDegradedBanner errors={errors} />}
         <RecommendationsClient
           queue={decorated}
           watchlist={watchDecorated}

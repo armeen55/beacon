@@ -87,7 +87,17 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Authorization succeeded but Beacon could not save the connection. Please try again, or contact support if it persists.",
   env_missing:
     "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and BEACON_OAUTH_STATE_SECRET in your environment.",
+  // #213 — the callback emits ?error=not_authorized when Google grants
+  // but the signed-in user isn't a member of the connecting account.
+  // Pre-fix this fell through to the raw "Connection error: not_authorized".
+  not_authorized:
+    "You declined the Google permission — try connecting again and approve access.",
 };
+
+// #213 — friendly catch-all for any error code we don't have explicit copy
+// for, so a non-technical owner never sees a raw code like "not_authorized".
+const DEFAULT_ERROR_MESSAGE =
+  "Couldn't connect to Google — please try again.";
 
 /** #90 (2026-06-14) — honest copy when Google returns no refresh token: the
  *  connection works for now but will stop on its own. Plain-English (no
@@ -186,7 +196,7 @@ export function ConnectorsClient({
     const warning = searchParams.get("warning");
     const missingRefresh = warning === "missing_refresh_token";
     if (err) {
-      setError(ERROR_MESSAGES[err] ?? `Connection error: ${err}`);
+      setError(ERROR_MESSAGES[err] ?? DEFAULT_ERROR_MESSAGE);
       window.history.replaceState(null, "", "/settings/connectors");
     }
     if (connected === "google_gsc") {

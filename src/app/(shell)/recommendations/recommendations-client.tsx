@@ -549,9 +549,14 @@ function ActionRow({
             isError: false,
           });
         } else {
+          // #304 — surface the action's ACTUAL error when it returns one
+          // (the server action populates `error`); only fall back to a
+          // generic-but-actionable line when no detail is available.
           setFeedback({
             rowId: row.id,
-            message: res.error ?? "Action failed.",
+            message:
+              res.error ??
+              "Something went wrong — please try again, or refresh your connected data.",
             isError: true,
           });
         }
