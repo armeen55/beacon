@@ -848,7 +848,8 @@ export function ConnectorsClient({
 
       {/* ── Google Analytics (GA4) — Slice 9.A1β (2026-05-18) ── */}
       <div
-        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        id="connector-google-ga4"
+        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
         data-connector-card="google-ga4"
       >
         <div className="px-5 py-4 flex items-start justify-between gap-4">
@@ -1123,7 +1124,8 @@ export function ConnectorsClient({
           every edit still goes through Approve & Push (your click,
           daily caps, non-destructive guard). */}
       <div
-        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        id="connector-wix"
+        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
         data-connector-card="wix"
       >
         <div className="px-5 py-4 flex items-start justify-between gap-4">
@@ -1207,7 +1209,8 @@ export function ConnectorsClient({
 
       {/* ── SEMrush — Connect-cards slice (2026-06-12) ── */}
       <div
-        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        id="connector-semrush"
+        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
         data-connector-card="semrush"
       >
         <div className="px-5 py-4 flex items-start justify-between gap-4">
@@ -1319,7 +1322,8 @@ export function ConnectorsClient({
 
       {/* ── Profound — Connect-cards slice (2026-06-12) ── */}
       <div
-        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        id="connector-profound"
+        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
         data-connector-card="profound"
       >
         <div className="px-5 py-4 flex items-start justify-between gap-4">
@@ -1412,7 +1416,8 @@ export function ConnectorsClient({
 
       {/* ── Microsoft Clarity — Connect-cards slice (2026-06-12) ── */}
       <div
-        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        id="connector-clarity"
+        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
         data-connector-card="clarity"
       >
         <div className="px-5 py-4 flex items-start justify-between gap-4">

@@ -40,6 +40,7 @@ import {
 } from "./today-v2-sections";
 import { loadTodayV2GateData } from "./today-v2-data";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
+import { DataSourcesStrip } from "@/components/today/data-sources-strip";
 import { respondToRecommendation } from "./recommendation-actions";
 import { confirmFindingAsChange, resolveFinding } from "./finding-actions";
 import { loadTodayPageData } from "./today-data";
@@ -232,6 +233,15 @@ async function TodayV2SectionedContent() {
 
   return (
     <div className="space-y-6">
+      {/* "Your data sources" quick-connect strip (2026-06-15) — mounted
+          AFTER the demo + first-reading gate short-circuits above, so it
+          only shows on the real V2 command center. Its own server reads
+          are fail-soft; renders nothing when all six sources connect.
+          Wrapped in Suspense so its connector reads don't delay the rest
+          of the command center streaming in. */}
+      <Suspense fallback={null}>
+        <DataSourcesStrip />
+      </Suspense>
       <Suspense fallback={<TodayV2VisibilityGroupSkeleton />}>
         <TodayV2VisibilityGroupSection />
       </Suspense>
@@ -291,6 +301,7 @@ export async function TodayLegacyAsyncContent() {
       onRespondToRec={respondToRecommendation}
       onConfirmFinding={confirmFindingAsChange}
       onDismissFinding={dismissFinding}
+      dataSourcesStrip={<DataSourcesStrip />}
     />
   );
 }

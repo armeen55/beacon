@@ -135,6 +135,10 @@ export function RecommendationDetailClient({
   // #296 — when the lead summary IS the structured GSC line, render it as
   // a scannable stat strip in the header instead of a prose sentence.
   const gscStats = parseGscEvidenceStats(row.evidenceSummary);
+  // 2026-06-15 — per-query "why this, why now" evidence (exact query +
+  // impressions + rank + click-through vs typical + recoverable visits),
+  // built from the rec's GSC signal. Empty when no quotable query.
+  const gscEvidenceLines = row.detail.gscEvidenceLines ?? [];
   const measurementPlan = row.detail.measurementPlan?.trim() || null;
   const competitor = row.detail.topCompetitor;
   const observationCount = row.detail.observationCount;
@@ -274,6 +278,26 @@ export function RecommendationDetailClient({
               {why}
             </p>
           )
+        )}
+        {/* 2026-06-15 — the specific "why this, why now" sentence(s) with
+            the actual numbers (exact query, times shown, rank,
+            click-through vs typical, recoverable visits). Rendered only
+            when the GSC signal carried a quotable query. */}
+        {gscEvidenceLines.length > 0 && (
+          <ul
+            className="space-y-1.5 max-w-2xl"
+            data-recommendation-detail-gsc-evidence="true"
+          >
+            {gscEvidenceLines.map((line) => (
+              <li
+                key={line.key}
+                className="text-[13px] text-foreground/85 leading-relaxed"
+                data-recommendation-detail-gsc-evidence-line={line.key}
+              >
+                {line.detail ?? `${line.value} — ${line.label}`}
+              </li>
+            ))}
+          </ul>
         )}
       </header>
 

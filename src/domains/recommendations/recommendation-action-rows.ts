@@ -44,6 +44,10 @@ import type { RecommendationResponse } from "@/domains/product/recommendation-re
 import { shouldExcludeFromCompetitorRanking } from "./entity-pollution-filter";
 import { deriveConfidence } from "./derived-confidence";
 import {
+  buildGscEvidenceLines,
+  type EvidenceLine,
+} from "@/domains/recommendation-intelligence/evidence-summary";
+import {
   composeEvidencePreview,
   composeRecommendedMove,
 } from "./recommendation-evidence-preview";
@@ -189,6 +193,17 @@ export type ActionRowDetail = {
   readonly affectedPromptCount: number;
   /** Observation count (denormalized from rec.evidence). */
   readonly observationCount: number;
+  /**
+   * Customer-facing, number-rich Google Search evidence bullets
+   * (2026-06-15) — the SPECIFIC "why this, why now": the exact query, how
+   * many times the page showed up for it, the current rank, click-through
+   * vs typical, and the recoverable-visits estimate. Built by
+   * `buildGscEvidenceLines` from the rec's attached `gscSignal.topQueries`
+   * (the richest evidence on the render path). Empty when the page has no
+   * quotable Google Search demand — the card/drawer then keep their prose
+   * "why". Honest: only numbers actually present on the signal.
+   */
+  readonly gscEvidenceLines: ReadonlyArray<EvidenceLine>;
   /**
    * T4.2 (2026-05-06) — derived evidence depth: count of distinct
    * grounding-signal categories present on this row. Categories scanned:
@@ -1436,6 +1451,11 @@ export function buildRecommendationActionRows(
       return s === "recommended" || s === "accepted";
     }).length;
 
+    // Customer-facing, number-rich Google Search evidence (2026-06-15).
+    // Depends only on the rec's attached GSC signal, so it's the same for
+    // every row this rec emits — compute once, share across push sites.
+    const gscEvidenceLines = buildGscEvidenceLines(rec.gscSignal);
+
     // ── Path A: renderable specific edits → group FAQ Q+A pairs into
     // one row, then emit one row per non-FAQ edit. Orphan FAQ rows
     // (question without answer or vice-versa) are suppressed per
@@ -1574,6 +1594,7 @@ export function buildRecommendationActionRows(
             topCompetitor,
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
+            gscEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
             evidenceDepth: faqPairEvidenceDepth,
             // T4.4 — customer-safe derived confidence label (hoisted above).
@@ -1701,6 +1722,7 @@ export function buildRecommendationActionRows(
             topCompetitor,
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
+            gscEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
             evidenceDepth: editEvidenceDepth,
             // T4.4 — customer-safe derived confidence label (hoisted above).
@@ -1879,6 +1901,7 @@ export function buildRecommendationActionRows(
         topCompetitor,
         affectedPromptCount: rec.evidence.promptCount,
         observationCount: rec.evidence.observationCount,
+        gscEvidenceLines,
         // T4.2 — meta rows have no edit-level evidence; depth = 0.
         evidenceDepth: 0,
         // T4.4 — meta-row derived confidence (hoisted above).

@@ -194,6 +194,7 @@ export function TodayClient({
   firstReading = { isFirstReading: false },
   commandCenter = { hasAnyData: false, brain: null, manifest: null },
   commandCenterIsOperator = false,
+  dataSourcesStrip = null,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -300,6 +301,13 @@ export function TodayClient({
   /** UX.2 (2026-05-07) — operator-mode flag for the small
    *  /diagnostics/brain link at the bottom of the Command Center. */
   commandCenterIsOperator?: boolean;
+  /** "Your data sources" quick-connect strip (2026-06-15). Rendered by
+   *  the server page as a node slot so the server-component island can
+   *  read connector statuses without making TodayClient async. Mounted
+   *  here (NOT in the page shell) so it only shows on the real command
+   *  center — the demo + first-reading early-returns above skip it.
+   *  Null on surfaces that don't pass it. */
+  dataSourcesStrip?: import("react").ReactNode;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -544,6 +552,13 @@ export function TodayClient({
 
   return (
     <div className="space-y-5 max-w-5xl" data-today-layout="phase-6a8">
+      {/* "Your data sources" quick-connect strip (2026-06-15) — server
+          island passed as a node slot. Sits above the Command Center so
+          the owner can connect a missing source in one click without
+          hunting for the connectors page. Renders nothing when all six
+          sources are connected. */}
+      {dataSourcesStrip}
+
       {/* ─────────────────────────────────────────────────────────────────
           UX.2 (2026-05-07) — Beacon Command Center.
 

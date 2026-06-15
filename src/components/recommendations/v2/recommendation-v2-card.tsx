@@ -283,6 +283,12 @@ export function RecommendationV2Card({
   // it as a scannable stat strip instead of a prose paragraph.
   const gscStats = parseGscEvidenceStats(row.evidenceSummary);
 
+  // 2026-06-15 — per-query "why this, why now" evidence (exact search
+  // query + how often the page showed up + current rank + recoverable
+  // visits), built from the rec's GSC signal. Shown UNDER the page-level
+  // stat strip so the owner sees the specific number that drives the card.
+  const gscEvidenceLines = row.detail.gscEvidenceLines ?? [];
+
   return (
     <article
       className={cn(
@@ -398,6 +404,30 @@ export function RecommendationV2Card({
             {why}
           </p>
         )
+      )}
+
+      {/* 2026-06-15 — per-query evidence: the SPECIFIC search query, how
+          often the page showed up for it, the current rank, and the
+          recoverable visits. Honest: rendered only when the GSC signal
+          carried a quotable query. */}
+      {gscEvidenceLines.length > 0 && (
+        <ul
+          className="mt-2.5 space-y-1"
+          data-recommendation-v2-gsc-evidence="true"
+        >
+          {gscEvidenceLines.map((line) => (
+            <li
+              key={line.key}
+              className="text-[11px] leading-snug"
+              data-recommendation-v2-gsc-evidence-line={line.key}
+            >
+              <span className="font-semibold text-foreground">
+                {line.value}
+              </span>{" "}
+              <span className="text-muted-foreground">{line.label}</span>
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* Evidence chips — max 3 */}
