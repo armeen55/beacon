@@ -125,8 +125,8 @@ const VERDICT_COPY: Record<
  * sentence pair instead.
  */
 const PRE_VERDICT_COPY: { stateLine: string; nextEvidenceLine: string } = {
-  stateLine: "Live change detected — Beacon is collecting post-change readings.",
-  nextEvidenceLine: "Confidence updates as more readings accumulate.",
+  stateLine: "Live change detected — not enough post-change readings yet.",
+  nextEvidenceLine: "Run a reading to add more data and get a verdict.",
 };
 
 /**
@@ -136,7 +136,7 @@ const PRE_VERDICT_COPY: { stateLine: string; nextEvidenceLine: string } = {
  */
 const RECENT_COPY: { stateLine: string; nextEvidenceLine: string } = {
   stateLine: "Live change detected — too recent for a confidence picture.",
-  nextEvidenceLine: "Beacon needs more readings before drawing a state.",
+  nextEvidenceLine: "Run a reading to add more data and get a verdict.",
 };
 
 function pickStateCopy(args: {

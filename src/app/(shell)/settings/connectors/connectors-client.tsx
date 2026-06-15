@@ -466,7 +466,7 @@ export function ConnectorsClient({
         const status = await getWixConnectorStatus();
         setWix(status);
         setSuccess(
-          "Wix connected. Approved edits can now publish to your site — nothing publishes without your approval.",
+          "Wix connected. Beacon can now prepare publish-ready edits for your site — every change waits for your explicit approval before anything goes live.",
         );
       } else {
         setError(result.error ?? "Could not save the Wix connection.");
@@ -482,6 +482,7 @@ export function ConnectorsClient({
     startTransition(async () => {
       const result = await save();
       if (result.success) {
+        setError(null);
         setInfo({
           status: "connected",
           connected_at: new Date().toISOString(),
@@ -489,6 +490,10 @@ export function ConnectorsClient({
           last_synced_at: null,
         });
         clear();
+      } else {
+        setError(
+          result.error ?? "Couldn't update this connection — please try again.",
+        );
       }
     });
   }
@@ -500,12 +505,17 @@ export function ConnectorsClient({
     startTransition(async () => {
       const result = await disconnect();
       if (result.success) {
+        setError(null);
         setInfo({
           status: "disconnected",
           connected_at: null,
           expires_at: null,
           last_synced_at: null,
         });
+      } else {
+        setError(
+          result.error ?? "Couldn't update this connection — please try again.",
+        );
       }
     });
   }
@@ -627,12 +637,19 @@ export function ConnectorsClient({
         Each source updates independently. Connecting a tool is additive — it does not replace manual import.
       </p>
       {error && (
-        <div className="rounded-lg border border-status-warning/40 bg-status-warning/[0.06] px-4 py-3">
+        <div
+          role="alert"
+          className="rounded-lg border border-status-warning/40 bg-status-warning/[0.06] px-4 py-3"
+        >
           <p className="text-sm text-foreground">{error}</p>
         </div>
       )}
       {success && (
-        <div className="rounded-lg border border-status-safe/40 bg-status-safe/[0.06] px-4 py-3">
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-lg border border-status-success/40 bg-status-success/[0.06] px-4 py-3"
+        >
           <p className="text-sm text-foreground">{success}</p>
         </div>
       )}
@@ -669,7 +686,7 @@ export function ConnectorsClient({
                 ) : null}
                 {gscSyncResult ? (
                   <p
-                    className={`text-[12px] ${gscSyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                    className={`text-[12px] ${gscSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
                   >
                     {gscSyncResult.text}
                   </p>
@@ -813,7 +830,8 @@ export function ConnectorsClient({
               <>
                 Beacon reads URL Inspection + Search Analytics data. Read-only
                 access — no writes to your Search Console property. Pull the
-                latest any time with Refresh on Data sources.
+                latest any time with the &ldquo;Pull my Search Console
+                data&rdquo; button above.
               </>
             ) : (
               <>
@@ -829,8 +847,6 @@ export function ConnectorsClient({
       </div>
 
       {/* ── Google Analytics (GA4) — Slice 9.A1β (2026-05-18) ── */}
-      {/* OAuth + property picker only. NO Data API in this slice —
-          sessions / events / conversions land in Slice 9.A2. */}
       <div
         className="rounded-lg border border-border/60 bg-surface-inset/20"
         data-connector-card="google-ga4"
@@ -859,7 +875,7 @@ export function ConnectorsClient({
                 )}
                 {ga4SyncResult ? (
                   <p
-                    className={`text-[12px] ${ga4SyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                    className={`text-[12px] ${ga4SyncResult.ok ? "text-status-success" : "text-status-warning"}`}
                   >
                     {ga4SyncResult.text}
                   </p>
@@ -997,8 +1013,9 @@ export function ConnectorsClient({
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {ga4.status === "connected" ? (
               <>
-                Beacon reads Google Analytics property metadata. Read-only
-                access — no writes to your Google Analytics property.
+                Beacon reads your GA4 page/URL traffic, which feeds your
+                priority score. Read-only access — no writes to your Google
+                Analytics property.
               </>
             ) : (
               <>
@@ -1118,8 +1135,9 @@ export function ConnectorsClient({
               </p>
             ) : (
               <p className="text-[12px] text-muted-foreground">
-                Connect your Wix site so approved edits can publish
-                directly. Nothing publishes without your approval.
+                Connect your Wix site so Beacon can prepare publish-ready
+                edits. Nothing changes on your live site without your
+                approval.
               </p>
             )}
           </div>
@@ -1143,14 +1161,22 @@ export function ConnectorsClient({
               Settings → Website settings. Both stay on this server and
               are never sent to the browser after saving.
             </p>
+            <label htmlFor="wix-api-key" className="sr-only">
+              Wix API key
+            </label>
             <input
+              id="wix-api-key"
               type="password"
               value={wixKeyInput}
               onChange={(e) => setWixKeyInput(e.target.value)}
               placeholder="Wix API key"
               className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
             />
+            <label htmlFor="wix-site-id" className="sr-only">
+              Wix Site ID
+            </label>
             <input
+              id="wix-site-id"
               type="text"
               value={wixSiteIdInput}
               onChange={(e) => setWixSiteIdInput(e.target.value)}
@@ -1172,9 +1198,9 @@ export function ConnectorsClient({
 
         <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Used only when you click Approve &amp; Push on an edit. Daily
-            push caps and the non-destructive guard apply to every push;
-            disconnecting stops all publishing instantly.
+            Only used when you approve an edit for publishing. Daily caps and
+            the non-destructive guard apply to every change, and disconnecting
+            stops all publishing instantly.
           </p>
         </div>
       </div>
@@ -1194,7 +1220,7 @@ export function ConnectorsClient({
                 </p>
                 {semrushSyncResult ? (
                   <p
-                    className={`text-[12px] ${semrushSyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                    className={`text-[12px] ${semrushSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
                   >
                     {semrushSyncResult.text}
                   </p>
@@ -1204,8 +1230,8 @@ export function ConnectorsClient({
               <p className="text-[12px] text-muted-foreground">
                 Connect your Semrush API key so Beacon can see which
                 searches you rank for, which rivals beat you, and where
-                the gaps are. Pulls fresh data on demand, within a strict
-                unit budget.
+                the gaps are. Pulls fresh data on demand, using up to
+                ~1,500 Semrush API units per refresh.
               </p>
             )}
           </div>
@@ -1234,14 +1260,22 @@ export function ConnectorsClient({
         </div>
         {semrush.status !== "connected" ? (
           <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <label htmlFor="semrush-api-key" className="sr-only">
+              Semrush API key
+            </label>
             <input
+              id="semrush-api-key"
               type="password"
               value={semrushKeyInput}
               onChange={(e) => setSemrushKeyInput(e.target.value)}
               placeholder="Semrush API key"
               className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
             />
+            <label htmlFor="semrush-database" className="sr-only">
+              Semrush regional database
+            </label>
             <input
+              id="semrush-database"
               type="text"
               value={semrushDbInput}
               onChange={(e) => setSemrushDbInput(e.target.value)}
@@ -1273,6 +1307,14 @@ export function ConnectorsClient({
             </div>
           </div>
         ) : null}
+        {semrush.status === "connected" ? (
+          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Reconnecting and running Sync now pulls fresh data and uses API
+              units again.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {/* ── Profound — Connect-cards slice (2026-06-12) ── */}
@@ -1290,7 +1332,7 @@ export function ConnectorsClient({
                 </p>
                 {profoundSyncResult ? (
                   <p
-                    className={`text-[12px] ${profoundSyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                    className={`text-[12px] ${profoundSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
                   >
                     {profoundSyncResult.text}
                   </p>
@@ -1329,7 +1371,11 @@ export function ConnectorsClient({
         </div>
         {profound.status !== "connected" ? (
           <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <label htmlFor="profound-api-key" className="sr-only">
+              Profound API key
+            </label>
             <input
+              id="profound-api-key"
               type="password"
               value={profoundKeyInput}
               onChange={(e) => setProfoundKeyInput(e.target.value)}
@@ -1354,6 +1400,14 @@ export function ConnectorsClient({
             </div>
           </div>
         ) : null}
+        {profound.status === "connected" ? (
+          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Reconnecting and running Sync now pulls fresh data and uses API
+              units again.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {/* ── Microsoft Clarity — Connect-cards slice (2026-06-12) ── */}
@@ -1373,7 +1427,7 @@ export function ConnectorsClient({
                 </p>
                 {claritySyncResult ? (
                   <p
-                    className={`text-[12px] ${claritySyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                    className={`text-[12px] ${claritySyncResult.ok ? "text-status-success" : "text-status-warning"}`}
                   >
                     {claritySyncResult.text}
                   </p>
@@ -1417,7 +1471,11 @@ export function ConnectorsClient({
             <p className="text-[12px] text-muted-foreground">
               In Clarity: Settings → Data Export → Generate new API token.
             </p>
+            <label htmlFor="clarity-api-token" className="sr-only">
+              Clarity API token
+            </label>
             <input
+              id="clarity-api-token"
               type="password"
               value={clarityTokenInput}
               onChange={(e) => setClarityTokenInput(e.target.value)}

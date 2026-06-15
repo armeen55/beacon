@@ -171,6 +171,11 @@ export default async function OnboardReviewPage() {
                         className="rounded-md border border-foreground/10 px-3 py-2 text-[13px]"
                       >
                         <span className="font-mono">{p.text}</span>
+                        {p.rationale ? (
+                          <p className="pt-0.5 text-[12px] text-muted-foreground">
+                            {p.rationale}
+                          </p>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

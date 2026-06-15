@@ -79,7 +79,7 @@ describe("Wix connector card", () => {
     expect(html).toContain('data-connector-card="wix"');
     expect(html).toContain("Wix API key");
     expect(html).toContain("Wix Site ID");
-    expect(html).toContain("Nothing publishes without your approval");
+    expect(html).toContain("Nothing changes on your live site without your approval");
     expect(html).toContain("Connect Wix");
   });
 
@@ -95,7 +95,7 @@ describe("Wix connector card", () => {
     expect(html).not.toContain("Wix API key"); // form hidden once connected
   });
 
-  it("the Approve & Push safety note always renders", () => {
+  it("the publish-safety note always renders (no over-claimed publish surface)", () => {
     for (const info of [
       disconnectedInfo(),
       {
@@ -105,7 +105,12 @@ describe("Wix connector card", () => {
         last_synced_at: null,
       },
     ]) {
-      expect(clientWith(info)).toContain("Approve &amp; Push");
+      const html = clientWith(info);
+      // #13/#180 — copy no longer promises an "Approve & Push" button that
+      // has no customer-reachable surface; it keeps the honest safety facts.
+      expect(html).toContain("Only used when you approve an edit for publishing");
+      expect(html).toContain("disconnecting");
+      expect(html).not.toContain("Approve &amp; Push");
     }
   });
 });

@@ -651,16 +651,16 @@ function PlatformSplit({
                 )}
               >
                 {p.observations === 0
-                  ? "No observations"
+                  ? "No readings yet"
                   : isWinning
-                    ? `Primary in ${p.primary} of ${p.observations} (${primaryRate}%)`
+                    ? `You're the top recommendation in ${p.primary} of ${p.observations} answers (${primaryRate}%)`
                     : isAbsent
-                      ? "Absent from every answer"
+                      ? "AI doesn't mention you in any answer"
                       : p.primary > 0
-                        ? `Primary ${p.primary} of ${p.observations} · cited ${p.cited} · absent ${p.absent}`
+                        ? `Sometimes the top pick, sometimes ranked below a competitor (top in ${p.primary} of ${p.observations} answers)`
                         : p.cited > 0
-                          ? `Cited in ${p.cited} of ${p.observations}${p.avgCitationRank !== null ? ` (avg #${p.avgCitationRank})` : ""}`
-                          : `Mentioned in ${p.mentioned} of ${p.observations}, never cited`}
+                          ? `AI mentions you but ranks a competitor above you (cited in ${p.cited} of ${p.observations} answers)`
+                          : `AI mentions you but doesn't cite you yet (${p.mentioned} of ${p.observations} answers)`}
               </p>
             </li>
           );
@@ -696,7 +696,7 @@ function PrimaryAnswerBlock({
   } else if (s.fragmented) {
     const distinct =
       (s.ritzPrimaryCount > 0 ? 1 : 0) + s.primaryCompetitors.length;
-    headline = `No single primary — ${distinct} different entities split the top slot across ${s.totalAnswers} answers.`;
+    headline = `No one owns this answer yet — ${distinct} businesses split the top slot across ${s.totalAnswers} answers. Strong chance to become the default if you publish a clean, direct answer block.`;
     tone = "mixed";
   } else {
     // Brand mentioned but never primary AND no competitor majority AND

@@ -28,16 +28,27 @@ export default async function ProposedBriefsPage() {
   if (!(await hasActiveExperiment())) {
     return (
       <div className="rounded-md border border-border p-8 text-center">
-        <p className="text-[14px] font-medium mb-1">No active experiment</p>
+        <p className="text-[14px] font-medium mb-1">No briefs yet</p>
         <p className="text-[12px] text-muted-foreground mb-3">
-          Import visibility data (e.g. your standard .xlsx export) to generate execution briefs from pattern intelligence.
+          A brief is a step-by-step plan for one change to make. Connect a
+          data source (Search Console, GA4, Semrush) so Beacon has something
+          to work from — then it can draft briefs for you. You can also
+          import a spreadsheet export instead.
         </p>
-        <Link
-          href="/settings/import"
-          className="text-[12px] text-accent-primary hover:underline font-medium"
-        >
-          Go to Import
-        </Link>
+        <div className="flex items-center justify-center gap-4">
+          <Link
+            href="/settings/connectors"
+            className="text-[12px] text-accent-primary hover:underline font-medium"
+          >
+            Connect a data source
+          </Link>
+          <Link
+            href="/settings/import"
+            className="text-[12px] text-muted-foreground hover:underline"
+          >
+            Import a spreadsheet
+          </Link>
+        </div>
       </div>
     );
   }

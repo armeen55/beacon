@@ -49,7 +49,7 @@ import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
 const STATUS_PILL_TONE: Record<ActionRowStatus, string> = {
   new: "bg-accent-primary/10 text-accent-primary",
-  accepted: "bg-status-info/10 text-status-info",
+  accepted: "bg-status-success/10 text-status-success",
   shipped: "bg-status-success/10 text-status-success",
   measuring: "bg-status-warning/10 text-status-warning",
   needs_review: "bg-muted-foreground/10 text-muted-foreground",

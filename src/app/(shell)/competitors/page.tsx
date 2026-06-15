@@ -364,7 +364,7 @@ export default async function CompetitorsPage() {
                   <span className="sm:hidden"> </span>
                   <span>Competitor</span>
                   <span className="text-right hidden sm:block">Citations</span>
-                  <span className="text-right hidden sm:block">Share</span>
+                  <span className="text-right hidden sm:block">Topic share</span>
                 </div>
                 {benchmark.topCompetitors.map((comp, i) => {
                   const compEntity = competitors.find(
@@ -686,7 +686,7 @@ export default async function CompetitorsPage() {
                   <span>#</span>
                   <span>Domain</span>
                   <span className="text-right">Citations</span>
-                  <span className="text-right">Share</span>
+                  <span className="text-right">Domain share</span>
                 </div>
                 {discovery.newDiscoveries.slice(0, 10).map((d, i) => {
                   const topicsTheyLead = d.topicThreats.filter((t) => t.theyLead);

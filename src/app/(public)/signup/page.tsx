@@ -37,10 +37,10 @@ export default async function SignupPage({
           <h1 className="text-xl font-semibold">Create your Beacon account</h1>
           <p className="text-[12px] text-muted-foreground">
             Beacon shows you the exact website changes that get you
-            recommended by AI assistants and found on Google — and, for the
-            ones you approve, pushes the eligible changes live to your site.
-            The rest come as paste-ready steps. Magic-link sign-in, no
-            password.
+            recommended by AI assistants and found on Google. The ones you
+            approve can publish to your Wix site (each change is yours to
+            approve); the rest come as paste-ready steps. Magic-link sign-in,
+            no password.
           </p>
         </div>
         <SignupForm sent={params.sent === "1"} error={params.error} />

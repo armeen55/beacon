@@ -189,7 +189,6 @@ function AtGlance({ matrix }: { matrix: DecisionMatrix }) {
   const counts = Object.fromEntries(
     matrix.groupSummaries.map((g) => [g.category, g.count]),
   );
-  const latest = mostRecentObservation(matrix);
   return (
     <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
@@ -232,30 +231,12 @@ function AtGlance({ matrix }: { matrix: DecisionMatrix }) {
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground/80 leading-relaxed">
         Lookback: last 7 days of AI readings (from{" "}
-        <span className="tabular-nums">{matrix.lookbackFrom}</span>). Thresholds
-        fixed in v1 — surface only Perplexity + ChatGPT data.
-        {latest ? (
-          <>
-            {" "}Latest observation:{" "}
-            <span className="tabular-nums">{latest.slice(0, 10)}</span>.
-          </>
-        ) : null}
+        <span className="tabular-nums">{matrix.lookbackFrom}</span>). Beacon
+        reads ChatGPT and Perplexity today — Gemini, Google AI Overviews and
+        Claude are not tracked yet.
       </p>
     </div>
   );
-}
-
-function mostRecentObservation(matrix: DecisionMatrix): string | null {
-  let max: string | null = null;
-  for (const p of matrix.prompts) {
-    for (const plat of p.evidence.byPlatform) {
-      // byPlatform carries observation counts but not a timestamp; fall back
-      // to lookbackFrom when we don't carry per-obs timestamps here. This is
-      // a minor polish — OK to drop if not trivially available.
-      if (plat.observations > 0 && max === null) max = matrix.date;
-    }
-  }
-  return max;
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */

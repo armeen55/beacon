@@ -63,7 +63,7 @@ function FreshnessSegment({ label, at }: { label: string; at: string | null }) {
   const ageDays = Math.floor((Date.now() - d.getTime()) / 86_400_000);
   const ago =
     ageDays < 0
-      ? "scheduled"
+      ? "upcoming"
       : ageDays === 0
         ? "today"
         : ageDays === 1

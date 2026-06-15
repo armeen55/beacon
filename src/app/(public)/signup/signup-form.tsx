@@ -25,10 +25,47 @@ export function SignupForm({
     });
   }
 
+  function resend() {
+    setLocalError(null);
+    startTransition(async () => {
+      const res = await requestSignupMagicLink(email);
+      if (res.error) setLocalError(res.error);
+    });
+  }
+
   if (sent || localSent) {
     return (
-      <div className="rounded-md border border-foreground/15 p-4 text-[13px]">
-        Check your email. Click the link to finish creating your account.
+      <div
+        role="status"
+        aria-live="polite"
+        className="space-y-3 rounded-md border border-foreground/15 p-4 text-[13px]"
+      >
+        <p>Check your email. Click the link to finish creating your account.</p>
+        <p className="text-[12px] text-muted-foreground">
+          No email after a minute? Check your spam or promotions folder.
+        </p>
+        {localError && (
+          <p role="alert" className="text-[12px] text-red-600">
+            {localError}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-3 text-[12px]">
+          <button
+            type="button"
+            onClick={resend}
+            disabled={pending || !email}
+            className="font-medium underline disabled:opacity-50"
+          >
+            {pending ? "Sending…" : "Resend link"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setLocalSent(false)}
+            className="text-muted-foreground underline"
+          >
+            Use a different email
+          </button>
+        </div>
       </div>
     );
   }
@@ -58,8 +95,9 @@ export function SignupForm({
         {pending ? "Sending…" : "Send magic link"}
       </button>
       <p className="text-[11px] text-muted-foreground">
-        By continuing you agree to Beacon's terms. No payment required to
-        get started.
+        By continuing you agree to Beacon's terms. Free to set up. Running
+        AI readings and data refreshes uses paid APIs — you'll always see
+        the cost before you spend.
       </p>
     </form>
   );

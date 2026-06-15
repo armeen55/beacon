@@ -67,7 +67,7 @@ export function buildTodayCompetitorLine(opts: {
   const cfgPart =
     cfgNames.length > 0
       ? `Among top cited external domains in this index, these match configured competitors: ${cfgNames.join(", ")}. `
-      : "None of the top cited external domains in this index match your configured universe hostnames — pressure may be from directories, editorial, or unlisted builders. ";
+      : "None of the top cited external domains in this index match your configured universe hostnames — pressure may be from directories, editorial, or unlisted competitors. ";
 
   const otherCount = split.uncategorizedSample.length;
   const otherPart =
