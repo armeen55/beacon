@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-15 PM (operator live-app feedback — isDemoMode bug + connect-strip + rec evidence)
+
+**Trigger:** owner reported Today showing "Connect your data sources" despite GSC connected; asked for partial-data-with-one-connection, one-click connect on the main screen, and super-specific evidence per recommendation.
+
+**Shipped (each typecheck + gated tests + build green, pushed):**
+- **`d7af862`** — Today `isDemoMode` now connector-aware (`!hasActiveExperiment() && !hasAnyConnectedDataSource()`, new connector-store helper checking all 6 sources) + fixed a dropped `await` (legacy isDemoMode was always false). Ground-truth: tenant-iranopedia (GSC+Wix, 0 CSV imports) renders the real command center on `/` and `/?v2=1` — no connect-prompt.
+- **`d4459a6`** — Today data-sources quick-connect strip (both surfaces, after gate): per-source connected ✓ / "Connect →" deep-link (+`#connector-<id>` anchors); "Profound"→"AI Answers" (white-label). PLUS GSC evidence lines on rec card + [id] detail (exact query/demand/rank/CTR/recoverable via new `evidence-summary.ts buildGscEvidenceLines`). Ground-truth: strip renders for Iranopedia.
+- **`9e9c2b6`** — SEMrush evidence (volume + KD bands + rank) threaded onto `LiveRecQueueItem` (`semrushSignal`, both loaders) + rendered next to GSC lines.
+- **`edaf7a8`** — evidence also rendered on the DEFAULT legacy `/recommendations` drawer (caught by ground-truth: default surface is legacy; evidence had only been on v2). "Why this, why now" section.
+
+**Verified:** typecheck clean; both-tenant render checks (strip + command-center for Iranopedia). **Gate note:** full single-run `npx vitest run` now hits a sandbox worker-limit (exit 1, no output) — confirmed green via subdir chunks + `--maxWorkers=3` (src 3163, app 941+, domains/lib/etc 4081, architecture 5636, +others) + targeted per-area runs + `npm run build`. NOT a test failure.
+
+---
+
 ## 2026-06-15 (DAY SHIFT — directed de-bloat: native-poll/cron rip-out + dual-surface orphans + copy honesty)
 
 **Directive:** autonomous /goal until 3 PM PT — execute the big DIRECTED de-bloat (rip out native-poll/crons, collapse dual surfaces) the prior session deferred; it's pre-authorized (rails pause only for data-deletion / irreversible-migration / hosted-env).
