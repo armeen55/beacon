@@ -77,7 +77,7 @@ function buildHealthyCopy(summary: OutcomesSummary): string {
 const EMPTY_COPY = "No post-live outcome evidence yet.";
 
 const STILL_GATHERING_COPY =
-  "Beacon is still collecting post-live traffic evidence for recent edits.";
+  "Not enough post-live traffic evidence yet for recent edits. Refresh your connected data over the next week or two to gather more.";
 
 /**
  * Customer-facing outcome-attribution Today tile. Renders inside its

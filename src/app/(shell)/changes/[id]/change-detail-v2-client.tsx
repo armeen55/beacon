@@ -263,6 +263,12 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
               {causalProof.sub}
             </p>
           )}
+          <p
+            className="mt-2 text-[11px] leading-relaxed text-muted-foreground/70"
+            data-change-detail-causal-proof-caveat="true"
+          >
+            Reflects AI-visibility movement, not confirmed leads or revenue.
+          </p>
         </div>
       )}
 
@@ -393,8 +399,8 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
         {events.length === 0 ? (
           <div data-change-detail-act4-empty="true">
             <p className="text-[12.5px] leading-relaxed text-foreground/80">
-              No outcome signal yet. Beacon is still watching this change
-              across daily AI readings.
+              No outcome signal yet. Refresh your connected data over the
+              next week or two to give Beacon new AI readings to compare.
             </p>
             {patternTimingNarrative ? (
               <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">

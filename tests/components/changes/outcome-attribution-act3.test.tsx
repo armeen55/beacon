@@ -198,7 +198,7 @@ describe("OutcomeAttributionAct3 — still_learning_outcome / insufficient_days"
   it("renders the locked insufficient_days copy (names the 7-day threshold)", () => {
     const html = render(STILL_LEARNING_INSUFFICIENT_DAYS);
     expect(html).toContain(
-      "This page is still too newly live to attribute outcomes — Beacon needs at least 7 days of post-live traffic data.",
+      "This page is still too newly live to attribute outcomes — Beacon needs at least 7 days of post-live traffic data. Refresh your connected data over the next week or two to fill that in.",
     );
   });
 
@@ -234,7 +234,7 @@ describe("OutcomeAttributionAct3 — still_learning_outcome / insufficient_volum
   it("renders the locked insufficient_volume copy (stays generic, no '5 sessions' leak per P3)", () => {
     const html = render(STILL_LEARNING_INSUFFICIENT_VOLUME);
     expect(html).toContain(
-      "Not enough post-live traffic evidence yet for this page.",
+      "Not enough post-live traffic evidence yet for this page. Refresh your connected data over the next week or two to gather more.",
     );
     // P3 lock: do NOT name the 5-session threshold.
     expect(html).not.toContain("5 sessions");

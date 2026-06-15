@@ -321,7 +321,7 @@ function statusExplanation(status: StoredChangeOutcome["status"]): string {
     case "insufficient_baseline":
       return "There's not enough pre-change citation history on the treated URL to build a reliable baseline.";
     case "insufficient_post_data":
-      return "Not enough post-change days have passed yet. Check back after the post-window closes.";
+      return "Not enough post-change days have passed yet. Refresh your connected data over the next week or two, then re-check to measure this change.";
     case "zero_signal":
       return "The treated URL has no recorded citations in either the pre or post window.";
     case "ineligible_layer":

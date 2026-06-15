@@ -143,7 +143,7 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
     // missing — and surfaces a calm fallback timing line so the
     // section never feels broken.
     expect(html).toContain(
-      "No outcome signal yet. Beacon is still watching this change",
+      "No outcome signal yet. Refresh your connected data over the",
     );
     expect(html).toContain(
       "Similar changes often need several readings before a clear result appears",

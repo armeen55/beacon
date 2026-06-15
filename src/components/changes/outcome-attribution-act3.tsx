@@ -14,10 +14,14 @@
  *   • eligible (calls ≥ 1): "This page received {N} session(s) and
  *     {M} call(s) in the {X} day(s) since going live."
  *   • still_learning_outcome / insufficient_volume:
- *     "Not enough post-live traffic evidence yet for this page."
+ *     "Not enough post-live traffic evidence yet for this page.
+ *      Refresh your connected data over the next week or two to
+ *      gather more."
  *   • still_learning_outcome / insufficient_days:
  *     "This page is still too newly live to attribute outcomes —
- *      Beacon needs at least 7 days of post-live traffic data."
+ *      Beacon needs at least 7 days of post-live traffic data.
+ *      Refresh your connected data over the next week or two to
+ *      fill that in."
  *
  * Plural-aware: `1 session` / `N sessions`; `1 call` / `M calls`;
  * `1 day` / `X days`.
@@ -82,10 +86,10 @@ function buildCopy(
   }
   // still_learning_outcome
   if (result.reason === "insufficient_days") {
-    return "This page is still too newly live to attribute outcomes — Beacon needs at least 7 days of post-live traffic data.";
+    return "This page is still too newly live to attribute outcomes — Beacon needs at least 7 days of post-live traffic data. Refresh your connected data over the next week or two to fill that in.";
   }
   // insufficient_volume
-  return "Not enough post-live traffic evidence yet for this page.";
+  return "Not enough post-live traffic evidence yet for this page. Refresh your connected data over the next week or two to gather more.";
 }
 
 /**

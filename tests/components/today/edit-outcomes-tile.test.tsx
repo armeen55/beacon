@@ -111,7 +111,7 @@ describe("EditOutcomesTile — still-gathering state", () => {
       }),
     );
     expect(html).toContain(
-      "Beacon is still collecting post-live traffic evidence for recent edits.",
+      "Not enough post-live traffic evidence yet for recent edits. Refresh your connected data over the next week or two to gather more.",
     );
     expect(html).toContain('data-edit-outcomes-state="still_gathering"');
   });
@@ -125,7 +125,7 @@ describe("EditOutcomesTile — still-gathering state", () => {
       }),
     );
     expect(html).toContain(
-      "Beacon is still collecting post-live traffic evidence for recent edits.",
+      "Not enough post-live traffic evidence yet for recent edits. Refresh your connected data over the next week or two to gather more.",
     );
     expect(html).toContain('data-edit-outcomes-state="still_gathering"');
   });
@@ -137,7 +137,7 @@ describe("EditOutcomesTile — still-gathering state", () => {
       }),
     );
     expect(html).toContain(
-      "Beacon is still collecting post-live traffic evidence for recent edits.",
+      "Not enough post-live traffic evidence yet for recent edits. Refresh your connected data over the next week or two to gather more.",
     );
     expect(html).toContain('data-edit-outcomes-state="still_gathering"');
   });
@@ -145,7 +145,7 @@ describe("EditOutcomesTile — still-gathering state", () => {
   it("collapses null summary to still-gathering copy", () => {
     const html = render(null);
     expect(html).toContain(
-      "Beacon is still collecting post-live traffic evidence for recent edits.",
+      "Not enough post-live traffic evidence yet for recent edits. Refresh your connected data over the next week or two to gather more.",
     );
     expect(html).toContain('data-edit-outcomes-state="still_gathering"');
   });
@@ -159,7 +159,7 @@ describe("EditOutcomesTile — still-gathering state", () => {
       }),
     );
     expect(html).toContain(
-      "Beacon is still collecting post-live traffic evidence for recent edits.",
+      "Not enough post-live traffic evidence yet for recent edits. Refresh your connected data over the next week or two to gather more.",
     );
     expect(html).not.toContain("0 sessions");
     expect(html).toContain('data-edit-outcomes-state="still_gathering"');

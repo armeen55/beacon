@@ -130,13 +130,13 @@ export function buildProofSentence(outcome: StoredChangeOutcome): ProofSentence 
       return {
         tone: "watching",
         headline: `Still measuring — Beacon can't yet prove whether this change moved your AI citations.`,
-        sub: `There aren't enough comparable pages to separate this change's effect from everything else going on. Watching as more data comes in.`,
+        sub: `There aren't enough comparable pages to separate this change's effect from everything else going on. Refresh your connected data over the next week or two to give Beacon more to measure.`,
       };
     case "insufficient_post_data":
       return {
         tone: "watching",
         headline: `Too soon to tell — not enough days have passed since this change to measure its effect.`,
-        sub: `Check back after the measurement window closes.`,
+        sub: `Refresh your connected data over the next week or two, then check back to see if this change moved the needle.`,
       };
     case "insufficient_baseline":
       return {
