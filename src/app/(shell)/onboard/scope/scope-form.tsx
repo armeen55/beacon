@@ -37,6 +37,16 @@ export function ScopeForm({
   const [selectedTags, setSelectedTags] = useState<Set<ProjectMixTag>>(
     new Set(initialProjectMix),
   );
+  // De-vert (#122/#124): the six PROJECT_MIX_TAGS are builder vocabulary —
+  // a bakery/dentist/SaaS truthfully fits none, and showing them as the
+  // primary signal is the wrong-vertical leak. The grid is now tucked
+  // behind a builder-only disclosure; site-derived services (read at launch)
+  // are the primary signal for everyone else. Auto-open for a tenant who
+  // already picked builder tags (Ritz round-trips) so their selections stay
+  // visible and editable.
+  const [showBuilderTags, setShowBuilderTags] = useState<boolean>(
+    initialProjectMix.length > 0,
+  );
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [topError, setTopError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -118,39 +128,60 @@ export function ScopeForm({
 
       <fieldset className="space-y-2">
         <legend className="block text-[13px] font-medium">
-          What kind of work do you take on?{" "}
+          Your services{" "}
           <span className="font-normal text-muted-foreground">(optional)</span>
         </legend>
         <p className="text-[12px] text-muted-foreground">
-          Pick everything that applies — or none, if these don&apos;t describe
-          your business. Beacon also reads your services from your site.
+          Beacon reads what you offer straight from your website — you
+          don&apos;t need to enter anything here. You can fine-tune the prompts
+          after launch.
         </p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 pt-2">
-          {PROJECT_MIX_TAGS.map((tag) => {
-            const checked = selectedTags.has(tag);
-            return (
-              <label
-                key={tag}
-                className={
-                  "flex items-start gap-2 rounded-md border px-3 py-2 text-[13px] cursor-pointer transition-colors " +
-                  (checked
-                    ? "border-foreground bg-foreground/5"
-                    : "border-foreground/15 hover:border-foreground/30")
-                }
-              >
-                <input
-                  type="checkbox"
-                  name="projectMix"
-                  value={tag}
-                  checked={checked}
-                  onChange={() => toggleTag(tag)}
-                  className="mt-1 accent-foreground"
-                />
-                <span>{PROJECT_MIX_LABELS[tag]}</span>
-              </label>
-            );
-          })}
-        </div>
+
+        {/* Builder/contractor-only project types, behind a disclosure so a
+            non-builder isn't shown construction options as the primary
+            signal. Auto-open for a tenant who already picked tags. */}
+        {showBuilderTags ? (
+          <div className="space-y-2 pt-1">
+            <p className="text-[12px] text-muted-foreground">
+              Building or remodeling business? Pick the project types you take
+              on:
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {PROJECT_MIX_TAGS.map((tag) => {
+                const checked = selectedTags.has(tag);
+                return (
+                  <label
+                    key={tag}
+                    className={
+                      "flex items-start gap-2 rounded-md border px-3 py-2 text-[13px] cursor-pointer transition-colors " +
+                      (checked
+                        ? "border-foreground bg-foreground/5"
+                        : "border-foreground/15 hover:border-foreground/30")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      name="projectMix"
+                      value={tag}
+                      checked={checked}
+                      onChange={() => toggleTag(tag)}
+                      className="mt-1 accent-foreground"
+                    />
+                    <span>{PROJECT_MIX_LABELS[tag]}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowBuilderTags(true)}
+            className="text-[12px] underline text-muted-foreground"
+          >
+            Are you a home builder or contractor? Add project types
+          </button>
+        )}
         {fieldErrors.projectMix ? (
           <p className="text-[12px] text-rose-600 pt-1" role="alert">
             {fieldErrors.projectMix}

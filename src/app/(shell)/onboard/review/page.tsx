@@ -38,6 +38,7 @@ import {
 } from "@/domains/onboarding/prompt-generator";
 import type { ProjectMixTag } from "@/domains/tenants/types";
 import { LaunchForm } from "./launch-form";
+import { resolvePreviewConfigSignals } from "./resolve-preview-config";
 
 export const dynamic = "force-dynamic";
 
@@ -56,19 +57,40 @@ const CATEGORY_ORDER: PromptCategory[] = [
 ];
 
 export default async function OnboardReviewPage() {
-  const { tenant } = await requireOnboardingTenant();
+  const { tenantId, tenant } = await requireOnboardingTenant();
 
   const cities = tenant.cities_served ?? [];
   const projectMix = (tenant.project_mix ?? []) as ProjectMixTag[];
   const competitors = tenant.discovered_competitors ?? [];
 
+  // De-vert (#116/#125): mirror the LAUNCH path. The builder-tag prompt
+  // families only fire for the six ProjectMixTags; a non-builder (bakery,
+  // dentist, SaaS) gets its real prompts from its SITE-DERIVED config
+  // (services/industry/locations). resolvePreviewConfigSignals reads any
+  // already-persisted per-tenant config, else derives read-only from the
+  // site using the SAME chain launch runs (no persist). Typed cities beat
+  // derived locations; derived locations fill in when the wizard collected
+  // none — identical precedence to executeLaunchTransaction so the preview
+  // matches exactly what Launch will write. Failure-soft: an unreachable
+  // site yields brand-only prompts, the honest no-signal launch outcome.
+  const derived = await resolvePreviewConfigSignals({
+    tenantId,
+    domain: tenant.domain ?? "",
+    typedName: tenant.business_name,
+    typedCities: cities,
+    competitors,
+  });
+  const promptCities = cities.length > 0 ? cities : derived.locations;
+
   // Pure generation — no I/O, no DB write. Re-derived per render.
   const drafts = generateStarterPrompts({
     businessName: tenant.business_name ?? "",
     domain: tenant.domain ?? "",
-    citiesServed: cities,
+    citiesServed: promptCities,
     projectMix,
     competitors,
+    derivedServices: derived.services,
+    industry: derived.industry,
   });
 
   const grouped: Record<PromptCategory, PromptDraft[]> = {

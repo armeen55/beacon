@@ -32,7 +32,7 @@ export default async function OnboardScopePage() {
     <OnboardingShell
       step={2}
       title="Service area and services"
-      subtitle="Tell us where you work and what kind of work you take on."
+      subtitle="Tell us where your customers are. Beacon reads what you offer from your website."
     >
       <div className="space-y-6">
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-2">
