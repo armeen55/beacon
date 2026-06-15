@@ -149,7 +149,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
           one coherent block instead of three stacked elements. */}
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             AI Visibility
           </p>
           <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -366,18 +366,34 @@ function MetricCard({
       : sub.tone === "negative"
         ? "text-status-danger"
         : "text-muted-foreground/80";
+  // a11y #387 — the sub line carried good/bad meaning by color alone.
+  // Add a ▲/▼ glyph (neutral = none) so direction reads without color,
+  // and an aria-label spelling out the direction for screen readers
+  // (mirrors the kpi-card.tsx treatment). aria-hidden on the glyph
+  // keeps it from being double-announced.
+  const arrow =
+    sub.tone === "positive" ? "▲" : sub.tone === "negative" ? "▼" : "";
+  const directionWord =
+    sub.tone === "positive" ? "up" : sub.tone === "negative" ? "down" : "";
+  const subAriaLabel = directionWord
+    ? `${directionWord}: ${sub.text}`
+    : undefined;
   return (
     <div
       className="rounded-md border border-foreground/5 bg-background/40 px-3 py-2.5"
       data-today-hero-metric={dataAttr}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <p className="mt-1 text-[20px] font-bold tabular-nums leading-tight">
         {headline}
       </p>
-      <p className={cn("mt-0.5 text-[11px] leading-snug", subToneClass)}>
+      <p
+        className={cn("mt-0.5 text-[11px] leading-snug", subToneClass)}
+        aria-label={subAriaLabel}
+      >
+        {arrow && <span aria-hidden="true">{arrow} </span>}
         {sub.text}
       </p>
     </div>

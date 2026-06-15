@@ -35,7 +35,10 @@ import {
 import { TodayV2VisibilityGroupClient } from "./today-v2-visibility-group-client";
 import { TodayV2DoToday } from "@/components/today/v2/today-v2-do-today";
 import { TodayV2Working } from "@/components/today/v2/today-v2-working";
-import { TodayV2RecentWins } from "@/components/today/v2/today-v2-recent-wins";
+import {
+  TodayV2RecentWins,
+  hasRecentWins,
+} from "@/components/today/v2/today-v2-recent-wins";
 import { EnrichmentV2 } from "@/components/today/enrichment-v2";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import { EditLifecycleTile } from "@/components/today/edit-lifecycle-tile";
@@ -71,17 +74,28 @@ export async function TodayV2ActionCardsSection() {
   const liveChanges = data.lifecycleSummary?.liveChanges ?? [];
   const pendingImplementationCount =
     data.lifecycleSummary?.counts.pendingImplementation ?? 0;
+  // #402 — only give the Recent wins card a column when there's actually
+  // a win to show. With no wins the card renders null, so a 3-col grid
+  // would leave a permanent gap; drop to 2 columns in that case.
+  const winsProps = {
+    measuredWins: data.measuredWins ?? [],
+    urlVerdictProof: data.urlVerdictProof ?? null,
+  };
+  const showWins = hasRecentWins(winsProps);
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div
+      className={
+        showWins
+          ? "grid grid-cols-1 lg:grid-cols-3 gap-4"
+          : "grid grid-cols-1 lg:grid-cols-2 gap-4"
+      }
+    >
       <TodayV2DoToday primaryAction={data.primaryAction ?? null} />
       <TodayV2Working
         liveChanges={liveChanges}
         pendingImplementationCount={pendingImplementationCount}
       />
-      <TodayV2RecentWins
-        measuredWins={data.measuredWins ?? []}
-        urlVerdictProof={data.urlVerdictProof ?? null}
-      />
+      {showWins && <TodayV2RecentWins {...winsProps} />}
     </div>
   );
 }

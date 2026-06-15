@@ -772,6 +772,12 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     imported?: number;
     days?: number;
     citation_rows?: number;
+    // #113 — Profound caps how many topics it pulls per run. When the
+    // workspace has more topics than the cap, the overflow is silently
+    // dropped; these fields let us tell the owner instead of faking a
+    // clean success. Read defensively (only Profound sets them).
+    categories_total?: number;
+    categories_skipped?: number;
   };
   if (r.synced) {
     const bits: string[] = [];
@@ -782,6 +788,18 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     const rowCount = r.rows_upserted ?? r.rows ?? r.imported ?? r.citation_rows;
     if (rowCount != null) bits.push(`${rowCount.toLocaleString()} row${rowCount === 1 ? "" : "s"}`);
     if (r.days != null) bits.push(`${r.days} day${r.days === 1 ? "" : "s"}`);
+    // #113 — honest cap disclosure: when more topics exist than this run
+    // pulled, say so plainly instead of reporting a clean success. The cap
+    // itself is intentional (budget discipline); only the reporting changes.
+    const skipped = r.categories_skipped ?? 0;
+    if (skipped > 0 && r.categories_total != null) {
+      const pulled = r.categories_total - skipped;
+      const capNote =
+        `Synced ${pulled} of ${r.categories_total} topics — ` +
+        `${skipped} not pulled this run (run again to pull more).`;
+      const head = bits.length ? `Synced ${bits.join(" · ")}. ` : "";
+      return { ok: true, detail: `${head}${capNote}` };
+    }
     if (bits.length) return { ok: true, detail: `Synced ${bits.join(" · ")}.` };
     return { ok: true, detail: "Synced — nothing new found yet." };
   }

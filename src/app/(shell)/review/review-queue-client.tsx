@@ -294,6 +294,12 @@ function KeyboardHelp({ onClose }: { onClose: () => void }) {
 
 // ── Sprint Decision Card ──
 
+// #344 — number-key candidate selection is advertised as "1–5" in the
+// KeyboardHelp; this is the matching cap. Candidates beyond the 5th get
+// no number badge and can't be number-key selected, so the promise
+// equals the behavior. Click selection still works for every candidate.
+const MAX_NUMBER_SELECT = 5;
+
 function sortedActionableCandidates(item: ReviewQueueItem) {
   return item.candidates
     .filter(
@@ -332,16 +338,22 @@ function SprintDecisionCard({
     const ac = sortedActionableCandidates(item);
     return ac[0]?.change.id ?? null;
   });
-  const [confidence, setConfidence] = useState<OperatorConfidence>("medium");
+  // #331 — confidence must be an explicit operator choice, never an
+  // un-thought default that gets recorded as fact. Start null, require a
+  // level before the lock enables, and reset to null after each decision.
+  const [confidence, setConfidence] = useState<OperatorConfidence | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   const j = item.judgment;
   const dc = D_CONFIG[item.decisionability];
 
-  const canLock = selectedCause !== null && (selectedCause !== "change" || selectedChangeId !== null);
+  const canLock =
+    selectedCause !== null &&
+    (selectedCause !== "change" || selectedChangeId !== null) &&
+    confidence !== null;
 
   const handleLock = useCallback(() => {
-    if (!canLock) return;
+    if (!canLock || confidence === null) return;
     startTransition(async () => {
       await lockDecision(
         item.eventId,
@@ -354,7 +366,7 @@ function SprintDecisionCard({
       );
       setSelectedCause(null);
       setSelectedChangeId(null);
-      setConfidence("medium");
+      setConfidence(null);
       onDecided();
     });
   }, [canLock, item, selectedCause, selectedChangeId, confidence, onDecided, startTransition]);
@@ -366,8 +378,15 @@ function SprintDecisionCard({
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
       if (isPending) return;
 
+      // #344 — number keys select candidates 1–MAX_NUMBER_SELECT only,
+      // matching the "1–5 Select candidate" help. Over-cap keys (e.g. a
+      // 6th candidate) are not advertised, so they no-op rather than
+      // silently selecting a row the badge doesn't number.
       const numKey = parseInt(e.key, 10);
-      if (numKey >= 1 && numKey <= actionableCandidates.length) {
+      if (
+        numKey >= 1 &&
+        numKey <= Math.min(actionableCandidates.length, MAX_NUMBER_SELECT)
+      ) {
         e.preventDefault();
         setSelectedCause("change");
         setSelectedChangeId(actionableCandidates[numKey - 1].change.id);
@@ -492,7 +511,11 @@ function SprintDecisionCard({
                         isSelected ? "bg-accent-primary text-background" : "bg-surface-inset text-muted-foreground"
                       )}
                     >
-                      {idx + 1}
+                      {/* #344 — only badge a number for keyboard-selectable
+                          candidates (1–MAX_NUMBER_SELECT). Beyond that, show a
+                          neutral dot so the badge never advertises a key that
+                          doesn't fire. */}
+                      {idx < MAX_NUMBER_SELECT ? idx + 1 : "·"}
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -566,9 +589,14 @@ function SprintDecisionCard({
             onClick={() => { setSelectedCause("unknown"); setSelectedChangeId(null); }}
           />
           <div className="flex-1" />
-          {/* Confidence quick toggle */}
+          {/* Confidence quick toggle. #331 — no level is preselected, so
+              the operator must make a deliberate choice before locking;
+              the label spells out that it's required. */}
           {selectedCause && (
             <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground mr-0.5">
+                Confidence:
+              </span>
                   {(["high", "medium", "low"] as const).map((level) => (
                 <button
                   key={level}

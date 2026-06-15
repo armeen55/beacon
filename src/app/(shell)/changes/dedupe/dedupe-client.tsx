@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import {
   archiveDuplicate,
@@ -66,6 +66,64 @@ export function DedupeReview({ pairs }: { pairs: SerializedPair[] }) {
   >({});
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // #146 (keyboard half) — let the operator clear the queue from the
+  // keyboard: a = archive the CSV summary, k = keep both, s = decide
+  // later. Active only while there's a pair on screen and nothing is in
+  // flight; ignored while typing in an input/textarea. Mirrors the three
+  // button handlers below (kept inline here to stay above the early
+  // returns so the hook order is stable).
+  useEffect(() => {
+    if (index >= pairs.length || pending) return;
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      const active = pairs[index];
+      if (!active) return;
+      if (e.key === "a") {
+        e.preventDefault();
+        setError(null);
+        startTransition(async () => {
+          const r = await archiveDuplicate(
+            active.archiveCandidate.id,
+            active.keeper.id,
+          );
+          if (!r.success) {
+            setError(r.error ?? "Failed to archive. Try again.");
+            return;
+          }
+          setDecisions((d) => ({ ...d, [active.archiveCandidate.id]: "archived" }));
+          setIndex((i) => i + 1);
+        });
+      } else if (e.key === "k") {
+        e.preventDefault();
+        setError(null);
+        startTransition(async () => {
+          const r = await markPairNotDuplicate(active.archiveCandidate.id);
+          if (!r.success) {
+            setError(r.error ?? "Failed to save decision. Try again.");
+            return;
+          }
+          setDecisions((d) => ({ ...d, [active.archiveCandidate.id]: "kept" }));
+          setIndex((i) => i + 1);
+        });
+      } else if (e.key === "s") {
+        e.preventDefault();
+        setDecisions((d) => ({ ...d, [active.archiveCandidate.id]: "skipped" }));
+        setError(null);
+        setIndex((i) => i + 1);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [index, pairs, pending]);
 
   if (pairs.length === 0) {
     return (
@@ -267,6 +325,7 @@ export function DedupeReview({ pairs }: { pairs: SerializedPair[] }) {
           onClick={handleArchive}
           disabled={pending}
           className="inline-flex items-center gap-2 rounded-md bg-foreground text-background px-4 py-2 text-[12px] font-semibold hover:opacity-90 transition-opacity"
+          title="Archive the CSV summary (shortcut: a)"
         >
           Same edit — archive CSV summary
         </button>
@@ -275,6 +334,7 @@ export function DedupeReview({ pairs }: { pairs: SerializedPair[] }) {
           onClick={handleKeep}
           disabled={pending}
           className="inline-flex items-center gap-2 rounded-md border border-foreground/20 px-4 py-2 text-[12px] font-semibold hover:bg-surface-inset/40 transition-colors"
+          title="Keep both as distinct edits (shortcut: k)"
         >
           Different edits — keep both
         </button>
@@ -283,7 +343,7 @@ export function DedupeReview({ pairs }: { pairs: SerializedPair[] }) {
           onClick={handleSkip}
           disabled={pending}
           className="text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground transition-colors ml-1"
-          title="Come back to this pair later — won't be saved"
+          title="Come back to this pair later — won't be saved (shortcut: s)"
         >
           Decide later
         </button>

@@ -151,7 +151,7 @@ export function VisibilityLeaderboard({
             )}
             .
           </p>
-          <p className="mt-1 text-[10px] text-muted-foreground/70 leading-snug">
+          <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
             Directional, not proven — these moves happened in the same
             window, but Beacon hasn&apos;t verified the gain came from them.
             Worth investigating, not a confirmed win.
@@ -194,7 +194,7 @@ export function VisibilityLeaderboard({
           )}
         </div>
         {deltaLabelSuffix && (
-          <p className="text-[10px] text-muted-foreground/70">
+          <p className="text-[10px] text-muted-foreground">
             {deltaLabelSuffix} · {currentSampledDays} sampled day
             {currentSampledDays === 1 ? "" : "s"} in this {windowDays}-day window
             {brandRow?.delta === null && previousSampledDays > 0 && (
@@ -205,30 +205,50 @@ export function VisibilityLeaderboard({
         )}
       </div>
 
-      {/* Table header */}
-      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 pb-2 mb-2 border-b border-border/30">
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70 w-4 text-right">
-          #
-        </span>
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-          Brand
-        </span>
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
-          {metricLabel}
-        </span>
-      </div>
-
-      {/* Rows */}
-      <div className="space-y-0.5">
-        {entities.map((e) => (
-          <LeaderboardRow key={e.slug} entity={e} />
-        ))}
-        {entities.length === 0 && (
-          <p className="text-[12px] text-muted-foreground text-center py-4">
-            No entities to rank yet. Run a scan or import fresh data.
-          </p>
-        )}
-      </div>
+      {/* a11y #388 — semantic table. The header + rows were CSS-grid
+          <div>/<span> with no table semantics, so screen readers could
+          not associate a score with its column. Converted to a real
+          <table> with <th scope="col">; the per-row grid layout is kept
+          via grid utilities on the <tr>. */}
+      {entities.length > 0 ? (
+        <table className="w-full text-left border-collapse">
+          <caption className="sr-only">
+            AI visibility leaderboard — rank, brand, and {metricLabel.toLowerCase()}
+            {windowDays ? ` with change vs. the previous ${windowDays} days` : ""}.
+          </caption>
+          <thead>
+            <tr className="grid grid-cols-[auto_1fr_auto] items-center gap-3 pb-2 mb-2 border-b border-border/30">
+              <th
+                scope="col"
+                className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground w-4 text-right"
+              >
+                #
+              </th>
+              <th
+                scope="col"
+                className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
+              >
+                Brand
+              </th>
+              <th
+                scope="col"
+                className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground text-right"
+              >
+                {metricLabel}
+              </th>
+            </tr>
+          </thead>
+          <tbody className="space-y-0.5 block">
+            {entities.map((e) => (
+              <LeaderboardRow key={e.slug} entity={e} />
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="text-[12px] text-muted-foreground text-center py-4">
+          No entities to rank yet. Run a scan or import fresh data.
+        </p>
+      )}
     </div>
   );
 }
@@ -238,8 +258,26 @@ export function VisibilityLeaderboard({
 // ---------------------------------------------------------------------------
 
 function LeaderboardRow({ entity }: { entity: EntityVisibility }) {
+  // a11y #397 — a sign-independent direction cue (▲/▼/—) so the delta's
+  // direction reads without relying on green/red color, plus an
+  // aria-label that spells out the "vs. previous N days" context (the
+  // tooltip text was previously hover-only via `title=`).
+  const deltaArrow =
+    entity.delta === null
+      ? ""
+      : entity.delta > 0
+        ? "▲"
+        : entity.delta < 0
+          ? "▼"
+          : "";
+  const deltaAriaLabel =
+    entity.delta !== null
+      ? `${
+          entity.delta > 0 ? "up" : entity.delta < 0 ? "down" : "no change"
+        } ${Math.abs(entity.delta).toFixed(1)} points vs. previous ${entity.deltaWindowDays} days`
+      : `Change unavailable — only ${entity.previousSampledDays} sampled day${entity.previousSampledDays === 1 ? "" : "s"} in the previous ${entity.deltaWindowDays}-day window, too few to compare.`;
   return (
-    <div
+    <tr
       className={cn(
         "grid grid-cols-[auto_1fr_auto] items-center gap-3 py-1.5 px-1 rounded",
         entity.isOwned
@@ -248,12 +286,12 @@ function LeaderboardRow({ entity }: { entity: EntityVisibility }) {
       )}
     >
       {/* Rank */}
-      <span className="text-[12px] font-semibold text-muted-foreground tabular-nums w-4 text-right">
+      <td className="text-[12px] font-semibold text-muted-foreground tabular-nums w-4 text-right">
         {entity.rank}.
-      </span>
+      </td>
 
       {/* Entity name + "Owned" badge */}
-      <div className="flex items-center gap-2 min-w-0">
+      <td className="flex items-center gap-2 min-w-0">
         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-surface-inset/60 text-[9px] font-bold text-muted-foreground">
           {initials(entity.name)}
         </span>
@@ -270,10 +308,10 @@ function LeaderboardRow({ entity }: { entity: EntityVisibility }) {
             You
           </span>
         )}
-      </div>
+      </td>
 
       {/* Score + delta */}
-      <div className="flex items-baseline gap-2 justify-end">
+      <td className="flex items-baseline gap-2 justify-end">
         <span className="text-[12px] font-semibold tabular-nums text-foreground">
           {entity.score.toFixed(1)}%
         </span>
@@ -285,23 +323,24 @@ function LeaderboardRow({ entity }: { entity: EntityVisibility }) {
                 ? "text-status-success"
                 : entity.delta < 0
                   ? "text-status-danger"
-                  : "text-muted-foreground/60",
+                  : "text-muted-foreground",
             )}
-            title={`vs. previous ${entity.deltaWindowDays} days`}
+            aria-label={deltaAriaLabel}
           >
+            {deltaArrow && <span aria-hidden="true">{deltaArrow} </span>}
             {entity.delta > 0 ? "+" : ""}
             {entity.delta.toFixed(1)} pt
           </span>
         ) : (
           <span
-            className="text-[10px] font-medium tabular-nums w-14 text-right text-muted-foreground/40"
-            title={`Only ${entity.previousSampledDays} sampled day${entity.previousSampledDays === 1 ? "" : "s"} in the previous ${entity.deltaWindowDays}-day window — too few to compare.`}
+            className="text-[10px] font-medium tabular-nums w-14 text-right text-muted-foreground"
+            aria-label={deltaAriaLabel}
           >
-            —
+            <span aria-hidden="true">—</span>
           </span>
         )}
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 

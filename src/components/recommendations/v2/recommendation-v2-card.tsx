@@ -443,6 +443,21 @@ export function RecommendationV2Card({
           action when wired; Review (the 5-act brief) stays one click
           away for owners who want the full why before deciding. */}
       <div className="mt-4 flex items-center gap-3 text-[12px] font-semibold">
+        {/* #318 — single-card Accept feedback was silent to assistive
+            tech (only the bulk bar had a live region). Mirror the accept
+            state into an sr-only role="status" so the label swap
+            Accept → Accepting… → Accepted, and any error, are announced. */}
+        {onAccept != null && (
+          <span className="sr-only" role="status" aria-live="polite">
+            {acceptState === "accepted"
+              ? "Recommendation accepted."
+              : acceptState === "pending"
+                ? "Accepting recommendation…"
+                : acceptState === "error"
+                  ? `Couldn't accept: ${acceptError ?? "something went wrong."}`
+                  : ""}
+          </span>
+        )}
         {onAccept != null && (
           <button
             type="button"

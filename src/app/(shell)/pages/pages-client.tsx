@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { PageRowCard } from "@/components/pages/page-row-card";
 import { PagesSelectedDetail } from "@/components/pages/pages-selected-detail";
 import { PagesWorkbenchTop } from "@/components/pages/pages-workbench-top";
@@ -200,6 +201,7 @@ export function PagesClient({
   const [issuePending, startIssueTransition] = useTransition();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const router = useRouter();
 
   const filtered = view === "fix" ? fixRows : view === "winning" ? winningRows : view === "watch" ? watchRows : rows;
   const selected = rows.find((r) => r.id === selectedId) ?? null;
@@ -226,9 +228,11 @@ export function PagesClient({
       if (prev) setSelectedId(prev.id);
     } else if (e.key === "Enter" && selected?.bestChangeId) {
       e.preventDefault();
-      window.location.href = `/changes/${selected.bestChangeId}`;
+      // #500 — client transition instead of a full hard reload (no white
+      // flash / re-fetch), matching topics-client's <Link> behavior.
+      router.push(`/changes/${selected.bestChangeId}`);
     }
-  }, [filtered, selectedId, selected]);
+  }, [filtered, selectedId, selected, router]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKey);

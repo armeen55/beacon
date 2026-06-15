@@ -14,9 +14,23 @@ const authState = vi.hoisted(() => ({
   memberships: [{ tenant_id: "tenant-a" }, { tenant_id: "tenant-b" }] as Array<{ tenant_id: string }>,
 }));
 const redirects = vi.hoisted(() => ({ log: [] as string[] }));
+// #263 — request headers the action reads to decide the post-switch
+// redirect target. Tests override `referer`/`host` per case.
+const reqHeaders = vi.hoisted(() => ({
+  referer: null as string | null,
+  host: "app.beacon.test" as string | null,
+}));
 
 vi.mock("next/headers", () => ({
   cookies: async () => ({ set: cookieSet, get: () => undefined, getAll: () => [] }),
+  headers: async () => ({
+    get: (name: string) => {
+      const k = name.toLowerCase();
+      if (k === "referer") return reqHeaders.referer;
+      if (k === "host") return reqHeaders.host;
+      return null;
+    },
+  }),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -61,15 +75,44 @@ describe("switchTenantFromForm", () => {
     redirects.log = [];
     authState.user = { id: "user-1" };
     authState.memberships = [{ tenant_id: "tenant-a" }, { tenant_id: "tenant-b" }];
+    reqHeaders.referer = null;
+    reqHeaders.host = "app.beacon.test";
   });
 
-  it("member target → sets the beacon_tenant cookie and redirects home", async () => {
+  it("member target → sets the beacon_tenant cookie and redirects home (no referer)", async () => {
     await expect(switchTenantFromForm(form("tenant-b"))).rejects.toThrow("REDIRECT:/");
     expect(cookieSet).toHaveBeenCalledTimes(1);
     const [name, value, opts] = cookieSet.mock.calls[0]!;
     expect(name).toBe(TENANT_COOKIE);
     expect(value).toBe("tenant-b");
     expect((opts as { httpOnly: boolean }).httpOnly).toBe(true);
+  });
+
+  // #263 — redirect-back is same-origin-only.
+  it("same-origin referer → redirects back to that in-app path (preserving query)", async () => {
+    reqHeaders.referer = "https://app.beacon.test/changes?tab=needs_review";
+    await expect(switchTenantFromForm(form("tenant-b"))).rejects.toThrow(
+      "REDIRECT:/changes?tab=needs_review",
+    );
+    expect(cookieSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("cross-origin (attacker) referer → falls back to / , never the external URL", async () => {
+    reqHeaders.referer = "https://evil.example.com/phish";
+    await expect(switchTenantFromForm(form("tenant-b"))).rejects.toThrow("REDIRECT:/");
+    expect(redirects.log).toEqual(["/"]);
+  });
+
+  it("malformed / non-absolute referer → falls back to /", async () => {
+    reqHeaders.referer = "/not-an-absolute-url";
+    await expect(switchTenantFromForm(form("tenant-b"))).rejects.toThrow("REDIRECT:/");
+    expect(redirects.log).toEqual(["/"]);
+  });
+
+  it("same-origin /login referer → falls back to / (don't bounce into auth)", async () => {
+    reqHeaders.referer = "https://app.beacon.test/login";
+    await expect(switchTenantFromForm(form("tenant-b"))).rejects.toThrow("REDIRECT:/");
+    expect(redirects.log).toEqual(["/"]);
   });
 
   it("NON-member target → no cookie write (fail-closed)", async () => {

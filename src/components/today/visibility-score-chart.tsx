@@ -353,12 +353,12 @@ export function VisibilityScoreChart({
             </span>
           )}
           {headline.hasData && (
-            <span className="text-[10px] text-muted-foreground/70 self-center">
+            <span className="text-[10px] text-muted-foreground self-center">
               within this window
             </span>
           )}
         </div>
-        <p className="text-[10px] text-muted-foreground/70">
+        <p className="text-[10px] text-muted-foreground">
           {sampledDayCount} sampled day
           {sampledDayCount === 1 ? "" : "s"} in this{" "}
           {timeRange === ALL_TIME_WINDOW
@@ -400,11 +400,53 @@ export function VisibilityScoreChart({
           height={180}
           showGrid
           responsive
+          // a11y #366 — give the SVG an accessible name summarising the
+          // metric, latest value, and direction over the visible window
+          // so screen-reader users get the headline without the chart.
+          ariaLabel={
+            headline.hasData
+              ? `${VISIBILITY_METRIC_LABELS[metric]} for ${brandName}: ${headline.score.toFixed(1)}%, ${
+                  headline.delta > 0
+                    ? `up ${headline.delta.toFixed(1)} points`
+                    : headline.delta < 0
+                      ? `down ${Math.abs(headline.delta).toFixed(1)} points`
+                      : "no change"
+                } over the last ${
+                  timeRange === ALL_TIME_WINDOW ? "all-time" : `${timeRange}-day`
+                } window.`
+              : `${VISIBILITY_METRIC_LABELS[metric]} for ${brandName}: no sampled data in the visible window yet.`
+          }
         />
       ) : (
         <div className="h-[180px] flex items-center justify-center text-[12px] text-muted-foreground">
           Not enough data yet — refresh your connected data to add to this chart.
         </div>
+      )}
+
+      {/* a11y #389 — persistent legend. When extra series are overlaid
+          (competitors / per-platform), the AreaChart distinguishes them
+          only by stroke color and only labels them in the on-hover
+          tooltip. Render a static swatch + name list so the series are
+          identifiable without hovering and without relying on color
+          perception alone. */}
+      {(showCompetitors || showPlatforms) && brandPoints.length >= 2 && (
+        <ul
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11px]"
+          data-visibility-chart-legend="true"
+        >
+          {series.map((s) => (
+            <li key={s.label} className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "inline-block h-2 w-2 rounded-full shrink-0",
+                  s.color.replace("stroke-", "bg-"),
+                )}
+              />
+              <span className="text-muted-foreground">{s.label}</span>
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* Footer controls */}

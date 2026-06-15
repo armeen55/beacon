@@ -72,36 +72,25 @@ function buildRows({
   return rows.slice(0, 3);
 }
 
+/**
+ * #402 — does this tenant have any measured wins to show? The parent
+ * section uses this to decide whether to give the wins card a column at
+ * all (an empty trophy case shouldn't eat a third of the action grid).
+ * Keep this in lockstep with `buildRows`.
+ */
+export function hasRecentWins(props: RecentWinsProps): boolean {
+  return buildRows(props).length > 0;
+}
+
 export function TodayV2RecentWins(props: RecentWinsProps) {
   const rows = buildRows(props);
 
+  // #402 — render nothing when there are no measured wins. Previously
+  // an empty-state <article> always occupied a grid column, leaving a
+  // permanent empty trophy case. The parent now drops the column too
+  // (see today-v2-sections.tsx hasRecentWins gate).
   if (rows.length === 0) {
-    return (
-      <article
-        className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5 h-full flex flex-col"
-        data-today-v2-card="recent-wins"
-        data-today-v2-empty="true"
-      >
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-          Recent wins
-        </span>
-        <p className="mt-2 text-[14px] font-semibold text-foreground leading-snug">
-          No measured wins yet.
-        </p>
-        <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-          When a change you ship lifts your search or AI visibility, the proof
-          shows up here. Typically 3–7 days after the change goes live.
-        </p>
-        <div className="mt-auto pt-4">
-          <Link
-            href="/changes"
-            className="text-[12px] font-semibold text-accent-primary hover:underline"
-          >
-            Open changes →
-          </Link>
-        </div>
-      </article>
-    );
+    return null;
   }
 
   return (

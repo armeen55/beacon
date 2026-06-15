@@ -14,8 +14,11 @@
  *
  * Fail-soft EVERYWHERE: no key / API error / no categories / table
  * missing → { synced: false, reason } — the cron logs one line and
- * moves on. Categories are capped per night (budget discipline) with
- * an honest log line when anything is skipped — no silent caps.
+ * moves on. Categories are capped per night (budget discipline); the
+ * cap is reported honestly — the synced:true result carries
+ * categories_total + categories_skipped so the caller can tell the
+ * owner "synced N of M topics" instead of a clean success (#113). No
+ * silent caps.
  */
 
 import "server-only";
@@ -53,7 +56,14 @@ export type ProfoundSyncResult =
   | { synced: false; reason: string }
   | {
       synced: true;
+      /** Categories actually pulled this run (capped at MAX_CATEGORIES_PER_NIGHT). */
       categories: number;
+      /** #113 — total categories the workspace has (pre-cap), so the
+       *  caller can report honestly when the cap dropped some. */
+      categories_total: number;
+      /** #113 — categories NOT pulled this run because the per-night cap
+       *  was hit (= max(0, total - cap)). 0 when nothing was dropped. */
+      categories_skipped: number;
       citation_rows: number;
       visibility_rows: number;
       /** Agent Analytics v2 (bots/referrals) — 0 when the tenant's
@@ -343,6 +353,11 @@ export async function syncProfoundNightlyForTenant(
   return {
     synced: true,
     categories: batch.length,
+    categories_total: categories.length,
+    // #113 — surface the cap honestly. The cap (MAX_CATEGORIES_PER_NIGHT)
+    // stays for budget discipline; this just tells the caller how many
+    // categories went un-pulled so the UI can stop reporting a clean success.
+    categories_skipped: Math.max(0, categories.length - MAX_CATEGORIES_PER_NIGHT),
     citation_rows: citationRows,
     visibility_rows: visibilityRows,
     bot_rows: botRows,

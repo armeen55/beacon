@@ -215,10 +215,17 @@ export default async function ShellLayout({
           <main
             id="main-content"
             aria-label="Main content"
+            // #524 — tabIndex={-1} so the "Skip to content" link can move
+            // focus into <main> (which isn't natively focusable) reliably
+            // across browsers.
+            tabIndex={-1}
             className="flex-1 overflow-y-auto"
           >
             <DemoBannerGate />
-            <div className="mx-auto max-w-[1120px] p-6 lg:p-8">{children}</div>
+            {/* #515 — step the mobile padding down (p-3) so dense tables
+                don't lose ~13% horizontal room on a ~360px phone; restore
+                the roomy padding from sm upward. */}
+            <div className="mx-auto max-w-[1120px] p-3 sm:p-6 lg:p-8">{children}</div>
           </main>
         </div>
       </div>

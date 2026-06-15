@@ -253,17 +253,20 @@ describe("UX.6.1 Fix 2 — Poll health calm banner exists and is pure", () => {
 });
 
 describe("UX.6.1 Fix 2 — today-client.tsx wires the calm-vs-warning gate", () => {
-  it("imports PollHealthCalmBanner + isPreCronPending", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(/PollHealthCalmBanner/);
+  it("imports isPreCronPending (used to suppress the alarm during the early-UTC window)", () => {
     expect(TODAY_CLIENT_SRC).toMatch(/isPreCronPending/);
   });
 
-  it("renders calm banner when isPreCronPending is true; warning block otherwise", () => {
-    // Pin the conditional pattern. PollHealthBlock must remain the
-    // fallback for partial / failed / post-cron-still-pending states.
+  it("gates PollHealthBlock on a REAL failure and no longer renders a calm 'next reading scheduled' banner", () => {
+    // Crons-off pivot (#400): the calm banner was a phantom-schedule promise
+    // ("Next reading scheduled") that ALSO duplicated the always-on freshness
+    // heartbeat, so it was removed. PollHealthBlock now renders only when NOT
+    // pre-cron-pending (i.e. a genuine partial/failed state), and the calm
+    // banner JSX is gone from the Today surface.
     expect(TODAY_CLIENT_SRC).toMatch(
-      /isPreCronPending\(pollHealth\)\s*\?[\s\S]{0,200}<PollHealthCalmBanner[\s\S]{0,400}<PollHealthBlock/,
+      /!isPreCronPending\(pollHealth\)\s*&&[\s\S]{0,200}<PollHealthBlock/,
     );
+    expect(TODAY_CLIENT_SRC).not.toMatch(/<PollHealthCalmBanner/);
   });
 });
 

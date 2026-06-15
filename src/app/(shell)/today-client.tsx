@@ -46,10 +46,7 @@ import {
   type CommandCenterUrlMovement,
 } from "@/components/today/command-center";
 import type { CommandCenterData } from "@/domains/today/command-center-data";
-import {
-  PollHealthCalmBanner,
-  isPreCronPending,
-} from "@/components/today/poll-health-calm-banner";
+import { isPreCronPending } from "@/components/today/poll-health-calm-banner";
 import type {
   VisibilityMetric,
   VisibilityPoint,
@@ -639,13 +636,18 @@ export function TodayClient({
           attention. Complements (does not replace) the conditional
           PollHealthBlock + PollHealthCalmBanner alarm-style surfaces below. */}
       <DataFreshnessHeartbeat pollHealth={pollHealth} siteScan={siteScan} />
+      {/* #400 — collapse the redundant freshness surfaces. The always-on
+          DataFreshnessHeartbeat already covers the fresh/stale/pending
+          states with on-demand copy, so the PollHealthCalmBanner's
+          "Showing your latest reading / Refresh" pending message just
+          duplicated it. Drop it; keep PollHealthBlock for the genuine
+          partial/failed states (i.e. NOT the pre-cutoff all-pending case
+          the heartbeat already explains). */}
       {pollHealth &&
         pollHealth.platforms.some((p) => p.status !== "ok") &&
-        (isPreCronPending(pollHealth) ? (
-          <PollHealthCalmBanner />
-        ) : (
+        !isPreCronPending(pollHealth) && (
           <PollHealthBlock snapshot={pollHealth} />
-        ))}
+        )}
       {todayFreshness && (
         <div
           className="rounded-md border border-status-warning/40 bg-status-warning/[0.04] px-4 py-2.5 text-[12px]"
@@ -660,7 +662,14 @@ export function TodayClient({
             <span className="font-medium text-foreground">
               {todayFreshness.lastObservationDate}
             </span>
-            . See data status above.
+            . Refresh your connected data ({" "}
+            <Link
+              href="/settings/connectors"
+              className="font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+            >
+              Settings → Connectors
+            </Link>
+            ) to update it.
           </span>
         </div>
       )}

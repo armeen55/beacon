@@ -31,6 +31,7 @@ export function AreaChart({
   responsive = true,
   className,
   events,
+  ariaLabel,
 }: {
   series: AreaSeries[];
   labels: string[];
@@ -42,6 +43,14 @@ export function AreaChart({
   responsive?: boolean;
   className?: string;
   events?: AreaEvent[];
+  /**
+   * a11y #366 — accessible name for the chart `<svg>` (role="img").
+   * Callers (e.g. visibility-score-chart) should pass a one-line
+   * summary of the chart's meaning. When omitted, a value/trend
+   * summary is computed from the first series so the chart is never
+   * an unlabelled graphic to assistive tech.
+   */
+  ariaLabel?: string;
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -109,15 +118,54 @@ export function AreaChart({
     return `${top} ${bottomPath} Z`;
   }
 
-  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
+  // a11y #367/#359 — derive the hovered/active index from a client X
+  // coordinate so the SAME math drives mouse hover AND touch/pen
+  // (pointer) interaction. Previously only onMouseMove was wired, so
+  // touch + pen users never saw any values.
+  function idxFromClientX(clientX: number) {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
-    const relX = e.clientX - rect.left - pad.left;
+    // The SVG is rendered at `width` user units but scaled to `rect.width`
+    // CSS px (preserveAspectRatio meet). Convert CSS px → user units
+    // before subtracting the left pad so touch maps to the right index.
+    const scale = rect.width > 0 ? width / rect.width : 1;
+    const relX = (clientX - rect.left) * scale - pad.left;
     const idx = Math.round(relX / (chartW / (n - 1)));
     setHoverIdx(Math.max(0, Math.min(idx, n - 1)));
   }
 
+  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
+    idxFromClientX(e.clientX);
+  }
+
+  function handlePointer(e: React.PointerEvent<SVGSVGElement>) {
+    // Only react to touch / pen here — mouse is already covered by
+    // onMouseMove and double-handling would fight the hover state.
+    if (e.pointerType === "mouse") return;
+    idxFromClientX(e.clientX);
+  }
+
   const gridLines = 4;
+
+  // a11y #366 — computed accessible name. Prefer the caller-supplied
+  // `ariaLabel`; otherwise summarize the FIRST (brand) series: latest
+  // value + direction across the visible window. Keeps the SVG from
+  // being an unlabelled graphic without changing any visuals.
+  const computedAriaLabel = (() => {
+    if (ariaLabel) return ariaLabel;
+    const first = processedSeries[0];
+    if (!first || first.data.length === 0) return "Chart";
+    const firstVal = first.data[0];
+    const lastVal = first.data[first.data.length - 1];
+    const diff = lastVal - firstVal;
+    const dir =
+      diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+    const span =
+      labels.length > 0
+        ? ` from ${labels[0]} to ${labels[labels.length - 1]}`
+        : "";
+    return `${first.label}: ${lastVal.toLocaleString()} latest, ${dir} ${Math.abs(diff).toLocaleString()}${span}.`;
+  })();
 
   return (
     <div
@@ -130,9 +178,14 @@ export function AreaChart({
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="xMidYMid meet"
         className="block h-full w-full shrink-0 cursor-crosshair"
+        role="img"
+        aria-label={computedAriaLabel}
         onMouseMove={handleMove}
         onMouseLeave={() => setHoverIdx(null)}
+        onPointerDown={handlePointer}
+        onPointerMove={handlePointer}
       >
+        <title>{computedAriaLabel}</title>
         {showGrid && Array.from({ length: gridLines + 1 }, (_, i) => {
           const yy = pad.top + (chartH / gridLines) * i;
           return (
@@ -226,7 +279,7 @@ export function AreaChart({
               x={x(origIdx)}
               y={height - 4}
               textAnchor={anchor}
-              className="fill-muted-foreground/50 text-[8px]"
+              className="fill-muted-foreground text-[11px]"
             >
               {label}
             </text>

@@ -56,6 +56,9 @@ export async function TenantSwitcher() {
     <div className="flex items-center gap-1.5 text-[12px]">
       {active && (
         <span className="rounded-md border border-border/60 bg-surface-inset/40 px-2 py-0.5 font-medium">
+          {/* #523 — a screen reader otherwise hears only the bare business
+              name with no indication it's the CURRENT one. */}
+          <span className="sr-only">Current business: </span>
           {active.name}
         </span>
       )}
@@ -65,6 +68,10 @@ export async function TenantSwitcher() {
           <button
             type="submit"
             className="inline-flex min-h-11 items-center rounded-md px-2 py-0.5 text-muted-foreground transition-colors hover:bg-surface-inset/60 hover:text-foreground md:min-h-0"
+            // #523 — the button's visible text is just the name, so its
+            // accessible name was the bare {name} (title is tooltip-only).
+            // aria-label makes the action explicit: "Switch to {name}".
+            aria-label={`Switch to ${t.name}`}
             title={`Switch to ${t.name}`}
           >
             {t.name}

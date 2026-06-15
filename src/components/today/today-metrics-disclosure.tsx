@@ -55,6 +55,11 @@ export function TodayMetricsDisclosure({
 
   return (
     <section
+      // #372/#355 — the AI Visibility hero's "Why this number?" link
+      // points at href="#today-metrics-disclosure". This id is its jump
+      // target (legacy customer-default surface); without it the anchor
+      // scrolled nowhere.
+      id="today-metrics-disclosure"
       className={`rounded-lg border border-border/60 bg-surface-inset/30 ${className ?? ""}`}
       data-today-metrics-disclosure={open ? "open" : "closed"}
     >

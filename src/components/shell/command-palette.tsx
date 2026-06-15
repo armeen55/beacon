@@ -18,10 +18,49 @@ type Mode = "palette" | "help" | null;
 
 const GROUP_ORDER = ["Navigate", "Changes", "Market"];
 
+/**
+ * #347 — subsequence ("fuzzy") match score. Returns null when `query`'s
+ * characters do not appear in order within `text`; otherwise a score
+ * where lower is a tighter match (contiguous + early matches win). This
+ * replaces the naive `.includes` so e.g. "recs" / "rcm" still surface
+ * "Recommendations". Pure, self-contained — no persistence/recents.
+ */
+function fuzzyScore(text: string, query: string): number | null {
+  const t = text.toLowerCase();
+  const q = query.toLowerCase();
+  if (q === "") return 0;
+  // Fast path: a direct substring is always the best kind of match.
+  const sub = t.indexOf(q);
+  if (sub !== -1) return sub;
+  let ti = 0;
+  let score = 0;
+  let lastMatch = -2;
+  for (let qi = 0; qi < q.length; qi++) {
+    const ch = q[qi];
+    let found = -1;
+    for (; ti < t.length; ti++) {
+      if (t[ti] === ch) {
+        found = ti;
+        break;
+      }
+    }
+    if (found === -1) return null;
+    // Penalize gaps between matched chars (non-contiguous matches rank
+    // lower); add a large base so any real substring (above) wins.
+    score += 100 + (found - lastMatch === 1 ? 0 : found - lastMatch);
+    lastMatch = found;
+    ti = found + 1;
+  }
+  return score;
+}
+
 export function CommandPalette({ items }: { items: PaletteItem[] }) {
   const [mode, setMode] = useState<Mode>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
+  // #522 — surface the 500ms "g" chord on screen so the user knows it
+  // registered before pressing the second key.
+  const [gArmed, setGArmed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -29,6 +68,12 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
   useEffect(() => {
     let gPending = false;
     let gTimeout: ReturnType<typeof setTimeout>;
+
+    function disarmG() {
+      gPending = false;
+      setGArmed(false);
+      clearTimeout(gTimeout);
+    }
 
     function handler(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
@@ -45,11 +90,10 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
         return;
       }
 
-      if (e.key === "Escape" && (mode === "palette" || mode === "help")) {
-        e.preventDefault();
-        setMode(null);
-        return;
-      }
+      // #537 — Escape is owned by handlePaletteKeyDown while the palette
+      // is open; the window handler no longer also closes on Escape, so
+      // there's a single owner (this listener only manages the OPEN
+      // hotkeys: ⌘K, ?, and the g-chord).
 
       if (isInput || mode) return;
 
@@ -61,15 +105,16 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
 
       if (e.key === "g" && !e.metaKey && !e.ctrlKey && !gPending) {
         gPending = true;
+        setGArmed(true);
         gTimeout = setTimeout(() => {
           gPending = false;
+          setGArmed(false);
         }, 500);
         return;
       }
 
       if (gPending) {
-        gPending = false;
-        clearTimeout(gTimeout);
+        disarmG();
         // T-CustomerNav (2026-05-08) — keyboard shortcuts only target
         // customer-surface routes. Pre-T-CustomerNav `g+p` (→ /pages)
         // and `g+m` (→ /competitors) routed to URLs that have been
@@ -116,21 +161,38 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
     }
   }, [mode]);
 
+  // #347 — fuzzy-rank when searching: keep items whose label OR meta
+  // subsequence-matches the query, then sort by best score so the
+  // tightest matches lead.
   const filtered = query
-    ? items.filter(
-        (item) =>
-          item.label.toLowerCase().includes(query.toLowerCase()) ||
-          (item.meta &&
-            item.meta.toLowerCase().includes(query.toLowerCase()))
-      )
+    ? items
+        .map((item) => {
+          const labelScore = fuzzyScore(item.label, query);
+          const metaScore = item.meta ? fuzzyScore(item.meta, query) : null;
+          const best =
+            labelScore === null
+              ? metaScore
+              : metaScore === null
+                ? labelScore
+                : Math.min(labelScore, metaScore);
+          return { item, score: best };
+        })
+        .filter(
+          (x): x is { item: PaletteItem; score: number } => x.score !== null,
+        )
+        .sort((a, b) => a.score - b.score)
+        .map((x) => x.item)
     : items;
 
   const maxPerGroup = query ? 25 : 6;
   const groups: { label: string; items: PaletteItem[] }[] = [];
+  // #505 — track whether any group was truncated so we can tell the user
+  // the list isn't complete instead of implying it is.
+  let truncated = false;
   for (const g of GROUP_ORDER) {
-    const gItems = filtered
-      .filter((i) => i.group === g)
-      .slice(0, maxPerGroup);
+    const all = filtered.filter((i) => i.group === g);
+    const gItems = all.slice(0, maxPerGroup);
+    if (all.length > gItems.length) truncated = true;
     if (gItems.length > 0) groups.push({ label: g, items: gItems });
   }
   const flatItems = groups.flatMap((g) => g.items);
@@ -192,6 +254,16 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
                 onKeyDown={handlePaletteKeyDown}
                 placeholder="Search Beacon..."
                 aria-label="Search Beacon"
+                // #519 — combobox/listbox wiring: announce the active
+                // option as the user arrows through results.
+                role="combobox"
+                aria-expanded
+                aria-controls="command-palette-listbox"
+                aria-activedescendant={
+                  flatItems[selected]
+                    ? `command-palette-option-${selected}`
+                    : undefined
+                }
                 className="w-full bg-transparent py-3 text-[14px] outline-none placeholder:text-muted-foreground/50"
               />
               <kbd className="text-[10px] text-muted-foreground/60 border border-border rounded px-1.5 py-0.5 shrink-0">
@@ -200,46 +272,68 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
             </div>
 
             <div className="max-h-[320px] overflow-y-auto py-1.5">
-              {groups.map((group) => (
-                <div key={group.label} className="mb-1">
-                  <p className="px-4 py-1 text-[11px] font-medium text-muted-foreground/60">
-                    {group.label}
-                  </p>
-                  {group.items.map((item) => {
-                    const idx = flatItems.indexOf(item);
-                    return (
-                      <button
-                        key={item.id}
-                        data-palette-idx={idx}
-                        onClick={() => go(item)}
-                        className={cn(
-                          "w-full flex items-center gap-3 px-4 py-1.5 text-left text-[13px] transition-colors",
-                          idx === selected
-                            ? "bg-accent-primary-muted text-foreground"
-                            : "text-muted-foreground hover:bg-surface-inset hover:text-foreground"
-                        )}
-                      >
-                        <span className="flex-1 truncate">
-                          {item.label}
-                        </span>
-                        {item.meta && (
-                          <span className="text-[10px] text-muted-foreground/50 truncate max-w-[150px]">
-                            {item.meta}
-                          </span>
-                        )}
-                        {item.shortcut && (
-                          <kbd className="text-[9px] text-muted-foreground/40 font-mono">
-                            {item.shortcut}
-                          </kbd>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+              {/* #519 — the results are a real listbox; each item is an
+                  option with aria-selected, and the input points its
+                  aria-activedescendant at the selected option's id. */}
+              <ul id="command-palette-listbox" role="listbox" aria-label="Results">
+                {groups.map((group) => (
+                  <li key={group.label} className="mb-1" role="presentation">
+                    <p className="px-4 py-1 text-[11px] font-medium text-muted-foreground/60">
+                      {group.label}
+                    </p>
+                    <ul role="presentation">
+                      {group.items.map((item) => {
+                        const idx = flatItems.indexOf(item);
+                        return (
+                          <li key={item.id} role="presentation">
+                            <button
+                              id={`command-palette-option-${idx}`}
+                              role="option"
+                              aria-selected={idx === selected}
+                              data-palette-idx={idx}
+                              onClick={() => go(item)}
+                              className={cn(
+                                "w-full flex items-center gap-3 px-4 py-1.5 text-left text-[13px] transition-colors",
+                                idx === selected
+                                  ? "bg-accent-primary-muted text-foreground"
+                                  : "text-muted-foreground hover:bg-surface-inset hover:text-foreground"
+                              )}
+                            >
+                              <span className="flex-1 truncate">
+                                {item.label}
+                              </span>
+                              {item.meta && (
+                                <span className="text-[10px] text-muted-foreground/50 truncate max-w-[150px]">
+                                  {item.meta}
+                                </span>
+                              )}
+                              {item.shortcut && (
+                                <kbd className="text-[9px] text-muted-foreground/40 font-mono">
+                                  {item.shortcut}
+                                </kbd>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
               {flatItems.length === 0 && (
                 <p className="px-4 py-6 text-center text-[12px] text-muted-foreground">
                   No results for &ldquo;{query}&rdquo;
+                </p>
+              )}
+              {/* #505 — when a group was capped at maxPerGroup, the list
+                  isn't complete; say so rather than imply it is. */}
+              {truncated && flatItems.length > 0 && (
+                <p
+                  className="px-4 py-2 text-center text-[11px] text-muted-foreground/70"
+                  data-palette-truncated="true"
+                >
+                  Showing the first {maxPerGroup} per group — refine your search
+                  to narrow these down.
                 </p>
               )}
             </div>
@@ -304,6 +398,19 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
               </HelpGroup>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* #522 — visible feedback that the "g" chord is armed, so the user
+          knows it registered before pressing the second key. Clears on
+          the 500ms timeout or the second key (both reset gArmed). */}
+      {gArmed && (
+        <div
+          className="fixed bottom-4 left-4 z-50 rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-semibold text-muted-foreground shadow-lg"
+          data-palette-g-chord="armed"
+          aria-hidden="true"
+        >
+          g…
         </div>
       )}
     </>
