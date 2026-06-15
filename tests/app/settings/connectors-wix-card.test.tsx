@@ -77,8 +77,10 @@ describe("Wix connector card", () => {
   it("disconnected: shows the key + site-id form and the no-auto-publish copy", () => {
     const html = clientWith(disconnectedInfo());
     expect(html).toContain('data-connector-card="wix"');
-    expect(html).toContain("Wix API key");
-    expect(html).toContain("Wix Site ID");
+    // Assert on the actual form inputs, not prose: the capability copy
+    // also mentions "a Wix API key" in plain English, so match the input ids.
+    expect(html).toContain('id="wix-api-key"');
+    expect(html).toContain('id="wix-site-id"');
     expect(html).toContain("Nothing changes on your live site without your approval");
     expect(html).toContain("Connect Wix");
   });
@@ -92,7 +94,10 @@ describe("Wix connector card", () => {
     });
     expect(html).toContain('data-connector-card="wix"');
     expect(html).toContain("Disconnect");
-    expect(html).not.toContain("Wix API key"); // form hidden once connected
+    // Form hidden once connected — assert on the input ids (the capability
+    // copy still mentions "a Wix API key" in prose on both states).
+    expect(html).not.toContain('id="wix-api-key"');
+    expect(html).not.toContain('id="wix-site-id"');
   });
 
   it("the publish-safety note always renders (no over-claimed publish surface)", () => {

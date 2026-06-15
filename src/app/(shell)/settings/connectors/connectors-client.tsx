@@ -4,6 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ConnectorInfo } from "@/lib/connector-store";
 import type { Ga4Property } from "@/lib/connectors/ga4/types";
+import { ConnectorCapability } from "@/components/connectors/connector-capability";
+import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
 import {
   getGoogleAuthUrl,
   getGoogleGscConnectorStatus,
@@ -636,6 +638,51 @@ export function ConnectorsClient({
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Each source updates independently. Connecting a tool is additive — it does not replace manual import.
       </p>
+
+      {/* ── What you'll get once everything's connected ──
+          Honest autopilot framing from the connector-automation research
+          (docs/CONNECTOR_AUTOMATION_MAP.md): Beacon runs the find→fix→prove
+          loop on its own, and the one thing it never does without you is
+          push a change live (every Wix publish is one-click approve; no
+          zero-touch auto-publish). */}
+      <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/[0.04] px-4 py-3.5 space-y-2.5">
+        <h2 className="text-[12px] font-semibold text-foreground">
+          What you&rsquo;ll get once everything&rsquo;s connected
+        </h2>
+        <p className="text-[12px] text-foreground leading-relaxed">
+          Once everything is connected, Beacon runs the whole find-fix-prove
+          loop on autopilot every night — reading all six sources, drafting and
+          ranking the exact fixes — and the only thing it can&rsquo;t do without
+          you is push a change live: every Wix publish is one-click approve, and
+          there is no zero-touch auto-publish.
+        </p>
+        <ul className="space-y-1.5 text-[12px] text-muted-foreground leading-relaxed">
+          <li className="flex gap-2">
+            <span aria-hidden="true" className="text-accent-primary">•</span>
+            <span>
+              When the AI assistants recommend a competitor on a topic real
+              people are already searching for, Beacon drafts the answer to add
+              first — so your effort lands where customers are actually looking.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span aria-hidden="true" className="text-accent-primary">•</span>
+            <span>
+              It ranks fixes by the pages that actually make you money, not just
+              the ones with the most clicks.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span aria-hidden="true" className="text-accent-primary">•</span>
+            <span>
+              After you approve a change, Beacon confirms it went live and then
+              watches your rankings, traffic, and AI mentions to prove the fix
+              actually worked.
+            </span>
+          </li>
+        </ul>
+      </div>
+
       {error && (
         <div
           role="alert"
@@ -762,6 +809,10 @@ export function ConnectorsClient({
               </button>
             )}
           </div>
+        </div>
+
+        <div className="px-5 pb-3">
+          <ConnectorCapability {...CONNECTOR_CAPABILITY.google_gsc} />
         </div>
 
         {/* ── Location picker (Google connected) — GBP only ── */}
@@ -938,6 +989,10 @@ export function ConnectorsClient({
               </button>
             )}
           </div>
+        </div>
+
+        <div className="px-5 pb-3">
+          <ConnectorCapability {...CONNECTOR_CAPABILITY.google_ga4} />
         </div>
 
         {/* Property picker — only when connected. Properties load on
@@ -1155,6 +1210,10 @@ export function ConnectorsClient({
           ) : null}
         </div>
 
+        <div className="px-5 pb-3">
+          <ConnectorCapability {...CONNECTOR_CAPABILITY.wix} />
+        </div>
+
         {wix.status !== "connected" ? (
           <div className="border-t border-border/40 px-5 py-4 space-y-2">
             <p className="text-[12px] text-muted-foreground">
@@ -1260,6 +1319,9 @@ export function ConnectorsClient({
               </button>
             </div>
           ) : null}
+        </div>
+        <div className="px-5 pb-3">
+          <ConnectorCapability {...CONNECTOR_CAPABILITY.semrush} />
         </div>
         {semrush.status !== "connected" ? (
           <div className="border-t border-border/40 px-5 py-4 space-y-2">
@@ -1373,6 +1435,9 @@ export function ConnectorsClient({
             </div>
           ) : null}
         </div>
+        <div className="px-5 pb-3">
+          <ConnectorCapability {...CONNECTOR_CAPABILITY.profound} />
+        </div>
         {profound.status !== "connected" ? (
           <div className="border-t border-border/40 px-5 py-4 space-y-2">
             <label htmlFor="profound-api-key" className="sr-only">
@@ -1470,6 +1535,9 @@ export function ConnectorsClient({
               </button>
             </div>
           ) : null}
+        </div>
+        <div className="px-5 pb-3">
+          <ConnectorCapability {...CONNECTOR_CAPABILITY.clarity} />
         </div>
         {clarity.status !== "connected" ? (
           <div className="border-t border-border/40 px-5 py-4 space-y-2">
