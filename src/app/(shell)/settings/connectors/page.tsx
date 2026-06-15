@@ -58,7 +58,7 @@ export default async function ConnectorsPage() {
     <div>
       <PageHeader
         title="Connectors"
-        description="Beacon's evidence layers, in priority order. Google Search Console is the core layer — your real search demand (impressions, clicks, queries, position) drives the highest-priority moves. Wix pushes approved edits live. GA4 (behavior), SEMrush (rank gaps), Profound (AI visibility — secondary), and Clarity (page friction) add supporting evidence as they connect. Manual CSV/JSON import stays available under Settings → Import."
+        description="Connect the tools your business already uses so Beacon can see what's happening and suggest what to do next. Connect Google so Beacon sees what people search to find you. Connect Google Analytics to see what visitors do on your site. Connect Yelp to pull your reviews. Connect Clarity to see where visitors get stuck. Connect Wix so approved edits can publish to your site. Connect the rest as you're ready — or import a spreadsheet instead under Settings → Import."
       />
       <ConnectorsClient
         google={googleGsc}

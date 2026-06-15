@@ -47,8 +47,11 @@ describe("Connectors settings route smoke", () => {
     expect(html).toContain("Yelp");
     expect(html).toContain("Enter Yelp API Key");
     expect(html).toContain("Save API Key");
-    expect(html).toContain("Pulls reviews from Yelp on demand");
-    expect(html).toContain("No automatic syncing");
+    // #199/#200 — Yelp card reframed to the on-demand idiom of the other
+    // cards; no longer pitches "no automatic syncing" as a feature.
+    expect(html).toContain("Refresh your Yelp reviews any time with Sync now");
+    // #216 — persistent note that nothing runs on a schedule.
+    expect(html).toContain("nothing runs on a schedule");
     expect(html).toContain("Manual CSV/JSON import remains available");
   });
 });

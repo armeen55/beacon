@@ -372,6 +372,13 @@ export function ConnectorsClient({
   }
 
   function handleDisconnect() {
+    // #206 — "Disconnect Google" clears BOTH the Search Console grant AND
+    // any Google Business Profile connection in one action. Confirm first so
+    // a Business Profile connection isn't dropped silently.
+    const confirmed = window.confirm(
+      "Disconnect Google? This disconnects Google Search Console and any connected Google Business Profile. Your previously synced data stays — reconnect any time to resume updates.",
+    );
+    if (!confirmed) return;
     setError(null);
     setSuccess(null);
     startTransition(async () => {
@@ -607,8 +614,17 @@ export function ConnectorsClient({
 
   return (
     <div className="space-y-6">
+      {/* #216 — make it unmistakable that connecting a tool never starts a
+          background process. Beacon only pulls data when you click a button. */}
+      <div className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3">
+        <p className="text-[12px] text-foreground leading-relaxed">
+          Connecting a tool just gives Beacon access. Beacon pulls your data
+          when you click &ldquo;Sync now&rdquo; or &ldquo;Pull my data&rdquo; —
+          nothing runs on a schedule.
+        </p>
+      </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
-        Each source updates independently. Connectors are additive — they do not replace manual import.
+        Each source updates independently. Connecting a tool is additive — it does not replace manual import.
       </p>
       {error && (
         <div className="rounded-lg border border-status-warning/40 bg-status-warning/[0.06] px-4 py-3">
@@ -713,9 +729,9 @@ export function ConnectorsClient({
                   onClick={handleDisconnect}
                   disabled={isPending || anySync}
                   className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-                  title="Soft disconnect — historical data stays cached but no new data refreshes until you reconnect."
+                  title="Disconnects Google Search Console and any connected Google Business Profile. Historical data stays cached; no new data refreshes until you reconnect."
                 >
-                  {isPending ? "Disconnecting…" : "Disconnect"}
+                  {isPending ? "Disconnecting…" : "Disconnect Google"}
                 </button>
               </>
             ) : (
@@ -1077,9 +1093,9 @@ export function ConnectorsClient({
 
         <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10 space-y-1.5">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Pulls reviews from Yelp on demand when you click Sync now.
-            Yelp Fusion returns a bounded sample — may not reflect your full Yelp profile.
-            No automatic syncing — Beacon does not poll Yelp in the background.
+            Refresh your Yelp reviews any time with Sync now. Yelp returns a
+            bounded sample — it may not reflect every review on your Yelp
+            profile.
           </p>
         </div>
       </div>
