@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-15 PM-2 (V2 unified dashboard SHIPPED as default + big-tenant perf unblock)
+
+**Trigger:** ground-truth (preview tool) revealed the all-source command center was built on the **V2 path that ships OFF by default** — so the live app still showed the legacy AEO-centric dashboard the owner screenshotted and complained about. Flipping V2 on exposed a hard big-tenant regression: Ritz hung >40s on skeletons.
+
+**Root cause (Ritz):** every slow query was on the AEO table `prompt_answer_observations` (+ `daily_metric_snapshots`) — statement-timeouts. The page `await`s two AEO existence checks (`loadTodayV2GateData` observationCount, `loadTodayV2HasAeoData`) BEFORE any section streams, and both pulled FULL rows incl. the ~5.9 MB `metadata` JSONB; the V2 canonical loaders did the same for the 60d/14d reads. The base-data reads (GSC/GA4/Clarity) were never slow.
+
+**Changed (committed locally — NOT pushed, per CI-minutes pref):**
+- `f65824a` perf(today): GSC stat card reads light `gsc_daily_totals` (~91 rows) via new `loadGscSiteTotalsForTenant` instead of the 6.4s 196-page signal loader.
+- `652dc01` perf(today-v2): lean `observed_at`-only projection on the gate + hasAeoData existence checks; `observationsColumns` (metadata-omitting `V2_OBSERVATION_COLUMNS`, defined locally to dodge a module-init hazard) on `loadCachedFreshCanonical{,14d}`.
+- `37b3811` feat(today): flip `shouldUseV2` to **default ON** (V2 unless `BEACON_TODAY_V2=false`); `?legacy=1` escape hatch kept.
+
+**Verified (preview, real Supabase, both tenants, NO env flag = true prod default):**
+- Ritz full-stream **40s → ~6s**, **no statement-timeout errors**; renders GA4 "Website visits" card (270/28d, 14.1% engaged, 2 conv) + real ranked action (ritzbuilders.com structured-data repair) + AEO demoted. GSC card honestly absent (Ritz has 0 rows in all gsc_* tables — gate is on data presence, not connector status).
+- Iranopedia ~2.7s: GSC card (17K clicks / 1.1M impr / 7.1 pos / 1.5% CTR + "↓ Clicks −36% vs prior 28 days") + Clarity "Visitor experience" card (214 visits, "building history — first day") + action + AEO collapsible.
+- Gates: `npm run typecheck` PASS; `npm run build` PASS; today+app+architecture-sweep+today-summary helper **1721 tests pass**.
+
+**Net:** the unified all-source command center the owner asked for is now the surface the live app serves — fast for both a data-rich and a data-light tenant.
+
+---
+
 ## 2026-06-15 PM (all-source command center — Today rebuilt from AEO-first → unified scoreboard)
 
 **Trigger:** owner — "we are NOT an AEO tracking tool; AEO is 30–50% of what we do. The `/` dashboard should show all-in-one stats across GSC + GA4 + SEMrush + Clarity + AEO, whatever data we have." Design workflow produced the plan + verified per-tenant data; executed buildSteps 1 + 2 (the shippable core).
