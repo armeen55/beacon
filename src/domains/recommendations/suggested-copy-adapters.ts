@@ -40,9 +40,29 @@ import {
 
 export type CopyTile =
   | { kind: "faq"; question: string; answer: string | null }
-  | { kind: "h2"; heading: string; paragraph: string }
-  | { kind: "h1"; heading: string }
-  | { kind: "title_meta"; title: string; meta: string | null }
+  | {
+      kind: "h2";
+      heading: string;
+      paragraph: string;
+      /** Current/before heading (the paragraph is treated as net-new).
+       *  Null for additive H2s or when the snapshot has no current value. */
+      before?: string | null;
+    }
+  | {
+      kind: "h1";
+      heading: string;
+      /** Current/before H1 heading. Null when no snapshot value exists. */
+      before?: string | null;
+    }
+  | {
+      kind: "title_meta";
+      title: string;
+      meta: string | null;
+      /** Current/before title tag (only for edit_title). */
+      beforeTitle?: string | null;
+      /** Current/before meta description (only for edit_meta). */
+      beforeMeta?: string | null;
+    }
   | { kind: "internal_link"; anchor: string; targetUrl: string | null }
   | { kind: "table"; markdown: string }
   | { kind: "section"; heading: string | null; body: string }
@@ -135,6 +155,19 @@ function singleLine(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Sanitize a current/before field value for a before→after comparison.
+ * Trims, treats empty as null, and runs the SAME display-safety guard as
+ * the proposed text. A before value that fails the guard is dropped (null)
+ * rather than downgrading the whole tile — only the proposed text drives
+ * the fallback decision.
+ */
+function safeBefore(raw: string | null | undefined): string | null {
+  const trimmed = typeof raw === "string" ? singleLine(raw) : "";
+  if (trimmed.length === 0) return null;
+  return checkCopyDisplaySafe(trimmed).safe ? trimmed : null;
+}
+
 // ── Builder ───────────────────────────────────────────────────────────────
 
 /**
@@ -172,12 +205,20 @@ export function buildCopyTile(row: RecommendationActionRow): CopyTile | null {
   // Everything else requires non-empty `proposedText`.
   if (proposed.length === 0) return null;
 
+  // Current/before value of the field being edited, surfaced from the page
+  // snapshot via draft-enrichment. Only meaningful for EDIT-type tiles
+  // (a true before/after). Sanitized through the SAME display-safety guard
+  // as the proposed text — if the before value fails the guard we drop it
+  // (set to null) rather than downgrading the whole tile to fallback. Only
+  // the proposed text drives fallback.
+  const currentBefore = safeBefore(row.detail.currentText);
+
   switch (row.actionType) {
     case "edit_h1": {
       const heading = singleLine(proposed);
       const guard = checkCopyDisplaySafe(heading);
       if (!guard.safe) return { kind: "fallback", reason: guard.reason };
-      return { kind: "h1", heading };
+      return { kind: "h1", heading, before: currentBefore };
     }
     case "edit_h2": {
       const { heading, paragraph } = splitHeadingAndParagraph(
@@ -186,13 +227,19 @@ export function buildCopyTile(row: RecommendationActionRow): CopyTile | null {
       );
       const guard = guardCombined(heading, paragraph);
       if (!guard.safe) return { kind: "fallback", reason: guard.reason };
-      return { kind: "h2", heading, paragraph };
+      return { kind: "h2", heading, paragraph, before: currentBefore };
     }
     case "edit_title": {
       const title = singleLine(proposed);
       const guard = checkCopyDisplaySafe(title);
       if (!guard.safe) return { kind: "fallback", reason: guard.reason };
-      return { kind: "title_meta", title, meta: null };
+      return {
+        kind: "title_meta",
+        title,
+        meta: null,
+        beforeTitle: currentBefore,
+        beforeMeta: null,
+      };
     }
     case "edit_meta": {
       // The meta description IS the proposed text. Title slot stays null
@@ -200,7 +247,13 @@ export function buildCopyTile(row: RecommendationActionRow): CopyTile | null {
       const meta = singleLine(proposed);
       const guard = checkCopyDisplaySafe(meta);
       if (!guard.safe) return { kind: "fallback", reason: guard.reason };
-      return { kind: "title_meta", title: "", meta };
+      return {
+        kind: "title_meta",
+        title: "",
+        meta,
+        beforeTitle: null,
+        beforeMeta: currentBefore,
+      };
     }
     case "add_internal_links": {
       const anchor = singleLine(proposed);

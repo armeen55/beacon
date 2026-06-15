@@ -473,6 +473,128 @@ describe("buildCopyTile — display guard fallback", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// buildCopyTile — before/after (current → proposed)
+// ─────────────────────────────────────────────────────────────────────
+
+describe("buildCopyTile — before/after carry-through", () => {
+  it("edit_title carries the current title as beforeTitle (beforeMeta null)", () => {
+    const row = makeRow({
+      actionType: "edit_title",
+      detail: {
+        currentText: "Old Atherton Builder Title",
+        proposedText: "Custom Home Builders in Atherton | Ritz Builders",
+      },
+    });
+    const tile = buildCopyTile(row);
+    expect(tile?.kind).toBe("title_meta");
+    if (tile?.kind === "title_meta") {
+      expect(tile.beforeTitle).toBe("Old Atherton Builder Title");
+      expect(tile.beforeMeta).toBeNull();
+    }
+  });
+
+  it("edit_meta carries the current meta as beforeMeta (beforeTitle null)", () => {
+    const row = makeRow({
+      actionType: "edit_meta",
+      detail: {
+        currentText: "The old, vague meta description.",
+        proposedText:
+          "Ritz Builders builds modern custom homes in Atherton with architect-led design-build coordination.",
+      },
+    });
+    const tile = buildCopyTile(row);
+    expect(tile?.kind).toBe("title_meta");
+    if (tile?.kind === "title_meta") {
+      expect(tile.beforeMeta).toBe("The old, vague meta description.");
+      expect(tile.beforeTitle).toBeNull();
+    }
+  });
+
+  it("edit_h1 carries the current heading as before", () => {
+    const row = makeRow({
+      actionType: "edit_h1",
+      detail: {
+        currentText: "Builder",
+        proposedText: "Custom Home Builders in Atherton",
+      },
+    });
+    const tile = buildCopyTile(row);
+    expect(tile?.kind).toBe("h1");
+    if (tile?.kind === "h1") {
+      expect(tile.before).toBe("Builder");
+    }
+  });
+
+  it("edit_h2 carries the current heading as before (paragraph is net-new)", () => {
+    const row = makeRow({
+      actionType: "edit_h2",
+      detail: {
+        currentText: "Our Work",
+        proposedText:
+          "Custom homes in Palo Alto\n\nOur team coordinates architecture, engineering, and permitting.",
+      },
+    });
+    const tile = buildCopyTile(row);
+    expect(tile?.kind).toBe("h2");
+    if (tile?.kind === "h2") {
+      expect(tile.before).toBe("Our Work");
+      expect(tile.heading).toBe("Custom homes in Palo Alto");
+    }
+  });
+
+  it("falls back to null before when currentText is empty / whitespace", () => {
+    const row = makeRow({
+      actionType: "edit_title",
+      detail: {
+        currentText: "   ",
+        proposedText: "Custom Home Builders in Atherton | Ritz Builders",
+      },
+    });
+    const tile = buildCopyTile(row);
+    expect(tile?.kind).toBe("title_meta");
+    if (tile?.kind === "title_meta") {
+      expect(tile.beforeTitle).toBeNull();
+    }
+  });
+
+  it("an additive type (add_faq) carries no before fields", () => {
+    const row = makeRow({
+      actionType: "add_faq",
+      title: "Who builds modern custom homes in Atherton?",
+      detail: {
+        currentText: "some current text that must not surface",
+        proposedText: "Who builds modern custom homes in Atherton?",
+        faqAnswerText:
+          "Ritz Builders builds modern custom homes in Atherton with an architect-led approach.",
+      },
+    });
+    const tile = buildCopyTile(row);
+    expect(tile?.kind).toBe("faq");
+    // FAQ tile shape has no before-style key at all.
+    expect(tile).not.toHaveProperty("before");
+    expect(tile).not.toHaveProperty("beforeTitle");
+    expect(tile).not.toHaveProperty("beforeMeta");
+  });
+
+  it("a before value that fails the display guard is dropped to null, tile still renders (not fallback)", () => {
+    const row = makeRow({
+      actionType: "edit_title",
+      detail: {
+        // currentText leaks an internal token → guard fails → before dropped.
+        currentText: "Old title with rec_id leak",
+        proposedText: "Custom Home Builders in Atherton | Ritz Builders",
+      },
+    });
+    const tile = buildCopyTile(row);
+    expect(tile?.kind).toBe("title_meta");
+    if (tile?.kind === "title_meta") {
+      expect(tile.beforeTitle).toBeNull();
+      expect(tile.title).toContain("Ritz Builders");
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Char-count helpers
 // ─────────────────────────────────────────────────────────────────────
 

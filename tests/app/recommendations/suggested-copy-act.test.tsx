@@ -272,6 +272,77 @@ describe("SuggestedCopyAct — plain tile", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// Before → after comparison
+// ─────────────────────────────────────────────────────────────────────
+
+describe("SuggestedCopyAct — before → after", () => {
+  it("renders Now + Change to when edit_title has a differing currentText", () => {
+    const html = render(
+      makeRow({
+        actionType: "edit_title",
+        detail: {
+          currentText: "Old Atherton Builder Title",
+          proposedText: "Custom Home Builders in Atherton | Ritz Builders",
+        },
+      }),
+    );
+    expect(html).toContain(">Now<");
+    expect(html).toContain("Old Atherton Builder Title");
+    expect(html).toContain(">Change to<");
+    expect(html).toContain("Custom Home Builders in Atherton | Ritz Builders");
+    expect(html).toContain('data-suggested-copy-before="true"');
+  });
+
+  it("renders Now + Change to for edit_h1 with a differing currentText", () => {
+    const html = render(
+      makeRow({
+        actionType: "edit_h1",
+        detail: {
+          currentText: "Builder",
+          proposedText: "Custom Home Builders in Atherton",
+        },
+      }),
+    );
+    expect(html).toContain(">Now<");
+    expect(html).toContain("Builder");
+    expect(html).toContain(">Change to<");
+    expect(html).toContain("Custom Home Builders in Atherton");
+  });
+
+  it("renders no Now label when currentText is absent", () => {
+    const html = render(
+      makeRow({
+        actionType: "edit_title",
+        detail: {
+          currentText: null,
+          proposedText: "Custom Home Builders in Atherton | Ritz Builders",
+        },
+      }),
+    );
+    expect(html).not.toContain(">Now<");
+    expect(html).not.toContain('data-suggested-copy-before="true"');
+    expect(html).toContain("Custom Home Builders in Atherton | Ritz Builders");
+  });
+
+  it("renders no Now label for an additive type (add_faq) even with currentText", () => {
+    const html = render(
+      makeRow({
+        actionType: "add_faq",
+        title: "Who builds modern custom homes in Atherton?",
+        detail: {
+          currentText: "irrelevant current text",
+          proposedText: "Who builds modern custom homes in Atherton?",
+          faqAnswerText:
+            "Ritz Builders builds modern custom homes in Atherton with an architect-led approach.",
+        },
+      }),
+    );
+    expect(html).not.toContain(">Now<");
+    expect(html).not.toContain("irrelevant current text");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Suppression
 // ─────────────────────────────────────────────────────────────────────
 

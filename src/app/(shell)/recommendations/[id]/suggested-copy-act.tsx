@@ -197,7 +197,7 @@ function H2Tile({
   const combined = `${tile.heading}\n\n${tile.paragraph}`;
   return (
     <div className="space-y-3" data-suggested-copy-tile="h2">
-      <FieldBlock label="Heading" value={tile.heading} />
+      <FieldBlock label="Heading" value={tile.heading} before={tile.before} />
       <FieldBlock
         label="Paragraph"
         value={tile.paragraph}
@@ -217,7 +217,7 @@ function H1Tile({
 }) {
   return (
     <div className="space-y-3" data-suggested-copy-tile="h1">
-      <FieldBlock label="H1 heading" value={tile.heading} />
+      <FieldBlock label="H1 heading" value={tile.heading} before={tile.before} />
       <Whereline targetLabel={targetLabel} kind="this H1" />
     </div>
   );
@@ -241,12 +241,14 @@ function TitleMetaTile({
         <FieldBlock
           label={`Title tag · ${titleLen} / ${TITLE_TAG_MAX_CHARS}`}
           value={tile.title}
+          before={tile.beforeTitle}
         />
       )}
       {hasMeta && (
         <FieldBlock
           label={`Meta description · ${metaLen} / ${META_DESCRIPTION_MAX_CHARS}`}
           value={tile.meta as string}
+          before={tile.beforeMeta}
         />
       )}
       <Whereline
@@ -353,6 +355,7 @@ function FieldBlock({
   value,
   copyTextOverride,
   valueClassName,
+  before,
 }: {
   label: string;
   value: string;
@@ -361,7 +364,17 @@ function FieldBlock({
    *  section heading+body where the operator wants one copy action). */
   copyTextOverride?: string;
   valueClassName?: string;
+  /** Current/before value of this field. When present AND meaningfully
+   *  different from `value`, the block renders a compact before→after
+   *  ("Now" → "Change to"). Absent/empty/equal renders a single value,
+   *  exactly as before. The Copy button NEVER copies the before. */
+  before?: string | null;
 }) {
+  const showBefore =
+    typeof before === "string" &&
+    before.trim().length > 0 &&
+    before.trim() !== value.trim();
+
   return (
     <div
       className="rounded-md border border-border/40 bg-background/60 px-3 py-2.5"
@@ -373,14 +386,40 @@ function FieldBlock({
         </p>
         <CopyButton text={copyTextOverride ?? value} label={label} />
       </div>
-      <p
-        className={cn(
-          "mt-1 text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap",
-          valueClassName,
-        )}
-      >
-        {value}
-      </p>
+      {showBefore ? (
+        <div className="mt-2 space-y-2">
+          <div data-suggested-copy-before="true">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+              Now
+            </p>
+            <p className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap text-muted-foreground line-through decoration-muted-foreground/40">
+              {before}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+              Change to
+            </p>
+            <p
+              className={cn(
+                "mt-0.5 text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap",
+                valueClassName,
+              )}
+            >
+              {value}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <p
+          className={cn(
+            "mt-1 text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap",
+            valueClassName,
+          )}
+        >
+          {value}
+        </p>
+      )}
     </div>
   );
 }
