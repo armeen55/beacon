@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { isOperatorModeClient } from "@/lib/operator-mode";
@@ -157,6 +157,46 @@ export function RecommendationsClient({
 
   const summary = useMemo(() => buildSummary(allRows), [allRows]);
 
+  // #350 — whether any filter is narrowing the table. Drives the
+  // "Clear filters" affordance in the empty-filtered state so the user
+  // is never stuck on "No actions match your filters" with no escape.
+  const hasActiveFilters =
+    typeFilter !== "all" || statusFilter !== "all" || search.trim().length > 0;
+  const clearFilters = () => {
+    setTypeFilter("all");
+    setStatusFilter("all");
+    setSearch("");
+  };
+
+  // #348 — Escape closes the open per-row detail drawer (the existing
+  // backdrop/row-click toggle still works). Listener is installed ONLY
+  // while a drawer is open, fires only on a bare Escape (no modifiers),
+  // and never collides with the global ⌘K / ? / g-nav handlers (none of
+  // those consume Escape). On close, focus returns to the row's Details
+  // chevron so keyboard users aren't dropped to the top of the document.
+  useEffect(() => {
+    if (expandedId == null) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const openId = expandedId;
+      setExpandedId(null);
+      e.stopPropagation();
+      // Restore focus to the trigger chevron inside the row we closed.
+      if (openId != null) {
+        const row = document.getElementById(
+          `action-row-${encodeURIComponent(openId)}`,
+        );
+        const trigger = row?.querySelector<HTMLElement>(
+          '[data-rec-details-button="true"]',
+        );
+        trigger?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expandedId]);
+
   // UX.3 (2026-05-07) — Executive Strip data: project rows into the
   // strip's minimal shape, then derive top-pick + evidence
   // distribution. Pure compute over already-loaded rows.
@@ -206,7 +246,11 @@ export function RecommendationsClient({
       />
 
       {filteredRows.length === 0 ? (
-        <EmptyTable hasAnyRows={allRows.length > 0} />
+        <EmptyTable
+          hasAnyRows={allRows.length > 0}
+          hasActiveFilters={hasActiveFilters}
+          onClearFilters={clearFilters}
+        />
       ) : (
         <ActionTable
           rows={filteredRows}
@@ -1764,7 +1808,19 @@ function WatchSection({ rows }: { rows: RecommendationWatchRow[] }) {
 
 /* ── Empty states ───────────────────────────────────────────────────── */
 
-function EmptyTable({ hasAnyRows }: { hasAnyRows: boolean }) {
+function EmptyTable({
+  hasAnyRows,
+  hasActiveFilters = false,
+  onClearFilters,
+}: {
+  hasAnyRows: boolean;
+  /** #350 — true when a search/type/status filter is currently
+   *  narrowing the table (so the empty state is filter-induced, not a
+   *  genuinely empty queue). Drives the "Clear filters" affordance. */
+  hasActiveFilters?: boolean;
+  /** #350 — reset all filters back to the full queue. */
+  onClearFilters?: () => void;
+}) {
   return (
     <div className="rounded-lg border border-border/50 bg-surface-inset/20 px-6 py-8 text-center">
       {hasAnyRows ? (
@@ -1775,6 +1831,19 @@ function EmptyTable({ hasAnyRows }: { hasAnyRows: boolean }) {
           <p className="mt-1 text-[12px] text-muted-foreground">
             Clear the search or filter chips above to see the full queue.
           </p>
+          {/* #350 — one-click escape so the user is never stuck on the
+              empty-filtered state. Renders only when a filter is
+              actually active and a reset handler is wired. */}
+          {hasActiveFilters && onClearFilters && (
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className="mt-3 inline-flex items-center rounded border border-accent-primary/50 bg-accent-primary/[0.05] px-3 py-1.5 text-[12px] font-medium text-accent-primary transition-colors hover:bg-accent-primary/[0.12]"
+              data-recommendations-clear-filters="true"
+            >
+              Clear filters
+            </button>
+          )}
         </>
       ) : (
         <>

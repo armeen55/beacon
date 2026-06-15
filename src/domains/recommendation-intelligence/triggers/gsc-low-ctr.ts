@@ -137,8 +137,12 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
       confidence: "medium",
       impact_estimate: "high",
       // Sourced EV math: clicks recovered if CTR rises to the
-      // positional benchmark (CTR-gap × impressions).
-      upside_clicks_28d: Math.round(
+      // positional benchmark (CTR-gap × impressions). The impressions
+      // base is the 90-day window (worst.impressions ← GscQuerySignal,
+      // aggregated over WINDOW_DAYS=90 in gsc-page-signals.ts), so the
+      // upside is a per-90-day estimate — the field name `*90d` matches
+      // that base (audit #15 / #337 de-misnamed it; was "*28d").
+      upside_clicks_90d: Math.round(
         Math.max(
           0,
           (EXPECTED_CTR_BY_POSITION[Math.round(worst.position)] ?? 0) -
@@ -186,6 +190,21 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
  * in the title — when absent, an edit_title candidate carries the
  * query + numbers. First-party impressions are STRONGER evidence than
  * third-party volume (Mueller: tool volumes "will always be wrong").
+ *
+ * #339 — INTENTIONALLY NARROWER than the SEMrush striking band
+ * (4–20, in semrush-page-signals.ts STRIKING_DISTANCE_{MIN,MAX}). The
+ * two bands are NOT meant to match: this first-party GSC band is the
+ * tighter "overlap the GSC research recommends" because GSC's own
+ * impressions are clean, precise demand evidence, so the tighter 4–15
+ * keeps cards to the highest-confidence near-page-one queries. The
+ * SEMrush band is wider (4–20, the SEJ tooling default) because
+ * third-party position/volume estimates are noisier, so a wider net is
+ * the right trade for that weaker signal. Narrowing SEMrush to 4–15 to
+ * "align" would drop real positions 16–20 the SEJ default explicitly
+ * covers and contradict its sourcing — so they stay deliberately
+ * distinct (documented, not unified). The customer-facing operator
+ * evidence line below states the band per signal ("band=4-15" here vs
+ * "band=4-20" in the SEMrush trigger) so the difference is visible.
  */
 const STRIKING_MIN_POS = 4;
 const STRIKING_MAX_POS = 15;
@@ -250,8 +269,9 @@ export function gscStrikingDistance(
       impact_estimate: "high",
       // Upside if the page reaches position 3 (SEOmonitor's top-1-3
       // target convention) from its current striking position:
-      // (ctr(3) − actual) × impressions.
-      upside_clicks_28d: Math.round(
+      // (ctr(3) − actual) × impressions. impressions is the 90-day
+      // base, so this is a per-90-day estimate (field name `*90d`).
+      upside_clicks_90d: Math.round(
         Math.max(0, 0.102 - target.ctr) * target.impressions,
       ),
       customer_copy: gscStrikingDistanceCopy(

@@ -190,12 +190,13 @@ describe("gscStrikingDistance predicate (Rule B)", () => {
 // ── Fusion-EV slice (2026-06-12) ──────────────────────────────────────
 import { upsideBonus, MAX_UPSIDE_BONUS, priorityScore } from "@/domains/recommendation-intelligence/priority-score";
 
-describe("fusion EV — upside_clicks_28d", () => {
+describe("fusion EV — upside_clicks_90d", () => {
   it("Rule A candidates carry the CTR-gap × impressions upside", () => {
     const out = gscLowCtr({ tenantId: "tenant-a", snapshot: snap(), signal: signal() });
-    // pos 3.1 → benchmark 10.2%; actual 1.0%; 500 impressions →
-    // (0.102 − 0.01) × 500 ≈ 46.
-    expect(out[0]!.upside_clicks_28d).toBe(46);
+    // pos 3.1 → benchmark 10.2%; actual 1.0%; 500 (90-day) impressions →
+    // (0.102 − 0.01) × 500 ≈ 46. The impressions base is the 90-day GSC
+    // window, so the field is `*90d` (audit #337 de-misnamed from `*28d`).
+    expect(out[0]!.upside_clicks_90d).toBe(46);
   });
 
   it("upsideBonus is log-scaled and capped", () => {
@@ -214,7 +215,7 @@ describe("fusion EV — upside_clicks_28d", () => {
       confidence: "medium",
       prerequisite_resolved: true,
       safety_flags: [],
-      upside_clicks_28d: 1_000_000, // even at the cap…
+      upside_clicks_90d: 1_000_000, // even at the cap…
     });
     const blocker = priorityScore({
       trigger_signal: "bad_http_status",

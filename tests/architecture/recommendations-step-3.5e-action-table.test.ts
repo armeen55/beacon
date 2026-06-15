@@ -160,6 +160,54 @@ describe("W3 Step 3.5e — drawer (row click toggles inline detail)", () => {
   });
 });
 
+describe("#350 — empty-filtered state offers a Clear-filters escape", () => {
+  it("EmptyTable renders a Clear-filters button with the data attr", () => {
+    expect(CLIENT_SRC).toMatch(
+      /data-recommendations-clear-filters=["']true["']/,
+    );
+    expect(CLIENT_SRC).toMatch(/Clear filters/);
+  });
+
+  it("the button is gated on an active filter + a reset handler", () => {
+    expect(CLIENT_SRC).toMatch(/hasActiveFilters && onClearFilters/);
+  });
+
+  it("clearFilters resets type + status + search to the full queue", () => {
+    expect(CLIENT_SRC).toMatch(/setTypeFilter\("all"\)/);
+    expect(CLIENT_SRC).toMatch(/setStatusFilter\("all"\)/);
+    expect(CLIENT_SRC).toMatch(/setSearch\(""\)/);
+  });
+
+  it("EmptyTable receives the active-filter flag + reset handler", () => {
+    expect(CLIENT_SRC).toMatch(/hasActiveFilters=\{hasActiveFilters\}/);
+    expect(CLIENT_SRC).toMatch(/onClearFilters=\{clearFilters\}/);
+  });
+});
+
+describe("#348 — Escape closes the open detail drawer", () => {
+  it("installs a keydown listener only while a drawer is expanded", () => {
+    // Effect guards on expandedId == null and reacts on a bare Escape.
+    expect(CLIENT_SRC).toMatch(/if \(expandedId == null\) return;/);
+    expect(CLIENT_SRC).toMatch(/if \(e\.key !== "Escape"\) return;/);
+    expect(CLIENT_SRC).toMatch(/setExpandedId\(null\)/);
+  });
+
+  it("ignores Escape with modifiers so it never collides with ⌘K / nav", () => {
+    expect(CLIENT_SRC).toMatch(
+      /if \(e\.metaKey \|\| e\.ctrlKey \|\| e\.altKey \|\| e\.shiftKey\) return;/,
+    );
+  });
+
+  it("restores focus to the row's Details trigger on close", () => {
+    expect(CLIENT_SRC).toMatch(/data-rec-details-button="true"/);
+    expect(CLIENT_SRC).toMatch(/trigger\?\.focus\(\)/);
+  });
+
+  it("keeps the existing row-click/backdrop toggle (onToggleExpand)", () => {
+    expect(CLIENT_SRC).toMatch(/data-rec-row-toggle=["']true["']/);
+  });
+});
+
 describe("W3 Step 3.5e — pre-3.5d patterns are gone", () => {
   it("no lane sections (LaneSection / BacklogSection / RecLane)", () => {
     expect(CLIENT_SRC).not.toMatch(/<LaneSection/);

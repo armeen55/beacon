@@ -181,8 +181,10 @@ export type PriorityScoreInput = {
   prerequisite_resolved: boolean;
   safety_flags: ReadonlyArray<CandidateSafetyFlag>;
   /** Fusion-EV slice (2026-06-12): first-party expected-clicks
-   *  upside (28d). Optional — only GSC-backed candidates carry it. */
-  upside_clicks_28d?: number;
+   *  upside over the 90-day GSC window. Optional — only GSC-backed
+   *  candidates carry it. (audit #337: field was misnamed `*28d`
+   *  while the impressions base is 90-day; renamed for honesty.) */
+  upside_clicks_90d?: number;
   /** Fusion slice (2026-06-12): bounded GA4 page-value multiplier
    *  (1.0–1.5, computed by ga4ValueWeight). Optional — defaults
    *  neutral. Applied to the whole base so blockers and polish on
@@ -199,16 +201,16 @@ export type PriorityScoreInput = {
 /**
  * Fusion-EV slice (2026-06-12): bounded additive upside term. The
  * published EV method (CTR-gap × impressions — Botify, SEOmonitor,
- * Greenlane) yields clicks/28d; log-scaling keeps one mega-page from
- * monopolizing the queue (the PIE/log-damping convention from the
- * fusion-math research) and the cap preserves the locked invariant
- * that index blockers outrank content polish (severity+bonus ceiling
- * stays meaningful).
+ * Greenlane) yields clicks over the 90-day GSC window; log-scaling
+ * keeps one mega-page from monopolizing the queue (the PIE/log-damping
+ * convention from the fusion-math research) and the cap preserves the
+ * locked invariant that index blockers outrank content polish
+ * (severity+bonus ceiling stays meaningful).
  */
 export const MAX_UPSIDE_BONUS = 15;
-export function upsideBonus(upsideClicks28d: number | undefined): number {
-  if (upsideClicks28d == null || upsideClicks28d <= 0) return 0;
-  return Math.min(MAX_UPSIDE_BONUS, Math.round(4 * Math.log10(1 + upsideClicks28d)));
+export function upsideBonus(upsideClicks90d: number | undefined): number {
+  if (upsideClicks90d == null || upsideClicks90d <= 0) return 0;
+  return Math.min(MAX_UPSIDE_BONUS, Math.round(4 * Math.log10(1 + upsideClicks90d)));
 }
 
 export function priorityScore(c: PriorityScoreInput): number {
@@ -228,7 +230,7 @@ export function priorityScore(c: PriorityScoreInput): number {
     Math.max(1, c.page_value_weight ?? 1),
   );
   const raw =
-    ((severity + indexBlocker + pageImportance + upsideBonus(c.upside_clicks_28d)) *
+    ((severity + indexBlocker + pageImportance + upsideBonus(c.upside_clicks_90d)) *
       valueWeight *
       conf *
       prereq *

@@ -32,7 +32,18 @@ export type SemrushPageSignal = {
 
 /** Striking-distance band — union of credible practitioner bands
  *  (SEJ tooling 4–20; Backlinko 8–20; Semrush 11–30): 4–20 sits in
- *  the overlap region. Sources cited in the slice commit. */
+ *  the overlap region. Sources cited in the slice commit.
+ *
+ *  #339 — INTENTIONALLY WIDER than the first-party GSC striking band
+ *  (4–15, in gsc-low-ctr.ts STRIKING_{MIN,MAX}_POS). The two are NOT
+ *  meant to be the same number: third-party SEMrush position/volume is
+ *  noisier than GSC's own impressions, so the wider 4–20 (the SEJ
+ *  tooling default) is the right net for the weaker signal, whereas
+ *  GSC uses the tighter 4–15 because its first-party demand data is
+ *  clean. Aligning SEMrush down to 4–15 would drop positions 16–20 the
+ *  SEJ default explicitly includes and contradict this band's sourcing
+ *  — so the two stay deliberately distinct (documented, not unified).
+ *  See the matching note on gsc-low-ctr.ts Rule B. */
 export const STRIKING_DISTANCE_MIN = 4;
 export const STRIKING_DISTANCE_MAX = 20;
 /** Small-site volume floor from the research spec. */

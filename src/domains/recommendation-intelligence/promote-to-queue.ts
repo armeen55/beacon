@@ -122,7 +122,7 @@ export function selectPromotableCandidates(
       safety_flags: candidate.safety_flags,
       // Fusion-EV slice (2026-06-12): first-party expected-clicks
       // upside, when the predicate computed one.
-      upside_clicks_28d: candidate.upside_clicks_28d,
+      upside_clicks_90d: candidate.upside_clicks_90d,
       // Fusion slice (2026-06-12): GA4 page-value weight (neutral
       // when the map is absent/has no entry).
       page_value_weight:
