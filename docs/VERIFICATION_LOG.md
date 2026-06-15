@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-15 PM-3 (MAX data windows + one-click "Refresh my data" machine — PUSHED to main)
+
+**Trigger:** owner — "Clarity/GA4/GSC have months/years of data, you're limiting it; extract it all; figure out the best merge for an ever-working MACHINE."
+
+**Findings (ground-truthed against prod Supabase + the real sync engines):**
+- **GA4** `ga4_url_traffic` = **0 rows** for Iranopedia — never successfully synced. Lookback was capped at 90/180d. Raised `DEFAULT_/MAX_LOOKBACK_DAYS` → **420** (`4e718d6`) = GA4's ~14-month retention ceiling (can't exceed it). The dashboard GA4 read is already windowed to 28d (lean projection in `ga4-page-values.ts`), so the bigger store adds proof-engine history with NO read-perf risk.
+- **GSC**: capped at 90-day backfill; the sync already accepts an explicit `startDate` that bypasses the day cap for a ~16-month operator backfill (no code change needed).
+- **Clarity**: HARD API limit — the Data Export API returns a single 1-3 day aggregate with no per-day breakdown + no backfill. Kept `numOfDays=1` (correct daily rows; >1 would 3× inflate a single stamped date). Long-term Clarity history can only be accumulated forward. Verified: a fresh pull stays at 1 day.
+- **Google syncs cannot run from a local sandbox** — refreshing the stored GSC/GA4 tokens needs `GOOGLE_CLIENT_ID/SECRET` (prod-only); local runs return `token_expired`. The pulls execute on the deploy.
+- **`bc262cb` — one-click "Refresh my data"** on the Today data-sources strip: `refreshAllConnectedDataNow()` runs every CONNECTED read source concurrently (Promise.allSettled, never throws, Wix excluded), returns plain-English per-source ✓/✗ (never "Profound"); client island shows the result list + `router.refresh()`. **Ground-truth (preview, Iranopedia): clicked → Clarity "Synced 69 rows" ✓ + "synced just now"; Google → honest "Your Google connection expired — reconnect Google" (local has no OAuth creds).** That expired-Google message is also the LIKELY prod root cause of the owner's limited-GSC / empty-GA4 — the Google grant needs reconnecting on the deploy, then Refresh.
+
+**Gate:** typecheck + build PASS; today components + app/settings + white-label sweep **1274** pass. All pushed to origin/main (`352ea81 → bc262cb`).
+
+---
+
 ## 2026-06-15 PM-2 (V2 unified dashboard SHIPPED as default + big-tenant perf unblock)
 
 **Trigger:** ground-truth (preview tool) revealed the all-source command center was built on the **V2 path that ships OFF by default** — so the live app still showed the legacy AEO-centric dashboard the owner screenshotted and complained about. Flipping V2 on exposed a hard big-tenant regression: Ritz hung >40s on skeletons.
