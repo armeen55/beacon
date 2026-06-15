@@ -47,10 +47,12 @@ export function OnboardingShell({
         </div>
         {children}
         <p className="text-[12px] text-muted-foreground pt-2">
-          Need to step out?{" "}
+          Optional steps can be left blank — just hit Continue. Your answers
+          are saved as you go, so you can{" "}
           <Link href="/login" className="underline">
-            Save and sign out
-          </Link>
+            step out and finish later
+          </Link>{" "}
+          without losing anything.
         </p>
       </div>
     </div>

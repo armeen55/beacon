@@ -36,6 +36,9 @@ function stripComments(src: string): string {
     .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "")
+    // import { ... } from "..."; — module paths (e.g. provision-tenant) are
+    // not visitor-rendered copy. Mirrors the competitors/launch contracts.
+    .replace(/^\s*import\s*\{[\s\S]*?\}\s*from\s*[^;]+;\s*$/gm, "")
     .replace(/\bconst\s*\{[^}]*?\btenant\b[^}]*\}\s*=[^;]+;/g, "")
     .replace(/\btenant\.[a-zA-Z_][a-zA-Z0-9_]*\b/g, "")
     // ctx.tenant.foo

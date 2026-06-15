@@ -43,6 +43,9 @@ function stripComments(src: string): string {
     .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "")
+    // import { ... } from "..."; — module paths (e.g. provision-tenant) are
+    // not visitor-rendered copy. Mirrors the competitors/launch contracts.
+    .replace(/^\s*import\s*\{[\s\S]*?\}\s*from\s*[^;]+;\s*$/gm, "")
     // const { tenant, ... } = await requireOnboardingTenant();
     .replace(/\bconst\s*\{[^}]*?\btenant\b[^}]*\}\s*=[^;]+;/g, "")
     // {tenant.x}, tenant.x — member access used in JSX expressions or props
@@ -231,10 +234,12 @@ describe("Gap C.1 — requireOnboardingTenant access guard", () => {
     expect(ACCESS_GUARD_SRC).toMatch(/redirect\("\/signup\?error=no_tenant"\)/);
   });
 
-  it("redirects active tenants to / (already launched)", () => {
-    // Status === "active" → redirect to /
+  it("redirects active tenants to the dashboard (already launched)", () => {
+    // Status === "active" → redirect to "/" (target unchanged). #143 appends
+    // an explanatory `?notice=already_launched` so the dashboard can explain
+    // the redirect instead of bouncing silently — the destination stays "/".
     expect(ACCESS_GUARD_SRC).toMatch(
-      /tenant\.status\s*===\s*"active"[\s\S]{0,80}redirect\("\/"\)/,
+      /tenant\.status\s*===\s*"active"[\s\S]{0,300}redirect\("\/(\?notice=already_launched)?"\)/,
     );
   });
 

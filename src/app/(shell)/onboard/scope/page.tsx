@@ -20,6 +20,7 @@
 import Link from "next/link";
 import { OnboardingShell } from "@/components/onboard/onboarding-shell";
 import { requireOnboardingTenant } from "@/domains/onboarding/access";
+import { displayBusinessName } from "@/domains/onboarding/provision-tenant";
 import type { ProjectMixTag } from "@/domains/tenants/types";
 import { ScopeForm } from "./scope-form";
 
@@ -36,10 +37,10 @@ export default async function OnboardScopePage() {
     >
       <div className="space-y-6">
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-2">
-          <p className="font-medium">Saved so far</p>
+          <p className="font-medium">Saved so far ✓</p>
           <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[13px]">
             <dt className="text-muted-foreground">Business</dt>
-            <dd>{ctx.tenant.business_name}</dd>
+            <dd>{displayBusinessName(ctx.tenant.business_name)}</dd>
             <dt className="text-muted-foreground">Website</dt>
             <dd className="font-mono">{ctx.tenant.domain || "—"}</dd>
           </dl>

@@ -12,6 +12,7 @@
  */
 
 import { useState, useTransition } from "react";
+import { normalizeDomain } from "@/domains/onboarding/profile-validation";
 import { saveBusinessProfile } from "./actions";
 
 type FieldErrors = { businessName?: string; domain?: string };
@@ -28,6 +29,12 @@ export function BusinessForm({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [topError, setTopError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // #138: live, jargon-free confirmation of the website Beacon will fetch.
+  // normalizeDomain is a pure parser (no I/O) — same one the server action
+  // validates with — so the echo here always matches what gets saved.
+  const trimmedDomain = domain.trim();
+  const normalizedDomain = trimmedDomain ? normalizeDomain(trimmedDomain) : null;
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -117,10 +124,25 @@ export function BusinessForm({
           <p id="domain-error" className="text-[12px] text-rose-600" role="alert">
             {fieldErrors.domain}
           </p>
+        ) : normalizedDomain ? (
+          <p id="domain-hint" className="text-[12px] text-muted-foreground">
+            We'll scan{" "}
+            <span className="font-mono text-foreground">
+              https://{normalizedDomain}
+            </span>{" "}
+            to learn how AI assistants and Google describe you. No tracking
+            pixel installed.
+          </p>
+        ) : trimmedDomain ? (
+          <p id="domain-hint" className="text-[12px] text-amber-600">
+            That doesn't look like a website address yet. Enter your site like{" "}
+            <span className="font-mono">acme.com</span> — not the full editor
+            link.
+          </p>
         ) : (
           <p id="domain-hint" className="text-[12px] text-muted-foreground">
-            We'll fetch your homepage to learn how AI search engines describe
-            you. No tracking pixel installed.
+            We'll scan your homepage to learn how AI assistants and Google
+            describe you. No tracking pixel installed.
           </p>
         )}
       </div>

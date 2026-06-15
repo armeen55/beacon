@@ -102,10 +102,12 @@ export default async function TodayPage({
 }) {
   const params = await searchParams;
   const useV2 = shouldUseV2(params);
+  const notice = params.notice;
 
   if (!useV2) {
     return (
       <div className="max-w-6xl">
+        <AlreadyLaunchedNotice notice={notice} />
         <Suspense fallback={<TodayLegacySkeleton />}>
           <TodayLegacyAsyncContent />
         </Suspense>
@@ -115,9 +117,42 @@ export default async function TodayPage({
 
   return (
     <div className="max-w-6xl">
+      <AlreadyLaunchedNotice notice={notice} />
       <Suspense fallback={<TodayV2SectionedSkeleton />}>
         <TodayV2SectionedContent />
       </Suspense>
+    </div>
+  );
+}
+
+/**
+ * #143: when an already-launched customer revisits an /onboard/* URL, the
+ * access guard sends them here with `?notice=already_launched` instead of
+ * bouncing silently. Explain the redirect and point them to where setup
+ * details now live, rather than leaving them wondering if they misclicked.
+ */
+function AlreadyLaunchedNotice({
+  notice,
+}: {
+  notice: string | string[] | undefined;
+}) {
+  if (notice !== "already_launched") return null;
+  return (
+    <div className="mb-6 rounded-md border border-border/60 bg-surface-inset/40 px-4 py-3 text-[13px]">
+      <p className="font-medium text-foreground">
+        You&apos;ve already finished setup — here&apos;s your workspace.
+      </p>
+      <p className="mt-1 text-muted-foreground">
+        Setup is a one-time step. To change your business details, service
+        area, or competitors, head to{" "}
+        <Link
+          href="/settings/config"
+          className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+        >
+          Settings
+        </Link>
+        .
+      </p>
     </div>
   );
 }

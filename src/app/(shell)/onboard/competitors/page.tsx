@@ -21,6 +21,7 @@
 import Link from "next/link";
 import { OnboardingShell } from "@/components/onboard/onboarding-shell";
 import { requireOnboardingTenant } from "@/domains/onboarding/access";
+import { displayBusinessName } from "@/domains/onboarding/provision-tenant";
 import {
   PROJECT_MIX_LABELS,
 } from "@/domains/onboarding/scope-validation";
@@ -43,10 +44,10 @@ export default async function OnboardCompetitorsPage() {
     >
       <div className="space-y-6">
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3">
-          <p className="font-medium">Saved so far</p>
+          <p className="font-medium">Saved so far ✓</p>
           <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[13px]">
             <dt className="text-muted-foreground">Business</dt>
-            <dd>{ctx.tenant.business_name}</dd>
+            <dd>{displayBusinessName(ctx.tenant.business_name)}</dd>
             <dt className="text-muted-foreground">Website</dt>
             <dd className="font-mono">{ctx.tenant.domain || "—"}</dd>
             <dt className="text-muted-foreground">Cities</dt>

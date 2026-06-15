@@ -20,6 +20,7 @@
 
 import { OnboardingShell } from "@/components/onboard/onboarding-shell";
 import { requireOnboardingTenant } from "@/domains/onboarding/access";
+import { isPlaceholderBusinessName } from "@/domains/onboarding/provision-tenant";
 import { BusinessForm } from "./business-form";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export default async function OnboardBusinessPage() {
     <OnboardingShell
       step={1}
       title="Set up your business"
-      subtitle="Tell us your business name and website. This is what AI search engines will see."
+      subtitle="Takes about 2 minutes. Tell us your business name and website — then Beacon reads your site and starts tracking how AI assistants and Google describe you. Four short steps, and your answers save as you go."
     >
       <BusinessForm
         initialBusinessName={
@@ -46,15 +47,4 @@ export default async function OnboardBusinessPage() {
       />
     </OnboardingShell>
   );
-}
-
-/**
- * Detect the auto-derived placeholder names emitted by Gap B's
- * provisioner. We don't want them rendered as if the operator had
- * typed them.
- */
-function isPlaceholderBusinessName(name: string): boolean {
-  if (!name) return true;
-  if (name === "New Beacon Account") return true;
-  return false;
 }

@@ -83,6 +83,13 @@ export function deriveTenantId(userId: string): string {
 }
 
 /**
+ * The generic stub name the provisioner emits when it can't derive a real
+ * name from the signup email. Treated as "no name yet" everywhere it could
+ * leak into customer-facing copy.
+ */
+export const PLACEHOLDER_BUSINESS_NAME = "New Beacon Account";
+
+/**
  * Derive a placeholder business_name from email. Used as a stub until
  * the user fills in the real name in /onboard/business (Gap C).
  *
@@ -91,14 +98,38 @@ export function deriveTenantId(userId: string): string {
  */
 export function derivePlaceholderBusinessName(email: string): string {
   const at = email.indexOf("@");
-  if (at < 0 || at === email.length - 1) return "New Beacon Account";
+  if (at < 0 || at === email.length - 1) return PLACEHOLDER_BUSINESS_NAME;
   const domainPart = email.slice(at + 1).split(".")[0] ?? "";
-  if (!domainPart) return "New Beacon Account";
+  if (!domainPart) return PLACEHOLDER_BUSINESS_NAME;
   return domainPart
     .split(/[-_]/)
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ") || "New Beacon Account";
+    .join(" ") || PLACEHOLDER_BUSINESS_NAME;
+}
+
+/**
+ * Detect the auto-derived placeholder name so recap blocks never present
+ * it back to the user as if they had typed it (#136). Returns true for the
+ * stub name and for empty/blank values.
+ */
+export function isPlaceholderBusinessName(name: string | null | undefined): boolean {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return true;
+  return trimmed === PLACEHOLDER_BUSINESS_NAME;
+}
+
+/**
+ * Customer-safe business name for recap/summary display. When the stored
+ * name is still the provisioner placeholder (or blank), fall back to a
+ * neutral label rather than echoing "New Beacon Account" as the user's
+ * real business (#136).
+ */
+export function displayBusinessName(
+  name: string | null | undefined,
+  fallback = "Your business",
+): string {
+  return isPlaceholderBusinessName(name) ? fallback : (name as string).trim();
 }
 
 /**

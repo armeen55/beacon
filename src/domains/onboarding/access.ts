@@ -97,8 +97,10 @@ export async function requireOnboardingTenant(): Promise<OnboardingTenantContext
   }
 
   if (tenant.status === "active") {
-    // Already launched — onboarding is over for this customer.
-    redirect("/");
+    // Already launched — onboarding is over for this customer. Send a notice
+    // so the dashboard can explain the redirect instead of bouncing silently
+    // (#143). Target stays "/" — only the explanatory param is added.
+    redirect("/?notice=already_launched");
   }
   if (tenant.status === "paused") {
     redirect("/?error=tenant_paused");

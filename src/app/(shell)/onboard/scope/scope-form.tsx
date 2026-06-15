@@ -96,9 +96,9 @@ export function ScopeForm({
     <form onSubmit={onSubmit} className="space-y-6" noValidate>
       <div className="space-y-2">
         <label htmlFor="cities" className="block text-[13px] font-medium">
-          Cities you serve{" "}
+          Where are your customers?{" "}
           <span className="font-normal text-muted-foreground">
-            (skip if location doesn&apos;t apply)
+            (leave blank if you sell online or serve everywhere)
           </span>
         </label>
         <textarea

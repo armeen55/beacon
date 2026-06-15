@@ -30,6 +30,7 @@
 import Link from "next/link";
 import { OnboardingShell } from "@/components/onboard/onboarding-shell";
 import { requireOnboardingTenant } from "@/domains/onboarding/access";
+import { displayBusinessName } from "@/domains/onboarding/provision-tenant";
 import { PROJECT_MIX_LABELS } from "@/domains/onboarding/scope-validation";
 import {
   generateStarterPrompts,
@@ -114,7 +115,7 @@ export default async function OnboardReviewPage() {
           <p className="font-medium">Your business</p>
           <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-[13px]">
             <dt className="text-muted-foreground">Business</dt>
-            <dd>{tenant.business_name || "—"}</dd>
+            <dd>{displayBusinessName(tenant.business_name, "—")}</dd>
             <dt className="text-muted-foreground">Website</dt>
             <dd className="font-mono">{tenant.domain || "—"}</dd>
             <dt className="text-muted-foreground">Cities</dt>
@@ -140,12 +141,15 @@ export default async function OnboardReviewPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-baseline justify-between">
+            <div className="space-y-1">
               <p className="text-[13px] font-medium">
-                Starter prompts ({drafts.length})
+                Questions buyers ask AI about you ({drafts.length})
               </p>
               <p className="text-[12px] text-muted-foreground">
-                Drafted from your inputs — you can edit later.
+                These are real searches your customers type into AI assistants
+                and Google. Beacon checks each one to see whether you get
+                recommended — and which changes would help. Drafted from your
+                inputs; you can edit or remove any later.
               </p>
             </div>
 

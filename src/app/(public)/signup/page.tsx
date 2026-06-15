@@ -36,11 +36,11 @@ export default async function SignupPage({
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">Create your Beacon account</h1>
           <p className="text-[12px] text-muted-foreground">
-            Connect the tools you already use; Beacon finds evidence-backed
-            edits to win AI citations and Google clicks, shows you the exact
-            diff, and — for the ones you approve — pushes the eligible edits
-            live to your site; the rest come as paste-ready steps. Magic-link
-            sign-in — no password.
+            Beacon shows you the exact website changes that get you
+            recommended by AI assistants and found on Google — and, for the
+            ones you approve, pushes the eligible changes live to your site.
+            The rest come as paste-ready steps. Magic-link sign-in, no
+            password.
           </p>
         </div>
         <SignupForm sent={params.sent === "1"} error={params.error} />

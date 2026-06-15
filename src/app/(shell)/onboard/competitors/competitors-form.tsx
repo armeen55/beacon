@@ -66,8 +66,8 @@ export function CompetitorsForm({
         >
           Competitors to compare you against{" "}
           <span className="font-normal text-muted-foreground">
-            (optional — Beacon finds your real AI-answer rivals
-            automatically once tracking starts)
+            (optional — Beacon also discovers your real rivals automatically
+            once tracking starts)
           </span>
         </label>
         <textarea
@@ -100,8 +100,9 @@ export function CompetitorsForm({
             id="competitors-hint"
             className="text-[12px] text-muted-foreground"
           >
-            Up to {COMPETITORS_MAX_COUNT} company names — one per line, or
-            comma-separated. Names work best, not website URLs.
+            Up to {COMPETITORS_MAX_COUNT} businesses — one per line, or
+            comma-separated. Use their name, not their web address — Beacon
+            looks up the matching website for you, so a name is all you need.
           </p>
         )}
       </div>
