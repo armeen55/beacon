@@ -4,12 +4,12 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-// Hidden from Settings tabs 2026-04-17 (Day 2 trust cleanup):
-// - Connectors (internal review-integration operator surface)
-// - Sign-offs (/settings/exit-gates — internal tier-closure protocol)
-// - Methodology (proof-layer explainer — moved out of daily operator view)
-// Routes stay alive, just removed from visible tabs. Restore by re-adding below.
+// Connectors restored to the tab bar 2026-06-15 (goal pivot): it is now the
+// PRIMARY customer self-serve surface — connect GSC/GA4/SEMrush/Profound/Clarity/
+// Wix and Sync each on demand. It must be reachable by clicking, not URL-typing.
+// Still hidden: Sign-offs (/settings/exit-gates) + Methodology — internal.
 const TABS = [
+  { href: "/settings/connectors", label: "Connectors" },
   { href: "/settings/import", label: "Import" },
   { href: "/settings/config", label: "Config" },
   { href: "/settings/prompts", label: "Prompts" },

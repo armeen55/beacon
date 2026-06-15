@@ -312,12 +312,14 @@ describe("Demo-path Phase C fix 6 (2026-05-06) — /settings/import customer lea
     expect(stripped).not.toMatch(/placeholder="e\.g\. profound"/);
   });
 
-  it("/settings landing redirects to /settings/prompts (not /settings/import)", () => {
+  it("/settings landing redirects to /settings/connectors (not /settings/import)", () => {
+    // 2026-06-15 goal pivot: Settings opens on Connectors (the primary
+    // customer setup surface), not the prompts editor or the import leak.
     const settingsPage = readFileSync(
       resolve(REPO_ROOT, "src/app/(shell)/settings/page.tsx"),
       "utf8",
     );
-    expect(settingsPage).toMatch(/redirect\("\/settings\/prompts"\)/);
+    expect(settingsPage).toMatch(/redirect\("\/settings\/connectors"\)/);
     expect(settingsPage).not.toMatch(/redirect\("\/settings\/import"\)/);
   });
 });

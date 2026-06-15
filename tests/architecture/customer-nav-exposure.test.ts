@@ -10,9 +10,10 @@
  *
  * Invariants permanently locked here:
  *
- *   1. SIDEBAR — `navigationGroups` exposes EXACTLY the 5 customer
- *      routes: /, /recommendations, /prompts, /changes, /settings.
- *      Adding a new route requires updating this test.
+ *   1. SIDEBAR — `navigationGroups` exposes EXACTLY the 6 customer
+ *      routes: /, /recommendations, /prompts, /changes,
+ *      /settings/connectors, /settings. Adding a new route requires
+ *      updating this test. (Connectors added 2026-06-15 goal pivot.)
  *
  *   2. CMD+K KEYBOARD SHORTCUTS — the `g+<key>` shortcuts in
  *      `command-palette.tsx` only target customer-surface routes.
@@ -26,9 +27,9 @@
  *      No "Market" group surfacing /competitors. No /pages, /local,
  *      /topics group.
  *
- *   4. SETTINGS TABS — `settings-tabs-client.tsx` exposes the 4
- *      customer-surface tabs (Import, Config, Prompts, Data). No
- *      Health / Sign-offs / Methodology / Connectors tabs.
+ *   4. SETTINGS TABS — `settings-tabs-client.tsx` exposes the
+ *      customer-surface tabs led by Connectors (Connectors, Import,
+ *      Config, Prompts, Data). No Health / Sign-offs / Methodology.
  *
  *   5. EXIT-GATES SETTINGS HINT — the server wrapper checks
  *      `BEACON_OPERATOR_MODE` before rendering. Customers don't see
@@ -57,16 +58,20 @@ function readSrc(rel: string): string {
 
 // ─── Invariant 1 — SIDEBAR ────────────────────────────────────────────────
 
-describe("customer nav exposure — Invariant 1: SIDEBAR has exactly 5 customer routes", () => {
+describe("customer nav exposure — Invariant 1: SIDEBAR has exactly 6 customer routes", () => {
+  // 2026-06-15 goal pivot: Connectors is now a PRIMARY customer surface
+  // (connect GSC/GA4/SEMrush/Profound/Clarity/Wix + Sync on demand), so
+  // /settings/connectors is intentionally exposed in the sidebar.
   const EXPECTED_HREFS = new Set([
     "/",
     "/recommendations",
     "/prompts",
     "/changes",
+    "/settings/connectors",
     "/settings",
   ]);
 
-  it("navigationGroups exposes only the 5 customer-facing routes", () => {
+  it("navigationGroups exposes only the 6 customer-facing routes", () => {
     const allHrefs = navigationGroups
       .flatMap((g) => g.items.map((i) => i.href))
       .sort();
@@ -166,18 +171,19 @@ describe("customer nav exposure — Invariant 3: CMD+K palette items have no Mar
 // ─── Invariant 4 — SETTINGS TABS ──────────────────────────────────────────
 
 describe("customer nav exposure — Invariant 4: settings tabs", () => {
-  it("settings-tabs-client.tsx exposes only the 4 customer tabs", () => {
+  it("settings-tabs-client.tsx exposes the customer tabs incl. Connectors", () => {
     const src = readSrc("src/app/(shell)/settings/settings-tabs-client.tsx");
-    // Expected hrefs:
+    // Expected hrefs (2026-06-15 pivot: Connectors is now the primary
+    // customer self-serve surface and leads the tab bar):
+    expect(src).toContain('"/settings/connectors"');
     expect(src).toContain('"/settings/import"');
     expect(src).toContain('"/settings/config"');
     expect(src).toContain('"/settings/prompts"');
     expect(src).toContain('"/settings/history"');
-    // Forbidden tabs (routes still alive but not customer-surface):
+    // Forbidden tabs (routes still alive but operator/internal-only):
     expect(src).not.toMatch(/href:\s*"\/settings\/health"/);
     expect(src).not.toMatch(/href:\s*"\/settings\/exit-gates"/);
     expect(src).not.toMatch(/href:\s*"\/settings\/methodology"/);
-    expect(src).not.toMatch(/href:\s*"\/settings\/connectors"/);
   });
 });
 

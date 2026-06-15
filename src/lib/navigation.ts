@@ -4,6 +4,7 @@ import {
   GitCompareArrows,
   ListChecks,
   Target,
+  Plug,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ export const navigationGroups: NavGroup[] = [
       { label: "Recommendations", href: "/recommendations", icon: Target },
       { label: "Prompts", href: "/prompts", icon: ListChecks },
       { label: "Changes", href: "/changes", icon: GitCompareArrows },
+      { label: "Connectors", href: "/settings/connectors", icon: Plug },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },

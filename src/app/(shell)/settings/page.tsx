@@ -1,13 +1,10 @@
 import { redirect } from "next/navigation";
 
 /**
- * 2026-05-06 demo-path fix — `/settings` no longer redirects to
- * `/settings/import`. Customer landing on Settings should NOT see the
- * import page first (it's an operator/transitional surface that
- * mentions historical Profound CSV imports). Redirect to
- * `/settings/prompts`, which is the most-relevant customer-facing
- * settings page (manage your daily-poll prompts).
+ * `/settings` lands on Connectors (2026-06-15 goal pivot): connecting
+ * GSC/GA4/SEMrush/Profound/Clarity/Wix is the first thing a customer must do,
+ * so Settings opens on the connect surface rather than the prompts editor.
  */
 export default function SettingsPage() {
-  redirect("/settings/prompts");
+  redirect("/settings/connectors");
 }
