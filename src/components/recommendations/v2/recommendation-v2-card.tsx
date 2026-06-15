@@ -35,6 +35,10 @@ import {
   type ActionRowStatus,
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
+import {
+  isIndexingDirectiveActionType,
+  INDEXING_DIRECTIVE_CAVEAT,
+} from "@/domains/recommendations/action-types";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { cn } from "@/lib/utils";
 import { buildRecommendationDetailHref } from "./recommendation-route-id";
@@ -415,6 +419,24 @@ export function RecommendationV2Card({
             </span>
           ))}
         </div>
+      )}
+
+      {/* #310 (2026-06-14) — indexing-safety caveat. Crawl/index
+          directives (robots.txt, meta noindex, canonical, redirect) can
+          DEINDEX a live site if applied wrong. The card carries the
+          inline Accept CTA below, so the owner could act on one of these
+          rows without seeing the legacy drawer's warning — surface it
+          here too, immediately before the CTA. Benign rows (FAQ / schema
+          / copy / sitemap) render no caveat. */}
+      {isIndexingDirectiveActionType(row.detail.editActionType) && (
+        <p
+          className="mt-3 rounded border border-status-warning/40 bg-status-warning/[0.08] px-2.5 py-2 text-[11px] leading-relaxed text-status-warning"
+          role="alert"
+          data-recommendation-v2-indexing-caveat="true"
+        >
+          <span aria-hidden="true">⚠️ </span>
+          {INDEXING_DIRECTIVE_CAVEAT}
+        </p>
       )}
 
       {/* CTA — one-tap slice (2026-06-12): Accept is the primary

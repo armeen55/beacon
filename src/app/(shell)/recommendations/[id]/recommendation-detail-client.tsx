@@ -36,6 +36,10 @@ import {
   type ActionRowStatus,
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
+import {
+  isIndexingDirectiveActionType,
+  INDEXING_DIRECTIVE_CAVEAT,
+} from "@/domains/recommendations/action-types";
 import { buildCopyTile } from "@/domains/recommendations/suggested-copy-adapters";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { cn } from "@/lib/utils";
@@ -272,6 +276,24 @@ export function RecommendationDetailClient({
           )
         )}
       </header>
+
+      {/* #310 (2026-06-14) — indexing-safety caveat. Crawl/index
+          directives (robots.txt, meta noindex, canonical, redirect) can
+          DEINDEX a live site if applied wrong. The brief carries an
+          inline Accept action in its final act, so the owner could act on
+          one of these rows without the warning — surface it at the top of
+          the brief. Benign rows (FAQ / schema / copy / sitemap) render no
+          caveat. */}
+      {isIndexingDirectiveActionType(row.detail.editActionType) && (
+        <p
+          className="rounded-md border border-status-warning/40 bg-status-warning/[0.08] px-4 py-3 text-[13px] leading-relaxed text-status-warning"
+          role="alert"
+          data-recommendation-detail-indexing-caveat="true"
+        >
+          <span aria-hidden="true">⚠️ </span>
+          {INDEXING_DIRECTIVE_CAVEAT}
+        </p>
+      )}
 
       {/* Act 1 — Recommendation */}
       <Act

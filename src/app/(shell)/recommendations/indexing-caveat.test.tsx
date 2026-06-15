@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { RowDrawer } from "./recommendations-client";
+import { RecommendationV2Card } from "@/components/recommendations/v2/recommendation-v2-card";
 import {
   INDEXING_DIRECTIVE_CAVEAT,
   type ActionType,
@@ -109,6 +110,15 @@ function renderDrawer(row: RecommendationActionRow): string {
   );
 }
 
+// v2 surface (?v2=1) — the card carries an inline Accept CTA, so the
+// caveat must render here too before the owner can act on a crawl/index
+// directive. Same exported-helper + renderToStaticMarkup convention.
+function renderV2Card(row: RecommendationActionRow): string {
+  return renderToStaticMarkup(
+    <RecommendationV2Card row={row} onAccept={() => {}} />,
+  );
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe("#310 — indexing-safety caveat in the directive drawer", () => {
@@ -192,5 +202,75 @@ describe("#310 — indexing-safety caveat in the directive drawer", () => {
       }),
     );
     expect(html).not.toContain(INDEXING_DIRECTIVE_CAVEAT);
+  });
+});
+
+describe("#310 — indexing-safety caveat on the v2 card surface (?v2=1)", () => {
+  it("renders the caveat for a meta-robots noindex directive", () => {
+    const html = renderV2Card(
+      makeRow({
+        editActionType: "fix_noindex",
+        // Indexability fixes collapse to the review_decision row type;
+        // the raw editActionType drives the caveat, not the row type.
+        actionType: "review_decision",
+        title: "Remove the noindex tag from the Homepage",
+        proposedText:
+          'Remove "noindex" from the robots meta tag on https://example.com/.',
+      }),
+    );
+    expect(html).toContain(INDEXING_DIRECTIVE_CAVEAT);
+    expect(html).toContain("data-recommendation-v2-indexing-caveat");
+  });
+
+  it("renders the caveat for a robots.txt directive", () => {
+    const html = renderV2Card(
+      makeRow({
+        editActionType: "fix_robots",
+        actionType: "review_decision",
+        title: "Unblock Google from crawling this site",
+        proposedText:
+          "robots.txt currently blocks Googlebot. Remove the Disallow rules.",
+      }),
+    );
+    expect(html).toContain(INDEXING_DIRECTIVE_CAVEAT);
+  });
+
+  it("renders the caveat for a canonical-tag directive", () => {
+    const html = renderV2Card(
+      makeRow({
+        editActionType: "fix_canonical",
+        actionType: "review_decision",
+        title: "Point this page's canonical tag at itself",
+        proposedText:
+          'Set the canonical link to <link rel="canonical" href="https://example.com/">.',
+      }),
+    );
+    expect(html).toContain(INDEXING_DIRECTIVE_CAVEAT);
+  });
+
+  it("renders the caveat for a status-code / redirect directive", () => {
+    const html = renderV2Card(
+      makeRow({
+        editActionType: "fix_status_code",
+        actionType: "review_decision",
+        title: "Fix the 404 error on this page",
+        proposedText:
+          "https://example.com/ returns HTTP 404. Restore the page (or 301-redirect it).",
+      }),
+    );
+    expect(html).toContain(INDEXING_DIRECTIVE_CAVEAT);
+  });
+
+  it("does NOT render the caveat for a benign add_faq card", () => {
+    const html = renderV2Card(
+      makeRow({
+        editActionType: "add_faq",
+        actionType: "add_faq",
+        title: "Add an FAQ to the Homepage",
+        proposedText: "What areas do you serve? We serve the whole region.",
+      }),
+    );
+    expect(html).not.toContain(INDEXING_DIRECTIVE_CAVEAT);
+    expect(html).not.toContain("data-recommendation-v2-indexing-caveat");
   });
 });
