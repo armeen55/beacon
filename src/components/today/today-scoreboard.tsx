@@ -13,6 +13,14 @@ export type ScoreboardData = {
   resultCount: number;
   dateRange: { from: string; to: string } | null;
   mentionRate: number | null;
+  /**
+   * Metric-honesty fix #376 (2026-06-14). Number of AI-answer observations
+   * the `mentionRate` headline % was computed over. Drives an honest
+   * sample-size qualifier on the "How often AI mentions you" tile so a
+   * volatile small-sample rate (e.g. 23% from 13 answers) is never
+   * presented as a stable fact. Null when the rate isn't shown.
+   */
+  mentionRateSampleSize?: number | null;
   decliningTopicCount: number;
   risingTopicCount: number;
   weekOverWeekCitations: number | null;
@@ -37,6 +45,19 @@ export type ScoreboardData = {
    * poll-health signal yet.
    */
   derivedKpiSamplingStatus?: SamplingStatus | null;
+  /**
+   * Metric-honesty fix #357 (2026-06-14). TRUE when today's (and
+   * yesterday's) derived daily snapshot is missing, so `totalCitations` /
+   * `totalMentions` fell back to the CUMULATIVE all-time `results` totals.
+   * Without this signal the tile silently presented an all-time count as
+   * if it were a current single-day number — a skeptical owner reads it as
+   * "AI recommended me 1,200 times today" when it's really since-forever.
+   * When true the headline tiles render the "—" awaiting-reading
+   * placeholder (the ai-visibility-hero pattern) instead of the cumulative
+   * total. Distinct from `isFirstRunNoData`: here data EXISTS, it's just
+   * not a current-period snapshot.
+   */
+  cumulativeFallback?: boolean;
 };
 
 /** "2026-04-23" → "Apr 23". Used by the derivedKpiAsOfDate meta line. */
@@ -91,6 +112,21 @@ export function TodayScoreboard({
     ? Math.round(scoreboard.mentionRate * 100)
     : null;
 
+  // Metric-honesty fix #376 (2026-06-14): the "How often AI mentions you"
+  // tile showed a single headline % with no sample context — a 23% built
+  // from 13 AI answers reads exactly like 23% built from 1,300. A
+  // skeptical owner can't tell a stable fact from a volatile small-sample
+  // blip. Surface the sample size next to the rate, and on a thin sample
+  // (< 30 observations) call it out as volatile rather than stable.
+  const mentionSample = scoreboard.mentionRateSampleSize ?? null;
+  const THIN_SAMPLE = 30;
+  const mentionRateQualifier =
+    mentionSample != null
+      ? mentionSample < THIN_SAMPLE
+        ? `small sample (${mentionSample.toLocaleString()} AI answers) — can swing day to day`
+        : `across ${mentionSample.toLocaleString()} AI answers`
+      : null;
+
   const topicMeta = [
     scoreboard.risingTopicCount > 0 ? `${scoreboard.risingTopicCount} growing` : null,
     scoreboard.decliningTopicCount > 0 ? `${scoreboard.decliningTopicCount} slipping` : null,
@@ -137,6 +173,20 @@ export function TodayScoreboard({
   const firstRunPagesMeta =
     "Your first full sample appears once you refresh your connected data.";
 
+  // Metric-honesty fix #357 (2026-06-14): when today's derived snapshot is
+  // missing, the count tiles were silently showing the CUMULATIVE all-time
+  // `results` total dressed up as a current number. That's the exact silent
+  // swap a skeptical owner catches and loses trust over. When the loader
+  // flags `cumulativeFallback` (data exists, but no current-period
+  // snapshot) we suppress the headline number and render the "—"
+  // awaiting-reading placeholder + an honest "awaiting today's reading"
+  // meta — the same pattern ai-visibility-hero uses. `isFirstRunNoData`
+  // (genuinely zero data) keeps its own first-run copy and takes priority.
+  const cumulativeFallback =
+    (scoreboard.cumulativeFallback ?? false) && !isFirstRunNoData;
+  const awaitingMeta =
+    "Awaiting today's reading — refresh your connected data for a current count.";
+
   return (
     <div className="space-y-5">
       {/* KPI cards */}
@@ -149,21 +199,32 @@ export function TodayScoreboard({
           // misreads as "AI recommended us zero times" (a negative fact)
           // rather than "no reading collected yet". A REAL measured zero
           // (data exists, asOfDate set) still renders "0".
-          value={isFirstRunNoData ? "—" : scoreboard.totalCitations}
-          delta={asOfDate ? null : wowCit}
+          // #357 (2026-06-14): also show "—" when on the cumulative
+          // fallback path — never present an all-time total as a current
+          // single-day count.
+          value={
+            isFirstRunNoData || cumulativeFallback
+              ? "—"
+              : scoreboard.totalCitations
+          }
+          // Suppress the week-over-week pill on the cumulative fallback —
+          // a wow% next to "—" would imply a current trend we don't have.
+          delta={asOfDate || cumulativeFallback ? null : wowCit}
           deltaSuffix="%"
           meta={
-            asOfLabel
-              ? `${asOfLabel}${platMeta ? ` · ${platMeta}` : ""}`
-              : wowCit !== null
-                ? `vs last week${platMeta ? ` · ${platMeta}` : ""}`
-                : isFirstRunNoData
-                  ? firstRunCitationsMeta
-                  : platMeta
-                    ? platMeta
-                    : scoreboard.dateRange
-                      ? `through ${scoreboard.dateRange.to}`
-                      : undefined
+            cumulativeFallback
+              ? awaitingMeta
+              : asOfLabel
+                ? `${asOfLabel}${platMeta ? ` · ${platMeta}` : ""}`
+                : wowCit !== null
+                  ? `vs last week${platMeta ? ` · ${platMeta}` : ""}`
+                  : isFirstRunNoData
+                    ? firstRunCitationsMeta
+                    : platMeta
+                      ? platMeta
+                      : scoreboard.dateRange
+                        ? `through ${scoreboard.dateRange.to}`
+                        : undefined
           }
         />
         {mentionRatePct !== null && (
@@ -172,12 +233,37 @@ export function TodayScoreboard({
             value={`${mentionRatePct}%`}
             delta={asOfDate ? null : wowMen}
             deltaSuffix="%"
+            // #376 (2026-06-14): the sample-size qualifier ALWAYS rides
+            // along with this rate so it's never read as a stable fact
+            // without its sample context. On a thin sample the qualifier
+            // leads (it's the load-bearing honesty signal); otherwise it
+            // trails the existing as-of / week-over-week / topic meta.
             meta={
-              asOfLabel
-                ? `${asOfLabel}${topicMeta ? ` · ${topicMeta}` : ""}`
-                : wowMen !== null
-                  ? `vs last week${topicMeta ? ` · ${topicMeta}` : ""}`
-                  : topicMeta || `across ${scoreboard.resultCount.toLocaleString()} AI answers`
+              (() => {
+                const thin =
+                  mentionSample != null && mentionSample < THIN_SAMPLE;
+                const base = asOfLabel
+                  ? `${asOfLabel}${topicMeta ? ` · ${topicMeta}` : ""}`
+                  : wowMen !== null
+                    ? `vs last week${topicMeta ? ` · ${topicMeta}` : ""}`
+                    : topicMeta || null;
+                if (mentionRateQualifier == null) {
+                  return (
+                    base ??
+                    `across ${scoreboard.resultCount.toLocaleString()} AI answers`
+                  );
+                }
+                // Thin sample: lead with the volatility warning.
+                if (thin) {
+                  return base
+                    ? `${mentionRateQualifier} · ${base}`
+                    : mentionRateQualifier;
+                }
+                // Healthy sample: append the count so the rate is anchored.
+                return base
+                  ? `${base} · ${mentionRateQualifier}`
+                  : mentionRateQualifier;
+              })()
             }
           />
         )}

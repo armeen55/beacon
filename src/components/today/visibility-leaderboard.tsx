@@ -118,12 +118,23 @@ export function VisibilityLeaderboard({
         </div>
       </div>
 
-      {/* Share-capture callout (when applicable) */}
+      {/* Share-capture callout (when applicable).
+
+          Metric-honesty fix #356 (2026-06-14): this banner is a
+          COINCIDENCE test — your row went up in the same window at least
+          one competitor's went down. The math does NOT verify that
+          mentions were redistributed from them to you, and the two deltas
+          are computed with different formulas (see buildShareCaptureProvenance,
+          trustLevel: "unreliable"). It previously shipped with confident
+          green success styling ("Share capture:" in status-success), which
+          presented an unproven causal claim as a won battle. Restyled to a
+          neutral surface and labelled "directional, not proven" so a
+          skeptical owner isn't sold a coincidence as a fact. */}
       {shareCapture && (
-        <div className="mb-3 rounded-md border border-status-success/25 bg-status-success/[0.05] px-3 py-2">
+        <div className="mb-3 rounded-md border border-border/60 bg-surface-inset/30 px-3 py-2">
           <p className="text-[11px] text-foreground leading-snug">
-            <span className="font-semibold text-status-success">
-              Share capture:
+            <span className="font-semibold text-muted-foreground">
+              Possible share shift:
             </span>{" "}
             You are up {shareCapture.brandGain.toFixed(1)}pt while{" "}
             {shareCapture.loserCount === 1 ? (
@@ -139,6 +150,11 @@ export function VisibilityLeaderboard({
               </>
             )}
             .
+          </p>
+          <p className="mt-1 text-[10px] text-muted-foreground/70 leading-snug">
+            Directional, not proven — these moves happened in the same
+            window, but Beacon hasn&apos;t verified the gain came from them.
+            Worth investigating, not a confirmed win.
           </p>
         </div>
       )}

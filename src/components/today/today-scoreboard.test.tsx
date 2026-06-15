@@ -122,3 +122,65 @@ describe("TodayScoreboard — first-run empty-state honesty (wave-6)", () => {
     expect(html).toContain("As of");
   });
 });
+
+describe("TodayScoreboard — #357 cumulative-fallback honesty", () => {
+  it("shows '—' + awaiting-reading meta, NOT the all-time total, when today's snapshot is missing", () => {
+    const html = renderToStaticMarkup(
+      <TodayScoreboard
+        scoreboard={scoreboard({
+          // No derived snapshot today/yesterday -> loader fell back to the
+          // cumulative all-time `results` total (1,234) and flagged it.
+          cumulativeFallback: true,
+          totalCitations: 1234,
+          resultCount: 500,
+          derivedKpiAsOfDate: null,
+        })}
+        health={health()}
+      />,
+    );
+    const values = kpiValues(html);
+    // The cumulative total must NOT appear as the headline number.
+    expect(values).not.toContain("1,234");
+    // Instead the awaiting-reading placeholder renders for the count tile.
+    expect(values).toContain("—");
+    // ...and the honest meta tells the operator why. (renderToStaticMarkup
+    // HTML-escapes the apostrophe, so match around it.)
+    expect(html).toContain("Awaiting today");
+    expect(html).toContain("reading — refresh your connected data");
+  });
+});
+
+describe("TodayScoreboard — #376 mention-rate sample-size honesty", () => {
+  it("flags a thin-sample rate as volatile, with the sample size", () => {
+    const html = renderToStaticMarkup(
+      <TodayScoreboard
+        scoreboard={scoreboard({
+          mentionRate: 0.23,
+          mentionRateSampleSize: 13,
+          resultCount: 13,
+        })}
+        health={health()}
+      />,
+    );
+    expect(html).toContain("23%");
+    // Honest qualifier: small sample, volatility called out, count shown.
+    expect(html).toContain("small sample (13 AI answers)");
+    expect(html).toContain("can swing day to day");
+  });
+
+  it("anchors a healthy-sample rate with its count and does NOT cry volatility", () => {
+    const html = renderToStaticMarkup(
+      <TodayScoreboard
+        scoreboard={scoreboard({
+          mentionRate: 0.23,
+          mentionRateSampleSize: 540,
+          resultCount: 540,
+        })}
+        health={health()}
+      />,
+    );
+    expect(html).toContain("23%");
+    expect(html).toContain("across 540 AI answers");
+    expect(html).not.toContain("can swing day to day");
+  });
+});

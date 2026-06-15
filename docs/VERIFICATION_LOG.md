@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-14 (dashboard metric-honesty — 4 trust-eroding /today numbers made honest)
+
+**Directive:** the `/` Today surface showed misleading numbers a skeptical owner catches. Fix four specific metric-honesty findings; make numbers honest (placeholder / labelled / qualified), reuse the existing awaiting-data + sample-quality patterns, do not fabricate. Default surface is legacy (`BEACON_TODAY_V2=false`).
+
+**Fixed (NOT committed/pushed; typecheck clean; targeted today tests green):**
+- **#357 (CRITICAL) — silent cumulative-as-current swap.** `src/app/(shell)/today-data.ts` `useDerivedKpis = todayKpis !== null`: when today's/yesterday's derived `daily_metric_snapshots` row is missing, `totalCitations`/`totalMentions` silently fell back to the cumulative ALL-TIME `results` totals (`visibilitySummary.total*`, summed with no date filter) and rendered them as the "Times AI recommended you" headline with no "as of" label. Added a `cumulativeFallback` flag (`!useDerivedKpis && resultCount > 0`) threaded to `TodayScoreboard`; on that path the count tile now renders the "—" awaiting-reading placeholder (the ai-visibility-hero pattern) + meta "Awaiting today's reading — refresh your connected data for a current count.", and suppresses the week-over-week pill. Genuine first-run-no-data still uses its own copy.
+- **#356 (CRITICAL) — share-capture banner styled as a proven win.** `src/components/today/visibility-leaderboard.tsx`: the banner is a coincidence test (its provenance builder hardcodes trustLevel `unreliable`) but shipped with `bg-status-success` + `text-status-success` "Share capture:" framing. Restyled to neutral (`border-border/60 bg-surface-inset/30`, muted "Possible share shift:") + added the caveat "Directional, not proven — these moves happened in the same window, but Beacon hasn't verified the gain came from them." Shared component, so v2 (`today-v2-client.tsx:335`) is covered too.
+- **#322 — "last updated today" hardcoded-success freshness.** `src/components/today/morning-brief.tsx` `DataFreshness`: `diffDays <= 1` (which includes YESTERDAY) returned green "Data is current — last updated today", presenting an observation date as a refresh event. Rewrote to report the real reading age — "today" only when `diffDays === 0`, "yesterday" at 1, "N days old" beyond — with honest "refresh your connected data" copy and a null-date branch.
+- **#376 — single-day mention rate as a stable fact.** `today-data.ts` + `today-scoreboard.tsx`: "How often AI mentions you: 23%" had no sample context. Threaded `mentionRateSampleSize` (= `answerIntelProof.totalObservations`) to the tile; meta now appends "across N AI answers", and on a thin sample (<30 obs) leads with "small sample (N AI answers) — can swing day to day".
+
+**Tests:** updated `src/components/today/today-scoreboard.test.tsx` (+#357 placeholder, +#376 thin/healthy sample) and added `src/components/today/metric-honesty.test.tsx` (#356 banner styling/caveat, #322 freshness age). `npm run typecheck` clean. Targeted run: today components + score-provenance + morning-brief + trust-label architecture + today-data = **287/287 green** (incl. 4 new). Full suite NOT run, no commit/push per instructions.
+
+---
+
 ## 2026-06-15 PM (de-vert config-threading round 2 — vertical-tuned classifiers → tenant-driven)
 
 **Directive (continued):** "remove ALL hardcoding for builders … go deep w dynamic workflow we are officially a tool for everyone." Round 1 removed the active wrong-output leaks; round 2 converts the remaining vertical-TUNED classifiers/scorers to read the tenant's own config vocabulary.

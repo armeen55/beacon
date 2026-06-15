@@ -1611,6 +1611,14 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     resultCount: visibilitySummary.resultCount,
     dateRange: visibilitySummary.dateRange,
     mentionRate: answerIntelProof?.overallMentionRate ?? null,
+    /**
+     * Metric-honesty fix #376 (2026-06-14). The observation count the
+     * mention-rate % was computed over, so the tile can show an honest
+     * sample-size qualifier instead of presenting a thin-sample rate as a
+     * stable headline fact. Same source as overallMentionRate (the
+     * answer-intelligence index's total_observations).
+     */
+    mentionRateSampleSize: answerIntelProof?.totalObservations ?? null,
     decliningTopicCount: answerIntelProof?.decliningTopics.length ?? 0,
     risingTopicCount: answerIntelProof?.risingTopics.length ?? 0,
     weekOverWeekCitations: visibilitySummary.weekOverWeekCitations,
@@ -1631,6 +1639,18 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       useDerivedKpis && pollHealth
         ? aggregateSamplingStatus(pollHealth)
         : null,
+    /**
+     * Metric-honesty fix #357 (2026-06-14). When there is NO derived daily
+     * snapshot for today or yesterday, `totalCitations`/`totalMentions`
+     * above fell back to the cumulative all-time `results` totals. Flag it
+     * so the scoreboard renders the "—" awaiting-reading placeholder
+     * instead of silently presenting a since-forever total as today's
+     * number. The genuinely-empty first-run case (no results at all) is
+     * handled separately in the scoreboard via `isFirstRunNoData`, so this
+     * stays false there to avoid a double placeholder.
+     */
+    cumulativeFallback:
+      !useDerivedKpis && visibilitySummary.resultCount > 0,
   };
 
   // FAQ schema coverage metric

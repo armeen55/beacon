@@ -19,15 +19,44 @@ import {
 // Data freshness indicator
 // ---------------------------------------------------------------------------
 
-function DataFreshness({ date }: { date: string }) {
-  const dataDate = new Date(date);
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - dataDate.getTime()) / (1000 * 60 * 60 * 24));
+// Metric-honesty fix #322 (2026-06-14): this line previously read
+// "Data is current — last updated today" (green/success) whenever the
+// latest data date was within ~1 day. Two problems a skeptical owner
+// catches: (1) `diffDays <= 1` is true for YESTERDAY's data too, so it
+// claimed "today" when the freshest reading was a day old; (2) the date
+// is the latest OBSERVATION date, not a real "refresh" event — saying
+// "last updated today" implies Beacon did something today when it may not
+// have. Fixed to report the actual age of the latest reading honestly and
+// only say "today" when diffDays is genuinely 0. Null/invalid date no
+// longer collapses to a false "today" — it states the data date is
+// unknown instead.
+function DataFreshness({ date }: { date: string | null }) {
+  const dataDate = date ? new Date(date) : null;
+  if (!dataDate || Number.isNaN(dataDate.getTime())) {
+    return (
+      <p className="text-[11px] text-muted-foreground -mt-4 mb-2">
+        Latest reading date unknown — refresh your connected data for a current picture
+      </p>
+    );
+  }
 
-  if (diffDays <= 1) {
+  const now = new Date();
+  const diffDays = Math.floor(
+    (now.getTime() - dataDate.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (diffDays <= 0) {
     return (
       <p className="text-[11px] text-status-success -mt-4 mb-2">
-        Data is current — last updated today
+        Latest reading is from today
+      </p>
+    );
+  }
+
+  if (diffDays === 1) {
+    return (
+      <p className="text-[11px] text-muted-foreground -mt-4 mb-2">
+        Latest reading is from yesterday — refresh your connected data for today&apos;s picture
       </p>
     );
   }
@@ -35,14 +64,14 @@ function DataFreshness({ date }: { date: string }) {
   if (diffDays <= 3) {
     return (
       <p className="text-[11px] text-muted-foreground -mt-4 mb-2">
-        Data from {diffDays} days ago — import fresh data for latest insights
+        Latest reading is {diffDays} days old — refresh your connected data for the latest insights
       </p>
     );
   }
 
   return (
     <p className="text-[11px] text-status-warning -mt-4 mb-2">
-      Data is {diffDays} days old — import fresh data to keep recommendations accurate
+      Latest reading is {diffDays} days old — refresh your connected data to keep recommendations accurate
     </p>
   );
 }

@@ -78,8 +78,12 @@ describe("Task 1 — tile meta renders sampling tag when status is proof/partial
 
 describe("Task 1 — week-over-week delta pill suppressed when asOfDate is set", () => {
   it("Times-AI-recommended-you tile sets delta to null when asOfDate is non-null", () => {
-    // Pre-existing behavior: line uses ternary `asOfDate ? null : wowCit`.
-    expect(SCOREBOARD_SRC).toMatch(/delta=\{asOfDate \? null : wowCit\}/);
+    // Suppression strengthened 2026-06-15 (#357): the citations tile also nulls
+    // the delta on the cumulative-fallback path (missing today snapshot), so a
+    // misleading WoW pill never rides an all-time total.
+    expect(SCOREBOARD_SRC).toMatch(
+      /delta=\{asOfDate \|\| cumulativeFallback \? null : wowCit\}/,
+    );
   });
 
   it("How-often-AI-mentions-you tile also suppresses delta when asOfDate is set", () => {
@@ -138,7 +142,7 @@ describe("Task 1 — operator-mandated test invariants", () => {
     // cannot drive a misleading headline delta because the delta is
     // suppressed entirely when asOfDate is set. The samplingTag in
     // meta makes the small-sample status visible to the user.
-    expect(SCOREBOARD_SRC).toMatch(/asOfDate \? null : wowCit/);
+    expect(SCOREBOARD_SRC).toMatch(/asOfDate \|\| cumulativeFallback \? null : wowCit/);
     expect(SCOREBOARD_SRC).toMatch(/asOfDate \? null : wowMen/);
   });
 });
