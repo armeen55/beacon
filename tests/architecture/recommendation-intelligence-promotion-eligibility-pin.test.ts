@@ -45,7 +45,7 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["gsc_striking_distance::edit_title", "customer-queue-ready"],
   ["gsc_decay::update_intro", "customer-queue-ready"],
 
-  // operator-review-only (9)
+  // operator-review-only (10)
   ["duplicate_title::edit_title", "operator-review-only"],
   ["duplicate_meta::edit_meta", "operator-review-only"],
   ["canonical_mismatch::fix_canonical", "operator-review-only"],
@@ -62,6 +62,10 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   // AEO answer-block readiness (2026-06-12, deliberate): directive
   // only, owner writes the answer — operator review.
   ["missing_answer_block::add_answer_block", "operator-review-only"],
+  // Profound AEO-gap (2026-06-14, deliberate): the tenant's PAID
+  // answer-engine data shows a competitor cited on a topic where the
+  // tenant is absent — directive only, owner authors the answer.
+  ["profound_aeo_gap::add_answer_block", "operator-review-only"],
   ["title_h1_mismatch::edit_title", "operator-review-only"],
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],

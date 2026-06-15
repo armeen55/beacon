@@ -233,6 +233,23 @@ export function uncitedContentCopy(): string {
   );
 }
 
+/**
+ * Profound AEO-gap (2026-06-14): a topic where AI assistants answer
+ * citing a competitor while the tenant is absent. Names the competitor
+ * + the number of AI answers seen; the play is an extractable answer
+ * block. `competitor` is a caller-supplied brand name (interpolated like
+ * the keyword in the gap copies); the vocab scan probes it.
+ */
+export function profoundAeoGapCopy(competitor: string, aiAnswers: number): string {
+  return (
+    "On a topic AI assistants get asked about, they\u2019re recommending \u201c" +
+    competitor +
+    "\u201d \u2014 not you \u2014 across about " +
+    aiAnswers.toLocaleString("en-US") +
+    " answers. Add a clear, quotable answer on your site for this topic so AI engines can cite you instead."
+  );
+}
+
 export function keywordGapExpandCopy(keyword: string, volume: number): string {
   return (
     "A rival already wins \u201c" +

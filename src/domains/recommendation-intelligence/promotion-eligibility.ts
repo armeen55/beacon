@@ -97,6 +97,12 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // to add; the OWNER writes the factual answer (no auto-authoring of
   // cultural/historical claims) — operator review.
   ["missing_answer_block::add_answer_block", "operator-review-only"],
+  // Profound AEO-gap (2026-06-14): the tenant's PAID answer-engine data
+  // shows a topic where a competitor is cited and the tenant is absent.
+  // Same directive posture as missing_answer_block — names the gap +
+  // competitor, the OWNER authors the factual answer block. Operator
+  // review (no auto-authoring of claims).
+  ["profound_aeo_gap::add_answer_block", "operator-review-only"],
   // Legacy 4.5.B baseline predicates — stay operator-review-only
   // until separately validated for customer queue.
   ["title_h1_mismatch::edit_title", "operator-review-only"],

@@ -95,6 +95,12 @@ import { answerBlockReadiness } from "./triggers/answer-block-readiness";
 import { clarityFriction } from "./triggers/clarity-friction";
 import { loadClarityPageSignalsForTenant } from "./clarity-page-signals";
 import { gscDecay } from "./triggers/gsc-decay";
+import { profoundAeoGap } from "./triggers/profound-aeo-gap";
+import {
+  buildOwnAliasSet,
+  loadProfoundTopicSignalsForTenant,
+  type ProfoundTopicSignal,
+} from "./profound-topic-signals";
 import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
 import { semrushCannibalization } from "./triggers/semrush-cannibalization";
 import { semrushKeywordGap } from "./triggers/semrush-keyword-gap";
@@ -152,7 +158,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 16;
+const PREDICATE_COUNT = 17;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -331,6 +337,31 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
+  // Profound AEO-gap (2026-06-14): pre-load per-topic answer-engine
+  // signals from the ALREADY-SYNCED profound_visibility_rows (this reads
+  // synced Supabase rows — it NEVER calls the Profound API). The tenant's
+  // own brand is identified by the config-driven owned-alias set (brand
+  // name + first word + domain host). Soft-empty when Profound isn't
+  // connected / no rows — the predicate then never fires.
+  let profoundTopicSignals: ProfoundTopicSignal[] = [];
+  try {
+    const ownAliases = buildOwnAliasSet({
+      brandName: businessConfig.name,
+      domain: businessConfig.domain,
+    });
+    if (ownAliases.size > 0) {
+      const sigMap = await loadProfoundTopicSignalsForTenant(
+        tenantId,
+        ownAliases,
+      );
+      profoundTopicSignals = Array.from(sigMap.values());
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] profound topic-signals load failed for ${tenantId} (profound_aeo_gap skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Night-shift #44 (2026-06-11): pre-load the per-tenant sitemap
   // lastmod map for the stale-content predicate. Soft-fail to an
   // empty map — unknown age is never evidence of staleness.
@@ -423,6 +454,25 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] semrush keyword-gap load failed for ${tenantId} (predicate skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // Profound AEO-gap (2026-06-14): the FIRST trigger to consume Profound —
+  // the pivot's sole AEO source. Tenant-level (the gap topic is the unit),
+  // so it runs ONCE before the per-snapshot loop. Anchored on the site root
+  // (queue rules require a URL); the owner places the answer block. Pure
+  // predicate over the pre-loaded synced signals.
+  {
+    const rootDomain = businessConfig.domain
+      ?.trim()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "");
+    all.push(
+      ...profoundAeoGap({
+        tenantId,
+        signals: profoundTopicSignals,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
     );
   }
   for (const snapshot of snapshots) {

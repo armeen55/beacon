@@ -134,6 +134,9 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   uncitedContentCopy: [[], []],
   answerBlockReadinessCopy: [["What is Chaharshanbe Suri"], ["q"]],
   clarityFrictionCopy: [["script_errors"], ["rage_clicks"]],
+  // Profound AEO-gap (2026-06-14). Args: (competitor brand name, AI
+  // answers observed). Probe a normal competitor + a long count.
+  profoundAeoGapCopy: [["Supple Homes", 42], ["X", 250000]],
 };
 
 function scanForViolations(output: string): string[] {
