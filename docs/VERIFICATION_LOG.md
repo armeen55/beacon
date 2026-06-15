@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-14 (UX_TEARDOWN safe batches B22-B24 + both-tenant ground-truth)
+
+**Directive:** autonomous /goal — after the fusion ships, return to the UX_TEARDOWN worklist (the goal's primary ordering) and clear safe, bounded, customer-facing finding clusters worst-first; ground-truth both tenants.
+
+**Shipped (each typecheck + full suite 14,911 + build green, pushed to main):**
+- **B22 onboarding first-run polish** (`3530a3e`, #134-#144) — copy+a11y only: step-1 time estimate; website field live-echoes the normalized URL; "New Beacon Account" placeholder → `displayBusinessName` fallback across 3 recaps; unified signup/login pitch; "Saved so far ✓"; geo-first "Cities you serve" → "Where are your customers?"; launch query-string preview lead-in; post-launch revisit → `AlreadyLaunchedNotice` banner (no silent bounce); competitor names-vs-domains hint. Pins: onboard business/scope contracts.
+- **B23 trust/honesty copy** (`c5f3306`, #415-#425) — the wedge is honest numbers; copy/label only: killed phantom "Native-poll rebuilding this index" (#415) + a prompts phantom-cron empty-state (#422); answer-shape enum → `structureLabel()` on 2 leak sites (#417); softened "cause-and-effect"/"causally-proven" over-claims to match the methodology (#419/#425) + per-row Strong-vs-Early badge from the engine's own placebo predicate; "?" overlay documents the real j/k/a/x hotkeys (#420). Pin: proof-sentence.
+- **B24 prompts/AEO residual** (`1b2d64d`, #485/#490/#481) — most already fixed; cleared the residual: "Topic id"+"[city][service]" → plain "Topic"+neutral example (#485); de-verticalized drilldown Ritz doc-comments (#490); per-row toggle pending (#481, contained client change).
+
+**Both-tenant ground-truth (real dev server, then STOPPED; `.env.local` restored to tenant-ritz-founder):** smoked the 5 core surfaces (`/`, `/recommendations`, `/prompts`, `/competitors`, `/changes`) as **tenant-iranopedia** (non-builder, GSC-rich) AND **tenant-ritz-founder** (builder) → **all 200, no crashes, no error banners; Iranopedia renders real GSC-led recs ("Persian Food page").** Confirms the night's rec-pipeline ships (Profound trigger, corroboration bonus) did NOT regress either live queue (both are no-ops on current data — Iranopedia GSC-only → <2 signal classes; Profound empty).
+
 ## 2026-06-14 (Fusion item #3 — bounded fusion corroboration bonus in the priority score)
 
 **Directive:** implement FUSION_ROADMAP item #3 — a bounded, additive "fusion corroboration bonus" so a page carrying ≥2 DISTINCT independent signal classes (GSC-demand / Clarity-friction / GA4-value) earns a small ranking nudge. Conservative + additive only, capped strictly below the index-blocker ceiling, no suppression, `priority-score.ts` stays a pure function.
