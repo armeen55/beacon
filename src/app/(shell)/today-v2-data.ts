@@ -112,6 +112,24 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 // ─────────────────────────────────────────────────────────────────────
 
 /**
+ * Lean PostgREST projection for the V2 command-center canonical
+ * observation reads. Mirrors the legacy /today `TODAY_OBSERVATION_COLUMNS`
+ * list (defined locally rather than imported from `./today-data` to avoid
+ * a module-init order hazard and because that legacy module is slated for
+ * deletion). OMITS the ~5.9 MB `metadata` JSONB + citation/search columns
+ * these rollups never read — the full-row pull was the dominant cause of
+ * the V2 canonical-read statement-timeout for a data-rich tenant. If the
+ * descriptor/visibility rollups ever consume a new column, add it here.
+ */
+const V2_OBSERVATION_COLUMNS =
+  "id, prompt_id, run_id, answer_hash, position, tracked_brand_mentioned, " +
+  "tracked_brand_cited, citation_count, owned_citation_count, mentions, " +
+  "observed_at, platform, topic, tenant_id, mention_position, citation_rank, " +
+  "primary_recommendation, descriptor_window, competitor_co_mentions, " +
+  "citation_domain_classes, answer_structure, citation_urls, " +
+  "competitor_descriptor_windows";
+
+/**
  * Shared canonical data load. 60d observation window (covers
  * descriptor + visibility-derived data); 120d snapshot window
  * (keeps verdict-baseline math honest, mirrors the recommendations
@@ -139,7 +157,15 @@ export const loadCachedFreshCanonical = cache(async () => {
   const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  return loadFreshCanonicalData({ observationsSince, snapshotsSince });
+  // Lean projection — omit the ~5.9 MB `metadata` JSONB + unused citation/
+  // search columns this surface never reads. The full-row pull was the
+  // dominant cause of the V2 canonical-read statement-timeout for a
+  // data-rich tenant. Same column set the legacy /today path already uses.
+  return loadFreshCanonicalData({
+    observationsSince,
+    snapshotsSince,
+    observationsColumns: V2_OBSERVATION_COLUMNS,
+  });
 });
 
 /**
@@ -167,7 +193,13 @@ export const loadCachedFreshCanonical14d = cache(async () => {
   const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  return loadFreshCanonicalData({ observationsSince, snapshotsSince });
+  // Lean projection (see loadCachedFreshCanonical) — descriptors read the
+  // same rollup columns and never touch `metadata`.
+  return loadFreshCanonicalData({
+    observationsSince,
+    snapshotsSince,
+    observationsColumns: V2_OBSERVATION_COLUMNS,
+  });
 });
 
 /**
@@ -299,7 +331,16 @@ export const loadTodayV2HasAeoData = cache(async (): Promise<boolean> => {
     const tenantId = await currentTenantId();
     const repo = getRepository().forTenant(tenantId);
     const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
-    const recentObs = await repo.getPromptAnswerObservations({ since });
+    // Existence-only probe — we just need ">0", never the row bodies. Project
+    // the single indexed `observed_at` column so the read is lean: the
+    // default full-row pull dragged the ~5.9 MB `metadata` JSONB across the
+    // wire for a data-rich tenant (Ritz), causing the #72 statement-timeout —
+    // and this probe is awaited INLINE before any section streams, so the
+    // timeout hung the entire V2 page. Lean projection makes it index-fast.
+    const recentObs = await repo.getPromptAnswerObservations({
+      since,
+      columns: "observed_at",
+    });
     return recentObs.length > 0;
   } catch (err) {
     console.error("[today-v2] hasAeoData probe failed:", err);
@@ -1059,7 +1100,13 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
     const repo = getRepository().forTenant(tenantId);
     const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
     const [recentObs, prompts] = await Promise.all([
-      repo.getPromptAnswerObservations({ since }),
+      // observationCount only feeds `observationCount > 0` below — we never
+      // read the row bodies here, so project the lean `observed_at` column.
+      // The full-row pull dragged the heavy `metadata` JSONB across the wire
+      // and statement-timed-out for a data-rich tenant; since this gate is
+      // awaited FIRST (before any section streams), that timeout hung the
+      // whole V2 page. Lean projection keeps the gate index-fast.
+      repo.getPromptAnswerObservations({ since, columns: "observed_at" }),
       repo.getTrackedPrompts(),
     ]);
     observationCount = recentObs.length;
