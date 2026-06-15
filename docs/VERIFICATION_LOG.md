@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-15 (DAY SHIFT — directed de-bloat: native-poll/cron rip-out + dual-surface orphans + copy honesty)
+
+**Directive:** autonomous /goal until 3 PM PT — execute the big DIRECTED de-bloat (rip out native-poll/crons, collapse dual surfaces) the prior session deferred; it's pre-authorized (rails pause only for data-deletion / irreversible-migration / hosted-env).
+
+**Shipped (each typecheck + full `npx vitest run` + build green, pushed to main, both tenants smoked where render-affecting):**
+- **`c961676`** — Today inbox-zero "Check back tomorrow" → on-demand (phantom-daily-run copy).
+- **`ef6206a`** — **native-poll/cron SCAFFOLDING ripped out: 39 files / ~9.4k lines** (5 scheduled GitHub workflows → only ci.yml remains; 14 cron/CLI scripts + ops/active-tenants.json; 5 CRON_SECRET routes /api/poll/run + /api/cron/{scan,poll-watchdog,rebuild-citation-evidence-index}; poll-watchdog + morning-digest domain; 15 cron-scaffold tests) + 15 edits (package.json keys, supabase-middleware 4 dead allowlist branches, test reconciliations incl. re-sourcing brand-assertions-tenant-key off the deleted JSON → structural tenant-id-format invariant, 6 catalog rows). **KEPT** the native-poll engine (run-poll.ts + adapters + clients — the on-demand "Run AI reading" action uses it) + every observation reader. Map by read-only workflow wf_3a5e8495-586. Suite 14,628. Both tenants render 200 incl. /diagnostics/connectors.
+- **`4d30f9b`** — phantom-automation copy killed on 5 live surfaces (methodology, evidence-freshness-banner, import-page, command-center, visibility-score-chart) → on-demand-honest; no "Profound" in customer copy.
+- **`8085409`** — **4 dead dual-surface orphans deleted (~2.1k lines)**: today-v2-client.tsx + today-performance.tsx (task #67 claimed-but-never-deleted; zero importers) + changes/{change-contract-client,contract-actions} (zero route importers). Reconciled today-v2-chart-hierarchy.test (deleted, pinned the dead file), no-tenant-id CLEANED_FILES, 1 catalog row. Map by workflow wf_3162d87f-a8a. Suite 14,591.
+- **`c6a8a87`** — deindex-safety parity: v2 recs card + [id] detail now render INDEXING_DIRECTIVE_CAVEAT (legacy had it, v2 didn't — a ?v2=1 customer could paste a deindex directive unwarned). Additive, reuses existing predicate+constant. Suite 14,596.
+
+**Staged/attended (NOT bulldozed — would break tenants):** the full legacy-vs-v2 COLLAPSE (flip BEACON_*_V2 defaults + delete legacy) per map wf_3162d87f-a8a: recs v2 lacks authoritative accept/defer + (now-fixed) caveat; today v2 is a feature subset (drops command-center/poll-health/action-queue); changes v2 needs CSV-export ported. All need feature ports + a production soak before the legacy delete — documented as the attended final phase in HANDOFF.
+
 ## 2026-06-14 (UX_TEARDOWN safe batches B22-B24 + both-tenant ground-truth)
 
 **Directive:** autonomous /goal — after the fusion ships, return to the UX_TEARDOWN worklist (the goal's primary ordering) and clear safe, bounded, customer-facing finding clusters worst-first; ground-truth both tenants.
