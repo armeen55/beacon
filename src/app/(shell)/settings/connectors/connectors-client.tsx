@@ -28,7 +28,13 @@ import {
   selectGoogleLocation,
   listGa4Properties,
   selectGa4Property,
+  syncGscNow,
+  syncGa4Now,
+  syncSemrushNow,
+  syncProfoundNow,
+  syncClarityNow,
 } from "./actions";
+import type { ConnectorSyncNowResult } from "./actions";
 
 type SelectedLocation = { id: string; name: string } | null;
 
@@ -134,6 +140,22 @@ export function ConnectorsClient({
   const [googleSyncInFlight, setGoogleSyncInFlight] = useState(false);
   const [yelpSyncInFlight, setYelpSyncInFlight] = useState(false);
   const [yelpKeyInput, setYelpKeyInput] = useState("");
+
+  // Customer "Pull my data now" affordances (2026-06-14) — each
+  // connected source gets a per-card sync button wired to its
+  // server action; a per-card pending flag + last-result message
+  // mirror the Google/Yelp Sync-now idiom above.
+  type SyncResultMsg = { ok: boolean; text: string } | null;
+  const [gscSyncPending, setGscSyncPending] = useState(false);
+  const [gscSyncResult, setGscSyncResult] = useState<SyncResultMsg>(null);
+  const [ga4SyncPending, setGa4SyncPending] = useState(false);
+  const [ga4SyncResult, setGa4SyncResult] = useState<SyncResultMsg>(null);
+  const [semrushSyncPending, setSemrushSyncPending] = useState(false);
+  const [semrushSyncResult, setSemrushSyncResult] = useState<SyncResultMsg>(null);
+  const [profoundSyncPending, setProfoundSyncPending] = useState(false);
+  const [profoundSyncResult, setProfoundSyncResult] = useState<SyncResultMsg>(null);
+  const [claritySyncPending, setClaritySyncPending] = useState(false);
+  const [claritySyncResult, setClaritySyncResult] = useState<SyncResultMsg>(null);
 
   const [selectedLocation, setSelectedLocation] = useState<SelectedLocation>(initialSelectedLocation);
   const [locationOptions, setLocationOptions] = useState<LocationOption[] | null>(null);
@@ -523,6 +545,35 @@ export function ConnectorsClient({
     }
   }
 
+  // Shared driver for the per-connector "Pull my data now" buttons.
+  // Runs the action inside the transition, toggles the card's pending
+  // flag, and stores the returned detail (ok) / error (failure) as a
+  // small status line on the card. router.refresh() so any freshly
+  // synced data shows on the rest of the app.
+  function handleConnectorSyncNow(
+    action: () => Promise<ConnectorSyncNowResult>,
+    setPending: (b: boolean) => void,
+    setResult: (r: SyncResultMsg) => void,
+  ) {
+    setResult(null);
+    setPending(true);
+    startTransition(async () => {
+      try {
+        const result = await action();
+        if (result.ok) {
+          setResult({ ok: true, text: result.detail ?? "Synced." });
+          router.refresh();
+        } else {
+          setResult({ ok: false, text: result.error ?? "Sync failed." });
+        }
+      } catch (e) {
+        setResult({ ok: false, text: e instanceof Error ? e.message : "Sync failed." });
+      } finally {
+        setPending(false);
+      }
+    });
+  }
+
   const anySync = googleSyncInFlight || yelpSyncInFlight;
 
   return (
@@ -571,6 +622,13 @@ export function ConnectorsClient({
                     </p>
                   </>
                 ) : null}
+                {gscSyncResult ? (
+                  <p
+                    className={`text-[12px] ${gscSyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                  >
+                    {gscSyncResult.text}
+                  </p>
+                ) : null}
               </>
             ) : (
               <>
@@ -611,6 +669,16 @@ export function ConnectorsClient({
                     {googleSyncInFlight ? "Syncing…" : "Sync now"}
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleConnectorSyncNow(syncGscNow, setGscSyncPending, setGscSyncResult)
+                  }
+                  disabled={gscSyncPending || isPending}
+                  className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+                >
+                  {gscSyncPending ? "Syncing…" : "Pull my Search Console data"}
+                </button>
                 <button
                   type="button"
                   onClick={handleDisconnect}
@@ -744,6 +812,13 @@ export function ConnectorsClient({
                     Connected. Select a property to finish setup.
                   </p>
                 )}
+                {ga4SyncResult ? (
+                  <p
+                    className={`text-[12px] ${ga4SyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                  >
+                    {ga4SyncResult.text}
+                  </p>
+                ) : null}
               </>
             ) : (
               <>
@@ -767,15 +842,29 @@ export function ConnectorsClient({
 
           <div className="flex shrink-0 flex-col items-end gap-2">
             {ga4.status === "connected" ? (
-              <button
-                type="button"
-                onClick={handleDisconnectGa4}
-                disabled={isPending || anySync}
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-                title="Soft disconnect — historical data stays cached but no new data refreshes until you reconnect."
-              >
-                {isPending ? "Disconnecting…" : "Disconnect"}
-              </button>
+              <>
+                {ga4.ga4_property_id ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleConnectorSyncNow(syncGa4Now, setGa4SyncPending, setGa4SyncResult)
+                    }
+                    disabled={ga4SyncPending || isPending}
+                    className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+                  >
+                    {ga4SyncPending ? "Syncing…" : "Pull my data now"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleDisconnectGa4}
+                  disabled={isPending || anySync}
+                  className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+                  title="Soft disconnect — historical data stays cached but no new data refreshes until you reconnect."
+                >
+                  {isPending ? "Disconnecting…" : "Disconnect"}
+                </button>
+              </>
             ) : (
               <button
                 type="button"
@@ -1054,9 +1143,18 @@ export function ConnectorsClient({
           <div className="min-w-0 space-y-1">
             <h3 className="text-[13px] font-semibold text-foreground">Semrush</h3>
             {semrush.status === "connected" ? (
-              <p className="text-[12px] text-muted-foreground">
-                Connected &middot; Authorized {formatDate(semrush.connected_at)}
-              </p>
+              <>
+                <p className="text-[12px] text-muted-foreground">
+                  Connected &middot; Authorized {formatDate(semrush.connected_at)}
+                </p>
+                {semrushSyncResult ? (
+                  <p
+                    className={`text-[12px] ${semrushSyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                  >
+                    {semrushSyncResult.text}
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="text-[12px] text-muted-foreground">
                 Connect your Semrush API key so Beacon can see which
@@ -1067,14 +1165,26 @@ export function ConnectorsClient({
             )}
           </div>
           {semrush.status === "connected" ? (
-            <button
-              type="button"
-              onClick={() => handleSimpleDisconnect(disconnectSemrush, setSemrush)}
-              disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-            >
-              Disconnect
-            </button>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  handleConnectorSyncNow(syncSemrushNow, setSemrushSyncPending, setSemrushSyncResult)
+                }
+                disabled={semrushSyncPending || isPending}
+                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              >
+                {semrushSyncPending ? "Syncing…" : "Pull my data now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSimpleDisconnect(disconnectSemrush, setSemrush)}
+                disabled={isPending}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              >
+                Disconnect
+              </button>
+            </div>
           ) : null}
         </div>
         {semrush.status !== "connected" ? (
@@ -1129,9 +1239,18 @@ export function ConnectorsClient({
           <div className="min-w-0 space-y-1">
             <h3 className="text-[13px] font-semibold text-foreground">Profound</h3>
             {profound.status === "connected" ? (
-              <p className="text-[12px] text-muted-foreground">
-                Connected &middot; Authorized {formatDate(profound.connected_at)}
-              </p>
+              <>
+                <p className="text-[12px] text-muted-foreground">
+                  Connected &middot; Authorized {formatDate(profound.connected_at)}
+                </p>
+                {profoundSyncResult ? (
+                  <p
+                    className={`text-[12px] ${profoundSyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                  >
+                    {profoundSyncResult.text}
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="text-[12px] text-muted-foreground">
                 Connect your Profound API key so Beacon can track how AI
@@ -1141,14 +1260,26 @@ export function ConnectorsClient({
             )}
           </div>
           {profound.status === "connected" ? (
-            <button
-              type="button"
-              onClick={() => handleSimpleDisconnect(disconnectProfound, setProfound)}
-              disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-            >
-              Disconnect
-            </button>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  handleConnectorSyncNow(syncProfoundNow, setProfoundSyncPending, setProfoundSyncResult)
+                }
+                disabled={profoundSyncPending || isPending}
+                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              >
+                {profoundSyncPending ? "Syncing…" : "Pull my data now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSimpleDisconnect(disconnectProfound, setProfound)}
+                disabled={isPending}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              >
+                Disconnect
+              </button>
+            </div>
           ) : null}
         </div>
         {profound.status !== "connected" ? (
@@ -1191,9 +1322,18 @@ export function ConnectorsClient({
               Microsoft Clarity
             </h3>
             {clarity.status === "connected" ? (
-              <p className="text-[12px] text-muted-foreground">
-                Connected &middot; Authorized {formatDate(clarity.connected_at)}
-              </p>
+              <>
+                <p className="text-[12px] text-muted-foreground">
+                  Connected &middot; Authorized {formatDate(clarity.connected_at)}
+                </p>
+                {claritySyncResult ? (
+                  <p
+                    className={`text-[12px] ${claritySyncResult.ok ? "text-status-safe" : "text-status-warning"}`}
+                  >
+                    {claritySyncResult.text}
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="text-[12px] text-muted-foreground">
                 Connect a Clarity API token so Beacon can see where
@@ -1205,14 +1345,26 @@ export function ConnectorsClient({
             )}
           </div>
           {clarity.status === "connected" ? (
-            <button
-              type="button"
-              onClick={() => handleSimpleDisconnect(disconnectClarity, setClarity)}
-              disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-            >
-              Disconnect
-            </button>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  handleConnectorSyncNow(syncClarityNow, setClaritySyncPending, setClaritySyncResult)
+                }
+                disabled={claritySyncPending || isPending}
+                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              >
+                {claritySyncPending ? "Syncing…" : "Pull my data now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSimpleDisconnect(disconnectClarity, setClarity)}
+                disabled={isPending}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              >
+                Disconnect
+              </button>
+            </div>
           ) : null}
         </div>
         {clarity.status !== "connected" ? (
