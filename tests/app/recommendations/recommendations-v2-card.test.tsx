@@ -9,7 +9,11 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { RecommendationV2Card, deriveEvidenceChips } from "@/components/recommendations/v2/recommendation-v2-card";
+import {
+  RecommendationV2Card,
+  deriveEvidenceChips,
+  parseGscEvidenceStats,
+} from "@/components/recommendations/v2/recommendation-v2-card";
 import type { RecommendationActionRow } from "@/domains/recommendations/recommendation-action-rows";
 
 function makeRow(overrides: Partial<RecommendationActionRow> = {}): RecommendationActionRow {
@@ -118,6 +122,31 @@ describe("Bundle 2A — RecommendationV2Card", () => {
     expect(html).toContain("AI cites Greenberg on 4 of 7 prompts; Ritz absent.");
   });
 
+  // #296 — when the evidence summary IS the structured GSC line, the card
+  // surfaces the four numbers as a scannable stat strip instead of prose.
+  it("renders a GSC stat strip when the summary is the structured GSC line", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card
+        row={makeRow({
+          evidenceSummary:
+            "1,240 clicks · 18,300 impressions · 6.8% CTR · avg position 8.3 (90-day Google Search)",
+        })}
+      />,
+    );
+    expect(html).toContain('data-recommendation-v2-gsc-stats="true"');
+    expect(html).toContain('data-recommendation-v2-gsc-stat="impressions"');
+    expect(html).toContain("18,300");
+    expect(html).toContain('data-recommendation-v2-gsc-stat="clicks"');
+    expect(html).toContain("1,240");
+    expect(html).toContain('data-recommendation-v2-gsc-stat="position"');
+    expect(html).toContain("8.3");
+    expect(html).toContain('data-recommendation-v2-gsc-stat="ctr"');
+    expect(html).toContain("6.8%");
+    expect(html).toContain("Last 90 days, Google Search");
+    // The prose `why` paragraph is suppressed for the GSC stat case.
+    expect(html).not.toContain('data-recommendation-v2-why="true"');
+  });
+
   it("renders evidence chips with the deterministic chip set", () => {
     const html = renderToStaticMarkup(<RecommendationV2Card row={makeRow()} />);
     expect(html).toContain('data-recommendation-v2-chip="type"');
@@ -178,6 +207,34 @@ describe("Bundle 2A — RecommendationV2Card", () => {
     expect(html).not.toContain("prioritizer_score");
     // No raw priority/score numbers.
     expect(html).not.toMatch(/score[":>\s]+\d+/i);
+  });
+});
+
+// #296 — parseGscEvidenceStats: pure parser over the structured GSC line.
+describe("parseGscEvidenceStats", () => {
+  it("parses the structured GSC evidence summary into four stats", () => {
+    const stats = parseGscEvidenceStats(
+      "1,240 clicks · 18,300 impressions · 6.8% CTR · avg position 8.3 (90-day Google Search)",
+    );
+    expect(stats).not.toBeNull();
+    expect(stats).toEqual([
+      { key: "impressions", label: "impressions", value: "18,300" },
+      { key: "clicks", label: "clicks", value: "1,240" },
+      { key: "position", label: "avg position", value: "8.3" },
+      { key: "ctr", label: "CTR", value: "6.8%" },
+    ]);
+  });
+
+  it("returns null for a non-GSC prose summary", () => {
+    expect(
+      parseGscEvidenceStats("AI cites Greenberg on 4 of 7 prompts; Ritz absent."),
+    ).toBeNull();
+  });
+
+  it("returns null for null/empty input", () => {
+    expect(parseGscEvidenceStats(null)).toBeNull();
+    expect(parseGscEvidenceStats(undefined)).toBeNull();
+    expect(parseGscEvidenceStats("")).toBeNull();
   });
 });
 

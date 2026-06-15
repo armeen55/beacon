@@ -41,6 +41,7 @@ import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard
 import { cn } from "@/lib/utils";
 import { RecommendationDetailActions } from "./recommendation-detail-actions";
 import { SuggestedCopyAct } from "./suggested-copy-act";
+import { parseGscEvidenceStats } from "@/components/recommendations/v2/recommendation-v2-card";
 
 // ─────────────────────────────────────────────────────────────────────
 // Style tables (mirror the v2 card's vocabulary so the brief feels
@@ -127,6 +128,9 @@ export function RecommendationDetailClient({
     : whyGuard.ok
       ? whyGuard.text
       : whyGuard.fallback;
+  // #296 — when the lead summary IS the structured GSC line, render it as
+  // a scannable stat strip in the header instead of a prose sentence.
+  const gscStats = parseGscEvidenceStats(row.evidenceSummary);
   const measurementPlan = row.detail.measurementPlan?.trim() || null;
   const competitor = row.detail.topCompetitor;
   const observationCount = row.detail.observationCount;
@@ -234,13 +238,38 @@ export function RecommendationDetailClient({
             </span>
           )}
         </p>
-        {why && (
-          <p
-            className="text-[13px] text-foreground/85 leading-relaxed max-w-2xl"
-            data-recommendation-detail-lead="true"
+        {gscStats ? (
+          <div
+            className="flex flex-wrap items-baseline gap-x-5 gap-y-1"
+            data-recommendation-detail-gsc-stats="true"
           >
-            {why}
-          </p>
+            {gscStats.map((stat) => (
+              <span
+                key={stat.key}
+                className="inline-flex items-baseline gap-1"
+                data-recommendation-detail-gsc-stat={stat.key}
+              >
+                <span className="text-[15px] font-semibold tabular-nums text-foreground">
+                  {stat.value}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {stat.label}
+                </span>
+              </span>
+            ))}
+            <span className="text-[11px] text-muted-foreground/60 w-full">
+              Last 90 days, Google Search
+            </span>
+          </div>
+        ) : (
+          why && (
+            <p
+              className="text-[13px] text-foreground/85 leading-relaxed max-w-2xl"
+              data-recommendation-detail-lead="true"
+            >
+              {why}
+            </p>
+          )
         )}
       </header>
 

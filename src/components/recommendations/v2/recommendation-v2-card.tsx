@@ -149,6 +149,36 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 1).trimEnd() + "…";
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// #296 — Google Search stat strip. When the row's one-line evidence
+// summary IS the structured 90-day GSC line (built in
+// `buildEvidenceSummary`: "X clicks · Y impressions · Z% CTR · avg
+// position N (90-day Google Search)"), surface those four numbers as
+// small scannable stats instead of a prose paragraph. Pure display:
+// the data is already on the row — no new plumbing. Returns null when
+// the summary isn't the GSC line, so non-GSC rows keep their prose.
+// ─────────────────────────────────────────────────────────────────────
+
+export type GscStat = { key: string; label: string; value: string };
+
+const GSC_EVIDENCE_RE =
+  /^([\d,]+)\s+clicks\s+·\s+([\d,]+)\s+impressions\s+·\s+([\d.]+)%\s+CTR\s+·\s+avg position\s+([\d.]+)\s+\(90-day Google Search\)$/;
+
+export function parseGscEvidenceStats(
+  summary: string | null | undefined,
+): GscStat[] | null {
+  if (!summary) return null;
+  const m = GSC_EVIDENCE_RE.exec(summary.trim());
+  if (!m) return null;
+  const [, clicks, impressions, ctrPct, pos] = m;
+  return [
+    { key: "impressions", label: "impressions", value: impressions },
+    { key: "clicks", label: "clicks", value: clicks },
+    { key: "position", label: "avg position", value: pos },
+    { key: "ctr", label: "CTR", value: `${ctrPct}%` },
+  ];
+}
+
 const CHIP_TONE_CLASS: Record<Chip["tone"], string> = {
   neutral: "border-border/60 bg-surface-inset/40 text-muted-foreground",
   accent: "border-accent-primary/30 bg-accent-primary/[0.06] text-accent-primary",
@@ -245,6 +275,10 @@ export function RecommendationV2Card({
       ? whyGuard.text
       : whyGuard.fallback;
 
+  // #296 — when the evidence summary IS the structured GSC line, render
+  // it as a scannable stat strip instead of a prose paragraph.
+  const gscStats = parseGscEvidenceStats(row.evidenceSummary);
+
   return (
     <article
       className={cn(
@@ -324,14 +358,42 @@ export function RecommendationV2Card({
         )}
       </p>
 
-      {/* Why this matters — one line */}
-      {why && (
-        <p
-          className="mt-3 text-[12px] text-foreground/85 leading-relaxed"
-          data-recommendation-v2-why="true"
+      {/* #296 — Google Search stat strip (scannable) replaces the prose
+          GSC sentence when the evidence summary is the structured GSC
+          line. Plain-labeled, compact, tabular-nums for alignment. */}
+      {gscStats ? (
+        <div
+          className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1"
+          data-recommendation-v2-gsc-stats="true"
         >
-          {why}
-        </p>
+          {gscStats.map((stat) => (
+            <span
+              key={stat.key}
+              className="inline-flex items-baseline gap-1"
+              data-recommendation-v2-gsc-stat={stat.key}
+            >
+              <span className="text-[13px] font-semibold tabular-nums text-foreground">
+                {stat.value}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {stat.label}
+              </span>
+            </span>
+          ))}
+          <span className="text-[10px] text-muted-foreground/60 w-full">
+            Last 90 days, Google Search
+          </span>
+        </div>
+      ) : (
+        /* Why this matters — one line */
+        why && (
+          <p
+            className="mt-3 text-[12px] text-foreground/85 leading-relaxed"
+            data-recommendation-v2-why="true"
+          >
+            {why}
+          </p>
+        )
       )}
 
       {/* Evidence chips — max 3 */}

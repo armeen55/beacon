@@ -44,7 +44,7 @@ const DEFAULT_DIRECTORY_DOMAINS: readonly string[] = [
 ];
 
 /** Strip TLD + title-case a bare domain into a readable fallback label. */
-function prettifyDomain(domain: string): string {
+export function prettifyDomain(domain: string): string {
   const base = domain.replace(/^www\./, "").replace(/\.[a-z.]+$/i, "");
   return base
     .split(/[-.]/)

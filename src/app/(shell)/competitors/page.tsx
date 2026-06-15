@@ -5,7 +5,7 @@ import { KpiCard } from "@/components/viz/kpi-card";
 import { getCompetitors, getResults, hasActiveExperiment } from "@/lib/seed-data.server";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getPageIssues } from "@/domains/pages/issues";
-import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
+import { computeMarketBenchmark, prettifyDomain, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { normalizeCompetitorDomain } from "@/domains/competitors/universe-normalize";
 import { CompetitorsManageClient } from "./competitors-manage-client";
@@ -239,6 +239,19 @@ export default async function CompetitorsPage() {
         title="Market"
         description="Who beats you, where they beat you, and exactly what to do about it."
       />
+
+      {/* #336 — primary, one-click affordance to add a competitor. Anchors
+          to the manage section below so the owner never has to hunt through
+          the collapsed "data setup" area to start tracking a rival. */}
+      <div className="mb-6 flex justify-end">
+        <Link
+          href="#manage-competitors"
+          className="inline-flex items-center gap-1.5 rounded-md border border-accent-primary/40 bg-accent-primary/[0.06] px-3 py-1.5 text-[12px] font-medium text-accent-primary hover:bg-accent-primary/[0.12]"
+          data-competitors-track-cta="true"
+        >
+          <span aria-hidden="true">+</span> Track a competitor
+        </Link>
+      </div>
 
       <MarketLocalStrip model={marketLocalStripModel} className="mb-6" />
 
@@ -555,6 +568,17 @@ export default async function CompetitorsPage() {
                   </div>
                   {qualifiedCompetitors.map((comp) => {
                     const absentHeavy = comp.when_owned_absent > comp.when_owned_present * 3;
+                    // #293 — show the friendly competitor name (from the
+                    // configured universe's domainToLabel) where available,
+                    // falling back to a prettified domain. The raw domain
+                    // stays as a small subtitle for verification.
+                    const normalizedDomain = normalizeCompetitorDomain(comp.domain);
+                    const friendlyName =
+                      universe.domainToLabel[normalizedDomain] ??
+                      universe.domainToLabel[comp.domain] ??
+                      prettifyDomain(comp.domain);
+                    const showDomainSubtitle =
+                      friendlyName.toLowerCase() !== comp.domain.toLowerCase();
                     return (
                       <div
                         key={comp.domain}
@@ -564,7 +588,12 @@ export default async function CompetitorsPage() {
                         )}
                       >
                         <div className="min-w-0">
-                          <p className="text-[12px] font-medium truncate">{comp.domain}</p>
+                          <p className="text-[12px] font-medium truncate">{friendlyName}</p>
+                          {showDomainSubtitle && (
+                            <p className="text-[10px] text-muted-foreground/70 truncate">
+                              {comp.domain}
+                            </p>
+                          )}
                         </div>
                         <span className="text-right text-[12px] tabular-nums font-medium">
                           {comp.when_owned_present.toLocaleString()}
@@ -615,7 +644,17 @@ export default async function CompetitorsPage() {
                                 <p className="text-[10px] text-muted-foreground mt-1">
                                   Who fills the gap:{" "}
                                   <span className="text-foreground font-medium">
-                                    {topic.top_when_absent.slice(0, 3).map((c) => c.domain).join(", ")}
+                                    {topic.top_when_absent
+                                      .slice(0, 3)
+                                      .map(
+                                        (c) =>
+                                          universe.domainToLabel[
+                                            normalizeCompetitorDomain(c.domain)
+                                          ] ??
+                                          universe.domainToLabel[c.domain] ??
+                                          prettifyDomain(c.domain),
+                                      )
+                                      .join(", ")}
                                   </span>
                                 </p>
                               )}
@@ -814,11 +853,16 @@ export default async function CompetitorsPage() {
         </div>
       )}
 
-      <div className="border-t border-border/50 pt-6 mt-10">
-        <details className="group/universe">
+      <div className="border-t border-border/50 pt-6 mt-10" id="manage-competitors">
+        {/* #336 — make "Track a competitor" discoverable. The add/edit
+            form used to be buried inside this collapsed "data setup"
+            section; now it opens by default whenever no competitors are
+            configured (the case that most needs the form), and the
+            summary names the action plainly. */}
+        <details className="group/universe" open={activeUniverse.length === 0}>
           <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
             <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/universe:rotate-90">▶</span>
-            Universe &amp; data setup
+            Track a competitor &amp; manage your universe
           </summary>
           <div className="mt-5 space-y-6">
             <div className="rounded-md border border-border/60 bg-surface-raised/25 px-4 py-3 text-[11px] text-muted-foreground space-y-2">

@@ -345,10 +345,17 @@ function ActionBridge({
       </section>
     );
   }
+  // #294 — land the owner on the live v2 recommendations queue (the
+  // surface the rest of the app links to) instead of the legacy cold
+  // list. A per-rec deep link from a prompt is NOT resolvable here:
+  // the prompt drilldown carries no recommendation id (the v2 brief's
+  // `hasLinkedRecommendation` is only a boolean, with no id plumbed
+  // through), so a `/recommendations/<id>` target would need new
+  // prompt→rec linkage. Deferred — see report.
   return (
     <section className="mb-6">
       <Link
-        href="/recommendations"
+        href="/recommendations?v2=1"
         className="inline-flex items-center gap-1 text-[13px] font-medium text-accent-primary hover:underline underline-offset-2"
         data-prompt-action-bridge="recommendations"
       >

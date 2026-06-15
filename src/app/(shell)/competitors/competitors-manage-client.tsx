@@ -73,11 +73,11 @@ export function CompetitorsManageClient({
           <button
             type="button"
             className={cn(
-              "text-[11px] px-3 py-1.5 rounded-md border border-border hover:bg-surface-raised"
+              "text-[11px] px-3 py-1.5 rounded-md border border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary font-medium hover:bg-accent-primary/[0.12]"
             )}
             onClick={() => setRows((r) => [...r, emptyRow()])}
           >
-            Add row
+            + Add a competitor
           </button>
           <button
             type="button"

@@ -230,8 +230,9 @@ describe("Phase 3-bis fix 7 (2026-05-06) — /prompts/[id] action bridge", () =>
 
   it("'See related recommendations →' link exists for actionable categories", () => {
     expect(PROMPTS_DETAIL).toMatch(/See related recommendations →/);
+    // 2026-06-15: bridge now points at the live v2 queue (?v2=1).
     expect(PROMPTS_DETAIL).toMatch(
-      /href="\/recommendations"[\s\S]{0,200}data-prompt-action-bridge="recommendations"/,
+      /href="\/recommendations\?v2=1"[\s\S]{0,200}data-prompt-action-bridge="recommendations"/,
     );
   });
 
