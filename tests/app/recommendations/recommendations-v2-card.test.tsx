@@ -182,7 +182,7 @@ describe("Bundle 2A — RecommendationV2Card", () => {
 });
 
 describe("Bundle 2A — deriveEvidenceChips fallbacks", () => {
-  it("falls back to 'AI-drafted edit' chip when no competitor and shallow evidence", () => {
+  it("falls back to the 'Suggested edit' chip when no competitor and shallow evidence", () => {
     const chips = deriveEvidenceChips(
       makeRow({
         detail: {
@@ -197,7 +197,7 @@ describe("Bundle 2A — deriveEvidenceChips fallbacks", () => {
     expect(chips.map((c) => c.key)).toEqual(["type", "drafted"]);
   });
 
-  it("falls back to 'Page-level pattern' chip when no competitor but evidenceDepth >= 4", () => {
+  it("falls back to the 'Applies to this page' chip when no competitor but evidenceDepth >= 4", () => {
     const chips = deriveEvidenceChips(
       makeRow({
         detail: {

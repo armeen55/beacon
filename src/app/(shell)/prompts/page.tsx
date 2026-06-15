@@ -142,8 +142,8 @@ export default async function PromptsPage({
   return (
     <div className="max-w-4xl">
       <PageHeader
-        title="AI answers (optional)"
-        description="Optional AI-answer intelligence — how AI assistants answer your buyers' questions, with or without you. Your core search-demand moves live on Today and Recommendations."
+        title="AI Answers"
+        description="How AI assistants (like ChatGPT) answer your buyers' questions — and whether they mention you. Each question is sorted into a status: Winning (you're the top answer), Close (you're mentioned, not first), Outranked (competitors win, you're absent), Absent (AI never mentions you), or Early (not enough readings yet)."
       />
 
       {totalPrompts === 0 ? (
@@ -397,14 +397,14 @@ function PromptRow({
           <ul className="mt-1.5 flex flex-wrap gap-1">
             {hasRankedListMiss && (
               <li className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 bg-surface-inset/30 text-muted-foreground">
-                Not on the list
+                Not in AI&apos;s recommended list
               </li>
             )}
             {clusterTags.map((t) => {
               const [type, ...rest] = t.split(":");
               const rawLabel = rest.join(":");
               const label = prettifySlug(rawLabel) ?? rawLabel;
-              const kind = type === "geo_cluster" ? "geo" : "topic";
+              const kind = type === "geo_cluster" ? "Area" : "Topic";
               return (
                 <li
                   key={t}

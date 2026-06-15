@@ -138,12 +138,14 @@ describe("UX.3 — RecommendationsClient wiring", () => {
   });
 });
 
-describe("UX.3 — derived 'needs_review' reframed to 'Needs more evidence'", () => {
-  it("DERIVED_PILL_LABEL.needs_review === 'Needs more evidence'", () => {
+describe("UX.3 — derived 'needs_review' reframed to 'Lower confidence — optional'", () => {
+  it("DERIVED_PILL_LABEL.needs_review === 'Lower confidence — optional'", () => {
     // Source-level pin so a future regression that reverts the copy
-    // is caught at build time.
+    // is caught at build time. 2026-06-14: softened from the earlier
+    // "Needs more evidence" (read as scary on a danger-red pill) to a
+    // non-blocking, optional framing.
     expect(CLIENT_SRC).toMatch(
-      /needs_review:\s*"Needs more evidence"/,
+      /needs_review:\s*"Lower confidence — optional"/,
     );
     expect(CLIENT_SRC).not.toMatch(
       /needs_review:\s*"Needs review",/,

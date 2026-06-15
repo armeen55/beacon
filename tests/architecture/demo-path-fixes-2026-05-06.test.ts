@@ -340,13 +340,16 @@ describe("Demo-path Phase C fix 7 (2026-05-06) — /prompts polish", () => {
     );
   });
 
-  it("/prompts list 'ranked list miss' renamed to 'Not on the list'", () => {
+  it("/prompts list 'ranked list miss' renamed to a plain-English tag", () => {
+    // 2026-06-14 — relabeled from the cryptic "Not on the list" to the
+    // self-explanatory "Not in AI's recommended list" (rendered with an
+    // HTML apostrophe entity in JSX).
     const promptsList = readFileSync(
       resolve(REPO_ROOT, "src/app/(shell)/prompts/page.tsx"),
       "utf8",
     );
     const stripped = stripComments(promptsList);
-    expect(stripped).toMatch(/Not on the list/);
+    expect(stripped).toMatch(/Not in AI&apos;s recommended list/);
     expect(stripped).not.toMatch(/ranked list miss/);
   });
 

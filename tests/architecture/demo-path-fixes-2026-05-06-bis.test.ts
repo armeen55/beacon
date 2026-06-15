@@ -221,8 +221,10 @@ describe("Phase 3-bis fix 7 (2026-05-06) — /prompts/[id] action bridge", () =>
   });
 
   it("'No action queued yet' fallback exists for early-category prompts", () => {
+    // 2026-06-14 — reworded off the false-monitoring "Beacon will keep
+    // watching" claim to honest on-demand language (refresh connectors).
     expect(PROMPTS_DETAIL).toMatch(
-      /No action queued yet — Beacon will keep watching this prompt/,
+      /No action queued yet — too few AI readings so far\./,
     );
   });
 

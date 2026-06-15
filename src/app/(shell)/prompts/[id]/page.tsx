@@ -339,8 +339,8 @@ function ActionBridge({
     return (
       <section className="mb-6 rounded-md border border-border/40 bg-surface-inset/20 px-4 py-2.5">
         <p className="text-[12px] leading-relaxed text-muted-foreground">
-          No action queued yet — Beacon will keep watching this prompt as
-          more answers come in.
+          No action queued yet — too few AI readings so far. Refresh your
+          connected data (Settings → Connectors) to add more readings.
         </p>
       </section>
     );

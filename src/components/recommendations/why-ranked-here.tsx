@@ -88,7 +88,7 @@ const CONFIDENCE_SENTENCE: Record<
   moderate_evidence:
     "Moderate evidence: clear signal, but no post-shipping outcome measured yet.",
   needs_review:
-    "Beacon is watching for stronger support before recommending this.",
+    "Lower confidence — based on limited data so far. Optional, not urgent.",
 };
 
 export function composeWhyRankedReasons(row: WhyRankedHereRow): string[] {

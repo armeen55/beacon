@@ -22,9 +22,9 @@
  * Customer-vocabulary contract (forbidden-vocabulary guardrail):
  *   • Never renders raw schema fields, IDs, hashes, resolver tiers,
  *     stable keys, evidence_tier labels, raw enum keys, or score numbers.
- *   • Confidence renders as plain English ("High", "Medium", "Needs more
- *     evidence"). Status pills use the operator-friendly labels already
- *     locked in `ACTION_ROW_STATUS_LABEL`.
+ *   • Confidence renders as plain English ("High", "Medium", "Lower
+ *     confidence — optional"). Status pills use the operator-friendly
+ *     labels already locked in `ACTION_ROW_STATUS_LABEL`.
  */
 
 import Link from "next/link";
@@ -76,7 +76,10 @@ const CONFIDENCE_DOT: Record<RecommendationActionRow["derivedConfidence"], strin
 const CONFIDENCE_LABEL: Record<RecommendationActionRow["derivedConfidence"], string> = {
   strong_evidence: "High",
   moderate_evidence: "Medium",
-  needs_review: "Needs more evidence",
+  // 2026-06-14 — softened from "Needs more evidence" to a non-blocking,
+  // optional framing so a low-confidence card doesn't read as scary on
+  // an action the owner is invited to take.
+  needs_review: "Lower confidence — optional",
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -124,7 +127,7 @@ export function deriveEvidenceChips(row: RecommendationActionRow): Chip[] {
   if (row.detail.evidenceDepth >= 4) {
     chips.push({
       key: "depth",
-      label: "Page-level pattern",
+      label: "Applies to this page",
       tone: "success",
     });
     return chips.slice(0, 3);
@@ -133,7 +136,7 @@ export function deriveEvidenceChips(row: RecommendationActionRow): Chip[] {
   if (row.editSource === "openai") {
     chips.push({
       key: "drafted",
-      label: "AI-drafted edit",
+      label: "Suggested edit",
       tone: "neutral",
     });
   }

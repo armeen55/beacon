@@ -116,7 +116,7 @@ describe("UX.5B.3 — /recommendations needs-more-evidence microcopy", () => {
       /row\.derivedConfidence === "needs_review"[\s\S]{0,400}data-rec-needs-more-evidence-microcopy="true"/,
     );
     expect(REC_SRC).toMatch(
-      /Beacon is watching for stronger support before\s+recommending this\./,
+      /Worth a look — based on limited data so far\. Optional\./,
     );
   });
 
@@ -198,7 +198,7 @@ describe("UX.5B — no scary/internal language regression", () => {
       "No action queued yet.",
       "AI Visibility",
       "Top pick",
-      "Beacon is watching for stronger support before",
+      "Worth a look — based on limited data so far. Optional.",
     ];
     // Each new string exists somewhere in the touched files.
     for (const s of newStrings) {

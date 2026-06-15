@@ -12,8 +12,8 @@
  *      contain debug fields like prioritizerScore, raw reason codes,
  *      stable keys, or UUID strings.
  *   4. Honesty contract: never claims the rec is validated/proven/
- *      confirmed/winning. The `needs_review` row uses the operator-
- *      locked "Beacon is watching" microcopy.
+ *      confirmed/winning. The `needs_review` row uses the honest,
+ *      non-monitoring "Lower confidence — optional" microcopy.
  *   5. The component is pure — no engine math is invoked. Same row
  *      input → same HTML output (deterministic).
  */
@@ -78,7 +78,8 @@ describe("WhyRankedHere — composition", () => {
     );
     expect(reasons).toHaveLength(2);
     expect(reasons[0]).toContain("Lower priority");
-    expect(reasons[1]).toContain("Beacon is watching");
+    // 2026-06-14 — reworded off the false-monitoring "Beacon is watching".
+    expect(reasons[1]).toContain("Lower confidence — based on limited data so far");
   });
 
   it("emits a single-prompt sentence and no competitor sentence when applicable", () => {
@@ -154,7 +155,9 @@ describe("WhyRankedHere — rendering", () => {
     );
     expect(html).toContain("Why ranked here?");
     expect(html).toContain("Lower priority");
-    expect(html).toContain("Beacon is watching");
+    // 2026-06-14 — needs_review sentence reworded off the false-monitoring
+    // "Beacon is watching" claim to an honest "Lower confidence — optional".
+    expect(html).toContain("Lower confidence — based on limited data so far");
     expect(html).not.toContain("tracked prompts");
     expect(html).not.toContain("observations");
   });

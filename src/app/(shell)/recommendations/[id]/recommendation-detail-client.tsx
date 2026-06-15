@@ -350,7 +350,7 @@ export function RecommendationDetailClient({
           )}
           {row.detail.evidenceDepth >= 4 && (
             <EvidenceTile
-              label="Page-level pattern"
+              label="Applies to this page"
               value="Strong"
               hint="Multiple grounding signals point at the same page."
               dataAttr="depth"

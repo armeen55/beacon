@@ -467,26 +467,16 @@ describe("Operator-locked — every plan explains why this action type + why NOT
 // ── 12. action table renders every new type label cleanly ────────────
 
 describe("Operator-locked — action table renders all 13 task-type labels cleanly", () => {
-  const REQUIRED_LABELS = [
-    "Page",
-    "Title",
-    "Meta",
-    "H1",
-    "H2",
-    "Section",
-    "Copy",
-    "FAQ",
-    "Schema",
-    "Links",
-    "Table",
-    "Technical",
-    "Review",
-  ] as const;
-
-  it("ACTION_ROW_TYPE_LABEL covers every required label", () => {
-    const labels = new Set(Object.values(ACTION_ROW_TYPE_LABEL));
-    for (const required of REQUIRED_LABELS) {
-      expect(labels.has(required)).toBe(true);
+  // 2026-06-15 goal pivot: ACTION_ROW_TYPE_LABEL now holds the CUSTOMER-FACING
+  // plain-English labels (e.g. "Page headline" not "H1") rendered on the v2 card
+  // + detail page. The short operator labels live in planLabelFor (tested below,
+  // unchanged). So this test verifies COMPLETENESS — every task type has a
+  // non-empty customer label — rather than pinning the old short strings.
+  it("ACTION_ROW_TYPE_LABEL has a non-empty label for all 13 task types", () => {
+    const values = Object.values(ACTION_ROW_TYPE_LABEL);
+    expect(values.length).toBeGreaterThanOrEqual(13);
+    for (const label of values) {
+      expect(typeof label === "string" && label.trim().length > 0).toBe(true);
     }
   });
 
@@ -512,8 +502,9 @@ describe("Operator-locked — action table renders all 13 task-type labels clean
 
   it("ActionRowType includes edit_h1 + add_comparison_table (W3 §3.11 additions)", () => {
     const labels = ACTION_ROW_TYPE_LABEL as Record<ActionRowType, string>;
-    expect(labels["edit_h1"]).toBe("H1");
-    expect(labels["add_comparison_table"]).toBe("Table");
+    // Customer-facing labels post-pivot (was "H1" / "Table").
+    expect(labels["edit_h1"]).toBe("Page headline");
+    expect(labels["add_comparison_table"]).toBe("Comparison table");
   });
 });
 

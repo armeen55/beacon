@@ -669,8 +669,7 @@ function ActionRow({
                 className="mt-1 block text-[11px] leading-relaxed text-muted-foreground/85 italic"
                 data-rec-needs-more-evidence-microcopy="true"
               >
-                Beacon is watching for stronger support before
-                recommending this.
+                Worth a look — based on limited data so far. Optional.
               </span>
             ) : null}
           </button>
@@ -982,7 +981,9 @@ const DERIVED_PILL_LABEL: Record<
   // UX.3 (2026-05-07) — reframe from "Needs review" to a more
   // actionable, less-alarming phrase. The status itself doesn't
   // change; only the customer-facing label.
-  needs_review: "Needs more evidence",
+  // 2026-06-14 — softened again from "Needs more evidence" (read as
+  // scary on a danger-red pill) to an optional, non-blocking framing.
+  needs_review: "Lower confidence — optional",
 };
 
 function DerivedConfidencePill({
@@ -999,7 +1000,7 @@ function DerivedConfidencePill({
       data-rec-derived-confidence-pill={derived}
       title={
         derived === "needs_review"
-          ? "Beacon doesn't yet have enough evidence to recommend shipping this. Open the drawer for the evidence breakdown — we'll keep watching."
+          ? "Based on limited data so far — optional, not urgent before shipping. Open the drawer for the evidence breakdown. Refresh your connected data (Settings → Connectors) to strengthen the signal."
           : "Customer-safe confidence label derived from evidence quality (depth, owned page, multi-prompt, competitor, search queries). Open the drawer for the full evidence breakdown."
       }
     >
