@@ -66,6 +66,7 @@ import {
   persistRecommendedEditsLocal,
   dropLifecycleLockedRewrites,
 } from "@/domains/recommendations/recommended-edits-persistence";
+import { validateDeterministicDraftSafety } from "@/domains/recommendations/specific-edit-validator";
 import { getRecommendationResponses } from "@/domains/product/recommendation-response-store";
 
 import {
@@ -113,6 +114,58 @@ export type PromoteEligibleCandidatesResult = {
    *  Local rows are persisted; sync will retry on the next run. */
   sync_warning: string | null;
 };
+
+/**
+ * SAFETY #273 (2026-06-14) — public-copy safety gate at the deterministic
+ * draft → customer-approvable seam.
+ *
+ * Runs `validateDeterministicDraftSafety` on the enriched row's customer-
+ * facing copy (`proposed_text` + `display_label`). When the draft is safe,
+ * the row is returned UNCHANGED. When it trips a public-copy rule (a brand
+ * claim the tenant hasn't authorized, a placeholder phrase, a leading
+ * superlative, an em dash, a bare brand short form), the function ABSTAINS:
+ * it strips the draft fields back to the safe pre-enrichment state — a "go
+ * look at this page" card — so an UNSAFE `proposed_text` is never surfaced
+ * as publishable. The row itself survives (the operator still sees the
+ * issue / page), only the unsafe draft is held back.
+ *
+ * Rows with no `proposed_text` (enrichment already abstained, or the action
+ * type has no deterministic draft) pass through untouched — there is no
+ * customer-visible draft to validate.
+ *
+ * Pure except for the log.warn breadcrumb. Never throws — a validation
+ * failure means "don't offer this draft", not "break the queue".
+ */
+function holdUnsafeDraft(
+  row: DeterministicPromotionEditRow,
+  tenantId: string,
+): DeterministicPromotionEditRow {
+  if (row.proposed_text == null && row.display_label == null) return row;
+  const verdict = validateDeterministicDraftSafety({
+    tenantId,
+    proposedText: row.proposed_text,
+    displayLabel: row.display_label,
+  });
+  if (verdict.ok) return row;
+  log.warn("[promoteEligibleCandidates] held unsafe deterministic draft", {
+    tenantId,
+    rowId: row.id,
+    actionType: row.action_type,
+    field: verdict.field,
+    reason: verdict.reason,
+  });
+  // Abstain: revert the enriched draft to the safe pre-enrichment shape.
+  // The row stays in the queue as a "go look at this page" directive; the
+  // unsafe proposed_text / display_label is never surfaced as publishable.
+  return {
+    ...row,
+    display_label: null,
+    current_text: null,
+    proposed_text: null,
+    expected_impact: null,
+    measurement_plan: null,
+  };
+}
 
 export async function promoteEligibleCandidates(
   input: PromoteEligibleCandidatesInput,
@@ -217,12 +270,20 @@ export async function promoteEligibleCandidates(
   for (const result of eligibleResults) {
     const row = promotionResultToRecommendedEditRow(result, now);
     if (row != null) {
-      collectedRows.push(
-        applyEditFeedbackToRow(
-          enrichPromotionRow(row, result.candidate, enrichmentCtx),
-          editFeedback,
-        ),
+      // SAFETY #273 (2026-06-14): run the public-copy safety validator on
+      // the enriched deterministic draft BEFORE it becomes a customer-
+      // approvable / pushable row. The deterministic promotion path never
+      // built an evidence packet, so `validateSpecificEdit` can't run here;
+      // `holdUnsafeDraft` applies the packet-light public-copy subset
+      // (placeholder / brand-claim / superlative / em-dash / brand-name)
+      // and ABSTAINS — reverting the draft fields to the safe "go look at
+      // this page" card — when the copy would be unsafe to publish. Never
+      // crashes the queue: a failure means "don't offer this draft".
+      const safeRow = holdUnsafeDraft(
+        enrichPromotionRow(row, result.candidate, enrichmentCtx),
+        input.tenantId,
       );
+      collectedRows.push(applyEditFeedbackToRow(safeRow, editFeedback));
     }
   }
   // Dedup by row.id, keeping the FIRST (highest-priority) occurrence

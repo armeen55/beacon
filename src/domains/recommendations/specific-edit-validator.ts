@@ -60,6 +60,7 @@ import {
   findEmDashes,
   findIncompleteBrandMentions,
   findUnsupportedBrandClaims,
+  getBrandAssertions,
   getBrandNameStyle,
 } from "./brand-assertions";
 import type {
@@ -1767,6 +1768,132 @@ export function validateSpecificEditBundle(
     acceptedCount,
     rejectedCount,
   };
+}
+
+// ---------------------------------------------------------------------------
+// SAFETY #273 (2026-06-14) — deterministic-draft public-copy safety gate.
+//
+// `validateSpecificEdit` is the authoritative gate for the LLM provider +
+// the legacy specific-edit provider path. But the DETERMINISTIC promotion
+// pipeline (`recommendation-intelligence/promotion-writer` →
+// `enrichPromotionRow` → `persistRecommendedEditsLocal` /
+// `syncRecommendedEdits`) produces customer-approvable `proposed_text` and
+// `display_label` WITHOUT ever building a `SpecificEditEvidencePacket`, so
+// `validateSpecificEdit` (which is heavily packet-dependent: allowedTargetUrls,
+// allowedActionTypes, targetPageElements inventory, evidence refs, abstention
+// contract) cannot run on it without spuriously rejecting every row.
+//
+// This function isolates the PUBLIC-COPY safety subset — the gates that scan
+// the visitor-readable strings a bad draft could leak onto a live site — and
+// runs them against the promotion row's two customer-facing fields. It needs
+// only `tenantId` (for brand assertions + brand-name style); everything else
+// is packet-independent. Identical env opt-outs to the per-edit path so a
+// row that would be allowed there is allowed here.
+//
+// Gates applied (each scans `proposed_text` + `display_label` ONLY):
+//   - placeholder phrases (always on — never opt-outable)
+//   - leading self-claim superlative (BEACON_ALLOW_LEADING_SUPERLATIVE=1)
+//   - unsupported brand claims (BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=1)
+//   - em dashes (BEACON_ALLOW_EM_DASH=1)
+//   - bare brand short form (BEACON_ALLOW_SHORT_BRAND_NAME=1)
+//
+// Returns the FIRST failure (validator convention) or OK. Pure: no I/O.
+// The caller ABSTAINS (drops the draft fields / suppresses the row) on a
+// failure — it must never crash the promotion queue.
+// ---------------------------------------------------------------------------
+
+export type DeterministicDraftSafetyInput = {
+  readonly tenantId: string;
+  readonly proposedText: string | null;
+  readonly displayLabel: string | null;
+};
+
+export function validateDeterministicDraftSafety(
+  input: DeterministicDraftSafetyInput,
+): ValidationResult {
+  const fields: Array<{ value: string | null; path: string }> = [
+    { value: input.proposedText, path: "proposed_text" },
+    { value: input.displayLabel, path: "display_label" },
+  ];
+
+  // 1. Placeholder phrases — never opt-outable (mirrors validateNoPlaceholder).
+  for (const f of fields) {
+    if (typeof f.value !== "string" || f.value.length === 0) continue;
+    const hit = detectPlaceholder(f.value);
+    if (hit.matched) {
+      return fail(
+        f.path,
+        `${f.path} matches placeholder pattern (${hit.patternId}): ${hit.description}.`,
+      );
+    }
+  }
+
+  // 2. Leading self-claim superlative (BEACON_ALLOW_LEADING_SUPERLATIVE=1).
+  if (process.env.BEACON_ALLOW_LEADING_SUPERLATIVE !== "1") {
+    for (const f of fields) {
+      if (typeof f.value !== "string" || f.value.length === 0) continue;
+      const hit = findLeadingSuperlative(f.value);
+      if (hit) {
+        return fail(
+          f.path,
+          `${f.path} may not start with self-claim superlative '${hit.matched}'.`,
+        );
+      }
+    }
+  }
+
+  // 3. Unsupported brand claims (BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=1).
+  // Uses the tenant's operator-curated assertion list; empty list = every
+  // forbidden pattern stays locked (the safe default).
+  if (process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS !== "1") {
+    const assertions = getBrandAssertions(input.tenantId);
+    for (const f of fields) {
+      if (typeof f.value !== "string" || f.value.length === 0) continue;
+      const matches = findUnsupportedBrandClaims(f.value, assertions);
+      if (matches.length > 0) {
+        const first = matches[0];
+        return fail(
+          f.path,
+          `unsupported brand claim '${first.matchedText}' (pattern: ${first.patternId}) — ${first.description}`,
+        );
+      }
+    }
+  }
+
+  // 4. Em dashes (BEACON_ALLOW_EM_DASH=1).
+  if (process.env.BEACON_ALLOW_EM_DASH !== "1") {
+    for (const f of fields) {
+      if (typeof f.value !== "string" || f.value.length === 0) continue;
+      const matches = findEmDashes(f.value);
+      if (matches.length > 0) {
+        return fail(
+          f.path,
+          `em dash banned in public copy ('${matches[0].char}' near "${matches[0].contextText}").`,
+        );
+      }
+    }
+  }
+
+  // 5. Bare brand short form (BEACON_ALLOW_SHORT_BRAND_NAME=1). No-op for
+  // tenants without a curated brand-name style.
+  if (process.env.BEACON_ALLOW_SHORT_BRAND_NAME !== "1") {
+    const style = getBrandNameStyle(input.tenantId);
+    if (style !== null) {
+      for (const f of fields) {
+        if (typeof f.value !== "string" || f.value.length === 0) continue;
+        const matches = findIncompleteBrandMentions(f.value, style);
+        if (matches.length > 0) {
+          const first = matches[0];
+          return fail(
+            f.path,
+            `brand short form '${first.shortForm}' alone is not allowed in public copy (use the full entity name '${first.fullName}').`,
+          );
+        }
+      }
+    }
+  }
+
+  return OK;
 }
 
 /**
