@@ -33,6 +33,8 @@ import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendatio
 import { getChangelogEntries as _getChangelogEntriesUnused } from "@/lib/seed-data.server";
 import { buildChangelogIdByRecId } from "@/domains/recommendations/changelog-link";
 import { buildRecommendationActionRows } from "@/domains/recommendations/recommendation-action-rows";
+import { pickBackfilledCurrentText } from "@/domains/recommendations/backfill-current-text";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
 import {
   decodeRecommendationRouteId,
@@ -223,6 +225,48 @@ export default async function RecommendationDetailPage({
       }
     }
 
+    // Before → after backfill (2026-06-15). When the resolved edit carries
+    // no stored current_text (generated before a scan captured the page),
+    // pull the live field value from the latest page snapshot for its
+    // target URL so the Suggested Copy act can show a real before → after.
+    // One tenant-scoped indexed read; DETAIL-ONLY (never the list); fully
+    // fail-soft (any error leaves the row proposed-only).
+    let detailRow = resolution.row;
+    try {
+      const targetUrl = resolution.row.targetUrl;
+      const existing = resolution.row.detail.currentText;
+      if (targetUrl && (existing == null || existing.trim() === "")) {
+        const { data } = await trace.time("backfillBeforeSnapshot", () =>
+          getSupabaseAdmin()
+            .from("page_snapshots")
+            .select("title, meta_description, h1, fetched_at")
+            .eq("tenant_id", tenantId)
+            .eq("url", targetUrl)
+            .order("fetched_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        );
+        const before = pickBackfilledCurrentText({
+          actionType: resolution.row.actionType,
+          existingCurrentText: existing,
+          proposedText: resolution.row.detail.proposedText,
+          snapshot: (data as {
+            title?: string | null;
+            meta_description?: string | null;
+            h1?: string | null;
+          } | null) ?? null,
+        });
+        if (before != null) {
+          detailRow = {
+            ...resolution.row,
+            detail: { ...resolution.row.detail, currentText: before },
+          };
+        }
+      }
+    } catch {
+      // fail-soft: leave detailRow = resolution.row (proposed-only).
+    }
+
     if (debugResolver) {
       return (
         <>
@@ -243,7 +287,7 @@ export default async function RecommendationDetailPage({
           />
           <MoveForecastBanner forecast={moveForecast} />
           <RecommendationDetailClient
-            row={resolution.row}
+            row={detailRow}
             changelogId={
               changelogIdByRecId[resolution.row.sourceRecommendationId] ?? null
             }
@@ -258,7 +302,7 @@ export default async function RecommendationDetailPage({
       <>
         <MoveForecastBanner forecast={moveForecast} />
         <RecommendationDetailClient
-          row={resolution.row}
+          row={detailRow}
           changelogId={
             changelogIdByRecId[resolution.row.sourceRecommendationId] ?? null
           }
