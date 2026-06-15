@@ -473,18 +473,30 @@ export function TodayClient({
       <div className="space-y-6">
         <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
           <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
-            Import your data to see your real command center
+            Connect your data sources to see your real command center
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            Today shows your visibility scoreboard and ranked actions once you import
-            your first visibility data set.
+            Connect Google Search Console (plus GA4, SEMrush, or
+            Clarity) and refresh to see your visibility scoreboard and ranked
+            actions. Three steps: 1. Connect your sources → 2. Refresh → 3.
+            Review your recommendations.
           </p>
           <Link
-            href="/settings/import"
+            href="/settings/connectors"
             className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
           >
-            Go to Import →
+            Connect data sources →
           </Link>
+          <p className="mt-3 text-[12px] text-muted-foreground">
+            Or{" "}
+            <Link
+              href="/settings/import"
+              className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+            >
+              import a CSV
+            </Link>{" "}
+            instead.
+          </p>
         </div>
       </div>
     );

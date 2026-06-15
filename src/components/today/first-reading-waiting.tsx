@@ -44,6 +44,12 @@ export function FirstReadingWaiting({
             dashboard. Beacon analyzes your website and tracks how AI search
             engines describe your business {context.nextReadingDescription}.
           </p>
+          <Link
+            href="/settings/connectors"
+            className="inline-flex items-center rounded-md bg-accent-primary px-4 py-2 text-[13px] font-semibold text-white hover:bg-accent-primary/90"
+          >
+            Connect your data sources →
+          </Link>
         </div>
 
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3">
@@ -120,16 +126,24 @@ export function FirstReadingWaiting({
           <p className="font-medium">What happens next</p>
           <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
             <li>
-              When you refresh, Beacon reviews your website&apos;s pages and
-              checks how the AI search engines describe your business.
+              <Link
+                href="/settings/connectors"
+                className="font-medium text-foreground underline underline-offset-2 hover:text-accent-primary"
+              >
+                Connect your sources
+              </Link>{" "}
+              — Google Search Console plus optional GA4, SEMrush, or
+              Clarity.
             </li>
             <li>
-              Your dashboard will fill in with the search demand for your
-              pages, how AI engines describe you, and who they compare you to.
+              Refresh — Beacon reviews your website&apos;s pages and checks how
+              the AI search engines describe your business, then fills your
+              dashboard with the search demand for your pages and who they
+              compare you to.
             </li>
             <li>
-              Once your first reading comes in, you&apos;ll see suggestions for
-              the next move you can make.
+              Review your recommendations — once your first reading comes in,
+              you&apos;ll see suggestions for the next move you can make.
             </li>
           </ol>
         </div>
