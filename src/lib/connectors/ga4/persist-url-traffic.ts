@@ -68,11 +68,15 @@ import type { Ga4FailReason, Ga4UrlTrafficRow } from "./types";
 
 const TABLE = "ga4_url_traffic";
 
-/** Default lookback when no edit has an earlier `live_at`. */
-const DEFAULT_LOOKBACK_DAYS = 90;
+/** Default lookback when no edit has an earlier `live_at`. Raised to ~14
+ *  months (2026-06-15) — GA4's standard data-retention max — so the unified
+ *  dashboard reflects the FULL traffic history the property holds, not just a
+ *  recent slice. GA4 returns from the property's data-start; requesting beyond
+ *  retention simply yields no rows for those days (harmless). */
+const DEFAULT_LOOKBACK_DAYS = 420;
 
-/** Hard cap on history (defensive bound; tunable post-deploy). */
-const MAX_LOOKBACK_DAYS = 180;
+/** Hard cap on history (defensive bound). Matches GA4's ~14-month retention. */
+const MAX_LOOKBACK_DAYS = 420;
 
 const ONE_DAY_MS = 86_400_000;
 

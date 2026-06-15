@@ -66,7 +66,15 @@ function urlField(row: Record<string, unknown>): string | null {
 }
 
 /** Fetch yesterday-ish per-URL behavioral metrics (numOfDays=1).
- *  ONE request — the whole daily budget the harvester spends. */
+ *  ONE request — the whole daily budget the harvester spends.
+ *
+ *  Kept at numOfDays=1 deliberately: the Clarity Data Export API returns a
+ *  SINGLE aggregate per URL over the requested window with NO per-day
+ *  breakdown, and the sync stamps every row with one date (yesterday). So
+ *  numOfDays>1 would mislabel a multi-day total as a single day's metrics
+ *  (3× inflation). Clarity exposes only a rolling 1–3 day window and cannot
+ *  backfill — long-term history is ACCUMULATED forward, one clean daily row
+ *  per refresh, never fetched in bulk. */
 export async function fetchClarityUrlMetrics(args: {
   tenantId: string;
 }): Promise<ClarityUrlMetrics[] | null> {
