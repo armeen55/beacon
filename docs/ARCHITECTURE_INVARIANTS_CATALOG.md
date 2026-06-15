@@ -177,7 +177,6 @@
 | today-empty-state-copy | `tests/architecture/today-empty-state-copy.test.ts` | D3 (operator audit, 2026-05-05) | KPI empty-state guidance copy. | active | Permanent — customer-vocabulary floor. | 2026-05-14 |
 | today-first-reading-short-circuit | `tests/architecture/today-first-reading-short-circuit.test.ts` | Today perf cleanup (2026-05-12) | `resolveFirstReadingState` short-circuit + silent fail-soft. | active | Permanent — first-reading correctness. | 2026-05-14 |
 | today-headline-sampling | `tests/architecture/today-headline-sampling.test.ts` | Pre-plan | `/today` headline KPI tile honors `samplingStatus`. | active | Permanent — sampling correctness. | 2026-05-14 |
-| today-v2-chart-hierarchy | `tests/architecture/today-v2-chart-hierarchy.test.ts` | Today v2 (2026-05-12, two passes) | Visibility chart hierarchy + rank copy + legacy-cleanup guardrails. | active | Permanent — UX contract. | 2026-05-14 |
 | v2-qa-polish-bundle | `tests/architecture/v2-qa-polish-bundle.test.ts` | v2 QA polish bundle (2026-05-11) | Source-level pins for fixes without a natural render-test home. | active | Permanent — v2 regression guard. | 2026-05-14 |
 | v2-recommendations-no-customer-legacy-hops | `tests/architecture/v2-recommendations-no-customer-legacy-hops.test.ts` | UX follow-up (2026-05-13) | `/recommendations` v2 surface must NOT push customers into legacy. | active | Retire only when legacy routes are removed entirely. | 2026-05-14 |
 
