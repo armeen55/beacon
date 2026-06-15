@@ -58,9 +58,10 @@ function shouldUsePromptsDetailV2(
  * Layout is deliberately anti-analytical:
  *   1. Header block: category + rich decision sentence + prompt text + tags.
  *      This is the "so what" — strongest line on the page.
- *   2. Platform split: 2 cards, Ritz's state per platform.
+ *   2. Platform split: 2 cards, the brand's state per platform.
  *   3. Who else is here: top competitors by appearance frequency.
- *   4. Words AI used near you: descriptor chip cloud (when Ritz mentioned).
+ *   4. Words AI used near you: descriptor chip cloud (when the brand is
+ *      mentioned).
  *   5. Answer shape: one-line callout only when a single structure ≥60%.
  *   6. Raw evidence: last 3 observations collapsed, click to expand.
  *
@@ -698,7 +699,7 @@ function PrimaryAnswerBlock({
     headline = `No single primary — ${distinct} different entities split the top slot across ${s.totalAnswers} answers.`;
     tone = "mixed";
   } else {
-    // Ritz mentioned but never primary AND no competitor majority AND
+    // Brand mentioned but never primary AND no competitor majority AND
     // not fragmented (single entity but < 50%). Rare. Or: nobody mentioned
     // at all (ritzState="absent" with no competitors).
     headline =

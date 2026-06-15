@@ -39,9 +39,9 @@ export const dynamic = "force-dynamic";
  * /settings/prompts — minimum-viable prompt-set management hub
  * (Phase v5 Commit 4, 2026-04-24).
  *
- * Operator-facing: "which prompts run tomorrow's cron, toggle any off,
- * add a new one." No inline editing; no bulk ops; no tenant picker
- * (single-tenant today). Intentionally thin.
+ * Operator-facing: "which prompts run the next time you refresh your
+ * connected data, toggle any off, add a new one." No inline editing; no
+ * bulk ops; no tenant picker (single-tenant today). Intentionally thin.
  *
  * Deploy hardening (2026-05-12) — pre-fix the page called
  * `loadFreshCanonicalData({ observationsSince, snapshotsSince })` which

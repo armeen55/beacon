@@ -26,6 +26,9 @@ export type PromptRow = {
 export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
+  // Track which single prompt is mid-toggle so only that row's button
+  // disables — toggling one prompt must not freeze the whole list.
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Add-form state.
   const [showForm, setShowForm] = useState(false);
@@ -39,6 +42,7 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
 
   function onToggle(prompt: PromptRow) {
     setMessage(null);
+    setTogglingId(prompt.id);
     startTransition(async () => {
       const res = await togglePromptActive(prompt.id, !prompt.is_active);
       if (!res.success) {
@@ -48,6 +52,7 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
           `${prompt.is_active ? "Deactivated" : "Activated"}: ${prompt.text.slice(0, 60)}${prompt.text.length > 60 ? "…" : ""}`,
         );
       }
+      setTogglingId(null);
     });
   }
 
@@ -123,16 +128,19 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-[11px] font-medium text-foreground mb-1">
-                Topic id
+                Topic
               </label>
               <input
                 type="text"
                 value={formTopic}
                 onChange={(e) => setFormTopic(e.target.value)}
                 required
-                placeholder="e.g. [city] [service]"
+                placeholder="e.g. Pricing, Reviews, Services"
                 className="w-full text-[13px] rounded-md border border-border/60 bg-background px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-primary/40"
               />
+              <p className="mt-1 text-[10px] text-muted-foreground leading-relaxed">
+                A short label to group this question with similar ones.
+              </p>
             </div>
             <div>
               <label className="block text-[11px] font-medium text-foreground mb-1">
@@ -209,14 +217,14 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
               <ul className="mt-1 flex flex-wrap gap-1">
                 {p.topic_id && (
                   <li className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground">
-                    <span className="font-medium text-foreground/80">topic</span>
+                    <span className="font-medium text-foreground/80">Topic</span>
                     <span className="mx-0.5">·</span>
                     <span>{p.topic_id}</span>
                   </li>
                 )}
                 {p.location_scope && (
                   <li className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground">
-                    <span className="font-medium text-foreground/80">geo</span>
+                    <span className="font-medium text-foreground/80">Area</span>
                     <span className="mx-0.5">·</span>
                     <span>{p.location_scope}</span>
                   </li>
@@ -231,7 +239,7 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
             <button
               type="button"
               onClick={() => onToggle(p)}
-              disabled={pending}
+              disabled={togglingId === p.id}
               className={cn(
                 "shrink-0 text-[11px] font-medium px-2 py-1 rounded-md border disabled:opacity-50",
                 p.is_active
@@ -240,7 +248,11 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
               )}
               aria-label={p.is_active ? "Deactivate prompt" : "Activate prompt"}
             >
-              {p.is_active ? "Deactivate" : "Activate"}
+              {togglingId === p.id
+                ? "Saving…"
+                : p.is_active
+                  ? "Deactivate"
+                  : "Activate"}
             </button>
           </li>
         ))}
