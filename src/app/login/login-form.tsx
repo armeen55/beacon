@@ -29,7 +29,11 @@ export function LoginForm({
 
   if (sent || localSent) {
     return (
-      <div className="rounded-md border border-foreground/15 p-4 text-[13px]">
+      <div
+        role="status"
+        aria-live="polite"
+        className="rounded-md border border-foreground/15 p-4 text-[13px]"
+      >
         Check your email. Click the link to sign in.
       </div>
     );
@@ -54,7 +58,7 @@ export function LoginForm({
         placeholder="you@example.com"
       />
       {(localError || error) && (
-        <p className="text-[12px] text-red-600">{localError || error}</p>
+        <p role="alert" className="text-[12px] text-red-600">{localError || error}</p>
       )}
       <button
         type="submit"

@@ -273,6 +273,8 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
 
       {result && (
         <div
+          role={result.success ? "status" : "alert"}
+          aria-live={result.success ? "polite" : "assertive"}
           className={`rounded-lg border px-4 py-3 text-[12px] ${
             result.success
               ? "border-status-success/30 bg-status-success/[0.05] text-status-success"
