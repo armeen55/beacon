@@ -292,6 +292,11 @@ export function RecommendationV2Card({
   // difficulty + current rank), built from the rec's SEMrush signal.
   // Default [] mirrors the GSC guard so a row without it never crashes.
   const semrushEvidenceLines = row.detail.semrushEvidenceLines ?? [];
+  // 2026-06-15 — Microsoft Clarity friction evidence (rage-clicks / page
+  // errors) + AI-answer gap evidence (white-label). Same [] guard so a row
+  // without either never crashes; dormant until those sources are connected.
+  const clarityEvidenceLines = row.detail.clarityEvidenceLines ?? [];
+  const aeoEvidenceLines = row.detail.aeoEvidenceLines ?? [];
 
   return (
     <article
@@ -448,6 +453,54 @@ export function RecommendationV2Card({
               key={line.key}
               className="text-[11px] leading-snug"
               data-recommendation-v2-semrush-evidence-line={line.key}
+            >
+              <span className="font-semibold text-foreground">
+                {line.value}
+              </span>{" "}
+              <span className="text-muted-foreground">{line.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* 2026-06-15 — Microsoft Clarity friction evidence: rage-clicks /
+          page errors as a percent of sessions. Honest: rendered only when
+          the Clarity signal carried friction above the sourced thresholds.
+          Reuses the same list UI as the GSC / SEMrush lines. */}
+      {clarityEvidenceLines.length > 0 && (
+        <ul
+          className="mt-2.5 space-y-1"
+          data-recommendation-v2-clarity-evidence="true"
+        >
+          {clarityEvidenceLines.map((line) => (
+            <li
+              key={line.key}
+              className="text-[11px] leading-snug"
+              data-recommendation-v2-clarity-evidence-line={line.key}
+            >
+              <span className="font-semibold text-foreground">
+                {line.value}
+              </span>{" "}
+              <span className="text-muted-foreground">{line.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* 2026-06-15 — AI-answer gap evidence (white-label): AI assistants
+          answer this topic citing a rival across ~N answers while you're
+          absent. Honest: rendered only when the rec carries answer-engine
+          gap evidence. Reuses the same list UI. */}
+      {aeoEvidenceLines.length > 0 && (
+        <ul
+          className="mt-2.5 space-y-1"
+          data-recommendation-v2-aeo-evidence="true"
+        >
+          {aeoEvidenceLines.map((line) => (
+            <li
+              key={line.key}
+              className="text-[11px] leading-snug"
+              data-recommendation-v2-aeo-evidence-line={line.key}
             >
               <span className="font-semibold text-foreground">
                 {line.value}

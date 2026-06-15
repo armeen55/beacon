@@ -39,7 +39,13 @@ import type {
   SemrushKeywordSignal,
   SemrushPageSignal,
 } from "./semrush-page-signals";
+import type { ClarityPageSignal } from "./clarity-page-signals";
 import { EXPECTED_CTR_BY_POSITION } from "./triggers/gsc-low-ctr";
+import {
+  MIN_CLARITY_SESSIONS,
+  RAGE_RATE,
+  SCRIPT_ERROR_RATE,
+} from "./triggers/clarity-friction";
 
 /** One scannable evidence bullet. `value` is the bold number/phrase, `label`
  *  the plain-English caption. `detail` is an optional full-sentence "why now"
@@ -259,6 +265,210 @@ export function buildSemrushEvidenceLines(
       value: `“${target.keyword}”`,
       label: `search volume ${volume}${kdLabel} · you rank #${rank}`,
       detail: `“${target.keyword}” gets about ${volume} searches a month and you rank #${rank} — just short of page one.${kdSentence} One content pass could push it onto page one.`,
+    },
+  ];
+}
+
+// ── Microsoft Clarity evidence (2026-06-15) ──────────────────────────
+//
+// The fourth multi-source signal: Microsoft Clarity's behavioral
+// recording exposes per-page FRICTION the owner can't see in search
+// data — visitors rage-clicking a broken element, or pages throwing JS
+// errors. `ClarityPageSignal` (clarity-page-signals.ts) carries the real
+// per-URL counts summed over the trailing 28-day window: sessions,
+// rageClicks/deadClicks/quickbacks/scriptErrors plus the derived
+// per-session rates. This helper turns the two SOURCED, actionable
+// sub-signals — the same two `clarity_friction` fires on — into a
+// plain-English number line:
+//
+//   • script errors (HIGH): JS errors break the page for visitors AND
+//     hide its content from AI crawlers (which don't run JS).
+//   • rage clicks (MEDIUM): rapid repeated clicks = a frustrating /
+//     unresponsive element worth fixing for conversions.
+//
+// HONESTY RAILS (same as the GSC/SEMrush helpers): we quote ONLY the
+// numbers on the signal, only above the sourced thresholds the trigger
+// uses (SESSION FLOOR + the script-error / rage-click rates), and never
+// invent a friction we don't measure (dead-clicks / quickbacks /
+// excessive-scroll have no published band — excluded, mirroring the
+// trigger). Below the session floor we abstain (a tiny denominator is
+// noise). Numbers via toLocaleString; rates as a whole-number percent.
+
+/** Whole-number percent for a 0–1 rate, e.g. 0.082 → "8%". Clarity rates
+ *  read cleaner to an owner without a decimal — the underlying counts are
+ *  small and a "8.2%" precision implies more certainty than 28 days of
+ *  session-level sampling supports. */
+function ratePct(rate: number): string {
+  return Math.round(rate * 100).toLocaleString("en-US") + "%";
+}
+
+/**
+ * Build the customer-facing Microsoft Clarity evidence bullets for a
+ * recommendation from its attached per-page Clarity signal. Returns []
+ * when the signal is absent (Clarity not connected / no rows for this
+ * page) or carries no friction above the sourced thresholds — the caller
+ * then keeps its other evidence lines / prose "why".
+ *
+ * At most one line: script errors lead (the worse, confirmed defect),
+ * else rage clicks. Mirrors `frictionReason`'s worst-first order so the
+ * card copy and the trigger predicate agree on what counts.
+ */
+export function buildClarityEvidenceLines(
+  signal: ClarityPageSignal | null | undefined,
+): EvidenceLine[] {
+  if (signal == null) return [];
+  // Session floor: a tiny denominator must never quote a rate. Mirrors
+  // the trigger's MIN_CLARITY_SESSIONS so the copy and predicate agree.
+  if (signal.sessions < MIN_CLARITY_SESSIONS) return [];
+
+  const sessions = n(signal.sessions);
+
+  // 1 — script errors (HIGH): a confirmed defect, worst-first.
+  const scriptErrorRate =
+    signal.sessions > 0 ? signal.scriptErrors / signal.sessions : 0;
+  if (signal.scriptErrors > 0 && scriptErrorRate >= SCRIPT_ERROR_RATE) {
+    return [
+      {
+        key: "clarity_script_errors",
+        value: ratePct(scriptErrorRate),
+        label: `of sessions hit a page error (${sessions} sessions)`,
+        detail: `This page throws an error in ${ratePct(
+          scriptErrorRate,
+        )} of visits (${sessions} sessions tracked). Errors break the page for visitors — and AI assistants can't read a page that fails to load — so fixing it protects how often you're recommended.`,
+      },
+    ];
+  }
+
+  // 2 — rage clicks (MEDIUM): frustration with a non-responsive element.
+  if (signal.rageRate >= RAGE_RATE) {
+    return [
+      {
+        key: "clarity_rage_clicks",
+        value: ratePct(signal.rageRate),
+        label: `of sessions rage-click this page (${sessions} sessions)`,
+        detail: `Visitors rage-click on this page in ${ratePct(
+          signal.rageRate,
+        )} of sessions (${sessions} sessions tracked) — a sign something feels broken or unresponsive. Fixing the friction lifts conversions.`,
+      },
+    ];
+  }
+
+  return [];
+}
+
+// ── AI-answer (answer-engine) evidence (2026-06-15) ──────────────────
+//
+// The fifth and final multi-source signal: the answer-engine gap. The
+// `profound_aeo_gap` trigger already attaches its evidence to the rec —
+// each trigger candidate carries an `evidence[]` array whose
+// `prompt_answer_observation` entry (ref `profound:<categoryId>`) has a
+// `detail` string encoding the real numbers the synced answer-engine
+// data produced:
+//
+//   "profound_aeo_gap category=<id>; ai_answers=<N>; models=<M>;
+//    own_mentions=0; competitor=<name>; competitor_mentions=<C>;
+//    competitor_sov=<P>%"
+//
+// Rather than thread a NEW per-page signal (the gap is topic-scoped, not
+// page-scoped — there is no per-URL signal to load), this helper reads
+// the rec's OWN evidence array, finds that entry, and parses the numbers
+// back out. It emits ONE white-label line:
+//
+//   "AI assistants answer this topic citing <competitor> across ~N
+//    answers — you're not cited yet; add a direct answer block."
+//
+// WHITE-LABEL (hard rail): the vendor name is NEVER rendered — the copy
+// says "AI assistants", matching `profoundAeoGapCopy` and the
+// forbidden-customer-vocabulary contract. HONESTY RAILS: any clause
+// whose number is absent from the detail string is omitted; absent /
+// unparseable evidence → [] (dormant until the answer-engine source is
+// connected). Numbers via toLocaleString.
+
+/** A tolerant evidence-ref shape. The persisted edit row carries the
+ *  strict `SpecificEditEvidenceRef` union (no `detail`); the resolver's
+ *  `EvidenceRef` is another union; the trigger candidate carries
+ *  `{ kind, ref, detail }`. We read the optional `detail` off whichever
+ *  is present without coupling to any concrete type — entries that don't
+ *  match the AEO shape are simply skipped. Using `unknown` (not an
+ *  all-optional object) keeps the param assignable from those unions
+ *  without TS's "no properties in common" rejection. */
+type AeoEvidenceCandidateRef = unknown;
+
+/** Pull `key=value` out of the trigger's detail string. Returns null when
+ *  the key is absent so the caller can omit that clause honestly. */
+function parseDetailField(detail: string, key: string): string | null {
+  const m = detail.match(new RegExp(`${key}=([^;]+)`));
+  return m != null ? m[1]!.trim() : null;
+}
+
+/**
+ * Build the customer-facing AI-answer evidence bullet for a
+ * recommendation by reading its OWN evidence array for the
+ * `profound_aeo_gap` signal. `evidence` is the rec's evidence-ref list
+ * (the trigger-candidate `evidence[]`, whose entries may carry the
+ * `detail` string). Returns [] when no AEO-gap evidence is present or the
+ * detail can't be parsed — dormant until the answer-engine source is
+ * connected.
+ *
+ * One white-label line: the topic is answered by AI assistants citing a
+ * competitor across ~N answers while the owner is absent — add a direct
+ * answer block. The competitor name + answer count are quoted only when
+ * the detail string actually carries them.
+ */
+export function buildAeoEvidenceLines(
+  evidence: ReadonlyArray<AeoEvidenceCandidateRef> | null | undefined,
+): EvidenceLine[] {
+  if (evidence == null || evidence.length === 0) return [];
+
+  // Find the AEO-gap entry: the trigger writes ref `profound:<categoryId>`
+  // with a detail string starting "profound_aeo_gap …". Match on the
+  // detail prefix (the durable contract) rather than the ref namespace.
+  let detail: string | null = null;
+  for (const e of evidence) {
+    const raw =
+      e != null && typeof e === "object"
+        ? (e as { detail?: unknown }).detail
+        : null;
+    const d = typeof raw === "string" ? raw : null;
+    if (d != null && d.startsWith("profound_aeo_gap")) {
+      detail = d;
+      break;
+    }
+  }
+  if (detail == null) return [];
+
+  const competitor = parseDetailField(detail, "competitor");
+  const aiAnswersRaw = parseDetailField(detail, "ai_answers");
+  const aiAnswers =
+    aiAnswersRaw != null && /^\d+$/.test(aiAnswersRaw)
+      ? Number(aiAnswersRaw)
+      : null;
+
+  // Need at least the competitor OR the answer count to say anything
+  // honest; with neither there's no line worth showing.
+  if (competitor == null && aiAnswers == null) return [];
+
+  // Compose the white-label clauses, omitting any whose number is absent.
+  const citingClause =
+    competitor != null ? ` citing ${competitor}` : "";
+  const acrossClause =
+    aiAnswers != null
+      ? ` across about ${aiAnswers.toLocaleString("en-US")} answers`
+      : "";
+
+  // Compact label (card stat strip): lead with the answer count when we
+  // have it, else the competitor.
+  const label =
+    aiAnswers != null
+      ? `${aiAnswers.toLocaleString("en-US")} AI answers cite a rival, not you`
+      : "AI assistants cite a rival, not you";
+
+  return [
+    {
+      key: "aeo_answer_gap",
+      value: "Not cited yet",
+      label,
+      detail: `AI assistants answer this topic${citingClause}${acrossClause} — you're not cited yet. Add a clear, quotable answer block on your site for this topic so AI engines can cite you instead.`,
     },
   ];
 }

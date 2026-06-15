@@ -1409,6 +1409,11 @@ export function RowDrawer({
         const evidenceLines = [
           ...(d.gscEvidenceLines ?? []),
           ...(d.semrushEvidenceLines ?? []),
+          // 2026-06-15 — Microsoft Clarity friction (rage-clicks / page
+          // errors) + AI-answer gap (white-label). Same `?? []` guard;
+          // dormant until those sources are connected.
+          ...(d.clarityEvidenceLines ?? []),
+          ...(d.aeoEvidenceLines ?? []),
         ];
         if (evidenceLines.length === 0) return null;
         return (

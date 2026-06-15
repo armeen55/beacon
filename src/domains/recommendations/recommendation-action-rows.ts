@@ -44,6 +44,8 @@ import type { RecommendationResponse } from "@/domains/product/recommendation-re
 import { shouldExcludeFromCompetitorRanking } from "./entity-pollution-filter";
 import { deriveConfidence } from "./derived-confidence";
 import {
+  buildAeoEvidenceLines,
+  buildClarityEvidenceLines,
   buildGscEvidenceLines,
   buildSemrushEvidenceLines,
   type EvidenceLine,
@@ -216,6 +218,28 @@ export type ActionRowDetail = {
    * prose "why". Honest: difficulty clause omitted when KD is absent.
    */
   readonly semrushEvidenceLines: ReadonlyArray<EvidenceLine>;
+  /**
+   * Customer-facing Microsoft Clarity evidence bullets (2026-06-15) — the
+   * on-page FRICTION "why" the search signals can't see: visitors rage-
+   * clicking a broken element, or the page throwing JS errors. Built by
+   * `buildClarityEvidenceLines` from the rec's attached `claritySignal`
+   * (per-page sessions + rage/script-error rates). Empty when Clarity isn't
+   * connected or the page has no friction above the sourced thresholds —
+   * the card/drawer then keep their other lines. Honest: only numbers
+   * actually present, only above the trigger's session floor + rate bands.
+   */
+  readonly clarityEvidenceLines: ReadonlyArray<EvidenceLine>;
+  /**
+   * Customer-facing AI-answer evidence bullet (2026-06-15) — the answer-
+   * engine gap "why": AI assistants answer this topic citing a competitor
+   * across ~N answers while the owner is absent; the play is a direct
+   * answer block. Built by `buildAeoEvidenceLines`, which reads the rec's
+   * OWN evidence array for the answer-engine-gap signal (no new per-page
+   * signal — the gap is topic-scoped). White-label: never names the vendor
+   * (says "AI assistants"). Empty when the answer-engine source isn't
+   * connected / the rec carries no gap evidence.
+   */
+  readonly aeoEvidenceLines: ReadonlyArray<EvidenceLine>;
   /**
    * T4.2 (2026-05-06) — derived evidence depth: count of distinct
    * grounding-signal categories present on this row. Categories scanned:
@@ -1471,6 +1495,20 @@ export function buildRecommendationActionRows(
     // volume + keyword difficulty + current rank. Same for every row this
     // rec emits — compute once, share across the three push sites below.
     const semrushEvidenceLines = buildSemrushEvidenceLines(rec.semrushSignal);
+    // Customer-facing Microsoft Clarity evidence (2026-06-15): on-page
+    // friction (rage-clicks / page errors) from the rec's attached Clarity
+    // signal. Same for every row this rec emits — compute once.
+    const clarityEvidenceLines = buildClarityEvidenceLines(rec.claritySignal);
+    // Customer-facing AI-answer evidence (2026-06-15): read the rec's OWN
+    // evidence array for the answer-engine-gap signal (no new per-page
+    // signal). The gap evidence rides the edits' evidence arrays + the
+    // resolution's evidence refs — gather both into one tolerant list the
+    // helper scans for the gap's detail string. Same for every row this rec
+    // emits; empty until the answer-engine source is connected. White-label.
+    const aeoEvidenceLines = buildAeoEvidenceLines([
+      ...(resolution?.evidenceRefs ?? []),
+      ...edits.flatMap((e) => e.evidence ?? []),
+    ]);
 
     // ── Path A: renderable specific edits → group FAQ Q+A pairs into
     // one row, then emit one row per non-FAQ edit. Orphan FAQ rows
@@ -1612,6 +1650,8 @@ export function buildRecommendationActionRows(
             observationCount: rec.evidence.observationCount,
             gscEvidenceLines,
             semrushEvidenceLines,
+            clarityEvidenceLines,
+            aeoEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
             evidenceDepth: faqPairEvidenceDepth,
             // T4.4 — customer-safe derived confidence label (hoisted above).
@@ -1741,6 +1781,8 @@ export function buildRecommendationActionRows(
             observationCount: rec.evidence.observationCount,
             gscEvidenceLines,
             semrushEvidenceLines,
+            clarityEvidenceLines,
+            aeoEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
             evidenceDepth: editEvidenceDepth,
             // T4.4 — customer-safe derived confidence label (hoisted above).
@@ -1921,6 +1963,8 @@ export function buildRecommendationActionRows(
         observationCount: rec.evidence.observationCount,
         gscEvidenceLines,
         semrushEvidenceLines,
+        clarityEvidenceLines,
+        aeoEvidenceLines,
         // T4.2 — meta rows have no edit-level evidence; depth = 0.
         evidenceDepth: 0,
         // T4.4 — meta-row derived confidence (hoisted above).

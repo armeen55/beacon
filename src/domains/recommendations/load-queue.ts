@@ -76,6 +76,10 @@ import {
   loadSemrushPageSignalsForTenant,
   type SemrushPageSignal,
 } from "@/domains/recommendation-intelligence/semrush-page-signals";
+import {
+  loadClarityPageSignalsForTenant,
+  type ClarityPageSignal,
+} from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 /**
@@ -98,6 +102,12 @@ export type LiveRecQueueItem = PrioritizedRecommendation & {
    *  data. Lets the card quote the exact search volume + keyword difficulty +
    *  current rank the owner asked for in the "why". */
   semrushSignal?: SemrushPageSignal | null;
+  /** 2026-06-15 — per-page Microsoft Clarity behavioral signal for this rec's
+   *  target URL (28-day sessions + rage/dead/quickback/script-error counts and
+   *  derived rates), or null when Clarity has no data for the page. Lets the
+   *  card quote the on-page FRICTION ("visitors rage-click in 8% of sessions")
+   *  the search signals can't see. */
+  claritySignal?: ClarityPageSignal | null;
 };
 
 /**
@@ -503,6 +513,20 @@ export async function loadLiveRecommendationQueue(
   if (semrushRes.error) errors.push(semrushRes.error);
   const semrushByUrl = semrushRes.value;
 
+  // 2026-06-15 — per-page Microsoft Clarity signals so each card can quote
+  // the on-page FRICTION (rage-clicks / page errors) the search signals can't
+  // see. Already-synced data only (no new fetch); one bounded tenant-scoped
+  // Supabase read; soft-fail to empty so the queue still renders.
+  const clarityRes = await trace.time("loadClarityPageSignals", () =>
+    safeCall(
+      () => loadClarityPageSignalsForTenant(tenantId, opts.now),
+      new Map<string, ClarityPageSignal>(),
+      "load Clarity page signals",
+    ),
+  );
+  if (clarityRes.error) errors.push(clarityRes.error);
+  const clarityByUrl = clarityRes.value;
+
   trace.mark("decoration_loop_start");
   const decoratedQueue: LiveRecQueueItem[] = prioritized.queue.map((rec) => {
     const edits = editsByRecId.get(rec.stableKey) ?? [];
@@ -547,7 +571,9 @@ export async function loadLiveRecommendationQueue(
     const gscSignal = canonical != null ? gscByUrl.get(canonical) ?? null : null;
     const semrushSignal =
       canonical != null ? semrushByUrl.get(canonical) ?? null : null;
-    return { ...rec, engineConfidence, gscSignal, semrushSignal };
+    const claritySignal =
+      canonical != null ? clarityByUrl.get(canonical) ?? null : null;
+    return { ...rec, engineConfidence, gscSignal, semrushSignal, claritySignal };
   });
   trace.mark("decoration_loop_end");
   trace.data("queue_count", decoratedQueue.length);
@@ -959,6 +985,7 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
         changelogRes,
         gscRes,
         semrushRes,
+        clarityRes,
       ] = await Promise.all([
         safeCall(
           () => repo.getRecommendedEdits(),
@@ -993,6 +1020,14 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
           new Map<string, SemrushPageSignal>(),
           "persisted: fetch semrush page signals",
         ),
+        // 2026-06-15 — Microsoft Clarity per-page signals so the v2 card can
+        // quote the on-page FRICTION (rage-clicks / page errors) the search
+        // signals can't see. Already-synced data only; soft-fail to empty.
+        safeCall(
+          () => loadClarityPageSignalsForTenant(tenantId),
+          new Map<string, ClarityPageSignal>(),
+          "persisted: fetch clarity page signals",
+        ),
       ]);
 
       if (editsRes.error) errors.push(editsRes.error);
@@ -1001,6 +1036,7 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       if (changelogRes.error) errors.push(changelogRes.error);
       if (gscRes.error) errors.push(gscRes.error);
       if (semrushRes.error) errors.push(semrushRes.error);
+      if (clarityRes.error) errors.push(clarityRes.error);
 
       const recommendedEdits = editsRes.value;
       const responses = responsesRes.value;
@@ -1008,6 +1044,7 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       const changelogEntries = changelogRes.value;
       const gscByUrl = gscRes.value;
       const semrushByUrl = semrushRes.value;
+      const clarityByUrl = clarityRes.value;
 
       // Group edits by rec_id. Skip edits that have no rec_id (legacy
       // rows that predate the column — extremely rare).
@@ -1061,7 +1098,13 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
           canonical != null ? gscByUrl.get(canonical) ?? null : null;
         const semrushSignal =
           canonical != null ? semrushByUrl.get(canonical) ?? null : null;
-        return { rec: { ...rec, gscSignal, semrushSignal }, response, edits };
+        const claritySignal =
+          canonical != null ? clarityByUrl.get(canonical) ?? null : null;
+        return {
+          rec: { ...rec, gscSignal, semrushSignal, claritySignal },
+          response,
+          edits,
+        };
       });
 
       return {

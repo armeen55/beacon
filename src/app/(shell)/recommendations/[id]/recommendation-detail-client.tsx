@@ -143,6 +143,11 @@ export function RecommendationDetailClient({
   // difficulty + current rank), built from the rec's SEMrush signal. Default
   // [] mirrors the GSC guard so a row without it never crashes.
   const semrushEvidenceLines = row.detail.semrushEvidenceLines ?? [];
+  // 2026-06-15 — Microsoft Clarity friction evidence (rage-clicks / page
+  // errors) + AI-answer gap evidence (white-label). Same [] guard; dormant
+  // until those sources are connected.
+  const clarityEvidenceLines = row.detail.clarityEvidenceLines ?? [];
+  const aeoEvidenceLines = row.detail.aeoEvidenceLines ?? [];
   const measurementPlan = row.detail.measurementPlan?.trim() || null;
   const competitor = row.detail.topCompetitor;
   const observationCount = row.detail.observationCount;
@@ -317,6 +322,46 @@ export function RecommendationDetailClient({
                 key={line.key}
                 className="text-[13px] text-foreground/85 leading-relaxed"
                 data-recommendation-detail-semrush-evidence-line={line.key}
+              >
+                {line.detail ?? `${line.value} — ${line.label}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* 2026-06-15 — Microsoft Clarity "why this, why now": on-page
+            friction (rage-clicks / page errors) as a percent of sessions.
+            Rendered only when the Clarity signal carried friction above the
+            sourced thresholds. Reuses the GSC list UI. */}
+        {clarityEvidenceLines.length > 0 && (
+          <ul
+            className="space-y-1.5 max-w-2xl"
+            data-recommendation-detail-clarity-evidence="true"
+          >
+            {clarityEvidenceLines.map((line) => (
+              <li
+                key={line.key}
+                className="text-[13px] text-foreground/85 leading-relaxed"
+                data-recommendation-detail-clarity-evidence-line={line.key}
+              >
+                {line.detail ?? `${line.value} — ${line.label}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* 2026-06-15 — AI-answer gap "why this, why now" (white-label): AI
+            assistants answer this topic citing a rival across ~N answers
+            while you're absent. Rendered only when the rec carries
+            answer-engine gap evidence. Reuses the GSC list UI. */}
+        {aeoEvidenceLines.length > 0 && (
+          <ul
+            className="space-y-1.5 max-w-2xl"
+            data-recommendation-detail-aeo-evidence="true"
+          >
+            {aeoEvidenceLines.map((line) => (
+              <li
+                key={line.key}
+                className="text-[13px] text-foreground/85 leading-relaxed"
+                data-recommendation-detail-aeo-evidence-line={line.key}
               >
                 {line.detail ?? `${line.value} — ${line.label}`}
               </li>

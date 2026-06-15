@@ -73,6 +73,8 @@ function makeRow(args: {
       observationCount: 5,
       gscEvidenceLines: [],
       semrushEvidenceLines: [],
+      clarityEvidenceLines: [],
+      aeoEvidenceLines: [],
       evidenceDepth: 1,
       derivedConfidence: "strong_evidence",
       faqAnswerText: null,
