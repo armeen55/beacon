@@ -187,7 +187,7 @@ export function TodayVisibilitySnapshot({
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 {resolvedFindingsCount > 0 && <>{resolvedFindingsCount} finding{resolvedFindingsCount !== 1 ? "s" : ""} handled. </>}
                 {primaryAccepted && <>Top recommendation accepted. </>}
-                Check back tomorrow.
+                Refresh your connected data anytime to look for new opportunities.
               </p>
             </div>
           </div>
