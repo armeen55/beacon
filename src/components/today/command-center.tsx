@@ -110,9 +110,9 @@ function BrainStatusCard({
     // UX.5B.4 (2026-05-07) — premium empty state vocabulary.
     return (
       <Card title="Brain readiness">
-        <EmptyState>Waiting for next reading.</EmptyState>
+        <EmptyState>Waiting for your next reading.</EmptyState>
         <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
-          Beacon scores its own brain after enough readings stack up.
+          Beacon scores its own brain once enough readings stack up — refresh your connected data to add the next one.
         </p>
       </Card>
     );
@@ -310,7 +310,7 @@ function NextBestActionCard({ action }: { action: TodayPrimaryAction | null }) {
       <Card title="Next best action">
         <EmptyState>No action queued yet.</EmptyState>
         <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
-          Beacon will surface one as new readings come in.
+          Beacon will surface one as new readings come in — refresh your connected data to add the next one.
         </p>
       </Card>
     );

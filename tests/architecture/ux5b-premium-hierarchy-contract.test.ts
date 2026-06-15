@@ -131,10 +131,10 @@ describe("UX.5B.3 — /recommendations needs-more-evidence microcopy", () => {
 });
 
 describe("UX.5B.4 — Command Center empty-state cohesion", () => {
-  it("Brain readiness empty state uses 'Waiting for next reading.'", () => {
+  it("Brain readiness empty state uses 'Waiting for your next reading.'", () => {
     // Source-grep that the empty branch contains the premium copy.
     expect(CC_SRC).toMatch(
-      /title="Brain readiness"[\s\S]{0,400}Waiting for next reading\./,
+      /title="Brain readiness"[\s\S]{0,400}Waiting for your next reading\./,
     );
   });
 
@@ -193,7 +193,7 @@ describe("UX.5B — no scary/internal language regression", () => {
   it("UX.5B additions do not introduce internal jargon in rendered text", () => {
     // The premium copy strings should never reference cron / Supabase / GitHub.
     const newStrings = [
-      "Waiting for next reading.",
+      "Waiting for your next reading.",
       "Watching for movement.",
       "No action queued yet.",
       "AI Visibility",

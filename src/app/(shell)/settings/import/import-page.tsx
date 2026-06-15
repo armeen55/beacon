@@ -125,11 +125,11 @@ export default function ImportPage() {
     <div className="max-w-3xl">
       <PageHeader
         title="Import historical answer data"
-        description="Beacon collects new AI-answer data automatically every day. This page is only needed if you have a backlog of historical AI-answer exports you want to load into your account."
+        description="Beacon collects new AI-answer data when you refresh your connected data. This page is only needed if you have a backlog of historical AI-answer exports you want to load into your account."
       />
 
       <p className="text-sm text-muted-foreground mb-6">
-        Most accounts never need to use this page. New AI-answer data lands automatically after each daily poll. If you have a historical export you'd like to bring in, contact support or enable advanced mode below.
+        Most accounts never need to use this page. New AI-answer data lands when you refresh your connected data. If you have a historical export you'd like to bring in, contact support or enable advanced mode below.
       </p>
 
       {/* ── 1. Coverage strip ── */}
@@ -187,7 +187,7 @@ export default function ImportPage() {
           <h2 className="text-[15px] font-semibold">Bring in historical AI-answer data</h2>
         </div>
         <p className="text-[12px] text-muted-foreground leading-relaxed">
-          For most accounts there's nothing to do here. Beacon's daily poll picks up new AI-answer data automatically. If you have a legacy export you want to backfill, the legacy importer is below in advanced mode — or reach out to support and we'll help.
+          For most accounts there's nothing to do here. Beacon picks up new AI-answer data when you refresh your connected data. If you have a legacy export you want to backfill, the legacy importer is below in advanced mode — or reach out to support and we'll help.
         </p>
       </div>
 

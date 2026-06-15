@@ -12,9 +12,9 @@ import { EVIDENCE_FRESHNESS_NULL_COPY } from "@/domains/attribution/lifecycle-at
  *     operator knows rankings are not current
  *   - Missing (null): muted explanation that the rebuild hasn't run yet
  *
- * Phase v4 Commit 7B (2026-04-30) — the index now rebuilds nightly from
- * native Perplexity + ChatGPT polling via the daily-native-poll workflow.
- * Stale states should only appear after a cron failure.
+ * The index rebuilds on demand when the user refreshes their connected
+ * data. Stale states appear when the connected data hasn't been refreshed
+ * recently, prompting the user to refresh.
  */
 
 export type EvidenceFreshnessBannerProps = {
@@ -65,10 +65,10 @@ export function EvidenceFreshnessBanner({
     timeZone: "UTC",
   });
 
-  // Phase v4 Commit 7B (2026-04-30): the index rebuilds nightly via the
-  // daily-native-poll workflow. Anything < 36h old reflects current native
-  // polling data and should read green; older means a cron failure or
-  // missed run, surface in amber.
+  // The index rebuilds on demand when the user refreshes their connected
+  // data. Anything < 36h old reflects a recent refresh and should read green;
+  // older means the connected data hasn't been refreshed recently, so surface
+  // in amber to prompt a refresh.
   const isFresh = ageHours < 36;
   const isStale = ageDays >= 3;
 
@@ -87,7 +87,7 @@ export function EvidenceFreshnessBanner({
         — last rebuilt{" "}
         <span className="tabular-nums">{builtLabel}</span>
         {ageHours > 0 && <> ({ageHours}h ago)</>}
-        . Daily native Perplexity and ChatGPT polls feed this directly.{" "}
+        . This updates when you refresh your connected data.{" "}
         <Link
           href={methodologyHref}
           prefetch={false}

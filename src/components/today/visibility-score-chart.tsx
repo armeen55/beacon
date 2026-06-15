@@ -403,7 +403,7 @@ export function VisibilityScoreChart({
         />
       ) : (
         <div className="h-[180px] flex items-center justify-center text-[12px] text-muted-foreground">
-          Not enough data yet — check back after your next scan.
+          Not enough data yet — refresh your connected data to add to this chart.
         </div>
       )}
 
