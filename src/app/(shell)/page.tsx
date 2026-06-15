@@ -61,19 +61,25 @@ async function dismissFinding(findingId: string) {
  * between the legacy 19-section layout and the v2 4-zone layout.
  *
  * Routing:
- *   - Default: v1 (TodayClient) for safety until v2 is verified hosted.
- *   - `BEACON_TODAY_V2=true` env: v2 (TodayV2Client) becomes the default.
+ *   - Default: v2 (the all-source unified command center). Flipped to the
+ *     default 2026-06-15 — v2 is verified on both live tenants (Iranopedia +
+ *     Ritz) and is the surface the product is built around: an all-source
+ *     stat row (Search / Visits / Experience / AI answers) over WHATEVER
+ *     base data the tenant has, with AEO demoted to one collapsible block.
+ *     Legacy is the AEO-centric 19-section layout, now slated for deletion.
+ *   - `BEACON_TODAY_V2=false` env: force legacy (kill-switch if v2 ever
+ *     regresses in production — reversible without a code change).
  *   - `?legacy=1` query: always v1 (escape hatch for operators / regression
  *     debugging — works regardless of the env flag).
- *   - `?v2=1` query: always v2 (preview escape hatch — works regardless of
- *     the env flag, useful for hosted demos before flipping the env).
+ *   - `?v2=1` query: always v2 (works regardless of the env flag).
  */
 function shouldUseV2(
   searchParams: Record<string, string | string[] | undefined>,
 ): boolean {
   if (searchParams.legacy === "1") return false;
   if (searchParams.v2 === "1") return true;
-  return process.env.BEACON_TODAY_V2 === "true";
+  // Default ON. Only an explicit `BEACON_TODAY_V2=false` falls back to legacy.
+  return process.env.BEACON_TODAY_V2 !== "false";
 }
 
 /**
