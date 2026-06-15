@@ -721,3 +721,49 @@ export function isValidActionType(s: unknown): s is ActionType {
     (ACTION_TYPES as readonly string[]).includes(s)
   );
 }
+
+// ── Indexing-safety guardrail (#310, 2026-06-14) ──────────────────────────────
+// A subset of the technical fix types produce paste-ready directives that
+// change how SEARCH ENGINES CRAWL OR INDEX a site:
+//   • fix_robots      → edit robots.txt (Disallow rules / User-agent blocks)
+//   • fix_noindex     → edit the page's meta-robots tag (remove "noindex")
+//   • fix_canonical   → edit a <link rel="canonical"> tag
+//   • fix_status_code → restore a page or set a 301 redirect
+// Pasted wrong (a stray noindex, an over-broad Disallow, a redirect to the
+// wrong place, a canonical pointing elsewhere) any of these can REMOVE a live
+// site's pages from Google. A non-technical owner needs a plain-English
+// warning before acting on the directive.
+//
+// EXCLUDED — these technical/structural types are purely additive and cannot
+// deindex a site, so they get NO caveat (they are not crawl/index directives):
+//   • fix_sitemap (publishing a sitemap is safe), add_schema, fix_schema,
+//     add_internal_link, fix_page_experience, reorder_sections, and every
+//     on-page content edit.
+const INDEXING_DIRECTIVE_ACTION_TYPES: ReadonlySet<ActionType> =
+  new Set<ActionType>([
+    "fix_robots",
+    "fix_noindex",
+    "fix_canonical",
+    "fix_status_code",
+  ]);
+
+/**
+ * True when the action type's proposed directive changes crawling/indexing
+ * (robots.txt, meta robots/noindex, canonical, redirect/status). Surfaces
+ * point use this to render the indexing-safety caveat on the directive card.
+ * Pure. Accepts `null`/`undefined` (returns false) so callers can pass an
+ * optional row field without a guard.
+ */
+export function isIndexingDirectiveActionType(
+  actionType: ActionType | null | undefined,
+): boolean {
+  return actionType != null && INDEXING_DIRECTIVE_ACTION_TYPES.has(actionType);
+}
+
+/**
+ * Plain-English warning shown next to an indexing/crawling directive before
+ * a non-technical owner pastes it. Operator-locked copy (#310). Kept here so
+ * the customer surface and any test reference the same string.
+ */
+export const INDEXING_DIRECTIVE_CAVEAT =
+  "This changes how search engines crawl or index your site. Apply it exactly as shown, or ask a developer — a wrong value here can remove your pages from Google.";

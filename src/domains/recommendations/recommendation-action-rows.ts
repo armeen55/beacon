@@ -215,6 +215,19 @@ export type ActionRowDetail = {
    * rows that don't have a paired answer.
    */
   readonly faqAnswerText: string | null;
+  /**
+   * #310 (2026-06-14) — the source edit's RAW `action_type`. The
+   * customer-facing `ActionRowType` collapses every indexability fix
+   * (`fix_robots` / `fix_noindex` / `fix_canonical` / `fix_status_code`
+   * / `fix_sitemap`) into `review_decision`, which loses the
+   * distinction the indexing-safety caveat needs. Surfacing the
+   * original action type here lets the directive card render the
+   * "this changes how search engines crawl/index your site" warning
+   * only for crawl/index-affecting directives (see
+   * `isIndexingDirectiveActionType`). Null for meta-action rows
+   * (review_decision / regenerate / create_page) with no source edit.
+   */
+  readonly editActionType: ActionType | null;
   /** Diagnostic block — internal taxonomy + IDs. Collapsed by default. */
   readonly debug: {
     readonly recommendationId: string;
@@ -1546,6 +1559,7 @@ export function buildRecommendationActionRows(
             currentText: null, // FAQ pairs are additive
             proposedText: question.proposed_text, // question text
             faqAnswerText: answer.proposed_text, // W3 §3.15
+            editActionType: question.action_type, // #310 — always add_faq here
             why: question.why ?? answer.why ?? resolution?.reasoning ?? null,
             measurementPlan:
               question.measurement_plan ?? answer.measurement_plan,
@@ -1673,6 +1687,7 @@ export function buildRecommendationActionRows(
             currentText: edit.current_text,
             proposedText: edit.proposed_text,
             faqAnswerText: null,
+            editActionType: edit.action_type, // #310 — indexing-safety caveat key
             why: edit.why ?? resolution?.reasoning ?? null,
             measurementPlan: edit.measurement_plan,
             evidenceRefs: edit.evidence,
@@ -1830,6 +1845,9 @@ export function buildRecommendationActionRows(
         currentText: null,
         proposedText: null,
         faqAnswerText: null,
+        // #310 — meta-action rows have no source edit (and no exact
+        // copy), so no indexing-safety caveat applies.
+        editActionType: null,
         why:
           metaKind === "regenerate_edit"
             ? "Beacon's prior edits were dismissed. Run the generator again to produce fresh copy you can ship."

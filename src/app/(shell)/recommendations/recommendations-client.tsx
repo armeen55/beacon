@@ -46,6 +46,10 @@ import {
   type ActionRowPriority,
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
+import {
+  isIndexingDirectiveActionType,
+  INDEXING_DIRECTIVE_CAVEAT,
+} from "@/domains/recommendations/action-types";
 import { sanitizeOperatorEvidenceText } from "@/domains/recommendations/copy-sanitize";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { changeLinkHrefForRow } from "@/domains/recommendations/changelog-link";
@@ -1280,7 +1284,9 @@ function RowActionButton({
 
 /* ── Row drawer (exact change / why / evidence / measurement / debug) ── */
 
-function RowDrawer({
+/** Exported for the #310 indexing-safety caveat render test. Internal
+ *  to the recommendations table otherwise. */
+export function RowDrawer({
   row,
   promptTextById,
   showFeedback,
@@ -1353,6 +1359,21 @@ function RowDrawer({
       {/* Section: Exact recommended change */}
       {hasExactCopy && (
         <DrawerSection title="Exact recommended change">
+          {/* #310 (2026-06-14) — indexing-safety caveat. Crawl/index
+              directives (robots.txt, meta noindex, canonical, redirect)
+              can DEINDEX a live site if pasted wrong. Warn the owner
+              before they act. Benign directives (FAQ / schema / copy /
+              sitemap) render no caveat. */}
+          {isIndexingDirectiveActionType(d.editActionType) && (
+            <p
+              className="mb-2 rounded border border-status-warning/40 bg-status-warning/[0.08] px-2.5 py-2 text-[11px] leading-relaxed text-status-warning"
+              role="alert"
+              data-rec-indexing-caveat="true"
+            >
+              <span aria-hidden="true">⚠️ </span>
+              {INDEXING_DIRECTIVE_CAVEAT}
+            </p>
+          )}
           {d.currentText && d.currentText.trim().length > 0 && (
             <div className="mb-2">
               <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
