@@ -322,7 +322,7 @@ describe("executeLaunchTransaction — happy path", () => {
       now: FIXED_NOW,
     });
 
-    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
 
     // INSERT happened before UPDATE.
     const opOrder = writes.map((w) => w.op);
@@ -487,7 +487,7 @@ describe("executeLaunchTransaction — already launched", () => {
 
     expect(r).toEqual({
       kind: "redirect",
-      to: "/today",
+      to: "/",
       reason: "already_launched",
     });
     // No prompts inserted, no updates made.
@@ -834,7 +834,7 @@ describe("executeLaunchTransaction — site-derived config → prompts", () => {
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
-    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
     expect(tucsonStub).toHaveBeenCalledTimes(1);
 
     const inserted = writes
@@ -862,7 +862,7 @@ describe("executeLaunchTransaction — site-derived config → prompts", () => {
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
-    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
     expect(store.tenants[0].status).toBe("active");
   });
 
@@ -965,7 +965,7 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
-    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
     expect(dispatchStub).toHaveBeenCalledWith(PENDING_TENANT.id);
   });
 
@@ -1000,7 +1000,7 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
-    expect(r).toEqual({ kind: "redirect", to: "/today", reason: "success" });
+    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
     expect(store.tenants[0].status).toBe("active");
   });
 });

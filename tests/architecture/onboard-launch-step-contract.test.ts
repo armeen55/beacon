@@ -270,14 +270,15 @@ describe("Gap C.4 — launchTenant server action contract", () => {
     expect(code).not.toContain("/api/poll/run");
   });
 
-  it("redirects to /today on success (and on race-lost / already-launched)", () => {
+  it("redirects to / (the dashboard) on success (and on race-lost / already-launched)", () => {
     // The action wrapper calls `redirect(outcome.to)` where outcome.to
-    // is constrained to "/today" by the LaunchTransactionOutcome type.
+    // is constrained to "/" by the LaunchTransactionOutcome type.
+    // (2026-06-15 fix: was "/today", which 404'd — the dashboard is "/".)
     expect(LAUNCH_ACTIONS_SRC).toMatch(/redirect\(outcome\.to\)/);
-    // The flow helper only ever returns `to: "/today"` literals.
+    // The flow helper only ever returns `to: "/"` literals.
     const flowToMatches = LAUNCH_FLOW_SRC.match(/to:\s*"([^"]+)"/g) ?? [];
     for (const m of flowToMatches) {
-      expect(m).toBe('to: "/today"');
+      expect(m).toBe('to: "/"');
     }
   });
 

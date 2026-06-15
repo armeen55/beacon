@@ -39,12 +39,13 @@ import type { ProjectMixTag } from "@/domains/tenants/types";
 /**
  * Outcome of `executeLaunchTransaction` — testable helper that does
  * the actual DB work. The server-action wrapper translates
- * `redirect: "/today"` into a real Next.js redirect.
+ * `redirect: "/"` into a real Next.js redirect. (The dashboard lives at
+ * "/", NOT "/today" — the old "/today" target 404'd on launch.)
  */
 export type LaunchTransactionOutcome =
   | {
       kind: "redirect";
-      to: "/today";
+      to: "/";
       reason: "success" | "already_launched" | "race_lost";
     }
   | { kind: "error"; error: string };
@@ -88,7 +89,7 @@ export function buildTrackedPromptRow(args: {
  * clock for tests. Performs:
  *
  *   1. Fetch tenant row.
- *   2. If status='active' → returns `{ redirect: "/today", reason: "already_launched" }`.
+ *   2. If status='active' → returns `{ redirect: "/", reason: "already_launched" }`.
  *   3. If status != 'pending_onboarding' → error.
  *   4. Re-generate starter prompts from tenant fields.
  *   5. Validate ≥1 prompt.
@@ -139,7 +140,7 @@ export async function executeLaunchTransaction(args: {
 
   // 2. Already launched — redirect to /today (idempotent).
   if (tenant.status === "active") {
-    return { kind: "redirect", to: "/today", reason: "already_launched" };
+    return { kind: "redirect", to: "/", reason: "already_launched" };
   }
   if (tenant.status !== "pending_onboarding") {
     // Paused / cancelled — operator must intervene.
@@ -324,7 +325,7 @@ export async function executeLaunchTransaction(args: {
     // 7b. Status flip returned 0 rows. Race lost or already
     //     activated. Prompts we inserted are now legitimate parts of
     //     the active tenant's list. DO NOT roll back. Redirect.
-    return { kind: "redirect", to: "/today", reason: "race_lost" };
+    return { kind: "redirect", to: "/", reason: "race_lost" };
   }
 
   // 7c. Success — atomic flip lit up. Kick the tenant-scoped first
@@ -346,5 +347,5 @@ export async function executeLaunchTransaction(args: {
       e instanceof Error ? e.message : e,
     );
   }
-  return { kind: "redirect", to: "/today", reason: "success" };
+  return { kind: "redirect", to: "/", reason: "success" };
 }
