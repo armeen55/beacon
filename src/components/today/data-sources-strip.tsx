@@ -6,6 +6,7 @@ import {
   type ConnectorProvider,
 } from "@/lib/connector-store";
 import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
+import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 
 /**
  * "Your data sources" quick-connect strip (2026-06-15).
@@ -152,6 +153,12 @@ export function DataSourcesStripView({
   statuses: SourceStatus[];
 }) {
   const allConnected = statuses.every((s) => s.connected);
+  // The READ sources a one-click refresh pulls (Wix is publish-only and never
+  // counts toward what "Refresh my data" can do). Mirrors REFRESH_ALL_SOURCES
+  // in settings/connectors/actions.ts.
+  const connectedCount = statuses.filter(
+    (s) => s.connected && s.source.provider !== "wix",
+  ).length;
 
   if (allConnected) {
     return (
@@ -159,16 +166,19 @@ export function DataSourcesStripView({
         aria-label="Your data sources"
         className="rounded-lg border border-border/40 bg-surface-inset/10 px-4 py-2.5"
       >
-        <p className="text-[12px] text-muted-foreground">
-          <span aria-hidden="true">✓ </span>
-          All data sources connected.{" "}
-          <Link
-            href={CONNECTORS_PATH}
-            className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
-          >
-            Manage
-          </Link>
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[12px] text-muted-foreground">
+            <span aria-hidden="true">✓ </span>
+            All data sources connected.{" "}
+            <Link
+              href={CONNECTORS_PATH}
+              className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+            >
+              Manage
+            </Link>
+          </p>
+          <RefreshMyDataButton connectedCount={connectedCount} />
+        </div>
       </section>
     );
   }
@@ -182,12 +192,15 @@ export function DataSourcesStripView({
         <h2 className="text-[12px] font-semibold text-foreground tracking-tight">
           Your data sources
         </h2>
-        <Link
-          href={CONNECTORS_PATH}
-          className="text-[12px] text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
-        >
-          Manage all
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={CONNECTORS_PATH}
+            className="text-[12px] text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+          >
+            Manage all
+          </Link>
+          <RefreshMyDataButton connectedCount={connectedCount} />
+        </div>
       </div>
       <ul className="mt-2 flex flex-wrap gap-2">
         {statuses.map(({ source, connected, lastSynced }) => {

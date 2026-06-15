@@ -957,3 +957,181 @@ export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
     "semrush",
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// ONE-CLICK "Refresh my data" (2026-06-15) — Today command-center surface.
+//
+// The per-source "Sync now" actions above live on /settings/connectors. The
+// owner asked for a single control on Today ("everything should be updating,
+// I don't need to refresh"). This action pulls EVERY connected READ source in
+// one click — fail-soft, concurrent — and returns a per-source result list the
+// Today button renders. Wix is publish-only (EXCLUDED). White-label rule
+// (main-product-final-confidence-sweep guards src/components/today): the AEO
+// source is labeled "AI answers" — NEVER the vendor name "Profound".
+// ─────────────────────────────────────────────────────────────────────
+
+/** The READ sources a Today refresh pulls, in display order. Wix is
+ *  publish-only and intentionally excluded. Each entry maps a connector-store
+ *  provider → its sync engine + plain-English customer label. */
+const REFRESH_ALL_SOURCES: ReadonlyArray<{
+  provider: "google_gsc" | "google_ga4" | "semrush" | "clarity" | "profound";
+  label: string;
+  run: (tenantId: string) => Promise<unknown>;
+  freshnessProvider: FreshnessProvider;
+}> = [
+  {
+    provider: "google_gsc",
+    label: "Search (Google)",
+    run: (tenantId) => syncGscSearchAnalyticsForTenant({ tenantId }),
+    freshnessProvider: "google_gsc",
+  },
+  {
+    provider: "google_ga4",
+    label: "Visitors (Google Analytics)",
+    run: (tenantId) => syncGa4UrlTrafficForTenant({ tenantId }),
+    freshnessProvider: "google_ga4",
+  },
+  {
+    provider: "semrush",
+    label: "Keywords (SEMrush)",
+    run: (tenantId) => syncSemrushOrganicKeywordsForTenant({ tenantId }),
+    freshnessProvider: "semrush",
+  },
+  {
+    provider: "clarity",
+    label: "Visitor experience",
+    run: (tenantId) => syncClarityDailyMetricsForTenant({ tenantId }),
+    freshnessProvider: "clarity",
+  },
+  {
+    // White-label: customer-facing copy is "AI answers", never "Profound".
+    provider: "profound",
+    label: "AI answers",
+    run: (tenantId) => syncProfoundNightlyForTenant({ tenantId }),
+    freshnessProvider: "profound",
+  },
+] as const;
+
+export type RefreshAllConnectedResult = {
+  /** ISO 8601 timestamp when this refresh ran. */
+  ranAt: string;
+  results: Array<{
+    provider: string;
+    /** Plain-English customer label (never a vendor name). */
+    label: string;
+    ok: boolean;
+    /** Short, plain-English line — "Synced …" on success, an actionable
+     *  reason on failure. Never a raw reason code. */
+    detail: string;
+  }>;
+};
+
+/**
+ * Pull every CONNECTED read source for the current tenant in one click.
+ *
+ * - Resolves the tenant the same way the per-source "Sync now" actions do
+ *   (`currentTenantId()`).
+ * - Reads connector status for the 5 read sources; skips any not 'connected'
+ *   (Wix is publish-only and not in the set at all).
+ * - Runs the connected engines concurrently with `Promise.allSettled` — one
+ *   source failing never blocks the others, and the action NEVER throws.
+ * - Stamps `last_synced_at` on each genuinely-successful pull (#72/#85), the
+ *   same freshness contract the per-source actions use.
+ * - Zero connected → `{ ranAt, results: [] }`.
+ */
+export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedResult> {
+  const action = "refreshAllConnectedDataNow";
+  const t0 = Date.now();
+  const ranAt = new Date().toISOString();
+  log.info("Action started", { action });
+  try {
+    const tenantId = await currentTenantId();
+
+    // Read status for all 5 read sources in parallel; fail-soft per provider
+    // (a status-read error counts as not-connected so a flaky read never
+    // alarms the owner about a source they never set up).
+    const connectedFlags = await Promise.all(
+      REFRESH_ALL_SOURCES.map(async (s) => {
+        try {
+          const info = await getConnectorInfo(s.provider, tenantId);
+          return info.status === "connected";
+        } catch {
+          return false;
+        }
+      }),
+    );
+    const connected = REFRESH_ALL_SOURCES.filter((_, i) => connectedFlags[i]);
+
+    if (connected.length === 0) {
+      log.info("Action completed", {
+        action,
+        durationMs: Date.now() - t0,
+        connected: 0,
+      });
+      return { ranAt, results: [] };
+    }
+
+    const settled = await Promise.allSettled(
+      connected.map((s) => s.run(tenantId)),
+    );
+
+    const results = await Promise.all(
+      connected.map(async (s, i) => {
+        const outcome = settled[i];
+        if (outcome.status === "rejected") {
+          // Engine threw — fail-soft, plain-English (never the raw error).
+          const err =
+            outcome.reason instanceof Error
+              ? outcome.reason.message
+              : String(outcome.reason);
+          log.warn("Refresh source threw", {
+            action,
+            provider: s.provider,
+            error: err.slice(0, 200),
+          });
+          return {
+            provider: s.provider,
+            label: s.label,
+            ok: false,
+            detail: "Couldn't refresh just now — please try again in a moment.",
+          };
+        }
+        const summary = summarizeConnectorSync(outcome.value);
+        if (summary.ok) {
+          // Best-effort freshness stamp; never flips a success to a failure.
+          await writeLastSyncedAt(s.freshnessProvider, tenantId);
+        }
+        return {
+          provider: s.provider,
+          label: s.label,
+          ok: summary.ok,
+          detail:
+            (summary.ok ? summary.detail : summary.error) ??
+            (summary.ok
+              ? "Updated."
+              : "Couldn't refresh just now — please try again in a moment."),
+        };
+      }),
+    );
+
+    revalidatePath("/");
+    revalidatePath("/settings/connectors");
+    log.info("Action completed", {
+      action,
+      durationMs: Date.now() - t0,
+      connected: connected.length,
+      ok: results.filter((r) => r.ok).length,
+    });
+    return { ranAt, results };
+  } catch (e) {
+    // Defense-in-depth: the action must NEVER throw. Even a tenant-resolution
+    // failure returns an empty (honest) result rather than crashing Today.
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: err.slice(0, 500),
+    });
+    return { ranAt, results: [] };
+  }
+}

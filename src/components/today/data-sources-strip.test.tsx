@@ -17,8 +17,15 @@
  * Markup-only assertions (renderToStaticMarkup) — no behavior to drive.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+
+// The strip now mounts the <RefreshMyDataButton /> client island, which calls
+// useRouter(). Stub next/navigation so renderToStaticMarkup can render the
+// button shell without a real Next router context.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {} }),
+}));
 
 import { DataSourcesStripView } from "./data-sources-strip";
 import type { ConnectorProvider } from "@/lib/connector-store";
