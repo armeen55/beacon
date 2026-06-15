@@ -228,7 +228,7 @@ describe("buildTodayLiveChanges — dynamic state copy", () => {
     );
     expect(out[0].daysSinceLive).toBe(1);
     expect(out[0].stateLine).toContain("too recent");
-    expect(out[0].nextEvidenceLine).toContain("more daily readings");
+    expect(out[0].nextEvidenceLine).toContain("more readings");
   });
 
   it("uses 'collecting post-change readings' copy when ≥3 days but no outcome", () => {
@@ -236,7 +236,7 @@ describe("buildTodayLiveChanges — dynamic state copy", () => {
     expect(out[0].daysSinceLive).toBe(10);
     expect(out[0].stateLine).toContain("Live change detected");
     expect(out[0].stateLine).toContain("collecting post-change readings");
-    expect(out[0].nextEvidenceLine).toContain("daily observations accumulate");
+    expect(out[0].nextEvidenceLine).toContain("more readings accumulate");
   });
 
   it("uses helping copy when an outcome row says helping", () => {

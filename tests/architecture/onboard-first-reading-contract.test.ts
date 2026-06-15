@@ -145,7 +145,7 @@ describe("Gap F.1 — waiting-state component is customer-safe", () => {
       /Beacon is preparing your first reading/,
     );
     expect(WAITING_SRC).toMatch(
-      /Your first dashboard will appear after the next daily reading/,
+      /Connect your data sources and click Refresh to see your first/,
     );
   });
 

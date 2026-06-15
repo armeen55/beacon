@@ -115,8 +115,8 @@ export function ExecutiveStrip({
             </>
           ) : (
             <Sub>
-              Nothing pending right now. New recommendations land after
-              the next daily reading.
+              Nothing pending right now. New recommendations land when you
+              refresh your connected data.
             </Sub>
           )}
         </Card>

@@ -251,7 +251,9 @@ describe("Bundle 2A — RecommendationsV2Client", () => {
     const html = renderV2([]);
     expect(html).toContain('data-recommendations-v2-empty="true"');
     expect(html).toContain("No recommendations right now.");
-    expect(html).toContain("Beacon is watching for the next clear opportunity");
+    expect(html).toContain(
+      "Refresh your connected data (Settings → Connectors) to surface the next",
+    );
   });
 
   it("renders the working rail when accepted/measuring/shipped rows exist", () => {

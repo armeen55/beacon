@@ -336,8 +336,12 @@ describe("EVIDENCE_FRESHNESS_NULL_COPY", () => {
     expect(all).not.toContain("wait for the first native-poll integration");
   });
 
-  it("acknowledges native polling is alive (post-pivot honest framing)", () => {
+  it("points the operator at refreshing their connected data (on-demand framing)", () => {
+    // On-demand pivot: copy no longer mentions a nightly rebuild or
+    // native polling being "alive". Data refreshes only when the
+    // operator refreshes their connected sources, so the detail tells
+    // them exactly that — rebuild the index by refreshing connected data.
     const detail = EVIDENCE_FRESHNESS_NULL_COPY.detail;
-    expect(detail).toContain("native");
+    expect(detail).toContain("Refresh your connected data to rebuild it");
   });
 });

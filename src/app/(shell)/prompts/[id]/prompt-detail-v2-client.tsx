@@ -184,7 +184,7 @@ export function PromptDetailV2Client(props: PromptDetailV2ClientProps) {
             className="mt-2 text-[12px] leading-relaxed text-muted-foreground italic"
             data-prompt-detail-act1-why-empty="true"
           >
-            Beacon tracks every reading this prompt gets across daily AI checks.
+            Beacon tracks every AI reading this prompt gets each time you refresh your connected data.
           </p>
         )}
       </Act>

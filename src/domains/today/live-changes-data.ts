@@ -96,7 +96,7 @@ const VERDICT_COPY: Record<
 > = {
   helping: {
     stateLine: "Sustained lift detected across post-change readings.",
-    nextEvidenceLine: "Confidence may shift as more daily observations land.",
+    nextEvidenceLine: "Confidence may shift as more readings accumulate.",
   },
   hurting: {
     stateLine: "Sustained decline detected on this URL.",
@@ -104,11 +104,11 @@ const VERDICT_COPY: Record<
   },
   weak_signal: {
     stateLine: "Early signs of lift — directional, not yet a strong signal.",
-    nextEvidenceLine: "Confidence updates as more daily readings accumulate.",
+    nextEvidenceLine: "Confidence updates as more readings accumulate.",
   },
   nothing_yet: {
     stateLine: "No movement detected so far.",
-    nextEvidenceLine: "Beacon keeps watching as new readings land.",
+    nextEvidenceLine: "Confidence updates as you refresh and more readings land.",
   },
   not_implemented: {
     stateLine: "Beacon never detected this change live on the page.",
@@ -126,7 +126,7 @@ const VERDICT_COPY: Record<
  */
 const PRE_VERDICT_COPY: { stateLine: string; nextEvidenceLine: string } = {
   stateLine: "Live change detected — Beacon is collecting post-change readings.",
-  nextEvidenceLine: "Confidence updates as new daily observations accumulate.",
+  nextEvidenceLine: "Confidence updates as more readings accumulate.",
 };
 
 /**
@@ -136,7 +136,7 @@ const PRE_VERDICT_COPY: { stateLine: string; nextEvidenceLine: string } = {
  */
 const RECENT_COPY: { stateLine: string; nextEvidenceLine: string } = {
   stateLine: "Live change detected — too recent for a confidence picture.",
-  nextEvidenceLine: "Beacon needs more daily readings before drawing a state.",
+  nextEvidenceLine: "Beacon needs more readings before drawing a state.",
 };
 
 function pickStateCopy(args: {

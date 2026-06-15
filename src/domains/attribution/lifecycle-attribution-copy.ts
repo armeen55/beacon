@@ -294,5 +294,5 @@ export const EVIDENCE_FRESHNESS_NULL_COPY = {
   label: (surface: string) =>
     `${surface} use the citation-evidence index, which has not been rebuilt yet today.`,
   detail:
-    "Per-row verdicts read the most recent index snapshot. Once the next nightly rebuild runs, this surface will reflect today's native Perplexity + ChatGPT data.",
+    "Per-row verdicts read the most recent index snapshot. Refresh your connected data to rebuild it with the latest Perplexity + ChatGPT readings.",
 } as const;

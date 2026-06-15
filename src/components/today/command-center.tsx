@@ -168,9 +168,9 @@ function LatestReadingCard({
     // UX.5B.4 (2026-05-07) — premium empty state vocabulary.
     return (
       <Card title="Latest reading">
-        <EmptyState>Waiting for next reading.</EmptyState>
+        <EmptyState>No reading yet.</EmptyState>
         <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
-          Your first dashboard lands tomorrow morning.
+          Connect your data sources and click Refresh to see your first dashboard.
         </p>
       </Card>
     );
@@ -209,8 +209,8 @@ function LatestReadingCard({
           </div>
         ) : null}
         <div className="flex items-baseline gap-1.5">
-          <span className="text-muted-foreground">Next</span>
-          <span>tomorrow morning</span>
+          <span className="text-muted-foreground">Updates</span>
+          <span>when you refresh</span>
         </div>
       </div>
       {manifest?.builtAt ? (

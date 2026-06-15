@@ -599,10 +599,9 @@ export function TodayClient({
               Welcome to Beacon.
             </p>
             <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-              Your first AI-visibility reading lands after the next
-              daily AI check. Add prompts in Settings → Prompts to
-              widen the sample, then check back here tomorrow
-              morning.
+              Your first AI-visibility reading lands when you refresh your
+              connected data (Settings → Connectors). Add prompts in
+              Settings → Prompts to widen the sample.
             </p>
           </div>
         )}

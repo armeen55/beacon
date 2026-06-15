@@ -63,12 +63,16 @@ describe("poll-health-block subline — Bug-1 distinguishes persistence-failure"
   it("Phase C #8 (2026-05-06) — failure subline uses customer-friendly reassurance, no on-call runbook copy", () => {
     // 2026-05-06 Phase C #8 supersedes the Round 1 + Bug-1 internal
     // distinction. Per operator brief: "Failure copy should not read
-    // like on-call infrastructure instructions." Customer copy now:
-    //   - "AI tracking didn't run today" / "didn't fully complete"
+    // like on-call infrastructure instructions." The on-demand pivot
+    // then reframed the copy around the operator's refresh action.
+    // Customer copy now:
+    //   - "AI tracking didn't complete on either platform during your
+    //     last refresh" / "didn't complete during your last refresh"
     //   - "Beacon is still using the valid responses that landed"
+    //   - "Refresh your connected data to try again"
     // The Bug-1 SHAPE (isPersistenceFailure helper) is preserved on
     // the data side; just no longer surfaced as customer copy.
-    expect(SRC).toMatch(/AI tracking didn't run/i);
+    expect(SRC).toMatch(/AI tracking didn't complete/i);
     expect(SRC).toMatch(/still using the valid responses/i);
     // The distinction helper still exists (covered by isPersistenceFailure
     // detector test below); customer-facing copy intentionally NO LONGER

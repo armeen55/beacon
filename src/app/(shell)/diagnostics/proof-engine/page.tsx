@@ -135,7 +135,7 @@ export default async function ProofEngineDiagnosticPage() {
         <p className="mt-1 text-[12px] text-muted-foreground">
           Causal diff-in-differences outcomes for{" "}
           <span className="font-mono">{tenantId}</span>. Read-only;
-          recomputed nightly. {outcomes.length} attributed change
+          recomputed when you refresh. {outcomes.length} attributed change
           {outcomes.length === 1 ? "" : "s"} · {computedCount} causally
           computed.
         </p>
@@ -149,9 +149,9 @@ export default async function ProofEngineDiagnosticPage() {
 
       {outcomes.length === 0 && !readError && (
         <p className="rounded-md border border-border bg-surface-inset/40 px-4 py-3 text-[13px] text-muted-foreground">
-          No attributed changes yet. The Proof Engine runs nightly per tenant
-          (after generation); outcomes appear here once it has run against this
-          tenant&apos;s changelog + citation history.
+          No attributed changes yet. The Proof Engine recomputes when you
+          refresh your connected data; outcomes appear here once it has run
+          against this tenant&apos;s changelog + citation history.
         </p>
       )}
 

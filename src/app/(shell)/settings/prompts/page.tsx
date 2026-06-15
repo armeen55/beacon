@@ -91,7 +91,7 @@ export default async function SettingsPromptsPage() {
         <h1 className="text-lg font-semibold tracking-tight">Prompts</h1>
         <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
           {activeCount > 0
-            ? `${activeCount} prompt${activeCount === 1 ? "" : "s"} run in tomorrow's daily AI check.${
+            ? `${activeCount} prompt${activeCount === 1 ? "" : "s"} run the next time you refresh your connected data.${
                 inactiveCount > 0 ? ` ${inactiveCount} inactive.` : ""
               }`
             : "No prompts set up yet. Add the questions you want tracked so Beacon can start checking how AI assistants answer them."}

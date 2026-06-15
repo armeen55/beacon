@@ -316,9 +316,8 @@ function RecommendationsV2EmptyState() {
         No recommendations right now.
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
-        Beacon is watching for the next clear opportunity. New recommendations
-        appear when it spots fresh search demand or a content gap on your
-        pages.
+        Refresh your connected data (Settings → Connectors) to surface the next
+        clear opportunity — fresh search demand or a content gap on your pages.
       </p>
     </div>
   );
@@ -340,8 +339,8 @@ function RecommendationsV2CalmState({
       </p>
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
         {inFlightCount > 0
-          ? `Beacon is measuring ${inFlightCount} change${inFlightCount === 1 ? "" : "s"} you've already shipped. New recommendations appear when it spots fresh search demand or a content gap.`
-          : "Beacon is watching for the next clear opportunity. New recommendations appear when it spots fresh search demand or a content gap on your pages."}
+          ? `Beacon is measuring ${inFlightCount} change${inFlightCount === 1 ? "" : "s"} you've already shipped. Refresh your connected data to surface fresh search demand or a content gap.`
+          : "Refresh your connected data (Settings → Connectors) to surface the next clear opportunity — fresh search demand or a content gap on your pages."}
       </p>
     </div>
   );

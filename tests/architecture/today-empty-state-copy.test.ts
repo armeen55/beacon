@@ -10,13 +10,13 @@
  * citations, no result count, no asOfDate), the meta lines render
  * customer-safe guidance:
  *
- *   • "Beacon starts collecting AI answers after the next daily check."
- *   • "Most accounts show their first full daily sample after the next run."
+ *   • "Beacon starts collecting AI answers when you refresh your connected data."
+ *   • "Your first full sample appears once you refresh your connected data."
  *
  * Constraints:
- *   • Copy is generic — does NOT promise a specific time (e.g., "10 UTC
- *     tomorrow") because the app does not know each tenant's actual
- *     cron schedule from the render path.
+ *   • Copy is honest about Beacon's on-demand model — data updates when
+ *     the operator refreshes their connected sources, NOT on any schedule.
+ *     It does NOT promise a specific time or imply an automatic cron.
  *   • Copy must NOT show on populated tenants (Ritz with 14k+ obs
  *     should never see first-run guidance).
  *   • Source-text invariant — every customer-facing string must live
@@ -37,18 +37,18 @@ describe("D3 — first-run KPI guidance copy is present", () => {
   it("scoreboard source contains the citations first-run guidance string", () => {
     expect(
       SCOREBOARD_SRC.includes(
-        "Beacon starts collecting AI answers after the next daily check.",
+        "Beacon starts collecting AI answers when you refresh your connected data.",
       ),
-      "today-scoreboard.tsx must include first-run copy 'Beacon starts collecting AI answers after the next daily check.' (D3 + Bundle 3 copy cleanup)",
+      "today-scoreboard.tsx must include first-run copy 'Beacon starts collecting AI answers when you refresh your connected data.' (D3 + on-demand copy sweep)",
     ).toBe(true);
   });
 
   it("scoreboard source contains the pages first-run guidance string", () => {
     expect(
       SCOREBOARD_SRC.includes(
-        "Most accounts show their first full daily sample after the next run.",
+        "Your first full sample appears once you refresh your connected data.",
       ),
-      "today-scoreboard.tsx must include first-run copy 'Most accounts show their first full daily sample after the next run.' (D3)",
+      "today-scoreboard.tsx must include first-run copy 'Your first full sample appears once you refresh your connected data.' (D3 + on-demand copy sweep)",
     ).toBe(true);
   });
 
@@ -97,7 +97,7 @@ describe("D3 — first-run copy is gated to empty state (does not leak to popula
     // and inside ternary expressions guarded by that flag — not at the
     // top of the meta cascade. Grep for the structural shape.
     const citationsCopyIdx = SCOREBOARD_SRC.indexOf(
-      "Beacon starts collecting AI answers after the next daily check.",
+      "Beacon starts collecting AI answers when you refresh your connected data.",
     );
     const isFirstRunDeclIdx = SCOREBOARD_SRC.indexOf(
       "isFirstRunNoData =",

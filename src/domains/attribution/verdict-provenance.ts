@@ -307,7 +307,7 @@ export function buildVerdictProvenance(
       if (inPre || inPost) which.push(d);
     }
     caveats.push(
-      `Window includes ${which.join(", ")} — ${which.length === 1 ? "a date" : "dates"} that had partial polling or duplicate observations before the data layer was cleaned. Treat this verdict as directional until the next nightly verdict pass refreshes it.`,
+      `Window includes ${which.join(", ")} — ${which.length === 1 ? "a date" : "dates"} that had partial polling or duplicate observations before the data layer was cleaned. Treat this verdict as directional until you refresh your connected data.`,
     );
   }
 

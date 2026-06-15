@@ -40,9 +40,9 @@ export function FirstReadingWaiting({
             Beacon is preparing your first reading.
           </h1>
           <p className="text-[14px] text-muted-foreground">
-            Your first dashboard will appear after the next daily reading.
-            Beacon analyzes your website and tracks how AI search engines
-            describe your business {context.nextReadingDescription}.
+            Connect your data sources and click Refresh to see your first
+            dashboard. Beacon analyzes your website and tracks how AI search
+            engines describe your business {context.nextReadingDescription}.
           </p>
         </div>
 
@@ -120,8 +120,8 @@ export function FirstReadingWaiting({
           <p className="font-medium">What happens next</p>
           <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
             <li>
-              Beacon reviews your website&apos;s pages and asks the AI search
-              engines about your business {context.nextReadingDescription}.
+              When you refresh, Beacon reviews your website&apos;s pages and
+              checks how the AI search engines describe your business.
             </li>
             <li>
               Your dashboard will fill in with the search demand for your

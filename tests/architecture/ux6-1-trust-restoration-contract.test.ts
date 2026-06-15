@@ -211,10 +211,16 @@ describe("UX.6.1 Fix 2 — Poll health calm banner exists and is pure", () => {
     expect(POLL_HEALTH_CALM_BANNER_SRC).not.toMatch(/^"use client"/m);
   });
 
-  it("calm banner copy uses customer-safe scheduling language", () => {
-    // Required strings — these are the operator-locked phrases.
-    expect(POLL_HEALTH_CALM_BANNER_SRC).toContain("Next reading scheduled");
-    expect(POLL_HEALTH_CALM_BANNER_SRC).toMatch(/07:00\s+UTC/);
+  it("calm banner copy uses customer-safe on-demand language", () => {
+    // On-demand pivot: the calm banner no longer claims a scheduled
+    // "Next reading" at 07:00 UTC (there is no cron / schedule). It now
+    // shows the latest complete reading and points the operator at the
+    // refresh action — data only updates when they refresh their
+    // connected sources. These are the operator-locked phrases.
+    expect(POLL_HEALTH_CALM_BANNER_SRC).toContain("Showing your latest reading");
+    expect(POLL_HEALTH_CALM_BANNER_SRC).toMatch(
+      /Refresh\s+your connected data/,
+    );
     // Forbidden alarming words — the calm path must not look warning-
     // shaped. Strip block + line comments so JSDoc that QUOTES the old
     // warning text (e.g. "AI tracking has not run yet today") doesn't

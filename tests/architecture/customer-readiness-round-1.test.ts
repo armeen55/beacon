@@ -155,27 +155,30 @@ describe("Round 1 Fix 2 — /today Poll Health infra-leak rewrite", () => {
     ).toBe(false);
   });
 
-  it("operator-readable 'scheduled-job logs'/'daily-poll logs' phrases (R1) OR Phase-C-8 customer-friendly form (no log references at all)", () => {
-    // 2026-05-06 Phase C #8 superseded Round 1 here: customer-facing
-    // failure copy no longer references logs at all (per operator
-    // brief: "Failure copy should not read like on-call infrastructure
-    // instructions"). The Round-1-era 'scheduled-job logs' phrase is
-    // an acceptable intermediate; Phase C #8's no-log copy is the
-    // strictly-better successor. This invariant accepts either form so
-    // future bundles can move further toward customer-friendly without
-    // a hard regression.
-    const usesR1 =
-      /scheduled-job logs/.test(POLL_HEALTH_CODE) ||
-      /daily-poll logs/.test(POLL_HEALTH_CODE);
-    const usesPhaseC8 =
+  it("failure copy uses honest on-demand reassurance — no schedule/log references at all", () => {
+    // 2026-05-06 Phase C #8 superseded Round 1 here, and the on-demand
+    // pivot superseded Phase C #8 again: customer-facing failure copy
+    // now references neither logs NOR any schedule. Per the pivot brief,
+    // data only updates when the operator refreshes their connected
+    // sources, so the reassurance points at the refresh action
+    // ("Refresh your connected data to try again") and confirms Beacon
+    // is "still using the valid responses that landed". No
+    // 'scheduled-job logs' / 'daily-poll logs' / cron framing remains.
+    const noLogReferences =
+      !/scheduled-job logs/.test(POLL_HEALTH_CODE) &&
+      !/daily-poll logs/.test(POLL_HEALTH_CODE);
+    const usesOnDemandReassurance =
       /still using the valid responses/.test(POLL_HEALTH_CODE) &&
-      /AI tracking didn't run/i.test(POLL_HEALTH_CODE);
+      /Refresh your connected data/i.test(POLL_HEALTH_CODE) &&
+      /AI tracking didn't complete/i.test(POLL_HEALTH_CODE);
     expect(
-      usesR1 || usesPhaseC8,
-      "poll-health-block.tsx must use either the R1 phrases " +
-        "('scheduled-job logs' / 'daily-poll logs') OR the Phase C #8 " +
-        "customer-friendly copy ('AI tracking didn't run' + 'still using " +
-        "the valid responses'). Both pass the no-vendor-leak contract.",
+      noLogReferences && usesOnDemandReassurance,
+      "poll-health-block.tsx failure copy must use the honest on-demand " +
+        "reassurance ('AI tracking didn't complete' + 'still using the " +
+        "valid responses' + 'Refresh your connected data') and must NOT " +
+        "reference any logs ('scheduled-job logs' / 'daily-poll logs') or " +
+        "schedule. This keeps the no-vendor-leak contract while matching " +
+        "the on-demand pivot (no crons, no schedule).",
     ).toBe(true);
   });
 });

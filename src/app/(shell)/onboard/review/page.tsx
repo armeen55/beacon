@@ -85,7 +85,7 @@ export default async function OnboardReviewPage() {
     <OnboardingShell
       step={4}
       title="Review and launch"
-      subtitle="Beacon will start tracking these prompts on the next daily reading."
+      subtitle="Beacon will start tracking these prompts the next time you refresh your connected data."
     >
       <div className="space-y-5">
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3">

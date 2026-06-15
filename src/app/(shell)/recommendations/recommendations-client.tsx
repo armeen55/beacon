@@ -1752,18 +1752,24 @@ function EmptyTable({ hasAnyRows }: { hasAnyRows: boolean }) {
       ) : (
         <>
           <p className="text-[13px] font-medium text-foreground">
-            No recommendations today.
+            No recommendations right now.
           </p>
           <p className="mt-1 text-[12px] text-muted-foreground">
-            The queue regenerates nightly from the latest prompt observations.
-            Come back tomorrow, or check{" "}
+            Refresh your connected data{" "}
+            <Link
+              href="/settings/connectors"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              (Settings → Connectors)
+            </Link>{" "}
+            to generate new recommendations, or check{" "}
             <Link
               href="/prompts"
               className="underline underline-offset-2 hover:text-foreground"
             >
               /prompts
             </Link>{" "}
-            to see today&apos;s prompt-by-prompt observations.
+            for your latest prompt-by-prompt observations.
           </p>
         </>
       )}

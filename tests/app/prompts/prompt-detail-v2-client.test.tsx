@@ -144,7 +144,7 @@ describe("PromptDetailV2Client — 5-act prompt brief", () => {
     const html = render({ whyItMatters: null });
     expect(html).toContain('data-prompt-detail-act1-why-empty="true"');
     expect(html).toContain(
-      "Beacon tracks every reading this prompt gets across daily AI checks",
+      "Beacon tracks every AI reading this prompt gets each time you refresh your connected data",
     );
   });
 

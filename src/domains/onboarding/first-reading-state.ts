@@ -13,9 +13,11 @@
  * Pure function — no I/O, no env, no Supabase, no Next.js. Easy to
  * test, safe to import on the server.
  *
- * Customer-safe: the returned `nextReadingDescription` uses operator-
- * friendly phrasing only ("tomorrow morning"). Never mentions cron,
- * 07:00 UTC, GitHub Actions, Supabase, or any internal infrastructure.
+ * Customer-safe: the returned `nextReadingDescription` uses honest
+ * on-demand phrasing ("once you refresh your connected data"). Beacon
+ * has no automatic schedule — data updates when the customer refreshes
+ * their connected sources. Never mentions cron, GitHub Actions,
+ * Supabase, or any internal infrastructure.
  */
 
 import type { BeaconTenant } from "@/domains/tenants/types";
@@ -104,9 +106,9 @@ export function detectFirstReadingState(
       domain: (tenant.domain ?? "").trim(),
       promptCount: activePromptCount,
       // Customer-safe phrasing. NEVER mention cron / UTC / GitHub /
-      // Supabase / poll. The actual cron fires daily at 07:00 UTC, so
-      // "tomorrow morning" is accurate from any same-day signup.
-      nextReadingDescription: "tomorrow morning",
+      // Supabase / poll. Beacon has no schedule — the first reading
+      // lands once the customer refreshes their connected data.
+      nextReadingDescription: "once you refresh your connected data",
       ...(derived ? { derived } : {}),
     },
   };

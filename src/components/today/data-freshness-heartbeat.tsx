@@ -222,7 +222,7 @@ function headlineFor(verdict: FreshnessVerdict): string {
     case "fresh":
       return `Beacon refreshed AI visibility ${rel}.`;
     case "pending":
-      return `Beacon refreshed AI visibility ${rel}. Waiting for today's daily check.`;
+      return `Beacon refreshed AI visibility ${rel}. Refresh your connected data to update it.`;
     case "stale":
       return `AI visibility data is stale — last refresh ${rel}.`;
     case "needs_attention":
@@ -259,22 +259,16 @@ function sublineFor(verdict: FreshnessVerdict): string {
     case "fresh":
       return "Latest readings are current.";
     case "pending":
-      // 2026-05-10 — reflects the redundant-schedule reliability fix
-      // (.github/workflows/daily-native-poll.yml): the workflow now has
-      // 3 daily attempts (primary + 2 backups) so a scheduler skip
-      // on the first fire no longer blocks the day. Customer-facing
-      // copy hides the cron times — operator can see them in
-      // /diagnostics if needed.
-      return "Beacon checks AI visibility multiple times each morning; backup attempts run automatically.";
+      // Beacon updates AI visibility when you refresh your connected
+      // data (Settings → Connectors → Pull my data) — there is no
+      // automatic schedule.
+      return "Beacon updates your AI visibility each time you refresh your connected data.";
     case "stale":
-      // 2026-05-10 — stale-band hint upgrade. Backup AI checks run
-      // automatically. If data stays stale, the day's check didn't
-      // land. Customer-safe vocabulary; no scheduler jargon.
-      return "Backup AI checks run automatically. If data stays stale through the morning, today's check didn't complete — see data status.";
+      return "This data is from your last refresh. Refresh your connected data (Settings → Connectors) to update it.";
     case "needs_attention":
-      return "Recent AI checks have not completed. See data status.";
+      return "Your latest refresh didn't complete. See data status.";
     case "no_data":
-      return "Beacon will surface a reading after the first daily AI check.";
+      return "Connect your data sources and click Refresh to see your first reading.";
   }
 }
 

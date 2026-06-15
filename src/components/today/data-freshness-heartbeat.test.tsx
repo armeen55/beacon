@@ -241,18 +241,14 @@ describe("DataFreshnessHeartbeat — render", () => {
     expect(html).toContain('data-freshness-band="no_data"');
     expect(html).toContain("Beacon has not refreshed AI visibility yet.");
     expect(html).toContain(
-      "Beacon will surface a reading after the first daily AI check.",
+      "Connect your data sources and click Refresh to see your first reading.",
     );
   });
 
-  it("pending-band subline describes daily AI checks + auto-backups (Bundle 3 copy cleanup)", () => {
-    // Bundle 3 (copy cleanup, 2026-05-10): customer-facing heartbeat
-    // copy no longer leaks the cron schedule (07:00 / 08:30 / 10:00
-    // UTC). The redundant-schedule reliability posture is preserved
-    // — the workflow still fires at those times — but the customer-
-    // facing string reads "checks AI visibility multiple times each
-    // morning; backup attempts run automatically." Operator can see
-    // exact times via /diagnostics if needed.
+  it("pending-band subline points the operator to refresh, no phantom schedule (on-demand copy sweep)", () => {
+    // On-demand copy sweep: Beacon has no automatic schedule. The
+    // pending-band subline must direct the operator to refresh their
+    // connected data, never imply a nightly/morning cron or auto-backup.
     const snap = snapshot();
     snap.platforms[0].status = "pending";
     snap.platforms[1].latestRun!.completedAt = "2026-05-09T22:00:00.000Z"; // 14h ago
@@ -260,25 +256,23 @@ describe("DataFreshnessHeartbeat — render", () => {
       <DataFreshnessHeartbeat pollHealth={snap} now={NOW} />,
     );
     expect(html).toContain('data-freshness-band="pending"');
-    // Bundle 3 copy: cron-time-free, plain English, mentions auto-backup
-    // posture so the operator knows they don't need to take action.
+    // Honest on-demand copy: updates happen when the operator refreshes.
     expect(html).toContain(
-      "Beacon checks AI visibility multiple times each morning",
+      "Beacon updates your AI visibility each time you refresh your connected data.",
     );
-    expect(html).toContain("backup attempts run automatically");
-    // Cron-time leakage must NOT appear in customer-facing copy.
+    // Phantom-automation language must NOT appear.
+    expect(html).not.toContain("backup attempts run automatically");
+    expect(html).not.toContain("each morning");
     expect(html).not.toContain("07:00");
     expect(html).not.toContain("08:30");
     expect(html).not.toContain("10:00 UTC");
     expect(html).not.toContain("scheduled poll");
   });
 
-  it("stale-band subline mentions auto-backups + 'see data status' (Bundle 3 copy cleanup)", () => {
-    // Bundle 3 (copy cleanup, 2026-05-10): stale-band hint replaced
-    // the cron-time threshold ("10:45 UTC") with a plain-English
-    // morning-window check, and replaced "review poll health" with
-    // "see data status." Customer reads what to do, not when the
-    // backup canary fires.
+  it("stale-band subline points the operator to refresh, no phantom schedule (on-demand copy sweep)", () => {
+    // On-demand copy sweep: the stale-band hint must tell the operator
+    // to refresh their connected data — never imply an automatic
+    // backup AI check or a scheduled cron.
     const snap = snapshot({
       platforms: snapshot().platforms.map((p) => ({
         ...p,
@@ -292,9 +286,9 @@ describe("DataFreshnessHeartbeat — render", () => {
       <DataFreshnessHeartbeat pollHealth={snap} now={NOW} />,
     );
     expect(html).toContain('data-freshness-band="stale"');
-    expect(html).toContain("Backup AI checks run automatically");
-    expect(html).toContain("see data status");
-    // Cron-time leakage and old "review poll health" jargon must NOT remain.
+    expect(html).toContain("Refresh your connected data");
+    // Phantom-automation + cron-time leakage must NOT remain.
+    expect(html).not.toContain("Backup AI checks run automatically");
     expect(html).not.toContain("10:45 UTC");
     expect(html).not.toContain("review poll health");
     expect(html).not.toContain("retry on the next cycle");

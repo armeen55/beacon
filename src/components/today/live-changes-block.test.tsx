@@ -114,13 +114,13 @@ describe("LiveChangesBlock", () => {
       {
         stateLine: "Sustained lift detected across post-change readings.",
         nextEvidenceLine:
-          "Confidence may shift as more daily observations land.",
+          "Confidence may shift as more readings accumulate.",
       },
       // weak_signal
       {
         stateLine: "Early signs of lift — directional, not yet a strong signal.",
         nextEvidenceLine:
-          "Confidence updates as more daily readings accumulate.",
+          "Confidence updates as more readings accumulate.",
       },
     ];
     for (const copy of verdicts) {

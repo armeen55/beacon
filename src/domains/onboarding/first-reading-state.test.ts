@@ -36,7 +36,9 @@ describe("detectFirstReadingState — happy path", () => {
       expect(r.context.businessName).toBe("Acme Builders");
       expect(r.context.domain).toBe("acmebuilders.com");
       expect(r.context.promptCount).toBe(5);
-      expect(r.context.nextReadingDescription).toBe("tomorrow morning");
+      expect(r.context.nextReadingDescription).toBe(
+        "once you refresh your connected data",
+      );
     }
   });
 

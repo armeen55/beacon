@@ -38,13 +38,12 @@ export function PollHealthCalmBanner({
       <div className="flex items-center gap-2">
         <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40 shrink-0" />
         <p className="text-[12px] font-medium text-muted-foreground">
-          Next reading scheduled
+          Showing your latest reading
         </p>
       </div>
       <p className="mt-1.5 text-[11px] text-muted-foreground/80 leading-relaxed">
-        Beacon&apos;s daily AI reading runs in scheduled attempts
-        throughout the morning. The dashboard is showing the
-        latest complete reading.
+        The dashboard is showing the latest complete reading. Refresh
+        your connected data (Settings → Connectors) to update it.
       </p>
     </div>
   );

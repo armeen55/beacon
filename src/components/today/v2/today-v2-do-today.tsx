@@ -45,8 +45,9 @@ export function TodayV2DoToday({
           Nothing to ship right now.
         </p>
         <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-          Beacon is watching for the next recommendation. New ones appear when
-          it spots fresh search demand or a content gap on your pages.
+          No new recommendations right now. Refresh your connected data
+          (Settings → Connectors) to surface fresh search demand or content
+          gaps on your pages.
         </p>
         <div className="mt-auto pt-4">
           <Link

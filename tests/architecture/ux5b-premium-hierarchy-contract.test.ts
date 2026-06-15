@@ -138,9 +138,9 @@ describe("UX.5B.4 — Command Center empty-state cohesion", () => {
     );
   });
 
-  it("Latest reading empty state uses 'Waiting for next reading.'", () => {
+  it("Latest reading empty state uses 'No reading yet.'", () => {
     expect(CC_SRC).toMatch(
-      /title="Latest reading"[\s\S]{0,400}Waiting for next reading\./,
+      /title="Latest reading"[\s\S]{0,400}No reading yet\./,
     );
   });
 

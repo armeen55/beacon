@@ -69,8 +69,8 @@ export function LaunchForm({ promptCount }: { promptCount: number }) {
           className="mt-0.5 accent-foreground"
         />
         <span>
-          I agree that Beacon will start tracking these prompts on the
-          next daily reading. I can edit or pause them anytime.
+          I agree that Beacon will start tracking these prompts the next
+          time I refresh my connected data. I can edit or pause them anytime.
         </span>
       </label>
 

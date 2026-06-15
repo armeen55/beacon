@@ -106,13 +106,13 @@ const LIKELY_ACTION_BY_CATEGORY: Record<PromptOpportunityCategory, string> = {
   outranked:
     "Likely action: competitive content targeting this prompt's intent and geo cluster — the competitors above are the field you're trying to enter.",
   absent:
-    "Likely action: create a page that answers this question directly, or wait for the daily cron to accumulate more evidence that you belong here.",
+    "Likely action: create a page that answers this question directly, or refresh your connected data to accumulate more evidence that you belong here.",
   close:
     "Likely action: strengthen the target page's lead with descriptors AI isn't yet using near you.",
   winning:
     "Keep monitoring. Rising competitors and descriptor drift would be the early signals to watch.",
   early:
-    "Check back once more AI readings accumulate (each daily check typically adds ~2 readings per prompt).",
+    "Check back once more AI readings accumulate (each refresh typically adds ~2 readings per prompt).",
 };
 
 export function buildPromptDrilldown(

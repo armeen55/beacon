@@ -303,7 +303,7 @@ export async function generateClusterCards(
       confidence: "medium",
       risks,
       expected_impact: null,
-      measurement_plan: "AI citations of the new URL via the nightly poll; GSC impressions once indexed.",
+      measurement_plan: "AI citations of the new URL the next time you refresh your connected data; GSC impressions once indexed.",
       model,
       cost_usd: costUsd,
     });

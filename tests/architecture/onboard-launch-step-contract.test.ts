@@ -106,12 +106,12 @@ describe("Gap C.4 — /onboard/review renders LaunchForm + preview", () => {
   });
 
   it("uses the customer-safe Launch copy", () => {
-    // Required brief copy: "Launch Beacon" + the daily-reading line.
-    // The daily-reading line lives on the page subtitle; the button
-    // label lives on the form. Pin both surfaces.
+    // Required brief copy: "Launch Beacon" + the honest on-demand
+    // tracking line. The tracking line lives on the page subtitle; the
+    // button label lives on the form. Pin both surfaces.
     expect(LAUNCH_FORM_SRC).toMatch(/Launch Beacon/);
     expect(REVIEW_SRC).toMatch(
-      /Beacon will start tracking these prompts on the next daily reading/,
+      /Beacon will start tracking these prompts the next time you refresh your connected data/,
     );
   });
 });

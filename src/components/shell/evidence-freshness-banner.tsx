@@ -124,7 +124,7 @@ export function EvidenceFreshnessBanner({
         <span className="tabular-nums">{builtLabel}</span>
         {ageDays > 0 && <> ({ageDays}d ago)</>}
       </span>
-      {" "}— an older snapshot. Tonight's native poll will rebuild it.{" "}
+      {" "}— an older snapshot. Refresh your connected data to rebuild it.{" "}
       <Link
         href={methodologyHref}
         prefetch={false}

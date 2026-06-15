@@ -213,11 +213,11 @@ function subline(snap: PollHealthSnapshot): string {
   // Operator detail (specific cause + which logs to check) remains
   // available via the existing "Show details" expansion below.
   if (failing.length === 2) {
-    return "AI tracking didn't run today on either platform. Beacon is investigating; come back tomorrow morning for a fresh reading.";
+    return "AI tracking didn't complete on either platform during your last refresh. Refresh your connected data to try again.";
   }
   if (failing.length === 1) {
     const f = failing[0];
-    return `${PLATFORM_LABELS[f.platform]} didn't run today. Beacon is still using the valid responses that landed; tomorrow's daily AI check runs as usual.`;
+    return `${PLATFORM_LABELS[f.platform]} didn't complete during your last refresh. Beacon is still using the valid responses that landed; refresh your connected data to try again.`;
   }
   if (partial.length > 0) {
     const names = partial
@@ -226,7 +226,7 @@ function subline(snap: PollHealthSnapshot): string {
     return `${names} didn't fully complete today. Beacon is still using the valid responses that landed.`;
   }
   if (pending.length === 2) {
-    return "AI tracking has not run yet today. Beacon's daily AI check runs in scheduled attempts throughout the morning.";
+    return "AI tracking hasn't run yet. Refresh your connected data to update it.";
   }
   if (pending.length === 1) {
     return `${PLATFORM_LABELS[pending[0].platform]} has no run yet today.`;

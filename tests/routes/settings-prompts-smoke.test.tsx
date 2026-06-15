@@ -83,7 +83,7 @@ describe("/settings/prompts smoke", () => {
 
     // Header: 2 active, 1 inactive.
     expect(html).toContain("Prompts");
-    expect(html).toMatch(/2 prompts run in tomorrow/);
+    expect(html).toMatch(/2 prompts run the next time you refresh your connected data/);
     expect(html).toMatch(/1 inactive/);
 
     // Add button visible.

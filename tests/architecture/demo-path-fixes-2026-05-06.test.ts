@@ -201,16 +201,12 @@ describe("Demo-path fix 4 (2026-05-06) — /today first-run welcome + Z-score ki
   it("first-run welcome card mounts when pollHealth === null && primaryAction === null", () => {
     expect(TODAY_CLIENT).toMatch(/data-today-first-run="true"/);
     expect(TODAY_CLIENT).toMatch(/Welcome to Beacon\./);
-    // Bundle 3 (copy cleanup, 2026-05-10): the welcome card no longer
-    // leaks the cron schedule (07:00 / 08:30 / 10:00 UTC). Customer-
-    // facing copy now reads "next daily AI check" / "tomorrow morning"
-    // — the schedule lives in .github/workflows/daily-native-poll.yml
-    // and is operator-visible via /diagnostics, but not in customer UI.
-    expect(TODAY_CLIENT).toMatch(/daily AI check/);
-    // JSX whitespace-tolerant: "tomorrow" and "morning" may sit on
-    // separate source lines (the JSX renderer collapses the gap at
-    // render time).
-    expect(TODAY_CLIENT).toMatch(/tomorrow\s+morning/);
+    // On-demand copy sweep: the welcome card no longer implies an
+    // automatic schedule ("daily AI check" / "tomorrow morning").
+    // Beacon updates when the operator refreshes their connected data.
+    expect(TODAY_CLIENT).toMatch(/refresh your\s+connected data/);
+    // Phantom-automation language must NOT appear in the welcome card.
+    expect(TODAY_CLIENT).not.toMatch(/tomorrow\s+morning/);
     // Cron-time leakage: only customer-VISIBLE strings count. Internal
     // JSDoc / JSX comments are allowed to reference 07:00-cron context
     // (see e.g. the Tier 0 alerts comment block) — strip them first.
@@ -371,8 +367,10 @@ describe("Demo-path Phase C fix 7 (2026-05-06) — /prompts polish", () => {
     expect(stripped).not.toMatch(/08:30/);
     expect(stripped).not.toMatch(/10:00 UTC/);
     expect(stripped).not.toMatch(/scheduled poll/);
-    // Plain-English replacement must be present.
-    expect(stripped).toMatch(/Beacon checks AI visibility every morning/);
+    // Honest on-demand replacement must be present.
+    expect(stripped).toMatch(
+      /Beacon updates your AI visibility each time you refresh your connected data/,
+    );
   });
 });
 
@@ -391,24 +389,23 @@ describe("Demo-path Phase C fix 8 (2026-05-06) — /today poll-health customer c
     expect(stripped).not.toMatch(/at least one was a persistence failure/);
   });
 
-  it("PollHealthBlock pending-day copy is plain English (Bundle 3 copy cleanup)", () => {
-    // Bundle 3 (2026-05-10): customer-facing PollHealthBlock copy no
-    // longer leaks the cron schedule. The redundant-schedule
-    // reliability posture is preserved in the workflow; the customer
-    // sees "Beacon's daily AI check runs in scheduled attempts
-    // throughout the morning."
+  it("PollHealthBlock pending-day copy is honest on-demand (on-demand copy sweep)", () => {
+    // On-demand copy sweep: customer-facing PollHealthBlock copy no
+    // longer implies a scheduled cron. Beacon has no schedule — the
+    // customer is told to refresh their connected data to update it.
     const pollHealth = readFileSync(
       resolve(REPO_ROOT, "src/components/today/poll-health-block.tsx"),
       "utf8",
     );
     const stripped = stripComments(pollHealth);
-    // Cron-time leaks must NOT appear in customer-facing copy.
+    // Cron-time + phantom-schedule leaks must NOT appear in customer copy.
     expect(stripped).not.toMatch(/07:00/);
     expect(stripped).not.toMatch(/08:30/);
     expect(stripped).not.toMatch(/10:00 UTC/);
     expect(stripped).not.toMatch(/scheduled poll/);
-    // Plain-English replacement must be present.
-    expect(stripped).toMatch(/Beacon's daily AI check runs in scheduled attempts/);
+    expect(stripped).not.toMatch(/scheduled attempts/);
+    // Honest on-demand replacement must be present.
+    expect(stripped).toMatch(/Refresh your connected data to update it/);
   });
 
   it("PollHealthBlock partial-day copy reassures 'Beacon is still using the valid responses'", () => {

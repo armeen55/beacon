@@ -94,7 +94,7 @@ describe("TodayScoreboard — first-run empty-state honesty (wave-6)", () => {
     expect(values).not.toContain("0");
     // ...and the first-run explainer meta confirms we took that branch
     expect(html).toContain(
-      "Beacon starts collecting AI answers after the next daily check",
+      "Beacon starts collecting AI answers when you refresh your connected data",
     );
   });
 
@@ -112,7 +112,7 @@ describe("TodayScoreboard — first-run empty-state honesty (wave-6)", () => {
     );
     // The first-run explainer must NOT appear — this is a real reading.
     expect(html).not.toContain(
-      "Beacon starts collecting AI answers after the next daily check",
+      "Beacon starts collecting AI answers when you refresh your connected data",
     );
     // ...and the KPI VALUES render the measured "0", never the placeholder.
     const values = kpiValues(html);

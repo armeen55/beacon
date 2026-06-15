@@ -146,11 +146,12 @@ describe("Round 2 Fix 2 — /recommendations empty-state copy", () => {
 
   it("renders the new operator-readable empty-state pointer", () => {
     expect(
-      /to see today&apos;s prompt-by-prompt observations\.|to see today's prompt-by-prompt observations\./.test(
+      /for your latest prompt-by-prompt observations\./.test(
         RECS_CLIENT_CODE,
       ),
       "recommendations-client.tsx must point to /prompts with operator-" +
-        "readable copy (e.g. 'to see today's prompt-by-prompt observations.').",
+        "readable, on-demand copy (e.g. 'for your latest prompt-by-prompt " +
+        "observations.').",
     ).toBe(true);
   });
 });

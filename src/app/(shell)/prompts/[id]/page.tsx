@@ -803,7 +803,7 @@ function DescriptorCloud({
       ) : (
         <p className="text-[12px] text-muted-foreground">
           No readings yet — Beacon will start collecting AI answers for this
-          prompt on the next daily check.
+          prompt when you refresh your connected data.
         </p>
       )}
     </section>

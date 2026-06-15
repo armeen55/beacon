@@ -133,9 +133,9 @@ export function TodayScoreboard({
     scoreboard.resultCount === 0 &&
     asOfDate === null;
   const firstRunCitationsMeta =
-    "Beacon starts collecting AI answers after the next daily check.";
+    "Beacon starts collecting AI answers when you refresh your connected data.";
   const firstRunPagesMeta =
-    "Most accounts show their first full daily sample after the next run.";
+    "Your first full sample appears once you refresh your connected data.";
 
   return (
     <div className="space-y-5">

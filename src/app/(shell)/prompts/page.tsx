@@ -155,7 +155,7 @@ export default async function PromptsPage({
       ) : !hasAnyNativeObservations ? (
         <EmptyState
           title="Too early to judge"
-          body={`${totalPrompts} prompts active but no AI readings in the last 7 days. Beacon checks AI visibility every morning.`}
+          body={`${totalPrompts} prompts active but no AI readings yet. Beacon updates your AI visibility each time you refresh your connected data.`}
         />
       ) : (
         <>

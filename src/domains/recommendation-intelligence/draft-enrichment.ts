@@ -259,9 +259,9 @@ type DraftFill = {
 };
 
 const SCAN_VERIFY_PLAN =
-  "The nightly scan re-checks this page and marks the move verified once the change is live; the daily poll tracks whether AI answers start citing it.";
+  "When you refresh your connected data, Beacon re-checks this page and marks the move verified once the change is live; it then tracks whether AI answers start citing it.";
 const FIX_VERIFY_PLAN =
-  "The nightly scan re-checks this page; this issue clears from the queue automatically once it is fixed.";
+  "When you refresh your connected data, Beacon re-checks this page; this issue clears from the queue once it is fixed.";
 
 /** Measurement plan for AEO CONTENT moves (answer blocks, sources)
  *  whose payoff is AI-recommendation lift, not a queue-clear. Ties the
@@ -869,7 +869,7 @@ function composeClarityDirective(
       expected_impact:
         "Removing render-breaking errors restores the page for both visitors and the JS-free AI crawlers that decide what to cite.",
       measurement_plan:
-        "After you fix it, Clarity's script-error count for this page should drop on the next nightly sync; watch the page's AI-citation trend on the Proof tab.",
+        "After you fix it, Clarity's script-error count for this page should drop the next time you refresh your connected data; watch the page's AI-citation trend on the Proof tab.",
     };
   }
   return {
@@ -880,7 +880,7 @@ function composeClarityDirective(
     expected_impact:
       "Resolving the frustrating element reduces abandonment and improves the page's engagement signals.",
     measurement_plan:
-      "After the fix, Clarity's rage-click rate for this page should fall on the next nightly sync.",
+      "After the fix, Clarity's rage-click rate for this page should fall the next time you refresh your connected data.",
   };
 }
 
