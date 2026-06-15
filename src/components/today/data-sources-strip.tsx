@@ -5,6 +5,7 @@ import {
   type ConnectorInfo,
   type ConnectorProvider,
 } from "@/lib/connector-store";
+import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
 
 /**
  * "Your data sources" quick-connect strip (2026-06-15).
@@ -189,11 +190,18 @@ export function DataSourcesStripView({
         </Link>
       </div>
       <ul className="mt-2 flex flex-wrap gap-2">
-        {statuses.map(({ source, connected, lastSynced }) => (
+        {statuses.map(({ source, connected, lastSynced }) => {
+          // What Beacon does automatically with this source, in plain English
+          // (same copy as the connectors page) — surfaced as a hover tooltip +
+          // folded into the accessible name so the "why connect this?" answer
+          // is right here on Today, not only on the settings page.
+          const automated = CONNECTOR_CAPABILITY[source.provider]?.automated;
+          return (
           <li key={source.provider}>
             {connected ? (
               <span
                 className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-status-success/40 bg-status-success/[0.06] px-3 py-2 text-[12px] text-foreground"
+                title={automated}
                 aria-label={`${source.label}: connected${lastSynced ? `, ${lastSynced}` : ""}`}
               >
                 <span aria-hidden="true" className="text-status-success">
@@ -207,6 +215,7 @@ export function DataSourcesStripView({
             ) : (
               <Link
                 href={connectHref(source)}
+                title={automated}
                 aria-label={`Connect ${source.label}`}
                 className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
               >
@@ -215,7 +224,8 @@ export function DataSourcesStripView({
               </Link>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
     </section>
   );

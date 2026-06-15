@@ -24,11 +24,16 @@
 
 import type { ConnectorCapabilityCopy } from "./connector-capability";
 
+// HONESTY (crons-off pivot): Beacon runs on-demand — every refresh of your
+// connected data is what triggers the read + analysis. There is NO nightly /
+// scheduled run, so the copy says "each time you refresh your connected data",
+// never "every night" / "nightly" / "runs on its own". (The Today data-sources
+// strip pins this with a no-"automatically"/"nightly" guard.)
 export const CONNECTOR_CAPABILITY: Record<string, ConnectorCapabilityCopy> = {
   // Google Search Console — read-only.
   google_gsc: {
     automated:
-      "Reads your real Google numbers every night — which pages show up, what people search to find you, how often they click, and where you rank — and turns the weak spots into specific fixes (rewrite this title, refresh this fading page, you're one step from page one on this search).",
+      "Each time you refresh your connected data, Beacon reads your real Google numbers — which pages show up, what people search to find you, how often they click, and where you rank — and turns the weak spots into specific fixes (rewrite this title, refresh this fading page, you're one step from page one on this search).",
     youDo:
       "Click Connect once and approve Google's read-only access. Your site just needs to already be set up in Google Search Console. That's it — Beacon never changes anything in Google, it only reads.",
   },
@@ -36,17 +41,17 @@ export const CONNECTOR_CAPABILITY: Record<string, ConnectorCapabilityCopy> = {
   // Google Analytics 4 — read-only.
   google_ga4: {
     automated:
-      "Every night Beacon checks your website analytics to see which pages bring in the most visitors and turn them into customers, then focuses its to-do list on improving the pages that matter most to your bottom line.",
+      "When you refresh your connected data, Beacon checks your website analytics to see which pages bring in the most visitors and turn them into customers, then focuses its to-do list on improving the pages that matter most to your bottom line.",
     youDo:
-      "Sign in with the Google account that has your Analytics, then pick your website from the list. After that it runs on its own — Beacon only reads your numbers and can never change anything in your Analytics.",
+      "Sign in with the Google account that has your Analytics, then pick your website from the list. After that, every refresh reads your numbers — Beacon can never change anything in your Analytics.",
   },
 
   // SEMrush — read-only.
   semrush: {
     automated:
-      "Beacon pulls the full list of Google search terms your site already ranks for, the terms competitors are winning that you're missing, and your overall site strength — then automatically writes specific fixes: rewrite this page title to grab a term you're #5 for, build a page for a term a competitor owns, or stop two of your own pages from competing for the same term.",
+      "Beacon pulls the full list of Google search terms your site already ranks for, the terms competitors are winning that you're missing, and your overall site strength — then writes specific fixes: rewrite this page title to grab a term you're #5 for, build a page for a term a competitor owns, or stop two of your own pages from competing for the same term.",
     youDo:
-      "Make sure your SEMrush plan includes API access (the Business plan) and that you've added some API 'units' to your account, then paste your SEMrush API key into Beacon once. Beacon handles the rest every night and stays inside a safe usage budget. It only reads your SEMrush data.",
+      "Make sure your SEMrush plan includes API access (the Business plan) and that you've added some API 'units' to your account, then paste your SEMrush API key into Beacon once. Each refresh pulls fresh data inside a safe usage budget. Beacon only reads your SEMrush data.",
   },
 
   // AI answer tracking (provider key: profound) — read-only.
@@ -54,7 +59,7 @@ export const CONNECTOR_CAPABILITY: Record<string, ConnectorCapabilityCopy> = {
   // the white-label-guarded Today strip.
   profound: {
     automated:
-      "Beacon watches the AI assistants every night (ChatGPT, Gemini, Perplexity, Google AI and others) and shows you the exact topics where they're recommending a competitor instead of you — then hands you the specific thing to add to your site so the AI starts recommending you.",
+      "When you refresh your connected data, Beacon checks the AI assistants (ChatGPT, Gemini, Perplexity, Google AI and others) and shows you the exact topics where they're recommending a competitor instead of you — then hands you the specific thing to add to your site so the AI starts recommending you.",
     youDo:
       "Turn on AI answer tracking on its top plan, ask their team to switch on API access, then create one access key and paste it into Beacon. If the key ever stops working, just create a new one and paste it again. Beacon only reads this data — it never changes anything there.",
   },
@@ -62,9 +67,9 @@ export const CONNECTOR_CAPABILITY: Record<string, ConnectorCapabilityCopy> = {
   // Microsoft Clarity — read-only.
   clarity: {
     automated:
-      "Beacon watches where visitors get stuck on your pages — errors that break the page, spots people click that don't work, and how far they scroll — and turns the worst ones into fix-it suggestions. It checks once every night automatically.",
+      "Beacon checks where visitors get stuck on your pages — errors that break the page, spots people click that don't work, and how far they scroll — and turns the worst ones into fix-it suggestions, each time you refresh your connected data.",
     youDo:
-      "One-time setup: in Microsoft Clarity, go to Settings then Data Export, click 'Generate new API token', then paste that token into Beacon's Clarity connection. (You'll need to be an admin on the Clarity project.) After that, Beacon takes it from there — it only reads, never changes anything in Clarity.",
+      "One-time setup: in Microsoft Clarity, go to Settings then Data Export, click 'Generate new API token', then paste that token into Beacon's Clarity connection. (You'll need to be an admin on the Clarity project.) After that, Beacon reads it on each refresh — it never changes anything in Clarity.",
   },
 
   // Wix — the ONLY write path. Owner approves every change; no auto-publish.

@@ -650,11 +650,13 @@ export function ConnectorsClient({
           What you&rsquo;ll get once everything&rsquo;s connected
         </h2>
         <p className="text-[12px] text-foreground leading-relaxed">
-          Once everything is connected, Beacon runs the whole find-fix-prove
-          loop on autopilot every night — reading all six sources, drafting and
-          ranking the exact fixes — and the only thing it can&rsquo;t do without
-          you is push a change live: every Wix publish is one-click approve, and
-          there is no zero-touch auto-publish.
+          Once everything is connected, one click of &ldquo;Refresh my
+          data&rdquo; runs the whole find-fix-prove loop for you — reading all
+          six sources, drafting and ranking the exact fixes — and the only thing
+          Beacon can&rsquo;t do without you is push a change live: every Wix
+          publish is one-click approve, and there is no zero-touch auto-publish.
+          (Nothing runs on a hidden schedule — you&rsquo;re always in control of
+          when it refreshes.)
         </p>
         <ul className="space-y-1.5 text-[12px] text-muted-foreground leading-relaxed">
           <li className="flex gap-2">
