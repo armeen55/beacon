@@ -67,7 +67,7 @@ const MAX_SENTENCE_LEN = 200;
  * a false-positive only costs us the (optional) LLM sharpening, never
  * correctness — we just fall back to the deterministic baseline.
  */
-const ANSWER_ENGINE_VENDOR_PATTERNS: ReadonlyArray<RegExp> = [
+export const ANSWER_ENGINE_VENDOR_PATTERNS: ReadonlyArray<RegExp> = [
   /\bprofound\b/i,
   /\bchat\s*gpt\b/i,
   /\bgpt-?\d/i,
@@ -170,7 +170,7 @@ export function serializeWhyInput(input: WhyThisMattersInput): {
 /** Every number token (\d[\d.,%]*) in a string, normalized for matching:
  *  trailing punctuation that isn't part of the number is stripped so
  *  "1,800." matches "1,800". */
-function extractNumberTokens(text: string): string[] {
+export function extractNumberTokens(text: string): string[] {
   const matches = text.match(/\d[\d.,%]*/g) ?? [];
   return matches.map((m) => m.replace(/[.,]+$/, "")).filter((m) => m.length > 0);
 }

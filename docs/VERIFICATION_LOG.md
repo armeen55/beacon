@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — PHASE F increment 1 (LLM expert strategist + deterministic authority) + OpenAI quota LIVE
+
+**OpenAI quota RESOLVED:** re-probed `api.openai.com` with `gpt-5-mini` → HTTP 200 + real token usage (morning's `429 insufficient_quota` is gone; the operator funded billing). Memory `project_openai_quota_blocker` updated to RESOLVED. (gpt-5 uses `max_completion_tokens`; probe with ≥50 because reasoning tokens precede content.)
+- **NEW `src/domains/recommendations/llm-expert-strategist.ts` (server-only):** the directive's PHASE-F strategist pass. `composeExpertStrategy({why, topicFit, deterministicReject})` calls the LLM for the expert reasoning JSON (opportunity / why-now / best-action / alternatives + why-not / expected-outcome / risk-level / risks), then the **DETERMINISTIC gate `enforceExpertConfidence` (pure) — NOT the LLM — sets confidence + approve and can REJECT.** Embodies the directive principle "no single LLM output trusted blindly." Reuses the Slice-B seam verbatim: `checkBudget`/`recordSpend`, `DEFAULT_OPENAI_MODEL`/`estimateCost`, and the exported `ANSWER_ENGINE_VENDOR_PATTERNS`/`extractNumberTokens`/`serializeWhyInput` firewall. Gated behind `BEACON_LLM_STRATEGIST` (default OFF), fail-closed at every boundary (flag/build/budget/key/network/parse/sanitize → null → deterministic baseline stands).
+- **Safety invariants pinned (the LLM CANNOT win):** intent-fit mismatch (Slice 3 `shouldUseQueryForOptimization=false`) or upstream safety reject → `enforcedConfidence="rejected"` regardless of glowing LLM reasoning; no core evidence → capped at `needs_more_evidence`; firewall rejects vendor names, invented numbers, **AI-citation claims without AEO evidence**, and **internal-identifier leaks**; malformed/partial JSON → null (fail-closed).
+- **LIVE ground-truth (paid, ~1 call):** the strategist prompt → `gpt-5-mini` returned HTTP 200 + clean parseable JSON (all 8 keys), genuinely expert reasoning ("not chosen because you already have visibility at rank #6 to leverage"), 2,266 completion tokens (within the 3k budget). The run **caught a real leak** — the model echoed the internal key `shouldUseQueryForOptimization` into prose — so I hardened the firewall (`INTERNAL_IDENTIFIER_PATTERNS`, camelCase/snake) + the system prompt; +1 regression test reproducing it.
+- **Gate:** typecheck clean; **+21 strategist tests** (gate authority, firewall incl. the live-caught leak, JSON fail-closed, end-to-end with mocked fetch + the LLM-cannot-override-reject invariant) + allowlisted the new OpenAI caller in `llm-safety-invariants` (9 pass); recs + architecture **5,869 pass**; build ✓. **NEXT:** wire `composeExpertStrategy` into the rec-detail brief as a flagged progressive enhancement (like Slice B's Act 2) + the LLM critic pass (increment 2).
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — Slice 3 (page-topic intent-fit scorer, mission #1)
 
 Closes audit cross-cutting BUG #1 (query/page match unverified) at the metric level — directive PHASE C "generic semantic fit gate" + audit Phase E, DETERMINISTIC baseline (the PHASE-F LLM pass sharpens the same contract later).

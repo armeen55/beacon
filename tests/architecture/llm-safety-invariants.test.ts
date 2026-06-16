@@ -138,6 +138,14 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // white-label + no-invented-numbers sanitized, with the deterministic
   // synthesis as the always-present fallback.
   "src/domains/recommendations/llm-why-narrative.ts",
+  // expert-strategist (2026-06-16, PHASE F): the LLM expert reasoning pass
+  // (opportunity / why-now / best-action / alternatives / risks). READ-ONLY
+  // analysis, never published; gated behind BEACON_LLM_STRATEGIST (default
+  // off) + checkBudget + a hard timeout; output is white-label +
+  // no-invented-numbers + AI-claims-need-AI-evidence sanitized; and the
+  // DETERMINISTIC gate (enforceExpertConfidence) — not the LLM — sets the
+  // final confidence/approve verdict and can reject.
+  "src/domains/recommendations/llm-expert-strategist.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
