@@ -145,6 +145,37 @@ function pushSentence(out: string[], sentence: string | null | undefined) {
 }
 
 /**
+ * The cross-source CONNECTION sentence — the pro-grade move. When ≥2
+ * independent source families implicate the SAME page, synthesize the link a
+ * human SEO would draw instead of listing each signal in isolation. Returns
+ * null for a single source (the per-source clauses already cover it).
+ *   - search   = GSC / SEMrush demand or decline
+ *   - behavior = Microsoft Clarity on-page friction
+ *   - aeo      = AI-answer absence / competitor citation / tracked prompts
+ * White-label (says "AI assistants", never a vendor); asserts no number.
+ * Pure + exported for tests.
+ */
+export function crossSourceConnection(f: {
+  search: boolean;
+  behavior: boolean;
+  aeo: boolean;
+}): string | null {
+  const n = (f.search ? 1 : 0) + (f.behavior ? 1 : 0) + (f.aeo ? 1 : 0);
+  if (n < 2) return null;
+  if (f.search && f.behavior && f.aeo) {
+    return "This page is weak across Google search, AI answers, and on-page behaviour at once — fixing it compounds on all three fronts, so it's your highest-leverage move.";
+  }
+  if (f.search && f.behavior) {
+    return "This page is both losing Google clicks and frustrating visitors — the on-page friction is likely deepening the search decline, so one fix helps on both fronts.";
+  }
+  if (f.search && f.aeo) {
+    return "This page is slipping on two fronts at once — fewer Google clicks and not yet cited by AI assistants — which makes it a high-leverage fix.";
+  }
+  // behavior && aeo
+  return "Visitors hit friction on this page and AI assistants don't cite it — clearer, more direct content helps human readers and AI alike.";
+}
+
+/**
  * Compose 1–4 ordered, plain-English sentences synthesizing the rec's
  * reasoning from the evidence it already carries.
  *
@@ -244,6 +275,18 @@ export function composeWhyThisMatters(input: WhyThisMattersInput): string[] {
   if (clarity != null) {
     pushSentence(out, clarity.detail ?? `${clarity.value} ${clarity.label}.`);
   }
+
+  // ── (e) CROSS-SOURCE CONNECTION ─────────────────────────────────────
+  // The pro-grade move: when ≥2 independent source families implicate the
+  // SAME page, don't just list them — connect them into one insight a
+  // human consultant would draw. Leads the narrative (unshift) because the
+  // connection is the most valuable sentence; specifics then elaborate.
+  const connection = crossSourceConnection({
+    search: gsc != null || semrush != null,
+    behavior: clarity != null,
+    aeo: aeo != null || input.competitor != null || hasPrompts,
+  });
+  if (connection != null) out.unshift(clip(connection, MAX_SENTENCE_LEN));
 
   // Cap at 4 sentences; preserve compose order.
   const sentences = out.slice(0, 4);

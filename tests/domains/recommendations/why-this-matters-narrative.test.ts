@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   composeWhyThisMatters,
+  crossSourceConnection,
   WHY_THIS_MATTERS_EMPTY,
   type WhyThisMattersInput,
 } from "@/domains/recommendations/why-this-matters-narrative";
@@ -78,12 +79,16 @@ describe("composeWhyThisMatters", () => {
       }),
     );
 
-    // Lead is the GSC "why now" detail (exact query + rank).
+    // Lead is the cross-source CONNECTION (search demand + AEO gap both
+    // implicate this page) — the BLUF "why this is the high-leverage card";
+    // the concrete GSC "why now" detail (exact query + rank) follows it.
     expect(out.length).toBeGreaterThanOrEqual(3);
-    expect(out[0]).toContain("whole home remodel cost");
-    expect(out[0]).toContain("#6");
+    expect(out[0]).toContain("two fronts");
 
     const joined = out.join(" ");
+    // The specific GSC fact survives the cap, just below the connection lead.
+    expect(joined).toContain("whole home remodel cost");
+    expect(joined).toContain("#6");
     // Competitive-pressure clause with the real share.
     expect(joined).toContain("De Mattei shows up in 42% of those answers.");
     // Gap clause derived from action type + target label.
@@ -239,5 +244,62 @@ describe("composeWhyThisMatters", () => {
     for (const sentence of out) {
       expect(sentence.length).toBeLessThanOrEqual(161);
     }
+  });
+});
+
+describe("crossSourceConnection — pro-grade synthesis when ≥2 source families implicate one page", () => {
+  it("returns null for a single source family (per-source clauses cover it)", () => {
+    expect(crossSourceConnection({ search: true, behavior: false, aeo: false })).toBeNull();
+    expect(crossSourceConnection({ search: false, behavior: false, aeo: false })).toBeNull();
+  });
+  it("search + behavior → connects friction to the click loss", () => {
+    const s = crossSourceConnection({ search: true, behavior: true, aeo: false });
+    expect(s).toContain("losing Google clicks");
+    expect(s).toContain("friction");
+  });
+  it("search + aeo → 'slipping on two fronts'", () => {
+    const s = crossSourceConnection({ search: true, behavior: false, aeo: true });
+    expect(s).toContain("two fronts");
+    expect(s).toContain("AI assistants");
+  });
+  it("behavior + aeo → friction + AI, helps both", () => {
+    const s = crossSourceConnection({ search: false, behavior: true, aeo: true });
+    expect(s).toContain("friction");
+    expect(s).toContain("AI assistants");
+  });
+  it("all three → compounds across all fronts", () => {
+    const s = crossSourceConnection({ search: true, behavior: true, aeo: true });
+    expect(s).toContain("highest-leverage");
+  });
+  it("white-label + no invented numbers in any connection sentence", () => {
+    for (const f of [
+      { search: true, behavior: true, aeo: false },
+      { search: true, behavior: false, aeo: true },
+      { search: false, behavior: true, aeo: true },
+      { search: true, behavior: true, aeo: true },
+    ]) {
+      const s = crossSourceConnection(f)!;
+      expect(s).not.toMatch(/profound|chatgpt|gemini|perplexity|claude/i);
+      expect(s).not.toMatch(/\d/); // synthesis asserts no number of its own
+    }
+  });
+});
+
+describe("composeWhyThisMatters — leads with the cross-source connection when multi-source", () => {
+  it("GSC + Clarity present → first sentence is the connecting insight", () => {
+    const out = composeWhyThisMatters(
+      makeInput({
+        gscEvidenceLines: [GSC_LINE],
+        clarityEvidenceLines: [CLARITY_LINE],
+      }),
+    );
+    expect(out[0]).toContain("both losing Google clicks and frustrating visitors");
+    // the per-source specifics still follow
+    expect(out.length).toBeGreaterThan(1);
+  });
+  it("single source (GSC only) → NO connection sentence (leads with the GSC fact)", () => {
+    const out = composeWhyThisMatters(makeInput({ gscEvidenceLines: [GSC_LINE] }));
+    expect(out[0]).not.toContain("two fronts");
+    expect(out[0]).not.toContain("both losing");
   });
 });

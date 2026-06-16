@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 ACT 2 CROSS-SOURCE CONNECTION (deterministic — "MAKE BETTER CONNECTIONS", no LLM, no deploy)
+
+The standing goal asks Beacon to "MAKE BETTER CONNECTIONS" and read better than a pro SEO — a senior consultant doesn't list each signal in isolation, they draw the link between them. Added a deterministic cross-source CONNECTION sentence to the Act 2 "Why this matters" synthesis (`src/domains/recommendations/why-this-matters-narrative.ts`). This needs **no OpenAI billing and no connected data** — it fires off the evidence the row already carries.
+- **NEW exported pure helper `crossSourceConnection({search, behavior, aeo})`:** when ≥2 of the three independent source families implicate the SAME page, returns the synthesized link a human SEO would draw (4 variants: search+behavior, search+aeo, behavior+aeo, all-three); single family → null (the per-source clauses already cover it). White-label (says "AI assistants", never a vendor), asserts no number of its own.
+- **Wired as clause (e) in `composeWhyThisMatters`:** family flags derived from existing locals (search = gsc||semrush; behavior = clarity; aeo = aeo line || competitor || tracked prompts). When present, the connection is `unshift`-ed to **lead** the brief — BLUF framing ("why this is the high-leverage card") with the concrete GSC/competitor/gap specifics following it.
+- **Contract change pinned:** test (a) "full evidence" previously expected the GSC detail at `out[0]`; it now leads with the connection ("slipping on two fronts") and the GSC fact (query + rank #6) survives the 4-cap at `out[1]`. +8 new tests (each family pair + all-three + single→null + white-label/no-number + composeWhyThisMatters leads-when-multi-source + single-source-does-not-lead).
+- **Gate:** typecheck clean; `tests/domains/recommendations` + `tests/architecture` **5,752 pass / 41 skipped**; production build ✓. No hardcoding, pure function, deterministic. **Committed to `claude/iranopedia-blockers` only — NOT redeployed** (deterministic surface polish; bundles with the next functional merge per the CI-minutes discipline). The genuinely-blocking items remain the operator's: OpenAI billing (429 insufficient_quota), live connector keys, logged-in browser verification.
+
+---
+
 ## 2026-06-16 P0 MERGE-SAFETY REVIEW (adversarial cross-phase, operator-requested before merge→main)
 
 Ran a 5-lens adversarial workflow + first-hand confirmation across all 6 P0 phases against the operator's 13 requirements. **Verdict: reqs 1,2,4,5,6,7 CONFIRMED** — no Iranopedia hardcoding in domain logic; Wix mappings Supabase-backed + tenant-scoped on every read/write (rows stamped with ambient tenant); guided mapper discovery is GET-only + save writes only the Beacon config store (no live Wix write); GSC readiness is read-only (token + gsc_daily_rows reads, no Google call, no writes) + tenant-scoped + soft-fail; push receipt + Golden Path are read-only composition with the ONLY write being the existing operator-approved `revertPushFromForm`.
