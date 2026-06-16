@@ -14,35 +14,22 @@ import "server-only";
  * `wix-collection-config` (operator-edited on /diagnostics/wix).
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { wixQueryAllDataItems, type WixDeps } from "./client";
-import type { WixCollectionMapping, WixUrlMapEntry } from "./types";
+import {
+  getWixCollectionConfig,
+  saveWixCollectionConfig,
+  getWixUrlMap,
+  writeWixUrlMap,
+} from "./mappings-store";
+import type { WixUrlMapEntry } from "./types";
 
-const MAP_STORE = "wix-url-map";
-const CONFIG_STORE = "wix-collection-config";
-
-export async function getWixCollectionConfig(): Promise<WixCollectionMapping[]> {
-  try {
-    return (await readStore<WixCollectionMapping>(CONFIG_STORE)) ?? [];
-  } catch {
-    return [];
-  }
-}
-
-export async function saveWixCollectionConfig(
-  rows: WixCollectionMapping[],
-): Promise<void> {
-  await writeStore(CONFIG_STORE, rows);
-}
-
-export async function getWixUrlMap(): Promise<WixUrlMapEntry[]> {
-  try {
-    return (await readStore<WixUrlMapEntry>(MAP_STORE)) ?? [];
-  } catch {
-    return [];
-  }
-}
+// Phase 1 (2026-06-16, MAX_SEO_AEO audit P0 #1): the Wix collection config +
+// url map moved out of the ephemeral file store into durable, tenant-scoped
+// Supabase (src/lib/connectors/wix/mappings-store.ts), with a file fallback.
+// Re-exported here so existing callers (push-service, /diagnostics/wix) keep
+// importing these from url-map.ts unchanged.
+export { getWixCollectionConfig, saveWixCollectionConfig, getWixUrlMap };
 
 /** Resolve one canonical page URL to its CMS item, or null. */
 export async function resolveWixItemForUrl(
@@ -224,7 +211,7 @@ export async function syncWixUrlMap(
       probe: { checked: 0, ok: 0, failures: [] },
     };
   }
-  await writeStore(MAP_STORE, entries);
+  await writeWixUrlMap(entries);
   // #73: sampled live verification of the DERIVED urls (warn-only).
   const probe = await probeSampleUrls(entries, deps.fetchImpl ?? fetch);
   return { ok: true, collections: config.length, itemsMapped: entries.length, errors, probe };
