@@ -17,6 +17,26 @@
 
 import type { FindingPriority, PromotionStatus } from "@/domains/scanning/types";
 import type { TodayLiveChange } from "@/domains/today/live-changes-data";
+// Dependency types for the relocated TodayClientProps (2026-06-16, step 2b).
+// All type-only — erased at runtime, so importing from client-component
+// modules here does not cross the server/client boundary.
+import type { TodaySummary } from "@/lib/today-summary";
+import type { TodayProofContext } from "@/lib/today-proof-context";
+import type { ScoreboardData } from "@/components/today/today-scoreboard";
+import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
+import type {
+  EnrichmentRollup,
+  EnrichmentV2Data,
+} from "@/domains/prompt-answer-observations/enrichment-rollup";
+import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
+import type { TopPickSummary } from "@/components/today/top-pick-card";
+import type { MorningBriefData } from "@/domains/product/morning-brief";
+import type { CommandCenterData } from "@/domains/today/command-center-data";
+import type {
+  VisibilityMetric,
+  VisibilityPoint,
+  EntityVisibility,
+} from "@/domains/product/visibility-score";
 
 export type SerializedFinding = {
   id: string;
@@ -153,4 +173,80 @@ export type TodayLifecycleSummary = {
    * the only acknowledgement.
    */
   liveChanges: TodayLiveChange[];
+};
+
+/* ── TodayClient props (2026-06-16, step 2b — relocated from today-client.tsx
+ *    so the live `today-data.ts` loader can derive `TodayPageData` from a named
+ *    type instead of `ComponentProps<typeof TodayClient>`, decoupling the
+ *    server loader from the (unrendered) legacy client component value. ── */
+
+/** Per-page proof signal for the "Latest signal" strip (was a local type in
+ *  today-client.tsx; a duplicate copy still lives in today-v2-recent-wins.tsx). */
+export type UrlVerdictProof = {
+  changeId: string;
+  pagePath: string;
+  changeDate: string | null;
+  citationDeltaPct: number;
+  deltaLabel: string;
+};
+
+export type TodayClientProps = {
+  isDemoMode?: boolean;
+  scanPhaseFailed?: boolean;
+  todayFreshness?: {
+    lastObservationDate: string;
+    daysStale: number;
+  } | null;
+  hostedScanDisabled?: boolean;
+  summary: TodaySummary;
+  primaryAction?: TodayPrimaryAction | null;
+  secondaryAction?: TodayPrimaryAction | null;
+  moreActions?: TodayPrimaryAction[];
+  measuredWins?: TodayPrimaryAction[];
+  morningBrief?: MorningBriefData | null;
+  scoreboard: ScoreboardData;
+  visibilityData?: {
+    brandName: string;
+    brandSeriesByMetric: Record<VisibilityMetric, VisibilityPoint[]>;
+    brandSeriesByPlatform?: Record<string, VisibilityPoint[]>;
+    leaderboardByMetric: Record<VisibilityMetric, EntityVisibility[]>;
+    leaderboardByMetricAndWindow?: Record<
+      VisibilityMetric,
+      Record<number, EntityVisibility[]>
+    >;
+    chartEndDate?: string;
+    competitorSeriesByMetric: Record<
+      VisibilityMetric,
+      Array<{ name: string; points: VisibilityPoint[] }>
+    >;
+    chartEvents?: Array<{ date: string; tone: "danger" | "success" | "neutral"; label: string }>;
+  } | null;
+  urlVerdictProof?: UrlVerdictProof | null;
+  onRespondToRec?: (
+    recId: string,
+    status: "accepted" | "dismissed" | "deferred"
+  ) => Promise<{ success: boolean }>;
+  pendingFindings?: SerializedFinding[];
+  shouldTriggerScan?: boolean;
+  proofContext: TodayProofContext;
+  localAttentionStrip?: import("@/lib/local-presence").TodayLocalAttention | null;
+  onConfirmFinding?: (findingId: string) => Promise<{ success: boolean; changeId?: string }>;
+  onDismissFinding?: (findingId: string) => Promise<{ success: boolean }>;
+  experimentProof?: TodayExperimentProof | null;
+  faqSchemaCoverage?: { covered: number; total: number } | null;
+  platformDistribution?: { google_aio: number; chatgpt: number; perplexity: number; total: number } | null;
+  concentratedPlatform?: "google_aio" | "chatgpt" | "perplexity" | null;
+  pollHealth?: PollHealthSnapshot | null;
+  siteScan?: { completedAt: string | null; status: "completed" | "partial" | "failed" | null } | null;
+  enrichmentRollup?: EnrichmentRollup | null;
+  enrichmentV2?: EnrichmentV2Data | null;
+  promptsTeaser?: PromptsTeaserSummary | null;
+  topPick?: TopPickSummary | null;
+  lifecycleSummary?: TodayLifecycleSummary | null;
+  firstReading?: import(
+    "@/domains/onboarding/first-reading-state"
+  ).FirstReadingDetection;
+  commandCenter?: CommandCenterData;
+  commandCenterIsOperator?: boolean;
+  dataSourcesStrip?: import("react").ReactNode;
 };

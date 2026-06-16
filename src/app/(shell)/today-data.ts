@@ -173,11 +173,11 @@ import {
 import { buildObservationRollup } from "@/domains/today/observation-rollup";
 
 
-import type { ComponentProps } from "react";
-import { TodayClient, type TodayQueueItem } from "./today-client";
 import type {
+  TodayClientProps,
   TodayLifecycleQueueItem,
   TodayLifecycleSummary,
+  TodayQueueItem,
 } from "./today-shared-types";
 
 /**
@@ -228,7 +228,7 @@ const TODAY_OBSERVATION_COLUMNS =
   "competitor_descriptor_windows";
 
 export type TodayPageData = Omit<
-  ComponentProps<typeof TodayClient>,
+  TodayClientProps,
   | "onRespondToRec"
   | "onStartExperiment"
 >;

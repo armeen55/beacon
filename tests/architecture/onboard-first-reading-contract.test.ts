@@ -32,6 +32,11 @@ const DETECTOR_SRC = readFileSync(DETECTOR, "utf8");
 const WAITING_SRC = readFileSync(WAITING_COMPONENT, "utf8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
 const TODAY_CLIENT_SRC = readFileSync(TODAY_CLIENT, "utf8");
+// 2026-06-16: TodayClient's props type (incl. firstReading) was relocated to
+// today-shared-types.ts to break the today-data ↔ props circular type dep.
+const TODAY_PROPS_SRC =
+  TODAY_CLIENT_SRC +
+  readFileSync(join(REPO_ROOT, "src/app/(shell)/today-shared-types.ts"), "utf8");
 
 /**
  * Strip block + line + JSX comments + import lines + identifier-style
@@ -235,8 +240,8 @@ describe("Gap F.1 — TodayClient early-return", () => {
   });
 
   it("accepts a firstReading prop typed as FirstReadingDetection", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(/firstReading\?:\s*import\(/);
-    expect(TODAY_CLIENT_SRC).toMatch(/FirstReadingDetection/);
+    expect(TODAY_PROPS_SRC).toMatch(/firstReading\?:\s*import\(/);
+    expect(TODAY_PROPS_SRC).toMatch(/FirstReadingDetection/);
   });
 
   it("renders FirstReadingWaiting when firstReading.isFirstReading is true", () => {

@@ -2,8 +2,6 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import type { TodaySummary } from "@/lib/today-summary";
-import type { TodayProofContext } from "@/lib/today-proof-context";
 import {
   isTodayTruthBlocked,
 } from "@/lib/today-next-line";
@@ -13,20 +11,15 @@ import {
 } from "@/lib/coverage-state";
 import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
 import { TodayScanStrip } from "@/components/today/today-scan-strip";
-import { TodayScoreboard, type ScoreboardData } from "@/components/today/today-scoreboard";
+import { TodayScoreboard } from "@/components/today/today-scoreboard";
 import { TodayActionQueue, type FindingsStripData } from "@/components/today/today-action-queue";
 import { SinceLastVisit } from "@/components/today/since-last-visit";
 import { PollHealthBlock } from "@/components/today/poll-health-block";
 import { DataFreshnessHeartbeat } from "@/components/today/data-freshness-heartbeat";
-import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import { EnrichmentV2 } from "@/components/today/enrichment-v2";
-import type {
-  EnrichmentRollup,
-  EnrichmentV2Data,
-} from "@/domains/prompt-answer-observations/enrichment-rollup";
-import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/prompts-teaser";
-import { TopPickCard, type TopPickSummary } from "@/components/today/top-pick-card";
+import { PromptsTeaser } from "@/components/today/prompts-teaser";
+import { TopPickCard } from "@/components/today/top-pick-card";
 import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
 import { LiveChangesBlock } from "@/components/today/live-changes-block";
 import { TodayImplementationQueue } from "@/components/today/implementation-queue";
@@ -34,7 +27,6 @@ import { TodayDoNextCard } from "@/components/today/today-do-next-card";
 import { TodayMetricsDisclosure } from "@/components/today/today-metrics-disclosure";
 import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
-import type { MorningBriefData } from "@/domains/product/morning-brief";
 import { ChangeReview } from "@/components/today/change-review";
 import { VisibilityScoreChart } from "@/components/today/visibility-score-chart";
 import { VisibilityLeaderboard } from "@/components/today/visibility-leaderboard";
@@ -44,13 +36,7 @@ import {
   CommandCenter,
   type CommandCenterUrlMovement,
 } from "@/components/today/command-center";
-import type { CommandCenterData } from "@/domains/today/command-center-data";
 import { isPreCronPending } from "@/components/today/poll-health-calm-banner";
-import type {
-  VisibilityMetric,
-  VisibilityPoint,
-  EntityVisibility,
-} from "@/domains/product/visibility-score";
 
 /* ── Shared serialization types — extracted to ./today-shared-types
  *    (2026-06-16) to decouple live v2 components + loaders from this legacy
@@ -68,6 +54,8 @@ import type {
   SerializedFinding,
   TodayPrimaryAction,
   TodayExperimentProof,
+  TodayClientProps,
+  UrlVerdictProof,
 } from "./today-shared-types";
 
 /* ── Component ── */
@@ -108,120 +96,7 @@ export function TodayClient({
   commandCenter = { hasAnyData: false, brain: null, manifest: null },
   commandCenterIsOperator = false,
   dataSourcesStrip = null,
-}: {
-  isDemoMode?: boolean;
-  scanPhaseFailed?: boolean;
-  /** Phase 3.5F: freshness signal for the data powering visibility / rankings.
-   *  Null when the newest observation is within 3 days. (Named `todayFreshness`
-   *  to avoid colliding with the existing `dataFreshness: string` on rec cards.) */
-  todayFreshness?: {
-    lastObservationDate: string;
-    daysStale: number;
-  } | null;
-  /** Phase 3.5F: hide the hosted Scan-now strip on Vercel until Phase 4 ships. */
-  hostedScanDisabled?: boolean;
-  summary: TodaySummary;
-  primaryAction?: TodayPrimaryAction | null;
-  secondaryAction?: TodayPrimaryAction | null;
-  moreActions?: TodayPrimaryAction[];
-  /** Phase 3B (2026-04-20): helping_verdict cards rendered in a
-   *  visibly-secondary "Wins to learn from" stripe below the action queue. */
-  measuredWins?: TodayPrimaryAction[];
-  morningBrief?: MorningBriefData | null;
-  scoreboard: ScoreboardData;
-  visibilityData?: {
-    brandName: string;
-    brandSeriesByMetric: Record<VisibilityMetric, VisibilityPoint[]>;
-    brandSeriesByPlatform?: Record<string, VisibilityPoint[]>;
-    leaderboardByMetric: Record<VisibilityMetric, EntityVisibility[]>;
-    /** Step 1.3 (master plan) — leaderboard slices per chart-toggle window
-     *  so the delta column re-binds when the operator switches 7d/14d/30d/60d. */
-    leaderboardByMetricAndWindow?: Record<
-      VisibilityMetric,
-      Record<number, EntityVisibility[]>
-    >;
-    /** Anchor for the chart's calendar-date filter (today's UTC date). */
-    chartEndDate?: string;
-    competitorSeriesByMetric: Record<
-      VisibilityMetric,
-      Array<{ name: string; points: VisibilityPoint[] }>
-    >;
-    chartEvents?: Array<{ date: string; tone: "danger" | "success" | "neutral"; label: string }>;
-  } | null;
-  /** 2026-04-20: URL-level proof signal for "Latest signal" strip. Replaces
-   *  topic-level MemoryInsight path. Null when no URL has a current `helping` verdict. */
-  urlVerdictProof?: UrlVerdictProof | null;
-  onRespondToRec?: (
-    recId: string,
-    status: "accepted" | "dismissed" | "deferred"
-  ) => Promise<{ success: boolean }>;
-  pendingFindings?: SerializedFinding[];
-  shouldTriggerScan?: boolean;
-  proofContext: TodayProofContext;
-  localAttentionStrip?: import("@/lib/local-presence").TodayLocalAttention | null;
-  onConfirmFinding?: (findingId: string) => Promise<{ success: boolean; changeId?: string }>;
-  onDismissFinding?: (findingId: string) => Promise<{ success: boolean }>;
-  experimentProof?: TodayExperimentProof | null;
-  faqSchemaCoverage?: { covered: number; total: number } | null;
-  platformDistribution?: { google_aio: number; chatgpt: number; perplexity: number; total: number } | null;
-  concentratedPlatform?: "google_aio" | "chatgpt" | "perplexity" | null;
-  /** Commit 1 (2026-04-24): native-poll health for today's UTC date. Renders
-   *  at top of Today so silent cron failures surface immediately. Null when
-   *  the Supabase fetch failed at render-time (defensive — don't block Today
-   *  on poll-health availability). */
-  pollHealth?: PollHealthSnapshot | null;
-  /** 2026-05-10 — site-scan freshness for the heartbeat. Reads from
-   *  the existing `latestWebsiteCrawlRun()` result already loaded by
-   *  today-data; no new database read. Null when no crawl run has
-   *  ever landed for the tenant. */
-  siteScan?: { completedAt: string | null; status: "completed" | "partial" | "failed" | null } | null;
-  /** Commit 7C (2026-04-24): schema v2+v2.1 extraction rolled up as
-   *  per-platform primary-recommendation rate, avg citation rank,
-   *  descriptor chip cloud, answer-structure mix. Null when today (and
-   *  yesterday) has no native observations yet.
-   *  Superseded by `enrichmentV2` for the v2 layout (Step 2.3); kept as
-   *  a fallback for any future surface that still wants the single-day
-   *  rollup. */
-  enrichmentRollup?: EnrichmentRollup | null;
-  /** W2 Step 2.3 (master plan, 2026-05-01): full bundle for the 4-section
-   *  "How AI described you this week" v2 layout. Built server-side from
-   *  pure rollup helpers in enrichment-rollup.ts. Null on bundle-build
-   *  failure — UI degrades to legacy enrichmentRollup. */
-  enrichmentV2?: EnrichmentV2Data | null;
-  /** Phase v5 Commit 5 (2026-04-24): per-category prompt-decision summary
-   *  pointing into /prompts. Small teaser card, not a mini dashboard.
-   *  Null when no active prompts. */
-  promptsTeaser?: PromptsTeaserSummary | null;
-  /** Phase v6 Commit 5 (2026-04-23): first row of the prioritized
-   *  recommendations queue, surfaced as a single opinionated card above
-   *  the prompts teaser. Null when the queue is empty. */
-  topPick?: TopPickSummary | null;
-  /** Phase 6A.7 (2026-04-28) — lifecycle counts + accepted-edit
-   *  implementation queue. Computed in today-data.ts from the same
-   *  recommended_edits read /changes uses, so the strip and the
-   *  /changes tab counts always reconcile. */
-  lifecycleSummary?: import("./today-data").TodayLifecycleSummary | null;
-  /** Gap F.1 (2026-05-07) — first-reading waiting state. When
-   *  `isFirstReading` is true, TodayClient short-circuits the regular
-   *  dashboard and renders the FirstReadingWaiting card instead. */
-  firstReading?: import(
-    "@/domains/onboarding/first-reading-state"
-  ).FirstReadingDetection;
-  /** UX.2 (2026-05-07) — Command Center data slice. Read-only;
-   *  reuses existing brain-health JSON + manifest artifacts. Cards
-   *  render empty states when slices are null. */
-  commandCenter?: CommandCenterData;
-  /** UX.2 (2026-05-07) — operator-mode flag for the small
-   *  /diagnostics/brain link at the bottom of the Command Center. */
-  commandCenterIsOperator?: boolean;
-  /** "Your data sources" quick-connect strip (2026-06-15). Rendered by
-   *  the server page as a node slot so the server-component island can
-   *  read connector statuses without making TodayClient async. Mounted
-   *  here (NOT in the page shell) so it only shows on the real command
-   *  center — the demo + first-reading early-returns above skip it.
-   *  Null on surfaces that don't pass it. */
-  dataSourcesStrip?: import("react").ReactNode;
-}) {
+}: TodayClientProps) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
@@ -883,13 +758,6 @@ function formatExperimentProof(exp: TodayExperimentProof): { text: string; dot: 
  * the `urlVerdictProof` payload from today-data (sourced directly from the
  * Z-score engine's url-change-outcomes store).
  */
-type UrlVerdictProof = {
-  changeId: string;
-  pagePath: string;
-  changeDate: string | null;
-  citationDeltaPct: number;
-  deltaLabel: string;
-};
 function formatUrlVerdictProof(p: UrlVerdictProof): { text: string; dot: string } {
   // 2026-05-06 demo-path fix: previous copy ended with "(URL-level Z-score)".
   // A small-business owner does not know what a Z-score is. Customer-friendly

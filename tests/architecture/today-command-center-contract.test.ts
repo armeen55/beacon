@@ -36,6 +36,12 @@ const COMPONENT_SRC = readFileSync(COMPONENT, "utf8");
 const RESOLVER_SRC = readFileSync(RESOLVER, "utf8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
 const TODAY_CLIENT_SRC = readFileSync(TODAY_CLIENT, "utf8");
+// 2026-06-16: TodayClient's props type (incl. commandCenter: CommandCenterData)
+// was relocated to today-shared-types.ts to break the today-data ↔ props
+// circular type dep. Props-type assertions check both sources.
+const TODAY_PROPS_SRC =
+  TODAY_CLIENT_SRC +
+  readFileSync(join(REPO_ROOT, "src/app/(shell)/today-shared-types.ts"), "utf8");
 
 /**
  * Strip block + line + JSX comments + import lines + identifier-style
@@ -181,7 +187,7 @@ describe("UX.2 — TodayClient wiring", () => {
     expect(TODAY_CLIENT_SRC).toMatch(
       /import\s+\{[\s\S]*?CommandCenter[\s\S]*?CommandCenterUrlMovement[\s\S]*?\}\s+from\s+["']@\/components\/today\/command-center["']/,
     );
-    expect(TODAY_CLIENT_SRC).toMatch(/CommandCenterData/);
+    expect(TODAY_PROPS_SRC).toMatch(/CommandCenterData/);
   });
 
   it("accepts commandCenter + commandCenterIsOperator props with safe defaults", () => {
