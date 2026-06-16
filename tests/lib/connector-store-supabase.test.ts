@@ -409,7 +409,8 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     expect(h.health).toBe("not_connected");
   });
 
-  const RECONNECT_REASON = "Reconnect Google to refresh — the connection expired.";
+  const RECONNECT_REASON =
+    "Reconnect Google to refresh — Google access needs renewing (reconnect now).";
 
   it("auth_failed_at set → needs_attention with the Reconnect reason (GSC)", async () => {
     await saveConnectorToken(

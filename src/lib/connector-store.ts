@@ -520,7 +520,8 @@ export async function getConnectorHealth(
     return {
       ...info,
       health: "needs_attention",
-      healthReason: "Reconnect Google to refresh — the connection expired.",
+      healthReason:
+        "Reconnect Google to refresh — Google access needs renewing (reconnect now).",
     };
   }
 

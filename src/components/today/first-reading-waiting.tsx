@@ -116,7 +116,7 @@ export function FirstReadingWaiting({
               ) : null}
             </dl>
             <p className="text-[12px] text-muted-foreground">
-              Read automatically from your website — you can adjust any of
+              Detected from your website during setup — you can adjust any of
               this later in Settings.
             </p>
           </div>

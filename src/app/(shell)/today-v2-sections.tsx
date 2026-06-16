@@ -127,6 +127,11 @@ export async function TodayV2ActionCardsSection() {
 export async function TodayV2EditLifecycleSection() {
   const tenantId = await currentTenantId();
   const summary = await loadLifecycleSummaryForTenant({ tenantId });
+  // Declutter (2026-06-15): on the /today command center, hide this section
+  // entirely when there's no lifecycle data yet, rather than stacking a
+  // "nothing yet" placeholder next to the (often also-empty) outcomes +
+  // learned tiles. The tile's empty state still renders on its own surfaces.
+  if (summary.total === 0) return null;
   return (
     <EditLifecycleTile
       perStage={summary.per_stage}
@@ -197,6 +202,11 @@ export async function TodayV2EditOutcomesSection() {
     });
     summary = null;
   }
+  // Declutter (2026-06-15): hide on /today until there's at least one
+  // shipped edit to measure (no edits → nothing to say but "nothing yet").
+  // Once edits ship, the tile shows the "watching / measured" states. The
+  // tile's empty copy still renders on its own surfaces.
+  if (summary == null || summary.total_recent_live_edits === 0) return null;
   return <EditOutcomesTile summary={summary} />;
 }
 
