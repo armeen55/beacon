@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   buildSourceStatCards,
+  MIN_SPARKLINE_POINTS,
   type AllSourceStatInputs,
 } from "@/domains/today-summary/build-source-stat-cards";
 import type { GscSiteTotals } from "@/domains/recommendation-intelligence/gsc-page-signals";
@@ -27,8 +28,17 @@ function gscTotals(p: Partial<GscSiteTotals>): GscSiteTotals {
     ctr90d: 0,
     clicks28d: 0,
     clicksPrev28d: 0,
+    dailyClicks: [],
     ...p,
   };
+}
+
+/** Build a `dailyClicks` series of `n` days (ascending) for sparkline tests. */
+function dailyClicks(n: number): { date: string; clicks: number }[] {
+  return Array.from({ length: n }, (_, i) => ({
+    date: `2026-03-${String(i + 1).padStart(2, "0")}`,
+    clicks: 10 + i,
+  }));
 }
 
 function ga4Value(p: Partial<Ga4PageValue>): Ga4PageValue {
@@ -167,6 +177,57 @@ describe("buildSourceStatCards — GSC math", () => {
     const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
     expect(card!.subline?.tone).toBe("up");
     expect(card!.subline?.text).toContain("+20%");
+  });
+});
+
+describe("buildSourceStatCards — GSC sparkline (daily-clicks momentum)", () => {
+  function richGsc(
+    daily: { date: string; clicks: number }[],
+  ): AllSourceStatInputs {
+    const inputs = emptyInputs();
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 1000,
+      impressions90d: 50_000,
+      avgPosition90d: 8,
+      ctr90d: 0.02,
+      dailyClicks: daily,
+    });
+    return inputs;
+  }
+
+  it("carries the daily-clicks series on the card when there are ≥14 points", () => {
+    const daily = dailyClicks(MIN_SPARKLINE_POINTS); // exactly the threshold
+    const card = buildSourceStatCards(richGsc(daily)).find(
+      (c) => c.key === "gsc",
+    );
+    expect(card).toBeDefined();
+    expect(card!.sparkline).toBeDefined();
+    expect(card!.sparkline).toHaveLength(MIN_SPARKLINE_POINTS);
+    // It's the real clicks series, in order (no transform).
+    expect(card!.sparkline).toEqual(daily.map((d) => d.clicks));
+  });
+
+  it("OMITS the sparkline when there are fewer than 14 points (never a flat/empty line)", () => {
+    const daily = dailyClicks(MIN_SPARKLINE_POINTS - 1);
+    const card = buildSourceStatCards(richGsc(daily)).find(
+      (c) => c.key === "gsc",
+    );
+    expect(card).toBeDefined();
+    expect(card!.sparkline).toBeUndefined();
+  });
+
+  it("OMITS the sparkline when there is no daily series at all", () => {
+    const card = buildSourceStatCards(richGsc([])).find((c) => c.key === "gsc");
+    expect(card).toBeDefined();
+    expect(card!.sparkline).toBeUndefined();
+  });
+
+  it("never sets a sparkline on non-GSC cards", () => {
+    const inputs = emptyInputs();
+    inputs.ga4 = new Map([["a", ga4Value({ sessions28d: 100, engaged28d: 60 })]]);
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "ga4");
+    expect(card).toBeDefined();
+    expect(card!.sparkline).toBeUndefined();
   });
 });
 

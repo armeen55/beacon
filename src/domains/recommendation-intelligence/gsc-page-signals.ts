@@ -233,6 +233,14 @@ export type GscSiteTotals = {
   clicks28d: number;
   /** Σ clicks over days 28–56 ago (the prior 28-day window). */
   clicksPrev28d: number;
+  /**
+   * Per-day click series over the window, ascending by date, ONE entry
+   * per calendar day (clicks summed across all of the tenant's property
+   * rows for that date). This is the same `gsc_daily_totals` read the
+   * aggregates above come from — no extra DB round-trip — surfaced for a
+   * tiny momentum sparkline on the Search card.
+   */
+  dailyClicks: { date: string; clicks: number }[];
 };
 
 /**
@@ -294,6 +302,12 @@ export async function loadGscSiteTotalsForTenant(
     let positionWeighted90d = 0;
     let clicks28d = 0;
     let clicksPrev28d = 0;
+    // Per-day clicks for the momentum sparkline. A tenant with multiple
+    // `property` rows for one date contributes several rows per day, so we
+    // accumulate clicks per calendar day before emitting (one point/day).
+    // Rows already arrive ascending by date (ORDER BY above); insertion
+    // order into the Map therefore stays ascending.
+    const clicksByDate = new Map<string, number>();
     for (const r of rows) {
       const clicks = Number(r.clicks) || 0;
       const impressions = Number(r.impressions) || 0;
@@ -310,8 +324,14 @@ export async function loadGscSiteTotalsForTenant(
       } else if (r.date >= since56) {
         clicksPrev28d += clicks;
       }
+      clicksByDate.set(r.date, (clicksByDate.get(r.date) ?? 0) + clicks);
     }
     if (impressions90d <= 0) return null;
+
+    const dailyClicks = [...clicksByDate.entries()].map(([date, clicks]) => ({
+      date,
+      clicks,
+    }));
 
     return {
       clicks90d,
@@ -320,6 +340,7 @@ export async function loadGscSiteTotalsForTenant(
       ctr90d: clicks90d / impressions90d,
       clicks28d,
       clicksPrev28d,
+      dailyClicks,
     };
   } catch {
     return null;

@@ -58,7 +58,22 @@ export type SourceStatCard = {
   stats: SourceStat[];
   /** Optional single delta/freshness sub-line. */
   subline: SourceSubline | null;
+  /**
+   * Optional tiny momentum series for an axis-free sparkline under the
+   * numbers (currently the GSC card's real daily clicks). Only set when
+   * there are enough points to draw an honest line (≥
+   * MIN_SPARKLINE_POINTS); otherwise omitted so we never render a flat /
+   * near-empty line. Other source cards leave this undefined.
+   */
+  sparkline?: number[];
 };
+
+/**
+ * Minimum daily points before a sparkline is drawn. Below this a line
+ * would be too short to read as a trend and would imply precision we
+ * don't have — better to omit it than to show a near-flat scribble.
+ */
+export const MIN_SPARKLINE_POINTS = 14;
 
 export type AllSourceStatInputs = {
   /** Light per-day site-totals read (or null when GSC has no data). */
@@ -139,6 +154,13 @@ function buildGscCard(totals: GscSiteTotals | null): SourceStatCard | null {
     };
   }
 
+  // Tiny daily-clicks momentum line — the real per-day series the loader
+  // already read (no extra DB work), shown only when there are enough
+  // points to be an honest trend (never a flat/near-empty line).
+  const dailySeries = totals.dailyClicks.map((d) => d.clicks);
+  const sparkline =
+    dailySeries.length >= MIN_SPARKLINE_POINTS ? dailySeries : undefined;
+
   return {
     key: "gsc",
     source: "Search (Google)",
@@ -149,6 +171,7 @@ function buildGscCard(totals: GscSiteTotals | null): SourceStatCard | null {
       { label: "Click rate", value: fmtPct(totals.ctr90d) },
     ],
     subline,
+    sparkline,
   };
 }
 

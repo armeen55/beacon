@@ -23,6 +23,7 @@ import type {
   SourceStatCard,
   SourceSubline,
 } from "@/domains/today-summary/build-source-stat-cards";
+import { StatSparkline } from "@/components/today/stat-sparkline";
 
 function sublineToneClass(tone: SourceSubline["tone"]): string {
   switch (tone) {
@@ -67,6 +68,7 @@ function StatCard({ card }: { card: SourceStatCard }) {
           </div>
         ))}
       </dl>
+      {card.sparkline ? <StatSparkline values={card.sparkline} /> : null}
       {card.subline ? (
         <p
           className={cn(
