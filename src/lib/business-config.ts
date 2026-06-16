@@ -149,6 +149,38 @@ export interface BusinessConfig {
 }
 
 
+/**
+ * ISOLATION-CRITICAL (2026-06-15) — the FOUNDER tenant id.
+ *
+ * The legacy single-tenant resolution chain (the `BEACON_BUSINESS_CONFIG_JSON`
+ * env blob + `.data/business-config.json` + `.data/global/business-config.json`)
+ * describes ONE specific tenant: the founder's. That global file literally
+ * contains the founder's brand ("Ritz Builders"). It must serve ONLY the
+ * founder tenant — NEVER an arbitrary active tenant.
+ *
+ * Pre-fix, the legacy chain was gated `tenantId === process.env.BEACON_TENANT_ID`,
+ * which meant "whoever the deploy/CLI env points at." On a per-tenant dev/CLI
+ * run (or any deploy where `BEACON_TENANT_ID` is set to a CUSTOMER tenant, e.g.
+ * `tenant-iranopedia`), the gate fired for the customer and served them the
+ * founder's global "Ritz Builders" config — a cross-tenant brand leak onto a
+ * customer surface ("Who AI thinks you are" rendered "Ritz Builders" for
+ * Iranopedia). Non-founder tenants resolve via their per-tenant file (priority
+ * c), their `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` entry (priority a), or their
+ * own `business_config` Supabase row (hydrate) — never the founder's global file.
+ *
+ * `tenant-ritz-founder` is the well-known founder id across the codebase
+ * (seed-data owner, tenant-features all-on fallback, tenant-context dev hint).
+ * Kept overridable via `BEACON_FOUNDER_TENANT_ID` for non-Ritz founder deploys.
+ * Read lazily (function, not module-load constant) so an env override set after
+ * module init — and the test suite's per-case env — is honored.
+ */
+function founderTenantId(): string {
+  const override = process.env.BEACON_FOUNDER_TENANT_ID;
+  return typeof override === "string" && override.length > 0
+    ? override
+    : "tenant-ritz-founder";
+}
+
 const DATA_DIR = path.join(process.cwd(), ".data");
 /**
  * Pre-2026-05-05 read path. Kept as the FIRST file location to preserve
@@ -452,7 +484,17 @@ function resolveConfigForTenant(tenantId: string): BusinessConfig {
   const fromTenantFile = readConfigFromTenantFile(tenantId);
   if (fromTenantFile !== null) return mergeWithPlaceholder(fromTenantFile);
 
-  if (tenantId === process.env.BEACON_TENANT_ID) {
+  // ISOLATION-CRITICAL (2026-06-15): the legacy single-tenant chain
+  // (`BEACON_BUSINESS_CONFIG_JSON` env blob + `.data/business-config.json` +
+  // `.data/global/business-config.json`) is the FOUNDER's config — the global
+  // file literally carries the founder's brand. It may serve ONLY the founder
+  // tenant. The previous gate (`tenantId === process.env.BEACON_TENANT_ID`)
+  // served whichever tenant the deploy/CLI env named, so a per-tenant run with
+  // `BEACON_TENANT_ID=<customer>` leaked the founder's "Ritz Builders" config
+  // onto that customer's surface. Non-founder tenants resolve via priority a
+  // (BY_TENANT env), priority c (per-tenant file) above, or their own Supabase
+  // row (hydrate) — never the founder's global file.
+  if (tenantId === founderTenantId()) {
     const fromEnv = readConfigFromEnv();
     if (fromEnv !== null) return mergeWithPlaceholder(fromEnv);
     const fromFile = readConfigFromFiles();
