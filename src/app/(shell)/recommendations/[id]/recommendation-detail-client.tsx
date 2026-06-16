@@ -42,6 +42,7 @@ import {
 } from "@/domains/recommendations/action-types";
 import { buildCopyTile } from "@/domains/recommendations/suggested-copy-adapters";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
+import { composeWhyThisMatters } from "@/domains/recommendations/why-this-matters-narrative";
 import { cn } from "@/lib/utils";
 import { RecommendationDetailActions } from "./recommendation-detail-actions";
 import { SuggestedCopyAct } from "./suggested-copy-act";
@@ -211,6 +212,29 @@ export function RecommendationDetailClient({
     }
     return texts;
   })();
+
+  // Act 2 narrative synthesis (2026-06-16) — replace the thin single
+  // `why` line + generic confidence hedge with a SPECIFIC, grounded,
+  // multi-sentence "why this matters" built from the evidence the row
+  // already carries (exact query, competitor share, the gap the edit
+  // closes, on-page friction). Pure helper; feeds the ALREADY-GUARDED
+  // `why` so no new unguarded text is introduced. Honest + white-label:
+  // it omits any clause whose data is absent and never names the
+  // answer-engine vendor.
+  const whyThisMatters = composeWhyThisMatters({
+    actionType: row.actionType,
+    targetLabel,
+    why,
+    affectedPromptTexts,
+    competitor,
+    gscEvidenceLines,
+    semrushEvidenceLines,
+    clarityEvidenceLines,
+    aeoEvidenceLines,
+    promptCount,
+    observationCount,
+    derivedConfidence: row.derivedConfidence,
+  });
 
   // Bundle 2C (2026-05-11) — legacy-anchor and open-change hrefs moved
   // into RecommendationDetailActions where they sit alongside the inline
@@ -462,32 +486,40 @@ export function RecommendationDetailClient({
         </div>
       </Act>
 
-      {/* Act 2 — Why this matters */}
+      {/* Act 2 — Why this matters. 2026-06-16: synthesized from the
+          evidence the row already carries (exact query, competitor
+          share, the gap the edit closes, on-page friction) into 1–4
+          short stacked paragraphs that read like an SEO's analysis,
+          instead of the old single `why` line + generic hedge. The
+          first sentence keeps the `data-recommendation-detail-why`
+          attr; the confidence explainer below it keeps the honest
+          "needs more evidence" caution ONLY when needs_review — for
+          moderate/strong the narrative itself carries the conviction so
+          the generic hedge is dropped. */}
       <Act
         index={2}
         label="Why this matters"
         dataAttr="act-why"
       >
-        <p
-          className="text-[13px] text-foreground/85 leading-relaxed max-w-2xl"
-          data-recommendation-detail-why="true"
-        >
-          {why ??
-            "Beacon needs more evidence before this should be shipped."}
-        </p>
-        <p
-          className={cn(
-            "mt-3 text-[12px] leading-relaxed",
-            row.derivedConfidence === "strong_evidence"
-              ? "text-status-success"
-              : row.derivedConfidence === "moderate_evidence"
-                ? "text-status-warning"
-                : "text-muted-foreground",
-          )}
-          data-recommendation-detail-confidence-explainer="true"
-        >
-          {CONFIDENCE_DESCRIPTION[row.derivedConfidence]}
-        </p>
+        <div className="space-y-2 max-w-2xl">
+          {whyThisMatters.map((sentence, i) => (
+            <p
+              key={i}
+              className="text-[13px] text-foreground/85 leading-relaxed"
+              {...(i === 0 ? { "data-recommendation-detail-why": "true" } : {})}
+            >
+              {sentence}
+            </p>
+          ))}
+        </div>
+        {row.derivedConfidence === "needs_review" && (
+          <p
+            className="mt-3 text-[12px] leading-relaxed text-muted-foreground"
+            data-recommendation-detail-confidence-explainer="true"
+          >
+            {CONFIDENCE_DESCRIPTION.needs_review}
+          </p>
+        )}
       </Act>
 
       {/* Act 3 — Evidence */}
