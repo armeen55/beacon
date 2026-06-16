@@ -49,18 +49,16 @@ describe("v2 QA polish — sidebar Changes badge filter (P1-2)", () => {
 describe("v2 QA polish — Today Working pending CTA (P2-2)", () => {
   const working = read("src/components/today/v2/today-v2-working.tsx");
 
-  it("pending-implementation CTA escapes through ?legacy=1 so the ?tab= filter is respected", () => {
-    // The v2 /changes timeline ignores `?tab=`, so the pre-polish
-    // href `/changes?tab=pending_implementation` silently no-op'd.
-    // Post-polish, the CTA escapes to the legacy table which DOES
-    // respect the tab.
-    expect(working).toContain(
-      'href="/changes?legacy=1&tab=pending_implementation"',
-    );
+  it("pending-implementation CTA points at the live v2 /changes (no dead ?legacy=1 escape)", () => {
+    // 2026-06-16: the legacy /changes table was deleted in the dual-surface
+    // collapse, so the old `?legacy=1` escape no-ops. The CTA now points at
+    // the live v2 /changes, consistent with the sibling pending CTAs in
+    // implementation-queue + today-do-next-card.
+    expect(working).toContain('href="/changes?tab=pending_implementation"');
   });
 
-  it("does NOT keep the bare ?tab= form anywhere in the component", () => {
-    expect(working).not.toContain('href="/changes?tab=pending_implementation"');
+  it("does NOT keep the dead ?legacy=1 escape link", () => {
+    expect(working).not.toContain('href="/changes?legacy=1');
   });
 });
 

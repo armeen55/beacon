@@ -161,13 +161,14 @@ export function TodayV2Working({
         </Link>
         {pendingImplementationCount > 0 && visibleChanges.length > 0 && (
           <Link
-            // QA polish (2026-05-11): the `?tab=pending_implementation`
-            // query param is a legacy-only filter — v2 `/changes` is the
-            // production default and ignores it, so the CTA silently
-            // no-op'd. Escape to the legacy table view via
-            // `?legacy=1&tab=pending_implementation` so the link actually
-            // filters down to the pending bucket the copy promises.
-            href="/changes?legacy=1&tab=pending_implementation"
+            // 2026-06-16: the legacy `/changes` table (which honored
+            // `?tab=pending_implementation`) was deleted in the dual-surface
+            // collapse, so the prior `?legacy=1` escape now no-ops. Point at
+            // the live v2 `/changes` (matches the sibling pending CTAs in
+            // implementation-queue + today-do-next-card). NOTE: v2 /changes
+            // does not yet filter by tab — surfacing a deep-linked
+            // pending-implementation view in v2 is a tracked follow-up.
+            href="/changes?tab=pending_implementation"
             className="text-muted-foreground hover:text-foreground"
             data-today-v2-cta="pending"
           >
