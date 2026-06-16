@@ -315,6 +315,24 @@ export function RecommendationV2Card({
     row.detail.aeoEvidenceLines,
     evGuard,
   );
+  // GQA (2026-06-16) — the deterministic generation-time QA verdict. Drives a
+  // compact "match + push" caption so the LIST shows the expert read (push
+  // readiness + an honest caution when the match/evidence is weak) before the
+  // operator clicks in. The confidence pill above is already downgraded on a
+  // confident mismatch by the row builder.
+  const qa = row.detail.qaVerdict ?? null;
+  const qaPushLabel =
+    qa == null
+      ? null
+      : qa.pushReadiness === "paste_ready"
+        ? "Paste-ready"
+        : qa.pushReadiness === "manual"
+          ? "Manual build"
+          : "Needs review";
+  const qaCaution =
+    qa != null && (qa.confidence === "rejected" || qa.confidence === "low" || qa.confidence === "needs_more_evidence")
+      ? qa.confidenceReason
+      : null;
 
   return (
     <article
@@ -552,6 +570,36 @@ export function RecommendationV2Card({
               {chip.label}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* GQA (2026-06-16) — compact QA caption: the push readiness every row
+          carries, plus an HONEST caution when the deterministic verdict found
+          the match/evidence weak (so the list reads expert before the operator
+          clicks in). The confidence pill above is already downgraded on a
+          confident mismatch. Renders only when the row carries a QA verdict. */}
+      {qa && (qaPushLabel || qaCaution) && (
+        <div
+          className="mt-2.5 flex flex-col gap-0.5 text-[11px] leading-snug"
+          data-recommendation-v2-qa="true"
+          data-recommendation-v2-qa-confidence={qa.confidence}
+        >
+          {qaPushLabel && (
+            <span
+              className="font-medium text-muted-foreground"
+              data-recommendation-v2-qa-push={qa.pushReadiness}
+            >
+              {qaPushLabel}
+            </span>
+          )}
+          {qaCaution && (
+            <span
+              className="text-status-warning"
+              data-recommendation-v2-qa-caution="true"
+            >
+              ⚠ {qaCaution}
+            </span>
+          )}
         </div>
       )}
 

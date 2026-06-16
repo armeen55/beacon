@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — GQA (generation-time recommendation QA: list looks expert before you click in)
+
+Operator pivot: "a smart explanation on a bad recommendation is worse than none — prevent bad recs from being shown as high-confidence in the FIRST place." Moves QA upstream to generation/ranking so the LIST is expert; the detail page deepens, never rescues. NO merge (operator).
+- **GQA-1 (`0ae40c3`):** extracted `enforceExpertConfidence` + verdict types into a PURE `expert-verdict.ts` (re-exported from `llm-expert-strategist`) so the generation path shares the deterministic authority; added a `copySafe` input (unsafe copy can't be high). NEW pure `recommendation-qa.ts` — `buildRecommendationQaVerdict()` composes intent-fit (Slice 3) + evidence presence + copy-artifact (Slice 2) + push-readiness → {confidence, approve, whyExists, whyMatchValid, evidenceSupports[], evidenceMissing[], confidenceReason, pushReadiness, copySafe}. High confidence REQUIRES core evidence + intent fit + safe copy. +8 tests with the operator's Iranopedia acceptance fixtures.
+- **GQA-2 (this commit):** wired the verdict into `buildRecommendationActionRows` (post-ranking pass): attaches `detail.qaVerdict` to every row and DOWNGRADES `derivedConfidence` → `needs_review` on a **confident** query/page mismatch (near-zero topic overlap OR intent-class conflict — conservative, so a city page evaluated with its true cluster is NOT falsely demoted while a wildlife page chasing a time query IS). Downgrade scoped to the suggestion bucket (new/needs_review/needs_fresh_edit). Surfaced a compact QA caption on the v2 card (push readiness + an honest weak-match caution). No hardcoding — tenant cities feed locale intent.
+- **Gate:** typecheck clean; **FULL suite 14,385 pass** / 1 pre-existing unrelated failure (`visibility-score-filter` "Houzz", `src/domains/product/`, byte-identical to origin/main — NOT a GQA regression, confirmed); card + recs component **758 pass**; build ✓. The conservative threshold tripped ZERO false downgrades across 14k tests. **Result: a confident query/page mismatch can no longer show as strong/medium on the list** — the operator's core ask. **NEXT (GQA-3):** the flagged LLM critic/adversarial QA pass after the deterministic verdict (can only lower/flag, never raise past the deterministic ceiling).
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — PHASE I (wire the expert reasoning INTO the clickable brief)
 
 Makes the "better than a pro SEO" reasoning VISIBLE in the flow the operator clicks through — the gap the standing goal flagged (PHASE F built it; PHASE I surfaces it). Mirrors the Slice-B `WhyThisMattersAct` progressive-enhancement pattern exactly.

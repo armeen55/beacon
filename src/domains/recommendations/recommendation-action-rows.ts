@@ -64,6 +64,10 @@ import {
   sanitizeClusterLabel,
 } from "./recommendation-title-humanizer";
 import { titleCase } from "./providers/generators/_text-utils";
+import {
+  buildRecommendationQaVerdict,
+  type RecQaVerdict,
+} from "./recommendation-qa";
 
 // ── Type system ─────────────────────────────────────────────────────────
 
@@ -310,6 +314,15 @@ export type ActionRowDetail = {
      */
     readonly prioritizerScore: number | null;
   };
+  /**
+   * Expert-rec-engine GQA (2026-06-16) — the deterministic generation-time QA
+   * verdict (page/intent fit, evidence support/gaps, confidence reason, push
+   * readiness). Attached in a post-ranking pass in `buildRecommendationActionRows`;
+   * a CONFIDENT query/page mismatch here also downgrades the row's
+   * `derivedConfidence` so a bad match can't show as strong on the list. The
+   * card/brief render this so the LIST looks expert before the operator clicks in.
+   */
+  readonly qaVerdict?: RecQaVerdict;
 };
 
 /** One operator-facing row in the ranked action table. */
@@ -2154,7 +2167,43 @@ export function buildRecommendationActionRows(
   rows.forEach((r, i) => {
     rows[i] = { ...r, rank: i + 1 };
   });
-  return rows;
+
+  // ── GQA (2026-06-16) — generation-time QA verdict, attached per row in a
+  //    final pass so the LIST looks expert before the operator clicks in. A
+  //    CONFIDENT query/page mismatch (near-zero topic overlap OR an intent-
+  //    class conflict) downgrades the row's `derivedConfidence` to
+  //    needs_review so a bad match can NEVER show as strong/medium —
+  //    "prevent bad recommendations from being shown as high confidence in the
+  //    first place." Deterministic; no LLM; tenant cities feed locale intent.
+  //    The downgrade is scoped to the suggestion bucket (new / needs_review /
+  //    needs_fresh_edit) so an already-actioned row's label is never rewritten.
+  const localeTerms = args.knownCities;
+  return rows.map((row) => {
+    const affectedPromptTexts: string[] = [];
+    for (const ref of row.detail.evidenceRefs) {
+      if (affectedPromptTexts.length >= 3) break;
+      const promptId = (ref as { promptId?: string | null }).promptId ?? null;
+      if (!promptId) continue;
+      const t = promptTextById[promptId];
+      if (typeof t === "string" && t.trim().length > 0) {
+        affectedPromptTexts.push(t.trim());
+      }
+    }
+    const qaVerdict = buildRecommendationQaVerdict({
+      row,
+      affectedPromptTexts,
+      localeTerms,
+    });
+    const inSuggestionBucket = STATUS_BUCKET[row.status] === 0;
+    const downgrade =
+      inSuggestionBucket && qaVerdict.confidence === "rejected";
+    const derivedConfidence = downgrade ? "needs_review" : row.derivedConfidence;
+    return {
+      ...row,
+      derivedConfidence,
+      detail: { ...row.detail, derivedConfidence, qaVerdict },
+    };
+  });
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
