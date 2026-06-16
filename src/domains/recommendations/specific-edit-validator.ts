@@ -1806,7 +1806,49 @@ export type DeterministicDraftSafetyInput = {
   readonly tenantId: string;
   readonly proposedText: string | null;
   readonly displayLabel: string | null;
+  /**
+   * SAFETY #273 follow-up (2026-06-15) — the deterministic action type
+   * (from the promotion row). Lets the gate distinguish PUBLISHABLE-COPY
+   * drafts (the new title / meta / h1 STRING gets pasted onto the live
+   * page) from DIRECTIVE drafts (an operator INSTRUCTION — "Add this
+   * JSON-LD…", "Remove the noindex tag…", "Add a 2-3 sentence answer…" —
+   * that is never published verbatim). Optional / null → treated as
+   * publishable copy so the safe default (gate armed) never weakens.
+   */
+  readonly actionType?: string | null;
 };
+
+/**
+ * SAFETY #273 follow-up (2026-06-15) — deterministic action types whose
+ * `proposed_text` is an OPERATOR INSTRUCTION, not text published to the
+ * live site. These mirror the directive branches of
+ * `recommendation-intelligence/draft-enrichment.ts` `enrichPromotionRow`
+ * (composeFixDirective / composeInternalLinks / composeSchema /
+ * composeFixSchema / composeSourcesDirective / composeAnswerBlockDirective
+ * / composeClarityDirective). For these, the PUBLISHED-PROSE style rules
+ * (em dash, leading self-claim superlative, bare brand short form) do not
+ * apply — they exist to keep an AI-tell out of visitor-readable copy, and
+ * a directive is read by the operator in the Beacon queue, never pasted to
+ * the page as-is. The correctness/legality gates (placeholder, unsupported
+ * brand claim) STILL run for every action type.
+ *
+ * Anything NOT in this set (the three publishable-copy types edit_title /
+ * edit_meta / change_h1, plus any unknown/future type) keeps the full
+ * style gate — the safe default.
+ */
+const DETERMINISTIC_DIRECTIVE_ACTION_TYPES: ReadonlySet<string> = new Set([
+  "fix_canonical",
+  "fix_robots",
+  "fix_noindex",
+  "fix_status_code",
+  "fix_sitemap",
+  "fix_page_experience",
+  "add_internal_link",
+  "add_schema",
+  "fix_schema",
+  "add_proof_section",
+  "add_answer_block",
+]);
 
 export function validateDeterministicDraftSafety(
   input: DeterministicDraftSafetyInput,
@@ -1816,7 +1858,15 @@ export function validateDeterministicDraftSafety(
     { value: input.displayLabel, path: "display_label" },
   ];
 
+  // A directive draft is an operator instruction, never published prose, so
+  // the PUBLISHED-PROSE style gates below (leading superlative, em dash, bare
+  // brand short form) are skipped for it. Correctness gates still run.
+  const isDirective =
+    input.actionType != null &&
+    DETERMINISTIC_DIRECTIVE_ACTION_TYPES.has(input.actionType);
+
   // 1. Placeholder phrases — never opt-outable (mirrors validateNoPlaceholder).
+  // Runs for EVERY action type (a directive must never say "[insert X]" / TODO).
   for (const f of fields) {
     if (typeof f.value !== "string" || f.value.length === 0) continue;
     const hit = detectPlaceholder(f.value);
@@ -1829,7 +1879,8 @@ export function validateDeterministicDraftSafety(
   }
 
   // 2. Leading self-claim superlative (BEACON_ALLOW_LEADING_SUPERLATIVE=1).
-  if (process.env.BEACON_ALLOW_LEADING_SUPERLATIVE !== "1") {
+  //    Published-prose style rule — skipped for directive drafts.
+  if (!isDirective && process.env.BEACON_ALLOW_LEADING_SUPERLATIVE !== "1") {
     for (const f of fields) {
       if (typeof f.value !== "string" || f.value.length === 0) continue;
       const hit = findLeadingSuperlative(f.value);
@@ -1844,7 +1895,8 @@ export function validateDeterministicDraftSafety(
 
   // 3. Unsupported brand claims (BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=1).
   // Uses the tenant's operator-curated assertion list; empty list = every
-  // forbidden pattern stays locked (the safe default).
+  // forbidden pattern stays locked (the safe default). Runs for EVERY action
+  // type — a directive must not assert unsupported social proof either.
   if (process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS !== "1") {
     const assertions = getBrandAssertions(input.tenantId);
     for (const f of fields) {
@@ -1861,7 +1913,9 @@ export function validateDeterministicDraftSafety(
   }
 
   // 4. Em dashes (BEACON_ALLOW_EM_DASH=1).
-  if (process.env.BEACON_ALLOW_EM_DASH !== "1") {
+  //    Published-prose style rule — skipped for directive drafts (their
+  //    operator-facing instruction text legitimately uses em dashes).
+  if (!isDirective && process.env.BEACON_ALLOW_EM_DASH !== "1") {
     for (const f of fields) {
       if (typeof f.value !== "string" || f.value.length === 0) continue;
       const matches = findEmDashes(f.value);
@@ -1875,8 +1929,9 @@ export function validateDeterministicDraftSafety(
   }
 
   // 5. Bare brand short form (BEACON_ALLOW_SHORT_BRAND_NAME=1). No-op for
-  // tenants without a curated brand-name style.
-  if (process.env.BEACON_ALLOW_SHORT_BRAND_NAME !== "1") {
+  //    tenants without a curated brand-name style. Published-prose style
+  //    rule — skipped for directive drafts.
+  if (!isDirective && process.env.BEACON_ALLOW_SHORT_BRAND_NAME !== "1") {
     const style = getBrandNameStyle(input.tenantId);
     if (style !== null) {
       for (const f of fields) {

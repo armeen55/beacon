@@ -129,6 +129,15 @@ export type PromoteEligibleCandidatesResult = {
  * as publishable. The row itself survives (the operator still sees the
  * issue / page), only the unsafe draft is held back.
  *
+ * SAFETY #273 follow-up (2026-06-15): the action type is threaded through so
+ * the gate applies the PUBLISHED-PROSE style rules (em dash / leading
+ * superlative / bare brand short form) ONLY to publishable-copy drafts
+ * (edit_title / edit_meta / change_h1). DIRECTIVE drafts (fix_*, add_schema,
+ * add_proof_section, add_answer_block, add_internal_link, fix_page_experience)
+ * carry an operator INSTRUCTION in `proposed_text` — never published verbatim
+ * — so those style rules don't apply; only the correctness gates (placeholder,
+ * unsupported brand claim) run for them.
+ *
  * Rows with no `proposed_text` (enrichment already abstained, or the action
  * type has no deterministic draft) pass through untouched — there is no
  * customer-visible draft to validate.
@@ -145,6 +154,14 @@ function holdUnsafeDraft(
     tenantId,
     proposedText: row.proposed_text,
     displayLabel: row.display_label,
+    // SAFETY #273 follow-up (2026-06-15): pass the action type so the gate
+    // skips the PUBLISHED-PROSE style rules (em dash etc.) for DIRECTIVE
+    // drafts — their proposed_text is an operator instruction, never copy
+    // published to the live page. Without this, every answer-block / sources
+    // / clarity / schema / robots directive (whose instruction text uses an
+    // em dash) was blanked to a content-free "go look at this page" card on
+    // every re-promote.
+    actionType: row.action_type,
   });
   if (verdict.ok) return row;
   log.warn("[promoteEligibleCandidates] held unsafe deterministic draft", {

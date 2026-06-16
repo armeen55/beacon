@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-15 PM-11 (directive drafts no longer blanked by the em-dash gate)
+
+**Trigger:** latent landmine flagged during the PM-10/clean-meta pass — the SAFETY #273 public-copy gate (`validateDeterministicDraftSafety`, landed 2026-06-14) blanks DIRECTIVE drafts on a full re-promote. It scans `proposed_text`+`display_label` for em dashes and, on a hit, `holdUnsafeDraft` (promotion-writer) reverts the WHOLE draft to a content-free "go look at this page" card. The deterministic directive templates (answer-block, sources, clarity, schema, robots-ai) legitimately use em dashes in their operator-facing INSTRUCTION text — so the next "Refresh my data" for ANY tenant (Iranopedia included) would silently gut them.
+
+- **Root cause:** the gate applied the PUBLISHED-PROSE style rules (em dash / leading self-claim superlative / bare brand short form) uniformly to every deterministic draft, regardless of action type. But only `edit_title`/`edit_meta`/`change_h1` produce text published to the live page; the other 11 deterministic action types produce an operator instruction never published verbatim.
+- **Fix (scope, not sanitize):** thread `actionType` from `holdUnsafeDraft` into `validateDeterministicDraftSafety`; skip the 3 published-prose STYLE gates for the directive action types (`fix_canonical`/`fix_robots`/`fix_noindex`/`fix_status_code`/`fix_sitemap`/`fix_page_experience`/`add_internal_link`/`add_schema`/`fix_schema`/`add_proof_section`/`add_answer_block`). The CORRECTNESS gates (placeholder, unsupported brand claim) still run for ALL action types. Unknown/null actionType keeps the gate armed (safe default — never weakens the publishable-copy guard). Directive templates keep their natural prose (no sanitizing).
+- **Files:** `src/domains/recommendations/specific-edit-validator.ts` (`DETERMINISTIC_DIRECTIVE_ACTION_TYPES` + `actionType` input + `!isDirective` guards on gates 2/4/5); `src/domains/recommendation-intelligence/promotion-writer.ts` (`holdUnsafeDraft` passes `row.action_type`) + doc-comment update; new `specific-edit-validator-deterministic-directive-safety.test.ts` (5 cases: directive em-dash passes, copy em-dash fails, unknown/null stays armed, placeholder still rejected for directives, clean copy passes).
+- **Gates:** `npm run typecheck` clean; `npx vitest run src/domains/recommendations tests/domains/recommendation-intelligence` 1989 pass / 2 skip (incl. the 7 draft-safety tests); `npm run build` PASS.
+- **Ground-truth (real Iranopedia data, dry-run re-promote on Supabase, NO writes):** 20 directive rows promote → **all 20 retain a non-null `proposed_text` (0 blanked)**; **19 em-dash-bearing directives survive intact** (`fix_schema` JSON-LD repairs on product pages, plus answer-block/sources/clarity). Pre-fix, those 19 would have been gutted to "go look at this page" cards on the next refresh.
+
+---
+
 ## 2026-06-15 PM-10 (cross-tenant founder-config leak FIXED — PUSHED `519ca06`)
 
 **Trigger:** the PM-9 out-of-scope finding — Iranopedia `/today` "Who AI thinks you are" rendered **"Ritz Builders"** (founder brand leaking onto a customer surface). Isolation-critical (the #1 rail).
