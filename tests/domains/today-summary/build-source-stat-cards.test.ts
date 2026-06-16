@@ -180,6 +180,56 @@ describe("buildSourceStatCards — GSC math", () => {
   });
 });
 
+describe("buildSourceStatCards — alarming stats link to the fix (#action)", () => {
+  it("GSC card gets an action → /recommendations when clicks FELL", () => {
+    const inputs = emptyInputs();
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 100,
+      impressions90d: 1000,
+      avgPosition90d: 5,
+      ctr90d: 0.1,
+      clicks28d: 62,
+      clicksPrev28d: 100,
+    });
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
+    expect(card!.subline?.tone).toBe("down");
+    expect(card!.action?.href).toBe("/recommendations");
+    expect(card!.action?.label).toMatch(/what to do/i);
+  });
+
+  it("GSC card has NO action when clicks rose (nothing alarming)", () => {
+    const inputs = emptyInputs();
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 100,
+      impressions90d: 1000,
+      avgPosition90d: 5,
+      ctr90d: 0.1,
+      clicks28d: 120,
+      clicksPrev28d: 100,
+    });
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
+    expect(card!.action ?? null).toBeNull();
+  });
+
+  it("Clarity card gets an action → /recommendations when friction is present", () => {
+    const inputs = emptyInputs();
+    inputs.clarity = new Map([
+      ["https://x.com/a", claritySignal({ sessions: 200, rageClicks: 8, deadClicks: 30 })],
+    ]);
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "clarity");
+    expect(card!.action?.href).toBe("/recommendations");
+  });
+
+  it("Clarity card has NO action when there is no friction (rage+dead = 0)", () => {
+    const inputs = emptyInputs();
+    inputs.clarity = new Map([
+      ["https://x.com/a", claritySignal({ sessions: 200, rageClicks: 0, deadClicks: 0 })],
+    ]);
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "clarity");
+    expect(card!.action ?? null).toBeNull();
+  });
+});
+
 describe("buildSourceStatCards — GSC sparkline (daily-clicks momentum)", () => {
   function richGsc(
     daily: { date: string; clicks: number }[],

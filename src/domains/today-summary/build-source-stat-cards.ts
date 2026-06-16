@@ -66,6 +66,14 @@ export type SourceStatCard = {
    * near-empty line. Other source cards leave this undefined.
    */
   sparkline?: number[];
+  /**
+   * Optional call-to-action that turns an alarming stat into a doorway to
+   * the fix (2026-06-15) — e.g. a GSC click drop or visible Clarity friction
+   * links to the recommendations queue where the corresponding fixes live.
+   * A pro SEO never leaves "clicks down 38%" sitting as a dead-end number.
+   * Null when the source has nothing alarming to act on.
+   */
+  action?: { label: string; href: string } | null;
 };
 
 /**
@@ -161,6 +169,14 @@ function buildGscCard(totals: GscSiteTotals | null): SourceStatCard | null {
   const sparkline =
     dailySeries.length >= MIN_SPARKLINE_POINTS ? dailySeries : undefined;
 
+  // When clicks are FALLING, don't leave the drop as a dead-end number —
+  // point the operator at the recommendations queue where the fade-fighting
+  // fixes (refreshed titles / intros / decaying-page reworks) live.
+  const action =
+    subline?.tone === "down"
+      ? { label: "See what to do about this →", href: "/recommendations" }
+      : null;
+
   return {
     key: "gsc",
     source: "Search (Google)",
@@ -172,6 +188,7 @@ function buildGscCard(totals: GscSiteTotals | null): SourceStatCard | null {
     ],
     subline,
     sparkline,
+    action,
   };
 }
 
@@ -289,11 +306,19 @@ function buildClarityCard(
     ? { text: `${fmtInt(rage + dead)} friction signals seen`, tone: "neutral" }
     : { text: "Building history — first day of data", tone: "neutral" };
 
+  // When visitors are hitting friction (rage / dead clicks), surface the
+  // doorway to the fixes rather than leaving the rate as a dead-end number.
+  const action =
+    rage + dead > 0
+      ? { label: "See what to do about this →", href: "/recommendations" }
+      : null;
+
   return {
     key: "clarity",
     source: "Visitor experience",
     stats,
     subline,
+    action,
   };
 }
 

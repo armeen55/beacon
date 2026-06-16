@@ -18,6 +18,7 @@
  * source isn't here at all (the helper gates on data presence).
  */
 
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type {
   SourceStatCard,
@@ -80,6 +81,15 @@ function StatCard({ card }: { card: SourceStatCard }) {
           <span aria-hidden="true">{sublineGlyph(card.subline.tone)} </span>
           {card.subline.text}
         </p>
+      ) : null}
+      {card.action ? (
+        <Link
+          href={card.action.href}
+          className="mt-2 inline-flex text-[11px] font-semibold text-accent-primary hover:underline"
+          data-all-source-action={card.key}
+        >
+          {card.action.label}
+        </Link>
       ) : null}
     </li>
   );
