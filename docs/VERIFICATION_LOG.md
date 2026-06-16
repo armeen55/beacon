@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PM-15 (per-query grounding — the fading-page directive names the search terms)
+
+**Trigger:** the next-best unblocked unit after PM-14 — make the decay refresh directive specific to the page's actual search demand (an SEO associate would tell you *which* terms to refresh around). Verify-first found the win is **free of new I/O**: per-(page,query) data lives in `gsc_daily_rows`, and `GscPageSignal.topQueries` is **already loaded** into `gscSignals` in the candidate pipeline (`load-trigger-candidates` L306, fail-soft). So this consumes already-loaded data — the heavy per-query RPC is NOT re-run.
+
+- **Fix (`b8c5c33`):** `gsc-decay.ts` — `GscDecayInput.topQueries?` (PURE, passed in) + `encodeTopQueries` appends `; top_queries=q1|q2|q3` to `operator_evidence` (capped 3, pipe/semicolon-stripped, 60-char-capped). `load-trigger-candidates` passes `gscSignals.get(url)?.topQueries?.map(q=>q.query)` — absent when the heavy read timed out (big tenants) → directive degrades to numbers-only. `draft-enrichment composeDecayDirective` parses `top_queries` and adds "People reach this page searching “X”, “Y” — make sure your refreshed top section answers those terms directly."
+- **Gates:** typecheck clean; build PASS (✓5.6s); `tests/domains/recommendation-intelligence` + `tests/architecture` = 6262 pass / 41 skip (incl. white-label/vocab — the query strings are clean customer copy); 70 targeted (4 new: 2 trigger-encode + 2 directive-naming).
+- **Ground-truth on real code paths:** the promotion-seam integration pin (`promoteEligibleCandidates`) now carries `top_queries` and asserts the query line ("…reach this page searching “custom home builder”…") survives promotion + `holdUnsafeDraft` end-to-end. TRUTH-UP: the topQueries population depends on the heavy `gsc_page_signals_v1` read succeeding for the tenant (Iranopedia-sized: yes; Ritz-sized: may time out → graceful numbers-only fallback, by design). Did not trigger a live regen to render a persisted decay rec (would write to a tenant queue for no proof the integration pin doesn't give). Pushed branch-local (no deploy).
+
+---
+
 ## 2026-06-16 PM-14 (grounded refresh/merge directives — last null-draft gap on connected data)
 
 **Trigger:** with the worst-first UX_TEARDOWN clusters verified-closed (connector Sync-now already wired; legacy /today confirmed live-substrate, not deletable — see `b9c6482`), an Explore audit mapped every trigger's draft coverage: which fire on ALREADY-CONNECTED data (GSC/Clarity/scan) yet emit only a vague directive vs a concrete draft. The engine is already highly concrete — but three action types fell through to a NULL draft (bare customer copy, no play): **`gsc_decay::update_intro`** (customer-queue-ready — the one that matters), `stale_content::update_intro` + `thin_content_overlap::merge_pages` (diagnostic-only).
