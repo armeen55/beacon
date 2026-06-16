@@ -26,7 +26,10 @@
  * split). Unit-tested in `build-source-stat-cards.test.ts`.
  */
 
-import type { GscSiteTotals } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import type {
+  GscSiteTotals,
+  GscDecaySignal,
+} from "@/domains/recommendation-intelligence/gsc-page-signals";
 import type { Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import type { SemrushPageSignal } from "@/domains/recommendation-intelligence/semrush-page-signals";
@@ -74,6 +77,13 @@ export type SourceStatCard = {
    * Null when the source has nothing alarming to act on.
    */
   action?: { label: string; href: string } | null;
+  /**
+   * Top pages losing clicks (2026-06-15) — the per-page decomposition of a
+   * site-level click drop. A sharp SEO never reports "-38%" without naming
+   * WHICH pages are bleeding. Set on the GSC card from the lean per-page
+   * decay RPC; null/absent when there's nothing meaningfully declining.
+   */
+  topDeclines?: Array<{ path: string; dropPct: number }> | null;
 };
 
 /**
@@ -86,6 +96,12 @@ export const MIN_SPARKLINE_POINTS = 14;
 export type AllSourceStatInputs = {
   /** Light per-day site-totals read (or null when GSC has no data). */
   gscSiteTotals: GscSiteTotals | null;
+  /**
+   * Optional per-page 28d-vs-prior-28d decay signals (lean `gsc_decay_v1`
+   * RPC — one row per page). Used to decompose a site click drop into the
+   * specific pages losing the most clicks. Absent → no per-page breakdown.
+   */
+  gscDecay?: Map<string, GscDecaySignal>;
   ga4: Map<string, Ga4PageValue>;
   clarity: Map<string, ClarityPageSignal>;
   semrush: Map<string, SemrushPageSignal>;
@@ -139,7 +155,52 @@ function fmtSignedPct(fraction: number): string {
  * prior 28-day window has clicks so we never imply a trend off a single
  * window.
  */
-function buildGscCard(totals: GscSiteTotals | null): SourceStatCard | null {
+/** A page needs at least this many clicks in the PRIOR window to be worth
+ *  flagging as a decliner — below it the % drop is noise. Mirrors the
+ *  gsc_decay trigger's prior-clicks floor intent. */
+const MIN_DECLINE_PRIOR_CLICKS = 5;
+/** Only surface pages that lost a MEANINGFUL share of clicks. */
+const MIN_DECLINE_DROP_PCT = 20;
+/** Cap the inline list so the card stays a scoreboard, not a report. */
+const MAX_DECLINE_ROWS = 3;
+
+/** Pure: reduce per-page decay signals to the top pages losing clicks. */
+function topDecliningPages(
+  decay: Map<string, GscDecaySignal> | undefined,
+): Array<{ path: string; dropPct: number }> | null {
+  if (!decay || decay.size === 0) return null;
+  const rows = [...decay.values()]
+    .filter(
+      (s) =>
+        s.clicksPrior >= MIN_DECLINE_PRIOR_CLICKS && s.clicksNow < s.clicksPrior,
+    )
+    .map((s) => ({
+      path: pathOf(s.page),
+      clicksLost: s.clicksPrior - s.clicksNow,
+      dropPct: Math.round((1 - s.clicksNow / Math.max(1, s.clicksPrior)) * 100),
+    }))
+    .filter((r) => r.dropPct >= MIN_DECLINE_DROP_PCT)
+    .sort((a, b) => b.clicksLost - a.clicksLost)
+    .slice(0, MAX_DECLINE_ROWS)
+    .map((r) => ({ path: r.path, dropPct: r.dropPct }));
+  return rows.length > 0 ? rows : null;
+}
+
+/** URL → short display path (pathname, leading slash, no host/query). */
+function pathOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname || "/";
+  } catch {
+    // Already a path or unparseable — strip protocol/host best-effort.
+    return url.replace(/^https?:\/\/[^/]+/i, "") || url;
+  }
+}
+
+function buildGscCard(
+  totals: GscSiteTotals | null,
+  decay?: Map<string, GscDecaySignal>,
+): SourceStatCard | null {
   // Gate on DATA presence: no data / no impressions → no card.
   if (totals == null || totals.impressions90d <= 0) return null;
 
@@ -189,6 +250,7 @@ function buildGscCard(totals: GscSiteTotals | null): SourceStatCard | null {
     subline,
     sparkline,
     action,
+    topDeclines: topDecliningPages(decay),
   };
 }
 
@@ -370,7 +432,7 @@ export function buildSourceStatCards(
   claritySpansMultipleDays = false,
 ): SourceStatCard[] {
   const cards: Array<SourceStatCard | null> = [
-    buildGscCard(inputs.gscSiteTotals),
+    buildGscCard(inputs.gscSiteTotals, inputs.gscDecay),
     buildGa4Card(inputs.ga4),
     buildSemrushCard(inputs.semrush),
     buildClarityCard(inputs.clarity, claritySpansMultipleDays),

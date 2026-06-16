@@ -82,6 +82,28 @@ function StatCard({ card }: { card: SourceStatCard }) {
           {card.subline.text}
         </p>
       ) : null}
+      {card.topDeclines && card.topDeclines.length > 0 ? (
+        <div className="mt-2.5" data-all-source-declines={card.key}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            Biggest drops
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {card.topDeclines.map((d) => (
+              <li
+                key={d.path}
+                className="flex items-baseline justify-between gap-2 text-[11px]"
+              >
+                <span className="truncate font-mono text-muted-foreground">
+                  {d.path}
+                </span>
+                <span className="shrink-0 font-semibold tabular-nums text-status-warning">
+                  −{d.dropPct}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {card.action ? (
         <Link
           href={card.action.href}

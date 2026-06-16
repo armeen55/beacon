@@ -95,7 +95,10 @@ import {
   computeTodayPrimaryShare,
   type TodayPrimaryShare,
 } from "@/domains/daily-metric-snapshots/today-primary-share";
-import { loadGscSiteTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import {
+  loadGscSiteTotalsForTenant,
+  loadGscDecaySignalsForTenant,
+} from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { loadSemrushPageSignalsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
@@ -281,11 +284,18 @@ export const loadTodayV2AllSourceSummaryData = cache(
     // avg position, site CTR, 28d/prior-28d clicks split for the arrow —
     // in one tiny indexed read, so the card streams instantly. Fail-soft
     // to null (→ no GSC card; never a zero card).
-    const [gscSiteTotals, ga4, clarity, semrush, aeo, clarityMultiDay] =
+    const [gscSiteTotals, gscDecay, ga4, clarity, semrush, aeo, clarityMultiDay] =
       await Promise.all([
         loadGscSiteTotalsForTenant(tenantId, now).catch((err) => {
           console.error("[today-v2] all-source GSC load failed:", err);
           return null;
+        }),
+        // Lean per-page decay (gsc_decay_v1 RPC — one row per page) so the
+        // GSC card can name the pages bleeding clicks behind a site drop.
+        // Own fail-soft → empty Map (no per-page breakdown, card still shows).
+        loadGscDecaySignalsForTenant(tenantId, now).catch((err) => {
+          console.error("[today-v2] all-source GSC decay load failed:", err);
+          return new Map();
         }),
         loadGa4PageValuesForTenant(tenantId, now).catch((err) => {
           console.error("[today-v2] all-source GA4 load failed:", err);
@@ -307,7 +317,7 @@ export const loadTodayV2AllSourceSummaryData = cache(
       ]);
 
     const cards = buildSourceStatCards(
-      { gscSiteTotals, ga4, clarity, semrush, aeo },
+      { gscSiteTotals, gscDecay, ga4, clarity, semrush, aeo },
       clarityMultiDay,
     );
     return { cards };

@@ -230,6 +230,72 @@ describe("buildSourceStatCards — alarming stats link to the fix (#action)", ()
   });
 });
 
+describe("buildSourceStatCards — per-page click-loss decomposition (#topDeclines)", () => {
+  function decay(
+    page: string,
+    clicksNow: number,
+    clicksPrior: number,
+  ): [string, import("@/domains/recommendation-intelligence/gsc-page-signals").GscDecaySignal] {
+    return [
+      page,
+      {
+        page,
+        clicksNow,
+        clicksPrior,
+        positionNow: 5,
+        positionPrior: 4,
+        impressionsNow: 1000,
+        impressionsPrior: 1200,
+      },
+    ];
+  }
+
+  function gscInputsWithDecay(): AllSourceStatInputs {
+    const inputs = emptyInputs();
+    inputs.gscSiteTotals = gscTotals({
+      clicks90d: 1000,
+      impressions90d: 50_000,
+      avgPosition90d: 6,
+      ctr90d: 0.02,
+      clicks28d: 300,
+      clicksPrev28d: 500,
+    });
+    return inputs;
+  }
+
+  it("names the top pages losing clicks, sorted by clicks lost, capped at 3", () => {
+    const inputs = gscInputsWithDecay();
+    inputs.gscDecay = new Map([
+      decay("https://x.com/big-drop", 100, 700), // lost 600, -86%
+      decay("https://x.com/mid-drop", 40, 140), //  lost 100, -71%
+      decay("https://x.com/small-drop", 20, 60), // lost 40,  -67%
+      decay("https://x.com/tiny", 18, 22), //       lost 4,   -18% (below 20% floor)
+      decay("https://x.com/grew", 90, 40), //       grew — excluded
+    ]);
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
+    expect(card!.topDeclines).toHaveLength(3);
+    expect(card!.topDeclines![0]).toEqual({ path: "/big-drop", dropPct: 86 });
+    expect(card!.topDeclines![1].path).toBe("/mid-drop");
+    expect(card!.topDeclines!.map((d) => d.path)).not.toContain("/grew");
+    expect(card!.topDeclines!.map((d) => d.path)).not.toContain("/tiny");
+  });
+
+  it("excludes pages with too few prior clicks (noise floor)", () => {
+    const inputs = gscInputsWithDecay();
+    inputs.gscDecay = new Map([
+      decay("https://x.com/noise", 0, 3), // prior < 5 → excluded even at -100%
+    ]);
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
+    expect(card!.topDeclines ?? null).toBeNull();
+  });
+
+  it("topDeclines is null when no decay map is supplied", () => {
+    const inputs = gscInputsWithDecay();
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
+    expect(card!.topDeclines ?? null).toBeNull();
+  });
+});
+
 describe("buildSourceStatCards — GSC sparkline (daily-clicks momentum)", () => {
   function richGsc(
     daily: { date: string; clicks: number }[],
