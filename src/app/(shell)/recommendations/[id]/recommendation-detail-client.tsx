@@ -153,6 +153,42 @@ export function RecommendationDetailClient({
   const observationCount = row.detail.observationCount;
   const promptCount = row.detail.affectedPromptCount;
 
+  // Act 3 evidence tile for Google Search demand (2026-06-16). Reduce the
+  // parsed GSC stats to ONE headline tile: impressions as the value (the
+  // demand magnitude), with clicks / position / CTR in the hint. Null when
+  // this rec carries no GSC stat line.
+  const gscDemandTile: { value: string; hint: string } | null = (() => {
+    if (!gscStats || gscStats.length === 0) return null;
+    const byKey = (k: string) => gscStats.find((s) => s.key === k)?.value;
+    const impressions = byKey("impressions");
+    if (!impressions) return null;
+    const parts: string[] = [];
+    const clicks = byKey("clicks");
+    const pos = byKey("position");
+    const ctr = byKey("ctr");
+    if (clicks) parts.push(`${clicks} clicks`);
+    if (pos) parts.push(`avg position ${pos}`);
+    if (ctr) parts.push(`${ctr} CTR`);
+    const tail = parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
+    return {
+      value: `${impressions} impressions`,
+      hint: `Google Search, last 90 days${tail}.`,
+    };
+  })();
+
+  // Any non-AEO grounding present? Post-pivot the evidence grid must not
+  // claim "no signals" when GSC / SEMrush / Clarity / AI-answer grounding
+  // exists (it just isn't prompt/observation/competitor shaped).
+  const hasGroundingEvidence =
+    promptCount > 0 ||
+    observationCount > 0 ||
+    !!competitor ||
+    gscDemandTile != null ||
+    gscEvidenceLines.length > 0 ||
+    semrushEvidenceLines.length > 0 ||
+    clarityEvidenceLines.length > 0 ||
+    aeoEvidenceLines.length > 0;
+
   // Top affected prompts — render up to 3 prompt-text snippets when
   // available. Falls back to the count alone when the lookup is missing.
   const affectedPromptTexts = (() => {
@@ -492,6 +528,33 @@ export function RecommendationDetailClient({
               dataAttr="competitor"
             />
           )}
+          {/* Google Search demand (2026-06-16) — post-pivot, GSC is the
+              primary SEO grounding. The evidence grid used to count ONLY
+              AEO chips (prompts / AI answers / competitor), so a
+              GSC-grounded rec (e.g. a title rewrite off real search demand)
+              fell through to the "no specific grounding signals" empty state
+              even though the headline + Act 2 show rich GSC numbers. Surface
+              the search demand as a first-class evidence tile. */}
+          {gscDemandTile && (
+            <EvidenceTile
+              label="Google Search demand"
+              value={gscDemandTile.value}
+              hint={gscDemandTile.hint}
+              dataAttr="gsc-demand"
+            />
+          )}
+          {semrushEvidenceLines.length > 0 && (
+            <EvidenceTile
+              label="Keyword rankings"
+              value={`${semrushEvidenceLines.length}`}
+              hint={
+                semrushEvidenceLines.length === 1
+                  ? "1 ranked keyword grounds this recommendation."
+                  : `${semrushEvidenceLines.length} ranked keywords ground this recommendation.`
+              }
+              dataAttr="semrush"
+            />
+          )}
           {row.detail.evidenceDepth >= 4 && (
             <EvidenceTile
               label="Applies to this page"
@@ -523,18 +586,15 @@ export function RecommendationDetailClient({
           </div>
         )}
 
-        {promptCount === 0 &&
-          observationCount === 0 &&
-          !competitor && (
-            <p
-              className="text-[12px] text-muted-foreground leading-relaxed"
-              data-recommendation-detail-evidence-empty="true"
-            >
-              No specific grounding signals are available for this
-              recommendation yet. Beacon may surface more as new AI
-              readings land.
-            </p>
-          )}
+        {!hasGroundingEvidence && (
+          <p
+            className="text-[12px] text-muted-foreground leading-relaxed"
+            data-recommendation-detail-evidence-empty="true"
+          >
+            No specific grounding signals are available for this
+            recommendation yet. Beacon may surface more as new readings land.
+          </p>
+        )}
       </Act>
 
       {/* Act 4 — Suggested copy. Renders only when the adapter returns a

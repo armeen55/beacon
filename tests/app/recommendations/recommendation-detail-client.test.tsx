@@ -235,6 +235,31 @@ describe("Bundle 2B — RecommendationDetailClient", () => {
     expect(html).toContain("No specific grounding signals are available");
   });
 
+  it("Act 3 surfaces GSC search demand (not 'no signals') for a GSC-grounded rec with no AEO chips", () => {
+    const html = render(
+      makeRow({
+        evidenceSummary:
+          "118 clicks · 52,700 impressions · 0.2% CTR · avg position 5.2 (90-day Google Search)",
+        detail: {
+          ...makeRow().detail,
+          affectedPromptCount: 0,
+          observationCount: 0,
+          topCompetitor: null,
+          evidenceDepth: 0,
+          evidenceRefs: [] as RecommendationActionRow["detail"]["evidenceRefs"],
+        },
+      }),
+    );
+    // GSC grounding is surfaced as a first-class evidence tile…
+    expect(html).toContain(
+      'data-recommendation-detail-evidence-tile="gsc-demand"',
+    );
+    expect(html).toContain("Google Search demand");
+    expect(html).toContain("52,700 impressions");
+    // …and the false "no signals" empty state must NOT render.
+    expect(html).not.toContain('data-recommendation-detail-evidence-empty="true"');
+  });
+
   it("renders the calm 'needs more evidence' message in Act 2 when confidence is needs_review", () => {
     const html = render(
       makeRow({
