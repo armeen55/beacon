@@ -1052,6 +1052,19 @@ function composeClarityDirective(
         "After you fix it, Clarity's script-error count for this page should drop the next time you refresh your connected data; watch the page's AI-citation trend on the Proof tab.",
     };
   }
+  const isDead = /reason=dead_clicks/.test(ev);
+  if (isDead) {
+    return {
+      display_label: "Find the dead element visitors keep clicking",
+      current_text: null,
+      proposed_text:
+        "Microsoft Clarity recorded a high rate of \u201cdead clicks\u201d on this page \u2014 visitors clicking something that looks tappable but does nothing. Watch a few Clarity session recordings for this page to spot what they keep clicking (a broken link, a dead button, or an image/heading people expect to open or expand), then either make it work or remove the false affordance so it no longer looks clickable.",
+      expected_impact:
+        "Fixing the element visitors expect to work reduces dead-end sessions and the abandonment that follows.",
+      measurement_plan:
+        "After the fix, Clarity's dead-click rate for this page should fall the next time you refresh your connected data.",
+    };
+  }
   return {
     display_label: "Review the element visitors are rage-clicking",
     current_text: null,

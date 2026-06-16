@@ -48,8 +48,22 @@ describe("frictionReason", () => {
   it("below the session floor → null (tiny denominator can't fire)", () => {
     expect(frictionReason(sig({ sessions: MIN_CLARITY_SESSIONS - 1, scriptErrors: 10, rageRate: 0.5 }))).toBeNull();
   });
-  it("dead clicks / quickbacks alone do NOT fire (no sourced threshold)", () => {
-    expect(frictionReason(sig({ sessions: 500, deadClicks: 400, deadRate: 0.8, quickbacks: 300, quickbackRate: 0.6 }))).toBeNull();
+  it("dead clicks ≥50% of sessions → medium (2026-06-16; below script + rage)", () => {
+    const r = frictionReason(sig({ sessions: 500, deadClicks: 450, deadRate: 0.9 }));
+    expect(r).toEqual({ kind: "dead_clicks", confidence: "medium" });
+  });
+  it("dead clicks BELOW the conservative 50% gate do NOT fire (content-browsing baseline)", () => {
+    // e.g. a 26%-dead-click content page near the site baseline — not anomalous.
+    expect(frictionReason(sig({ sessions: 500, deadClicks: 130, deadRate: 0.26 }))).toBeNull();
+  });
+  it("script + rage OUTRANK dead clicks (worst-first)", () => {
+    const r = frictionReason(
+      sig({ sessions: 500, rageClicks: 50, rageRate: 0.1, deadClicks: 450, deadRate: 0.9 }),
+    );
+    expect(r).toEqual({ kind: "rage_clicks", confidence: "medium" });
+  });
+  it("quickbacks / excessive-scroll alone still do NOT fire (no defensible band)", () => {
+    expect(frictionReason(sig({ sessions: 500, quickbacks: 300, quickbackRate: 0.6, excessiveScroll: 200 }))).toBeNull();
   });
 });
 

@@ -15,9 +15,20 @@
  *     AEO wedge). Fire when scriptErrors/sessions ≥ 0.05.
  *   • rage_clicks (MEDIUM) — rapid repeated clicks = frustration with a
  *     non-responsive element. Sourced band: >7% of sessions = "needs
- *     attention". Fire when rageRate ≥ 0.07. (Dead clicks / quickbacks
- *     / excessive-scroll have NO published threshold — deliberately
- *     EXCLUDED from v1 to avoid false positives.)
+ *     attention". Fire when rageRate ≥ 0.07.
+ *   • dead_clicks (MEDIUM, 2026-06-16) — clicks on a non-interactive
+ *     element (a thing that LOOKS tappable but isn't: a broken link, a
+ *     dead button, an image people expect to open). Clarity treats dead
+ *     clicks as a primary friction metric, but there's no PUBLISHED
+ *     threshold and content sites have a high baseline (people click
+ *     words/images) — v1 excluded them to avoid false positives. We now
+ *     fire only at a DELIBERATELY CONSERVATIVE `DEAD_CLICK_RATE ≥ 0.50`:
+ *     when the MAJORITY of sessions hit a dead element, that's an
+ *     anomaly far above any normal content-browsing baseline (e.g.
+ *     Iranopedia's site-wide dead rate is ~22%; the gate sits >2× that),
+ *     so it signals a genuinely broken affordance, not browsing noise.
+ *     Lower with data once we have a real per-vertical baseline.
+ *     (quickbacks / excessive-scroll remain excluded — no defensible band.)
  *
  * SESSION FLOOR: ≥ 50 sessions over the window before any rate fires —
  * Clarity exports COUNTS (we divide by sessions), so a tiny
@@ -52,11 +63,18 @@ export type ClarityFrictionInput = {
 export const MIN_CLARITY_SESSIONS = 50;
 export const SCRIPT_ERROR_RATE = 0.05;
 export const RAGE_RATE = 0.07;
+/** Conservative dead-click gate — fires only when the MAJORITY of sessions
+ *  hit a dead element (far above any normal content-browsing baseline). */
+export const DEAD_CLICK_RATE = 0.5;
 
-type FrictionKind = { kind: "script_errors" | "rage_clicks"; confidence: "high" | "medium" };
+type FrictionKind = {
+  kind: "script_errors" | "rage_clicks" | "dead_clicks";
+  confidence: "high" | "medium";
+};
 
-/** The binding friction reason for a page, worst-first (script errors
- *  outrank rage), or null when none clears its threshold. */
+/** The binding friction reason for a page, worst-first (confirmed defects
+ *  first: script errors > rage > dead), or null when none clears its
+ *  threshold. */
 export function frictionReason(signal: ClarityPageSignal): FrictionKind | null {
   if (signal.sessions < MIN_CLARITY_SESSIONS) return null;
   if (signal.scriptErrors > 0 && signal.scriptErrors / signal.sessions >= SCRIPT_ERROR_RATE) {
@@ -64,6 +82,9 @@ export function frictionReason(signal: ClarityPageSignal): FrictionKind | null {
   }
   if (signal.rageRate >= RAGE_RATE) {
     return { kind: "rage_clicks", confidence: "medium" };
+  }
+  if (signal.deadRate >= DEAD_CLICK_RATE) {
+    return { kind: "dead_clicks", confidence: "medium" };
   }
   return null;
 }
@@ -95,12 +116,19 @@ export function clarityFriction(
         "; affected≈" +
         pct(signal.scriptErrors, signal.sessions) +
         " of sessions"
-      : "clarity_28d rage_clicks=" +
-        signal.rageClicks +
-        "; sessions=" +
-        signal.sessions +
-        "; rage_rate=" +
-        pct(signal.rageClicks, signal.sessions);
+      : reason.kind === "dead_clicks"
+        ? "clarity_28d dead_clicks=" +
+          signal.deadClicks +
+          "; sessions=" +
+          signal.sessions +
+          "; dead_rate=" +
+          pct(signal.deadClicks, signal.sessions)
+        : "clarity_28d rage_clicks=" +
+          signal.rageClicks +
+          "; sessions=" +
+          signal.sessions +
+          "; rage_rate=" +
+          pct(signal.rageClicks, signal.sessions);
 
   return [
     {
@@ -123,10 +151,14 @@ export function clarityFriction(
         signal.scriptErrors +
         "; rage_clicks=" +
         signal.rageClicks +
+        "; dead_clicks=" +
+        signal.deadClicks +
         "; play=" +
         (reason.kind === "script_errors"
           ? "fix_js_errors (also blocks JS-free AI crawlers)"
-          : "review_frustrating_element"),
+          : reason.kind === "dead_clicks"
+            ? "find_dead_element (looks tappable, isn't)"
+            : "review_frustrating_element"),
       dedupe_key: dedupeKey({
         tenantId,
         actionType,
