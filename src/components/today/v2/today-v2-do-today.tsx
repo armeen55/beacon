@@ -61,10 +61,19 @@ export function TodayV2DoToday({
     );
   }
 
-  const expected =
+  // Lead with the EVIDENCE (rationale: "people searched X 2,498 times…",
+  // "this page is getting -38%…") — that's what makes Beacon read like a
+  // sharp SEO, not a to-do app. The outcome line is secondary and only
+  // shows when it adds something the rationale didn't already say.
+  const rationale = primaryAction.rationale?.trim() || null;
+  const expectedRaw =
     primaryAction.expectedMetric ??
     primaryAction.expectedOutcome ??
     null;
+  const expected =
+    expectedRaw && expectedRaw.trim() && expectedRaw.trim() !== rationale
+      ? expectedRaw.trim()
+      : null;
 
   return (
     <article
@@ -94,8 +103,14 @@ export function TodayV2DoToday({
         </p>
       )}
 
-      {expected && (
+      {rationale && (
         <p className="mt-2 text-[12px] text-foreground/85 leading-relaxed">
+          {rationale}
+        </p>
+      )}
+
+      {expected && (
+        <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">
           {expected}
         </p>
       )}
@@ -116,7 +131,7 @@ export function TodayV2DoToday({
           className="inline-flex min-h-[44px] w-full items-center justify-center rounded-md bg-accent-primary px-4 py-2.5 text-background transition-colors hover:bg-accent-primary/90 sm:w-auto"
           data-today-v2-cta="primary"
         >
-          Open the brief →
+          Review &amp; edit →
         </Link>
         <Link
           href="/recommendations"

@@ -747,7 +747,7 @@ function fmtDate(iso: string): string {
  */
 export function adaptPersistedRecToTodayPrimaryAction(item: {
   rec: { stableKey: string; title: string; description: string; severity: "high" | "medium" | "low" };
-  edits: ReadonlyArray<{ display_label?: string | null; why?: string | null; confidence: "low" | "medium" | "high"; target_url: string | null }>;
+  edits: ReadonlyArray<{ display_label?: string | null; why?: string | null; expected_impact?: string | null; confidence: "low" | "medium" | "high"; target_url: string | null }>;
   response: { status?: string | null } | null;
 }): TodayPrimaryAction {
   const rec = item.rec;
@@ -776,11 +776,21 @@ export function adaptPersistedRecToTodayPrimaryAction(item: {
     | null
     | undefined;
 
+  // Honesty fix (2026-06-15): the card used to show a hardcoded jargon line
+  // ("Improve visibility on the matched prompts") as the ONLY body text,
+  // burying the real evidence. Surface the rec's own grounded outcome
+  // (`expected_impact`, e.g. "a real description in the page's own words
+  // lifts click-through"); the card now leads with `rationale` (the why /
+  // search-demand evidence) and shows this only when it adds something new.
+  const expectedOutcome =
+    primaryEdit?.expected_impact?.trim() ||
+    "Make this page easier for people and AI assistants to find and quote.";
+
   return {
     id: rec.stableKey,
     headline,
     rationale,
-    expectedOutcome: "Improve visibility on the matched prompts.",
+    expectedOutcome,
     sourceEvidence: `${item.edits.length} edit${item.edits.length === 1 ? "" : "s"} ready in /recommendations`,
     // Below the hurting-verdict floor (80 + |z|) so any hurting verdict
     // dominates this fallback. Above the helping-verdict scores (~75-).
