@@ -451,22 +451,22 @@ export function VisibilityScoreChart({
 
       {/* Footer controls */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-[11px]">
-        <label className="flex items-center gap-1.5 cursor-pointer">
+        <label className="flex min-h-11 items-center gap-2 cursor-pointer py-1">
           <input
             type="checkbox"
             checked={showCompetitors}
             onChange={(e) => setShowCompetitors(e.target.checked)}
-            className="h-3 w-3 accent-muted-foreground"
+            className="h-4 w-4 accent-muted-foreground"
           />
           <span className="text-muted-foreground">Compare competitors</span>
         </label>
         {Object.keys(brandSeriesByPlatform).length > 0 && (
-          <label className="flex items-center gap-1.5 cursor-pointer">
+          <label className="flex min-h-11 items-center gap-2 cursor-pointer py-1">
             <input
               type="checkbox"
               checked={showPlatforms}
               onChange={(e) => setShowPlatforms(e.target.checked)}
-              className="h-3 w-3 accent-muted-foreground"
+              className="h-4 w-4 accent-muted-foreground"
             />
             <span className="text-muted-foreground">Split by platform</span>
           </label>
@@ -505,7 +505,7 @@ function MetricToggle({
           aria-selected={metric === m}
           onClick={() => onChange(m)}
           className={cn(
-            "px-2.5 py-1 rounded-sm text-[10px] font-semibold transition-colors whitespace-nowrap",
+            "px-2.5 py-1.5 rounded-sm text-[12px] font-semibold transition-colors whitespace-nowrap",
             metric === m
               ? "bg-foreground text-background"
               : "text-muted-foreground hover:text-foreground",
@@ -545,7 +545,7 @@ function TimeRangeToggle({
           aria-selected={value === r.days}
           onClick={() => onChange(r.days)}
           className={cn(
-            "px-2 py-1 rounded-sm text-[10px] font-semibold transition-colors whitespace-nowrap tabular-nums",
+            "px-2.5 py-1.5 rounded-sm text-[12px] font-semibold transition-colors whitespace-nowrap tabular-nums",
             value === r.days
               ? "bg-foreground text-background"
               : "text-muted-foreground hover:text-foreground",

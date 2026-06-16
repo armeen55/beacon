@@ -1437,7 +1437,8 @@ export function ConnectorsClient({
               <p className="text-[12px] text-muted-foreground">
                 Connect your Profound API key so Beacon can track how AI
                 assistants mention and cite your site, and where rivals
-                get cited instead.
+                get cited instead. Pulls run on demand only and use your
+                Profound plan&apos;s quota each time.
               </p>
             )}
           </div>
