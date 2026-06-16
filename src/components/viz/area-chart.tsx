@@ -311,6 +311,42 @@ export function AreaChart({
           </>
         )}
       </div>
+
+      {/* a11y #367 (UX_TEARDOWN 2026-06-15): the SVG points were
+          mouse-only — the hover row above never fires for keyboard /
+          screen-reader users, so the underlying numbers were
+          unreachable. This visually-hidden <table> exposes every
+          date/value pair (one column per series) so the same data the
+          chart plots is fully readable to assistive tech. */}
+      {labels.length > 0 && series.length > 0 && (
+        <table className="sr-only" data-area-chart-data-table="true">
+          <caption>{computedAriaLabel}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              {series.map((s) => (
+                <th key={s.label} scope="col">
+                  {s.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {labels.map((labelText, i) => (
+              <tr key={`${labelText}-${i}`}>
+                <th scope="row">{labelText}</th>
+                {series.map((s) => (
+                  <td key={s.label}>
+                    {typeof s.data[i] === "number"
+                      ? s.data[i].toLocaleString()
+                      : "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

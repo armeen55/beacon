@@ -1134,10 +1134,14 @@ export function ConnectorsClient({
 
           {yelp.status === "disconnected" ? (
             <div className="space-y-2">
-              <label className="block text-[11px] font-medium text-foreground/90">
+              <label
+                htmlFor="yelp-api-key"
+                className="block text-[11px] font-medium text-foreground/90"
+              >
                 Enter Yelp API Key
               </label>
               <input
+                id="yelp-api-key"
                 type="password"
                 autoComplete="off"
                 value={yelpKeyInput}
