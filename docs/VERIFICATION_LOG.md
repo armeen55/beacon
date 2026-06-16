@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PM-19 (dual-surface collapse COMPLETE — legacy TodayClient DELETED, 2c-ii)
+
+**Trigger:** finish the dual-surface collapse — delete the now-dead legacy `today-client.tsx` + its 11 file-content test pins.
+
+- **Fix (`faa6ad1`):** deleted `today-client.tsx` (~770 lines) + `tests/routes/today-section-order.test.ts` (pinned the deleted component's internal order; v2 ordering is a separate gate-driven concern). Excised the dead-legacy assertions from `ux6-1/6-2/6-3`, `ux5b`, `demo-path-fixes(.bis)` (they pinned the legacy component's source structure / first-run copy — live equivalents covered on the v2 component files those tests already read + on `FirstReadingWaiting`). **RETARGETED** the genuinely-live invariants rather than dropping them: `onboard-first-reading` now asserts the FirstReadingWaiting import + first-reading render against the LIVE `page.tsx` (gate early-return); `today-command-center` keeps the `CommandCenterData` prop-type check against `today-shared-types`. Confirmed dead-first: `data-today-first-run` + "Welcome to Beacon" existed ONLY in the deleted file (live first-run = `page.tsx` → `FirstReadingWaiting`).
+- **~1,222 lines deleted, 30 inserted.** typecheck clean; build PASS (✓6.0s); architecture+routes+today+app+lib+attribution+components = **7,388 pass / 41 skip**; dev server `/` (200) + `/recommendations` (200) render clean. Pure dead-code + dead-test removal, zero runtime change.
+- **The dual-surface collapse is now COMPLETE** (`/today` + `/changes` were already V2-only; the legacy `TodayClient` component is gone). `today-data.ts` REMAINS the live V2 compute backend (unchanged) — only the legacy client was removed. Branch-local; no deploy.
+
+---
+
 ## 2026-06-16 PM-18 (dual-surface collapse — steps 2a/2b/2c-i: legacy TodayClient fully decoupled + dead)
 
 **Trigger:** continue the dual-surface collapse (the lone substantive in-repo unit). Executed it as independently-green committable sub-steps (gate + commit each; a half-done state is just uncommitted WIP, never a broken push):
