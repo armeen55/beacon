@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-16 PHASE 1 (MAX_SEO_AEO audit P0 #1 — Wix mappings → durable Supabase)
+
+**Operator directive:** structured /goal — convert the 500-finding audit into phases; implement Phase 1 only (Wix url-map + collection-config out of ephemeral file storage into durable, tenant-scoped Supabase), no Iranopedia hardcoding, review-gated, Wix-first. Phase plan (6 phases) recorded in `NEXT_PHASE_EXECUTION_PLAN.md`.
+
+- **Problem:** `wix-url-map` + `wix-collection-config` lived only in json-store. On Vercel `writeStore` updates an in-process cache lost on lambda recycle → a connected tenant's mappings + derived url-map were EPHEMERAL → push-service resolves target_url through an empty map → every field-edit card refuses. This blocked the safe-publish wedge.
+- **Migration `migrations/2026-06-16_wix_mappings.sql` (WRITTEN, NOT APPLIED):** additive `wix_collection_config` + `wix_url_map`, tenant_id composite PKs, RLS `tenant_rw` via `is_tenant_member` + anon default-denied (gsc_daily_page_totals posture), `content_field_roles jsonb`. ⛔ **NOT applied to prod — awaiting operator approval** (hosted Supabase change per AGENTS.md). Code falls back to the file store (`isUndefinedTableError` 42P01 / no-env) until applied, so shipping is non-breaking.
+- **New `src/lib/connectors/wix/mappings-store.ts`:** Supabase-direct, AMBIENT-tenant (`currentTenantId`) on every query + stamped on every row, mirrors connector-store. **Durable non-destructive REPLACE:** UPSERT desired rows on the composite PK, then delete only the tenant's now-absent keys — a transient write failure never empties a tenant (the sync-derived url-map isn't re-pasteable). File fallback resolved admin-FIRST.
+- **`url-map.ts`** delegates to the store + re-exports the read/write fns → push-service + /diagnostics/wix callers unchanged.
+- **Adversarial multi-lens review (Workflow, ultracode):** 4 lenses (tenant-isolation / data-loss / API-parity / RLS) → caught a MAJOR delete-then-insert wipe risk + 2 minors; ALL fixed (upsert+delete-stale; admin-first; ambient-only — dropped the explicit-tenant param that would mismatch the ambient file fallback). Migration confirmed safe-to-apply; no hardcoded tenant.
+- **Gates (parent-owned):** typecheck clean; wix + push + architecture **235 files / 5,258 pass** (11 new mappings-store cases: round-trip incl. contentFieldRoles, tenant isolation ×2, durable-replace, empty-clear, no-clobber, file fallback ×3, push readiness); build ✓ Compiled. Commit `412d033`, pushed to `claude/iranopedia-blockers`. No deploy; migration not applied.
+- **Phase 1 DoD status:** code durable-ready + tenant-isolation/persistence/push-readiness tests ✅; not hardcoded ✅; Iranopedia mappable via the store ✅; **durable-in-Supabase pending the one migration apply** (operator approval).
+
+---
+
 ## 2026-06-16 PM-24 (MAX_SEO_AEO audit — data-truncation P0s + branch reconciliation)
 
 **Context:** operator surfaced `docs/MAX_SEO_AEO_EXPERT_AUDIT_2026-06-16.md` (500 gaps, 7-step execution order). The audit was run against bare `origin/main` (`c45ed80`); my branch `claude/iranopedia-blockers` is **53 commits ahead**, so a chunk of the audit's gaps are already closed and invisible to it. Operator chose "keep going autonomously," reconciling silently. The LLM-output path is blocked on OpenAI billing ([[project_openai_quota_blocker]] — 429), so this batch targets DETERMINISTIC, non-gated, non-migration P0s under "extract data better."
