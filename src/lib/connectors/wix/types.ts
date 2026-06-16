@@ -31,6 +31,30 @@ export type WixDraftPostRef = {
   title: string;
 };
 
+/**
+ * One field of a discovered Wix data collection (Phase 2 mapper, MAX_SEO_AEO
+ * audit P0 #2). Read-only discovery shape — `type` is Wix's field type string
+ * (TEXT, RICH_TEXT, NUMBER, …) used only as a heuristic hint, never written.
+ */
+export type WixDiscoveredField = {
+  key: string;
+  displayName: string;
+  type: string;
+};
+
+/**
+ * One discovered Wix data collection (read-only listing of /wix-data/v2/
+ * collections). Fed to suggestCollectionMapping to pre-fill the guided
+ * mapper; never persisted directly (the operator-confirmed
+ * WixCollectionMapping is what gets saved). No hardcoding — purely what
+ * the connected site returns.
+ */
+export type WixDiscoveredCollection = {
+  id: string;
+  displayName: string;
+  fields: WixDiscoveredField[];
+};
+
 /** url-map row: canonical page URL → the CMS item that renders it. */
 export type WixUrlMapEntry = {
   url: string;

@@ -22,7 +22,13 @@ import "server-only";
 
 import { getWixConnectorToken, type WixConnectorToken } from "@/lib/connector-store";
 import { log } from "@/lib/logger";
-import type { WixDataItem, WixDraftPostRef, WixFetchResult } from "./types";
+import type {
+  WixDataItem,
+  WixDiscoveredCollection,
+  WixDiscoveredField,
+  WixDraftPostRef,
+  WixFetchResult,
+} from "./types";
 
 export const WIX_BASE_URL = "https://www.wixapis.com";
 const TIMEOUT_MS = 20_000;
@@ -234,6 +240,62 @@ export async function wixQueryAllDataItems(
     }
   }
   return { ok: true, value: all };
+}
+
+/**
+ * READ-ONLY discovery (§Phase 2 mapper, MAX_SEO_AEO audit P0 #2): list the
+ * site's data collections + their fields so the operator can map them in a
+ * guided UI instead of hand-writing JSON. Wix Data Collections v2 List
+ * (GET /wix-data/v2/collections). No writes, ever.
+ *
+ * Narrows DEFENSIVELY against Wix's loosely-typed JSON (the API may omit a
+ * field, return an unexpected shape, or nest fields differently): each
+ * collection must carry a string `id`; each field a string `key`. A field's
+ * type comes from `type ?? fieldType ?? "UNKNOWN"` (Wix uses both keys across
+ * versions). Malformed collections/fields are skipped rather than throwing —
+ * a single bad row never breaks discovery for the rest.
+ */
+export async function wixListDataCollections(
+  deps: WixDeps = {},
+): Promise<WixFetchResult<WixDiscoveredCollection[]>> {
+  const r = await wixFetch<{ collections?: unknown[] }>(
+    "/wix-data/v2/collections",
+    { method: "GET" },
+    deps,
+  );
+  if (!r.ok) return r;
+  const out: WixDiscoveredCollection[] = [];
+  for (const raw of r.value.collections ?? []) {
+    if (raw == null || typeof raw !== "object") continue;
+    const c = raw as Record<string, unknown>;
+    const id = c.id;
+    if (typeof id !== "string" || id === "") continue;
+    const displayName =
+      typeof c.displayName === "string" && c.displayName !== ""
+        ? c.displayName
+        : id;
+    const fields: WixDiscoveredField[] = [];
+    const rawFields = Array.isArray(c.fields) ? c.fields : [];
+    for (const rf of rawFields) {
+      if (rf == null || typeof rf !== "object") continue;
+      const f = rf as Record<string, unknown>;
+      const key = f.key;
+      if (typeof key !== "string" || key === "") continue;
+      const fieldDisplay =
+        typeof f.displayName === "string" && f.displayName !== ""
+          ? f.displayName
+          : key;
+      const type =
+        typeof f.type === "string" && f.type !== ""
+          ? f.type
+          : typeof f.fieldType === "string" && f.fieldType !== ""
+            ? f.fieldType
+            : "UNKNOWN";
+      fields.push({ key, displayName: fieldDisplay, type });
+    }
+    out.push({ id, displayName, fields });
+  }
+  return { ok: true, value: out };
 }
 
 /** GET one item by id (Wix Data v2 Get Data Item). */

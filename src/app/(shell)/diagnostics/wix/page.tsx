@@ -26,11 +26,29 @@ import {
   syncWixMapFromForm,
   disconnectWixFromForm,
   revertPushFromForm,
+  discoverWixCollectionsFromForm,
+  saveGuidedMappingFromForm,
+  discoverGuidedCollections,
+  type DiscoverGuidedResult,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function WixDiagnosticPage() {
+/** Ensure the currently-selected value appears in a <select>'s options even
+ *  if it isn't one of the live field keys (e.g. a saved mapping referencing a
+ *  field that was later renamed in Wix) — so the operator still SEES their
+ *  current value rather than a silently-reset select. Pure. */
+function ensureOption(fieldKeys: string[], current: string | undefined): string[] {
+  if (current == null || current === "" || fieldKeys.includes(current)) {
+    return fieldKeys;
+  }
+  return [current, ...fieldKeys];
+}
+
+export default async function WixDiagnosticPage(props?: {
+  searchParams?: Promise<{ discover?: string }> | { discover?: string };
+}) {
+  const searchParams = props?.searchParams;
   // Night-shift #126 (2026-06-11): gate by PER-TENANT publish auth
   // (operator mode OR owner/admin/founder of the current tenant) —
   // pre-fix this page 404'd for a tenant OWNER unless the GLOBAL
@@ -52,6 +70,18 @@ export default async function WixDiagnosticPage() {
     readPushLedger().catch(() => []),
   ]);
   const recentPushes = ledger.slice(-15).reverse();
+
+  // Guided mapper (Phase 2): when the operator clicks "Discover collections"
+  // we redirect to ?discover=1 and re-run read-only discovery here. Idempotent
+  // + read-only, so re-fetching on the flag is safe (no payload to stash).
+  const sp = searchParams ? await searchParams : undefined;
+  const wantDiscover = sp?.discover === "1";
+  let discovery: DiscoverGuidedResult | null = null;
+  if (wantDiscover && connected) {
+    discovery = await discoverGuidedCollections().catch(
+      (): DiscoverGuidedResult => ({ ok: false, reason: "api_error", detail: "discovery threw" }),
+    );
+  }
 
   // Pushable cards: field-targeted queue edits whose URL is in the map.
   let pushable: Array<{ id: string; label: string; url: string; field: string; proposed: string }> = [];
@@ -139,32 +169,181 @@ export default async function WixDiagnosticPage() {
       </section>
 
       <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Dynamic-page collections ({mappings.length})
-        </h2>
-        <p className="mb-2 text-xs text-muted-foreground">
-          JSON array of {"{ dataCollectionId, slugField, urlPrefix, labelField?, contentFieldRoles? }"} —
-          which CMS collections render pages and how their URLs are built. Add{" "}
-          <code>{'"contentFieldRoles": { "title": "<field>", "heading": "<field>", "description": "<field>" }'}</code>{" "}
-          to let Accept push title / H1 / meta-description edits LIVE to those
-          pages (<code>description</code> = the CMS field the page&apos;s
-          meta-description SEO Variable references; omit any role and those edits
-          stay paste-ready).
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Discover &amp; map collections ({mappings.length} mapped)
+          </h2>
+          {connected && (
+            <form action={discoverWixCollectionsFromForm}>
+              <button type="submit" className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white">
+                {wantDiscover ? "Re-discover collections" : "Discover collections"}
+              </button>
+            </form>
+          )}
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Reads your Wix collections + their fields (read-only — no changes to
+          your site), suggests how each maps to a page URL, and lets you confirm
+          or correct it. <span className="font-semibold text-foreground">slug field</span> = how the page URL is built;{" "}
+          <span className="font-semibold text-foreground">URL prefix</span> = where those pages live; the{" "}
+          <span className="font-semibold text-foreground">content roles</span> (title / heading / description) opt a
+          collection into live title / H1 / meta-description pushes (leave a role
+          blank to keep those edits paste-ready).
         </p>
-        <form action={saveWixMappingsFromForm} className="space-y-2">
-          <textarea
-            name="mappings_json"
-            rows={6}
-            defaultValue={JSON.stringify(mappings, null, 2)}
-            className="w-full rounded border border-border/40 bg-bg/40 p-2 font-mono text-xs"
-          />
-          <button type="submit" className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white">
-            Save mappings
-          </button>
-        </form>
+
+        {!connected ? (
+          <p className="text-sm text-muted-foreground">
+            Connect a Wix API key above to discover collections.
+          </p>
+        ) : !wantDiscover ? (
+          <p className="text-sm text-muted-foreground">
+            Click <span className="font-medium text-foreground">Discover collections</span> to list your Wix
+            collections and pre-fill suggested mappings.
+          </p>
+        ) : discovery == null ? (
+          <p className="text-sm text-muted-foreground">Discovering…</p>
+        ) : !discovery.ok ? (
+          <p className="text-sm text-status-error" data-wix-discover-error={discovery.reason}>
+            {discovery.reason === "no_key"
+              ? "No Wix API key on file — connect above first."
+              : discovery.reason === "disconnected"
+                ? "This Wix connection was disconnected — reconnect above."
+                : `Couldn't list collections: ${discovery.detail ?? discovery.reason}.`}
+          </p>
+        ) : discovery.rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Wix returned no data collections for this site.
+          </p>
+        ) : (
+          <ul className="space-y-3" data-wix-guided-count={discovery.rows.length}>
+            {discovery.rows.map((row) => {
+              const m = row.saved ?? row.suggestion;
+              const fieldKeys = row.collection.fields.map((f) => f.key);
+              return (
+                <li
+                  key={row.collection.id}
+                  className="rounded border border-border/40 bg-bg/40 p-3"
+                >
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-foreground">
+                      {row.collection.displayName}
+                    </span>
+                    <span
+                      data-wix-mapped={row.alreadyMapped ? "yes" : "no"}
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                        row.alreadyMapped
+                          ? "bg-status-success/15 text-status-success border-status-success/30"
+                          : "bg-surface-inset/60 text-muted-foreground border-border/40"
+                      }`}
+                    >
+                      {row.alreadyMapped ? "mapped ✓" : "unmapped"}
+                    </span>
+                  </div>
+                  <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+                    {row.collection.id} · {row.collection.fields.length} fields
+                  </p>
+                  <form action={saveGuidedMappingFromForm} className="space-y-2">
+                    <input type="hidden" name="dataCollectionId" value={row.collection.id} />
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <label className="text-xs text-muted-foreground">
+                        Slug field
+                        <select
+                          name="slugField"
+                          defaultValue={m.slugField}
+                          className="mt-0.5 w-full rounded border border-border/40 bg-bg/40 px-2 py-1 text-sm text-foreground"
+                        >
+                          {ensureOption(fieldKeys, m.slugField).map((k) => (
+                            <option key={k} value={k}>{k}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs text-muted-foreground">
+                        URL prefix
+                        <input
+                          type="text"
+                          name="urlPrefix"
+                          defaultValue={m.urlPrefix}
+                          className="mt-0.5 w-full rounded border border-border/40 bg-bg/40 px-2 py-1 text-sm text-foreground"
+                        />
+                      </label>
+                      <label className="text-xs text-muted-foreground">
+                        Label field
+                        <select
+                          name="labelField"
+                          defaultValue={m.labelField ?? ""}
+                          className="mt-0.5 w-full rounded border border-border/40 bg-bg/40 px-2 py-1 text-sm text-foreground"
+                        >
+                          <option value="">— none —</option>
+                          {ensureOption(fieldKeys, m.labelField).map((k) => (
+                            <option key={k} value={k}>{k}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <fieldset className="rounded border border-border/30 p-2">
+                      <legend className="px-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Live content roles (optional)
+                      </legend>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {(["title", "heading", "description"] as const).map((role) => {
+                          const name = role === "title" ? "roleTitle" : role === "heading" ? "roleHeading" : "roleDescription";
+                          const current = m.contentFieldRoles?.[role] ?? "";
+                          return (
+                            <label key={role} className="text-xs text-muted-foreground">
+                              {role}
+                              <select
+                                name={name}
+                                defaultValue={current}
+                                className="mt-0.5 w-full rounded border border-border/40 bg-bg/40 px-2 py-1 text-sm text-foreground"
+                              >
+                                <option value="">— paste-ready —</option>
+                                {ensureOption(fieldKeys, current).map((k) => (
+                                  <option key={k} value={k}>{k}</option>
+                                ))}
+                              </select>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+                    <button type="submit" className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white">
+                      Save mapping
+                    </button>
+                  </form>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
         <p className="mt-3 text-xs text-muted-foreground">
           url map: <span className="font-semibold text-foreground">{urlMap.length}</span> pages currently pushable.
+          {connected && " After mapping, click Sync url map above to rebuild it."}
         </p>
+
+        <details className="mt-4">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Advanced (raw JSON)
+          </summary>
+          <p className="mb-2 mt-2 text-xs text-muted-foreground">
+            JSON array of {"{ dataCollectionId, slugField, urlPrefix, labelField?, contentFieldRoles? }"} —
+            the same mappings, hand-editable. Add{" "}
+            <code>{'"contentFieldRoles": { "title": "<field>", "heading": "<field>", "description": "<field>" }'}</code>{" "}
+            to push title / H1 / meta-description edits LIVE (<code>description</code> = the CMS field the page&apos;s
+            meta-description SEO Variable references; omit any role and those edits stay paste-ready).
+          </p>
+          <form action={saveWixMappingsFromForm} className="space-y-2">
+            <textarea
+              name="mappings_json"
+              rows={6}
+              defaultValue={JSON.stringify(mappings, null, 2)}
+              className="w-full rounded border border-border/40 bg-bg/40 p-2 font-mono text-xs"
+            />
+            <button type="submit" className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white">
+              Save mappings
+            </button>
+          </form>
+        </details>
       </section>
 
       <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
