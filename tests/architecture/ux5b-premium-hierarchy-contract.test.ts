@@ -18,13 +18,11 @@ import { resolve, join } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 
-const TODAY_CLIENT = join(REPO_ROOT, "src/app/(shell)/today-client.tsx");
 const COMMAND_CENTER = join(
   REPO_ROOT,
   "src/components/today/command-center.tsx",
 );
 
-const TODAY_SRC = readFileSync(TODAY_CLIENT, "utf8");
 // Surface collapse (2026-06-15): recommendations-client.tsx was deleted.
 // UX.5B.2 (top-pick row emphasis) + UX.5B.3 (needs-more-evidence microcopy)
 // pinned its copy; those blocks are skipped below (the V2 card owns those
@@ -32,35 +30,6 @@ const TODAY_SRC = readFileSync(TODAY_CLIENT, "utf8");
 const REC_SRC = "";
 const CC_SRC = readFileSync(COMMAND_CENTER, "utf8");
 
-describe("UX.5B.1 / UX.6.3 — /today visibility hero", () => {
-  it("renders the AIVisibilityHero above the chart (UX.6.3 promotion)", () => {
-    // UX.6.3 (2026-05-08) — promoted from a small header above the
-    // chart to a full hero card that owns the section's executive
-    // copy + 4-card metric strip + per-platform footer. The previous
-    // marker `data-today-section="visibility-hero-header"` was dropped
-    // when the hero subsumed the header. New marker:
-    // `data-today-section="ai-visibility-hero"` (set inside the
-    // AIVisibilityHero component).
-    expect(TODAY_SRC).toMatch(/<AIVisibilityHero/);
-    expect(TODAY_SRC).toMatch(/aiVisibilityHeroProps/);
-    // Brand-name copy still appears via the hero component's dynamic
-    // brandName prop (sourced from visibilityData.brandName).
-    expect(TODAY_SRC).toMatch(/visibilityData\.brandName/);
-  });
-
-  it("hero renders BEFORE the visibility chart in source order", () => {
-    const heroIdx = TODAY_SRC.indexOf("<AIVisibilityHero");
-    const chartIdx = TODAY_SRC.indexOf("<VisibilityScoreChart");
-    expect(heroIdx).toBeGreaterThan(-1);
-    expect(chartIdx).toBeGreaterThan(-1);
-    expect(heroIdx).toBeLessThan(chartIdx);
-  });
-
-  it("preserves the existing chart + leaderboard render (no backend change)", () => {
-    expect(TODAY_SRC).toMatch(/<VisibilityScoreChart/);
-    expect(TODAY_SRC).toMatch(/<VisibilityLeaderboard/);
-  });
-});
 
 describe.skip("UX.5B.2 — /recommendations top-pick row emphasis (legacy recommendations-client removed 2026-06-15)", () => {
   it("exports/uses selectTopPickId helper with the same logic as the Executive Strip", () => {
@@ -165,54 +134,12 @@ describe("UX.5B.4 — Command Center empty-state cohesion", () => {
   });
 });
 
-describe("UX.5B — Ritz mature-render preserved", () => {
-  // The visibility hero is gated by `visibilityData &&` so it never
-  // renders for tenants without data; the Command Center early-return
-  // contract is unchanged. Pin those guarantees.
-
-  it("visibility hero render is still gated by visibilityData", () => {
-    expect(TODAY_SRC).toMatch(/\{visibilityData && \(/);
-  });
-
-  it("Command Center still renders BEFORE Tier 0 alerts", () => {
-    const ccIdx = TODAY_SRC.indexOf("<CommandCenter");
-    const tier0Idx = TODAY_SRC.indexOf("Tier 0 — critical alerts");
-    expect(ccIdx).toBeGreaterThan(-1);
-    expect(tier0Idx).toBeGreaterThan(-1);
-    expect(ccIdx).toBeLessThan(tier0Idx);
-  });
-
-  it("first-reading early return still wins for new tenants", () => {
-    expect(TODAY_SRC).toMatch(
-      /if \(firstReading\.isFirstReading\) \{[\s\S]{0,200}return <FirstReadingWaiting/,
-    );
-  });
-});
 
 describe("UX.5B — no scary/internal language regression", () => {
-  it("UX.5B additions do not introduce internal jargon in rendered text", () => {
-    // The premium copy strings should never reference cron / Supabase / GitHub.
-    // Surface collapse (2026-06-15): the "Top pick" row emphasis +
-    // "Worth a look — based on limited data so far. Optional." microcopy
-    // lived in the deleted recommendations-client; the V2 card owns those
-    // strings now. Dropped from this /today + command-center sweep.
-    const newStrings = [
-      "Waiting for your next reading.",
-      "Watching for movement.",
-      "No action queued yet.",
-      "AI Visibility",
-    ];
-    // Each new string exists somewhere in the touched files.
-    for (const s of newStrings) {
-      const found =
-        TODAY_SRC.includes(s) || REC_SRC.includes(s) || CC_SRC.includes(s);
-      expect(found).toBe(true);
-    }
-  });
 
   it("does NOT call paid APIs / fetch from any of the touched files", () => {
     // The four edits are pure UI; no new backend calls.
-    for (const src of [TODAY_SRC, REC_SRC, CC_SRC]) {
+    for (const src of [REC_SRC, CC_SRC]) {
       expect(src).not.toMatch(/from\s+["']@\/adapters\/openai/);
       expect(src).not.toMatch(/from\s+["']@\/adapters\/perplexity/);
       // (We don't grep for runNativePoll here because today-data.ts

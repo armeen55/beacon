@@ -59,10 +59,6 @@ const PROMPTS_DETAIL = readFileSync(
   resolve(REPO_ROOT, "src/app/(shell)/prompts/[id]/page.tsx"),
   "utf8",
 );
-const TODAY_CLIENT = readFileSync(
-  resolve(REPO_ROOT, "src/app/(shell)/today-client.tsx"),
-  "utf8",
-);
 
 function stripComments(src: string): string {
   // Line comments first, then block comments — preserves the same
@@ -247,14 +243,3 @@ describe("Phase 3-bis fix 7 (2026-05-06) — /prompts/[id] action bridge", () =>
   });
 });
 
-// ── Fix 8: PollHealthBlock when OK ───────────────────────────────────
-
-describe("Phase 3-bis fix 8 (2026-05-06) — /today PollHealthBlock suppressed when OK", () => {
-  it("PollHealthBlock mount is gated on at least one platform.status !== 'ok'", () => {
-    // Pre-fix: `{pollHealth && <PollHealthBlock snapshot={pollHealth} />}`
-    // Post-fix: gated on `pollHealth.platforms.some((p) => p.status !== "ok")`.
-    expect(TODAY_CLIENT).toMatch(
-      /pollHealth\s*&&\s*[\s\S]{0,200}pollHealth\.platforms\.some\(\(p\)\s*=>\s*p\.status\s*!==\s*"ok"\)/,
-    );
-  });
-});

@@ -59,10 +59,6 @@ const SPIKES_PAGE = readFileSync(
   resolve(REPO_ROOT, "src/app/(shell)/diagnostics/spikes/page.tsx"),
   "utf8",
 );
-const TODAY_CLIENT = readFileSync(
-  resolve(REPO_ROOT, "src/app/(shell)/today-client.tsx"),
-  "utf8",
-);
 const TRUTH_CLIENT = readFileSync(
   resolve(REPO_ROOT, "src/app/(shell)/changes/truth/truth-client.tsx"),
   "utf8",
@@ -197,39 +193,6 @@ describe("Demo-path fix 3 (2026-05-06) — diagnostics operator guard", () => {
   });
 });
 
-// ── Fix 4 — /today first-run + Z-score copy ───────────────────────────
-
-describe("Demo-path fix 4 (2026-05-06) — /today first-run welcome + Z-score kill", () => {
-  it("formatUrlVerdictProof says '(measured per page)', NOT '(URL-level Z-score)'", () => {
-    const stripped = stripComments(TODAY_CLIENT);
-    expect(stripped).toMatch(/\(measured per page\)/);
-    expect(stripped).not.toMatch(/\(URL-level Z-score\)/);
-  });
-
-  it("first-run welcome card mounts when pollHealth === null && primaryAction === null", () => {
-    expect(TODAY_CLIENT).toMatch(/data-today-first-run="true"/);
-    expect(TODAY_CLIENT).toMatch(/Welcome to Beacon\./);
-    // On-demand copy sweep: the welcome card no longer implies an
-    // automatic schedule ("daily AI check" / "tomorrow morning").
-    // Beacon updates when the operator refreshes their connected data.
-    expect(TODAY_CLIENT).toMatch(/refresh your\s+connected data/);
-    // Phantom-automation language must NOT appear in the welcome card.
-    expect(TODAY_CLIENT).not.toMatch(/tomorrow\s+morning/);
-    // Cron-time leakage: only customer-VISIBLE strings count. Internal
-    // JSDoc / JSX comments are allowed to reference 07:00-cron context
-    // (see e.g. the Tier 0 alerts comment block) — strip them first.
-    const renderedTodayClient = stripComments(TODAY_CLIENT);
-    expect(renderedTodayClient).not.toMatch(/07:00/);
-    expect(renderedTodayClient).not.toMatch(/08:30/);
-    expect(renderedTodayClient).not.toMatch(/10:00 UTC/);
-  });
-
-  it("first-run card guidance mentions Settings → Prompts (so user knows how to act)", () => {
-    expect(TODAY_CLIENT).toMatch(
-      /Settings\s*→\s*Prompts/,
-    );
-  });
-});
 
 // ── Fix 5 — /changes/truth verdict labels + math humanization ─────────
 
@@ -452,9 +415,6 @@ describe("Demo-path bundle 2026-05-06 — cross-cutting negative invariants", ()
     }
   });
 
-  it("rendered today-client.tsx: NO '(URL-level Z-score)' substring (comments stripped)", () => {
-    expect(stripComments(TODAY_CLIENT)).not.toMatch(/\(URL-level Z-score\)/);
-  });
 
   // Pivot (GSC-led, 2026-06-14): /changes must show its empty state based on
   // REAL activity (changelog rows OR recommended edits), never on file

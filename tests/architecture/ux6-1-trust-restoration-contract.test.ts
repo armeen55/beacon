@@ -48,7 +48,6 @@ const COMMAND_CENTER_DATA = join(
   "src/domains/today/command-center-data.ts",
 );
 const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
-const TODAY_CLIENT = join(REPO_ROOT, "src/app/(shell)/today-client.tsx");
 const POLL_HEALTH_CALM_BANNER = join(
   REPO_ROOT,
   "src/components/today/poll-health-calm-banner.tsx",
@@ -56,7 +55,6 @@ const POLL_HEALTH_CALM_BANNER = join(
 
 const COMMAND_CENTER_DATA_SRC = readFileSync(COMMAND_CENTER_DATA, "utf-8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf-8");
-const TODAY_CLIENT_SRC = readFileSync(TODAY_CLIENT, "utf-8");
 const POLL_HEALTH_CALM_BANNER_SRC = readFileSync(
   POLL_HEALTH_CALM_BANNER,
   "utf-8",
@@ -252,23 +250,6 @@ describe("UX.6.1 Fix 2 — Poll health calm banner exists and is pure", () => {
   });
 });
 
-describe("UX.6.1 Fix 2 — today-client.tsx wires the calm-vs-warning gate", () => {
-  it("imports isPreCronPending (used to suppress the alarm during the early-UTC window)", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(/isPreCronPending/);
-  });
-
-  it("gates PollHealthBlock on a REAL failure and no longer renders a calm 'next reading scheduled' banner", () => {
-    // Crons-off pivot (#400): the calm banner was a phantom-schedule promise
-    // ("Next reading scheduled") that ALSO duplicated the always-on freshness
-    // heartbeat, so it was removed. PollHealthBlock now renders only when NOT
-    // pre-cron-pending (i.e. a genuine partial/failed state), and the calm
-    // banner JSX is gone from the Today surface.
-    expect(TODAY_CLIENT_SRC).toMatch(
-      /!isPreCronPending\(pollHealth\)\s*&&[\s\S]{0,200}<PollHealthBlock/,
-    );
-    expect(TODAY_CLIENT_SRC).not.toMatch(/<PollHealthCalmBanner/);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // FIX 3 — Wins copy: confident default, caveat in drawer

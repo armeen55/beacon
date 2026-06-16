@@ -30,18 +30,17 @@ const RESOLVER = join(
   "src/domains/today/command-center-data.ts",
 );
 const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
-const TODAY_CLIENT = join(REPO_ROOT, "src/app/(shell)/today-client.tsx");
 
 const COMPONENT_SRC = readFileSync(COMPONENT, "utf8");
 const RESOLVER_SRC = readFileSync(RESOLVER, "utf8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
-const TODAY_CLIENT_SRC = readFileSync(TODAY_CLIENT, "utf8");
-// 2026-06-16: TodayClient's props type (incl. commandCenter: CommandCenterData)
-// was relocated to today-shared-types.ts to break the today-data ↔ props
-// circular type dep. Props-type assertions check both sources.
-const TODAY_PROPS_SRC =
-  TODAY_CLIENT_SRC +
-  readFileSync(join(REPO_ROOT, "src/app/(shell)/today-shared-types.ts"), "utf8");
+// 2026-06-16: the legacy today-client.tsx was deleted (dual-surface collapse);
+// TodayClient's props type (commandCenter: CommandCenterData) lives in
+// today-shared-types.ts now.
+const TODAY_PROPS_SRC = readFileSync(
+  join(REPO_ROOT, "src/app/(shell)/today-shared-types.ts"),
+  "utf8",
+);
 
 /**
  * Strip block + line + JSX comments + import lines + identifier-style
@@ -182,57 +181,14 @@ describe("UX.2 — customer-safe copy (no internal jargon)", () => {
   });
 });
 
-describe("UX.2 — TodayClient wiring", () => {
-  it("imports CommandCenter + CommandCenterUrlMovement + CommandCenterData type", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(
-      /import\s+\{[\s\S]*?CommandCenter[\s\S]*?CommandCenterUrlMovement[\s\S]*?\}\s+from\s+["']@\/components\/today\/command-center["']/,
-    );
+describe("UX.2 — CommandCenterData prop type (today-shared-types)", () => {
+  // The legacy today-client.tsx wiring assertions (import/render/source-order
+  // of <CommandCenter>) were dropped with the dual-surface collapse (2026-06-16);
+  // the live CommandCenter render lives on the V2 section path, and the
+  // component itself is pinned by the COMPONENT_SRC describes above. The one
+  // durable contract is the prop TYPE, which now lives in today-shared-types.
+  it("the Today props expose commandCenter typed as CommandCenterData", () => {
     expect(TODAY_PROPS_SRC).toMatch(/CommandCenterData/);
-  });
-
-  it("accepts commandCenter + commandCenterIsOperator props with safe defaults", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(
-      /commandCenter\s*=\s*\{\s*hasAnyData:\s*false[\s\S]{0,200}\}/,
-    );
-    expect(TODAY_CLIENT_SRC).toMatch(
-      /commandCenterIsOperator\s*=\s*false/,
-    );
-  });
-
-  it("renders <CommandCenter> in the main return tree", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(/<CommandCenter[\s\S]{0,400}\/>/);
-  });
-
-  it("Command Center renders BEFORE Tier 0 alerts (top of page)", () => {
-    const ccIdx = TODAY_CLIENT_SRC.indexOf("<CommandCenter");
-    const tier0Idx = TODAY_CLIENT_SRC.indexOf(
-      "Tier 0 — critical alerts",
-    );
-    expect(ccIdx).toBeGreaterThan(-1);
-    expect(tier0Idx).toBeGreaterThan(-1);
-    expect(ccIdx).toBeLessThan(tier0Idx);
-  });
-
-  it("Command Center renders AFTER demo-mode + first-reading early returns", () => {
-    // So new tenants still see the Gap F.1 waiting state, and demo
-    // mode still short-circuits to its own surface.
-    const demoIdx = TODAY_CLIENT_SRC.indexOf("if (isDemoMode)");
-    const firstReadingIdx = TODAY_CLIENT_SRC.indexOf(
-      "if (firstReading.isFirstReading)",
-    );
-    const ccIdx = TODAY_CLIENT_SRC.indexOf("<CommandCenter");
-    expect(demoIdx).toBeGreaterThan(-1);
-    expect(firstReadingIdx).toBeGreaterThan(-1);
-    expect(ccIdx).toBeGreaterThan(-1);
-    expect(demoIdx).toBeLessThan(firstReadingIdx);
-    expect(firstReadingIdx).toBeLessThan(ccIdx);
-  });
-
-  it("existing Tier 0–7 layout is preserved (Visibility / DoNext / Lifecycle / Wins / Metrics / Scan)", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(/<VisibilityScoreChart/);
-    expect(TODAY_CLIENT_SRC).toMatch(/<TodayDoNextCard/);
-    expect(TODAY_CLIENT_SRC).toMatch(/data-today-section="wins"|<ActionCard/);
-    expect(TODAY_CLIENT_SRC).toMatch(/<TodayMetricsDisclosure/);
   });
 });
 
@@ -286,17 +242,6 @@ describe("UX.2 — today-data.ts wiring", () => {
     expect(body).not.toContain("runNativePoll");
     expect(body).not.toContain("runWebsiteScan");
     expect(body).not.toMatch(/\bfetch\(/);
-  });
-});
-
-describe("UX.2 — Ritz mature-render preserved", () => {
-  it("Command Center is conditional on hasAnyData OR existing inputs", () => {
-    // The render guard requires at least one of: commandCenter.hasAnyData,
-    // pollHealth, primaryAction, topMovement. Pin the source-level
-    // condition.
-    expect(TODAY_CLIENT_SRC).toMatch(
-      /commandCenter\.hasAnyData[\s\S]{0,150}pollHealth[\s\S]{0,150}primaryAction[\s\S]{0,150}topMovementForCommandCenter/,
-    );
   });
 });
 

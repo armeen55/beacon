@@ -90,7 +90,6 @@ const LIFECYCLE_STRIP = join(
   REPO_ROOT,
   "src/components/today/lifecycle-strip.tsx",
 );
-const TODAY_CLIENT = join(REPO_ROOT, "src/app/(shell)/today-client.tsx");
 
 const SITE_FINDINGS_LABELS_SRC = readFileSync(SITE_FINDINGS_LABELS, "utf-8");
 const DO_NEXT_CARD_SRC = readFileSync(DO_NEXT_CARD, "utf-8");
@@ -99,7 +98,6 @@ const CHANGE_REVIEW_SRC = readFileSync(CHANGE_REVIEW, "utf-8");
 const COMMAND_CENTER_SRC = readFileSync(COMMAND_CENTER, "utf-8");
 const IMPLEMENTATION_QUEUE_SRC = readFileSync(IMPLEMENTATION_QUEUE, "utf-8");
 const LIFECYCLE_STRIP_SRC = readFileSync(LIFECYCLE_STRIP, "utf-8");
-const TODAY_CLIENT_SRC = readFileSync(TODAY_CLIENT, "utf-8");
 
 /**
  * Strip block + line + JSX comments + JSX import lines so the
@@ -362,33 +360,6 @@ describe("UX.6.2 Fix 4 — lifecycle strip surfaces the empty state inline", () 
   });
 });
 
-// ---------------------------------------------------------------------------
-// Fix 5 — /today hierarchy preserved
-// ---------------------------------------------------------------------------
-
-describe("UX.6.2 Fix 5 — /today hierarchy is operator-required order", () => {
-  it("source order: CC → Visibility → DoNext → LifecycleStrip → ImplQueue → ActionQueue → wins → Metrics → ChangeReview", () => {
-    const ccIdx = TODAY_CLIENT_SRC.indexOf("<CommandCenter");
-    const visIdx = TODAY_CLIENT_SRC.indexOf("<VisibilityScoreChart");
-    const doNextIdx = TODAY_CLIENT_SRC.indexOf("<TodayDoNextCard");
-    const stripIdx = TODAY_CLIENT_SRC.indexOf("<TodayLifecycleStrip");
-    const implIdx = TODAY_CLIENT_SRC.indexOf("<TodayImplementationQueue");
-    const queueIdx = TODAY_CLIENT_SRC.indexOf("<TodayActionQueue");
-    const winsIdx = TODAY_CLIENT_SRC.indexOf('data-today-section="wins"');
-    const metricsIdx = TODAY_CLIENT_SRC.indexOf("<TodayMetricsDisclosure");
-    const changeReviewIdx = TODAY_CLIENT_SRC.indexOf("<ChangeReview");
-
-    expect(ccIdx).toBeGreaterThan(-1);
-    expect(visIdx).toBeGreaterThan(ccIdx);
-    expect(doNextIdx).toBeGreaterThan(visIdx);
-    expect(stripIdx).toBeGreaterThan(doNextIdx);
-    expect(implIdx).toBeGreaterThan(stripIdx);
-    expect(queueIdx).toBeGreaterThan(implIdx);
-    expect(winsIdx).toBeGreaterThan(queueIdx);
-    expect(metricsIdx).toBeGreaterThan(winsIdx);
-    expect(changeReviewIdx).toBeGreaterThan(metricsIdx);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Cross-cutting — no paid APIs / no mutations / no scary jargon on default

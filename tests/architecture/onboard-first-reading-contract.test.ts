@@ -26,17 +26,19 @@ const WAITING_COMPONENT = join(
   "src/components/today/first-reading-waiting.tsx",
 );
 const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
-const TODAY_CLIENT = join(REPO_ROOT, "src/app/(shell)/today-client.tsx");
+const PAGE = join(REPO_ROOT, "src/app/(shell)/page.tsx");
 
 const DETECTOR_SRC = readFileSync(DETECTOR, "utf8");
 const WAITING_SRC = readFileSync(WAITING_COMPONENT, "utf8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
-const TODAY_CLIENT_SRC = readFileSync(TODAY_CLIENT, "utf8");
-// 2026-06-16: TodayClient's props type (incl. firstReading) was relocated to
-// today-shared-types.ts to break the today-data ↔ props circular type dep.
-const TODAY_PROPS_SRC =
-  TODAY_CLIENT_SRC +
-  readFileSync(join(REPO_ROOT, "src/app/(shell)/today-shared-types.ts"), "utf8");
+// 2026-06-16: the legacy today-client.tsx was deleted (dual-surface collapse).
+// The LIVE /today route is page.tsx (it renders FirstReadingWaiting on the
+// first-reading gate), and TodayClient's props type moved to today-shared-types.
+const PAGE_SRC = readFileSync(PAGE, "utf8");
+const TODAY_PROPS_SRC = readFileSync(
+  join(REPO_ROOT, "src/app/(shell)/today-shared-types.ts"),
+  "utf8",
+);
 
 /**
  * Strip block + line + JSX comments + import lines + identifier-style
@@ -232,9 +234,9 @@ describe("Gap F.1 — today-data.ts wiring", () => {
   });
 });
 
-describe("Gap F.1 — TodayClient early-return", () => {
+describe("Gap F.1 — /today first-reading early-return (live page.tsx)", () => {
   it("imports FirstReadingWaiting", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(
+    expect(PAGE_SRC).toMatch(
       /import\s+\{\s*FirstReadingWaiting\s*\}\s+from\s+["']@\/components\/today\/first-reading-waiting["']/,
     );
   });
@@ -244,29 +246,12 @@ describe("Gap F.1 — TodayClient early-return", () => {
     expect(TODAY_PROPS_SRC).toMatch(/FirstReadingDetection/);
   });
 
-  it("renders FirstReadingWaiting when firstReading.isFirstReading is true", () => {
-    expect(TODAY_CLIENT_SRC).toMatch(
+  it("renders FirstReadingWaiting when the first-reading gate is true", () => {
+    // The live /today route (page.tsx) early-returns FirstReadingWaiting from
+    // the gate — replaces the deleted legacy today-client internal early-return.
+    expect(PAGE_SRC).toMatch(
       /firstReading\.isFirstReading[\s\S]{0,200}<FirstReadingWaiting/,
     );
-  });
-
-  it("the early-return runs BEFORE the regular dashboard JSX (Ritz unchanged)", () => {
-    // The early-return must short-circuit; if it appeared after the
-    // visibility chart render, mature tenants would still hit the
-    // regular path. Pin the order: demo-mode early return → first-
-    // reading early return → regular render.
-    const demoIdx = TODAY_CLIENT_SRC.indexOf("if (isDemoMode)");
-    const firstReadingIdx = TODAY_CLIENT_SRC.indexOf(
-      "if (firstReading.isFirstReading)",
-    );
-    const visibilityChartIdx = TODAY_CLIENT_SRC.indexOf(
-      "<VisibilityScoreChart",
-    );
-    expect(demoIdx).toBeGreaterThan(-1);
-    expect(firstReadingIdx).toBeGreaterThan(-1);
-    expect(visibilityChartIdx).toBeGreaterThan(-1);
-    expect(demoIdx).toBeLessThan(firstReadingIdx);
-    expect(firstReadingIdx).toBeLessThan(visibilityChartIdx);
   });
 });
 
