@@ -7,7 +7,18 @@
 
 ---
 
-## 2026-06-15 PM-9 (Legacy↔V2 surface collapse → V2-ONLY — NOT pushed, operator gates centrally)
+## 2026-06-15 PM-10 (cross-tenant founder-config leak FIXED — PUSHED `519ca06`)
+
+**Trigger:** the PM-9 out-of-scope finding — Iranopedia `/today` "Who AI thinks you are" rendered **"Ritz Builders"** (founder brand leaking onto a customer surface). Isolation-critical (the #1 rail).
+
+- **Root cause:** `resolveConfigForTenant` (business-config.ts) gated the legacy founder chain (env blob + `.data/business-config.json` + `.data/global/business-config.json` — all the FOUNDER's config) on `tenantId === process.env.BEACON_TENANT_ID`. A per-tenant run with `BEACON_TENANT_ID=tenant-iranopedia` fired that gate for the customer → served the founder's global "Ritz Builders" config; `hydrateBusinessConfigFromSupabase` then returned it early (non-placeholder) and never read Iranopedia's own Supabase row.
+- **Fix:** gate the founder chain to the founder tenant ONLY — new `founderTenantId()` (`tenant-ritz-founder`, overridable via `BEACON_FOUNDER_TENANT_ID`). Non-founder tenants resolve via their BY_TENANT env entry / per-tenant file / own Supabase row — else neutral placeholder; never the founder's global file. + regression test `business-config-founder-file-no-cross-tenant-leak.test.ts` (9 cases) + invariants-catalog row.
+- **Ground-truth (real dev server, both tenants):** Iranopedia "Who AI thinks you are" → **"You"** (neutral, ZERO "Ritz"); Ritz still **"Ritz Builders"** (founder intact). typecheck clean; build PASS; leak + business-config/isolation/catalog suites green.
+- **Minor follow-up (not a leak):** Iranopedia descriptors show neutral "You" rather than its real "iranopedia" name — the descriptors-path hydrate doesn't surface the Supabase name in the streaming context. Honest fallback; cosmetic, deferred.
+
+---
+
+## 2026-06-15 PM-9 (Legacy↔V2 surface collapse → V2-ONLY — PUSHED `e3642f0`)
 
 **Trigger:** De-bloat directive — collapse the 3 dual surfaces (Today / Recommendations / Changes) to V2-only ("keep ONE great surface"). V2 was already the verified default this session.
 
@@ -19,7 +30,7 @@
 - **Both-tenant ground-truth (real dev server :3100, auth disabled):** tenant-ritz-founder + tenant-iranopedia — `/`, `/recommendations`, `/recommendations/[id]`, `/changes`, `/changes/[id]` all HTTP 200 with V2 markers (`data-changes-layout="v2-proof-timeline"`, `data-recommendations-v2`, `recommendation-detail`, `data-today-v2-section`), no console/server error. `?legacy=1` now renders V2 (no 500). Iranopedia `/changes` = V2 empty state; cross-tenant ritz changelog id under iranopedia → notFound (isolation holds). `.env.local` restored to `tenant-ritz-founder`.
 - **OUT-OF-SCOPE finding (pre-existing, NOT introduced):** iranopedia `/today` "Who AI thinks you are" descriptors block renders `brandName: "Ritz Builders"` — cross-tenant leak in the AEO descriptors/enrichment data path (untouched by this UI-surface work). Flagged as a separate task.
 
-## 2026-06-15 PM-8 (UX teardown ▫︎-tier EXHAUSTIVE TRIAGE + SAFE batch — NOT pushed, operator gates centrally)
+## 2026-06-15 PM-8 (UX teardown ▫︎-tier EXHAUSTIVE TRIAGE + SAFE batch — PUSHED `4118629`)
 
 **Trigger:** `docs/UX_TEARDOWN_2026-06-15.md` ▫︎ ("annoying") tier was the least-touched (prior passes covered ⛔/⚠️). Went through ALL 138 ▫︎ items IN ORDER + re-swept any open ⚠️; each now carries an inline `STATUS (pass #4)` tag.
 
