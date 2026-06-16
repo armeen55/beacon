@@ -45,6 +45,10 @@ const DECAY_DIRECTIVE =
   "This page brought in about 120 clicks from Google a month ago and is down to about 72 — a drop of roughly 40%. Refresh the top section first — update any dated facts, then re-state the page's main answer.";
 const MERGE_DIRECTIVE =
   "Two thin pages on one topic split your strength — pick the stronger page, fold this page's unique points into it, and redirect this URL there (a 301 redirect).";
+// improve_meta (2026-06-16) — root-cause-#3 directive. Instruction prose
+// (not a publishable meta string) that uses an em dash.
+const IMPROVE_META_DIRECTIVE =
+  "This page has no meta description — and too little clean text to draft one. Add a 150–160 character summary in the words people search for, and add real copy if the page is mostly a list.";
 
 describe("validateDeterministicDraftSafety — directive vs publishable copy (#273)", () => {
   it("DIRECTIVE drafts with em dashes pass (em-dash style rule skipped)", () => {
@@ -56,6 +60,7 @@ describe("validateDeterministicDraftSafety — directive vs publishable copy (#2
       ["fix_robots", "Remove the Disallow blocks so AI assistants can read — and recommend — this site."],
       ["update_intro", DECAY_DIRECTIVE],
       ["merge_pages", MERGE_DIRECTIVE],
+      ["improve_meta", IMPROVE_META_DIRECTIVE],
     ] as const) {
       const verdict = validateDeterministicDraftSafety({
         tenantId: TENANT,

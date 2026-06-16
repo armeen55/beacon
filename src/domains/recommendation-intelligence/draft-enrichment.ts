@@ -512,24 +512,32 @@ export function buildChromeDetector(
   };
 }
 
-function composeMeta(
-  candidate: RecommendationCandidateRow,
+/**
+ * Pick the liftable PROSE source for a page's meta description, or null
+ * when there isn't one. Extracted from `composeMeta` (2026-06-16) so the
+ * `missing-meta` trigger can ask the EXACT question composeMeta answers —
+ * "can a meta be auto-drafted from this page?" — without re-implementing
+ * the prose/list/label gates and risking divergence.
+ *
+ * A meta description MUST read as prose, never as a recipe ingredient
+ * list or a section-heading index. The source selection below only
+ * accepts genuine prose; anything that still reads as a label/heading
+ * list (colon-soup) is refused — better NO source than a broken one.
+ *
+ * Preference order (own words only; no hardcoded vertical/brand strings):
+ *   (a) the page's existing meta_description (a real prose value), then
+ *   (b) the first clean PROSE sentence in the body (skipping bullets), then
+ *   (c) page structure (h1 + h2s + cards) AFTER dropping heading/label
+ *       fragments — only when ≥40 chars of real prose survive, then
+ *   (d) null.
+ *
+ * PURE.
+ */
+export function selectMetaSource(
   snap: PageSnapshot | undefined,
   isChrome: (text: string) => boolean,
-): DraftFill | null {
+): string | null {
   const current = snap?.meta_description?.trim() ?? "";
-
-  // A meta description MUST read as prose, never as a recipe ingredient
-  // list or a section-heading index. The source selection below only
-  // accepts genuine prose; anything that still reads as a label/heading
-  // list (colon-soup) is refused — better NO draft than a broken one.
-  //
-  // Preference order (own words only; no hardcoded vertical/brand strings):
-  //   (a) the page's existing meta_description (a real prose value), then
-  //   (b) the first clean PROSE sentence in the body (skipping bullets), then
-  //   (c) page structure (h1 + h2s + cards) AFTER dropping heading/label
-  //       fragments — only when ≥40 chars of real prose survive, then
-  //   (d) null.
 
   // (b) First clean prose sentence from the body. Reject the body source
   // outright when it is bullet-dominated (recipe ingredient lists on Wix) —
@@ -591,8 +599,24 @@ function composeMeta(
 
   // Hard guard: NEVER emit colon-soup. If the assembled candidate still
   // reads as a label/heading list (colon-fragment signature, or a Title-Case
-  // heading index joined by " — "), refuse the draft entirely.
+  // heading index joined by " — "), refuse the source entirely.
   if (readsAsLabelList(source)) return null;
+  return source;
+}
+
+function composeMeta(
+  candidate: RecommendationCandidateRow,
+  snap: PageSnapshot | undefined,
+  isChrome: (text: string) => boolean,
+): DraftFill | null {
+  const current = snap?.meta_description?.trim() ?? "";
+
+  // Behaves IDENTICALLY to before extraction (2026-06-16): the whole
+  // source-selection + prose/list/label gating now lives in the exported
+  // `selectMetaSource` so the missing-meta trigger can ask the same
+  // "can this be auto-drafted?" question without divergence.
+  const source = selectMetaSource(snap, isChrome);
+  if (source === null) return null; // not enough liftable prose — no fake drafts
 
   const proposed = clipOnWordBoundary(source, 155);
   // Post-clip safety re-check: refuse if clipping left it too short or
@@ -1058,6 +1082,33 @@ function composeAnswerBlockDirective(
   };
 }
 
+/**
+ * improve_meta directive (2026-06-16) — directive draft for a
+ * `missing_meta` candidate that `composeMeta` CANNOT auto-draft
+ * (`selectMetaSource` returned null: list-structured / label-soup prose,
+ * common on Wix pages). Without this, the row promoted as
+ * `missing_meta::edit_meta` with a NULL draft — a blank, render-suppressed
+ * card. This converts it into an actionable, customer-queue-ready
+ * instruction that tells the owner WHAT to write, mirroring
+ * `composeAnswerBlockDirective`: plain, jargon-free, no fabrication. The
+ * `proposed_text` is INSTRUCTION PROSE, never a publishable meta string —
+ * it is never written to a live meta tag (improve_meta has no Wix field
+ * mapping, so executePush refuses it).
+ */
+function composeMetaDirective(
+  candidate: RecommendationCandidateRow,
+): DraftFill | null {
+  return {
+    display_label: "Write a short page description (Beacon can't draft this one)",
+    current_text: null,
+    proposed_text:
+      "This page has no meta description, and there isn't enough clean text on it for Beacon to draft one automatically. Add a 150–160 character summary that states what the page is about in the words people actually search for. If the page is mostly a list or has very little written copy, also expand it with a sentence or two of real description so there's enough substance to summarize — that helps both readers and the AI assistants that quote pages.",
+    expected_impact:
+      "This is the snippet searchers and AI assistants see. A clear description in the page's own words lifts click-through, and adding real copy makes the page easier to quote.",
+    measurement_plan: SCAN_VERIFY_PLAN,
+  };
+}
+
 // Clarity fuse (2026-06-13): directive draft for clarity_friction.
 // Names the specific Clarity signal + what to investigate; NEVER
 // fabricates the fix (the JS bug / frustrating element is the owner's
@@ -1248,6 +1299,16 @@ export function enrichPromotionRow(
     }
     case "edit_meta":
       fill = composeMeta(candidate, snap, buildChromeDetector(ctx.snapshotByUrl));
+      break;
+    case "improve_meta":
+      // missing_meta candidate that composeMeta couldn't auto-draft
+      // (selectMetaSource null) — a directive telling the owner WHAT to
+      // write, never a publishable meta string. Non-pushable (no Wix
+      // field mapping); mirrors add_answer_block.
+      fill =
+        candidate.trigger_signal === "missing_meta"
+          ? composeMetaDirective(candidate)
+          : null;
       break;
     case "change_h1": {
       const brand = resolveBrand(ctx);

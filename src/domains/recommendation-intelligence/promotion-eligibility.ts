@@ -73,6 +73,12 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // ── customer-queue-ready ──────────────────────────────────────
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
+  // Root-cause-#3 gap (2026-06-16): a missing-meta content page whose prose
+  // composeMeta CANNOT auto-draft (list/label-soup) gets a NON-PUSHABLE
+  // directive instead of a blank edit_meta card. Same customer-queue-ready
+  // tier as missing_meta::edit_meta — the gap (no meta description) is
+  // identical; only the play differs (write one vs. auto-drafted rewrite).
+  ["missing_meta::improve_meta", "customer-queue-ready"],
   ["missing_h1::change_h1", "customer-queue-ready"],
   ["sitemap_missing::fix_sitemap", "customer-queue-ready"],
   ["robots_blocks_googlebot::fix_robots", "customer-queue-ready"],

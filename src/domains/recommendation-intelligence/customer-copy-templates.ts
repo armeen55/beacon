@@ -31,6 +31,14 @@ export function missingMetaCopy(): string {
   return "Add a meta description so AI search platforms have a clean snippet to extract.";
 }
 
+// improve_meta (2026-06-16) — root-cause-#3 directive copy. Used when a page
+// is missing a meta description AND has too little clean text for Beacon to
+// auto-draft one (list/label-soup, common on Wix). Plain English, white-label
+// (no "Profound", no SEO jargon). Operator-locked phrasing.
+export function improveMetaCopy(): string {
+  return "This page is missing a meta description and is too thin to draft one automatically. Add a short summary in the words people actually search for, and add a little real description if the page is mostly a list.";
+}
+
 export function missingH1Copy(): string {
   return "Add a clear H1 so the page anchors its main topic.";
 }

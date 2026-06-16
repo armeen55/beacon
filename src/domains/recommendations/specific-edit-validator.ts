@@ -1848,6 +1848,11 @@ const DETERMINISTIC_DIRECTIVE_ACTION_TYPES: ReadonlySet<string> = new Set([
   "fix_schema",
   "add_proof_section",
   "add_answer_block",
+  // improve_meta (2026-06-16): root-cause-#3 directive. proposed_text is an
+  // INSTRUCTION ("Add a 150–160 character summary…"), never a publishable
+  // meta string — so the published-prose style gates (em dash etc.) don't
+  // apply. Correctness gates (placeholder, unsupported brand claim) still run.
+  "improve_meta",
   // Refresh / merge plays (2026-06-16): directive drafts that tell the
   // owner WHAT to refresh or merge (the new prose is theirs to author —
   // Beacon never fabricates the replacement content), so the

@@ -19,19 +19,29 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
-import { missingMetaCopy } from "../customer-copy-templates";
+import { missingMetaCopy, improveMetaCopy } from "../customer-copy-templates";
+import { selectMetaSource } from "../draft-enrichment";
 import { isNonHtmlAsset } from "../page-classifier";
 import { isLikelyEmptyShellSnapshot } from "./empty-shell-snapshot";
 
 export type MissingMetaInput = {
   tenantId: string;
   snapshot: PageSnapshot;
+  /**
+   * Site-wide chrome detector (2026-06-16) — `buildChromeDetector(...)` from
+   * draft-enrichment, built ONCE per tenant by the loader. Threaded in so the
+   * trigger's `selectMetaSource` check matches the enrichment composeMeta call
+   * EXACTLY (no divergence). Optional: absent → treat nothing as chrome, so
+   * the predicate stays pure + testable in isolation (the loader always
+   * passes it in production).
+   */
+  chromeDetector?: (text: string) => boolean;
 };
 
 export function missingMeta(
   input: MissingMetaInput,
 ): RecommendationCandidateRow[] {
-  const { tenantId, snapshot } = input;
+  const { tenantId, snapshot, chromeDetector } = input;
   // α₂.2: skip technical assets (`.txt`, `.xml`, images, etc.).
   if (isNonHtmlAsset(snapshot.url)) return [];
   // Skip failed JS-shell captures (title+h1+meta all empty at 200) — but a
@@ -41,9 +51,55 @@ export function missingMeta(
   const meta = snapshot.meta_description;
   if (meta != null && meta.trim().length > 0) return [];
 
-  const actionType = "edit_meta" as const;
+  // Root-cause-#3 gap (2026-06-16): can the deterministic composeMeta
+  // auto-draft a meta from this page? `selectMetaSource` is the EXACT
+  // source-selection composeMeta uses; null means there's no liftable prose
+  // (list/label-soup, common on Wix). When it CAN draft → emit `edit_meta`
+  // exactly as before (a publishable draft, pushable). When it CANNOT →
+  // emit a NON-PUSHABLE `improve_meta` DIRECTIVE telling the owner what to
+  // write, instead of a blank, render-suppressed `edit_meta` card with a
+  // NULL draft.
+  const isChrome = chromeDetector ?? (() => false);
+  const canAutoDraft = selectMetaSource(snapshot, isChrome) !== null;
+
   const targetUrl = snapshot.url;
   const topicClusterLabel = "Meta description";
+  const operatorEvidenceBase =
+    "PageSnapshot.meta_description is " +
+    (meta == null ? "null" : "empty / whitespace-only");
+
+  if (canAutoDraft) {
+    const actionType = "edit_meta" as const;
+    return [
+      {
+        tenant_id: tenantId,
+        trigger_signal: "missing_meta",
+        action_type: actionType,
+        generator_kind: "deterministic",
+        target_url: targetUrl,
+        topic_cluster_label: topicClusterLabel,
+        evidence: [
+          {
+            kind: "page_snapshot",
+            ref: targetUrl,
+            detail: "meta_description field is null or empty",
+          },
+        ],
+        confidence: "high",
+        impact_estimate: "medium",
+        customer_copy: missingMetaCopy(),
+        operator_evidence: operatorEvidenceBase,
+        dedupe_key: dedupeKey({ tenantId, actionType, targetUrl, topicClusterLabel }),
+        cooldown_key: cooldownKey({ tenantId, actionType, targetUrl }),
+        created_from_signal_at: snapshot.fetched_at,
+        safety_flags: [],
+      },
+    ];
+  }
+
+  // No liftable prose → directive. Keep trigger_signal "missing_meta" (the
+  // gap is the same); the action_type flips to the non-pushable directive.
+  const actionType = "improve_meta" as const;
   return [
     {
       tenant_id: tenantId,
@@ -56,15 +112,16 @@ export function missingMeta(
         {
           kind: "page_snapshot",
           ref: targetUrl,
-          detail: "meta_description field is null or empty",
+          detail:
+            "meta_description is null or empty AND no liftable prose to auto-draft one",
         },
       ],
       confidence: "high",
       impact_estimate: "medium",
-      customer_copy: missingMetaCopy(),
+      customer_copy: improveMetaCopy(),
       operator_evidence:
-        "PageSnapshot.meta_description is " +
-        (meta == null ? "null" : "empty / whitespace-only"),
+        operatorEvidenceBase +
+        "; composeMeta cannot auto-draft (selectMetaSource null) — emitting improve_meta directive",
       dedupe_key: dedupeKey({ tenantId, actionType, targetUrl, topicClusterLabel }),
       cooldown_key: cooldownKey({ tenantId, actionType, targetUrl }),
       created_from_signal_at: snapshot.fetched_at,

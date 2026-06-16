@@ -78,6 +78,7 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import type { OwnedUrlIndexability } from "@/domains/indexability/types";
 import { loadIndexabilityBatchForTenant } from "@/domains/indexability/batch-load-indexability";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { buildChromeDetector } from "@/domains/recommendation-intelligence/draft-enrichment";
 import { getRepository } from "@/lib/persistence/repositories";
 
 import { applyQueueRules } from "./emitter/apply-queue-rules";
@@ -380,6 +381,17 @@ export async function loadTriggerCandidatesForTenant(options: {
     /* empty map — predicate skips */
   }
 
+  // Root-cause-#3 gap (2026-06-16): build the site-wide chrome detector ONCE
+  // from the same snapshot set the draft-enrichment context uses, and thread
+  // it into the missing-meta trigger so the trigger's `selectMetaSource`
+  // "can composeMeta auto-draft this?" check matches the ENRICHMENT
+  // composeMeta call exactly — no divergence between the trigger that picks
+  // edit_meta-vs-improve_meta and the enrichment that drafts it.
+  const snapshotByUrl = new Map<string, PageSnapshot>(
+    snapshots.map((s) => [s.url, s]),
+  );
+  const chromeDetector = buildChromeDetector(snapshotByUrl);
+
   const all: RecommendationCandidateRow[] = [];
   // Slice 4.5.B.α₂ — cross-snapshot duplicate predicates run ONCE
   // over the full tenant-filtered list, BEFORE the per-snapshot
@@ -477,7 +489,7 @@ export async function loadTriggerCandidatesForTenant(options: {
   }
   for (const snapshot of snapshots) {
     all.push(...missingTitle({ tenantId, snapshot }));
-    all.push(...missingMeta({ tenantId, snapshot }));
+    all.push(...missingMeta({ tenantId, snapshot, chromeDetector }));
     all.push(...missingH1({ tenantId, snapshot }));
     all.push(...weakH1({ tenantId, snapshot, businessConfig }));
     // Source-ledger slice (2026-06-12): substantive content pages with

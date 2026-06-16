@@ -18,6 +18,7 @@ import {
   isLabelOrHeadingFragment,
   readsAsLabelList,
   firstProseSentence,
+  selectMetaSource,
   type DraftEnrichmentContext,
 } from "@/domains/recommendation-intelligence/draft-enrichment";
 import type { DeterministicPromotionEditRow } from "@/domains/recommendation-intelligence/promotion-result-to-edit-row";
@@ -531,6 +532,124 @@ describe("enrichPromotionRow — content drafts", () => {
       ctxOf(s1, s2, s3, s4),
     );
     expect(out.proposed_text).toBe("Persian Tea Houses");
+  });
+});
+
+// ── Root-cause-#3 gap (2026-06-16): selectMetaSource + improve_meta ──────
+
+describe("selectMetaSource (extracted from composeMeta — null/non-null)", () => {
+  const noChrome = () => false;
+
+  it("returns the existing meta when it is real prose ≥ 40 chars", () => {
+    const src = selectMetaSource(
+      snap({ meta_description: "Tea houses have anchored Iranian social life for centuries across every city." }),
+      noChrome,
+    );
+    expect(src).not.toBeNull();
+    expect(src!).toContain("Tea houses");
+  });
+
+  it("returns a clean body prose sentence when meta is absent", () => {
+    const src = selectMetaSource(
+      snap({ meta_description: null }),
+      noChrome,
+    );
+    expect(src).not.toBeNull();
+    expect(src!).toContain("Tea houses have anchored");
+  });
+
+  it("returns NULL for a list-soup body + label-only structure (un-draftable)", () => {
+    const src = selectMetaSource(
+      snap({
+        meta_description: null,
+        body_paragraph_sample: [
+          "• 1 lb Ground Beef• 1 small Onion• 2 cloves Garlic• 2 Tbsp Mint• 1 Tbsp Aleppo Pepper",
+        ],
+        h1: "Koobideh Kabob Recipe",
+        h2_list: ["Ingredients:", "Serving Info:", "Step 1: Mix"],
+        card_texts: [],
+      }),
+      noChrome,
+    );
+    expect(src).toBeNull();
+  });
+
+  it("returns NULL for a thin page (short H1, only short headings)", () => {
+    const src = selectMetaSource(
+      snap({
+        meta_description: null,
+        body_paragraph_sample: ["Too short."],
+        h1: "Tea",
+        h2_list: ["History", "Where to go"],
+        card_texts: [],
+      }),
+      noChrome,
+    );
+    expect(src).toBeNull();
+  });
+
+  it("composeMeta (edit_meta) and selectMetaSource agree: non-null source → a draft is produced", () => {
+    // No-behavior-change pin: when selectMetaSource is non-null, the edit_meta
+    // enrichment produces a non-null draft from the SAME source.
+    const s = snap({ meta_description: null });
+    expect(selectMetaSource(s, noChrome)).not.toBeNull();
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(s),
+    );
+    expect(out.proposed_text).not.toBeNull();
+  });
+});
+
+describe("enrichPromotionRow — improve_meta directive", () => {
+  function metaSnap(over: Partial<PageSnapshot> = {}): PageSnapshot {
+    // A page composeMeta CANNOT draft from: list body + label structure.
+    return snap({
+      meta_description: null,
+      body_paragraph_sample: [
+        "• 1 lb Ground Beef• 1 small Onion• 2 cloves Garlic• 2 Tbsp Mint",
+      ],
+      h1: "Koobideh Kabob Recipe",
+      h2_list: ["Ingredients:", "Serving Info:", "Step 1: Mix"],
+      card_texts: [],
+      ...over,
+    });
+  }
+
+  it("missing_meta + improve_meta → composeMetaDirective produces a non-empty directive", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "improve_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "improve_meta" }),
+      ctxOf(metaSnap()),
+    );
+    expect(out.proposed_text).not.toBeNull();
+    expect(out.proposed_text!.length).toBeGreaterThan(40);
+    // Tells the owner WHAT to write — instruction prose, never a meta string.
+    expect(out.proposed_text!).toContain("150");
+    expect(out.proposed_text!.toLowerCase()).toContain("description");
+    expect(out.display_label).not.toBeNull();
+    expect(out.measurement_plan).not.toBeNull();
+  });
+
+  it("improve_meta with a NON-missing_meta trigger → no draft (guarded branch)", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "improve_meta" }),
+      candidate({ trigger_signal: "duplicate_meta", action_type: "improve_meta" }),
+      ctxOf(metaSnap()),
+    );
+    expect(out.proposed_text).toBeNull();
+  });
+
+  it("improve_meta directive proposed_text is NOT a publishable meta (it's an instruction)", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "improve_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "improve_meta" }),
+      ctxOf(metaSnap()),
+    );
+    // Reads as an instruction to the owner, not a snippet to publish verbatim.
+    expect(out.proposed_text!).toMatch(/Add a 1?50/);
+    expect(out.proposed_text!.toLowerCase()).toContain("people");
   });
 });
 

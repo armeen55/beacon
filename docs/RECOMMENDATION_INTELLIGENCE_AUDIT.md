@@ -1685,3 +1685,19 @@ consumes the synced Microsoft Clarity per-URL metrics (script errors /
 rage clicks). Registry count is now **38** action types (was 37); the
 locked active set is UNCHANGED (3: `edit_title`, `add_h2_section`,
 `add_faq`) — `fix_page_experience` ships `generatorActive: false`.
+
+## 2026-06-16 — registry expansion (root-cause-#3 meta gap)
+
+Added `improve_meta` (inactive generator) — a NON-PUSHABLE directive
+paired with the existing `missing_meta` predicate. When a content page
+is missing a meta description AND the deterministic `composeMeta` cannot
+auto-draft one (`selectMetaSource` returns null: list-structured /
+label-soup prose, common on Wix), the trigger now emits
+`missing_meta::improve_meta` (a directive telling the owner WHAT to write)
+instead of `missing_meta::edit_meta` with a NULL draft (a blank,
+render-suppressed card). It carries `generatorActive: false`,
+`elementTypeDomain: []`, and has NO Wix field mapping, so `executePush`
+refuses it (the `proposed_text` is instruction prose, never a publishable
+meta string). `missing_meta::improve_meta` is customer-queue-ready (same
+tier as `missing_meta::edit_meta`). Registry count is now **39** action
+types (was 38); the locked active set is UNCHANGED.

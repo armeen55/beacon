@@ -40,7 +40,7 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       // `fix_canonical`). All five ship `generatorActive: false`
       // (paired Tier-1/Tier-2 deterministic predicates land in
       // Slice 4.5.C.α₁ / α₂).
-      expect(ACTION_TYPES).toHaveLength(38); // +fix_page_experience (Clarity fuse, 2026-06-13)
+      expect(ACTION_TYPES).toHaveLength(39); // +improve_meta (root-cause-#3 directive, 2026-06-16)
     });
 
     it("contains every action type planned in Sprint 6A.1 + Section 7 C7b + Slice 4.5.B.α₀ + Slice 4.5.C.α₀", () => {
@@ -48,6 +48,9 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       const expected: ActionType[] = [
         "edit_title",
         "edit_meta",
+        // improve_meta (2026-06-16) — root-cause-#3 NON-PUSHABLE directive for
+        // missing-meta content pages composeMeta can't auto-draft.
+        "improve_meta",
         "change_h1",
         "add_h2_section",
         "rewrite_h2",
@@ -190,7 +193,7 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       );
       // Prior post-4.5.C.α₃b inactive count was 25.
       // 4.5.E.α₁a flips `rewrite_h2` → inactive count drops to 24.
-      expect(inactive).toHaveLength(25); // +fix_page_experience (inactive)
+      expect(inactive).toHaveLength(26); // +improve_meta (inactive directive, 2026-06-16)
       for (const t of ACTIVE_AFTER_4_5_E_ALPHA1A) {
         expect(inactive).not.toContain(t);
       }
@@ -477,6 +480,11 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       // Clarity fuse (2026-06-13) — targets a JS bug / frustrating
       // element, not a single page element_type → empty domain.
       "fix_page_experience",
+      // improve_meta (2026-06-16) — NON-PUSHABLE directive. The owner WRITES a
+      // meta (and often expands the page); it does not rewrite an existing
+      // element, so it carries `elementTypeDomain: []` and has no Wix field
+      // mapping (executePush refuses it).
+      "improve_meta",
       // Off-site / manual (Section 7 C7b)
       "claim_gbp",
       "optimize_gbp_profile",

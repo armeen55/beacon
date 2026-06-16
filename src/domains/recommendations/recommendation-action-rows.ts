@@ -547,6 +547,14 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
     // technical fix (review_decision keeps Suggested Copy suppressed).
     case "fix_page_experience":
       return "review_decision";
+    // improve_meta (2026-06-16): NON-PUSHABLE directive (the owner writes a
+    // meta + often expands the page). Maps to "review_decision" — NOT
+    // "edit_meta" — so Act 4 Suggested Copy stays suppressed (review_decision
+    // is not in SUGGESTED_COPY_ACTION_ROW_TYPES): the proposed_text is
+    // instruction prose, never offered as a pasteable / publishable meta
+    // string. Same posture as fix_page_experience and the off-site directives.
+    case "improve_meta":
+      return "review_decision";
   }
 }
 
@@ -648,6 +656,12 @@ export function composeEditRowTitle(args: {
       return label
         ? `Add an answer block ${q(label)} to the ${targetLabel}`
         : `Add an answer block to the ${targetLabel}`;
+    case "improve_meta":
+      // Root-cause-#3 directive (2026-06-16): the page is missing a meta and
+      // can't be auto-drafted, so this is a "write one" task, not a rewrite.
+      return label
+        ? `Write a meta description for the ${targetLabel}: ${q(label)}`
+        : `Write a meta description for the ${targetLabel}`;
     case "add_internal_link":
       return label
         ? `Add an internal link to the ${targetLabel} (${truncate(label, 40)})`

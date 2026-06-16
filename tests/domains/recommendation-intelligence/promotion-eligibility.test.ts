@@ -122,11 +122,14 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
 });
 
 describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
-  it("returns exactly the 13 customer-queue-ready pairs in stable order", () => {
+  it("returns exactly the 14 customer-queue-ready pairs in stable order", () => {
     const pairs = listCustomerQueueReadyPairs();
     expect(pairs).toEqual([
       "missing_title::edit_title",
       "missing_meta::edit_meta",
+      // Root-cause-#3 gap (2026-06-16): NON-PUSHABLE improve_meta directive
+      // for missing-meta pages composeMeta can't auto-draft.
+      "missing_meta::improve_meta",
       "missing_h1::change_h1",
       "sitemap_missing::fix_sitemap",
       "robots_blocks_googlebot::fix_robots",
@@ -143,8 +146,8 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (32 post-profound-aeo-gap)", () => {
-    // 13 customer-queue-ready + 9 operator-review-only + 4 diagnostic-only = 26
+  it("table size matches the locked entry count (33 post-improve-meta)", () => {
+    // 14 customer-queue-ready + 13 operator-review-only + 4 diagnostic-only = 33.
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
     // `missing_schema_content::add_schema`; the fix_schema slice
@@ -154,6 +157,8 @@ describe("promotion-eligibility / table snapshot", () => {
     // deliberate — topical duplicates expand instead of duplicating).
     // Profound AEO-gap (2026-06-14) added `profound_aeo_gap::add_answer_block`
     // (operator-review-only — the first trigger to consume Profound).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(32);
+    // Root-cause-#3 gap (2026-06-16) added `missing_meta::improve_meta`
+    // (customer-queue-ready — NON-PUSHABLE directive for un-draftable metas).
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(33);
   });
 });

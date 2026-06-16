@@ -19,9 +19,12 @@ import {
 } from "@/domains/recommendation-intelligence/promotion-eligibility";
 
 const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
-  // customer-queue-ready (13)
+  // customer-queue-ready (14)
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
+  // Root-cause-#3 gap (2026-06-16): missing-meta page composeMeta can't
+  // auto-draft → NON-PUSHABLE improve_meta directive (same gap, same tier).
+  ["missing_meta::improve_meta", "customer-queue-ready"],
   ["missing_h1::change_h1", "customer-queue-ready"],
   ["sitemap_missing::fix_sitemap", "customer-queue-ready"],
   ["robots_blocks_googlebot::fix_robots", "customer-queue-ready"],

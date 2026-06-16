@@ -11,6 +11,10 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
+ * 2026-06-16: +improve_meta (root-cause-#3 directive for missing-meta
+ * content pages composeMeta can't auto-draft). Non-pushable directive,
+ * generatorActive: false. Universe → 39 types.
+ *
  * Slice 4.5.E.α₁a policy (2026-05-21): 37-type universe registered;
  * 13 have `generatorActive: true` (edit_title, edit_meta, change_h1,
  * add_h2_section, add_faq, fix_sitemap, fix_robots, fix_status_code,
@@ -40,6 +44,13 @@ export const ACTION_TYPES = [
   // On-page copy edits
   "edit_title",
   "edit_meta",
+  // improve_meta (2026-06-16): root-cause-#3 gap. A missing-meta content
+  // page where the deterministic composeMeta CANNOT auto-draft one
+  // (list/label-soup prose, common on Wix) gets a DIRECTIVE telling the
+  // owner what to write — NOT a publishable meta string. Non-pushable
+  // directive (no Wix field mapping; executePush refuses it), mirrors
+  // add_answer_block. generatorActive: false.
+  "improve_meta",
   "change_h1",
   "add_h2_section",
   "rewrite_h2",
@@ -298,6 +309,27 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Add answer block",
+    generatorActive: false,
+  },
+  improve_meta: {
+    actionType: "improve_meta",
+    // improve_meta (2026-06-16): root-cause-#3 gap. Mirrors add_answer_block
+    // — a NON-PUSHABLE directive. `elementTypeDomain: []` (page-level, no
+    // on-page element target) so the promotion row carries
+    // `target_element_key: null` and there is NO Wix field mapping: the
+    // directive asks the owner to WRITE a description (and often expand the
+    // page), it does not rewrite an existing element. `proposed_text` is
+    // instruction prose, NEVER a publishable meta string — executePush has
+    // no route for improve_meta (it's not add_schema, not a `field:`/
+    // `create:` element key, and deriveWixContentFieldKey doesn't map it) so
+    // the card is hard-refused / stays paste-ready. generatorActive: false:
+    // the directive is composed deterministically, never by the LLM.
+    elementTypeDomain: [],
+    signalType: "content",
+    requiresCurrentText: false,
+    requiresProposedText: true,
+    changelogAssetType: "service_page",
+    operatorLabel: "Improve meta description",
     generatorActive: false,
   },
   add_proof_section: {

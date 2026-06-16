@@ -77,6 +77,10 @@ type Probe = ReadonlyArray<unknown>;
 const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   missingTitleCopy: [[]],
   missingMetaCopy: [[]],
+  // Root-cause-#3 gap (2026-06-16) — improve_meta directive copy. No-arg;
+  // paired with the missing-meta predicate's improve_meta branch (a page
+  // composeMeta can't auto-draft a meta from). Customer-queue-ready.
+  improveMetaCopy: [[]],
   // Slice 4.5.B.α₁ (2026-05-19) — H1 family templates.
   missingH1Copy: [[]],
   weakH1Copy: [[]],
