@@ -109,6 +109,9 @@ export type RecommendationDetailClientProps = {
    *  empty, competitor-name detection is inactive but UUID + long-
    *  hex + internal-token detection still fires. */
   competitorNames?: ReadonlyArray<string>;
+  /** Approve & Push exposure (2026-06-16) — server-computed publish
+   *  authorization for the current tenant; threaded to the action row. */
+  canPublish?: boolean;
 };
 
 export function RecommendationDetailClient({
@@ -116,6 +119,7 @@ export function RecommendationDetailClient({
   changelogId,
   promptTextById,
   competitorNames,
+  canPublish = false,
 }: RecommendationDetailClientProps) {
   const target =
     row.targetUrl && row.targetUrl !== "needs_new_page" ? row.targetUrl : null;
@@ -675,6 +679,7 @@ export function RecommendationDetailClient({
         <RecommendationDetailActions
           row={row}
           changelogId={changelogId}
+          canPublish={canPublish}
         />
       </Act>
     </div>

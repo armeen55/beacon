@@ -39,8 +39,10 @@ import {
   dismissRecommendation as defaultDismissRecommendation,
   markRecommendationShipped as defaultMarkRecommendationShipped,
   undoRecommendationResponse as defaultUndoRecommendationResponse,
+  approveAndPushRecommendedEdit as defaultApproveAndPushRecommendedEdit,
   type RecommendationActionPayload,
   type RecommendationActionResponse,
+  type ApproveAndPushResult,
 } from "../actions";
 import type {
   ActionRowStatus,
@@ -175,6 +177,12 @@ export type DetailActionHandlers = {
     stableKey: string;
   }) => Promise<RecommendationActionResponse>;
   readonly undo?: (stableKey: string) => Promise<RecommendationActionResponse>;
+  /** Approve & Push (2026-06-16) — the customer-route publish handler.
+   *  Returns the richer ApproveAndPushResult (pushed / verified_live /
+   *  dev_note advice / refused), not the plain action response. */
+  readonly approveAndPush?: (args: {
+    editId: string;
+  }) => Promise<ApproveAndPushResult>;
 };
 
 export type RecommendationDetailActionsProps = {
@@ -185,6 +193,16 @@ export type RecommendationDetailActionsProps = {
   /** Tests can disable router.refresh() to avoid the Next router stub.
    *  Defaults to calling router.refresh() after a successful action. */
   readonly skipRouterRefresh?: boolean;
+  /**
+   * Approve & Push exposure (2026-06-16, root cause #1) — server-computed
+   * `canPublishForCurrentTenant()`. When true AND the rec is accepted with a
+   * pushable edit, the customer gets a one-click "Approve & Push" button that
+   * publishes the change to their connected site (the click IS the per-edit
+   * approval — never auto-publishes). Tenants without a write target get the
+   * honest dev_note "advise" outcome from the same action. Defaults false →
+   * button hidden (safe).
+   */
+  readonly canPublish?: boolean;
 };
 
 type Feedback = { kind: "ok" | "error"; message: string } | null;
@@ -215,6 +233,7 @@ export function RecommendationDetailActions({
   changelogId,
   handlers,
   skipRouterRefresh = false,
+  canPublish = false,
 }: RecommendationDetailActionsProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -226,6 +245,65 @@ export function RecommendationDetailActions({
   const markShipped =
     handlers?.markShipped ?? defaultMarkRecommendationShipped;
   const undo = handlers?.undo ?? defaultUndoRecommendationResponse;
+  const approveAndPush =
+    handlers?.approveAndPush ?? defaultApproveAndPushRecommendedEdit;
+
+  // Approve & Push exposure (2026-06-16). Show the publish button only when:
+  //   • the operator/owner can publish for this tenant (server-computed), AND
+  //   • the rec is accepted (the customer already approved the CONTENT), AND
+  //   • there's a concrete edit id to push.
+  // The button never auto-fires; the click is the explicit per-edit publish
+  // approval. The server action enforces caps + write-target + tenant rails
+  // and returns an honest dev_note "advise" outcome when the site can't be
+  // written to yet.
+  const pushEditId = row.detail?.debug?.editId ?? null;
+  const canShowPush =
+    canPublish && row.status === "accepted" && pushEditId != null;
+
+  function runPush(editId: string): void {
+    setFeedback(null);
+    startTransition(async () => {
+      try {
+        const res = await approveAndPush({ editId });
+        if (!res.ok) {
+          setFeedback({
+            kind: "error",
+            message:
+              res.reason === "not_operator"
+                ? "You don't have permission to publish for this site."
+                : res.reason === "daily_cap_reached"
+                  ? "Daily publish limit reached — try again tomorrow."
+                  : "Couldn't publish this change. Nothing was changed on your site.",
+          });
+          return;
+        }
+        if (res.outcome === "dev_note") {
+          // No write target yet — surface the exact change to make by hand.
+          setFeedback({
+            kind: "ok",
+            message:
+              "Beacon can't publish to this site automatically yet. Here's the exact change to make: " +
+              res.note,
+          });
+        } else {
+          setFeedback({
+            kind: "ok",
+            message:
+              res.outcome === "verified_live"
+                ? "Published to your site — confirmed live."
+                : "Published to your site.",
+          });
+        }
+        if (!skipRouterRefresh) router.refresh();
+      } catch {
+        setFeedback({
+          kind: "error",
+          message:
+            "Couldn't publish this change. Nothing was changed on your site.",
+        });
+      }
+    });
+  }
 
   // Re-use the pure-helper contract so the rendered buttons stay in
   // lockstep with `visibleActionsForRow` (the tested truth table).
@@ -324,9 +402,21 @@ export function RecommendationDetailActions({
     >
       {/* Primary action row */}
       <div className="flex flex-wrap items-center gap-2">
+        {canShowPush && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => runPush(pushEditId!)}
+            className={cn(PRIMARY_BTN, TONE.accent)}
+            data-recommendation-detail-action="approve-push"
+            title="Publish this change to your connected site"
+          >
+            Approve &amp; Push
+          </button>
+        )}
         {primary.length > 0 ? (
           primary
-        ) : (
+        ) : canShowPush ? null : (
           <p
             className="text-[12px] text-muted-foreground"
             data-recommendation-detail-actions-empty="true"

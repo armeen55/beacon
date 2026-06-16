@@ -82,6 +82,69 @@ function makeHandlers() {
   };
 }
 
+function acceptedPushableRow(): RecommendationActionRow {
+  return makeRow({
+    status: "accepted",
+    eligibleEditCount: 1,
+    detail: {
+      debug: { editId: "edit-1" },
+    } as RecommendationActionRow["detail"],
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Approve & Push exposure (2026-06-16, root cause #1)
+// ─────────────────────────────────────────────────────────────────────
+
+describe("Approve & Push — customer-route exposure", () => {
+  it("renders the Approve & Push button for an accepted, pushable rec when canPublish", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailActions
+        row={acceptedPushableRow()}
+        changelogId={null}
+        canPublish
+        skipRouterRefresh
+        handlers={{
+          ...makeHandlers(),
+          approveAndPush: vi
+            .fn()
+            .mockResolvedValue({ ok: true, outcome: "pushed", detail: "" }),
+        }}
+      />,
+    );
+    expect(html).toContain('data-recommendation-detail-action="approve-push"');
+    expect(html).toContain("Approve &amp; Push");
+  });
+
+  it("HIDES the push button when canPublish is false (safe default)", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailActions
+        row={acceptedPushableRow()}
+        changelogId={null}
+        canPublish={false}
+        skipRouterRefresh
+      />,
+    );
+    expect(html).not.toContain(
+      'data-recommendation-detail-action="approve-push"',
+    );
+  });
+
+  it("HIDES the push button for a non-accepted rec even when canPublish", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailActions
+        row={makeRow({ status: "new" })}
+        changelogId={null}
+        canPublish
+        skipRouterRefresh
+      />,
+    );
+    expect(html).not.toContain(
+      'data-recommendation-detail-action="approve-push"',
+    );
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────
 // Pure helper — visibleActionsForRow truth table
 // ─────────────────────────────────────────────────────────────────────

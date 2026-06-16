@@ -28,6 +28,7 @@ export const fetchCache = "force-no-store";
 import { unstable_noStore as noStore } from "next/cache";
 
 import { currentTenantId } from "@/lib/tenant-context";
+import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
 import { getChangelogEntries as _getChangelogEntriesUnused } from "@/lib/seed-data.server";
@@ -103,6 +104,11 @@ export default async function RecommendationDetailPage({
     }
 
     const tenantId = await currentTenantId();
+    // Approve & Push exposure (2026-06-16) — resolve publish authorization
+    // ONCE on the server (operator-mode OR owner/admin/founder member of this
+    // tenant) and thread it to the action row. Fail-soft to false (button
+    // hidden) so a transient auth read never surfaces a publish control.
+    const canPublish = await canPublishForCurrentTenant().catch(() => false);
     const persisted = await trace.time(
       "loadPersistedRecommendationQueueForPage",
       () => loadPersistedRecommendationQueueForPage({ tenantId }),
@@ -293,6 +299,7 @@ export default async function RecommendationDetailPage({
             }
             promptTextById={promptTextById}
             competitorNames={competitorNames}
+            canPublish={canPublish}
           />
         </>
       );
@@ -307,6 +314,7 @@ export default async function RecommendationDetailPage({
             changelogIdByRecId[resolution.row.sourceRecommendationId] ?? null
           }
           promptTextById={promptTextById}
+          canPublish={canPublish}
         />
       </>
     );
