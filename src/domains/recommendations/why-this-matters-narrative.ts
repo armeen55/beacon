@@ -101,7 +101,7 @@ function unquote(value: string): string {
  * clean "this page is missing X" statement (the demand + competitive
  * clauses already carry those rows).
  */
-function gapClauseForAction(
+export function gapClauseForAction(
   actionType: ActionRowType,
   targetLabel: string,
 ): string | null {

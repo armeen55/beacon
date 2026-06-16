@@ -42,6 +42,7 @@ import {
 } from "@/domains/recommendations/action-types";
 import { buildCopyTile } from "@/domains/recommendations/suggested-copy-adapters";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
+import { filterDisplaySafeEvidenceLines } from "@/domains/recommendations/evidence-line-display-guard";
 import {
   buildWhyInput,
   composeWhyThisMatters,
@@ -147,16 +148,34 @@ export function RecommendationDetailClient({
   // 2026-06-15 — per-query "why this, why now" evidence (exact query +
   // impressions + rank + click-through vs typical + recoverable visits),
   // built from the rec's GSC signal. Empty when no quotable query.
-  const gscEvidenceLines = row.detail.gscEvidenceLines ?? [];
+  //
+  // Expert-rec-engine Slice 1 (2026-06-16): every evidence-line surface now
+  // passes the SAME display guard as `why` (uuid / internal-token / competitor
+  // / white-labeled vendor). A line that would leak is SUPPRESSED, not rendered
+  // — closing the audit's BUG #5 (these lines previously rendered unguarded).
+  const evGuard = { competitorNames };
+  const gscEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.gscEvidenceLines,
+    evGuard,
+  );
   // 2026-06-15 follow-up — SEMrush evidence (exact search volume + keyword
   // difficulty + current rank), built from the rec's SEMrush signal. Default
   // [] mirrors the GSC guard so a row without it never crashes.
-  const semrushEvidenceLines = row.detail.semrushEvidenceLines ?? [];
+  const semrushEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.semrushEvidenceLines,
+    evGuard,
+  );
   // 2026-06-15 — Microsoft Clarity friction evidence (rage-clicks / page
   // errors) + AI-answer gap evidence (white-label). Same [] guard; dormant
   // until those sources are connected.
-  const clarityEvidenceLines = row.detail.clarityEvidenceLines ?? [];
-  const aeoEvidenceLines = row.detail.aeoEvidenceLines ?? [];
+  const clarityEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.clarityEvidenceLines,
+    evGuard,
+  );
+  const aeoEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.aeoEvidenceLines,
+    evGuard,
+  );
   const measurementPlan = row.detail.measurementPlan?.trim() || null;
   const competitor = row.detail.topCompetitor;
   const observationCount = row.detail.observationCount;

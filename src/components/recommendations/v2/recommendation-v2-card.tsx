@@ -40,6 +40,7 @@ import {
   INDEXING_DIRECTIVE_CAVEAT,
 } from "@/domains/recommendations/action-types";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
+import { filterDisplaySafeEvidenceLines } from "@/domains/recommendations/evidence-line-display-guard";
 import { cn } from "@/lib/utils";
 import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
@@ -287,16 +288,33 @@ export function RecommendationV2Card({
   // query + how often the page showed up + current rank + recoverable
   // visits), built from the rec's GSC signal. Shown UNDER the page-level
   // stat strip so the owner sees the specific number that drives the card.
-  const gscEvidenceLines = row.detail.gscEvidenceLines ?? [];
+  //
+  // Expert-rec-engine Slice 1 (2026-06-16): each evidence-line surface passes
+  // the same display guard as `why` (uuid / internal-token / competitor /
+  // white-labeled vendor); a leaking line is SUPPRESSED (audit BUG #5).
+  const evGuard = { competitorNames };
+  const gscEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.gscEvidenceLines,
+    evGuard,
+  );
   // 2026-06-15 follow-up — SEMrush evidence (exact search volume + keyword
   // difficulty + current rank), built from the rec's SEMrush signal.
   // Default [] mirrors the GSC guard so a row without it never crashes.
-  const semrushEvidenceLines = row.detail.semrushEvidenceLines ?? [];
+  const semrushEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.semrushEvidenceLines,
+    evGuard,
+  );
   // 2026-06-15 — Microsoft Clarity friction evidence (rage-clicks / page
   // errors) + AI-answer gap evidence (white-label). Same [] guard so a row
   // without either never crashes; dormant until those sources are connected.
-  const clarityEvidenceLines = row.detail.clarityEvidenceLines ?? [];
-  const aeoEvidenceLines = row.detail.aeoEvidenceLines ?? [];
+  const clarityEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.clarityEvidenceLines,
+    evGuard,
+  );
+  const aeoEvidenceLines = filterDisplaySafeEvidenceLines(
+    row.detail.aeoEvidenceLines,
+    evGuard,
+  );
 
   return (
     <article
