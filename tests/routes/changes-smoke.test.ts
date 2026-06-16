@@ -37,11 +37,17 @@ vi.mock("@/lib/seed-data.server", async (importOriginal) => {
 });
 
 describe("Changes route smoke", () => {
-  it("ChangeScorecardPage RSC renders Phase 6A.2 lifecycle layout", async () => {
+  it("ChangeScorecardPage RSC renders Phase 6A.2 lifecycle layout (legacy branch)", async () => {
     const { default: ChangeScorecardPage } = await import(
       "@/app/(shell)/changes/page"
     );
-    const tree = await ChangeScorecardPage();
+    // 2026-06-15 — v2 is now the production default, so the unparam'd
+    // render produces the proof timeline. This smoke test pins the
+    // LEGACY lifecycle layout (strip + at-a-glance + legacy header), so
+    // force the legacy branch via the `?legacy=1` escape hatch.
+    const tree = await ChangeScorecardPage({
+      searchParams: Promise.resolve({ legacy: "1" }),
+    });
     const html = renderToStaticMarkup(tree as ReactElement);
 
     // 2026-05-06 demo-path Phase 3-bis fix 3: header rewritten for

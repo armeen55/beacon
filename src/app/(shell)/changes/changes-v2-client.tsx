@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * ChangesV2Client — proof-timeline pass for /changes?v2=1.
  *
@@ -40,7 +42,9 @@
  *     around day N" — never references median_landing_day or the
  *     pattern brain.
  */
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { PageHeader } from "@/components/data/page-header";
 import {
@@ -70,6 +74,7 @@ import {
 import { ChangesV2WaitingRail } from "@/components/changes/v2/changes-v2-waiting-rail";
 
 import type { EnrichedChangeRow } from "./scorecard-client";
+import { markChangelogEditShipped } from "./actions";
 
 export type ChangesV2ClientProps = {
   /** Already-enriched rows from the server page. Newest-first sort
@@ -134,7 +139,7 @@ export function ChangesV2Client({
             className="space-y-3"
           >
             {timelineCards.map((row) => (
-              <ChangesV2Card key={row.id} row={row} />
+              <ChangesV2CardWithActions key={row.id} row={row} />
             ))}
             {cardRows.length > timelineCards.length && (
               <p className="pt-2 text-[11px] text-muted-foreground/80">
@@ -166,6 +171,83 @@ export function ChangesV2Client({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Card + Mark-shipped action island
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Wraps `ChangesV2Card` with the per-row Mark-shipped affordance.
+ *
+ * Parity with the legacy scorecard row (`scorecard-client.tsx`):
+ *   • The button is offered ONLY when `row.canMarkShipped` is true
+ *     (linked edit is `accepted`).
+ *   • Clicking it calls the SAME server action `markChangelogEditShipped`
+ *     with the SAME payload (`{ changelogId }`), so persistence is
+ *     byte-identical to the legacy path.
+ *   • `useTransition` drives the pending state; feedback is surfaced via
+ *     `aria-live="polite"` inside the card.
+ *   • After a successful flip we `router.refresh()` to re-pull the
+ *     server-rendered pill (the action also `revalidatePath("/changes")`,
+ *     so the refresh is belt-and-suspenders for the current tab).
+ *
+ * When `canMarkShipped` is false the card renders exactly as before —
+ * no button, no behavior change.
+ */
+function ChangesV2CardWithActions({ row }: { row: ProjectedCardRow }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<{
+    message: string;
+    isError: boolean;
+  } | null>(null);
+
+  function handleMarkShipped() {
+    setFeedback(null);
+    startTransition(async () => {
+      try {
+        const res = await markChangelogEditShipped({ changelogId: row.id });
+        if (res.success) {
+          const flipped = res.flipped ?? 0;
+          setFeedback({
+            message:
+              flipped > 0
+                ? "Marked live — Beacon is now tracking its impact."
+                : "Already live — no change.",
+            isError: false,
+          });
+          // Re-pull the server pill so the card reflects the new
+          // lifecycle state without a manual reload.
+          router.refresh();
+        } else {
+          setFeedback({
+            message: res.error ?? "Couldn't mark this as shipped.",
+            isError: true,
+          });
+        }
+      } catch (err) {
+        setFeedback({
+          message: `Unexpected error: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          isError: true,
+        });
+      }
+    });
+  }
+
+  return (
+    <ChangesV2Card
+      row={row}
+      markShipped={{
+        canMarkShipped: row.canMarkShipped,
+        pending,
+        feedback,
+        onMarkShipped: handleMarkShipped,
+      }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Projection: EnrichedChangeRow → ChangesV2CardRow
 // ─────────────────────────────────────────────────────────────────────
 
@@ -180,6 +262,8 @@ type ProjectedCardRow = ChangesV2CardRow & {
     daysFromChange: number;
     confidenceTier: "high" | "medium" | "low" | null;
   } | null;
+  /** Parity with legacy scorecard gating: linked edit is `accepted`. */
+  canMarkShipped: boolean;
 };
 
 function projectToCardRows({
@@ -218,6 +302,12 @@ function projectToCardRows({
       shippedAt: ch.timestamp,
       pill,
       patternTimingNarrative,
+      // Mark-shipped parity: same gating as the legacy scorecard
+      // (`scorecard-client.tsx`) — the button is offered ONLY when the
+      // linked recommended-edit is `accepted` (an already-accepted edit
+      // the operator can confirm is live). The server action re-validates
+      // this server-side, so a stale UI can't skip the Accept step.
+      canMarkShipped: lifecycleStatus === "accepted",
       readyOn: row.readyOn
         ? {
             daysFromChange: row.readyOn.daysFromChange,

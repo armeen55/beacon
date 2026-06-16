@@ -35,13 +35,41 @@ export type ChangesV2CardRow = {
   patternTimingNarrative: string | null;
 };
 
+/**
+ * Mark-shipped affordance state, threaded down from the client island.
+ *
+ * Parity with the legacy scorecard (`scorecard-client.tsx`): the per-row
+ * "Mark shipped" button is shown ONLY when the linked recommended-edit's
+ * implementation status is `accepted` (operator confirms an
+ * already-accepted edit is live on the page). The card itself stays a
+ * dumb presenter — the client island owns `useTransition`, the call to
+ * `markChangelogEditShipped`, and the feedback text. When `onMarkShipped`
+ * is omitted (e.g. pure render-to-string tests of the timeline that don't
+ * exercise the action), no button renders.
+ */
+export type ChangesV2CardMarkShipped = {
+  /** True only when the linked edit is `accepted` (mirrors legacy gating). */
+  canMarkShipped: boolean;
+  /** Disable + show pending copy while the action is in flight. */
+  pending: boolean;
+  /** Feedback line under the button after the action resolves. */
+  feedback: { message: string; isError: boolean } | null;
+  /** Fire the server action for this row. */
+  onMarkShipped: () => void;
+};
+
 export function ChangesV2Card({
   row,
   className,
+  markShipped,
 }: {
   row: ChangesV2CardRow;
   className?: string;
+  markShipped?: ChangesV2CardMarkShipped;
 }) {
+  const showMarkShipped = Boolean(
+    markShipped?.canMarkShipped && markShipped.onMarkShipped,
+  );
   return (
     <article
       data-changes-card="proof-timeline"
@@ -121,6 +149,51 @@ export function ChangesV2Card({
           Open change
           <span aria-hidden className="text-accent-primary">→</span>
         </Link>
+
+        {/* Mark-shipped affordance — parity with the legacy scorecard.
+            Renders ONLY when the linked recommended-edit is `accepted`
+            (operator confirms an already-accepted edit is live on the
+            page). Same server action + payload as legacy, so persistence
+            is identical. Feedback is announced via aria-live so assistive
+            tech hears the result. Plain English, no automation claims. */}
+        {showMarkShipped && markShipped && (
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              disabled={markShipped.pending}
+              onClick={markShipped.onMarkShipped}
+              className={cn(
+                "inline-flex items-center rounded-md border border-accent-primary/40 bg-accent-primary/[0.06]",
+                "px-2.5 py-1 text-[12px] font-semibold text-accent-primary transition-colors",
+                "hover:bg-accent-primary/[0.12] disabled:opacity-50",
+              )}
+              title="Confirm this change is live on your site. Beacon starts tracking its impact now instead of waiting for the next scan."
+              data-changes-card-mark-shipped="true"
+            >
+              {markShipped.pending ? "Marking…" : "Mark shipped"}
+            </button>
+            <p
+              aria-live="polite"
+              className={cn(
+                "text-[11px] leading-snug text-right max-w-[220px]",
+                markShipped.feedback
+                  ? markShipped.feedback.isError
+                    ? "text-status-danger"
+                    : "text-status-success"
+                  : "sr-only",
+              )}
+              data-changes-card-mark-shipped-feedback={
+                markShipped.feedback
+                  ? markShipped.feedback.isError
+                    ? "error"
+                    : "success"
+                  : undefined
+              }
+            >
+              {markShipped.feedback?.message ?? ""}
+            </p>
+          </div>
+        )}
       </div>
     </article>
   );

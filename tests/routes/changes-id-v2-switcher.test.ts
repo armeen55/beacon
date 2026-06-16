@@ -4,10 +4,11 @@
  * Pins the routing rules implemented in
  * `src/app/(shell)/changes/[id]/page.tsx`:
  *
- *   - Default (no query, env unset)   → legacy detail (current production)
+ *   - Default (no query, env unset)   → v2 proof brief (production default,
+ *                                        flipped 2026-06-15)
  *   - `?legacy=1`                      → legacy detail (escape hatch)
- *   - `?v2=1`                          → v2 proof brief (preview hatch)
- *   - `BEACON_CHANGES_V2=true` (env)   → v2 proof brief (default flip)
+ *   - `?v2=1`                          → v2 proof brief (explicit)
+ *   - `BEACON_CHANGES_V2=false` (env)  → legacy detail (kill switch)
  *
  * The two render branches are stubbed so the test focuses on the
  * routing decision, not on the full data render. The legacy branch
@@ -247,13 +248,12 @@ describe("/changes/[id] switcher contract", () => {
     }
   });
 
-  it("renders the legacy detail by default (no query, env unset)", async () => {
+  it("renders the v2 proof brief by default (no query, env unset)", async () => {
+    // 2026-06-15 — v2 is now the production default. Env unset → v2.
     const html = await render({});
-    // No v2 stub.
-    expect(html).not.toContain('data-change-detail-stub="v2"');
-    // Legacy detail rendered the changelog row's description (a
-    // unique-enough marker that doesn't appear in the v2 stub).
-    expect(html).toContain("FAQ expanded from 10 to 34 questions");
+    expect(html).toContain('data-change-detail-stub="v2"');
+    // Legacy detail's row description must NOT render.
+    expect(html).not.toContain("FAQ expanded from 10 to 34 questions");
   }, 15_000);
 
   it("renders the v2 proof brief when ?v2=1 is set", async () => {
@@ -269,17 +269,16 @@ describe("/changes/[id] switcher contract", () => {
     expect(html).toContain("FAQ expanded from 10 to 34 questions");
   }, 15_000);
 
-  it("?legacy=1 wins over BEACON_CHANGES_V2=true (escape hatch overrides env)", async () => {
-    process.env.BEACON_CHANGES_V2 = "true";
+  it("?legacy=1 wins over the v2 default (per-request escape hatch)", async () => {
     const html = await render({ legacy: "1" });
     expect(html).not.toContain('data-change-detail-stub="v2"');
     expect(html).toContain("FAQ expanded from 10 to 34 questions");
   }, 15_000);
 
-  it("renders v2 when BEACON_CHANGES_V2=true (env default flip)", async () => {
-    process.env.BEACON_CHANGES_V2 = "true";
+  it("renders legacy when BEACON_CHANGES_V2=false (kill switch)", async () => {
+    process.env.BEACON_CHANGES_V2 = "false";
     const html = await render({});
-    expect(html).toContain('data-change-detail-stub="v2"');
-    expect(html).not.toContain("FAQ expanded from 10 to 34 questions");
+    expect(html).not.toContain('data-change-detail-stub="v2"');
+    expect(html).toContain("FAQ expanded from 10 to 34 questions");
   }, 15_000);
 });

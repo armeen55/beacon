@@ -4,10 +4,11 @@
  * Pins the routing rules implemented in
  * `src/app/(shell)/changes/page.tsx`:
  *
- *   - Default (no query, env unset)   → legacy table (current production)
+ *   - Default (no query, env unset)   → v2 proof timeline (production
+ *                                        default, flipped 2026-06-15)
  *   - `?legacy=1`                      → legacy table (escape hatch)
- *   - `?v2=1`                          → v2 proof timeline (preview hatch)
- *   - `BEACON_CHANGES_V2=true`         → v2 timeline (default flip)
+ *   - `?v2=1`                          → v2 proof timeline (explicit)
+ *   - `BEACON_CHANGES_V2=false`        → legacy table (kill switch)
  *
  * Both client surfaces are mocked so the test focuses on the routing
  * decision, not the full data render. Each stub emits a stable marker
@@ -110,10 +111,11 @@ describe("/changes switcher contract", () => {
     }
   });
 
-  it("renders the legacy table by default (no query, env unset)", async () => {
+  it("renders the v2 timeline by default (no query, env unset)", async () => {
+    // 2026-06-15 — v2 is now the production default. Env unset → v2.
     const html = await render({});
-    expect(html).toContain('data-changes-stub="legacy"');
-    expect(html).not.toContain('data-changes-stub="v2"');
+    expect(html).toContain('data-changes-stub="v2"');
+    expect(html).not.toContain('data-changes-stub="legacy"');
   }, 15_000);
 
   it("renders the v2 timeline when ?v2=1 is set", async () => {
@@ -128,17 +130,16 @@ describe("/changes switcher contract", () => {
     expect(html).not.toContain('data-changes-stub="v2"');
   }, 15_000);
 
-  it("?legacy=1 wins over BEACON_CHANGES_V2=true (escape hatch overrides env)", async () => {
-    process.env.BEACON_CHANGES_V2 = "true";
+  it("?legacy=1 wins over the v2 default (per-request escape hatch)", async () => {
     const html = await render({ legacy: "1" });
     expect(html).toContain('data-changes-stub="legacy"');
     expect(html).not.toContain('data-changes-stub="v2"');
   }, 15_000);
 
-  it("renders v2 when BEACON_CHANGES_V2=true (env default flip)", async () => {
-    process.env.BEACON_CHANGES_V2 = "true";
+  it("renders legacy when BEACON_CHANGES_V2=false (kill switch)", async () => {
+    process.env.BEACON_CHANGES_V2 = "false";
     const html = await render({});
-    expect(html).toContain('data-changes-stub="v2"');
-    expect(html).not.toContain('data-changes-stub="legacy"');
+    expect(html).toContain('data-changes-stub="legacy"');
+    expect(html).not.toContain('data-changes-stub="v2"');
   }, 15_000);
 });

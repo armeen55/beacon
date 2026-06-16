@@ -138,20 +138,21 @@ export const dynamic = "force-dynamic";
  * the maximum-depth UI audit. Switch the detail page between the
  * legacy data-rich layout and the v2 proof brief.
  *
- * Routing rules (mirrors `/changes` proof timeline):
- *   - Default                       → legacy (current production behavior).
- *   - `?legacy=1` query             → legacy (escape hatch).
- *   - `?v2=1` query                 → v2 proof brief (preview hatch).
- *   - `BEACON_CHANGES_V2=true` env  → v2 becomes the default
- *                                      (shared with the list page; not
- *                                      flipped yet).
+ * Routing rules (mirrors `/changes` proof timeline — v2 is now the
+ * PRODUCTION DEFAULT, flipped 2026-06-15 alongside the list page):
+ *   - Default                        → v2 proof brief.
+ *   - `?legacy=1` query              → legacy detail (per-request escape hatch).
+ *   - `?v2=1` query                  → v2 proof brief (explicit, redundant
+ *                                       with the default; kept for symmetry).
+ *   - `BEACON_CHANGES_V2=false` env  → legacy detail (shared kill switch with
+ *                                       the list page; rolls both back at once).
  */
 function shouldUseChangeDetailV2(
   searchParams: Record<string, string | string[] | undefined>,
 ): boolean {
   if (searchParams.legacy === "1") return false;
   if (searchParams.v2 === "1") return true;
-  return process.env.BEACON_CHANGES_V2 === "true";
+  return process.env.BEACON_CHANGES_V2 !== "false";
 }
 
 export default async function ChangeDetailPage({

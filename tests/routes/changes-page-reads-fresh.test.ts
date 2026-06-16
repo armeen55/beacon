@@ -201,7 +201,13 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       const { default: ChangeScorecardPage } = await import(
         "@/app/(shell)/changes/page"
       );
-      const tree = await ChangeScorecardPage();
+      // 2026-06-15 — v2 is now the production default. This test pins the
+      // LEGACY at-a-glance strip ("detected by scan" / "live verified"),
+      // so force the legacy branch via the `?legacy=1` escape hatch. The
+      // fresh-repo-read under test runs identically on both branches.
+      const tree = await ChangeScorecardPage({
+        searchParams: Promise.resolve({ legacy: "1" }),
+      });
       const html = renderToStaticMarkup(tree as ReactElement);
 
       // Phase 6A.2 (2026-04-28): the at-a-glance strip is now lifecycle-tab

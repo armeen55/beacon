@@ -7,8 +7,31 @@
  * `renderToStaticMarkup` so the suite stays Node-only (no DOM, no
  * @testing-library/react).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+
+// The v2 client is now a client island (it owns the per-row Mark-shipped
+// transition). `ChangesV2CardWithActions` calls `useRouter`, which throws
+// outside the App Router context. Stub the hooks so the SSR smoke render
+// stays Node-only — same posture as the switcher contract test.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: () => {},
+    replace: () => {},
+    refresh: () => {},
+    back: () => {},
+    forward: () => {},
+    prefetch: () => {},
+  }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/changes",
+}));
+
+// The Mark-shipped server action is imported by the client. Stub it so the
+// render test never reaches the real persistence layer.
+vi.mock("@/app/(shell)/changes/actions", () => ({
+  markChangelogEditShipped: vi.fn(async () => ({ success: true, flipped: 1 })),
+}));
 
 import { ChangesV2Client } from "@/app/(shell)/changes/changes-v2-client";
 import type { EnrichedChangeRow } from "@/app/(shell)/changes/scorecard-client";
@@ -303,6 +326,41 @@ describe("ChangesV2Client — proof timeline", () => {
     expect(html).not.toMatch(/prompt\s+[0-9a-f]{6,}/i);
     expect(html).not.toContain("packet");
     expect(html).not.toContain("site.com");
+  });
+
+  it("shows the Mark shipped button ONLY for an accepted edit (legacy gating parity)", () => {
+    // Accepted → button present (operator can confirm it's live).
+    const acceptedHtml = render({
+      rows: [makeRow({ id: "accepted-row", verdict: null })],
+      classByChangelogId: { "accepted-row": "pending_implementation" },
+      editStatusByChangelogId: { "accepted-row": "accepted" },
+    });
+    expect(acceptedHtml).toContain('data-changes-card-mark-shipped="true"');
+    expect(acceptedHtml).toContain("Mark shipped");
+
+    // Recommended (NOT yet accepted) → button absent. Mirrors the legacy
+    // M4 rule: Mark shipped must never skip the Accept step.
+    const recommendedHtml = render({
+      rows: [makeRow({ id: "rec-row", verdict: null })],
+      classByChangelogId: { "rec-row": "pending_implementation" },
+      editStatusByChangelogId: { "rec-row": "recommended" },
+    });
+    expect(recommendedHtml).not.toContain('data-changes-card-mark-shipped="true"');
+
+    // No linked edit status at all → button absent (legacy / scan rows).
+    const noStatusHtml = render({
+      rows: [makeRow({ id: "plain-row", verdict: "helping" })],
+      classByChangelogId: { "plain-row": "live_verified" },
+    });
+    expect(noStatusHtml).not.toContain('data-changes-card-mark-shipped="true"');
+
+    // Already verified_live → button absent (nothing left to confirm).
+    const liveHtml = render({
+      rows: [makeRow({ id: "live-row", verdict: "helping" })],
+      classByChangelogId: { "live-row": "live_verified" },
+      editStatusByChangelogId: { "live-row": "verified_live" },
+    });
+    expect(liveHtml).not.toContain('data-changes-card-mark-shipped="true"');
   });
 
   it("caps the timeline at 24 cards and surfaces a 'See full table' link when the list overflows", () => {

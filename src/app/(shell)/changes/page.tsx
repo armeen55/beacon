@@ -69,21 +69,26 @@ export const dynamic = "force-dynamic";
  * `~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Switch
  * /changes between the legacy table + drawer and the v2 proof timeline.
  *
- * Routing rules:
- *   - Default                       → legacy (current production behavior).
- *   - `?legacy=1` query             → legacy (escape hatch).
- *   - `?v2=1` query                 → v2 timeline (preview escape hatch).
- *   - `BEACON_CHANGES_V2=true` env  → v2 becomes the default
- *                                      (mirrors the BEACON_TODAY_V2 and
- *                                      BEACON_RECOMMENDATIONS_V2 flags
- *                                      from Bundles 1 and 2A).
+ * Routing rules (v2 is now the PRODUCTION DEFAULT — flipped 2026-06-15
+ * after the Mark-shipped parity gap was closed and both tenants ground-
+ * truthed clean):
+ *   - Default                        → v2 proof timeline.
+ *   - `?legacy=1` query              → legacy table (per-request escape hatch).
+ *   - `?v2=1` query                  → v2 timeline (explicit, redundant with
+ *                                       the default; kept for symmetry).
+ *   - `BEACON_CHANGES_V2=false` env  → legacy table (kill switch to roll the
+ *                                       whole surface back without a deploy).
+ *
+ * Mirrors the BEACON_TODAY_V2 / BEACON_RECOMMENDATIONS_V2 default-ON shape
+ * (Bundles 1 and 2A): env unset → v2; only the explicit `=false` string
+ * disables it.
  */
 function shouldUseChangesV2(
   searchParams: Record<string, string | string[] | undefined>,
 ): boolean {
   if (searchParams.legacy === "1") return false;
   if (searchParams.v2 === "1") return true;
-  return process.env.BEACON_CHANGES_V2 === "true";
+  return process.env.BEACON_CHANGES_V2 !== "false";
 }
 
 export default async function ChangeScorecardPage({
