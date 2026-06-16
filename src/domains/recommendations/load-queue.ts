@@ -799,6 +799,24 @@ export type PersistedRecommendationQueueForPage = {
   errors: string[];
 };
 
+/**
+ * Honest "as of" date for the recommendations header (#322). Returns the
+ * most recent `updated_at` (ISO sorts lexically, so a string max works)
+ * across the persisted edits — i.e. when the recs were actually last
+ * produced — sliced to YYYY-MM-DD. Falls back to today ONLY for an empty
+ * queue (no edits = no stale data to misrepresent). Pure.
+ */
+export function deriveMatrixDateLabel(
+  edits: ReadonlyArray<{ updated_at?: string | null; created_at?: string | null }>,
+): string {
+  let latest = "";
+  for (const e of edits) {
+    const ts = e.updated_at ?? e.created_at ?? "";
+    if (typeof ts === "string" && ts > latest) latest = ts;
+  }
+  return (latest || new Date().toISOString()).slice(0, 10);
+}
+
 /** Map an edit's `action_type` (specific-edit taxonomy) to the
  *  `RecommendationAction` (rec-resolution taxonomy) the rec's resolution
  *  carries. Used only for the synthesized resolution on the persisted
@@ -1113,7 +1131,12 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
         trackedPrompts,
         recommendedEdits,
         changelogEntries,
-        matrixDateLabel: new Date().toISOString().slice(0, 10),
+        // HONESTY (UX_TEARDOWN #322): the header renders this as
+        // "Updated {date}." Using `new Date()` made it ALWAYS say today even
+        // when the recs are weeks stale — a freshness lie. Reflect when the
+        // recs were actually last produced (latest edit `updated_at`); fall
+        // back to today only for an empty queue (no stale data to misstate).
+        matrixDateLabel: deriveMatrixDateLabel(recommendedEdits),
         errors,
       };
     },
