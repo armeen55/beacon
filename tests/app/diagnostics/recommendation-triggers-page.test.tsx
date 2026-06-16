@@ -341,7 +341,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-trigger-signal="missing_title"');
     expect(html).toContain('data-row-trigger-signal="missing_meta"');
     expect(html).toContain('data-row-action-type="edit_title"');
-    expect(html).toContain('data-row-action-type="edit_meta"');
+    // 2026-06-16: this fixture's /missing-meta snapshot has no liftable prose,
+    // so missing_meta now correctly emits the `improve_meta` DIRECTIVE
+    // (composeMeta can't auto-draft a meta) rather than a blank `edit_meta`.
+    expect(html).toContain('data-row-action-type="improve_meta"');
     expect(html).toContain('data-row-confidence="high"');
     expect(html).toContain('data-row-count="2"');
   });
