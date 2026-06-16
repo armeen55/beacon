@@ -68,11 +68,19 @@ export const WHY_THIS_MATTERS_EMPTY =
 /** Soft cap so each sentence stays scannable in the brief. */
 const MAX_SENTENCE_LEN = 160;
 
-/** Trim a phrase for embedding mid-sentence (e.g. a long search query). */
+/** Trim a phrase for embedding mid-sentence (e.g. a long search query).
+ *  Breaks at the nearest preceding WORD boundary so we never chop a word
+ *  in half ("expanding the f…"); only falls back to a hard cut when the
+ *  first word alone already exceeds the budget. */
 function clip(text: string, max: number): string {
   const t = text.trim();
   if (t.length <= max) return t;
-  return t.slice(0, max - 1).trimEnd() + "…";
+  const hard = t.slice(0, max - 1);
+  const lastSpace = hard.lastIndexOf(" ");
+  // Back up to the last word boundary unless that throws away most of the
+  // budget (a single very long word) — then hard-cut.
+  const cut = lastSpace > Math.floor(max * 0.5) ? hard.slice(0, lastSpace) : hard;
+  return cut.trimEnd() + "…";
 }
 
 /** Strip wrapping curly/straight quotes the evidence builders add to
@@ -194,7 +202,11 @@ export function composeWhyThisMatters(input: WhyThisMattersInput): string[] {
         "AI assistants answer this topic citing a rival, and you're not cited yet.",
     );
   } else if (hasPrompts) {
-    const query = clip(input.affectedPromptTexts[0]!, 90);
+    // Keep the embedded query short enough that the wrapper sentence
+    // ("When AI assistants answer “…”, they don't currently recommend your
+    // site.", ~71 chars of chrome) stays under MAX_SENTENCE_LEN without the
+    // outer clip chopping the meaningful tail.
+    const query = clip(input.affectedPromptTexts[0]!, 70);
     pushSentence(
       out,
       `When AI assistants answer “${query}”, they don't currently recommend your site.`,
