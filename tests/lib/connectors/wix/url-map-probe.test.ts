@@ -22,7 +22,9 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/connectors/wix/client")>();
   return {
     ...actual,
-    wixQueryDataItems: async () => ({ ok: true, value: _items }),
+    // syncWixUrlMap reads a full collection via wixQueryAllDataItems (paged);
+    // stub it to the fixture so the probe path is what's under test here.
+    wixQueryAllDataItems: async () => ({ ok: true, value: _items }),
   };
 });
 

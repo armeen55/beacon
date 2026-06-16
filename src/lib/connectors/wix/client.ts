@@ -21,10 +21,17 @@ import "server-only";
  */
 
 import { getWixConnectorToken, type WixConnectorToken } from "@/lib/connector-store";
+import { log } from "@/lib/logger";
 import type { WixDataItem, WixDraftPostRef, WixFetchResult } from "./types";
 
 export const WIX_BASE_URL = "https://www.wixapis.com";
 const TIMEOUT_MS = 20_000;
+
+/** Wix Data query max items per request (REST hard cap). */
+export const WIX_QUERY_PAGE_SIZE = 1000;
+/** Safety ceiling on paginated full-collection reads: 50 × 1000 = 50k
+ *  items/collection. Past this we stop + flag rather than loop forever. */
+export const WIX_QUERY_MAX_PAGES = 50;
 
 export type WixDeps = {
   fetchImpl?: typeof fetch;
@@ -143,9 +150,11 @@ async function wixFetch<T>(
   return { ok: false, reason: "api_error", detail: lastDetail };
 }
 
-/** Query items of one collection (paged; v1 pulls up to `limit`). */
+/** Query ONE page of a collection's items. `offset` (default 0) +
+ *  `limit` (default 200, hard-capped at WIX_QUERY_PAGE_SIZE) drive Wix's
+ *  `paging`. For a complete collection read use `wixQueryAllDataItems`. */
 export async function wixQueryDataItems(
-  args: { dataCollectionId: string; limit?: number },
+  args: { dataCollectionId: string; limit?: number; offset?: number },
   deps: WixDeps = {},
 ): Promise<WixFetchResult<WixDataItem[]>> {
   const r = await wixFetch<{ dataItems?: Array<{ id?: string; data?: Record<string, unknown> }> }>(
@@ -154,7 +163,12 @@ export async function wixQueryDataItems(
       method: "POST",
       body: {
         dataCollectionId: args.dataCollectionId,
-        query: { paging: { limit: Math.min(args.limit ?? 200, 1000) } },
+        query: {
+          paging: {
+            limit: Math.min(args.limit ?? 200, WIX_QUERY_PAGE_SIZE),
+            offset: Math.max(args.offset ?? 0, 0),
+          },
+        },
       },
     },
     deps,
@@ -170,6 +184,56 @@ export async function wixQueryDataItems(
     });
   }
   return { ok: true, value: items };
+}
+
+/**
+ * Query EVERY item of a collection, paginating until a short page (Wix
+ * returns fewer than the page size) or the WIX_QUERY_MAX_PAGES ceiling.
+ *
+ * Fixes the silent-truncation bug where a single `limit: 1000` call
+ * dropped every item past row 1000 of a collection — on a content site
+ * (e.g. Iranopedia: recipes / names / cities) that silently removed pages
+ * from the URL map, so they could never be matched, tracked, or pushed to.
+ *
+ * Mirrors the GSC search-analytics + GA4 loop-until-short-page idiom.
+ * First-page failure surfaces the error verbatim (caller's `!ok` handling
+ * is unchanged). Hitting the page ceiling returns the rows gathered so far
+ * (partial beats zero) and logs a bounded warning.
+ */
+export async function wixQueryAllDataItems(
+  args: { dataCollectionId: string; pageSize?: number },
+  deps: WixDeps = {},
+): Promise<WixFetchResult<WixDataItem[]>> {
+  const pageSize = Math.min(args.pageSize ?? WIX_QUERY_PAGE_SIZE, WIX_QUERY_PAGE_SIZE);
+  const all: WixDataItem[] = [];
+  for (let page = 0; page < WIX_QUERY_MAX_PAGES; page++) {
+    const r = await wixQueryDataItems(
+      { dataCollectionId: args.dataCollectionId, limit: pageSize, offset: page * pageSize },
+      deps,
+    );
+    // First page error → surface it. A later-page error → keep the partial
+    // rows already gathered (do not lose a near-complete read to one blip).
+    if (!r.ok) {
+      if (page === 0) return r;
+      log.warn("[wix-client] wixQueryAllDataItems: mid-pagination page failed; returning partial", {
+        dataCollectionId: args.dataCollectionId,
+        pagesFetched: page,
+        itemsSoFar: all.length,
+        reason: r.reason,
+      });
+      break;
+    }
+    for (const it of r.value) all.push(it);
+    if (r.value.length < pageSize) return { ok: true, value: all }; // last page
+    if (page === WIX_QUERY_MAX_PAGES - 1) {
+      log.warn("[wix-client] wixQueryAllDataItems: hit WIX_QUERY_MAX_PAGES ceiling; collection truncated", {
+        dataCollectionId: args.dataCollectionId,
+        maxPages: WIX_QUERY_MAX_PAGES,
+        itemsReturned: all.length,
+      });
+    }
+  }
+  return { ok: true, value: all };
 }
 
 /** GET one item by id (Wix Data v2 Get Data Item). */

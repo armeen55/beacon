@@ -16,7 +16,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { wixQueryDataItems, type WixDeps } from "./client";
+import { wixQueryAllDataItems, type WixDeps } from "./client";
 import type { WixCollectionMapping, WixUrlMapEntry } from "./types";
 
 const MAP_STORE = "wix-url-map";
@@ -187,8 +187,8 @@ export async function syncWixUrlMap(
   const base = args.siteBaseUrl.replace(/\/+$/, "");
 
   for (const mapping of config) {
-    const items = await wixQueryDataItems(
-      { dataCollectionId: mapping.dataCollectionId, limit: 1000 },
+    const items = await wixQueryAllDataItems(
+      { dataCollectionId: mapping.dataCollectionId },
       deps,
     );
     if (!items.ok) {
