@@ -265,6 +265,47 @@ describe("enrichPromotionRow — content drafts", () => {
     expect(out.proposed_text).toBe("Persian Tea Houses");
   });
 
+  it("edit_title (query trigger): LEADS the title with the searched term, not the page h1 (2026-06-16)", () => {
+    // gsc_low_ctr / striking-distance fire BECAUSE the query is absent from the
+    // title; the fix must put it there. The page's own h1 ("Persian Tea
+    // Houses") must NOT win over the query the page actually needs to rank for.
+    const target = snap(); // URL_A, h1 "Persian Tea Houses"
+    const s2 = snap({ url: "https://example-site.com/rugs/qom", title: "Persian Rugs | Iranopedia" });
+    const s3 = snap({ url: "https://example-site.com/flags", title: "Iran Flags | Iranopedia" });
+    const s4 = snap({ url: "https://example-site.com/cities/tehran", title: "Tehran | Iranopedia" });
+    const out = enrichPromotionRow(
+      row(),
+      candidate({ trigger_signal: "gsc_low_ctr", topic_cluster_label: "persian rug prices" }),
+      ctxOf(target, s2, s3, s4),
+    );
+    expect(out.proposed_text).toBe("Persian Rug Prices | Iranopedia");
+  });
+
+  it("edit_title (query trigger): a long-tail query falls back to the page base (no unwieldy title)", () => {
+    const longQuery =
+      "where can i find the best authentic handmade persian tea houses near downtown tehran";
+    const out = enrichPromotionRow(
+      row(),
+      candidate({
+        trigger_signal: "gsc_striking_distance",
+        topic_cluster_label: longQuery,
+        target_url: "https://example-site.com/x",
+      }),
+      ctxOf(snap({ url: "https://example-site.com/x", title: "Old", h1: "Tea House Guide", h2_list: [] })),
+    );
+    // Over the length cap → keeps the page's own base, not the 80-char query.
+    expect(out.proposed_text).toBe("Tea House Guide");
+  });
+
+  it("edit_title (non-query trigger): the query-lead never applies — missing_title keeps the h1 base", () => {
+    const out = enrichPromotionRow(
+      row(),
+      candidate({ trigger_signal: "missing_title", topic_cluster_label: "ignored label" }),
+      ctxOf(snap({ h1: "Real Page Heading", h2_list: [], title: null })),
+    );
+    expect(out.proposed_text).toBe("Real Page Heading");
+  });
+
   it("edit_meta: clips real body copy to ≤155 chars on a word boundary", () => {
     const out = enrichPromotionRow(
       row({ action_type: "edit_meta" }),

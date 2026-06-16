@@ -412,23 +412,51 @@ const FIX_VERIFY_PLAN =
 const AEO_MEASURE_PLAN =
   "After you publish this, Beacon watches how often AI assistants recommend this page and reports the change on the Proof tab. Perplexity usually reflects edits within about two weeks; Google and ChatGPT take longer, so give it a few weeks before judging the result.";
 
+// Query-bearing edit_title triggers (2026-06-16): these set
+// topic_cluster_label to the actual GSC/SEMrush query AND fire ONLY when that
+// query is absent from the current title (the trigger's own containment guard)
+// — so the whole point of the fix is to get the searched term INTO the title.
+// For these, lead the proposed title with the query (the search intent);
+// every other trigger (missing/duplicate/mismatch) keeps the page's own
+// h1/slug base, unchanged.
+const QUERY_TITLE_TRIGGERS: ReadonlySet<string> = new Set([
+  "gsc_low_ctr",
+  "gsc_striking_distance",
+  "semrush_striking_distance",
+]);
+/** A query short enough to BE a title (avoid turning a long-tail query into an
+ *  unwieldy title — fall back to the page's own base above this). */
+const MAX_QUERY_TITLE_CHARS = 60;
+
 function composeTitle(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot | undefined,
   brand: { separator: string; suffix: string } | null,
 ): DraftFill | null {
   const current = snap?.title?.trim() ?? "";
+  // Query-lead base for the query-bearing triggers (when the query is a
+  // sensible title length); else null so the page-base logic below runs.
+  const queryLabel = candidate.topic_cluster_label.trim();
+  const queryBase =
+    QUERY_TITLE_TRIGGERS.has(candidate.trigger_signal) &&
+    queryLabel.length > 0 &&
+    queryLabel.length <= MAX_QUERY_TITLE_CHARS &&
+    !isCmsPlaceholder(queryLabel)
+      ? titleCaseLabel(queryLabel)
+      : "";
   // Base candidates in preference order, skipping CMS template residue
   // ("Page Title" et al.). The URL slug beats the cluster label: for
   // trigger candidates the cluster label is the TRIGGER's name ("Page
   // title"), not the page's topic — the slug is the page naming itself.
   const base =
-    [
-      snap?.h1?.trim() ?? "",
-      snap?.h2_list?.[0]?.trim() ?? "",
-      titleFromSlug(candidate.target_url ?? ""),
-      titleCaseLabel(candidate.topic_cluster_label.trim()),
-    ].find((b) => b.length > 0 && !isCmsPlaceholder(b)) ?? "";
+    queryBase !== ""
+      ? queryBase
+      : ([
+          snap?.h1?.trim() ?? "",
+          snap?.h2_list?.[0]?.trim() ?? "",
+          titleFromSlug(candidate.target_url ?? ""),
+          titleCaseLabel(candidate.topic_cluster_label.trim()),
+        ].find((b) => b.length > 0 && !isCmsPlaceholder(b)) ?? "");
   if (!base) return null;
   const proposed = brand ? `${base}${brand.separator}${brand.suffix}` : base;
   if (proposed.trim().length === 0 || proposed.trim() === current) return null;
