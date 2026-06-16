@@ -71,6 +71,24 @@ type Props = {
    *  the operator previously authorized the connector at some
    *  point) AND status is "disconnected". `null` otherwise. */
   gscStaleCopy?: string | null;
+  /** MAX_SEO_AEO Phase 4 (2026-06-16) — pre-composed GSC readiness for the
+   *  card: the resolved property (the one synced data landed under, derived
+   *  from the tenant's own rows — never hardcoded), a plain-English
+   *  headline/detail, a hard not-ready verdict, and a tone for styling. All
+   *  computed server-side in page.tsx (the loader is server-only + does no live
+   *  Google call). Always present (the page soft-fails to a not_connected
+   *  shape) so the card can always render an honest readiness line. */
+  gscReadiness?: {
+    verdict:
+      | "ready"
+      | "connected_no_data"
+      | "not_connected"
+      | "needs_reconnect";
+    headline: string;
+    detail: string;
+    tone: "ready" | "attention" | "idle";
+    property: string | null;
+  };
   /** Slice 9.A1β (2026-05-18) — pre-rendered "Google Analytics data
    *  last refreshed X days ago" copy. Computed server-side in
    *  page.tsx. Present only when the GA4 connector has a non-null
@@ -133,6 +151,7 @@ export function ConnectorsClient({
   clarity: initialClarity,
   configYelpBusinessId,
   gscStaleCopy = null,
+  gscReadiness,
   ga4StaleCopy = null,
 }: Props) {
   const router = useRouter();
@@ -706,7 +725,11 @@ export function ConnectorsClient({
       {/* ── Google Search Console (GSC) ── */}
       {/* GBP card is deferred to a follow-up slice. The GBP server action +
           OAuth path are still wired (kind="gbp"); no UI exposes them yet. */}
-      <div className="rounded-lg border border-border/60 bg-surface-inset/20">
+      <div
+        data-connector-card="google-gsc"
+        data-gsc-readiness={gscReadiness?.verdict ?? "not_connected"}
+        className="rounded-lg border border-border/60 bg-surface-inset/20"
+      >
         <div className="px-5 py-4 flex items-start justify-between gap-4">
           <div className="min-w-0 space-y-1">
             <h3 className="text-[13px] font-semibold text-foreground">
@@ -822,6 +845,47 @@ export function ConnectorsClient({
         <div className="px-5 pb-3">
           <ConnectorCapability {...CONNECTOR_CAPABILITY.google_gsc} />
         </div>
+
+        {/* ── Readiness (MAX_SEO_AEO Phase 4, 2026-06-16) ──
+            Surfaces the RESOLVED property (derived from the tenant's own synced
+            rows — never hardcoded), the backfill window + freshness, and a hard
+            NOT-READY line when the connection can't actually deliver data.
+            READ-ONLY: every figure is pre-composed server-side from persisted
+            state (no live Google call). The verdict is also mirrored onto
+            data-gsc-readiness on the card wrapper for testability. */}
+        {gscReadiness ? (
+          <div
+            className="border-t border-border/40 px-5 py-3 space-y-1"
+            data-gsc-readiness-section={gscReadiness.verdict}
+          >
+            {gscReadiness.verdict !== "ready" ? (
+              <p
+                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                  gscReadiness.tone === "attention"
+                    ? "bg-status-warning/[0.12] text-status-warning"
+                    : "bg-surface-inset/60 text-muted-foreground"
+                }`}
+                role="status"
+              >
+                {gscReadiness.verdict === "needs_reconnect"
+                  ? "Reconnect needed"
+                  : gscReadiness.verdict === "connected_no_data"
+                    ? "Connected · no data yet — pull to backfill"
+                    : "Not ready"}
+              </p>
+            ) : (
+              <p className="inline-flex items-center gap-1.5 rounded-md bg-status-success/[0.12] px-2 py-0.5 text-[11px] font-semibold text-status-success">
+                Ready
+              </p>
+            )}
+            <p className="text-[12px] font-medium text-foreground">
+              {gscReadiness.headline}
+            </p>
+            <p className="text-[12px] text-muted-foreground">
+              {gscReadiness.detail}
+            </p>
+          </div>
+        ) : null}
 
         {/* ── Location picker (Google connected) — GBP only ── */}
         {GBP_AFFORDANCES_ENABLED && google.status === "connected" ? (

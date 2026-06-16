@@ -1,6 +1,13 @@
 import { getConnectorInfo, getGoogleConnectorToken } from "@/lib/connector-store";
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
+import {
+  loadGscReadiness,
+  describeGscReadiness,
+  type GscReadinessVerdict,
+  type GscReadinessTone,
+} from "@/lib/connectors/gsc/readiness";
+import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient } from "./connectors-client";
 
@@ -41,6 +48,41 @@ export default async function ConnectorsPage() {
         })
       : null;
 
+  // MAX_SEO_AEO Phase 4 (2026-06-16) — GSC readiness surfacing. READ-ONLY:
+  // composes the resolved property + backfill window + freshness + a hard
+  // "not ready" verdict from the persisted token state + synced rows (no live
+  // Google call). Soft-fail: any loader error degrades to a coherent
+  // not_connected verdict so the page never crashes. Pages stay thin — the
+  // verdict logic + plain-English copy live in the loader/presenter.
+  let gscReadiness: {
+    verdict: GscReadinessVerdict;
+    headline: string;
+    detail: string;
+    tone: GscReadinessTone;
+    property: string | null;
+  };
+  try {
+    const tid = await currentTenantId();
+    const readiness = await loadGscReadiness(tid);
+    const described = describeGscReadiness(readiness);
+    gscReadiness = {
+      verdict: readiness.verdict,
+      headline: described.headline,
+      detail: described.detail,
+      tone: described.tone,
+      property: readiness.property,
+    };
+  } catch {
+    gscReadiness = {
+      verdict: "not_connected",
+      headline: "Not connected",
+      detail:
+        "Connect Google Search Console so Beacon can see what people search to find you.",
+      tone: "idle",
+      property: null,
+    };
+  }
+
   // Slice 9.A1β (2026-05-18) — GA4 stale copy mirrors GSC's pattern.
   // Server-side render keeps the formatting helper inlined (the GSC
   // helper says "GSC" verbatim; the GA4 surface needs "Google
@@ -75,6 +117,7 @@ export default async function ConnectorsPage() {
         clarity={clarity}
         configYelpBusinessId={cfg.yelpBusinessId ?? ""}
         gscStaleCopy={gscStaleCopy}
+        gscReadiness={gscReadiness}
         ga4StaleCopy={ga4StaleCopy}
       />
     </div>

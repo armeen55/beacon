@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-16 PHASE 4 (MAX_SEO_AEO audit P0 #4 / gaps #51-#54 — GSC connector readiness surfaced)
+
+GSC already AUTO-resolves the property shape (URL-prefix vs sc-domain) from the tenant domain (`resolveProperty`→`gscListSites`→`pickGscPropertyForDomain`; #54 solved in code) — so Phase 4 is READ-ONLY VISIBILITY: show the resolved property + data coverage + a hard not-ready state on the GSC card (no manual picker, no migration, no live Google call at render).
+- **NEW `src/lib/connectors/gsc/readiness.ts`:** `loadGscReadiness(tenantId)` → reads token state + the `gsc_daily_rows` table (tenant-scoped: distinct property + min/max date + row count; soft-fail no-env/42P01 → coherent verdict, never throws) → `{verdict: ready|connected_no_data|not_connected|needs_reconnect, property, coverage{fromDate,toDate,rowCount}, lastDataDate, freshnessDays}`. Pure `describeGscReadiness()` presenter — plain-English, white-label, no invented numbers.
+- **Surface:** `page.tsx` composes readiness server-side (soft-fail) → `connectors-client.tsx` GSC card renders a readiness band (resolved property + "Search data {from}–{to} · N rows · refreshed Xd ago" + badge), `data-gsc-readiness="<verdict>"`. needs_reconnect/connected_no_data states are explicit.
+- **Gates (parent-owned):** typecheck clean; gsc + settings + architecture **5,334 pass** (+22 new: 17 readiness loader/presenter — each verdict, auth-failed-outranks-data, multi-property pick, tenant-scoped read shape, soft-fail, no-invented-numbers; 5 card render); build ✓. No hardcoding (property derived from the tenant's own synced rows). ⚠️ LIVE readiness vs real Iranopedia GSC data = operator ground-truth (fixtures used).
+
+---
+
 ## 2026-06-16 PHASE 3 (MAX_SEO_AEO audit P0 #3 — AEO-honesty: no "0 AI answers" without Profound) — VERIFIED DONE, no code change
 
 Audit P0 #3 (gaps #3/#9/#155): recs/surfaces must not imply AEO absence ("0 AI answers") when no Profound/observation evidence exists. **Verified already satisfied on this branch (truth-up, not churn):**
