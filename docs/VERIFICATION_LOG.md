@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PM-13 (value loop: customer Approve & Push + "Fix these first" source fusion)
+
+Two ships after the PM-12 dashboard audit — closing the value loop + adding a new fusion capability.
+
+- **Customer "Approve & Push" (`f8e1a11`, root cause #1):** the one-click publish was operator-only (`/diagnostics/wix`); now on the customer rec-detail (`/recommendations/[id]`). `page.tsx` resolves `canPublishForCurrentTenant()` (fail-soft false) → threaded through RecommendationDetailClient → RecommendationDetailActions; button shows only when `canPublish && status==="accepted" && editId`; NEVER auto-fires (click = per-edit Wix-rail approval); honest outcomes (pushed / verified_live / dev_note advise / refused). **Live e2e on Ritz (dev_note → ZERO write):** Accept → button appears → click → "Beacon can't publish to this site automatically yet. Here's the exact change to make: ## Architect-designed custom homes (new H2)…". 3 render-gating tests. TRUTH-UP: live `wix_cms` write path (Iranopedia) render-only (never clicked — owner's approval, not mine); customer-route REVERT is the documented fast-follow (operator revert still on /diagnostics/wix).
+- **"Fix these first" fusion (`afacfbd`, NEW capability):** pure `buildFixFirstPages(gscDecay, clarity)` intersects GSC decliners × Clarity friction pages (same thresholds as the per-card breakdowns), ranked by combined severity; `FixFirstCallout` leads the command center, self-hides when no overlap. No single source reveals this; the fusion does. **Live (Iranopedia):** "Fix these first — /funny-farsi-phrases −36% clicks · 94% friction; /persian-male-names −38% · 26%". Ritz → self-hides (no GSC decay). Reuses already-loaded maps (no extra read).
+- **Gates:** typecheck clean; build PASS; regression sweep across `src/components/today` + `tests/domains/today-summary` + `tests/app/recommendations` + `src/app/(shell)` = 573 pass / 1 skip.
+
+---
+
 ## 2026-06-15 PM-12 (/today dashboard brutal-audit — 4 honesty/IA batches, both tenants ground-truthed)
 
 **Trigger:** operator pasted the LIVE Iranopedia `/today` render and asked for a brutally-honest audit + fix-everything, bar = "best smartest dashboard ever, 20x better than an SEO associate". Read-only audit workflow `wf_ba5ca03c-ea2` (6 section agents) mapped every section → code + root cause + fix. Fixed worst-first in 4 verified+pushed batches:
