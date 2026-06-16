@@ -42,9 +42,13 @@ import {
 } from "@/domains/recommendations/action-types";
 import { buildCopyTile } from "@/domains/recommendations/suggested-copy-adapters";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
-import { composeWhyThisMatters } from "@/domains/recommendations/why-this-matters-narrative";
+import {
+  buildWhyInput,
+  composeWhyThisMatters,
+} from "@/domains/recommendations/why-this-matters-narrative";
 import { cn } from "@/lib/utils";
 import { RecommendationDetailActions } from "./recommendation-detail-actions";
+import { WhyThisMattersAct } from "./why-this-matters-act";
 import { SuggestedCopyAct } from "./suggested-copy-act";
 import { parseGscEvidenceStats } from "@/components/recommendations/v2/recommendation-v2-card";
 
@@ -221,20 +225,15 @@ export function RecommendationDetailClient({
   // `why` so no new unguarded text is introduced. Honest + white-label:
   // it omits any clause whose data is absent and never names the
   // answer-engine vendor.
-  const whyThisMatters = composeWhyThisMatters({
-    actionType: row.actionType,
-    targetLabel,
-    why,
-    affectedPromptTexts,
-    competitor,
-    gscEvidenceLines,
-    semrushEvidenceLines,
-    clarityEvidenceLines,
-    aeoEvidenceLines,
-    promptCount,
-    observationCount,
-    derivedConfidence: row.derivedConfidence,
-  });
+  //
+  // The input assembly is lifted into `buildWhyInput` (shared with the
+  // LLM server action) so the deterministic baseline AND the optional
+  // LLM sharpening start from byte-identical input. This is the INSTANT
+  // baseline; `WhyThisMattersAct` then post-mount-enhances it via the
+  // flagged LLM path (no-op when BEACON_LLM_WHY is off).
+  const whyThisMatters = composeWhyThisMatters(
+    buildWhyInput(row, promptTextById, competitorNames),
+  );
 
   // Bundle 2C (2026-05-11) — legacy-anchor and open-change hrefs moved
   // into RecommendationDetailActions where they sit alongside the inline
@@ -495,23 +494,22 @@ export function RecommendationDetailClient({
           attr; the confidence explainer below it keeps the honest
           "needs more evidence" caution ONLY when needs_review — for
           moderate/strong the narrative itself carries the conviction so
-          the generic hedge is dropped. */}
+          the generic hedge is dropped.
+
+          Slice B (2026-06-16): `WhyThisMattersAct` renders the
+          deterministic sentences INSTANTLY, then post-mount calls the
+          flagged LLM path (BEACON_LLM_WHY) to SHARPEN them. When the
+          flag is off the action always returns null → byte-for-byte
+          today's output. Read-only enhancement; never published. */}
       <Act
         index={2}
         label="Why this matters"
         dataAttr="act-why"
       >
-        <div className="space-y-2 max-w-2xl">
-          {whyThisMatters.map((sentence, i) => (
-            <p
-              key={i}
-              className="text-[13px] text-foreground/85 leading-relaxed"
-              {...(i === 0 ? { "data-recommendation-detail-why": "true" } : {})}
-            >
-              {sentence}
-            </p>
-          ))}
-        </div>
+        <WhyThisMattersAct
+          recId={row.id}
+          sentences={whyThisMatters}
+        />
         {row.derivedConfidence === "needs_review" && (
           <p
             className="mt-3 text-[12px] leading-relaxed text-muted-foreground"

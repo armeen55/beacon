@@ -260,6 +260,21 @@ describe("Bundle 2B — RecommendationDetailClient", () => {
     expect(html).not.toContain('data-recommendation-detail-evidence-empty="true"');
   });
 
+  it("Act 2 renders the deterministic baseline via WhyThisMattersAct (SSR = flag-off byte-for-byte)", () => {
+    // Slice B (2026-06-16): Act 2's body is now WhyThisMattersAct, which
+    // post-mounts the optional LLM sharpening. At SSR (and whenever the
+    // BEACON_LLM_WHY action returns null — the default) the rendered
+    // output is the deterministic baseline, with the
+    // `data-recommendation-detail-why` attr still on the first sentence.
+    const html = render(makeRow());
+    expect(html).toContain('data-recommendation-detail-why-act="true"');
+    expect(html).toContain('data-recommendation-detail-why="true"');
+    // No in-flight caption at SSR (useEffect hasn't run).
+    expect(html).not.toContain(
+      'data-recommendation-detail-why-sharpening="true"',
+    );
+  });
+
   it("renders the calm 'needs more evidence' message in Act 2 when confidence is needs_review", () => {
     const html = render(
       makeRow({

@@ -132,6 +132,12 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // documented OpenAI egress — gated by the same BEACON_LLM_PROVIDER
   // config, capped at MAX_ITEMS_PER_RUN per run, cost stamped per card.
   "src/domains/push/cluster-factory.ts",
+  // why-narrative (2026-06-16): the LLM-synthesized rec "Why this matters"
+  // (Act 2). READ-ONLY display text, never published; gated behind
+  // BEACON_LLM_WHY (default off) + checkBudget + an 8s timeout; output is
+  // white-label + no-invented-numbers sanitized, with the deterministic
+  // synthesis as the always-present fallback.
+  "src/domains/recommendations/llm-why-narrative.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {

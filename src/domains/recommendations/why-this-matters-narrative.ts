@@ -34,7 +34,11 @@
  * so this module introduces no new unguarded text.
  */
 
-import type { ActionRowType } from "./recommendation-action-rows";
+import type {
+  ActionRowType,
+  RecommendationActionRow,
+} from "./recommendation-action-rows";
+import { checkWhyDisplaySafe } from "./why-display-guard";
 import type { EvidenceLine } from "@/domains/recommendation-intelligence/evidence-summary";
 
 export type WhyThisMattersInput = {
@@ -250,4 +254,61 @@ export function composeWhyThisMatters(input: WhyThisMattersInput): string[] {
     return [WHY_THIS_MATTERS_EMPTY];
   }
   return sentences;
+}
+
+/**
+ * Assemble the `WhyThisMattersInput` from a resolved `RecommendationActionRow`
+ * + the prompt-text lookup. SINGLE SOURCE of the assembly so the detail
+ * client (deterministic baseline) and the LLM server action (progressive
+ * enhancement) build byte-identical input — there is no second, drifting
+ * copy of this logic.
+ *
+ * Mirrors the prior inline assembly in `recommendation-detail-client.tsx`:
+ *   • runs the raw `why` (evidenceSummary || detail.why) through the
+ *     render-time display guard — so the LLM path never sees unguarded text
+ *     either;
+ *   • derives up to 3 affected prompt-text snippets from `evidenceRefs`
+ *     (entries that carry a `promptId`) via `promptTextById`.
+ *
+ * Pure. Same row → same input.
+ */
+export function buildWhyInput(
+  row: RecommendationActionRow,
+  promptTextById: Record<string, string>,
+  competitorNames?: ReadonlyArray<string>,
+): WhyThisMattersInput {
+  const rawWhy = row.evidenceSummary?.trim() || row.detail.why?.trim() || null;
+  const whyGuard = checkWhyDisplaySafe(rawWhy, { competitorNames });
+  const why =
+    rawWhy === null
+      ? null
+      : whyGuard.ok
+        ? whyGuard.text
+        : whyGuard.fallback;
+
+  const affectedPromptTexts: string[] = [];
+  for (const ref of row.detail.evidenceRefs) {
+    if (affectedPromptTexts.length >= 3) break;
+    const promptId = (ref as { promptId?: string | null }).promptId ?? null;
+    if (!promptId) continue;
+    const text = promptTextById[promptId];
+    if (typeof text === "string" && text.trim().length > 0) {
+      affectedPromptTexts.push(text.trim());
+    }
+  }
+
+  return {
+    actionType: row.actionType,
+    targetLabel: row.targetLabel,
+    why,
+    affectedPromptTexts,
+    competitor: row.detail.topCompetitor,
+    gscEvidenceLines: row.detail.gscEvidenceLines ?? [],
+    semrushEvidenceLines: row.detail.semrushEvidenceLines ?? [],
+    clarityEvidenceLines: row.detail.clarityEvidenceLines ?? [],
+    aeoEvidenceLines: row.detail.aeoEvidenceLines ?? [],
+    promptCount: row.detail.affectedPromptCount,
+    observationCount: row.detail.observationCount,
+    derivedConfidence: row.derivedConfidence,
+  };
 }
