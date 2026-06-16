@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — Slice 2 (deterministic copy-artifact gate)
+
+Closes audit cross-cutting RISK #3: Beacon-drafted "Suggested copy" that is not actually publishable copy.
+- **NEW `src/domains/recommendations/copy-artifact-guard.ts` (pure):** `detectCopyArtifact(text)` → `instruction_artifact` ("Change the page title to …" — verb + SEO-element object, high precision) | `repeated_action_word` ("Add Add …", anchored leading compose-verb + case-insensitive backref) | `duplicate_brand_suffix` ("Title | Brand | Brand" — last two `|`/dash segments equal) | null. Plus directive-PHASE-E length budgets (`TITLE_HARD_MAX_CHARS=60`/ideal-min 50, `META_HARD_MAX_CHARS=155`/ideal 135–150) with `titleLengthVerdict`/`metaLengthVerdict` — a QUALITY signal, deliberately NOT a suppressor (a long-but-valid title still renders).
+- **Composed into the existing render guard:** `checkCopyDisplaySafe` (suggested-copy-display-guard.ts) now also fails on the three artifacts (new `DisplayGuardReason`s). Single wiring point — `buildCopyTile` already guards every Suggested-Copy field, so artifact-bearing copy now renders the calm fallback with NO new render wiring. No false-positives on legit copy (recipe steps, single brand suffix, verb-led product titles).
+- **Gate:** typecheck clean; **+22 unit tests** (instruction/repeated/dup-brand positives + the non-false-positive cases + the guard composition + length budgets); existing suggested-copy-display-guard + adapters suites green (no regression); recs + architecture **5,275 pass** (after adding the Slice-1 pin's catalog row — catalog-sync green); build ✓. Pure, no push/env/migration. (Title-composition "Add Add" dedup at the row builder is a separate, lower-value composition-layer follow-up — audit severity:info, no known live instances.)
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — PHASE A (audit) + Slice 1 (evidence-line display guard)
 
 New mission (operator directive): turn Beacon into a world-class review-gated SEO/AEO/GEO operator — no hardcoded vertical/keyword/brand rules; judgments from structured evidence + tenant config + deterministic gates + LLM-over-structured-inputs. Started with the directive's PHASE A: read the code, assume nothing.

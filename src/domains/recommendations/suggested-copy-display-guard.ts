@@ -17,8 +17,17 @@
  * before showing here.") at the act level. The guard never mutates
  * the input and never edits the database.
  *
- * Pure. Deterministic. No I/O. No imports outside built-in JS.
+ * Expert-rec-engine Slice 2 (2026-06-16): composes `detectCopyArtifact`
+ * (copy-artifact-guard.ts) so the guard ALSO fails copy that is an instruction
+ * about the edit ("Change the page title to …"), a doubled leading verb
+ * ("Add Add …"), or a duplicated brand suffix ("Title | Brand | Brand") —
+ * none of which is publishable copy. Same binary contract: a failed string
+ * renders the calm fallback at the act level.
+ *
+ * Pure. Deterministic. No I/O. No Supabase/LLM imports.
  */
+
+import { detectCopyArtifact } from "./copy-artifact-guard";
 
 // ── Hard-blocked tokens ───────────────────────────────────────────────────
 //
@@ -142,7 +151,11 @@ export type DisplayGuardReason =
   | "uuid"
   | "internal_token"
   | "snake_case_identifier"
-  | "camel_case_identifier";
+  | "camel_case_identifier"
+  // Slice 2 — copy is not actually publishable copy (artifact of compose).
+  | "instruction_artifact"
+  | "repeated_action_word"
+  | "duplicate_brand_suffix";
 
 export type DisplayGuardResult =
   | { safe: true }
@@ -207,6 +220,13 @@ export function checkCopyDisplaySafe(
       reason: "camel_case_identifier",
       match: camelMulti[0],
     };
+  }
+
+  // Slice 2 — copy-artifact rails: an instruction about the edit, a doubled
+  // leading verb, or a duplicated brand suffix is not publishable copy.
+  const artifact = detectCopyArtifact(text);
+  if (artifact) {
+    return { safe: false, reason: artifact, match: text.trim() };
   }
 
   return { safe: true };
