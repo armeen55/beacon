@@ -175,6 +175,33 @@ describe("wix mappings-store — Supabase persistence + tenant isolation", () =>
     expect(await getWixUrlMap()).toEqual([]);
   });
 
+  it("authoritativeCollectionIds scopes stale-delete — a transiently-failed collection's rows are PRESERVED, not wiped", async () => {
+    mockState.tenant = "tenant-a";
+    // Seed: collection A (2 pages) + collection B (1 page) already mapped.
+    const mk = (url: string, col: string, id: string): WixUrlMapEntry => ({
+      url, dataCollectionId: col, dataItemId: id, slugField: "slug", label: null, syncedAt: "2026-06-16T00:00:00.000Z",
+    });
+    await writeWixUrlMap([mk("https://x/a1", "A", "a1"), mk("https://x/a2", "A", "a2"), mk("https://x/b1", "B", "b1")]);
+    // Re-sync where ONLY A succeeded (B's query transiently failed → not in
+    // entries, not authoritative). A now resolves to just a1 (a2 dropped).
+    await writeWixUrlMap([mk("https://x/a1", "A", "a1")], { authoritativeCollectionIds: ["A"] });
+    const urls = (await getWixUrlMap()).map((e) => e.url).sort();
+    // a2 = stale within authoritative A → deleted; b1 = collection B (NOT
+    // authoritative this run) → PRESERVED (no wipe on partial sync).
+    expect(urls).toEqual(["https://x/a1", "https://x/b1"]);
+  });
+
+  it("authoritative collection that synced to ZERO items still clears its rows", async () => {
+    mockState.tenant = "tenant-a";
+    const mk = (url: string, col: string, id: string): WixUrlMapEntry => ({
+      url, dataCollectionId: col, dataItemId: id, slugField: "slug", label: null, syncedAt: "2026-06-16T00:00:00.000Z",
+    });
+    await writeWixUrlMap([mk("https://x/a1", "A", "a1"), mk("https://x/b1", "B", "b1")]);
+    // Both A and B synced OK this run, but A returned zero items (authoritative + empty).
+    await writeWixUrlMap([mk("https://x/b1", "B", "b1")], { authoritativeCollectionIds: ["A", "B"] });
+    expect((await getWixUrlMap()).map((e) => e.url)).toEqual(["https://x/b1"]); // A's a1 cleared
+  });
+
   it("durable REPLACE — a save updates in place + drops only absent keys", async () => {
     mockState.tenant = "tenant-a";
     await saveWixCollectionConfig([

@@ -223,8 +223,25 @@ export async function getWixUrlMap(): Promise<WixUrlMapEntry[]> {
   return (data ?? []).map((r) => mapRowToEntry(r as MapRow));
 }
 
+/**
+ * Persist the url map. `opts.authoritativeCollectionIds` scopes the
+ * stale-delete: ONLY rows whose `data_collection_id` is in that set are
+ * candidates for deletion (rows of collections NOT in the set are preserved).
+ *
+ * WHY: syncWixUrlMap accumulates entries only for collections whose Wix query
+ * SUCCEEDED. On a PARTIAL sync (one collection's query transiently 5xx'd /
+ * timed out), the desired set is missing that collection's rows — without this
+ * scope, the durable delete-stale would wipe that collection's url map, killing
+ * push-readiness for its pages until a clean full re-sync (the rows are
+ * sync-derived, not re-pasteable). Passing only the SUCCESSFULLY-synced
+ * collection ids makes a failed collection a no-op (its rows survive untouched),
+ * while a collection that genuinely synced to zero items is still cleared
+ * (it IS authoritative). Omit the option (operator-save / full replace) for the
+ * original delete-any-stale-url behavior.
+ */
 export async function writeWixUrlMap(
   entries: WixUrlMapEntry[],
+  opts?: { authoritativeCollectionIds?: readonly string[] },
 ): Promise<void> {
   let admin;
   try {
@@ -257,18 +274,71 @@ export async function writeWixUrlMap(
       );
     }
   }
-  const deleted = await deleteStaleKeys(
-    admin,
-    MAP_TABLE,
-    tid,
-    "url",
-    entries.map((e) => e.url),
-  );
+  const deleted =
+    opts?.authoritativeCollectionIds != null
+      ? await deleteStaleUrlsScoped(
+          admin,
+          tid,
+          entries.map((e) => e.url),
+          opts.authoritativeCollectionIds,
+        )
+      : await deleteStaleKeys(
+          admin,
+          MAP_TABLE,
+          tid,
+          "url",
+          entries.map((e) => e.url),
+        );
   if (deleted === "undefined_table") {
     await writeStore(MAP_STORE, entries);
     return;
   }
   await mirrorToFile(MAP_STORE, entries);
+}
+
+/**
+ * Scoped url-map stale-delete: removes only rows whose `data_collection_id` is
+ * in `authoritativeCollectionIds` AND whose url is no longer desired. Rows of
+ * collections NOT in the authoritative set (e.g. a collection whose sync
+ * transiently failed) are left UNTOUCHED — never wiped.
+ */
+async function deleteStaleUrlsScoped(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  tid: string,
+  desiredUrls: string[],
+  authoritativeCollectionIds: readonly string[],
+): Promise<"ok" | "undefined_table"> {
+  const authoritative = new Set(authoritativeCollectionIds);
+  const keep = new Set(desiredUrls);
+  const ex = await admin
+    .from(MAP_TABLE)
+    .select("url,data_collection_id")
+    .eq("tenant_id", tid);
+  if (ex.error != null) {
+    if (isUndefinedTableError(ex.error)) return "undefined_table";
+    throw new Error(
+      `wix-mappings-store: read existing url-map failed: ${ex.error.message ?? String(ex.error)}`,
+    );
+  }
+  const stale = (ex.data ?? [])
+    .map((r) => r as unknown as { url?: unknown; data_collection_id?: unknown })
+    .filter(
+      (r): r is { url: string; data_collection_id: string } =>
+        typeof r.url === "string" &&
+        typeof r.data_collection_id === "string" &&
+        authoritative.has(r.data_collection_id) &&
+        !keep.has(r.url),
+    )
+    .map((r) => r.url);
+  if (stale.length === 0) return "ok";
+  const del = await admin.from(MAP_TABLE).delete().eq("tenant_id", tid).in("url", stale);
+  if (del.error != null) {
+    if (isUndefinedTableError(del.error)) return "undefined_table";
+    throw new Error(
+      `wix-mappings-store: scoped delete stale urls failed: ${del.error.message ?? String(del.error)}`,
+    );
+  }
+  return "ok";
 }
 
 // ─────────────────────────────────────────────────────────────────────

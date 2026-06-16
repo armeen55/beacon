@@ -173,6 +173,12 @@ export async function syncWixUrlMap(
   const now = new Date().toISOString();
   const base = args.siteBaseUrl.replace(/\/+$/, "");
 
+  // Collections whose Wix query SUCCEEDED this run. Only these are
+  // "authoritative" for the durable stale-delete — a collection that
+  // transiently failed below is left out, so writeWixUrlMap preserves its
+  // existing rows instead of wiping its pages' push-readiness.
+  const okCollectionIds: string[] = [];
+
   for (const mapping of config) {
     const items = await wixQueryAllDataItems(
       { dataCollectionId: mapping.dataCollectionId },
@@ -182,6 +188,7 @@ export async function syncWixUrlMap(
       errors.push(`${mapping.dataCollectionId}: ${items.reason}${items.detail ? ` (${items.detail})` : ""}`);
       continue;
     }
+    okCollectionIds.push(mapping.dataCollectionId);
     for (const item of items.value) {
       const slugRaw = item.data[mapping.slugField];
       if (typeof slugRaw !== "string" || slugRaw === "") continue;
@@ -211,7 +218,9 @@ export async function syncWixUrlMap(
       probe: { checked: 0, ok: 0, failures: [] },
     };
   }
-  await writeWixUrlMap(entries);
+  // Scope the durable stale-delete to ONLY the collections that synced OK,
+  // so a partial Wix failure never wipes a skipped collection's url map.
+  await writeWixUrlMap(entries, { authoritativeCollectionIds: okCollectionIds });
   // #73: sampled live verification of the DERIVED urls (warn-only).
   const probe = await probeSampleUrls(entries, deps.fetchImpl ?? fetch);
   return { ok: true, collections: config.length, itemsMapped: entries.length, errors, probe };
