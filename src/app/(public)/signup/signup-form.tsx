@@ -95,9 +95,14 @@ export function SignupForm({
         {pending ? "Sending…" : "Send magic link"}
       </button>
       <p className="text-[11px] text-muted-foreground">
-        By continuing you agree to Beacon's terms. Free to set up. Running
-        AI readings and data refreshes uses paid APIs — you'll always see
-        the cost before you spend.
+        {/* #126 — previously asked the user to "agree to Beacon's terms"
+            with no /terms page or link anywhere, i.e. agreement to
+            invisible terms (a credibility hit for someone authorizing
+            edits to their live site). Until a real terms page exists,
+            don't request agreement to something that can't be read; keep
+            the honest, high-value cost disclosure. */}
+        Free to set up. Running AI readings and data refreshes uses paid
+        APIs — you'll always see the cost before you spend.
       </p>
     </form>
   );

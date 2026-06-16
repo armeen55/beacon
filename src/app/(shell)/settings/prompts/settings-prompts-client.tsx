@@ -241,7 +241,10 @@ export function SettingsPromptsClient({ rows }: { rows: PromptRow[] }) {
               onClick={() => onToggle(p)}
               disabled={togglingId === p.id}
               className={cn(
-                "shrink-0 text-[11px] font-medium px-2 py-1 rounded-md border disabled:opacity-50",
+                // #469 — was px-2 py-1 (~24px tall), below the comfortable
+                // touch minimum on the one control that activates/pauses a
+                // tracked prompt. Bumped to a roomier tap target.
+                "shrink-0 text-[12px] font-medium px-3 py-2 rounded-md border disabled:opacity-50",
                 p.is_active
                   ? "border-status-warning/40 text-status-warning hover:bg-status-warning/[0.05]"
                   : "border-status-success/40 text-status-success hover:bg-status-success/[0.05]",

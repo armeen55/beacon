@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-15 PM-5 (UX_TEARDOWN ⚠️-tier verification pass #2 — NOT committed, operator-gated)
+
+**Trigger:** continue `docs/UX_TEARDOWN_2026-06-15.md` — the ⚠️ "bad" tier (252 items) + high-value ▫︎. Verify each against current code; fix only genuinely-open SAFE customer-facing items; never churn or fake.
+
+**Newly FIXED (4):**
+- **#196** — `status-info` was referenced by 7 customer surfaces (recommendation-detail-client, recommendations-v2-working-rail, today-client, changes/truth) but never defined in `globals.css`, so every `bg-/text-status-info` class rendered colorless. Defined `--status-info` + `--status-info-bg` (`:root` + `.dark`) and the `@theme inline` mappings. Also added an sr-only `Status:` prefix to the v2-card status pill (`recommendation-v2-card.tsx`) so the state isn't a bare colored word.
+- **#197** — the two setup-blocking connector states (GSC "No location selected"; GA4 "Connected — select a property to finish setup") now carry a non-color `Action needed:` text prefix + `role="status"` (`connectors-client.tsx`), so urgency isn't amber-color-only and is announced on change.
+- **#469** — toggle tap target on `/settings/prompts` bumped `px-2 py-1`→`px-3 py-2` (text-[12px]); the live `/prompts` (PromptsV2Client) no longer renders these toggles at all.
+- **#126** — removed "By continuing you agree to Beacon's terms." from `signup-form.tsx` (agreement to a page that doesn't exist); kept the honest cost disclosure. Real /terms + /privacy pages = legal/product decision, left for operator. Launch-step consent was already operational (not legal), so no change there.
+
+**VERIFIED already-fixed, not re-touched (spot-checked in code):** #195, #248, #282/#323 (worst jargon done; rest operator-locked), #300, #304, #318, #387, #388, #397, #417, #454 (link only), #481, #499, #502, #506, #507, #508, #509, #510, #515, #520, #524 — overwhelmingly from a11y commit `1ca76ff` + prior golden-path/honest-copy batches. Customer-facing automation-claim strings ("every morning / tomorrow / nightly / recomputed nightly / backup attempts run automatically") = **0** in `src/app` + `src/components` (only operator `/diagnostics` + code comments remain).
+
+**Attended (NOT churned — needs product/legal/entangled decision):** #454 human-readable observation-run rebuild, #501 customer placeholder-config banner (gate-loader change), #294 prompt→rec deep-link wiring, #447 /competitors mobile grid (operator-only URL), remaining operator-locked type labels, real terms/privacy pages; all scheduler/autopilot + dual-surface + Wix-publish + migrations per task scope.
+
+**Files changed (5):** `src/app/globals.css`, `src/components/recommendations/v2/recommendation-v2-card.tsx`, `src/app/(shell)/settings/connectors/connectors-client.tsx`, `src/app/(public)/signup/signup-form.tsx`, `src/app/(shell)/settings/prompts/settings-prompts-client.tsx` (+ doc sync in UX_TEARDOWN).
+
+**GATES (all green):** `npm run typecheck` clean · confidence sweep `main-product-final-confidence-sweep` 954 pass · vocab/jargon/readiness/onboard suites (forbidden-customer-vocabulary, no-operator-jargon, customer-readiness-1/2, poll-health-copy, recommendation-intelligence-customer-copy-vocab, action-type-planner, signup-onboarding-routes, onboard-launch-step) 202 pass · `npm run build` PASS (20/20 pages). No Profound leak / automation claim on customer surfaces. **NOT committed — operator gates centrally.**
+
+---
+
 ## 2026-06-15 PM-4 (honest connector health + persisted "Reconnect" signal — PUSHED to main)
 
 **Trigger:** continuing the data-machine work — a connected source could show a confident green ✓ while delivering nothing (owner's "idk why it keeps limiting my data").

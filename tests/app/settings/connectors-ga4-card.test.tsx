@@ -120,7 +120,9 @@ describe("GA4 card — CONNECTED + NO PROPERTY state", () => {
       },
     });
     expect(html).toContain("Connected to Google Analytics");
-    expect(html).toContain("Select a property to finish setup");
+    // #197 — non-color "Action needed:" prefix + role=status (was color-only).
+    expect(html).toContain("Action needed:");
+    expect(html).toContain("select a property to finish setup");
     expect(html).toContain("Choose property");
     expect(html).toContain("Disconnect");
     expect(html).not.toContain("Connect Google Analytics</button>");

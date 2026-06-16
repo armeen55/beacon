@@ -53,6 +53,8 @@
     --color-status-danger-bg: var(--status-danger-bg);
     --color-status-neutral: var(--status-neutral);
     --color-status-neutral-bg: var(--status-neutral-bg);
+    --color-status-info: var(--status-info);
+    --color-status-info-bg: var(--status-info-bg);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -105,6 +107,14 @@
     --status-danger-bg: oklch(0.577 0.2 27 / 8%);
     --status-neutral: oklch(0.556 0 0);
     --status-neutral-bg: oklch(0.556 0 0 / 6%);
+    /* #196 — `status-info` (a calm blue "informational" tone for
+       Accepted / Measuring / in-progress states) was referenced by 7
+       customer surfaces (recommendation cards, working rail, /today,
+       /changes truth) but never defined here, so every `bg-status-info`
+       / `text-status-info` class resolved to nothing and rendered
+       colorless. Define it alongside the other status tokens. */
+    --status-info: oklch(0.588 0.158 241.966);
+    --status-info-bg: oklch(0.588 0.158 241.966 / 8%);
 
     --sidebar: oklch(0.978 0 0);
     --sidebar-foreground: oklch(0.371 0 0);
@@ -155,6 +165,10 @@
     --status-danger-bg: oklch(0.7 0.19 27 / 12%);
     --status-neutral: oklch(0.556 0 0);
     --status-neutral-bg: oklch(0.556 0 0 / 10%);
+    /* #196 — dark-mode `status-info` (matches the brighter accent-primary
+       used in dark mode so Accepted/Measuring states stay legible). */
+    --status-info: oklch(0.65 0.17 241.966);
+    --status-info-bg: oklch(0.65 0.17 241.966 / 12%);
     --sidebar: oklch(0.175 0 0);
     --sidebar-foreground: oklch(0.708 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);

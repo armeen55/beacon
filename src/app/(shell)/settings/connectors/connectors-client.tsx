@@ -724,7 +724,13 @@ export function ConnectorsClient({
                         Selected: {selectedLocation.name}
                       </p>
                     ) : (
-                      <p className="text-[12px] text-status-warning">
+                      // #197 — setup-blocking state. The amber color alone
+                      // was the only urgency cue (color-only) and nothing
+                      // announced the state change. A non-color "Action
+                      // needed:" prefix + role="status" makes it legible to
+                      // color-blind users and announced to screen readers.
+                      <p className="text-[12px] text-status-warning" role="status">
+                        <span className="font-semibold">Action needed:</span>{" "}
                         No location selected — choose one below before syncing
                       </p>
                     )}
@@ -923,8 +929,13 @@ export function ConnectorsClient({
                       : ""}
                   </p>
                 ) : (
-                  <p className="text-[12px] text-status-warning">
-                    Connected. Select a property to finish setup.
+                  // #197 — setup-blocking state (half-wired connector). The
+                  // amber color was the only cue; add a non-color "Action
+                  // needed:" prefix + role="status" so it's not color-only
+                  // and is announced when the state changes after connect.
+                  <p className="text-[12px] text-status-warning" role="status">
+                    <span className="font-semibold">Action needed:</span>{" "}
+                    Connected — select a property to finish setup.
                   </p>
                 )}
                 {ga4SyncResult ? (

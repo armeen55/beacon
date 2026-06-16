@@ -336,6 +336,11 @@ export function RecommendationV2Card({
             )}
             data-recommendation-v2-status-pill="true"
           >
+            {/* #196 — the status pill is otherwise a bare word ("Accepted")
+                floating in the card header; a visually-hidden "Status:"
+                prefix gives screen-reader users the meaning, so the state
+                isn't conveyed by the pill's color/position alone. */}
+            <span className="sr-only">Status: </span>
             {statusLabel(row.status)}
           </span>
         </span>
