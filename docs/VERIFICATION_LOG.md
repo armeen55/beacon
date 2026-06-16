@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-16 PM-24 (MAX_SEO_AEO audit — data-truncation P0s + branch reconciliation)
+
+**Context:** operator surfaced `docs/MAX_SEO_AEO_EXPERT_AUDIT_2026-06-16.md` (500 gaps, 7-step execution order). The audit was run against bare `origin/main` (`c45ed80`); my branch `claude/iranopedia-blockers` is **53 commits ahead**, so a chunk of the audit's gaps are already closed and invisible to it. Operator chose "keep going autonomously," reconciling silently. The LLM-output path is blocked on OpenAI billing ([[project_openai_quota_blocker]] — 429), so this batch targets DETERMINISTIC, non-gated, non-migration P0s under "extract data better."
+
+- **GA4 row pagination (`7819341`, audit P0 #5/#62):** `runReport` fired ONE call at `limit:10_000` with no offset → silent undercount past 10k (date×pagePath) rows. Now paginates by `rowCount` (offset loop, `GA4_PAGE_SIZE=10_000`, `GA4_MAX_PAGES=50`), preserving the exact page-0 fail-soft + 401-refresh behavior; subsequent-page error → partial+`truncated`; cap → `truncated`+warn. Result gains optional `rowCount?`/`truncated?`.
+- **Wix full-collection pagination (`f13d6b6`):** `syncWixUrlMap` queried each collection at `limit:1000` with no offset → a content site whose collection exceeds 1000 items (Iranopedia recipes/names/cities) silently dropped every page past row 1000 from the URL map → unmatchable / untracked / **unpushable**. New `wixQueryAllDataItems` pages until a short page or `WIX_QUERY_MAX_PAGES=50` (loop-until-short idiom, wixFetch 429-backoff per page, partial-on-later-error). `wixQueryDataItems` gained optional `offset`; push-service single-page callers untouched.
+- **Reconciliation (audit gaps ALREADY closed on my branch — do NOT redo):** #3/#154/#155 "0 AI answers / AEO-first wording" (BATCH B + PM-12); #007 "why-now/why-this-page/why-this-change" (Act 2 synthesis, Slices A/B); GSC search-analytics is ALREADY paginated (`runSearchAnalyticsQueryPaginated`, startRow loop) — not a bug; #447/#463 + dead-legacy (orphan sweeps + `/today` dual-surface collapse); #156/#157/#158 humanized titles/proposed_text (query-aware titles + `improve_meta`).
+- **Gates (parent-owned each):** typecheck clean; GA4+connectors+architecture 5,533 pass; wix+push+architecture 79+ pass (7 new wix pagination cases + GA4 multi-page cases); build ✓ Compiled. Branch-local; no deploy.
+- **Operator-gated remainder flagged, NOT done:** audit #1/#301/#454 (move Wix URL map → Supabase — a migration); P0 #8/#184 (LLM drafts — OpenAI billing); connector readiness needing live creds.
+
+---
+
 ## 2026-06-16 PM-23 (Slice B — LLM-synthesized Act 2 "Why this matters", flagged progressive enhancement)
 
 **Goal:** deliver a GENUINE LLM-sharpened "Why this matters" on the rec-detail page (Act 2) as a SAFE progressive enhancement on top of the deterministic `composeWhyThisMatters()` baseline. Baseline stays the INSTANT render; the LLM sharpens it only when every gate passes. Read-only — Act 2 text is NEVER published, so the only rails are honesty + white-label.
