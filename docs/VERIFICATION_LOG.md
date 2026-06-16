@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — Slice 3 (page-topic intent-fit scorer, mission #1)
+
+Closes audit cross-cutting BUG #1 (query/page match unverified) at the metric level — directive PHASE C "generic semantic fit gate" + audit Phase E, DETERMINISTIC baseline (the PHASE-F LLM pass sharpens the same contract later).
+- **NEW `src/domains/recommendations/page-topic-fit.ts` (pure):** `scorePageTopicFit(input)` → the directive's PHASE C JSON verbatim: `{pageTopic, queryIntent, intentClass, topicMatchScore 0–100, intentMatchScore 0–100, matchExplanation, mismatchRisks[], shouldUseQueryForOptimization}`. Topic score = 0.65·(query-token coverage of page text) + 0.35·(title/H1 jaccard), reusing `match-engine/similarity` + `normalize-text`. Intent via `classifyQueryIntent` over UNIVERSAL search-intent markers (buy/best/how/near-me…) — brand + locale terms PASSED IN from tenant config, never baked. Gate: `shouldUseQueryForOptimization = topic ≥ ${"TOPIC_FIT_FLOOR=45"} && intent ≥ ${"INTENT_FIT_FLOOR=40"}`.
+- **No-hardcoding proof:** the directive's "iran time now → cheetah page" rejection falls out GENERICALLY from ≈0 token coverage (tested with a time-query vs an Asiatic-cheetah page — no special-case rule). A high-volume WRONG-intent query ("koobideh kabob price" on an informational recipe page) overlaps on topic but fails the intent gate → not chased. Adjacent-not-main query surfaces a "consider a dedicated page" risk.
+- **Gate:** typecheck clean; **+12 unit tests** (six intent classes, generic mismatch reject, wrong-intent gate, keyword-hint reconciliation, adjacent→new-page nudge, bounded-score contract); production build ✓. Pure, no wiring yet → no push/env/migration. **NEXT (planned, riskier):** wire the score into `resolve-page-intent` confidence + surface it in the detail brief's query/intent-analysis section (directive PHASE I) — a hot-path change, planned slice.
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — Slice 2 (deterministic copy-artifact gate)
 
 Closes audit cross-cutting RISK #3: Beacon-drafted "Suggested copy" that is not actually publishable copy.
