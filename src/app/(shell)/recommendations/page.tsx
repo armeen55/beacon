@@ -38,21 +38,34 @@ import {
  * /recommendations between the legacy table + drawer and the v2 card
  * stack.
  *
+ * 2026-06-15 — v2 is now the DEFAULT. A safety-gated parity audit
+ * (read both clients + server actions; ground-truthed the real dev
+ * server for tenant-ritz-founder AND tenant-iranopedia) confirmed v2
+ * has authoritative, persisted equivalents of every legacy customer
+ * action: inline Accept on each card + Accept / Defer / Dismiss /
+ * Mark shipped / Restore / Promote on the v2 detail page
+ * (/recommendations/[id]), all calling the SAME `acceptRecommendation`
+ * / `deferRecommendation` / `dismissRecommendation` /
+ * `markRecommendationShipped` / `undoRecommendationResponse` server
+ * actions the legacy table imports from `./actions`. Mirrors the
+ * BEACON_TODAY_V2 default-on flip.
+ *
  * Routing:
- *   - Default: legacy (current production behavior).
- *   - `BEACON_RECOMMENDATIONS_V2=true` env: v2 becomes the default
- *     (mirrors the BEACON_TODAY_V2 pattern from Bundle 1).
- *   - `?legacy=1` query: always legacy (escape hatch — works regardless
- *     of the env flag).
- *   - `?v2=1` query: always v2 (preview escape hatch — useful for
- *     hosted demos before flipping the env flag).
+ *   - Default: v2 card stack (customers get bulk-select + j/k/a/x
+ *     keyboard + the 5-act detail brief).
+ *   - `BEACON_RECOMMENDATIONS_V2=false` env: forces legacy globally
+ *     (kill switch — no redeploy needed to revert).
+ *   - `?legacy=1` query: always legacy (per-request escape hatch —
+ *     works regardless of the env flag).
+ *   - `?v2=1` query: always v2 (explicit opt-in; redundant now that
+ *     v2 is the default, kept for symmetry + hosted demos).
  */
 function shouldUseRecommendationsV2(
   searchParams: Record<string, string | string[] | undefined>,
 ): boolean {
   if (searchParams.legacy === "1") return false;
   if (searchParams.v2 === "1") return true;
-  return process.env.BEACON_RECOMMENDATIONS_V2 === "true";
+  return process.env.BEACON_RECOMMENDATIONS_V2 !== "false";
 }
 
 /**

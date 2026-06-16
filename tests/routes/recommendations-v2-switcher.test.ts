@@ -4,10 +4,10 @@
  * Pins the routing rules implemented in
  * `src/app/(shell)/recommendations/page.tsx`:
  *
- *   - Default (no query, env unset)   → legacy table (current production)
- *   - `?legacy=1`                      → legacy table (escape hatch)
- *   - `?v2=1`                          → v2 card stack (preview hatch)
- *   - `BEACON_RECOMMENDATIONS_V2=true` → v2 card stack (default flip)
+ *   - Default (no query, env unset)    → v2 card stack (2026-06-15 flip)
+ *   - `?legacy=1`                       → legacy table (escape hatch)
+ *   - `?v2=1`                           → v2 card stack (explicit opt-in)
+ *   - `BEACON_RECOMMENDATIONS_V2=false` → legacy table (kill switch)
  *
  * The two client components are mocked so the test focuses on the
  * routing decision, not on the full data render. Each stub emits a
@@ -67,12 +67,12 @@ async function render(
   const { RecommendationsAsyncContent } = await import(
     "@/app/(shell)/recommendations/page"
   );
-  // Mirror `shouldUseRecommendationsV2`:
-  //   ?legacy=1 → false; ?v2=1 → true; else env BEACON_RECOMMENDATIONS_V2.
+  // Mirror `shouldUseRecommendationsV2` (2026-06-15: v2 is default-on):
+  //   ?legacy=1 → false; ?v2=1 → true; else v2 UNLESS env === "false".
   const useV2 = (() => {
     if (searchParams.legacy === "1") return false;
     if (searchParams.v2 === "1") return true;
-    return process.env.BEACON_RECOMMENDATIONS_V2 === "true";
+    return process.env.BEACON_RECOMMENDATIONS_V2 !== "false";
   })();
   const tree = await RecommendationsAsyncContent({ useV2 });
   return renderToStaticMarkup(tree as ReactElement);
@@ -93,10 +93,10 @@ describe("Bundle 2A — /recommendations switcher contract", () => {
     }
   });
 
-  it("renders the legacy table by default (no query, env unset)", async () => {
+  it("renders the v2 card stack by default (no query, env unset) — 2026-06-15 flip", async () => {
     const html = await render({});
-    expect(html).toContain('data-recs-stub="legacy"');
-    expect(html).not.toContain('data-recs-stub="v2"');
+    expect(html).toContain('data-recs-stub="v2"');
+    expect(html).not.toContain('data-recs-stub="legacy"');
   }, 15_000);
 
   it("renders the v2 card stack when ?v2=1 is set", async () => {
@@ -111,16 +111,22 @@ describe("Bundle 2A — /recommendations switcher contract", () => {
     expect(html).not.toContain('data-recs-stub="v2"');
   }, 15_000);
 
-  it("?legacy=1 wins over BEACON_RECOMMENDATIONS_V2=true (escape hatch overrides env)", async () => {
-    process.env.BEACON_RECOMMENDATIONS_V2 = "true";
+  it("?legacy=1 wins even when v2 is the default (per-request escape hatch)", async () => {
     const html = await render({ legacy: "1" });
     expect(html).toContain('data-recs-stub="legacy"');
     expect(html).not.toContain('data-recs-stub="v2"');
   }, 15_000);
 
-  it("renders v2 when BEACON_RECOMMENDATIONS_V2=true (env default flip)", async () => {
-    process.env.BEACON_RECOMMENDATIONS_V2 = "true";
+  it("renders legacy when BEACON_RECOMMENDATIONS_V2=false (kill switch)", async () => {
+    process.env.BEACON_RECOMMENDATIONS_V2 = "false";
     const html = await render({});
+    expect(html).toContain('data-recs-stub="legacy"');
+    expect(html).not.toContain('data-recs-stub="v2"');
+  }, 15_000);
+
+  it("?v2=1 wins over BEACON_RECOMMENDATIONS_V2=false (explicit opt-in overrides kill switch)", async () => {
+    process.env.BEACON_RECOMMENDATIONS_V2 = "false";
+    const html = await render({ v2: "1" });
     expect(html).toContain('data-recs-stub="v2"');
     expect(html).not.toContain('data-recs-stub="legacy"');
   }, 15_000);
