@@ -40,21 +40,27 @@ import {
   serializeWhyInput,
 } from "./llm-why-narrative";
 import type { WhyThisMattersInput } from "./why-this-matters-narrative";
-import { TOPIC_FIT_FLOOR, INTENT_FIT_FLOOR, type PageTopicFit } from "./page-topic-fit";
+import type { PageTopicFit } from "./page-topic-fit";
+// The deterministic verdict authority now lives in a PURE module so the
+// generation-time QA path can share it. Re-exported here for back-compat.
+import {
+  enforceExpertConfidence,
+  type RiskLevel,
+  type FinalConfidence,
+  type ExpertVerdict,
+} from "./expert-verdict";
+export {
+  enforceExpertConfidence,
+  type RiskLevel,
+  type FinalConfidence,
+  type ExpertVerdict,
+};
 
 const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_COMPLETION_TOKENS = 3_000;
 const MAX_FIELD_LEN = 320;
 const MAX_LIST_ITEMS = 4;
-
-export type RiskLevel = "low" | "medium" | "high";
-export type FinalConfidence =
-  | "high"
-  | "medium"
-  | "low"
-  | "needs_more_evidence"
-  | "rejected";
 
 /** The directive's PHASE-F "strategist pass" JSON contract. */
 export type StrategistReasoning = {
@@ -68,96 +74,11 @@ export type StrategistReasoning = {
   risks: string[];
 };
 
-export type ExpertVerdict = {
-  /** The DETERMINISTIC final confidence — the LLM cannot raise past this. */
-  enforcedConfidence: FinalConfidence;
-  /** Whether the rec may be presented as actionable (deterministic). */
-  enforcedApprove: boolean;
-  /** Plain-English notes on why the gate set this verdict. */
-  gateNotes: string[];
-};
-
 export type ExpertSynthesis = ExpertVerdict & {
   strategist: StrategistReasoning;
   model: string;
   costUsd: number;
 };
-
-// ─────────────────────────────────────────────────────────────────────
-// DETERMINISTIC GATE — the authority. Pure; exported for standalone tests.
-// The LLM output is NEVER an input here: confidence + approve come ONLY
-// from deterministic signals (safety gate, intent-fit, evidence presence).
-// ─────────────────────────────────────────────────────────────────────
-
-export function enforceExpertConfidence(args: {
-  /** Upstream deterministic safety gate already rejected this rec. */
-  deterministicReject: boolean;
-  /** Page-topic intent-fit verdict (Slice 3). null = not scored. */
-  shouldUseQueryForOptimization: boolean | null;
-  /** Any core evidence family present (gsc/semrush/aeo/clarity/competitor). */
-  hasCoreEvidence: boolean;
-  topicMatchScore: number | null;
-  intentMatchScore: number | null;
-}): ExpertVerdict {
-  if (args.deterministicReject) {
-    return {
-      enforcedConfidence: "rejected",
-      enforcedApprove: false,
-      gateNotes: [
-        "A deterministic safety gate rejected this recommendation; the LLM's reasoning cannot override it.",
-      ],
-    };
-  }
-  if (args.shouldUseQueryForOptimization === false) {
-    return {
-      enforcedConfidence: "rejected",
-      enforcedApprove: false,
-      gateNotes: [
-        "Page-topic intent-fit found the query is the wrong target for this page; the LLM's reasoning cannot override a topic/intent mismatch.",
-      ],
-    };
-  }
-  if (!args.hasCoreEvidence) {
-    return {
-      enforcedConfidence: "needs_more_evidence",
-      enforcedApprove: false,
-      gateNotes: [
-        "No core evidence family is present — confidence is capped at needs-more-evidence regardless of how strong the reasoning reads.",
-      ],
-    };
-  }
-  // Core evidence present but intent-fit not scored → moderate ceiling.
-  if (args.topicMatchScore == null || args.intentMatchScore == null) {
-    return {
-      enforcedConfidence: "medium",
-      enforcedApprove: true,
-      gateNotes: [
-        "Core evidence present; page-topic intent-fit was not scored — capped at medium.",
-      ],
-    };
-  }
-  const topic = args.topicMatchScore;
-  const intent = args.intentMatchScore;
-  if (topic >= 70 && intent >= 70) {
-    return {
-      enforcedConfidence: "high",
-      enforcedApprove: true,
-      gateNotes: [`Strong evidence and intent fit (topic ${topic}/100, intent ${intent}/100).`],
-    };
-  }
-  if (topic >= TOPIC_FIT_FLOOR && intent >= INTENT_FIT_FLOOR) {
-    return {
-      enforcedConfidence: "medium",
-      enforcedApprove: true,
-      gateNotes: [`Moderate evidence and intent fit (topic ${topic}/100, intent ${intent}/100).`],
-    };
-  }
-  return {
-    enforcedConfidence: "low",
-    enforcedApprove: false,
-    gateNotes: [`Weak fit (topic ${topic}/100, intent ${intent}/100) — not strong enough to act on yet.`],
-  };
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Firewall — honesty + white-label + AI-claims-need-AI-evidence. Pure.
