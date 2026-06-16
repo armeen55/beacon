@@ -29,6 +29,20 @@ Reopen any idea at any time. Mark updates with dates.
 
 ## Active / Queued
 
+### 0. AEO/SEO best-practice coverage audit (2026-06-16) — what's left to build
+
+**Added:** 2026-06-16 · **Status:** `reference` (code-grounded audit; updates the "what NEW capability to ship" question)
+
+- **The idea:** Per the goal's "IF THE LIST IS DONE → mine best practices, find fresh gaps" clause, this is a code-grounded map of every proven AEO/SEO best practice vs Beacon's deterministic trigger/draft coverage, so we know exactly what's genuinely left to build (vs already-done / gated / speculative).
+- **Coverage — ALREADY BUILT + concrete on connected data (GSC/Clarity/scan):** title (missing/weak/dup/low-CTR/striking-distance → `composeTitle`); meta (missing/dup → `composeMeta`); H1/headings (missing/weak/mismatch/H2); structured data (`composeSchema` — Article **with author + publisher Organization** + `mainEntityOfPage` + BreadcrumbList, store-breadcrumb, invalid-schema repair); indexability (robots/sitemap/noindex/canonical/status → `composeFixDirective`); internal links (orphan + opportunity → `composeInternalLinks`); **freshness/decay + stale + merge (`gsc_decay`/`stale_content`/`thin_content_overlap` → grounded directives, 2026-06-16 `0bb6526`)**; answer-blocks (`composeAnswerBlockDirective`, FAQ-retired-aware); source/E-E-A-T citations (`composeSourcesDirective`); page-experience/CWV (clarity rage/dead/script → `composeClarityDirective`); AI-bot access (robots-blocks-ai-bots). **The deterministic engine covers essentially every PROVEN on-connected-data practice.**
+- **Genuine remaining gaps, honestly status'd:**
+  - **Per-query answer/decay grounding** (name the exact question/keyword a page is losing) — high value, but needs the HEAVY `gsc_page_signals` per-query RPC (times out for big tenants — the #72 class). `validating` (needs a light per-query path first).
+  - **Five-source fusion + LLM-drafted entity/topical-authority** — `gated` on operator action (Profound/SEMrush keys, Google reconnect, `BEACON_LLM_PROVIDER=openai`).
+  - **`llms.txt`** (emerging AI-crawler manifest) — `parked/skeptical`: adoption unproven as of 2026; recommending it as HIGH-confidence undercuts the "trustworthy" bar. Revisit if major crawlers commit.
+  - **Image alt-text / multimodal** — `parked`: the scanner doesn't capture per-image alt text, so no data to trigger on.
+  - **New on-page length/duplicate triggers (title>60, meta length, multiple-H1)** — `killed`: SAFE (promotion dedups same-(tenant,action,url) `edit_title` to one rec) but low NET value — high-value cases already caught by the GSC triggers. See the edit_title-promotion-dedup memory.
+- **Claude's take:** The connected-data deterministic frontier is mature. The next *genuinely* high-value capabilities are gated (operator switches) or need a light per-query GSC path. Don't ship speculative (llms.txt) or redundant (length triggers) capabilities to fill space — it dilutes trust. Ship the gated fusion the moment the keys land.
+
 ### 1. LLM-as-judge ablation for page rewrites
 
 **Added:** 2026-04-18 · **Status:** `queued month 3`
