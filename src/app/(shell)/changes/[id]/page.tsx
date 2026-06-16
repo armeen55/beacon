@@ -20,6 +20,8 @@ import { loadChangeOutcomeById } from "@/domains/attribution/change-outcome-stor
 import { buildProofSentence } from "@/domains/attribution/proof-sentence";
 import { getUrlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
 import { ChangeDetailV2Client } from "./change-detail-v2-client";
+import { loadPushReceipt } from "@/domains/push/push-receipt";
+import { PushReceipt } from "@/components/changes/push-receipt";
 import { resolveProofPill } from "@/domains/changes/proof-timeline/result-pill";
 import {
   humanizeOutcomeEvent,
@@ -189,6 +191,26 @@ export default async function ChangeDetailPage({
     const lifecycleStatus: ImplementationStatus | null =
       linkedEdit?.implementation_status ?? null;
 
+    // Phase 5 (MAX_SEO_AEO P0 #5) — the push receipt for this change's
+    // linked edit, when Beacon itself published it. READ-ONLY composition
+    // (ledger + snapshot + rec); returns null when the edit was never
+    // pushed. Soft-fail: a transient store error degrades to null (no
+    // receipt section) rather than crashing the change detail page.
+    let pushReceipt: Awaited<ReturnType<typeof loadPushReceipt>> = null;
+    if (linkedEdit) {
+      try {
+        pushReceipt = await loadPushReceipt(tenantId, linkedEdit.id);
+      } catch (error) {
+        console.warn("[phase5-receipt] push receipt load failed", {
+          tenantId,
+          changeId: entry.id,
+          recommendedEditId: linkedEdit.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        pushReceipt = null;
+      }
+    }
+
     const pill = resolveProofPill({
       urlVerdict: urlOutcome ? { verdict: urlOutcome.verdict } : null,
       lifecycleClass,
@@ -339,34 +361,45 @@ export default async function ChangeDetailPage({
     const shortTitle = clampShortTitle(projected.shortTitle);
 
     return (
-      <ChangeDetailV2Client
-        title={shortTitle}
-        fullDescription={projected.fullDescription}
-        targetUrl={entry.url ?? null}
-        shippedAt={entry.timestamp}
-        pill={pill}
-        hypothesis={entry.hypothesis}
-        hypothesisSource={entry.hypothesis_source ?? null}
-        patternTimingNarrative={patternTimingNarrative}
-        events={events}
-        sparkline={sparkline}
-        platformLabels={platformLabels}
-        beaconRecommended={!!recommendedMatch}
-        nextActions={nextActions}
-        lifecycle={
-          lifecycle?.available && lifecycle.copy
-            ? {
-                stage: lifecycle.stage!,
-                copy: lifecycle.copy,
-                isPartialLive: lifecycle.result.is_partial_live,
-              }
-            : null
-        }
-        primaryEvidenceLines={primaryEvidenceLines}
-        repeatCitation30d={repeatCitation30d}
-        modeAResult={modeAResult}
-        causalProof={causalProof}
-      />
+      <div className="space-y-6">
+        {/* Phase 5 (P0 #5) — "What shipped" receipt. Only rendered when
+            Beacon itself pushed this change's linked edit (non-null
+            receipt). Sits above the proof brief; the existing
+            attribution/verdict acts below are untouched. */}
+        {pushReceipt && (
+          <div className="max-w-3xl">
+            <PushReceipt receipt={pushReceipt} />
+          </div>
+        )}
+        <ChangeDetailV2Client
+          title={shortTitle}
+          fullDescription={projected.fullDescription}
+          targetUrl={entry.url ?? null}
+          shippedAt={entry.timestamp}
+          pill={pill}
+          hypothesis={entry.hypothesis}
+          hypothesisSource={entry.hypothesis_source ?? null}
+          patternTimingNarrative={patternTimingNarrative}
+          events={events}
+          sparkline={sparkline}
+          platformLabels={platformLabels}
+          beaconRecommended={!!recommendedMatch}
+          nextActions={nextActions}
+          lifecycle={
+            lifecycle?.available && lifecycle.copy
+              ? {
+                  stage: lifecycle.stage!,
+                  copy: lifecycle.copy,
+                  isPartialLive: lifecycle.result.is_partial_live,
+                }
+              : null
+          }
+          primaryEvidenceLines={primaryEvidenceLines}
+          repeatCitation30d={repeatCitation30d}
+          modeAResult={modeAResult}
+          causalProof={causalProof}
+        />
+      </div>
     );
   }
   } finally {

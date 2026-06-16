@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PHASE 5 (MAX_SEO_AEO audit P0 #5 / gaps #315/#316/#317/#329/#352/#367 — first-class push receipt)
+
+A shipped change's story (before/after/URL/evidence/verify/rollback) was scattered across the ledger, snapshots, the rec, and the wix page. Phase 5 COMPOSES it into one artifact, surfaced on the Changes detail. READ-ONLY (no new push/verify logic, no migration, reuses the existing revert action).
+- **NEW `src/domains/push/push-receipt.ts`:** `loadPushReceipt(tenantId, editId)` joins push ledger (url/result/pushedAt/detail — gating: no ledger entry ⇒ null/never-pushed) + pre-push snapshot (`previous_text` = BEFORE, field) + the rec (`proposed_text` = AFTER, label, status, evidence). `deriveVerifyStatus` (forward-most signal wins: push_failed→failed; verified_live(_modified)→verified_live; pushed→pending; else unverified) reads PERSISTED status only (never probes live at render). Tenant-scoped reads; soft-fail → coherent receipt, never throws.
+- **NEW `src/components/changes/push-receipt.tsx`:** status badge + BEFORE→AFTER diff (before-null → "(added)"; failed → hides diff, "nothing modified") + source-evidence bullets (white-label) + Revert posting to the EXISTING `revertPushFromForm` (revertable = pushed && before-nonempty && !__revert). `data-push-receipt` attr.
+- **Surface:** `changes/[id]/page.tsx` resolves the change→edit via the existing `changelogJoinKey`/`linkedEdit`, calls `loadPushReceipt` (soft-fail), renders `<PushReceipt>` as a "What shipped" section above the proof brief. Pages thin.
+- **Gates (parent-owned):** typecheck clean; push + changes + architecture **5,284 pass** (+25 new: 18 composer — full join, never-pushed→null, before-null, revertable, verify-status, tenant scope, soft-fail; 7 component render per status); build ✓. No hardcoding. ⚠️ LIVE receipt vs a real shipped Iranopedia edit = operator ground-truth (fixtures used).
+
+---
+
 ## 2026-06-16 PHASE 4 (MAX_SEO_AEO audit P0 #4 / gaps #51-#54 — GSC connector readiness surfaced)
 
 GSC already AUTO-resolves the property shape (URL-prefix vs sc-domain) from the tenant domain (`resolveProperty`→`gscListSites`→`pickGscPropertyForDomain`; #54 solved in code) — so Phase 4 is READ-ONLY VISIBILITY: show the resolved property + data coverage + a hard not-ready state on the GSC card (no manual picker, no migration, no live Google call at render).
