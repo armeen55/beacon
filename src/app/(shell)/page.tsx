@@ -32,6 +32,7 @@ import {
   TodayV2BeaconLearnedSection,
   TodayV2EditLifecycleSection,
   TodayV2EditOutcomesSection,
+  TodayV2GoldenPathSection,
   TodayV2ProvenResultsSection,
   TodayV2OffSiteAuthoritySection,
   TodayV2VisibilityGroupSection,
@@ -203,6 +204,16 @@ async function TodayV2SectionedContent() {
 
   return (
     <div className="space-y-6">
+      {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
+          the TOP of the cockpit and ORIENTS the operator through the one
+          guided loop (Refresh → Review → Approve → Verify → Learn) with the
+          single next-best action. READ-ONLY composition (logic in
+          golden-path.ts); its own Suspense boundary with a null fallback so
+          its tenant-scoped reads never block the rest of the page, and it
+          self-hides on any composer error. */}
+      <Suspense fallback={null}>
+        <TodayV2GoldenPathSection />
+      </Suspense>
       {/* "Your data sources" quick-connect strip (2026-06-15) — mounted
           AFTER the demo + first-reading gate short-circuits above, so it
           only shows on the real V2 command center. Its own server reads

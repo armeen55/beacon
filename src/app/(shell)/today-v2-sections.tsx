@@ -60,6 +60,8 @@ import {
 } from "@/components/today/beacon-learned-tile";
 import { isBrainLearnedTileEnabled } from "@/domains/recommendations/cross-tenant-brain/config";
 import { BRAIN_SAMPLE_THRESHOLDS } from "@/domains/recommendations/cross-tenant-brain/thresholds";
+import { GoldenPathStrip } from "@/components/today/golden-path-strip";
+import { loadGoldenPathState } from "@/domains/today/golden-path";
 
 /**
  * All-source summary stat row (2026-06-15) — the unified command
@@ -83,6 +85,29 @@ export async function TodayV2AllSourceSummarySection() {
       {cards.length > 0 && <AllSourceStatRow cards={cards} />}
     </div>
   );
+}
+
+/**
+ * MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Composes the five
+ * built controls (Refresh → Review → Approve → Verify → Learn) into one
+ * orienting stepper at the TOP of the cockpit, with the single next-best
+ * action linked to its existing control. READ-ONLY composition — the logic
+ * lives in `golden-path.ts`; this section stays thin. Soft-fails to nothing on
+ * any composer error (the composer itself never throws, but the tenant-id read
+ * + an unexpected throw must never block the page). The strip ORIENTS; the
+ * detailed sections below remain untouched.
+ */
+export async function TodayV2GoldenPathSection() {
+  try {
+    const tenantId = await currentTenantId();
+    const state = await loadGoldenPathState(tenantId);
+    return <GoldenPathStrip state={state} />;
+  } catch (error) {
+    console.warn("[today-golden-path] state load failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 export async function TodayV2VisibilityGroupSection() {

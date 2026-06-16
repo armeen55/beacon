@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-16 PHASE 6 (MAX_SEO_AEO audit P0 #6 / gaps #003/#024/#403/#446/#450 — daily Golden Path UI) — COMPLETES the P0 sequence
+
+The 5 daily-loop controls (refresh, top-rec review, Approve & Push, the Phase-5 receipt, the proof/learned tile) existed scattered on /today. Phase 6 composes them into ONE guided cockpit strip: **Refresh → Review → Approve → Verify → Learn**, with per-step state + the single next-best CTA. READ-ONLY (each CTA links to an existing control; no new sync/push logic).
+- **NEW `src/domains/today/golden-path.ts`:** `loadGoldenPathState(tenantId)` → 5 steps each `done|current|upcoming|blocked` from existing data (tenant-scoped, soft-fail): refresh (blocked-no-source / done-fresh≤2d via gscReadiness+connector last_synced / current-stale); review (recommended+needs_review count); approve (accepted count); verify (pushed count cross-checked vs push ledger); learn (done when loadProvenWins>0). `currentStepKey` = first current/blocked.
+- **NEW `src/components/today/golden-path-strip.tsx`:** horizontal stepper (✓/number per status; current highlighted + CTA → the existing control: refresh→/settings/connectors, review→/recommendations, approve→/recommendations?status=accepted, verify→/changes, learn→/changes); `data-golden-path-*` attrs; mobile-wraps.
+- **Wire:** `page.tsx` mounts `<TodayV2GoldenPathSection>` (own Suspense, soft-fail→null) at the TOP of the cockpit above the data-sources strip + Do-today; existing sections untouched.
+- **Gates (parent-owned):** typecheck clean; today + app + architecture **5,670 pass** (+26 new: 20 composer — step transitions, blocked-no-source, ledger cross-check, currentStepKey, soft-fail, tenant-scope; 6 strip render); build ✓. No hardcoding. ⚠️ LIVE feel (which step lights up on real Ritz/Iranopedia state) = operator dev-server ground-truth (fixtures used).
+
+**✅ MAX_SEO_AEO audit P0 SEQUENCE COMPLETE (Phases 1–6).** Remaining audit items are P1/▫︎ (deeper SERP/entity/editorial layers) — see the matrix. Next operator actions: merge `claude/iranopedia-blockers`→main + deploy (prod app then uses the new tables/surfaces); connect Wix/GSC live + add OpenAI billing for full ground-truth.
+
+---
+
 ## 2026-06-16 PHASE 5 (MAX_SEO_AEO audit P0 #5 / gaps #315/#316/#317/#329/#352/#367 — first-class push receipt)
 
 A shipped change's story (before/after/URL/evidence/verify/rollback) was scattered across the ledger, snapshots, the rec, and the wix page. Phase 5 COMPOSES it into one artifact, surfaced on the Changes detail. READ-ONLY (no new push/verify logic, no migration, reuses the existing revert action).
