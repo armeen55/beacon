@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-15 PM-12 (/today dashboard brutal-audit — 4 honesty/IA batches, both tenants ground-truthed)
+
+**Trigger:** operator pasted the LIVE Iranopedia `/today` render and asked for a brutally-honest audit + fix-everything, bar = "best smartest dashboard ever, 20x better than an SEO associate". Read-only audit workflow `wf_ba5ca03c-ea2` (6 section agents) mapped every section → code + root cause + fix. Fixed worst-first in 4 verified+pushed batches:
+
+- **Batch 1 — AEO honesty (`f404d9c`):** (a) killed the "#1 of 1" lie — the visibility hero claimed "{brand} is #1 across tracked AI answers" + "Rank #1" while showing "No competitor in range yet"; now gated on `hasCompetitiveRank = hasRank && totalRanked >= 2` (`ai-visibility-hero.tsx`). (b) AEO collapsible default-opened on ANY observation in 14d → now requires ≥3 DISTINCT sampled days (`MIN_RELIABLE_SAMPLED_DAYS`, `today-v2-data.ts`). (c) directory "competitors" — Iranopedia defaulted its compare to "Angi" (home-services site) with garbage descriptors (dessert/ranginak); added vertical-agnostic `DIRECTORY_NAMES_FOR_FILTER` to the name-fallback (`entity-pollution-filter.ts`).
+- **Batch 2 — "Do today" (`4ad62c0`):** card rendered ONLY a hardcoded jargon line ("Improve visibility on the matched prompts") and buried the real `rationale`; now leads with the evidence/rationale, derives the outcome from the rec's own `expected_impact`, CTA "Open the brief →" → "Review & edit →".
+- **Batch 4 — declutter + honest copy (`322796a`):** hide the empty Edit-outcomes / Edit-lifecycle sections on /today (no wall of "nothing yet"); "Read automatically from your website" → "Detected during setup" (crons-off honesty); Google reconnect "the connection expired" → "Google access needs renewing (reconnect now)".
+- **Batch 3 — stats → action (`f2ff1ab`):** GSC click-drop + Clarity friction were dead-end numbers; added optional `action` on `SourceStatCard` → "See what to do about this →" linking to /recommendations when clicks fell / friction present.
+
+- **Gates (every batch):** `npm run typecheck` + targeted vitest (hero 35; today/enrichment/filter 260; do-today/today 154; connector/today/app 909; stat-cards 24 incl. 4 new) + `npm run build` — all PASS.
+- **Both-tenant ground-truth (real dev server on live Supabase):** Iranopedia — "#1" gone ("being tracked"), Rank "No competitors tracked yet", Angi+garbage gone, single consistent 4.0% (no 5.5% split), Do-today honest, empty sections gone, both stat cards show the action link. **Ritz (builder)** — brand "Ritz Builders" (no leak), hero correctly shows "#1 across tracked AI answers" (it HAS ≥2 ranked competitors — proves the rank gate distinguishes tenants), no Angi, Do-today + stat-row render, 200, no crash. `.env.local` restored to `tenant-ritz-founder`.
+
+---
+
 ## 2026-06-15 PM-11 (directive drafts no longer blanked by the em-dash gate)
 
 **Trigger:** latent landmine flagged during the PM-10/clean-meta pass — the SAFETY #273 public-copy gate (`validateDeterministicDraftSafety`, landed 2026-06-14) blanks DIRECTIVE drafts on a full re-promote. It scans `proposed_text`+`display_label` for em dashes and, on a hit, `holdUnsafeDraft` (promotion-writer) reverts the WHOLE draft to a content-free "go look at this page" card. The deterministic directive templates (answer-block, sources, clarity, schema, robots-ai) legitimately use em dashes in their operator-facing INSTRUCTION text — so the next "Refresh my data" for ANY tenant (Iranopedia included) would silently gut them.
