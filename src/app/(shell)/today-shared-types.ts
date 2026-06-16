@@ -16,6 +16,7 @@
  */
 
 import type { FindingPriority, PromotionStatus } from "@/domains/scanning/types";
+import type { TodayLiveChange } from "@/domains/today/live-changes-data";
 
 export type SerializedFinding = {
   id: string;
@@ -117,4 +118,39 @@ export type TodayExperimentProof = {
   citationDeltaPct: number | null;
   mentionDeltaPct: number | null;
   targetPagePath: string | null;
+};
+
+/* ── Lifecycle types (2026-06-16 — relocated from today-data.ts to break the
+ *    today-data ↔ TodayClient-props circular type dependency; today-data
+ *    re-exports them so existing importers keep resolving). ── */
+
+export type TodayLifecycleQueueItem = {
+  id: string;
+  rec_id: string;
+  action_type: string;
+  target_url: string | null;
+  display_label: string | null;
+  proposed_text_preview: string | null;
+  updated_at: string;
+  /** Phase 6A.8 — true when the proposed_text is a generator placeholder
+   *  the operator must rewrite before shipping. */
+  needsRewrite: boolean;
+};
+
+export type TodayLifecycleSummary = {
+  counts: {
+    liveVerified: number;
+    pendingImplementation: number;
+    needsReview: number;
+    notFoundAfter7d: number;
+  };
+  queue: TodayLifecycleQueueItem[];
+  /**
+   * T-LiveChanges (2026-05-08) — actual verified_live rows with their
+   * dynamic state copy. Top 3 most-recent. Empty array when no
+   * verified_live edits exist; the LiveChangesBlock component renders
+   * `null` for empty arrays so the strip's "0 live verified" chip is
+   * the only acknowledgement.
+   */
+  liveChanges: TodayLiveChange[];
 };

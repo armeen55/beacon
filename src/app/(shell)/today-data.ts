@@ -175,6 +175,10 @@ import { buildObservationRollup } from "@/domains/today/observation-rollup";
 
 import type { ComponentProps } from "react";
 import { TodayClient, type TodayQueueItem } from "./today-client";
+import type {
+  TodayLifecycleQueueItem,
+  TodayLifecycleSummary,
+} from "./today-shared-types";
 
 /**
  * T-WorseningSuffix (2026-05-08) — direction-aware hurting trend suffix.
@@ -3048,37 +3052,15 @@ export async function buildTodayLifecycleSummary(
 
 /**
  * Phase 6A.7 — public shape consumed by TodayClient + tested directly.
+ * 2026-06-16: definitions relocated to ./today-shared-types to break the
+ * today-data ↔ TodayClient-props circular type dependency; re-exported here
+ * so existing importers (lifecycle-counts, today-v2-data, today-do-next-card,
+ * lifecycle-strip, TodayClient) keep resolving unchanged.
  */
-export type TodayLifecycleQueueItem = {
-  id: string;
-  rec_id: string;
-  action_type: string;
-  target_url: string | null;
-  display_label: string | null;
-  proposed_text_preview: string | null;
-  updated_at: string;
-  /** Phase 6A.8 — true when the proposed_text is a generator placeholder
-   *  the operator must rewrite before shipping. */
-  needsRewrite: boolean;
-};
-
-export type TodayLifecycleSummary = {
-  counts: {
-    liveVerified: number;
-    pendingImplementation: number;
-    needsReview: number;
-    notFoundAfter7d: number;
-  };
-  queue: TodayLifecycleQueueItem[];
-  /**
-   * T-LiveChanges (2026-05-08) — actual verified_live rows with their
-   * dynamic state copy. Top 3 most-recent. Empty array when no
-   * verified_live edits exist; the LiveChangesBlock component renders
-   * `null` for empty arrays so the strip's "0 live verified" chip is
-   * the only acknowledgement.
-   */
-  liveChanges: TodayLiveChange[];
-};
+export type {
+  TodayLifecycleQueueItem,
+  TodayLifecycleSummary,
+} from "./today-shared-types";
 
 
 /**
