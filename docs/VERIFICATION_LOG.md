@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-16 P0 MERGE-SAFETY REVIEW (adversarial cross-phase, operator-requested before merge→main)
+
+Ran a 5-lens adversarial workflow + first-hand confirmation across all 6 P0 phases against the operator's 13 requirements. **Verdict: reqs 1,2,4,5,6,7 CONFIRMED** — no Iranopedia hardcoding in domain logic; Wix mappings Supabase-backed + tenant-scoped on every read/write (rows stamped with ambient tenant); guided mapper discovery is GET-only + save writes only the Beacon config store (no live Wix write); GSC readiness is read-only (token + gsc_daily_rows reads, no Google call, no writes) + tenant-scoped + soft-fail; push receipt + Golden Path are read-only composition with the ONLY write being the existing operator-approved `revertPushFromForm`.
+- **Req #3 was PARTIAL → FIXED (`2602454`):** the review found a real wipe vector — `syncWixUrlMap` skips a transiently-failed collection (`continue`); the abort-guard only fires if ALL collections fail; so on a PARTIAL failure the durable delete-stale wiped the failed collection's url-map rows (sync-derived, not re-pasteable → silent loss of push-readiness). Fix: `writeWixUrlMap(entries, { authoritativeCollectionIds })` scopes the stale-delete to only successfully-synced collections; a failed collection's rows are preserved; a zero-item authoritative collection still clears. +2 tests.
+- **Gate:** typecheck clean; build ✓; **full suite green EXCEPT 1 pre-existing failure** — `src/domains/product/visibility-score-filter.test.ts` ("Houzz" legacy-safety) — PROVEN unrelated to P0 (its source `visibility-score.ts` + the test are byte-identical to origin/main; zero P0 commits touch them; assertion last changed 2026-05-01). NOT a P0 regression; pre-exists on origin/main. Flagged for separate fix.
+- **Merge plan + risk summary produced; PAUSED before merge→main per operator req #13** (awaiting explicit go).
+
+---
+
 ## 2026-06-16 PHASE 6 (MAX_SEO_AEO audit P0 #6 / gaps #003/#024/#403/#446/#450 — daily Golden Path UI) — COMPLETES the P0 sequence
 
 The 5 daily-loop controls (refresh, top-rec review, Approve & Push, the Phase-5 receipt, the proof/learned tile) existed scattered on /today. Phase 6 composes them into ONE guided cockpit strip: **Refresh → Review → Approve → Verify → Learn**, with per-step state + the single next-best CTA. READ-ONLY (each CTA links to an existing control; no new sync/push logic).
