@@ -36,7 +36,33 @@ import { actionableSchemaWarnings } from "@/domains/recommendation-intelligence/
 export type DraftEnrichmentContext = {
   /** Latest snapshot per canonical URL (caller dedupes by fetched_at). */
   snapshotByUrl: ReadonlyMap<string, PageSnapshot>;
+  /**
+   * UX_TEARDOWN #252 — the tenant's REAL configured business name
+   * (`businessConfig.name`). When present, it is the Organization
+   * (author/publisher + breadcrumb root) on schema drafts and the brand
+   * suffix on title/h1 drafts — the honest, tenant-asserted identity.
+   * `inferBrandSuffix` (a guess from page-title tails) is used ONLY as
+   * the fallback when no real name is configured. Empty/missing →
+   * undefined → falls back to inference (prior behavior preserved).
+   */
+  businessName?: string | null;
 };
+
+/**
+ * UX_TEARDOWN #252 — resolve the brand to stamp as the Organization on
+ * drafts. Prefer the tenant's REAL configured business name; fall back
+ * to the inferred title-suffix ONLY when no name is configured. Returns
+ * the inference shape `{ separator, suffix }` so every composer can use
+ * it uniformly (real name → default " | " separator; the separator is
+ * irrelevant for the schema Organization name, which reads `.suffix`).
+ */
+function resolveBrand(
+  ctx: DraftEnrichmentContext,
+): { separator: string; suffix: string } | null {
+  const real = ctx.businessName?.trim();
+  if (real) return { separator: " | ", suffix: real };
+  return inferBrandSuffix(ctx.snapshotByUrl.values());
+}
 
 // ── small pure helpers ────────────────────────────────────────────────
 
@@ -901,7 +927,7 @@ export function enrichPromotionRow(
   let fill: DraftFill | null = null;
   switch (candidate.action_type) {
     case "edit_title": {
-      const brand = inferBrandSuffix(ctx.snapshotByUrl.values());
+      const brand = resolveBrand(ctx);
       fill = composeTitle(candidate, snap, brand);
       break;
     }
@@ -909,7 +935,7 @@ export function enrichPromotionRow(
       fill = composeMeta(candidate, snap, buildChromeDetector(ctx.snapshotByUrl));
       break;
     case "change_h1": {
-      const brand = inferBrandSuffix(ctx.snapshotByUrl.values());
+      const brand = resolveBrand(ctx);
       fill = composeH1(candidate, snap, brand);
       break;
     }
@@ -924,7 +950,7 @@ export function enrichPromotionRow(
       fill = composeInternalLinks(candidate, snap, ctx);
       break;
     case "add_schema": {
-      const brand = inferBrandSuffix(ctx.snapshotByUrl.values());
+      const brand = resolveBrand(ctx);
       fill = composeSchema(candidate, snap, brand);
       break;
     }

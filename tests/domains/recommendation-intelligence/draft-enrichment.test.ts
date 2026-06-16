@@ -441,6 +441,121 @@ describe("enrichPromotionRow — links + schema", () => {
   });
 });
 
+// ── UX_TEARDOWN #252 — prefer the REAL business name over inference ───
+// The Organization (schema author/publisher + breadcrumb root) and the
+// title/h1 brand suffix must come from the tenant's configured business
+// name when one exists — never a guessed title-tail that could assert
+// the WRONG Organization on a customer's live page. Inference stays the
+// fallback ONLY when no name is configured.
+
+describe("enrichPromotionRow — businessName precedence (#252)", () => {
+  it("edit_title: real businessName is the brand suffix (overrides inference)", () => {
+    // The fleet's inferable tail is "Iranopedia", but the tenant's real
+    // configured name is "Iranopedia Cultural Encyclopedia" — the real
+    // name wins.
+    const fleet = [
+      snap({ title: null }), // target page, no title
+      snap({ url: "https://x.com/rugs/qom", title: "Persian Rugs | Iranopedia" }),
+      snap({ url: "https://x.com/flags", title: "Iran Flags | Iranopedia" }),
+      snap({ url: "https://x.com/cities/tehran", title: "Tehran | Iranopedia" }),
+    ];
+    const out = enrichPromotionRow(row(), candidate(), {
+      snapshotByUrl: new Map(fleet.map((s) => [s.url, s])),
+      businessName: "Iranopedia Cultural Encyclopedia",
+    });
+    expect(out.proposed_text).toBe(
+      "Persian Tea Houses | Iranopedia Cultural Encyclopedia",
+    );
+  });
+
+  it("edit_title: falls back to inferBrandSuffix when businessName is absent", () => {
+    const fleet = [
+      snap({ title: null }),
+      snap({ url: "https://x.com/rugs/qom", title: "Persian Rugs | Iranopedia" }),
+      snap({ url: "https://x.com/flags", title: "Iran Flags | Iranopedia" }),
+      snap({ url: "https://x.com/cities/tehran", title: "Tehran | Iranopedia" }),
+    ];
+    const out = enrichPromotionRow(row(), candidate(), {
+      snapshotByUrl: new Map(fleet.map((s) => [s.url, s])),
+      // businessName omitted
+    });
+    expect(out.proposed_text).toBe("Persian Tea Houses | Iranopedia");
+  });
+
+  it("edit_title: empty/whitespace businessName falls back to inference (fail-soft)", () => {
+    const fleet = [
+      snap({ title: null }),
+      snap({ url: "https://x.com/rugs/qom", title: "Persian Rugs | Iranopedia" }),
+      snap({ url: "https://x.com/flags", title: "Iran Flags | Iranopedia" }),
+      snap({ url: "https://x.com/cities/tehran", title: "Tehran | Iranopedia" }),
+    ];
+    const out = enrichPromotionRow(row(), candidate(), {
+      snapshotByUrl: new Map(fleet.map((s) => [s.url, s])),
+      businessName: "   ", // placeholder/empty → undefined-equivalent
+    });
+    expect(out.proposed_text).toBe("Persian Tea Houses | Iranopedia");
+  });
+
+  it("change_h1: real businessName is the suffix stripped from the title-derived heading", () => {
+    // h1 missing; the title carries the real-name suffix, which must be
+    // stripped so the proposed heading is the clean topic.
+    const target = snap({
+      h1: null,
+      title: "Persian Tea Houses | Iranopedia Cultural Encyclopedia",
+    });
+    const out = enrichPromotionRow(
+      row({ action_type: "change_h1" }),
+      candidate({ trigger_signal: "missing_h1", action_type: "change_h1" }),
+      {
+        snapshotByUrl: new Map([[target.url, target]]),
+        businessName: "Iranopedia Cultural Encyclopedia",
+      },
+    );
+    expect(out.proposed_text).toBe("Persian Tea Houses");
+  });
+
+  it("add_schema (content): real businessName is the Organization author/publisher + breadcrumb root", () => {
+    // Inference would pick "Iranopedia" from the fleet tails; the real
+    // configured name must win as the asserted Organization.
+    const out = enrichPromotionRow(contentRow(), contentCandidate(), {
+      snapshotByUrl: new Map(brandFleet().map((s) => [s.url, s])),
+      businessName: "Iranopedia Cultural Encyclopedia",
+    });
+    const blocks = extractJsonLdBlocks(out.proposed_text) as Array<
+      Record<string, unknown>
+    >;
+    const article = blocks[0]!;
+    expect(article["author"]).toEqual({
+      "@type": "Organization",
+      name: "Iranopedia Cultural Encyclopedia",
+    });
+    expect(article["publisher"]).toEqual({
+      "@type": "Organization",
+      name: "Iranopedia Cultural Encyclopedia",
+    });
+    const breadcrumb = blocks[1]!;
+    const items = breadcrumb["itemListElement"] as Array<
+      Record<string, unknown>
+    >;
+    // Breadcrumb ROOT name is the real Organization, not the inferred tail.
+    expect(items[0]!["name"]).toBe("Iranopedia Cultural Encyclopedia");
+  });
+
+  it("add_schema (content): without businessName, the inferred brand is the Organization (fallback preserved)", () => {
+    const out = enrichPromotionRow(contentRow(), contentCandidate(), {
+      snapshotByUrl: new Map(brandFleet().map((s) => [s.url, s])),
+      // businessName omitted → inference fallback
+    });
+    const blocks = extractJsonLdBlocks(out.proposed_text) as Array<
+      Record<string, unknown>
+    >;
+    expect(blocks[0]!["author"]).toEqual({
+      "@type": "Organization",
+      name: "Iranopedia",
+    });
+  });
+});
+
 describe("enrichPromotionRow — guardrails", () => {
   it("never overwrites an existing proposed_text", () => {
     const pre = row({ proposed_text: "operator-authored draft" });

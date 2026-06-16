@@ -197,9 +197,8 @@ export async function promoteEligibleCandidates(
     })(),
   ]);
 
-  // Draft enrichment context (P0 wall 3, 2026-06-10): latest snapshot
-  // per URL so the enricher can compose exact proposed copy / fix
-  // directives instead of empty "go look at this page" cards.
+  // Latest snapshot per URL (P0 wall 3, 2026-06-10) — dedupe by
+  // fetched_at so the enricher composes drafts from current page facts.
   const snapshotByUrl = new Map<string, PageSnapshot>();
   for (const snap of pageSnapshots) {
     const existing = snapshotByUrl.get(snap.url);
@@ -207,7 +206,6 @@ export async function promoteEligibleCandidates(
       snapshotByUrl.set(snap.url, snap);
     }
   }
-  const enrichmentCtx: DraftEnrichmentContext = { snapshotByUrl };
 
   // CRITICAL (audit #2, 2026-06-14): hydrate from the durable per-tenant
   // Supabase row so page-classification at promotion sees the tenant's real
@@ -218,6 +216,18 @@ export async function promoteEligibleCandidates(
   const businessConfig =
     (await hydrateBusinessConfigFromSupabase(input.tenantId)) ??
     getBusinessConfig(input.tenantId);
+
+  // Draft enrichment context (P0 wall 3, 2026-06-10): latest snapshot per
+  // URL so the enricher can compose exact proposed copy / fix directives.
+  // UX_TEARDOWN #252: thread the tenant's REAL configured business name so
+  // schema drafts (author/publisher + breadcrumb root) and title/h1 brand
+  // suffixes assert the tenant's actual Organization, not a guessed
+  // title-tail. Empty/placeholder name → fail-soft to inference (the
+  // enricher's resolveBrand handles the precedence + fallback).
+  const enrichmentCtx: DraftEnrichmentContext = {
+    snapshotByUrl,
+    businessName: businessConfig.name,
+  };
 
   // Fusion slice (2026-06-12): GA4 page-value weights, keyed by the
   // candidates' target_url form. Fail-soft to neutral.
