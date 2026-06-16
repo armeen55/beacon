@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-16 PHASE 3 (MAX_SEO_AEO audit P0 #3 — AEO-honesty: no "0 AI answers" without Profound) — VERIFIED DONE, no code change
+
+Audit P0 #3 (gaps #3/#9/#155): recs/surfaces must not imply AEO absence ("0 AI answers") when no Profound/observation evidence exists. **Verified already satisfied on this branch (truth-up, not churn):**
+- The headline "0 AI answers" string was killed in BATCH B (#60) — repo-wide grep finds NO remaining occurrence.
+- Rec-detail Act 3 "AI answers analyzed" tile renders ONLY under `observationCount > 0` — never shows "0".
+- `/today` `EnrichmentBadges` `PlatformBadge` "not cited" renders only for platforms with ≥1 real observation: `enrichment-rollup.ts` builds `byPlatform` solely from observed answers (entry created per-observation; `observations` always ≥1; no 0-obs pre-seeding), so "not cited" is accurate ("we read N answers, brand absent"), not a misleading absence claim. Whole component renders only when a rollup exists.
+- AEO triggers (affectedPrompts) require observation data to fire, so "isn't cited for X" recs never generate without AEO evidence.
+- Verified at the wix/diagnostics/architecture sweep (254 files / 5,515 pass) — no code touched for Phase 3.
+
+---
+
 ## 2026-06-16 PHASE 2 (MAX_SEO_AEO audit P0 #2 / gaps #98/#302/#303 — guided Wix collection-mapper)
 
 **Operator directive:** Phase 2 — replace the raw-JSON `<textarea>` operators edit today with a GUIDED mapper that DISCOVERS Wix collections + their fields, SUGGESTS field roles, and persists per-tenant mappings (builds on Phase 1's durable store). No Iranopedia hardcoding (pure heuristics + ambient tenant); read-only discovery (no live Wix writes).
