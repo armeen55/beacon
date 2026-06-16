@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-15 PM-7 (V2-everywhere: Recommendations + Changes flipped to default — PUSHED `815d4dc`, `dbcee57`)
+
+**Trigger:** goal root-cause #3 ("recommendations must add bulk + keyboard actions") was already BUILT in recs-v2 but invisible behind an off flag — same situation as Today-v2. Verify-then-flip the two remaining dual surfaces so customers actually get them. De-bloat goal: "keep ONE great surface" → all three V2 surfaces are now the default (legacy reachable only via `?legacy=1`).
+
+- **`815d4dc` Recommendations V2 → default.** Verified FULL authoritative parity first: accept / defer / dismiss / mark-shipped / restore all resolve to the SAME shared `recommendations/actions.ts` module legacy uses (identical persistence). Ground-truth both tenants: 200, V2 card stacks + inline Accept + bulk-select + j/k/a/x keyboard + working rail + before→after suggested-copy; no cross-tenant leak; `?legacy=1` 200. `shouldUseRecommendationsV2` → `!== "false"`.
+- **`dbcee57` Changes V2 → default — gated correctly.** A first verify pass BLOCKED the flip (V2 was missing the legacy "Mark shipped" action — safety gate held). Closed the gap: added a per-row "Mark shipped" to `changes-v2-card` (shown only when edit status === "accepted", identical legacy gate, wired to the SAME `markChangelogEditShipped` → `markRecommendedEditsAsShipped`, same revalidate paths). Then re-verified parity + ground-truthed both tenants clean, and flipped `shouldUseChangesV2` (page + `[id]`) → `!== "false"`.
+- Both keep `?legacy=1` per-request + `?v2=1` escape hatches + `=false` global kill switch.
+- **Gate:** typecheck clean; build PASS; recs flip 1172 pass; changes flip 1209 pass (incl. white-label confidence sweep).
+- **DE-BLOAT follow-up (DEFERRED — needs a production soak):** the three legacy surfaces (today-client, scorecard-client, recommendations-client + their loaders) are now reachable only via `?legacy=1`. Delete them AFTER V2 soaks in production — removing the escape hatch before a hosted soak would strand a tenant if V2 has an unseen prod issue. (V2 went live THIS session; no soak yet.)
+
+---
+
 ## 2026-06-15 PM-6 (PIVOT de-bloat: native-AEO-polling engine DELETED — PUSHED `acee5c2`)
 
 **Trigger:** the pivot mandates deleting ALL in-house Perplexity/ChatGPT polling (Profound = sole AEO). Crons/GitHub-Actions/Vercel-schedulers were already gone (`ci.yml` only, `"crons": []`, no cron routes); this removed the remaining native-poll ENGINE + its operator-only "Run today's AI reading" action.
