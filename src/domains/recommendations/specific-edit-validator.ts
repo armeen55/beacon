@@ -1848,6 +1848,12 @@ const DETERMINISTIC_DIRECTIVE_ACTION_TYPES: ReadonlySet<string> = new Set([
   "fix_schema",
   "add_proof_section",
   "add_answer_block",
+  // Refresh / merge plays (2026-06-16): directive drafts that tell the
+  // owner WHAT to refresh or merge (the new prose is theirs to author —
+  // Beacon never fabricates the replacement content), so the
+  // published-prose style gates don't apply.
+  "update_intro",
+  "merge_pages",
 ]);
 
 export function validateDeterministicDraftSafety(

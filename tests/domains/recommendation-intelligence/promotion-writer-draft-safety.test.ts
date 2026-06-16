@@ -302,4 +302,44 @@ describe("promoteEligibleCandidates — deterministic draft safety (#273)", () =
     );
     expect(heldLog).toBeUndefined();
   });
+
+  it("gsc_decay::update_intro promotes WITH its grounded refresh directive and survives the safety seam (em dashes allowed for directives)", async () => {
+    // The customer-queue-ready fading-page rec previously emitted a null
+    // draft. It now carries a directive grounded in the real numbers; because
+    // update_intro is a DIRECTIVE action type, its em dashes don't trip the
+    // published-prose gate (pre-fix, this draft would have been held/nulled).
+    mockState.pageSnapshots = [makeSnapshot("Custom Home Builds in Palo Alto")];
+    mockState.triggerCandidates = [
+      makeCandidate({
+        trigger_signal: "gsc_decay",
+        action_type: "update_intro",
+        target_url: TARGET_URL,
+        topic_cluster_label: "Fading page",
+        operator_evidence:
+          "signal=gsc_decay; clicks_prior=120; clicks_now=72; position_prior=4.2; position_now=8.9; impressions_now=3400",
+      }),
+    ];
+
+    const result = await promoteEligibleCandidates({
+      tenantId: TENANT,
+      dryRun: true,
+      now: NOW,
+    });
+
+    expect(result.promoted_count).toBe(1);
+    const row = result.mapped_rows[0]!;
+    expect(row.proposed_text).not.toBeNull();
+    expect(row.proposed_text!).toContain("120");
+    expect(row.proposed_text!).toContain("72");
+    expect(row.proposed_text!).toContain("40%");
+    expect(row.display_label).toContain("Refresh");
+
+    // Not held — the directive survived the publish-prose gate.
+    const heldLog = mockState.logWarnSpy!.mock.calls.find(
+      (c) =>
+        typeof c[0] === "string" &&
+        c[0].includes("held unsafe deterministic draft"),
+    );
+    expect(heldLog).toBeUndefined();
+  });
 });

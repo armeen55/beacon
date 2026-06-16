@@ -1077,6 +1077,111 @@ function composeClarityDirective(
   };
 }
 
+// Refresh-play directives (2026-06-16): close the last "fires on
+// connected data but emits no draft" gap. `update_intro` (gsc_decay /
+// stale_content) and `merge_pages` (thin_content_overlap) previously
+// fell through to a null draft — a customer-queue-ready fading-page rec
+// (gsc_decay::update_intro is the only customer-facing one) showed no
+// concrete play. These emit a grounded DIRECTIVE: they name the numbers
+// and the exact refresh/merge steps, but NEVER fabricate the new prose
+// (the rewrite is the owner's — same rail as answer-block / sources).
+
+const DECAY_NUM = (ev: string, re: RegExp): number | null => {
+  const m = re.exec(ev);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+};
+
+function composeDecayDirective(
+  candidate: RecommendationCandidateRow,
+): DraftFill | null {
+  const ev = candidate.operator_evidence ?? "";
+  const clicksPrior = DECAY_NUM(ev, /clicks_prior=(\d+)/);
+  const clicksNow = DECAY_NUM(ev, /clicks_now=(\d+)/);
+  const posPrior = DECAY_NUM(ev, /position_prior=([\d.]+)/);
+  const posNow = DECAY_NUM(ev, /position_now=([\d.]+)/);
+  const dropPct =
+    clicksPrior != null && clicksNow != null && clicksPrior > 0
+      ? Math.round((1 - clicksNow / clicksPrior) * 100)
+      : null;
+  const slipped =
+    posPrior != null && posNow != null && posNow - posPrior >= 0.5;
+
+  const lead =
+    dropPct != null && clicksPrior != null && clicksNow != null
+      ? "This page brought in about " +
+        clicksPrior +
+        " clicks from Google a month ago and is down to about " +
+        clicksNow +
+        " — a drop of roughly " +
+        dropPct +
+        "%" +
+        (slipped && posPrior != null && posNow != null
+          ? ", and its average position slipped from #" +
+            posPrior.toFixed(1) +
+            " to #" +
+            posNow.toFixed(1)
+          : "") +
+        ". "
+      : "This page is losing the Google clicks it used to earn. ";
+
+  return {
+    display_label: "Refresh the top of this page to win back its lost clicks",
+    current_text: null,
+    proposed_text:
+      lead +
+      "A fading page is almost always a freshness problem, not a rewrite job. Refresh the top section first: update any dated facts, years, prices, or statistics; re-state the page's main answer in the opening paragraph in today's terms; and add one recent example or angle that wasn't there before. Keep the URL and the core content — you're signalling to Google (and the AI assistants that read these pages) that it's current again, not starting over.",
+    expected_impact:
+      "Pages recover fastest when the part engines read first is visibly current. A focused freshness pass usually recovers lost ground without the cost of a full rewrite.",
+    measurement_plan:
+      "After you publish the refresh, watch this page's clicks the next time you refresh your connected data — recovering pages usually turn within a few weeks.",
+  };
+}
+
+function composeStaleDirective(
+  candidate: RecommendationCandidateRow,
+): DraftFill | null {
+  const ev = candidate.operator_evidence ?? "";
+  const m = /lastmod=(\d{4}-\d{2}-\d{2})/.exec(ev);
+  const since = m ? m[1] : null;
+  return {
+    display_label: "Refresh this page — it hasn't changed in a long time",
+    current_text: null,
+    proposed_text:
+      (since
+        ? "Your sitemap shows this page hasn't been updated since " +
+          since +
+          ". "
+        : "This page hasn't been updated in a long time. ") +
+      "Older pages quietly lose ground as the topic moves on. Refresh the top section: update any dated facts, years, and statistics; confirm the main answer still reflects how things work today; and add a recent example or development. You don't need to rewrite the whole page — a visibly current top section is what search engines and the AI assistants that read them reward.",
+    expected_impact:
+      "A current top section keeps a page eligible to be ranked and quoted; stale facts are a reason engines pass it over.",
+    measurement_plan:
+      "After you publish the refresh, Beacon picks up the new change date the next time you refresh your connected data and tracks whether the page's visibility recovers.",
+  };
+}
+
+function composeMergeDirective(
+  candidate: RecommendationCandidateRow,
+): DraftFill | null {
+  const ev = candidate.operator_evidence ?? "";
+  const m = /vs (\S+) \(\d+w\)/.exec(ev);
+  const other = m ? m[1] : null;
+  return {
+    display_label: "Combine this thin page with the one it overlaps",
+    current_text: null,
+    proposed_text:
+      "This page is short and covers nearly the same topic as " +
+      (other ? other : "another page on your site") +
+      ". Two thin pages on one topic split your strength, and engines struggle to tell which one to surface. Pick the stronger page, fold this page's unique points into it, and redirect this URL there (a 301 redirect). If you'd rather keep both, make this one clearly distinct — a different question or angle — and expand it past a thin word count. Don't leave two near-duplicates competing.",
+    expected_impact:
+      "Merging near-duplicates concentrates the signals engines use to rank and quote a page, so one strong page outperforms two weak ones.",
+    measurement_plan:
+      "After you merge and redirect, Beacon re-checks both URLs the next time you refresh your connected data and clears the overlap from the queue.",
+  };
+}
+
 // ── entry point ───────────────────────────────────────────────────────
 
 /**
@@ -1142,6 +1247,20 @@ export function enrichPromotionRow(
       fill =
         candidate.trigger_signal === "clarity_friction"
           ? composeClarityDirective(candidate)
+          : null;
+      break;
+    case "update_intro":
+      fill =
+        candidate.trigger_signal === "gsc_decay"
+          ? composeDecayDirective(candidate)
+          : candidate.trigger_signal === "stale_content"
+            ? composeStaleDirective(candidate)
+            : null;
+      break;
+    case "merge_pages":
+      fill =
+        candidate.trigger_signal === "thin_content_overlap"
+          ? composeMergeDirective(candidate)
           : null;
       break;
     default:

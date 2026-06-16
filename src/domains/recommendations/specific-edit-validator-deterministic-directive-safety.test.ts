@@ -39,6 +39,12 @@ const CLARITY_DIRECTIVE =
   "Microsoft Clarity recorded rage clicks on this page — a strong signal that something looks interactive but isn't responding.";
 const SCHEMA_DIRECTIVE =
   "Add this JSON-LD block to the page <head> (extend the @type if a more specific one fits — Article, FAQPage, Product).";
+// Refresh-play directives (2026-06-16) — update_intro (gsc_decay / stale)
+// and merge_pages (thin overlap). Their grounded templates use em dashes.
+const DECAY_DIRECTIVE =
+  "This page brought in about 120 clicks from Google a month ago and is down to about 72 — a drop of roughly 40%. Refresh the top section first — update any dated facts, then re-state the page's main answer.";
+const MERGE_DIRECTIVE =
+  "Two thin pages on one topic split your strength — pick the stronger page, fold this page's unique points into it, and redirect this URL there (a 301 redirect).";
 
 describe("validateDeterministicDraftSafety — directive vs publishable copy (#273)", () => {
   it("DIRECTIVE drafts with em dashes pass (em-dash style rule skipped)", () => {
@@ -48,6 +54,8 @@ describe("validateDeterministicDraftSafety — directive vs publishable copy (#2
       ["add_schema", SCHEMA_DIRECTIVE],
       ["add_proof_section", "Add a short Sources section citing references — academic, institutional, or established publications."],
       ["fix_robots", "Remove the Disallow blocks so AI assistants can read — and recommend — this site."],
+      ["update_intro", DECAY_DIRECTIVE],
+      ["merge_pages", MERGE_DIRECTIVE],
     ] as const) {
       const verdict = validateDeterministicDraftSafety({
         tenantId: TENANT,

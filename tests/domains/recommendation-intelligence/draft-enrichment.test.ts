@@ -964,3 +964,90 @@ describe("enrichPromotionRow — fix_schema repair directives", () => {
     expect(out).toBe(pre);
   });
 });
+
+// Refresh-play directives (2026-06-16) — gsc_decay / stale_content →
+// update_intro and thin_content_overlap → merge_pages previously emitted
+// a null draft (customer-queue-ready fading-page rec showed no concrete
+// play). They now compose grounded directives without fabricating the new
+// prose. The directive composers read candidate.operator_evidence only, so
+// they fire even without a snapshot in ctx.
+describe("enrichPromotionRow — refresh + merge directives", () => {
+  it("gsc_decay::update_intro grounds the directive in the real click + position numbers", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "update_intro" }),
+      candidate({
+        trigger_signal: "gsc_decay",
+        action_type: "update_intro",
+        operator_evidence:
+          "signal=gsc_decay; clicks_prior=120; clicks_now=72; position_prior=4.2; position_now=8.9; impressions_now=3400",
+      }),
+      ctxOf(),
+    );
+    expect(out.display_label).toContain("Refresh");
+    // 1 - 72/120 = 40% drop, surfaced verbatim
+    expect(out.proposed_text).toContain("120");
+    expect(out.proposed_text).toContain("72");
+    expect(out.proposed_text).toContain("40%");
+    // position slipped ≥0.5 → named
+    expect(out.proposed_text).toContain("#4.2");
+    expect(out.proposed_text).toContain("#8.9");
+    expect(out.expected_impact).toBeTruthy();
+    expect(out.measurement_plan).toBeTruthy();
+  });
+
+  it("gsc_decay::update_intro stays concrete even if the numbers can't be parsed (defensive)", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "update_intro" }),
+      candidate({
+        trigger_signal: "gsc_decay",
+        action_type: "update_intro",
+        operator_evidence: "signal=gsc_decay; (malformed)",
+      }),
+      ctxOf(),
+    );
+    expect(out.proposed_text).toContain("losing the Google clicks");
+    expect(out.proposed_text).toContain("freshness");
+  });
+
+  it("stale_content::update_intro names the last-changed date from the sitemap", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "update_intro" }),
+      candidate({
+        trigger_signal: "stale_content",
+        action_type: "update_intro",
+        operator_evidence:
+          "stale_content: lastmod=2023-01-15T00:00:00Z cutoff=2025-12-16 url=https://example-site.com/x",
+      }),
+      ctxOf(),
+    );
+    expect(out.proposed_text).toContain("2023-01-15");
+    expect(out.display_label).toContain("hasn't changed");
+  });
+
+  it("thin_content_overlap::merge_pages names the overlapping page", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "merge_pages" }),
+      candidate({
+        trigger_signal: "thin_content_overlap",
+        action_type: "merge_pages",
+        operator_evidence:
+          "thin_content_overlap: https://example-site.com/a (180w) vs https://example-site.com/b (210w); shared=7",
+      }),
+      ctxOf(),
+    );
+    expect(out.proposed_text).toContain("https://example-site.com/b");
+    expect(out.proposed_text).toContain("301");
+    expect(out.display_label).toContain("Combine");
+  });
+
+  it("update_intro / merge_pages with an unrelated trigger stay draft-less (null fill → row unchanged)", () => {
+    const pre = row({ action_type: "update_intro" });
+    expect(
+      enrichPromotionRow(
+        pre,
+        candidate({ trigger_signal: "missing_title", action_type: "update_intro" }),
+        ctxOf(),
+      ),
+    ).toBe(pre);
+  });
+});
