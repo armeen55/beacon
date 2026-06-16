@@ -39,10 +39,6 @@ import { resolve, join } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 
-const POLL_HEALTH_PATH = join(
-  REPO_ROOT,
-  "src/components/today/poll-health-block.tsx",
-);
 const ROW_TYPE_PATH = join(
   REPO_ROOT,
   "src/domains/recommendations/recommendation-action-rows.ts",
@@ -53,22 +49,11 @@ const ROW_TYPE_PATH = join(
 // Fix 3 (AI-source pill), Fix 4 (engineConfidence pill), and Fix 6
 // (Imported-legacy empty state) pinned legacy-client copy; those describe
 // blocks are skipped below (the V2 surfaces have their own contract tests).
-const POLL_HEALTH_SRC = readFileSync(POLL_HEALTH_PATH, "utf-8");
+// Dead-code deletion (2026-06-16): poll-health-block.tsx was orphaned when
+// the legacy today-client was removed, so Fix 2 (poll-health infra-leak)
+// and Fix 5 (sampling taxonomy) describe blocks were removed with it.
 const ROW_TYPE_SRC = readFileSync(ROW_TYPE_PATH, "utf-8");
 
-/**
- * Strip block + line comments before identifier checks so docstring
- * mentions of forbidden strings (which are intentional — they document
- * the contract) don't trip negative invariants. Same trick the LR-N
- * allowlist + dry-run-harness invariants use.
- */
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-}
-
-const POLL_HEALTH_CODE = stripComments(POLL_HEALTH_SRC);
 // Legacy-client sources removed (see note above). Empty placeholders keep
 // the skipped legacy describe blocks compiling without reading a deleted
 // file.
@@ -125,61 +110,9 @@ describe.skip("Round 1 Fix 1 — /changes Mark Shipped tooltip (legacy scorecard
 // ────────────────────────────────────────────────────────────────────────
 // Fix 2 — Poll Health infra-leak rewrite
 // ────────────────────────────────────────────────────────────────────────
-
-describe("Round 1 Fix 2 — /today Poll Health infra-leak rewrite", () => {
-  it("removes 'Supabase schema' from operator-facing poll messages", () => {
-    expect(
-      /Supabase schema/.test(POLL_HEALTH_CODE),
-      "poll-health-block.tsx must NOT mention 'Supabase schema' in " +
-        "customer-facing error copy. The operator is the customer here; " +
-        "Supabase is internal infrastructure.",
-    ).toBe(false);
-  });
-
-  it("removes 'dual-write logs' from operator-facing poll messages", () => {
-    expect(
-      /dual-write logs/.test(POLL_HEALTH_CODE),
-      "poll-health-block.tsx must NOT mention 'dual-write logs' — that's " +
-        "internal persistence terminology.",
-    ).toBe(false);
-  });
-
-  it("removes 'GitHub Actions' from operator-facing poll messages", () => {
-    expect(
-      /GitHub Actions/.test(POLL_HEALTH_CODE),
-      "poll-health-block.tsx must NOT name 'GitHub Actions' in customer-" +
-        "facing copy. Beacon's choice of CI provider is an internal " +
-        "implementation detail.",
-    ).toBe(false);
-  });
-
-  it("failure copy uses honest on-demand reassurance — no schedule/log references at all", () => {
-    // 2026-05-06 Phase C #8 superseded Round 1 here, and the on-demand
-    // pivot superseded Phase C #8 again: customer-facing failure copy
-    // now references neither logs NOR any schedule. Per the pivot brief,
-    // data only updates when the operator refreshes their connected
-    // sources, so the reassurance points at the refresh action
-    // ("Refresh your connected data to try again") and confirms Beacon
-    // is "still using the valid responses that landed". No
-    // 'scheduled-job logs' / 'daily-poll logs' / cron framing remains.
-    const noLogReferences =
-      !/scheduled-job logs/.test(POLL_HEALTH_CODE) &&
-      !/daily-poll logs/.test(POLL_HEALTH_CODE);
-    const usesOnDemandReassurance =
-      /still using the valid responses/.test(POLL_HEALTH_CODE) &&
-      /Refresh your connected data/i.test(POLL_HEALTH_CODE) &&
-      /AI tracking didn't complete/i.test(POLL_HEALTH_CODE);
-    expect(
-      noLogReferences && usesOnDemandReassurance,
-      "poll-health-block.tsx failure copy must use the honest on-demand " +
-        "reassurance ('AI tracking didn't complete' + 'still using the " +
-        "valid responses' + 'Refresh your connected data') and must NOT " +
-        "reference any logs ('scheduled-job logs' / 'daily-poll logs') or " +
-        "schedule. This keeps the no-vendor-leak contract while matching " +
-        "the on-demand pivot (no crons, no schedule).",
-    ).toBe(true);
-  });
-});
+// Removed (2026-06-16): poll-health-block.tsx is dead code (orphaned when
+// the legacy today-client was deleted). The customer-facing poll-health
+// surface lives in the V2 dashboard now, with its own contract tests.
 
 // ────────────────────────────────────────────────────────────────────────
 // Fix 3 — /recommendations AI source pill
@@ -318,43 +251,9 @@ describe.skip("Round 1 Fix 4 — /recommendations engineConfidence pill (legacy 
 // ────────────────────────────────────────────────────────────────────────
 // Fix 5 — /today sampling taxonomy unification
 // ────────────────────────────────────────────────────────────────────────
-
-describe("Round 1 Fix 5 — /today sampling taxonomy unification", () => {
-  it("removes 'proof run' from operator-facing copy", () => {
-    // The old `samplingStatusTag` returned "proof run (small sample)".
-    // Comments still reference it (history); user-visible string is gone.
-    expect(
-      /return "proof run/.test(POLL_HEALTH_CODE),
-      "poll-health-block.tsx must NOT return 'proof run' from " +
-        "samplingStatusTag any more. The new copy is 'verification sample'.",
-    ).toBe(false);
-  });
-
-  it("removes 'proof-sized sample' from operator-facing copy", () => {
-    expect(
-      /ran a proof-sized sample/.test(POLL_HEALTH_CODE),
-      "poll-health-block.tsx must NOT use 'proof-sized sample' in subline " +
-        "copy. The new copy is 'verification sample (small)'.",
-    ).toBe(false);
-  });
-
-  it("uses 'verification sample' as the canonical small-sample term", () => {
-    expect(
-      /verification sample/.test(POLL_HEALTH_CODE),
-      "poll-health-block.tsx must use 'verification sample' as the " +
-        "canonical phrase for small-batch / manual-trigger sample states.",
-    ).toBe(true);
-  });
-
-  it("preserves 'partial day' as the partial-chunks term", () => {
-    expect(
-      /partial day/.test(POLL_HEALTH_CODE),
-      "poll-health-block.tsx must keep 'partial day' as the term for " +
-        "platforms that completed some but not all chunks. (Round 1 brief: " +
-        "'Use partial day only when chunks are missing.')",
-    ).toBe(true);
-  });
-});
+// Removed (2026-06-16): the sampling-taxonomy copy lived in the dead
+// poll-health-block.tsx (orphaned with the legacy today-client). The V2
+// dashboard's poll-health surface carries this contract now.
 
 // ────────────────────────────────────────────────────────────────────────
 // Fix 6 — /changes Imported legacy empty state
@@ -411,7 +310,6 @@ describe("Round 1 — bundle integrity (no scope creep)", () => {
     const offenders: string[] = [];
     const all = [
       SCORECARD_CODE,
-      POLL_HEALTH_CODE,
       RECS_CLIENT_CODE,
     ].join("\n");
     for (const phrase of forbidden) {

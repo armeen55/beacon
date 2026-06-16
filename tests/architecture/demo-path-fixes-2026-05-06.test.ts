@@ -350,48 +350,10 @@ describe("Demo-path Phase C fix 7 (2026-05-06) — /prompts polish", () => {
   });
 });
 
-describe("Demo-path Phase C fix 8 (2026-05-06) — /today poll-health customer copy", () => {
-  it("PollHealthBlock failure subline does NOT reference 'API keys' / 'persistence' / 'scheduled-job logs'", () => {
-    const pollHealth = readFileSync(
-      resolve(REPO_ROOT, "src/components/today/poll-health-block.tsx"),
-      "utf8",
-    );
-    const stripped = stripComments(pollHealth);
-    // Customer-facing sublines must NOT contain on-call runbook copy.
-    // (Comments retain context for future editors; only rendered
-    // strings are pinned.)
-    expect(stripped).not.toMatch(/Check persistence and daily-poll logs/);
-    expect(stripped).not.toMatch(/Check API keys, persistence, and scheduled-job logs/);
-    expect(stripped).not.toMatch(/at least one was a persistence failure/);
-  });
-
-  it("PollHealthBlock pending-day copy is honest on-demand (on-demand copy sweep)", () => {
-    // On-demand copy sweep: customer-facing PollHealthBlock copy no
-    // longer implies a scheduled cron. Beacon has no schedule — the
-    // customer is told to refresh their connected data to update it.
-    const pollHealth = readFileSync(
-      resolve(REPO_ROOT, "src/components/today/poll-health-block.tsx"),
-      "utf8",
-    );
-    const stripped = stripComments(pollHealth);
-    // Cron-time + phantom-schedule leaks must NOT appear in customer copy.
-    expect(stripped).not.toMatch(/07:00/);
-    expect(stripped).not.toMatch(/08:30/);
-    expect(stripped).not.toMatch(/10:00 UTC/);
-    expect(stripped).not.toMatch(/scheduled poll/);
-    expect(stripped).not.toMatch(/scheduled attempts/);
-    // Honest on-demand replacement must be present.
-    expect(stripped).toMatch(/Refresh your connected data to update it/);
-  });
-
-  it("PollHealthBlock partial-day copy reassures 'Beacon is still using the valid responses'", () => {
-    const pollHealth = readFileSync(
-      resolve(REPO_ROOT, "src/components/today/poll-health-block.tsx"),
-      "utf8",
-    );
-    expect(pollHealth).toMatch(/still using the valid responses/);
-  });
-});
+// Demo-path Phase C fix 8 (2026-05-06) — /today poll-health customer copy:
+// removed (2026-06-16). poll-health-block.tsx was orphaned when the legacy
+// today-client was deleted; the V2 dashboard's poll-health surface has its
+// own contract tests.
 
 // ── Cross-cutting: no raw enum stringy renders survived ───────────────
 

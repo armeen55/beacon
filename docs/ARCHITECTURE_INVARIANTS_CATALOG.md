@@ -94,7 +94,6 @@
 
 | name | source test file | section | purpose (one sentence) | status | retirement-condition | last-verified |
 |---|---|---|---|---|---|---|
-| poll-health-copy | `tests/architecture/poll-health-copy.test.ts` | Pre-plan | The poll-health-block subline copy contract. | active | Permanent — customer-vocabulary contract. | 2026-05-14 |
 | poll-health-direct-cli-classifier-contract | `tests/architecture/poll-health-direct-cli-classifier-contract.test.ts` | Bundle (2026-05-08 2nd patch) | Pins the poll-health partitioner regex for the direct-CLI scope shape. | active | Permanent — poll-health regression guard. | 2026-05-14 |
 | sampling-guard-observability-log | `tests/architecture/sampling-guard-observability-log.test.ts` | D4 (operator audit, 2026-05-05) | Sampling-status guard observability log shape invariant. | active | Permanent — observability safety. | 2026-05-14 |
 

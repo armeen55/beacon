@@ -70,10 +70,6 @@ const DO_NEXT_CARD = join(
   REPO_ROOT,
   "src/components/today/today-do-next-card.tsx",
 );
-const ACTION_QUEUE = join(
-  REPO_ROOT,
-  "src/components/today/today-action-queue.tsx",
-);
 const CHANGE_REVIEW = join(
   REPO_ROOT,
   "src/components/today/change-review.tsx",
@@ -93,7 +89,6 @@ const LIFECYCLE_STRIP = join(
 
 const SITE_FINDINGS_LABELS_SRC = readFileSync(SITE_FINDINGS_LABELS, "utf-8");
 const DO_NEXT_CARD_SRC = readFileSync(DO_NEXT_CARD, "utf-8");
-const ACTION_QUEUE_SRC = readFileSync(ACTION_QUEUE, "utf-8");
 const CHANGE_REVIEW_SRC = readFileSync(CHANGE_REVIEW, "utf-8");
 const COMMAND_CENTER_SRC = readFileSync(COMMAND_CENTER, "utf-8");
 const IMPLEMENTATION_QUEUE_SRC = readFileSync(IMPLEMENTATION_QUEUE, "utf-8");
@@ -188,26 +183,9 @@ describe("UX.6.2 Fix 1 — Do Next card uses unified vocabulary", () => {
   });
 });
 
-describe("UX.6.2 Fix 1 — Action Queue findings strip uses unified vocabulary", () => {
-  it("imports compactStripLabel from site-findings-labels", () => {
-    expect(ACTION_QUEUE_SRC).toMatch(
-      /import\s*\{\s*compactStripLabel\s*\}\s*from\s+["']@\/lib\/site-findings-labels["']/,
-    );
-  });
-
-  it("strip JSX flows through compactStripLabel — old 'page issue' shape gone", () => {
-    expect(ACTION_QUEUE_SRC).toMatch(/compactStripLabel\s*\(\s*\{/);
-    const code = stripCommentsAndImports(ACTION_QUEUE_SRC);
-    expect(code).not.toMatch(/page issue/);
-    expect(code).not.toMatch(/urgent/);
-  });
-
-  it("typeBreakdownLabel still surfaces via title tooltip (T2 contract preserved)", () => {
-    expect(ACTION_QUEUE_SRC).toMatch(
-      /title=\{findings\.typeBreakdownLabel\s*\?\?\s*undefined\}/,
-    );
-  });
-});
+// UX.6.2 Fix 1 — Action Queue findings strip: removed (2026-06-16).
+// today-action-queue.tsx was orphaned when the legacy today-client was
+// deleted; the V2 dashboard's action surface has its own contract tests.
 
 describe("UX.6.2 Fix 1 — ChangeReview accordion uses unified vocabulary", () => {
   it("imports recentSiteChangesHeading + RECENT_SITE_CHANGES_SUBTITLE", () => {
@@ -369,7 +347,6 @@ describe("UX.6.2 — no paid APIs / no mutations introduced by the cleanup", () 
   const TOUCHED_SRCS: Array<[string, string]> = [
     ["site-findings-labels", SITE_FINDINGS_LABELS_SRC],
     ["today-do-next-card", DO_NEXT_CARD_SRC],
-    ["today-action-queue", ACTION_QUEUE_SRC],
     ["change-review", CHANGE_REVIEW_SRC],
     ["command-center", COMMAND_CENTER_SRC],
     ["implementation-queue", IMPLEMENTATION_QUEUE_SRC],
