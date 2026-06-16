@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-16 PM-18 (dual-surface collapse — steps 2a/2b/2c-i: legacy TodayClient fully decoupled + dead)
+
+**Trigger:** continue the dual-surface collapse (the lone substantive in-repo unit). Executed it as independently-green committable sub-steps (gate + commit each; a half-done state is just uncommitted WIP, never a broken push):
+
+- **2a (`dbb70f6`) — break the circular type dep:** relocated `TodayLifecycleQueueItem`/`TodayLifecycleSummary` from `today-data.ts` to `today-shared-types.ts` (`TodayLiveChange` was already neutral); today-data re-exports them.
+- **2b (`6a02541`) — relocate the props type:** `TodayClientProps` (~110 lines) + `UrlVerdictProof` → `today-shared-types.ts` (+13 type-only dep imports). `today-data.ts` now derives `TodayPageData` from `TodayClientProps` and dropped the `import { TodayClient }` VALUE + `ComponentProps`. today-client.tsx dropped its inline props type, local `UrlVerdictProof`, and 13 now-dead type imports. 2 architecture pins repointed to read the relocated props assertions from today-shared-types.
+- **2c-i (`0065ef9`) — repoint importers:** the 10 live files that imported the client's re-exported types now import from today-shared-types. **`today-client.tsx` is now referenced by NOTHING (value or type) — fully dead/deletable.**
+- **Gates:** typecheck clean throughout; build PASS (✓5.7s); architecture+routes+today+app+lib+attribution+components = ~7,438 pass / 41 skip (the 11 `today-client.tsx` file-content pins still pass — file still present); dev server `/` (200) + `/recommendations` (200) render clean after each step. Pure type relocation + import repoint — zero runtime change.
+- **REMAINING — 2c-ii (the only piece left):** delete the dead `today-client.tsx` + per-pin coverage-analysis on the 11 `readFileSync` pins (confirm the live v2 surface covers each invariant before dropping the legacy-structure pin). The careful coverage step — flagged for focused execution. Branch-local; no deploy.
+
+---
+
 ## 2026-06-16 PM-17 (dual-surface collapse — step 1: extract shared Today types off the legacy client)
 
 **Trigger:** the one remaining substantive in-repo unit — the `today-data.ts`/legacy-`today-client.tsx` dual-surface extraction. Did the SAFE first slice rather than the risky one-shot delete. The legacy 989-line `"use client"` `today-client.tsx` was the type-home for 6 serialized Today types consumed by LIVE v2 components + loaders — coupling live code to a legacy client purely for types.
