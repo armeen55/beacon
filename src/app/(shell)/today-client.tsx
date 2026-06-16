@@ -747,8 +747,17 @@ export function TodayClient({
           >
             Secondary signal · AI assistant visibility
           </p>
+          {/* #372 — the legacy /today mounts the metrics disclosure
+              (id="today-metrics-disclosure") lower on the page, so the
+              hero's "Why this number?" link has a real jump target here
+              and we pass whyThisNumberHref. The v2 command center never
+              mounts that disclosure, so it omits the prop and the
+              otherwise-dead anchor is suppressed. */}
           {aiVisibilityHeroProps && (
-            <AIVisibilityHero {...aiVisibilityHeroProps} />
+            <AIVisibilityHero
+              {...aiVisibilityHeroProps}
+              whyThisNumberHref="#today-metrics-disclosure"
+            />
           )}
           <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
             <VisibilityScoreChart

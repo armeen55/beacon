@@ -74,6 +74,16 @@ export type AIVisibilityHeroProps = {
     status: "fresh" | "stale" | "rebuilding" | "empty";
     label: string;
   };
+  /**
+   * #372 — in-page anchor for the "Why this number?" link. ONLY pass
+   * this when the consuming surface actually mounts the matching jump
+   * target (the legacy `/today` mounts `<TodayMetricsDisclosure>` with
+   * id="today-metrics-disclosure"). The v2 command center does NOT mount
+   * that disclosure, so it leaves this undefined and the link is omitted
+   * — otherwise "Why this number?" was a dead anchor that scrolled
+   * nowhere on the live v2 dashboard.
+   */
+  whyThisNumberHref?: string;
   className?: string;
 };
 
@@ -106,6 +116,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
     perplexityPrimaryPct,
     sampleState,
     freshness,
+    whyThisNumberHref,
     className,
   } = props;
 
@@ -331,12 +342,19 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
               {perplexityPrimaryPct}% primary
             </span>
           )}
-          <Link
-            href="#today-metrics-disclosure"
-            className="ml-auto text-accent-primary hover:underline"
-          >
-            Why this number?
-          </Link>
+          {/* #372 — only render the in-page jump when the consuming
+              surface actually mounts the disclosure target. The v2
+              command center never mounts <TodayMetricsDisclosure>, so it
+              omits whyThisNumberHref and this dead anchor disappears
+              instead of scrolling nowhere. */}
+          {whyThisNumberHref && (
+            <Link
+              href={whyThisNumberHref}
+              className="ml-auto text-accent-primary hover:underline"
+            >
+              Why this number?
+            </Link>
+          )}
         </div>
       )}
     </section>

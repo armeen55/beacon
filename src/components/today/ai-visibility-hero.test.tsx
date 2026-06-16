@@ -109,6 +109,42 @@ describe("AIVisibilityHero — happy path (Ritz mature data)", () => {
   });
 });
 
+describe("AIVisibilityHero — 'Why this number?' anchor (#372)", () => {
+  it("omits the 'Why this number?' link by default (no dead anchor on v2)", () => {
+    // The v2 command center mounts the hero but NOT the
+    // <TodayMetricsDisclosure> jump target, so the link must not render
+    // — otherwise clicking it scrolled nowhere.
+    const html = renderToStaticMarkup(<AIVisibilityHero {...RITZ_FULL} />);
+    expect(html).toContain('data-today-hero-platforms="true"');
+    expect(html).not.toContain("Why this number?");
+    expect(html).not.toContain("#today-metrics-disclosure");
+  });
+
+  it("renders the link only when whyThisNumberHref is supplied (legacy /today)", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        whyThisNumberHref="#today-metrics-disclosure"
+      />,
+    );
+    expect(html).toContain("Why this number?");
+    expect(html).toContain('href="#today-metrics-disclosure"');
+  });
+
+  it("does not render the link when the platforms footer is hidden", () => {
+    // No platform pcts → footer suppressed → link must not orphan.
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        chatgptPrimaryPct={null}
+        perplexityPrimaryPct={null}
+        whyThisNumberHref="#today-metrics-disclosure"
+      />,
+    );
+    expect(html).not.toContain("Why this number?");
+  });
+});
+
 describe("AIVisibilityHero — partial-sample state", () => {
   it("'Partial sample' badge renders when sampleState='partial'", () => {
     const html = renderToStaticMarkup(
