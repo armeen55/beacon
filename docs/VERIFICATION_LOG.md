@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PM-14 (grounded refresh/merge directives — last null-draft gap on connected data)
+
+**Trigger:** with the worst-first UX_TEARDOWN clusters verified-closed (connector Sync-now already wired; legacy /today confirmed live-substrate, not deletable — see `b9c6482`), an Explore audit mapped every trigger's draft coverage: which fire on ALREADY-CONNECTED data (GSC/Clarity/scan) yet emit only a vague directive vs a concrete draft. The engine is already highly concrete — but three action types fell through to a NULL draft (bare customer copy, no play): **`gsc_decay::update_intro`** (customer-queue-ready — the one that matters), `stale_content::update_intro` + `thin_content_overlap::merge_pages` (diagnostic-only).
+
+- **Fix (`0bb6526`):** `draft-enrichment.ts` — `composeDecayDirective` / `composeStaleDirective` / `composeMergeDirective` + 2 dispatch cases. The decay directive is grounded in the candidate's REAL numbers (clicks before→after, drop %, position slip) parsed from `operator_evidence`; defensive fallback stays concrete if unparsable. None fabricate the new prose (the rewrite/merge is the owner's — same rail as answer-block/sources). `specific-edit-validator.ts` — classify `update_intro` + `merge_pages` as `DETERMINISTIC_DIRECTIVE_ACTION_TYPES` so the published-prose style gates (em dash / leading superlative / brand short form) don't hold the instruction text; correctness gates (placeholder, brand-claim) still run (same pattern as PM-11).
+- **Gates:** `npm run typecheck` clean; `npm run build` PASS (✓ 5.8s); `tests/domains/recommendation-intelligence` + `tests/architecture` = 6257 pass / 41 skip (incl. white-label/vocab/jargon invariants — directive copy is clean); 102 targeted (5 new enrichment cases + 2 new validator directive cases).
+- **Ground-truth on real code paths:** extended `promotion-writer-draft-safety.test.ts` with an integration pin running the actual `promoteEligibleCandidates` chain (load → eligibility → enrich → `holdUnsafeDraft`): a `gsc_decay::update_intro` candidate (clicks 120→72, pos 4.2→8.9) promotes WITH its grounded directive ("…down to about 72 — a drop of roughly 40%… Refresh the top section first…") and is NOT held — pre-fix its em dashes would have nulled it. TRUTH-UP: this is deterministic ground-truth on the promotion + safety seam (stronger than a dev-server click, which would require triggering a fresh generation run; the `proposed_text`→detail render path is unchanged by this slice and already pinned). Not pushed (branch-local, per conserve-CI checkpointing).
+
+---
+
 ## 2026-06-16 PM-13 (value loop: customer Approve & Push + "Fix these first" source fusion)
 
 Two ships after the PM-12 dashboard audit — closing the value loop + adding a new fusion capability.
