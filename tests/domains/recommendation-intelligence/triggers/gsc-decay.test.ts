@@ -107,4 +107,39 @@ describe("gscDecay predicate", () => {
       }),
     ).toEqual([]);
   });
+
+  it("threads top queries into operator_evidence (capped to 3, pipe/semicolon-stripped)", () => {
+    const c = gscDecay({
+      tenantId: "tenant-a",
+      snapshot: snap(),
+      signal: decaying(),
+      topQueries: [
+        "persian male names",
+        "iran|ian boy; names",
+        "farsi names",
+        "fourth query dropped",
+      ],
+    })[0]!;
+    expect(c.operator_evidence).toContain(
+      "top_queries=persian male names|iran ian boy  names|farsi names",
+    );
+    // capped at 3 — the fourth is dropped
+    expect(c.operator_evidence).not.toContain("fourth query");
+  });
+
+  it("omits top_queries when none are supplied (big-tenant heavy-read timeout → numbers-only)", () => {
+    const c = gscDecay({
+      tenantId: "tenant-a",
+      snapshot: snap(),
+      signal: decaying(),
+    })[0]!;
+    expect(c.operator_evidence).not.toContain("top_queries=");
+    const empty = gscDecay({
+      tenantId: "tenant-a",
+      snapshot: snap(),
+      signal: decaying(),
+      topQueries: [],
+    })[0]!;
+    expect(empty.operator_evidence).not.toContain("top_queries=");
+  });
 });

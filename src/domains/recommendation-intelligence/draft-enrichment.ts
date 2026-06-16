@@ -1126,12 +1126,27 @@ function composeDecayDirective(
         ". "
       : "This page is losing the Google clicks it used to earn. ";
 
+  // Per-query grounding (2026-06-16): name the exact search terms the page is
+  // known for, threaded from gsc_daily_rows via gscSignals.topQueries. Absent
+  // (heavy page-signal read timed out) → no sentence, directive stays valid.
+  const qMatch = /top_queries=([^;]+)/.exec(ev);
+  const topQueries = qMatch
+    ? qMatch[1]!.split("|").map((q) => q.trim()).filter((q) => q.length > 0)
+    : [];
+  const queryLine =
+    topQueries.length > 0
+      ? " People reach this page searching " +
+        topQueries.map((q) => "“" + q + "”").join(", ") +
+        " — make sure your refreshed top section answers those terms directly and in current language."
+      : "";
+
   return {
     display_label: "Refresh the top of this page to win back its lost clicks",
     current_text: null,
     proposed_text:
       lead +
-      "A fading page is almost always a freshness problem, not a rewrite job. Refresh the top section first: update any dated facts, years, prices, or statistics; re-state the page's main answer in the opening paragraph in today's terms; and add one recent example or angle that wasn't there before. Keep the URL and the core content — you're signalling to Google (and the AI assistants that read these pages) that it's current again, not starting over.",
+      "A fading page is almost always a freshness problem, not a rewrite job. Refresh the top section first: update any dated facts, years, prices, or statistics; re-state the page's main answer in the opening paragraph in today's terms; and add one recent example or angle that wasn't there before. Keep the URL and the core content — you're signalling to Google (and the AI assistants that read these pages) that it's current again, not starting over." +
+      queryLine,
     expected_impact:
       "Pages recover fastest when the part engines read first is visibly current. A focused freshness pass usually recovers lost ground without the cost of a full rewrite.",
     measurement_plan:

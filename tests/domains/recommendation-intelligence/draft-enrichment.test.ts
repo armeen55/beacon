@@ -995,6 +995,38 @@ describe("enrichPromotionRow — refresh + merge directives", () => {
     expect(out.measurement_plan).toBeTruthy();
   });
 
+  it("gsc_decay::update_intro NAMES the page's top search terms when threaded (per-query grounding)", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "update_intro" }),
+      candidate({
+        trigger_signal: "gsc_decay",
+        action_type: "update_intro",
+        operator_evidence:
+          "signal=gsc_decay; clicks_prior=120; clicks_now=72; position_prior=4.2; position_now=8.9; impressions_now=3400; top_queries=persian male names|iranian boy names|farsi names",
+      }),
+      ctxOf(),
+    );
+    expect(out.proposed_text).toContain("reach this page searching");
+    expect(out.proposed_text).toContain("persian male names");
+    expect(out.proposed_text).toContain("iranian boy names");
+    expect(out.proposed_text).toContain("farsi names");
+  });
+
+  it("gsc_decay::update_intro omits the search-terms sentence when no top_queries present", () => {
+    const out = enrichPromotionRow(
+      row({ action_type: "update_intro" }),
+      candidate({
+        trigger_signal: "gsc_decay",
+        action_type: "update_intro",
+        operator_evidence:
+          "signal=gsc_decay; clicks_prior=120; clicks_now=72; position_prior=4.2; position_now=8.9; impressions_now=3400",
+      }),
+      ctxOf(),
+    );
+    expect(out.proposed_text).not.toContain("reach this page searching");
+    expect(out.proposed_text).toContain("40%");
+  });
+
   it("gsc_decay::update_intro stays concrete even if the numbers can't be parsed (defensive)", () => {
     const out = enrichPromotionRow(
       row({ action_type: "update_intro" }),

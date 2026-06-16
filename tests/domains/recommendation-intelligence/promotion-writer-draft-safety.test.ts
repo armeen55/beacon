@@ -316,7 +316,7 @@ describe("promoteEligibleCandidates — deterministic draft safety (#273)", () =
         target_url: TARGET_URL,
         topic_cluster_label: "Fading page",
         operator_evidence:
-          "signal=gsc_decay; clicks_prior=120; clicks_now=72; position_prior=4.2; position_now=8.9; impressions_now=3400",
+          "signal=gsc_decay; clicks_prior=120; clicks_now=72; position_prior=4.2; position_now=8.9; impressions_now=3400; top_queries=custom home builder|palo alto architect|luxury home design",
       }),
     ];
 
@@ -332,6 +332,9 @@ describe("promoteEligibleCandidates — deterministic draft safety (#273)", () =
     expect(row.proposed_text!).toContain("120");
     expect(row.proposed_text!).toContain("72");
     expect(row.proposed_text!).toContain("40%");
+    // per-query grounding survives promotion + the safety seam
+    expect(row.proposed_text!).toContain("custom home builder");
+    expect(row.proposed_text!).toContain("reach this page searching");
     expect(row.display_label).toContain("Refresh");
 
     // Not held — the directive survived the publish-prose gate.

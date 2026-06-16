@@ -36,7 +36,24 @@ export type GscDecayInput = {
   tenantId: string;
   snapshot: PageSnapshot;
   signal: GscDecaySignal | undefined;
+  /** Per-query grounding (2026-06-16): the page's top GSC search terms, if
+   *  the page-signal read succeeded for this tenant. Threaded into
+   *  operator_evidence so the refresh directive can name the exact terms the
+   *  page is known for. Absent (big tenants whose heavy page-signal read timed
+   *  out) → the directive degrades to numbers-only. PURE — passed in, no I/O. */
+  topQueries?: readonly string[];
 };
+
+/** Up to 3 query strings, pipe-joined, pipe-stripped, length-capped — the
+ *  directive parser splits on `|`. Returns "" when there are none. */
+function encodeTopQueries(queries: readonly string[] | undefined): string {
+  if (queries == null || queries.length === 0) return "";
+  const clean = queries
+    .map((q) => q.replace(/[|;]/g, " ").trim().slice(0, 60))
+    .filter((q) => q.length > 0)
+    .slice(0, 3);
+  return clean.length > 0 ? "; top_queries=" + clean.join("|") : "";
+}
 
 const CLICKS_DROP_FACTOR = 0.2;
 const MIN_PRIOR_CLICKS = 20;
@@ -54,7 +71,7 @@ export function isDecaying(s: GscDecaySignal): boolean {
 }
 
 export function gscDecay(input: GscDecayInput): RecommendationCandidateRow[] {
-  const { tenantId, snapshot, signal } = input;
+  const { tenantId, snapshot, signal, topQueries } = input;
   if (isNonHtmlAsset(snapshot.url)) return [];
   // audit #10 (2026-06-14): don't emit a "refresh your intro" card for a
   // dead URL (GSC keeps rows for pages that have since gone 404/5xx).
@@ -107,7 +124,8 @@ export function gscDecay(input: GscDecayInput): RecommendationCandidateRow[] {
         "; position_now=" +
         signal.positionNow.toFixed(1) +
         "; impressions_now=" +
-        signal.impressionsNow,
+        signal.impressionsNow +
+        encodeTopQueries(topQueries),
       dedupe_key: dedupeKey({
         tenantId,
         actionType,

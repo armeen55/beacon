@@ -523,13 +523,18 @@ export async function loadTriggerCandidatesForTenant(options: {
       }),
     );
     // Decay slice (2026-06-12) — fading pages -> refresh.
+    // Per-query grounding (2026-06-16): pass the page's top GSC search terms
+    // (already loaded in gscSignals; absent when the heavy read timed out) so
+    // the refresh directive can name the exact terms the page is known for.
+    const decayCanonUrl = canonicalizeCitationUrl(snapshot.url) ?? snapshot.url;
     all.push(
       ...gscDecay({
         tenantId,
         snapshot,
-        signal: gscDecaySignals.get(
-          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
-        ),
+        signal: gscDecaySignals.get(decayCanonUrl),
+        topQueries: gscSignals
+          .get(decayCanonUrl)
+          ?.topQueries?.map((q) => q.query),
       }),
     );
     // Rule B (2026-06-12) — first-party striking distance.
