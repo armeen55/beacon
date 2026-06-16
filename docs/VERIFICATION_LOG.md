@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PM-20 (improve_meta directive — content pages w/ unliftable prose get actionable meta guidance)
+
+**Trigger:** the last buildable root-cause-#3 gap — content pages with a missing meta that `composeMeta` can't auto-draft (list-structured / label-soup prose, common on Wix) promoted a `missing_meta::edit_meta` rec with a NULL draft (blank, render-suppressed). Implemented via a fresh-context **subagent** (the careful multi-file wiring) + **verified independently by me** (don't trust a multi-file feature unverified).
+
+- **Fix (`ec84493`):** new NON-PUSHABLE `improve_meta` directive action type (mirrors `add_answer_block`). `draft-enrichment.ts` extracts `selectMetaSource(snap, isChrome)` (the exact prose/list/label gating `composeMeta` used — `composeMeta` now calls it, behavior-identical, pinned green) + adds `composeMetaDirective` + the dispatch case. `missing-meta.ts` emits `improve_meta` when `selectMetaSource === null` (chromeDetector threaded from `load-trigger-candidates` so the trigger's decision matches enrichment — NO divergence), else `edit_meta` unchanged. Eligibility `missing_meta::improve_meta = customer-queue-ready`; `improveMetaCopy`; validator directive-classification; `recommendation-action-rows` arms (`review_decision` — never offered as paste copy).
+- **SAFETY (independently verified):** `improve_meta` has NO Wix field mapping — `CONTENT_ACTION_FIELD_ROLE` (url-map.ts) maps only `edit_title`/`change_h1`/`edit_meta`, and `deriveWixContentFieldKey` returns null for it → `executePush` hard-refuses it. The directive prose can NEVER be written to a live meta tag.
+- **Gates (re-run by me, not just the subagent):** typecheck clean; build PASS (✓5.9s); `tests/domains/recommendation-intelligence` + `tests/architecture` + `src/domains/recommendations` = **7391 pass / 43 skip** (incl. updated catalog-sync count 38→39, eligibility pins, vocab probe); dev server `/` + `/recommendations` render 200. Branch-local; no deploy. (Pattern note: delegating careful multi-file wiring to a fresh-context subagent + owning the gate verification is the right move when the main loop is context-deep.)
+
+---
+
 ## 2026-06-16 PM-19 (dual-surface collapse COMPLETE — legacy TodayClient DELETED, 2c-ii)
 
 **Trigger:** finish the dual-surface collapse — delete the now-dead legacy `today-client.tsx` + its 11 file-content test pins.
