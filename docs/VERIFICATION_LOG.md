@@ -7,7 +7,17 @@
 
 ---
 
-## 2026-06-15 PM-5 (UX_TEARDOWN ⚠️-tier verification pass #2 — NOT committed, operator-gated)
+## 2026-06-15 PM-6 (PIVOT de-bloat: native-AEO-polling engine DELETED — PUSHED `acee5c2`)
+
+**Trigger:** the pivot mandates deleting ALL in-house Perplexity/ChatGPT polling (Profound = sole AEO). Crons/GitHub-Actions/Vercel-schedulers were already gone (`ci.yml` only, `"crons": []`, no cron routes); this removed the remaining native-poll ENGINE + its operator-only "Run today's AI reading" action.
+
+- **15 files / ~7,347 lines deleted (net −7,289):** `run-poll.ts` (`runNativePoll`) + `poll-integrity.ts`; `src/adapters/perplexity/` + `src/adapters/openai/poll.ts`; `src/lib/querying/perplexity-client.ts` + `openai-client.ts` (native ChatGPT *polling* client); `scripts/sample-visibility.ts` + `data:sample`; the Perplexity/ChatGPT "Run reading" actions + UI in diagnostics/connectors; 7 dead poll tests.
+- **PRESERVED (verified):** the OpenAI recommendation-DRAFT path (`providers/openai.ts` does its own fetch, never imported the deleted poll client — recs still draft); the Profound adapter (sole AEO); ALL observation readers + data + the persistence layer (the supabase-backend "perplexity" refs were comments, not imports). Only the WRITER was removed.
+- **Gate (independently re-confirmed):** typecheck clean; build PASS (20/20 pages); architecture **5684** pass (catalog-sync + import-graph guards green post-deletion); agent-run full suite **17,461 tests, 0 failures**.
+
+---
+
+## 2026-06-15 PM-5 (UX_TEARDOWN ⚠️-tier verification pass #2 — PUSHED `a78cada`)
 
 **Trigger:** continue `docs/UX_TEARDOWN_2026-06-15.md` — the ⚠️ "bad" tier (252 items) + high-value ▫︎. Verify each against current code; fix only genuinely-open SAFE customer-facing items; never churn or fake.
 
