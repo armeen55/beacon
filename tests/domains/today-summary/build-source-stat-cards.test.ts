@@ -294,6 +294,24 @@ describe("buildSourceStatCards — per-page click-loss decomposition (#topDeclin
     const card = buildSourceStatCards(inputs).find((c) => c.key === "gsc");
     expect(card!.topDeclines ?? null).toBeNull();
   });
+
+  it("Clarity card names the most-frustrating pages, ranked by combined rate", () => {
+    const inputs = emptyInputs();
+    inputs.clarity = new Map([
+      // 50% combined friction (40 dead + 10 rage over 100 sessions)
+      ["https://x.com/worst", claritySignal({ url: "https://x.com/worst", sessions: 100, deadClicks: 40, rageClicks: 10 })],
+      // 20% combined
+      ["https://x.com/mid", claritySignal({ url: "https://x.com/mid", sessions: 100, deadClicks: 15, rageClicks: 5 })],
+      // below the 10-session floor → excluded even at 100%
+      ["https://x.com/noise", claritySignal({ url: "https://x.com/noise", sessions: 4, deadClicks: 4, rageClicks: 0 })],
+      // below the 10% rate floor → excluded
+      ["https://x.com/clean", claritySignal({ url: "https://x.com/clean", sessions: 200, deadClicks: 4, rageClicks: 0 })],
+    ]);
+    const card = buildSourceStatCards(inputs).find((c) => c.key === "clarity");
+    expect(card!.topFriction).not.toBeNull();
+    expect(card!.topFriction![0]).toEqual({ path: "/worst", pct: 50 });
+    expect(card!.topFriction!.map((f) => f.path)).toEqual(["/worst", "/mid"]);
+  });
 });
 
 describe("buildSourceStatCards — GSC sparkline (daily-clicks momentum)", () => {

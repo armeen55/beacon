@@ -48,6 +48,43 @@ function sublineGlyph(tone: SourceSubline["tone"]): string {
   }
 }
 
+/** Tiny per-page breakdown list under a stat card — names the specific
+ *  pages behind a site-level number (biggest click drops / worst friction).
+ *  Shared by the GSC + Clarity cards so the "name the specifics" treatment
+ *  stays visually consistent. */
+function PageBreakdown({
+  heading,
+  rows,
+  dataAttr,
+}: {
+  heading: string;
+  rows: Array<{ path: string; value: string }>;
+  dataAttr: string;
+}) {
+  return (
+    <div className="mt-2.5" data-all-source-breakdown={dataAttr}>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+        {heading}
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {rows.map((r) => (
+          <li
+            key={r.path}
+            className="flex items-baseline justify-between gap-2 text-[11px]"
+          >
+            <span className="truncate font-mono text-muted-foreground">
+              {r.path}
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums text-status-warning">
+              {r.value}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function StatCard({ card }: { card: SourceStatCard }) {
   return (
     <li
@@ -83,26 +120,24 @@ function StatCard({ card }: { card: SourceStatCard }) {
         </p>
       ) : null}
       {card.topDeclines && card.topDeclines.length > 0 ? (
-        <div className="mt-2.5" data-all-source-declines={card.key}>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Biggest drops
-          </p>
-          <ul className="mt-1 space-y-0.5">
-            {card.topDeclines.map((d) => (
-              <li
-                key={d.path}
-                className="flex items-baseline justify-between gap-2 text-[11px]"
-              >
-                <span className="truncate font-mono text-muted-foreground">
-                  {d.path}
-                </span>
-                <span className="shrink-0 font-semibold tabular-nums text-status-warning">
-                  −{d.dropPct}%
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <PageBreakdown
+          heading="Biggest drops"
+          dataAttr={`declines-${card.key}`}
+          rows={card.topDeclines.map((d) => ({
+            path: d.path,
+            value: `−${d.dropPct}%`,
+          }))}
+        />
+      ) : null}
+      {card.topFriction && card.topFriction.length > 0 ? (
+        <PageBreakdown
+          heading="Most friction"
+          dataAttr={`friction-${card.key}`}
+          rows={card.topFriction.map((f) => ({
+            path: f.path,
+            value: `${f.pct}%`,
+          }))}
+        />
       ) : null}
       {card.action ? (
         <Link

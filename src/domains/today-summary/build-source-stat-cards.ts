@@ -84,6 +84,13 @@ export type SourceStatCard = {
    * decay RPC; null/absent when there's nothing meaningfully declining.
    */
   topDeclines?: Array<{ path: string; dropPct: number }> | null;
+  /**
+   * Top pages by visitor friction (2026-06-15) — the per-page decomposition
+   * of a site-level dead/rage-click rate, so the Clarity card names WHICH
+   * pages frustrate visitors most instead of only reporting "22% dead
+   * clicks". Set on the Clarity card; null/absent when nothing stands out.
+   */
+  topFriction?: Array<{ path: string; pct: number }> | null;
 };
 
 /**
@@ -381,7 +388,34 @@ function buildClarityCard(
     stats,
     subline,
     action,
+    topFriction: topFrictionPages(clarity),
   };
+}
+
+/** A page needs at least this many sessions before its friction RATE is
+ *  trustworthy (a 100%-dead page off 2 sessions is noise). */
+const MIN_FRICTION_SESSIONS = 10;
+/** Only surface pages whose combined friction rate clears this floor. */
+const MIN_FRICTION_RATE = 0.1;
+const MAX_FRICTION_ROWS = 3;
+
+/** Pure: reduce per-page Clarity signals to the most-frustrating pages,
+ *  ranked by combined (rage + dead) click rate. */
+function topFrictionPages(
+  clarity: Map<string, ClarityPageSignal>,
+): Array<{ path: string; pct: number }> | null {
+  if (clarity.size === 0) return null;
+  const rows = [...clarity.values()]
+    .filter((s) => s.sessions >= MIN_FRICTION_SESSIONS)
+    .map((s) => ({
+      path: pathOf(s.url),
+      rate: (s.rageClicks + s.deadClicks) / Math.max(1, s.sessions),
+    }))
+    .filter((r) => r.rate >= MIN_FRICTION_RATE)
+    .sort((a, b) => b.rate - a.rate)
+    .slice(0, MAX_FRICTION_ROWS)
+    .map((r) => ({ path: r.path, pct: Math.round(r.rate * 100) }));
+  return rows.length > 0 ? rows : null;
 }
 
 /**
