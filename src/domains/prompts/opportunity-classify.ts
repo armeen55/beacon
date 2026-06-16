@@ -355,7 +355,7 @@ export function classifyPromptOpportunity(args: {
         100,
         50 + dominantCompetitors.length * 10 + relevant.length * 2,
       ),
-      reasoning: `You're absent; ${dominantCompetitors.length} competitors dominate (${top3}) across ${relevant.length} observations.`,
+      reasoning: `You're absent; ${dominantCompetitors.length} competitors dominate (${top3}) across ${relevant.length} readings.`,
       evidence,
     };
   }
