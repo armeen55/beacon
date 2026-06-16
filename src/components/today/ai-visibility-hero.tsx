@@ -122,6 +122,13 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
 
   const hasScore = score !== null && Number.isFinite(score);
   const hasRank = rank !== null && Number.isFinite(rank);
+  // Honesty fix (2026-06-15): a RANK is only meaningful when there is a real
+  // competitive field to rank against. `totalRanked` includes the owned brand,
+  // so `totalRanked < 2` means "only you are tracked" — claiming "#1" there is
+  // a "#1 of 1" non-claim that erodes trust (the hero used to say "#1 across
+  // tracked AI answers" while simultaneously showing "No competitor in range
+  // yet"). Gate every rank claim on a real competitive field.
+  const hasCompetitiveRank = hasRank && totalRanked >= 2;
 
   // Bundle 2 hosted-verification fix (2026-05-11): when the brand
   // name resolves to the second-person pronoun "You" (the fallback
@@ -138,7 +145,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
   // second-person fallback; "Ritz Builders is #N..." for any real brand.
   // Operator-locked copy. Avoids superlatives Beacon can't claim.
   const leadSentence = (() => {
-    if (!hasRank) {
+    if (!hasCompetitiveRank) {
       return `${brandName} ${verbIs} being tracked across AI answers.`;
     }
     return `${brandName} ${verbIs} #${rank} across tracked AI answers.`;
@@ -270,14 +277,16 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
         <MetricCard
           label="Rank"
           dataAttr="rank"
-          headline={hasRank ? `#${rank}` : "—"}
+          headline={hasCompetitiveRank ? `#${rank}` : "—"}
           sub={
-            hasRank
+            hasCompetitiveRank
               ? {
                   text: "among tracked brands cited by AI",
                   tone: "neutral",
                 }
-              : { text: "Awaiting leaderboard", tone: "neutral" }
+              : hasRank
+                ? { text: "No competitors tracked yet", tone: "neutral" }
+                : { text: "Awaiting leaderboard", tone: "neutral" }
           }
         />
 

@@ -315,33 +315,51 @@ export const loadTodayV2AllSourceSummaryData = cache(
 );
 
 /**
- * Whether the tenant has any AEO ("AI answers") data worth surfacing —
+ * Whether the tenant has RELIABLE AEO ("AI answers") data worth opening to —
  * drives whether the demoted, collapsible AI-answers block opens by
- * default (open when there's data; collapsed when empty so it never
- * opens to a blank section). Checks recent raw `prompt_answer_
- * observations` (the same signal the demoted descriptors + visibility
- * sections render from) rather than the derived rollup, because crons
- * are off so the rollup can be empty even when raw observations exist.
+ * default. Honesty fix (2026-06-15): a SINGLE sampled day of native-poll
+ * observations is statistically too thin to power the visibility hero /
+ * descriptors / leaderboard without producing noise and contradictions
+ * (e.g. a "#1" rank off one day, a 4% vs 5.5% score split, garbage
+ * single-word descriptors). The probe used to open the block on ANY
+ * observation in 14 days (`length > 0`), so a thin tenant like Iranopedia
+ * opened straight to that mess. Now it requires at least
+ * `MIN_RELIABLE_SAMPLED_DAYS` DISTINCT sampled days before opening; below
+ * that the block stays COLLAPSED (still present — the operator can expand
+ * it — it just doesn't default-open to thin, contradictory data).
+ *
+ * Checks recent raw `prompt_answer_observations` (the same signal the
+ * demoted descriptors + visibility sections render from) rather than the
+ * derived rollup, because crons are off so the rollup can be empty even
+ * when raw observations exist.
  *
  * Tiny tenant-scoped bounded read; fail-soft to `false`. Memoized so
  * the page can call it cheaply alongside the section mounts.
  */
+const MIN_RELIABLE_SAMPLED_DAYS = 3;
+
 export const loadTodayV2HasAeoData = cache(async (): Promise<boolean> => {
   try {
     const tenantId = await currentTenantId();
     const repo = getRepository().forTenant(tenantId);
     const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
-    // Existence-only probe — we just need ">0", never the row bodies. Project
-    // the single indexed `observed_at` column so the read is lean: the
-    // default full-row pull dragged the ~5.9 MB `metadata` JSONB across the
-    // wire for a data-rich tenant (Ritz), causing the #72 statement-timeout —
-    // and this probe is awaited INLINE before any section streams, so the
-    // timeout hung the entire V2 page. Lean projection makes it index-fast.
+    // Lean probe — project only the indexed `observed_at` column (the default
+    // full-row pull dragged the ~5.9 MB `metadata` JSONB across the wire for a
+    // data-rich tenant, causing the #72 statement-timeout). This probe is
+    // awaited INLINE before any section streams, so it must stay index-fast.
     const recentObs = await repo.getPromptAnswerObservations({
       since,
       columns: "observed_at",
     });
-    return recentObs.length > 0;
+    // Count DISTINCT UTC sampled days — one noisy day is not enough to open to
+    // a visibility "#1"/score/descriptor story. Require ≥ MIN_RELIABLE.
+    const days = new Set<string>();
+    for (const obs of recentObs) {
+      const at = (obs as { observed_at?: string | null }).observed_at;
+      if (typeof at === "string" && at.length >= 10) days.add(at.slice(0, 10));
+      if (days.size >= MIN_RELIABLE_SAMPLED_DAYS) return true;
+    }
+    return days.size >= MIN_RELIABLE_SAMPLED_DAYS;
   } catch (err) {
     console.error("[today-v2] hasAeoData probe failed:", err);
     return false;

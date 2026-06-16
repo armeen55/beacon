@@ -58,6 +58,37 @@ const GENERIC_NOUN_NAMES: ReadonlySet<string> = new Set([
   "architects",
 ]);
 
+/**
+ * Directory/aggregator BRAND NAMES — the name-based fallback companion to
+ * `DIRECTORY_DOMAINS_FOR_FILTER`. Consulted only when a mention has no
+ * tracked-entity row (so metadata can't tell us it's a directory) and the
+ * raw mention string is just the brand name (e.g. "Angi", "Yelp"). Without
+ * this, a directory mentioned in AI answers but never seeded as an entity
+ * leaked onto the competitor compare-dropdown — e.g. Iranopedia (a Persian
+ * culture/food site) defaulting its "Who AI thinks they are" comparison to
+ * "Angi" (a home-services marketplace), a nonsensical competitor. Directory
+ * status is vertical-agnostic, so this list is safe for every tenant. Keys
+ * are normalized (lower-case); include the common display variants.
+ */
+const DIRECTORY_NAMES_FOR_FILTER: ReadonlySet<string> = new Set([
+  "houzz",
+  "yelp",
+  "angi",
+  "angie's list",
+  "angies list",
+  "homeadvisor",
+  "home advisor",
+  "thumbtack",
+  "buildzoom",
+  "bbb",
+  "better business bureau",
+  "diamond certified",
+  "homeguide",
+  "home guide",
+  "trustpilot",
+  "tripadvisor",
+]);
+
 function normalizeName(name: string): string {
   return name.trim().toLowerCase();
 }
@@ -106,7 +137,11 @@ export function shouldExcludeFromCompetitorRanking(
     }
     // Other entity types ("domain", "page") — fall through to name check.
   }
-  return GENERIC_NOUN_NAMES.has(normalizeName(name));
+  const normalized = normalizeName(name);
+  return (
+    GENERIC_NOUN_NAMES.has(normalized) ||
+    DIRECTORY_NAMES_FOR_FILTER.has(normalized)
+  );
 }
 
 /**
