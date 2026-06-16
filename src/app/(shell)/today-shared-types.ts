@@ -1,0 +1,120 @@
+/**
+ * Shared serialized Today types (2026-06-16 — extracted from the 989-line
+ * legacy `today-client.tsx`). These are consumed by LIVE v2 components
+ * (command-center, today-primary-action, today-v2-do-today,
+ * today-v2-recent-wins, today-findings, today-visibility-snapshot,
+ * change-review) AND by the live data loaders (`today-v2-data.ts`,
+ * `today-data.ts`), so their home must NOT be a `"use client"` component
+ * module. Pulling the type definitions here decouples live code from the
+ * legacy client file and shrinks it — the first safe, behavior-neutral step
+ * toward collapsing the legacy↔v2 dual surface (the client component itself
+ * stays until the loader's `ComponentProps<typeof TodayClient>` derivation is
+ * lifted off it). `today-client.tsx` re-exports these names so any importer
+ * that still points at it keeps resolving.
+ *
+ * Pure type module — no runtime, no client/server boundary.
+ */
+
+import type { FindingPriority, PromotionStatus } from "@/domains/scanning/types";
+
+export type SerializedFinding = {
+  id: string;
+  type: string;
+  url: string;
+  pagePath: string;
+  detectedAt: string;
+  previousState: string | null;
+  currentState: string | null;
+  severity: "high" | "medium" | "low";
+  priority: FindingPriority;
+  priorityScore: number;
+  summary: string;
+  suggestedAction: string;
+  status: string;
+  promotionStatus: PromotionStatus;
+  citationCount: number;
+  isHomepage: boolean;
+  contradictsChangelog: boolean;
+  /** Tier 1A: crawl comparison provenance */
+  scanRunId?: string;
+  provenanceSummary?: string;
+  crawlProofHref?: string | null;
+};
+
+export type RecResponseStatus = "accepted" | "dismissed" | "deferred" | null;
+
+export type TodayPrimaryAction = {
+  id: string;
+  headline: string;
+  rationale: string;
+  expectedOutcome: string;
+  sourceEvidence: string;
+  priorityScore: number;
+  bucket: "critical" | "high_leverage" | "opportunistic";
+  type: string;
+  confidence: "high" | "medium" | "low";
+  href: string;
+  responseStatus?: RecResponseStatus;
+  confidenceReason?: string;
+  watchAfter?: string;
+  dataFreshness?: string | null;
+  hasExperiment?: boolean;
+  targetPageUrl?: string | null;
+  targetPagePath?: string | null;
+  baselineCitations?: number | null;
+  /** Tier 1A: link to scorecard row when recommendation is grounded in a change */
+  sourceChangeId?: string | null;
+  /** Tier 1A: bullet list shown under primary card */
+  lineageBullets?: string[];
+  /** AI answer context — mention rate, positioning, trend for matched topic */
+  answerContext?: string | null;
+  /** Specific action to take */
+  specificMove?: string | null;
+  /** Which page section to target */
+  targetSection?: string | null;
+  /** Prior change where this move worked */
+  priorSuccess?: { changeId: string; pagePath: string; description: string; citationDelta: number } | null;
+  /** Per-engine expected signal timing */
+  engineTiming?: { platform: string; medianDays: number; sampleCount: number }[] | null;
+  /** Concrete expected metric */
+  expectedMetric?: string | null;
+  /** Fix 2 (2026-04-21): carried so accept handler can pass auto-link
+   *  context (targetPageUrl + patternId) to the response store. */
+  patternId?: string | null;
+};
+
+export type TodayMilestoneTeaser = {
+  title: string;
+  subtitle: string;
+  proofSummary: string;
+  achievedAt: string;
+  magnitude?: "major" | "minor";
+};
+
+export type TodayQueueItem = {
+  id: string;
+  group: "fix" | "ship" | "frontier" | "verify" | "review" | "waiting" | "wins";
+  plainGroup?: "fix_this" | "in_progress" | "wins";
+  label: string;
+  meta: string;
+  href: string;
+  dot: string;
+  detail: string;
+  issueId?: string;
+  issueStatus?: string;
+  pageUrl?: string;
+  pagePath?: string;
+  observationRunId?: string | null;
+  observationRunHref?: string | null;
+};
+
+/** Serialized experiment data for the proof line. */
+export type TodayExperimentProof = {
+  id: string;
+  headline: string;
+  status: string;
+  daysSinceStart: number;
+  citationDeltaPct: number | null;
+  mentionDeltaPct: number | null;
+  targetPagePath: string | null;
+};
