@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PM-16 (query-aware title drafts — low-CTR/striking-distance fixes put the searched term IN the title)
+
+**Trigger:** verify-first ruled out the answer-block directive (ALREADY GSC-query-grounded — `strongestQuestion` prefers the first-party question query) and found a REAL gap instead: `composeTitle` used the query only as a LAST fallback (after h1/h2/slug). The `gsc_low_ctr` / `gsc_striking_distance` / `semrush_striking_distance` triggers set `topic_cluster_label = the query` and fire ONLY when that query is absent from the title (their own containment guard) — the cited play is "the query must appear in the title" — yet a page with an h1 (almost always) got a suggested title that STILL omitted the searched term, defeating the fix.
+
+- **Fix (`9ce5264`):** for those three query-bearing triggers, `composeTitle` leads the proposed title with the query (title-cased `topic_cluster_label`) + brand, length-guarded (`MAX_QUERY_TITLE_CHARS=60` → a long-tail query falls back to the page's own h1/slug base). ZERO change to missing/duplicate/mismatch triggers (no query → existing path).
+- **Gates:** typecheck clean; build PASS (✓5.9s); `tests/domains/recommendation-intelligence` + `tests/architecture` = 6265 pass / 41 skip (no regression in existing edit_title pins); 82 targeted (3 new: query-lead overrides h1, long-query fallback, non-query trigger unchanged).
+- **Ground-truth on real code paths:** unit tests assert the proposed title for a `gsc_low_ctr` candidate is the title-cased query + inferred brand ("Persian Rug Prices | Iranopedia"), NOT the page h1; the non-query guard test proves `missing_title` still uses the h1 base. TRUTH-UP: branch-local push, no deploy; the live title for a real low-CTR rec renders once that tenant re-promotes (the composer change applies at promotion time).
+
+---
+
 ## 2026-06-16 PM-15 (per-query grounding — the fading-page directive names the search terms)
 
 **Trigger:** the next-best unblocked unit after PM-14 — make the decay refresh directive specific to the page's actual search demand (an SEO associate would tell you *which* terms to refresh around). Verify-first found the win is **free of new I/O**: per-(page,query) data lives in `gsc_daily_rows`, and `GscPageSignal.topQueries` is **already loaded** into `gscSignals` in the candidate pipeline (`load-trigger-candidates` L306, fail-soft). So this consumes already-loaded data — the heavy per-query RPC is NOT re-run.
