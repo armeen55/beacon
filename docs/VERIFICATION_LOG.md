@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-15 PM-8 (UX teardown ▫︎-tier EXHAUSTIVE TRIAGE + SAFE batch — NOT pushed, operator gates centrally)
+
+**Trigger:** `docs/UX_TEARDOWN_2026-06-15.md` ▫︎ ("annoying") tier was the least-touched (prior passes covered ⛔/⚠️). Went through ALL 138 ▫︎ items IN ORDER + re-swept any open ⚠️; each now carries an inline `STATUS (pass #4)` tag.
+
+- **Triage tally (exact inline tags):** 138 ▫︎ → **5 FIXED THIS PASS**, **34 verified-already-fixed**, **99 attended** (operator-only / dual-surface-legacy / scheduler-pivot-inherent / engine-math / migration / product-or-legal). Open ⚠️ re-checked (#435/#439/#502 etc.) were already-fixed; #436/#437/#438/#501/#518 remain attended (de-vertical/measurement/architecture/product).
+- **Fixed this pass (all SAFE, customer-facing):**
+  - **#101** `first-reading-waiting.tsx` — both `dl` grids `grid-cols-[140px_1fr]`→`grid-cols-[minmax(90px,auto)_1fr]` + `gap-x-3` (phone values no longer squeezed).
+  - **#217** `connectors-client.tsx` — `aria-describedby` sr-only hints on all 5 disabled Connect/Save buttons (Wix/Semrush/Profound/Clarity/Yelp).
+  - **#257** `config-form.tsx` — slug placeholder `business-name-san-jose`→`your-business-name` + INDUSTRY_OPTIONS alphabetized (no "Home Builder" lead).
+  - **#333 (live portion)** `recommendations-v2-client.tsx` — v2 bulk-bar buttons `py-1 text-[11px]`→`py-2 text-[12px]` (bigger phone tap targets).
+  - **#491** `prompts-v2-card.tsx` — cluster chip shows plain "Area"/"Topic" (not "geo"/"topic") + title explainer; kept `data-…-cluster={chip.kind}` for tests.
+- **Gate:** `npm run typecheck` clean; `npm run build` PASS (✓ Compiled successfully in 5.7s); touched-suite + white-label confidence sweep all green (final combined run 1,059 pass).
+- **Honesty:** no Profound leak, no nightly/automatically/scheduled automation-claim leak in any touched customer file. NOT committed/pushed (operator gates centrally).
+
+---
+
 ## 2026-06-15 PM-7 (V2-everywhere: Recommendations + Changes flipped to default — PUSHED `815d4dc`, `dbcee57`)
 
 **Trigger:** goal root-cause #3 ("recommendations must add bulk + keyboard actions") was already BUILT in recs-v2 but invisible behind an off flag — same situation as Today-v2. Verify-then-flip the two remaining dual surfaces so customers actually get them. De-bloat goal: "keep ONE great surface" → all three V2 surfaces are now the default (legacy reachable only via `?legacy=1`).

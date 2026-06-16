@@ -4,14 +4,16 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveSetup } from "./actions";
 
+// Listed alphabetically so the form doesn't signal a default vertical
+// (used to lead with "Home Builder" — a leftover from the first tenant; #257).
 const INDUSTRY_OPTIONS = [
-  { value: "home-builder", label: "Home Builder / Contractor" },
-  { value: "dental", label: "Dental Practice" },
-  { value: "legal", label: "Law Firm" },
-  { value: "restaurant", label: "Restaurant / Food Service" },
-  { value: "real-estate", label: "Real Estate" },
-  { value: "medical", label: "Medical / Healthcare" },
   { value: "auto", label: "Automotive" },
+  { value: "dental", label: "Dental Practice" },
+  { value: "home-builder", label: "Home Builder / Contractor" },
+  { value: "legal", label: "Law Firm" },
+  { value: "medical", label: "Medical / Healthcare" },
+  { value: "real-estate", label: "Real Estate" },
+  { value: "restaurant", label: "Restaurant / Food Service" },
   { value: "other", label: "Other" },
 ] as const;
 
@@ -165,7 +167,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           type="text"
           value={yelpBusinessId}
           onChange={(e) => setYelpBusinessId(e.target.value)}
-          placeholder="e.g. business-name-san-jose"
+          placeholder="e.g. your-business-name"
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
         />
       </div>

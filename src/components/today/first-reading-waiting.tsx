@@ -54,7 +54,7 @@ export function FirstReadingWaiting({
 
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3">
           <p className="font-medium">What&apos;s already set up</p>
-          <dl className="grid grid-cols-[140px_1fr] gap-y-1 text-[13px]">
+          <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-1 text-[13px]">
             <dt className="text-muted-foreground">Business</dt>
             <dd>{context.businessName}</dd>
             {context.domain ? (
@@ -84,7 +84,7 @@ export function FirstReadingWaiting({
             data-today-derived-profile="true"
           >
             <p className="font-medium">What Beacon learned from your site</p>
-            <dl className="grid grid-cols-[140px_1fr] gap-y-1 text-[13px]">
+            <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-1 text-[13px]">
               {context.derived.industry ? (
                 <>
                   <dt className="text-muted-foreground">Business type</dt>

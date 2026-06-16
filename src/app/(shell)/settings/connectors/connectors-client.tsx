@@ -1173,10 +1173,14 @@ export function ConnectorsClient({
                 type="button"
                 onClick={handleSaveYelpKey}
                 disabled={isPending || !yelpKeyInput.trim()}
+                aria-describedby="yelp-connect-hint"
                 className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
               >
                 {isPending ? "Saving…" : "Save API Key"}
               </button>
+              <p id="yelp-connect-hint" className="sr-only">
+                Enter your Yelp API key to enable this button.
+              </p>
             </div>
           ) : null}
         </div>
@@ -1266,10 +1270,14 @@ export function ConnectorsClient({
                 type="button"
                 onClick={handleSaveWixConnection}
                 disabled={isPending || !wixKeyInput.trim() || !wixSiteIdInput.trim()}
+                aria-describedby="wix-connect-hint"
                 className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
               >
                 Connect Wix
               </button>
+              <p id="wix-connect-hint" className="sr-only">
+                Enter both the API key and Site ID to enable this button.
+              </p>
             </div>
           </div>
         ) : null}
@@ -1382,10 +1390,14 @@ export function ConnectorsClient({
                   )
                 }
                 disabled={isPending || !semrushKeyInput.trim()}
+                aria-describedby="semrush-connect-hint"
                 className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
               >
                 Connect Semrush
               </button>
+              <p id="semrush-connect-hint" className="sr-only">
+                Enter your API key to enable this button.
+              </p>
             </div>
           </div>
         ) : null}
@@ -1479,10 +1491,14 @@ export function ConnectorsClient({
                   )
                 }
                 disabled={isPending || !profoundKeyInput.trim()}
+                aria-describedby="profound-connect-hint"
                 className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
               >
                 Connect Profound
               </button>
+              <p id="profound-connect-hint" className="sr-only">
+                Enter your API key to enable this button.
+              </p>
             </div>
           </div>
         ) : null}
@@ -1583,10 +1599,14 @@ export function ConnectorsClient({
                   )
                 }
                 disabled={isPending || !clarityTokenInput.trim()}
+                aria-describedby="clarity-connect-hint"
                 className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
               >
                 Connect Clarity
               </button>
+              <p id="clarity-connect-hint" className="sr-only">
+                Enter your Clarity API token to enable this button.
+              </p>
             </div>
           </div>
         ) : null}

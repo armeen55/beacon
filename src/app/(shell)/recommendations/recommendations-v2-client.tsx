@@ -677,7 +677,7 @@ function RecommendationsV2BulkBar({
           type="button"
           onClick={allSelected ? onClearSelection : onSelectAll}
           disabled={busy}
-          className="rounded-md border border-border/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 disabled:opacity-50"
+          className="rounded-md border border-border/60 px-3 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 disabled:opacity-50"
           data-recommendations-v2-bulk-cta="select-all"
         >
           {allSelected ? "Select none" : "Select all"}
@@ -686,7 +686,7 @@ function RecommendationsV2BulkBar({
           type="button"
           onClick={onClearSelection}
           disabled={busy}
-          className="rounded-md border border-border/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 disabled:opacity-50"
+          className="rounded-md border border-border/60 px-3 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 disabled:opacity-50"
           data-recommendations-v2-bulk-cta="clear"
         >
           Clear selection
@@ -695,7 +695,7 @@ function RecommendationsV2BulkBar({
           type="button"
           onClick={onAcceptSelected}
           disabled={busy || selectedCount === 0}
-          className="rounded-md bg-accent-primary px-3 py-1 text-[11px] font-semibold text-white hover:bg-accent-primary/90 disabled:opacity-60"
+          className="rounded-md bg-accent-primary px-3 py-2 text-[12px] font-semibold text-white hover:bg-accent-primary/90 disabled:opacity-60"
           data-recommendations-v2-bulk-cta="accept-selected"
         >
           {busy && bulkProgress

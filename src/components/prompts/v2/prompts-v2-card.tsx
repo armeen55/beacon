@@ -116,17 +116,28 @@ export function PromptsV2Card({
               </span>
             </span>
           )}
-          {clusterChips.map((chip) => (
-            <span
-              key={`${chip.kind}-${chip.label}`}
-              className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset/40 px-2 py-0.5 text-[11px] text-muted-foreground"
-              data-prompts-v2-card-cluster={chip.kind}
-            >
-              <span className="font-medium text-foreground/80">{chip.kind}</span>
-              <span className="opacity-60">·</span>
-              <span>{chip.label.replace(/_/g, " ")}</span>
-            </span>
-          ))}
+          {clusterChips.map((chip) => {
+            // #491 — show a plain-English group word ("Area"/"Topic")
+            // instead of the insider code ("geo"). The `data-` attribute
+            // keeps the raw kind for tests/automation.
+            const kindLabel = chip.kind === "geo" ? "Area" : "Topic";
+            return (
+              <span
+                key={`${chip.kind}-${chip.label}`}
+                className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset/40 px-2 py-0.5 text-[11px] text-muted-foreground"
+                data-prompts-v2-card-cluster={chip.kind}
+                title={
+                  chip.kind === "geo"
+                    ? "Groups this question by the area it's about."
+                    : "Groups this question with similar topics."
+                }
+              >
+                <span className="font-medium text-foreground/80">{kindLabel}</span>
+                <span className="opacity-60">·</span>
+                <span>{chip.label.replace(/_/g, " ")}</span>
+              </span>
+            );
+          })}
         </div>
       )}
 

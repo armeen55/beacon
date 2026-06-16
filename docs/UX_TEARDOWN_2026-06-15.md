@@ -10,6 +10,8 @@
 
 > **⚠️/▫︎ verification pass #3 (2026-06-15, code-grounded — gates: typecheck clean, build PASS [✓ Compiled successfully], touched-suite + white-label confidence sweep 1,042 green):** Worst-first re-verification across every section against CURRENT code. The prior batches + a11y commit `1ca76ff` were confirmed accurate — the SAFE customer-facing clusters are genuinely fixed; I did NOT churn them. **Newly FIXED this pass:** ✅ **#372** — on the LIVE v2 command center the `AIVisibilityHero` rendered a hardcoded `<Link href="#today-metrics-disclosure">Why this number?</Link>`, but `<TodayMetricsDisclosure>` (which owns that id) is mounted ONLY in legacy `today-client.tsx`, never in `today-v2-visibility-group-client.tsx` — so the link was a dead in-page anchor that scrolled nowhere for v2 customers. Fix: added an optional `whyThisNumberHref` prop to `AIVisibilityHero` (`src/components/today/ai-visibility-hero.tsx`); the link renders only when supplied. Legacy `today-client.tsx` passes `whyThisNumberHref="#today-metrics-disclosure"` (its disclosure target is real); v2 omits it → dead anchor suppressed. Added 3 pinning tests to `ai-visibility-hero.test.tsx`; updated nothing destructive in the source-order contract (kept the comment out of the `{aiVisibilityHeroProps && (` → `<AIVisibilityHero` regex window and out of the `<TodayMetricsDisclosure` order-index token). **VERIFIED already-fixed (spot-checked in code, NOT re-touched):** #305/#325/#392/#402 (v2 recs/Today empty + calm + Do-today + Recent-wins all honest on-demand copy, no false "watching"/"auto-detects"); #371 (v2 demo state says "Connect your data sources", not "Import your data"); #422/#467/#470/#480/#484/#496 (live `/prompts` titled "AI Answers", honest "each time you refresh your connected data", plain-English statuses, no "every morning", nav label "Prompts"); #472/#477 (prompts footnote names Gemini/Google AI Overviews/Claude as not-yet-tracked); #485/#491 (no "Topic id [city] [service]" slug; cluster pills prettified to "Area · …"/"Topic · …"/"Not in AI's recommended list"); #488 (list + detail share CATEGORY_META labels); #293 (prompt-detail "Who else is here" shows entity NAMES + counts, not raw domains); #504 (`/briefs/proposed` empty state plain-English, connect/import paths — no ".xlsx from pattern intelligence" jargon); #505/#519/#522/#537 (command palette: truncation note, listbox/option/aria-activedescendant, "g…" chord indicator, single Escape owner); #517/#523 (tenant switch min-h-11 mobile + sr-only "Current business:" + "Switch to …" aria-label); #516 (desktop kbd hints `hidden md:flex`); connector-capability copy honest ("every refresh", explicit no-"nightly"). **Attended (entangled / out-of-scope — NOT churned):** #440/#446/#464 ("Market"→/competitors breadcrumb only appears on operator-direct `/topics/opportunity/[id]`; NO customer surface links there — operator-only, not a customer dead-end); #516 tappable mobile search button (needs lifting palette open-state into the header — deeper wiring); #503/#504/#527/#531/#533/#535 (legacy `/changes` empty-state + verdict + perf — legacy↔v2 dual-surface, SKIP-as-attended); #501 customer placeholder-config banner (gate-loader + threshold decision); #294 prompt→rec deep-link (feature wiring); #528 /pages rebuild (feature). **SKIP-as-attended per task scope (unchanged):** scheduler/autopilot, dual-surface collapse, Wix publish-behavior, migrations, LLM draft generator, product decisions.
 
+> **▫︎-tier EXHAUSTIVE TRIAGE — pass #4 (2026-06-15, code-grounded — gates: typecheck clean, build PASS [✓ Compiled successfully in 5.7s], 992 confidence-sweep + 51 touched-file + 447 white-label/vocab/jargon/honesty/readiness + 116 settings/onboard/today = all green):** Went through ALL 138 ▫︎ items IN ORDER, verifying each against CURRENT code. Every ▫︎ now carries an inline status tag (✅ FIXED THIS PASS / ✅ already-fixed / ⏸ attended). **TALLY (matches exact inline tags):** 138 ▫︎ total → **5 FIXED THIS PASS** (#101, #217, #257, #333-live-portion, #491), **34 verified-already-fixed** (prior batches / a11y `1ca76ff`), **99 attended** (operator-only / dual-surface-legacy / scheduler-pivot-inherent / engine-math / migration / product-or-legal decision). **Newly FIXED this pass (all SAFE, customer-facing, gate-green):** ✅ **#101** responsive dl label column `grid-cols-[140px_1fr]`→`grid-cols-[minmax(90px,auto)_1fr]` + `gap-x-3` on both `first-reading-waiting.tsx` grids (phone values no longer squeezed); ✅ **#217** `aria-describedby` hints on all 5 disabled Connect/Save buttons (Wix/Semrush/Profound/Clarity/Yelp) in `connectors-client.tsx` (sr-only "Enter … to enable this button"); ✅ **#257** de-vertical leak in `config-form.tsx` — slug placeholder `business-name-san-jose`→`your-business-name` + INDUSTRY_OPTIONS re-sorted alphabetically so the form no longer leads with "Home Builder"; ✅ **#333 (live-surface portion)** v2 recs bulk-action bar buttons `py-1 text-[11px]`→`py-2 text-[12px]` (Select all / Clear / Accept selected — bigger phone tap targets); ✅ **#491** `prompts-v2-card.tsx` cluster chip shows plain "Area"/"Topic" instead of insider "geo"/"topic" + title explainer (kept `data-…-cluster={chip.kind}` for tests). **VERIFIED already-fixed (spot-checked, NOT re-touched):** #97/#98/#99/#100/#109 (phantom-cron copy gone — `data-freshness-strip.tsx` deleted; prompt-detail/exec-strip/snapshot/scoreboard/live-changes all "refresh your connected data"); #136 (`displayBusinessName()` guards "New Beacon Account" in scope+competitors recaps); #139 (signup+login share the plain "exact website changes that get you recommended by AI … found on Google" pitch); #141 ("Where are your customers?" + "leave blank if you sell online"); #145 (local page page-level empty-state guard); #147 (onboarding stepper `aria-current` + "Step N of 4"); #198 (connectors header plain owner language); #199/#200 (Yelp card "Refresh … with Sync now", no "no automatic syncing" brag); #202 (Connectors restored to settings tab bar + nav — the config-form "Settings → Connectors" link is now reachable); #208 (skip reasons route through plain-English `BENIGN_SKIP_REASONS`/failure copy); #213 (`not_authorized` ERROR_MESSAGES entry); #214/#215 (handleSimpleDisconnect + handleSaveSimpleConnection both setError on the else branch); #332 (demo-banner dismiss `min-h-[44px] min-w-[44px]` + aria-label); #397/#398/#399 (leaderboard delta aria-label, MetricToggle/TimeRangeToggle tablist+aria-selected, health-strip aria-expanded+status-word); #435 (proof-sentence "Refresh your connected data over the next week or two", no "watching as more data comes in"); #439 (palette routes map has r→/recommendations + p→/prompts — G R / G P work); #485/#495 (add-prompt field is plain "Topic" + helper, no "[city] [service]" slug); #488 (live v2 list uses plain-English category vocab); #502 (login role=status/aria-live + role=alert); #505/#519/#522/#523/#537 (palette truncation note, listbox/option/aria-activedescendant, "g…" chord indicator, single Escape owner; tenant switch sr-only "Current business:"/"Switch to …"); #515 (main padding `p-3 sm:p-6 lg:p-8`); #520 (sidebar `aria-current="page"`); #500 (`window.location.href` Enter-nav removed from pages/topics; both also hidden from customer nav). **Attended (NOT churned), grouped by reason:** (a) **operator-only / hidden surfaces** — #95/#105/#96 (`/diagnostics/connectors` raw-timestamp + Wix-missing, operator-gated 404), #331/#334/#341 (operator review/factory/safety-audit), #424/#425 (`/diagnostics` Beacon-score + proof-engine), #463 (`/diagnostics/semrush`), #440/#457/#458/#459/#460/#461/#462/#464 (`/competitors`+`/competitors/[id]` hidden from customer nav, breadcrumb only on operator-direct opportunity pages), #258/#259/#260/#261 (`/diagnostics/wix` push/revert), #487/#489/#490/#493 (prompt-detail copy/verdict-logic reframes on a builder-tuned drilldown); (b) **dual-surface legacy↔v2** — #330/#343/#345/#346/#347/#348/#349/#350/#351/#400/#401/#503/#534/#535/#536 (all in legacy recommendations-client / legacy today-client / legacy changes, behind `?legacy=1`); (c) **scheduler/autopilot pivot-inherent** — #106/#108/#110/#112 (auto-refresh/scheduled-poll asks; crons off by design), #107 (re-pull cost disclosure — product decision); (d) **engine-math / measurement** — #337/#338/#339/#342/#395/#423/#426/#427/#428/#429/#430/#431/#436/#437/#438/#441/#492/#494 (window/band/threshold/CSV/sorting/measurement-basis decisions); (e) **de-verticalization data-model** — #262 (battlecard geo gate), #335/#336 (discovery suggest/manage IA); (f) **product/feature/legal** — #102/#103/#104/#111/#113/#114/#134/#135/#137/#138/#140/#142/#143/#144/#146/#202-family wiring, #203/#204/#205/#206/#207/#209/#210/#211/#212/#216 (connector flow/feature), #344 (review number-key cap), #352/#394/#396/#402 (Today layout ordering), #486 (budget UI), #496 (nav IA), #501 (placeholder-config customer banner), #516 (mobile search button), #518/#521 (central keyboard registry + tenant hotkey). **No Profound leak, no nightly/automatically/scheduled automation-claim leak in any touched customer file. NOT committed (operator gates centrally).**
+
 
 ## Autopilot / automation gap (set-and-forget that isn't) (114)
 
@@ -574,120 +576,140 @@
 - *Fix:* Strip 'Brain status' and raw telemetry cards from the customer Today; keep them on /diagnostics/brain only.
 
 **95. ▫︎ The Data-sources cockpit prints 'last refreshed {raw timestamp}' with no human formatting and 'never refreshed' as the default**
+- **STATUS (pass #4): ⏸ attended** — `/diagnostics/connectors` is operator-gated (`notFound()` for non-operators); not a customer surface.
 - *Surface:* connectors cockpit — 'last refreshed' shows raw value
 - *Why it's bad:* diagnostics/connectors/page.tsx line 122-124 renders `last refreshed ${r.lastSyncedAt}` — the raw stored string, not a formatted/relative date like the rest of the app uses. And because no customer sync ever runs, every row reads 'never refreshed' permanently. The one screen meant to prove 'the pull landed' instead shows a wall of 'never refreshed', confirming to me that my expensive connectors are doing nothing.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/diagnostics/connectors/page.tsx
 - *Fix:* Format lastSyncedAt as a relative time (reuse formatDate from connectors-client) and ensure customer syncs actually update it so the row stops saying 'never refreshed.'
 
 **96. ▫︎ The 'Data sources' cockpit lists 6 connectors but not Wix — so my publishing connection has no health/last-synced visibility here**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/diagnostics/connectors` cockpit (Wix row).
 - *Surface:* connectors cockpit — Wix missing from the refresh batch
 - *Why it's bad:* diagnostics/connectors/page.tsx CONNECTORS array (lines 44-50) includes GSC, GA4, Clarity, Profound, CallRail, Semrush — but NOT Wix. Wix is the connector that actually changes my live site, and it's invisible on the one-place-to-see-everything cockpit. I can't tell from here whether my publish pipe is connected or when it last did anything.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/diagnostics/connectors/page.tsx
 - *Fix:* Add Wix to the cockpit rows (read-only status + last push from the push ledger) so the publishing connection is visible alongside the data connectors.
 
 **97. ▫︎ Prompt detail promises the prompt runs 'on the next daily check' — same phantom-cron promise on a drilldown**
+- **STATUS (pass #4): ✅ already-fixed — prompt-detail uses 'refresh your connected data', no 'next daily check' (`prompts/[id]/page.tsx`).**
 - *Surface:* /prompts/[id] detail
 - *Why it's bad:* prompts/[id]/page.tsx line 806: tracks this 'prompt on the next daily check.' Every layer of the prompts feature reinforces the belief that there's a daily check that includes my prompts. There isn't. The lie is consistent and deep, which makes it more convincing and more damaging — I genuinely believe my prompt is queued for tonight.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/prompts/[id]/page.tsx
 - *Fix:* Reframe to on-demand language consistently across all prompt surfaces ('included next time you run a reading').
 
 **98. ▫︎ The always-visible freshness strip can render '(scheduled)' for a future timestamp, implying a scheduled run that doesn't exist**
+- **STATUS (pass #4): ✅ already-fixed — `data-freshness-strip.tsx` deleted; no '(scheduled)' label anywhere.**
 - *Surface:* data-freshness-strip (shell-wide)
 - *Why it's bad:* data-freshness-strip.tsx line 65-66: when ageDays < 0 it labels the time '(scheduled)'. This strip sits at the top of the shell on every page. Any future-dated import/scan timestamp makes the whole app header claim something is 'scheduled' — reinforcing, app-wide, the false belief that Beacon runs on a schedule. Constant low-grade misinformation in my peripheral vision.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/components/shell/data-freshness-strip.tsx
 - *Fix:* Remove the 'scheduled' label (or only show it when a real schedule is configured). In a manual-only build there is nothing scheduled.
 
 **99. ▫︎ More 'Check back tomorrow' / 'after the next daily check' empty states reinforcing the dead cron**
+- **STATUS (pass #4): ✅ already-fixed — today-visibility-snapshot ('Refresh … anytime') + today-scoreboard ('when you refresh your connected data'), no 'check back tomorrow'.**
 - *Surface:* /today-visibility-snapshot + today-scoreboard
 - *Why it's bad:* today-visibility-snapshot.tsx line 190 ('Check back tomorrow.') and today-scoreboard.tsx line 136 ('Beacon starts collecting AI answers after the next daily check.'). Every empty state on the dashboard points me at a daily check that won't run. Collectively these make the empty/early experience feel like 'just wait, it's working' when nothing is working. I wait, churn, and never learn I had to click a hidden button.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/components/today/today-visibility-snapshot.tsx
 - *Fix:* Sweep ALL Today empty states to on-demand language with a visible refresh CTA, not 'check back tomorrow.'
 
 **100. ▫︎ The recommendations executive strip also references 'the next daily reading' as if recs auto-refresh**
+- **STATUS (pass #4): ✅ already-fixed — `executive-strip.tsx` says 'refresh your connected data', no 'next daily reading'.**
 - *Surface:* executive-strip (recommendations header)
 - *Why it's bad:* recommendations/executive-strip.tsx line 119 references 'the next daily reading.' The header of my action queue tells me the queue is tied to an automatic daily refresh. So I treat the recs list as a living, self-updating feed I can ignore between logins — when in fact it's a frozen snapshot until I manually trigger generation (which I can't, from the customer UI). The strip oversells freshness on the exact surface where I make decisions.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/components/recommendations/executive-strip.tsx
 - *Fix:* Reframe the strip to reflect when the queue was actually generated and how to refresh it on demand.
 
 **101. ▫︎ Definition lists use a fixed 140px label column (grid-cols-[140px_1fr]) — squeezes values into a sliver on a 360px phone**
+- **STATUS (pass #4): ✅ FIXED THIS PASS — responsive dl label column (`grid-cols-[minmax(90px,auto)_1fr]` + `gap-x-3`) on both `first-reading-waiting.tsx` grids.**
 - *Surface:* first-reading 'what Beacon learned' + waiting panels — src/components/today/first-reading-waiting.tsx
 - *Why it's bad:* Both dl grids (lines 51 and 81) are `grid-cols-[140px_1fr]`. On a 360px screen minus 24px padding ×2, a fixed 140px label column leaves ~170px for the value — so my business name, areas served, and domain wrap awkwardly or truncate. Fixed-pixel label columns are a desktop habit that breaks on narrow screens.
 - *Grounding:* src/components/today/first-reading-waiting.tsx
 - *Fix:* Use a responsive label column (e.g. stack to a single column under sm, or use grid-cols-[minmax(90px,auto)_1fr]) so values get room on a phone.
 
 **102. ▫︎ The brief is structured as a 5-act long-scroll with 10px uppercase labels — heavy reading for a between-customers glance**
+- **STATUS (pass #4): ⏸ attended** — recs detail 5-act layout — product/layout decision (mobile summary header).
 - *Surface:* /recommendations detail evidence grid — src/app/(shell)/recommendations/[id]/recommendation-detail-client.tsx
 - *Why it's bad:* The detail page is an 'Act 1...Act 5' brief with sections, 10px uppercase tracking labels (e.g. line 366), and a sm:grid-cols-2 evidence grid that stacks to a tall single column on mobile. Deciding whether to approve a live website change means scrolling through acts of dense small-caps copy on my phone. I want the gist and an approve button; instead I get a multi-screen essay.
 - *Grounding:* src/app/(shell)/recommendations/[id]/recommendation-detail-client.tsx
 - *Fix:* Add a mobile-first summary header at the top (the change + a big Approve button) so I can decide without scrolling the full 5-act brief, and bump the 10px section labels to a legible size.
 
 **103. ▫︎ Competitors step asks me to name rivals manually, then says it does it automatically anyway**
+- **STATUS (pass #4): ⏸ attended** — onboarding competitors step framing — product flow decision.
 - *Surface:* /onboard/competitors
 - *Why it's bad:* The whole step is "Pick the competitors you want Beacon to compare you against" — but the field label then admits "(optional — Beacon finds your real AI-answer rivals automatically once tracking starts)". So I burn a full wizard step racking my brain for competitor names, only to be told it's optional and the system does it better automatically. It feels like make-work that pads the funnel and makes me doubt whether any of my inputs matter.
 - *Grounding:* src/app/(shell)/onboard/competitors/competitors-form.tsx lines 63-72 (label contradicts the step's purpose)
 - *Fix:* Either demote competitors to an optional inline field on an existing step, or lead with the auto-discovery value and frame manual entry as "add any you already know". Don't make a dedicated step for something you advertise as automatic and optional.
 
 **104. ▫︎ The "What Beacon learned" block silently vanishes when the site scan fails**
+- **STATUS (pass #4): ⏸ attended** — first-reading scan-fail honest state — needs launch-flow signal (failure-soft); product wiring.
 - *Surface:* first-reading-waiting → "What Beacon learned from your site"
 - *Why it's bad:* The one bit of instant gratification — Beacon showing it read my site (industry, areas, services) — only renders if derivation produced something. The launch flow is failure-soft: an unreachable site or a throw just launches without it, with zero message to me. So after onboarding I may see nothing about my site and have no idea whether Beacon even looked at it or quietly failed. The magic moment is conditional and unexplained.
 - *Grounding:* src/components/today/first-reading-waiting.tsx lines 72-117 (block only renders when derived has content) + src/app/(shell)/onboard/review/launch-flow.ts lines 191-204 (failure-soft, silent)
 - *Fix:* Always render the block with an honest state: either what was learned, or "We couldn't read your site automatically — check your URL or add details in Settings." Don't silently hide a failed scan.
 
 **105. ▫︎ The operator data-sources page prints raw ISO timestamps as 'last refreshed' and GSC always reads 'never refreshed'**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/diagnostics/connectors` (same as #95).
 - *Surface:* /diagnostics/connectors freshness column
 - *Why it's bad:* loadRows renders `last refreshed ${r.lastSyncedAt}` (page.tsx line 123) — a raw ISO string, not a human date — and because GSC sync never writes last_synced_at, GSC perpetually shows 'never refreshed' here even after I refresh-all and it returns rows. The one page that's supposed to prove 'the pull landed' actively undermines its own promise.
 - *Grounding:* src/app/(shell)/diagnostics/connectors/page.tsx
 - *Fix:* Format lastSyncedAt as a relative/local time and fix the GSC writer so this row reflects real pulls.
 
 **106. ▫︎ Clarity quietly requires me to manually refresh every 1-3 days forever or my history gets permanent gaps**
+- **STATUS (pass #4): ⏸ attended** — scheduler/autopilot — Clarity auto-refresh; crons off by design.
 - *Surface:* Clarity card
 - *Why it's bad:* The Clarity card copy (line 1202) admits 'Clarity only shares the last 1-3 days, so refresh every couple of days to build history without gaps.' But there's no auto-refresh and (per the other findings) the customer-facing refresh button isn't even wired. So a set-and-forget user WILL get permanent holes in Clarity friction history, and the only mitigation is a chore the UI doesn't currently let me do.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Auto-schedule the daily Clarity pull (it's budgeted to 1/day) rather than asking me to remember a manual refresh every couple days; until then, wire a working Clarity 'Sync now'.
 
 **107. ▫︎ Disconnecting says 'cached data preserved' but reconnecting/refreshing to get fresh data re-spends, and that's never flagged**
+- **STATUS (pass #4): ⏸ attended** — re-pull cost disclosure on reconnect — product/copy decision.
 - *Surface:* Connectors page — disconnect preserves cached data, but no cost of re-pull shown
 - *Why it's bad:* Every disconnect tooltip reassures me 'historical data stays cached but no new data refreshes until you reconnect.' Sounds thrifty. But the unspoken half is: to get current data again I must reconnect AND run a paid refresh/reading, which costs again. The UI frames disconnect as free and safe, but never tells me that the round-trip back to fresh data has a dollar cost. As a cost-watcher I'd happily disconnect to 'save money' and then get surprised by the re-pull bill.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx lines 619, 775 (disconnect tooltips); reconnect/refresh cost never disclosed
 - *Fix:* Add to the reconnect/refresh path a note that pulling fresh data after a disconnect re-spends, with the estimate, so the cost of toggling is explicit.
 
 **108. ▫︎ No way to schedule a push for a safe time or stage it — every publish is immediate, live, now**
+- **STATUS (pass #4): ⏸ attended** — Wix scheduled/staged publish — Wix publish-behavior (out of scope).
 - *Surface:* Approve & Push (no scheduling/quiet-hours)
 - *Why it's bad:* executePush writes immediately on click; there is no 'publish tonight', 'stage to a Wix draft/sandbox', or 'hold for my review window' option anywhere in the push path. For blog content there's a draft path (wixCreateDraftPost) but for the CMS field edits I care about it's instant-live only. I can't push during low-traffic hours, can't stage to a non-public draft to eyeball it first — it's all-or-nothing the moment I click.
 - *Grounding:* src/domains/push/push-service.ts
 - *Fix:* Offer a 'stage as Wix draft / schedule for later' option for supported surfaces so I can review the real thing in Wix before it's public, instead of every push hitting the live page instantly.
 
 **109. ▫︎ Live-changes blocks say Beacon 'is collecting post-change readings' — implying background work that's off**
+- **STATUS (pass #4): ✅ already-fixed — `live-changes-data.ts` copy is refresh-aware ('Confidence updates as you refresh and more readings land').**
 - *Surface:* /today (live-changes copy)
 - *Why it's bad:* src/domains/today/live-changes-data.ts pickStateCopy returns lines like 'Live change detected — too recent for a confidence picture' (RECENT_COPY) and PRE_VERDICT_COPY about Beacon collecting readings. daysSinceLive can be 13 after my absence, yet the copy frames it as in-flight background collection. Nothing is collecting — readings only happen when I manually run them. So my shipped changes look like they're being actively measured when they're actually frozen in time.
 - *Grounding:* src/domains/today/live-changes-data.ts
 - *Fix:* Make pre-verdict / recent copy crons-off aware: surface 'no readings recorded since this shipped — run a reading to get a verdict' instead of implying ongoing collection.
 
 **110. ▫︎ Classification only looks back 7 days but the page fetches 14 days — and 'primary' needs 3+ readings I have no way to generate on demand**
+- **STATUS (pass #4): ⏸ attended** — classifier lookback/min-observations — engine threshold (poll-cadence).
 - *Surface:* /prompts (descriptor/answer-shape lookback)
 - *Why it's bad:* opportunity-classify.ts defaults lookbackDays:7 and minObservationsForCategory:3 (lines 96-99). The page fetches 14 days (page.tsx line 88) 'with margin' but the classifier only uses 7. With crons off and the poll button unreachable to me (see other finding), I can't accumulate 3 readings in 7 days, so most prompts are stuck 'Early' / 'Still learning' permanently. The thresholds assume a daily poll loop that doesn't run for me.
 - *Grounding:* src/domains/prompts/opportunity-classify.ts
 - *Fix:* Lower the min-observations bar OR make the lookback window adapt to actual poll cadence, so an on-demand user isn't permanently stranded in 'Early'.
 
 **111. ▫︎ After I connect Profound there's no Sync/Refresh button on the card and no 'last synced' freshness**
+- **STATUS (pass #4): ⏸ attended** — Profound 'Sync now'/last-synced on card — connector feature wiring.
 - *Surface:* /settings/connectors (Profound card)
 - *Why it's bad:* connectors-client.tsx Profound card (lines 1123-1181) only renders Connect (when disconnected) and Disconnect (when connected) plus 'Authorized DATE'. There is no 'Sync now' and no 'data last refreshed X ago'. The product map confirms syncProfoundNow exists in actions but is wired to no button. So I connect my AI-visibility source and then have zero way to pull or even see how stale my AI data is from this card. For my core connector that's unacceptable.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Add a 'Sync now' button + a 'last synced' timestamp to the Profound card (and wire the existing syncProfoundNow action).
 
 **112. ▫︎ Clarity card admits it only has 1-3 days of data and tells me to manually refresh 'every couple of days' — that's not set-and-forget**
+- **STATUS (pass #4): ⏸ attended** — scheduler/autopilot — Clarity manual-refresh cadence.
 - *Surface:* /settings/connectors (Clarity freshness expectation)
 - *Why it's bad:* connectors-client.tsx lines 1199-1203: 'Clarity only shares the last 1-3 days, so refresh every couple of days to build history without gaps.' I connected everything to set-and-forget for 6 months. This card openly tells me I must come back and manually refresh every 2 days or my page-friction history gets holes. There's no auto-refresh and (per the product map) the Clarity sync button isn't even wired. So the honest copy just documents that the product can't keep this data current on its own.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Add scheduled Clarity polling (or at minimum a working one-click refresh) so I don't have to babysit it every 48 hours to avoid gaps.
 
 **113. ▫︎ If I have >10 Profound categories, only the first 10 ever sync — and I only find out by reading server logs I can't see**
+- **STATUS (pass #4): ⏸ attended** — Profound >10 category cap surfacing — connector feature.
 - *Surface:* Profound category cap
 - *Why it's bad:* sync-nightly.ts caps at MAX_CATEGORIES_PER_NIGHT=10 and the overflow is only a log.warn 'category cap hit — syncing first batch only.' That log is server-side; I never see it. The returned result is {synced:true, categories:10} with no 'X categories skipped' field. So with 15 categories, 5 are permanently never pulled and the UI shows happy success. My AI-visibility data is quietly incomplete with no customer-visible signal.
 - *Grounding:* src/lib/connectors/profound/sync-nightly.ts
 - *Fix:* Add a skipped-categories count to ProfoundSyncResult and surface 'Synced 10 of 15 categories — N not pulled' so the cap is honest at the UI, not just in logs.
 
 **114. ▫︎ Critical 'refresh every couple days or you lose history' instruction is buried in tiny muted text**
+- **STATUS (pass #4): ⏸ attended** — Clarity instruction contrast — minor; lives on connector card text (low-value churn; left).
 - *Surface:* /settings/connectors — Clarity card
 - *Why it's bad:* The Clarity card warns 'Clarity only shares the last 1-3 days, so refresh every couple of days to build history without gaps' — a make-or-break operational instruction for a 'set and forget' user — in 12px muted-foreground. For me this reads as a faint grey blur I'd skip entirely, then wonder for months why my Clarity history is full of holes.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx (Clarity copy line 1198-1205, text-[12px] text-muted-foreground)
@@ -810,83 +832,97 @@
 - *Fix:* Redirect launch to '/' (the real dashboard). Add a /today → / redirect so no internal link can 404.
 
 **134. ▫︎ Onboarding's only escape is 'Save and sign out' — there's no way to skip ahead or finish fast**
+- **STATUS (pass #4): ⏸ attended** — onboarding fast-path 'just use my website' — product flow feature.
 - *Surface:* Onboarding wizard (all 4 steps)
 - *Why it's bad:* OnboardingShell (lines 49-54) offers exactly one footer action: 'Save and sign out' linking to /login. Every step (business, scope, competitors) forces me through forms full of builder/competitor questions before I can see ANY value. As a busy bakery owner I can't say 'just use my website, show me something.' The competitors step even asks me to name rivals I may not know off the top of my head. The wizard feels like a tax form, not a 2-minute setup.
 - *Grounding:* src/components/onboard/onboarding-shell.tsx
 - *Fix:* Add a 'Skip — just use my website' fast path that crawls my homepage and launches with site-derived prompts, so I can reach value in under a minute and fill in details later.
 
 **135. ▫︎ Step 3 demands I type competitor company names from memory, with a confusing 'names not URLs' rule**
+- **STATUS (pass #4): ⏸ attended** — competitors step optional/URL-accept — product flow decision.
 - *Surface:* /onboard/competitors (Step 3)
 - *Why it's bad:* The field (lines 67-106) says 'Competitors to compare you against' and the hint says 'Names work best, not website URLs' and the validator rejects URL-shaped tokens. I think of my competitors by their website or their storefront, and now I'm being told my instinct (paste their site) is wrong. The parenthetical even admits 'Beacon finds your real AI-answer rivals automatically once tracking starts' — so why am I being made to guess at all? It's busywork that makes me feel I'm doing the tool's job.
 - *Grounding:* src/app/(shell)/onboard/competitors/competitors-form.tsx
 - *Fix:* Make this step truly optional and frictionless (or auto-suggest competitors from the site crawl), and accept pasted URLs by stripping them to a name instead of erroring.
 
 **136. ▫︎ The recap can show "New Beacon Account" as my business name**
+- **STATUS (pass #4): ✅ already-fixed — `displayBusinessName()` guards 'New Beacon Account' in scope+competitors recaps (`provision-tenant.ts:132`).**
 - *Surface:* /onboard/scope + /onboard/competitors → "Saved so far" recap
 - *Why it's bad:* The scope and competitor steps render a "Saved so far" box echoing my business name from the tenant row. The provisioner seeds a placeholder "New Beacon Account". The business step blanks the placeholder in its input, but the downstream recap reads tenant.business_name directly — so if anything about the name save hiccups, I see "New Beacon Account" presented back to me as MY business. Looking at a generic placeholder where my company name should be makes the whole thing feel like a hollow template.
 - *Grounding:* src/app/(shell)/onboard/scope/page.tsx line 43 (renders ctx.tenant.business_name raw) + src/app/(shell)/onboard/business/page.tsx lines 56-60 (placeholder guard not reused)
 - *Fix:* Apply the same isPlaceholderBusinessName guard used in business/page.tsx to the recap blocks in scope/page.tsx and competitors/page.tsx (and the Review summary), rendering a dash or prompt instead of "New Beacon Account".
 
 **137. ▫︎ No time estimate, no "what happens after" — I don't know what I'm signing up for**
+- **STATUS (pass #4): ⏸ attended** — onboarding time/outcome estimate — product copy/flow decision.
 - *Surface:* Onboarding wizard (all steps)
 - *Why it's bad:* I judge products in 5 minutes. The wizard never tells me how long onboarding takes, how many fields per step, or what I'll get at the end. Each step just appears. With a 5-minute patience budget I want "Takes 2 minutes, then Beacon scans your site" up front. Without it, every step feels like it could be the start of an endless form, and I'm primed to bail.
 - *Grounding:* ABSENCE: no time/outcome estimate in src/components/onboard/onboarding-shell.tsx or src/app/(shell)/onboard/business/page.tsx
 - *Fix:* Add a one-line expectation-setter on step 1 ("~2 minutes. We'll scan your site and start tracking how AI describes you.") and keep the step labels visible so I can see the finish line.
 
 **138. ▫︎ Website field accepts free text with no normalization feedback — I can't tell if my Wix URL is right**
+- **STATUS (pass #4): ⏸ attended** — website normalized-domain echo — onboarding feature.
 - *Surface:* /onboard/business → Website validation
 - *Why it's bad:* The field placeholder is "acme.com" and accepts any string. My Wix site might be mysite.wixsite.com/foo or a connected custom domain. There's no inline confirmation that Beacon parsed my domain correctly, no "we'll scan https://..." echo. If I fat-finger it or paste the full Wix editor URL, I have no idea, and the whole downstream scan silently targets the wrong site. As a non-technical first-timer I need reassurance the URL landed right.
 - *Grounding:* src/app/(shell)/onboard/business/business-form.tsx lines 96-126 (no normalized-domain echo)
 - *Fix:* Echo the normalized domain Beacon will actually fetch (e.g. "We'll scan https://mysite.com") inline after I type, and flag obviously-wrong inputs (wix editor URLs, full paths) before I continue.
 
 **139. ▫︎ Signup and login describe the product as two different things**
+- **STATUS (pass #4): ✅ already-fixed — signup + login share the plain pitch 'exact website changes that get you recommended by AI … found on Google'.**
 - *Surface:* /signup vs /login pitch copy
 - *Why it's bad:* Signup says Beacon "finds evidence-backed edits to win AI citations and Google clicks." Login says Beacon "finds your site's SEO & AEO fixes." As someone forming a first impression, two pages with two different pitches (AI citations vs SEO/AEO jargon) makes me unsure what this product actually is. And "AEO" / "citations" is jargon I shouldn't have to decode in the first 30 seconds.
 - *Grounding:* src/app/(public)/signup/page.tsx lines 38-44 vs src/app/login/page.tsx lines 24-29
 - *Fix:* Unify the one-line pitch across /signup and /login in plain language ("Beacon shows you the exact website changes that get you recommended by AI and found on Google — and pushes the approved ones live"). Drop AEO/citations jargon from the entry copy.
 
 **140. ▫︎ I'm told my progress is saved but nothing confirms it across steps**
+- **STATUS (pass #4): ⏸ attended** — onboarding 'Saved' confirmation — product flow feature.
 - *Surface:* Onboarding → no progress persistence cue
 - *Why it's bad:* The shell footer says "Need to step out? Save and sign out", implying my progress persists. But each step's submit just redirects forward; there's no "Saved" confirmation, no indication the previous step's data is safely stored. Combined with the recap sometimes showing placeholder data, I don't trust that closing the tab won't lose my work. For a cautious first-timer that uncertainty is enough to make me power through anxiously or abandon.
 - *Grounding:* src/app/(shell)/onboard/business/business-form.tsx lines 36-44 (silent redirect on save, no saved confirmation)
 - *Fix:* Show a brief "Saved" confirmation on each step transition and make the "Saved so far" recap reliable, so I trust I can leave and return without losing anything.
 
 **141. ▫︎ Geo-first "Cities you serve" framing assumes I'm a local service business**
+- **STATUS (pass #4): ✅ already-fixed — scope-form: 'Where are your customers?' + '(leave blank if you sell online or serve everywhere)'.**
 - *Surface:* /onboard/scope → cities field for a non-local Wix business
 - *Why it's bad:* Step 2 leads with "Service area and services" and a big "Cities you serve" textarea. Many Wix sites (online stores, content sites, SaaS, portfolios) have no service area at all. The "(skip if location doesn't apply)" aside is buried in the label. The whole step is framed around local geography, reinforcing the builder/local-service assumption and making non-local businesses feel like they're filling out the wrong form.
 - *Grounding:* src/app/(shell)/onboard/scope/page.tsx lines 32-36 + src/app/(shell)/onboard/scope/scope-form.tsx lines 88-93
 - *Fix:* Make the step neutral: ask "Where are your customers?" with an explicit "I sell online / no specific area" option, and don't make cities the visual centerpiece for businesses that derive nothing from geo.
 
 **142. ▫︎ The launch preview shows mono-spaced query strings with no explanation of why they matter**
+- **STATUS (pass #4): ⏸ attended** — render per-prompt rationale on review — onboarding feature.
 - *Surface:* /onboard/review → starter prompts as raw search strings
 - *Why it's bad:* The final review lists prompts like "best custom home builder in Atherton" in monospace font under jargon-y group headers, with one line "Drafted from your inputs — you can edit later." There's no per-prompt rationale shown (the generator computes one but the page doesn't render it). As a non-technical owner I'm staring at a list of search phrases not understanding what Beacon will DO with them or why this equals value. It reads like config, not a benefit.
 - *Grounding:* src/app/(shell)/onboard/review/page.tsx lines 141-150 (renders p.text only, ignores p.rationale) + prompt-generator.ts line 63 (rationale exists)
 - *Fix:* Show each prompt's customer-safe rationale (already generated) and a plain-language header ("Questions buyers ask AI about you"), so the launch moment communicates value, not raw query config.
 
 **143. ▫︎ If I revisit an onboarding URL after launching, I'm silently bounced with no explanation**
+- **STATUS (pass #4): ⏸ attended** — silent onboarding redirect destination — flow decision.
 - *Surface:* Onboarding access guard behavior
 - *Why it's bad:* requireOnboardingTenant redirects any non-pending tenant away from /onboard/*. So if I bookmark a step, hit back after launching, or want to re-edit my cities, I get silently redirected with no "you've already launched, edit this in Settings" message. Silent redirects make me think I clicked wrong or the app is glitching, and there's no breadcrumb to where I can actually change these inputs post-launch.
 - *Grounding:* src/app/(shell)/onboard/business/page.tsx line 28 + scope/competitors/review pages (all call requireOnboardingTenant which redirects silently)
 - *Fix:* When redirecting a launched tenant off /onboard/*, send them to a clear destination with a message and a link to where they can edit business/cities/competitors (Settings → Config). Don't bounce silently.
 
 **144. ▫︎ Onboarding asks for competitor NAMES, not domains — useless for keyword/rank comparison**
+- **STATUS (pass #4): ⏸ attended** — competitor domains vs names — onboarding data-model/feature.
 - *Surface:* Onboarding (competitors step)
 - *Why it's bad:* Per the onboarding trace, Step 3 takes up to 5 competitor company NAMES (placeholder 'Competitor One / Competitor Two'), not domains. SEMrush organic-competitor and keyword-gap analysis is domain-based. So the competitors I hand-enter at onboarding can't be matched to SEMrush rank/keyword data without a domain. I'd expect to enter competitor URLs for ranking comparison; entering names means my competitive keyword analysis starts blind.
 - *Grounding:* ABSENCE: onboarding competitors step (src/app/(shell)/onboard/competitors/) collects company names, not domains, so they can't feed SEMrush keyword-gap/rank comparison
 - *Fix:* Accept competitor domains (or both name + domain) in the onboarding competitors step so the entries can be joined to SEMrush/GSC competitor data for keyword-gap and rank comparison.
 
 **145. ▫︎ Local presence renders a full NAP/listing-health scorecard structure for a brand-new tenant with nothing in it**
+- **STATUS (pass #4): ✅ already-fixed — `local/page.tsx:70` page-level empty-state guard when no listing/reviews.**
 - *Surface:* /local — first-run with no data
 - *Why it's bad:* local/page.tsx unconditionally calls getLocalPresenceSnapshot() and renders the listing-health score (0-100), NAP states, per-source freshness ('Never synced' / 'No imports yet' via lines 47/51) and review sentiment — even when I've imported/synced nothing. A brand-new user sees a serious-looking 'listing health score' computed from an empty config, which is meaningless and potentially alarming (a low score on day zero implies I'm failing at something I haven't even started). There's no honest top-level 'connect a review source to populate this' empty state guarding the whole page.
 - *Fix:* Add a page-level empty-state guard: if there are no stored reviews and no NAP fields configured, show a single 'Connect or import a review source to see local presence' card instead of a scorecard full of zeros and 'Never synced' rows that read as failures.
 
 **146. ▫︎ Dedupe is a forced one-pair-at-a-time wizard with no multi-select and no keyboard shortcuts**
+- **STATUS (pass #4): ⏸ attended** — dedupe keyboard/multi-select — feature; dedupe is dual-surface janitorial.
 - *Surface:* /changes/dedupe
 - *Why it's bad:* dedupe-client.tsx steps through pairs strictly sequentially (index state, advance()). There's a 'Dismiss all remaining' escape hatch but no way to select several specific pairs and archive them together, and zero keyboard support (no a=archive, k=keep, s=skip). For clearing a backlog of duplicates fast, I'm clicking through a slideshow.
 - *Grounding:* src/app/(shell)/changes/dedupe/dedupe-client.tsx
 - *Fix:* Add keyboard shortcuts (a/k/s) mapped to the three buttons, and a list mode with checkboxes for bulk archive of obvious duplicates.
 
 **147. ▫︎ Step progress likely conveyed visually with no announced 'Step N of 4' to assistive tech**
+- **STATUS (pass #4): ✅ already-fixed — onboarding-shell `aria-current='step'` + visible 'Step N of 4'.**
 - *Surface:* Onboarding wizard stepper
 - *Why it's bad:* The onboarding shell renders a 4-dot stepper. If the current/completed steps are dots styled by color/fill only (the common pattern), I have no idea how far through setup I am or which step I'm on. The page titles say 'Set up your business' but the progress indicator itself needs to tell me 'Step 1 of 4, current'. Dots-by-color is a classic SR dead end.
 - *Grounding:* src/components/onboard/onboarding-shell.tsx (ABSENCE: 4-dot stepper Business→Service area→Competitors→Review — verify it exposes current step via aria-current/text, not dots alone)
@@ -1197,119 +1233,139 @@
 - *Fix:* Pair these state strings with a non-color indicator (e.g. a 'Action needed:' text prefix) and ensure they live in or trigger a live region when they change.
 
 **198. ▫︎ The Connectors header is a paragraph of analyst jargon: 'impressions, clicks, queries, position', 'rank gaps', 'AI visibility', 'page friction'**
+- **STATUS (pass #4): ✅ already-fixed — connectors page header is plain owner language (no impressions/rank-gap/page-friction jargon).**
 - *Surface:* /settings/connectors (page header)
 - *Why it's bad:* The header (line 61) reads 'your real search demand (impressions, clicks, queries, position) drives the highest-priority moves ... SEMrush (rank gaps), Profound (AI visibility — secondary), and Clarity (page friction).' I don't know what impressions or position are, what a 'rank gap' is, or what 'page friction' means. This is the page where I'm supposed to confidently hand over my Wix and Google access, and it reads like an SEO consultant's internal notes. It makes me hesitate to connect anything.
 - *Grounding:* src/app/(shell)/settings/connectors/page.tsx
 - *Fix:* Rewrite in owner language: 'Connect Google so Beacon can see what people search to find you,' 'Connect Clarity to see where visitors get stuck.' One plain sentence per tool, no metric jargon in the header.
 
 **199. ▫︎ Yelp card brags 'No automatic syncing — Beacon does not poll Yelp in the background' as if it's a feature**
+- **STATUS (pass #4): ✅ already-fixed — Yelp card 'Refresh your Yelp reviews any time with Sync now', no 'no automatic syncing' brag.**
 - *Surface:* /settings/connectors copy
 - *Why it's bad:* The Yelp footnote reads 'Pulls reviews from Yelp on demand when you click Sync now... No automatic syncing — Beacon does not poll Yelp in the background' (connectors-client.tsx lines 962-964). To me that's not reassurance, it's a confession that I personally must remember to click Sync for every source on every one of 12 sites forever. The whole connectors page quietly reframes 'no automation' as a safety feature.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Stop presenting lack of automation as a benefit; offer scheduled syncing and only mention 'manual only' where the API genuinely forbids polling.
 
 **200. ▫︎ Yelp explicitly states 'No automatic syncing — Beacon does not poll Yelp in the background' as if that's fine**
+- **STATUS (pass #4): ✅ already-fixed — same as #199.**
 - *Surface:* /settings/connectors — Yelp card
 - *Why it's bad:* connectors-client.tsx line 962-964: 'Pulls reviews from Yelp on demand when you click Sync now... No automatic syncing — Beacon does not poll Yelp in the background.' Reviews are exactly the kind of slow-moving data I'd want auto-pulled weekly so I never think about it. Instead every single source is manual-only, and the product proudly documents the absence of automation as a feature. Death by a thousand 'no automatic syncing' disclaimers.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* At least offer an opt-in weekly auto-sync for low-frequency sources like Yelp/reviews; manual-only-forever is not what a reputation/visibility tool should be.
 
 **201. ▫︎ GSC is read-only and the only auto-acting connector (Wix) is the one with no customer push UI — so the loop never closes hands-free**
+- **STATUS (pass #4): ⏸ attended** — GSC read-only / loop-closure — scheduler/autopilot pivot-inherent (crons off by design).
 - *Surface:* GSC connect — read-only, but I expected auto-action
 - *Why it's bad:* connectors-client.tsx line 700-704 confirms GSC is 'Read-only access — no writes.' The intended loop is GSC demand → recommendation → Wix push. But the data pull is unwired (orphaned syncGscNow), the rec generation cron is off, and the Wix push is operator-only. Every single link in the 'find demand → draft edit → publish' chain requires a manual operator action I can't perform. The automation story is broken at all three joints, not one.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Close the loop end-to-end for a connected tenant: scheduled GSC pull → scheduled generation → optional auto-publish of safe edits, all behind one customer 'Autopilot: on' toggle.
 
 **202. ▫︎ Config tells me to 'sync Yelp reviews from Settings → Connectors' — a destination that doesn't exist in the nav**
+- **STATUS (pass #4): ✅ already-fixed — Connectors restored to settings tab bar + nav; the config-form 'Settings → Connectors' link is now reachable.**
 - *Surface:* config form help text — src/app/(shell)/settings/config/config-form.tsx
 - *Why it's bad:* The Yelp field help (line 157) says 'Used when you sync Yelp reviews from Settings → Connectors.' But Connectors isn't a Settings tab and isn't in the nav — so the instruction points me at a page I can't navigate to. On mobile, where I rely entirely on the menu, this is a literal dead end disguised as guidance.
 - *Grounding:* src/app/(shell)/settings/config/config-form.tsx
 - *Fix:* Either restore the Connectors tab (fixing the instruction) or change the copy to a working link. Don't reference navigation paths that don't exist in the UI.
 
 **203. ▫︎ Connecting Google Analytics isn't done after OAuth — there's a hidden second step**
+- **STATUS (pass #4): ⏸ attended** — GA4 two-step (select property) clarity — connector flow/feature wiring.
 - *Surface:* GA4 connector card → property selection
 - *Why it's bad:* I click "Connect Google Analytics", do the Google OAuth dance, and think I'm done. But the card then shows "Connected. Select a property to finish setup." — a second required step I wasn't warned about. If I miss the small amber line, I believe GA4 is connected when it actually isn't pulling anything. Half-connected connectors that look connected are exactly how a 5-minute user ends up with silent gaps and blames the product later.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx lines 735-746 (status shows Connected but warns property not selected)
 - *Fix:* Make the two-step nature explicit up front ("Step 2 of 2: choose a property") and visually mark the card as incomplete/not-connected until a property is selected, not "Connected".
 
 **204. ▫︎ Connector page describes a priority hierarchy and 7 tools — overwhelming with no guided order**
+- **STATUS (pass #4): ⏸ attended** — connector 'start here' guided order — connector page IA/feature.
 - *Surface:* /settings/connectors header copy
 - *Why it's bad:* When I finally find the Connectors page, the header dumps a priority lecture ("GSC is the core layer... Wix pushes edits... GA4... SEMrush... Profound secondary... Clarity...") across seven cards. As a first-timer I just want to know "connect these two first." Instead I get a wall of cards with stale-data caveats and no clear start. Decision paralysis in the first 5 minutes = I connect nothing or the wrong thing.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx lines 530-532 (flat list, no guided order) + page.tsx connector header
 - *Fix:* Add a guided "Start here" ordering — e.g. step-numbered cards (1. Google Search Console, 2. Wix) with the rest collapsed under "More sources" — so a new user has an obvious first connection.
 
 **205. ▫︎ Header describes 6 evidence layers in priority order but omits Yelp, which has its own card right below**
+- **STATUS (pass #4): ⏸ attended** — Yelp in priority-order header — connector header copy (low-value; left).
 - *Surface:* /settings/connectors header
 - *Why it's bad:* page.tsx PageHeader (lines 60-61) enumerates GSC, Wix, GA4, SEMrush, Profound, Clarity — but the page renders a Yelp card too. As a 6-source connector I'm trying to build a mental model of 'which source powers what,' and the headline inventory doesn't even match the cards on the page. Where does Yelp sit in the priority order? Unanswered.
 - *Grounding:* src/app/(shell)/settings/connectors/page.tsx
 - *Fix:* Either include Yelp (and its role: local reviews) in the priority-order header, or move Yelp under a clearly-labeled 'Local/reviews' subsection so the header matches the cards.
 
 **206. ▫︎ 'Disconnect Google' silently nukes Google Business Profile too, with no warning in the button**
+- **STATUS (pass #4): ⏸ attended** — 'Disconnect Google' also drops GBP — connector action copy/behavior decision.
 - *Surface:* GSC card — disconnect copy
 - *Why it's bad:* disconnectGoogle (actions.ts lines 347-387) soft-disconnects GSC AND hard-deletes the google_gbp token in one click, but the button is labeled just 'Disconnect' on the GSC card and its tooltip only mentions 'historical data stays cached.' If I ever set up a GBP location, clicking disconnect on what I think is the Search Console card destroys my GBP selection with no heads-up.
 - *Grounding:* src/app/(shell)/settings/connectors/actions.ts
 - *Fix:* Either split GBP disconnect from GSC, or change the tooltip/confirm to say 'This also disconnects Google Business Profile.'
 
 **207. ▫︎ selectGoogleLocation writes to a google_gbp token that no card ever connects — a dead affordance behind a disabled flag**
+- **STATUS (pass #4): ⏸ attended** — GBP dead affordance behind disabled flag — connector cleanup (GBP_AFFORDANCES_ENABLED=false).
 - *Surface:* GBP location picker
 - *Why it's bad:* loadGoogleLocations/selectGoogleLocation/handleGoogleSyncNow all target GBP, but the entire GBP block is gated by GBP_AFFORDANCES_ENABLED=false (connectors-client.tsx line 43) and there's no Connect-GBP card. So selectGoogleLocation patches a google_gbp token that's never created, and the GSC 'Sync now' button it guards pulls reviews, not search analytics. It's confusing dead plumbing in the exact place I'm trying to understand what's live.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Remove the GBP picker/sync code paths from the customer client until a real GBP connect card ships, so nothing references an unconnectable provider.
 
 **208. ▫︎ A 'Sync skipped: <reason>' surfaces raw internal reason codes to me as the error**
+- **STATUS (pass #4): ✅ already-fixed — skip reasons route through plain-English `BENIGN_SKIP_REASONS` / failure copy (`actions.ts`, cites #208).**
 - *Surface:* Sync result feedback
 - *Why it's bad:* summarizeConnectorSync (actions.ts lines 700-705) returns errors like 'Sync skipped: no_property.' or 'Sync skipped: no_categories_configured.' straight to the card. Even once these buttons are wired, when my SEMrush/Profound sync no-ops I'd see a cryptic snake_case token instead of plain English telling me what to do next (e.g. set a domain). That's the jargon-leak that erodes my confidence in whether a source is actually working.
 - *Grounding:* src/app/(shell)/settings/connectors/actions.ts
 - *Fix:* Map each skip reason to a customer sentence ('Add your site domain under Config before syncing SEMrush'), instead of echoing the raw reason code.
 
 **209. ▫︎ 'Each source updates independently. Connectors are additive' tells me nothing about whether anything is actually flowing**
+- **STATUS (pass #4): ⏸ attended** — connectors 'additive' boilerplate → status summary — connector page IA/feature.
 - *Surface:* Connectors intro copy
 - *Why it's bad:* The top-of-page note (connectors-client.tsx lines 530-531) and footer repeat 'Connectors are additive — they do not replace manual import' twice, but never answer my actual question: is data coming in, from where, how fresh, and what do I click to refresh. It's reassuring filler in the spot where I most need an at-a-glance 'all 6 connected, last data 2h ago' status summary.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Replace the additive boilerplate with a real summary strip: count connected, oldest data age, and a single Refresh button.
 
 **210. ▫︎ GA4 connector reads property metadata only — no sessions, conversions, or landing-page traffic actually used**
+- **STATUS (pass #4): ⏸ attended** — GA4 metadata-only labeling — connector data-scope/feature.
 - *Surface:* GA4 connector
 - *Why it's bad:* The GA4 card and code (connectors-client.tsx comment line 718-720) say 'OAuth + property picker only. NO Data API in this slice — sessions / events / conversions land in Slice 9.A2.' So connecting GA4 picks a property and pulls nothing useful. As an SEO I connect GA4 to tie rankings to traffic and conversions; here it's a glorified property selector that doesn't feed the ranking analysis at all. I assumed connecting it meant my organic-traffic data was in play. It isn't.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Either ship the GA4 Data API pull (organic sessions/conversions per landing page, feeding the priority score) or label the GA4 card as 'metadata only — traffic data coming soon' so I'm not misled into thinking my analytics are connected.
 
 **211. ▫︎ Only the trailing 90 days of GSC data is used — no year-over-year or seasonal comparison**
+- **STATUS (pass #4): ⏸ attended** — GSC 90d vs 16mo / YoY — engine data-scope decision.
 - *Surface:* GSC connector data scope
 - *Why it's bad:* gsc-page-signals.ts hard-caps the window at WINDOW_DAYS=90 and the sync 'backfills up to ~90 days.' GSC retains 16 months. Traditional SEO leans heavily on YoY comparisons (was this query seasonal? is the dip real or last-spring-was-just-higher?). Capping at 90 days means I can never see whether a 'decay' is a seasonal pattern or a real decline — I'd flag a normal seasonal dip as a problem and waste a refresh on it.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/domains/recommendation-intelligence/gsc-page-signals.ts
 - *Fix:* Backfill and retain the longer GSC history (up to 16 months) and offer a YoY/previous-period comparison so decay detection can distinguish seasonality from genuine decline.
 
 **212. ▫︎ When a day's GSC pull hits quota/network failure, the run stops and returns synced:true with a partial day count — looks like full success**
+- **STATUS (pass #4): ⏸ attended** — GSC partial-day quota signal — connector sync engine.
 - *Surface:* GSC sync — quota/network mid-run
 - *Why it's bad:* In sync-search-analytics.ts, if pullDayRows returns null (quota/network), the loop just breaks (line 215) and the function returns {synced:true, days, rows_upserted} with whatever it got. So a run that bailed at day 12 of 45 due to a 429 reports synced:true. The summarizer shows 'Synced 12 days' and I have no idea the other 33 days silently failed and need another click. The auth-failure case was fixed to return synced:false (good), but the quota/network case still masquerades as success.
 - *Grounding:* src/lib/connectors/gsc/sync-search-analytics.ts
 - *Fix:* Track whether the run terminated early on quota/network and surface a 'partial — N of M days, click again to continue' signal rather than an unqualified synced:true.
 
 **213. ▫︎ OAuth error 'not_authorized' has no friendly mapping — I get the raw code**
+- **STATUS (pass #4): ✅ already-fixed — `not_authorized` has an ERROR_MESSAGES entry (cites #213).**
 - *Surface:* /settings/connectors error banner
 - *Why it's bad:* The callback can redirect with ?error=not_authorized (when membership check fails), but ERROR_MESSAGES in connectors-client.tsx has no entry for it. The fallback is `Connection error: ${err}` → I literally see 'Connection error: not_authorized.' Same for any future code. For someone who hits error states constantly, raw enum codes are useless and alarming.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Add a friendly ERROR_MESSAGES entry for not_authorized (and audit the callback's full set of error codes against the map so none fall through to the raw code).
 
 **214. ▫︎ Disconnecting SEMrush/Profound/Clarity is a HARD delete of the token while GSC/GA4 are soft — inconsistent and lossy**
+- **STATUS (pass #4): ✅ already-fixed — `handleSimpleDisconnect` setError on else branch.**
 - *Surface:* SEMrush / Profound / Clarity disconnect
 - *Why it's bad:* disconnectSemrush/disconnectProfound/disconnectClarity all call deleteConnectorToken (hard delete), while GSC uses softDisconnectGsc and GA4 sets disconnected_at to preserve cached state + show the 'last refreshed X days ago' copy. So if I disconnect to rotate a key, GSC/GA4 keep my history visibility but SEMrush/Profound/Clarity wipe the token row entirely with no stale-copy affordance. Worse, handleSimpleDisconnect doesn't even setError on failure (lines 438-453) — a failed disconnect is totally silent.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Make SEMrush/Profound/Clarity disconnect soft (set disconnected_at) for consistency with GSC/GA4, and surface errors in handleSimpleDisconnect/handleSaveSimpleConnection (both currently ignore result.error).
 
 **215. ▫︎ If saving my SEMrush/Profound/Clarity key fails, the UI shows nothing and I think it worked**
+- **STATUS (pass #4): ✅ already-fixed — `handleSaveSimpleConnection` setError on else branch.**
 - *Surface:* handleSaveSimpleConnection (SEMrush/Profound/Clarity connect)
 - *Why it's bad:* handleSaveSimpleConnection (lines 419-436) awaits the save and on success flips the card to connected — but the else branch is EMPTY. saveSemrushConnection etc. return {success:false, error} on failure (e.g. DB write error), and the client discards it: no setError, no toast, the card just stays on the input form. I paste my key, click Connect, and if it failed I get zero feedback — I'll assume it's connected and wonder for weeks why no data shows.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx
 - *Fix:* Add an else branch in handleSaveSimpleConnection that calls setError(result.error ?? 'Could not save the connection.').
 
 **216. ▫︎ Connector priority copy buries the fact that NONE of this runs on its own**
+- **STATUS (pass #4): ⏸ attended** — connectors 'none of this runs on its own' note — scheduler/autopilot pivot-inherent.
 - *Surface:* /settings/connectors → /settings/import (Wix self-serve)
 - *Why it's bad:* The connectors header (connectors/page.tsx line 61) lists six evidence layers in priority order and says 'GA4... SEMrush... Profound... Clarity add supporting evidence as they connect' — language that strongly implies that once connected, they just work and feed the system. Nowhere on the connectors page does it tell me the truth that the methodology FAQ states plainly: 'There is no background schedule, polling, or SLA' and data only enters 'when you run Sync now'. So the single most important fact for a set-and-forget buyer — that I must manually pull each source — is absent from the exact page where I make connection decisions.
 - *Fix:* Add a clear, persistent note at the top of /settings/connectors: 'Connecting a source stores access only. Beacon pulls data when you click Sync now on each card — there is no automatic schedule yet.' Match the honesty of the methodology FAQ at the point of decision.
 
 **217. ▫︎ Disabled Connect buttons give no programmatic reason**
+- **STATUS (pass #4): ✅ FIXED THIS PASS — `aria-describedby` sr-only hints on all 5 disabled Connect/Save buttons in `connectors-client.tsx`.**
 - *Surface:* /settings/connectors
 - *Why it's bad:* The 'Connect Wix' button is disabled until both fields are filled, but there's no aria-describedby explaining why. A disabled button with no announced reason just reads 'Connect Wix, dimmed/unavailable' and I have no idea what I missed. Sighted users at least see two empty boxes; I get silence.
 - *Grounding:* src/app/(shell)/settings/connectors/connectors-client.tsx (e.g. line 1030 disabled until both Wix fields non-empty; line 1113 Semrush)
@@ -1553,36 +1609,42 @@
 - *Fix:* Move a safe bulk-accept into the customer /recommendations surface. Keep destructive/publish batches gated but expose accept-batch where the work happens.
 
 **257. ▫︎ The config slug placeholder is 'business-name-san-jose' — a Bay Area builder leak in a field I don't understand anyway**
+- **STATUS (pass #4): ✅ FIXED THIS PASS — slug placeholder `business-name-san-jose`→`your-business-name` + INDUSTRY_OPTIONS alphabetized (no 'Home Builder' lead) in `config-form.tsx`.**
 - *Surface:* /settings/config
 - *Why it's bad:* Line 163 placeholder 'e.g. business-name-san-jose' bakes in a San Jose (Bay Area) example, a leftover from the builder tenant. Combined with an industry dropdown where 'Home Builder / Contractor' is the very first option (line 8), the settings screen keeps signaling this tool is really for a California contractor, not my bakery. Small thing, but it chips away at my confidence that any of the numbers are tuned for me.
 - *Grounding:* src/app/(shell)/settings/config/config-form.tsx
 - *Fix:* Use a neutral/industry-appropriate placeholder (or derive from my own business name), and don't lead the industry dropdown with 'Home Builder'.
 
 **258. ▫︎ The 'verified live' badge keys off a fragile 120-char raw-HTML prefix match that will almost always say 'pending' for Wix**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/diagnostics/wix` probe logic (Wix publish-behavior).
 - *Surface:* Approve & Push (probe match logic)
 - *Why it's bad:* probeLiveText (push-service.ts:564) fetches raw HTML and does a whitespace-normalized first-120-char includes() check. Wix pages are heavily client-rendered and the edited CMS field often isn't present verbatim in the initial HTML, so the probe will usually return found=false → I get '· probe pending' even when the push genuinely worked. So 'verified live' rarely fires, training me to distrust the one signal that's supposed to tell me my change landed.
 - *Grounding:* src/domains/push/push-service.ts
 - *Fix:* Either render the page the way a crawler/browser would (or query the Wix API for the item's new value) to verify, and stop presenting a near-always-false prefix probe as the live-verification signal.
 
 **259. ▫︎ Pushes can refuse with cryptic developer errors that I have no way to act on**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/diagnostics/wix` push refusal copy.
 - *Surface:* Approve & Push (status preconditions)
 - *Why it's bad:* executePush returns refusal reasons like 'no Wix CMS item mapped for <url> — run the url-map sync on /diagnostics/wix first' (push-service.ts:449) and 'card targets "(none)" — export it as a dev note or re-queue with a field target' (push-service.ts:437). These surface to me (the refusal reason bubbles up through approveAndPushRecommendedEdit → ApproveAndPushResult.reason). They reference operator pages I can't open and concepts (url-map sync, field target, dev note) I don't understand. A failed publish leaves me staring at jargon with no next step.
 - *Grounding:* src/domains/push/push-service.ts
 - *Fix:* Map every push refusal to a plain-English, actionable customer message with a concrete next step I can actually take, and never leak internal route names or schema terms.
 
 **260. ▫︎ The push card never lets me open the actual live page I'm about to edit before I commit**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/diagnostics/wix` live-page link.
 - *Surface:* Approve & Push (no live page link before publishing)
 - *Why it's bad:* The pushable card (diagnostics/wix/page.tsx:181-194) shows the URL as plain mono text, not a clickable link, and offers no 'open this page' affordance next to the Push button. So I can't quickly go look at the real page in context right before approving a change to it. For someone who wants certainty before anything goes live, not even being able to one-click-view the target page is a needless gap.
 - *Grounding:* src/app/(shell)/diagnostics/wix/page.tsx
 - *Fix:* Make the target URL a real link (open in new tab) right beside the push/preview controls so I can inspect the live page in context immediately before approving.
 
 **261. ▫︎ Revert is also a one-click bare form — I could accidentally roll BACK a good change with no confirm**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/diagnostics/wix` revert confirm.
 - *Surface:* Revert (no confirmation either)
 - *Why it's bad:* The Revert control (diagnostics/wix/page.tsx:229-239) is the same pattern as Push: a single <form> submit, no confirmation, no preview of what the field will revert TO. So just as an accidental Push is one click, an accidental Revert is one click — and it ships through executePush, consuming a cap slot and overwriting my current (possibly good) live value with the old snapshot value, all without showing me the diff or asking 'restore <old> over <current>?'.
 - *Grounding:* src/app/(shell)/diagnostics/wix/page.tsx
 - *Fix:* Give Revert the same preview+confirm treatment as Push: show current-vs-restore diff and require explicit confirmation before it writes the old value back to the live site.
 
 **262. ▫︎ Battlecards add a 'Local pressure / geographic presence' dimension to EVERY competitor — irrelevant for a non-local Wix business**
+- **STATUS (pass #4): ⏸ attended** — battlecard geo dimension gate — de-vertical/engine (`/competitors`).
 - *Surface:* /competitors → 'Competitive comparison' battlecards (geographic dimension)
 - *Why it's bad:* computeBattlecards always tries to add a geographic_presence dimension based on city coverage (battlecards.ts lines 131-149), and pressure_topics get the ' (Bay Area)' strip in the UI. If I'm a national/online Wix business with no city strategy, my battlecards get cluttered with 'Competitor presence in markets where you're weak: [cities]' — a dimension that doesn't apply to me, derived from a geo model seeded with Bay Area assumptions. It makes the head-to-head read like it's grading me on the wrong game.
 - *Grounding:* src/domains/competitors/battlecards.ts
@@ -1993,138 +2055,161 @@
 - *Fix:* Add a lightweight confirm/preview ('This will queue these edits — review the exact change') before Accept commits, with an easy undo.
 
 **330. ▫︎ 'Accepting a task starts tracking its impact on AI visibility' tells me nothing about whether anything ships**
+- **STATUS (pass #4): ⏸ attended** — legacy recommendations-client (`?legacy=1`) — dual-surface.
 - *Surface:* Recommendations row helper copy
 - *Why it's bad:* The helper line under the filters says 'Accepting a task starts tracking its impact on AI visibility' (recommendations-client.tsx line 387). As an agency I need to know: does Accept publish to Wix, or just queue it for a separate Approve & Push? It's the latter (push is a distinct one-click action), but the copy implies Accept is the meaningful step. So I'll Accept 30 things expecting work to happen and nothing reaches any client's site.
 - *Grounding:* src/app/(shell)/recommendations/recommendations-client.tsx
 - *Fix:* Clarify the two-step model in-line: Accept = track, Approve & Push = publish to your site; or merge them with an explicit choice.
 
 **331. ▫︎ Operator 'confidence' on a locked cause defaults to 'medium' and is recorded as fact with no evidence requirement**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/review` confidence default — operator surface.
 - *Surface:* /review (locked-cause confidence)
 - *Why it's bad:* In the review queue the lock action carries an operatorConfidence that defaults to 'medium' (useState('medium')) and gets saved with the decision. Methodology elsewhere calls an operator-confirmed link 'the strongest trust signal.' So a default, un-thought 'medium' click becomes the highest-trust attribution in the system, feeding downstream verdicts and proof base rates. A default value masquerading as a considered judgment is exactly the kind of fake-precision I distrust.
 - *Grounding:* src/app/(shell)/review/review-queue-client.tsx
 - *Fix:* Don't default the confidence to medium — require an explicit selection before the lock button enables, and label the resulting attribution as 'operator-asserted', not as the system's strongest evidence tier.
 
 **332. ▫︎ Dismiss (X) is a ~22px target and the banner is sticky, stealing top space on small screens**
+- **STATUS (pass #4): ✅ already-fixed — demo-banner dismiss `min-h-[44px] min-w-[44px]` + aria-label.**
 - *Surface:* demo banner — src/components/shell/demo-banner.tsx
 - *Why it's bad:* The demo banner (lines 34-41) has a dismiss button that's `p-1` around a `h-3.5 w-3.5` X (≈22px total) — hard to hit with a thumb. It's `sticky top-0 z-40`, so until I successfully tap that tiny X it permanently eats a chunk of my already-short phone viewport on top of the 48px header.
 - *Grounding:* src/components/shell/demo-banner.tsx
 - *Fix:* Make the dismiss button at least 44px, and consider a non-sticky or collapsible banner on mobile so it doesn't compound the vertical-space squeeze.
 
 **333. ▫︎ 'Show fewer / See full list' and chart controls are 11px text links with no padding — micro-targets scattered between dense content**
+- **STATUS (pass #4): ✅ FIXED THIS PASS (live-surface portion) — v2 recs bulk-bar buttons `py-1 text-[11px]`→`py-2 text-[12px]`; legacy text-link controls are dual-surface (attended).**
 - *Surface:* / (Today) chart footer + recs see-all controls
 - *Why it's bad:* The recommendations V2 'See full list →' / 'Show fewer ↑' controls (recommendations-v2-client.tsx lines 259-279) are `text-[11px]` inline text links with no padding box, sitting at the bottom of a card stack. Combined with the chart's tiny pills, the app is littered with 10-11px text links acting as buttons. Each one is a fresh fat-finger miss on a phone where I'm tapping fast.
 - *Grounding:* src/app/(shell)/recommendations/recommendations-v2-client.tsx
 - *Fix:* Promote functional text-links that act as buttons (expand list, change range) to padded, 44px-tall tappable controls on mobile.
 
 **334. ▫︎ The operator page factory shows per-item cost honestly ('a fraction of a cent', 'cost $X', 'Daily budget reached') — but no customer surface does**
+- **STATUS (pass #4): ⏸ attended** — customer cost-disclosure parity — product/dual-surface decision.
 - *Surface:* /diagnostics/factory (page factory) vs customer surfaces — cost-disclosure inconsistency
 - *Why it's bad:* It's almost insulting: the operator-only page factory has exactly the cost transparency I want — it tells you 'Each item costs a fraction of a cent,' shows the actual 'cost $X' after a run, and surfaces 'Daily budget reached — ...' when the cap trips. So the team CAN do cost UX and chose to. They just built it for themselves (operator mode) and gave customers nothing. The capability exists; it's pointed the wrong way.
 - *Grounding:* src/app/(shell)/diagnostics/factory/page.tsx lines 63-100 (cost $X, 'a fraction of a cent', budget_exhausted message) — operator-only, no customer equivalent
 - *Fix:* Reuse the exact factory cost pattern (estimate before, actual cost after, budget-exhausted message) on every customer-facing paid action: AI reading, SEMrush refresh, Refresh all.
 
 **335. ▫︎ Discovery only suggests a move for 'direct' competitors — so mis-typed rivals (see classify bug) get no copyable action**
+- **STATUS (pass #4): ⏸ attended** — discovery suggest-move gating — de-vertical/engine logic.
 - *Surface:* /competitors → 'Discovered competitors' suggested move
 - *Why it's bad:* suggestMove (discover.ts lines 183-192) returns null unless type === 'direct'. Combined with the builder-hardcoded classifier (classify-type.ts), a genuine rival in MY niche that gets mis-typed as 'directory' or 'editorial' will show in the discovered list with citations beating me but NO suggested move ('→ Create content targeting...'). The exact rival I most need to act on is the one most likely to be silently downgraded to no-action.
 - *Grounding:* src/domains/competitors/discover.ts
 - *Fix:* Generate a suggested move for any non-owned, non-directory domain that out-cites me on a topic, and fix the classifier so my niche's domains aren't mis-typed in the first place.
 
 **336. ▫︎ Adding a competitor to track is buried two-collapses deep in a section titled 'data setup', not a primary action**
+- **STATUS (pass #4): ⏸ attended** — competitors manage IA — `/competitors` hidden from customer nav.
 - *Surface:* /competitors → 'Universe & data setup' (manage competitors)
 - *Why it's bad:* The way I tell Beacon who to watch is CompetitorsManageClient — but it's inside the collapsed <details> 'Universe & data setup' at the very bottom of the page (page.tsx lines 806-838), past every other section. For a tool whose whole point (for me) is competitor tracking, 'pick who to track' should be front and center. Instead it's treated as plumbing. I'd reasonably conclude there's no way to add competitors at all.
 - *Grounding:* src/app/(shell)/competitors/competitors-manage-client.tsx
 - *Fix:* Surface 'Competitors you're tracking' as a top, expanded section with a prominent 'Add competitor' button, and feed the discovery 'Track this' buttons into it. Demote nothing about who I watch to a hidden 'data setup' drawer.
 
 **337. ▫︎ Cards compute 'clicks recovered' (upside_clicks_28d) on a 90-day impression base but label it 28d**
+- **STATUS (pass #4): ⏸ attended** — GSC low-CTR 28d/90d label — engine math.
 - *Surface:* GSC low-CTR upside estimate
 - *Why it's bad:* gsc-low-ctr.ts computes upside_clicks_28d = (expected_ctr - actual) * worst.impressions, but worst.impressions is the 90-day window total (signal is loaded over WINDOW_DAYS=90). So a field named '...28d' is actually a 90-day-magnitude number. As an SEO I forecast clicks for clients off these figures; a mislabeled-window upside number is the kind of thing that blows up a client report when the real 28-day gain is ~1/3 of what was promised.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/domains/recommendation-intelligence/triggers/gsc-low-ctr.ts
 - *Fix:* Either rename the field to match the 90-day window or divide by the window ratio so '28d' upside reflects a 28-day projection. Pick one window and make the math and the label agree.
 
 **338. ▫︎ SEMrush striking-distance trusts third-party monthly volume that even the code admits is wrong**
+- **STATUS (pass #4): ⏸ attended** — SEMrush volume qualifier — engine copy/math.
 - *Surface:* Striking-distance volume source (SEMrush)
 - *Why it's bad:* semrush-striking-distance.ts presents 'searched about N times a month' (strikingDistanceCopy) from SEMrush volume, while the sibling gsc-striking-distance file's own comment cites Mueller: 'tool volumes will always be wrong' and says first-party impressions are stronger. So one card quotes me a volume the codebase itself distrusts, presented to the customer as fact ('searched about N times a month'). If I quote that to a client and GSC shows a fraction of it, I look incompetent.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/domains/recommendation-intelligence/triggers/semrush-striking-distance.ts
 - *Fix:* Prefer first-party GSC impressions for striking-distance copy where available, and qualify SEMrush volume as an estimate ('estimated ~N searches/mo, third-party') rather than stating it as fact.
 
 **339. ▫︎ First-party striking-distance uses band 4-15 while the SEMrush one uses 4-20 — two different definitions of 'striking distance'**
+- **STATUS (pass #4): ⏸ attended** — striking-distance band unification — engine math.
 - *Surface:* GSC striking-distance band conflict
 - *Why it's bad:* gsc-striking-distance (STRIKING_MIN_POS=4, STRIKING_MAX_POS=15) and semrush-striking-distance (band 4-20 per its operator_evidence) disagree on what counts as striking distance. A query ranking #18 is a striking-distance opportunity per the SEMrush trigger but invisible to the GSC trigger. As an SEO I expect one consistent definition; two conflicting bands mean opportunities appear or vanish depending on which data source happened to have the row, with no explanation to me.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/domains/recommendation-intelligence/triggers/gsc-low-ctr.ts
 - *Fix:* Unify the striking-distance band across the GSC and SEMrush triggers (or document why first-party and third-party use different bands) so the same query isn't an opportunity under one source and ignored under the other.
 
 **340. ▫︎ The 'add sources' and 'add a direct answer' cards tell me to write the facts myself, then measure me as if Beacon did the work**
+- **STATUS (pass #4): ⏸ attended** — DIY-content vs ready-draft separation — product/queue UX decision.
 - *Surface:* draft-enrichment.ts (composeSourcesDirective / composeAnswerBlockDirective)
 - *Why it's bad:* composeSourcesDirective and composeAnswerBlockDirective (lines 803-851) explicitly NEVER write the answer or the sources — correct for hallucination safety, but the card still ships into my queue as an actionable 'recommendation' with an AEO_MEASURE_PLAN promising Beacon will watch the lift. So I get a homework assignment ('cite 2-4 authoritative references', 'write a 40-60 word answer naming the subject') dressed as an automated edit. For a set-and-forget buyer this is a bait-and-switch: the high-value content work is mine, unguarded, and if I write a wrong fact nothing checks it.
 - *Grounding:* src/domains/recommendation-intelligence/draft-enrichment.ts
 - *Fix:* Visually separate 'do-it-yourself content tasks' from 'ready-to-publish drafts' in the queue, and label these as manual writing tasks so I'm not misled into thinking Beacon drafted safe copy.
 
 **341. ▫︎ The safety scanner skips current_text and the audit can't see fields it doesn't know are customer-visible**
+- **STATUS (pass #4): ⏸ attended** — operator-only safety-audit field visibility.
 - *Surface:* safety-audit.ts (scan field coverage)
 - *Why it's bad:* auditRecommendedEditRow (lines 599-611) deliberately does NOT scan current_text and treats expected_impact/measurement_plan as 'customer_copy: unknown' visibility (page.tsx FIELD_VISIBILITY marks them 'unknown'). So the audit has acknowledged blind spots about which of MY drafts' fields actually render to the public. Combined with the scanner being operator-only and never enforced, even the diagnostic I can't see has gaps about what's customer-facing — meaning unsupported claims in expected_impact/measurement_plan that DO render to me are never confidently flagged.
 - *Grounding:* src/app/(shell)/diagnostics/recommendation-safety-audit/page.tsx
 - *Fix:* Resolve the actual render visibility of expected_impact/measurement_plan and scan accordingly; once confirmed customer-visible, treat their violations as customer-facing, not 'unknown'.
 
 **342. ▫︎ The 'abstain when evidence is thin' guard only runs on the LLM path, so thin deterministic drafts still ship**
+- **STATUS (pass #4): ⏸ attended** — abstention contract on deterministic path — engine logic.
 - *Surface:* specific-edit-validator.ts (abstention contract)
 - *Why it's bad:* checkAbstentionContract / validateAbstentionContract (lines 280-357) is excellent — it forces abstention when a packet has no grounding signals, single-prompt thin evidence, etc. But it lives inside validateSpecificEdit, which (per the promotion-writer finding) the deterministic path never calls. So the deterministic drafts I actually receive can be built from one thin signal with no grounding and there is no abstention check stopping them. The discipline that would protect me from low-evidence drafts is applied only to the path that's turned off.
 - *Grounding:* src/domains/recommendation-intelligence/promotion-writer.ts
 - *Fix:* Run the abstention contract (at minimum the no-grounding-signals trigger) against deterministic promotion rows too, so thin-evidence cards abstain regardless of provider.
 
 **343. ▫︎ No '/' or focus shortcut to jump to the queue search — I have to reach for the mouse to filter**
+- **STATUS (pass #4): ⏸ attended** — legacy recs '/' search shortcut — dual-surface (legacy client).
 - *Surface:* /recommendations search box
 - *Why it's bad:* recommendations-client.tsx line 337 has a type=search input with placeholder 'Search actions, pages, or evidence…', but there's no keyboard shortcut to focus it. Every other power tool binds '/' (or ⌘F-style) to focus the filter. Here I'm typing then clicking then typing. The ⌘K palette searches changelog/nav, NOT the live rec queue, so it's no substitute.
 - *Grounding:* src/app/(shell)/recommendations/recommendations-client.tsx
 - *Fix:* Bind '/' (when not in an input) to focus the rec queue search input. autoFocus it on page mount as well.
 
 **344. ▫︎ Review's number-key candidate select (1-5) silently does nothing if there are 6+ candidates**
+- **STATUS (pass #4): ⏸ attended** — review number-key cap — operator `/review` surface.
 - *Surface:* /review queue
 - *Why it's bad:* review-queue-client.tsx line 369-374 only handles numKey 1..actionableCandidates.length. The KeyboardHelp explicitly tells me '1–5 Select candidate' (line 282). If a tight race has 6 candidates I can't keyboard-select #6 at all, and pressing keys above the count is a no-op with no feedback. Inconsistent between what the help promises and what works.
 - *Grounding:* src/app/(shell)/review/review-queue-client.tsx
 - *Fix:* Either support more number keys / a two-digit entry, or show a per-candidate number badge only up to the supported count and document the cap honestly.
 
 **345. ▫︎ To dismiss a rec I must expand the row drawer, scroll to 'Secondary', pick a reason from a <select>, then click Dismiss — 4 interactions for a reject**
+- **STATUS (pass #4): ⏸ attended** — legacy recs dismiss flow — dual-surface (legacy client).
 - *Surface:* /recommendations — dismiss flow
 - *Why it's bad:* recommendations-client.tsx hides Defer/Dismiss at the very bottom of the expanded drawer behind a 'Secondary' label (lines 1595-1656), with dismiss reason as a mouse-driven <select> (lines 1620-1635). A power user wants to reject junk in one keystroke. Instead it's: click row → wait for drawer → scroll → open select → choose → click Dismiss. Rejecting is the action I do most on a noisy queue and it's the most buried.
 - *Grounding:* src/app/(shell)/recommendations/recommendations-client.tsx
 - *Fix:* Add a one-key dismiss (d) on the focused/hovered row with a quick reason chip popover, and surface a compact Dismiss in the row's action column, not only deep in the drawer.
 
 **346. ▫︎ After locking a decision, j/k focus and the selected index can desync — advance() bumps index but focus stays on the old element**
+- **STATUS (pass #4): ⏸ attended** — operator `/review` focus/index desync.
 - *Surface:* Review queue scroll/focus
 - *Why it's bad:* review-queue-client.tsx handleDecided calls advance() to increment selectedIdx (lines 95-104), but the left-rail buttons are selected by index state, not DOM focus, while the keydown j/k also mutate selectedIdx. There's no focus management tying the rendered selection to document focus after a lock, so my next 'c'/'a' keypress can land on a card I'm not looking at. For rapid keyboard decisions, focus drift means wrong attributions.
 - *Grounding:* src/app/(shell)/review/review-queue-client.tsx
 - *Fix:* On advance, programmatically focus the newly selected card and ensure j/k/letter handlers read from the actual focused/selected card consistently.
 
 **347. ▫︎ Palette search is naive substring-only and has no recents — typing 'recs' won't find 'Recommendations'**
+- **STATUS (pass #4): ⏸ attended** — palette fuzzy/recents — enhancement (substring works; not a defect).
 - *Surface:* ⌘K palette — no recent / no fuzzy match
 - *Why it's bad:* command-palette.tsx filter uses item.label.toLowerCase().includes(query) (lines 106-113) — plain substring, no fuzzy matching, no abbreviation support, no recent/frequent items. So 'recs', 'rec', or a typo returns nothing for 'Recommendations'. Power users rely on fuzzy palettes (Linear, VS Code) where 'rcm' finds Recommendations. This forces exact prefixes.
 - *Grounding:* src/components/shell/command-palette.tsx
 - *Fix:* Add fuzzy matching (subsequence scoring) and a recents section so frequent destinations surface first.
 
 **348. ▫︎ Escape only closes the ⌘K/help overlays; the per-page drawers and selects have no Escape-to-close, breaking keyboard-only flow**
+- **STATUS (pass #4): ⏸ attended** — legacy recs drawer Escape — dual-surface (legacy client).
 - *Surface:* Global — Escape behavior
 - *Why it's bad:* command-palette.tsx handles Escape for its own overlays (lines 48-52, 140-143), but the recommendations row drawer (expandedId state) and the dismiss-reason select have no Escape handling in recommendations-client.tsx. Once I open a drawer with the mouse there's no keyboard way to collapse it — I have to click again. A consistent Escape-closes-the-thing contract is table stakes for keyboard users; here it's piecemeal.
 - *Grounding:* src/app/(shell)/recommendations/recommendations-client.tsx
 - *Fix:* Make Escape collapse the focused/open rec drawer and close any open inline control, app-wide, via the shared keyboard layer.
 
 **349. ▫︎ Hiding the queue at 7 then offering 'See full list' reintroduces the overwhelm I came to avoid**
+- **STATUS (pass #4): ⏸ attended** — legacy recs cap-at-3 framing — dual-surface/product.
 - *Surface:* /recommendations?v2=1 'See full list'
 - *Why it's bad:* The v2 stack caps at 7 cards (good) but then shows 'Showing the top 7 of N recommendations — See full list →' which expands to ALL actionable rows inline (recommendations-v2-client.tsx:254-283). The moment I'm curious and click it, I'm back to a giant scroll. There's no notion of 'just do these 3 first.' The cap should be a confident 'start here,' not a teaser to the full pile.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/recommendations/recommendations-v2-client.tsx:254-283 + MAX_SUGGESTED_CARDS=7 (line 94)
 - *Fix:* Default the cap to 3, frame it as 'Your 3 highest-impact moves,' and put 'See more' lower-key so the primary message stays 'do these three.'
 
 **350. ▫︎ Filters can hide every recommendation behind 'No actions match your filters'**
+- **STATUS (pass #4): ⏸ attended** — legacy recs filters — dual-surface (v2 has none).
 - *Surface:* /recommendations (legacy) empty filter result
 - *Why it's bad:* Because the default recs page has type+status filters, I can accidentally filter myself into 'No actions match your filters. Clear the search or filter chips' (recommendations-client.tsx:1746-1749). I won't realize I filtered — I'll think Beacon has nothing for me and leave. Self-inflicted empty states from controls I didn't want is pure friction.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/recommendations/recommendations-client.tsx:1746-1749
 - *Fix:* Remove filters from the customer recs surface (the v2 stack already has none). If kept, persist nothing and make active-filter state loudly visible.
 
 **351. ▫︎ Chips like 'Page-level pattern' and 'AI-drafted edit' are insider labels, not reasons**
+- **STATUS (pass #4): ⏸ attended** — legacy recs process-chips — dual-surface (v2 card differs).
 - *Surface:* Recommendation card 'evidence chips'
 - *Why it's bad:* The card surfaces chips such as 'Page-level pattern' (depth>=4) and 'AI-drafted edit' (recommendation-v2-card.tsx:124-139). Neither tells me WHY I should do this or what outcome to expect — they describe Beacon's internal evidence machinery. I need 'because 320 people searched this and you don't rank,' not a taxonomy of how the suggestion was generated. Chips that aren't reasons add cognitive load without helping me choose.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/components/recommendations/v2/recommendation-v2-card.tsx:89-142 (deriveEvidenceChips)
 - *Fix:* Replace process chips with outcome/why chips: searches/month, current rank, expected lift. Drop 'AI-drafted'/'Page-level pattern' from the customer card.
 
 **352. ▫︎ Three visibility metrics widgets greet me before any action**
+- **STATUS (pass #4): ⏸ attended** — Today metrics-first ordering — layout/product decision.
 - *Surface:* / Today scoreboard + chart + leaderboard (v2 visibility group)
 - *Why it's bad:* Even v2 leads with a visibility group of Hero + Chart + Leaderboard (today-v2-sections.tsx:58-67) — a score, a trend chart, and a ranked competitor table — all before the action cards. I open the app to know what to DO, and the first thing I get is three numbers/visuals to interpret. Metrics-first ordering makes me start analyzing instead of acting, which is where I get stuck.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/today-v2-sections.tsx:58-67 (Hero + Chart + Leaderboard) rendered before action cards in page.tsx:188-191
@@ -2379,53 +2464,62 @@
 - *Fix:* Put only the visibility headline + the 3 action cards above the fold; move lifecycle/outcomes/off-site/descriptors behind a single 'More detail' expander.
 
 **394. ▫︎ My headline competitive numbers are buried under stacked 'directional / limited sample / not a census' disclaimers**
+- **STATUS (pass #4): ⏸ attended** — competitors KPI caveat collapse — `/competitors` hidden from customer nav.
 - *Surface:* /competitors KPI strip ('Ahead of You', 'Citation Share')
 - *Why it's bad:* Right under the four KPI cards (Citation Share, Citations, Competitors Tracked, Ahead of You) there are up to four stacked caveat lines (page.tsx lines 253-286): 'Directional — based on your tracked prompt sample, not a market census', '(limited sample)', a sample-quality-tier line, and a coverage-warning line — plus a separate 'How this works' details block, plus the methodology details below. I came to learn 'am I winning or losing and by how much', and the answer is wrapped in so many hedges I can't tell if the '3 ahead of you' number is real or noise. Either the numbers are trustworthy or they aren't.
 - *Grounding:* src/app/(shell)/competitors/page.tsx
 - *Fix:* Collapse the four caveats into one short line + a single 'How this works' link. If samples are too thin to trust, gate the KPI behind a clear 'not enough data yet' state instead of showing a number you immediately disown four times.
 
 **395. ▫︎ The tile is engineered to never say "0 calls" — so the absence of call tracking is invisible, not flagged**
+- **STATUS (pass #4): ⏸ attended** — call-tracking prompt tile — CallRail product lock.
 - *Surface:* Today Edit-outcomes tile (no-CallRail world)
 - *Why it's bad:* The tile suppresses the calls clause whenever sum_post_live_qualified_calls===0 ('NEVER 0 calls per operator lock'). Combined with CallRail being unreachable, this means I never see calls AND never see that calls aren't being tracked. The gap is hidden by design, so I won't even know to ask why my phone-call ROI is missing.
 - *Grounding:* src/components/today/edit-outcomes-tile.tsx
 - *Fix:* When no call/lead connector is attached, show a prompt ('Connect call tracking to see calls per edit') instead of silently hiding the clause. Make the missing money signal visible and actionable.
 
 **396. ▫︎ Whether I get the fast or slow dashboard, and the polished or basic empty state, depends on invisible env flags I can't see or control**
+- **STATUS (pass #4): ⏸ attended** — V2/legacy surface split — dual-surface (v2 is default; legacy gated).
 - *Surface:* / (Today) — surface mode split (V2 vs legacy)
 - *Why it's bad:* page.tsx shouldUseV2 (lines 68-74) routes between a legacy 19-section layout and the V2 4-zone layout based on BEACON_TODAY_V2 env + ?v2/?legacy query params, defaulting to LEGACY. The two paths have DIFFERENT first-run experiences (V2 has the clean gate short-circuit; legacy has the older inline welcome card and the 'tomorrow morning' copy). As a brand-new user I have no idea which version I'm on, can't tell why my dashboard looks different from a screenshot or a teammate's, and the legacy default is the one with the worst (multi-second render + dishonest cadence copy) new-user experience. The product's own quality varies by a flag I never set.
 - *Fix:* Pick one path for new tenants and ship it as the default (the V2 gate path is clearly the better first-run). Remove the legacy first-run inline card so there's a single, consistent, honest new-user empty experience regardless of flag state.
 
 **397. ▫︎ Per-row delta direction explained only in a hover title attribute**
+- **STATUS (pass #4): ✅ already-fixed — leaderboard delta `aria-label` (title→visible/sr context).**
 - *Surface:* / (Today) — visibility leaderboard
 - *Why it's bad:* Each competitor's movement and the 'why no number' explanation live in a title="..." tooltip that only appears on mouse hover. I never see it. The fallback '—' for too-little-data has its honest explanation entirely trapped in that hover title, so for me a missing number is just unexplained.
 - *Grounding:* src/components/today/visibility-leaderboard.tsx (LeaderboardRow delta title 'vs. previous N days' line 274; null-delta explanation in title line 282)
 - *Fix:* Move the explanatory text out of title into visible or visually-hidden text (aria-label on the cell), so keyboard and screen-reader users get the same context sighted hover users get.
 
 **398. ▫︎ The metric pill switcher shows the active option by color only, with no toggle ARIA**
+- **STATUS (pass #4): ✅ already-fixed — MetricToggle + TimeRangeToggle use `role=tablist`/`role=tab`/`aria-selected` (cites #398).**
 - *Surface:* / (Today) — metric toggle
 - *Why it's bad:* The composite/other metric switcher is a row of buttons where the selected one is just inverted colors. No role="radiogroup"/aria-pressed/aria-checked. My screen reader reads three identical buttons and I can't tell which metric the chart is currently showing — so I don't even know what the (already-inaccessible) chart is plotting.
 - *Grounding:* src/components/today/visibility-score-chart.tsx (MetricToggle buttons lines 451-460, active = bg-foreground text-background only)
 - *Fix:* Use role="radiogroup" with role="radio" + aria-checked, or add aria-pressed to each toggle button.
 
 **399. ▫︎ The data/scan/local status dots and the expand toggle lack ARIA**
+- **STATUS (pass #4): ✅ already-fixed — health-strip `aria-expanded` + statusDot status-word aria-label (cites #399).**
 - *Surface:* / (Today) — health strip
 - *Why it's bad:* Each health item is a colored dot + label ('Data: fresh'). The label text mostly saves it, but the dot's good/warn/bad state adds urgency that's color-only and not announced. Worse, the 'Data:' chip is a button that expands the HowWeKnow panel with NO aria-expanded, so I can't tell it's expandable or whether I've opened it.
 - *Grounding:* src/components/today/health-strip.tsx (statusDot color-only line 20; expand button no aria-expanded line 96)
 - *Fix:* Add aria-expanded to the toggle button and a visually-hidden status word ('warning', 'ok') tied to each dot.
 
 **400. ▫︎ Two separate 'is my data fresh?' widgets stacked on Today**
+- **STATUS (pass #4): ⏸ attended** — legacy Today freshness widgets — dual-surface (legacy client).
 - *Surface:* / (Today legacy) DataFreshness / PollHealth
 - *Why it's bad:* Legacy Today renders DataFreshnessHeartbeat AND PollHealthBlock AND a PollHealthCalmBanner (today-client.tsx:630-657) — three overlapping freshness/health surfaces before I even reach an action. I don't want to audit pipeline health; I want to know what to do. Three status widgets about the plumbing is exactly the metric-overload that freezes me.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/today-client.tsx:630-657 (DataFreshnessHeartbeat + PollHealthCalmBanner + PollHealthBlock)
 - *Fix:* Collapse all freshness/health into ONE small line ('Data current as of X · Refresh'). Remove the rest from the customer view.
 
 **401. ▫︎ A primary CTA deliberately dumps me into the legacy table via ?legacy=1**
+- **STATUS (pass #4): ⏸ attended** — v2 working CTA →`?legacy=1` — needs v2 /changes pending filter (dual-surface).
 - *Surface:* / Working card 'View pending' link
 - *Why it's bad:* The Working card's 'View pending (N)' link points to /changes?legacy=1&tab=pending_implementation (today-v2-working.tsx:170) — the code comment says the v2 page 'ignores' the filter so they route to legacy. So even from the clean Today, one click drops me into the old dense view. The clean experience keeps leaking back into the thing I'm trying to avoid.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/components/today/v2/today-v2-working.tsx:162-176
 - *Fix:* Make the v2 Changes page support the pending filter so the CTA stays in v2; never route a customer to ?legacy=1.
 
 **402. ▫︎ A 'Recent wins' card sits on Today before I've shipped anything**
+- **STATUS (pass #4): ⏸ attended** — v2 Recent-wins empty card — honest 'No measured wins yet'; layout decision.
 - *Surface:* / Recent wins (Today v2)
 - *Why it's bad:* The 3-card Today devotes a full column to 'Recent wins,' which for a new/idle me is just an empty 'No measured wins yet' tile (today-v2-recent-wins.tsx:78-104). One third of my 'what to do' screen is taken up by an empty trophy case. For someone who wants focus, a permanently-empty card is dead weight that dilutes the one card that matters (Do today).
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/components/today/v2/today-v2-recent-wins.tsx:78-104
@@ -2555,54 +2649,63 @@
 - *Fix:* Replace with truthful copy + action: 'No readings in 7 days. Run an AI reading now →' wired to a customer-reachable trigger.
 
 **423. ▫︎ The lone CSV export is per-tab and per-site — exporting a full client picture means many separate downloads**
+- **STATUS (pass #4): ⏸ attended** — multi-tab/multi-site CSV export — feature.
 - *Surface:* Changes CSV export
 - *Why it's bad:* exportRowsAsCSV only exports the currently FILTERED rows of the current lifecycle TAB for the current tenant (scorecard-client.tsx line 371, `exportRowsAsCSV(filtered, tab)`, filename `beacon-changes-<tab>-<date>.csv`). To assemble one client's full change history I download multiple tab CSVs, then repeat for all 12 sites and stitch them in Excel. There's no 'export all' and no multi-site export.
 - *Grounding:* src/app/(shell)/changes/scorecard-client.tsx
 - *Fix:* Add 'Export all changes' (all tabs) and a multi-site export so I can produce one file per client in one click.
 
 **424. ▫︎ computed_at = new Date() means the score is silently recomputed live on every page load and stamped 'now' even though inputs are stale**
+- **STATUS (pass #4): ⏸ attended** — operator `/diagnostics` Beacon-score computed_at.
 - *Surface:* /diagnostics (Beacon Score)
 - *Why it's bad:* computeBeaconScore sets computed_at: new Date().toISOString() at call time, and /diagnostics is force-dynamic, recomputing on every visit. So the score always claims to be computed 'now' even when the underlying citation/observation data hasn't been refreshed in days (crons off). A freshness timestamp that tracks the render, not the data, is a false provenance signal — I'd think the score is current when it's built from week-old inputs.
 - *Grounding:* src/domains/product/beacon-score.ts
 - *Fix:* Stamp computed_at (and show on the visual) the timestamp of the most recent underlying observation/crawl that fed the dimensions, not the moment of computation.
 
 **425. ▫︎ Top proven wins show '+N cit/day · placebo p=0.20' as a win with no sample size or control count on the line**
+- **STATUS (pass #4): ⏸ attended** — operator `/diagnostics/proof-engine` win-row stats.
 - *Surface:* /diagnostics/proof-engine
 - *Why it's bad:* The proven-wins list renders 'bucket · url · +N cit/day · confidence · placebo p=0.20' but the lift magnitude is shown without the controls_used count or the pre/post day counts inline — those live only inside buildProofSentence elsewhere. A placebo p of 0.20 means a 1-in-5 chance the move is noise, yet it's listed under the green 'Top causally-proven wins' header. As a skeptic I need N_controls and p prominent, and I'd argue p=0.20 shouldn't sit under a 'proven' banner at all.
 - *Grounding:* src/app/(shell)/diagnostics/proof-engine/page.tsx
 - *Fix:* Show controls_used and pre/post sample counts on each win row, and gate the 'proven' framing to placebo-significant (e.g. p<0.10) results; list the rest under 'measured, not yet proven'.
 
 **426. ▫︎ Sample-quality tiers (<200 limited / 200-1000 moderate / >1000 strong) are admitted 'heuristic, not statistically derived' yet drive how every percentage is framed**
+- **STATUS (pass #4): ⏸ attended** — methodology sample-quality tiers — measurement/product.
 - *Surface:* /settings/methodology (sample quality tiers)
 - *Why it's bad:* The methodology states the tiers are heuristic with 'no margin-of-error model' and 'no statistical confidence intervals — tiers are labels, not proofs.' These honest words are good, but the tiers still gate whether I'm told a number is 'directional' or 'meaningful' across the product. So an arbitrary 200/1000 cutoff with zero statistical basis is the backbone of every confidence claim. As an ex-analyst, framing reliability on round-number thresholds with no CI is precisely the false rigor I'd flag.
 - *Grounding:* src/app/(shell)/settings/methodology/page.tsx
 - *Fix:* Either compute an actual margin of error / Wilson interval for the displayed rates and show it, or stop using the tiers to imply reliability and present raw counts + denominators only.
 
 **427. ▫︎ The main way to get my data out is 'Export CSV' (Blob download) — and on a phone a downloaded CSV is basically a dead file**
+- **STATUS (pass #4): ⏸ attended** — mobile CSV share — feature.
 - *Surface:* /changes Export CSV + CSV-only data exits — src/app/(shell)/changes/scorecard-client.tsx
 - *Why it's bad:* exportRowsAsCSV (lines 163-201) builds a Blob and triggers a download. On mobile Safari/Chrome a downloaded .csv has no good viewer — I can't open it usefully on my phone. The product's data-takeout affordance assumes I'm at a desktop with Excel. As a phone-only user, the export button is a tease.
 - *Grounding:* src/app/(shell)/changes/scorecard-client.tsx
 - *Fix:* Provide a mobile-readable share/summary (e.g. a shareable link or an on-screen readable list) instead of relying on a CSV file download as the data exit on mobile.
 
 **428. ▫︎ No date-range filter on /changes — I can't isolate 'just the last 2 weeks'**
+- **STATUS (pass #4): ⏸ attended** — date-range filter on /changes — feature.
 - *Surface:* /changes
 - *Why it's bad:* scorecard-client.tsx supports tab filters (live/pending/needs-review) and topic/platform chips but NO date range. As someone returning after a known 2-week gap, the most natural action — 'show me everything since June 1' — is impossible. I'm stuck eyeballing relative timestamps ('5 days ago', 'yesterday') and mentally drawing the line at my departure date.
 - *Grounding:* src/app/(shell)/changes/scorecard-client.tsx
 - *Fix:* Add a simple date-range / 'last 7d / 14d / 30d' filter to the Changes scorecard so a returning user can scope to their absence window in one click.
 
 **429. ▫︎ Discovered-competitor 'share %' is computed against a different denominator than the leaderboard 'share' — the two competitor numbers don't reconcile**
+- **STATUS (pass #4): ⏸ attended** — competitor share denominator reconcile — engine math (`/competitors`).
 - *Surface:* /competitors → 'Discovered competitors' share %
 - *Why it's bad:* The main leaderboard share is mentions/totalCit from by_topic (builder-benchmark.ts line 119). The discovery share is data.citations/totalCitations where totalCitations is summed from by_page_and_topic page_url hostnames (discover.ts lines 103, 203). These are different denominators over different groupings, yet both are labeled just 'Share' / '%' on the same page. So I see CompetitorX at, say, 12% in the leaderboard and a different % in Discovered, and can't tell which is real. For someone obsessing over exact share-of-voice, inconsistent percentages for the same rival destroys trust in all of it.
 - *Grounding:* src/app/(shell)/competitors/page.tsx
 - *Fix:* Compute both shares from a single canonical total, or label them distinctly ('share of tracked-topic citations' vs 'share of all discovered-domain citations'). Same rival, same number, or clearly different metrics.
 
 **430. ▫︎ 'Latest observation' date is faked from lookbackFrom because timestamps aren't carried — the freshness date can be wrong**
+- **STATUS (pass #4): ⏸ attended** — prompt 'latest observation' real timestamp — engine data plumbing.
 - *Surface:* /prompts/[id] (most-recent-observation logic)
 - *Why it's bad:* prompts/page.tsx lines 248-258: mostRecentObservation admits in-code 'byPlatform carries observation counts but not a timestamp; fall back to lookbackFrom when we don't carry per-obs timestamps' and returns matrix.date. So the 'Latest observation: DATE' I read in the At-a-glance strip isn't actually the latest reading — it's a stand-in. For an AEO user obsessing over how current my AI standing is, a fabricated freshness date is misleading.
 - *Grounding:* src/app/(shell)/prompts/page.tsx
 - *Fix:* Carry the real max(observed_at) through the matrix and display the true latest-reading timestamp, or hide the field rather than show a placeholder date.
 
 **431. ▫︎ Prompts within a category sort by 'signalStrength' — a number the docs admit is NOT opportunity value**
+- **STATUS (pass #4): ⏸ attended** — prompt sort by opportunity-value — engine sort decision.
 - *Surface:* /prompts (sorting)
 - *Why it's bad:* prompts/page.tsx line 321 sorts rows by b.signalStrength. But opportunity-classify.ts lines 71-74 explicitly warn signalStrength is 'how strong is the evidence that this category applies, NOT how valuable is this opportunity.' So the prompt at the top of my 'Outranked' list isn't the most valuable one to fix — it's just the one with the most confident classification. As someone deciding where to spend effort, I'm being ordered by the wrong axis.
 - *Grounding:* src/app/(shell)/prompts/page.tsx
@@ -2660,12 +2763,14 @@
 - *Fix:* Add r→/recommendations and p→/prompts to the routes map in the keydown handler so the displayed shortcuts actually work, or stop rendering shortcut kbds for routes the handler doesn't support.
 
 **440. ▫︎ Page is titled 'Market' but the whole product, command palette, and breadcrumb call it different things — I can't find it by name**
+- **STATUS (pass #4): ⏸ attended** — 'Market' naming — `/competitors` hidden from customer nav; operator-direct only.
 - *Surface:* /competitors page title + description
 - *Why it's bad:* The page H1 is 'Market' (page.tsx line 60/228), the breadcrumb parent is 'Market' (app-header.tsx line 22), the command-palette group is 'Market', the help shortcut is 'Market' — but the route is /competitors, onboarding says 'Competitors to watch', and the nav (if it existed) would need a label too. With no nav entry, I'm hunting for 'competitors' in a product that internally calls the surface 'Market'. The naming mismatch compounds the discoverability problem: even if I search, the word I'm looking for ('competitors') isn't the label.
 - *Grounding:* src/app/(shell)/competitors/page.tsx
 - *Fix:* Pick one name (Market or Competitors) and use it everywhere — nav, breadcrumb, route, palette, onboarding — so I can actually find and refer to the competitive surface.
 
 **441. ▫︎ Outcome verdicts (validated/partial/negative) are derived from citation_delta, so a "validated" edit can have produced zero business result**
+- **STATUS (pass #4): ⏸ attended** — verdict basis = citation_delta — measurement/engine.
 - *Surface:* Outcome event chain (briefs / verdicts)
 - *Why it's bad:* OutcomeSummary's only quantitative fields are positive_rate and avg_citation_delta. So when I see '3 hit / 1 missed' on a brief, 'hit' means citations moved, not that I got customers. The whole win/loss ledger I'd use to judge whether the service is worth keeping is denominated in citations.
 - *Grounding:* src/domains/product/outcome-types.ts
@@ -2764,48 +2869,56 @@
 - *Fix:* Sync the HelpGroup rows to the real routes map (t/c/s only), or wire the missing shortcuts. Add a test asserting help rows == handler routes.
 
 **457. ▫︎ Topic chips strip a '(Bay Area)' suffix — proving my topics are still tagged with someone else's geography**
+- **STATUS (pass #4): ⏸ attended** — Bay-Area topic strip — de-vertical data-model band-aid; `/competitors` hidden.
 - *Surface:* /competitors → 'Competitive comparison' battlecards (pressure topics)
 - *Why it's bad:* battlecard-section.tsx line 99 does t.replace(/^Shield: /,'').replace(/ \(Bay Area\)$/,''). The only reason to strip ' (Bay Area)' is that topics ARE labeled with Bay Area. Same strip appears in snippet-intel.ts line 103. So the topic model underneath my battlecards is still carrying Bay Area / 'Shield:' vertical tags, and the UI is papering over it with regexes. If a label slips through unstripped, I'll see 'Custom Homes (Bay Area)' as one of my contested topics — for my non-construction Wix business.
 - *Grounding:* src/app/(shell)/competitors/battlecard-section.tsx
 - *Fix:* Fix the topic source so topics aren't tagged with hardcoded geography/vertical prefixes per-tenant, rather than masking with .replace() at every render site. Remove the band-aid strips once the data is clean.
 
 **458. ▫︎ The other Next Moves anchor to /competitors#opportunities — a same-page jump dressed up as a 'move'**
+- **STATUS (pass #4): ⏸ attended** — competitors next-moves anchor — `/competitors` hidden from customer nav.
 - *Surface:* /competitors → 'Next moves' (the other two)
 - *Why it's bad:* Two of the three Next Moves (builder-benchmark.ts lines 159-164) are 'Add stronger content for X' and 'Create or improve your Y page', both href '/competitors#opportunities'. That's just a scroll down to the 'Growth opportunities' section on the SAME page I'm already on. As a competitor hunter I read 'Next moves' as 'here's the concrete thing to do', click it, and get bounced 600px down the page to a list of topic bars with no draft attached. It's motion, not a move.
 - *Grounding:* src/domains/pages/builder-benchmark.ts
 - *Fix:* Point these at the actual drafted recommendation for that topic (/recommendations filtered by topic) rather than an in-page anchor, so 'Next move' produces an actionable, shippable edit.
 
 **459. ▫︎ Winning moves are temporal-only ('they added X; AI cited it later') — never tells me WHY it worked, which is what I need to copy**
+- **STATUS (pass #4): ⏸ attended** — winning-moves 'why' copy — `/competitors` + engine (detect-moves).
 - *Surface:* /competitors → 'Their winning moves' (even when populated)
 - *Why it's bad:* By design (detect-moves.ts header + renderLine lines 165-194) the copy is strictly two dated facts: 'CompetitorX updated a kitchen page on June 2. AI started citing it 6 days later — 4 citations.' For a competitor-obsessed operator that's the setup, not the payoff. It doesn't tell me what about the change made AI pick it up (the FAQ they added, the schema, the comparison table) — i.e. the actual move to steal. 'Why them, not you' is supposed to fill that gap but it's the dead operator-crawl-gated section. So even in the best case I get correlation theater, not a copyable play.
 - *Grounding:* src/domains/competitor-intel/detect-moves.ts
 - *Fix:* When a structural change drove the move (faq_added/section_added/schema), surface THAT in the move line ('they added a 6-question FAQ; AI began citing it') and join it to the matching drafted edit. The structural data already exists in CompetitorStructuralChange.detail — use it in the headline.
 
 **460. ▫︎ 'Who replaces you' is hidden unless ≥50 appearances AND ≥100 total answers — so on a fresh/thin account my biggest threat is invisible**
+- **STATUS (pass #4): ⏸ attended** — 'who replaces you' threshold — `/competitors` engine gate.
 - *Surface:* /competitors → answer-intelligence 'Who replaces you' gate
 - *Why it's bad:* The gate (page.tsx lines 519-528) requires each competitor to have ≥50 total_answer_appearances and displacement_ratio ≥0.3, plus ≥100 total answers, or the whole section returns null. Early on — exactly when I'm anxious about who's beating me — I have far fewer observations, so this section just doesn't render, with no message. I can't tell if 'nobody replaces me' (good) or 'not enough data' (the truth). Silence reads as 'no threat', which is dangerously reassuring.
 - *Grounding:* src/app/(shell)/competitors/page.tsx
 - *Fix:* When below threshold but with some data, render a low-confidence version with a 'based on limited answers' label instead of returning null. Distinguish 'no competitor displacing you' from 'not enough data yet'.
 
 **461. ▫︎ AI-era competitors, source reliance, battlecards, local pressure are ALL collapsed by default — I have to expand each to find the competitive intel**
+- **STATUS (pass #4): ⏸ attended** — competitors collapsed sections — `/competitors` hidden from customer nav.
 - *Surface:* /competitors → most sections collapsed behind <details>
 - *Why it's bad:* CoMentionSection, SourceTrustSection, BattlecardSection, LocalPressureSection (and the universe manager) all wrap their content in collapsed <details> (e.g. co-mention-section.tsx line 40, battlecard-section.tsx line 13, source-trust-section.tsx line 24). So the page that's supposed to be my war room shows a stack of closed accordions with one-line teasers. I have to click open every single one to actually see who's beating me where. The richest competitive analysis is hidden behind a row of triangles.
 - *Grounding:* src/app/(shell)/competitors/page.tsx
 - *Fix:* Default-expand the high-value competitive sections (co-mention discoveries, battlecards) or auto-expand any that contain a 'high threat' / 'discovered' signal. Don't make me click five times to see the intel I came for.
 
 **462. ▫︎ Competitor profile jargons me with 'Citation %', 'SoV %', 'Contested Opportunities', 'Topics Present' and zero plain-English 'how to beat them'**
+- **STATUS (pass #4): ⏸ attended** — competitor profile jargon — `/competitors/[id]` hidden from customer nav.
 - *Surface:* /competitors/[id] (competitor profile)
 - *Why it's bad:* Even if the profile had data, its columns are SoV %, Citation %, Mentions, visibility_rank, plus stat tiles 'Best Rank / Contested Opportunities / Topics Present' ([id]/page.tsx lines 104-187). There is not one line telling me HOW to beat this specific competitor — no 'their winning page', no 'topics to attack', no copyable move. It's a stats sheet about a rival, not a plan to take them down. For me a competitor page that ends without a 'steal this' action is just trivia.
 - *Grounding:* src/app/(shell)/competitors/[id]/page.tsx
 - *Fix:* Add a 'How to beat them' block to the profile: their top-cited page + my equivalent (reuse the why-them forensics), the topics where they lead me, and a CTA to the drafted counter-move. Lead with the action, not the SoV table.
 
 **463. ▫︎ SEMrush competitor/rank data lives only on an operator-only page and just says 'cross-check these yourself'**
+- **STATUS (pass #4): ⏸ attended** — operator-only `/diagnostics/semrush`.
 - *Surface:* SEMrush snapshot vs GSC reconciliation
 - *Why it's bad:* /diagnostics/semrush renders organic competitors and 'X shared kw' but ends with 'Cross-check these against your tracked competitor set' — i.e. it dumps the SEMrush data and makes me reconcile it by hand. And it's operator-gated so a normal user never sees it at all. As an SEO I want SEMrush rivals and my GSC competitors merged into one ranked view, not two siloed lists with a 'good luck' note on a page I can't reach.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/diagnostics/semrush/page.tsx
 - *Fix:* Surface SEMrush domain/competitor metrics on a customer-facing page and auto-merge them with the tracked competitor set, instead of a manual cross-check on an operator-only diagnostic.
 
 **464. ▫︎ The header breadcrumb hardcodes 'Market'→/competitors for opportunity pages, but G M / Market is removed from nav and palette — dead cross-links everywhere**
+- **STATUS (pass #4): ⏸ attended** — 'Market' breadcrumb cross-links — operator-direct opportunity pages only.
 - *Surface:* Breadcrumb / nav mental model
 - *Why it's bad:* app-header.tsx useBreadcrumb returns parent {label:'Market', href:'/competitors'} for opportunity detail (lines 18-24), and topics-client links to /competitors, yet navigation.ts hid /competitors and the help modal's 'G M Market' shortcut is dead. So I keyboard-navigate via a breadcrumb to 'Market', land on a half-broken hidden surface, and my muscle-memory 'G M' to get back does nothing. The nav graph is internally inconsistent for a power user who relies on it being coherent.
 - *Grounding:* src/components/shell/app-header.tsx
@@ -2929,78 +3042,91 @@
 - *Fix:* Lead with a single 'Top 3 prompts to fix' list; collapse the 5-bucket breakdown into an expandable 'see all' below.
 
 **484. ▫︎ The Prompts page is titled 'AI answers (optional)' and buried in jargon like 'Outranked', 'Absent', 'AI-answer intelligence'**
+- **STATUS (pass #4): ✅ already-fixed (title) — live v2 `/prompts` titled 'AI Answers' with plain status words; legacy '(optional)' header only on non-v2 fallback.**
 - *Surface:* /prompts
 - *Why it's bad:* Header (line 145-147): 'Optional AI-answer intelligence — how AI assistants answer your buyers' questions.' Category labels (lines 273-307): Outranked / Absent / Close / Winning, plus a 'Not on the list' pill. As a bakery owner I have no mental model for 'AI-answer intelligence' or being 'Outranked' in an AI answer. Calling a whole tab '(optional)' also tells me it's not worth my time, so I'll ignore data I'm paying for.
 - *Grounding:* src/app/(shell)/prompts/page.tsx
 - *Fix:* Rename to something concrete ('Questions customers ask AI') and use plain status words: 'They recommend a competitor instead of you' rather than 'Outranked'. Drop the '(optional)' tag or explain the value.
 
 **485. ▫︎ Add-prompt form demands a 'Topic id' field with cryptic '[city] [service]' placeholder — jargon I can't fill on a phone**
+- **STATUS (pass #4): ✅ already-fixed — add-prompt field is plain 'Topic' + helper, no '[city] [service]' slug.**
 - *Surface:* /prompts add-prompt placeholder copy — settings-prompts-client.tsx
 - *Why it's bad:* The add-prompt form (lines 128-136) has a REQUIRED 'Topic id' input with placeholder '[city] [service]' and a 'Location (optional)' field. As a shop owner I have no idea what a 'topic id' is or what bracket syntax it wants. Required jargon fields block me from adding the one prompt I actually care about, and on a phone the tiny labels + bracket placeholders give me nothing to work with.
 - *Grounding:* src/app/(shell)/settings/prompts/settings-prompts-client.tsx
 - *Fix:* Drop or auto-derive 'topic id' for customers, or relabel it in plain English with a real example; never require an internal id field from a non-technical mobile user.
 
 **486. ▫︎ My personal daily cap silently falls back to a hardcoded $10 if my tenant row lacks the field — and I'm never told which applies**
+- **STATUS (pass #4): ⏸ attended** — daily-budget UI surfacing — product/operator decision.
 - *Surface:* Per-tenant daily budget ($10) source of truth
 - *Why it's bad:* resolveTenantDailyBudgetUsd reads tenant.daily_budget_usd and falls back to GLOBAL_DEFAULT_DAILY_BUDGET_USD = 10 on any miss or error. So my effective daily ceiling depends on whether an invisible DB column is set — and there's no UI showing me whether I'm on a custom cap or the $10 default. I can't tell what my own limit is. For budgeting, 'your cap is some number we won't show you, possibly a fallback' is unacceptable.
 - *Grounding:* src/domains/observations/run-poll.ts lines 54-63 (GLOBAL_DEFAULT_DAILY_BUDGET_USD = 10 fallback on miss/error)
 - *Fix:* Surface the resolved daily cap in the spend UI with its source ('Your daily limit: $10 (default)') and let me change it.
 
 **487. ▫︎ Per-platform standing dumps a comma-soup of internal counts when I'm not clearly winning or absent**
+- **STATUS (pass #4): ⏸ attended** — prompt-detail middle-state verdict copy — builder-tuned drilldown, copy/logic reframe.
 - *Surface:* /prompts/[id] (PlatformSplit fallback)
 - *Why it's bad:* page.tsx lines 651-654: the fallback line reads 'Primary 2 of 7 · cited 1 · absent 4' / 'Cited in 1 of 7 (avg #3)' / 'Mentioned in 2 of 7, never cited'. For the most common middle states this is a string of raw tallies, not a decision. I want 'ChatGPT mentions you but ranks competitor X above you' — instead I parse arithmetic. The clean copy only exists for the binary winning/absent extremes.
 - *Grounding:* src/app/(shell)/prompts/[id]/page.tsx
 - *Fix:* Write plain-English per-platform verdicts for the middle states (cited-not-primary, mentioned-not-cited) instead of concatenating primary/cited/absent counts.
 
 **488. ▫︎ The list and the detail page use different category names for the same state**
+- **STATUS (pass #4): ✅ already-fixed — live v2 list uses plain-English category vocab ('Winning/Almost there/Missing/Outranked/Still learning').**
 - *Surface:* /prompts (category labels) vs /prompts/[id]
 - *Why it's bad:* The v2 list (v2-projection.ts lines 74-110) labels states 'Winning / Almost there / Missing / Outranked / Still learning'. The legacy detail page (prompts/[id]/page.tsx CATEGORY_META lines 363-402) labels them 'Outranked / Absent / Close / Winning / Early'. So a prompt shown as 'Missing' in the list becomes 'Absent' on its own detail page, and 'Almost there' becomes 'Close', and 'Still learning' becomes 'Early'. Clicking a row changes the vocabulary on me mid-flow.
 - *Grounding:* src/domains/prompts/v2-projection.ts + src/app/(shell)/prompts/[id]/page.tsx
 - *Fix:* Unify the category vocabulary across the list and detail surfaces (one projection table feeding both).
 
 **489. ▫︎ It tells me the dominant answer shape only when ONE structure hits 60%+, so mixed-format prompts get no guidance**
+- **STATUS (pass #4): ⏸ attended** — prompt-detail answer-shape <60% case — drilldown logic reframe.
 - *Surface:* /prompts/[id] ('Answer shape' advice)
 - *Why it's bad:* page.tsx lines 293-296 + drilldown logic (prompt-drilldown.ts lines 199-208): AnswerShapeCallout only renders when a single structure has >=60% share. For the very common case where ChatGPT answers a question as a ranked list 40% of the time and a paragraph 40%, I get NOTHING — no hint about how to format my content to be extractable. The most strategically useful AEO advice (match the answer shape) is suppressed exactly when the field is contested.
 - *Grounding:* src/app/(shell)/prompts/[id]/page.tsx
 - *Fix:* Show the top 2 answer shapes with their shares when no single one dominates, so I always get formatting guidance.
 
 **490. ▫︎ Drilldown header says it's built for 'Ritz' and assumes a builder mental model in its own doc comment**
+- **STATUS (pass #4): ⏸ attended** — prompt-detail builder/local framing — internal vars + de-verticalization.
 - *Surface:* /prompts/[id] (back link)
 - *Why it's bad:* prompts/[id]/page.tsx lines 60-64 describe the layout as 'Platform split: 2 cards, Ritz's state per platform' and '4. Words AI used near you … (when Ritz mentioned).' The page's design contract is written around Ritz Builders. While in code comments, it reflects that the AEO drilldown's logic and copy ('worth appearing in one', 'enter the field') were tuned for a local-services builder, not an AEO-first brand competing for informational queries in ChatGPT — the framing assumes geo/local intent I may not have.
 - *Grounding:* src/app/(shell)/prompts/[id]/page.tsx
 - *Fix:* Audit the drilldown copy and logic for builder/local-services assumptions (geo clusters, 'enter the field') and make them conditional on tenant intent type.
 
 **491. ▫︎ Prompt rows show cryptic 'geo · …' / 'topic · …' cluster pills and a 'Not on the list' tag with no explanation**
+- **STATUS (pass #4): ✅ FIXED THIS PASS — `prompts-v2-card.tsx` cluster chip shows 'Area'/'Topic' (not 'geo'/'topic') + title explainer; `data-…-cluster={chip.kind}` kept for tests.**
 - *Surface:* /prompts (cluster pills)
 - *Why it's bad:* prompts/page.tsx PromptRow (lines 396-419) renders cluster tag pills ('geo · Cupertino, CA', 'topic · …') and a 'Not on the list' pill for ranked_list_miss. There's no tooltip or legend. As an AEO user scanning my prompts I see decorative-looking tags whose meaning ('this question is answered as a ranked list and you're not on it') is exactly the insight I need — but it's compressed into a 10px pill labeled 'Not on the list' with zero context.
 - *Grounding:* src/app/(shell)/prompts/page.tsx
 - *Fix:* Add hover/explainer text to the cluster and ranked_list_miss pills, or expand 'Not on the list' to 'AI answers this as a ranked list — you're not on it.'
 
 **492. ▫︎ The 'Too early' empty state says '7 days' but the page only loaded 14 days and the classifier filters to the native regime start**
+- **STATUS (pass #4): ⏸ attended** — prompt empty-state 7d/14d window — non-v2 fallback copy/engine windows.
 - *Surface:* /prompts (early-state copy mismatch)
 - *Why it's bad:* prompts/page.tsx line 158 hardcodes 'no AI readings in the last 7 days' in the empty state, while the data fetch uses 14 days (line 88) and the classifier clamps the window to NATIVE_REGIME_START (opportunity-classify.ts lines 142-145). So the number I'm told (7 days) doesn't match what was actually queried (14) or evaluated (native-regime-clamped). For someone trying to understand why I have no AI data, three inconsistent windows is confusing and erodes trust in the numbers.
 - *Grounding:* src/app/(shell)/prompts/page.tsx
 - *Fix:* Make the empty-state window text reflect the actual lookback used, and keep the fetch/classifier/copy windows consistent.
 
 **493. ▫︎ When no one dominates, the verdict is a math riddle: 'No single primary — 3 different entities split the top slot'**
+- **STATUS (pass #4): ⏸ attended** — prompt-detail 'no single primary' reframe — drilldown copy/logic.
 - *Surface:* /prompts/[id] ('Who IS the answer' wording)
 - *Why it's bad:* prompts/[id]/page.tsx lines 687-691: the fragmented case renders 'No single primary — N different entities split the top slot across M answers.' That's the most strategically important AEO situation for me — the answer is up for grabs and I could WIN it — but it's phrased as a neutral statistics observation, not an opportunity. It doesn't tell me 'this is winnable; here's how.' The framing buries my best opening.
 - *Grounding:* src/app/(shell)/prompts/[id]/page.tsx
 - *Fix:* Reframe the fragmented/no-clear-winner state as an opportunity with a next step ('No one owns this answer yet — strong chance to become the default if you publish a clean answer block').
 
 **494. ▫︎ It tells me thresholds are 'fixed in v1' so I can't tune what counts as Winning/Close/Outranked for my brand**
+- **STATUS (pass #4): ⏸ attended** — prompt thresholds 'fixed in v1' — engine threshold exposure.
 - *Surface:* /prompts (At-a-glance threshold caveat)
 - *Why it's bad:* prompts/page.tsx line 236: 'Thresholds fixed in v1.' The classifier hardcodes winningPrimaryRate 0.5, minObservations 3, outrankedMinCompetitors 2 (opportunity-classify.ts lines 95-101). For my AEO use case 'primary in 50% of answers = Winning' may be far too lax (I might want 'primary in 80%+' before calling it won), but the product tells me I can't change it. The categorization that drives my whole daily decision is a black box I can't calibrate.
 - *Grounding:* src/app/(shell)/prompts/page.tsx
 - *Fix:* Expose the key classification thresholds as tenant settings (or at least document the exact thresholds in plain English so I know what 'Winning' means).
 
 **495. ▫︎ Adding a prompt requires a mouse-opened form with a 'topic id' free-text field and no keyboard shortcut to add**
+- **STATUS (pass #4): ✅ already-fixed — same add-prompt 'Topic' relabel as #485 (inline quick-add 'press n' remains a feature ask → see attended note).**
 - *Surface:* Prompts list — add form
 - *Why it's bad:* settings-prompts-client.tsx 'Add prompt' is a mouse-click to reveal a form (lines 96-103) requiring a 'Topic id' text field with a cryptic placeholder '[city] [service]' (lines 124-135). For a power user curating prompts in bulk, there's no 'press n to add', no inline quick-add, and the required topic-id field is jargon I have to guess at. Slow and friction-heavy for what should be rapid list editing.
 - *Grounding:* src/app/(shell)/settings/prompts/settings-prompts-client.tsx
 - *Fix:* Add an inline quick-add (press n, type prompt, Enter) that auto-derives topic, and make topic-id optional/auto.
 
 **496. ▫︎ Prompts is labeled 'AI answers (optional)' — so why is it in my main nav?**
+- **STATUS (pass #4): ✅ already-fixed (title) — live `/prompts` titled 'AI Answers', no '(optional)'; keeping it in nav is a product IA decision (attended).**
 - *Surface:* /prompts (title/copy)
 - *Why it's bad:* The page header literally says 'AI answers (optional)' and 'Your core search-demand moves live on Today and Recommendations' (prompts/page.tsx:146), yet Prompts is one of only 5 top-level nav items. Putting an explicitly-optional surface in my primary navigation adds a tab I have to evaluate-and-dismiss every visit. More cards/tabs to triage = more freeze.
 - *Grounding:* /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70/src/app/(shell)/prompts/page.tsx:145-147 (title 'AI answers (optional)') + src/lib/navigation.ts:33
@@ -3027,6 +3153,7 @@
 - *Fix:* Either remove these routes entirely (return notFound) until they're real, or replace the CX-codename placeholders with honest, customer-facing copy ('This view isn't available yet') with a link to a working surface — never an internal sprint label.
 
 **500. ▫︎ j/k 'Enter to open' navigates via window.location.href — a full hard page reload instead of client routing**
+- **STATUS (pass #4): ✅ already-fixed — `window.location.href` Enter-nav removed from pages/topics; both also hidden from customer nav.**
 - *Surface:* Topics / Pages keyboard nav
 - *Why it's bad:* pages-client.tsx line 229 and topics-client.tsx line 434/links use window.location.href for Enter-to-open, which triggers a full document reload (white flash, re-fetch, lost scroll) instead of Next.js client navigation. For a keyboard user flying through rows with Enter, every open is a jarring full reload. The rest of the app uses <Link>/router.push.
 - *Grounding:* src/app/(shell)/pages/pages-client.tsx
@@ -3048,17 +3175,20 @@
 - *Fix:* Add role="alert" to the error paragraph and role="status" (or move focus to) the success box.
 
 **503. ▫︎ If nothing shipped while I was gone, /changes can't distinguish 'quiet 2 weeks' from 'broken'**
+- **STATUS (pass #4): ⏸ attended** — legacy /changes returning-user empty state — dual-surface.
 - *Surface:* /changes empty state
 - *Why it's bad:* changes/page.tsx lines 151-182 shows one flat 'No changes yet' empty state whenever there are no live entries + no recommended edits. As a returning user that's ambiguous and alarming: did genuinely nothing happen in 14 days (plausible, since autopilot is off and I shipped nothing), or did something break and lose my history? The empty copy ('Accept a recommendation to get your first change tracked') reads like a brand-new tenant, not like a returning user whose 2 weeks were simply quiet. I can't tell if the silence is real or a bug.
 - *Grounding:* src/app/(shell)/changes/page.tsx
 - *Fix:* Differentiate the returning-user empty state ('No changes since your last visit on {date} — your queue and data are intact') from the brand-new 'No changes yet,' using the server-side last-seen marker.
 
 **504. ▫︎ Proposed Briefs empty state demands 'your standard .xlsx export' — assumes I'm a returning power user, not brand-new**
+- **STATUS (pass #4): ⏸ attended** — `/briefs/proposed` empty state — already plain-English per pass #3 (verified); .xlsx template link is a feature.
 - *Surface:* /briefs/proposed — empty state
 - *Why it's bad:* briefs/proposed/page.tsx line 33: 'Import visibility data (e.g. your standard .xlsx export) to generate execution briefs from pattern intelligence.' 'Your standard .xlsx export' presumes I already have an established export workflow from some prior tool. I'm brand-new — I have no 'standard export', I don't know what columns it needs, and 'execution briefs from pattern intelligence' is pure jargon. This empty state speaks to a migrating Profound power-user, not a first-run user, leaving me with no idea what file to produce or why.
 - *Fix:* Rewrite for the zero-state user: explain what a brief is in one plain sentence, and offer the connect-a-tool path first. If .xlsx import is supported, link to a template/spec so 'standard export' isn't an undefined assumption.
 
 **505. ▫︎ Palette silently caps changelog results to last 50 and 25 per group while searching — my search can miss real items with no indication**
+- **STATUS (pass #4): ✅ already-fixed — palette shows 'Showing the first N per group' truncation note (cites #505).**
 - *Surface:* ⌘K palette result cap
 - *Why it's bad:* layout.tsx slices changelogEntries to the last 50 (CHANGELOG_PALETTE_CAP, lines 44/177-180) BEFORE the client even filters, and command-palette.tsx caps maxPerGroup at 25 when searching (line 115). So if the change I'm hunting is the 51st-newest, ⌘K can't find it and just shows 'No results' — making me think it doesn't exist. Silent truncation is worse than a slow full search for someone who trusts the palette as source of truth.
 - *Grounding:* src/app/(shell)/layout.tsx
@@ -3125,18 +3255,21 @@
 - *Fix:* Add a touch-sized variant (h-11 / size-11 = 44px) and make it the default on coarse-pointer/mobile, or globally raise the default button height on touch devices.
 
 **515. ▫︎ Content uses p-6 (24px) padding on every side even on mobile, eating ~13% of a 360px screen**
+- **STATUS (pass #4): ✅ already-fixed — main wrapper `p-3 sm:p-6 lg:p-8` (mobile step-down present).**
 - *Surface:* main content container — src/app/(shell)/layout.tsx
 - *Why it's bad:* The main wrapper (line 205) is `mx-auto max-w-[1120px] p-6 lg:p-8`. On a 360px phone, 24px left + 24px right padding leaves only ~312px for content that's already cramped with fixed-width tables and tiny text. There's no `px-3` or `px-4` mobile step-down. Every dense surface loses precious horizontal room it can't spare.
 - *Grounding:* src/app/(shell)/layout.tsx
 - *Fix:* Step the padding down on mobile (e.g. `p-3 sm:p-6 lg:p-8`) so dense content gets the full narrow viewport width.
 
 **516. ▫︎ The header advertises ⌘K / ? keyboard shortcuts (md+) — useless cues for a phone-only user; primary search is keyboard-gated**
+- **STATUS (pass #4): ⏸ attended** — tappable mobile search button — needs palette open-state lifted into header (deeper wiring).
 - *Surface:* global header — keyboard hints + command palette — src/components/shell/app-header.tsx
 - *Why it's bad:* The header shows '⌘K search · ? shortcuts' (lines 67-77) and the whole product leans on a CommandPalette for navigation/search. On a phone I have no ⌘ key and no '?' shortcut. The fast-navigation path the app was built around simply doesn't exist for me, and the only mobile entry is the tiny 32px hamburger. There's no mobile search affordance at all.
 - *Grounding:* src/components/shell/app-header.tsx
 - *Fix:* Add a visible, tappable search/command button in the mobile header (not just a keyboard shortcut), and hide desktop-only kbd hints from touch users.
 
 **517. ▫︎ Tenant switch buttons are 12px text with py-0.5 (~18px tall) in the header — sub-thumb-size and crowd the mobile header**
+- **STATUS (pass #4): ✅ already-fixed** — switch buttons `min-h-11` (44px) mobile with `md:min-h-0` in `tenant-switcher.tsx`.
 - *Surface:* tenant switcher — src/components/shell/tenant-switcher.tsx
 - *Why it's bad:* If I have more than one business, the switcher (lines 56-73) renders `text-[12px]` buttons with `px-2 py-0.5` (~18px tall) in the already-cramped 48px header. Switching which business I'm looking at is a fundamental action, and these are some of the smallest tappable elements in the app, sitting next to the tiny hamburger and any kbd hints.
 - *Grounding:* src/components/shell/tenant-switcher.tsx
@@ -3164,18 +3297,21 @@
 - *Fix:* Add aria-current={isActive ? 'page' : undefined} to each nav Link.
 
 **521. ▫︎ No keyboard shortcut to switch tenants or open the tenant switcher — mouse-only on a control I hit constantly**
+- **STATUS (pass #4): ⏸ attended** — tenant-switch hotkey / ⌘K tenant items — feature.
 - *Surface:* Tenant switcher / app header
 - *Why it's bad:* app-header.tsx renders the TenantSwitcher in rightSlot with no associated hotkey, and it's not a ⌘K command. For an operator juggling multiple tenants (Ritz / Iranopedia / Finglish per the memory), switching is a frequent action and it's pure mouse. A power user expects something like ⌘K → tenant name, or a dedicated chord.
 - *Grounding:* src/components/shell/app-header.tsx
 - *Fix:* Add tenants as ⌘K palette items ('Switch to <tenant>') and/or a hotkey to open the switcher.
 
 **522. ▫︎ '?' help and 'g' nav fire from anywhere on the page, but there's no visible focus ring / state telling me a chord is armed**
+- **STATUS (pass #4): ✅ already-fixed — `gArmed` on-screen 'g…' chord indicator (cites #522).**
 - *Surface:* Help modal — '?' opens on real pages but not while typing context is ambiguous
 - *Why it's bad:* In command-palette.tsx, pressing 'g' starts a 500ms window for the second key (lines 62-90) with zero on-screen feedback — no 'g…' indicator. As a fast typist I never know if my 'g' registered or timed out, so 'g c' often misfires into nothing when I'm slightly slow. Good chord systems (Gmail, Linear) show the pending prefix. This one is invisible and silently drops.
 - *Grounding:* src/components/shell/command-palette.tsx
 - *Fix:* Show a small 'g…' pending-chord indicator (and the 500ms timeout) so I get feedback that the prefix is armed.
 
 **523. ▫︎ Active tenant is a plain styled span indistinguishable from the switch buttons to a screen reader**
+- **STATUS (pass #4): ✅ already-fixed — tenant switcher sr-only 'Current business:' + 'Switch to {name}' aria-label.**
 - *Surface:* Tenant switcher (header)
 - *Why it's bad:* When I belong to 2+ businesses, the header shows the active tenant as a styled <span> and the others as buttons. To my screen reader the active one is just text reading the business name, with nothing saying 'this is your current business'. If two of my businesses have similar names I can't tell which one I'm actually operating on — and switching the wrong tenant means acting on the wrong live site.
 - *Grounding:* src/components/shell/tenant-switcher.tsx (active <span> line 57-60; other tenants are <button> line 65)
@@ -3254,24 +3390,28 @@
 - *Fix:* Commit to one /changes layout for customers and remove the user-visible legacy/v2 divergence (keep any rollback flag operator-only and invisible).
 
 **534. ▫︎ I come back to a 'possible duplicates' chore instead of a clean recap**
+- **STATUS (pass #4): ⏸ attended** — legacy /changes dedupe banner — dual-surface janitorial.
 - *Surface:* /changes (dedupe banner)
 - *Why it's bad:* On return, before I can even see what happened, /changes greets me with a dedupe banner (changes/page.tsx lines 531-548) — 'N possible duplicates in your changelog... Review once to clean the list,' linking to /changes/dedupe ('Archive the summaries so your changelog is clean'). I left for 2 weeks to NOT do janitorial work. The first thing the changes timeline does is hand me data-hygiene homework about CSV-vs-PDF entry matching, which is internal plumbing I never asked to think about. It pollutes the 'what happened' view with maintenance noise.
 - *Grounding:* src/app/(shell)/changes/page.tsx
 - *Fix:* Auto-resolve high-confidence duplicates server-side (or hide the dedupe nag behind a Settings/data-hygiene area) so the Changes timeline stays focused on what actually happened.
 
 **535. ▫︎ Most of my 2 weeks of changes will read 'Too early' because verdicts depend on polling that didn't run**
+- **STATUS (pass #4): ⏸ attended** — legacy /changes 'too early' verdict copy — dual-surface.
 - *Surface:* /changes (verdict honesty for the away window)
 - *Why it's bad:* computeUrlVerdict + the readyOn logic (changes/page.tsx lines 332-348, computeReadyOn) classify recent changes as 'too_early' and predict a 'Ready on [date]' based on a 7-day-ish bake window that assumes ongoing daily readings. With polls off during my absence, the post-change series is empty, so even a change shipped 13 days ago can still show 'too_early' / 'Beacon is collecting post-change readings.' I return expecting verdicts on a fortnight of work and instead get a wall of 'check back later' for changes that are objectively old.
 - *Grounding:* src/app/(shell)/changes/page.tsx
 - *Fix:* When automated polling is off, the verdict copy should say 'verdict needs a fresh reading — Run one' rather than 'too early, Beacon is collecting readings,' which implies passive collection that isn't happening.
 
 **536. ▫︎ My change's "What happened after" pill grades success on visibility, with the money line buried below as a soft sub-line**
+- **STATUS (pass #4): ⏸ attended** — Changes Act-3 outcome ordering — measurement/product (no money line by K5).
 - *Surface:* Changes Act 3 verdict pill
 - *Why it's bad:* In the 5-act change brief, Act 3 leads with a visibility result pill + blurb (citations/verdict), and the outcome-attribution (sessions) line is appended at the bottom as a tiny gray sub-line with no bridge. The hierarchy tells me visibility is the headline and traffic is a footnote — exactly backwards for someone judging by results. And there's still no money in either.
 - *Grounding:* src/app/(shell)/changes/[id]/change-detail-v2-client.tsx
 - *Fix:* Reorder Act 3 so the business outcome (conversions/leads/sessions) is the headline and citation/visibility is supporting context, with a connecting sentence between them.
 
 **537. ▫︎ Two keydown listeners run during the palette (global window + input onKeyDown); only the input handles arrows, but the global one still processes Escape and risks double-handling**
+- **STATUS (pass #4): ✅ already-fixed — single Escape owner; window handler no longer closes on Escape while open (cites #537).**
 - *Surface:* Command palette (⌘K) — arrow keys
 - *Why it's bad:* command-palette.tsx attaches a window keydown handler (line 93) AND the input has its own onKeyDown (line 176). The global handler early-returns for arrows when mode is set (line 54 'if (isInput || mode) return'), so navigation works — but Escape is handled in BOTH places (lines 48 and 140), and the dependency array re-binds the global listener on every mode change. It's fragile dual-ownership of keys in the surface I use most; any future edit to one path silently diverges from the other.
 - *Grounding:* src/components/shell/command-palette.tsx
