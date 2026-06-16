@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-16 PM-22 (reasoning quality — "better info than a pro SEO"; new operator goal: LLM-in-the-loop OK)
+
+**New operator `/goal`:** "open it, connect my code, auto flow, click accept and it pushes with REAL SPECIFIC REASONING for why … better info than a professional SEO … extract data better, make better connections … IDC if there's an LLM in the middle." Verify-first findings: the LLM is ALREADY configured (`BEACON_LLM_PROVIDER=openai`, `OPENAI_API_KEY` present) but its draft gateway's ONLY caller is an operator diagnostic — the customer pipeline ships deterministic drafts; and the LLM evidence packet is AEO/prompt-only (no GSC/Clarity/SEMrush/GA4), so it can't make cross-source connections.
+
+- **Slice 1 (`54ee58b`):** the LLM-draft gateway used to discard the provider's rich `SpecificEdit` (why + confidence + difficulty + expectedImpact + measurementPlan + risks + evidence refs + model) and return only `proposed_text`. New `LlmDraftReasoning` on the `drafted` result surfaces all of it; the operator diagnostic redirects with the reasoning so it can be ground-truthed. Additive — 4-value status union unchanged (contract pin holds), 16 existing gateway tests still pass + 1 new.
+- **Slice A (`5616062`):** GROUND-TRUTH on live Ritz `/recommendations` showed the rec-detail **Act 2 "Why this matters"** was a thin trigger restatement + a wishy-washy "the picture isn't fully clear yet" hedge, while the grounded evidence (exact AI query, competitor share, GSC/SEMrush/Clarity lines) sat unused in Act 3. New pure `composeWhyThisMatters()` synthesizes 1–4 grounded sentences (demand lead → competitive pressure → the specific gap the edit closes → friction); honest (never invents a number), white-label, drops the hedge when real evidence exists. Verified live: Atherton rec Act 2 went from "…not cited… picture isn't fully clear yet" to "When AI assistants answer '…', they don't currently recommend your site. The section heading on your Atherton page doesn't speak to this, so it's easy to miss." Read-only display — never published.
+- **Polish (`2f654d2`):** live ground-truth caught mid-word truncation ("recommend your sit…"); `clip()` now breaks at word boundaries + the embedded-query cap tightened so sentences read in full.
+- **Gates (parent-owned each):** typecheck clean; recs domain+app+components 702 pass + gateway/diagnostic suites; build ✓ Compiled; live ground-truthed on Ritz dev server.
+- **Remaining (scoped tasks #94/#95):** enrich the LLM evidence packet with GSC/Clarity/SEMrush/GA4 (cross-source grounding) → wire the gateway into the production pipeline so customer reasoning is LLM-synthesized (Act 2 is the safe read-only entry point — never published). These are the genuine "better than a pro SEO" leap; larger core-engine slices with cost/persistence dimensions.
+
+---
+
 ## 2026-06-16 PM-21 (DE-BLOAT — orphaned `today/` component sweep, post-V2-collapse dead code)
 
 **Trigger:** verify-first against the actual UX_TEARDOWN worklist (not my own summary) surfaced finding #6 (⛔ phantom-cron copy in `data-freshness-heartbeat.tsx`). The copy was already swept, but the COMPONENT was orphaned when the legacy `today-client` was deleted (`faa6ad1`). An orphan scan found 6 more dead `today/` components with ZERO live importers — the V2 collapse left them stranded.
