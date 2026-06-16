@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — GQA-3b (rich critic schema + surfaced "Adversarial QA" panel, operator-refined)
+
+Operator-refined GQA-3: keep the critic flagged + on-demand (detail only, never per candidate), enrich its output schema, and SURFACE it on the recommendation detail as a visibly-separate "Adversarial QA" review explaining what might be wrong.
+- **Rich critic schema (`CriticReview` in `expert-verdict.ts`):** `criticVerdict` (approve|lower_confidence|needs_more_evidence|reject) + `confidenceCeiling` + `unsupportedClaims[]` + `evidenceGaps[]` + `queryPageMismatchRisks[]` + `copyRisks[]` + `publishingRisks[]` + `factualRisks[]` + `whatWouldMakeThisHighConfidence[]` + `humanReviewNote`. `applyCriticToVerdict` clamps on `confidenceCeiling` (lower-only) — still can't raise past the deterministic ceiling or rescue a reject.
+- **`parseCriticJson(content, serializedLedger)` (server-only):** parses the rich schema and **sanitizes every displayed bullet** — drops any that leak a vendor name, an internal camelCase/snake_case identifier, or a number not in the grounding ledger (keeps the rest). Malformed JSON / unknown verdict fail closed (→ null / "approve"). `composeExpertStrategy` now returns `criticReview` for display.
+- **Surfaced on the detail brief** (`strategist-act.tsx` `StrategistPanel`): a bordered, divider-separated "⚖ Adversarial QA — what might be wrong" section with the human note, grouped risk bullets, and a highlighted "What would make this high-confidence" list (tells the operator exactly what to connect/add). On-demand only (flagged `BEACON_LLM_CRITIC`); the list is unaffected.
+- **Gate:** typecheck clean; **+ updated GQA-3 tests** (lower-only clamp on the rich schema, parse fail-closed, leak/invented-number filtering, panel SSR render of the Adversarial-QA section); recs **620 pass** + architecture **5,263 pass**; build ✓. **DoD met:** opening a recommendation now shows BOTH why Beacon wants the edit (strategist) AND the skeptical expert review — what might be wrong, what evidence is missing, and why confidence is capped. Branch only; no merge (operator).
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — GQA-3 (adversarial LLM critic, lower-only — completes the QA architecture)
 
 The directive's QA architecture is now complete: **deterministic gate (authority) → LLM strategist (reasoning) → LLM critic (adversarial QA)**. The critic can sharpen scrutiny but the deterministic gate stays the final word.

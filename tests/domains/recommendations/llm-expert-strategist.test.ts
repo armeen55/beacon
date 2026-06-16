@@ -342,59 +342,88 @@ const detRejected: ExpertVerdict = {
   gateNotes: ["Intent mismatch."],
 };
 const critic = (over: Partial<CriticReview> = {}): CriticReview => ({
-  adjustment: "keep",
-  suggestedConfidence: "medium",
-  unsafeOrUnsupportedClaims: [],
-  critique: "Looks grounded.",
+  criticVerdict: "approve",
+  confidenceCeiling: "medium",
+  unsupportedClaims: [],
+  evidenceGaps: [],
+  queryPageMismatchRisks: [],
+  copyRisks: [],
+  publishingRisks: [],
+  factualRisks: [],
+  whatWouldMakeThisHighConfidence: [],
+  humanReviewNote: "Looks grounded.",
   ...over,
 });
 
 describe("applyCriticToVerdict — the critic can never override the deterministic gate", () => {
-  it("a critic 'raise'/higher suggestion CANNOT raise confidence", () => {
-    const out = applyCriticToVerdict(detMedium, critic({ adjustment: "raise", suggestedConfidence: "high" }));
+  it("a critic ceiling ABOVE deterministic CANNOT raise confidence", () => {
+    const out = applyCriticToVerdict(detMedium, critic({ criticVerdict: "approve", confidenceCeiling: "high" }));
     expect(out.enforcedConfidence).toBe("medium"); // clamped, never raised
   });
-  it("a critic can LOWER confidence", () => {
-    const out = applyCriticToVerdict(detHigh, critic({ adjustment: "lower", suggestedConfidence: "low" }));
+  it("a critic can LOWER confidence via a lower ceiling", () => {
+    const out = applyCriticToVerdict(detHigh, critic({ criticVerdict: "lower_confidence", confidenceCeiling: "low" }));
     expect(out.enforcedConfidence).toBe("low");
     expect(out.enforcedApprove).toBe(false);
   });
   it("a critic 'reject' rejects + un-approves", () => {
-    const out = applyCriticToVerdict(detHigh, critic({ adjustment: "reject", suggestedConfidence: "rejected" }));
+    const out = applyCriticToVerdict(detHigh, critic({ criticVerdict: "reject", confidenceCeiling: "rejected" }));
     expect(out.enforcedConfidence).toBe("rejected");
     expect(out.enforcedApprove).toBe(false);
   });
   it("a deterministic REJECT cannot be rescued by the critic", () => {
-    const out = applyCriticToVerdict(detRejected, critic({ adjustment: "raise", suggestedConfidence: "high" }));
+    const out = applyCriticToVerdict(detRejected, critic({ criticVerdict: "approve", confidenceCeiling: "high" }));
     expect(out.enforcedConfidence).toBe("rejected");
     expect(out.enforcedApprove).toBe(false);
   });
-  it("a critic 'keep' leaves confidence unchanged", () => {
-    const out = applyCriticToVerdict(detMedium, critic({ adjustment: "keep", suggestedConfidence: "medium" }));
+  it("a critic 'approve' at the same ceiling leaves confidence unchanged", () => {
+    const out = applyCriticToVerdict(detMedium, critic({ criticVerdict: "approve", confidenceCeiling: "medium" }));
     expect(out.enforcedConfidence).toBe("medium");
     expect(out.enforcedApprove).toBe(true);
   });
 });
 
-describe("parseCriticJson — fail-closed", () => {
-  it("parses a valid critic object", () => {
+describe("parseCriticJson — rich schema, fail-closed, output-sanitized", () => {
+  it("parses the full critic object", () => {
     const r = parseCriticJson(
       JSON.stringify({
-        adjustment: "lower",
-        suggested_confidence: "low",
-        unsafe_or_unsupported_claims: ["claim X has no supporting number"],
-        critique: "One number isn't in the signals.",
+        critic_verdict: "lower_confidence",
+        confidence_ceiling: "low",
+        unsupported_claims: ["the page already ranks claim isn't backed by a number"],
+        evidence_gaps: ["no on-page behaviour data"],
+        query_page_mismatch_risks: [],
+        copy_risks: [],
+        publishing_risks: [],
+        factual_risks: [],
+        what_would_make_this_high_confidence: ["connect Microsoft Clarity"],
+        human_review_note: "Solid but thin; confirm the page is the right target.",
       }),
     );
-    expect(r?.adjustment).toBe("lower");
-    expect(r?.suggestedConfidence).toBe("low");
-    expect(r?.unsafeOrUnsupportedClaims.length).toBe(1);
+    expect(r?.criticVerdict).toBe("lower_confidence");
+    expect(r?.confidenceCeiling).toBe("low");
+    expect(r?.unsupportedClaims.length).toBe(1);
+    expect(r?.whatWouldMakeThisHighConfidence[0]).toContain("Clarity");
   });
-  it("malformed JSON → null", () => {
+  it("filters a leaked internal identifier / invented number out of displayed bullets", () => {
+    const r = parseCriticJson(
+      JSON.stringify({
+        critic_verdict: "approve",
+        confidence_ceiling: "medium",
+        unsupported_claims: [
+          "shouldUseQueryForOptimization is false here", // internal identifier → dropped
+          "claims 9999 visits with no basis", // invented number (not in ledger) → dropped
+          "the comparison is fair", // clean → kept
+        ],
+        human_review_note: "ok",
+      }),
+      JSON.stringify({ a: "1,800 in 90 days" }), // ledger (no 9999)
+    );
+    expect(r?.unsupportedClaims).toEqual(["the comparison is fair"]);
+  });
+  it("malformed JSON → null (fail-closed)", () => {
     expect(parseCriticJson("not json")).toBeNull();
   });
-  it("an unknown adjustment defaults to 'keep'", () => {
-    const r = parseCriticJson(JSON.stringify({ adjustment: "explode", suggested_confidence: "medium", critique: "x" }));
-    expect(r?.adjustment).toBe("keep");
+  it("an unknown verdict defaults to 'approve' (the clamp still can't raise)", () => {
+    const r = parseCriticJson(JSON.stringify({ critic_verdict: "explode", confidence_ceiling: "medium", human_review_note: "x" }));
+    expect(r?.criticVerdict).toBe("approve");
   });
 });

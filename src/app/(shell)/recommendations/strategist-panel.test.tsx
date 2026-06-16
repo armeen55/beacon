@@ -31,6 +31,7 @@ describe("StrategistPanel", () => {
       enforcedConfidence: "high",
       enforcedApprove: true,
       gateNotes: ["Strong evidence and intent fit."],
+      criticReview: null,
     };
     const html = renderToStaticMarkup(<StrategistPanel result={result} />);
     expect(html).toContain("High confidence");
@@ -50,6 +51,7 @@ describe("StrategistPanel", () => {
       gateNotes: [
         "Page-topic intent-fit found the query is the wrong target for this page.",
       ],
+      criticReview: null,
     };
     const html = renderToStaticMarkup(<StrategistPanel result={result} />);
     expect(html).toContain("Not a confident target");
@@ -58,5 +60,33 @@ describe("StrategistPanel", () => {
     // the persuasive reasoning must NOT leak through on a rejected verdict
     expect(html).not.toContain("already ranks near the top");
     expect(html).not.toContain("Why this beats the alternatives");
+  });
+
+  it("renders the Adversarial QA panel when a critic review is present", () => {
+    const result: StrategistActionResult = {
+      strategist: reasoning,
+      enforcedConfidence: "medium",
+      enforcedApprove: true,
+      gateNotes: ["Moderate evidence and intent fit."],
+      criticReview: {
+        criticVerdict: "lower_confidence",
+        confidenceCeiling: "medium",
+        unsupportedClaims: ["The 'already ranks' claim isn't tied to a specific number."],
+        evidenceGaps: ["No on-page behaviour data for this page."],
+        queryPageMismatchRisks: [],
+        copyRisks: [],
+        publishingRisks: [],
+        factualRisks: [],
+        whatWouldMakeThisHighConfidence: ["Connect Microsoft Clarity to confirm on-page behaviour."],
+        humanReviewNote: "Solid direction, but confirm this is the strongest target page.",
+      },
+    };
+    const html = renderToStaticMarkup(<StrategistPanel result={result} />);
+    expect(html).toContain('data-recommendation-detail-adversarial-qa="true"');
+    expect(html).toContain("Adversarial QA");
+    expect(html).toContain("confirm this is the strongest target page");
+    expect(html).toContain("Unsupported claims");
+    expect(html).toContain("What would make this high-confidence");
+    expect(html).toContain("Connect Microsoft Clarity");
   });
 });

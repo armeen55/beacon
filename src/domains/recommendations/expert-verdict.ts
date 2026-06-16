@@ -40,16 +40,32 @@ const CONFIDENCE_RANK: Record<FinalConfidence, number> = {
   high: 4,
 };
 
-/** What an (LLM) critic pass may recommend. It can lower or reject, never raise. */
+export type CriticVerdictKind =
+  | "approve"
+  | "lower_confidence"
+  | "needs_more_evidence"
+  | "reject";
+
+/**
+ * The adversarial QA critic's structured review. It can lower / cap confidence
+ * or reject, NEVER raise. All the risk arrays + the note are for DISPLAY
+ * ("Adversarial QA" panel); only `criticVerdict` + `confidenceCeiling` feed the
+ * lower-only clamp. (Operator GQA-3 schema, 2026-06-16.)
+ */
 export type CriticReview = {
-  /** The critic's requested move. "raise" is accepted as input but IGNORED. */
-  adjustment: "keep" | "lower" | "reject" | "raise";
-  /** The critic's suggested final confidence (clamped to never exceed det). */
-  suggestedConfidence: FinalConfidence;
-  /** Unsupported/unsafe claims the critic flagged (surfaced, not trusted). */
-  unsafeOrUnsupportedClaims: string[];
-  /** One-line critique. */
-  critique: string;
+  criticVerdict: CriticVerdictKind;
+  /** The HIGHEST confidence the critic will allow (clamped to never exceed det). */
+  confidenceCeiling: FinalConfidence;
+  unsupportedClaims: string[];
+  evidenceGaps: string[];
+  queryPageMismatchRisks: string[];
+  copyRisks: string[];
+  publishingRisks: string[];
+  factualRisks: string[];
+  /** Concrete things that would raise this to high confidence. */
+  whatWouldMakeThisHighConfidence: string[];
+  /** One plain-English line for the operator. */
+  humanReviewNote: string;
 };
 
 /**
@@ -67,22 +83,23 @@ export function applyCriticToVerdict(
   if (deterministic.enforcedConfidence === "rejected") return deterministic;
 
   // Critic reject → rejected (the critic may always pull down to reject).
-  if (critic.adjustment === "reject" || critic.suggestedConfidence === "rejected") {
+  if (critic.criticVerdict === "reject" || critic.confidenceCeiling === "rejected") {
     return {
       enforcedConfidence: "rejected",
       enforcedApprove: false,
       gateNotes: [
         ...deterministic.gateNotes,
-        `Adversarial QA rejected this: ${critic.critique}`,
+        `Adversarial QA rejected this: ${critic.humanReviewNote}`,
       ],
     };
   }
 
   // Otherwise take the LOWER of the deterministic confidence and the critic's
-  // suggestion — a critic "raise" or any higher suggestion is clamped away.
+  // ceiling — a critic ceiling at or above the deterministic level is clamped
+  // away (the critic can never raise).
   const lowered =
-    CONFIDENCE_RANK[critic.suggestedConfidence] < CONFIDENCE_RANK[deterministic.enforcedConfidence]
-      ? critic.suggestedConfidence
+    CONFIDENCE_RANK[critic.confidenceCeiling] < CONFIDENCE_RANK[deterministic.enforcedConfidence]
+      ? critic.confidenceCeiling
       : deterministic.enforcedConfidence;
 
   const approve =
@@ -90,8 +107,8 @@ export function applyCriticToVerdict(
 
   const note =
     lowered === deterministic.enforcedConfidence
-      ? `Adversarial QA agreed: ${critic.critique}`
-      : `Adversarial QA lowered confidence to ${lowered}: ${critic.critique}`;
+      ? `Adversarial QA agreed: ${critic.humanReviewNote}`
+      : `Adversarial QA lowered confidence to ${lowered}: ${critic.humanReviewNote}`;
 
   return {
     enforcedConfidence: lowered,

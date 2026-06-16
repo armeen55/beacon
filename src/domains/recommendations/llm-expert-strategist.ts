@@ -80,6 +80,9 @@ export type StrategistReasoning = {
 
 export type ExpertSynthesis = ExpertVerdict & {
   strategist: StrategistReasoning;
+  /** The adversarial QA critic review, when BEACON_LLM_CRITIC ran + returned a
+   *  clean result (the "Adversarial QA" panel). null/undefined otherwise. */
+  criticReview?: CriticReview | null;
   model: string;
   costUsd: number;
 };
@@ -384,20 +387,22 @@ export async function composeExpertStrategy(
   // `applyCriticToVerdict` clamps it LOWER-ONLY so it can never raise past the
   // deterministic ceiling or rescue a deterministic reject. Fail-closed: any
   // problem keeps the deterministic verdict unchanged.
+  let criticReview: CriticReview | null = null;
   if (
     process.env.BEACON_LLM_CRITIC === "1" &&
     verdict.enforcedConfidence !== "rejected"
   ) {
-    const review = await runCriticReview(
+    criticReview = await runCriticReview(
       { reasoning: sanitized.reasoning, serialized },
       { apiKey, model, timeoutMs, fetchImpl, now },
     );
-    if (review) verdict = applyCriticToVerdict(verdict, review);
+    if (criticReview) verdict = applyCriticToVerdict(verdict, criticReview);
   }
 
   return {
     strategist: sanitized.reasoning,
     ...verdict,
+    criticReview,
     model,
     costUsd,
   };
@@ -409,19 +414,58 @@ export async function composeExpertStrategy(
 // ─────────────────────────────────────────────────────────────────────
 
 const CRITIC_SYSTEM_PROMPT =
-  "You are a skeptical senior SEO/AEO QA reviewer. You are given a " +
-  "recommendation's reasoning and the grounding signals it must rest on. " +
-  "Catch unsupported or unsafe claims and decide whether the recommendation's " +
-  "confidence should stand, be LOWERED, or the recommendation REJECTED. You " +
-  "may ONLY keep, lower, or reject — NEVER raise confidence. Flag any claim " +
-  "not supported by the signals, any invented number, and any AI/answer-engine " +
-  "citation claim made without answer-engine evidence. Respond with STRICT " +
-  "JSON ONLY (no prose, no markdown) with EXACTLY these keys: adjustment " +
-  "('keep'|'lower'|'reject'), suggested_confidence " +
-  "('high'|'medium'|'low'|'needs_more_evidence'|'rejected'), " +
-  "unsafe_or_unsupported_claims (string[]), critique (string).";
+  "You are a skeptical senior SEO/AEO QA reviewer doing an adversarial review " +
+  "of a recommendation. You are given the recommendation's reasoning and the " +
+  "grounding signals it must rest on. Find what could be WRONG: unsupported " +
+  "claims, missing evidence, query/page intent mismatch, risky copy, risky " +
+  "publishing changes, and factual risks. Decide the HIGHEST confidence this " +
+  "recommendation should be allowed. You may ONLY approve, lower confidence, " +
+  "ask for more evidence, or reject — NEVER raise confidence. Flag any number " +
+  "not present in the signals and any AI/answer-engine citation claim made " +
+  "without answer-engine evidence. Write in plain business English; NEVER " +
+  "mention internal field names or camelCase/snake_case identifiers. Respond " +
+  "with STRICT JSON ONLY (no prose, no markdown) with EXACTLY these keys: " +
+  "critic_verdict ('approve'|'lower_confidence'|'needs_more_evidence'|'reject'), " +
+  "confidence_ceiling ('high'|'medium'|'low'|'needs_more_evidence'|'rejected'), " +
+  "unsupported_claims (string[]), evidence_gaps (string[]), " +
+  "query_page_mismatch_risks (string[]), copy_risks (string[]), " +
+  "publishing_risks (string[]), factual_risks (string[]), " +
+  "what_would_make_this_high_confidence (string[]), human_review_note (string).";
 
-export function parseCriticJson(content: string): CriticReview | null {
+/** Internal-identifier / vendor patterns that must not leak into the displayed
+ *  critic strings (reuses the strategist firewall shapes). */
+const CRITIC_LEAK_PATTERNS: ReadonlyArray<RegExp> = [
+  ...ANSWER_ENGINE_VENDOR_PATTERNS,
+  /\b[a-z][a-z0-9]*[A-Z][a-z0-9]+[A-Z][a-zA-Z0-9]*\b/,
+  /\b[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}\b/,
+];
+
+/** Filter a critic display list: drop any bullet that leaks a vendor name, an
+ *  internal identifier, or a number not present in the grounding ledger. Keeps
+ *  the rest (the aggregate review stays useful). Caps + trims. */
+function filterSafeCriticStrings(
+  raw: unknown,
+  serializedInput: string,
+  max = 5,
+): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string") continue;
+    const s = v.trim();
+    if (s.length === 0) continue;
+    if (CRITIC_LEAK_PATTERNS.some((p) => p.test(s))) continue;
+    if (extractNumberTokens(s).some((tok) => !serializedInput.includes(tok))) continue;
+    out.push(s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN).trimEnd() : s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+export function parseCriticJson(
+  content: string,
+  serializedInput = "",
+): CriticReview | null {
   let text = content.trim();
   if (text.length === 0) return null;
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -440,14 +484,17 @@ export function parseCriticJson(content: string): CriticReview | null {
   if (parsed == null || typeof parsed !== "object") return null;
   const o = parsed as Record<string, unknown>;
 
-  const adjRaw = typeof o.adjustment === "string" ? o.adjustment.toLowerCase() : "";
-  const adjustment: CriticReview["adjustment"] =
-    adjRaw === "lower" || adjRaw === "reject" || adjRaw === "raise"
-      ? (adjRaw as CriticReview["adjustment"])
-      : "keep";
+  const verdictRaw =
+    typeof o.critic_verdict === "string" ? o.critic_verdict.toLowerCase() : "";
+  const criticVerdict: CriticReview["criticVerdict"] =
+    verdictRaw === "lower_confidence" ||
+    verdictRaw === "needs_more_evidence" ||
+    verdictRaw === "reject"
+      ? (verdictRaw as CriticReview["criticVerdict"])
+      : "approve";
 
-  const confRaw =
-    typeof o.suggested_confidence === "string" ? o.suggested_confidence.toLowerCase() : "";
+  const ceilRaw =
+    typeof o.confidence_ceiling === "string" ? o.confidence_ceiling.toLowerCase() : "";
   const valid: ReadonlyArray<FinalConfidence> = [
     "high",
     "medium",
@@ -455,21 +502,31 @@ export function parseCriticJson(content: string): CriticReview | null {
     "needs_more_evidence",
     "rejected",
   ];
-  const suggestedConfidence: FinalConfidence = (valid as string[]).includes(confRaw)
-    ? (confRaw as FinalConfidence)
+  const confidenceCeiling: FinalConfidence = (valid as string[]).includes(ceilRaw)
+    ? (ceilRaw as FinalConfidence)
     : "medium";
 
-  const claims = Array.isArray(o.unsafe_or_unsupported_claims)
-    ? o.unsafe_or_unsupported_claims
-        .filter((c): c is string => typeof c === "string" && c.trim().length > 0)
-        .slice(0, 6)
-    : [];
-  const critique =
-    typeof o.critique === "string" && o.critique.trim().length > 0
-      ? o.critique.trim().slice(0, MAX_FIELD_LEN)
+  const humanReviewNote =
+    typeof o.human_review_note === "string" && o.human_review_note.trim().length > 0 &&
+    !CRITIC_LEAK_PATTERNS.some((p) => p.test(o.human_review_note as string))
+      ? (o.human_review_note as string).trim().slice(0, MAX_FIELD_LEN)
       : "Reviewed against the supplied signals.";
 
-  return { adjustment, suggestedConfidence, unsafeOrUnsupportedClaims: claims, critique };
+  return {
+    criticVerdict,
+    confidenceCeiling,
+    unsupportedClaims: filterSafeCriticStrings(o.unsupported_claims, serializedInput),
+    evidenceGaps: filterSafeCriticStrings(o.evidence_gaps, serializedInput),
+    queryPageMismatchRisks: filterSafeCriticStrings(o.query_page_mismatch_risks, serializedInput),
+    copyRisks: filterSafeCriticStrings(o.copy_risks, serializedInput),
+    publishingRisks: filterSafeCriticStrings(o.publishing_risks, serializedInput),
+    factualRisks: filterSafeCriticStrings(o.factual_risks, serializedInput),
+    whatWouldMakeThisHighConfidence: filterSafeCriticStrings(
+      o.what_would_make_this_high_confidence,
+      serializedInput,
+    ),
+    humanReviewNote,
+  };
 }
 
 async function runCriticReview(
@@ -538,5 +595,5 @@ async function runCriticReview(
   if (choice?.message?.refusal) return null;
   const content = choice?.message?.content;
   if (!content) return null;
-  return parseCriticJson(content);
+  return parseCriticJson(content, args.serialized);
 }

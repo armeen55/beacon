@@ -77,6 +77,17 @@ export function StrategistAct({
 export function StrategistPanel({ result }: { result: StrategistActionResult }) {
   const { strategist, enforcedConfidence, gateNotes } = result;
   const rejected = enforcedConfidence === "rejected";
+  const critic = result.criticReview ?? null;
+  const criticRiskGroups = critic
+    ? [
+        { label: "Unsupported claims", items: critic.unsupportedClaims },
+        { label: "Query / page match risks", items: critic.queryPageMismatchRisks },
+        { label: "Copy risks", items: critic.copyRisks },
+        { label: "Publishing risks", items: critic.publishingRisks },
+        { label: "Factual risks", items: critic.factualRisks },
+        { label: "Evidence gaps", items: critic.evidenceGaps },
+      ].filter((g) => g.items.length > 0)
+    : [];
   const pairs = strategist.alternativesConsidered.map((alt, i) => ({
     alt,
     why: strategist.whyNotAlternatives[i] ?? null,
@@ -156,6 +167,57 @@ export function StrategistPanel({ result }: { result: StrategistActionResult }) 
               </span>
               {strategist.risks.join(" ")}
             </p>
+          )}
+        </div>
+      )}
+
+      {/* GQA-3 — the adversarial "Expert QA review": what might be WRONG with
+          this recommendation. Visibly separate from the reasoning + source
+          evidence; confidence is already clamped lower-only by the critic. */}
+      {critic && (
+        <div
+          className="mt-4 pt-3 border-t border-border/50 max-w-2xl"
+          data-recommendation-detail-adversarial-qa="true"
+        >
+          <p className="text-[10px] font-bold uppercase tracking-wider text-status-warning/90 mb-1.5">
+            ⚖ Adversarial QA — what might be wrong
+          </p>
+          <p
+            className="text-[12px] text-foreground/80 leading-relaxed mb-2"
+            data-recommendation-detail-qa-note="true"
+          >
+            {critic.humanReviewNote}
+          </p>
+          {criticRiskGroups.map((g) => (
+            <div key={g.label} className="mb-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                {g.label}
+              </p>
+              <ul className="list-disc pl-4">
+                {g.items.map((it, i) => (
+                  <li key={i} className="text-[12px] text-foreground/75 leading-snug">
+                    {it}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {critic.whatWouldMakeThisHighConfidence.length > 0 && (
+            <div
+              className="mt-2 rounded-md bg-status-info/5 px-3 py-2"
+              data-recommendation-detail-qa-upgrade="true"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-status-info/90">
+                What would make this high-confidence
+              </p>
+              <ul className="list-disc pl-4">
+                {critic.whatWouldMakeThisHighConfidence.map((it, i) => (
+                  <li key={i} className="text-[12px] text-foreground/80 leading-snug">
+                    {it}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}

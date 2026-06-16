@@ -38,6 +38,8 @@ export type StrategistActionResult = {
   enforcedConfidence: ExpertSynthesis["enforcedConfidence"];
   enforcedApprove: boolean;
   gateNotes: string[];
+  /** The adversarial QA critic review (the "Adversarial QA" panel), or null. */
+  criticReview: ExpertSynthesis["criticReview"];
 };
 
 export async function requestExpertStrategistAction(
@@ -103,6 +105,7 @@ export async function requestExpertStrategistAction(
       enforcedConfidence: synthesis.enforcedConfidence,
       enforcedApprove: synthesis.enforcedApprove,
       gateNotes: synthesis.gateNotes,
+      criticReview: synthesis.criticReview ?? null,
     };
   } catch {
     return null;
