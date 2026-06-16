@@ -302,6 +302,16 @@ beforeEach(() => {
     proposed_text: "Crafted H2",
     cost_usd: 0.042,
     bundle_size: 1,
+    reasoning: {
+      why: "test reasoning",
+      confidence: "medium",
+      difficulty: "low",
+      expectedImpact: null,
+      measurementPlan: null,
+      risks: [],
+      evidenceCount: 0,
+      model: "gpt-4o-mini",
+    },
   } satisfies LlmDraftResult;
   (mockState.revalidateSpy as Mock).mockClear();
   (mockState.gatewaySpy as Mock).mockClear();
@@ -447,6 +457,16 @@ describe("generateLlmDraftAction", () => {
       proposed_text: "Short H2",
       cost_usd: 0.0123,
       bundle_size: 2,
+      reasoning: {
+        why: "test reasoning",
+        confidence: "medium",
+        difficulty: "low",
+        expectedImpact: null,
+        measurementPlan: null,
+        risks: [],
+        evidenceCount: 0,
+        model: "gpt-4o-mini",
+      },
     } satisfies LlmDraftResult;
     const url = await captureRedirect(() =>
       generateLlmDraftAction(makeFormData("abcdef0123456789abcdef0123456789")),
@@ -468,6 +488,16 @@ describe("generateLlmDraftAction", () => {
       proposed_text: longText,
       cost_usd: 0.05,
       bundle_size: 1,
+      reasoning: {
+        why: "test reasoning",
+        confidence: "medium",
+        difficulty: "low",
+        expectedImpact: null,
+        measurementPlan: null,
+        risks: [],
+        evidenceCount: 0,
+        model: "gpt-4o-mini",
+      },
     } satisfies LlmDraftResult;
     const url = await captureRedirect(() =>
       generateLlmDraftAction(makeFormData("abcdef0123456789abcdef0123456789")),

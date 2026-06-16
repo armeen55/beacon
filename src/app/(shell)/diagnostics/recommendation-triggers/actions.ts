@@ -319,6 +319,23 @@ export async function generateLlmDraftAction(
     if (truncated) {
       params.set("proposed_text_truncated", "true");
     }
+    // Surface the LLM's grounded reasoning so the operator can judge
+    // whether it reads like (better than) a professional SEO's analysis.
+    const r = gatewayResult.reasoning;
+    params.set("why", truncate(r.why, PROPOSED_TEXT_MAX));
+    params.set("confidence", r.confidence);
+    params.set("difficulty", r.difficulty);
+    params.set("evidence_count", String(r.evidenceCount));
+    if (r.model != null) params.set("model", r.model);
+    if (r.expectedImpact != null) {
+      params.set("expected_impact", truncate(r.expectedImpact, REASON_MAX));
+    }
+    if (r.measurementPlan != null) {
+      params.set("measurement_plan", truncate(r.measurementPlan, REASON_MAX));
+    }
+    if (r.risks.length > 0) {
+      params.set("risks", truncate(r.risks.join("; "), REASON_MAX));
+    }
     llmRedirect(params);
   }
   if (gatewayResult.status === "abstained") {

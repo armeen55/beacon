@@ -235,6 +235,47 @@ describe("draftProposedTextForCandidate — happy paths + abstention", () => {
     expect(mockState.recordSpendSpy!.mock.calls[0]![0]).toBe(0.04);
   });
 
+  it("drafted result surfaces the LLM's grounded reasoning (why/confidence/impact/measurement/risks/evidenceCount/model)", async () => {
+    mockState.providerBundle = makeBundle(
+      [
+        makeEdit({
+          targetElement: {
+            elementKey: "h2-1",
+            displayLabel: "H2 #1",
+            currentText: "Old",
+            proposedText: "Fresh draft",
+          },
+          why: "Your page ranks #11 for 'persian male names' (2,400 monthly Google impressions, 0.4% CTR) — the title buries the query. Leading with it should recover clicks competitors are taking.",
+          confidence: "high",
+          difficulty: "low",
+          expectedImpact: "Recover ~80 clicks/mo if CTR returns to the 3% page-average",
+          measurementPlan: "Watch GSC clicks for this URL over the next 2–4 weeks",
+          risks: ["Title may be slightly long on mobile SERPs"],
+          evidence: [
+            { type: "owned_page", url: "https://example.com/a" },
+            { type: "prompt", promptId: "p-1" },
+          ],
+          model: "gpt-4o-mini-2024-07-18",
+        }),
+      ],
+      0.04,
+    );
+    const result = await draftProposedTextForCandidate({ packet: makePacket() });
+    expect(result.status).toBe("drafted");
+    if (result.status === "drafted") {
+      expect(result.reasoning.why).toContain("persian male names");
+      expect(result.reasoning.confidence).toBe("high");
+      expect(result.reasoning.difficulty).toBe("low");
+      expect(result.reasoning.expectedImpact).toContain("Recover ~80 clicks");
+      expect(result.reasoning.measurementPlan).toContain("GSC clicks");
+      expect(result.reasoning.risks).toEqual([
+        "Title may be slightly long on mobile SERPs",
+      ]);
+      expect(result.reasoning.evidenceCount).toBe(2);
+      expect(result.reasoning.model).toBe("gpt-4o-mini-2024-07-18");
+    }
+  });
+
   it("empty bundle → abstained empty_bundle; spend RECORDED (LLM call happened)", async () => {
     mockState.providerBundle = makeBundle([], 0.02);
     const result = await draftProposedTextForCandidate({ packet: makePacket() });

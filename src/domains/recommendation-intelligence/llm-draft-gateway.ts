@@ -51,8 +51,36 @@ import {
 } from "@/domains/recommendations/adjudicator-budget";
 import { openaiProvider } from "@/domains/recommendations/providers/openai";
 import type { SpecificEditEvidencePacket } from "@/domains/recommendations/specific-edit-evidence";
-import type { SpecificEditBundle } from "@/domains/recommendations/specific-edit-provider";
+import type {
+  SpecificEditBundle,
+  SpecificEditConfidence,
+  SpecificEditDifficulty,
+} from "@/domains/recommendations/specific-edit-provider";
 import { validateSpecificEdit } from "@/domains/recommendations/specific-edit-validator";
+
+/**
+ * The grounded reasoning the LLM produced alongside the proposed text.
+ * The provider ALWAYS fills these (the prompt requires `why`); the
+ * gateway used to discard them and return only `proposed_text`. They
+ * are the "REAL SPECIFIC REASONING for why" the customer rec needs —
+ * surfaced here so a production caller can persist them onto the rec.
+ */
+export type LlmDraftReasoning = {
+  /** Plain-English justification for THIS edit, grounded in packet. */
+  why: string;
+  confidence: SpecificEditConfidence;
+  difficulty: SpecificEditDifficulty;
+  /** Operator-facing impact estimate; null when the generator had no
+   *  honest signal. */
+  expectedImpact: string | null;
+  /** How to measure whether the edit moved the needle; null if none. */
+  measurementPlan: string | null;
+  risks: string[];
+  /** How many typed evidence refs justify this edit (depth of grounding). */
+  evidenceCount: number;
+  /** Specific model id (e.g. `gpt-4o-mini-2024-07-18`); null if absent. */
+  model: string | null;
+};
 
 export type LlmDraftResult =
   | {
@@ -60,6 +88,8 @@ export type LlmDraftResult =
       proposed_text: string;
       cost_usd: number;
       bundle_size: number;
+      /** The LLM's grounded reasoning for the drafted edit. */
+      reasoning: LlmDraftReasoning;
     }
   | {
       status: "abstained";
@@ -143,11 +173,24 @@ export async function draftProposedTextForCandidate(
     };
   }
 
-  // Step 7 — drafted.
+  // Step 7 — drafted. Surface the LLM's grounded reasoning alongside
+  // the proposed text — the provider always fills `why` + confidence +
+  // risks; discarding them (the original behavior) threw away the most
+  // valuable part of an LLM-assisted draft.
   return {
     status: "drafted",
     proposed_text,
     cost_usd,
     bundle_size: bundle.recommendations.length,
+    reasoning: {
+      why: firstEdit.why,
+      confidence: firstEdit.confidence,
+      difficulty: firstEdit.difficulty,
+      expectedImpact: firstEdit.expectedImpact,
+      measurementPlan: firstEdit.measurementPlan,
+      risks: firstEdit.risks,
+      evidenceCount: firstEdit.evidence.length,
+      model: firstEdit.model,
+    },
   };
 }
