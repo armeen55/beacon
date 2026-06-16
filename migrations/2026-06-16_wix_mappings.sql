@@ -15,12 +15,15 @@
 -- `_tenant_rw` policy TO authenticated, anon default-denied (no anon policy).
 -- The PK already indexes tenant_id, so the tenant-scoped reads are covered.
 --
--- NOT YET APPLIED TO PROD — these are ADDITIVE new tables; the code
--- (src/lib/connectors/wix/mappings-store.ts) falls back to the file store
--- (readStore/writeStore) until applied: getSupabaseAdmin() with no env
--- throws → file fallback; PostgREST `42P01` undefined_table → file fallback.
--- So local dev + pre-migration hosted keep today's behavior. Apply via MCP
--- apply_migration on operator approval.
+-- APPLIED TO PROD via MCP apply_migration (name=wix_mappings) on 2026-06-16,
+-- with operator approval. Verified: both tables RLS-enabled, one tenant_rw
+-- policy each, content_field_roles jsonb present; security advisor shows no new
+-- lints from these tables. (Recorded here for repo/fresh-env parity.)
+-- These are ADDITIVE new tables; the code
+-- (src/lib/connectors/wix/mappings-store.ts) ALSO falls back to the file store
+-- when Supabase is unavailable: getSupabaseAdmin() with no env throws → file
+-- fallback; PostgREST `42P01` undefined_table → file fallback. So local dev
+-- (no Supabase env) keeps today's behavior; the hosted app uses these tables.
 
 -- ── Per-collection mapping config (operator-edited on /diagnostics/wix) ──
 create table if not exists public.wix_collection_config (
