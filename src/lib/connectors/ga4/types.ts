@@ -150,9 +150,30 @@ export type Ga4RunReportArgs = {
 /**
  * Result shape for `runGa4UrlTrafficReport`. Discriminated union;
  * mirrors `Ga4PropertyListResult` from 9.A1α.
+ *
+ * Pagination (2026-06-16 — expert audit #5/#62): the GA4 Data API caps
+ * `runReport` at `GA4_PAGE_SIZE` (10k) rows per call and exposes a
+ * top-level `rowCount` (total matching rows). `runGa4UrlTrafficReport`
+ * now loops `offset` to gather every page (bounded by `GA4_MAX_PAGES`),
+ * so the `{ ok: true }` variant gains two OPTIONAL fields:
+ *   • `rowCount`  — the GA4-reported total matching rows (informational).
+ *   • `truncated` — `true` when the result is KNOWN-INCOMPLETE: either
+ *                   the `GA4_MAX_PAGES` ceiling was hit while more rows
+ *                   remained, OR a subsequent page errored and we
+ *                   returned the rows gathered so far. Falsy on the
+ *                   common ≤10k path and on any fully-paginated pull.
+ * Existing callers that ignore these fields keep working unchanged.
  */
 export type Ga4UrlTrafficReportResult =
-  | { ok: true; rows: Ga4UrlTrafficRow[] }
+  | {
+      ok: true;
+      rows: Ga4UrlTrafficRow[];
+      /** GA4-reported total matching rows (top-level `rowCount`). */
+      rowCount?: number;
+      /** `true` when the result is known-incomplete (MAX_PAGES cap hit
+       *  or a subsequent page errored before completion). */
+      truncated?: boolean;
+    }
   | {
       ok: false;
       reason: Ga4FailReason;

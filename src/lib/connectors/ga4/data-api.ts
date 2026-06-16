@@ -70,6 +70,23 @@ const REQUIRED_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 const DATA_API_HOST = "https://analyticsdata.googleapis.com";
 
 /**
+ * 2026-06-16 — expert audit #5/#62 (P0 data correctness).
+ *
+ * The GA4 Data API `runReport` endpoint caps a single response at
+ * `GA4_PAGE_SIZE` rows. Before pagination, a property with more than
+ * this many `(date × pagePath)` rows in the requested window SILENTLY
+ * undercounted — the response returned the first 10k rows with NO
+ * signal, corrupting ranking + proof for high-traffic tenants.
+ *
+ * `runGa4UrlTrafficReport` now paginates via `offset` until the
+ * GA4-reported `rowCount` is exhausted, bounded by `GA4_MAX_PAGES` so a
+ * pathological property can never blow up memory / quota. The ceiling
+ * is `GA4_PAGE_SIZE * GA4_MAX_PAGES` = 500k rows.
+ */
+export const GA4_PAGE_SIZE = 10_000;
+export const GA4_MAX_PAGES = 50;
+
+/**
  * Build the `runReport` endpoint URL for a given property id.
  * Pure helper, exported for test inspection.
  */
@@ -85,13 +102,18 @@ export function buildRunReportUrl(propertyId: string): string {
  * Dimensions: `date` + `pagePath`.
  * Metrics: `sessions`, `engagedSessions`, `conversions`.
  * Date range: caller-supplied inclusive `[startDate, endDate]`.
- * Limit: 10_000 rows per call (GA4 max is higher; 10k is a defensive
- *        cap that keeps response bodies bounded for the operator
- *        diagnostic flow).
+ * Limit: `GA4_PAGE_SIZE` (10k) rows per call — the GA4 `runReport`
+ *        per-response cap. Paired with `offset`, the caller paginates
+ *        across the full result set (expert audit #5/#62).
+ * Offset: zero-based row offset into the result set; defaults to 0 so
+ *        page-0 bodies are unchanged except for the explicit
+ *        `offset: 0`.
  */
 export function buildRunReportBody(args: {
   startDate: string;
   endDate: string;
+  offset?: number;
+  limit?: number;
 }): Record<string, unknown> {
   return {
     dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
@@ -101,7 +123,8 @@ export function buildRunReportBody(args: {
       { name: "engagedSessions" },
       { name: "conversions" },
     ],
-    limit: 10_000,
+    limit: args.limit ?? GA4_PAGE_SIZE,
+    offset: args.offset ?? 0,
   };
 }
 
@@ -149,6 +172,25 @@ function parseMetricInt(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Defensively read GA4's top-level `rowCount` (total matching rows).
+ * GA4 sometimes serializes it as a number, sometimes as a stringy
+ * value; either way we coerce to a finite non-negative integer.
+ * Returns `null` when absent/unparseable so the caller can fall back
+ * to "page count is the total" (→ no extra pages). Pure; never throws.
+ */
+function parseRowCount(raw: unknown): number | null {
+  if (raw == null) return null;
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number.parseInt(raw, 10)
+        : NaN;
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.trunc(n);
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────
@@ -171,6 +213,17 @@ function parseMetricInt(raw: string | undefined): number {
  *
  * Non-2xx non-401 response → `log.warn` with bounded body (≤500
  * chars; never logs tokens) + structured `api_error` return.
+ *
+ * Paginated (2026-06-16 — expert audit #5/#62): GA4 caps a single
+ * `runReport` response at `GA4_PAGE_SIZE` (10k) rows. Page 0 keeps the
+ * EXACT prior behavior (token/refresh/401-retry/fail-soft returns). On
+ * success we read GA4's top-level `rowCount` and loop additional pages
+ * at `offset = GA4_PAGE_SIZE, 2*…` (reusing the already-valid access
+ * token, no per-page re-refresh) until the total is exhausted or
+ * `GA4_MAX_PAGES` is hit. A FAILED subsequent page (offset>0) does NOT
+ * fail the whole report — we `log.warn` once, stop, and return the
+ * rows gathered so far flagged `truncated: true` (partial > zero). The
+ * MAX_PAGES ceiling likewise sets `truncated: true`.
  *
  * NEVER throws on normal not-connected / not-scoped / disconnected
  * / expired / api_error states.
@@ -221,96 +274,165 @@ export async function runGa4UrlTrafficReport(
   }
 
   const url = buildRunReportUrl(propertyId);
-  const body = buildRunReportBody({ startDate, endDate });
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    log.warn("[ga4-data-api] fetch threw; surfacing api_error", {
-      tenantId,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return { ok: false, reason: "api_error", message: "fetch threw" };
+  /**
+   * Fetch a single `runReport` page at `offset` using the supplied
+   * (already-valid) access token. Returns the parsed body on success,
+   * or `{ error }` describing why the page could not be parsed. Never
+   * throws. Used for EVERY page — page 0 wraps the result in the full
+   * fail-soft/refresh ladder below; subsequent pages downgrade any
+   * `error` to a partial-but-non-fatal stop.
+   */
+  async function fetchPage(
+    pageToken: string,
+    offset: number,
+  ): Promise<
+    | { ok: true; body: Ga4RunReportResponseBody }
+    | { ok: false; status?: number; kind: "fetch_threw" | "non_2xx" | "json_parse" | "empty"; errorBody?: string }
+  > {
+    const pageBody = buildRunReportBody({ startDate, endDate, offset });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${pageToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(pageBody),
+      });
+    } catch {
+      return { ok: false, kind: "fetch_threw" };
+    }
+    if (!response.ok) {
+      let errorBody = "";
+      try {
+        errorBody = (await response.text()).slice(0, 500);
+      } catch {
+        errorBody = "(body unavailable)";
+      }
+      return { ok: false, kind: "non_2xx", status: response.status, errorBody };
+    }
+    let data: Ga4RunReportResponseBody | null;
+    try {
+      data = (await response.json()) as Ga4RunReportResponseBody;
+    } catch {
+      return { ok: false, kind: "json_parse" };
+    }
+    if (data == null) {
+      return { ok: false, kind: "empty" };
+    }
+    return { ok: true, body: data };
   }
 
-  if (!response.ok) {
-    if (response.status === 401) {
-      try {
-        const refreshed = await refreshGoogleAccessToken(token.refresh_token);
-        const retry = await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${refreshed.access_token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        });
-        if (retry.ok) {
-          const data = (await retry.json().catch(() => null)) as
-            | Ga4RunReportResponseBody
-            | null;
-          if (data == null) {
-            return { ok: false, reason: "api_error", message: "json parse" };
-          }
-          return { ok: true, rows: narrowRunReportRows(data) };
-        }
+  // ── Page 0 ── preserves the EXACT prior behavior: fetch-throw →
+  // api_error; 401 → one refresh + retry-once → token_expired on
+  // second 401; non-2xx → bounded-body log.warn + api_error;
+  // json-parse / empty → api_error.
+  let page0 = await fetchPage(accessToken, 0);
+  if (!page0.ok && page0.kind === "fetch_threw") {
+    log.warn("[ga4-data-api] fetch threw; surfacing api_error", { tenantId });
+    return { ok: false, reason: "api_error", message: "fetch threw" };
+  }
+  if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token);
+      accessToken = refreshed.access_token;
+      const retry = await fetchPage(accessToken, 0);
+      if (retry.ok) {
+        page0 = retry;
+      } else if (retry.kind === "non_2xx") {
         return {
           ok: false,
           reason: "token_expired",
           status: retry.status,
           message: "401 after refresh",
         };
-      } catch (e) {
-        log.warn("[ga4-data-api] 401 refresh retry failed", {
-          tenantId,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        return { ok: false, reason: "token_expired" };
+      } else if (retry.kind === "json_parse" || retry.kind === "empty") {
+        return { ok: false, reason: "api_error", message: "json parse" };
+      } else {
+        // retry fetch threw
+        log.warn("[ga4-data-api] fetch threw; surfacing api_error", { tenantId });
+        return { ok: false, reason: "api_error", message: "fetch threw" };
       }
+    } catch (e) {
+      log.warn("[ga4-data-api] 401 refresh retry failed", {
+        tenantId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return { ok: false, reason: "token_expired" };
     }
+  } else if (!page0.ok && page0.kind === "non_2xx") {
     // 9.A1β-deferred fix: capture Google's error body for operator
     // triage. Bounded to 500 chars; never logs the token.
-    let errorBody = "";
-    try {
-      errorBody = (await response.text()).slice(0, 500);
-    } catch {
-      errorBody = "(body unavailable)";
-    }
     log.warn("[ga4-data-api] non-2xx response from GA4 Data API", {
       tenantId,
-      status: response.status,
-      body: errorBody,
+      status: page0.status,
+      body: page0.errorBody ?? "",
     });
     return {
       ok: false,
       reason: "api_error",
-      status: response.status,
+      status: page0.status,
       message: "non-2xx response",
+    };
+  } else if (!page0.ok) {
+    // json_parse | empty
+    log.warn("[ga4-data-api] response body parse failed", { tenantId });
+    return {
+      ok: false,
+      reason: "api_error",
+      message: page0.kind === "empty" ? "empty body" : "json parse",
     };
   }
 
-  let data: Ga4RunReportResponseBody | null;
-  try {
-    data = (await response.json()) as Ga4RunReportResponseBody;
-  } catch (e) {
-    log.warn("[ga4-data-api] response body parse failed", {
-      tenantId,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return { ok: false, reason: "api_error", message: "json parse" };
+  // page0.ok === true from here. Accumulate page-0 rows, then paginate.
+  const rows: Ga4UrlTrafficRow[] = narrowRunReportRows(page0.body);
+  const reportedRowCount = parseRowCount(page0.body.rowCount);
+  // When GA4 omits/garbles rowCount we cannot know there are more pages,
+  // so treat the page-0 count as the total → no extra fetches.
+  const totalRowCount = reportedRowCount ?? rows.length;
+
+  let truncated = false;
+  let pagesFetched = 1;
+  for (
+    let offset = GA4_PAGE_SIZE;
+    offset < totalRowCount;
+    offset += GA4_PAGE_SIZE
+  ) {
+    if (pagesFetched >= GA4_MAX_PAGES) {
+      truncated = true;
+      log.warn("[ga4-data-api] hit GA4_MAX_PAGES; result truncated", {
+        tenantId,
+        pagesFetched,
+        rowsGathered: rows.length,
+        totalRowCount,
+      });
+      break;
+    }
+    const page = await fetchPage(accessToken, offset);
+    pagesFetched += 1;
+    if (!page.ok) {
+      // Partial data beats zero: stop the loop, flag truncated, keep
+      // the rows we already gathered. Single warn for operator triage.
+      truncated = true;
+      log.warn("[ga4-data-api] subsequent page failed; returning partial", {
+        tenantId,
+        offset,
+        kind: page.kind,
+        status: page.kind === "non_2xx" ? page.status : undefined,
+        rowsGathered: rows.length,
+        totalRowCount,
+      });
+      break;
+    }
+    for (const r of narrowRunReportRows(page.body)) rows.push(r);
   }
-  if (data == null) {
-    return { ok: false, reason: "api_error", message: "empty body" };
-  }
-  return { ok: true, rows: narrowRunReportRows(data) };
+
+  const result: Ga4UrlTrafficReportResult = { ok: true, rows };
+  if (reportedRowCount != null) result.rowCount = reportedRowCount;
+  if (truncated) result.truncated = true;
+  return result;
 }
 
 /** Test-only export of internals. */

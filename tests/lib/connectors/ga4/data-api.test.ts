@@ -65,6 +65,8 @@ import {
   buildRunReportUrl,
   buildRunReportBody,
   narrowRunReportRows,
+  GA4_PAGE_SIZE,
+  GA4_MAX_PAGES,
   __testing,
 } from "@/lib/connectors/ga4/data-api";
 
@@ -120,7 +122,7 @@ describe("buildRunReportUrl", () => {
 });
 
 describe("buildRunReportBody", () => {
-  it("locks the dimensions/metrics/limit shape", () => {
+  it("locks the dimensions/metrics/limit shape; defaults offset to 0", () => {
     const body = buildRunReportBody({
       startDate: "2026-05-01",
       endDate: "2026-05-19",
@@ -134,7 +136,25 @@ describe("buildRunReportBody", () => {
         { name: "conversions" },
       ],
       limit: 10000,
+      offset: 0,
     });
+  });
+
+  it("emits the caller-supplied offset + limit when provided", () => {
+    const body = buildRunReportBody({
+      startDate: "2026-05-01",
+      endDate: "2026-05-19",
+      offset: 20000,
+      limit: 5000,
+    });
+    expect(body.offset).toBe(20000);
+    expect(body.limit).toBe(5000);
+  });
+
+  it("exports GA4_PAGE_SIZE = 10000 and uses it as the default limit", () => {
+    expect(GA4_PAGE_SIZE).toBe(10000);
+    const body = buildRunReportBody({ startDate: "a", endDate: "b" });
+    expect(body.limit).toBe(GA4_PAGE_SIZE);
   });
 });
 
@@ -447,6 +467,204 @@ describe("runGa4UrlTrafficReport — refresh-on-401", () => {
     vi.useRealTimers();
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe("token_expired");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// runGa4UrlTrafficReport — pagination (expert audit #5/#62)
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a runReport-shaped 200 Response carrying `count` synthetic rows
+ * starting at `startIndex` (so we can assert concatenation order across
+ * pages), plus an optional top-level `rowCount`. Each row is a valid
+ * (YYYYMMDD, url) tuple narrowRunReportRows accepts.
+ */
+function makePageResponse(opts: {
+  count: number;
+  startIndex: number;
+  rowCount?: number;
+}): Response {
+  const rows = Array.from({ length: opts.count }, (_, i) => {
+    const idx = opts.startIndex + i;
+    return {
+      dimensionValues: [{ value: "20260510" }, { value: `/p/${idx}` }],
+      metricValues: [{ value: "1" }, { value: "1" }, { value: "0" }],
+    };
+  });
+  const body: Record<string, unknown> = { rows };
+  if (opts.rowCount != null) body.rowCount = opts.rowCount;
+  return new Response(JSON.stringify(body), { status: 200 });
+}
+
+/** Read the `offset` out of a recorded fetch call's request body. */
+function offsetOfCall(call: unknown[]): number {
+  const init = call[1] as RequestInit;
+  const parsed = JSON.parse(init.body as string) as { offset?: number };
+  return parsed.offset ?? -1;
+}
+
+describe("runGa4UrlTrafficReport — pagination", () => {
+  it("≤10k rows (rowCount absent): exactly ONE fetch, rows pass through, not truncated", async () => {
+    _ga4Token = makeToken();
+    const stubFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(makePageResponse({ count: 3, startIndex: 0 }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_MS));
+    const r = await runGa4UrlTrafficReport(HAPPY_ARGS);
+    vi.useRealTimers();
+    expect(stubFetch).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.rows).toHaveLength(3);
+      expect(r.truncated).toBeFalsy();
+      expect(r.rowCount).toBeUndefined(); // rowCount absent → not surfaced
+    }
+    expect(offsetOfCall(stubFetch.mock.calls[0]!)).toBe(0);
+  });
+
+  it("≤10k rows (rowCount = 10000 exactly): exactly ONE fetch, not truncated", async () => {
+    _ga4Token = makeToken();
+    const stubFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        makePageResponse({ count: 5, startIndex: 0, rowCount: 10000 }),
+      );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_MS));
+    const r = await runGa4UrlTrafficReport(HAPPY_ARGS);
+    vi.useRealTimers();
+    expect(stubFetch).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.truncated).toBeFalsy();
+      expect(r.rowCount).toBe(10000);
+    }
+  });
+
+  it(">10k rows (rowCount=25000 across 3 pages 10k/10k/5k): 3 fetches, 25000 rows concatenated, correct offsets, not truncated", async () => {
+    _ga4Token = makeToken();
+    const stubFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        makePageResponse({ count: 10000, startIndex: 0, rowCount: 25000 }),
+      )
+      .mockResolvedValueOnce(
+        makePageResponse({ count: 10000, startIndex: 10000, rowCount: 25000 }),
+      )
+      .mockResolvedValueOnce(
+        makePageResponse({ count: 5000, startIndex: 20000, rowCount: 25000 }),
+      );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_MS));
+    const r = await runGa4UrlTrafficReport(HAPPY_ARGS);
+    vi.useRealTimers();
+    expect(stubFetch).toHaveBeenCalledTimes(3);
+    expect(offsetOfCall(stubFetch.mock.calls[0]!)).toBe(0);
+    expect(offsetOfCall(stubFetch.mock.calls[1]!)).toBe(GA4_PAGE_SIZE);
+    expect(offsetOfCall(stubFetch.mock.calls[2]!)).toBe(2 * GA4_PAGE_SIZE);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.rows).toHaveLength(25000);
+      // concatenation order preserved across pages
+      expect(r.rows[0]!.url).toBe("/p/0");
+      expect(r.rows[10000]!.url).toBe("/p/10000");
+      expect(r.rows[24999]!.url).toBe("/p/24999");
+      expect(r.truncated).toBeFalsy();
+      expect(r.rowCount).toBe(25000);
+    }
+  });
+
+  it("exact multiple (rowCount=20000, two 10k pages): 2 fetches, no empty 3rd call", async () => {
+    _ga4Token = makeToken();
+    const stubFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        makePageResponse({ count: 10000, startIndex: 0, rowCount: 20000 }),
+      )
+      .mockResolvedValueOnce(
+        makePageResponse({ count: 10000, startIndex: 10000, rowCount: 20000 }),
+      );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_MS));
+    const r = await runGa4UrlTrafficReport(HAPPY_ARGS);
+    vi.useRealTimers();
+    expect(stubFetch).toHaveBeenCalledTimes(2);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.rows).toHaveLength(20000);
+      expect(r.truncated).toBeFalsy();
+    }
+  });
+
+  it("MAX_PAGES cap (rowCount huge): stops at GA4_MAX_PAGES fetches, truncated:true, warn logged", async () => {
+    _ga4Token = makeToken();
+    const stubFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        // every page returns a full 10k page + a huge total so the loop
+        // never naturally terminates — only the MAX_PAGES guard can.
+        makePageResponse({ count: 10000, startIndex: 0, rowCount: 9_000_000 }),
+      );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_MS));
+    const r = await runGa4UrlTrafficReport(HAPPY_ARGS);
+    vi.useRealTimers();
+    expect(stubFetch).toHaveBeenCalledTimes(GA4_MAX_PAGES);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.truncated).toBe(true);
+      expect(r.rowCount).toBe(9_000_000);
+      expect(r.rows).toHaveLength(GA4_MAX_PAGES * 10000);
+    }
+    const warned = _warnSpy.mock.calls.some(
+      (c) => typeof c[0] === "string" && (c[0] as string).includes("GA4_MAX_PAGES"),
+    );
+    expect(warned).toBe(true);
+  });
+
+  it("subsequent-page error (page 0 ok rowCount=25000, page 1 non-200): returns page-0 rows, truncated:true, no throw", async () => {
+    _ga4Token = makeToken();
+    const stubFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        makePageResponse({ count: 10000, startIndex: 0, rowCount: 25000 }),
+      )
+      .mockResolvedValueOnce(new Response("boom", { status: 500 }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_MS));
+    const r = await runGa4UrlTrafficReport(HAPPY_ARGS);
+    vi.useRealTimers();
+    expect(stubFetch).toHaveBeenCalledTimes(2);
+    expect(r.ok).toBe(true); // partial beats zero — NOT an api_error
+    if (r.ok) {
+      expect(r.rows).toHaveLength(10000); // only page-0 rows survived
+      expect(r.truncated).toBe(true);
+      expect(r.rowCount).toBe(25000);
+    }
+    const warned = _warnSpy.mock.calls.some(
+      (c) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("subsequent page failed"),
+    );
+    expect(warned).toBe(true);
+  });
+
+  it("page-0 non-2xx still fails the whole report (offset>0 fail-soft does NOT apply to page 0)", async () => {
+    _ga4Token = makeToken();
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("nope", { status: 500 }),
+    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_MS));
+    const r = await runGa4UrlTrafficReport(HAPPY_ARGS);
+    vi.useRealTimers();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("api_error");
+      expect(r.status).toBe(500);
+    }
   });
 });
 
