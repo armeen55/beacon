@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — PHASE I (wire the expert reasoning INTO the clickable brief)
+
+Makes the "better than a pro SEO" reasoning VISIBLE in the flow the operator clicks through — the gap the standing goal flagged (PHASE F built it; PHASE I surfaces it). Mirrors the Slice-B `WhyThisMattersAct` progressive-enhancement pattern exactly.
+- **NEW `topic-fit-from-evidence.ts` (pure):** `deriveRowTopicFit(row, prompts, {brandTerms, localeTerms})` feeds the Slice-3 scorer the best available signal from a live row (primary query GSC→SEMrush→prompt; supporting queries = the page's search footprint; target label + URL path as topic proxy; brand/locale from tenant config). Null when no quotable query. (Richer generation-time scoring against the full page snapshot is the planned hot-path follow-up.)
+- **NEW server action `llm-strategist-action.ts`:** tenant-scoped, read-only, fail-closed — mirrors `requestLlmWhyNarrativeAction`. Resolves the rec for the CURRENT tenant, builds the shared `buildWhyInput` packet + `deriveRowTopicFit` (with the tenant's `getBusinessConfigForCurrentTenant` brand/locale), calls `composeExpertStrategy`, returns the strategist reasoning + the DETERMINISTIC verdict.
+- **NEW client `strategist-act.tsx`:** post-mount progressive enhancement mounted right after Act 2. Renders NOTHING until a non-null result arrives → with `BEACON_LLM_STRATEGIST` off (default), or any failure, the brief is byte-identical to today (no flash). The DETERMINISTIC verdict GOVERNS the surface: a `rejected` verdict shows ONLY the honest caution (the persuasive reasoning is suppressed); an approved verdict shows the full expert reasoning (opportunity / why-now / best-move / why-this-beats-alternatives / expected-outcome / risks), labelled "Strategist analysis · AI-assisted". Pure presentational `StrategistPanel` extracted for SSR tests. Read-only; never published.
+- **Gate:** typecheck clean; **+7 tests** (deriveRowTopicFit precedence/fallback/null/brand-locale/fit; StrategistPanel SSR — approved renders reasoning, rejected renders caution-only + suppresses reasoning); recs + architecture **5,904 pass**; build ✓. No hardcoding, fail-closed, flag-gated. **The full loop is now wireable end-to-end:** connect → generate → open the brief → (flag on) see expert reasoning gated by the deterministic verdict → Accept → push. **Operator step to see it live:** set `BEACON_LLM_STRATEGIST=1` (hosted env) — local `.env.local` is gitignored. Next: the LLM critic pass (increment 2) + generation-time intent-fit gating.
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — PHASE F increment 1 (LLM expert strategist + deterministic authority) + OpenAI quota LIVE
 
 **OpenAI quota RESOLVED:** re-probed `api.openai.com` with `gpt-5-mini` → HTTP 200 + real token usage (morning's `429 insufficient_quota` is gone; the operator funded billing). Memory `project_openai_quota_blocker` updated to RESOLVED. (gpt-5 uses `max_completion_tokens`; probe with ≥50 because reasoning tokens precede content.)

@@ -50,6 +50,7 @@ import {
 import { cn } from "@/lib/utils";
 import { RecommendationDetailActions } from "./recommendation-detail-actions";
 import { WhyThisMattersAct } from "./why-this-matters-act";
+import { StrategistAct } from "./strategist-act";
 import { SuggestedCopyAct } from "./suggested-copy-act";
 import { parseGscEvidenceStats } from "@/components/recommendations/v2/recommendation-v2-card";
 
@@ -538,6 +539,17 @@ export function RecommendationDetailClient({
           </p>
         )}
       </Act>
+
+      {/* PHASE I (2026-06-16) — senior-strategist analysis panel. A flagged
+          (BEACON_LLM_STRATEGIST, default OFF) progressive enhancement layered
+          AFTER mount on top of the deterministic brief: the LLM provides the
+          expert reasoning (opportunity / why-now / best-move / why-this-beats-
+          alternatives / expected outcome / risks) while the DETERMINISTIC gate
+          (intent-fit + evidence + safety) sets the confidence verdict and can
+          reject — the LLM cannot override it. Renders NOTHING when the flag is
+          off or anything fails, so today's brief is unchanged. Read-only;
+          never published. */}
+      <StrategistAct recId={row.id} />
 
       {/* Act 3 — Evidence */}
       <Act
