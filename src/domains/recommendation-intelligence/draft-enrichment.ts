@@ -196,6 +196,119 @@ function titleCaseLabel(label: string): string {
     .join(" ");
 }
 
+// ── Prose vs. list/label detection (meta-description quality) ─────────
+//
+// A meta description must read as PROSE, not as a recipe ingredient list
+// or a heading/section-label index. These pure predicates let composeMeta
+// reject list-like bodies and label-list structural sources, and refuse to
+// ever emit "colon-soup" (the section-heading list joined by " — " that the
+// extractor produced on Wix recipe/spec pages whose body copy it can't see).
+// All vertical-agnostic: derived only from the shape of the page's own
+// text, never from hardcoded vocabulary.
+
+/** A line/fragment that opens like a list item: bullet glyph, dash, star,
+ *  or an enumerator ("1.", "2)"). Recipe ingredient lines + numbered steps
+ *  match — they are not description prose. */
+function looksLikeBulletLine(line: string): boolean {
+  return /^\s*(?:[•·▪◦‣*\-–—]|\d+[.)])\s+/.test(line);
+}
+
+/**
+ * Whether a body source reads as a LIST rather than prose. True when the
+ * sample is bullet-dominated — either most of its lines open like list
+ * items, or bullet glyphs make up a meaningful fraction of the characters
+ * (Wix recipe pages emit a single run with inline "• …• …• …" that has no
+ * newlines but is unmistakably a list). A recipe ingredient list is not a
+ * page description, so composeMeta must not draft a meta from it.
+ */
+export function isListLikeBody(text: string): boolean {
+  const clean = text.trim();
+  if (clean.length === 0) return false;
+  // Inline bullet density: count list glyphs vs. total length. Wix joins a
+  // recipe's ingredient lines into one string with "•" separators (no
+  // newlines) — ~one glyph per short fragment is enough to dominate.
+  const bulletGlyphs = (clean.match(/[•·▪◦‣]/g) ?? []).length;
+  if (bulletGlyphs >= 3) return true;
+  // Per-line: >30% of non-empty lines opening like list items → list.
+  const lines = clean.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length === 0) return false;
+  const bulletLines = lines.filter(looksLikeBulletLine).length;
+  return bulletLines / lines.length > 0.3;
+}
+
+/**
+ * Whether a structural fragment (an h1/h2/card chunk) is a heading or
+ * section LABEL rather than a prose sentence. Such fragments must be
+ * dropped before assembling a meta source — joined together they read as
+ * the broken placeholder "Ingredients: — Serving Info: — Step 1: …".
+ * A fragment is a label when ANY of:
+ *   • it ends with a colon ("Ingredients:", "Serving Info:")
+ *   • it matches a "Step N" / "Section N" enumerator heading
+ *   • it is a short heading: ≤4 words AND carries no sentence punctuation
+ *     (a real description sentence is longer or ends with . ! ?)
+ * Pure; vertical-agnostic (shape only, no vocabulary).
+ */
+export function isLabelOrHeadingFragment(fragment: string): boolean {
+  const s = fragment.trim();
+  if (s.length === 0) return true;
+  if (s.endsWith(":")) return true;
+  // "Step 1: …", "Step 1 …", "Section 2", "Part 3 –" — enumerated headings.
+  if (/^(?:step|section|part|chapter|phase)\s+\d+\b/i.test(s)) return true;
+  const words = s.split(/\s+/).filter(Boolean);
+  const hasSentencePunctuation = /[.!?]/.test(s);
+  if (words.length <= 4 && !hasSentencePunctuation) return true;
+  return false;
+}
+
+/**
+ * Last-line guard: does an assembled candidate STILL read as a label /
+ * heading list rather than a description? Catches colon-soup that slips
+ * past per-fragment filtering. True when:
+ *   • it carries the colon-fragment signature ": —" or "—…:" (a section
+ *     label adjacent to the " — " join), OR
+ *   • it is mostly Title-Case fragments joined by " — " (a heading index,
+ *     not a sentence) with no real sentence punctuation.
+ * When true, composeMeta returns null — NEVER emits colon-soup.
+ */
+export function readsAsLabelList(text: string): boolean {
+  const s = text.trim();
+  if (s.length === 0) return true;
+  // Colon adjacent to the structural " — " join, or a trailing bare colon.
+  if (/:\s*—/.test(s) || /—\s*[^—]*:\s*(?:—|$)/.test(s)) return true;
+  if (/:\s*$/.test(s)) return true;
+  // Title-Case-fragment index: split on the " — " join; if most pieces are
+  // short Title-Case headings (no sentence punctuation), it's a label list.
+  if (s.includes(" — ")) {
+    const pieces = s.split(" — ").map((p) => p.trim()).filter(Boolean);
+    if (pieces.length >= 2) {
+      const headingish = pieces.filter((p) => isLabelOrHeadingFragment(p)).length;
+      if (headingish / pieces.length >= 0.6) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Extract the first PROSE sentence ≥ minLen chars from a body sample —
+ * skipping any leading list/bullet content. Splits on sentence
+ * terminators; returns the first non-bullet sentence long enough to read
+ * as a description, else null. Pure.
+ */
+export function firstProseSentence(text: string, minLen = 40): string | null {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length === 0) return null;
+  // Split into candidate sentences on terminator + space; keep terminators.
+  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
+  for (const raw of sentences) {
+    const sentence = raw.trim();
+    if (sentence.length < minLen) continue;
+    if (looksLikeBulletLine(sentence)) continue;
+    if (isListLikeBody(sentence)) continue;
+    return sentence;
+  }
+  return null;
+}
+
 /**
  * Derive a human title from the URL slug: "/persian-last-names" →
  * "Persian Last Names". The slug is the page's own name for itself —
@@ -377,15 +490,43 @@ function composeMeta(
   isChrome: (text: string) => boolean,
 ): DraftFill | null {
   const current = snap?.meta_description?.trim() ?? "";
-  // Source preference: real body paragraphs → page structure (h1 +
-  // h2s + card texts, minus site-wide chrome). The structural fallback
-  // matters on Wix, whose DOM hides body copy from the <main>/<article>
-  // extractor (caught live: body_paragraph_sample empty on every
-  // Iranopedia page). Either way the draft is built ONLY from the
-  // page's own words.
-  const body = (snap?.body_paragraph_sample ?? []).join(" ").trim();
-  const structural = [
-    snap?.h1 ?? "",
+
+  // A meta description MUST read as prose, never as a recipe ingredient
+  // list or a section-heading index. The source selection below only
+  // accepts genuine prose; anything that still reads as a label/heading
+  // list (colon-soup) is refused — better NO draft than a broken one.
+  //
+  // Preference order (own words only; no hardcoded vertical/brand strings):
+  //   (a) the page's existing meta_description (a real prose value), then
+  //   (b) the first clean PROSE sentence in the body (skipping bullets), then
+  //   (c) page structure (h1 + h2s + cards) AFTER dropping heading/label
+  //       fragments — only when ≥40 chars of real prose survive, then
+  //   (d) null.
+
+  // (b) First clean prose sentence from the body. Reject the body source
+  // outright when it is bullet-dominated (recipe ingredient lists on Wix) —
+  // a list is not a description.
+  const bodyRaw = (snap?.body_paragraph_sample ?? []).join(" ").trim();
+  const bodyProse =
+    bodyRaw.length > 0 && !isListLikeBody(bodyRaw)
+      ? firstProseSentence(bodyRaw, 40)
+      : null;
+
+  // (c) Structural fallback (Wix hides body copy from the <main>/<article>
+  // extractor). The page's own H1 is its name for itself — a legitimate
+  // lead, kept verbatim when it's real content (not a CMS placeholder /
+  // site chrome). Everything below it (h2s + card texts) is filtered: a
+  // heading/section LABEL fragment ("Ingredients:", "Serving Info:", "Step
+  // 1: …", a short Title-Case heading) is dropped, because joined together
+  // those read as the broken placeholder "Ingredients: — Serving Info: —
+  // Step 1: …" (caught live on iranopedia.com/persian-kabobs/koobideh-kabob).
+  // Only the H1 + real prose fragments survive.
+  const cleanH1 = stripJunkZeroWidth(snap?.h1 ?? "");
+  const h1Lead =
+    hasVisibleGlyph(cleanH1) && !isCmsPlaceholder(cleanH1) && !isChrome(cleanH1)
+      ? cleanH1
+      : "";
+  const proseFragments = [
     ...(snap?.h2_list ?? []),
     ...(snap?.card_texts ?? []),
   ]
@@ -400,22 +541,35 @@ function composeMeta(
         hasVisibleGlyph(s) &&
         !isCmsPlaceholder(s) &&
         !isChrome(s) &&
-        // Drop section-LABEL fragments (e.g. "Ingredients:", "Serving Info:",
-        // "Cooking Time:"). On label-heavy pages whose body copy the extractor
-        // can't see (recipes / spec sheets on Wix), the structural source was
-        // otherwise just a colon-terminated heading list joined by " — " — a
-        // meta description that reads as broken placeholder when pasted
-        // ("…Ingredients: — Serving Info: — Cooking Time: —…", caught live on
-        // iranopedia.com/persian-kabobs/koobideh-kabob). A real description
-        // value never ends in a bare colon; if filtering leaves < 40 chars of
-        // prose, the guard below emits NO draft — better than a broken one.
-        !s.trim().endsWith(":"),
-    )
+        !isLabelOrHeadingFragment(s),
+    );
+  const structural = [h1Lead, ...proseFragments]
+    .filter((s) => s.length > 0)
     .join(" — ")
     .trim();
-  const source = body.length >= 40 ? body : structural;
-  if (source.length < 40) return null; // not enough real copy — no fake drafts
+
+  // Pick the best PROSE source in preference order: existing meta first,
+  // then a clean body sentence, then the structural prose — each only when
+  // it carries ≥40 chars of real prose.
+  const source =
+    current.length >= 40
+      ? current
+      : bodyProse && bodyProse.length >= 40
+        ? bodyProse
+        : structural.length >= 40
+          ? structural
+          : "";
+  if (source.length < 40) return null; // not enough real prose — no fake drafts
+
+  // Hard guard: NEVER emit colon-soup. If the assembled candidate still
+  // reads as a label/heading list (colon-fragment signature, or a Title-Case
+  // heading index joined by " — "), refuse the draft entirely.
+  if (readsAsLabelList(source)) return null;
+
   const proposed = clipOnWordBoundary(source, 155);
+  // Post-clip safety re-check: refuse if clipping left it too short or
+  // turned the tail into a bare colon/label.
+  if (proposed.length < 40 || readsAsLabelList(proposed)) return null;
   if (proposed === current) return null;
   return {
     display_label:

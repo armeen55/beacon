@@ -388,6 +388,69 @@ export type RecommendationActionRow = {
 // ── Builder ─────────────────────────────────────────────────────────────
 
 /**
+ * COPY-edit action types — those whose `proposed_text` IS the literal
+ * customer-facing copy the operator will paste onto the page (a title, a
+ * meta description, an H1/H2, an FAQ, a section/answer/table body). When
+ * such a row's draft is empty/whitespace it renders as a blank "go look at
+ * this page" card with nothing to ship — un-actionable garbage in the
+ * queue.
+ *
+ * DELIBERATELY EXCLUDED — these still carry a non-empty `proposed_text`
+ * when emitted, but it's a DIRECTIVE / paste-ready markup, not draftable
+ * "copy", so their emptiness check is owned by their composer (which
+ * returns null rather than an empty string):
+ *   • fix_robots / fix_noindex / fix_canonical / fix_status_code /
+ *     fix_sitemap (paste-ready directives)
+ *   • add_schema / fix_schema (JSON-LD blocks / repair directives)
+ *   • add_internal_link (suggested source pages)
+ *   • fix_page_experience (Clarity investigation directive)
+ *   • the off-site authority types (manual tasks)
+ * These are unaffected by the suppression below.
+ *
+ * Page-level lifecycle / passive types (`create_page`, `split_page`,
+ * `merge_pages`, `watch`, the inactive registry stubs) are NEVER edit-
+ * anchored rows in Path A — they surface as Path-B meta-action rows with
+ * `proposedText: null` BY DESIGN, and must not be suppressed.
+ */
+const COPY_EDIT_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
+  "edit_title",
+  "edit_meta",
+  "change_h1",
+  "add_h2_section",
+  "rewrite_h2",
+  "add_faq",
+  "rewrite_faq",
+  "add_table",
+  "edit_table_row",
+  "add_answer_block",
+  "add_proof_section",
+  "add_comparison_section",
+  "add_cost_section",
+  "add_timeline_section",
+  "reorder_sections",
+  "update_intro",
+  "add_h3_section",
+]);
+
+/**
+ * Render-time suppression predicate (NOT a data delete): true when a
+ * COPY-type edit has no usable draft (`proposed_text` null/empty/
+ * whitespace). The queue builder skips such rows so the customer never
+ * sees a blank card with nothing to ship. Stale drafts that compose to no
+ * copy (e.g. a recipe page whose meta can't be drafted deterministically)
+ * are hidden here while the underlying row stays in the store, ready to
+ * surface again once a real draft (deterministic or LLM) is written. Pure.
+ */
+export function isUndraftableCopyEditRow(args: {
+  readonly actionType: ActionType;
+  readonly proposedText: string | null | undefined;
+}): boolean {
+  if (!COPY_EDIT_ACTION_TYPES.has(args.actionType)) return false;
+  const text = (args.proposedText ?? "").trim();
+  return text.length === 0;
+}
+
+/**
  * Map an `ActionType` (specific-edit taxonomy) to the operator-facing
  * `ActionRowType`. Multiple action types may collapse into one row
  * type — e.g., `add_h2_section` and `rewrite_h2` both render as "H2".
@@ -1521,6 +1584,16 @@ export function buildRecommendationActionRows(
       // ── Path A.1: one grouped row per matched FAQ Q+A pair. ──
       for (const pair of faqPairs) {
         const { question, answer, hash } = pair;
+        // Render-time suppression: a FAQ row whose question copy is empty/
+        // whitespace has nothing to ship — hide it (data is untouched).
+        if (
+          isUndraftableCopyEditRow({
+            actionType: question.action_type,
+            proposedText: question.proposed_text,
+          })
+        ) {
+          continue;
+        }
         const editAnchorUrl =
           typeof question.target_url === "string" &&
           question.target_url.length > 0 &&
@@ -1675,6 +1748,21 @@ export function buildRecommendationActionRows(
 
       // ── Path A.2: one row per non-FAQ edit (existing behavior). ──
       for (const edit of nonFaqEdits) {
+        // Render-time suppression: a COPY edit (title / meta / H1 / H2 /
+        // section / answer / table / intro) whose draft is empty/whitespace
+        // would render as a blank "go look at this page" card with nothing to
+        // ship — hide it. The underlying row is NOT deleted; once a real
+        // draft is written (improved deterministic composer or LLM) it
+        // surfaces again. Directive rows (fix_* / schema / internal-link)
+        // always carry a non-empty directive when emitted, so they pass.
+        if (
+          isUndraftableCopyEditRow({
+            actionType: edit.action_type,
+            proposedText: edit.proposed_text,
+          })
+        ) {
+          continue;
+        }
         const rowType = actionRowTypeForEdit(edit.action_type);
         // Prefer the edit's anchor URL over the rec's resolution
         // when both exist — edits often anchor more specifically than

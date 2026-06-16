@@ -14,6 +14,10 @@ import {
   stripBrandSuffix,
   clipOnWordBoundary,
   suggestLinkSources,
+  isListLikeBody,
+  isLabelOrHeadingFragment,
+  readsAsLabelList,
+  firstProseSentence,
   type DraftEnrichmentContext,
 } from "@/domains/recommendation-intelligence/draft-enrichment";
 import type { DeterministicPromotionEditRow } from "@/domains/recommendation-intelligence/promotion-result-to-edit-row";
@@ -158,6 +162,71 @@ describe("pure helpers", () => {
   });
 });
 
+describe("prose vs. list/label detection (meta quality guards)", () => {
+  it("isListLikeBody: TRUE for inline bullet runs and per-line bullet lists", () => {
+    expect(
+      isListLikeBody("• 1 lb Ground Beef• 1 small Onion• 2 cloves Garlic"),
+    ).toBe(true);
+    expect(isListLikeBody("- first\n- second\n- third")).toBe(true);
+    expect(isListLikeBody("1. step one\n2. step two\n3. step three")).toBe(true);
+  });
+
+  it("isListLikeBody: FALSE for real prose", () => {
+    expect(
+      isListLikeBody(
+        "Tea houses have anchored Iranian social life for centuries, serving as gathering places.",
+      ),
+    ).toBe(false);
+  });
+
+  it("isLabelOrHeadingFragment: TRUE for colon labels, Step-N headings, and short Title-Case headings", () => {
+    expect(isLabelOrHeadingFragment("Ingredients:")).toBe(true);
+    expect(isLabelOrHeadingFragment("Serving Info:")).toBe(true);
+    expect(isLabelOrHeadingFragment("Step 1: Prepare the meat")).toBe(true);
+    expect(isLabelOrHeadingFragment("History")).toBe(true); // ≤4 words, no punctuation
+    expect(isLabelOrHeadingFragment("Where to go")).toBe(true);
+  });
+
+  it("isLabelOrHeadingFragment: FALSE for a real description sentence", () => {
+    expect(
+      isLabelOrHeadingFragment(
+        "Combine ground beef with grated onion, salt, and pepper, then knead until smooth.",
+      ),
+    ).toBe(false);
+  });
+
+  it("readsAsLabelList: TRUE for colon-soup and Title-Case heading indexes", () => {
+    expect(
+      readsAsLabelList(
+        "Koobideh Kabob Recipe — Kabob Koobideh Ingredients: — Serving Info: — Cooking Time:",
+      ),
+    ).toBe(true);
+    expect(
+      readsAsLabelList("History — Where to go — Recipes — More Info"),
+    ).toBe(true);
+    expect(readsAsLabelList("Specs:")).toBe(true);
+  });
+
+  it("readsAsLabelList: FALSE for prose (even when it leads with a short H1)", () => {
+    expect(
+      readsAsLabelList(
+        "Persian Tea Houses — Iranian tea houses have served as gathering places for poetry and conversation for generations.",
+      ),
+    ).toBe(false);
+  });
+
+  it("firstProseSentence: skips a leading bullet, returns the first ≥40-char sentence", () => {
+    const out = firstProseSentence(
+      "• 1 lb beef. Saffron is the world's most expensive spice and Iran produces most of it.",
+    );
+    expect(out).toContain("Saffron is the world's most expensive spice");
+  });
+
+  it("firstProseSentence: null when there is no prose sentence long enough", () => {
+    expect(firstProseSentence("Short. Tiny. Bits.")).toBeNull();
+  });
+});
+
 describe("enrichPromotionRow — content drafts", () => {
   it("edit_title: composes from h1 + inferred brand suffix", () => {
     const s1 = snap({ title: null });
@@ -207,13 +276,93 @@ describe("enrichPromotionRow — content drafts", () => {
     expect(out.proposed_text!).toContain("Tea houses");
   });
 
-  it("edit_meta: thin body falls back to page structure (h1 + h2s, own words only)", () => {
+  it("edit_meta: thin body + a structural source that is ONLY short headings → null (no heading-list meta)", () => {
+    // The page's body is too short to draft from, and its structure is the
+    // H1 plus two short section HEADINGS ("History", "Where to go"). A
+    // description assembled from a heading index reads as broken placeholder,
+    // so the improved composeMeta refuses rather than emit "Persian Tea
+    // Houses — History — Where to go". Better no draft than a label list.
     const out = enrichPromotionRow(
       row({ action_type: "edit_meta" }),
       candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
       ctxOf(snap({ body_paragraph_sample: ["Too short."] })),
     );
-    expect(out.proposed_text).toBe("Persian Tea Houses — History — Where to go");
+    expect(out.proposed_text).toBeNull();
+  });
+
+  it("edit_meta: keeps the H1 as a lead alongside a real prose card fragment", () => {
+    // The H1 is the page's own name (a legitimate lead); a long prose card
+    // fragment carries the real description. Section-heading h2s are dropped.
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(
+        snap({
+          body_paragraph_sample: [],
+          h1: "Persian Tea Houses",
+          h2_list: ["History", "Where to go"],
+          card_texts: [
+            "Iranian tea houses, known as chaikhaneh, have served as gathering places for poetry, conversation, and backgammon for generations.",
+          ],
+        }),
+      ),
+    );
+    expect(out.proposed_text).not.toBeNull();
+    expect(out.proposed_text!).toContain("Persian Tea Houses");
+    expect(out.proposed_text!).toContain("chaikhaneh");
+    expect(out.proposed_text!).not.toContain("History");
+    expect(out.proposed_text!).not.toContain("Where to go");
+  });
+
+  it("edit_meta: REJECTS a bullet-list body (recipe ingredients are not a description)", () => {
+    // Caught live on iranopedia.com/persian-kabobs/koobideh-kabob: the body
+    // sample is a recipe ingredient list ("• 1 lb Ground Beef… • 1 small
+    // Onion…"). A list is not prose — composeMeta must not draft from it. With
+    // the structure also being only colon-labels, the row stays draft-less.
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(
+        snap({
+          body_paragraph_sample: [
+            "• 1 lb Ground Beef/Lamb (80/20 fat content)• 1 small Onion, minced• 2 cloves Garlic, minced• 2 Tbsp Mint, minced• 1 Tbsp Aleppo Pepper• 1 tsp Cumin• 1 tsp Sumac",
+          ],
+          h1: "Koobideh Kabob Recipe",
+          h2_list: [
+            "Kabob Koobideh Ingredients:",
+            "Serving Info:",
+            "Cooking Time:",
+            "Step 1: Prepare the Onion & Meat Mixture",
+            "Iranopedia",
+          ],
+          card_texts: [],
+        }),
+      ),
+    );
+    // body is a list (rejected), structure is all labels/steps + the H1 lead
+    // alone is < 40 chars → no fake draft.
+    expect(out.proposed_text).toBeNull();
+  });
+
+  it("edit_meta: extracts the FIRST clean prose sentence from a body that opens with a bullet line", () => {
+    // The body opens with a stray bullet line but then carries real prose.
+    // composeMeta should skip the bullet and draft from the prose sentence.
+    const out = enrichPromotionRow(
+      row({ action_type: "edit_meta" }),
+      candidate({ trigger_signal: "missing_meta", action_type: "edit_meta" }),
+      ctxOf(
+        snap({
+          body_paragraph_sample: [
+            "Saffron is the world's most expensive spice and Iran produces the vast majority of the global supply each year.",
+          ],
+          h1: "Persian Saffron",
+          h2_list: [],
+          card_texts: [],
+        }),
+      ),
+    );
+    expect(out.proposed_text).not.toBeNull();
+    expect(out.proposed_text!).toContain("Saffron is the world's most expensive spice");
   });
 
   it("edit_meta: refuses when body AND structure are both thin (no fake content)", () => {
