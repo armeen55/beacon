@@ -1,23 +1,12 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
-import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
-import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getOpportunities, getResults } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { getEventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
-import { ScorecardTable, type EnrichedChangeRow } from "./scorecard-client";
+import type { EnrichedChangeRow } from "./types";
 import { ChangesV2Client } from "./changes-v2-client";
-import {
-  loadAllChangeOutcomes,
-  type StoredChangeOutcome,
-} from "@/domains/attribution/change-outcome-store";
-import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
-import { latestWebsiteCrawlRun } from "@/domains/observations/read";
-import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
-// Legacy Z-score "watching" outcomes import removed in Phase 2C cleanup.
-import { findDuplicatePairs } from "@/domains/changelog/dedupe";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -34,17 +23,11 @@ import {
   type UrlChangePattern,
 } from "@/domains/learning/change-patterns";
 import { extractEditTokens } from "@/domains/changelog/dedupe";
-import { isEventTruthPreviewEnabled } from "@/lib/flags";
 import {
   changelogJoinKey,
   classifyAll,
   indexEditsByJoinKey,
-  LIFECYCLE_TAB_LABEL,
-  type LifecycleTab,
-  type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
-import { isLifecycleVerdictEnabled } from "@/lib/flags";
-import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
 import {
   computeLifecycleCounts,
   editNeedsRewrite,
@@ -65,45 +48,22 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * Bundle — Changes Proof Timeline (Plan:
- * `~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Switch
- * /changes between the legacy table + drawer and the v2 proof timeline.
+ * /changes — the v2 proof timeline.
  *
- * Routing rules (v2 is now the PRODUCTION DEFAULT — flipped 2026-06-15
- * after the Mark-shipped parity gap was closed and both tenants ground-
- * truthed clean):
- *   - Default                        → v2 proof timeline.
- *   - `?legacy=1` query              → legacy table (per-request escape hatch).
- *   - `?v2=1` query                  → v2 timeline (explicit, redundant with
- *                                       the default; kept for symmetry).
- *   - `BEACON_CHANGES_V2=false` env  → legacy table (kill switch to roll the
- *                                       whole surface back without a deploy).
- *
- * Mirrors the BEACON_TODAY_V2 / BEACON_RECOMMENDATIONS_V2 default-ON shape
- * (Bundles 1 and 2A): env unset → v2; only the explicit `=false` string
- * disables it.
+ * Surface collapse (2026-06-15) — the legacy table + drawer
+ * (`ScorecardTable`, the lifecycle strip + at-a-glance + dedupe banner
+ * layout) was deleted; v2 is now the ONLY surface. The proof timeline
+ * consumes the same enriched rows + classifier output the legacy table
+ * did, so the heavy compute below is shared — only the legacy
+ * presentation layer was removed.
  */
-function shouldUseChangesV2(
-  searchParams: Record<string, string | string[] | undefined>,
-): boolean {
-  if (searchParams.legacy === "1") return false;
-  if (searchParams.v2 === "1") return true;
-  return process.env.BEACON_CHANGES_V2 !== "false";
-}
-
-export default async function ChangeScorecardPage({
-  searchParams,
-}: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-} = {}) {
+export default async function ChangeScorecardPage() {
   const trace = createPerfTrace("loader:/changes", {
     traceId: await readPerfTraceIdFromHeaders(),
     route: "/changes",
   });
   try {
-  const params = await (searchParams ?? Promise.resolve({}));
-  const useV2 = shouldUseChangesV2(params);
-  trace.data("use_v2", useV2 ? "true" : "false");
+  trace.data("use_v2", "true");
 
   // Phase 1.2 (Sprint 1, 2026-04-24): single fresh repo read per request.
   // Every render-visible changelog value on this page derives from this
@@ -284,12 +244,11 @@ export default async function ChangeScorecardPage({
     last: urlHistory.date_range.last ?? today,
   };
 
-  // ── Legacy scorecard rows (still used for drill-down topic/platform breakdown) ──
-  const [results, opportunities, eventDecisions, citationEvidenceIndex] = await Promise.all([
+  // ── Scorecard rows (feed the enriched proof-timeline rows below) ──
+  const [results, opportunities, eventDecisions] = await Promise.all([
     getResults(),
     getOpportunities(),
     getEventDecisions(),
-    getCitationEvidenceIndex(),
   ]);
   // Phase 6B.1 (2026-04-28) — feed `allRowsForClassifier` (real
   // changelog + synthetic pending rows) into the scorecard so synthetic
@@ -366,211 +325,15 @@ export default async function ChangeScorecardPage({
     };
   });
 
-  const allTopics = [...new Set(rows.flatMap((r) => r.topics))].sort();
-  const allPlatforms = [...new Set(rows.flatMap((r) => r.platforms))].sort();
-
-  const lastCrawl = await latestWebsiteCrawlRun();
-  const crawlAgeDays = lastCrawl?.completed_at
-    ? Math.floor(
-        (Date.now() - new Date(lastCrawl.completed_at).getTime()) / 86_400_000,
-      )
-    : null;
-  const coverageState = deriveCoverageState({
-    crawlAgeDays,
-    visibilityStaleVsCrawl: false,
-    sampleQualityTier: sampleQualityTierFromObservationCount(results.length),
-  });
-  const coverageWarning = coverageWarningLine(coverageState);
-
-  // Dedupe banner — reuses the single fresh read above (Phase 1.2, Sprint 1).
-  // Prior Phase B fix did its own repo round-trip here; consolidating with the
-  // main fresh read eliminates a duplicate fetch per request and keeps all
-  // page-level changelog computations on the same snapshot.
-  const duplicatePairs = findDuplicatePairs(freshChangelogEntries);
-  const duplicatePairCount = duplicatePairs.length;
-
-  const newestISO = rows[0]?.change.timestamp ?? null;
-  const newestLabel = newestISO ? describeRecency(newestISO) : null;
-
-  const truthPreviewEnabled = isEventTruthPreviewEnabled();
-
-  // Phase 2C cleanup — legacy "watching" rows removed. Attribution status
-  // (computed / weak_estimate / no_controls / ...) is now the single source
-  // of truth in the scorecard below.
-
-  // Phase 2C — load stored attribution outcomes (natural-controls engine output)
-  // and key by change_id so the scorecard row can render the new attribution
-  // status pill instead of the legacy verdict label. Absent key → no outcome
-  // yet (row shows muted "not yet" pill instead of fake verdict).
-  let outcomesById: Record<string, StoredChangeOutcome> = {};
-  try {
-    const stored = await loadAllChangeOutcomes();
-    outcomesById = Object.fromEntries(stored.map((o) => [o.source_id, o]));
-  } catch {
-    // Store may not exist yet on a fresh machine — graceful degrade.
-    outcomesById = {};
-  }
-
-  // Phase 6A.2 (2026-04-28) — at-a-glance now reflects lifecycle truth
-  // (Live verified / Pending / Needs review / Imported legacy /
-  // Scan-confirmed / Other). The pre-6A.2 counts derived from the
-  // attribution-outcome store were Z-score-status counters that did not
-  // distinguish lifecycle-OS rows from imported legacy. Tab counts come
-  // from the same `classification` used to drive the filter chips
-  // below, so the headline number and the tab chip never disagree.
-  const lifecycleCounts = classification.counts;
-
-  // Phase 6B.1 (2026-04-28) — strip counts now read directly from the
-  // canonical `recommended_edits` buckets, NOT the classifier's
-  // changelog-driven counts. Pre-6B.1 the strip's `pendingImplementation`
-  // mirrored the classifier output (changelog rows linked to accepted
-  // edits), which undercounted when the accept fan-out missed rows.
-  // Reading from `lifecycleBuckets.counts` aligns the strip with /today
-  // and keeps both surfaces honest about edit-level lifecycle truth.
-  const lifecycleStripCounts = {
-    liveVerified: lifecycleBuckets.counts.liveVerified,
-    pendingImplementation: lifecycleBuckets.counts.pendingImplementation,
-    needsReview: lifecycleBuckets.counts.needsReview,
-    notFoundAfter7d: lifecycleBuckets.counts.notFoundAfter7d,
-  };
-
-  if (useV2) {
-    // Proof-timeline pass — reuses the same enriched rows + classifier
-    // output the legacy table consumes. Pure presentation layer at this
-    // boundary; no extra data fetching, no server-action wiring.
-    return (
-      <ChangesV2Client
-        rows={enriched}
-        classByChangelogId={Object.fromEntries(classification.classOf)}
-        editStatusByChangelogId={editStatusByChangelogId}
-      />
-    );
-  }
-
+  // Proof-timeline pass — reuses the same enriched rows + classifier
+  // output. Pure presentation layer at this boundary; no extra data
+  // fetching, no server-action wiring.
   return (
-    <div>
-      <PageHeader
-        title="Changes"
-        description="Every edit you've shipped to your site, with its Google Search + AI impact tracked over time."
-      />
-
-      {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. Z-score
-          verdicts below are computed from url-citation-history which reads
-          Profound citation shards only. Native polls from Apr 22+ are not
-          yet mixed into the series. Changes made post-pivot render
-          "too_early" (honest); changes pre-pivot get Profound-only verdicts. */}
-      <EvidenceFreshnessBanner
-        builtAt={citationEvidenceIndex?.built_at ?? null}
-        label="Change verdicts"
-        className="mb-6"
-      />
-
-      {/* Phase 6A.10 (2026-04-28) — lifecycle strip parity with /today.
-          Same TodayLifecycleStrip component, same chip→tab href map.
-          Clicking a chip on /changes reloads with `?tab=…`, which the
-          scorecard client picks up via useSearchParams (Phase 6A.8
-          deep-link plumbing) and switches the active tab. Strip sits
-          above the legacy at-a-glance row because chips are clickable
-          (active surface) while the row is passive context. */}
-      <TodayLifecycleStrip
-        counts={lifecycleStripCounts}
-        className="mb-3"
-      />
-
-      {/* Phase 6A.10 (2026-04-28) — slim at-a-glance: lifecycle counts
-          now live in the strip above; this row carries only recency +
-          coverage warnings + secondary class counts (imported_legacy,
-          scan_confirmed, other) the strip's 4 chips omit. The pre-6A.10
-          version duplicated lifecycle counts between the strip and this
-          row, which created visual clutter the user explicitly flagged. */}
-      {(newestLabel ||
-        coverageWarning ||
-        lifecycleCounts.imported_legacy > 0 ||
-        lifecycleCounts.scan_confirmed > 0 ||
-        lifecycleCounts.unclassified > 0) && (
-        <div className="mb-6 rounded-md border border-border/40 bg-surface-inset/20 px-4 py-2">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-            {lifecycleCounts.imported_legacy > 0 && (
-              <span className="tabular-nums">
-                {lifecycleCounts.imported_legacy} pre-launch
-              </span>
-            )}
-            {lifecycleCounts.scan_confirmed > 0 && (
-              <span className="tabular-nums">
-                {lifecycleCounts.scan_confirmed} detected by scan
-              </span>
-            )}
-            {lifecycleCounts.unclassified > 0 && (
-              <span className="text-muted-foreground/70 tabular-nums">
-                {lifecycleCounts.unclassified} other
-              </span>
-            )}
-            {newestLabel && (
-              <span className="ml-auto">
-                Latest:{" "}
-                <span className="font-medium text-foreground">{newestLabel}</span>
-              </span>
-            )}
-            {coverageWarning && (
-              <span className="text-status-warning/70">
-                · {coverageWarning.toLowerCase()}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Event-level truth preview (flag-gated) */}
-      {truthPreviewEnabled && (
-        <div className="mb-4 flex items-center justify-end">
-          <Link
-            href="/changes/truth"
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent-primary hover:text-accent-primary/85 underline underline-offset-2"
-          >
-            Event-level truth (preview) →
-          </Link>
-        </div>
-      )}
-
-      {/* Dedupe banner */}
-      {duplicatePairCount > 0 && (
-        <div className="mb-5 rounded-lg border border-accent-primary/30 bg-accent-primary/5 px-4 py-3 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[12px] font-semibold text-foreground">
-              {duplicatePairCount} possible duplicate{duplicatePairCount === 1 ? "" : "s"} in your changelog
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              CSV summaries that look like they describe the same edits as your PDF entries. Review once to clean the list.
-            </p>
-          </div>
-          <Link
-            href="/changes/dedupe"
-            className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-accent-primary/50 bg-accent-primary/10 px-3 py-1.5 text-[11px] font-semibold text-accent-primary hover:bg-accent-primary/20 transition-colors"
-          >
-            Review duplicates →
-          </Link>
-        </div>
-      )}
-
-      <ScorecardTable
-        rows={enriched}
-        allTopics={allTopics}
-        allPlatforms={allPlatforms}
-        coverageState={coverageState}
-        outcomesById={outcomesById}
-        classByChangelogId={Object.fromEntries(classification.classOf)}
-        tabCounts={lifecycleCounts}
-        editStatusByChangelogId={editStatusByChangelogId}
-        editLiveAtByChangelogId={editLiveAtByChangelogId}
-        editNeedsRewriteByChangelogId={editNeedsRewriteByChangelogId}
-        verdictFlagEnabled={isLifecycleVerdictEnabled()}
-      />
-
-      {/* Phase 2C cleanup — legacy "Currently being watched" strip removed.
-          Its helping/hurting/too-early language contradicted the new
-          attribution status model. The scorecard list above renders every
-          change's attribution status; detail pages drill into the math. */}
-    </div>
+    <ChangesV2Client
+      rows={enriched}
+      classByChangelogId={Object.fromEntries(classification.classOf)}
+      editStatusByChangelogId={editStatusByChangelogId}
+    />
   );
   } finally {
     trace.flush();
@@ -699,20 +462,4 @@ function prettyToken(token: string): string {
 
 function prettyAsset(asset: string): string {
   return asset.replace(/_/g, " ");
-}
-
-function describeRecency(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return "just now";
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return minutes <= 1 ? "just now" : `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return days === 1 ? "yesterday" : `${days} days ago`;
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }

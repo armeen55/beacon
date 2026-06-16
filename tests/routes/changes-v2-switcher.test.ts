@@ -1,20 +1,12 @@
 /**
- * /changes v1/v2 switcher contract.
+ * /changes — V2-only render contract.
  *
- * Pins the routing rules implemented in
- * `src/app/(shell)/changes/page.tsx`:
- *
- *   - Default (no query, env unset)   → v2 proof timeline (production
- *                                        default, flipped 2026-06-15)
- *   - `?legacy=1`                      → legacy table (escape hatch)
- *   - `?v2=1`                          → v2 proof timeline (explicit)
- *   - `BEACON_CHANGES_V2=false`        → legacy table (kill switch)
- *
- * Both client surfaces are mocked so the test focuses on the routing
- * decision, not the full data render. Each stub emits a stable marker
- * the assertions grep on.
+ * Surface collapse (2026-06-15): the legacy table (`ScorecardTable`) +
+ * the `?legacy=1` / `?v2=1` / `BEACON_CHANGES_V2` switcher were deleted.
+ * `/changes` now renders the v2 proof timeline unconditionally. This
+ * test pins that the route renders the v2 client.
  */
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 
@@ -22,9 +14,9 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
-// The legacy ScorecardTable uses next/navigation hooks. The SSR smoke
-// test runs outside the App Router context — stub both hooks so the
-// legacy branch can render to a string.
+// The v2 changes client uses next/navigation hooks. The SSR smoke test
+// runs outside the App Router context — stub them so the client can
+// render to a string.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: () => {},
@@ -39,34 +31,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 // 2026-06-12 — `hasActiveExperiment()` gates the page on import-runs
-// existing for the CURRENT tenant. It now reads through
-// `forTenant(tenantId)` (the unscoped read it replaced bled other
-// tenants' import-runs in — the seed-data isolation fix). The switcher
-// routing under test is downstream of that gate, so force it open; only
-// `hasActiveExperiment` is overridden so the rest stays real.
+// existing for the CURRENT tenant. Force it open so the render reaches
+// the v2 timeline.
 vi.mock("@/lib/seed-data.server", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/seed-data.server")>();
   return { ...actual, hasActiveExperiment: async () => true };
-});
-
-vi.mock("@/app/(shell)/changes/scorecard-client", async () => {
-  const actual = await vi.importActual<
-    typeof import("@/app/(shell)/changes/scorecard-client")
-  >("@/app/(shell)/changes/scorecard-client");
-  const React = require("react") as typeof import("react");
-  return {
-    ...actual,
-    ScorecardTable: function ScorecardTableStub() {
-      return React.createElement(
-        "div",
-        {
-          "data-changes-stub": "legacy",
-        },
-        "changes-legacy-stub",
-      );
-    },
-  };
 });
 
 vi.mock("@/app/(shell)/changes/changes-v2-client", () => {
@@ -84,62 +54,19 @@ vi.mock("@/app/(shell)/changes/changes-v2-client", () => {
   };
 });
 
-async function render(
-  searchParams: Record<string, string | string[] | undefined>,
-): Promise<string> {
+async function render(): Promise<string> {
   const { default: ChangeScorecardPage } = await import(
     "@/app/(shell)/changes/page"
   );
-  const tree = await ChangeScorecardPage({
-    searchParams: Promise.resolve(searchParams),
-  });
+  const tree = await ChangeScorecardPage();
   return renderToStaticMarkup(tree as ReactElement);
 }
 
-describe("/changes switcher contract", () => {
-  const originalEnv = process.env.BEACON_CHANGES_V2;
-
-  beforeEach(() => {
-    delete process.env.BEACON_CHANGES_V2;
-  });
-
-  afterEach(() => {
-    if (originalEnv === undefined) {
-      delete process.env.BEACON_CHANGES_V2;
-    } else {
-      process.env.BEACON_CHANGES_V2 = originalEnv;
-    }
-  });
-
-  it("renders the v2 timeline by default (no query, env unset)", async () => {
-    // 2026-06-15 — v2 is now the production default. Env unset → v2.
-    const html = await render({});
+describe("/changes V2-only render contract", () => {
+  it("renders the v2 timeline (the only surface)", async () => {
+    const html = await render();
     expect(html).toContain('data-changes-stub="v2"');
+    // The deleted legacy table must never render.
     expect(html).not.toContain('data-changes-stub="legacy"');
-  }, 15_000);
-
-  it("renders the v2 timeline when ?v2=1 is set", async () => {
-    const html = await render({ v2: "1" });
-    expect(html).toContain('data-changes-stub="v2"');
-    expect(html).not.toContain('data-changes-stub="legacy"');
-  }, 15_000);
-
-  it("renders the legacy table when ?legacy=1 is set (escape hatch)", async () => {
-    const html = await render({ legacy: "1" });
-    expect(html).toContain('data-changes-stub="legacy"');
-    expect(html).not.toContain('data-changes-stub="v2"');
-  }, 15_000);
-
-  it("?legacy=1 wins over the v2 default (per-request escape hatch)", async () => {
-    const html = await render({ legacy: "1" });
-    expect(html).toContain('data-changes-stub="legacy"');
-    expect(html).not.toContain('data-changes-stub="v2"');
-  }, 15_000);
-
-  it("renders legacy when BEACON_CHANGES_V2=false (kill switch)", async () => {
-    process.env.BEACON_CHANGES_V2 = "false";
-    const html = await render({});
-    expect(html).toContain('data-changes-stub="legacy"');
-    expect(html).not.toContain('data-changes-stub="v2"');
   }, 15_000);
 });

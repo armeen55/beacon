@@ -57,14 +57,9 @@ const RENDER_SITES = [
     "[id]",
     "suggested-copy-act.tsx",
   ),
-  resolve(
-    REPO_ROOT,
-    "src",
-    "app",
-    "(shell)",
-    "recommendations",
-    "recommendations-client.tsx",
-  ),
+  // Surface collapse (2026-06-15): the legacy recommendations-client.tsx
+  // (the old drawer render site) was deleted; the V2 card + detail client +
+  // suggested-copy act are the remaining `why`-render surfaces.
   resolve(
     REPO_ROOT,
     "src",

@@ -285,12 +285,6 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
           emphasis: "secondary",
         },
         {
-          kind: "open_legacy_detail",
-          label: "Open the full record",
-          href: "/changes/some-id?legacy=1",
-          emphasis: "secondary",
-        },
-        {
           kind: "back_to_changes",
           label: "Back to changes",
           href: "/changes",
@@ -301,10 +295,11 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
     expect(html).toContain('data-change-detail-cta="replicate_pattern"');
     expect(html).toContain('data-change-detail-cta-emphasis="primary"');
     expect(html).toContain('data-change-detail-cta="open_recommendation"');
-    expect(html).toContain('data-change-detail-cta="open_legacy_detail"');
+    // Surface collapse (2026-06-15): the open_legacy_detail CTA was
+    // removed with the legacy /changes/[id]?legacy=1 detail route.
+    expect(html).not.toContain('data-change-detail-cta="open_legacy_detail"');
     expect(html).toContain('data-change-detail-cta="back_to_changes"');
     expect(html).toContain('href="/recommendations?v2=1"');
-    expect(html).toContain('href="/changes/some-id?legacy=1"');
     // Pin the new label so a regression to "Open recommendation" +
     // per-rec deep link is caught here too.
     expect(html).toContain("See related recommendations");

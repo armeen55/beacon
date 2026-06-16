@@ -217,14 +217,15 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
   });
 
   describe("render-path structural invariants", () => {
-    it("/recommendations delegates canonical-store reads via loadLiveRecommendationQueue (Phase 14 extract)", () => {
-      // Sprint 6A.1 Phase 14 (2026-04-24): the page no longer imports
-      // canonical-store directly — orchestration moved to
-      // `src/domains/recommendations/load-queue.ts`. The Sprint 4
-      // contract is preserved one layer down: `loadLiveRecommendationQueue`
-      // calls `loadFreshCanonicalData` and the page calls
-      // `loadLiveRecommendationQueue`.
-      expect(SRC.recommendations).toMatch(/\bloadLiveRecommendationQueue\b/);
+    it("/recommendations delegates canonical-store reads via the persisted queue loader", () => {
+      // Surface collapse (2026-06-15): /recommendations is V2-only — the
+      // page calls `loadPersistedRecommendationQueueForPage` (the fast
+      // loader) instead of the legacy `loadLiveRecommendationQueue` 30 s
+      // pipeline. The Sprint 4 freshness contract is still preserved one
+      // layer down: `load-queue.ts` calls `loadFreshCanonicalData`.
+      expect(SRC.recommendations).toMatch(
+        /\bloadPersistedRecommendationQueueForPage\b/,
+      );
       expect(SRC.recommendations).not.toMatch(
         /\b(?:trackedPrompts|promptAnswerObservations|trackedEntities|dailyMetricSnapshots)\b\s*=/,
       );
@@ -346,10 +347,11 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       // from empty-parens to any call form.
       // EGRESS-P0 (2026-05-07): load-queue now passes
       // `{ observationsSince, snapshotsSince }` to bound the read.
-      // Emergency P0 v4 (2026-05-12): page now calls
-      // `loadLiveRecommendationQueueForPage` — the cached wrapper.
-      // Accept either name; both delegate to the same internal pipeline.
-      expect(SRC.recommendations).toMatch(/loadLiveRecommendationQueue(?:ForPage)?\(/);
+      // Surface collapse (2026-06-15): the V2-only page calls
+      // `loadPersistedRecommendationQueueForPage`. It delegates into
+      // load-queue.ts, which calls `loadFreshCanonicalData` (asserted
+      // below), so the render-time freshness contract is preserved.
+      expect(SRC.recommendations).toMatch(/loadPersistedRecommendationQueueForPage\(/);
       const loadQueueSrc = readFileSync(
         resolve(
           __dirname,

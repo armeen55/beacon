@@ -188,28 +188,23 @@ describe("Projected page reads: page-store cached helper", () => {
   });
 });
 
-describe("Projected page reads: migrated call site /changes/[id]", () => {
+describe("Projected page reads: /changes/[id] reads no page inventory", () => {
   const src = read("src/app/(shell)/changes/[id]/page.tsx");
 
-  it("imports getOwnedPageSummaries (the projected helper)", () => {
-    expect(src).toMatch(
+  it("does NOT read the page inventory on this route", () => {
+    // Surface collapse (2026-06-15): the legacy detail layout's
+    // url→pageId map (the only consumer of getOwnedPageSummaries here)
+    // was deleted with the legacy branch. The V2 brief needs neither
+    // the projected summaries nor the full PageEntity payload — so the
+    // most egress-bounded outcome is reading no page inventory at all.
+    const stripped = stripComments(src);
+    expect(stripped).not.toMatch(
       /import\s*\{\s*getOwnedPageSummaries\s*\}\s*from\s*["']@\/domains\/pages\/page-store["']/,
     );
-  });
-
-  it("no longer imports getOwnedPages on this route (single migrated site)", () => {
-    // Negative pin: if a future edit re-introduces getOwnedPages
-    // here, this test fails so the author has to justify the full
-    // payload (today-data, rec engine, etc. genuinely need it;
-    // this route does not).
-    const stripped = stripComments(src);
+    expect(stripped).not.toMatch(/\bawait\s+getOwnedPageSummaries\(\)/);
     expect(stripped).not.toMatch(
       /import\s*\{\s*getOwnedPages\s*\}\s*from\s*["']@\/domains\/pages\/page-store["']/,
     );
     expect(stripped).not.toMatch(/\bawait\s+getOwnedPages\(\)/);
-  });
-
-  it("calls getOwnedPageSummaries() exactly once for the url→id map", () => {
-    expect(src).toMatch(/const\s+allPages\s*=\s*await\s+getOwnedPageSummaries\(\)/);
   });
 });

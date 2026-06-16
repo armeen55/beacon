@@ -7,45 +7,28 @@ vi.mock("next/cache", () => ({
 }));
 
 /**
- * TodayClient is a client component (hooks). renderToStaticMarkup in Vitest
- * cannot execute it; a minimal stub preserves the route contract while still
- * emitting stable Today copy for assertions.
+ * Today route smoke.
+ *
+ * Surface collapse (2026-06-15): /today is V2-only. The page returns a
+ * <Suspense> wrapper instantly; renderToStaticMarkup does not resolve
+ * Suspense, so the smoke asserts the shell wrapper + the V2 sectioned
+ * skeleton fallback render (proving the route wires through to the V2
+ * surface without throwing at the frame level). The legacy
+ * `TodayLegacyAsyncContent` + `TodayClient` render path was deleted.
  */
-vi.mock("@/app/(shell)/today-client", () => {
-  const React = require("react") as typeof import("react");
-  return {
-    TodayClient: function TodayClientSmokeStub() {
-      return React.createElement(
-        "div",
-        { className: "today-smoke-stub" },
-        "Since last scan",
-      );
-    },
-  };
-});
-
 describe("Today route smoke", () => {
   it(
-    "TodayPage RSC loads data and renders the shell wrapper plus Today slot",
+    "TodayPage RSC renders the shell wrapper + V2 sectioned skeleton fallback",
     async () => {
-    // Section-streaming bundle (2026-05-12): the page returns a
-    // <Suspense> wrapper instantly. For the legacy `?legacy=1` path
-    // the async load lives in `TodayLegacyAsyncContent`, exported so
-    // tests can render it directly (renderToStaticMarkup doesn't
-    // resolve Suspense). The v2 path now mounts THREE section
-    // Suspense boundaries inside `TodayV2SectionedContent`; this
-    // smoke test continues to exercise the legacy single-Suspense
-    // shape to assert the route wires through to TodayClient.
-    const { TodayLegacyAsyncContent } = await import(
-      "@/app/(shell)/page"
-    );
-    const tree = await TodayLegacyAsyncContent();
-    const html = renderToStaticMarkup(tree as ReactElement);
+      const { default: TodayPage } = await import("@/app/(shell)/page");
+      const tree = await TodayPage({ searchParams: Promise.resolve({}) });
+      const html = renderToStaticMarkup(tree as ReactElement);
 
-    // Canonical Today findings heading (see `today-findings.tsx`);
-    // echoed by stub so the route still wires a Today subtree without
-    // running client hooks here.
-    expect(html).toContain("Since last scan");
+      // Route wrapper class from page.tsx.
+      expect(html).toContain("max-w-6xl");
+      // The V2 sectioned skeleton (Suspense fallback) renders while the
+      // gate loader resolves — pin one of its per-section markers.
+      expect(html).toContain('data-today-v2-section-skeleton');
     },
     15_000,
   );

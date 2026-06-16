@@ -385,7 +385,12 @@ const CLI_PATH = resolve(
 const LOAD_QUEUE_PATH = resolve(__dirname, "./load-queue.ts");
 
 describe("Phase 6A.1.14 — orchestration is shared between page + CLI", () => {
-  it("page.tsx imports loadLiveRecommendationQueue", () => {
+  // Surface collapse (2026-06-15): /recommendations is V2-only — the page
+  // now imports only the persisted fast loader
+  // (loadPersistedRecommendationQueueForPage); the legacy
+  // loadLiveRecommendationQueue 30 s pipeline is no longer reachable from
+  // the page (still used by the CLI surface, asserted below).
+  it.skip("page.tsx imports loadLiveRecommendationQueue (legacy live pipeline removed from page)", () => {
     const src = readFileSync(PAGE_PATH, "utf8");
     expect(src).toMatch(
       /from\s+["']@\/domains\/recommendations\/load-queue["']/,
@@ -405,7 +410,14 @@ describe("Phase 6A.1.14 — orchestration is shared between page + CLI", () => {
     expect(src).not.toMatch(/prioritizeRecommendations\(/);
   });
 
-  it("page.tsx still does its own fresh-read of recommendation_responses; recommended_edits now flow through the loader", () => {
+  // Surface collapse (2026-06-15): /recommendations is V2-only — the page
+  // loads off `loadPersistedRecommendationQueueForPage` (which reads
+  // responses + edits internally), so the page no longer does the legacy
+  // branch's own fresh-read of recommendation_responses nor consumes
+  // `live.recommendedEdits`. The loader-side getRecommendedEdits read is
+  // still pinned by the next test ("loadLiveRecommendationQueue uses
+  // forTenant for getPages + getPageSnapshots") + the CLI surface tests.
+  it.skip("page.tsx still does its own fresh-read of recommendation_responses; recommended_edits now flow through the loader (legacy live page branch removed)", () => {
     // Phase 12 wired both reads at the page layer.
     // W3 Step 3.3 (2026-05-01) MOVED recommended_edits into the loader
     // so the engine-confidence verdict can be stamped on every queue

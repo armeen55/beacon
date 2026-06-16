@@ -28,11 +28,12 @@ const LOAD_QUEUE_PATH = resolve(
 );
 const LOAD_QUEUE_SOURCE = readFileSync(LOAD_QUEUE_PATH, "utf8");
 
-const CLIENT_PATH = resolve(
-  __dirname,
-  "../src/app/(shell)/recommendations/recommendations-client.tsx",
-);
-const CLIENT_SOURCE = readFileSync(CLIENT_PATH, "utf8");
+// Surface collapse (2026-06-15): the legacy recommendations-client was
+// deleted. The action-row builder + server-action wiring now live on the V2
+// card (covered by tests/app/recommendations/recommendations-v2-client.test.tsx).
+// The client-UI describe block below is skipped; this placeholder keeps it
+// compiling.
+const CLIENT_SOURCE = "";
 
 const ACTIONS_PATH = resolve(
   __dirname,
@@ -122,7 +123,11 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
     );
   });
 
-  it("groups edits by rec_id and threads them into the decorated rows", () => {
+  // Surface collapse (2026-06-15): the `editsByRecId` grouping was a
+  // legacy-branch concern (the legacy page decorated rows with edits before
+  // handing to the legacy table). The V2 page consumes the persisted
+  // loader's pre-decorated queue, so the page no longer does this grouping.
+  it.skip("groups edits by rec_id and threads them into the decorated rows (legacy page branch removed)", () => {
     expect(PAGE_SOURCE).toMatch(/editsByRecId/);
     expect(PAGE_SOURCE).toMatch(/edits:\s*editsByRecId\.get\(rec\.stableKey\)/);
   });
@@ -134,7 +139,7 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
 
 // ── 3. recommendations-client UI ──────────────────────────────────────────
 
-describe("Phase 6A.1.12 — recommendations-client UI (post-Step-3.5e action table)", () => {
+describe.skip("Phase 6A.1.12 — recommendations-client UI (legacy recommendations-client removed 2026-06-15; V2 card covered separately)", () => {
   // After W3 Step 3.5e (2026-05-03) the page is a HubSpot-style
   // ranked action table. The pre-3.5e wiring assertions
   // ("destructure edits from row" / "Specific edits section") no

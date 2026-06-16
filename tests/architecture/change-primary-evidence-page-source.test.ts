@@ -67,19 +67,16 @@ describe("Architecture — Section 6 C6b page source contract", () => {
   });
 });
 
-describe("Architecture — Section 6 C6b v2-branch-only invocation", () => {
-  it("loadChangePrimaryEvidence invocation appears AFTER `if (useV2)` and BEFORE the v2 ChangeDetailV2Client return", () => {
-    const useV2Idx = ACTIVE.search(/if\s*\(\s*useV2\s*\)/);
+describe("Architecture — Section 6 C6b invocation before the v2 brief", () => {
+  it("loadChangePrimaryEvidence invocation appears BEFORE the v2 ChangeDetailV2Client return", () => {
+    // Surface collapse (2026-06-15): /changes/[id] is V2-only — the
+    // `if (useV2)` switcher was removed, so the loader now runs
+    // unconditionally before the v2 brief renders.
     const invokeIdx = ACTIVE.search(/loadChangePrimaryEvidence\s*\(/);
     const jsxIdx = ACTIVE.search(/<\s*ChangeDetailV2Client\b/);
 
-    expect(useV2Idx, "page.tsx must contain `if (useV2)`").toBeGreaterThanOrEqual(0);
     expect(invokeIdx, "page.tsx must invoke loadChangePrimaryEvidence").toBeGreaterThanOrEqual(0);
     expect(jsxIdx, "page.tsx must render <ChangeDetailV2Client>").toBeGreaterThanOrEqual(0);
-    expect(
-      invokeIdx,
-      "loadChangePrimaryEvidence invocation must appear AFTER the `if (useV2)` branch opener",
-    ).toBeGreaterThan(useV2Idx);
     expect(
       invokeIdx,
       "loadChangePrimaryEvidence invocation must appear BEFORE the v2-branch <ChangeDetailV2Client return",

@@ -95,19 +95,15 @@ describe("/recommendations — debugResolver wiring", () => {
     );
   });
 
-  it("the panel is wired inside the v2 (persisted) branch only", () => {
-    // The panel uses `persisted` + `promptTextById` — both only
-    // populated inside the `if (useV2)` branch. The legacy branch
-    // does not render the panel.
-    const v2Branch = PAGE_SRC.slice(
-      PAGE_SRC.indexOf("if (useV2)"),
-      PAGE_SRC.indexOf("Legacy table view"),
-    );
-    expect(v2Branch).toMatch(/<RecsResolverDebugPanel/);
-    const legacyBranch = PAGE_SRC.slice(
-      PAGE_SRC.indexOf("Legacy table view"),
-    );
-    expect(legacyBranch).not.toMatch(/<RecsResolverDebugPanel/);
+  it("the panel is wired off the persisted loader output", () => {
+    // Surface collapse (2026-06-15): /recommendations is V2-only — the
+    // `if (useV2)` / legacy branch was removed. The panel consumes
+    // `persisted` from loadPersistedRecommendationQueueForPage and is
+    // rendered unconditionally (gated only by `debugResolver`).
+    expect(PAGE_SRC).toMatch(/<RecsResolverDebugPanel/);
+    expect(PAGE_SRC).toMatch(/persisted=\{persisted\}/);
+    // No legacy live-pipeline branch remains.
+    expect(PAGE_SRC).not.toMatch(/Legacy table view/);
   });
 });
 

@@ -201,27 +201,17 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       const { default: ChangeScorecardPage } = await import(
         "@/app/(shell)/changes/page"
       );
-      // 2026-06-15 — v2 is now the production default. This test pins the
-      // LEGACY at-a-glance strip ("detected by scan" / "live verified"),
-      // so force the legacy branch via the `?legacy=1` escape hatch. The
-      // fresh-repo-read under test runs identically on both branches.
-      const tree = await ChangeScorecardPage({
-        searchParams: Promise.resolve({ legacy: "1" }),
-      });
+      // Surface collapse (2026-06-15): the page is now V2-only (the proof
+      // timeline). It still runs the SAME fresh `getChangelogEntries()`
+      // read — this test pins that the read flows through to the rendered
+      // V2 timeline rather than the honest-error branch.
+      const tree = await ChangeScorecardPage();
       const html = renderToStaticMarkup(tree as ReactElement);
 
-      // Phase 6A.2 (2026-04-28): the at-a-glance strip is now lifecycle-tab
-      // driven, not the legacy "changes tracked" total. Both mock entries
-      // carry source_system="scan_detection", so the classifier puts them
-      // both in the scan_confirmed bucket. Count of 2 must appear next to
-      // the rendered label, proving the page actually consumed the
-      // repo read.
-      // 2026-05-06 demo-path fix: rendered label changed from
-      // "scan-confirmed" → "detected by scan" (customer-friendly copy).
-      expect(html).toMatch(/2\s*detected by scan/);
-      // The at-a-glance strip leads with the "live verified" headline,
-      // independent of how many rows are in any tab.
-      expect(html).toContain("live verified");
+      // The V2 proof-timeline container renders when the page consumed a
+      // non-empty changelog read (both mock entries flow through to the
+      // enriched rows the timeline cards project from).
+      expect(html).toContain('data-changes-layout="v2-proof-timeline"');
       // Confirm we did not hit the honest-error branch.
       expect(html).not.toContain("Couldn&#x27;t load changes");
       expect(html).not.toContain("Couldn't load changes");

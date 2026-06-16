@@ -37,43 +37,26 @@ vi.mock("@/lib/seed-data.server", async (importOriginal) => {
 });
 
 describe("Changes route smoke", () => {
-  it("ChangeScorecardPage RSC renders Phase 6A.2 lifecycle layout (legacy branch)", async () => {
+  it("ChangeScorecardPage RSC renders the v2 proof timeline (the only surface)", async () => {
     const { default: ChangeScorecardPage } = await import(
       "@/app/(shell)/changes/page"
     );
-    // 2026-06-15 — v2 is now the production default, so the unparam'd
-    // render produces the proof timeline. This smoke test pins the
-    // LEGACY lifecycle layout (strip + at-a-glance + legacy header), so
-    // force the legacy branch via the `?legacy=1` escape hatch.
-    const tree = await ChangeScorecardPage({
-      searchParams: Promise.resolve({ legacy: "1" }),
-    });
+    // Surface collapse (2026-06-15): /changes is V2-only. The unparam'd
+    // render produces the proof timeline; the route no longer accepts a
+    // searchParams arg. This smoke exercises the real data path through
+    // to the v2 client.
+    const tree = await ChangeScorecardPage();
     const html = renderToStaticMarkup(tree as ReactElement);
 
-    // 2026-05-06 demo-path Phase 3-bis fix 3: header rewritten for
-    // customer-mode clarity. renderToStaticMarkup escapes the
-    // apostrophe to &#x27;, so we match either the escaped form or
-    // the unescaped one (in case the renderer changes). Either way,
-    // the surrounding context is unique enough.
-    expect(
-      html.includes(
-        "Every edit you&#x27;ve shipped to your site, with its Google Search + AI impact tracked over time",
-      ) ||
-        html.includes(
-          "Every edit you've shipped to your site, with its Google Search + AI impact tracked over time",
-        ),
-    ).toBe(true);
-    // Structural wrapper from `components/data/page-header.tsx`.
-    expect(html).toContain("flex items-start justify-between gap-4 mb-8");
-    // Phase 6A.2 at-a-glance now leads with the live-verified count
-    // and labels it "live verified" (lowercased from LIFECYCLE_TAB_LABEL).
-    expect(html).toContain("live verified");
-    // Phase 6A.10 (2026-04-28) — /changes renders the lifecycle strip
-    // (same component as /today). Chips deep-link to /changes?tab=...
-    // via the Phase 6A.8 deep-link plumbing.
-    expect(html).toContain("data-today-lifecycle-strip");
-    expect(html).toContain('data-lifecycle-chip="liveVerified"');
-    // No tab shell — the old "Outcomes / Attribution / Replicate" tab chrome is gone.
+    // The v2 proof-timeline container renders (PageHeader title + the
+    // v2 layout marker). Either the timeline (when there's activity) or
+    // the calm empty state — both live inside the v2 client, which
+    // stamps the layout marker.
+    expect(html).toContain('data-changes-layout="v2-proof-timeline"');
+    // The v2 header copy (NOT the deleted legacy header).
+    expect(html).toContain("Track what shipped");
+    // The deleted legacy lifecycle strip + tab chrome must NOT render.
+    expect(html).not.toContain("data-today-lifecycle-strip");
     expect(html).not.toContain(">Outcomes<");
     expect(html).not.toContain(">Attribution<");
     expect(html).not.toContain(">Replicate<");

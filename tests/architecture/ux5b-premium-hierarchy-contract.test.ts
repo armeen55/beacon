@@ -19,17 +19,17 @@ import { resolve, join } from "node:path";
 const REPO_ROOT = resolve(__dirname, "../..");
 
 const TODAY_CLIENT = join(REPO_ROOT, "src/app/(shell)/today-client.tsx");
-const REC_CLIENT = join(
-  REPO_ROOT,
-  "src/app/(shell)/recommendations/recommendations-client.tsx",
-);
 const COMMAND_CENTER = join(
   REPO_ROOT,
   "src/components/today/command-center.tsx",
 );
 
 const TODAY_SRC = readFileSync(TODAY_CLIENT, "utf8");
-const REC_SRC = readFileSync(REC_CLIENT, "utf8");
+// Surface collapse (2026-06-15): recommendations-client.tsx was deleted.
+// UX.5B.2 (top-pick row emphasis) + UX.5B.3 (needs-more-evidence microcopy)
+// pinned its copy; those blocks are skipped below (the V2 card owns those
+// surfaces). Empty placeholder keeps the skipped blocks compiling.
+const REC_SRC = "";
 const CC_SRC = readFileSync(COMMAND_CENTER, "utf8");
 
 describe("UX.5B.1 / UX.6.3 — /today visibility hero", () => {
@@ -62,7 +62,7 @@ describe("UX.5B.1 / UX.6.3 — /today visibility hero", () => {
   });
 });
 
-describe("UX.5B.2 — /recommendations top-pick row emphasis", () => {
+describe.skip("UX.5B.2 — /recommendations top-pick row emphasis (legacy recommendations-client removed 2026-06-15)", () => {
   it("exports/uses selectTopPickId helper with the same logic as the Executive Strip", () => {
     expect(REC_SRC).toMatch(/function selectTopPickId/);
     // Mirrors strip logic: filter terminal statuses + prefer non-needs_review.
@@ -110,7 +110,7 @@ describe("UX.5B.2 — /recommendations top-pick row emphasis", () => {
   });
 });
 
-describe("UX.5B.3 — /recommendations needs-more-evidence microcopy", () => {
+describe.skip("UX.5B.3 — /recommendations needs-more-evidence microcopy (legacy recommendations-client removed 2026-06-15)", () => {
   it("renders the watch-state microcopy on rows where derivedConfidence === 'needs_review'", () => {
     expect(REC_SRC).toMatch(
       /row\.derivedConfidence === "needs_review"[\s\S]{0,400}data-rec-needs-more-evidence-microcopy="true"/,
@@ -192,13 +192,15 @@ describe("UX.5B — Ritz mature-render preserved", () => {
 describe("UX.5B — no scary/internal language regression", () => {
   it("UX.5B additions do not introduce internal jargon in rendered text", () => {
     // The premium copy strings should never reference cron / Supabase / GitHub.
+    // Surface collapse (2026-06-15): the "Top pick" row emphasis +
+    // "Worth a look — based on limited data so far. Optional." microcopy
+    // lived in the deleted recommendations-client; the V2 card owns those
+    // strings now. Dropped from this /today + command-center sweep.
     const newStrings = [
       "Waiting for your next reading.",
       "Watching for movement.",
       "No action queued yet.",
       "AI Visibility",
-      "Top pick",
-      "Worth a look — based on limited data so far. Optional.",
     ];
     // Each new string exists somewhere in the touched files.
     for (const s of newStrings) {

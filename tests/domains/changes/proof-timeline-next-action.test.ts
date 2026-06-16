@@ -144,19 +144,6 @@ describe("resolveNextActions", () => {
     }
   });
 
-  it("includeLegacyEscape adds open_legacy_detail right before back_to_changes", () => {
-    const ctas = resolveNextActions({
-      pillKind: "watching",
-      sourceRecId: null,
-      replicateRecCount: 0,
-      includeLegacyEscape: true,
-    });
-    const idxLegacy = ctas.findIndex((c) => c.kind === "open_legacy_detail");
-    const idxBack = ctas.findIndex((c) => c.kind === "back_to_changes");
-    expect(idxLegacy).toBeGreaterThanOrEqual(0);
-    expect(idxLegacy).toBeLessThan(idxBack);
-  });
-
   it("Open recommendation routes to the queue (never deep-links by source_rec_id)", () => {
     // QA polish (2026-05-11): the per-rec deep link
     // `/recommendations/<source_rec_id>` was structurally wrong
@@ -236,7 +223,6 @@ describe("resolveNextActions", () => {
             pillKind,
             sourceRecId,
             replicateRecCount,
-            includeLegacyEscape: true,
           });
           for (const cta of ctas) {
             const lower = cta.label.toLowerCase();

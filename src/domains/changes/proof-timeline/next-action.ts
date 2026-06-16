@@ -26,7 +26,6 @@ export type NextActionCta = {
     | "open_recommendation"
     | "replicate_pattern"
     | "investigate"
-    | "open_legacy_detail"
     | "back_to_changes";
   label: string;
   href: string;
@@ -42,8 +41,6 @@ export type NextActionInput = {
   sourceRecId: string | null;
   /** Number of replicate-rec candidates Beacon found for this change. */
   replicateRecCount: number;
-  /** Force a legacy-detail escape hatch into Act 5. */
-  includeLegacyEscape?: boolean;
 };
 
 /**
@@ -63,15 +60,12 @@ export type NextActionInput = {
  *      primary = Open Recommendation when present, else just Back to
  *      changes.
  *   5. Always close with "Back to changes" as the last secondary.
- *      Legacy-detail escape is appended right before "Back to
- *      changes" when `includeLegacyEscape` is true.
  */
 export function resolveNextActions(input: NextActionInput): NextActionCta[] {
   const {
     pillKind,
     sourceRecId,
     replicateRecCount,
-    includeLegacyEscape,
   } = input;
 
   const ctas: NextActionCta[] = [];
@@ -138,19 +132,6 @@ export function resolveNextActions(input: NextActionInput): NextActionCta[] {
       if (openRecCta) ctas.push({ ...openRecCta, emphasis: "primary" });
       break;
     }
-  }
-
-  if (includeLegacyEscape) {
-    ctas.push({
-      kind: "open_legacy_detail",
-      label: "Open the full record",
-      // The current location is /changes/[id]; the legacy-detail
-      // route is the same path with ?legacy=1 appended at the
-      // consumption boundary (the v2 client builds it from the
-      // route's current id).
-      href: "?legacy=1",
-      emphasis: "secondary",
-    });
   }
 
   // Always include Back to changes as the last secondary. Promote it

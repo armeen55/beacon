@@ -34,7 +34,7 @@ vi.mock("@/app/(shell)/changes/actions", () => ({
 }));
 
 import { ChangesV2Client } from "@/app/(shell)/changes/changes-v2-client";
-import type { EnrichedChangeRow } from "@/app/(shell)/changes/scorecard-client";
+import type { EnrichedChangeRow } from "@/app/(shell)/changes/types";
 import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
@@ -363,7 +363,7 @@ describe("ChangesV2Client — proof timeline", () => {
     expect(liveHtml).not.toContain('data-changes-card-mark-shipped="true"');
   });
 
-  it("caps the timeline at 24 cards and surfaces a 'See full table' link when the list overflows", () => {
+  it("caps the timeline at 24 cards and surfaces an overflow note when the list overflows", () => {
     const many: EnrichedChangeRow[] = Array.from({ length: 30 }, (_, i) =>
       makeRow({
         id: `bulk-${i}`,
@@ -377,7 +377,11 @@ describe("ChangesV2Client — proof timeline", () => {
     const html = render({ rows: many, classByChangelogId });
     const cards = html.match(/data-changes-card="proof-timeline"/g) ?? [];
     expect(cards.length).toBe(24);
-    expect(html).toContain('data-changes-cta="see-all-legacy"');
-    expect(html).toContain("See full table");
+    // Surface collapse (2026-06-15): the legacy "See full table →" escape
+    // link (`?legacy=1`) was removed with the legacy table. The overflow
+    // note now just states how many of how many are shown.
+    expect(html).not.toContain('data-changes-cta="see-all-legacy"');
+    expect(html).not.toContain("See full table");
+    expect(html).toMatch(/Showing the 24 most recent changes of 30/);
   });
 });

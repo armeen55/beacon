@@ -188,11 +188,12 @@ describe("Today section streaming: /page.tsx v2 path", () => {
     expect(stripped).toMatch(/FirstReadingWaiting/);
   });
 
-  it("legacy ?legacy=1 path stays as single Suspense around full loader", () => {
-    expect(stripped).toMatch(/TodayLegacyAsyncContent\b/);
-    expect(stripped).toMatch(
-      /async\s+function\s+TodayLegacyAsyncContent[\s\S]{0,200}await[\s\S]{0,200}loadTodayPageData\(/,
-    );
+  it("is V2-only — the legacy ?legacy=1 path + TodayLegacyAsyncContent are gone", () => {
+    // Surface collapse (2026-06-15): the legacy AEO-centric layout +
+    // `TodayLegacyAsyncContent` + the `?legacy=1` switcher were deleted.
+    // /today now renders only the V2 sectioned content.
+    expect(stripped).not.toMatch(/TodayLegacyAsyncContent\b/);
+    expect(stripped).not.toMatch(/shouldUseV2\b/);
   });
 });
 

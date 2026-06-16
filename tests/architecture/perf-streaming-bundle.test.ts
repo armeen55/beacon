@@ -49,15 +49,14 @@ describe("Streaming bundle: /page.tsx is Suspense-shelled", () => {
     );
   });
 
-  it("imports SOME skeleton from today-v2-skeleton (legacy OR per-section)", () => {
-    // After the section-streaming bundle (2026-05-12), the v2 path
-    // imports per-section skeletons (TodayV2VisibilityGroupSkeleton +
-    // TodayV2ActionCardsSkeleton + TodayV2DescriptorsSkeleton) instead
-    // of the composite TodayV2Skeleton. Either name is acceptable
-    // here; what matters is that page.tsx pulls a skeleton from the
-    // skeleton module to use as a Suspense fallback.
+  it("imports the per-section v2 skeletons from today-v2-skeleton", () => {
+    // Surface collapse (2026-06-15): /today is V2-only. The page imports
+    // per-section skeletons (TodayV2VisibilityGroupSkeleton +
+    // TodayV2ActionCardsSkeleton + TodayV2DescriptorsSkeleton) for its
+    // Suspense fallbacks — the legacy `TodayLegacySkeleton` import was
+    // dropped with the legacy client.
     expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\bTodayLegacySkeleton\b[\s\S]*?\}\s+from\s+["']\.\/today-v2-skeleton["']/,
+      /import\s+\{[\s\S]*?\}\s+from\s+["']\.\/today-v2-skeleton["']/,
     );
     expect(stripped).toMatch(
       /(TodayV2Skeleton|TodayV2VisibilityGroupSkeleton|TodayV2ActionCardsSkeleton|TodayV2DescriptorsSkeleton)/,
@@ -70,7 +69,7 @@ describe("Streaming bundle: /page.tsx is Suspense-shelled", () => {
     );
   });
 
-  it("the top-level page function does NOT await loadTodayPageData", () => {
+  it("the top-level page function does NOT await the gate loader", () => {
     // Scope: the default-exported page function only. The data load
     // should live in a separate async server component nested inside
     // the Suspense boundary.
@@ -81,15 +80,17 @@ describe("Streaming bundle: /page.tsx is Suspense-shelled", () => {
     const closingBraceIdx = tail.indexOf("\n}\n");
     expect(closingBraceIdx).toBeGreaterThan(0);
     const pageFnBody = tail.slice(0, closingBraceIdx);
-    expect(pageFnBody).not.toMatch(/\bawait\s+loadTodayPageData\(/);
+    expect(pageFnBody).not.toMatch(/\bawait\s+loadTodayV2GateData\(/);
   });
 
-  it("a nested async server component (TodayAsyncContent or similar) DOES await loadTodayPageData", () => {
-    // The slow await must live in SOME async function in this file —
-    // just not the top-level page export. We look for an `async function`
-    // that calls `loadTodayPageData`.
+  it("a nested async server component (TodayV2SectionedContent) DOES await the gate loader", () => {
+    // Surface collapse (2026-06-15): /today is V2-only. The slow await
+    // lives in the V2 sectioned content (`loadTodayV2GateData`), not the
+    // top-level page export. (The legacy `loadTodayPageData` await was
+    // removed with the legacy client; the V2 sections still consume the
+    // shared loader internally via today-v2-data.)
     expect(stripped).toMatch(
-      /async\s+function\s+\w+[\s\S]*?await[\s\S]{0,200}loadTodayPageData\(/,
+      /async\s+function\s+\w+[\s\S]*?await[\s\S]{0,200}loadTodayV2GateData\(/,
     );
   });
 });
@@ -104,9 +105,12 @@ describe("Streaming bundle: /recommendations/page.tsx is Suspense-shelled", () =
     );
   });
 
-  it("imports the RecommendationsV2 + Legacy skeletons", () => {
+  it("imports the RecommendationsV2 skeleton", () => {
+    // Surface collapse (2026-06-15): /recommendations is V2-only; the
+    // legacy `RecommendationsLegacySkeleton` import was dropped with the
+    // legacy client.
     expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\bRecommendationsV2Skeleton\b[\s\S]*?\bRecommendationsLegacySkeleton\b[\s\S]*?\}\s+from\s+["']\.\/recommendations-v2-skeleton["']/,
+      /import\s+\{[\s\S]*?\bRecommendationsV2Skeleton\b[\s\S]*?\}\s+from\s+["']\.\/recommendations-v2-skeleton["']/,
     );
   });
 
@@ -135,11 +139,9 @@ describe("Streaming bundle: /recommendations/page.tsx is Suspense-shelled", () =
     );
   });
 
-  it("preserves the v2/legacy switching contract", () => {
-    // Both ?legacy=1 + ?v2=1 escape hatches must still be reachable
-    // through the same shouldUseRecommendationsV2 helper.
-    expect(stripped).toMatch(/shouldUseRecommendationsV2/);
-  });
+  // Surface collapse (2026-06-15): the v2/legacy switching contract
+  // (`shouldUseRecommendationsV2`) was removed — /recommendations is now
+  // V2-only, so there is no longer a switcher to pin here.
 });
 
 describe("Streaming bundle: skeleton components exist + sketch the layout", () => {

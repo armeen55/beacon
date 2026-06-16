@@ -2,8 +2,6 @@ import { Suspense } from "react";
 
 import Link from "next/link";
 
-import { TodayClient } from "./today-client";
-
 /**
  * Phase 2B follow-up (2026-05-13) — force dynamic rendering.
  *
@@ -21,7 +19,6 @@ import { TodayClient } from "./today-client";
  */
 export const dynamic = "force-dynamic";
 import {
-  TodayLegacySkeleton,
   TodayV2ActionCardsSkeleton,
   TodayV2DescriptorsSkeleton,
   TodayV2EditLifecycleSkeleton,
@@ -43,49 +40,21 @@ import { loadTodayV2GateData, loadTodayV2HasAeoData } from "./today-v2-data";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import { DataSourcesStrip } from "@/components/today/data-sources-strip";
 import { CollapsibleSection } from "@/components/today/collapsible-section";
-import { respondToRecommendation } from "./recommendation-actions";
-import { confirmFindingAsChange, resolveFinding } from "./finding-actions";
-import { loadTodayPageData } from "./today-data";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
 
-async function dismissFinding(findingId: string) {
-  "use server";
-  return resolveFinding(findingId, "rejected");
-}
-
 /**
- * Bundle 1 (Plan: i-want-a-maximum-depth-curried-curry) — switch /today
- * between the legacy 19-section layout and the v2 4-zone layout.
+ * Today route — the all-source unified command center.
  *
- * Routing:
- *   - Default: v2 (the all-source unified command center). Flipped to the
- *     default 2026-06-15 — v2 is verified on both live tenants (Iranopedia +
- *     Ritz) and is the surface the product is built around: an all-source
- *     stat row (Search / Visits / Experience / AI answers) over WHATEVER
- *     base data the tenant has, with AEO demoted to one collapsible block.
- *     Legacy is the AEO-centric 19-section layout, now slated for deletion.
- *   - `BEACON_TODAY_V2=false` env: force legacy (kill-switch if v2 ever
- *     regresses in production — reversible without a code change).
- *   - `?legacy=1` query: always v1 (escape hatch for operators / regression
- *     debugging — works regardless of the env flag).
- *   - `?v2=1` query: always v2 (works regardless of the env flag).
- */
-function shouldUseV2(
-  searchParams: Record<string, string | string[] | undefined>,
-): boolean {
-  if (searchParams.legacy === "1") return false;
-  if (searchParams.v2 === "1") return true;
-  // Default ON. Only an explicit `BEACON_TODAY_V2=false` falls back to legacy.
-  return process.env.BEACON_TODAY_V2 !== "false";
-}
-
-/**
- * Today route — perceived-speed via section-level streaming.
+ * Surface collapse (2026-06-15) — the legacy AEO-centric 19-section
+ * layout (the old `?legacy=1` path + `TodayClient`) was deleted; V2 is
+ * now the ONLY surface. The page LEADS with the all-source stat row +
+ * the universal action/outcome layer and DEMOTES AEO into one
+ * collapsible "AI answers" block.
  *
- * Streaming bundle (2026-05-12) — the v2 path now renders THREE
+ * Perceived-speed via section-level streaming — the page renders
  * independently streaming sections, each behind its own <Suspense>
  * boundary with a section-shaped skeleton fallback:
  *
@@ -93,16 +62,13 @@ function shouldUseV2(
  *      `visibilityWindow` client state, so these three stay together.
  *   2. Action cards (Do today / Working / Recent wins).
  *   3. Descriptors / "How AI describes you" — has its own NARROW
- *      loader that doesn't run the full legacy pipeline; streams
- *      first in practice.
+ *      loader that doesn't run the full pipeline; streams first in
+ *      practice.
  *
  * Before any sections render, the page awaits a cheap gate
  * (`loadTodayV2GateData`) that resolves demo-mode + first-reading
  * checks. Demo or first-reading short-circuits the page to the
  * matching view INSTANTLY without paying section-load cost.
- *
- * Legacy `?legacy=1` is unchanged — single Suspense, single loader,
- * same render as before.
  */
 export default async function TodayPage({
   searchParams,
@@ -110,19 +76,7 @@ export default async function TodayPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const useV2 = shouldUseV2(params);
   const notice = params.notice;
-
-  if (!useV2) {
-    return (
-      <div className="max-w-6xl">
-        <AlreadyLaunchedNotice notice={notice} />
-        <Suspense fallback={<TodayLegacySkeleton />}>
-          <TodayLegacyAsyncContent />
-        </Suspense>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-6xl">
@@ -182,7 +136,7 @@ function TodayV2SectionedSkeleton() {
 
 /**
  * V2 path: resolves the cheap gate first (demo / firstReading
- * shortcuts), then mounts the three section-streaming Suspense
+ * shortcuts), then mounts the section-streaming Suspense
  * boundaries.
  */
 async function TodayV2SectionedContent() {
@@ -325,46 +279,3 @@ async function TodayV2SectionedContent() {
     </div>
   );
 }
-
-/**
- * Legacy `?legacy=1` path — unchanged single-Suspense load.
- */
-export async function TodayLegacyAsyncContent() {
-  const trace = createPerfTrace("loader:/", {
-    traceId: await readPerfTraceIdFromHeaders(),
-    route: "/",
-  });
-  const data = await trace.time("loadTodayPageData", () =>
-    loadTodayPageData(),
-  );
-  trace.data("use_v2", "false");
-  trace.measureSize("payload", data);
-  trace.flush();
-  return (
-    <TodayClient
-      {...data}
-      onRespondToRec={respondToRecommendation}
-      onConfirmFinding={confirmFindingAsChange}
-      onDismissFinding={dismissFinding}
-      dataSourcesStrip={<DataSourcesStrip />}
-    />
-  );
-}
-
-/**
- * Backwards-compat re-export. The streaming-bundle test pin imports
- * `TodayAsyncContent` to assert that some async server component
- * awaits the slow loader. Aliasing here keeps the contract; the
- * function now routes to legacy because the v2 path no longer goes
- * through one big async component.
- */
-export const TodayAsyncContent = async ({
-  useV2,
-}: {
-  useV2: boolean;
-}) => {
-  if (useV2) {
-    return <TodayV2SectionedContent />;
-  }
-  return <TodayLegacyAsyncContent />;
-};

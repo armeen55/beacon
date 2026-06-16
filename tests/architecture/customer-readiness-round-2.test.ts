@@ -35,13 +35,15 @@ const PROMPTS_PAGE_PATH = join(
   REPO_ROOT,
   "src/app/(shell)/prompts/[id]/page.tsx",
 );
-const RECS_CLIENT_PATH = join(
-  REPO_ROOT,
-  "src/app/(shell)/recommendations/recommendations-client.tsx",
-);
 
 const PROMPTS_PAGE_SRC = readFileSync(PROMPTS_PAGE_PATH, "utf-8");
-const RECS_CLIENT_SRC = readFileSync(RECS_CLIENT_PATH, "utf-8");
+
+// Surface collapse (2026-06-15): Fix 2 (empty-state copy) + Fix 3 (status
+// pill colors) pinned the legacy recommendations-client, which was deleted.
+// The V2 card owns those surfaces now (covered by
+// tests/app/recommendations/recommendations-v2-client.test.tsx). Those
+// describe blocks were removed here; only the /prompts/[id] invariants
+// remain.
 
 function stripComments(src: string): string {
   return src
@@ -50,7 +52,6 @@ function stripComments(src: string): string {
 }
 
 const PROMPTS_PAGE_CODE = stripComments(PROMPTS_PAGE_SRC);
-const RECS_CLIENT_CODE = stripComments(RECS_CLIENT_SRC);
 
 // ────────────────────────────────────────────────────────────────────────
 // Fix 1 — /prompts/[id] friendly slugs
@@ -131,78 +132,10 @@ describe("Round 2 Fix 1 — /prompts/[id] friendly slugs", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────
-// Fix 2 — /recommendations empty-state copy
+// Fix 2 (empty-state copy) + Fix 3 (status pill colors) — REMOVED 2026-06-15.
+// They pinned the deleted legacy recommendations-client; the V2 card owns
+// those surfaces now (recommendations-v2-client.test.tsx).
 // ────────────────────────────────────────────────────────────────────────
-
-describe("Round 2 Fix 2 — /recommendations empty-state copy", () => {
-  it("removes 'raw decision signals' jargon from the empty-state copy", () => {
-    expect(
-      /raw decision signals/.test(RECS_CLIENT_CODE),
-      "recommendations-client.tsx must NOT contain 'raw decision signals' " +
-        "in operator-visible copy. The empty-state pointer to /prompts " +
-        "was rewritten in operator-readable terms.",
-    ).toBe(false);
-  });
-
-  it("renders the new operator-readable empty-state pointer", () => {
-    expect(
-      /for your latest prompt-by-prompt observations\./.test(
-        RECS_CLIENT_CODE,
-      ),
-      "recommendations-client.tsx must point to /prompts with operator-" +
-        "readable, on-demand copy (e.g. 'for your latest prompt-by-prompt " +
-        "observations.').",
-    ).toBe(true);
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────
-// Fix 3 — needs_review vs needs_fresh_edit pill color differentiation
-// ────────────────────────────────────────────────────────────────────────
-
-describe("Round 2 Fix 3 — status pill color differentiation", () => {
-  it("needs_review keeps the warning-amber styling", () => {
-    expect(
-      /needs_review:\s*"border-status-warning\/40 bg-status-warning\/\[0\.06\] text-status-warning"/.test(
-        RECS_CLIENT_CODE,
-      ),
-      "needs_review must keep the existing warning-amber pill styling " +
-        "(this is the 'Beacon wants you to read this' cue).",
-    ).toBe(true);
-  });
-
-  it("needs_fresh_edit uses a distinct shade (dashed border + status-info)", () => {
-    expect(
-      /needs_fresh_edit:[\s\S]{0,80}"border-dashed border-status-info\/50 bg-status-info\/\[0\.04\] text-status-info"/.test(
-        RECS_CLIENT_CODE,
-      ),
-      "needs_fresh_edit must use a visually distinct shade (dashed border " +
-        "+ status-info color tokens) so operators can distinguish it from " +
-        "needs_review at a glance.",
-    ).toBe(true);
-  });
-
-  it("needs_fresh_edit no longer matches needs_review verbatim", () => {
-    // Negative invariant: the two pill class strings must NOT be identical.
-    const reviewMatch = RECS_CLIENT_CODE.match(
-      /needs_review:\s*("[^"]+")/,
-    );
-    const freshMatch = RECS_CLIENT_CODE.match(
-      /needs_fresh_edit:\s*("[^"]+")/,
-    );
-    expect(reviewMatch).not.toBeNull();
-    expect(freshMatch).not.toBeNull();
-    if (reviewMatch && freshMatch) {
-      expect(
-        reviewMatch[1] === freshMatch[1],
-        "needs_review and needs_fresh_edit pill class strings must NOT be " +
-          "identical — Round 1 audit #10 flagged that they were and Round 2 " +
-          "differentiated them. If they're identical again, the regression " +
-          "is back.",
-      ).toBe(false);
-    }
-  });
-});
 
 // ────────────────────────────────────────────────────────────────────────
 // Cross-fix: Round 1 invariants still hold (no scope creep)
@@ -221,7 +154,10 @@ describe("Round 2 — Round 1 invariants still hold", () => {
       "proof-sized sample",
     ];
     const offenders: string[] = [];
-    const all = [PROMPTS_PAGE_CODE, RECS_CLIENT_CODE].join("\n");
+    // Surface collapse (2026-06-15): the recommendations-client read was
+    // dropped (file deleted); the /prompts page remains the live surface
+    // this round's invariants guard.
+    const all = [PROMPTS_PAGE_CODE].join("\n");
     for (const phrase of roundOneForbidden) {
       if (all.includes(phrase)) offenders.push(phrase);
     }

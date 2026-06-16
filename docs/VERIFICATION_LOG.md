@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-15 PM-9 (Legacy↔V2 surface collapse → V2-ONLY — NOT pushed, operator gates centrally)
+
+**Trigger:** De-bloat directive — collapse the 3 dual surfaces (Today / Recommendations / Changes) to V2-only ("keep ONE great surface"). V2 was already the verified default this session.
+
+- **Routes made V2-only (5):** `src/app/(shell)/page.tsx`, `recommendations/page.tsx`, `changes/page.tsx`, `changes/[id]/page.tsx` — removed `shouldUseV2`/`shouldUseRecommendationsV2`/`shouldUseChangesV2`/`shouldUseChangeDetailV2`, the `searchParams.legacy/v2` branching, the `BEACON_*_V2` env reads, and every legacy render branch. (`recommendations/[id]` was already V2-only.)
+- **V2-emitted legacy links removed:** `changes-v2-client.tsx` "See full table → /changes?legacy=1" link; `next-action.ts` `open_legacy_detail` CTA + `includeLegacyEscape` param; `changes/[id]` `?legacy=1` stamping.
+- **Deleted (5 legacy source + 12 obsolete tests = 17 files, ~9,100 lines):** `recommendations-client.tsx`, `changes/scorecard-client.tsx`, `components/recommendations/{recommendation-evidence-panel,why-ranked-here,executive-strip}.tsx` (each only the legacy client imported them) + their unit tests + wholly-legacy architecture/route tests.
+- **PRESERVED (entanglement):** `today-client.tsx` KEPT — `today-data.ts` derives `TodayPageData = Omit<ComponentProps<typeof TodayClient>, …>` and the V2 loader (`today-v2-data.ts`) consumes `TodayPageData` + calls `loadTodayPageData`; deleting the component would force a fragile manual re-type of the whole preserved hot-path. Reported as kept-because-entangled. Moved shared type `EnrichedChangeRow`/`ReadyOnPrediction` from the deleted `scorecard-client.tsx` to new `changes/types.ts` so the V2 client no longer imports a legacy module.
+- **Gates (all green):** `npm run typecheck` clean; `npm run build` PASS; `npx vitest run src` 3066 pass / 3 skip; `tests/architecture` 5381 pass / 41 skip; `tests/app+domains+lib+components+routes` 4596 pass; remaining dirs 1202 pass; `sprint6a1-phase12` 16 pass / 4 skip.
+- **Both-tenant ground-truth (real dev server :3100, auth disabled):** tenant-ritz-founder + tenant-iranopedia — `/`, `/recommendations`, `/recommendations/[id]`, `/changes`, `/changes/[id]` all HTTP 200 with V2 markers (`data-changes-layout="v2-proof-timeline"`, `data-recommendations-v2`, `recommendation-detail`, `data-today-v2-section`), no console/server error. `?legacy=1` now renders V2 (no 500). Iranopedia `/changes` = V2 empty state; cross-tenant ritz changelog id under iranopedia → notFound (isolation holds). `.env.local` restored to `tenant-ritz-founder`.
+- **OUT-OF-SCOPE finding (pre-existing, NOT introduced):** iranopedia `/today` "Who AI thinks you are" descriptors block renders `brandName: "Ritz Builders"` — cross-tenant leak in the AEO descriptors/enrichment data path (untouched by this UI-surface work). Flagged as a separate task.
+
 ## 2026-06-15 PM-8 (UX teardown ▫︎-tier EXHAUSTIVE TRIAGE + SAFE batch — NOT pushed, operator gates centrally)
 
 **Trigger:** `docs/UX_TEARDOWN_2026-06-15.md` ▫︎ ("annoying") tier was the least-touched (prior passes covered ⛔/⚠️). Went through ALL 138 ▫︎ items IN ORDER + re-swept any open ⚠️; each now carries an inline `STATUS (pass #4)` tag.

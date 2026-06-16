@@ -102,27 +102,22 @@ describe("Emergency P0 v5: loadPersistedRecommendationQueueForPage", () => {
   });
 });
 
-describe("Emergency P0 v5: /recommendations branches by useV2", () => {
+describe("Emergency P0 v5: /recommendations uses the persisted fast loader", () => {
   const src = read("src/app/(shell)/recommendations/page.tsx");
   const stripped = stripComments(src);
 
-  it("v2 branch calls loadPersistedRecommendationQueueForPage", () => {
-    // The v2 branch must use the fast loader to avoid the 30 s cold-path.
-    const useV2Idx = stripped.indexOf("if (useV2)");
-    expect(useV2Idx).toBeGreaterThan(-1);
-    const v2Block = stripped.slice(useV2Idx, useV2Idx + 2500);
-    expect(v2Block).toMatch(
+  it("calls loadPersistedRecommendationQueueForPage (the fast loader)", () => {
+    // Surface collapse (2026-06-15): /recommendations is V2-only — the
+    // `if (useV2)` switcher + the legacy `loadLiveRecommendationQueueForPage`
+    // 30 s cold-path were removed. The persisted fast loader is now the
+    // only data path.
+    expect(stripped).toMatch(
       /loadPersistedRecommendationQueueForPage\(\s*\{\s*tenantId\s*\}\s*\)/,
     );
   });
 
-  it("legacy branch still calls loadLiveRecommendationQueueForPage (full pipeline)", () => {
-    // Legacy needs the full pipeline because its drawer renders
-    // resolver-only fields (motive label, page brief, primaryCompetitors).
-    // Keep the full loader reachable via ?legacy=1.
-    expect(stripped).toMatch(
-      /loadLiveRecommendationQueueForPage\(\s*\{\s*tenantId\s*\}\s*\)/,
-    );
+  it("no longer imports or calls the legacy live pipeline loader", () => {
+    expect(stripped).not.toMatch(/loadLiveRecommendationQueueForPage/);
   });
 });
 

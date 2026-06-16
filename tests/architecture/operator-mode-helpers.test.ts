@@ -175,9 +175,10 @@ describe("Operator-mode helpers — Invariant 3: server gates use isOperatorMode
 // ─── Invariant 4 — client debug gates use the client helper ────────────
 
 describe("Operator-mode helpers — Invariant 4: client debug gates use isOperatorModeClient", () => {
+  // Surface collapse (2026-06-15): the legacy recommendations-client +
+  // scorecard-client were deleted; their operator-mode debug gates went
+  // with them. The remaining client debug surface is the import page.
   const CLIENT_FILES = [
-    "src/app/(shell)/recommendations/recommendations-client.tsx",
-    "src/app/(shell)/changes/scorecard-client.tsx",
     "src/app/(shell)/settings/import/import-page.tsx",
   ];
 

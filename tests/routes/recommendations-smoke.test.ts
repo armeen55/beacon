@@ -9,20 +9,21 @@ vi.mock("next/cache", () => ({
 }));
 
 /**
- * RecommendationsClient is a client component (hooks + server actions). The
- * stub preserves the route contract: the RSC should build the matrix, run
- * the generator + prioritizer, join operator responses, and hand off to the
- * client without throwing. The stub echoes a stable string so we can assert
- * the RSC reached the hand-off.
+ * Surface collapse (2026-06-15) — /recommendations is now V2-only. The
+ * V2 card stack is a client component (hooks + server actions); the stub
+ * preserves the route contract: the RSC should run the persisted loader,
+ * join operator responses, and hand off to the client without throwing.
+ * The stub echoes a stable string so we can assert the RSC reached the
+ * hand-off.
  */
-vi.mock("@/app/(shell)/recommendations/recommendations-client", () => {
+vi.mock("@/app/(shell)/recommendations/recommendations-v2-client", () => {
   const React = require("react") as typeof import("react");
   return {
-    RecommendationsClient: function RecommendationsClientStub() {
+    RecommendationsV2Client: function RecommendationsV2ClientStub() {
       return React.createElement(
         "div",
         { className: "recs-smoke-stub" },
-        "recommendations-client-stub",
+        "recommendations-v2-client-stub",
       );
     },
   };
@@ -30,28 +31,22 @@ vi.mock("@/app/(shell)/recommendations/recommendations-client", () => {
 
 describe("/recommendations route smoke", () => {
   it(
-    "RecommendationsPage RSC runs the full generate → prioritize pipeline and renders the shell",
+    "RecommendationsPage RSC runs the persisted loader pipeline and renders the shell",
     async () => {
       // Streaming bundle (2026-05-12): the page returns a <Suspense>
       // wrapper instantly with the async load deferred to
       // `RecommendationsAsyncContent`. renderToStaticMarkup doesn't
-      // resolve Suspense, so render the async content directly with
-      // `useV2=false` (the legacy smoke path).
+      // resolve Suspense, so render the async content directly.
       const { RecommendationsAsyncContent } = await import(
         "@/app/(shell)/recommendations/page"
       );
-      const tree = await RecommendationsAsyncContent({ useV2: false });
+      const tree = await RecommendationsAsyncContent();
       const html = renderToStaticMarkup(tree as ReactElement);
 
-      // Route wrapper class from page.tsx — pinned at the same
-      // shell-width-or-wider that the table layout requires. W3 Step
-      // 3.5e (2026-05-03) widened to max-w-5xl so the action table
-      // fits without horizontal scroll.
+      // Route wrapper class from page.tsx.
       expect(html).toMatch(/max-w-(?:4xl|5xl)/);
-      // PageHeader renders "Recommendations".
-      expect(html).toContain("Recommendations");
       // Client stub reached (i.e. server load path didn't throw).
-      expect(html).toContain("recommendations-client-stub");
+      expect(html).toContain("recommendations-v2-client-stub");
     },
     15_000,
   );

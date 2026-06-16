@@ -43,7 +43,6 @@
  *     pattern brain.
  */
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { PageHeader } from "@/components/data/page-header";
@@ -73,7 +72,7 @@ import {
 } from "@/components/changes/v2/changes-v2-card";
 import { ChangesV2WaitingRail } from "@/components/changes/v2/changes-v2-waiting-rail";
 
-import type { EnrichedChangeRow } from "./scorecard-client";
+import type { EnrichedChangeRow } from "./types";
 import { markChangelogEditShipped } from "./actions";
 
 export type ChangesV2ClientProps = {
@@ -143,14 +142,7 @@ export function ChangesV2Client({
             ))}
             {cardRows.length > timelineCards.length && (
               <p className="pt-2 text-[11px] text-muted-foreground/80">
-                Showing the {timelineCards.length} most recent changes of {cardRows.length}.{" "}
-                <Link
-                  href="/changes?legacy=1"
-                  className="text-accent-primary hover:underline font-medium"
-                  data-changes-cta="see-all-legacy"
-                >
-                  See full table →
-                </Link>
+                Showing the {timelineCards.length} most recent changes of {cardRows.length}.
               </p>
             )}
           </section>
@@ -159,13 +151,6 @@ export function ChangesV2Client({
           <ChangesV2WaitingRail items={railItems} />
         </div>
       )}
-
-      {/* Legacy view rollback: `/changes?legacy=1` still routes to
-          the legacy table in `page.tsx`. The customer-facing footer
-          CTA was removed on 2026-05-12 because v2 is the production
-          default and the visible link made the product feel
-          unfinished. The `?legacy=1` query param remains for
-          rollback. */}
     </div>
   );
 }

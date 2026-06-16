@@ -94,12 +94,13 @@ describe("Change drilldown — EarlySignalPill surfacing", () => {
     // proven / validated / confirmed / winning / won.
   });
 
-  it("/changes/[id] page wires the pill via getUrlChangeOutcomes + entry.id", () => {
-    // Lightweight architecture check — the page must reference the new
-    // getUrlChangeOutcomes import and the data attribute the component
-    // emits, so a future refactor that breaks the wiring will fail here.
-    // (We do NOT import the page module — its server-only dependencies
-    // make boot expensive.)
+  // Surface collapse (2026-06-15): the EarlySignalPill `weak_signal`
+  // drilldown lived in the legacy /changes/[id] detail layout, which was
+  // deleted with the V2-only collapse. The V2 proof brief surfaces the
+  // result via `resolveProofPill` instead. The component-level rendering
+  // contract above (the pill + its negating-copy guarantees) still holds;
+  // only the legacy page-wiring source-scan is obsolete.
+  it.skip("/changes/[id] page wires the pill via getUrlChangeOutcomes + entry.id (legacy detail layout removed)", () => {
     const fs = require("node:fs") as typeof import("node:fs");
     const path = require("node:path") as typeof import("node:path");
     const pageSrc = fs.readFileSync(

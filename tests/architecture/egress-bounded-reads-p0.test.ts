@@ -51,10 +51,6 @@ const SUPABASE_BACKEND = join(
   REPO_ROOT,
   "src/lib/persistence/repositories/supabase-backend.ts",
 );
-const REC_CLIENT = join(
-  REPO_ROOT,
-  "src/app/(shell)/recommendations/recommendations-client.tsx",
-);
 
 const LOAD_QUEUE_SRC = readFileSync(LOAD_QUEUE, "utf8");
 const SETTINGS_PROMPTS_SRC_RAW = readFileSync(SETTINGS_PROMPTS_PAGE, "utf8");
@@ -68,7 +64,6 @@ const SETTINGS_PROMPTS_SRC = SETTINGS_PROMPTS_SRC_RAW.replace(
 const PROMPTS_DETAIL_SRC = readFileSync(PROMPTS_DETAIL_PAGE, "utf8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
 const SUPABASE_BACKEND_SRC = readFileSync(SUPABASE_BACKEND, "utf8");
-const REC_CLIENT_SRC = readFileSync(REC_CLIENT, "utf8");
 
 describe("EGRESS-P0.1 — /recommendations load-queue passes observations window", () => {
   it("calls loadFreshCanonicalData with observationsSince + skipSnapshots", () => {
@@ -262,17 +257,9 @@ describe("EGRESS-P0.6 — Command Center kill switch", () => {
   });
 });
 
-describe("EGRESS-P0.7 — Recommendations Executive Strip kill switch", () => {
-  it("NEXT_PUBLIC_BEACON_RECOMMENDATIONS_STRIP_ENABLED=false hides the strip", () => {
-    expect(REC_CLIENT_SRC).toMatch(
-      /NEXT_PUBLIC_BEACON_RECOMMENDATIONS_STRIP_ENABLED[\s\S]{0,100}!==\s*"false"/,
-    );
-    // Strip render is gated by the flag.
-    expect(REC_CLIENT_SRC).toMatch(
-      /\{stripEnabled \?\s*\(\s*<ExecutiveStrip/,
-    );
-  });
-});
+// EGRESS-P0.7 (Recommendations Executive Strip kill switch) removed
+// 2026-06-15 — the legacy ExecutiveStrip + RecommendationsClient were
+// deleted in the V2-only surface collapse; the strip no longer exists.
 
 describe("EGRESS-P0 — broad sweep: no unbounded route-render reads", () => {
   it("no bare loadFreshCanonicalData() in any (shell) route page", () => {

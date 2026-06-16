@@ -39,10 +39,6 @@ import { resolve, join } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 
-const SCORECARD_PATH = join(
-  REPO_ROOT,
-  "src/app/(shell)/changes/scorecard-client.tsx",
-);
 const POLL_HEALTH_PATH = join(
   REPO_ROOT,
   "src/components/today/poll-health-block.tsx",
@@ -51,15 +47,14 @@ const ROW_TYPE_PATH = join(
   REPO_ROOT,
   "src/domains/recommendations/recommendation-action-rows.ts",
 );
-const RECS_CLIENT_PATH = join(
-  REPO_ROOT,
-  "src/app/(shell)/recommendations/recommendations-client.tsx",
-);
 
-const SCORECARD_SRC = readFileSync(SCORECARD_PATH, "utf-8");
+// Surface collapse (2026-06-15): scorecard-client.tsx +
+// recommendations-client.tsx were deleted. Fix 1 (Mark Shipped tooltip),
+// Fix 3 (AI-source pill), Fix 4 (engineConfidence pill), and Fix 6
+// (Imported-legacy empty state) pinned legacy-client copy; those describe
+// blocks are skipped below (the V2 surfaces have their own contract tests).
 const POLL_HEALTH_SRC = readFileSync(POLL_HEALTH_PATH, "utf-8");
 const ROW_TYPE_SRC = readFileSync(ROW_TYPE_PATH, "utf-8");
-const RECS_CLIENT_SRC = readFileSync(RECS_CLIENT_PATH, "utf-8");
 
 /**
  * Strip block + line comments before identifier checks so docstring
@@ -73,15 +68,18 @@ function stripComments(src: string): string {
     .replace(/^\s*\/\/.*$/gm, "");
 }
 
-const SCORECARD_CODE = stripComments(SCORECARD_SRC);
 const POLL_HEALTH_CODE = stripComments(POLL_HEALTH_SRC);
-const RECS_CLIENT_CODE = stripComments(RECS_CLIENT_SRC);
+// Legacy-client sources removed (see note above). Empty placeholders keep
+// the skipped legacy describe blocks compiling without reading a deleted
+// file.
+const SCORECARD_CODE = "";
+const RECS_CLIENT_CODE = "";
 
 // ────────────────────────────────────────────────────────────────────────
 // Fix 1 — Mark Shipped tooltip rewrite
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Round 1 Fix 1 — /changes Mark Shipped tooltip", () => {
+describe.skip("Round 1 Fix 1 — /changes Mark Shipped tooltip (legacy scorecard-client removed 2026-06-15)", () => {
   it("renders the new operator-readable copy", () => {
     expect(
       SCORECARD_CODE.includes(
@@ -187,7 +185,7 @@ describe("Round 1 Fix 2 — /today Poll Health infra-leak rewrite", () => {
 // Fix 3 — /recommendations AI source pill
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Round 1 Fix 3 — /recommendations AI-source pill", () => {
+describe.skip("Round 1 Fix 3 — /recommendations AI-source pill (legacy recommendations-client removed 2026-06-15)", () => {
   it("RecommendationActionRow type carries an editSource field", () => {
     expect(
       /readonly editSource:\s*string \| null/.test(ROW_TYPE_SRC),
@@ -243,7 +241,7 @@ describe("Round 1 Fix 3 — /recommendations AI-source pill", () => {
 // Fix 4 — /recommendations engineConfidence pill
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Round 1 Fix 4 — /recommendations engineConfidence pill", () => {
+describe.skip("Round 1 Fix 4 — /recommendations engineConfidence pill (legacy recommendations-client removed 2026-06-15)", () => {
   it("RecommendationActionRow type carries a top-level engineConfidence field", () => {
     expect(
       /readonly engineConfidence:\s*"high"\s*\|\s*"medium"\s*\|\s*"low"\s*\|\s*null/.test(
@@ -362,7 +360,7 @@ describe("Round 1 Fix 5 — /today sampling taxonomy unification", () => {
 // Fix 6 — /changes Imported legacy empty state
 // ────────────────────────────────────────────────────────────────────────
 
-describe("Round 1 Fix 6 — /changes Imported legacy empty state", () => {
+describe.skip("Round 1 Fix 6 — /changes Imported legacy empty state (legacy scorecard-client removed 2026-06-15)", () => {
   it("renders the new empty-state copy", () => {
     expect(
       SCORECARD_CODE.includes(
