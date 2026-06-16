@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — GQA-3 (adversarial LLM critic, lower-only — completes the QA architecture)
+
+The directive's QA architecture is now complete: **deterministic gate (authority) → LLM strategist (reasoning) → LLM critic (adversarial QA)**. The critic can sharpen scrutiny but the deterministic gate stays the final word.
+- **Pure `applyCriticToVerdict(deterministic, critic)` in `expert-verdict.ts`:** LOWER-ONLY clamp. The critic may pull confidence DOWN (or reject) but can NEVER raise past the deterministic ceiling, and can NEVER rescue a deterministic reject. Confidence-rank min() enforces it; a critic "raise"/higher suggestion is clamped away.
+- **`runCriticReview` + `parseCriticJson` in `llm-expert-strategist.ts` (server-only, flagged `BEACON_LLM_CRITIC`, default OFF):** a skeptical second OpenAI pass that reviews the strategist reasoning against the grounding signals, flags unsupported/invented/AI-without-evidence claims, and returns keep|lower|reject + a suggested confidence. Wired into `composeExpertStrategy`: after the deterministic verdict, the critic runs (own budget gate, fail-closed → deterministic verdict stands unchanged) and `applyCriticToVerdict` clamps the result lower-only. (Same file = already in the OpenAI-egress allowlist.)
+- **Gate:** typecheck clean; **+8 GQA-3 tests** pinning the safety invariants (critic raise → clamped, lower → lowered, reject → rejected, deterministic-reject not rescued, keep → unchanged; parseCriticJson fail-closed); recs + architecture **5,879 pass**; build ✓. **The QA engine is complete:** every rec is gated deterministically before the list (GQA-1/2), reasoned by the LLM strategist (PHASE F/I), and adversarially QA'd by the LLM critic (GQA-3) — all with the deterministic gate as the unconditional authority. Branch only; no merge (operator). Operator to go live: merge→deploy + `BEACON_LLM_STRATEGIST=1`/`BEACON_LLM_CRITIC=1` hosted + connect keys.
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — GQA (generation-time recommendation QA: list looks expert before you click in)
 
 Operator pivot: "a smart explanation on a bad recommendation is worse than none — prevent bad recs from being shown as high-confidence in the FIRST place." Moves QA upstream to generation/ranking so the LIST is expert; the detail page deepens, never rescues. NO merge (operator).

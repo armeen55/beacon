@@ -318,3 +318,83 @@ describe("composeExpertStrategy — gates + end-to-end", () => {
     expect(result).toBeNull();
   });
 });
+
+// ── GQA-3: adversarial critic — LOWER-ONLY clamp (the safety invariant) ──
+import {
+  applyCriticToVerdict,
+  parseCriticJson,
+} from "@/domains/recommendations/llm-expert-strategist";
+import type { ExpertVerdict, CriticReview } from "@/domains/recommendations/expert-verdict";
+
+const detMedium: ExpertVerdict = {
+  enforcedConfidence: "medium",
+  enforcedApprove: true,
+  gateNotes: ["Moderate evidence and intent fit."],
+};
+const detHigh: ExpertVerdict = {
+  enforcedConfidence: "high",
+  enforcedApprove: true,
+  gateNotes: ["Strong evidence and intent fit."],
+};
+const detRejected: ExpertVerdict = {
+  enforcedConfidence: "rejected",
+  enforcedApprove: false,
+  gateNotes: ["Intent mismatch."],
+};
+const critic = (over: Partial<CriticReview> = {}): CriticReview => ({
+  adjustment: "keep",
+  suggestedConfidence: "medium",
+  unsafeOrUnsupportedClaims: [],
+  critique: "Looks grounded.",
+  ...over,
+});
+
+describe("applyCriticToVerdict — the critic can never override the deterministic gate", () => {
+  it("a critic 'raise'/higher suggestion CANNOT raise confidence", () => {
+    const out = applyCriticToVerdict(detMedium, critic({ adjustment: "raise", suggestedConfidence: "high" }));
+    expect(out.enforcedConfidence).toBe("medium"); // clamped, never raised
+  });
+  it("a critic can LOWER confidence", () => {
+    const out = applyCriticToVerdict(detHigh, critic({ adjustment: "lower", suggestedConfidence: "low" }));
+    expect(out.enforcedConfidence).toBe("low");
+    expect(out.enforcedApprove).toBe(false);
+  });
+  it("a critic 'reject' rejects + un-approves", () => {
+    const out = applyCriticToVerdict(detHigh, critic({ adjustment: "reject", suggestedConfidence: "rejected" }));
+    expect(out.enforcedConfidence).toBe("rejected");
+    expect(out.enforcedApprove).toBe(false);
+  });
+  it("a deterministic REJECT cannot be rescued by the critic", () => {
+    const out = applyCriticToVerdict(detRejected, critic({ adjustment: "raise", suggestedConfidence: "high" }));
+    expect(out.enforcedConfidence).toBe("rejected");
+    expect(out.enforcedApprove).toBe(false);
+  });
+  it("a critic 'keep' leaves confidence unchanged", () => {
+    const out = applyCriticToVerdict(detMedium, critic({ adjustment: "keep", suggestedConfidence: "medium" }));
+    expect(out.enforcedConfidence).toBe("medium");
+    expect(out.enforcedApprove).toBe(true);
+  });
+});
+
+describe("parseCriticJson — fail-closed", () => {
+  it("parses a valid critic object", () => {
+    const r = parseCriticJson(
+      JSON.stringify({
+        adjustment: "lower",
+        suggested_confidence: "low",
+        unsafe_or_unsupported_claims: ["claim X has no supporting number"],
+        critique: "One number isn't in the signals.",
+      }),
+    );
+    expect(r?.adjustment).toBe("lower");
+    expect(r?.suggestedConfidence).toBe("low");
+    expect(r?.unsafeOrUnsupportedClaims.length).toBe(1);
+  });
+  it("malformed JSON → null", () => {
+    expect(parseCriticJson("not json")).toBeNull();
+  });
+  it("an unknown adjustment defaults to 'keep'", () => {
+    const r = parseCriticJson(JSON.stringify({ adjustment: "explode", suggested_confidence: "medium", critique: "x" }));
+    expect(r?.adjustment).toBe("keep");
+  });
+});

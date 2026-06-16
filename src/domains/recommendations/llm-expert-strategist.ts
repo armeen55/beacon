@@ -45,15 +45,19 @@ import type { PageTopicFit } from "./page-topic-fit";
 // generation-time QA path can share it. Re-exported here for back-compat.
 import {
   enforceExpertConfidence,
+  applyCriticToVerdict,
   type RiskLevel,
   type FinalConfidence,
   type ExpertVerdict,
+  type CriticReview,
 } from "./expert-verdict";
 export {
   enforceExpertConfidence,
+  applyCriticToVerdict,
   type RiskLevel,
   type FinalConfidence,
   type ExpertVerdict,
+  type CriticReview,
 };
 
 const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
@@ -366,7 +370,7 @@ export async function composeExpertStrategy(
   });
   if (!sanitized.ok) return null;
 
-  const verdict = enforceExpertConfidence({
+  let verdict = enforceExpertConfidence({
     deterministicReject: input.deterministicReject === true,
     shouldUseQueryForOptimization:
       input.topicFit?.shouldUseQueryForOptimization ?? null,
@@ -375,10 +379,164 @@ export async function composeExpertStrategy(
     intentMatchScore: input.topicFit?.intentMatchScore ?? null,
   });
 
+  // GQA-3 — adversarial LLM critic (flagged BEACON_LLM_CRITIC, default OFF).
+  // A skeptical second pass that may LOWER or REJECT confidence;
+  // `applyCriticToVerdict` clamps it LOWER-ONLY so it can never raise past the
+  // deterministic ceiling or rescue a deterministic reject. Fail-closed: any
+  // problem keeps the deterministic verdict unchanged.
+  if (
+    process.env.BEACON_LLM_CRITIC === "1" &&
+    verdict.enforcedConfidence !== "rejected"
+  ) {
+    const review = await runCriticReview(
+      { reasoning: sanitized.reasoning, serialized },
+      { apiKey, model, timeoutMs, fetchImpl, now },
+    );
+    if (review) verdict = applyCriticToVerdict(verdict, review);
+  }
+
   return {
     strategist: sanitized.reasoning,
     ...verdict,
     model,
     costUsd,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GQA-3 — adversarial critic pass. Separate OpenAI call; fail-closed → null
+// (the deterministic verdict then stands unchanged).
+// ─────────────────────────────────────────────────────────────────────
+
+const CRITIC_SYSTEM_PROMPT =
+  "You are a skeptical senior SEO/AEO QA reviewer. You are given a " +
+  "recommendation's reasoning and the grounding signals it must rest on. " +
+  "Catch unsupported or unsafe claims and decide whether the recommendation's " +
+  "confidence should stand, be LOWERED, or the recommendation REJECTED. You " +
+  "may ONLY keep, lower, or reject — NEVER raise confidence. Flag any claim " +
+  "not supported by the signals, any invented number, and any AI/answer-engine " +
+  "citation claim made without answer-engine evidence. Respond with STRICT " +
+  "JSON ONLY (no prose, no markdown) with EXACTLY these keys: adjustment " +
+  "('keep'|'lower'|'reject'), suggested_confidence " +
+  "('high'|'medium'|'low'|'needs_more_evidence'|'rejected'), " +
+  "unsafe_or_unsupported_claims (string[]), critique (string).";
+
+export function parseCriticJson(content: string): CriticReview | null {
+  let text = content.trim();
+  if (text.length === 0) return null;
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1]!.trim();
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace <= firstBrace) return null;
+  text = text.slice(firstBrace, lastBrace + 1);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (parsed == null || typeof parsed !== "object") return null;
+  const o = parsed as Record<string, unknown>;
+
+  const adjRaw = typeof o.adjustment === "string" ? o.adjustment.toLowerCase() : "";
+  const adjustment: CriticReview["adjustment"] =
+    adjRaw === "lower" || adjRaw === "reject" || adjRaw === "raise"
+      ? (adjRaw as CriticReview["adjustment"])
+      : "keep";
+
+  const confRaw =
+    typeof o.suggested_confidence === "string" ? o.suggested_confidence.toLowerCase() : "";
+  const valid: ReadonlyArray<FinalConfidence> = [
+    "high",
+    "medium",
+    "low",
+    "needs_more_evidence",
+    "rejected",
+  ];
+  const suggestedConfidence: FinalConfidence = (valid as string[]).includes(confRaw)
+    ? (confRaw as FinalConfidence)
+    : "medium";
+
+  const claims = Array.isArray(o.unsafe_or_unsupported_claims)
+    ? o.unsafe_or_unsupported_claims
+        .filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+        .slice(0, 6)
+    : [];
+  const critique =
+    typeof o.critique === "string" && o.critique.trim().length > 0
+      ? o.critique.trim().slice(0, MAX_FIELD_LEN)
+      : "Reviewed against the supplied signals.";
+
+  return { adjustment, suggestedConfidence, unsafeOrUnsupportedClaims: claims, critique };
+}
+
+async function runCriticReview(
+  args: { reasoning: StrategistReasoning; serialized: string },
+  opts: { apiKey: string; model: string; timeoutMs: number; fetchImpl: typeof fetch; now: Date },
+): Promise<CriticReview | null> {
+  try {
+    const budget = await checkBudget({ now: opts.now });
+    if (!budget.allowed) return null;
+  } catch {
+    return null;
+  }
+
+  const body = JSON.stringify({
+    model: opts.model,
+    messages: [
+      { role: "system", content: CRITIC_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content:
+          "Grounding signals (the reasoning must rest ONLY on these):\n" +
+          args.serialized +
+          "\n\nThe recommendation reasoning to review:\n" +
+          JSON.stringify(args.reasoning, null, 2),
+      },
+    ],
+    max_completion_tokens: MAX_COMPLETION_TOKENS,
+  });
+
+  let response: Response;
+  try {
+    response = await opts.fetchImpl(OPENAI_CHAT_API, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body,
+      signal: AbortSignal.timeout(opts.timeoutMs),
+    });
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+
+  type OpenAIChatResponse = {
+    choices?: Array<{ message?: { content?: string | null; refusal?: string | null } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  let data: OpenAIChatResponse;
+  try {
+    data = (await response.json()) as OpenAIChatResponse;
+  } catch {
+    return null;
+  }
+
+  const inputTokens = data.usage?.prompt_tokens ?? 0;
+  const outputTokens = data.usage?.completion_tokens ?? 0;
+  try {
+    await recordSpend(estimateCost(opts.model, inputTokens, outputTokens), { now: opts.now });
+  } catch {
+    // spend-write failure must not throw
+  }
+
+  const choice = data.choices?.[0];
+  if (choice?.message?.refusal) return null;
+  const content = choice?.message?.content;
+  if (!content) return null;
+  return parseCriticJson(content);
 }

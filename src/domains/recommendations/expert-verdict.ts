@@ -31,6 +31,75 @@ export type ExpertVerdict = {
   gateNotes: string[];
 };
 
+/** Confidence rank for the lower-only clamp (higher = more confident). */
+const CONFIDENCE_RANK: Record<FinalConfidence, number> = {
+  rejected: 0,
+  needs_more_evidence: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+};
+
+/** What an (LLM) critic pass may recommend. It can lower or reject, never raise. */
+export type CriticReview = {
+  /** The critic's requested move. "raise" is accepted as input but IGNORED. */
+  adjustment: "keep" | "lower" | "reject" | "raise";
+  /** The critic's suggested final confidence (clamped to never exceed det). */
+  suggestedConfidence: FinalConfidence;
+  /** Unsupported/unsafe claims the critic flagged (surfaced, not trusted). */
+  unsafeOrUnsupportedClaims: string[];
+  /** One-line critique. */
+  critique: string;
+};
+
+/**
+ * Apply an adversarial critic review to the DETERMINISTIC verdict — LOWER-ONLY.
+ * The critic can pull confidence DOWN (or reject) but can NEVER raise it past
+ * the deterministic ceiling and can never flip a deterministic reject to
+ * approved. This is the safety invariant: "deterministic gates remain the final
+ * authority." Pure.
+ */
+export function applyCriticToVerdict(
+  deterministic: ExpertVerdict,
+  critic: CriticReview,
+): ExpertVerdict {
+  // A deterministic reject is permanent — the critic cannot rescue it.
+  if (deterministic.enforcedConfidence === "rejected") return deterministic;
+
+  // Critic reject → rejected (the critic may always pull down to reject).
+  if (critic.adjustment === "reject" || critic.suggestedConfidence === "rejected") {
+    return {
+      enforcedConfidence: "rejected",
+      enforcedApprove: false,
+      gateNotes: [
+        ...deterministic.gateNotes,
+        `Adversarial QA rejected this: ${critic.critique}`,
+      ],
+    };
+  }
+
+  // Otherwise take the LOWER of the deterministic confidence and the critic's
+  // suggestion — a critic "raise" or any higher suggestion is clamped away.
+  const lowered =
+    CONFIDENCE_RANK[critic.suggestedConfidence] < CONFIDENCE_RANK[deterministic.enforcedConfidence]
+      ? critic.suggestedConfidence
+      : deterministic.enforcedConfidence;
+
+  const approve =
+    deterministic.enforcedApprove && (lowered === "high" || lowered === "medium");
+
+  const note =
+    lowered === deterministic.enforcedConfidence
+      ? `Adversarial QA agreed: ${critic.critique}`
+      : `Adversarial QA lowered confidence to ${lowered}: ${critic.critique}`;
+
+  return {
+    enforcedConfidence: lowered,
+    enforcedApprove: approve,
+    gateNotes: [...deterministic.gateNotes, note],
+  };
+}
+
 /**
  * The deterministic gate. Confidence + approve come ONLY from deterministic
  * signals (safety reject, page/intent fit, evidence presence, copy safety) —
