@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-16 PM-21 (DE-BLOAT — orphaned `today/` component sweep, post-V2-collapse dead code)
+
+**Trigger:** verify-first against the actual UX_TEARDOWN worklist (not my own summary) surfaced finding #6 (⛔ phantom-cron copy in `data-freshness-heartbeat.tsx`). The copy was already swept, but the COMPONENT was orphaned when the legacy `today-client` was deleted (`faa6ad1`). An orphan scan found 6 more dead `today/` components with ZERO live importers — the V2 collapse left them stranded.
+
+- **Deleted (4 commits, all pushed):**
+  - `5e50013` — `data-freshness-heartbeat.tsx` (410) + its test (594) = **1,004 lines.** Cleanest permanent fix for finding #6 (the lying copy can never resurface — the component is gone).
+  - `a1e28e9` — `since-last-visit.tsx` (106, zero refs), `today-scan-strip.tsx` (23, zero refs), `today-local-attention.tsx` (30) + its test (the live `localAttentionStrip` data flows through the separate `@/lib/local-presence` helper, which stays).
+  - `8439bae` — `poll-health-block.tsx` (267), `today-action-queue.tsx` (160), `live-changes-block.tsx` (123) + its test (273) + `poll-health-copy.test.ts` (112, pinned ONLY the dead component) = **935 lines**, plus surgical removal of dead-component assertions from 4 architecture tests that ALSO pin live files (operator-mode-helpers, customer-readiness-round-1, demo-path-fixes, ux6-2-vocab, today-action-card-copy) — every live-file pin PRESERVED. Catalog-sync row retired per its documented file↔row procedure.
+- **Total: ~2,130 lines of dead code removed** across 4 commits. The entangled test surgery was done via a fresh-context **subagent** + **parent-owned gate** (the proven pattern).
+- **Method (per delete):** orphan-proof = grep whole tree for path-stem (imports always use the path) → confirm ZERO non-test importers, no barrel re-export, name appears nowhere live (only harmless comments). A component with zero importers cannot render — airtight.
+- **Gates (parent-owned, both runs):** typecheck clean; FULL suite green — architecture+today **241 files / 5301 pass** (subagent) + app+components+domains+lib **321 files / 4555 pass** (parent) = **562 files / 9,856 tests, 0 fail**; build ✓ Compiled successfully (7.1s). Branch-local; no deploy.
+- **Left intentionally:** stale component-NAME mentions survive only in dev comments (today-data.ts, today-shared-types.ts, today-v2-working.tsx, poll-health-calm-banner.tsx, etc.) — editing live files purely to tidy comments is churn-risk for no functional gain ("truth-up not churn").
+
+---
+
 ## 2026-06-16 PM-20 (improve_meta directive — content pages w/ unliftable prose get actionable meta guidance)
 
 **Trigger:** the last buildable root-cause-#3 gap — content pages with a missing meta that `composeMeta` can't auto-draft (list-structured / label-soup prose, common on Wix) promoted a `missing_meta::edit_meta` rec with a NULL draft (blank, render-suppressed). Implemented via a fresh-context **subagent** (the careful multi-file wiring) + **verified independently by me** (don't trust a multi-file feature unverified).
