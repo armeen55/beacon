@@ -20,7 +20,6 @@ import { join, resolve } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 const SRC_ROOT = resolve(REPO_ROOT, "src");
-const POLL_ADAPTER_PATH = resolve(SRC_ROOT, "adapters/perplexity/poll.ts");
 
 function* walk(dir: string): Generator<string> {
   let entries: string[];
@@ -45,78 +44,16 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
-// ── Polling adapter wires the cost controls ─────────────────────────────
-
-describe("Sprint 6A.3e — polling adapter imports/uses cost controls", () => {
-  const REQUIRED_IMPORTS: Array<{ symbol: string; module: string; reason: string }> = [
-    {
-      symbol: "estimatePromptCost",
-      module: "@/lib/cost/pricing",
-      reason: "per-call cost estimation from token usage + tool counts (6A.3a)",
-    },
-    {
-      symbol: "checkTenantBudget",
-      module: "@/lib/cost/budget",
-      reason: "pre-flight daily per-tenant cap (6A.3c)",
-    },
-    {
-      symbol: "checkPerRunBudget",
-      module: "@/lib/cost/budget",
-      reason: "mid-run per-chunk runaway cap (6A.3c)",
-    },
-    {
-      symbol: "recordSpend",
-      module: "@/lib/cost/budget",
-      reason: "append-only spend ledger (6A.3c)",
-    },
-    {
-      symbol: "checkMonthlyBudget",
-      module: "@/lib/cost/monthly",
-      reason: "pre-flight monthly cap (6A.3c)",
-    },
-  ];
-
-  const adapterSrc = readFileSync(POLL_ADAPTER_PATH, "utf8");
-
-  it.each(REQUIRED_IMPORTS)(
-    "imports $symbol from $module",
-    ({ symbol, module }) => {
-      const re = new RegExp(
-        String.raw`import\s*\{[^}]*\b${symbol}\b[^}]*\}\s*from\s*["']${module.replace(/[/]/g, "\\/")}["']`,
-      );
-      expect(adapterSrc).toMatch(re);
-    },
-  );
-
-  it.each(REQUIRED_IMPORTS)(
-    "calls $symbol at least once",
-    ({ symbol }) => {
-      // The symbol should appear as a call expression: `${symbol}(`. We
-      // also accept `${symbol}<...>(` for generic invocations though
-      // none today have generics. The simple regex is sufficient.
-      const callRe = new RegExp(String.raw`\b${symbol}\s*\(`);
-      expect(adapterSrc).toMatch(callRe);
-    },
-  );
-
-  it("contains the BUDGET_BLOCKED + PER_RUN_BLOCKED + DEDUP_SKIPPED log markers", () => {
-    expect(adapterSrc).toMatch(/BUDGET_BLOCKED/);
-    expect(adapterSrc).toMatch(/PER_RUN_BLOCKED/);
-    expect(adapterSrc).toMatch(/DEDUP_SKIPPED/);
-  });
-
-  it("normalizes prompt text via trim + lowercase for dedupe", () => {
-    expect(adapterSrc).toMatch(/\.trim\(\)\.toLowerCase\(\)/);
-  });
-});
-
-// De-bloat (2026-06-15): the BEACON_POLL_DISABLED kill-switch + auth-order
-// invariants previously pinned src/app/api/poll/run/route.ts, the
-// CRON_SECRET-gated HTTP trigger deleted with the abandoned scheduled
-// native poll. The on-demand "Run today's AI reading" action calls
-// runNativePoll directly as a server action (it never went through that
-// route), so the engine's own budget/dedup guards — pinned above on the
-// kept adapters/perplexity/poll.ts — remain the live cost-control surface.
+// PIVOT (2026-06-15): the in-house native AEO polling engine — the
+// `adapters/perplexity/poll.ts` adapter that wired estimatePromptCost /
+// checkTenantBudget / checkPerRunBudget / recordSpend / checkMonthlyBudget,
+// plus `run-poll.ts` and the BEACON_POLL_DISABLED-gated /api/poll/run route —
+// has been deleted. Profound is now the sole AEO source and makes no in-house
+// paid LLM polling calls, so the per-poll cost-control wiring it pinned no
+// longer exists. The remaining cost-control invariants below (cost-ledger.json
+// write isolation, the llm-budget store isolation that guards the surviving
+// recommendation-DRAFT LLM spend, and the LLM safety pins) are unaffected and
+// still enforced.
 
 // ── cost-ledger.json write isolation ───────────────────────────────────
 

@@ -12,7 +12,6 @@
     "data:scan": "npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/scan-owned-pages.ts",
     "data:registry": "npx tsx --require ./scripts/mock-server-only.cjs scripts/build-page-registry.ts",
     "data:score-snapshot": "npx tsx --require ./scripts/mock-server-only.cjs scripts/score-snapshot.ts",
-    "data:sample": "npx tsx --require ./scripts/mock-server-only.cjs scripts/sample-visibility.ts",
     "data:backfill-db": "npx tsx scripts/backfill-to-supabase.ts",
     "data:parity": "npx tsx scripts/compare-parity.ts",
     "verify:brain-health": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-brain-health-watchdog.ts",

@@ -16,17 +16,14 @@
  * Coverage:
  *   - Every TS / TSX file under `src/app/(shell)/**` (Phase 7.5b/5).
  *   - Every TS file under `scripts/**` (Phase 7.5d/3).
- *   - Plus 2 extra files that act as CLI library code:
- *       `src/adapters/perplexity/poll.ts`
- *       `src/domains/observations/run-poll.ts`
  *
- * Known Tier C-only readers (NO allowlist needed — they call only methods
- * outside the Tier A list, so the scan naturally ignores them; if any of
- * these files later adds a Tier A method, the invariant DOES fail):
- *   - scripts/poll-openai.ts        (getTrackedPrompts, getTrackedEntities)
- *   - scripts/poll-perplexity.ts    (getTrackedPrompts, getTrackedEntities)
- *   - src/adapters/perplexity/poll.ts  (getTrackedPrompts, getTrackedEntities)
- *   - src/domains/observations/run-poll.ts  (getTrackedEntities)
+ * 2026-06-15 PIVOT: the in-house native AEO polling engine
+ * (`src/adapters/perplexity/poll.ts`, `src/adapters/openai/poll.ts`,
+ * `src/domains/observations/run-poll.ts`, and the `scripts/poll-*.ts` CLIs)
+ * was deleted — Profound is now the sole AEO source. The EXTRA_CLI_LIB_FILES
+ * list below kept those two library entrypoints in scope; with the files gone
+ * its `existsSync` filter drops them and the list is now empty. The shell +
+ * scripts surfaces remain fully covered.
  *
  * The 15 Tier A method names are listed below; if a new Tier A method is
  * added (e.g., a future schema migration adds `tenant_id` to a previously
@@ -49,13 +46,14 @@ const SHELL_ROOT = resolve(__dirname, "../../src/app/(shell)");
 const SCRIPTS_ROOT = resolve(__dirname, "../../scripts");
 const REPO_ROOT = resolve(__dirname, "../..");
 
-// CLI-like library files outside `scripts/` that the directive listed for
-// Phase 7.5d coverage. Both expose async `pollX(tenantId, ...)` entrypoints
-// — receiving tenantId from callers — and have no internal silent fallback.
-const EXTRA_CLI_LIB_FILES = [
-  resolve(REPO_ROOT, "src/adapters/perplexity/poll.ts"),
-  resolve(REPO_ROOT, "src/domains/observations/run-poll.ts"),
-].filter((p) => existsSync(p));
+// CLI-like library files outside `scripts/` that the Phase 7.5d directive
+// listed for coverage. The two native-poll entrypoints that lived here
+// (`adapters/perplexity/poll.ts`, `domains/observations/run-poll.ts`) were
+// deleted in the 2026-06-15 AEO-engine pivot; the `existsSync` filter keeps
+// this list honest (currently empty) and ready for any future CLI-lib file.
+const EXTRA_CLI_LIB_FILES: string[] = (
+  [] as string[]
+).filter((p) => existsSync(p));
 
 // 15 Tier A methods — must be filtered by tenant at the read boundary.
 // Source: src/lib/persistence/repositories/types.ts → TenantRepository.

@@ -165,55 +165,12 @@ describe("buildTodayReadModelCacheTag — tenant scoping", () => {
   });
 });
 
-describe("run-poll.ts — post-syncSnaps invalidation", () => {
-  const SRC = readFileSync(
-    resolve(__dirname, "../observations/run-poll.ts"),
-    "utf8",
-  );
-
-  it("imports `revalidateTag` from next/cache only inside the try block (deferred)", () => {
-    // Dynamic import so the inner try/catch wraps the import call too.
-    expect(SRC).toMatch(
-      /const\s*\{\s*revalidateTag\s*\}\s*=\s*await\s+import\s*\(\s*["']next\/cache["']\s*\)/,
-    );
-  });
-
-  it("calls buildTodayReadModelCacheTag(tenantId) with `default` profile (Next 16 signature)", () => {
-    expect(SRC).toMatch(
-      /revalidateTag\(\s*buildTodayReadModelCacheTag\(tenantId\)\s*,\s*["']default["']\s*\)/,
-    );
-  });
-
-  it("invalidation sits AFTER syncSnaps (so a failed sync skips invalidation)", () => {
-    const syncIdx = SRC.indexOf("await syncSnaps(snapshots, tenantId);");
-    const revIdx = SRC.indexOf(
-      "revalidateTag(buildTodayReadModelCacheTag(tenantId)",
-    );
-    expect(syncIdx).toBeGreaterThan(-1);
-    expect(revIdx).toBeGreaterThan(-1);
-    expect(revIdx).toBeGreaterThan(syncIdx);
-  });
-
-  it("invalidation sits INSIDE the same try-block as syncSnaps (catch path skips it)", () => {
-    // The syncSnaps + invalidation must both be inside the outer
-    // `try {` that ends at `} catch (snapErr) {`. We verify the
-    // catch keyword appears AFTER the revalidateTag call.
-    const revIdx = SRC.indexOf(
-      "revalidateTag(buildTodayReadModelCacheTag(tenantId)",
-    );
-    const catchIdx = SRC.indexOf("catch (snapErr)");
-    expect(revIdx).toBeGreaterThan(-1);
-    expect(catchIdx).toBeGreaterThan(-1);
-    expect(catchIdx).toBeGreaterThan(revIdx);
-  });
-
-  it("invalidation has its own try/catch (failed invalidation is non-fatal)", () => {
-    // The revalidateTag call must sit inside a nested try { } catch (invalErr) ...
-    // so that a Next runtime hiccup never poisons the upstream success
-    // path. Loose grep on the inner catch identifier is enough.
-    expect(SRC).toMatch(/catch\s*\(\s*invalErr\s*\)/);
-  });
-});
+// PIVOT (2026-06-15): the `run-poll.ts — post-syncSnaps invalidation` source
+// scan block lived here, pinning the native-poll cache invalidation. The
+// in-house native AEO polling engine (run-poll.ts) was deleted — Profound is
+// now the sole AEO source — so the block is gone with it. The freshness
+// pure-function + cache-tag pins above, and the backfill invalidation pin
+// below, are unaffected.
 
 describe("backfill-snapshot-extensions.ts — post-write invalidation", () => {
   const SRC = readFileSync(

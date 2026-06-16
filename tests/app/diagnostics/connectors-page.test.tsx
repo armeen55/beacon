@@ -34,8 +34,6 @@ vi.mock("@/lib/connector-store", () => ({
 
 vi.mock("@/app/(shell)/diagnostics/connectors/actions", () => ({
   refreshAllDataSourcesFromForm: async () => {},
-  runPerplexityReadingFromForm: async () => {},
-  runOpenAiReadingFromForm: async () => {},
   recomputeProofFromForm: async () => {},
 }));
 
@@ -61,7 +59,7 @@ describe("/diagnostics/connectors — gate", () => {
 });
 
 describe("/diagnostics/connectors — rows", () => {
-  it("lists all six cache-backed connectors + the on-demand AI reading", async () => {
+  it("lists all six cache-backed connectors + the proof recompute", async () => {
     const html = await render();
     expect(html).toContain("Google Search Console");
     expect(html).toContain("Google Analytics 4");
@@ -70,10 +68,11 @@ describe("/diagnostics/connectors — rows", () => {
     expect(html).toContain("CallRail");
     expect(html).toContain("Semrush");
     expect(html).toContain("Refresh all connected sources");
-    // 2026-06-15 — on-demand AEO poll (crons off)
-    expect(html).toContain("Run today&#x27;s AI reading");
-    expect(html).toContain("Run Perplexity reading");
-    expect(html).toContain("Run ChatGPT reading");
+    // 2026-06-15 PIVOT — in-house native AEO poll removed; Profound is the
+    // sole AEO source. The "Run today's AI reading" buttons are gone.
+    expect(html).not.toContain("Run today&#x27;s AI reading");
+    expect(html).not.toContain("Run Perplexity reading");
+    expect(html).not.toContain("Run ChatGPT reading");
     // 2026-06-15 — on-demand Proof Engine recompute (crons off)
     expect(html).toContain("Recompute causal proof");
     expect(html).toContain("Recompute proof");

@@ -109,8 +109,8 @@ export function computePulse(opts: {
         id: pulseId("sampling_stale", `${daysSince}`),
         type: "sampling_stale",
         severity: "info",
-        title: `Native sampling is ${daysSince} days old`,
-        detail: `Run \`npm run data:sample\` to refresh answer snapshots.`,
+        title: `AEO answer data is ${daysSince} days old`,
+        detail: `Refresh Profound from Diagnostics → Connectors to update answer snapshots.`,
         href: "/settings/health",
         created_at: now,
       });

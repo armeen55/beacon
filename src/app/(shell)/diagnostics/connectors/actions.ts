@@ -37,10 +37,6 @@ import { refreshCallRailMetrics } from "@/app/(shell)/diagnostics/callrail/actio
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import {
-  runNativePoll,
-  type NativePollPlatform,
-} from "@/domains/observations/run-poll";
 
 const ROUTE = "/diagnostics/connectors";
 
@@ -243,84 +239,12 @@ export async function refreshAllDataSourcesFromForm(
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// ON-DEMAND AEO poll (2026-06-15) — "Run today's AI reading" with crons off.
-//
-// runNativePoll is the battle-hardened poll engine (per-run + UTC-day budget
-// guards, raw-chunk safety net, dual-write). It was reachable only via the
-// CRON_SECRET-gated /api/poll/run route or the CLI. This surfaces it as an
-// operator-session action so the operator can refresh the AI-answer
-// observations (the "how AI describes you" data) on demand.
-//
-// Vercel note: one platform for a ~50-prompt tenant runs ~170s, under the
-// 300s serverless cap. Run ONE platform per click (the page exposes a button
-// per platform); the UTC-day budget guard makes a same-day repeat a no-op, so
-// double-clicks never double-spend. Very large prompt libraries should chunk
-// via offset/limit (the /api/poll/run route documents the 4×25 pattern) or
-// run from the CLI.
+// PIVOT (2026-06-15): the in-house native AEO polling engine (runNativePoll +
+// the Perplexity/ChatGPT poll adapters) and the operator-only "Run today's AI
+// reading" action that drove it have been removed. Profound is now the SOLE
+// AEO source — its "how AI describes you" data lands via the Profound
+// connector's on-demand refresh (above) + nightly sync, not an in-house poll.
 // ─────────────────────────────────────────────────────────────────────
-
-export type RunReadingResult =
-  | { ok: true; platform: string; status: string; observations?: number }
-  | { ok: false; platform: string; reason: string };
-
-export async function runTodaysReadingForPlatform(
-  platform: NativePollPlatform,
-): Promise<RunReadingResult> {
-  const action = "runTodaysReadingForPlatform";
-  const t0 = Date.now();
-  if (!isOperatorModeServer()) {
-    return { ok: false, platform, reason: "not_operator" };
-  }
-  log.info("Action started", { action, platform });
-  try {
-    const tenantId = await currentTenantId();
-    // force=false → the UTC-day budget guard skips a same-day repeat (no
-    // double-spend). offset/limit unset → full platform run.
-    const result = await runNativePoll({ tenantId, platform });
-    revalidatePath(ROUTE);
-    const r = result as {
-      status?: string;
-      observations?: number;
-      observationsWritten?: number;
-      reason?: string;
-    };
-    const status = r.status ?? "completed";
-    log.info("Action completed", {
-      action,
-      platform,
-      durationMs: Date.now() - t0,
-      status,
-    });
-    return {
-      ok: true,
-      platform,
-      status,
-      observations: r.observations ?? r.observationsWritten,
-    };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      platform,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { ok: false, platform, reason: err.slice(0, 200) };
-  }
-}
-
-// Void-returning <form action> wrappers (one per platform) the page binds.
-export async function runPerplexityReadingFromForm(
-  _formData: FormData,
-): Promise<void> {
-  await runTodaysReadingForPlatform("perplexity");
-}
-
-export async function runOpenAiReadingFromForm(
-  _formData: FormData,
-): Promise<void> {
-  await runTodaysReadingForPlatform("openai");
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // ON-DEMAND Proof Engine recompute (2026-06-15) — crons off.

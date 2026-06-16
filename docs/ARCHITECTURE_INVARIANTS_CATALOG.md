@@ -93,10 +93,8 @@
 
 | name | source test file | section | purpose (one sentence) | status | retirement-condition | last-verified |
 |---|---|---|---|---|---|---|
-| cron-utc-day-guard-contract | `tests/architecture/cron-utc-day-guard-contract.test.ts` | Bundle (2026-05-08 incident fix) | Pins the UTC-day-anchored budget guard in `defaultHasRecentRun`. | active | Permanent — cron-skip-bug regression guard. | 2026-05-14 |
 | poll-health-copy | `tests/architecture/poll-health-copy.test.ts` | Pre-plan | The poll-health-block subline copy contract. | active | Permanent — customer-vocabulary contract. | 2026-05-14 |
 | poll-health-direct-cli-classifier-contract | `tests/architecture/poll-health-direct-cli-classifier-contract.test.ts` | Bundle (2026-05-08 2nd patch) | Pins the poll-health partitioner regex for the direct-CLI scope shape. | active | Permanent — poll-health regression guard. | 2026-05-14 |
-| poll-integrity-contract | `tests/architecture/poll-integrity-contract.test.ts` | Post May 2-4 incident | Poll integrity hardening invariants. | active | Permanent — poll-pipeline safety. | 2026-05-14 |
 | sampling-guard-observability-log | `tests/architecture/sampling-guard-observability-log.test.ts` | D4 (operator audit, 2026-05-05) | Sampling-status guard observability log shape invariant. | active | Permanent — observability safety. | 2026-05-14 |
 
 ## Cross-cutting — Persistence routing

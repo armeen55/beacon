@@ -452,9 +452,9 @@ export async function onboardTenant(
   log("                      with the brand row + known competitors.");
   log("  3. Run scan:        `npx tsx scripts/run-scheduled-scan.ts` after pointing");
   log("                      `BEACON_SITE_DOMAIN` at the new domain (env or .env.local).");
-  log("  4. First poll:      manually fire `/api/poll/run` once for each platform");
-  log("                      (perplexity + openai) with the new tenant_id, OR add");
-  log("                      a parallel job to .github/workflows/daily-native-poll.yml.");
+  log("  4. AEO data:        connect Profound for this tenant (the sole AEO source");
+  log("                      since the 2026-06-15 pivot — the in-house native poll");
+  log("                      was removed). Refresh it from /diagnostics/connectors.");
   log("  5. Verify /today:   sign in with the user_id above and confirm the tenant's");
   log("                      first reading renders without falling back to defaults.");
   log("  6. Multi-tenant cron + onboarding UI are out of scope for this MMVP — track");

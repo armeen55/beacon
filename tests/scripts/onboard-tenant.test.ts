@@ -290,7 +290,9 @@ describe("onboardTenant — dry-run", () => {
     expect(joined).toMatch(/Seed prompts/);
     expect(joined).toMatch(/Seed entities/);
     expect(joined).toMatch(/Run scan/);
-    expect(joined).toMatch(/First poll/);
+    // 2026-06-15 PIVOT: the in-house native poll was removed; Profound is now
+    // the sole AEO source, so the onboarding checklist points there instead.
+    expect(joined).toMatch(/AEO data/);
     expect(joined).toMatch(/Verify \/today/);
   });
 

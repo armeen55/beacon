@@ -120,9 +120,11 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
    *  integration point and should fail loud.
    *  - `adjudicate.ts`: page-intent adjudicator (Phase v7)
    *  - `providers/openai.ts`: SpecificEditProvider (Sprint 6A.2b)
-   *  - `lib/querying/openai-client.ts`: native polling client for
-   *    ChatGPT via the Responses API (pre-Sprint-6A; legitimate
-   *    different surface) */
+   *
+   *  PIVOT (2026-06-15): `lib/querying/openai-client.ts` (the native ChatGPT
+   *  polling client via the Responses API) was deleted with the in-house AEO
+   *  polling engine — Profound is now the sole AEO source. The surviving
+   *  OpenAI egress is the recommendation-DRAFT path only. */
   const ALLOWED_OPENAI_CALLERS = new Set<string>([
     "src/domains/recommendations/adjudicate.ts",
     "src/domains/recommendations/providers/openai.ts",
@@ -130,7 +132,6 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // documented OpenAI egress — gated by the same BEACON_LLM_PROVIDER
   // config, capped at MAX_ITEMS_PER_RUN per run, cost stamped per card.
   "src/domains/push/cluster-factory.ts",
-    "src/lib/querying/openai-client.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
