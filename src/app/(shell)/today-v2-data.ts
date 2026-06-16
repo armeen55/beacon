@@ -87,7 +87,7 @@ import {
   type TodayPageData,
 } from "./today-data";
 import type { ActionCardAction } from "@/components/today/action-card";
-import type { TodayPrimaryAction } from "./today-client";
+import type { TodayPrimaryAction } from "./today-shared-types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
 import { loadVisibilityReadModelFromSnapshots } from "@/domains/today/visibility-read-model";

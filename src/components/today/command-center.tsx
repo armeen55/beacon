@@ -20,7 +20,7 @@ import type {
   CommandCenterGrade,
 } from "@/domains/today/command-center-data";
 import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
-import type { TodayPrimaryAction } from "@/app/(shell)/today-client";
+import type { TodayPrimaryAction } from "@/app/(shell)/today-shared-types";
 
 export type CommandCenterUrlMovement = {
   /** Operator-readable page label (NOT a UUID). */

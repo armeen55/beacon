@@ -9,7 +9,7 @@ import {
   coverageWarningLine,
   coverageStateDisplayLabel,
 } from "@/lib/coverage-state";
-import type { TodayMilestoneTeaser } from "@/app/(shell)/today-client";
+import type { TodayMilestoneTeaser } from "@/app/(shell)/today-shared-types";
 
 function relativeDate(iso: string): string {
   const ms = Date.now() - Date.parse(iso);

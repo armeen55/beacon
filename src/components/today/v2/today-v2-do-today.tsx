@@ -12,7 +12,7 @@
  */
 
 import Link from "next/link";
-import type { TodayPrimaryAction } from "@/app/(shell)/today-client";
+import type { TodayPrimaryAction } from "@/app/(shell)/today-shared-types";
 
 const CONFIDENCE_LABEL: Record<TodayPrimaryAction["confidence"], string> = {
   high: "High confidence",

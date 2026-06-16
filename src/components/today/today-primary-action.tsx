@@ -5,7 +5,7 @@ import type { RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { buildPrimaryDecisionCopy } from "@/lib/today-primary-decision-copy";
 import type { TodayNextMove } from "@/lib/today-summary";
-import type { TodayPrimaryAction } from "@/app/(shell)/today-client";
+import type { TodayPrimaryAction } from "@/app/(shell)/today-shared-types";
 
 // Labels rewritten 2026-04-17 (Day 4 jargon sweep) — match action-card.tsx.
 const BUCKET_STYLE: Record<string, { border: string; bg: string; label: string; accent: string }> = {

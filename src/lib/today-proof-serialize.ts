@@ -1,5 +1,5 @@
 import type { Finding } from "@/domains/scanning/types";
-import type { SerializedFinding } from "@/app/(shell)/today-client";
+import type { SerializedFinding } from "@/app/(shell)/today-shared-types";
 
 export function recommendationLineageBullets(opts: {
   sourceEvidence: string;

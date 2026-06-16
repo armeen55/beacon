@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { SerializedFinding } from "@/app/(shell)/today-client";
+import type { SerializedFinding } from "@/app/(shell)/today-shared-types";
 import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
 import {
   recentSiteChangesHeading,

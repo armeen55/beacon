@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ChangeReview } from "./change-review";
-import type { SerializedFinding } from "@/app/(shell)/today-client";
+import type { SerializedFinding } from "@/app/(shell)/today-shared-types";
 
 const noop = vi.fn(async () => ({ success: true }));
 

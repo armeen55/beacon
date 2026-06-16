@@ -8,7 +8,7 @@ import {
   FINDING_PRIORITY_LABELS,
   PROMOTION_STATUS_LABELS,
 } from "@/domains/scanning/types";
-import type { SerializedFinding } from "@/app/(shell)/today-client";
+import type { SerializedFinding } from "@/app/(shell)/today-shared-types";
 import { isKeyboardTypingTarget } from "@/lib/keyboard-shortcut-scope";
 
 function relativeAge(iso: string): string {
