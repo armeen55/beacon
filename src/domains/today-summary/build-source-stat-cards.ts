@@ -150,6 +150,68 @@ function fmtSignedPct(fraction: number): string {
   return `${pct >= 0 ? "+" : ""}${pct}%`;
 }
 
+// ── Cross-source fusion: "Fix first" ─────────────────────────────────
+
+/**
+ * A page that is BOTH losing Google clicks (GSC decline) AND frustrating
+ * visitors (Clarity friction) — the highest-urgency fix on the site. No
+ * single source surfaces this: GSC alone says "clicks down", Clarity alone
+ * says "high friction"; the FUSION says "this page is fading in search AND
+ * broken for visitors — fix it before anything else." This is the kind of
+ * cross-source insight a human SEO associate almost never connects.
+ */
+export type FixFirstPage = {
+  path: string;
+  /** % of clicks lost vs the prior 28 days. */
+  dropPct: number;
+  /** combined (rage + dead) click rate, as a %. */
+  frictionPct: number;
+};
+
+const MAX_FIX_FIRST_ROWS = 3;
+
+/**
+ * Pure: intersect the GSC decliners with the Clarity friction pages (matched
+ * by URL pathname so a host/query difference never splits the same page),
+ * ranked by combined severity (drop% + friction%). Reuses the SAME
+ * thresholds as the per-card breakdowns so a page can't appear here without
+ * also qualifying on each source individually. Null when no page clears both.
+ */
+export function buildFixFirstPages(
+  decay: Map<string, GscDecaySignal> | undefined,
+  clarity: Map<string, ClarityPageSignal>,
+): FixFirstPage[] | null {
+  if (!decay || decay.size === 0 || clarity.size === 0) return null;
+
+  const dropByPath = new Map<string, number>();
+  for (const s of decay.values()) {
+    if (s.clicksPrior < MIN_DECLINE_PRIOR_CLICKS || s.clicksNow >= s.clicksPrior)
+      continue;
+    const dropPct = Math.round(
+      (1 - s.clicksNow / Math.max(1, s.clicksPrior)) * 100,
+    );
+    if (dropPct < MIN_DECLINE_DROP_PCT) continue;
+    const p = pathOf(s.page);
+    // Keep the worst drop if the same path appears twice.
+    if (!dropByPath.has(p) || dropPct > dropByPath.get(p)!)
+      dropByPath.set(p, dropPct);
+  }
+
+  const rows: FixFirstPage[] = [];
+  for (const s of clarity.values()) {
+    if (s.sessions < MIN_FRICTION_SESSIONS) continue;
+    const rate = (s.rageClicks + s.deadClicks) / Math.max(1, s.sessions);
+    if (rate < MIN_FRICTION_RATE) continue;
+    const p = pathOf(s.url);
+    const dropPct = dropByPath.get(p);
+    if (dropPct == null) continue; // not also a decliner → not "fix first"
+    rows.push({ path: p, dropPct, frictionPct: Math.round(rate * 100) });
+  }
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => b.dropPct + b.frictionPct - (a.dropPct + a.frictionPct));
+  return rows.slice(0, MAX_FIX_FIRST_ROWS);
+}
+
 // ── Per-source reducers ──────────────────────────────────────────────
 
 /**

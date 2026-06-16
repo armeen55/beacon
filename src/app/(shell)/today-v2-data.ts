@@ -105,7 +105,9 @@ import { loadSemrushPageSignalsForTenant } from "@/domains/recommendation-intell
 import { fetchTodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
 import {
   buildSourceStatCards,
+  buildFixFirstPages,
   type SourceStatCard,
+  type FixFirstPage,
 } from "@/domains/today-summary/build-source-stat-cards";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
@@ -233,6 +235,9 @@ export const loadCachedTodayPageData = cache(async () => {
 
 export type TodayV2AllSourceSummaryData = {
   cards: SourceStatCard[];
+  /** Cross-source fusion: pages BOTH losing Google clicks AND frustrating
+   *  visitors — the highest-urgency "fix first" set. Null when none qualify. */
+  fixFirst: FixFirstPage[] | null;
 };
 
 /**
@@ -320,7 +325,11 @@ export const loadTodayV2AllSourceSummaryData = cache(
       { gscSiteTotals, gscDecay, ga4, clarity, semrush, aeo },
       clarityMultiDay,
     );
-    return { cards };
+    // Cross-source fusion: pages BOTH losing Google clicks AND frustrating
+    // visitors. Reuses the gscDecay + clarity maps already loaded above — no
+    // extra read.
+    const fixFirst = buildFixFirstPages(gscDecay, clarity);
+    return { cards, fixFirst };
   },
 );
 

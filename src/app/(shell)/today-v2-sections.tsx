@@ -34,6 +34,7 @@ import {
   loadTodayV2VisibilityData,
 } from "./today-v2-data";
 import { AllSourceStatRow } from "@/components/today/all-source-stat-row";
+import { FixFirstCallout } from "@/components/today/fix-first-callout";
 import { TodayV2VisibilityGroupClient } from "./today-v2-visibility-group-client";
 import { TodayV2DoToday } from "@/components/today/v2/today-v2-do-today";
 import { TodayV2Working } from "@/components/today/v2/today-v2-working";
@@ -69,9 +70,19 @@ import { BRAIN_SAMPLE_THRESHOLDS } from "@/domains/recommendations/cross-tenant-
  * the self-hide is the safety, not an env flag.
  */
 export async function TodayV2AllSourceSummarySection() {
-  const { cards } = await loadTodayV2AllSourceSummaryData();
-  if (cards.length === 0) return null;
-  return <AllSourceStatRow cards={cards} />;
+  const { cards, fixFirst } = await loadTodayV2AllSourceSummaryData();
+  if (cards.length === 0 && (fixFirst == null || fixFirst.length === 0)) {
+    return null;
+  }
+  return (
+    <div className="space-y-4">
+      {/* Cross-source fusion insight LEADS the scoreboard — when pages are
+          both losing clicks AND frustrating visitors, that's the single most
+          urgent thing to say. Self-hides when there's no such overlap. */}
+      <FixFirstCallout pages={fixFirst} />
+      {cards.length > 0 && <AllSourceStatRow cards={cards} />}
+    </div>
+  );
 }
 
 export async function TodayV2VisibilityGroupSection() {

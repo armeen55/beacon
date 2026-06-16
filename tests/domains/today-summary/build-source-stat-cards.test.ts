@@ -295,6 +295,30 @@ describe("buildSourceStatCards — per-page click-loss decomposition (#topDeclin
     expect(card!.topDeclines ?? null).toBeNull();
   });
 
+  it("buildFixFirstPages — only pages in BOTH the decline + friction sets, ranked by combined severity", async () => {
+    const { buildFixFirstPages } = await import(
+      "@/domains/today-summary/build-source-stat-cards"
+    );
+    const decayMap = new Map([
+      decay("https://x.com/both-bad", 30, 100), // -70% drop
+      decay("https://x.com/decline-only", 60, 100), // -40% drop, no friction
+      decay("https://x.com/mild-both", 80, 100), // -20% drop
+    ]);
+    const clarityMap = new Map([
+      ["https://x.com/both-bad", claritySignal({ url: "https://x.com/both-bad", sessions: 100, deadClicks: 50, rageClicks: 0 })], // 50% friction
+      ["https://x.com/mild-both", claritySignal({ url: "https://x.com/mild-both", sessions: 100, deadClicks: 15, rageClicks: 0 })], // 15% friction
+      ["https://x.com/friction-only", claritySignal({ url: "https://x.com/friction-only", sessions: 100, deadClicks: 40, rageClicks: 0 })], // friction, no decline
+    ]);
+    const fixFirst = buildFixFirstPages(decayMap, clarityMap);
+    expect(fixFirst).not.toBeNull();
+    // Only the two pages in BOTH sets, worst combined first.
+    expect(fixFirst!.map((p) => p.path)).toEqual(["/both-bad", "/mild-both"]);
+    expect(fixFirst![0]).toEqual({ path: "/both-bad", dropPct: 70, frictionPct: 50 });
+    // decline-only + friction-only are excluded.
+    expect(fixFirst!.map((p) => p.path)).not.toContain("/decline-only");
+    expect(fixFirst!.map((p) => p.path)).not.toContain("/friction-only");
+  });
+
   it("Clarity card names the most-frustrating pages, ranked by combined rate", () => {
     const inputs = emptyInputs();
     inputs.clarity = new Map([
