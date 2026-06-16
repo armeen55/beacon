@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 PM-17 (dual-surface collapse — step 1: extract shared Today types off the legacy client)
+
+**Trigger:** the one remaining substantive in-repo unit — the `today-data.ts`/legacy-`today-client.tsx` dual-surface extraction. Did the SAFE first slice rather than the risky one-shot delete. The legacy 989-line `"use client"` `today-client.tsx` was the type-home for 6 serialized Today types consumed by LIVE v2 components + loaders — coupling live code to a legacy client purely for types.
+
+- **Fix (`0467f8e`):** NEW `src/app/(shell)/today-shared-types.ts` holds `SerializedFinding` / `RecResponseStatus` / `TodayPrimaryAction` / `TodayMilestoneTeaser` / `TodayQueueItem` / `TodayExperimentProof` (pure types, depend only on `FindingPriority`/`PromotionStatus`). `today-client.tsx` definitions → re-export of the same names (zero-break safety net for every importer) + local import of the 3 used in its body; dropped the now-unused `FindingPriority`/`PromotionStatus` import. **989 → 902 lines.** Behavior-neutral (types runtime-erased; re-export transparent).
+- **Gates:** typecheck clean; build PASS (✓5.6s); `tests/architecture` + `tests/routes` + `tests/components/today` = 5600 pass / 41 skip — INCLUDING the 11 `today-client.tsx` file-content pins (they assert render structure, not the moved types, so unaffected — verified before touching).
+- **Ground-truth (real dev server, running tenant):** `/` (200, 281KB) + `/recommendations` (200, 202KB) render cleanly post-extraction — the live `today-data.ts`→`today-client` (now re-exporting) chain is intact. **Step 2 (remaining):** lift `today-data.ts`'s `Omit<ComponentProps<typeof TodayClient>, …>` derivation onto an explicit props type, then delete the unrendered client — tracked in the legacy-/today-substrate memory. Branch-local push, no deploy.
+
+---
+
 ## 2026-06-16 PM-16 (query-aware title drafts — low-CTR/striking-distance fixes put the searched term IN the title)
 
 **Trigger:** verify-first ruled out the answer-block directive (ALREADY GSC-query-grounded — `strongestQuestion` prefers the first-party question query) and found a REAL gap instead: `composeTitle` used the query only as a LAST fallback (after h1/h2/slug). The `gsc_low_ctr` / `gsc_striking_distance` / `semrush_striking_distance` triggers set `topic_cluster_label = the query` and fire ONLY when that query is absent from the title (their own containment guard) — the cited play is "the query must appear in the title" — yet a page with an h1 (almost always) got a suggested title that STILL omitted the searched term, defeating the fix.
