@@ -27,7 +27,10 @@ const reasoning = {
 describe("StrategistPanel", () => {
   it("APPROVED → renders the expert reasoning + confidence chip", () => {
     const result: StrategistActionResult = {
+      source: "llm" as const,
       strategist: reasoning,
+      evidenceSupports: ["Google Search demand"],
+      evidenceMissing: [],
       enforcedConfidence: "high",
       enforcedApprove: true,
       gateNotes: ["Strong evidence and intent fit."],
@@ -45,7 +48,10 @@ describe("StrategistPanel", () => {
 
   it("REJECTED → renders ONLY the caution, suppresses the reasoning", () => {
     const result: StrategistActionResult = {
+      source: "llm" as const,
       strategist: reasoning,
+      evidenceSupports: ["Google Search demand"],
+      evidenceMissing: [],
       enforcedConfidence: "rejected",
       enforcedApprove: false,
       gateNotes: [
@@ -64,7 +70,10 @@ describe("StrategistPanel", () => {
 
   it("renders the Adversarial QA panel when a critic review is present", () => {
     const result: StrategistActionResult = {
+      source: "llm" as const,
       strategist: reasoning,
+      evidenceSupports: ["Google Search demand"],
+      evidenceMissing: [],
       enforcedConfidence: "medium",
       enforcedApprove: true,
       gateNotes: ["Moderate evidence and intent fit."],
@@ -88,5 +97,56 @@ describe("StrategistPanel", () => {
     expect(html).toContain("Unsupported claims");
     expect(html).toContain("What would make this high-confidence");
     expect(html).toContain("Connect Microsoft Clarity");
+  });
+});
+
+describe("StrategistPanel — visible deterministic fallback (trust audit C)", () => {
+  const deterministicResult: StrategistActionResult = {
+    source: "deterministic",
+    strategist: {
+      ...reasoning,
+      alternativesConsidered: [], // deterministic can't generate these
+      whyNotAlternatives: [],
+      risks: [],
+    },
+    enforcedConfidence: "medium",
+    enforcedApprove: true,
+    gateNotes: ["Grounded in Google Search demand."],
+    criticReview: null,
+    evidenceSupports: ["Google Search demand", "Keyword rankings"],
+    evidenceMissing: ["On-page behaviour (connect Microsoft Clarity)"],
+  };
+
+  it("renders the VISIBLE fallback banner (not silent) when the LLM is unavailable", () => {
+    const html = renderToStaticMarkup(<StrategistPanel result={deterministicResult} />);
+    expect(html).toContain('data-recommendation-detail-strategist-fallback="true"');
+    expect(html).toContain("Expert (AI) reasoning is unavailable");
+    expect(html).toContain('data-recommendation-detail-strategist-source="deterministic"');
+    expect(html).toContain("Beacon&#x27;s read");
+  });
+
+  it("surfaces the evidence receipt + missing evidence in the fallback", () => {
+    const html = renderToStaticMarkup(<StrategistPanel result={deterministicResult} />);
+    expect(html).toContain("What backs this");
+    expect(html).toContain("Google Search demand");
+    expect(html).toContain('data-recommendation-detail-strategist-missing="true"');
+    expect(html).toContain("On-page behaviour");
+  });
+
+  it("the fallback shows NO unsupported AI-citation claims", () => {
+    const html = renderToStaticMarkup(<StrategistPanel result={deterministicResult} />);
+    expect(html).not.toMatch(/AI answers? (?:start )?cit/i);
+    expect(html).not.toMatch(/will (?:be )?cite/i);
+  });
+
+  it("a rejected deterministic verdict still shows ONLY the caution", () => {
+    const html = renderToStaticMarkup(
+      <StrategistPanel
+        result={{ ...deterministicResult, enforcedConfidence: "rejected", enforcedApprove: false }}
+      />,
+    );
+    expect(html).toContain("Not a confident target");
+    expect(html).toContain('data-recommendation-detail-strategist-fallback="true"');
+    expect(html).not.toContain("already ranks near the top");
   });
 });
