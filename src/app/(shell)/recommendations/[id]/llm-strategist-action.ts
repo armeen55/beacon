@@ -128,9 +128,17 @@ export async function requestExpertStrategistAction(
       competitorNames = [];
     }
 
+    let brandName: string | undefined;
+    try {
+      const cfg = await getBusinessConfigForCurrentTenant();
+      brandName = cfg.name?.trim() || undefined;
+    } catch {
+      brandName = undefined;
+    }
     const allRows = buildRecommendationActionRows({
       queue: persisted.queue,
       promptTextById,
+      brandName,
     });
     const resolution = resolveRecommendationDetail(allRows, decodedId);
     if (resolution.kind === "miss") return null;

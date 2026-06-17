@@ -55,6 +55,7 @@ import {
   composeRecommendedMove,
 } from "./recommendation-evidence-preview";
 import {
+  applyBrandCasing,
   cleanDisplayLabel,
   extractGeoTag,
   extractTopicFromPrompts,
@@ -1477,6 +1478,11 @@ export type BuildActionRowsArgs = {
   /** #149-sibling: per-tenant service phrases (BusinessConfig.services)
    *  — topic extraction tries these before the builder topic table. */
   readonly knownServices?: ReadonlyArray<string>;
+  /** Trust audit E (2026-06-16): the tenant's canonical brand name
+   *  (BusinessConfig.name) — every row title is normalized to this casing so a
+   *  lowercased "iranopedia" from an LLM/persisted draft can never render.
+   *  Absent → titles render as-is. */
+  readonly brandName?: string;
 };
 
 /**
@@ -2247,7 +2253,9 @@ export function buildRecommendationActionRows(
     // Copy-artifact safety on the visible title: collapse a doubled leading
     // verb ("Add Add Article …" → "Add Article …"). Instruction prefixes
     // ("Change the page title to …") are already stripped at cleanDisplayLabel.
-    const title = dedupeDoubledWords(row.title);
+    // Trust audit E (2026-06-16): normalize the brand to its configured casing
+    // ("iranopedia" → "Iranopedia") so a lowercased draft can never render.
+    const title = applyBrandCasing(dedupeDoubledWords(row.title), args.brandName);
     return {
       ...row,
       title,

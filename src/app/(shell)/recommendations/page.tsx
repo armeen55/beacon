@@ -203,6 +203,7 @@ export async function RecommendationsAsyncContent({
     // tenant has no geo vocabulary" and matches nothing.
     let knownCities: string[] | undefined;
     let knownServices: string[] | undefined;
+    let brandName: string | undefined;
     try {
       const { getBusinessConfigForCurrentTenant } = await import(
         "@/lib/business-config"
@@ -210,9 +211,11 @@ export async function RecommendationsAsyncContent({
       const cfg = await getBusinessConfigForCurrentTenant();
       knownCities = cfg.locations;
       knownServices = cfg.services;
+      brandName = cfg.name?.trim() || undefined;
     } catch {
       knownCities = undefined;
       knownServices = undefined;
+      brandName = undefined;
     }
 
     const persisted = await trace.time(
@@ -262,6 +265,7 @@ export async function RecommendationsAsyncContent({
           competitorNames={competitorNames}
           knownCities={knownCities}
           knownServices={knownServices}
+          brandName={brandName}
           publishingMode={publishingMode}
           canPublish={canPublish}
           publishTarget={publishTarget}

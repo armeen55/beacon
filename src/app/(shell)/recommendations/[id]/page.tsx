@@ -147,6 +147,7 @@ export default async function RecommendationDetailPage({
     // empty list means "no geo vocabulary" and matches nothing.
     let knownCities: string[] | undefined;
     let knownServices: string[] | undefined;
+    let brandName: string | undefined;
     try {
       const { getBusinessConfigForCurrentTenant } = await import(
         "@/lib/business-config"
@@ -154,9 +155,11 @@ export default async function RecommendationDetailPage({
       const cfg = await getBusinessConfigForCurrentTenant();
       knownCities = cfg.locations;
       knownServices = cfg.services;
+      brandName = cfg.name?.trim() || undefined;
     } catch {
       knownCities = undefined;
       knownServices = undefined;
+      brandName = undefined;
     }
 
     const allRows = buildRecommendationActionRows({
@@ -164,6 +167,7 @@ export default async function RecommendationDetailPage({
       promptTextById,
       knownCities,
       knownServices,
+      brandName,
     });
     const resolution = resolveRecommendationDetail(allRows, decodedId);
 

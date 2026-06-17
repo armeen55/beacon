@@ -212,6 +212,8 @@ export type RecommendationsV2ClientProps = {
   canPublish?: boolean;
   /** The tenant's live write target (only wix_cms supports one-click publish). */
   publishTarget?: PublishTargetKind | null;
+  /** Trust audit E — tenant canonical brand name for title brand-casing. */
+  brandName?: string;
 };
 
 export function RecommendationsV2Client({
@@ -226,6 +228,7 @@ export function RecommendationsV2Client({
   publishingMode = "staged",
   canPublish = false,
   publishTarget = null,
+  brandName,
 }: RecommendationsV2ClientProps) {
   // 2026-05-13 follow-up — "See full list" used to link to
   // `/recommendations?legacy=1`, pushing customers out of v2 every time
@@ -366,8 +369,9 @@ export function RecommendationsV2Client({
         promptTextById,
         knownCities,
         knownServices,
+        brandName,
       }),
-    [queue, promptTextById, knownCities, knownServices],
+    [queue, promptTextById, knownCities, knownServices, brandName],
   );
 
   const actionableRows = useMemo(

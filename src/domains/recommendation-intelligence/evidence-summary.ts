@@ -161,11 +161,15 @@ export function buildGscEvidenceLines(
               expected,
             )} typical for spot #${rank}`
           : `Your click-through is ${pct(query.ctr)}`;
+      // Trust audit E (2026-06-16): the upside is an ESTIMATE, not a promise —
+      // CTR depends on the whole search result (other results, rich features,
+      // and whether Google rewrites the displayed title link, which it may
+      // generate from the title, H1, og:title, or page text).
       const recoverClause =
         recoverable > 0
-          ? `, so a clearer title could win about ${n(
+          ? `, so a clearer title could recover an estimated ${n(
               recoverable,
-            )} more visits over 90 days.`
+            )} clicks over ~90 days — a rough estimate, not a guarantee (Google may rewrite how your title appears).`
           : ".";
       lines.push({
         key: "headline_query",
@@ -180,9 +184,9 @@ export function buildGscEvidenceLines(
       );
       const recoverClause =
         recoverable > 0
-          ? ` Reaching the top 3 could win about ${n(
+          ? ` Reaching the top 3 could win an estimated ${n(
               recoverable,
-            )} more visits over 90 days.`
+            )} more clicks over ~90 days — an estimate, not a guarantee.`
           : "";
       lines.push({
         key: "headline_query",

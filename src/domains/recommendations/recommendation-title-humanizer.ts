@@ -527,6 +527,35 @@ export function cleanDisplayLabel(
 }
 
 /**
+ * Trust audit E (2026-06-16) — normalize the tenant's BRAND NAME to its
+ * canonical casing wherever it appears in a customer-facing title. The bug:
+ * LLM-drafted (and some persisted) titles wrote the brand lowercase
+ * ("… | iranopedia") while the deterministic composer used the configured
+ * "Iranopedia". This render-time guard makes lowercasing IMPOSSIBLE regardless
+ * of where the title came from — the brand always reads as the tenant
+ * configured it. Whole-word, case-insensitive; a brand already in the right
+ * case is untouched; no brand configured → no-op. PURE. (Vertical-agnostic —
+ * the canonical brand is the tenant's own configured name, never hardcoded.)
+ */
+export function applyBrandCasing(
+  text: string,
+  brandName: string | null | undefined,
+): string {
+  if (typeof text !== "string" || text.length === 0) return text;
+  const canonical = (brandName ?? "").trim();
+  if (canonical.length === 0) return text;
+  const escaped = canonical.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let out = text.replace(new RegExp(`\\b${escaped}\\b`, "gi"), canonical);
+  // Also catch a no-space-boundary brand attached to a separator
+  // (" |iranopedia", "—iranopedia") that \b might miss on punctuation.
+  out = out.replace(
+    new RegExp(`([|—–:])\\s*${escaped}`, "gi"),
+    (_m, sep: string) => `${sep} ${canonical}`,
+  );
+  return out;
+}
+
+/**
  * Strip ONE layer of matched outer quotes from a string. Handles
  * straight (`"…"`), curly (`"…"`), and single quotes (`'…'`). Returns
  * the original string when there's no matched pair.
