@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — MERGED → main + DEPLOYED (operator-approved)
+
+Operator approved the merge→deploy landing strip. **`git push origin HEAD:main` fast-forwarded origin/main `cdfc6f7 → 3a63b1e` (16 commits, no conflicts).** Vercel auto-deploys main. Final gate before merge: typecheck clean + build ✓ (full suite 14,399 pass at the GQA-4 commit; only docs + a non-imported diagnostic script added since).
+- **Post-deploy smoke (public, via node fetch — no curl in sandbox):** Beacon prod `https://beacon-bice.vercel.app` UP — `/`, `/today`, `/recommendations`, `/settings/connectors`, `/diagnostics/wix` all `307 → /login` (app up + auth-gating correct). **iranopedia.com/persian-kabobs/koobideh-kabob = HTTP 200, title + meta description INTACT** ("Authentic Persian Koobideh Kabob recipe…"), 708 KB → no corruption. **Zero Wix writes.**
+- **What deploys ON (flag-free, always-on):** the deterministic QA — generation-time intent-fit (GQA-4) + the QA verdict + the confident-mismatch `derivedConfidence` downgrade (GQA-2) + evidence-line + copy-artifact display guards + the cross-source Act-2 connection. So bad query/page matches are downgraded on the LIVE list immediately (conservative; full-suite-verified zero false downgrades).
+- **What stays OFF until the operator flips hosted env (I have NO Vercel access — cannot flip):** `BEACON_LLM_STRATEGIST=1` + `BEACON_LLM_CRITIC=1` gate the LLM strategist panel + the Adversarial-QA panel. Until set in the Vercel dashboard those panels don't render (fail-closed → deterministic baseline). Flipping is low-risk (any error → deterministic fallback).
+- **TRUTH-UP — could NOT verify from sandbox (operator-gated):** the exact running build SHA (no public version endpoint / no Vercel CLI/API here); the AUTHENTICATED views (Iranopedia tenant load, recs list, the downgrade visible, the detail QA/strategist/Adversarial panels, Wix-connector-connected, GSC/GA4/Clarity cards) — all login-gated, need the operator's logged-in browser (build + render tests confirm they compile/render). No env/secrets printed. No live Wix writes.
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — REAL-DATA GROUND-TRUTH (proof the reasoning beats a generic SEO)
 
 Ran the engine against a LIVE Iranopedia page (no deploy/keys needed — direct fetch + Supabase-free pure modules + live OpenAI). Tool: `scripts/ground-truth-expert-rec.ts` (`npx tsx --require ./scripts/mock-server-only.cjs scripts/ground-truth-expert-rec.ts`).
