@@ -203,6 +203,13 @@ export type RecommendationV2CardProps = {
    *  card stays presentation-only — pending/done state is driven by
    *  `acceptState`. */
   onAccept?: () => void;
+  /** Armed publishing (2026-06-16): when provided, the primary CTA becomes
+   *  "Accept & publish" — one click accepts AND publishes the edit live (the
+   *  parent wires acceptAndPublishRecommendation; the server re-checks the
+   *  armed + QA + structural gates). Only set by the parent when this row is
+   *  armed-eligible (safe, mapped, high-confidence, live target). Falls back to
+   *  the staged `onAccept` when undefined. */
+  onAcceptAndPublish?: () => void;
   acceptState?: "idle" | "pending" | "accepted" | "error";
   /** #316 — the actual error text from a failed Accept (the server action
    *  returns `{error}`). Rendered on the error state so the owner can see
@@ -243,6 +250,7 @@ export function RecommendationV2Card({
   className,
   competitorNames,
   onAccept,
+  onAcceptAndPublish,
   acceptState = "idle",
   acceptError,
   onRetry,
@@ -638,21 +646,47 @@ export function RecommendationV2Card({
             tech (only the bulk bar had a live region). Mirror the accept
             state into an sr-only role="status" so the label swap
             Accept → Accepting… → Accepted, and any error, are announced. */}
-        {onAccept != null && (
+        {(onAccept != null || onAcceptAndPublish != null) && (
           <span className="sr-only" role="status" aria-live="polite">
             {acceptState === "accepted"
-              ? "Recommendation accepted."
+              ? onAcceptAndPublish != null
+                ? "Recommendation published to your site."
+                : "Recommendation accepted."
               : acceptState === "pending"
-                ? "Accepting recommendation…"
+                ? onAcceptAndPublish != null
+                  ? "Publishing recommendation…"
+                  : "Accepting recommendation…"
                 : acceptState === "error"
-                  ? `Couldn't accept: ${acceptError ?? "something went wrong."}`
+                  ? `Couldn't ${onAcceptAndPublish != null ? "publish" : "accept"}: ${acceptError ?? "something went wrong."}`
                   : ""}
           </span>
         )}
         {/* RENDER ENFORCEMENT (2026-06-16): Accept is the primary CTA ONLY
             when the deterministic QA verdict approves. A capped/rejected rec
-            shows "Review only" (the brief) instead — never a one-tap Accept. */}
-        {onAccept != null && qaDisplay.actionable && (
+            shows "Review only" (the brief) instead — never a one-tap Accept.
+            ARMED PUBLISHING: when the site is armed and this row is safe +
+            mapped + high-confidence, the parent passes onAcceptAndPublish and
+            the primary CTA becomes one-click "Accept & publish" (live). */}
+        {onAcceptAndPublish != null ? (
+          <button
+            type="button"
+            onClick={onAcceptAndPublish}
+            disabled={acceptState === "pending" || acceptState === "accepted"}
+            className={
+              acceptState === "accepted"
+                ? "rounded-md bg-status-success/15 px-3 py-1.5 text-status-success cursor-default"
+                : "rounded-md bg-accent-primary px-3 py-1.5 text-white hover:bg-accent-primary/90 disabled:opacity-60"
+            }
+            data-recommendation-v2-cta="accept-and-publish"
+            data-accept-state={acceptState}
+          >
+            {acceptState === "accepted"
+              ? "Published ✓"
+              : acceptState === "pending"
+                ? "Publishing…"
+                : "Accept & publish"}
+          </button>
+        ) : onAccept != null && qaDisplay.actionable ? (
           <button
             type="button"
             onClick={onAccept}
@@ -671,7 +705,7 @@ export function RecommendationV2Card({
                 ? "Accepting…"
                 : "Accept"}
           </button>
-        )}
+        ) : null}
         {/* #316 — failed Accept: surface the ACTUAL error (not a generic
             line) AND a per-card retry so one failure among many is both
             attributable and recoverable. */}

@@ -40,8 +40,14 @@ import {
 import { RecommendationV2Card } from "@/components/recommendations/v2/recommendation-v2-card";
 import {
   acceptRecommendation,
+  acceptAndPublishRecommendation,
   type RecommendationActionPayload,
 } from "./actions";
+import {
+  decideAcceptDisposition,
+  type PublishingMode,
+} from "@/domains/push/publishing-mode";
+import type { PublishTargetKind } from "@/domains/tenants/types";
 import { RecommendationsV2WorkingRail } from "@/components/recommendations/v2/recommendations-v2-working-rail";
 import type {
   RecommendationQueueRow,
@@ -198,6 +204,14 @@ export type RecommendationsV2ClientProps = {
   knownCities?: ReadonlyArray<string>;
   /** #149-sibling: per-tenant service phrases for topic extraction. */
   knownServices?: ReadonlyArray<string>;
+  /** Armed publishing (2026-06-16) — the per-site one-click state. Absent →
+   *  staged (two-click). When "armed" + a safe, mapped, high-confidence row +
+   *  canPublish + a live wix_cms target, the card shows "Accept & publish". */
+  publishingMode?: PublishingMode;
+  /** Whether this user may publish for the tenant (server-computed). */
+  canPublish?: boolean;
+  /** The tenant's live write target (only wix_cms supports one-click publish). */
+  publishTarget?: PublishTargetKind | null;
 };
 
 export function RecommendationsV2Client({
@@ -209,6 +223,9 @@ export function RecommendationsV2Client({
   competitorNames,
   knownCities,
   knownServices,
+  publishingMode = "staged",
+  canPublish = false,
+  publishTarget = null,
 }: RecommendationsV2ClientProps) {
   // 2026-05-13 follow-up — "See full list" used to link to
   // `/recommendations?legacy=1`, pushing customers out of v2 every time
@@ -298,6 +315,46 @@ export function RecommendationsV2Client({
       });
     },
     [acceptRowAsync],
+  );
+
+  // Armed publishing (2026-06-16) — one-click Accept→live-publish. Reuses the
+  // SAME optimistic state machine; the server action accepts THEN publishes
+  // (executePush enforces every structural rail) and re-checks the armed +
+  // QA gates server-side. On a refusal the row's status reverts to error with
+  // the exact reason; on success it reads "accepted" (published live).
+  const acceptAndPublishRow = useCallback(
+    (rowId: string, payload: RecommendationActionPayload, editId: string) => {
+      setAcceptStates((s) => ({ ...s, [rowId]: "pending" }));
+      setAcceptErrors((e) => {
+        if (!(rowId in e)) return e;
+        const next = { ...e };
+        delete next[rowId];
+        return next;
+      });
+      startTransition(async () => {
+        try {
+          const res = await acceptAndPublishRecommendation({ payload, editId });
+          if (res.ok) {
+            setAcceptStates((s) => ({ ...s, [rowId]: "accepted" }));
+          } else {
+            setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
+            setAcceptErrors((e) => ({
+              ...e,
+              [rowId]:
+                res.reason ??
+                "Couldn't publish this change. Nothing was changed on your site.",
+            }));
+          }
+        } catch (err) {
+          setAcceptStates((s) => ({ ...s, [rowId]: "error" }));
+          setAcceptErrors((e) => ({
+            ...e,
+            [rowId]: err instanceof Error ? err.message : String(err),
+          }));
+        }
+      });
+    },
+    [],
   );
 
   // Build typed action rows from the same queue the legacy table consumes.
@@ -562,6 +619,21 @@ export function RecommendationsV2Client({
 
             {suggested.map((row, index) => {
               const isAccepted = acceptStates[row.id] === "accepted";
+              // Armed publishing — does a click on THIS row publish live in one
+              // tap? Only when the site is armed + this user can publish + a live
+              // wix_cms target + the deterministic QA verdict approves a paste-
+              // ready field edit. The server re-checks all of this before any
+              // write; this only chooses which CTA the card shows.
+              const editId = row.detail?.debug?.editId ?? null;
+              const oneClickPublish =
+                editId != null &&
+                decideAcceptDisposition({
+                  mode: publishingMode,
+                  canPublish,
+                  publishTarget,
+                  qaVerdict: row.detail.qaVerdict ?? null,
+                  isSuggestion: true,
+                }) === "publish_live";
               return (
                 <RecommendationV2Card
                   key={row.id}
@@ -571,6 +643,12 @@ export function RecommendationsV2Client({
                   acceptError={acceptErrors[row.id]}
                   onAccept={() => acceptRow(row.id, payloadFor(row))}
                   onRetry={() => acceptRow(row.id, payloadFor(row))}
+                  onAcceptAndPublish={
+                    oneClickPublish && editId != null
+                      ? () =>
+                          acceptAndPublishRow(row.id, payloadFor(row), editId)
+                      : undefined
+                  }
                   selectable={!isAccepted}
                   selected={selectedIds.has(row.id)}
                   onToggleSelect={() => toggleSelect(row.id)}

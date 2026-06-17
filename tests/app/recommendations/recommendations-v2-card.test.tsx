@@ -350,3 +350,39 @@ describe("RecommendationV2Card — bulk-select affordances", () => {
     expect(html).toContain("ring-2");
   });
 });
+
+describe("RecommendationV2Card — armed publishing CTA (2026-06-16)", () => {
+  it("staged (only onAccept) → primary CTA is 'Accept', NOT a publish button", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card row={makeRow()} onAccept={() => {}} />,
+    );
+    expect(html).toContain('data-recommendation-v2-cta="accept"');
+    expect(html).not.toContain('data-recommendation-v2-cta="accept-and-publish"');
+    expect(html).toContain(">Accept</button>");
+  });
+
+  it("armed (onAcceptAndPublish provided) → primary CTA is 'Accept & publish'", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card
+        row={makeRow()}
+        onAccept={() => {}}
+        onAcceptAndPublish={() => {}}
+      />,
+    );
+    expect(html).toContain('data-recommendation-v2-cta="accept-and-publish"');
+    expect(html).toContain("Accept &amp; publish");
+    // The plain Accept button is NOT also rendered (one primary CTA).
+    expect(html).not.toContain('data-recommendation-v2-cta="accept"');
+  });
+
+  it("armed + accepted state → reads 'Published ✓' (not 'Accepted')", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card
+        row={makeRow()}
+        onAcceptAndPublish={() => {}}
+        acceptState="accepted"
+      />,
+    );
+    expect(html).toContain("Published ✓");
+  });
+});

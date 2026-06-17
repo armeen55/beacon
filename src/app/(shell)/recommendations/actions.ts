@@ -884,3 +884,110 @@ export async function approveAndPushRecommendedEdit(args: {
     detail: `${result.detail}${probe.found ? " · verified live by immediate probe" : " · probe pending (scan cadence will verify)"}`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Armed publishing (2026-06-16) — per-site one-click Accept→live-publish.
+//
+// Operator directive "Option 1: per-site arming, then 1-click": once a site is
+// connected, mapped, and EXPLICITLY ARMED, Accept on a safe, mapped, approved
+// field edit publishes LIVE in one click. The default stays review-gated
+// (two-click: Accept stages → Approve & Push). Three independent gates protect
+// a live write: (1) the per-site armed flag, (2) the deterministic QA verdict
+// re-derived server-side (approved + paste-ready), (3) executePush's structural
+// rails (Ritz refuse / daily cap / snapshot / field-merge only / non-
+// destructive / mapping required). Any uncertainty falls back to staging.
+// ---------------------------------------------------------------------------
+
+/** Read the current tenant's publishing mode + publish permission (for the UI). */
+export async function getPublishingModeForCurrentTenant(): Promise<{
+  mode: "staged" | "armed";
+  canPublish: boolean;
+}> {
+  const { canPublishForCurrentTenant } = await import("@/lib/auth/can-publish");
+  const { getPublishingMode } = await import(
+    "@/domains/push/publishing-mode-store"
+  );
+  const [canPublish, state] = await Promise.all([
+    canPublishForCurrentTenant(),
+    getPublishingMode(),
+  ]);
+  return { mode: state.mode, canPublish };
+}
+
+export async function acceptAndPublishRecommendation(args: {
+  payload: RecommendationActionPayload;
+  editId: string;
+}): Promise<ApproveAndPushResult> {
+  // Gate 1: publish authorization (operator OR an owner/admin/founder member).
+  const { canPublishForCurrentTenant } = await import("@/lib/auth/can-publish");
+  if (!(await canPublishForCurrentTenant())) {
+    return { ok: false, reason: "not_operator" };
+  }
+
+  const tenantId = await currentTenantId();
+
+  // Gate 2: the site must be EXPLICITLY ARMED. Default (staged) → never a
+  // one-click live write; the caller should use the two-click accept + push.
+  const { getPublishingMode } = await import(
+    "@/domains/push/publishing-mode-store"
+  );
+  const modeState = await getPublishingMode();
+  if (modeState.mode !== "armed") {
+    return { ok: false, reason: "not_armed" };
+  }
+
+  let publishTarget:
+    | import("@/domains/tenants/types").PublishTargetKind
+    | null = null;
+  try {
+    const { getTenant } = await import("@/domains/tenants/store");
+    publishTarget = (await getTenant(tenantId))?.publish_target ?? null;
+  } catch {
+    publishTarget = null;
+  }
+
+  // Gate 3 (defense-in-depth): re-derive the rec's deterministic QA verdict
+  // server-side and confirm the gate would route THIS rec to a live publish
+  // (approved + paste-ready + armed + live target). A since-downgraded /
+  // rejected / manual / directive rec is refused here even if a stale page
+  // offered the button.
+  const { loadActionRowByEditId } = await import(
+    "@/domains/recommendations/load-action-row-by-edit"
+  );
+  const { decideAcceptDisposition } = await import(
+    "@/domains/push/publishing-mode"
+  );
+  const row = await loadActionRowByEditId(tenantId, args.editId);
+  const qaVerdict = row?.detail.qaVerdict ?? null;
+  const isSuggestion =
+    row != null &&
+    (row.status === "new" ||
+      row.status === "needs_review" ||
+      row.status === "needs_fresh_edit");
+  const disposition = decideAcceptDisposition({
+    mode: modeState.mode,
+    canPublish: true,
+    publishTarget,
+    qaVerdict,
+    isSuggestion,
+  });
+  if (disposition !== "publish_live") {
+    return {
+      ok: false,
+      reason: `this recommendation isn't eligible for one-click publishing (${disposition}) — open it to review`,
+    };
+  }
+
+  // Accept (full transition + per-edit implementation_status flip), THEN
+  // publish via the existing push action (executePush enforces every
+  // structural rail). If the push refuses, the rec stays accepted (staged) —
+  // the safe two-click state — and the reason surfaces to the operator.
+  const acceptRes = await acceptRecommendation(args.payload);
+  if (!acceptRes.success) {
+    return {
+      ok: false,
+      reason: acceptRes.error ?? "couldn't accept this recommendation",
+    };
+  }
+  return await approveAndPushRecommendedEdit({ editId: args.editId });
+}

@@ -229,6 +229,28 @@ export async function RecommendationsAsyncContent({
       queue: persisted.queue,
       promptTextById,
     });
+
+    // Armed publishing (2026-06-16) — the per-site one-click state + this
+    // user's publish permission + the live write target. Threaded to the
+    // client so an ARMED site's safe, mapped, high-confidence edits show
+    // "Accept & publish" (one-click live). Soft-fail to the safe default
+    // (staged / cannot-publish) so the list always renders.
+    let publishingMode: "staged" | "armed" = "staged";
+    let canPublish = false;
+    let publishTarget: "wix_cms" | "git_pr" | "dev_note" | null = null;
+    try {
+      const { getPublishingModeForCurrentTenant } = await import("./actions");
+      const pm = await getPublishingModeForCurrentTenant();
+      publishingMode = pm.mode;
+      canPublish = pm.canPublish;
+      const { getTenant } = await import("@/domains/tenants/store");
+      publishTarget = (await getTenant(tenantId))?.publish_target ?? null;
+    } catch {
+      publishingMode = "staged";
+      canPublish = false;
+      publishTarget = null;
+    }
+
     return (
       <div className="max-w-5xl">
         {errors.length > 0 && <DataDegradedBanner errors={errors} />}
@@ -240,6 +262,9 @@ export async function RecommendationsAsyncContent({
           competitorNames={competitorNames}
           knownCities={knownCities}
           knownServices={knownServices}
+          publishingMode={publishingMode}
+          canPublish={canPublish}
+          publishTarget={publishTarget}
         />
         {debugResolver && (
           <RecsResolverDebugPanel

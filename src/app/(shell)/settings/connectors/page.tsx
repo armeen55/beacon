@@ -10,6 +10,7 @@ import {
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient } from "./connectors-client";
+import { PublishingModeCard } from "./publishing-mode-card";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +121,11 @@ export default async function ConnectorsPage() {
         gscReadiness={gscReadiness}
         ga4StaleCopy={ga4StaleCopy}
       />
+      {/* Armed publishing (2026-06-16) — opt in to one-click live publishing
+          for safe, mapped, high-confidence edits. Default stays two-click. */}
+      <div className="mt-6">
+        <PublishingModeCard />
+      </div>
     </div>
   );
 }
