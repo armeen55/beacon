@@ -112,14 +112,23 @@ export function buildRecommendationQaVerdict(args: {
   localeTerms?: ReadonlyArray<string>;
   /** An upstream deterministic safety gate already rejected this rec. */
   deterministicReject?: boolean;
+  /**
+   * GQA-4 — the GENERATION-TIME page/query fit (scored against the full page
+   * snapshot in resolvePageIntent). When present it is the PREFERRED authority:
+   * the QA uses it instead of the row-evidence proxy, because it had the
+   * richest page context. Falls back to `deriveRowTopicFit` only when absent.
+   */
+  preferredTopicFit?: PageTopicFit | null;
 }): RecQaVerdict {
   const { row } = args;
   const d = row.detail;
 
-  const intentFit = deriveRowTopicFit(row, args.affectedPromptTexts, {
-    brandTerms: args.brandTerms,
-    localeTerms: args.localeTerms,
-  });
+  const intentFit =
+    args.preferredTopicFit ??
+    deriveRowTopicFit(row, args.affectedPromptTexts, {
+      brandTerms: args.brandTerms,
+      localeTerms: args.localeTerms,
+    });
 
   const gsc = (d.gscEvidenceLines ?? []).length > 0;
   const semrush = (d.semrushEvidenceLines ?? []).length > 0;

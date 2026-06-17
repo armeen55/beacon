@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — GQA-4 (generation-time page/query intent fit — the preferred authority)
+
+Moves page/query fit from the row-evidence proxy UP into generation, where Beacon has the richest page context (full snapshot), so a bad target is caught while it still has that context — before ranking + render.
+- **`resolvePageIntent` now scores the fit against the FULL page snapshot** for the resolved target: after `resolveOne` picks the URL, it looks up the `PageInventoryEntry` (title / H1 / meta / H2s-as-body / route-type) and runs `scorePageTopicFit(clusterLabel vs that snapshot)`, attaching the directive's PHASE-C result to `resolution.topicFit` (`resolved-types.ts`). Null for new-page targets / no snapshot. Tenant brand/locale come from `getBusinessConfig(tenantId)` in `load-queue.ts` (config, never baked; gracefully empty).
+- **Preferred authority:** `buildRecommendationQaVerdict` gains `preferredTopicFit` and uses the generation-time fit OVER `deriveRowTopicFit` when present; the builder threads it via a per-rec map (`generationTopicFit` stored on `detail`) in the post-ranking pass. So a confident generation-time mismatch downgrades the rec BEFORE ranking, and the row-proxy can't override the richer fit.
+- **Why it's stronger:** it catches an OBSERVATION-LED pick to a topically-unrelated page (e.g. AI cited a wildlife page for a rug-cleaning cluster) — the row-proxy (target label + URL) couldn't see that; the full snapshot can.
+- **Gate:** typecheck clean; **+12 tests** (resolver attaches fit + preserves a legitimate match + flags an observation-led mismatch + null on new-page; QA prefers the generation fit over the row-proxy); recs + architecture **5,884 pass**; build ✓. Iranopedia shapes only in fixtures; no hardcoding. Branch only; no merge (operator). **DoD met:** Beacon can now explain, from the page itself + the query cluster, why a page is or isn't the right target — before the rec reaches the list.
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — GQA-3b (rich critic schema + surfaced "Adversarial QA" panel, operator-refined)
 
 Operator-refined GQA-3: keep the critic flagged + on-demand (detail only, never per candidate), enrich its output schema, and SURFACE it on the recommendation detail as a visibly-separate "Adversarial QA" review explaining what might be wrong.

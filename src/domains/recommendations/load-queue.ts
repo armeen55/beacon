@@ -38,6 +38,7 @@ import {
   type PrioritizedRecommendation,
 } from "./prioritize";
 import { resolvePageIntent } from "./resolve-page-intent";
+import { getBusinessConfig } from "@/lib/business-config";
 import type { PageEntity } from "@/domains/pages/types";
 import type { CrossTenantPattern } from "./cross-tenant-brain";
 import {
@@ -404,6 +405,18 @@ export async function loadLiveRecommendationQueue(
             observations: promptAnswerObservations,
             activeEntities: trackedEntities,
             pageInventory,
+            // GQA-4 — tenant brand/locale for the generation-time intent-fit
+            // classification (from config, never baked; gracefully empty when
+            // a tenant's config lives only in Supabase — the fit still scores
+            // topic + universal intent markers).
+            brandTerms: (() => {
+              const n = getBusinessConfig(tenantId).name?.trim();
+              return n ? [n] : undefined;
+            })(),
+            localeTerms: (() => {
+              const locs = getBusinessConfig(tenantId).locations;
+              return Array.isArray(locs) && locs.length > 0 ? locs : undefined;
+            })(),
           }),
         [] as ResolvedRecommendationCandidate[],
         "resolve page intent",

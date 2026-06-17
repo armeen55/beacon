@@ -323,6 +323,13 @@ export type ActionRowDetail = {
    * card/brief render this so the LIST looks expert before the operator clicks in.
    */
   readonly qaVerdict?: RecQaVerdict;
+  /**
+   * GQA-4 (2026-06-16) — the GENERATION-TIME page/query intent fit from
+   * `resolvePageIntent` (scored against the full page snapshot for the resolved
+   * target). The PREFERRED authority: the QA pass uses this over the
+   * row-evidence proxy when present. Null for new-page targets / no snapshot.
+   */
+  readonly generationTopicFit?: import("./page-topic-fit").PageTopicFit | null;
 };
 
 /** One operator-facing row in the ranked action table. */
@@ -2178,6 +2185,14 @@ export function buildRecommendationActionRows(
   //    The downgrade is scoped to the suggestion bucket (new / needs_review /
   //    needs_fresh_edit) so an already-actioned row's label is never rewritten.
   const localeTerms = args.knownCities;
+  // GQA-4 — the PREFERRED generation-time fit, keyed by source rec stableKey.
+  // Built once from each rec's resolution (scored against the full page
+  // snapshot in resolvePageIntent); the QA pass uses it over the row-proxy.
+  const genFitByRec = new Map<string, import("./page-topic-fit").PageTopicFit>();
+  for (const { rec } of args.queue) {
+    const fit = rec.resolution?.topicFit;
+    if (fit) genFitByRec.set(rec.stableKey, fit);
+  }
   return rows.map((row) => {
     const affectedPromptTexts: string[] = [];
     for (const ref of row.detail.evidenceRefs) {
@@ -2189,10 +2204,12 @@ export function buildRecommendationActionRows(
         affectedPromptTexts.push(t.trim());
       }
     }
+    const generationTopicFit = genFitByRec.get(row.sourceRecommendationId) ?? null;
     const qaVerdict = buildRecommendationQaVerdict({
       row,
       affectedPromptTexts,
       localeTerms,
+      preferredTopicFit: generationTopicFit,
     });
     const inSuggestionBucket = STATUS_BUCKET[row.status] === 0;
     const downgrade =
@@ -2201,7 +2218,7 @@ export function buildRecommendationActionRows(
     return {
       ...row,
       derivedConfidence,
-      detail: { ...row.detail, derivedConfidence, qaVerdict },
+      detail: { ...row.detail, derivedConfidence, qaVerdict, generationTopicFit },
     };
   });
 }

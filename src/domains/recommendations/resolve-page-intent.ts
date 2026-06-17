@@ -41,6 +41,7 @@ import {
   matchClusterToInventory,
   type PageInventoryEntry,
 } from "./page-inventory";
+import { scorePageTopicFit, type PageTopicFit } from "./page-topic-fit";
 
 // ---------------------------------------------------------------------------
 // Thresholds — tuned from Ritz dogfood, revise after feedback.
@@ -75,6 +76,11 @@ export type ResolvePageIntentArgs = {
    *  whenever Layer 1 (observations) falls through to create_new_page.
    *  Pass buildPageInventory(...) output. */
   pageInventory?: ReadonlyArray<PageInventoryEntry>;
+  /** GQA-4 (2026-06-16) — tenant brand / locale terms (from config, NOT baked)
+   *  for the generation-time page/query intent-fit classification. Absent →
+   *  navigational/local detection inactive (the fit still scores topic). */
+  brandTerms?: ReadonlyArray<string>;
+  localeTerms?: ReadonlyArray<string>;
 };
 
 // ---------------------------------------------------------------------------
@@ -86,9 +92,66 @@ export function resolvePageIntent(
 ): ResolvedRecommendationCandidate[] {
   const ownedDomains = extractOwnedDomains(args.activeEntities);
   const inventory = args.pageInventory ?? [];
-  return args.candidates.map((c) =>
-    resolveOne(c, args.observations, ownedDomains, inventory),
-  );
+  const invByUrl = new Map(inventory.map((e) => [e.url, e]));
+  return args.candidates.map((c) => {
+    const resolved = resolveOne(c, args.observations, ownedDomains, inventory);
+    // GQA-4 — generation-time page/query intent fit against the FULL page
+    // snapshot for the resolved target. The preferred fit authority; null when
+    // the target is a new page or carries no inventory snapshot (the row
+    // builder then falls back to its row-evidence proxy).
+    const topicFit = computeResolutionTopicFit(resolved, invByUrl, {
+      brandTerms: args.brandTerms,
+      localeTerms: args.localeTerms,
+    });
+    return topicFit
+      ? { ...resolved, resolution: { ...resolved.resolution, topicFit } }
+      : resolved;
+  });
+}
+
+/** Pathname only, for the intent-fit URL signal. */
+function pathnameForFit(url: string | null): string | null {
+  if (typeof url !== "string" || url.length === 0 || url === NEEDS_NEW_PAGE) {
+    return null;
+  }
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url.startsWith("/") ? url : null;
+  }
+}
+
+/**
+ * Score how well the RESOLVED target page fits the cluster it's being
+ * recommended for, using the full page snapshot (title / H1 / meta / H2s /
+ * route-type) — the richest context available at generation time. Returns null
+ * when there's no concrete target, no inventory snapshot for it, or no cluster
+ * label to score against (the caller falls back to the row-evidence proxy).
+ */
+function computeResolutionTopicFit(
+  resolved: ResolvedRecommendationCandidate,
+  invByUrl: ReadonlyMap<string, PageInventoryEntry>,
+  opts: { brandTerms?: ReadonlyArray<string>; localeTerms?: ReadonlyArray<string> },
+): PageTopicFit | null {
+  const targetUrl = resolved.resolution.targetUrl;
+  if (!targetUrl || targetUrl === NEEDS_NEW_PAGE) return null;
+  const entry = invByUrl.get(targetUrl);
+  if (!entry) return null;
+  const query = (resolved.clusterLabel ?? resolved.title ?? "").trim();
+  if (query.length < 2) return null;
+  return scorePageTopicFit({
+    page: {
+      title: entry.title,
+      h1: entry.h1,
+      metaDescription: entry.metaDescription,
+      urlPath: pathnameForFit(entry.url),
+      bodySummary: entry.h2s.join(" • "),
+      collectionOrCategory: entry.detectedService ?? entry.routeType,
+    },
+    query,
+    brandTerms: opts.brandTerms,
+    localeTerms: opts.localeTerms,
+  });
 }
 
 // ---------------------------------------------------------------------------

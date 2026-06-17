@@ -135,6 +135,29 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
     expect(v.whyExists).toBe("A competitor is currently winning this answer.");
   });
 
+  it("PREFERS the generation-time fit over the row-evidence proxy (GQA-4)", () => {
+    // The row's own evidence would score a strong fit, but the richer
+    // generation-time fit (full page snapshot) says reject — it must win.
+    const v = buildRecommendationQaVerdict({
+      row: row({ gsc: [gscLine("koobideh kabob recipe")] }),
+      affectedPromptTexts: [],
+      preferredTopicFit: {
+        pageTopic: "Asiatic Cheetah",
+        queryIntent: "koobideh kabob recipe (informational)",
+        intentClass: "informational",
+        topicMatchScore: 4, // near-zero overlap from the real page snapshot
+        intentMatchScore: 60,
+        matchExplanation: "Weak fit from the full page snapshot.",
+        mismatchRisks: ["The page snapshot doesn't cover this topic."],
+        shouldUseQueryForOptimization: false,
+      },
+    });
+    // The generation-time fit's confident mismatch (topic 4 < 20) → rejected,
+    // even though the row's GSC evidence alone looked on-topic.
+    expect(v.confidence).toBe("rejected");
+    expect(v.intentFit?.topicMatchScore).toBe(4);
+  });
+
   it("surfaces evidence gaps honestly", () => {
     const v = buildRecommendationQaVerdict({
       row: row({ competitor: { name: "Rival", primaryPct: 0.4 }, observationCount: 5 }),

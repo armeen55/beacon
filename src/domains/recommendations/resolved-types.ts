@@ -18,6 +18,7 @@ import type {
   PageBrief,
   SuggestedEdit,
 } from "./adjudicator-schema";
+import type { PageTopicFit } from "./page-topic-fit";
 
 /** Operator-facing final action. The thing they actually do. */
 export type RecommendationAction =
@@ -107,6 +108,15 @@ export type PageIntentResolution = {
   proposedSlug?: string | null;
   risks?: string[];
   needsHumanReview?: boolean;
+  /**
+   * Expert-rec-engine GQA-4 (2026-06-16) — GENERATION-TIME page/query intent
+   * fit, scored against the FULL page snapshot (title/H1/meta/H2s/route-type)
+   * for the resolved target URL, not the later row-evidence proxy. The
+   * preferred fit authority: the row builder uses this over `deriveRowTopicFit`
+   * when present, and a confident mismatch here downgrades the rec before
+   * ranking. Null when the target is a new page or has no inventory snapshot.
+   */
+  topicFit?: PageTopicFit | null;
 };
 
 /** A candidate with its resolved action/motive/URL attached. */
