@@ -7,6 +7,12 @@
 
 ---
 
+## 2026-06-16 ARMED PUBLISHING — MIGRATION APPLIED + MERGED → main (operator-approved)
+
+Migration `wix_publishing_mode` **APPLIED to prod Supabase** (project `beacon` / `jdegznovgysxyweknewh`) via MCP, operator-approved. Verified: table exists; columns (tenant_id text NN / mode text NN default 'staged' / armed_at tz / armed_by text / updated_at tz NN default now()); PK (tenant_id); check `mode IN ('staged','armed')`; RLS enabled; one policy `wix_publishing_mode_tenant_rw` (FOR ALL TO authenticated, `is_tenant_member(tenant_id)` using+check); 0 rows (no data written); **security advisor identical to baseline — zero new lints** (the 2 pre-existing WARNs — is_tenant_member SECURITY DEFINER + auth leaked-password-protection — are unrelated). Branch `claude/iranopedia-blockers` `642a8af` **merged → origin/main** (fast-forward `7f67123 → 642a8af`); Vercel auto-deploys. **To go live for a tenant: connect Wix + map collections → arm the site (Settings → One-click publishing). Until armed, behavior is byte-identical to today (two-click).**
+
+---
+
 ## 2026-06-16 ARMED PUBLISHING — per-site arming → one-click Accept→live-publish (committed to branch, NOT merged)
 
 Operator chose "Option 1: per-site arming, then 1-click" (resolving the goal's "click accept and it pushes" vs the no-blind-autopublish rail): once a site is connected, mapped, and EXPLICITLY armed, Accept on a safe, mapped, high-confidence field edit publishes LIVE in one click. Default stays review-gated (two-click). THREE independent gates protect a live write.

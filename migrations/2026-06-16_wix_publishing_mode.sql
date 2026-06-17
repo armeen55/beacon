@@ -20,8 +20,12 @@
 -- fallback; PostgREST `42P01` undefined_table → file fallback), so local dev
 -- and the pre-apply deploy window keep working (defaulting safely to `staged`).
 --
--- NOT YET APPLIED TO PROD. Apply via MCP apply_migration (operator approval
--- required — see CLAUDE.md "Always pause before irreversible migrations").
+-- APPLIED TO PROD 2026-06-16 via MCP apply_migration (name=wix_publishing_mode),
+-- operator-approved. Verified: table exists; columns tenant_id/mode/armed_at/
+-- armed_by/updated_at correct; PK (tenant_id); check mode IN (staged,armed);
+-- RLS enabled; one tenant_rw policy (is_tenant_member, using+check); 0 rows;
+-- security advisor shows NO new lints vs baseline. Recorded here for repo /
+-- fresh-env parity. (Project beacon / jdegznovgysxyweknewh.)
 
 create table if not exists public.wix_publishing_mode (
   tenant_id  text not null,
