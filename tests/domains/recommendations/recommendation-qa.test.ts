@@ -124,6 +124,62 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
     expect(v.approve).toBe(false);
   });
 
+  it("TRUST FIX A: page-level GSC demand (no per-query line) STILL counts as core evidence", () => {
+    // The bug: a page with real Google demand (impressions) but no qualifying
+    // low-CTR/striking-distance headline query had EMPTY gscEvidenceLines, so
+    // hasCoreEvidence was false → falsely "No core evidence family present" →
+    // capped to needs_more_evidence. The evidence receipt fixes this.
+    const v = buildRecommendationQaVerdict({
+      row: row({ gsc: [] }), // no per-query display lines
+      affectedPromptTexts: ["koobideh kabob recipe"],
+      evidence: {
+        gscDemand: true, // but the page HAS Google Search demand
+        ga4Traffic: false,
+        semrush: false,
+        clarity: false,
+        aeo: false,
+        competitor: false,
+      },
+    });
+    expect(v.confidence).not.toBe("needs_more_evidence");
+    expect(v.evidenceSupports).toContain("Google Search demand");
+    expect(v.confidenceReason).not.toMatch(/no core evidence/i);
+  });
+
+  it("TRUST FIX A: GA4 traffic alone counts as core evidence", () => {
+    const v = buildRecommendationQaVerdict({
+      row: row({ gsc: [] }),
+      affectedPromptTexts: [],
+      evidence: {
+        gscDemand: false,
+        ga4Traffic: true,
+        semrush: false,
+        clarity: false,
+        aeo: false,
+        competitor: false,
+      },
+    });
+    expect(v.confidence).not.toBe("needs_more_evidence");
+    expect(v.evidenceSupports).toContain("Website traffic");
+  });
+
+  it("TRUST FIX A: an empty receipt with no lines still → needs_more_evidence", () => {
+    const v = buildRecommendationQaVerdict({
+      row: row({ gsc: [] }),
+      affectedPromptTexts: [],
+      evidence: {
+        gscDemand: false,
+        ga4Traffic: false,
+        semrush: false,
+        clarity: false,
+        aeo: false,
+        competitor: false,
+      },
+    });
+    expect(v.confidence).toBe("needs_more_evidence");
+    expect(v.approve).toBe(false);
+  });
+
   it("whyExists uses the resolver motive when present", () => {
     const v = buildRecommendationQaVerdict({
       row: row({

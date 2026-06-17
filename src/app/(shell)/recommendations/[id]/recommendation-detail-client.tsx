@@ -724,8 +724,22 @@ export function RecommendationDetailClient({
             className="text-[13px] text-foreground/85 leading-relaxed max-w-2xl"
             data-recommendation-detail-measurement="true"
           >
-            Beacon will watch this page&apos;s citation rate on the affected
-            prompts after the change ships, and surface the result on{" "}
+            {/* Trust audit fix D (2026-06-16): only claim AI-citation tracking
+                when this rec actually has AI-answer evidence. A GSC/search move
+                with no AI signal is measured by Google Search performance. */}
+            {observationCount > 0 || aeoEvidenceLines.length > 0 ? (
+              <>
+                Beacon will watch this page&apos;s AI-answer citation rate on the
+                affected prompts after the change ships, and surface the result
+                on{" "}
+              </>
+            ) : (
+              <>
+                Beacon will re-check this page in Google Search — impressions,
+                clicks, and average position — after the change ships, and
+                surface the result on{" "}
+              </>
+            )}
             <Link
               href="/changes"
               className="text-accent-primary hover:underline"

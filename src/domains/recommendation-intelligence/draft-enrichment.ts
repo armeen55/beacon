@@ -397,8 +397,14 @@ type DraftFill = {
   measurement_plan: string;
 };
 
+// Trust audit fix D (2026-06-16): title / H1 / meta moves are SEARCH-CTR
+// changes — their measurable payoff is Google Search performance, NOT AI
+// citations. The old copy ("tracks whether AI answers start citing it") was an
+// ungrounded AEO claim on search moves with no AI-answer evidence. AI-
+// recommendation lift is claimed ONLY by AEO_MEASURE_PLAN (the answer-block /
+// sources moves that genuinely target it). No cron language (refresh-driven).
 const SCAN_VERIFY_PLAN =
-  "When you refresh your connected data, Beacon re-checks this page and marks the move verified once the change is live; it then tracks whether AI answers start citing it.";
+  "When you refresh your connected data, Beacon re-checks this page in Google Search — impressions, clicks, and average position — and marks the move verified once the change is live.";
 const FIX_VERIFY_PLAN =
   "When you refresh your connected data, Beacon re-checks this page; this issue clears from the queue once it is fixed.";
 
