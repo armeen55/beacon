@@ -55,6 +55,40 @@ const REPEATED_ACTION_WORD_RE =
 const SEGMENT_SPLIT_RE = /\s[|–—]\s/;
 
 /**
+ * A leading INSTRUCTION-about-an-SEO-element the generator/LLM sometimes emits
+ * AS the label/value (e.g. "Change the page title to ", "Add a page title: ",
+ * "Add the main page heading: ", "Add the short page description"). The row
+ * title templates already supply the verb + element, so the label must be the
+ * VALUE only — never an instruction. High precision: the verb must take an SEO
+ * element as its object.
+ */
+const INSTRUCTION_PREFIX_RE =
+  /^(?:change|update|set|rewrite|edit|revise|modify|write|add|insert|include)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:page\s+)?(?:title(?:\s+tag)?|meta(?:\s+description)?|description|h1|heading|headline|main\s+page\s+heading|short\s+page\s+description)\b\s*(?:tag\b\s*)?(?:to|so\s+that|reads?|:)?\s+/i;
+
+/**
+ * Strip a leading instruction-artifact prefix. Returns the recovered value +
+ * whether a prefix was stripped (so the caller can decide to drop a directive
+ * that leaves only a sentence fragment).
+ */
+export function stripInstructionArtifactPrefix(input: string): {
+  text: string;
+  stripped: boolean;
+} {
+  if (typeof input !== "string") return { text: "", stripped: false };
+  const before = input.trim();
+  const after = before.replace(INSTRUCTION_PREFIX_RE, "").trim();
+  return { text: after, stripped: after !== before };
+}
+
+/** Collapse doubled consecutive words ("Add Add" → "Add"); case-insensitive,
+ *  keeps the first occurrence. Safe for titles (they never legitimately repeat
+ *  a word back-to-back). */
+export function dedupeDoubledWords(input: string): string {
+  if (typeof input !== "string") return "";
+  return input.replace(/\b(\w+)(?:\s+\1\b)+/gi, "$1");
+}
+
+/**
  * Detect a copy artifact, or null when the text is clean. Order is fixed so the
  * first/most-specific artifact is reported.
  */

@@ -21,6 +21,7 @@
  */
 
 import { titleCase } from "./providers/generators/_text-utils";
+import { stripInstructionArtifactPrefix } from "./copy-artifact-guard";
 import type {
   PageIntentResolution,
   RecommendationAction,
@@ -463,6 +464,19 @@ export function cleanDisplayLabel(
     const stripped = s.replace(PREFIX_RE, "");
     if (stripped === s) break;
     s = stripped;
+  }
+  // Expert-rec-engine list-enforcement (2026-06-16): strip a leading
+  // INSTRUCTION-about-an-SEO-element the generator/LLM sometimes emits as the
+  // label itself ("Change the page title to "X"", "Add a page title: "X"",
+  // "Add the main page heading: "X""). The title templates already supply the
+  // verb + element, so the label must be the VALUE only. If stripping a
+  // genuine directive leaves only a sentence fragment (empty or lowercase
+  // start), drop the label so the title uses its clean no-label form.
+  const inst = stripInstructionArtifactPrefix(s);
+  if (inst.stripped) {
+    const recovered = stripOuterQuotes(inst.text).trim();
+    if (recovered.length === 0 || /^\p{Ll}/u.test(recovered)) return "";
+    s = recovered;
   }
   // Strip a single layer of matched outer quotes.
   s = stripOuterQuotes(s).trim();

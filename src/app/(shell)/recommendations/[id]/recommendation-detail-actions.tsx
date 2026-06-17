@@ -48,6 +48,7 @@ import type {
   ActionRowStatus,
   RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
+import { deriveRecQaDisplay } from "@/domains/recommendations/recommendation-qa";
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -80,12 +81,22 @@ export function visibleActionsForRow(
     RecommendationActionRow,
     "status" | "hasExactEdit" | "eligibleEditCount"
   >,
+  opts?: {
+    /**
+     * RENDER ENFORCEMENT (2026-06-16) — the deterministic QA verdict's
+     * actionable flag (`deriveRecQaDisplay(...).actionable`). When explicitly
+     * `false`, Accept is withheld: a capped/rejected suggestion offers only
+     * Defer/Dismiss, never a one-tap Accept on a rec the gate flagged.
+     * Defaults to permitted (undefined → behaves as before).
+     */
+    readonly qaActionable?: boolean;
+  },
 ): DetailActionKey[] {
   switch (row.status) {
     case "new":
     case "needs_review": {
       const out: DetailActionKey[] = [];
-      if (row.hasExactEdit) out.push("accept");
+      if (row.hasExactEdit && opts?.qaActionable !== false) out.push("accept");
       out.push("defer", "dismiss");
       return out;
     }
@@ -307,8 +318,19 @@ export function RecommendationDetailActions({
 
   // Re-use the pure-helper contract so the rendered buttons stay in
   // lockstep with `visibleActionsForRow` (the tested truth table).
+  // RENDER ENFORCEMENT (2026-06-16): when the deterministic QA verdict does NOT
+  // approve a fresh suggestion (capped/rejected/needs-more-evidence), Accept is
+  // withheld here too — the brief shows Defer/Dismiss only, never one-tap Accept.
+  const qaIsSuggestion =
+    row.status === "new" ||
+    row.status === "needs_review" ||
+    row.status === "needs_fresh_edit";
+  const qaActionable = deriveRecQaDisplay({
+    qaVerdict: row.detail?.qaVerdict ?? null,
+    isSuggestion: qaIsSuggestion,
+  }).actionable;
   const recPayload = buildAcceptPayload(row);
-  const visible = visibleActionsForRow(row);
+  const visible = visibleActionsForRow(row, { qaActionable });
 
   function run(
     fn: () => Promise<RecommendationActionResponse>,

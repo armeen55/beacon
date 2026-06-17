@@ -68,6 +68,7 @@ import {
   buildRecommendationQaVerdict,
   type RecQaVerdict,
 } from "./recommendation-qa";
+import { dedupeDoubledWords } from "./copy-artifact-guard";
 
 // ── Type system ─────────────────────────────────────────────────────────
 
@@ -2193,7 +2194,7 @@ export function buildRecommendationActionRows(
     const fit = rec.resolution?.topicFit;
     if (fit) genFitByRec.set(rec.stableKey, fit);
   }
-  return rows.map((row) => {
+  const enriched = rows.map((row) => {
     const affectedPromptTexts: string[] = [];
     for (const ref of row.detail.evidenceRefs) {
       if (affectedPromptTexts.length >= 3) break;
@@ -2212,15 +2213,53 @@ export function buildRecommendationActionRows(
       preferredTopicFit: generationTopicFit,
     });
     const inSuggestionBucket = STATUS_BUCKET[row.status] === 0;
-    const downgrade =
-      inSuggestionBucket && qaVerdict.confidence === "rejected";
-    const derivedConfidence = downgrade ? "needs_review" : row.derivedConfidence;
+    // ENFORCE the QA verdict on the displayed confidence (2026-06-16 list-
+    // enforcement fix): the verdict CAPS confidence — a low / needs-more-
+    // evidence / rejected QA result can NEVER render as High/Medium. Take the
+    // LOWER of the legacy signal and the QA tier (never raise above either).
+    // Scoped to the suggestion bucket so an already-actioned row's label is
+    // never rewritten.
+    const qaTier: RecommendationActionRow["derivedConfidence"] =
+      qaVerdict.confidence === "high"
+        ? "strong_evidence"
+        : qaVerdict.confidence === "medium"
+          ? "moderate_evidence"
+          : "needs_review"; // low / needs_more_evidence / rejected
+    const CONF_RANK = { needs_review: 0, moderate_evidence: 1, strong_evidence: 2 } as const;
+    const derivedConfidence =
+      inSuggestionBucket && CONF_RANK[qaTier] < CONF_RANK[row.derivedConfidence]
+        ? qaTier
+        : row.derivedConfidence;
+    // Copy-artifact safety on the visible title: collapse a doubled leading
+    // verb ("Add Add Article …" → "Add Article …"). Instruction prefixes
+    // ("Change the page title to …") are already stripped at cleanDisplayLabel.
+    const title = dedupeDoubledWords(row.title);
     return {
       ...row,
+      title,
       derivedConfidence,
       detail: { ...row.detail, derivedConfidence, qaVerdict, generationTopicFit },
     };
   });
+
+  // SORT: within the suggestion bucket, sink non-actionable rows (QA reject /
+  // needs-more-evidence / low — i.e. !qaVerdict.approve) BELOW the valid,
+  // approved ones, so rejected/weak recs never visually compete with the real
+  // wins. Stable otherwise (preserve the established rank order). Then re-rank.
+  const ordered = enriched
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => {
+      const aSug = STATUS_BUCKET[a.row.status] === 0;
+      const bSug = STATUS_BUCKET[b.row.status] === 0;
+      if (aSug && bSug) {
+        const aAct = a.row.detail.qaVerdict?.approve ? 0 : 1;
+        const bAct = b.row.detail.qaVerdict?.approve ? 0 : 1;
+        if (aAct !== bAct) return aAct - bAct;
+      }
+      return a.i - b.i;
+    })
+    .map(({ row }) => row);
+  return ordered.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────

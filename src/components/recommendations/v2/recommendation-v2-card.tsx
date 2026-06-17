@@ -41,6 +41,7 @@ import {
 } from "@/domains/recommendations/action-types";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { filterDisplaySafeEvidenceLines } from "@/domains/recommendations/evidence-line-display-guard";
+import { deriveRecQaDisplay } from "@/domains/recommendations/recommendation-qa";
 import { cn } from "@/lib/utils";
 import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
@@ -321,14 +322,15 @@ export function RecommendationV2Card({
   // operator clicks in. The confidence pill above is already downgraded on a
   // confident mismatch by the row builder.
   const qa = row.detail.qaVerdict ?? null;
-  const qaPushLabel =
-    qa == null
-      ? null
-      : qa.pushReadiness === "paste_ready"
-        ? "Paste-ready"
-        : qa.pushReadiness === "manual"
-          ? "Manual build"
-          : "Needs review";
+  // RENDER ENFORCEMENT (2026-06-16): the QA verdict gates the visible status
+  // pill + the primary CTA + the pushability — a capped/rejected rec can't
+  // show "Suggested" + "Accept" + "Paste-ready".
+  const isSuggestion =
+    row.status === "new" ||
+    row.status === "needs_review" ||
+    row.status === "needs_fresh_edit";
+  const qaDisplay = deriveRecQaDisplay({ qaVerdict: qa, isSuggestion });
+  const qaPushLabel = qa == null ? null : qaDisplay.pushLabel;
   const qaCaution =
     qa != null && (qa.confidence === "rejected" || qa.confidence === "low" || qa.confidence === "needs_more_evidence")
       ? qa.confidenceReason
@@ -368,16 +370,23 @@ export function RecommendationV2Card({
           <span
             className={cn(
               "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider",
-              STATUS_PILL_TONE[row.status],
+              // QA override (Rejected by QA / Needs more evidence / Needs review)
+              // gets a cautionary tone, not the accent "Suggested" tone.
+              qaDisplay.statusOverride
+                ? "bg-status-warning/10 text-status-warning"
+                : STATUS_PILL_TONE[row.status],
             )}
             data-recommendation-v2-status-pill="true"
+            data-recommendation-v2-status-override={qaDisplay.statusOverride ? "true" : undefined}
           >
             {/* #196 — the status pill is otherwise a bare word ("Accepted")
                 floating in the card header; a visually-hidden "Status:"
                 prefix gives screen-reader users the meaning, so the state
-                isn't conveyed by the pill's color/position alone. */}
+                isn't conveyed by the pill's color/position alone.
+                2026-06-16: the QA verdict overrides "Suggested" when the
+                deterministic gate capped/rejected the rec. */}
             <span className="sr-only">Status: </span>
-            {statusLabel(row.status)}
+            {qaDisplay.statusOverride ?? statusLabel(row.status)}
           </span>
         </span>
         <span
@@ -640,7 +649,10 @@ export function RecommendationV2Card({
                   : ""}
           </span>
         )}
-        {onAccept != null && (
+        {/* RENDER ENFORCEMENT (2026-06-16): Accept is the primary CTA ONLY
+            when the deterministic QA verdict approves. A capped/rejected rec
+            shows "Review only" (the brief) instead — never a one-tap Accept. */}
+        {onAccept != null && qaDisplay.actionable && (
           <button
             type="button"
             onClick={onAccept}
@@ -687,9 +699,11 @@ export function RecommendationV2Card({
           href={href}
           prefetch={false}
           className="text-accent-primary hover:underline"
-          data-recommendation-v2-cta={onAccept != null ? "review" : "primary"}
+          data-recommendation-v2-cta={
+            onAccept != null && qaDisplay.actionable ? "review" : "primary"
+          }
         >
-          Review →
+          {qaDisplay.actionable ? "Review →" : "Review only →"}
         </Link>
       </div>
     </article>

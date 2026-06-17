@@ -74,6 +74,56 @@ export type RecQaVerdict = {
   copySafe: boolean;
 };
 
+/**
+ * RENDER ENFORCEMENT (2026-06-16) — derive the customer-visible status pill +
+ * primary CTA + pushability from the deterministic QA verdict, so the card +
+ * detail can't show "Suggested" / "Accept" / "High" on a rec the gate capped
+ * or rejected. Pure; consumed by the v2 card + the detail page.
+ */
+export type RecQaDisplay = {
+  /** Overrides the "Suggested" status pill when the gate isn't clean; null = use the normal status label. */
+  statusOverride: string | null;
+  /** Whether the primary CTA may be "Accept". */
+  actionable: boolean;
+  /** Primary CTA label. */
+  primaryCtaLabel: "Accept" | "Review only";
+  /** Honest pushability label for the list/detail. */
+  pushLabel: "Paste-ready" | "Not publishable" | "Manual build";
+};
+
+export function deriveRecQaDisplay(args: {
+  qaVerdict?: RecQaVerdict | null;
+  /** True when the row is a fresh suggestion (new/needs_review bucket). */
+  isSuggestion: boolean;
+}): RecQaDisplay {
+  const v = args.qaVerdict ?? null;
+  const pushLabel: RecQaDisplay["pushLabel"] =
+    v?.pushReadiness === "manual"
+      ? "Manual build"
+      : v?.pushReadiness === "review_only"
+        ? "Not publishable"
+        : "Paste-ready";
+  // Only gate fresh suggestions; an accepted/shipped row keeps its real status.
+  if (!args.isSuggestion || v == null) {
+    return { statusOverride: null, actionable: true, primaryCtaLabel: "Accept", pushLabel };
+  }
+  const statusOverride =
+    v.confidence === "rejected"
+      ? "Rejected by QA"
+      : v.confidence === "needs_more_evidence"
+        ? "Needs more evidence"
+        : v.confidence === "low"
+          ? "Needs review"
+          : null; // high / medium → normal "Suggested"
+  const actionable = v.approve;
+  return {
+    statusOverride,
+    actionable,
+    primaryCtaLabel: actionable ? "Accept" : "Review only",
+    pushLabel,
+  };
+}
+
 const PUSH_READINESS_BY_ACTION: Record<ActionRowType, RecPushReadiness> = {
   edit_title: "paste_ready",
   edit_h1: "paste_ready",

@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — LIST-ENFORCEMENT LAYER (the list is honest before you click in)
+
+Operator: "Pause new architecture. The live recommendations list exposes enforcement bugs." — the deterministic QA verdict was *computed* per row but only rendered as a caption: a rec the gate rejected still showed "Suggested" + a one-tap "Accept" + "High", and copy artifacts ("Add Add …", "Change the page title to …") reached the card. "A smart explanation on a bad recommendation is worse than none." Fixed so the LIST looks expert before the operator clicks in; the deterministic gate is the final authority and can only LOWER/flag.
+- **Confidence cap (generation-time, `recommendation-action-rows.ts`).** The QA tier now CAPS the displayed `derivedConfidence` for fresh suggestions — a `low` / `needs_more_evidence` / `rejected` verdict can never render High/Medium (takes the LOWER of the legacy signal and the QA tier; never raises). A valid on-topic rec is NOT downgraded (no false positives).
+- **Status pill honesty (`deriveRecQaDisplay`, new pure helper in `recommendation-qa.ts`).** A capped/rejected suggestion's pill reads **"Rejected by QA" / "Needs more evidence" / "Needs review"** in a cautionary tone — never the default "Suggested". Wired into the v2 card AND the detail header + the two "Status:"/"Current status:" lines. Already-actioned rows keep their real status (never rewritten).
+- **CTA honesty.** A non-actionable verdict (`!approve`) withholds the one-tap **Accept**: the card shows **"Review only →"** and the detail page (`visibleActionsForRow(row, { qaActionable })`) offers only Defer/Dismiss. The owner must open the brief — never one-tap-accept a flagged rec.
+- **Pushability honesty.** The card/detail surface **Paste-ready / Not publishable / Manual build** from the verdict's `pushReadiness` (was: everything implied pushable).
+- **Copy artifacts can't reach the card.** `dedupeDoubledWords` collapses a doubled leading verb ("Add Add Article" → "Add Article") on the visible title; `stripInstructionArtifactPrefix` + the `cleanDisplayLabel` integration strip a leading instruction ("Change the page title to "X"" → "X") and DROP a directive that leaves only a sentence fragment.
+- **Sort.** Within the suggestion bucket, non-actionable rows (QA reject / needs-more-evidence / low) sink BELOW the valid, approved ones, then the list re-ranks — rejected/weak recs never visually compete with real wins.
+- **No Iranopedia hardcoding** — judgments come from generic evidence + the intent-fit gate; the Cities/Cheetah/Pahlavi/Abbasid cases appear ONLY as test fixtures.
+- **Gate:** typecheck clean; new `rec-list-enforcement.test.ts` **17 pass** (rejected→not-High/not-Accept/not-Suggested; Cheetah/Pahlavi unrelated-query→no Accept; valid Abbasid→still High+Accept; "Add Add"/instruction-prefix stripped; detail Accept gating). Architecture + recs + app **6,086 pass**; full suite **14,426 pass** (the lone failure — `visibility-score-filter` "Houzz" — is PRE-EXISTING, verified failing identically on clean HEAD, imports none of these files). Build ✓.
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — LLM strategist + critic ON BY DEFAULT (no Vercel flag) + PHASE D
 
 Operator: "I do not want to manage BEACON_LLM_STRATEGIST/CRITIC anymore — make the expert reasoning available by default." Done.

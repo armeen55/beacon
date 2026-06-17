@@ -41,6 +41,7 @@ import {
   INDEXING_DIRECTIVE_CAVEAT,
 } from "@/domains/recommendations/action-types";
 import { buildCopyTile } from "@/domains/recommendations/suggested-copy-adapters";
+import { deriveRecQaDisplay } from "@/domains/recommendations/recommendation-qa";
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { filterDisplaySafeEvidenceLines } from "@/domains/recommendations/evidence-line-display-guard";
 import {
@@ -270,6 +271,21 @@ export function RecommendationDetailClient({
   const measurementIndex = showSuggestedCopy ? 5 : 4;
   const nextStepIndex = showSuggestedCopy ? 6 : 5;
 
+  // RENDER ENFORCEMENT (2026-06-16) — the deterministic QA verdict (attached to
+  // every row by `buildRecommendationActionRows`) decides the customer-visible
+  // status. A capped/rejected fresh suggestion must NOT read "Suggested": the
+  // header pill shows "Rejected by QA" / "Needs more evidence" / "Needs review"
+  // in a cautionary tone. The CTA gating lives in RecommendationDetailActions.
+  const detailIsSuggestion =
+    row.status === "new" ||
+    row.status === "needs_review" ||
+    row.status === "needs_fresh_edit";
+  const qaDisplay = deriveRecQaDisplay({
+    qaVerdict: row.detail?.qaVerdict ?? null,
+    isSuggestion: detailIsSuggestion,
+  });
+  const headerStatusLabel = qaDisplay.statusOverride ?? statusLabel(row.status);
+
   return (
     <div
       className="max-w-4xl space-y-6"
@@ -294,11 +310,16 @@ export function RecommendationDetailClient({
           <span
             className={cn(
               "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider",
-              STATUS_PILL_TONE[row.status],
+              qaDisplay.statusOverride
+                ? "bg-status-warning/10 text-status-warning"
+                : STATUS_PILL_TONE[row.status],
             )}
             data-recommendation-detail-status-pill="true"
+            data-recommendation-detail-status-override={
+              qaDisplay.statusOverride ? "true" : undefined
+            }
           >
-            {statusLabel(row.status)}
+            {headerStatusLabel}
           </span>
           <span
             className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80"
@@ -500,7 +521,7 @@ export function RecommendationDetailClient({
             </span>
             <span className="text-muted-foreground"> · </span>
             <span className="text-muted-foreground">Status:</span>{" "}
-            <span className="text-foreground">{statusLabel(row.status)}</span>
+            <span className="text-foreground">{headerStatusLabel}</span>
           </p>
         </div>
       </Act>
@@ -718,7 +739,7 @@ export function RecommendationDetailClient({
           className="mt-3 text-[12px] text-muted-foreground"
           data-recommendation-detail-current-status="true"
         >
-          Current status: <span className="text-foreground">{statusLabel(row.status)}</span>.
+          Current status: <span className="text-foreground">{headerStatusLabel}</span>.
           {(row.status === "accepted" ||
             row.status === "measuring" ||
             row.status === "shipped") &&
