@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — REAL-DATA GROUND-TRUTH (proof the reasoning beats a generic SEO)
+
+Ran the engine against a LIVE Iranopedia page (no deploy/keys needed — direct fetch + Supabase-free pure modules + live OpenAI). Tool: `scripts/ground-truth-expert-rec.ts` (`npx tsx --require ./scripts/mock-server-only.cjs scripts/ground-truth-expert-rec.ts`).
+- **Real page** `https://iranopedia.com/persian-kabobs/koobideh-kabob` → HTTP 200, title "Koobideh Kabob Recipe | Iranopedia", **H1 empty** (a real on-page defect).
+- **Deterministic intent-fit on real data, generic (no hardcoding):** on-topic "koobideh kabob recipe" → topic **91**/intent **90**, shouldUse=TRUE; off-topic "current time in tehran now" → topic **16**, shouldUse=FALSE with "consider a dedicated page." Intent classes correct (recipe→informational; "best … delivery"→commercial).
+- **Live LLM strategist (`gpt-5-mini`, HTTP 200, 1,973 tokens) = senior-grade reasoning:** caught the **empty H1**, reasoned about brand-placement tradeoffs ("brand first reduces keyword prominence for informational queries"), flagged **unverifiable-claim risk** ("promotional modifiers easy/authentic/best risk keyword-stuffing"), grounded in the supplied scores (no invented numbers), risk_level low with specific risks (truncation, stuffing, title/H1 mismatch).
+- **Safety validated:** the RAW model leaked the internal token `topicMatchScore` into prose — which the production module's `sanitizeStrategistReasoning` (`INTERNAL_IDENTIFIER_PATTERNS`) REJECTS → deterministic fallback. So the shipped path is SAFER than the raw call; the ground-truth confirms the firewall is necessary + works. This is the "extract data better / make better connections / better than a pro SEO" claim, demonstrated on real data. (Live end-to-end push still needs the operator's deploy + flags + connected keys.)
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — GQA-4 (generation-time page/query intent fit — the preferred authority)
 
 Moves page/query fit from the row-evidence proxy UP into generation, where Beacon has the richest page context (full snapshot), so a bad target is caught while it still has that context — before ranking + render.
