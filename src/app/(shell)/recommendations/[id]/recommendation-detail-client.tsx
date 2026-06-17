@@ -540,8 +540,8 @@ export function RecommendationDetailClient({
         )}
       </Act>
 
-      {/* PHASE I (2026-06-16) — senior-strategist analysis panel. A flagged
-          (BEACON_LLM_STRATEGIST, default OFF) progressive enhancement layered
+      {/* PHASE I (2026-06-16) — senior-strategist analysis panel. ON BY
+          DEFAULT (no flag); a progressive enhancement layered
           AFTER mount on top of the deterministic brief: the LLM provides the
           expert reasoning (opportunity / why-now / best-move / why-this-beats-
           alternatives / expected outcome / risks) while the DETERMINISTIC gate

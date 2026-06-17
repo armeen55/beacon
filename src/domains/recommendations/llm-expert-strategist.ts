@@ -26,8 +26,10 @@ import "server-only";
  * and the deterministic Act-2 reasoning + intent-fit verdict stand alone.
  *
  * READ-ONLY: the strategist narrative is displayed as ANALYSIS, never as raw
- * evidence and never published. Gated behind `BEACON_LLM_STRATEGIST` (OFF by
- * default), independent of `BEACON_LLM_WHY`.
+ * evidence and never published. ON BY DEFAULT in production (2026-06-16) — no
+ * feature flag to manage; an emergency kill-switch (`BEACON_LLM_STRATEGIST="0"`
+ * / `BEACON_LLM_CRITIC="0"`) can disable without a redeploy. Independent of
+ * `BEACON_LLM_WHY` (the separate Act-2 enhancement).
  *
  * Pinned by tests/domains/recommendations/llm-expert-strategist.test.ts.
  */
@@ -272,7 +274,10 @@ export async function composeExpertStrategy(
   input: ExpertStrategyInput,
   opts: ComposeExpertStrategyOptions = {},
 ): Promise<ExpertSynthesis | null> {
-  if (process.env.BEACON_LLM_STRATEGIST !== "1") return null;
+  // ON BY DEFAULT in production (2026-06-16) — the operator no longer manages a
+  // feature flag for this. A single emergency kill-switch remains: set
+  // BEACON_LLM_STRATEGIST="0" to disable without a redeploy. Absence = ON.
+  if (process.env.BEACON_LLM_STRATEGIST === "0") return null;
   if (
     process.env.NEXT_PHASE === "phase-production-build" &&
     process.env.BEACON_LLM_BUILD_OK !== "1"
@@ -387,9 +392,12 @@ export async function composeExpertStrategy(
   // `applyCriticToVerdict` clamps it LOWER-ONLY so it can never raise past the
   // deterministic ceiling or rescue a deterministic reject. Fail-closed: any
   // problem keeps the deterministic verdict unchanged.
+  // The adversarial critic is ON BY DEFAULT too (kill-switch: BEACON_LLM_CRITIC
+  // ="0"). It only runs when the deterministic verdict isn't already a reject
+  // (nothing to review) and is clamped LOWER-ONLY by applyCriticToVerdict.
   let criticReview: CriticReview | null = null;
   if (
-    process.env.BEACON_LLM_CRITIC === "1" &&
+    process.env.BEACON_LLM_CRITIC !== "0" &&
     verdict.enforcedConfidence !== "rejected"
   ) {
     criticReview = await runCriticReview(

@@ -6,9 +6,10 @@
  * `WhyThisMattersAct`).
  *
  * Contract:
- *   • Renders NOTHING until a non-null result arrives — so with
- *     `BEACON_LLM_STRATEGIST` off (default), or any failure, the brief is
- *     byte-identical to today (no flash, no loading state).
+ *   • Renders NOTHING until a non-null result arrives — so on any failure
+ *     (budget blocked / API error / sanitize rejection / kill-switch), the
+ *     brief is byte-identical to today (no flash, no loading state). The LLM
+ *     strategist + critic are ON BY DEFAULT in production (no flag to flip).
  *   • The DETERMINISTIC verdict gates what's shown: a "rejected" verdict shows
  *     ONLY the honest caution (the reasoning that argued for it is suppressed);
  *     an approved verdict shows the full expert reasoning, clearly labelled as

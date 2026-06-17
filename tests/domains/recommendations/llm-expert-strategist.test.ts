@@ -122,16 +122,24 @@ function toJsonKeys(r: StrategistReasoning) {
 }
 
 const ORIGINAL_FLAG = process.env.BEACON_LLM_STRATEGIST;
+const ORIGINAL_CRITIC = process.env.BEACON_LLM_CRITIC;
 const ORIGINAL_KEY = process.env.OPENAI_API_KEY;
 
 beforeEach(() => {
   mockState.budgetResult = { allowed: true, remaining: 5 };
   mockState.checkBudgetSpy?.mockClear();
   process.env.OPENAI_API_KEY = "sk-test-key";
+  // Strategist is ON BY DEFAULT (no flag). Critic is on-by-default in prod,
+  // but disabled here by default so the strategist-verdict assertions aren't
+  // perturbed by a second LLM pass; the critic-default test opts back in.
+  delete process.env.BEACON_LLM_STRATEGIST;
+  process.env.BEACON_LLM_CRITIC = "0";
 });
 afterEach(() => {
   if (ORIGINAL_FLAG === undefined) delete process.env.BEACON_LLM_STRATEGIST;
   else process.env.BEACON_LLM_STRATEGIST = ORIGINAL_FLAG;
+  if (ORIGINAL_CRITIC === undefined) delete process.env.BEACON_LLM_CRITIC;
+  else process.env.BEACON_LLM_CRITIC = ORIGINAL_CRITIC;
   if (ORIGINAL_KEY === undefined) delete process.env.OPENAI_API_KEY;
   else process.env.OPENAI_API_KEY = ORIGINAL_KEY;
 });
@@ -249,8 +257,16 @@ describe("parseStrategistJson — fail-closed", () => {
 
 // ── composeExpertStrategy (mocked fetch) ──────────────────────────────
 describe("composeExpertStrategy — gates + end-to-end", () => {
-  it("flag OFF → null, NEVER calls fetch or budget", async () => {
+  it("ON BY DEFAULT (no flag set) → runs", async () => {
     delete process.env.BEACON_LLM_STRATEGIST;
+    const fetchImpl = jsonResponse(toJsonKeys(VALID_REASONING));
+    const result = await composeExpertStrategy({ why: makeWhy(), topicFit: strongFit }, { fetchImpl });
+    expect(result).not.toBeNull();
+    expect(fetchImpl).toHaveBeenCalled();
+  });
+
+  it("kill-switch BEACON_LLM_STRATEGIST=0 → null, NEVER calls fetch or budget", async () => {
+    process.env.BEACON_LLM_STRATEGIST = "0";
     const fetchImpl = jsonResponse(toJsonKeys(VALID_REASONING));
     const result = await composeExpertStrategy({ why: makeWhy(), topicFit: strongFit }, { fetchImpl });
     expect(result).toBeNull();
@@ -259,7 +275,7 @@ describe("composeExpertStrategy — gates + end-to-end", () => {
   });
 
   it("budget blocked → null, no fetch", async () => {
-    process.env.BEACON_LLM_STRATEGIST = "1";
+    delete process.env.BEACON_LLM_STRATEGIST;
     mockState.budgetResult = { allowed: false, reason: "cap" };
     const fetchImpl = jsonResponse(toJsonKeys(VALID_REASONING));
     const result = await composeExpertStrategy({ why: makeWhy(), topicFit: strongFit }, { fetchImpl });
@@ -268,7 +284,7 @@ describe("composeExpertStrategy — gates + end-to-end", () => {
   });
 
   it("happy path → strategist reasoning + DETERMINISTIC verdict", async () => {
-    process.env.BEACON_LLM_STRATEGIST = "1";
+    delete process.env.BEACON_LLM_STRATEGIST;
     const fetchImpl = jsonResponse(toJsonKeys(VALID_REASONING));
     const result = await composeExpertStrategy({ why: makeWhy(), topicFit: strongFit }, { fetchImpl });
     expect(result).not.toBeNull();
@@ -307,7 +323,6 @@ describe("composeExpertStrategy — gates + end-to-end", () => {
   });
 
   it("malformed JSON response → null (fail-closed)", async () => {
-    process.env.BEACON_LLM_STRATEGIST = "1";
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ choices: [{ message: { content: "not json at all" } }], usage: {} }), {
         status: 200,
@@ -316,6 +331,39 @@ describe("composeExpertStrategy — gates + end-to-end", () => {
     ) as unknown as typeof fetch;
     const result = await composeExpertStrategy({ why: makeWhy(), topicFit: strongFit }, { fetchImpl });
     expect(result).toBeNull();
+  });
+
+  it("critic runs BY DEFAULT (no flag) and clamps lower-only", async () => {
+    delete process.env.BEACON_LLM_STRATEGIST;
+    delete process.env.BEACON_LLM_CRITIC; // default → critic ON
+    // 1st call → strategist JSON; 2nd call → critic JSON (lower to 'low').
+    const criticJson = {
+      critic_verdict: "lower_confidence",
+      confidence_ceiling: "low",
+      unsupported_claims: [],
+      evidence_gaps: ["No on-page behaviour data."],
+      query_page_mismatch_risks: [],
+      copy_risks: [],
+      publishing_risks: [],
+      factual_risks: [],
+      what_would_make_this_high_confidence: ["Connect Clarity."],
+      human_review_note: "Confirm this is the strongest target page.",
+    };
+    let call = 0;
+    const fetchImpl = vi.fn(async () => {
+      call += 1;
+      const content = call === 1 ? JSON.stringify(toJsonKeys(VALID_REASONING)) : JSON.stringify(criticJson);
+      return new Response(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 100, completion_tokens: 50 } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const result = await composeExpertStrategy({ why: makeWhy(), topicFit: strongFit }, { fetchImpl });
+    expect(result).not.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // strategist + critic
+    expect(result!.criticReview?.criticVerdict).toBe("lower_confidence");
+    // strongFit would be 'high' deterministically; the critic clamps it to 'low'.
+    expect(result!.enforcedConfidence).toBe("low");
   });
 });
 

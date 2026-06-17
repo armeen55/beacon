@@ -46,8 +46,9 @@ export async function requestExpertStrategistAction(
   recId: string,
 ): Promise<StrategistActionResult | null> {
   try {
-    // Fast flag check — when off (default), do zero work.
-    if (process.env.BEACON_LLM_STRATEGIST !== "1") return null;
+    // ON BY DEFAULT (2026-06-16) — no feature flag to manage. Emergency
+    // kill-switch only: BEACON_LLM_STRATEGIST="0" disables without a redeploy.
+    if (process.env.BEACON_LLM_STRATEGIST === "0") return null;
 
     const tenantId = await currentTenantId();
     const decodedId = decodeRecommendationRouteId(recId) ?? recId;

@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-16 EXPERT REC ENGINE — LLM strategist + critic ON BY DEFAULT (no Vercel flag) + PHASE D
+
+Operator: "I do not want to manage BEACON_LLM_STRATEGIST/CRITIC anymore — make the expert reasoning available by default." Done.
+- **Flags removed as a requirement → ON BY DEFAULT.** `composeExpertStrategy` runs unless `BEACON_LLM_STRATEGIST="0"` (emergency kill-switch, never needs setting); the adversarial critic runs unless `BEACON_LLM_CRITIC="0"`. The detail server action (`llm-strategist-action.ts`) no longer requires `="1"`. Comments/instructions that said "operator must flip the Vercel flag" removed.
+- **All safety rails intact:** deterministic gate stays the final authority; `applyCriticToVerdict` clamps the critic LOWER-ONLY (can't raise past the ceiling or revive a reject); firewall rejects vendor names / invented numbers / AI-claims-without-AI-evidence / internal-identifier leaks; malformed JSON + timeout/API error → fail-closed → deterministic baseline; **no Wix writes from viewing a rec** (read-only).
+- **Cost controls intact:** strategist + critic run ON-DEMAND on the recommendation DETAIL only (via the detail action) — NOT per generated candidate, NOT on the list; the budget gate (`checkBudget`) still runs before each call; on budget block / no-key → null → deterministic fallback.
+- **PHASE D (keyword/fanout merge, `f3641ac`)** rides along in this merge.
+- **Gate:** typecheck clean; strategist test **32 pass** (default-on, kill-switch=0, critic-runs-by-default-and-clamps-lower-only, fail-closed); recs + architecture **5,894 pass**; build ✓. **DoD:** opening a rec detail in prod shows expert reasoning + Adversarial QA with NO Vercel flag — pending the merge+deploy below.
+
+---
+
 ## 2026-06-16 EXPERT REC ENGINE — MERGED → main + DEPLOYED (operator-approved)
 
 Operator approved the merge→deploy landing strip. **`git push origin HEAD:main` fast-forwarded origin/main `cdfc6f7 → 3a63b1e` (16 commits, no conflicts).** Vercel auto-deploys main. Final gate before merge: typecheck clean + build ✓ (full suite 14,399 pass at the GQA-4 commit; only docs + a non-imported diagnostic script added since).
