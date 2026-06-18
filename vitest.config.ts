@@ -21,6 +21,20 @@ export default defineConfig({
      */
     globalSetup: ["tests/setup/global-fixture-hydrate.ts"],
     env: {
+      // Quota/waste guard (2026-06-17): `npm test` is HERMETIC by default — it
+      // must never touch a hosted Supabase (the dev/prod boundary failure that
+      // burned prod egress). Force file mode + blank Supabase creds so every
+      // live-DB integration test self-skips (they gate on creds presence) and
+      // any stray getSupabaseAdmin() call throws instead of hitting prod. Opt
+      // in with BEACON_LIVE_DB_TESTS=1 for the rare real integration run.
+      ...(process.env.BEACON_LIVE_DB_TESTS === "1"
+        ? {}
+        : {
+            DATA_SOURCE: "file",
+            DUAL_WRITE: "false",
+            NEXT_PUBLIC_SUPABASE_URL: "",
+            SUPABASE_SERVICE_ROLE_KEY: "",
+          }),
       BEACON_TENANT_ID: "tenant-ritz-founder",
       // 2026-04-28 CI fix. `currentTenantSlug` resolution chain
       // (src/lib/tenant-context.ts:78–100) tries the tenant registry
