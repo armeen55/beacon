@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-18 PAGE SURGEON — multi-change battle plan + LLM judge UNBLOCKED (live on 5 real pages)
+
+Brutal-audit upgrade of the Page Surgeon diagnostic (operator's 7-item spec). On `claude/iranopedia-blockers`; no queue regen, no publish, no Wix arm, no composeTitle change.
+- **Slice A (`820714c`) — multi-change contract.** Judge + deterministic fallback now emit `primary_atomic_change` + `supporting_atomic_changes[]` (dependency_order) + `rejected_changes[]`, each with action/exact_change/evidence/hypothesis/risk/before-after/measurement/rollback/publishability. Every brief carries **source coverage** (gsc/crawl/clarity/ga4/semrush/profound: used+rows, or "connected but no rows pulled", or "not connected"). Fallback is **non-contradictory** (a `keep_current` never claims a snippet bottleneck + CTR lift + rollback; a bottleneck the title can't fix → `needs_llm_review`). Adds **wording research** (alt phrasings grounded in GSC, mapped to title/meta/h1/faq/section), "what a normal SEO misses", "why not just a title". Per-change gate (publishability + required-source drop + AEO cap without Profound). 14 tests green.
+- **CRITICAL fix (`bc11903`) — the judge was silently never running.** Every page fell back to deterministic with zero warnings. Root cause found by direct API probing: **gpt-5-mini is a reasoning model; at its default reasoning_effort a real multi-change call takes ~44s — past the 40s AbortController timeout** → aborted → caught as fallback. Fix: `reasoning_effort: "low"` (~32s, measured), timeout 40s→90s, and **every fallback path now logs a distinct warn** (no-key / finish_reason=length / empty / parse-fail / threw) — a silent fallback is a trust bug that masked this for a full session. Probed latencies on a real packet: minimal ~19s · low ~32s · medium ~44s; 8000 max_completion_tokens good, 16000 caused a reasoning spiral → truncation.
+- **VERIFIED live on 5 real Iranopedia GSC pages** (reasoning_effort low, real loaders, cache-bypassed fresh judge):
+  - `/funny-farsi-phrases` → **title** primary + **8 supporting** (meta/h1/intro_answer_block/FAQ-schema/section_reorder/internal_link/image_alt) + wording research grounding "persian swear words" (799 imp) / "persian insults" (352 imp @ 27.8% CTR) / "meanings" each to a placement.
+  - `/cities` → **intro_answer_block** primary (NOT a title tweak) — diagnosed the 0.41% CTR as a structural snippet gap and authored the actual 40-60w lead answer; + meta/title/section_add/FAQPage-schema/internal_link.
+  - `/persian-male-names` → **title** + 10 supporting incl. `ux_cta_fix` grounded in `clarity.quickbacks`; flagged H1/title inconsistency + unsegmented list.
+  - All capped **review_only / low confidence** by the deterministic gate (never auto-publishable; AEO capped without Profound). Honest gaps shown ("semrush: connected but no rows pulled").
+- Gate authority intact, typecheck clean, 14 page-surgeon tests green. Lesson saved to memory (`project_gpt5mini_reasoning_timeout`). **Next: Slice B — capped SEMrush diagnostic pull** (unit-balance check, ~2.4k est, abort >20k, log before/after) to flip semrush coverage from "no rows" to real keyword enrichment.
+
+---
+
 ## 2026-06-18 SUPABASE CUTOVER — fresh `beacon-main` project provisioned + Iranopedia seeded + renders end-to-end
 
 Old prod Supabase (`jdegznovgysxyweknewh`, work org) is RESTRICTED (exceed_egress_quota). Cut over to the operator's personal project **`beacon-main` = `vlxwevsdvwxvopkjsewo`** (org "Armeen Projects", us-east-1) per the consolidation decision (one personal Supabase, ≤2 projects).
