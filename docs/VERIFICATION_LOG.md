@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-18 PAGE SURGEON — deterministic TRUST HARDENING (audit P1–P4, live-verified)
+
+After an investor-demo audit (5 briefs reviewed by an independent adversarial SEO panel; all 5 scored 4–5/10, demo_worthy=false) found systemic trust defects, hardened the deterministic gate — the SOLE authority, never the LLM. Commit `491d19b`. No queue regen / publish / Wix / new UI.
+- **P1 over-recommendation:** `detectPageProblems()` decides from evidence alone whether a page has a real problem (snippet deficit ctrGap≥0.5pp, title missing dominant query, page-1 zero-click query, or meaningful Clarity friction). No problem → `keep_current` (all proposed edits rejected with honest reasons). Snippet-family changes ineligible without a deficit/justification. **`highValueUnservedCluster` excluded from "hasAnyProblem"** (too soft to touch a healthy page).
+- **P2 evidence-citation sanitizer:** rejects any change that AFFIRMATIVELY cites an empty/absent packet field (SEMrush related/questions, GA4, competitors), with a negative-guard so honest "none returned" mentions survive.
+- **P3 eligibility:** `image_alt` always off (no image crawl); `schema` only when missing; `ux_cta_fix` only on meaningful friction (dead≥20/rage≥5) — tiny samples rejected; `create_new_page` only with a real unserved cluster. **Clarity-friction RESCUE:** meaningful friction + no surviving ux_cta_fix → gate adds a Clarity-grounded one.
+- **P4 fallback consistency:** keep_current/needs_* carries no change artifacts (no rollback/before-after); a detected problem with no safe action → needs_llm_review.
+- **Live re-run (P5) of the 5 pages confirms:** `/persian-male-names` → **keep_current** (CTR 4.40% ≥ 4.00% expected); `image_alt` rejected on **all 5**; GA4-citation variants rejected (P2); `/iran-flags` now **surfaces ux_cta_fix** (67 dead/10 rage clicks) + leads with the page-1 zero-click answer block; `/farsi-numbers` clean (no image_alt, no empty-SEMrush citation). Prompt aligned to the gate; `DECISION_SCHEMA_VERSION → v3-trust-gate`. typecheck clean; 41 page-surgeon + semrush tests green (16 new trust-gate tests). The briefs now survive "where did that evidence come from?" without embarrassment.
+
+---
+
 ## 2026-06-18 PAGE SURGEON Slice B — capped SEMrush diagnostic pull + packet enrichment (live)
 
 Made the briefs say not just "what's happening on Iranopedia (GSC)" but "does the broader market/query context support the move (SEMrush)". `claude/iranopedia-blockers`; no queue regen / publish / Wix / broad pulls. Commit `f2a67e1`.
