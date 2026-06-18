@@ -1123,7 +1123,10 @@ async function loadVisibilityReadModelCoreInner(opts: {
  * minutes. The post-`syncSnaps` invalidation in `run-poll.ts` is the
  * primary freshness path; this TTL is the safety net.
  */
-const TODAY_READMODEL_CACHE_TTL_SECONDS = 300;
+// Quota/waste pass (2026-06-17): was 300s. Operator refresh/accept revalidates
+// the layout, so this TTL only governs IDLE auto-refresh of an open /today tab.
+// 30 min cuts idle re-reads 6x more with no freshness cost.
+const TODAY_READMODEL_CACHE_TTL_SECONDS = 1800;
 
 /**
  * Three-layer pattern:

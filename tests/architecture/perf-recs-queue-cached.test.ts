@@ -68,7 +68,9 @@ describe("Emergency P0 v4: /recommendations cached wrapper", () => {
 
   it("cache options include a finite revalidate TTL + the tenant-scoped tag", () => {
     expect(loadQueueStripped).toMatch(/revalidate\s*:\s*REC_QUEUE_CACHE_TTL_SECONDS/);
-    expect(loadQueueStripped).toMatch(/REC_QUEUE_CACHE_TTL_SECONDS\s*=\s*60\b/);
+    // quota/waste pass 2026-06-17: 60s → 1800s idle TTL (operator actions bust
+    // the layout cache; the TTL only governs idle auto-refresh of an open tab).
+    expect(loadQueueStripped).toMatch(/REC_QUEUE_CACHE_TTL_SECONDS\s*=\s*1800\b/);
     expect(loadQueueStripped).toMatch(/tags\s*:\s*\[\s*buildRecQueueCacheTag\(\s*tenantId\s*\)\s*\]/);
   });
 

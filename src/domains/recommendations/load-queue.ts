@@ -686,7 +686,12 @@ export function buildRecQueueCacheTag(tenantId: string): string {
   return `recs-queue:${tenantId}`;
 }
 
-const REC_QUEUE_CACHE_TTL_SECONDS = 60;
+// Quota/waste pass (2026-06-17): was 60s — an open /recommendations tab re-read
+// prod every minute, burning egress while idle. Operator actions (accept /
+// refresh / scan) call revalidatePath("/", "layout") which busts this cache
+// immediately, so the TTL only governs IDLE auto-refresh. 30 min cuts idle
+// re-reads ~30x with zero freshness cost on the button-refresh flow.
+const REC_QUEUE_CACHE_TTL_SECONDS = 1800;
 
 /** Page-render-only shape — drops the non-serializable Map field plus the
  *  heavy pipeline-INPUT fields the page render never reads (so the cached
