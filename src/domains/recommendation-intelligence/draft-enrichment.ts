@@ -464,6 +464,19 @@ function composeTitle(
           titleCaseLabel(candidate.topic_cluster_label.trim()),
         ].find((b) => b.length > 0 && !isCmsPlaceholder(b)) ?? "");
   if (!base) return null;
+  // Trust audit E2/E3/E4 (2026-06-16): a title rewrite must ADD the searched
+  // term or fix a real defect — it must NOT merely swap/append the brand suffix
+  // or DROP descriptive words the current title already has. Low CTR alone is
+  // not a reason to rewrite an on-topic title. So when the current title is a
+  // real (non-placeholder) title that ALREADY contains the proposed base, the
+  // only delta would be cosmetic (a brand suffix) or a net LOSS of descriptive
+  // text (e.g. dropping "Persian Flags History") — skip the rec entirely.
+  // (Query-bearing triggers lead with a query that's absent from the title, so
+  // their base is NOT contained here and they still fire.)
+  if (current !== "" && !isCmsPlaceholder(current)) {
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    if (norm(current).includes(norm(base))) return null;
+  }
   const proposed = brand ? `${base}${brand.separator}${brand.suffix}` : base;
   if (proposed.trim().length === 0 || proposed.trim() === current) return null;
   return {
