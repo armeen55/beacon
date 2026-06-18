@@ -24,6 +24,14 @@ Traced the full render path to confirm the loop is genuinely clickable the insta
 - Then **deleted** the smoke `gsc_daily_rows` (fixture clicks/position must not persist as real) and removed the temporary debug probes (`load-queue.ts` unmodified; typecheck clean).
 - Note: `edit_title` push-readiness is `review_only` by deliberate per-action policy (operator reviews title copy before live); structured-data actions are auto-pushable. Push-readiness is independent of the evidence gate.
 
+### accept→push EXECUTED through the real code path (Ritz dev_note, safe)
+Closed the last gap (push action never actually run). Seeded Ritz's 9 real recs, then invoked the production `approveAndPushRecommendedEdit({editId})` server action (the exact fn the Approve&Push button calls) via a temporary route in the live server runtime:
+- RESULT: `{ ok: true, outcome: "dev_note", note: "<full paste-ready ticket: page · element · exact copy · why · expected impact · measurement plan>", reason: "Ritz is advise-mode only (Invariant 2) — exported as a dev ticket" }`.
+- The push mechanic fired end-to-end and produced a complete structured artifact; the safety invariant held — **dev_note tenants get an advise ticket, NO live external write**. (Ritz's rec is a CI fixture so the content is synthetic; the real reasoning quality is the iranopedia GSC path above.)
+- Temp route deleted; typecheck clean; no residue.
+
+**Net: the whole loop is proven through real code** — render real recs (new DB) → real GSC demand lifts a rec to actionable with specific reasoning → accept→push fires and emits a real artifact with the safety rail intact. The only steps I cannot perform are the operator's: (1) Google OAuth (to populate live `gsc_*`), (2) explicit go for a LIVE Wix publish (publishing public content). Everything between those is built, seeded, and executed.
+
 ---
 
 ## 2026-06-17 TRUST AUDIT batch 2 — C / E / F / G complete (branch, NOT merged, NOT armed)
