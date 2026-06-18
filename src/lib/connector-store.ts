@@ -293,9 +293,19 @@ export async function getConnectorToken(
 
   if (error != null) {
     if (isUndefinedTableError(error)) return null;
-    throw new Error(
-      `connector-store: read failed for provider=${provider}: ${error.message ?? String(error)}`,
+    // Resilience (2026-06-17): a connector STATUS/token READ must never crash
+    // the app. getConnectorInfo runs in the shell layout on EVERY render, so a
+    // transient Supabase error (egress restriction / outage / timeout)
+    // previously threw → 500'd the WHOLE app (white screen) instead of
+    // degrading to "connect your tools". Soft-fail the read to null
+    // (disconnected) + log loudly. Writes still throw (saveConnectorToken
+    // surfaces persistence failures on the OAuth callback) — only the read
+    // degrades.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[connector-store] read failed for provider=${provider} — treating as disconnected (app stays up): ${(error.message ?? String(error)).slice(0, 200)}`,
     );
+    return null;
   }
   if (data == null) return null;
   const payload = (data as { payload: unknown }).payload;
