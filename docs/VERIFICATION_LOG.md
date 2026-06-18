@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-18 PAGE SURGEON Slice B — capped SEMrush diagnostic pull + packet enrichment (live)
+
+Made the briefs say not just "what's happening on Iranopedia (GSC)" but "does the broader market/query context support the move (SEMrush)". `claude/iranopedia-blockers`; no queue regen / publish / Wix / broad pulls. Commit `f2a67e1`.
+- **New connector endpoints (fail-soft, test-seamed):** `countapiunits` balance check (0 units), `url_organic` (per-page portfolio), `phrase_related` + `phrase_questions` (query context). `client.ts` generalized to target domain|url|phrase.
+- **Capped-pull orchestrator (7 guardrails):** read live balance → per-endpoint×row estimate → ABORT if est > 20,000 or balance can't cover → live-only → tight limits → log balance before/after → persist exact receipt. Dedupes organic by (keyword,url); `onlyEndpoints` for frugal re-pulls. Pure plan/estimate unit-tested (abort gates incl.).
+- **Latent prod-schema bug FOUND + FIXED:** `semrush_organic_keywords` PK shipped as `(tenant_id,domain,keyword)` with the url-widening **left commented out**, so the upsert (`onConflict …,url`) ALWAYS failed → the nightly SEMrush sync never persisted a single row on this DB. Corrected the migration PK for fresh installs + idempotent ALTER applied to beacon-main.
+- **Packet enrichment:** real `cpc` on the keyword signal; new `semrush_keyword_expansions` loader; `contract` related/question keywords now carry volume+intent + `competitorDomains`; `assemble-packet` maps them; coverage detail shows "N keywords · M related · K questions"; judge prompt fuses GSC (what's happening) + SEMrush (market support).
+- **VERIFIED live on iranopedia (beacon-main):** dry-run first (balance 50,000, est 6,860 < 20k cap), then executed. Two receipts: spend **5,120** then **2,670** = **7,790 units total** (balance 50,000 → **42,210**). Persisted **210 organic rows (38 urls)**, **30 related + 21 question** keywords. Competitors empty (SEMrush has none for the domain) → shown honestly, not faked.
+- **All 5 briefs now show SEMrush ✓ used**, and the judge reasons over it: `/funny-farsi-phrases` grounds "farsi curse words" (vol 590) → title/meta; `/iran-flags` surfaces "iranian flag" (vol 8,100) + question "what does iran's flag look like" (260) → FAQ. GSC×SEMrush fusion working. typecheck clean; 26 page-surgeon + semrush tests green.
+
+---
+
 ## 2026-06-18 PAGE SURGEON — multi-change battle plan + LLM judge UNBLOCKED (live on 5 real pages)
 
 Brutal-audit upgrade of the Page Surgeon diagnostic (operator's 7-item spec). On `claude/iranopedia-blockers`; no queue regen, no publish, no Wix arm, no composeTitle change.
