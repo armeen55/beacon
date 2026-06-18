@@ -44,18 +44,30 @@ function stripBrand(title: string, brand: BrandConfig): string {
 }
 
 /** The "descriptive tail": meaningful words in the current title that are NOT
- *  part of the query and NOT stopwords — the intent-bearing extras like
- *  "with meanings", "history", "2026". Returned in original order. */
-function descriptiveExtras(currentBase: string, query: string): string[] {
+ *  part of the query, NOT stopwords, and NOT the tenant's own boilerplate/chrome
+ *  — the intent-bearing extras like "with meanings", "history". Capped so a
+ *  deterministic candidate never becomes a word-salad of leftover tokens
+ *  (coherent multi-part composition is the LLM judge's job). Original order. */
+function descriptiveExtras(
+  currentBase: string,
+  query: string,
+  boilerplate: Set<string>,
+  cap = 2,
+): string[] {
   const q = tokenSet(query);
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of currentBase.split(/\s+/)) {
     const norm = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
     if (norm.length === 0) continue;
-    if (q.has(norm) || STOP.has(norm) || seen.has(norm)) continue;
+    if (q.has(norm) || STOP.has(norm) || boilerplate.has(norm) || seen.has(norm))
+      continue;
+    // Drop pure-number/short fragments ("15", "2026", "bce") — not coherent
+    // standalone title words; the LLM judge can reintroduce them with grammar.
+    if (/^[0-9]+$/.test(norm) || norm.length <= 2) continue;
     seen.add(norm);
     out.push(raw);
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -114,6 +126,9 @@ export function generateTitleCandidates(
   const currentBase = currentTitle ? stripBrand(currentTitle, brand) : "";
   const topQuery = packet.gsc?.topQueries?.[0]?.query?.trim() ?? "";
   const queryTitle = topQuery.length > 0 ? titleCase(topQuery) : "";
+  const boilerplate = new Set(
+    (packet.boilerplateTerms ?? []).map((t) => t.toLowerCase()),
+  );
 
   const out: CandidateOption[] = [];
   const pushUnique = (c: CandidateOption) => {
@@ -147,7 +162,7 @@ export function generateTitleCandidates(
     );
 
     // 6/7. Preserve vs replace the descriptive tail.
-    const extras = descriptiveExtras(currentBase, topQuery);
+    const extras = descriptiveExtras(currentBase, topQuery, boilerplate);
     if (extras.length > 0) {
       pushUnique(
         mk(
