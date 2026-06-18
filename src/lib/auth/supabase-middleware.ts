@@ -5,6 +5,7 @@ import {
   createPerfTrace,
   perfTraceEnabled,
 } from "@/lib/perf-trace";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -40,6 +41,15 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     // (and masks isolation bugs in local/dogfood testing). Strip it here too.
     const bypassHeaders = new Headers(request.headers);
     bypassHeaders.delete("x-beacon-tenant");
+    // Operator god-view: on the auth bypass there's no Supabase user, so the
+    // normal cookie-honoring path below never runs. Honor the `beacon_tenant`
+    // switch cookie here so the operator dropdown works in local/dogfood dev.
+    // Gated on operator mode — a customer build never sets this flag, and the
+    // resolver still falls back to BEACON_TENANT_ID when no cookie is present.
+    if (isOperatorModeServer()) {
+      const preferred = request.cookies.get("beacon_tenant")?.value;
+      if (preferred) bypassHeaders.set("x-beacon-tenant", preferred);
+    }
     return NextResponse.next({ request: { headers: bypassHeaders } });
   }
 

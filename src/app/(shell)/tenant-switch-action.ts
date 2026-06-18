@@ -17,6 +17,8 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
+import { getTenant } from "@/domains/tenants/store";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import {
   TENANT_COOKIE,
   TENANT_COOKIE_MAX_AGE_S,
@@ -63,18 +65,27 @@ export async function switchTenantFromForm(formData: FormData): Promise<void> {
   const target = String(formData.get("tenant_id") ?? "").trim();
   if (target === "") redirect("/");
 
-  const supabase = await getSupabaseServerClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData?.user;
-  if (!user) redirect("/login");
+  // Operator god-view: the founder/agency may switch to ANY real tenant
+  // without an auth session or membership row (operator mode is the trusted
+  // founder context, and the local auth bypass has no Supabase user). The
+  // only check is that the target is a real tenant. Customers never hit this.
+  if (isOperatorModeServer()) {
+    const t = await getTenant(target);
+    if (t == null) redirect("/"); // unknown tenant — change nothing
+  } else {
+    const supabase = await getSupabaseServerClient();
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData?.user;
+    if (!user) redirect("/login");
 
-  const { data: memberships, error } = await supabase
-    .from("tenant_members")
-    .select("tenant_id")
-    .eq("user_id", user.id);
-  if (error || !canSwitchToTenant(memberships ?? [], target)) {
-    // Not a member (or lookup failed) — change nothing.
-    redirect("/");
+    const { data: memberships, error } = await supabase
+      .from("tenant_members")
+      .select("tenant_id")
+      .eq("user_id", user.id);
+    if (error || !canSwitchToTenant(memberships ?? [], target)) {
+      // Not a member (or lookup failed) — change nothing.
+      redirect("/");
+    }
   }
 
   const cookieStore = await cookies();
