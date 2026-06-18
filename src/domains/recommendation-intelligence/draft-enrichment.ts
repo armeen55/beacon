@@ -434,79 +434,26 @@ const QUERY_TITLE_TRIGGERS: ReadonlySet<string> = new Set([
  *  unwieldy title — fall back to the page's own base above this). */
 const MAX_QUERY_TITLE_CHARS = 60;
 
-/** Normalize a string to a set of meaningful word tokens (lowercase,
- *  punctuation stripped) for token-subset comparisons. */
-function titleTokens(s: string): Set<string> {
-  return new Set(
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((t) => t.length > 0),
-  );
-}
-
-/** True when EVERY token of `query` already appears in `title` — i.e. the
- *  title already targets that search term. */
-function titleContainsAllQueryTokens(title: string, query: string): boolean {
-  const q = titleTokens(query);
-  if (q.size === 0) return false;
-  const t = titleTokens(title);
-  for (const tok of q) if (!t.has(tok)) return false;
-  return true;
-}
-
-/** The page's REAL top Google query for this candidate (Wave 0): prefer the
- *  `top_queries=` evidence threaded from gsc_daily_rows; else, for the
- *  query-bearing triggers, the cluster label IS the query. Empty when the
- *  candidate carries no demand term (non-GSC structural triggers). */
-function topQueryForCandidate(candidate: RecommendationCandidateRow): string {
-  const ev = candidate.operator_evidence ?? "";
-  const m = /top_queries=([^;]+)/.exec(ev);
-  if (m) {
-    const first = m[1]!.split("|")[0]?.trim() ?? "";
-    if (first.length > 0 && !isCmsPlaceholder(first)) return first;
-  }
-  if (QUERY_TITLE_TRIGGERS.has(candidate.trigger_signal)) {
-    const q = candidate.topic_cluster_label.trim();
-    if (q.length > 0 && !isCmsPlaceholder(q)) return q;
-  }
-  return "";
-}
-
 function composeTitle(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot | undefined,
+  brand: { separator: string; suffix: string } | null,
 ): DraftFill | null {
   const current = snap?.title?.trim() ?? "";
-  const topQuery = topQueryForCandidate(candidate);
-
-  // Wave 0 guard (2026-06-18): if the page's REAL top Google query is already
-  // present in the current (non-placeholder) title, the title is doing its job
-  // — do NOT rewrite it. This is the fix for the "Persian Boy Names → Persian
-  // Male Names" disaster: the slug said "male", but the title already contained
-  // the searched term "persian boy names", so the only effect of a rewrite was
-  // to DROP "boy" / "with meanings". The title is not the lever here.
-  if (
-    topQuery !== "" &&
-    current !== "" &&
-    !isCmsPlaceholder(current) &&
-    titleContainsAllQueryTokens(current, topQuery)
-  ) {
-    return null;
-  }
-
-  // Base: lead with the REAL top Google query when we have one of sensible
-  // length (and it's not already in the title — guarded above). This applies
-  // to ALL edit_title triggers now, not only the 3 query-bearing ones, so a
-  // page is never re-titled off its URL slug when its actual demand term is
-  // known. Fall back to the page's own h1/slug only when no query is known.
+  // Query-lead base for the query-bearing triggers (when the query is a
+  // sensible title length); else null so the page-base logic below runs.
+  const queryLabel = candidate.topic_cluster_label.trim();
   const queryBase =
-    topQuery !== "" &&
-    topQuery.length <= MAX_QUERY_TITLE_CHARS &&
-    !isCmsPlaceholder(topQuery)
-      ? titleCaseLabel(topQuery)
+    QUERY_TITLE_TRIGGERS.has(candidate.trigger_signal) &&
+    queryLabel.length > 0 &&
+    queryLabel.length <= MAX_QUERY_TITLE_CHARS &&
+    !isCmsPlaceholder(queryLabel)
+      ? titleCaseLabel(queryLabel)
       : "";
+  // Base candidates in preference order, skipping CMS template residue
+  // ("Page Title" et al.). The URL slug beats the cluster label: for
+  // trigger candidates the cluster label is the TRIGGER's name ("Page
+  // title"), not the page's topic — the slug is the page naming itself.
   const base =
     queryBase !== ""
       ? queryBase
@@ -517,17 +464,20 @@ function composeTitle(
           titleCaseLabel(candidate.topic_cluster_label.trim()),
         ].find((b) => b.length > 0 && !isCmsPlaceholder(b)) ?? "");
   if (!base) return null;
-  // Don't replace a real title with a barer subset of itself (net LOSS of
-  // descriptive text, e.g. dropping "Persian Flags History"): when the current
-  // non-placeholder title already contains the proposed base, skip.
+  // Trust audit E2/E3/E4 (2026-06-16): a title rewrite must ADD the searched
+  // term or fix a real defect — it must NOT merely swap/append the brand suffix
+  // or DROP descriptive words the current title already has. Low CTR alone is
+  // not a reason to rewrite an on-topic title. So when the current title is a
+  // real (non-placeholder) title that ALREADY contains the proposed base, the
+  // only delta would be cosmetic (a brand suffix) or a net LOSS of descriptive
+  // text (e.g. dropping "Persian Flags History") — skip the rec entirely.
+  // (Query-bearing triggers lead with a query that's absent from the title, so
+  // their base is NOT contained here and they still fire.)
   if (current !== "" && !isCmsPlaceholder(current)) {
     const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
     if (norm(current).includes(norm(base))) return null;
   }
-  // Wave 0 (operator rule): NO automatic "| Iranopedia" suffix. The title is
-  // the descriptive base only — brand stamping lives in schema Organization,
-  // never forced into every page title.
-  const proposed = base;
+  const proposed = brand ? `${base}${brand.separator}${brand.suffix}` : base;
   if (proposed.trim().length === 0 || proposed.trim() === current) return null;
   return {
     display_label:
@@ -1447,10 +1397,8 @@ export function enrichPromotionRow(
   let fill: DraftFill | null = null;
   switch (candidate.action_type) {
     case "edit_title": {
-      // Wave 0 (2026-06-18): titles no longer auto-append the brand suffix,
-      // so composeTitle no longer needs `brand` (brand still stamps schema
-      // Organization via resolveBrand in the schema composers).
-      fill = composeTitle(candidate, snap);
+      const brand = resolveBrand(ctx);
+      fill = composeTitle(candidate, snap, brand);
       break;
     }
     case "edit_meta":
