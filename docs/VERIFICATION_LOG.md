@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-17 TRUST AUDIT batch 2 — C / E / F / G complete (branch, NOT merged, NOT armed)
+
+Finished the operator's prod-trust audit (A/B/D were batch 1). All on `claude/iranopedia-blockers`; publishing/arming still PAUSED.
+- **C — strategist/Adversarial-QA never silent (`d540c2b`).** `requestExpertStrategistAction` returns a VISIBLE deterministic fallback (`buildDeterministicStrategistResult`) when the LLM is unavailable (no key / budget / sanitize-reject / timeout) — panel reads "Expert (AI) reasoning is unavailable — showing Beacon's deterministic read" + the confidence verdict + evidence receipt ("What backs this") + gaps ("What's missing"). No silent null, no secrets, no AI-citation claims. 7 panel tests.
+- **E — SEO recommendation quality (`37c10c7` + `e4c0bbf`).** E1: `applyBrandCasing` normalizes the brand to the tenant's configured casing on every row title (threaded via `brandName` through all 5 build sites) — lowercased "iranopedia" is now impossible. E5: CTR upside is a caveated estimate ("could recover an estimated N clicks over ~90 days — a rough estimate, not a guarantee; Google may rewrite how your title appears"). E2/E3/E4: `composeTitle` now SKIPS a rewrite whose only delta is the brand suffix or that would drop descriptive words the current title already has (when the current non-placeholder title contains the proposed base) — fewer, better, atomic title recs; low CTR alone can't rewrite an on-topic title. Query-bearing triggers still fire. brand-casing (7) + E2/E3/E4 (3) tests.
+- **F — Wix mapper de-noise (`a9c421b`).** `isSystemWixCollection` + `partitionWixCollectionsBySystem` (keyed on Wix id namespaces Forms/ Members/ Marketing/ + transactional Stores subtypes — not names) → the /diagnostics/wix mapper shows likely CONTENT collections first (incl. Stores/Products) and tucks system/private/transactional ones behind an "Advanced" `<details>` toggle. No auto-mapping. 9 tests.
+- **G — SEMrush evidence-model readiness (`<this commit>`).** `SemrushPageSignal` already carries volume/KD/intent/URL-organic-keywords; added OPTIONAL `relatedKeywords` / `questionKeywords` / `competitorGaps` (+ `SemrushCompetitorGap`) so the model can ACCEPT the richer market data as the connector wires each endpoint — DIRECTIONAL only, default-absent, never confidence-overriding (GSC + the deterministic gate stay the authority). 3 readiness tests.
+- **Gate:** typecheck clean throughout; recs + recommendation-intelligence + app **107 files / 1,706 pass** at E; full-suite gate below. **NOT merged / NOT arming** — pending operator review + the first safe mapped Wix test push. **Next:** the cross-source "Page Opportunity Brief" for 3–5 Iranopedia pages.
+
+---
+
 ## 2026-06-16 TRUST AUDIT (operator prod review) — batch 1: A evidence-integrity + B list/detail parity + D AI-claim honesty (branch, NOT merged)
 
 Operator did a brutal prod audit as an SEO/AEO operator: the list over-corrected to "everything Needs more evidence / Review only" while detail still read "Suggested / High confidence / Accept" — and cards said "No core evidence family is present" on recs that clearly showed GSC impressions. Trust-breaking. Publishing/arming PAUSED per operator; fixing the integrity layer first. Fix order A→G.

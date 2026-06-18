@@ -22,12 +22,42 @@ export type SemrushKeywordSignal = {
   intent: string | null;
 };
 
+/**
+ * Trust audit G readiness (2026-06-16) — a keyword a competitor ranks for on
+ * this topic that this page/domain ranks worse for (or not at all). DIRECTIONAL
+ * market evidence (a gap to consider), never a confidence input on its own.
+ */
+export type SemrushCompetitorGap = {
+  keyword: string;
+  volume: number;
+  difficulty: number | null;
+  /** The competitor domain that ranks for this keyword. */
+  competitorDomain: string;
+  /** The competitor's position for the keyword. */
+  competitorPosition: number;
+  /** This page/domain's position, or null when it doesn't rank — the gap. */
+  ourPosition: number | null;
+};
+
 export type SemrushPageSignal = {
   page: string;
   /** All ranked keywords for the page, best position first. */
   keywords: SemrushKeywordSignal[];
   /** Keywords in the striking-distance band (4–20), volume desc. */
   strikingDistance: SemrushKeywordSignal[];
+  // ── Trust audit G readiness (2026-06-16) ─────────────────────────────────
+  // SEMrush is DIRECTIONAL market evidence — it can ENRICH the keyword
+  // portfolio + opportunity scoring, but it must NEVER override GSC first-party
+  // truth or the deterministic QA gate (which band confidence on intent-fit +
+  // first-party demand). These optional fields let the evidence model ACCEPT
+  // the richer SEMrush data as the connector wires each endpoint; all default-
+  // absent, so nothing changes at runtime until a field is populated.
+  /** Related / phrase-match keyword expansions for the page's topic. */
+  relatedKeywords?: SemrushKeywordSignal[];
+  /** Question-phrase keywords (who/what/how/why…) — answer-block fodder. */
+  questionKeywords?: SemrushKeywordSignal[];
+  /** Competitor keyword gaps — terms rivals win that this page/domain doesn't. */
+  competitorGaps?: SemrushCompetitorGap[];
 };
 
 /** Striking-distance band — union of credible practitioner bands
