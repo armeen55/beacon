@@ -1,137 +1,117 @@
 import { describe, it, expect } from "vitest";
 
 import { judgePageAtomicChange } from "./llm-judge";
-import { applyDeterministicGate, deterministicPageDecision } from "./page-decision";
+import { deterministicPageDecision } from "./page-decision";
 import type { EvidencePacket, GscEvidence } from "./contract";
 
 function gsc(query: string, over: Partial<GscEvidence> = {}): GscEvidence {
   const impressions = over.impressions ?? 5000;
   return {
-    windowStart: "2026-05-01",
-    windowEnd: "2026-06-15",
-    impressions,
-    clicks: over.clicks ?? 10,
-    ctr: over.ctr ?? 0.002,
-    avgPosition: over.avgPosition ?? 3,
+    windowStart: "2026-05-01", windowEnd: "2026-06-15",
+    impressions, clicks: over.clicks ?? 10, ctr: over.ctr ?? 0.002, avgPosition: over.avgPosition ?? 3,
     topQueries: [{ query, impressions, clicks: over.clicks ?? 10, ctr: over.ctr ?? 0.002, position: over.avgPosition ?? 3 }],
-    expectedCtrForPosition: 0.1,
-    ctrGap: over.ctrGap ?? 0.098,
+    expectedCtrForPosition: 0.1, ctrGap: over.ctrGap ?? 0.098,
   };
 }
-function packet(over: Partial<EvidencePacket["current"]> & { gsc?: GscEvidence; clarity?: EvidencePacket["clarity"]; profound?: EvidencePacket["profound"] } = {}): EvidencePacket {
+function packet(over: { currentText?: string | null; gsc?: GscEvidence; clarity?: EvidencePacket["clarity"]; profound?: EvidencePacket["profound"]; cmsFieldMapped?: boolean } = {}): EvidencePacket {
+  const present: string[] = [];
+  const empty: string[] = [];
+  (over.gsc ? present : empty).push("gsc");
+  (over.clarity ? present : empty).push("clarity");
+  (over.profound ? present : empty).push("profound");
+  empty.push("ga4", "semrush");
   return {
-    current: {
-      tenantId: "t",
-      pageUrl: "https://x.com/p",
-      changeType: "title",
-      elementKey: null,
-      sectionLabel: null,
-      currentText: over.currentText ?? "Current Title",
-      cmsFieldMapped: over.cmsFieldMapped ?? true,
-      publishChannel: "wix_cms",
-    },
-    gsc: over.gsc,
-    clarity: over.clarity,
-    profound: over.profound,
-    sourcesPresent: over.gsc ? ["gsc"] : [],
-    sourcesConnectedButEmpty: [],
+    current: { tenantId: "t", pageUrl: "https://x.com/p", changeType: "title", elementKey: null, sectionLabel: null, currentText: over.currentText ?? "Current Title", cmsFieldMapped: over.cmsFieldMapped ?? true, publishChannel: "wix_cms" },
+    gsc: over.gsc, clarity: over.clarity, profound: over.profound,
+    sourcesPresent: present, sourcesConnectedButEmpty: empty,
   };
 }
-
-/** A fake OpenAI fetch returning a strict-JSON decision in the chat shape. */
+function change(action: string, over: Record<string, unknown> = {}) {
+  return {
+    action, exact_change: over.exact_change ?? `do ${action}`, evidence: "x", hypothesis: "h",
+    risk: "", before_after: { before: null, after: "y" }, measurement: "m", rollback: "r",
+    dependency_order: over.dependency_order ?? 1, ...over,
+  };
+}
 function fakeOpenAI(decision: Record<string, unknown>): typeof fetch {
   return (async () =>
-    new Response(
-      JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    )) as unknown as typeof fetch;
+    new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] }), { status: 200 })) as unknown as typeof fetch;
 }
 
-describe("Page Surgeon — LLM judge (10x operator, gated)", () => {
-  it("parses an LLM decision and KEEPS a non-title atomic action when evidence backs it", async () => {
+describe("Page Surgeon — LLM judge (multi-change battle plan, gated)", () => {
+  it("parses a multi-change plan (primary + supporting) and keeps it when evidence backs it", async () => {
     const dec = await judgePageAtomicChange({
       packet: packet({ gsc: gsc("zero trust security"), profound: { aiVisibility: 12, citations: 3 } }),
       brand: null,
       fetchImpl: fakeOpenAI({
         recommended_atomic_action: "intro_answer_block",
-        title_candidate: null,
-        rejected_alternatives: [{ action: "title", reason: "title already matches the query" }],
-        evidence_by_source: { gsc: "ranks #3, low CTR", profound: "cited 3x" },
-        hypothesis: "A 40-60 word answer block will win the AI overview slot.",
-        risk: "none material",
-        before_after_diff: { before: null, after: "Add a concise answer block." },
-        measurement_plan: "Track Profound citations + GSC CTR.",
-        rollback_plan: "Remove the block.",
+        primary_atomic_change: change("intro_answer_block", { dependency_order: 1 }),
+        supporting_atomic_changes: [change("faq", { dependency_order: 2 })],
+        rejected_changes: [{ action: "title", reason: "already matches query" }],
+        wording_research: [{ variant: "zero trust", evidence: "top query", best_placement: "title" }],
         confidence: "high",
-        operator_insight: "High impressions + AI-overview SERP but no answer block on page.",
+        operator_insight: "AI-overview SERP, no answer block.",
+        what_normal_seo_misses: "they'd just retitle",
+        why_not_just_title: "title already matches",
       }),
     });
     expect(dec.recommended_atomic_action).toBe("intro_answer_block");
+    expect(dec.primary_atomic_change?.action).toBe("intro_answer_block");
+    expect(dec.supporting_atomic_changes.map((c) => c.action)).toContain("faq");
     expect(dec.decided_by).toBe("llm_judge");
-    // Profound present → AEO claim allowed → confidence not force-capped to low.
-    expect(dec.confidence).toBe("high");
+    expect(dec.confidence).toBe("high"); // profound present → AEO claim allowed
+    expect(dec.source_coverage.find((s) => s.source === "semrush")?.detail).toContain("no rows");
   });
 
-  it("GATE caps an AEO action's confidence when Profound is absent (no AI-citation claim without AI evidence)", async () => {
+  it("GATE caps AEO confidence + drops a supporting change whose source is absent", async () => {
     const dec = await judgePageAtomicChange({
-      packet: packet({ gsc: gsc("zero trust security") }), // no profound
+      packet: packet({ gsc: gsc("zero trust security") }), // no profound, no clarity
       brand: null,
       fetchImpl: fakeOpenAI({
         recommended_atomic_action: "faq",
-        title_candidate: null,
-        rejected_alternatives: [],
-        evidence_by_source: { gsc: "ranks #3" },
-        hypothesis: "FAQ block wins PAA.",
-        risk: "",
-        before_after_diff: { before: null, after: "Add FAQ." },
-        measurement_plan: "AI citations.",
-        rollback_plan: "Remove FAQ.",
+        primary_atomic_change: change("faq", { dependency_order: 1 }),
+        supporting_atomic_changes: [change("ux_cta_fix", { dependency_order: 2 })],
+        rejected_changes: [],
+        wording_research: [],
         confidence: "high",
-        operator_insight: "PAA present.",
+        operator_insight: "x", what_normal_seo_misses: "x", why_not_just_title: "x",
       }),
     });
-    expect(dec.recommended_atomic_action).toBe("faq");
-    expect(["low", "needs_more_evidence"]).toContain(dec.confidence);
-    expect(dec.risk.toLowerCase()).toContain("profound");
+    expect(["low", "needs_more_evidence"]).toContain(dec.confidence); // AEO w/o profound
+    expect(dec.supporting_atomic_changes.find((c) => c.action === "ux_cta_fix")).toBeUndefined();
+    expect(dec.rejected_changes.some((r) => r.action === "ux_cta_fix")).toBe(true); // dropped → rejected
   });
 
-  it("GATE downgrades an action whose required source is absent (ux_cta_fix needs Clarity)", () => {
-    const dec = applyDeterministicGate(
-      {
-        pageUrl: "https://x.com/p",
-        recommended_atomic_action: "ux_cta_fix",
-        title_candidate: null,
-        rejected_alternatives: [],
-        evidence_by_source: { gsc: "x" }, // no clarity
-        hypothesis: "fix CTA",
-        risk: "",
-        before_after_diff: { before: null, after: null },
-        measurement_plan: "",
-        rollback_plan: "",
-        confidence: "high",
-        operator_insight: "",
-        publishability: "review_only",
-        decided_by: "llm_judge",
-      },
-      packet({ gsc: gsc("q") }),
-    );
-    expect(dec.recommended_atomic_action).toBe("needs_more_evidence");
-  });
-
-  it("falls back to the deterministic decision when no fetchImpl is supplied in tests", async () => {
-    const dec = await judgePageAtomicChange({
-      packet: packet({ currentText: "Persian Boy Names With Meanings", gsc: gsc("persian boy names", { ctr: 0.06, ctrGap: 0 }) }),
-      brand: null,
-    });
+  it("falls back to deterministic when no fetchImpl is supplied in tests", async () => {
+    const dec = await judgePageAtomicChange({ packet: packet({ gsc: gsc("q") }), brand: null });
     expect(dec.decided_by).toBe("deterministic_fallback");
   });
 
-  it("GATE never returns publishable; a confident mapped title change is at most staged", () => {
+  it("FALLBACK is non-contradictory: a bottleneck the title can't fix → needs_llm_review (no rollback/CTR claim)", () => {
     const dec = deterministicPageDecision(
-      packet({ currentText: "Old Off Topic", gsc: gsc("persian boy names", { impressions: 8000, ctrGap: 0.09 }), cmsFieldMapped: true }),
+      packet({ currentText: "Persian Boy Names With Meanings", gsc: gsc("persian boy names", { impressions: 8000, ctr: 0.003, ctrGap: 0.06 }) }),
       null,
     );
-    expect(dec.publishability === "staged" || dec.publishability === "review_only").toBe(true);
-    expect(dec.publishability).not.toBe("publishable");
+    expect(dec.recommended_atomic_action).toBe("needs_llm_review");
+    expect(dec.primary_atomic_change).toBeNull();
+    expect(dec.operator_insight.toLowerCase()).toContain("bottleneck");
+  });
+
+  it("FALLBACK clean keep: no bottleneck → keep_current with no change, no rollback claim", () => {
+    const dec = deterministicPageDecision(
+      packet({ currentText: "Persian Boy Names With Meanings", gsc: gsc("persian boy names", { impressions: 300, ctr: 0.06, ctrGap: 0 }) }),
+      null,
+    );
+    expect(dec.recommended_atomic_action).toBe("keep_current");
+    expect(dec.primary_atomic_change).toBeNull();
+  });
+
+  it("GATE never returns publishable; a mapped title change is at most staged", () => {
+    const dec = deterministicPageDecision(
+      packet({ currentText: "Off Topic Heading", gsc: gsc("persian boy names", { impressions: 8000, ctrGap: 0.09 }), cmsFieldMapped: true }),
+      null,
+    );
+    const p = dec.primary_atomic_change;
+    if (p) expect(p.publishability).not.toBe("publishable");
   });
 });

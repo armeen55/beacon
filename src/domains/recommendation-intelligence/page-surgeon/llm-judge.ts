@@ -1,16 +1,11 @@
 /**
- * Page Surgeon — LLM JUDGE (W1a). A 10x SEO/AEO operator over the evidence
- * packet. It does NOT just write titles: it decides the single highest-leverage
- * ATOMIC action for the page (title / meta / intro answer / section move / new
- * section / internal link / schema / UX / cannibalization / create-new-page /
- * keep_current), surfaces the non-obvious pattern, and uses ONLY the numbers in
- * the packet (never invents a metric).
- *
- * Safety (mirrors the openai provider): VITEST + build-phase guards, API-key
- * check, strict JSON schema, bounded tokens. ANY failure → the deterministic
- * page decision (visible `decided_by="deterministic_fallback"`). The
- * deterministic GATE runs on the LLM output too — it alone sets confidence caps
- * + publishability; the LLM can propose but never publish.
+ * Page Surgeon — LLM JUDGE (W1a upgrade: multi-change battle plan). A 10x
+ * SEO/AEO operator over the evidence packet. It returns a PRIMARY atomic change
+ * + SUPPORTING changes (with dependency order) + REJECTED changes, researches
+ * out-of-the-box WORDING alternatives grounded in GSC/SEMrush, and names what a
+ * normal SEO would miss + why it isn't just a title tweak. Uses ONLY packet
+ * numbers. Any failure → deterministic page decision (visible fallback). The
+ * deterministic GATE alone sets confidence caps + publishability.
  */
 
 import "server-only";
@@ -20,153 +15,170 @@ import type { EvidencePacket } from "./contract";
 import type { BrandConfig } from "./title-candidates";
 import {
   applyDeterministicGate,
+  buildSourceCoverage,
   deterministicPageDecision,
-  type AtomicAction,
+  type AtomicChange,
   type PageAtomicDecision,
+  type WordingResearch,
 } from "./page-decision";
 
 const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-5-mini";
 
-const ATOMIC_ACTIONS: AtomicAction[] = [
+const CHANGE_ACTIONS = [
   "title", "h1", "meta", "intro_answer_block", "faq",
   "section_add", "section_remove", "section_reorder",
   "internal_link", "schema", "image_alt", "ux_cta_fix",
-  "citation_source", "create_new_page", "keep_current", "needs_more_evidence",
-];
+  "citation_source", "create_new_page",
+] as const;
+const HEADLINE_ACTIONS = [...CHANGE_ACTIONS, "keep_current", "needs_more_evidence", "needs_llm_review"] as const;
 
 const SYSTEM_PROMPT = `
-You are an elite SEO/AEO operator auditing ONE web page for ONE business. You are
-given a structured evidence packet (Google Search Console, GA4, Microsoft
-Clarity, SEMrush, Profound, and a crawl of the page). Decide the SINGLE
-highest-leverage ATOMIC change for this page — the move a great operator would
-make first — or that the page should be left alone.
+You are an elite SEO/AEO operator auditing ONE web page for ONE business, given a
+structured evidence packet (Google Search Console, GA4, Microsoft Clarity,
+SEMrush, Profound, and a crawl). Produce a BATTLE PLAN, not a single tweak.
 
-CRITICAL RULES:
-- Use ONLY numbers present in the evidence packet. NEVER invent a metric, a
-  ranking, a volume, or a CTR. If a source is absent, do not assume its value.
-- Title is only ONE option. Consider whether the real bottleneck is the meta
-  description, an intro answer block, a missing/!-reordered section, an internal
-  link, schema, a UX/CTA problem (Clarity), cannibalization, or a NEW page.
-- A normal SEO associate would just "rewrite the title". Find what they'd MISS:
-  the non-obvious pattern across sources (operator_insight).
-- If the evidence is thin or two moves are close, return "keep_current" or
-  "needs_more_evidence" — do not force a change.
+THINK LIKE A 10x OPERATOR:
+- A page often needs SEVERAL atomic changes. Choose exactly ONE primary (highest
+  leverage) and list supporting changes with a dependency order (1 = do first).
+- Consider every lever: title, h1, meta, intro_answer_block, faq, section_add/
+  remove/reorder, internal_link, schema, image_alt, ux_cta_fix, citation_source,
+  create_new_page. Title is just one.
+- RESEARCH WORDING: brainstorm alternative phrasings for the page's concept
+  (synonyms / how real people search — e.g. "swear words" vs "cuss words" vs
+  "profanity" vs "bad words" vs "insults" vs "slang"). Ground each in the GSC
+  queries (and SEMrush if present). Decide which wording belongs in the title vs
+  meta vs h1 vs an FAQ vs a section. Put this in wording_research.
+- Name what a NORMAL SEO would MISS (what_normal_seo_misses) and why this is not
+  just a title tweak (why_not_just_title).
+
+HARD RULES:
+- Use ONLY numbers present in the packet. NEVER invent a metric, ranking, volume,
+  CTR, or SERP feature. If a source is absent, do not assume its values; note the
+  gap instead.
 - You may claim AI-citation / AEO impact ONLY if Profound evidence is present.
-- recommended_atomic_action MUST be one of the allowed values.
-- title_candidate is non-null ONLY when recommended_atomic_action is "title".
-- Output a SINGLE JSON object, no prose around it, with EXACTLY these keys:
-  recommended_atomic_action (string, one of the allowed values),
-  title_candidate (string or null),
-  rejected_alternatives (array of {action, reason}),
-  evidence_by_source (object with any of: gsc, ga4, clarity, semrush, profound, crawl → short strings),
-  hypothesis (string), risk (string),
-  before_after_diff ({before: string|null, after: string|null}),
-  measurement_plan (string), rollback_plan (string),
-  confidence (one of: high, medium, low, needs_more_evidence),
-  operator_insight (string).
+- If evidence is thin or moves are close, set confidence "needs_more_evidence"
+  and keep the plan minimal.
+- Each change.action MUST be one of: ${CHANGE_ACTIONS.join(", ")}.
+- recommended_atomic_action MUST be one of: ${HEADLINE_ACTIONS.join(", ")} and must
+  equal the primary change's action when a primary exists.
+
+Output ONE JSON object, no prose around it, with EXACTLY these keys:
+  recommended_atomic_action (string),
+  primary_atomic_change (object or null) with keys: action, exact_change,
+    evidence, hypothesis, risk, before_after {before, after},
+    measurement, rollback, dependency_order (number),
+  supporting_atomic_changes (array of the same object shape),
+  rejected_changes (array of {action, reason}),
+  wording_research (array of {variant, evidence, best_placement}),
+  confidence (high|medium|low|needs_more_evidence),
+  operator_insight (string),
+  what_normal_seo_misses (string),
+  why_not_just_title (string).
 `;
 
 export type JudgePageArgs = {
   packet: EvidencePacket;
   brand: BrandConfig;
-  /** REQUIRED in vitest; defaults to global fetch otherwise. */
   fetchImpl?: typeof fetch;
   model?: string;
   timeoutMs?: number;
 };
 
-/** Sanitize the raw LLM object into a PageAtomicDecision (gate applied after). */
-function sanitize(
-  raw: unknown,
-  packet: EvidencePacket,
-): PageAtomicDecision | null {
+const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
+const asStrOrNull = (v: unknown): string | null =>
+  typeof v === "string" && v.length > 0 ? v : null;
+
+function parseChange(raw: unknown, fallbackOrder: number): AtomicChange | null {
+  if (raw == null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const action = o.action;
+  if (typeof action !== "string" || !CHANGE_ACTIONS.includes(action as (typeof CHANGE_ACTIONS)[number]))
+    return null;
+  const ba = (o.before_after ?? {}) as Record<string, unknown>;
+  return {
+    action: action as AtomicChange["action"],
+    exact_change: asStr(o.exact_change),
+    evidence: asStr(o.evidence),
+    hypothesis: asStr(o.hypothesis),
+    risk: asStr(o.risk),
+    before_after: { before: asStrOrNull(ba.before), after: asStrOrNull(ba.after) },
+    measurement: asStr(o.measurement),
+    rollback: asStr(o.rollback),
+    publishability: "review_only", // gate overrides
+    dependency_order:
+      typeof o.dependency_order === "number" ? o.dependency_order : fallbackOrder,
+  };
+}
+
+function sanitize(raw: unknown, packet: EvidencePacket): PageAtomicDecision | null {
   if (raw == null || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const action = o.recommended_atomic_action;
-  if (typeof action !== "string" || !ATOMIC_ACTIONS.includes(action as AtomicAction))
+  if (typeof action !== "string" || !HEADLINE_ACTIONS.includes(action as (typeof HEADLINE_ACTIONS)[number]))
     return null;
   const conf = o.confidence;
-  if (
-    typeof conf !== "string" ||
-    !["high", "medium", "low", "needs_more_evidence"].includes(conf)
-  )
+  if (typeof conf !== "string" || !["high", "medium", "low", "needs_more_evidence"].includes(conf))
     return null;
-  const diff = (o.before_after_diff ?? {}) as Record<string, unknown>;
-  const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
-  const asStrOrNull = (v: unknown): string | null =>
-    typeof v === "string" && v.length > 0 ? v : null;
+
+  const primary = parseChange(o.primary_atomic_change, 1);
+  const supporting = Array.isArray(o.supporting_atomic_changes)
+    ? o.supporting_atomic_changes
+        .map((c, i) => parseChange(c, i + 2))
+        .filter((c): c is AtomicChange => c != null)
+    : [];
+  const rejected = Array.isArray(o.rejected_changes)
+    ? o.rejected_changes
+        .filter((r): r is { action: string; reason: string } => r != null && typeof (r as { action?: unknown }).action === "string")
+        .map((r) => ({ action: asStr(r.action), reason: asStr(r.reason) }))
+    : [];
+  const wording: WordingResearch[] = Array.isArray(o.wording_research)
+    ? o.wording_research
+        .filter((w): w is Record<string, unknown> => w != null && typeof w === "object")
+        .map((w) => ({ variant: asStr(w.variant), evidence: asStr(w.evidence), best_placement: asStr(w.best_placement) }))
+        .filter((w) => w.variant.length > 0)
+    : [];
+
+  const coverage = buildSourceCoverage(packet);
   return {
     pageUrl: packet.current.pageUrl,
-    recommended_atomic_action: action as AtomicAction,
-    // title only valid for the title action; ignore stray titles otherwise.
-    title_candidate: action === "title" ? asStrOrNull(o.title_candidate) : null,
-    rejected_alternatives: Array.isArray(o.rejected_alternatives)
-      ? o.rejected_alternatives
-          .filter((r): r is { action: string; reason: string } =>
-            r != null && typeof (r as { action?: unknown }).action === "string")
-          .map((r) => ({ action: asStr(r.action), reason: asStr(r.reason) }))
-      : [],
-    evidence_by_source:
-      o.evidence_by_source && typeof o.evidence_by_source === "object"
-        ? (o.evidence_by_source as PageAtomicDecision["evidence_by_source"])
-        : {},
-    hypothesis: asStr(o.hypothesis),
-    risk: asStr(o.risk),
-    before_after_diff: { before: asStrOrNull(diff.before), after: asStrOrNull(diff.after) },
-    measurement_plan: asStr(o.measurement_plan),
-    rollback_plan: asStr(o.rollback_plan),
+    recommended_atomic_action: action as PageAtomicDecision["recommended_atomic_action"],
+    primary_atomic_change: primary,
+    supporting_atomic_changes: supporting,
+    rejected_changes: rejected,
+    source_coverage: coverage,
+    wording_research: wording,
     confidence: conf as PageAtomicDecision["confidence"],
     operator_insight: asStr(o.operator_insight),
-    publishability: "review_only", // gate overrides
+    what_normal_seo_misses: asStr(o.what_normal_seo_misses),
+    why_not_just_title: asStr(o.why_not_just_title),
+    evidence_gaps: coverage.filter((c) => !c.used).map((c) => `${c.source}: ${c.detail}`),
     decided_by: "llm_judge",
   };
 }
 
-/**
- * Run the LLM judge over a page's evidence packet. Returns a gated
- * PageAtomicDecision. On ANY problem (no key, vitest w/o fetchImpl, build phase,
- * non-2xx, parse/sanitize fail, timeout) it returns the deterministic page
- * decision — visibly flagged — so the caller always gets a safe answer.
- */
-export async function judgePageAtomicChange(
-  args: JudgePageArgs,
-): Promise<PageAtomicDecision> {
+export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAtomicDecision> {
   const { packet, brand } = args;
   const fallback = () => deterministicPageDecision(packet, brand);
 
-  // Safety gates (mirror the openai provider).
   if (process.env.VITEST === "true" && !args.fetchImpl) return fallback();
-  if (
-    process.env.NEXT_PHASE === "phase-production-build" &&
-    process.env.BEACON_LLM_BUILD_OK !== "1"
-  )
+  if (process.env.NEXT_PHASE === "phase-production-build" && process.env.BEACON_LLM_BUILD_OK !== "1")
     return fallback();
-  // A real run needs the key; an injected fetchImpl (tests) mocks the network
-  // and does not. Only bail for a missing key when calling the real network.
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey && !args.fetchImpl) return fallback();
 
   const model = args.model ?? DEFAULT_MODEL;
   const fetchImpl = args.fetchImpl ?? fetch;
-  const timeoutMs = args.timeoutMs ?? 30_000;
+  const timeoutMs = args.timeoutMs ?? 40_000;
 
   const body = JSON.stringify({
     model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT.trim() },
-      {
-        role: "user",
-        content:
-          `Allowed atomic actions: ${ATOMIC_ACTIONS.join(", ")}\n\n` +
-          `Evidence packet (use ONLY these numbers):\n${JSON.stringify(packet, null, 2)}`,
-      },
+      { role: "user", content: `Evidence packet (use ONLY these numbers):\n${JSON.stringify(packet, null, 2)}` },
     ],
-    // Lenient JSON mode — our sanitize() is the validator. (Strict json_schema
-    // with optional evidence_by_source keys 400s on the API.)
     response_format: { type: "json_object" },
-    // gpt-5 family burns reasoning tokens before output — give headroom.
-    max_completion_tokens: 6_000,
+    max_completion_tokens: 8_000,
   });
 
   const controller = new AbortController();
@@ -179,15 +191,10 @@ export async function judgePageAtomicChange(
       signal: controller.signal,
     });
     if (!res.ok) {
-      log.warn("[page-surgeon-judge] non-2xx; deterministic fallback", {
-        status: res.status,
-        page: packet.current.pageUrl,
-      });
+      log.warn("[page-surgeon-judge] non-2xx; deterministic fallback", { status: res.status, page: packet.current.pageUrl });
       return fallback();
     }
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const content = json.choices?.[0]?.message?.content;
     if (!content) return fallback();
     let parsed: unknown;
@@ -198,12 +205,9 @@ export async function judgePageAtomicChange(
     }
     const decision = sanitize(parsed, packet);
     if (decision == null) {
-      log.warn("[page-surgeon-judge] sanitize rejected; deterministic fallback", {
-        page: packet.current.pageUrl,
-      });
+      log.warn("[page-surgeon-judge] sanitize rejected; deterministic fallback", { page: packet.current.pageUrl });
       return fallback();
     }
-    // The deterministic gate is the sole authority on confidence/publishability.
     return applyDeterministicGate(decision, packet);
   } catch (e) {
     log.warn("[page-surgeon-judge] threw; deterministic fallback", {

@@ -19,77 +19,92 @@ function Pill({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
   );
 }
 
+type Change = NonNullable<PageAtomicDecision["primary_atomic_change"]>;
+
+function ChangeBlock({ c, label }: { c: Change; label: string }) {
+  return (
+    <div className="rounded border border-border/40 bg-surface-inset/30 p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill tone="good">{label}: {c.action}</Pill>
+        <Pill tone={c.publishability === "staged" ? "good" : "muted"}>{c.publishability}</Pill>
+        <span className="text-[10px] text-muted-foreground">step {c.dependency_order}</span>
+      </div>
+      <p className="mt-1.5"><span className="font-semibold text-foreground">Do:</span> {c.exact_change}</p>
+      {(c.before_after.before || c.before_after.after) && (
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground/80">{c.before_after.before ?? "—"}</span> → <span className="font-medium text-foreground/80">{c.before_after.after ?? "—"}</span>
+        </p>
+      )}
+      <p className="text-muted-foreground"><span className="font-medium text-foreground/80">Why:</span> {c.hypothesis}</p>
+      {c.evidence && <p className="text-muted-foreground"><span className="font-medium text-foreground/80">Evidence:</span> {c.evidence}</p>}
+      {c.risk && <p className="text-muted-foreground"><span className="font-medium text-foreground/80">Risk:</span> {c.risk}</p>}
+      <p className="text-muted-foreground"><span className="font-medium text-foreground/80">Measure:</span> {c.measurement}</p>
+      <p className="text-muted-foreground"><span className="font-medium text-foreground/80">Rollback:</span> {c.rollback}</p>
+    </div>
+  );
+}
+
 function Brief({ d }: { d: PageAtomicDecision }) {
-  const ev = d.evidence_by_source;
-  const evRows = Object.entries(ev).filter(([, v]) => v);
   return (
     <div className="mt-3 space-y-3 rounded-md border border-border/40 bg-surface-raised/30 p-3 text-[12px]">
       <div className="flex flex-wrap items-center gap-2">
-        <Pill tone="good">{d.recommended_atomic_action}</Pill>
-        <Pill tone={d.confidence === "high" ? "good" : d.confidence === "needs_more_evidence" ? "warn" : "muted"}>
-          {d.confidence}
+        <Pill tone={d.recommended_atomic_action === "needs_llm_review" || d.recommended_atomic_action === "needs_more_evidence" ? "warn" : "good"}>
+          {d.recommended_atomic_action}
         </Pill>
-        <Pill tone={d.publishability === "staged" ? "good" : "muted"}>{d.publishability}</Pill>
+        <Pill tone={d.confidence === "high" ? "good" : d.confidence === "needs_more_evidence" ? "warn" : "muted"}>{d.confidence}</Pill>
         <Pill>{d.decided_by}</Pill>
       </div>
 
-      {d.title_candidate && (
-        <p>
-          <span className="font-semibold text-foreground">Proposed title:</span>{" "}
-          “{d.title_candidate}”
-        </p>
-      )}
+      {/* Source coverage — what evidence actually fed this brief */}
+      <div>
+        <p className="font-semibold text-foreground">Source coverage:</p>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {d.source_coverage.map((s) => (
+            <span key={s.source} className={`rounded px-1.5 py-0.5 text-[10px] ${s.used ? "bg-status-success/15 text-status-success" : "bg-surface-inset/60 text-muted-foreground"}`} title={s.detail}>
+              {s.source}: {s.used ? "✓ " : "✗ "}{s.detail}
+            </span>
+          ))}
+        </div>
+      </div>
 
       <p className="rounded bg-accent-primary/[0.05] p-2 leading-relaxed">
-        <span className="font-semibold text-foreground">💡 Operator insight:</span>{" "}
-        {d.operator_insight}
+        <span className="font-semibold text-foreground">💡 Operator insight:</span> {d.operator_insight}
       </p>
+      {d.what_normal_seo_misses && (
+        <p className="leading-relaxed"><span className="font-semibold text-foreground">What a normal SEO misses:</span> <span className="text-muted-foreground">{d.what_normal_seo_misses}</span></p>
+      )}
+      {d.why_not_just_title && (
+        <p className="leading-relaxed"><span className="font-semibold text-foreground">Why it's not just a title tweak:</span> <span className="text-muted-foreground">{d.why_not_just_title}</span></p>
+      )}
 
-      <div>
-        <p className="font-semibold text-foreground">Why (hypothesis):</p>
-        <p className="text-muted-foreground leading-relaxed">{d.hypothesis}</p>
-      </div>
+      {d.primary_atomic_change && <ChangeBlock c={d.primary_atomic_change} label="PRIMARY" />}
+      {d.supporting_atomic_changes.map((c, i) => <ChangeBlock key={i} c={c} label="supporting" />)}
 
-      {evRows.length > 0 && (
+      {d.wording_research.length > 0 && (
         <div>
-          <p className="font-semibold text-foreground">Evidence by source:</p>
+          <p className="font-semibold text-foreground">Wording research:</p>
           <ul className="ml-4 list-disc text-muted-foreground">
-            {evRows.map(([k, v]) => (
-              <li key={k}>
-                <span className="font-medium text-foreground/80">{k}:</span> {v}
-              </li>
+            {d.wording_research.map((w, i) => (
+              <li key={i}>“{w.variant}” → <span className="text-foreground/80">{w.best_placement}</span>{w.evidence ? ` (${w.evidence})` : ""}</li>
             ))}
           </ul>
         </div>
       )}
 
-      {d.rejected_alternatives.length > 0 && (
+      {d.rejected_changes.length > 0 && (
         <div>
-          <p className="font-semibold text-foreground">Rejected alternatives:</p>
+          <p className="font-semibold text-foreground">Rejected:</p>
           <ul className="ml-4 list-disc text-muted-foreground">
-            {d.rejected_alternatives.map((r, i) => (
-              <li key={i}>
-                <span className="font-medium text-foreground/80">{r.action}</span> — {r.reason}
-              </li>
+            {d.rejected_changes.map((r, i) => (
+              <li key={i}><span className="font-medium text-foreground/80">{r.action}</span> — {r.reason}</li>
             ))}
           </ul>
         </div>
       )}
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <p>
-          <span className="font-semibold text-foreground">Before:</span>{" "}
-          <span className="text-muted-foreground">{d.before_after_diff.before ?? "—"}</span>
-        </p>
-        <p>
-          <span className="font-semibold text-foreground">After:</span>{" "}
-          <span className="text-muted-foreground">{d.before_after_diff.after ?? "—"}</span>
-        </p>
-      </div>
-
-      <p><span className="font-semibold text-foreground">Risk:</span> <span className="text-muted-foreground">{d.risk || "—"}</span></p>
-      <p><span className="font-semibold text-foreground">Measurement:</span> <span className="text-muted-foreground">{d.measurement_plan}</span></p>
-      <p><span className="font-semibold text-foreground">Rollback:</span> <span className="text-muted-foreground">{d.rollback_plan}</span></p>
+      {d.evidence_gaps.length > 0 && (
+        <p className="text-[11px] text-amber-600">Evidence gaps: {d.evidence_gaps.join(" · ")}</p>
+      )}
     </div>
   );
 }

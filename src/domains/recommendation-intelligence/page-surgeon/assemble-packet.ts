@@ -21,6 +21,7 @@ import type { PageSnapshot } from "@/domains/pages/types";
 
 import type { EvidencePacket } from "./contract";
 import type { BrandConfig } from "./title-candidates";
+import { DECISION_SCHEMA_VERSION } from "./page-decision";
 
 /** Industry-standard organic CTR-by-position curve (deterministic, generic). */
 const EXPECTED_CTR_BY_POSITION: Record<number, number> = {
@@ -225,6 +226,7 @@ export function assemblePacketForUrl(
  *  they move. */
 export function evidenceHash(packet: EvidencePacket): string {
   const sig = {
+    v: DECISION_SCHEMA_VERSION,
     title: packet.current.currentText,
     q: packet.gsc?.topQueries.slice(0, 5).map((t) => [t.query, t.impressions, t.clicks, Math.round(t.position)]),
     impr: packet.gsc?.impressions,
