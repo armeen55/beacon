@@ -15,6 +15,8 @@ import { describe, it, expect } from "vitest";
 import {
   suggestCollectionMapping,
   slugifyForUrlPrefix,
+  isSystemWixCollection,
+  partitionWixCollectionsBySystem,
 } from "@/lib/connectors/wix/suggest-mapping";
 import type { WixDiscoveredCollection } from "@/lib/connectors/wix/types";
 
@@ -150,5 +152,62 @@ describe("suggestCollectionMapping — edge collections", () => {
     expect(m.urlPrefix).toBe("/empty");
     expect(m.labelField).toBe("slug");
     expect(m.contentFieldRoles).toBeUndefined();
+  });
+});
+
+describe("isSystemWixCollection — content vs system/private (trust audit F)", () => {
+  it("flags Wix system namespaces (forms / members / marketing)", () => {
+    expect(isSystemWixCollection("Forms/contact03")).toBe(true);
+    expect(isSystemWixCollection("Members/PrivateMembersData")).toBe(true);
+    expect(isSystemWixCollection("Members/FullData")).toBe(true);
+    expect(isSystemWixCollection("Members/PublicData")).toBe(true);
+    expect(isSystemWixCollection("Marketing/Coupons")).toBe(true);
+  });
+  it("flags transactional Stores subtypes (orders / inventory / variants)", () => {
+    expect(isSystemWixCollection("Stores/Orders")).toBe(true);
+    expect(isSystemWixCollection("Stores/InventoryItems")).toBe(true);
+    expect(isSystemWixCollection("Stores/Variants")).toBe(true);
+  });
+  it("treats real content collections (incl. product/category pages) as content", () => {
+    expect(isSystemWixCollection("IranAnimals")).toBe(false);
+    expect(isSystemWixCollection("PersianKabobs")).toBe(false);
+    expect(isSystemWixCollection("Import977")).toBe(false); // odd id, still content
+    expect(isSystemWixCollection("Stores/Products")).toBe(false); // product pages have URLs
+    expect(isSystemWixCollection("Stores/Collections")).toBe(false);
+  });
+  it("is case-insensitive and safe on empty input", () => {
+    expect(isSystemWixCollection("forms/CONTACT")).toBe(true);
+    expect(isSystemWixCollection("")).toBe(false);
+  });
+});
+
+describe("partitionWixCollectionsBySystem — content first, system tucked away", () => {
+  const rows = [
+    { collection: { id: "IranFlags" } },
+    { collection: { id: "Forms/contact03" } },
+    { collection: { id: "PersianRugs" } },
+    { collection: { id: "Members/PrivateMembersData" } },
+    { collection: { id: "Stores/Orders" } },
+    { collection: { id: "PersianKabobs" } },
+  ];
+  it("partitions into content vs system, preserving input order", () => {
+    const { content, system } = partitionWixCollectionsBySystem(rows);
+    expect(content.map((r) => r.collection.id)).toEqual([
+      "IranFlags",
+      "PersianRugs",
+      "PersianKabobs",
+    ]);
+    expect(system.map((r) => r.collection.id)).toEqual([
+      "Forms/contact03",
+      "Members/PrivateMembersData",
+      "Stores/Orders",
+    ]);
+  });
+  it("returns empty system group when all collections are content", () => {
+    const { content, system } = partitionWixCollectionsBySystem([
+      { collection: { id: "IranAnimals" } },
+    ]);
+    expect(content).toHaveLength(1);
+    expect(system).toHaveLength(0);
   });
 });
