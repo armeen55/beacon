@@ -786,7 +786,12 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     // citations means the engine ran fine and there's simply nothing yet —
     // distinct from an auth/API error (which fails below as profound_api_error).
     const rowCount = r.rows_upserted ?? r.rows ?? r.imported ?? r.citation_rows;
-    if (rowCount != null) bits.push(`${rowCount.toLocaleString()} row${rowCount === 1 ? "" : "s"}`);
+    // Only count POSITIVE rows as a "N rows" success bit. A successful sync
+    // that returned exactly zero rows is reported separately below — silently
+    // printing "Synced 0 rows" hid the real story (e.g. GA4 connected but the
+    // property has no traffic / its tag isn't collecting). Wave 0 (2026-06-18).
+    if (rowCount != null && rowCount > 0)
+      bits.push(`${rowCount.toLocaleString()} row${rowCount === 1 ? "" : "s"}`);
     if (r.days != null) bits.push(`${r.days} day${r.days === 1 ? "" : "s"}`);
     // #113 — honest cap disclosure: when more topics exist than this run
     // pulled, say so plainly instead of reporting a clean success. The cap
@@ -801,6 +806,17 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
       return { ok: true, detail: `${head}${capNote}` };
     }
     if (bits.length) return { ok: true, detail: `Synced ${bits.join(" · ")}.` };
+    // Explicit empty pull (the API call worked but the source returned zero
+    // rows for the window). Wave 0 (2026-06-18): say what that means instead of
+    // a bare "Synced 0 rows" — the #1 cause is the source isn't collecting yet
+    // (e.g. a GA4 property whose tracking tag isn't installed/firing on the site).
+    if (rowCount === 0) {
+      return {
+        ok: true,
+        detail:
+          "Connected and working, but this source returned no data for the window. If it should have data, check that it's actively collecting (for Google Analytics, that the GA4 tracking tag is installed and firing on your site).",
+      };
+    }
     return { ok: true, detail: "Synced — nothing new found yet." };
   }
   // #87 — auth broke: an honest, plain-English reconnect prompt (a FAILURE).
