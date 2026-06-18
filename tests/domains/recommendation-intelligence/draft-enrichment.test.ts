@@ -235,7 +235,7 @@ describe("enrichPromotionRow — content drafts", () => {
     const s3 = snap({ url: "https://x.com/flags", title: "Iran Flags | Iranopedia" });
     const s4 = snap({ url: "https://x.com/cities/tehran", title: "Tehran | Iranopedia" });
     const out = enrichPromotionRow(row(), candidate(), ctxOf(s1, s2, s3, s4));
-    expect(out.proposed_text).toBe("Persian Tea Houses | Iranopedia");
+    expect(out.proposed_text).toBe("Persian Tea Houses");
     expect(out.display_label).toContain("Add a page title");
     expect(out.target_element_key).toBeNull(); // id stability
     expect(out.id).toBe(row().id);
@@ -251,7 +251,7 @@ describe("enrichPromotionRow — content drafts", () => {
     const s4 = snap({ url: "https://x.com/cities/tehran", title: "Tehran | Iranopedia" });
     const out = enrichPromotionRow(row(), candidate(), ctxOf(s1, s2, s3, s4));
     // Without the strip this would be "Persian Tea Houses\u200B | Iranopedia".
-    expect(out.proposed_text).toBe("Persian Tea Houses | Iranopedia");
+    expect(out.proposed_text).toBe("Persian Tea Houses");
     expect(out.proposed_text!).not.toMatch(/[\u200B\uFEFF]/);
     expect(out.display_label ?? "").not.toMatch(/[\u200B\uFEFF]/);
   });
@@ -325,7 +325,7 @@ describe("enrichPromotionRow — content drafts", () => {
       candidate({ trigger_signal: "gsc_low_ctr", topic_cluster_label: "persian rug prices" }),
       ctxOf(target, s2, s3, s4),
     );
-    expect(out.proposed_text).toBe("Persian Rug Prices | Iranopedia");
+    expect(out.proposed_text).toBe("Persian Rug Prices");
   });
 
   it("edit_title (query trigger): a long-tail query falls back to the page base (no unwieldy title)", () => {
@@ -804,10 +804,11 @@ describe("enrichPromotionRow — links + schema", () => {
 // fallback ONLY when no name is configured.
 
 describe("enrichPromotionRow — businessName precedence (#252)", () => {
-  it("edit_title: real businessName is the brand suffix (overrides inference)", () => {
-    // The fleet's inferable tail is "Iranopedia", but the tenant's real
-    // configured name is "Iranopedia Cultural Encyclopedia" — the real
-    // name wins.
+  it("edit_title: NEVER appends the brand suffix, even with a configured businessName (Wave 0 2026-06-18)", () => {
+    // Operator rule (2026-06-18): no automatic "| Brand" in titles. Brand
+    // still stamps the schema Organization (see change_h1 / schema tests),
+    // but the page TITLE is the descriptive base only — so a configured
+    // businessName must NOT leak into the title.
     const fleet = [
       snap({ title: null }), // target page, no title
       snap({ url: "https://x.com/rugs/qom", title: "Persian Rugs | Iranopedia" }),
@@ -818,9 +819,7 @@ describe("enrichPromotionRow — businessName precedence (#252)", () => {
       snapshotByUrl: new Map(fleet.map((s) => [s.url, s])),
       businessName: "Iranopedia Cultural Encyclopedia",
     });
-    expect(out.proposed_text).toBe(
-      "Persian Tea Houses | Iranopedia Cultural Encyclopedia",
-    );
+    expect(out.proposed_text).toBe("Persian Tea Houses");
   });
 
   it("edit_title: falls back to inferBrandSuffix when businessName is absent", () => {
@@ -834,7 +833,7 @@ describe("enrichPromotionRow — businessName precedence (#252)", () => {
       snapshotByUrl: new Map(fleet.map((s) => [s.url, s])),
       // businessName omitted
     });
-    expect(out.proposed_text).toBe("Persian Tea Houses | Iranopedia");
+    expect(out.proposed_text).toBe("Persian Tea Houses");
   });
 
   it("edit_title: empty/whitespace businessName falls back to inference (fail-soft)", () => {
@@ -848,7 +847,54 @@ describe("enrichPromotionRow — businessName precedence (#252)", () => {
       snapshotByUrl: new Map(fleet.map((s) => [s.url, s])),
       businessName: "   ", // placeholder/empty → undefined-equivalent
     });
-    expect(out.proposed_text).toBe("Persian Tea Houses | Iranopedia");
+    expect(out.proposed_text).toBe("Persian Tea Houses");
+  });
+
+  // Wave 0 (2026-06-18) — the operator's "Persian Boy Names → Persian Male
+  // Names" disaster. The slug said "male" but the page's real top Google query
+  // is "persian boy names", which the current title ALREADY contains. The fix
+  // must SKIP the rec (the title is not the lever), never strip "boy".
+  it("edit_title: SKIPS when the current title already contains the top GSC query (the Boy→Male fix)", () => {
+    const out = enrichPromotionRow(
+      row(),
+      candidate({
+        trigger_signal: "gsc_low_ctr",
+        operator_evidence: "top_queries=persian boy names|muslim boy names",
+        target_url: URL_A,
+      }),
+      {
+        snapshotByUrl: new Map([
+          [
+            URL_A,
+            snap({
+              url: URL_A,
+              title: "Popular Persian Boy Names List with Meanings",
+            }),
+          ],
+        ]),
+        businessName: "Iranopedia",
+      },
+    );
+    // Title already targets the searched term → no rewrite, "boy" preserved.
+    expect(out.proposed_text).toBeNull();
+  });
+
+  it("edit_title: LEADS with the real top GSC query (any trigger) and adds NO brand suffix", () => {
+    const out = enrichPromotionRow(
+      row(),
+      candidate({
+        trigger_signal: "gsc_low_ctr",
+        operator_evidence: "top_queries=persian boy names",
+        target_url: URL_A,
+      }),
+      {
+        snapshotByUrl: new Map([
+          [URL_A, snap({ url: URL_A, title: "Some Unrelated Old Title" })],
+        ]),
+        businessName: "Iranopedia",
+      },
+    );
+    expect(out.proposed_text).toBe("Persian Boy Names");
   });
 
   it("change_h1: real businessName is the suffix stripped from the title-derived heading", () => {
