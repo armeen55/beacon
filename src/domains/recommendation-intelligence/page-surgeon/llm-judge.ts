@@ -165,14 +165,25 @@ export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAt
   if (process.env.NEXT_PHASE === "phase-production-build" && process.env.BEACON_LLM_BUILD_OK !== "1")
     return fallback();
   const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey && !args.fetchImpl) return fallback();
+  if (!apiKey && !args.fetchImpl) {
+    log.warn("[page-surgeon-judge] no OPENAI_API_KEY in process env; deterministic fallback", {
+      page: packet.current.pageUrl,
+    });
+    return fallback();
+  }
 
   const model = args.model ?? DEFAULT_MODEL;
   const fetchImpl = args.fetchImpl ?? fetch;
-  const timeoutMs = args.timeoutMs ?? 40_000;
+  // gpt-5-mini is a REASONING model. Measured latency on a real multi-change
+  // packet (2026-06-18): reasoning_effort medium (its default) ~44s — over the
+  // old 40s timeout, so EVERY call aborted to fallback; low ~32s; minimal ~19s.
+  // "low" keeps genuine reasoning while staying well under the timeout, and 90s
+  // gives headroom for larger packets (e.g. SEMrush keyword enrichment).
+  const timeoutMs = args.timeoutMs ?? 90_000;
 
   const body = JSON.stringify({
     model,
+    reasoning_effort: "low",
     messages: [
       { role: "system", content: SYSTEM_PROMPT.trim() },
       { role: "user", content: `Evidence packet (use ONLY these numbers):\n${JSON.stringify(packet, null, 2)}` },
@@ -194,13 +205,34 @@ export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAt
       log.warn("[page-surgeon-judge] non-2xx; deterministic fallback", { status: res.status, page: packet.current.pageUrl });
       return fallback();
     }
-    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const content = json.choices?.[0]?.message?.content;
-    if (!content) return fallback();
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+    };
+    const choice = json.choices?.[0];
+    const content = choice?.message?.content;
+    // gpt-5-mini is a reasoning model: if reasoning eats the whole token budget
+    // the call returns finish_reason="length" with truncated/empty content. Treat
+    // that as an explicit, LOGGED fallback (never a silent "keep_current").
+    if (choice?.finish_reason === "length") {
+      log.warn("[page-surgeon-judge] truncated (finish_reason=length); raise budget or shrink packet; deterministic fallback", {
+        page: packet.current.pageUrl,
+      });
+      return fallback();
+    }
+    if (!content) {
+      log.warn("[page-surgeon-judge] empty content; deterministic fallback", {
+        page: packet.current.pageUrl,
+        finish: choice?.finish_reason,
+      });
+      return fallback();
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch {
+      log.warn("[page-surgeon-judge] content not valid JSON; deterministic fallback", {
+        page: packet.current.pageUrl,
+      });
       return fallback();
     }
     const decision = sanitize(parsed, packet);
