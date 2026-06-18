@@ -102,7 +102,13 @@ export function buildSourceCoverage(packet: EvidencePacket): SourceCoverage[] {
       else if (s === "clarity" && packet.clarity)
         d = `dead ${packet.clarity.deadClicks ?? "—"} · rage ${packet.clarity.rageClicks ?? "—"}`;
       else if (s === "ga4" && packet.ga4) d = `${packet.ga4.sessions} sessions`;
-      else if (s === "semrush" && packet.semrush) d = `${packet.semrush.keywords.length} keywords`;
+      else if (s === "semrush" && packet.semrush) {
+        const parts = [`${packet.semrush.keywords.length} keywords`];
+        if (packet.semrush.relatedKeywords?.length) parts.push(`${packet.semrush.relatedKeywords.length} related`);
+        if (packet.semrush.questionKeywords?.length) parts.push(`${packet.semrush.questionKeywords.length} questions`);
+        if (packet.semrush.competitorDomains?.length) parts.push(`${packet.semrush.competitorDomains.length} competitors`);
+        d = parts.join(" · ");
+      }
       return { source: s, used: true, detail: d };
     }
     if (empty.has(s))

@@ -34,8 +34,14 @@ export type SemrushRawFetchArgs = {
   tenantId: string;
   /** Report type, e.g. "domain_ranks" / "domain_organic_organic". */
   type: string;
-  /** Target domain (the `domain` param). */
-  domain: string;
+  /** Target domain (the `domain` param). Domain reports require it;
+   *  url_organic uses `url` and the phrase_* reports use `phrase`. */
+  domain?: string;
+  /** Target URL for url-level reports (the `url` param, e.g. url_organic). */
+  url?: string;
+  /** Target phrase/keyword for keyword reports (the `phrase` param, e.g.
+   *  phrase_related / phrase_questions). */
+  phrase?: string;
   /** Override the token's default regional database. */
   database?: string;
   /** Comma-separated Semrush column codes. */
@@ -95,7 +101,18 @@ export async function semrushRawFetch(
   const url = new URL(SEMRUSH_BASE_URL);
   url.searchParams.set("type", args.type);
   url.searchParams.set("key", token.api_key);
-  url.searchParams.set("domain", args.domain);
+  // Target param depends on the report family: domain reports use `domain`,
+  // url_organic uses `url`, phrase_* reports use `phrase`. Set whichever is
+  // provided (callers pass exactly one).
+  if (args.domain != null && args.domain !== "") {
+    url.searchParams.set("domain", args.domain);
+  }
+  if (args.url != null && args.url !== "") {
+    url.searchParams.set("url", args.url);
+  }
+  if (args.phrase != null && args.phrase !== "") {
+    url.searchParams.set("phrase", args.phrase);
+  }
   url.searchParams.set("database", args.database ?? token.database);
   if (args.exportColumns != null && args.exportColumns !== "") {
     url.searchParams.set("export_columns", args.exportColumns);

@@ -49,6 +49,14 @@ THINK LIKE A 10x OPERATOR:
   "profanity" vs "bad words" vs "insults" vs "slang"). Ground each in the GSC
   queries (and SEMrush if present). Decide which wording belongs in the title vs
   meta vs h1 vs an FAQ vs a section. Put this in wording_research.
+- USE THE MARKET CONTEXT: GSC is first-party truth about what is happening on
+  THIS page. SEMrush (when present) is the broader market: semrush.keywords =
+  this page's keyword portfolio (volume / kd / cpc / intent), relatedKeywords =
+  query variants people also search, questionKeywords = question-form demand
+  (answer-block / FAQ fodder), competitorDomains = the market rivals. Use GSC to
+  say what's happening and SEMrush to judge whether the broader market / query /
+  SERP context SUPPORTS the move (real volume behind a wording, real questions to
+  answer, a competitive term worth targeting). Never let SEMrush override GSC.
 - Name what a NORMAL SEO would MISS (what_normal_seo_misses) and why this is not
   just a title tweak (why_not_just_title).
 

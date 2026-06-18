@@ -189,7 +189,7 @@ export function generateTitleCandidates(
     const related = packet.semrush?.relatedKeywords ?? [];
     const curTokens = tokenSet(queryTitle);
     const modifier = related.find((r) => {
-      const rt = tokenSet(r);
+      const rt = tokenSet(r.keyword);
       for (const tok of rt) if (!curTokens.has(tok)) return true;
       return false;
     });
@@ -197,10 +197,10 @@ export function generateTitleCandidates(
       pushUnique(
         mk(
           "query_plus_modifier",
-          `${queryTitle} ${titleCase(modifier)}`.trim(),
+          `${queryTitle} ${titleCase(modifier.keyword)}`.trim(),
           currentTitle,
           "omit",
-          `Query term plus a related market term "${modifier}".`,
+          `Query term plus a related market term "${modifier.keyword}".`,
         ),
       );
     }

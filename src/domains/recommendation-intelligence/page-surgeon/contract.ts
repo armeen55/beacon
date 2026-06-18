@@ -102,11 +102,24 @@ export type SemrushKeywordRow = {
   intent: string | null;
   position: number | null;
 };
+/** A market-context keyword from phrase_related / phrase_questions — carries
+ *  volume + intent so the judge can prioritise, but no position (it describes
+ *  the market, not where this page ranks). */
+export type SemrushExpansionRow = {
+  keyword: string;
+  volume: number;
+  intent: string | null;
+};
 export type SemrushEvidence = {
   keywords: SemrushKeywordRow[];
   serpFeatures?: Array<{ query: string; features: string[]; aiOverview: boolean }>;
-  relatedKeywords?: string[];
-  questionKeywords?: string[];
+  /** Query variants people also search (phrase_related), volume desc. */
+  relatedKeywords?: SemrushExpansionRow[];
+  /** Question-form keywords (phrase_questions) — answer-block / FAQ fodder. */
+  questionKeywords?: SemrushExpansionRow[];
+  /** Organic competitor domains for the site (market rivals). Per-keyword
+   *  competitor ranking URLs are not a supported report → a labelled gap. */
+  competitorDomains?: string[];
   competitorGaps?: Array<{
     keyword: string;
     competitorDomain: string;

@@ -16,7 +16,12 @@ import { inferBrandSuffix } from "@/domains/recommendation-intelligence/draft-en
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
-import { loadSemrushPageSignalsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
+import {
+  loadSemrushKeywordExpansionsForTenant,
+  loadSemrushPageSignalsForTenant,
+} from "@/domains/recommendation-intelligence/semrush-page-signals";
+import { getBusinessConfig } from "@/lib/business-config";
+import { loadSemrushDomainMetrics } from "@/lib/connectors/semrush/persist-domain-metrics";
 import type { PageSnapshot } from "@/domains/pages/types";
 
 import type { EvidencePacket } from "./contract";
@@ -43,6 +48,9 @@ export type PageSurgeonContext = {
   clarityByUrl: Awaited<ReturnType<typeof loadClarityPageSignalsForTenant>>;
   ga4ByUrl: Awaited<ReturnType<typeof loadGa4PageValuesForTenant>>;
   semrushByUrl: Awaited<ReturnType<typeof loadSemrushPageSignalsForTenant>>;
+  semrushExpansionsByUrl: Awaited<ReturnType<typeof loadSemrushKeywordExpansionsForTenant>>;
+  /** Organic competitor domains for the site (market rivals), best first. */
+  competitorDomains: string[];
 };
 
 /** Boilerplate = title tokens repeated across ≥40% of the fleet's pages
@@ -71,13 +79,14 @@ export async function loadPageSurgeonContext(
   tenantId: string,
 ): Promise<PageSurgeonContext> {
   const repo = getRepository().forTenant(tenantId);
-  const [snapshots, gscByUrl, clarityByUrl, ga4ByUrl, semrushByUrl, tenant] =
+  const [snapshots, gscByUrl, clarityByUrl, ga4ByUrl, semrushByUrl, semrushExpansionsByUrl, tenant] =
     await Promise.all([
       repo.getPageSnapshots().catch(() => [] as PageSnapshot[]),
       loadGscPageSignalsForTenant(tenantId).catch(() => new Map()),
       loadClarityPageSignalsForTenant(tenantId).catch(() => new Map()),
       loadGa4PageValuesForTenant(tenantId).catch(() => new Map()),
       loadSemrushPageSignalsForTenant(tenantId).catch(() => new Map()),
+      loadSemrushKeywordExpansionsForTenant(tenantId).catch(() => new Map()),
       getTenant(tenantId).catch(() => null),
     ]);
 
@@ -85,6 +94,25 @@ export async function loadPageSurgeonContext(
   for (const s of snapshots) {
     const c = canonicalizeCitationUrl(s.url) ?? s.url;
     if (!snapshotByCanon.has(c)) snapshotByCanon.set(c, s);
+  }
+
+  // Competitor domains (market rivals) from the cached domain-metrics snapshot.
+  // Resolve the domain from business config, falling back to the snapshots'
+  // own hostname so a Supabase-hydrated tenant without a sync config still maps.
+  const domain =
+    normalizeDomain(getBusinessConfig(tenantId).domain) ||
+    deriveDomainFromSnapshots(snapshots);
+  let competitorDomains: string[] = [];
+  if (domain) {
+    try {
+      const metrics = await loadSemrushDomainMetrics(tenantId, domain);
+      competitorDomains = (metrics?.organic_competitors ?? [])
+        .map((c) => (c?.domain ?? "").trim())
+        .filter((d) => d.length > 0)
+        .slice(0, 8);
+    } catch {
+      competitorDomains = [];
+    }
   }
 
   return {
@@ -98,7 +126,30 @@ export async function loadPageSurgeonContext(
     clarityByUrl,
     ga4ByUrl,
     semrushByUrl,
+    semrushExpansionsByUrl,
+    competitorDomains,
   };
+}
+
+function normalizeDomain(raw: string | undefined | null): string {
+  return (raw ?? "").trim().replace(/^https?:\/\//, "").replace(/^www\./, "");
+}
+
+/** Most common hostname across the tenant's snapshots (fallback domain). */
+function deriveDomainFromSnapshots(snapshots: PageSnapshot[]): string {
+  const counts = new Map<string, number>();
+  for (const s of snapshots) {
+    try {
+      const host = new URL(s.url).hostname.replace(/^www\./, "");
+      if (host) counts.set(host, (counts.get(host) ?? 0) + 1);
+    } catch {
+      /* skip unparseable urls */
+    }
+  }
+  let best = "";
+  let bestN = 0;
+  for (const [host, n] of counts) if (n > bestN) ((best = host), (bestN = n));
+  return best;
 }
 
 /** Pages ranked by real GSC demand (impressions) that also have a crawl. */
@@ -122,13 +173,23 @@ export function assemblePacketForUrl(
   const clarity = ctx.clarityByUrl.get(canonUrl);
   const ga4 = ctx.ga4ByUrl.get(canonUrl);
   const semrush = ctx.semrushByUrl.get(canonUrl);
+  const expansions = ctx.semrushExpansionsByUrl.get(canonUrl);
+  // SEMrush counts as "used" for THIS page when it has page-level keyword data
+  // (organic portfolio) or query expansions for it — not merely domain-level
+  // competitors, which would be misleading per-page.
+  const hasSemrush =
+    Boolean(semrush) ||
+    Boolean(
+      expansions &&
+        (expansions.relatedKeywords.length > 0 || expansions.questionKeywords.length > 0),
+    );
 
   const present: string[] = [];
   const empty: string[] = [];
   (gsc ? present : empty).push("gsc");
   (ga4 ? present : empty).push("ga4");
   (clarity ? present : empty).push("clarity");
-  (semrush ? present : empty).push("semrush");
+  (hasSemrush ? present : empty).push("semrush");
   (snap ? present : empty).push("crawl");
   empty.push("profound"); // not connected yet
 
@@ -191,17 +252,31 @@ export function assemblePacketForUrl(
       scriptErrors: clarity.scriptErrors,
     };
   }
-  if (semrush) {
+  if (hasSemrush) {
     packet.semrush = {
-      keywords: semrush.keywords.map((k) => ({
+      // cap the per-page keyword portfolio so the packet stays bounded
+      keywords: (semrush?.keywords ?? []).slice(0, 30).map((k) => ({
         keyword: k.keyword,
         volume: k.volume,
         kd: k.difficulty ?? 0,
-        cpc: 0, // SEMrush page signal doesn't carry CPC; absent, not faked
+        cpc: k.cpc ?? 0, // real CPC from the synced row when present
         intent: k.intent ?? null,
         position: k.position ?? null,
       })),
     };
+    if (expansions && expansions.relatedKeywords.length > 0) {
+      packet.semrush.relatedKeywords = expansions.relatedKeywords
+        .slice(0, 12)
+        .map((k) => ({ keyword: k.keyword, volume: k.volume, intent: k.intent }));
+    }
+    if (expansions && expansions.questionKeywords.length > 0) {
+      packet.semrush.questionKeywords = expansions.questionKeywords
+        .slice(0, 12)
+        .map((k) => ({ keyword: k.keyword, volume: k.volume, intent: k.intent }));
+    }
+    if (ctx.competitorDomains.length > 0) {
+      packet.semrush.competitorDomains = ctx.competitorDomains;
+    }
   }
   if (snap) {
     packet.crawl = {
@@ -237,6 +312,9 @@ export function evidenceHash(packet: EvidencePacket): string {
     h2: packet.crawl?.h2List?.length,
     clarity: packet.clarity ? [packet.clarity.deadClicks, packet.clarity.rageClicks] : null,
     semrush: packet.semrush?.keywords?.length ?? 0,
+    semrushRelated: packet.semrush?.relatedKeywords?.length ?? 0,
+    semrushQuestions: packet.semrush?.questionKeywords?.length ?? 0,
+    semrushCompetitors: packet.semrush?.competitorDomains?.length ?? 0,
     ga4: packet.ga4?.sessions ?? 0,
   };
   return createHash("sha256").update(JSON.stringify(sig)).digest("hex").slice(0, 16);
