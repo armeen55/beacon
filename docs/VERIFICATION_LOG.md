@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-18 SUPABASE CUTOVER — fresh `beacon-main` project provisioned + Iranopedia seeded + renders end-to-end
+
+Old prod Supabase (`jdegznovgysxyweknewh`, work org) is RESTRICTED (exceed_egress_quota). Cut over to the operator's personal project **`beacon-main` = `vlxwevsdvwxvopkjsewo`** (org "Armeen Projects", us-east-1) per the consolidation decision (one personal Supabase, ≤2 projects).
+- **Schema:** all 47 migrations applied (baseline + 46 post-baseline) via `scripts/apply-migrations-mgmt-api.mjs` → 58 tables, 96 policies, 4 functions. Verified via MCP.
+- **Seed (`scripts/seed-tenant-to-supabase.mjs`, new — data-plane upsert, idempotent):** the generic backfill reads the legacy GLOBAL `.data/*.json` and never covers `recommended_edits`; this reads the TENANT-scoped `.data/tenants/iranopedia/` directly. Seeded the real data that survives in `.data`: **2 tenants, business_config, 50 recommended_edits, 217 page_snapshots.** (`pages`/`tracked_prompts`/`tracked_entities`/GSC signal tables are EMPTY in `.data` — they only ever lived in the old restricted DB.)
+- **Render proof:** dev server in `DATA_SOURCE=supabase` against `beacon-main`, tenant=iranopedia → `/recommendations` HTTP 200, 253KB, real URLs + real GSC-grounded reasoning ("People searched 'cities in iran' 3,078 times in the last 90 days"). No console errors.
+- **Honest enforcement confirmed:** 10 recs carry stored `high` confidence, 40 `medium`, but the render-time QA gate (`deriveRecQaDisplay`) displays them as **needs_review / needs_more_evidence with Review CTAs** — it will NOT certify HIGH or mark anything pushable because the live `gsc_*` signal tables (needed to RE-VERIFY the baked-in demand) aren't seeded. Correct behavior, not a bug.
+- **Blocker to the full accept→push demo:** HIGH confidence + Accept/Push require re-verifiable GSC demand → **operator must reconnect Google (GSC) in the app** (OAuth — the "connect my code" step). That repopulates the `gsc_*` tables on the new DB, the gate lifts the qualifying recs to HIGH, and Accept→Push unlocks.
+
+---
+
 ## 2026-06-17 TRUST AUDIT batch 2 — C / E / F / G complete (branch, NOT merged, NOT armed)
 
 Finished the operator's prod-trust audit (A/B/D were batch 1). All on `claude/iranopedia-blockers`; publishing/arming still PAUSED.
