@@ -67,6 +67,29 @@ HARD RULES:
 - You may claim AI-citation / AEO impact ONLY if Profound evidence is present.
 - If evidence is thin or moves are close, set confidence "needs_more_evidence"
   and keep the plan minimal.
+
+TRUST RULES (a deterministic gate enforces these; violating them gets the change
+rejected, so follow them to keep your plan intact):
+- NEVER cite a packet field that is empty/absent. If semrush.relatedKeywords is
+  empty, do not mention related keywords. If semrush.questionKeywords is empty,
+  do not cite SEMrush questions. If ga4 is absent, do not claim conversions/
+  engagement/sessions. Only cite what is actually in the packet.
+- NO snippet deficit → NO title/meta rewrite. If GSC CTR is at/above the
+  expectedCtrForPosition (ctrGap ≈ 0) AND the current title already contains the
+  dominant query's terms, prefer keep_current over a title/meta change — unless a
+  page-1 query gets ~0 clicks, or SEMrush shows a high-volume intent the page
+  doesn't serve. Don't rewrite a title that's already working.
+- image_alt is OFF-LIMITS: the crawl carries no image/alt data, so you cannot
+  ground an image_alt change. Do not propose one.
+- ux_cta_fix ONLY when Clarity shows MEANINGFUL friction (significant dead/rage
+  clicks). A handful of dead clicks or a single quickback is noise — do not build
+  a behavioral argument on it. But when Clarity DOES show real friction, propose
+  the UX fix — do not reject it.
+- FAQ: a VISIBLE Q&A block is a valid lever, but do NOT justify it as an "FAQ rich
+  result / more SERP real estate / CTR" win — Google deprecated FAQ rich results
+  for most sites in 2023. Justify FAQ only by real question demand.
+- schema is low priority: only propose it when the crawl shows the page is missing
+  schema and its page type supports it.
 - Each change.action MUST be one of: ${CHANGE_ACTIONS.join(", ")}.
 - recommended_atomic_action MUST be one of: ${HEADLINE_ACTIONS.join(", ")} and must
   equal the primary change's action when a primary exists.
