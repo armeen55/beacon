@@ -16,6 +16,14 @@ Old prod Supabase (`jdegznovgysxyweknewh`, work org) is RESTRICTED (exceed_egres
 - **Honest enforcement confirmed:** 10 recs carry stored `high` confidence, 40 `medium`, but the render-time QA gate (`deriveRecQaDisplay`) displays them as **needs_review / needs_more_evidence with Review CTAs** — it will NOT certify HIGH or mark anything pushable because the live `gsc_*` signal tables (needed to RE-VERIFY the baked-in demand) aren't seeded. Correct behavior, not a bug.
 - **Blocker to the full accept→push demo:** HIGH confidence + Accept/Push require re-verifiable GSC demand → **operator must reconnect Google (GSC) in the app** (OAuth — the "connect my code" step). That repopulates the `gsc_*` tables on the new DB, the gate lifts the qualifying recs to HIGH, and Accept→Push unlocks.
 
+### End-to-end lift PROVEN (smoke test, deleted after)
+Traced the full render path to confirm the loop is genuinely clickable the instant GSC lands (not just asserted):
+- The recs page reads the PERSISTED queue via `loadPersistedRecommendationQueueForPage` (unstable_cache, tag `recQueue:<tenant>`); it attaches `gscSignal` live by canonical URL (`load-queue.ts:1133`) and the v2 client computes the verdict via `buildRecommendationActionRows`.
+- Restored the REAL demand for one page into `gsc_daily_rows` (`/cities`, query "cities in iran", impressions 3,078 — the genuine values from the rec's `why`; clicks/position were fixture-only since they don't survive in the rec text). `gsc_page_signals_v1` RPC + `loadGscPageSignalsForTenant` aggregated it correctly (verified: `gscByUrl.size=1`, cities key present; rec attach `gscAttached=3078`).
+- RESULT: the cities rec lifted from **needs_more_evidence → "Suggested"** (actionable), with **"Google Search demand"** in evidenceSupports and the **"60 clicks · 3,078 impressions · avg position 14.0"** evidence line rendered. `enforceExpertConfidence` approved because `hasCoreEvidence` flipped true. So: real GSC demand → real specific reasoning → actionable rec, confirmed on the real new DB.
+- Then **deleted** the smoke `gsc_daily_rows` (fixture clicks/position must not persist as real) and removed the temporary debug probes (`load-queue.ts` unmodified; typecheck clean).
+- Note: `edit_title` push-readiness is `review_only` by deliberate per-action policy (operator reviews title copy before live); structured-data actions are auto-pushable. Push-readiness is independent of the evidence gate.
+
 ---
 
 ## 2026-06-17 TRUST AUDIT batch 2 — C / E / F / G complete (branch, NOT merged, NOT armed)
