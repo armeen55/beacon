@@ -6,6 +6,7 @@ import {
   Target,
   Compass,
   Network,
+  LineChart,
   Plug,
   type LucideIcon,
 } from "lucide-react";
@@ -55,6 +56,7 @@ export const operatorNavGroup: NavGroup = {
   label: "Operator",
   items: [
     { label: "Opportunities", href: "/opportunities", icon: Compass },
+    { label: "Proof", href: "/proof", icon: LineChart },
     { label: "Data Health", href: "/connections", icon: Network },
   ],
 };
