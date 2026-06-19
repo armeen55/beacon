@@ -18,7 +18,90 @@ import { CMS_LIMITS } from "./artifact-bundle";
 import { detectPageProblems } from "./page-decision";
 
 export type QaCheck = { name: string; pass: boolean; detail: string; critical: boolean };
-export type QaVerdict = { pass: boolean; score: number; checks: QaCheck[]; failures: string[] };
+export type QaVerdict = {
+  pass: boolean;
+  score: number;
+  checks: QaCheck[];
+  failures: string[];
+  /** Answer-block / FAQ content whose factual claims the crawl can't substantiate
+   *  → operator must verify before publishing. Advisory (does not auto-withhold). */
+  factCheckRequired?: boolean;
+  factCheckNote?: string;
+};
+
+const FACT_STOPWORDS = new Set([
+  "the", "a", "an", "of", "and", "or", "for", "to", "in", "on", "with", "how",
+  "what", "is", "are", "was", "were", "your", "you", "this", "that", "these",
+  "those", "from", "as", "at", "by", "it", "its", "be", "can", "will", "they",
+  "their", "them", "we", "our", "us", "but", "not", "have", "has", "more",
+  "most", "some", "any", "all", "also", "which", "who", "when", "where", "why",
+  "into", "out", "up", "do", "does", "than", "then", "so", "such", "about",
+]);
+function contentTokens(s: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)) {
+    if (w.length > 2 && !FACT_STOPWORDS.has(w)) out.add(w);
+  }
+  return out;
+}
+
+/** Fact-check the LITERAL answer-block / FAQ copy against what the page (crawl)
+ *  and its demand (GSC queries) actually support. We can only ground content in
+ *  evidence we hold, so when most of the answer's meaningful terms don't appear
+ *  on the crawled page, the claims are unverifiable → flag for human fact-check.
+ *  Conservative: skipped when the crawl is too thin / uncertain to judge (no
+ *  crying wolf), and advisory only (the operator is the fact authority). */
+function factCheck(
+  changes: ChangeArtifact[],
+  packet: EvidencePacket,
+): { required: boolean; note: string } {
+  const contentChanges = changes.filter(
+    (c) => c.action === "intro_answer_block" || c.action === "faq",
+  );
+  if (contentChanges.length === 0) return { required: false, note: "" };
+
+  const crawl = packet.crawl;
+  const corpus = contentTokens(
+    [
+      crawl?.title,
+      crawl?.h1,
+      crawl?.metaDescription,
+      ...(crawl?.h2List ?? []),
+      ...(crawl?.h3List ?? []),
+      ...(crawl?.faqs ?? []),
+      ...(crawl?.cardTexts ?? []),
+      ...(packet.gsc?.topQueries ?? []).map((q) => q.query),
+    ]
+      .filter((s): s is string => !!s)
+      .join(" "),
+  );
+  // Too little to verify against (or a known-incomplete extraction) → can't judge.
+  if (corpus.size < 25 || crawl?.extractionCertainty === "uncertain") {
+    return { required: false, note: "" };
+  }
+
+  const novel: string[] = [];
+  let total = 0;
+  for (const c of contentChanges) {
+    const text = [c.answerBlockText, ...(c.faq ?? []).flatMap((f) => [f.question, f.answer])]
+      .filter((s): s is string => !!s)
+      .join(" ");
+    const toks = contentTokens(text);
+    total += toks.size;
+    for (const t of toks) if (!corpus.has(t)) novel.push(t);
+  }
+  if (total === 0) return { required: false, note: "" };
+
+  const supportedRatio = (total - novel.length) / total;
+  if (supportedRatio < 0.5) {
+    const sample = [...new Set(novel)].slice(0, 8).join(", ");
+    return {
+      required: true,
+      note: `Only ${Math.round(supportedRatio * 100)}% of the answer's key terms appear on the crawled page — verify these claims before publishing: ${sample}.`,
+    };
+  }
+  return { required: false, note: "" };
+}
 
 const SNIPPET_ACTIONS = new Set(["title", "meta", "h1", "intro_answer_block", "faq"]);
 const PLACEHOLDER = /\b(lorem ipsum|\binsert\b|\btodo\b|\btbd\b|example\.com|xxxx|\[[^\]]*\])/i;
@@ -109,6 +192,16 @@ export function qaArtifactBundle(
   );
   add("Brand/fact-safe copy", unsafe.length === 0, unsafe.length === 0 ? "No placeholder/junk tokens in copy." : `Placeholder text in: ${unsafe.map((c) => c.action).join(", ")}`);
 
+  // 4b. Fact-check answer-block / FAQ claims against crawl + demand evidence.
+  // Advisory (critical=false): unverifiable ≠ wrong, but the operator must check.
+  const fc = factCheck(changes, packet);
+  add(
+    "Content fact-supported",
+    !fc.required,
+    fc.required ? fc.note : "Answer/FAQ claims are grounded in the crawled page (or not applicable).",
+    false,
+  );
+
   // 5. No stale tactics (defense-in-depth; the gate already drops these).
   const staleHits: string[] = [];
   if (changes.some((c) => c.action === "image_alt")) staleHits.push("image_alt with no crawled image data");
@@ -152,14 +245,21 @@ export function qaArtifactBundle(
   // 7. Best lever (advisory): the heaviest moves should be rare.
   add("Best lever", bundle.headlineAction !== "image_alt", "Headline action is a substantive lever.", false);
 
-  return finalize(checks);
+  return finalize(checks, fc);
 }
 
-function finalize(checks: QaCheck[]): QaVerdict {
+function finalize(checks: QaCheck[], fc?: { required: boolean; note: string }): QaVerdict {
   const critical = checks.filter((c) => c.critical);
   const passedCritical = critical.filter((c) => c.pass);
   const pass = passedCritical.length === critical.length;
   const score = Math.round((checks.filter((c) => c.pass).length / checks.length) * 100) / 100;
   const failures = checks.filter((c) => c.critical && !c.pass).map((c) => `${c.name}: ${c.detail}`);
-  return { pass, score, checks, failures };
+  return {
+    pass,
+    score,
+    checks,
+    failures,
+    factCheckRequired: fc?.required ?? false,
+    factCheckNote: fc?.note ?? "",
+  };
 }

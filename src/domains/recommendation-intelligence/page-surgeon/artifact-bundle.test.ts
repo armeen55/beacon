@@ -104,6 +104,39 @@ describe("Page Surgeon — artifact composer (finished, CMS-ready content)", () 
 describe("Page Surgeon — auto-QA gate", () => {
   const cleanTitle = () => change("title", { exact_change: "Persian Swear Words & Farsi Insults — Meanings", before_after: { before: "Old Title", after: "x" } });
 
+  const richCrawl = {
+    title: "Cities of Iran — Tehran Isfahan Shiraz Tabriz Mashhad Population Guide",
+    h1: "Major Iranian Cities and Their Provinces",
+    metaDescription: "Explore Iran's largest cities by population, province, history, and landmarks.",
+    h2List: ["Tehran Capital Province", "Isfahan Historic Landmarks", "Shiraz Poetry Gardens", "Tabriz Bazaar Heritage", "Mashhad Religious Pilgrimage"],
+    h3List: ["Population Statistics", "Provincial Capitals", "Tourist Attractions"],
+    faqs: ["What is the largest city in Iran?", "Which province is Isfahan in?"],
+    schemaTypes: [], wordCount: 1500, internalLinkCount: 40,
+    cardTexts: ["Tehran population twelve million residents", "Isfahan famous for mosques and bridges"],
+  };
+
+  it("flags fact_check_required when an answer block's claims aren't on the crawled page", () => {
+    const ab = change("intro_answer_block", { artifact_text: "Baking sourdough bread requires fermented flour, careful hydration, kneading, long proofing, scoring, and a very hot oven for proper crust development." });
+    const b = composeArtifactBundle(decision(ab), packet({ crawl: richCrawl }));
+    const qa = qaArtifactBundle(b, packet({ crawl: richCrawl }));
+    expect(qa.factCheckRequired).toBe(true);
+    expect(qa.factCheckNote).toMatch(/verify these claims/i);
+  });
+
+  it("does NOT flag when the answer restates content that's on the crawled page", () => {
+    const ab = change("intro_answer_block", { artifact_text: "Iran's major cities include Tehran, Isfahan, Shiraz, Tabriz, and Mashhad, each a provincial capital known for population, landmarks, and heritage." });
+    const b = composeArtifactBundle(decision(ab), packet({ crawl: richCrawl }));
+    const qa = qaArtifactBundle(b, packet({ crawl: richCrawl }));
+    expect(qa.factCheckRequired).toBe(false);
+  });
+
+  it("does NOT fact-check when the crawl corpus is too thin to judge (no crying wolf)", () => {
+    const ab = change("intro_answer_block", { artifact_text: "Completely unrelated content about astrophysics, nebulae, quasars, and deep space exploration here." });
+    const b = composeArtifactBundle(decision(ab), packet()); // tiny default crawl
+    const qa = qaArtifactBundle(b, packet());
+    expect(qa.factCheckRequired).toBe(false);
+  });
+
   it("a clean, in-limit, evidenced bundle PASSES", () => {
     const b = composeArtifactBundle(decision(cleanTitle()), packet());
     const qa = qaArtifactBundle(b, packet());

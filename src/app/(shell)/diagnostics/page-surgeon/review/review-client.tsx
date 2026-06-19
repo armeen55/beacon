@@ -136,6 +136,12 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
         <p className="text-[12px] leading-relaxed"><span className="font-semibold text-foreground">What a normal SEO misses:</span> <span className="text-muted-foreground">{bundle.whatNormalSeoMisses}</span></p>
       )}
 
+      {qa.factCheckRequired && (
+        <p className="rounded border border-amber-500/40 bg-amber-500/[0.06] p-2 text-[12px] text-amber-700 dark:text-amber-500">
+          <span className="font-semibold">⚠ Fact-check required:</span> {qa.factCheckNote}
+        </p>
+      )}
+
       {bundle.primary && <ArtifactCard c={bundle.primary} label="PRIMARY" />}
       {bundle.supporting.map((c, i) => <ArtifactCard key={i} c={c} label="supporting" />)}
 
