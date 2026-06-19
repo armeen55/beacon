@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-19 PAGE SURGEON = PRIMARY /recommendations WORKFLOW PSQ1–6 (autonomous)
+
+Made the operator's `/recommendations` read "review these finished Page Surgeon drafts," not "browse old rec cards." No publish / arm / queue-regen / merge / migration. Branch pushed; NOT merged. Commit `dd5057b`.
+
+**What changed**
+- `loadPageSurgeonSummaries(tenant)` (bridge.ts) → per-briefed-page QA/review/headline keyed by path; `bucketForSummary` + `pushMethodLabel`/`rollbackLabel` (change-pack.ts, pure).
+- `/recommendations/page.tsx`: operator-only summaries load + `isOperator`/`pageSurgeonSummaries` props (empty in customer mode).
+- recommendations-v2-client.tsx: operator tabs Ready/Needs-edit/Reviewed/Basic-legacy (default Ready), client-only bucket reorder (builder sort untouched), per-row PS badges; calm-state now keys off the full actionable set in operator mode (bug fix — empty Ready tab no longer strands an all-legacy operator).
+- recommendation-v2-card.tsx: "🔬 Page Surgeon ready" + reviewed badges + "Reopen review ↻" (#page-surgeon).
+- recommendation-detail-actions.tsx: `pageSurgeonSupersedes` demotes the legacy Accept + Approve&Push with a calm explanation (Defer/Dismiss stay; publish semantics unchanged); panel is primary review target.
+
+**Tested**
+- tsc clean. `vitest run src/domains/recommendation-intelligence src/domains/recommendations src/components/recommendations tests/app/recommendations tests/domains/recommendations/rec-list-enforcement.test.ts` → **1486 pass / 2 skipped** (63 files), incl. the pinned rec-list-enforcement sort + title-isolation. New: change-pack bucket/label (5), v2-client operator-gating render (2), detail-actions supersede (3).
+- **4-lens adversarial review workflow** (customer-unchanged / no-publish-no-mutation / correctness-edges / goal-completeness) → all **pass, 0 confirmed issues** (2 goal-completeness notes adversarially refuted: legacy-in-its-own-tab is the requested behavior).
+- **Headless real-data** (`scripts/_verify-ps-bridge.ts`, beacon-main Iranopedia): `loadPageSurgeonSummaries` → 5 briefed pages all bucket "ready"; the rest of the queue buckets "legacy". `loadPageSurgeonForUrl`/`loadProofPlan` still clean.
+
+**Not done (honest):** no live browser render of the operator queue (would need BEACON_OPERATOR_MODE + tenant env flip + dev server) — covered by render unit tests + real-data + adversarial review instead. Deferred: PS2 age-based staleness/queue demotion (touches the customer sort).
+
+---
+
 ## 2026-06-19 PAGE SURGEON → PRODUCT BRIDGE PS1–10 (autonomous)
 
 Continuation of the 10x audit — the remaining items NOT covered by WL1–12: get the Page Surgeon out of `/diagnostics` and into the product review workflow, separate stale legacy recs, make decisions/history/proof/rollback/pushability coherent, and surface live-publish blockers explicitly. No publish / arm / queue-regen. Branch pushed to origin; NOT merged/deployed. Commits: `53920fa` PS1+3+4, `42e5997` PS7+8, `a2bde7c` PS2, `4f31cb4` PS9+10, `69a2334` PS5, `2e45815` PS6, `b11f4e3` verify harness.
