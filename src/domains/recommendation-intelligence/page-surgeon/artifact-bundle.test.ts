@@ -151,4 +151,25 @@ describe("Page Surgeon — auto-QA gate", () => {
     const qa = qaArtifactBundle(b, packet());
     expect(qa.pass).toBe(true);
   });
+
+  it("vague/empty rollback + measurement are backfilled to specific, and QA passes", () => {
+    const c = cleanTitle();
+    c.rollback = ""; // empty
+    c.measurement = "monitor performance"; // vague, no metric/timeframe
+    const b = composeArtifactBundle(decision(c), packet());
+    expect(b.primary!.rollback).toMatch(/Old Title|previous title/i); // concrete restore
+    expect(b.primary!.rollback.length).toBeGreaterThanOrEqual(15);
+    expect(/ctr|click|impression|day|week/i.test(b.primary!.measurement)).toBe(true);
+    const qa = qaArtifactBundle(b, packet());
+    expect(qa.pass).toBe(true);
+    expect(qa.checks.find((x) => x.name === "Rollback specified")!.pass).toBe(true);
+    expect(qa.checks.find((x) => x.name === "Measurement specific")!.pass).toBe(true);
+  });
+
+  it("a ux_cta_fix gets a Clarity-based measurement default", () => {
+    const ux = change("ux_cta_fix", { measurement: "", rollback: "" });
+    const b = composeArtifactBundle(decision(ux), packet());
+    expect(/clarity|dead-click|rage-click/i.test(b.primary!.measurement)).toBe(true);
+    expect(b.primary!.rollback.length).toBeGreaterThanOrEqual(15);
+  });
 });

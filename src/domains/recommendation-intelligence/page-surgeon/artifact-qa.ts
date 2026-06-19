@@ -59,6 +59,22 @@ export function qaArtifactBundle(bundle: ArtifactBundle, packet: EvidencePacket)
     packet.gsc != null && changes.every((c) => c.measurement.trim().length > 0),
     packet.gsc == null ? "No GSC demand — lift can't be measured." : "Every change has a measurement plan + GSC baseline.",
   );
+  // Measurement must be SPECIFIC (a metric or a timeframe), not "monitor performance".
+  add(
+    "Measurement specific",
+    changes.every(
+      (c) =>
+        /(ctr|click|impression|position|rank|conversion|engagement|dead[- ]click|rage[- ]click|citation|quickback)/i.test(c.measurement) ||
+        /(\bday|\bweek|\bmonth)/i.test(c.measurement),
+    ),
+    "Every measurement names a metric or a timeframe.",
+  );
+  // Rollback must be CONCRETE (how to undo), not empty/one-word.
+  add(
+    "Rollback specified",
+    changes.every((c) => c.rollback.trim().length >= 15),
+    "Every change has a concrete rollback.",
+  );
 
   // 3. CMS copy is valid + ship-ready.
   const cmsIssues: string[] = [];

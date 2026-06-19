@@ -250,6 +250,8 @@ function citesAbsentEvidence(change: AtomicChange, packet: EvidencePacket): stri
     return "Insufficient evidence: cites SEMrush question keywords, but none were pulled for this page.";
   if (!packet.ga4 && cites(/\bga4\b|conversion|engaged session|engagement rate|\bsessions?\b/))
     return "Insufficient evidence: cites GA4 engagement/conversion, but GA4 has no rows for this page.";
+  if (!packet.clarity && cites(/\bclarity\b|dead[- ]click|rage[- ]click|quickback|pogo[- ]?stick/))
+    return "Insufficient evidence: cites Microsoft Clarity behavior, but Clarity has no data for this page.";
   if ((sem?.competitorDomains?.length ?? 0) === 0 && !(sem?.competitorGaps?.length) && cites(/competitor (url|domain|ranking|page)/))
     return "Insufficient evidence: cites competitor ranking data, but none was pulled.";
   return null;

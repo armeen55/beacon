@@ -178,6 +178,45 @@ function resolveInternalLinks(
   });
 }
 
+/** A concrete rollback per action — used when the LLM's is vague/empty so an
+ *  artifact always tells the operator exactly how to undo it. */
+function defaultRollback(change: AtomicChange, packet: EvidencePacket): string {
+  switch (change.action) {
+    case "title": return packet.crawl?.title ? `Restore the previous title: "${packet.crawl.title}"` : "Restore the previous title.";
+    case "meta": return packet.crawl?.metaDescription ? `Restore the previous meta description: "${packet.crawl.metaDescription}"` : "Restore the previous meta description.";
+    case "h1": return packet.crawl?.h1 ? `Restore the previous H1: "${packet.crawl.h1}"` : "Restore the previous H1.";
+    case "intro_answer_block": return "Remove the added intro answer block; no other content changes.";
+    case "faq": return "Remove the added Q&A block.";
+    case "schema": return "Remove the added JSON-LD block.";
+    case "internal_link": return "Remove the added internal links.";
+    case "section_add": return "Remove the added section.";
+    case "section_remove": return "Re-add the removed section from version history.";
+    case "section_reorder": return "Restore the previous section order.";
+    case "ux_cta_fix": return "Revert the element to its previous behavior.";
+    case "image_alt": return "Restore the previous alt text.";
+    default: return "Revert this change.";
+  }
+}
+/** A measurable plan per action — backfilled when the LLM's is vague/empty. */
+function defaultMeasurement(change: AtomicChange, packet: EvidencePacket): string {
+  if (change.action === "ux_cta_fix")
+    return "Re-check this page's Microsoft Clarity dead-click and rage-click counts 14–28 days after the change.";
+  const q = packet.gsc?.topQueries?.[0]?.query;
+  return q
+    ? `Compare this page's Google Search Console CTR and clicks for "${q}" (and sibling queries) over the 28 days after vs the 28 days before the change.`
+    : "Compare this page's Google Search Console CTR and clicks over the 28 days after vs before the change.";
+}
+function specificRollback(change: AtomicChange, packet: EvidencePacket): string {
+  const r = change.rollback?.trim() ?? "";
+  return r.length >= 15 ? r : defaultRollback(change, packet);
+}
+function specificMeasurement(change: AtomicChange, packet: EvidencePacket): string {
+  const m = change.measurement?.trim() ?? "";
+  const hasMetric = /(ctr|click|impression|position|rank|conversion|engagement|dead[- ]click|rage[- ]click|citation|quickback)/i.test(m);
+  const hasTime = /(\bday|\bweek|\bmonth|\d+\s*d\b)/i.test(m);
+  return m.length >= 20 && (hasMetric || hasTime) ? m : defaultMeasurement(change, packet);
+}
+
 export function composeChangeArtifact(
   change: AtomicChange,
   packet: EvidencePacket,
@@ -188,8 +227,8 @@ export function composeChangeArtifact(
     label: ACTION_LABEL[change.action] ?? change.action,
     dependencyOrder: change.dependency_order,
     publishability: change.publishability,
-    rollback: change.rollback,
-    measurement: change.measurement,
+    rollback: specificRollback(change, packet),
+    measurement: specificMeasurement(change, packet),
     evidence: change.evidence,
     hypothesis: change.hypothesis,
     risk: change.risk,
@@ -207,7 +246,6 @@ export function composeChangeArtifact(
       cmsField: cmsField(change.action, value),
       before: change.before_after.before ?? current ?? null,
       after: value,
-      rollback: change.rollback || (current ? `Restore the previous ${change.action}: "${current}"` : "Restore the previous value."),
     };
   }
 
@@ -228,7 +266,7 @@ export function composeChangeArtifact(
 
   if (change.action === "schema") {
     const jsonLd = composeJsonLd(packet, change.faq_items ?? undefined);
-    return { ...base, jsonLd, after: jsonLd.code, rollback: change.rollback || "Remove the added JSON-LD block." };
+    return { ...base, jsonLd, after: jsonLd.code };
   }
 
   if (change.action === "internal_link") {

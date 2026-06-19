@@ -161,6 +161,13 @@ describe("Page Surgeon trust gate — P2 evidence-citation sanitizer", () => {
     const out = applyDeterministicGate(decision(change("title"), [s]), p);
     expect(out.rejected_changes.some((r) => r.action === "internal_link" && /GA4/i.test(r.reason))).toBe(true);
   });
+
+  it("rejects a Clarity behavior claim when Clarity has no data", () => {
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) }); // clarity absent by default
+    const s = change("internal_link", { evidence: "Clarity shows dead clicks and rage clicks, so add navigation links." });
+    const out = applyDeterministicGate(decision(change("title"), [s]), p);
+    expect(out.rejected_changes.some((r) => r.action === "internal_link" && /Clarity/i.test(r.reason))).toBe(true);
+  });
 });
 
 describe("Page Surgeon trust gate — P3 candidate eligibility", () => {
