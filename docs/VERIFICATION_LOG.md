@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-19 PAGE SURGEON — trust worklist WL1–12 (autonomous)
+
+Standing-goal autonomous execution of the 12-item Page-Surgeon trust worklist. No publish / Wix / arming / queue regen; branch pushed to origin as backup; NOT merged/deployed. Commits (branch `claude/iranopedia-blockers`): `427ade9` WL1+WL2, `01a8fac` WL3, `2dab700` WL4, `7ae48e7` WL5, `16443e0` WL6, `be4a09f` WL7, `f17f93c` WL8, `c648454` WL9, `d737d36` WL10, `aa0bde3` WL11, `2670389` WL12.
+
+**What changed**
+- WL1 keep_current protective insight (both gate exits); WL2 per-clause absent-evidence; WL3 `verifyNumericFidelity` (reject fabricated metrics, guard targets/absent); WL4 `deferred_changes` cap (primary + ≤2); WL5 per-query snippet deficit + shared `expected-ctr.ts`; WL6 two-stage diagnose-then-plan judge (`diagnosis` folded into insight); WL7 context loader 60s cache + read metering; WL8 `page_surgeon_brief_history` (append-only) + lazy history UI; WL9 persisted review decisions (`page_surgeon_review_decisions`) + list badges, no publish; WL10 answer/FAQ fact-check vs crawl+demand → `factCheckRequired`; WL11 SEMrush kd/cpc null≠0; WL12 schema→`v4-trust-worklist` + 5-page re-run harness.
+
+**Tested**
+- `npx tsc --noEmit` clean after every item.
+- `npx vitest run src/domains/recommendation-intelligence` → 94 pass (6 files); page-surgeon suite 67 (added 5 WL1–2 + 5 WL3 + 2 WL4 + 2 WL5 + 1 WL6 + 3 WL10 + a fixed fixture).
+- 2 additive migrations APPLIED to beacon-main (`vlxwevsdvwxvopkjsewo`): `page_surgeon_brief_history`, `page_surgeon_review_decisions` (RLS-on, no-policy, verified via list_tables).
+- **5-page LIVE re-run** (`scripts/_verify-page-surgeon-5pages.ts --live`, real beacon-main Iranopedia data): every page's insight leads with a packet-true per-query "Bottleneck:" (e.g. funny-farsi-phrases cites "pedar sag meaning" 438 impr @ pos 7.82, 1 click, 0.23% CTR); supports capped at 2 (deferred 0–2); QA PASS 91–100%; 4/5 flagged ⚠ fact-check; numeric-fidelity rejected nothing (cited numbers were real); no crashes; WL7 meter logged (217 snapshots/197 gsc/60 clarity/0 ga4/38 semrush).
+
+**Known limitation (honest):** the verify script runs outside the Next runtime so `getBusinessConfig` falls back to a neutral placeholder (brand-suffix only) — the live app hydrates business_config from Supabase; trust-gate behavior is unaffected.
+
+---
+
 ## 2026-06-18 PAGE SURGEON — autonomous batch (goal priorities 1–4 + QA hardening + quota check)
 
 Standing-goal autonomous work toward the "AI Page Surgeon → finished, QA-passed atomic changes I approve" north star. No publish / Wix / queue regen / paid pulls; commits `4346c0d` (P2) + `3c70018` (P3).
