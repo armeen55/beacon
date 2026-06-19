@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-19 OPERATOR-OS PHASE 2 — Workbench locked-page deep-audit surface (`f25c084` + `2abf390`, branch `claude/max-capability`, local commits, NOT pushed)
+
+Built the real surface every "Run Deep Audit" / "Review Change Pack" CTA lands on. Operator-gated (404 for customers) + force-dynamic. Read-only composition of EXISTING loaders; NO paid APIs, NO SERP API, NO LLM, NO publish, NO migration; cheap SERP guard only. (Phase 1 + SERP guard `8f9e3ea` was pushed first this turn: `da1047b..a79a44d`.)
+
+**Route:** `app/(shell)/workbench/[encodedPagePath]/page.tsx` — encodes the page PATH into a single segment.
+
+**New pure modules (unit-tested):**
+- `insight/workbench-route.ts` — `encodeWorkbenchPath`/`decodeWorkbenchPath`/`workbenchHref`/`normalizeWorkbenchPath`. Reuses the proven recommendation route-id encoder (survives Next 16 double-encoding); normalizes to the loader path key.
+- `insight/diagnosis-matrix.ts` — deterministic 11-dimension matrix (title, meta, h1, answer_block, section/content, qa/schema, internal_links, ux_friction, serp_presentation, cannibalization, keep_current). Reuses the blessed `detectPageProblems` gate + `deriveSerpGuard`. v1 marks what it can't cheaply evaluate "unknown" (cannibalization deferred to a cross-page scan).
+
+**Loader/view:** `workbench-data.ts loadWorkbench(tenant, path)` — one cached context load (`loadPageSurgeonForUrl` reuses the 60s cache), fail-soft per source. Sections: page briefing (title/meta/H1/crawl freshness + stale badge), opportunity summary (impr/clicks/CTR/position + est-clicks with window+confidence+SERP via the same `buildOpportunity`), top GSC queries + SEMrush striking-distance, diagnosis matrix, current Change Pack (primary/supporting/deferred + QA + fact-check), Wix readiness (per-artifact method + rollback), proof plan (baseline + 7/14/28d), history. CTA: pack → "Review Change Pack"; no pack → "Draft Change Pack" shown but DISABLED (drafting needs the analysis endpoint — not configured; no auto-spend).
+
+**CTAs repointed:** Opportunity Map rows → `/workbench/<o.path>`; Recommendations PS-ready cards → `reviewHref` → `/workbench/<path>` (non-PS keep `/recommendations/[id]`); State-of-Union "Do next" → `/workbench/<path>`. app-header breadcrumb "Opportunity Map / Workbench".
+
+**Verified:** typecheck clean; targeted tests green — workbench-route (encode/decode round-trips incl. double-encoding), diagnosis-matrix (status per dimension + honest "unknown"), workbench-page-gating (operator→loads, customer→404 + loader never runs), workbench-cta-links (source pins). customer-nav-exposure invariant still holds (Workbench is operator-only, NOT in the 6-route customer nav). Ground-truthed LIVE on Iranopedia (dev server): `/opportunities` emits 57 `/workbench/%2F…` links (all decode back to the path); `/workbench/cities` + `/workbench/farsi-numbers` render with Change Pack + proof plan (QA badge); `/workbench/iran-flags/iran-islamic-republic-flag-history` (#3.4, 13,053 impr, 0.15% CTR, top-3 zero-click queries) shows "⚠ Needs SERP check before title rewrite" + "~1,285 est. clicks at stake over 90d · high confidence · SERP unknown" instead of a blind title fix. All routes 200, no app errors (the Node/undici × Next16 Turbopack SSR-streaming warning is environmental, pre-existing). `.env.local` flipped to iranopedia for the render + restored.
+
+---
+
 ## 2026-06-19 OPERATOR-OS PHASE 1 + SERP GUARD — single page-primary adapter, no title over-claims (`8f9e3ea`, branch `claude/max-capability`, local commit, NOT pushed)
 
 Executed ONLY Phase 1 + the cheap SERP guard from the Operator Execution Manual (no Workbench / Wix-max / GSC proof / Page Intelligence model).
