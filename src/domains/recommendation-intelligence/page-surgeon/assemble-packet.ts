@@ -9,6 +9,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getTenant } from "@/domains/tenants/store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
@@ -67,7 +68,30 @@ function deriveBoilerplate(snapshots: PageSnapshot[]): string[] {
   return out;
 }
 
+// The full context (every snapshot + every per-tenant signal map) is the heavy
+// read in the surgeon path — re-pulling it on each review interaction is the
+// egress class the /today timeout taught us to respect. With crons off the data
+// only moves on an explicit refresh, so a short in-process TTL is safe and large.
+const CONTEXT_TTL_MS = 60_000;
+const LARGE_SNAPSHOT_READ = 2000;
+const contextCache = new Map<string, { ctx: PageSurgeonContext; expiresAt: number }>();
+
+/** Cached loader. Pass { force: true } to bypass (e.g. an explicit refresh). */
 export async function loadPageSurgeonContext(
+  tenantId: string,
+  opts: { force?: boolean } = {},
+): Promise<PageSurgeonContext> {
+  const now = Date.now();
+  if (!opts.force) {
+    const hit = contextCache.get(tenantId);
+    if (hit && hit.expiresAt > now) return hit.ctx;
+  }
+  const ctx = await loadPageSurgeonContextUncached(tenantId);
+  contextCache.set(tenantId, { ctx, expiresAt: now + CONTEXT_TTL_MS });
+  return ctx;
+}
+
+async function loadPageSurgeonContextUncached(
   tenantId: string,
 ): Promise<PageSurgeonContext> {
   const repo = getRepository().forTenant(tenantId);
@@ -106,6 +130,20 @@ export async function loadPageSurgeonContext(
       competitorDomains = [];
     }
   }
+
+  // Meter the read so a large egress pull is visible, not silent.
+  const meter = {
+    tenantId,
+    snapshots: snapshots.length,
+    gsc: gscByUrl.size,
+    clarity: clarityByUrl.size,
+    ga4: ga4ByUrl.size,
+    semrush: semrushByUrl.size,
+  };
+  (snapshots.length >= LARGE_SNAPSHOT_READ ? log.warn : log.info)(
+    "[page-surgeon] context loaded (uncached)",
+    meter,
+  );
 
   return {
     tenantId,
