@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-19 LIVE BROWSER/OPERATOR AUDIT — Page-Surgeon-first /recommendations
+
+Ran the new experience in the actual app (not just tests), per operator request. Dev server pinned supabase + operator + Iranopedia (temporary `.claude/launch.json` configs, reverted after; `.env.local` untouched). beacon-main data. No code changes — audit only; **no UI bugs found**.
+
+**Operator `/recommendations` (port 3141, BEACON_OPERATOR_MODE=true, tenant-iranopedia):**
+- Default active tab = **Ready** ✓ (subtitle "Finished Page Surgeon drafts that passed auto-QA — review and approve these first").
+- Tabs: Ready (4) · Needs edit (0) · Reviewed (0) · Basic legacy (39) ✓ — legacy clearly separated/demoted. (Ready=4 not 5: persian-male-names' pack is keep_current but it also has an open legacy edit_title rec, so it appears; the 5th briefed page had no other gap. All 4 Ready cards carry a 🔬 "Page Surgeon ready" chip.)
+- Server log confirmed the operator summaries loader fired for tenant-iranopedia (217 snapshots / 5 briefs).
+- **No publish controls** anywhere (0 publish buttons; only honest "nothing publishes" copy).
+- Recorded one **Approve** (via /diagnostics/page-surgeon/review) → "Recorded 'approve' for …/persian-male-names. Publishing is disabled — nothing was pushed live." Queue then showed **Reviewed (1)**, the card moved to the Reviewed tab with a green **"Approved"** badge + **"Reopen review ↻"** link → `…#page-surgeon`. (This left 1 review-decision row on beacon-main — a legitimate, additive record; persian-male-names=keep_current so "approve" is a correct decision.)
+
+**Detail (a pack page):** PS panel renders with **"primary review"** tag, action + QA pass · 100%; Act 6 shows only **Defer/Dismiss** — the legacy **Accept is removed** and replaced by "A Page Surgeon plan supersedes this … the legacy quick-accept is paused. Nothing publishes." Approve & Push absent. Pushability labels exact: "Wix field ready", "Blocked: no write path for this change type", "Rollback ready".
+
+**Customer mode (port 3142, BEACON_OPERATOR_MODE=false):** `/recommendations` shows the normal flat 7-card queue — **0 Page Surgeon tabs / chips / reopen links, zero "Page Surgeon" text**. Customer view is clean.
+
+Conclusion: the Page-Surgeon-first workflow works in the real UI, end to end, gated correctly. Honest note (not a bug): the queue "Page Surgeon ready" chip means "a pack exists for this page" even when the pack's verdict differs from the legacy rec's action — the detail's supersede banner reconciles it.
+
+---
+
 ## 2026-06-19 PAGE SURGEON = PRIMARY /recommendations WORKFLOW PSQ1–6 (autonomous)
 
 Made the operator's `/recommendations` read "review these finished Page Surgeon drafts," not "browse old rec cards." No publish / arm / queue-regen / merge / migration. Branch pushed; NOT merged. Commit `dd5057b`.
