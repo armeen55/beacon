@@ -20,6 +20,7 @@ import type {
   AtomicChange,
   PageAtomicDecision,
   SourceCoverage,
+  WordingResearch,
 } from "./page-decision";
 
 // SERP / CMS practical limits (truncation points Google + Wix respect).
@@ -77,6 +78,9 @@ export type ArtifactBundle = {
   whatNormalSeoMisses: string;
   whyNotJustTitle: string;
   evidenceGaps: string[];
+  /** Alternative phrasings the judge researched (grounded in GSC/SEMrush) with
+   *  the best placement for each — the "senior operator did the homework" texture. */
+  wordingResearch: WordingResearch[];
   decidedBy: "llm_judge" | "deterministic_fallback";
 };
 
@@ -321,6 +325,7 @@ export function composeArtifactBundle(
     whatNormalSeoMisses: decision.what_normal_seo_misses,
     whyNotJustTitle: decision.why_not_just_title,
     evidenceGaps: decision.evidence_gaps,
+    wordingResearch: decision.wording_research,
     decidedBy: decision.decided_by,
   };
 }

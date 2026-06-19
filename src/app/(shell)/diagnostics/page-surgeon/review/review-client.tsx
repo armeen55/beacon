@@ -130,6 +130,17 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
       {bundle.primary && <ArtifactCard c={bundle.primary} label="PRIMARY" />}
       {bundle.supporting.map((c, i) => <ArtifactCard key={i} c={c} label="supporting" />)}
 
+      {bundle.wordingResearch.length > 0 && (
+        <details className="text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer">Wording researched ({bundle.wordingResearch.length}) — alternatives weighed, grounded in GSC/SEMrush</summary>
+          <ul className="ml-4 mt-1 list-disc">
+            {bundle.wordingResearch.map((w, i) => (
+              <li key={i}>“{w.variant}” → <span className="text-foreground/80">{w.best_placement}</span>{w.evidence ? ` (${w.evidence})` : ""}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {bundle.rejected.length > 0 && (
         <details className="text-[11px] text-muted-foreground">
           <summary className="cursor-pointer">Rejected ({bundle.rejected.length}) — why these were not chosen</summary>
