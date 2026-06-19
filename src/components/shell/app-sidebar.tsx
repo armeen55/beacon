@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { navigationGroups } from "@/lib/navigation";
+import { navigationGroups, operatorNavGroup } from "@/lib/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
@@ -32,9 +32,14 @@ const BADGE_STYLES: Record<string, string> = {
   "/changes": "bg-status-warning/15 text-status-warning",
 };
 
-function SidebarContent() {
+function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
   const pathname = usePathname();
   const { badges } = useShell();
+  // Operator-OS rebuild: append the operator-only nav group when in operator
+  // mode (threaded from the server layout). Customers never get this branch.
+  const groups = isOperator
+    ? [...navigationGroups, operatorNavGroup]
+    : navigationGroups;
 
   return (
     <div className="flex h-full flex-col">
@@ -65,7 +70,7 @@ function SidebarContent() {
 
       <ScrollArea className="flex-1 py-3">
         <nav aria-label="Primary" className="flex flex-col gap-5 px-3">
-          {navigationGroups.map((group, groupIndex) => (
+          {groups.map((group, groupIndex) => (
             <div key={group.label || `nav-group-${groupIndex}`}>
               {group.label && (
                 <p className="px-2 mb-1 text-[11px] font-medium text-sidebar-foreground/50 tracking-normal">
@@ -139,10 +144,10 @@ function SidebarContent() {
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({ isOperator = false }: { isOperator?: boolean }) {
   return (
     <aside className="hidden w-[216px] shrink-0 border-r border-sidebar-border bg-sidebar md:block">
-      <SidebarContent />
+      <SidebarContent isOperator={isOperator} />
     </aside>
   );
 }

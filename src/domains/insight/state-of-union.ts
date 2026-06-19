@@ -86,15 +86,27 @@ export function deriveHeadline(
   const deltaPct = prev > 0 ? Math.round(((t.clicks28d - prev) / prev) * 100) : 0;
   const down = prev > 0 && t.clicks28d < prev * 0.97;
   const up = prev > 0 && t.clicks28d > prev * 1.03;
+  const trend = down
+    ? `Clicks are down ${Math.abs(deltaPct)}%`
+    : up
+      ? `Clicks are up ${deltaPct}%`
+      : "Traffic is steady";
 
   let verdict: StateOfUnionVerdict;
   let headline: string;
   let subline: string;
 
-  if (down && ctrLeakCount >= 3) {
+  // A large CTR-leak count is the single biggest lever — surface it as the
+  // headline REGARDLESS of the overall click trend (page-1 pages that barely
+  // get clicked are recoverable clicks at the rank you already hold).
+  if (ctrLeakCount >= 5) {
+    verdict = "ranking_better_losing_clicks";
+    headline = `${ctrLeakCount} page-1 pages are leaking clicks — your single biggest lever.`;
+    subline = `${trend} vs the prior 28 days. These pages rank well but barely get clicked; fixing titles/snippets recovers clicks at the rank you already hold.`;
+  } else if (down && ctrLeakCount >= 1) {
     verdict = "ranking_better_losing_clicks";
     headline = "Ranking better, but losing clicks — a CTR problem, not a ranking one.";
-    subline = `${ctrLeakCount} pages rank on page 1 yet barely get clicked. Fixing titles/snippets recovers clicks at the rank you already hold.`;
+    subline = `${ctrLeakCount} page-1 page(s) rank well yet barely get clicked. Fix titles/snippets to recover clicks at the current rank.`;
   } else if (down) {
     verdict = "declining";
     headline = `Search clicks are down ${Math.abs(deltaPct)}% vs the prior 28 days.`;

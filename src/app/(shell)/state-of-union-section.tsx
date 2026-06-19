@@ -158,7 +158,11 @@ export async function StateOfUnionSection() {
           </div>
           <p className="mt-1 text-[12px] text-muted-foreground">
             {sou.frictionPages[0]
-              ? `${sou.frictionPages[0].title}: ${sou.frictionPages[0].why}`
+              ? `${sou.frictionPages[0].title}: ${
+                  sou.frictionPages[0].evidenceBySource.find(
+                    (e) => e.source === "clarity",
+                  )?.line ?? sou.frictionPages[0].why
+                }`
               : "No dead-click hotspots detected."}
           </p>
         </div>
