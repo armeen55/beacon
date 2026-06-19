@@ -72,6 +72,9 @@ export type PageAtomicDecision = {
   recommended_atomic_action: AtomicAction;
   primary_atomic_change: AtomicChange | null;
   supporting_atomic_changes: AtomicChange[];
+  /** Real, gate-surviving changes held back as FOLLOW-UP so the ready plan stays
+   *  focused (primary + ≤2 supports). Not rejected — deferred to a later pass. */
+  deferred_changes?: AtomicChange[];
   rejected_changes: Array<{ action: string; reason: string }>;
   source_coverage: SourceCoverage[];
   wording_research: WordingResearch[];
@@ -641,6 +644,7 @@ export function applyDeterministicGate(
       recommended_atomic_action: "needs_more_evidence",
       primary_atomic_change: null,
       supporting_atomic_changes: [],
+      deferred_changes: [],
       confidence: "needs_more_evidence",
     };
   }
@@ -664,6 +668,7 @@ export function applyDeterministicGate(
       recommended_atomic_action: "keep_current",
       primary_atomic_change: null,
       supporting_atomic_changes: [],
+      deferred_changes: [],
       rejected_changes: [
         ...decision.rejected_changes,
         ...proposed.map((c) => ({ action: c.action, reason })),
@@ -733,6 +738,22 @@ export function applyDeterministicGate(
     }
   }
 
+  // WL4 — cap the READY bundle: a publishable plan is the primary plus at most a
+  // couple of necessary supports. Extra gate-surviving changes are real but
+  // DEFERRED (follow-up), never an 8-change wall. Highest-leverage supports stay;
+  // the rest move to follow-up so the operator sees one focused plan.
+  const MAX_READY_SUPPORTING = 2;
+  let deferred: AtomicChange[] = [];
+  if (wasChangeRequest && supporting.length > MAX_READY_SUPPORTING) {
+    supporting.sort(
+      (a, b) => PROMOTION_ORDER.indexOf(a.action) - PROMOTION_ORDER.indexOf(b.action),
+    );
+    deferred = supporting
+      .slice(MAX_READY_SUPPORTING)
+      .map((c, i) => ({ ...c, dependency_order: MAX_READY_SUPPORTING + 2 + i }));
+    supporting.length = MAX_READY_SUPPORTING; // truncate in place (keep top-leverage)
+  }
+
   const capPublish = (c: AtomicChange): AtomicChange =>
     c.publishability === "staged" && CONF_RANK[confidence] < CONF_RANK.medium
       ? { ...c, publishability: "review_only" }
@@ -747,6 +768,7 @@ export function applyDeterministicGate(
       recommended_atomic_action: action,
       primary_atomic_change: null,
       supporting_atomic_changes: [],
+      deferred_changes: [],
       rejected_changes: rejected,
       confidence: isKeep ? confidence : "needs_more_evidence",
       // A non-change verdict must not carry change-plan prose. keep_current gets a
@@ -762,6 +784,7 @@ export function applyDeterministicGate(
     recommended_atomic_action: action,
     primary_atomic_change: primary ? capPublish(primary) : null,
     supporting_atomic_changes: supporting.map(capPublish),
+    deferred_changes: deferred.map(capPublish),
     rejected_changes: rejected,
     confidence,
   };

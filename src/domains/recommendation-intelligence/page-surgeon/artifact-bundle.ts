@@ -72,6 +72,9 @@ export type ArtifactBundle = {
   snippetAfter: SnippetPreview;
   primary: ChangeArtifact | null;
   supporting: ChangeArtifact[];
+  /** Real, gate-surviving changes held back as follow-up (keeps the ready plan
+   *  to primary + ≤2 supports). Composed for visibility, not for this pass. */
+  deferred: ChangeArtifact[];
   rejected: Array<{ action: string; reason: string }>;
   sourceCoverage: SourceCoverage[];
   operatorInsight: string;
@@ -303,6 +306,7 @@ export function composeArtifactBundle(
   const compose = (c: AtomicChange) => composeChangeArtifact(c, packet, siteUrls, controlPaths);
   const primary = decision.primary_atomic_change ? compose(decision.primary_atomic_change) : null;
   const supporting = decision.supporting_atomic_changes.map(compose);
+  const deferred = (decision.deferred_changes ?? []).map(compose);
 
   const currentTitle = packet.crawl?.title ?? packet.current.currentText ?? "";
   const currentMeta = packet.crawl?.metaDescription ?? "";
@@ -319,6 +323,7 @@ export function composeArtifactBundle(
     snippetAfter: { title: titleArtifact ?? currentTitle, url: decision.pageUrl, meta: metaArtifact ?? currentMeta },
     primary,
     supporting,
+    deferred,
     rejected: decision.rejected_changes,
     sourceCoverage: decision.source_coverage,
     operatorInsight: decision.operator_insight,

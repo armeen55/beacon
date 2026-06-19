@@ -338,6 +338,33 @@ describe("Page Surgeon trust gate — WL3 numeric fidelity", () => {
   });
 });
 
+describe("Page Surgeon trust gate — WL4 cap + defer supporting changes", () => {
+  it("a ready plan is primary + at most 2 supports; the rest are deferred, not dropped", () => {
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const out = applyDeterministicGate(
+      decision(change("title"), [change("meta"), change("h1"), change("internal_link"), change("section_add")]),
+      p,
+    );
+    expect(out.recommended_atomic_action).toBe("title");
+    expect(out.supporting_atomic_changes.length).toBeLessThanOrEqual(2);
+    expect(out.deferred_changes ?? []).not.toHaveLength(0);
+    // Nothing is lost: primary + supporting + deferred == the 5 proposed (all eligible).
+    const total = 1 + out.supporting_atomic_changes.length + (out.deferred_changes?.length ?? 0);
+    expect(total).toBe(5);
+    // Highest-leverage supports stay ready (meta/h1 outrank section_add/internal_link).
+    const kept = out.supporting_atomic_changes.map((c) => c.action);
+    expect(kept).toContain("meta");
+    const deferredActions = (out.deferred_changes ?? []).map((c) => c.action);
+    expect(deferredActions).toContain("internal_link");
+  });
+
+  it("a plan with ≤2 supports defers nothing", () => {
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const out = applyDeterministicGate(decision(change("title"), [change("meta")]), p);
+    expect(out.deferred_changes ?? []).toHaveLength(0);
+  });
+});
+
 describe("Page Surgeon trust gate — P4 fallback consistency", () => {
   it("when everything is gated out and a problem exists → needs_llm_review, no artifacts", () => {
     // deficit exists (problem) but the only proposed change is image_alt (always rejected).

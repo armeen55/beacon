@@ -130,6 +130,15 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
       {bundle.primary && <ArtifactCard c={bundle.primary} label="PRIMARY" />}
       {bundle.supporting.map((c, i) => <ArtifactCard key={i} c={c} label="supporting" />)}
 
+      {bundle.deferred.length > 0 && (
+        <details className="text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer">Follow-up ({bundle.deferred.length}) — real changes deferred to keep this plan focused</summary>
+          <div className="ml-2 mt-1 space-y-2">
+            {bundle.deferred.map((c, i) => <ArtifactCard key={i} c={c} label="follow-up" />)}
+          </div>
+        </details>
+      )}
+
       {bundle.wordingResearch.length > 0 && (
         <details className="text-[11px] text-muted-foreground">
           <summary className="cursor-pointer">Wording researched ({bundle.wordingResearch.length}) — alternatives weighed, grounded in GSC/SEMrush</summary>
