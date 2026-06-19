@@ -288,8 +288,10 @@ export function assemblePacketForUrl(
       keywords: (semrush?.keywords ?? []).slice(0, 30).map((k) => ({
         keyword: k.keyword,
         volume: k.volume,
-        kd: k.difficulty ?? 0,
-        cpc: k.cpc ?? 0, // real CPC from the synced row when present
+        // null (not 0) when not pulled — a 0 reads as "trivially easy / no
+        // commercial value" and would fabricate a signal the data never gave.
+        kd: k.difficulty ?? null,
+        cpc: k.cpc ?? null,
         intent: k.intent ?? null,
         position: k.position ?? null,
       })),

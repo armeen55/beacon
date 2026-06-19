@@ -97,8 +97,11 @@ export type ClarityEvidence = {
 export type SemrushKeywordRow = {
   keyword: string;
   volume: number;
-  kd: number;
-  cpc: number;
+  /** Keyword difficulty. null = NOT pulled (never coerce to 0 — a 0 reads as
+   *  "trivially easy" and would fabricate a winnability signal). */
+  kd: number | null;
+  /** Cost-per-click. null = NOT pulled (never coerce to 0). */
+  cpc: number | null;
   intent: string | null;
   position: number | null;
 };

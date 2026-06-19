@@ -87,6 +87,9 @@ rejected, so follow them to keep your plan intact):
   empty, do not mention related keywords. If semrush.questionKeywords is empty,
   do not cite SEMrush questions. If ga4 is absent, do not claim conversions/
   engagement/sessions. Only cite what is actually in the packet.
+- A null metric means NOT MEASURED, not zero. A keyword with kd:null or cpc:null
+  has UNKNOWN difficulty / value — never describe it as "easy to rank", "low
+  difficulty", or "low value". Do not reason from a null as if it were 0.
 - NO snippet deficit → NO title/meta rewrite. If GSC CTR is at/above the
   expectedCtrForPosition (ctrGap ≈ 0) AND the current title already contains the
   dominant query's terms, prefer keep_current over a title/meta change — unless a
