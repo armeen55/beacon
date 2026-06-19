@@ -10,10 +10,12 @@
  * the persisted review decision, and the change history. Nothing here publishes.
  */
 
-import type {
-  AtomicChangePack,
-  ArtifactPushability,
-  PageSurgeonForUrl,
+import {
+  pushMethodLabel,
+  rollbackLabel,
+  type AtomicChangePack,
+  type ArtifactPushability,
+  type PageSurgeonForUrl,
 } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
 import type { ChangeArtifact } from "@/domains/recommendation-intelligence/page-surgeon/artifact-bundle";
 
@@ -32,22 +34,14 @@ function pushTone(p: ArtifactPushability): "good" | "warn" | "bad" | "muted" {
   if (p.method === "blocked_no_mapping" || p.method === "not_applicable") return "bad";
   return "warn";
 }
-const PUSH_LABEL: Record<ArtifactPushability["method"], string> = {
-  wix_cms_field: "Wix field — auto",
-  manual_cms_edit: "Manual edit",
-  no_write_path: "No auto writer",
-  not_applicable: "N/A",
-  blocked_no_mapping: "No mapping",
-};
-
 function ArtifactRow({ a, push }: { a: ChangeArtifact; push?: ArtifactPushability }) {
   const copy = a.cmsField?.value ?? a.answerBlockText ?? (a.faq?.length ? `${a.faq.length} Q&A pairs` : a.instruction ?? "");
   return (
     <div className="rounded border border-border/40 bg-surface-inset/30 p-2.5 text-[12px]">
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag tone="info">{a.label}</Tag>
-        {push && <Tag tone={pushTone(push)}>{PUSH_LABEL[push.method]}</Tag>}
-        {push && <Tag tone={push.rollbackReady ? "good" : "warn"}>{push.rollbackReady ? "rollback ✓" : "rollback best-effort"}</Tag>}
+        {push && <Tag tone={pushTone(push)}>{pushMethodLabel(push.method)}</Tag>}
+        {push && <Tag tone={push.rollbackReady ? "good" : "warn"}>{rollbackLabel(push.rollbackReady)}</Tag>}
         <span className="text-[10px] text-muted-foreground">step {a.dependencyOrder}</span>
       </div>
       {copy && <p className="mt-1.5 rounded bg-surface-raised/40 px-2 py-1 font-mono text-[11px] leading-snug text-foreground">{copy}</p>}
@@ -137,11 +131,11 @@ export function PageSurgeonPanel({ pageSurgeon }: { pageSurgeon: PageSurgeonForU
   if (!pageSurgeon || pageSurgeon.status === "no_page") return null;
 
   return (
-    <section className="mt-6 rounded-xl border border-accent-primary/30 bg-accent-primary/[0.03] p-4">
+    <section id="page-surgeon" className="mt-6 scroll-mt-20 rounded-xl border-2 border-accent-primary/40 bg-accent-primary/[0.04] p-4">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-[13px]">🔬</span>
         <h3 className="text-[13px] font-semibold text-foreground">Page Surgeon — evidence-based draft</h3>
-        <Tag tone="info">operator</Tag>
+        <Tag tone="info">primary review</Tag>
       </div>
       {pageSurgeon.status === "pack" ? (
         <Pack pack={pageSurgeon.pack} />

@@ -16,7 +16,7 @@ import type { ArtifactBundle, ChangeArtifact } from "./artifact-bundle";
 import type { QaVerdict } from "./artifact-qa";
 import type { PageAtomicDecision, SourceCoverage } from "./page-decision";
 import type { BriefHistoryEntry } from "./brief-store";
-import type { ReviewDecisionRow } from "./review-store";
+import type { ReviewDecisionRow, ReviewVerdict } from "./review-store";
 
 /** How (if at all) a single artifact can actually be applied to the live site. */
 export type PushMethod =
@@ -83,6 +83,49 @@ export type PageSurgeonForUrl =
       sourceCoverage: SourceCoverage[];
     }
   | { status: "no_page" }; // no snapshot / demand maps to this URL
+
+/** Operator-facing label for an artifact's pushability method (PSQ4 clarity). */
+export function pushMethodLabel(m: PushMethod): string {
+  switch (m) {
+    case "wix_cms_field": return "Wix field ready";
+    case "manual_cms_edit": return "Manual CMS edit needed";
+    case "no_write_path": return "Blocked: no write path for this change type";
+    case "blocked_no_mapping": return "Blocked: no Wix mapping";
+    case "not_applicable": return "Not applicable";
+  }
+}
+export function rollbackLabel(rollbackReady: boolean): string {
+  return rollbackReady ? "Rollback ready" : "Rollback best-effort";
+}
+
+/** Compact per-page Page Surgeon status for the QUEUE (list) surface — derived
+ *  from the brief + QA + latest review. `hasPack` is always true here (the loader
+ *  only emits summaries for pages that HAVE a brief; absence ⇒ no pack). */
+export type PageSurgeonSummary = {
+  hasPack: true;
+  pageUrl: string;
+  /** Path (host-stripped) for matching against a rec's target URL. */
+  path: string;
+  qaPass: boolean;
+  factCheckRequired: boolean;
+  headlineAction: PageAtomicDecision["recommended_atomic_action"];
+  reviewVerdict: ReviewVerdict | null;
+  reviewNote: string | null;
+};
+
+/** The four operator queue buckets. A row maps to exactly one. */
+export type PageSurgeonBucket = "reviewed" | "ready" | "needs_edit" | "legacy";
+
+/** Classify a queue row by its Page Surgeon summary (undefined ⇒ no pack ⇒ legacy).
+ *  Pure — drives the operator tabs + reorder. Precedence: an explicit approve is
+ *  "reviewed"; a needs-edit/reject OR a QA-withheld pack is "needs_edit"; a clean
+ *  unreviewed pack is "ready"; no pack at all is "legacy". */
+export function bucketForSummary(summary: PageSurgeonSummary | undefined): PageSurgeonBucket {
+  if (!summary) return "legacy";
+  if (summary.reviewVerdict === "approve") return "reviewed";
+  if (summary.reviewVerdict === "needs_edit" || summary.reviewVerdict === "reject" || !summary.qaPass) return "needs_edit";
+  return "ready";
+}
 
 const CMS_FIELD_ACTIONS = new Set<ChangeArtifact["action"]>(["title", "meta", "h1", "schema"]);
 const CONTENT_BODY_ACTIONS = new Set<ChangeArtifact["action"]>([

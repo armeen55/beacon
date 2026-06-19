@@ -214,6 +214,11 @@ export type RecommendationDetailActionsProps = {
    * button hidden (safe).
    */
   readonly canPublish?: boolean;
+  /** PSQ3 (operator-only) — a Page Surgeon pack supersedes this legacy rec. The
+   *  legacy quick-Accept (and Approve & Push) are demoted: the operator reviews +
+   *  approves the evidence-based pack above instead. Defer/Dismiss stay active.
+   *  Defaults false → behavior unchanged. NEVER changes publish semantics. */
+  readonly pageSurgeonSupersedes?: boolean;
 };
 
 type Feedback = { kind: "ok" | "error"; message: string } | null;
@@ -245,6 +250,7 @@ export function RecommendationDetailActions({
   handlers,
   skipRouterRefresh = false,
   canPublish = false,
+  pageSurgeonSupersedes = false,
 }: RecommendationDetailActionsProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -269,7 +275,7 @@ export function RecommendationDetailActions({
   // written to yet.
   const pushEditId = row.detail?.debug?.editId ?? null;
   const canShowPush =
-    canPublish && row.status === "accepted" && pushEditId != null;
+    canPublish && row.status === "accepted" && pushEditId != null && !pageSurgeonSupersedes;
 
   function runPush(editId: string): void {
     setFeedback(null);
@@ -330,7 +336,14 @@ export function RecommendationDetailActions({
     isSuggestion: qaIsSuggestion,
   }).actionable;
   const recPayload = buildAcceptPayload(row);
-  const visible = visibleActionsForRow(row, { qaActionable });
+  const visibleRaw = visibleActionsForRow(row, { qaActionable });
+  // PSQ3 — when a Page Surgeon pack supersedes this legacy rec, demote the legacy
+  // quick-Accept: drop it from the inline actions and show an explanation pointing
+  // to the pack above. Defer/Dismiss stay so the operator can still reject the rec.
+  const acceptDemoted = pageSurgeonSupersedes && visibleRaw.includes("accept");
+  const visible = acceptDemoted
+    ? visibleRaw.filter((k) => k !== "accept")
+    : visibleRaw;
 
   function run(
     fn: () => Promise<RecommendationActionResponse>,
@@ -438,7 +451,7 @@ export function RecommendationDetailActions({
         )}
         {primary.length > 0 ? (
           primary
-        ) : canShowPush ? null : (
+        ) : canShowPush || acceptDemoted ? null : (
           <p
             className="text-[12px] text-muted-foreground"
             data-recommendation-detail-actions-empty="true"
@@ -447,6 +460,16 @@ export function RecommendationDetailActions({
           </p>
         )}
       </div>
+
+      {acceptDemoted && (
+        <p
+          className="rounded-md border border-accent-primary/30 bg-accent-primary/[0.05] px-2.5 py-1.5 text-[12px] text-muted-foreground"
+          data-recommendation-detail-actions-ps-supersedes="true"
+        >
+          <span className="font-semibold text-foreground">A Page Surgeon plan supersedes this.</span>{" "}
+          Review and approve the evidence-based draft above (the legacy quick-accept is paused). Nothing publishes.
+        </p>
+      )}
 
       {/* Secondary / fallback links — always available */}
       <div className="flex flex-wrap items-center gap-3 text-[12px] font-semibold">

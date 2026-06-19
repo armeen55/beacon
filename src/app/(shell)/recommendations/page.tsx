@@ -8,6 +8,11 @@ export const dynamic = "force-dynamic";
 import { Suspense } from "react";
 
 import { currentTenantId } from "@/lib/tenant-context";
+import { isOperatorModeServer } from "@/lib/operator-mode";
+import {
+  loadPageSurgeonSummaries,
+  type PageSurgeonSummary,
+} from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import {
   loadPersistedRecommendationQueueForPage,
   type LiveRecQueueItem,
@@ -254,6 +259,17 @@ export async function RecommendationsAsyncContent({
       publishTarget = null;
     }
 
+    // PSQ — operator-only Page Surgeon summaries (read-only). Maps each briefed
+    // page's PATH → its QA/review/headline so the queue can put Page-Surgeon-ready
+    // packs FIRST and demote basic legacy recs. Empty in customer mode → customer
+    // render is byte-identical. The loader is fail-soft internally.
+    const isOperator = isOperatorModeServer();
+    const pageSurgeonSummaries: Record<string, PageSurgeonSummary> = isOperator
+      ? await trace.time("loadPageSurgeonSummaries", () =>
+          loadPageSurgeonSummaries(tenantId),
+        )
+      : {};
+
     return (
       <div className="max-w-5xl">
         {errors.length > 0 && <DataDegradedBanner errors={errors} />}
@@ -269,6 +285,8 @@ export async function RecommendationsAsyncContent({
           publishingMode={publishingMode}
           canPublish={canPublish}
           publishTarget={publishTarget}
+          isOperator={isOperator}
+          pageSurgeonSummaries={pageSurgeonSummaries}
         />
         {debugResolver && (
           <RecsResolverDebugPanel

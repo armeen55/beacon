@@ -27,10 +27,10 @@ import { qaArtifactBundle } from "./artifact-qa";
 import { buildSourceCoverage, type SourceCoverage } from "./page-decision";
 import { getCachedBriefs, getBriefHistory } from "./brief-store";
 import { getLatestReviewDecisions } from "./review-store";
-import { buildAtomicChangePack, type PageSurgeonForUrl } from "./change-pack";
+import { buildAtomicChangePack, type PageSurgeonForUrl, type PageSurgeonSummary } from "./change-pack";
 import { buildProofPlanRow, type ProofPlanRow } from "./proof-plan";
 
-export type { PageSurgeonForUrl } from "./change-pack";
+export type { PageSurgeonForUrl, PageSurgeonSummary } from "./change-pack";
 export type { ProofPlanRow } from "./proof-plan";
 
 const toPath = (u: string): string => u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
@@ -117,6 +117,47 @@ export async function loadPageSurgeonForUrl(
   });
 
   return { status: "pack", pack };
+}
+
+/**
+ * PSQ1 — compact Page Surgeon status for the QUEUE, keyed by page PATH so the
+ * client can match a rec's target URL directly. Only pages that HAVE a brief get
+ * a summary (absence ⇒ no pack ⇒ legacy). Bounded by the (small) number of
+ * briefs, and the context load is cached (WL7). Read-only, fail-soft.
+ */
+export async function loadPageSurgeonSummaries(
+  tenantId: string,
+): Promise<Record<string, PageSurgeonSummary>> {
+  const out: Record<string, PageSurgeonSummary> = {};
+  try {
+    const [ctx, briefs, decisions] = await Promise.all([
+      loadPageSurgeonContext(tenantId),
+      getCachedBriefs(tenantId),
+      getLatestReviewDecisions(tenantId),
+    ]);
+    const siteUrls = [...ctx.snapshotByCanon.values()].map((s) => ({ url: s.url, title: s.title ?? null }));
+    for (const [pageUrl, brief] of briefs) {
+      const canon = resolveCanon(ctx, pageUrl);
+      if (!canon) continue;
+      const packet = assemblePacketForUrl(ctx, canon);
+      const bundle = composeArtifactBundle(brief.decision, packet, siteUrls, controlPaths(ctx, canon));
+      const qa = qaArtifactBundle(bundle, packet, Date.now());
+      const review = decisions.get(packet.current.pageUrl) ?? decisions.get(pageUrl) ?? null;
+      out[toPath(pageUrl)] = {
+        hasPack: true,
+        pageUrl,
+        path: toPath(pageUrl),
+        qaPass: qa.pass,
+        factCheckRequired: qa.factCheckRequired ?? false,
+        headlineAction: brief.decision.recommended_atomic_action,
+        reviewVerdict: review?.verdict ?? null,
+        reviewNote: review?.note ?? null,
+      };
+    }
+  } catch {
+    /* fail-soft → whatever we gathered (often empty) */
+  }
+  return out;
 }
 
 /**

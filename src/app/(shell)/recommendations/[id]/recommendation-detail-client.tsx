@@ -783,6 +783,7 @@ export function RecommendationDetailClient({
           row={row}
           changelogId={changelogId}
           canPublish={canPublish}
+          pageSurgeonSupersedes={pageSurgeon?.status === "pack"}
         />
       </Act>
 

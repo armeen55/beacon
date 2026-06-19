@@ -22,6 +22,20 @@ const TENANT = "tenant-iranopedia";
     }
   }
 
+  const { loadPageSurgeonSummaries } =
+    await import("@/domains/recommendation-intelligence/page-surgeon/bridge");
+  const { bucketForSummary } =
+    await import("@/domains/recommendation-intelligence/page-surgeon/change-pack");
+  const summaries = await loadPageSurgeonSummaries(TENANT);
+  const entries = Object.values(summaries);
+  console.log(`\npage surgeon summaries: ${entries.length} briefed pages`);
+  const counts: Record<string, number> = { ready: 0, needs_edit: 0, reviewed: 0, legacy: 0 };
+  for (const s of entries) {
+    counts[bucketForSummary(s)] += 1;
+    console.log(`  ${s.path} → bucket=${bucketForSummary(s)} qaPass=${s.qaPass} action=${s.headlineAction} review=${s.reviewVerdict ?? "none"}`);
+  }
+  console.log(`  buckets: ${JSON.stringify(counts)}`);
+
   const proof = await loadProofPlan(TENANT);
   console.log(`\nproof plan rows: ${proof.length}`);
   for (const row of proof.slice(0, 5)) {

@@ -585,3 +585,50 @@ describe("Bundle 2C — no internal vocabulary leaks", () => {
     expect(html).not.toContain("create_cluster_page");
   });
 });
+
+describe("PSQ3 — Page Surgeon supersedes the legacy Accept", () => {
+  it("by default a 'new' rec shows the legacy Accept", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailActions
+        row={makeRow({ status: "new" })}
+        changelogId={null}
+        skipRouterRefresh
+        handlers={makeHandlers()}
+      />,
+    );
+    expect(html).toContain('data-recommendation-detail-action="accept"');
+    expect(html).not.toContain("data-recommendation-detail-actions-ps-supersedes");
+  });
+
+  it("when a Page Surgeon pack supersedes, the legacy Accept is demoted + explained", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailActions
+        row={makeRow({ status: "new" })}
+        changelogId={null}
+        skipRouterRefresh
+        handlers={makeHandlers()}
+        pageSurgeonSupersedes
+      />,
+    );
+    expect(html).not.toContain('data-recommendation-detail-action="accept"');
+    expect(html).toContain("data-recommendation-detail-actions-ps-supersedes");
+    expect(html).toContain("Page Surgeon plan supersedes");
+  });
+
+  it("supersede also hides Approve & Push (pack takes precedence), keeps publish off", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailActions
+        row={acceptedPushableRow()}
+        changelogId={null}
+        canPublish
+        skipRouterRefresh
+        handlers={{
+          ...makeHandlers(),
+          approveAndPush: vi.fn().mockResolvedValue({ ok: true, outcome: "pushed", detail: "" }),
+        }}
+        pageSurgeonSupersedes
+      />,
+    );
+    expect(html).not.toContain('data-recommendation-detail-action="approve-push"');
+  });
+});

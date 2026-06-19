@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { classifyArtifactPushability, buildAtomicChangePack } from "./change-pack";
+import { classifyArtifactPushability, buildAtomicChangePack, bucketForSummary, pushMethodLabel, type PageSurgeonSummary } from "./change-pack";
 import type { ChangeArtifact, ArtifactBundle } from "./artifact-bundle";
 import type { EvidencePacket } from "./contract";
 import type { PageAtomicDecision } from "./page-decision";
@@ -87,5 +87,31 @@ describe("change-pack — buildAtomicChangePack", () => {
     expect(pack.anyAutoApplicable).toBe(false);
     expect(pack.publishBlockers.length).toBeGreaterThan(0);
     expect(pack.pushability).toHaveLength(1);
+  });
+});
+
+describe("change-pack — queue bucketing (PSQ)", () => {
+  const base: PageSurgeonSummary = {
+    hasPack: true, pageUrl: "https://x.com/p", path: "/p", qaPass: true,
+    factCheckRequired: false, headlineAction: "title", reviewVerdict: null, reviewNote: null,
+  };
+  it("no summary → legacy", () => {
+    expect(bucketForSummary(undefined)).toBe("legacy");
+  });
+  it("clean unreviewed QA-pass pack → ready", () => {
+    expect(bucketForSummary({ ...base, qaPass: true, reviewVerdict: null })).toBe("ready");
+  });
+  it("approved pack → reviewed (takes precedence over ready)", () => {
+    expect(bucketForSummary({ ...base, qaPass: true, reviewVerdict: "approve" })).toBe("reviewed");
+  });
+  it("needs_edit OR reject OR QA-withheld → needs_edit", () => {
+    expect(bucketForSummary({ ...base, reviewVerdict: "needs_edit" })).toBe("needs_edit");
+    expect(bucketForSummary({ ...base, reviewVerdict: "reject" })).toBe("needs_edit");
+    expect(bucketForSummary({ ...base, qaPass: false, reviewVerdict: null })).toBe("needs_edit");
+  });
+  it("pushMethodLabel gives operator-clear wording", () => {
+    expect(pushMethodLabel("wix_cms_field")).toMatch(/Wix field ready/);
+    expect(pushMethodLabel("no_write_path")).toMatch(/no write path/);
+    expect(pushMethodLabel("blocked_no_mapping")).toMatch(/no Wix mapping/);
   });
 });

@@ -243,6 +243,12 @@ export type RecommendationV2CardProps = {
    *  visible. Drives no behavior on its own; the parent owns the
    *  keyboard map. */
   isFocused?: boolean;
+  /** PSQ (operator-only) — this row's page has a QA-passed Page Surgeon pack.
+   *  Renders a "Page Surgeon ready" badge. Absent/false in customer view. */
+  pageSurgeonReady?: boolean;
+  /** PSQ (operator-only) — the operator's latest review verdict for this page's
+   *  pack. Renders a reviewed badge + a "Reopen review" affordance. */
+  pageSurgeonReviewVerdict?: "approve" | "reject" | "needs_edit" | null;
 };
 
 export function RecommendationV2Card({
@@ -259,6 +265,8 @@ export function RecommendationV2Card({
   selected = false,
   onToggleSelect,
   isFocused = false,
+  pageSurgeonReady = false,
+  pageSurgeonReviewVerdict = null,
 }: RecommendationV2CardProps) {
   const chips = deriveEvidenceChips(row);
   // PS2 — provenance label so an old single-field deterministic suggestion is
@@ -604,6 +612,28 @@ export function RecommendationV2Card({
           >
             {provenance.label}
           </span>
+          {pageSurgeonReady && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium border-accent-primary/50 bg-accent-primary/10 text-accent-primary"
+              data-recommendation-v2-chip="ps-ready"
+              title="A finished, QA-passed Page Surgeon draft exists for this page"
+            >
+              🔬 Page Surgeon ready
+            </span>
+          )}
+          {pageSurgeonReviewVerdict && (
+            <span
+              className={cn(
+                "inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium",
+                pageSurgeonReviewVerdict === "approve" ? "border-status-success/40 bg-status-success/10 text-status-success"
+                : pageSurgeonReviewVerdict === "needs_edit" ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                : "border-red-500/40 bg-red-500/10 text-red-600",
+              )}
+              data-recommendation-v2-chip="ps-review"
+            >
+              {pageSurgeonReviewVerdict === "approve" ? "Approved" : pageSurgeonReviewVerdict === "needs_edit" ? "Needs edit" : "Rejected"}
+            </span>
+          )}
         </div>
       )}
 
@@ -756,6 +786,16 @@ export function RecommendationV2Card({
         >
           {qaDisplay.actionable ? "Review →" : "Review only →"}
         </Link>
+        {(pageSurgeonReviewVerdict === "approve" || pageSurgeonReviewVerdict === "needs_edit") && (
+          <Link
+            href={`${href}#page-surgeon`}
+            prefetch={false}
+            className="text-muted-foreground hover:underline"
+            data-recommendation-v2-cta="ps-reopen"
+          >
+            Reopen review ↻
+          </Link>
+        )}
       </div>
     </article>
   );
