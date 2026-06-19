@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-19 PAGE SURGEON → PRODUCT BRIDGE PS1–10 (autonomous)
+
+Continuation of the 10x audit — the remaining items NOT covered by WL1–12: get the Page Surgeon out of `/diagnostics` and into the product review workflow, separate stale legacy recs, make decisions/history/proof/rollback/pushability coherent, and surface live-publish blockers explicitly. No publish / arm / queue-regen. Branch pushed to origin; NOT merged/deployed. Commits: `53920fa` PS1+3+4, `42e5997` PS7+8, `a2bde7c` PS2, `4f31cb4` PS9+10, `69a2334` PS5, `2e45815` PS6, `b11f4e3` verify harness.
+
+**What changed**
+- PS4 `change-pack.ts` AtomicChangePack (+ `classifyArtifactPushability`); PS1/PS3 `bridge.ts` `loadPageSurgeonForUrl` + operator-only read-only panel on `/recommendations/[id]`; PS2 `rec-provenance.ts` + queue-card label; PS7 rollback-readiness visibility; PS8 real `wix_url_map` pushability; PS5 review `note` column + textarea + panel display; PS6 `proof-plan.ts` + `/diagnostics/page-surgeon/proof`; PS9 `migrations/README.md`; PS10 `tests/architecture/page-surgeon-title-isolation.test.ts`.
+
+**Tested**
+- `npx tsc --noEmit` clean after every item.
+- `npx vitest run src/domains/recommendation-intelligence src/domains/recommendations src/components/recommendations` → **1276 pass** / 2 skipped (52 files). New unit tests: change-pack (6), rec-provenance (5), proof-plan (3), title-isolation (2).
+- 1 additive migration APPLIED to beacon-main (`page_surgeon_review_decisions.note`). All PS tables confirmed to have idempotent migrations.
+- **Headless ground-truth** (`scripts/_verify-ps-bridge.ts`, real beacon-main Iranopedia): persian-male-names → keep_current pack (QA pass, 0 artifacts); funny-farsi-phrases → intro_answer_block pack (QA pass, fact-check flagged, pushability mix wix_cms_field/no_write_path/manual, anyAuto=true, 1 blocker); proof plan = 0 rows (no decisions recorded yet). No errors.
+
+**Deferred (logged, not blocking):** age-based staleness + queue demotion (PS2) — would touch the customer sort/enforcement layer + multiple builder push-sites; left for an operator-gated pass. The PS panel is operator-gated and read-only; wiring Approve→push stays behind the existing armed-publishing gates.
+
+---
+
 ## 2026-06-19 PAGE SURGEON — trust worklist WL1–12 (autonomous)
 
 Standing-goal autonomous execution of the 12-item Page-Surgeon trust worklist. No publish / Wix / arming / queue regen; branch pushed to origin as backup; NOT merged/deployed. Commits (branch `claude/iranopedia-blockers`): `427ade9` WL1+WL2, `01a8fac` WL3, `2dab700` WL4, `7ae48e7` WL5, `16443e0` WL6, `be4a09f` WL7, `f17f93c` WL8, `c648454` WL9, `d737d36` WL10, `aa0bde3` WL11, `2670389` WL12.
