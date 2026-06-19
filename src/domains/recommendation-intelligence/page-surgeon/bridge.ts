@@ -28,8 +28,10 @@ import { buildSourceCoverage, type SourceCoverage } from "./page-decision";
 import { getCachedBriefs, getBriefHistory } from "./brief-store";
 import { getLatestReviewDecisions } from "./review-store";
 import { buildAtomicChangePack, type PageSurgeonForUrl } from "./change-pack";
+import { buildProofPlanRow, type ProofPlanRow } from "./proof-plan";
 
 export type { PageSurgeonForUrl } from "./change-pack";
+export type { ProofPlanRow } from "./proof-plan";
 
 const toPath = (u: string): string => u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
 
@@ -115,4 +117,45 @@ export async function loadPageSurgeonForUrl(
   });
 
   return { status: "pack", pack };
+}
+
+/**
+ * PS6 — the proof plan: every REVIEWED change (approve / needs_edit) with its
+ * measurement window (7/14/28-day check-ins), the GSC metrics that will be
+ * re-checked (today's baseline), and the control pages for a diff-in-diff.
+ * Read-only, no cron — prepares the proof loop the operator/runner executes.
+ */
+export async function loadProofPlan(tenantId: string): Promise<ProofPlanRow[]> {
+  const [decisions, ctx, briefs] = await Promise.all([
+    getLatestReviewDecisions(tenantId),
+    loadPageSurgeonContext(tenantId),
+    getCachedBriefs(tenantId),
+  ]);
+
+  const rows: ProofPlanRow[] = [];
+  for (const [pageUrl, decision] of decisions) {
+    if (decision.verdict === "reject") continue; // proof loop tracks accepted/edited only
+    const canon = resolveCanon(ctx, pageUrl);
+    if (!canon) continue;
+    const packet = assemblePacketForUrl(ctx, canon);
+    const brief = briefs.get(packet.current.pageUrl);
+    const g = packet.gsc;
+    rows.push(
+      buildProofPlanRow({
+        pageUrl,
+        verdict: decision.verdict,
+        headlineAction: brief?.decision.recommended_atomic_action ?? "—",
+        decidedAt: decision.created_at,
+        measurementPlan: brief?.decision.primary_atomic_change?.measurement ?? null,
+        note: decision.note,
+        gsc: g
+          ? { clicks: g.clicks, impressions: g.impressions, ctr: g.ctr, avgPosition: g.avgPosition, topQuery: g.topQueries[0]?.query ?? "" }
+          : null,
+        controlPaths: controlPaths(ctx, canon),
+      }),
+    );
+  }
+  // Newest decision first.
+  rows.sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : -1));
+  return rows;
 }

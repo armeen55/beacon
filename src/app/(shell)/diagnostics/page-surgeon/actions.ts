@@ -37,6 +37,7 @@ import {
   type ReviewVerdict,
 } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import type { PageSurgeonContext } from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
+import type { ProofPlanRow } from "@/domains/recommendation-intelligence/page-surgeon/proof-plan";
 
 const TOP_N = 8;
 
@@ -222,6 +223,16 @@ export async function getPageSurgeonHistory(pageUrl: string): Promise<BriefHisto
   gate();
   const tenantId = await currentTenantId();
   return getBriefHistory(tenantId, pageUrl);
+}
+
+/** PS6 — the proof plan for every reviewed (approved/needs-edit) change. */
+export async function listProofPlan(): Promise<{ rows: ProofPlanRow[]; tenantId: string }> {
+  gate();
+  const tenantId = await currentTenantId();
+  const { loadProofPlan } = await import(
+    "@/domains/recommendation-intelligence/page-surgeon/bridge"
+  );
+  return { rows: await loadProofPlan(tenantId), tenantId };
 }
 
 /** Record the operator's review decision — now PERSISTED (append-only), tied to
