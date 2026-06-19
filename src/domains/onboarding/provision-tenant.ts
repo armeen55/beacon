@@ -90,17 +90,33 @@ export function deriveTenantId(userId: string): string {
 export const PLACEHOLDER_BUSINESS_NAME = "New Beacon Account";
 
 /**
+ * Free / personal email providers whose domain prefix is NOT a business name
+ * ("gmail" → "Gmail"). For these we emit the neutral placeholder so the user
+ * names their own business in onboarding, instead of a nonsense auto-name.
+ */
+const FREE_EMAIL_DOMAINS = new Set([
+  "gmail", "googlemail", "yahoo", "ymail", "hotmail", "outlook", "live", "msn",
+  "icloud", "me", "mac", "aol", "proton", "protonmail", "pm", "gmx", "zoho",
+  "mail", "yandex", "fastmail", "hey",
+]);
+
+/**
  * Derive a placeholder business_name from email. Used as a stub until
  * the user fills in the real name in /onboard/business (Gap C).
  *
  * "joe@acme-builders.com" → "Acme Builders" (best-effort title-cased
- * domain prefix). Falls back to "New Beacon Account" on weird emails.
+ * domain prefix). Personal email (gmail/yahoo/…) and weird emails fall back
+ * to "New Beacon Account" — which onboarding treats as "no name yet" and
+ * clears, so the user types their real business name.
  */
 export function derivePlaceholderBusinessName(email: string): string {
   const at = email.indexOf("@");
   if (at < 0 || at === email.length - 1) return PLACEHOLDER_BUSINESS_NAME;
   const domainPart = email.slice(at + 1).split(".")[0] ?? "";
   if (!domainPart) return PLACEHOLDER_BUSINESS_NAME;
+  if (FREE_EMAIL_DOMAINS.has(domainPart.toLowerCase())) {
+    return PLACEHOLDER_BUSINESS_NAME;
+  }
   return domainPart
     .split(/[-_]/)
     .filter(Boolean)

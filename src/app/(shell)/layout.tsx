@@ -1,5 +1,6 @@
 import { ShellProvider, type NavBadges } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { AppHeader } from "@/components/shell/app-header";
 import { TenantSwitcher } from "@/components/shell/tenant-switcher";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
@@ -199,6 +200,8 @@ export default async function ShellLayout({
   trace.data("changes_badge", badges["/changes"] ?? 0);
   trace.flush();
 
+  const isOperator = isOperatorModeServer();
+
   return (
     <ShellProvider badges={badges} isDemoMode={isDemoMode}>
       <a
@@ -208,7 +211,7 @@ export default async function ShellLayout({
         Skip to content
       </a>
       <div className="flex h-screen overflow-hidden">
-        <AppSidebar />
+        <AppSidebar isOperator={isOperator} />
         <MobileSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppHeader rightSlot={<TenantSwitcher />} />

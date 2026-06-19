@@ -110,6 +110,11 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     // and redirects to /onboard/business.
     path.startsWith("/signup") ||
     path.startsWith("/auth") ||
+    // Machine endpoints (Vercel Cron) carry no Supabase session — they
+    // authenticate themselves via `Authorization: Bearer $CRON_SECRET`
+    // inside the route, so the session gate must let them through rather
+    // than 307→/login (which would make the cron unreachable).
+    path.startsWith("/api/cron") ||
     path.startsWith("/_next") ||
     path === "/favicon.ico";
 

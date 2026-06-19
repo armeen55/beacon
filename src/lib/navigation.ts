@@ -4,6 +4,9 @@ import {
   GitCompareArrows,
   ListChecks,
   Target,
+  Compass,
+  Network,
+  LineChart,
   Plug,
   type LucideIcon,
 } from "lucide-react";
@@ -40,3 +43,20 @@ export const navigationGroups: NavGroup[] = [
 ];
 
 export const allNavItems: NavItem[] = navigationGroups.flatMap((g) => g.items);
+
+/**
+ * Operator-OS rebuild (2026-06-19) — OPERATOR-ONLY nav, rendered in the sidebar
+ * only when `isOperatorModeServer()` is true (threaded from the server layout).
+ * Kept SEPARATE from `navigationGroups` (and out of `allNavItems`) so the
+ * customer surface stays exactly the 6 customer routes — the cmd+K palette and
+ * the customer-nav-exposure invariant both read `navigationGroups`/`allNavItems`,
+ * never this. These routes self-gate with `notFound()` for non-operators too.
+ */
+export const operatorNavGroup: NavGroup = {
+  label: "Operator",
+  items: [
+    { label: "Opportunities", href: "/opportunities", icon: Compass },
+    { label: "Proof", href: "/proof", icon: LineChart },
+    { label: "Data Health", href: "/connections", icon: Network },
+  ],
+};
