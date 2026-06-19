@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-18 PAGE SURGEON — finished artifact bundle + auto-QA gate + visual review (live-verified)
+
+The leap from "advice" to "an operator draft I approve" (operator pick 1+4). Commits `6be3edd` (engine) + `e46cfb5` (UI). No publish / Wix / queue regen.
+- **Artifact composer** (`artifact-bundle.ts`, pure): each gated change → a FINISHED, CMS-validated bundle — literal title/meta/h1 with char-limit checks (60/160/70), literal answer-block HTML+text, literal FAQ Q&A, deterministic Article+BreadcrumbList(+FAQPage) JSON-LD, internal links resolved to REAL site URLs by topic (unresolved→null+note, never faked), before/after diff, rollback content, measurement, the gate's publishability, evidence receipt, + a rendered Google SERP snippet before/after. Judge now emits the LITERAL content (artifact_text / faq_items). Never elevates publishability.
+- **Auto-QA gate** (`artifact-qa.ts`, pure deterministic): vets every bundle BEFORE the operator sees it — evidence present, measurable, CMS-valid (in-limit, non-empty, JSON-LD parses), brand/fact-safe (no placeholder/junk), no stale tactics (image_alt / schema-when-present / FAQ-rich-result), ranking-safe (no snippet rewrite without a deficit), decision-consistent. Critical failure → withheld with reasons.
+- **Visual review surface** (`/diagnostics/page-surgeon/review`): SERP before/after, finished content per change in dependency order (char-limit bars, answer-block, FAQ, JSON-LD, resolved links), evidence/risk/rollback/measurement, Approve / Needs-edit / Reject. Three sections: Ready to review (QA-passed) · Not yet drafted · Rejected by QA (with reasons). Publishing disabled — controls record intent only.
+- **VERIFIED live on Iranopedia** (real data, screenshot captured): 4/5 pages produce QA-passed finished bundles — `/cities`→intro_answer_block (literal answer + schema + FAQ), `/iran-flags`→title + ux_cta_fix (Clarity friction), `/farsi-numbers`→title "Persian Numbers 0-9 — Names, Symbols & 1–10" (43/60), `/persian-male-names`→keep_current. **`/funny-farsi-phrases` was WITHHELD by auto-QA** with real reasons (meta 164>160 chars + deprecated FAQ-rich-result justification) — the "only QA-passed drafts reach you" guarantee working on live output. Review page rendered + screenshotted under Iranopedia (Google-style snippet preview, QA-passed badge, evidence line). typecheck clean; 39 page-surgeon + semrush tests green (11 new composer/QA tests). DECISION_SCHEMA_VERSION already v3.
+
+---
+
 ## 2026-06-18 PAGE SURGEON — deterministic TRUST HARDENING (audit P1–P4, live-verified)
 
 After an investor-demo audit (5 briefs reviewed by an independent adversarial SEO panel; all 5 scored 4–5/10, demo_worthy=false) found systemic trust defects, hardened the deterministic gate — the SOLE authority, never the LLM. Commit `491d19b`. No queue regen / publish / Wix / new UI.
