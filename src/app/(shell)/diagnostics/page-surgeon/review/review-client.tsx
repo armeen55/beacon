@@ -231,6 +231,11 @@ function ReviewCard({ row }: { row: PageSurgeonReviewRow }) {
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
+          {row.reviewVerdict && (
+            <Pill tone={row.reviewVerdict === "approve" ? "good" : row.reviewVerdict === "reject" ? "bad" : "warn"}>
+              {row.reviewVerdict === "approve" ? "Approved" : row.reviewVerdict === "needs_edit" ? "Needs edit" : "Rejected"}
+            </Pill>
+          )}
           {qa && <QaBadge qa={qa} />}
           <button type="button" onClick={run} disabled={pending || !row.hasOpenAi} className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50">
             {pending ? "Drafting…" : bundle ? "Re-draft" : "Draft change"}

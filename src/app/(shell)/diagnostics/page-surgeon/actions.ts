@@ -31,6 +31,11 @@ import {
   type ArtifactBundle,
 } from "@/domains/recommendation-intelligence/page-surgeon/artifact-bundle";
 import { qaArtifactBundle, type QaVerdict } from "@/domains/recommendation-intelligence/page-surgeon/artifact-qa";
+import {
+  getLatestReviewDecisions,
+  recordReviewDecisionRow,
+  type ReviewVerdict,
+} from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import type { PageSurgeonContext } from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
 
 const TOP_N = 8;
@@ -137,6 +142,8 @@ export type PageSurgeonReviewRow = {
   bundle: ArtifactBundle | null;
   /** Auto-QA verdict; the surface only shows the artifact when qa.pass. */
   qa: QaVerdict | null;
+  /** The operator's last persisted review verdict for this page (null if none). */
+  reviewVerdict: ReviewVerdict | null;
   stale: boolean;
   hasOpenAi: boolean;
 };
@@ -153,6 +160,7 @@ export async function listPageSurgeonReview(): Promise<{ rows: PageSurgeonReview
   const tenantId = await currentTenantId();
   const ctx = await loadPageSurgeonContext(tenantId);
   const cached = await getCachedBriefs(tenantId);
+  const decisions = await getLatestReviewDecisions(tenantId);
   const siteUrls = siteUrlsFromCtx(ctx);
   const hasOpenAi = (process.env.OPENAI_API_KEY?.trim().length ?? 0) > 0;
 
@@ -174,6 +182,7 @@ export async function listPageSurgeonReview(): Promise<{ rows: PageSurgeonReview
       gsc: gscRow(packet),
       bundle,
       qa,
+      reviewVerdict: decisions.get(packet.current.pageUrl)?.verdict ?? null,
       stale: c != null && c.evidence_hash !== hash,
       hasOpenAi,
     };
@@ -215,15 +224,24 @@ export async function getPageSurgeonHistory(pageUrl: string): Promise<BriefHisto
   return getBriefHistory(tenantId, pageUrl);
 }
 
-/** Record the operator's review decision. PUBLISHING IS DISABLED here — this
- *  never pushes to Wix or writes content live; it only acknowledges the call. */
+/** Record the operator's review decision — now PERSISTED (append-only), tied to
+ *  the evidence_hash reviewed so it survives a reload. PUBLISHING IS DISABLED
+ *  here — this never pushes to Wix or writes content live. */
 export async function recordReviewDecision(
   canonUrl: string,
-  verdict: "approve" | "reject" | "needs_edit",
+  verdict: ReviewVerdict,
 ): Promise<{ ok: true; message: string }> {
   gate();
+  const tenantId = await currentTenantId();
+  const ctx = await loadPageSurgeonContext(tenantId);
+  const packet = assemblePacketForUrl(ctx, canonUrl);
+  const pageUrl = packet.current.pageUrl;
+  const hash = packet.gsc ? evidenceHash(packet) : "";
+  const saved = await recordReviewDecisionRow(tenantId, pageUrl, verdict, hash);
   return {
     ok: true,
-    message: `Recorded "${verdict}" for ${canonUrl}. Publishing is disabled — nothing was pushed live.`,
+    message: saved
+      ? `Recorded "${verdict}" for ${pageUrl}. Publishing is disabled — nothing was pushed live.`
+      : `Captured "${verdict}" (persist unavailable — logged). Publishing is disabled — nothing was pushed live.`,
   };
 }
