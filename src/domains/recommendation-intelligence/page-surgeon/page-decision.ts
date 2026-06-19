@@ -98,8 +98,11 @@ const minConf = (a: EvidenceConfidence, b: EvidenceConfidence): EvidenceConfiden
 
 /** Bump when the decision shape OR the gate logic changes so old cached briefs
  *  re-run. v3 = the 2026-06-18 trust-hardening gate (over-recommendation
- *  suppression, evidence-citation sanitizer, candidate eligibility). */
-export const DECISION_SCHEMA_VERSION = "v3-trust-gate";
+ *  suppression, evidence-citation sanitizer, candidate eligibility).
+ *  v4 = the WL1–11 trust worklist (keep_current narrative, per-claim absent
+ *  evidence, numeric fidelity, supporting-change cap, per-query deficit,
+ *  diagnose-then-plan, null≠0 KD/CPC). */
+export const DECISION_SCHEMA_VERSION = "v4-trust-worklist";
 
 export function buildSourceCoverage(packet: EvidencePacket): SourceCoverage[] {
   const present = new Set(packet.sourcesPresent);
