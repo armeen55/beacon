@@ -16,22 +16,27 @@ export type ReviewDecisionRow = {
   verdict: ReviewVerdict;
   evidence_hash: string;
   created_at: string;
+  /** Operator's free-text feedback (esp. for "needs_edit" / reject reasons). */
+  note: string | null;
 };
 
-/** Append one review verdict. Fail-soft → false (never throws). */
+/** Append one review verdict (+ optional note). Fail-soft → false (never throws). */
 export async function recordReviewDecisionRow(
   tenantId: string,
   pageUrl: string,
   verdict: ReviewVerdict,
   evidenceHash: string,
+  note?: string | null,
 ): Promise<boolean> {
   try {
     const sb = getSupabaseAdmin();
+    const trimmed = (note ?? "").trim();
     const { error } = await sb.from("page_surgeon_review_decisions").insert({
       tenant_id: tenantId,
       page_url: pageUrl,
       verdict,
       evidence_hash: evidenceHash || null,
+      note: trimmed.length > 0 ? trimmed.slice(0, 2000) : null,
     });
     if (error) {
       log.warn("[page-surgeon-review] record failed", { tenantId, pageUrl, error: error.message });
@@ -57,7 +62,7 @@ export async function getLatestReviewDecisions(
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from("page_surgeon_review_decisions")
-      .select("page_url, verdict, evidence_hash, created_at")
+      .select("page_url, verdict, evidence_hash, created_at, note")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -70,6 +75,7 @@ export async function getLatestReviewDecisions(
         verdict: r.verdict as ReviewVerdict,
         evidence_hash: (r.evidence_hash as string) ?? "",
         created_at: r.created_at as string,
+        note: (r.note as string | null) ?? null,
       });
     }
     return latest;

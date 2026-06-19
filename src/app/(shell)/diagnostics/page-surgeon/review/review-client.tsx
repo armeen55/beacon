@@ -104,10 +104,11 @@ function QaBadge({ qa }: { qa: QaVerdict }) {
 
 function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVerdict; canonUrl: string }) {
   const [recorded, setRecorded] = useState<string | null>(null);
+  const [note, setNote] = useState("");
   const [pending, startTransition] = useTransition();
   const record = (verdict: "approve" | "reject" | "needs_edit") =>
     startTransition(async () => {
-      const r = await recordReviewDecision(canonUrl, verdict);
+      const r = await recordReviewDecision(canonUrl, verdict, note.trim() || null);
       setRecorded(r.message);
     });
 
@@ -175,11 +176,20 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
       )}
 
       {/* The 10-second decision */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-3">
+      <div className="border-t border-border/40 pt-3">
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Optional feedback (required spirit for 'Needs edit'): what to change, or why rejected…"
+          rows={2}
+          className="mb-2 w-full rounded-md border border-border/60 bg-surface-inset/30 px-2 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/70"
+        />
+        <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={pending} onClick={() => record("approve")} className="rounded-md bg-status-success px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">Approve</button>
         <button type="button" disabled={pending} onClick={() => record("needs_edit")} className="rounded-md bg-amber-500 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">Needs edit</button>
         <button type="button" disabled={pending} onClick={() => record("reject")} className="rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:bg-surface-inset/60 disabled:opacity-50">Reject</button>
         <span className="text-[10px] text-muted-foreground">Publishing is disabled — nothing is pushed.</span>
+        </div>
       </div>
       {recorded && <p className="text-[11px] text-status-success">{recorded}</p>}
 

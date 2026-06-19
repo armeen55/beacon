@@ -230,6 +230,7 @@ export async function getPageSurgeonHistory(pageUrl: string): Promise<BriefHisto
 export async function recordReviewDecision(
   canonUrl: string,
   verdict: ReviewVerdict,
+  note?: string | null,
 ): Promise<{ ok: true; message: string }> {
   gate();
   const tenantId = await currentTenantId();
@@ -237,7 +238,7 @@ export async function recordReviewDecision(
   const packet = assemblePacketForUrl(ctx, canonUrl);
   const pageUrl = packet.current.pageUrl;
   const hash = packet.gsc ? evidenceHash(packet) : "";
-  const saved = await recordReviewDecisionRow(tenantId, pageUrl, verdict, hash);
+  const saved = await recordReviewDecisionRow(tenantId, pageUrl, verdict, hash, note);
   return {
     ok: true,
     message: saved

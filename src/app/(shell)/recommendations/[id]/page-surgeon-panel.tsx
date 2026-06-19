@@ -78,6 +78,12 @@ function Pack({ pack }: { pack: AtomicChangePack }) {
         {pack.reviewDecision && <Tag tone={verdictTone}>review: {pack.reviewDecision.verdict}</Tag>}
       </div>
 
+      {pack.reviewDecision?.note && (
+        <p className="rounded border border-border/40 bg-surface-inset/30 p-2 text-[11px] text-muted-foreground">
+          <span className="font-semibold text-foreground/80">Review note ({pack.reviewDecision.verdict}):</span> {pack.reviewDecision.note}
+        </p>
+      )}
+
       {pack.operatorInsight && (
         <p className="rounded bg-accent-primary/[0.05] p-2 text-[12px] leading-relaxed text-foreground">{pack.operatorInsight}</p>
       )}
