@@ -77,6 +77,18 @@ describe("Page Surgeon — artifact composer (finished, CMS-ready content)", () 
     expect(faqArtifact!.faq).toEqual(faq);
   });
 
+  it("measurement is made counterfactual with control pages (diff-in-diff)", () => {
+    const b = composeArtifactBundle(decision(change("title", { exact_change: "New Title" })), packet(), [], ["/cities", "/iran-flags"]);
+    expect(b.primary!.measurement).toMatch(/control/i);
+    expect(b.primary!.measurement).toContain("/cities");
+  });
+
+  it("ux_cta_fix does NOT get GSC control pages (it's Clarity-measured)", () => {
+    const c = change("ux_cta_fix", { measurement: "" });
+    const b = composeArtifactBundle(decision(c), packet(), [], ["/cities"]);
+    expect(b.primary!.measurement).not.toMatch(/control/i);
+  });
+
   it("internal_link → resolves anchors to real site URLs by topic, unresolved → null", () => {
     const site = [
       { url: "https://iranopedia.com/persian-language", title: "Persian Language Guide" },

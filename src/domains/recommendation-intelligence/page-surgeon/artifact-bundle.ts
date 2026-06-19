@@ -216,11 +216,22 @@ function specificMeasurement(change: AtomicChange, packet: EvidencePacket): stri
   const hasTime = /(\bday|\bweek|\bmonth|\d+\s*d\b)/i.test(m);
   return m.length >= 20 && (hasMetric || hasTime) ? m : defaultMeasurement(change, packet);
 }
+/** Make the measurement COUNTERFACTUAL: name comparable unchanged pages as
+ *  diff-in-diff controls so the lift is isolated from sitewide movement. Only
+ *  for GSC-measurable changes; skipped for ux_cta_fix (Clarity-measured) and
+ *  when the measurement already references a control. */
+function withControls(measurement: string, change: AtomicChange, controlPaths: string[]): string {
+  if (change.action === "ux_cta_fix" || controlPaths.length === 0) return measurement;
+  if (/\b(control|comparable|diff-in-diff|counterfactual)\b/i.test(measurement)) return measurement;
+  const controls = controlPaths.slice(0, 3).join(", ");
+  return `${measurement} Use comparable unchanged pages (${controls}) as controls (diff-in-diff) to separate this edit's lift from sitewide movement.`;
+}
 
 export function composeChangeArtifact(
   change: AtomicChange,
   packet: EvidencePacket,
   siteUrls: Array<{ url: string; title: string | null }>,
+  controlPaths: string[] = [],
 ): ChangeArtifact {
   const base = {
     action: change.action,
@@ -228,7 +239,7 @@ export function composeChangeArtifact(
     dependencyOrder: change.dependency_order,
     publishability: change.publishability,
     rollback: specificRollback(change, packet),
-    measurement: specificMeasurement(change, packet),
+    measurement: withControls(specificMeasurement(change, packet), change, controlPaths),
     evidence: change.evidence,
     hypothesis: change.hypothesis,
     risk: change.risk,
@@ -283,8 +294,9 @@ export function composeArtifactBundle(
   decision: PageAtomicDecision,
   packet: EvidencePacket,
   siteUrls: Array<{ url: string; title: string | null }> = [],
+  controlPaths: string[] = [],
 ): ArtifactBundle {
-  const compose = (c: AtomicChange) => composeChangeArtifact(c, packet, siteUrls);
+  const compose = (c: AtomicChange) => composeChangeArtifact(c, packet, siteUrls, controlPaths);
   const primary = decision.primary_atomic_change ? compose(decision.primary_atomic_change) : null;
   const supporting = decision.supporting_atomic_changes.map(compose);
 

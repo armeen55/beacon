@@ -40,6 +40,14 @@ function siteUrlsFromCtx(ctx: PageSurgeonContext): Array<{ url: string; title: s
   return out;
 }
 
+const toPath = (u: string): string => u.replace(/^https?:\/\/[^/]+/, "") || "/";
+
+/** Up to 3 comparable unchanged pages (by demand) to use as diff-in-diff
+ *  controls in the measurement plan — excludes the page being changed. */
+function controlPathsFor(topUrls: string[], currentCanon: string): string[] {
+  return topUrls.filter((u) => u !== currentCanon).map(toPath).slice(0, 3);
+}
+
 function gate(): void {
   if (!isOperatorModeServer() && process.env.NODE_ENV !== "test") notFound();
 }
@@ -146,14 +154,15 @@ export async function listPageSurgeonReview(): Promise<{ rows: PageSurgeonReview
   const siteUrls = siteUrlsFromCtx(ctx);
   const hasOpenAi = (process.env.OPENAI_API_KEY?.trim().length ?? 0) > 0;
 
-  const rows: PageSurgeonReviewRow[] = topPagesByDemand(ctx, TOP_N).map((canonUrl) => {
+  const topUrls = topPagesByDemand(ctx, TOP_N);
+  const rows: PageSurgeonReviewRow[] = topUrls.map((canonUrl) => {
     const packet = assemblePacketForUrl(ctx, canonUrl);
     const hash = evidenceHash(packet);
     const c = cached.get(packet.current.pageUrl);
     let bundle: ArtifactBundle | null = null;
     let qa: QaVerdict | null = null;
     if (c) {
-      bundle = composeArtifactBundle(c.decision, packet, siteUrls);
+      bundle = composeArtifactBundle(c.decision, packet, siteUrls, controlPathsFor(topUrls, canonUrl));
       qa = qaArtifactBundle(bundle, packet, Date.now());
     }
     return {
@@ -190,7 +199,8 @@ export async function runPageSurgeonReview(
     decision = await judgePageAtomicChange({ packet, brand: ctx.brand });
     await saveBrief(tenantId, packet.current.pageUrl, hash, decision);
   }
-  const bundle = composeArtifactBundle(decision, packet, siteUrlsFromCtx(ctx));
+  const controls = controlPathsFor(topPagesByDemand(ctx, TOP_N), canonUrl);
+  const bundle = composeArtifactBundle(decision, packet, siteUrlsFromCtx(ctx), controls);
   const qa = qaArtifactBundle(bundle, packet, Date.now());
   return { ok: true, bundle, qa };
 }
