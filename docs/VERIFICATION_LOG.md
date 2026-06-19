@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-18 PAGE SURGEON — autonomous batch (goal priorities 1–4 + QA hardening + quota check)
+
+Standing-goal autonomous work toward the "AI Page Surgeon → finished, QA-passed atomic changes I approve" north star. No publish / Wix / queue regen / paid pulls; commits `4346c0d` (P2) + `3c70018` (P3).
+- **P2 — closed the remaining QA failure classes:** Microsoft Clarity now in the absent-source citation guard (a change citing dead/rage clicks when Clarity has no data → rejected); **vague rollback** and **vague measurement** are backfilled by the composer to concrete per-action values (restore the exact prior title/meta/h1; remove the added block/JSON-LD/links; "compare GSC CTR/clicks for the top query 28d after vs before"; ux_cta_fix → re-check Clarity 14–28d). New critical QA checks "Rollback specified" + "Measurement specific". +3 tests.
+- **P3 — artifact reads like a senior operator:** the review surface now renders "why it's not just a title tweak", "what a normal SEO misses", and an explicit "Missing sources" caveat line (on top of the existing primary+supporting dependency order, exact copy, per-change evidence/risk/rollback, rejected alternatives, publishability).
+- **P1 + P4 — all 5 demo pages READY ✅ (QA 100%)**, verified cache-only (zero OpenAI): funny-farsi-phrases (answer block), cities (answer block), farsi-numbers (title), iran-flags (title + Clarity ux fix), persian-male-names (keep_current). Exceeds the "2–3 demo-worthy" goal.
+- **P6 (in-scope quota check):** the Page Surgeon read path is clean — brief-store + the SEMrush/GSC/Clarity/GA4 loaders all use explicit column projections, tenant-scoped; no unbounded `select("*")`. (The shared `getPageSnapshots()` repository read is broader but out of safe autonomous scope.)
+- typecheck clean; 44 page-surgeon + 12 semrush tests green. Branch `claude/iranopedia-blockers`, committed locally (not pushed — CI-minutes conservation).
+
+---
+
 ## 2026-06-18 PAGE SURGEON — first demo-worthy artifact: /funny-farsi-phrases now QA-passes (live)
 
 Closed the one QA-withheld page from the artifact slice with the audit-approved plan, making the hard requirements DETERMINISTIC (not LLM luck). Commit `3007040`. No publish / Wix / queue regen.
