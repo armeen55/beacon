@@ -8,7 +8,7 @@ import type {
   OpportunitySource,
 } from "@/domains/insight/opportunity";
 import { serpStatusChip } from "@/domains/insight/serp-guard";
-import { REVIEW_HREF } from "@/domains/insight/page-primary";
+import { workbenchHref } from "@/domains/insight/workbench-route";
 
 const KIND_META: Record<OpportunityKind, { label: string; cls: string }> = {
   ctr_leak: { label: "CTR leak", cls: "border-rose-300 bg-rose-50 text-rose-700" },
@@ -171,7 +171,7 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
                   </span>
                 ) : null}
                 <Link
-                  href={REVIEW_HREF}
+                  href={workbenchHref(o.path)}
                   prefetch={false}
                   className="rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
                 >

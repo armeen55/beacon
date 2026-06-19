@@ -3,6 +3,7 @@ import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadStateOfUnion } from "@/domains/insight/compute-state-of-union";
 import type { StateOfUnionVerdict } from "@/domains/insight/state-of-union";
+import { workbenchHref } from "@/domains/insight/workbench-route";
 
 const VERDICT_ACCENT: Record<StateOfUnionVerdict, string> = {
   ranking_better_losing_clicks: "border-amber-300 bg-amber-50",
@@ -182,7 +183,13 @@ export async function StateOfUnionSection() {
                   {i + 1}.
                 </span>
                 <span className="min-w-0">
-                  {a.headline}{" "}
+                  <Link
+                    href={workbenchHref(a.path)}
+                    prefetch={false}
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    {a.headline}
+                  </Link>{" "}
                   <span className="font-mono text-[11px] text-muted-foreground/70">
                     {a.path}
                   </span>

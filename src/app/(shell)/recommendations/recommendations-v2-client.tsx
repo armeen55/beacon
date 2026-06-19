@@ -44,6 +44,7 @@ import {
   type PageSurgeonSummary,
 } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
 import { actionLabel } from "@/domains/insight/page-primary";
+import { workbenchHref } from "@/domains/insight/workbench-route";
 import {
   acceptRecommendation,
   acceptAndPublishRecommendation,
@@ -757,6 +758,9 @@ export function RecommendationsV2Client({
                     psSummary?.hasPack
                       ? actionLabel(psSummary.headlineAction)
                       : null
+                  }
+                  reviewHref={
+                    psSummary?.hasPack ? workbenchHref(psSummary.path) : undefined
                   }
                 />
               );
