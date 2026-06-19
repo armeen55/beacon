@@ -46,11 +46,15 @@ const TENANT_REPO = join(
 );
 const REPO_TYPES = join(REPO_ROOT, "src/lib/persistence/repositories/types.ts");
 
-describe("E2 — egress observability behind BEACON_SUPABASE_EGRESS_DEBUG flag", () => {
-  it("supabase-backend.ts contains a logEgress helper gated by the env var", () => {
+describe("E2 — egress observability: always-on large-read alarm + opt-in debug trace", () => {
+  it("supabase-backend.ts has a logEgress helper: always-on LARGE READ alarm, full trace behind the env var", () => {
     const src = readFileSync(SUPABASE_BACKEND, "utf-8");
     expect(src.includes("function logEgress")).toBe(true);
-    expect(src.includes('BEACON_SUPABASE_EGRESS_DEBUG !== "1"')).toBe(true);
+    // quota-waste pass #8 (commit 1468830) made the large-read alarm ALWAYS-ON
+    // (it fires regardless of the flag); the env var now only opts INTO the full
+    // per-read byte trace. Pin both: the flag gate (=== "1") + the always-on alarm.
+    expect(src.includes('BEACON_SUPABASE_EGRESS_DEBUG === "1"')).toBe(true);
+    expect(src.includes("[LARGE READ]")).toBe(true);
     expect(src.includes("[supabase-egress]")).toBe(true);
   });
 

@@ -16,7 +16,7 @@
  * This refactor:
  *   • Extracted `loadVisibilityReadModelCoreInner` — the heavy
  *     snapshot + leaderboard + chart-series + chartEvents path —
- *     and wrapped ONLY that in `unstable_cache` (tag + 300s TTL).
+ *     and wrapped ONLY that in `unstable_cache` (tag + 30-min idle TTL).
  *   • Pulled `fetchFreshnessSignal` OUT of the cached path; it runs
  *     uncached every request via `Promise.all([cachedCore(), freshness])`.
  *   • Replaced the 365-day cap with `fetchEarliestActivePlatformDate`
@@ -74,8 +74,11 @@ describe("read-model cache split — freshness is NOT inside the cached entry", 
     expect(pub).toMatch(/buildTodayReadModelCacheTag\(tenantId\)/);
   });
 
-  it("cached core's TTL stays at the 300s safety-net value", () => {
-    expect(SRC).toMatch(/TODAY_READMODEL_CACHE_TTL_SECONDS\s*=\s*300\b/);
+  it("cached core's TTL is the 30-minute idle safety-net value (quota-waste pass #2)", () => {
+    // Raised 300s → 1800s (30 min) in the quota-waste pass to cut idle Supabase
+    // re-reads; the cache is still tag-invalidated on a poll, so freshness is
+    // immediate — the TTL is only the idle backstop.
+    expect(SRC).toMatch(/TODAY_READMODEL_CACHE_TTL_SECONDS\s*=\s*1800\b/);
   });
 
   it("cache key still includes both tenantId and endDate (no shared slot across distinct tenants/dates)", () => {
