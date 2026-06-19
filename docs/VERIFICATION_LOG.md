@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-18 PAGE SURGEON — first demo-worthy artifact: /funny-farsi-phrases now QA-passes (live)
+
+Closed the one QA-withheld page from the artifact slice with the audit-approved plan, making the hard requirements DETERMINISTIC (not LLM luck). Commit `3007040`. No publish / Wix / queue regen.
+- **Composer auto-trim**: any over-limit title/meta/h1 is trimmed to a FINISHED phrase — last clause/sentence boundary within the limit (fallback word boundary), trailing punctuation + dangling conjunction stripped, `autoTrimmed` flagged. Guarantees "meta ≤ 160" with clean copy.
+- **Gate claim-cleaner**: strips deprecated/unsupported justifications (FAQ rich-result / SERP real estate / FAQ-schema-CTR) from every change's evidence+hypothesis before the operator sees it.
+- **Prompt**: meta ≤155; FAQ justified ONLY by question/"meaning" demand; LEAD WITH intro_answer_block when a page has page-1 zero-click "meaning" queries + a CTR deficit.
+- **VERIFIED live (re-drafted, real data): /funny-farsi-phrases → QA PASS 100%, Ready-to-review.** PRIMARY intro_answer_block defines *pedar sag* + *badbakht* (the page-1 zero-click meaning queries — 438 impr/1 click, 220 impr/0 clicks); title→supporting "Persian (Farsi) Swear Words, Insults & Funny Phrases" (52/60, keeps "insults", adds "swear words" per GSC 799/590 + SEMrush variants); meta 127 chars clean; H1 aligned; 4 real Q&A (no rich-result claim); Article+BreadcrumbList schema only; every claim maps to GSC/SEMrush/crawl. All operator hard-requirements met. typecheck clean; 53 page-surgeon + semrush tests green.
+
+---
+
 ## 2026-06-18 PAGE SURGEON — finished artifact bundle + auto-QA gate + visual review (live-verified)
 
 The leap from "advice" to "an operator draft I approve" (operator pick 1+4). Commits `6be3edd` (engine) + `e46cfb5` (UI). No publish / Wix / queue regen.
