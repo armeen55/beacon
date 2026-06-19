@@ -216,6 +216,82 @@ describe("Page Surgeon trust gate — Clarity friction rescue (/iran-flags class
   });
 });
 
+describe("Page Surgeon trust gate — WL1 keep_current narrative honesty", () => {
+  const LEAK = "Deploy this rewritten title and add an intro answer block to win the citation.";
+
+  it("healthy-page collapse overwrites leftover change-plan prose with a protective insight", () => {
+    const p = packet({
+      title: "Persian Boy Names With Meanings",
+      gsc: gsc({ ctr: 0.05, expectedCtrForPosition: 0.05, ctrGap: 0,
+        topQueries: [{ query: "persian boy names", impressions: 4000, clicks: 400, ctr: 0.1, position: 4 }] }),
+    });
+    const d = decision(change("title"), [change("intro_answer_block")]);
+    d.operator_insight = LEAK;
+    d.what_normal_seo_misses = "Normal SEO would just tweak the title.";
+    d.why_not_just_title = "Because the body also needs an answer block.";
+    const out = applyDeterministicGate(d, p);
+    expect(out.recommended_atomic_action).toBe("keep_current");
+    expect(out.operator_insight).not.toContain("Deploy");
+    expect(out.operator_insight).not.toBe(LEAK);
+    expect(out.operator_insight).toMatch(/healthy|no change is recommended/i);
+    expect(out.what_normal_seo_misses).toBe("");
+    expect(out.why_not_just_title).toBe("");
+  });
+
+  it("explicit keep_current (problem present, judge declines) also sheds change-plan prose", () => {
+    // A real problem exists (ctrGap deficit) yet the judge returned keep_current —
+    // hits the P4 NON_CHANGE_ACTIONS exit, which must still sanitize the narrative.
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const d = decision(null);
+    d.operator_insight = LEAK;
+    d.what_normal_seo_misses = "x";
+    d.why_not_just_title = "y";
+    const out = applyDeterministicGate(d, p);
+    expect(out.recommended_atomic_action).toBe("keep_current");
+    expect(out.operator_insight).not.toContain("Deploy");
+    expect(out.what_normal_seo_misses).toBe("");
+    expect(out.why_not_just_title).toBe("");
+  });
+
+  it("escalation (needs_llm_review) keeps its bottleneck insight, not a protective one", () => {
+    // Problem exists, only proposed change is image_alt (always rejected) → escalate.
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const d = decision(change("image_alt"));
+    d.operator_insight = "The real bottleneck is a missing answer block the crawl can't yet confirm.";
+    const out = applyDeterministicGate(d, p);
+    expect(out.recommended_atomic_action).toBe("needs_llm_review");
+    expect(out.operator_insight).toMatch(/bottleneck/);
+    expect(out.what_normal_seo_misses).toBe("");
+  });
+});
+
+describe("Page Surgeon trust gate — WL2 per-claim absent-evidence", () => {
+  it("one honest absent-source caveat does NOT whitewash a different fabricated citation", () => {
+    // GA4 honestly absent in one clause; SEMrush question keywords fabricated in another.
+    // Old global acknowledgement would have let this pass — per-clause must still reject.
+    const p = packet({
+      gsc: gsc({ ctrGap: 0.03 }),
+      semrush: { keywords: [{ keyword: "farsi numbers", volume: 140, kd: 14, cpc: 0, intent: null, position: 8 }], relatedKeywords: [], questionKeywords: [] },
+      sourcesPresent: ["gsc", "crawl", "semrush"], sourcesConnectedButEmpty: ["ga4", "clarity", "profound"],
+    });
+    const faq = change("faq", {
+      evidence: "No GA4 rows were returned for this page. SEMrush question keywords show users ask how to count in Farsi.",
+    });
+    const out = applyDeterministicGate(decision(change("title"), [faq]), p);
+    expect(out.supporting_atomic_changes.some((c) => c.action === "faq")).toBe(false);
+    expect(out.rejected_changes.some((r) => r.action === "faq" && /question keyword/i.test(r.reason))).toBe(true);
+  });
+
+  it("still rejects a multi-source fabrication where every cited source is empty", () => {
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) }); // ga4 + clarity absent
+    const s = change("internal_link", {
+      evidence: "GA4 shows high engagement and Clarity shows rage clicks, so add navigation links.",
+    });
+    const out = applyDeterministicGate(decision(change("title"), [s]), p);
+    expect(out.rejected_changes.some((r) => r.action === "internal_link")).toBe(true);
+  });
+});
+
 describe("Page Surgeon trust gate — P4 fallback consistency", () => {
   it("when everything is gated out and a problem exists → needs_llm_review, no artifacts", () => {
     // deficit exists (problem) but the only proposed change is image_alt (always rejected).

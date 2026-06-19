@@ -239,10 +239,15 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
  *  reason, or null when the change doesn't lean on missing evidence. */
 function citesAbsentEvidence(change: AtomicChange, packet: EvidencePacket): string | null {
   const text = `${change.evidence} ${change.exact_change} ${change.hypothesis}`.toLowerCase();
-  // If the text explicitly ACKNOWLEDGES the absence, it's honest, not a citation.
-  const acknowledgesAbsence =
-    /\b(no |none|absent|empty|not (available|returned|present|connected|pulled)|n\/a|isn't|aren't|lack|without|missing|0 )\b/.test(text);
-  const cites = (re: RegExp): boolean => re.test(text) && !acknowledgesAbsence;
+  // PER-CLAIM acknowledgement: split into sentences/clauses so an honest "no GA4"
+  // in one clause cannot disable absent-source checks for a DIFFERENT source cited
+  // affirmatively in another clause. A citation counts only when a clause matches
+  // the source pattern AND that same clause does not acknowledge absence.
+  const ABSENCE =
+    /\b(no |none|absent|empty|not (available|returned|present|connected|pulled)|n\/a|isn't|aren't|lack|without|missing|0 )\b/;
+  const clauses = text.split(/(?<=[.!?;:])\s+|\n+|\s—\s|\s-\s/).filter((c) => c.trim().length > 0);
+  const scan = clauses.length > 0 ? clauses : [text];
+  const cites = (re: RegExp): boolean => scan.some((c) => re.test(c) && !ABSENCE.test(c));
   const sem = packet.semrush;
   if ((sem?.relatedKeywords?.length ?? 0) === 0 && cites(/related (keyword|search|term)|relatedkeyword/))
     return "Insufficient evidence: cites SEMrush related keywords, but none were pulled for this page.";
@@ -487,6 +492,20 @@ const PROMOTION_ORDER: AtomicChangeType[] = [
 
 const NON_CHANGE_ACTIONS = new Set<AtomicAction>(["keep_current", "needs_more_evidence", "needs_llm_review"]);
 
+/** A keep_current verdict must read as "we are deliberately NOT changing this and
+ *  here's why" — never carry a leftover change-plan narrative. Built from the
+ *  real evidence so it's specific, not generic. */
+function protectiveKeepInsight(packet: EvidencePacket): string {
+  const g = packet.gsc;
+  if (!g) return "No measured problem on this page right now — no change is recommended; monitor and revisit if its data moves.";
+  const q = g.topQueries[0]?.query;
+  return (
+    `This page is healthy — it converts at or above the expected click-through for its position` +
+    `${q ? ` (top query "${q}" at ~pos ${g.avgPosition.toFixed(0)})` : ""}, and the title already serves its dominant query. ` +
+    `No change is recommended now; monitor and revisit only if rankings or CTR slip.`
+  );
+}
+
 export function applyDeterministicGate(
   decision: PageAtomicDecision,
   packet: EvidencePacket,
@@ -525,6 +544,8 @@ export function applyDeterministicGate(
         ...proposed.map((c) => ({ action: c.action, reason })),
       ],
       confidence: "medium",
+      operator_insight: protectiveKeepInsight(packet),
+      what_normal_seo_misses: "",
       why_not_just_title: "",
     };
   }
@@ -595,14 +616,19 @@ export function applyDeterministicGate(
   // P4 (fallback consistency): a non-change verdict carries NO change artifacts
   // (no primary, no supporting, no rollback/CTR-lift implied by a before/after).
   if (NON_CHANGE_ACTIONS.has(action)) {
+    const isKeep = action === "keep_current";
     return {
       ...decision,
       recommended_atomic_action: action,
       primary_atomic_change: null,
       supporting_atomic_changes: [],
       rejected_changes: rejected,
-      confidence: action === "keep_current" ? confidence : "needs_more_evidence",
-      why_not_just_title: action === "keep_current" ? "" : decision.why_not_just_title,
+      confidence: isKeep ? confidence : "needs_more_evidence",
+      // A non-change verdict must not carry change-plan prose. keep_current gets a
+      // protective insight; needs_* keeps its bottleneck insight (it's an escalation).
+      operator_insight: isKeep ? protectiveKeepInsight(packet) : decision.operator_insight,
+      what_normal_seo_misses: "",
+      why_not_just_title: "",
     };
   }
 
