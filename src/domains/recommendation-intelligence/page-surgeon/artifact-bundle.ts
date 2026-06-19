@@ -31,6 +31,8 @@ export type CmsFieldArtifact = {
   charCount: number;
   limit: number;
   withinLimit: boolean;
+  /** True when the value was auto-trimmed to a word boundary to fit the limit. */
+  autoTrimmed: boolean;
 };
 export type FaqItem = { question: string; answer: string };
 export type ResolvedLink = { anchor: string; targetUrl: string | null; note: string };
@@ -92,8 +94,29 @@ function esc(s: string): string {
 
 function cmsField(field: "title" | "meta" | "h1", value: string): CmsFieldArtifact {
   const limit = CMS_LIMITS[field];
-  const charCount = value.length;
-  return { field, value, charCount, limit, withinLimit: charCount <= limit };
+  let v = value.trim();
+  let autoTrimmed = false;
+  if (v.length > limit) {
+    // Trim to read as a FINISHED phrase: prefer the last clause/sentence
+    // boundary within the limit, fall back to the last word, then strip any
+    // trailing punctuation or dangling conjunction/preposition.
+    const slice = v.slice(0, limit);
+    const floor = Math.floor(limit * 0.55);
+    const boundary = Math.max(
+      slice.lastIndexOf("—"), slice.lastIndexOf("–"),
+      slice.lastIndexOf(". "), slice.lastIndexOf("; "),
+      slice.lastIndexOf(": "), slice.lastIndexOf(", "),
+    );
+    let cut = boundary >= floor ? boundary : slice.lastIndexOf(" ");
+    if (cut < floor) cut = limit;
+    v = slice
+      .slice(0, cut)
+      .replace(/[\s—–\-.;:,]+$/, "")
+      .replace(/\s+(and|or|with|to|for|the|a|an|of|in|on|but|so)$/i, "")
+      .trim();
+    autoTrimmed = true;
+  }
+  return { field, value: v, charCount: v.length, limit, withinLimit: v.length <= limit, autoTrimmed };
 }
 
 /** Deterministic Article + BreadcrumbList (+ FAQPage when FAQ content exists)

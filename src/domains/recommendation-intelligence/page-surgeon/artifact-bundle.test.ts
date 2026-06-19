@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import { composeArtifactBundle, type ArtifactBundle } from "./artifact-bundle";
 import { qaArtifactBundle } from "./artifact-qa";
-import type { AtomicChange, PageAtomicDecision } from "./page-decision";
+import { applyDeterministicGate, type AtomicChange, type PageAtomicDecision } from "./page-decision";
 import type { EvidencePacket, GscEvidence } from "./contract";
 
 function gsc(): GscEvidence {
@@ -49,10 +49,15 @@ describe("Page Surgeon — artifact composer (finished, CMS-ready content)", () 
     expect(b.primary!.rollback).toContain("Old Title"); // rollback restores the current value
   });
 
-  it("over-limit title is flagged withinLimit=false", () => {
+  it("over-limit copy is auto-trimmed to a clean word boundary within the limit", () => {
     const long = "Persian Swear Words And Farsi Insults And Curse Words With Full Meanings And Pronunciation Guide";
     const b = composeArtifactBundle(decision(change("title", { exact_change: long })), packet());
-    expect(b.primary!.cmsField!.withinLimit).toBe(false);
+    const f = b.primary!.cmsField!;
+    expect(f.autoTrimmed).toBe(true);
+    expect(f.withinLimit).toBe(true);
+    expect(f.charCount).toBeLessThanOrEqual(60);
+    expect(long.startsWith(f.value)).toBe(true); // prefix only — clean cut, no garbage
+    expect(/[\s,;:.\-]$/.test(f.value)).toBe(false); // no dangling punctuation
   });
 
   it("intro_answer_block → literal HTML + text from artifact_text", () => {
@@ -94,12 +99,37 @@ describe("Page Surgeon — auto-QA gate", () => {
     expect(qa.failures).toHaveLength(0);
   });
 
-  it("an over-limit title FAILS the CMS check", () => {
+  it("an over-limit title is auto-trimmed so the bundle still PASSES QA", () => {
     const long = "Persian Swear Words And Farsi Insults And Curse Words With Full Meanings And Pronunciation Guide";
-    const b = composeArtifactBundle(decision(change("title", { exact_change: long })), packet());
+    const b = composeArtifactBundle(decision(change("title", { exact_change: long, before_after: { before: "Old Title", after: "x" } })), packet());
+    const qa = qaArtifactBundle(b, packet());
+    expect(b.primary!.cmsField!.autoTrimmed).toBe(true);
+    expect(qa.pass).toBe(true);
+  });
+
+  it("genuinely empty CMS copy still FAILS the CMS check", () => {
+    const b = composeArtifactBundle(decision(change("title", { exact_change: "   ", before_after: { before: "Old Title", after: "x" } })), packet());
     const qa = qaArtifactBundle(b, packet());
     expect(qa.pass).toBe(false);
     expect(qa.failures.some((f) => /CMS copy/i.test(f))).toBe(true);
+  });
+
+  it("the gate strips a deprecated FAQ rich-result justification (claim cleaner)", () => {
+    // Build a decision whose faq change cites rich results, run it through the gate.
+    const faq = change("faq", {
+      faq_items: [{ question: "What does pedar sag mean?", answer: "Literally 'father of a dog'." }],
+      evidence: "Page-1 zero-click 'meaning' queries (pedar sag 438 impr/1 click). FAQ schema will win a rich result and grow SERP real estate for more CTR.",
+      hypothesis: "Adding FAQ rich results increases CTR via more SERP real estate.",
+    });
+    const gated = applyDeterministicGate(
+      decision(change("intro_answer_block", { artifact_text: "Persian swear words explained: pedar sag means 'father of a dog'." }), [faq]),
+      packet(),
+    );
+    const b = composeArtifactBundle(gated, packet());
+    const qa = qaArtifactBundle(b, packet());
+    const faqArtifact = [b.primary, ...b.supporting].find((c) => c?.action === "faq")!;
+    expect(/rich result|serp real estate/i.test(`${faqArtifact.evidence} ${faqArtifact.hypothesis}`)).toBe(false);
+    expect(qa.checks.find((c) => c.name === "No stale tactics")!.pass).toBe(true);
   });
 
   it("placeholder copy FAILS brand/fact-safety", () => {

@@ -419,6 +419,18 @@ export function deterministicPageDecision(
   };
 }
 
+/** Deprecated / unsupported justification phrases the gate strips from a
+ *  change's reasoning (e.g. FAQ rich-result CTR — Google deprecated it in 2023).
+ *  Removing the claim is the gate's job, same as dropping an unsupported change. */
+const DEPRECATED_CLAIM = /(rich result|rich snippet|serp real estate|faq schema[^.!?]*ctr)/i;
+function cleanClaimText(text: string, fallback: string): string {
+  if (!text) return text;
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((s) => !DEPRECATED_CLAIM.test(s));
+  const out = kept.join(" ").trim();
+  return out.length > 0 ? out : fallback;
+}
+
 /** Gate one atomic change: P2 evidence-citation + P1/P3 eligibility, then the
  *  AEO cap + publishability. Returns the gated change, or null + a reason when
  *  the change isn't substantiated. */
@@ -431,6 +443,14 @@ function gateChange(
 
   const ineligible = changeEligibilityReason(change, packet, p);
   if (ineligible) return { change: null, confCap: "needs_more_evidence", note: ineligible };
+
+  // Strip any deprecated/unsupported justification (e.g. FAQ rich-result CTR)
+  // from the reasoning before it can reach the operator.
+  change = {
+    ...change,
+    evidence: cleanClaimText(change.evidence, "Grounded in this page's GSC demand."),
+    hypothesis: cleanClaimText(change.hypothesis, "Serve the page's existing question/meaning demand with a visible answer."),
+  };
 
   const req = ACTION_REQUIRED_SOURCE[change.action];
   if (req && !present.has(req)) {

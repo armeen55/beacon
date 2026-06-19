@@ -85,9 +85,15 @@ rejected, so follow them to keep your plan intact):
   clicks). A handful of dead clicks or a single quickback is noise — do not build
   a behavioral argument on it. But when Clarity DOES show real friction, propose
   the UX fix — do not reject it.
-- FAQ: a VISIBLE Q&A block is a valid lever, but do NOT justify it as an "FAQ rich
-  result / more SERP real estate / CTR" win — Google deprecated FAQ rich results
-  for most sites in 2023. Justify FAQ only by real question demand.
+- FAQ: a VISIBLE Q&A block is a valid lever, but NEVER use the words "rich result",
+  "rich snippet", or "SERP real estate", and never tie FAQ to CTR/rich results —
+  Google deprecated FAQ rich results for most sites in 2023. Justify a FAQ ONLY by
+  real question / "meaning" demand, citing the specific zero-click queries it
+  answers.
+- LEAD WITH THE ANSWER BLOCK when warranted: if the page has page-1 "meaning" /
+  definition queries that earn ~0 clicks AND a CTR deficit, the PRIMARY should be
+  intro_answer_block (answer those queries directly, above the fold), with title a
+  SUPPORTING change — don't default to a title rewrite.
 - schema is low priority: only propose it when the crawl shows the page is missing
   schema and its page type supports it.
 - Each change.action MUST be one of: ${CHANGE_ACTIONS.join(", ")}.
@@ -96,7 +102,8 @@ rejected, so follow them to keep your plan intact):
 
 FINISHED CONTENT (operator-draft, not a directive — write the REAL thing):
 - For title/meta/h1: exact_change MUST be the literal production string to ship
-  (the actual new title text), nothing else. Title ≤ 60 chars, meta ≤ 160.
+  (the actual new title text), nothing else. Title ≤ 60 chars, meta ≤ 155 chars
+  (count the characters — a meta over the limit will be trimmed).
 - For intro_answer_block or section_add: put the LITERAL 2–4 sentence block to
   publish in artifact_text (real, on-brand prose — no "[insert]" placeholders).
 - For faq: put the LITERAL Q&A pairs in faq_items (3–5 items, each a real
