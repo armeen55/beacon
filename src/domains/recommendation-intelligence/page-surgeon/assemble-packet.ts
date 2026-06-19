@@ -27,15 +27,7 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import type { EvidencePacket } from "./contract";
 import type { BrandConfig } from "./title-candidates";
 import { DECISION_SCHEMA_VERSION } from "./page-decision";
-
-/** Industry-standard organic CTR-by-position curve (deterministic, generic). */
-const EXPECTED_CTR_BY_POSITION: Record<number, number> = {
-  1: 0.28, 2: 0.15, 3: 0.1, 4: 0.07, 5: 0.06, 6: 0.05, 7: 0.04, 8: 0.035, 9: 0.03, 10: 0.028,
-};
-function expectedCtr(pos: number): number {
-  const r = Math.max(1, Math.round(pos));
-  return EXPECTED_CTR_BY_POSITION[r] ?? 0.02;
-}
+import { expectedCtrForPosition as expectedCtr } from "./expected-ctr";
 
 export type PageSurgeonContext = {
   tenantId: string;

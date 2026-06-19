@@ -21,6 +21,7 @@ import type {
   Publishability,
 } from "./contract";
 import { evaluateTitle } from "./evaluate-title";
+import { expectedCtrForPosition } from "./expected-ctr";
 import type { BrandConfig } from "./title-candidates";
 
 export type AtomicAction =
@@ -139,9 +140,13 @@ function hasUnderperformanceBottleneck(packet: EvidencePacket): boolean {
 }
 
 // ── Deterministic TRUST gate thresholds (2026-06-18 audit hardening) ─────────
-// A snippet deficit is real only above a small floor (expected-CTR is a coarse
-// by-position table, so sub-floor gaps are rounding noise, not a problem).
-const SNIPPET_DEFICIT_MIN_GAP = 0.005;
+// A snippet deficit is real when a HIGH-IMPRESSION query underperforms the CTR
+// expected at ITS OWN position — blended page CTR hides this (one big winner can
+// mask a bleeding query, and one tiny query can fake a page-level gap). The
+// blended page gap is kept only as a coarse fallback above a higher floor.
+const PERQ_DEFICIT_MIN_IMPR = 100; // a query needs real volume to matter
+const PERQ_DEFICIT_MIN_GAP = 0.01; // its CTR must trail position-expected by ≥1pt
+const SNIPPET_DEFICIT_BLENDED_GAP = 0.02; // blended-alone is coarse → higher floor
 const ZERO_CLICK_MIN_IMPR = 200;
 const ZERO_CLICK_MAX_POS = 10;
 const ZERO_CLICK_MAX_CTR = 0.01;
@@ -192,7 +197,16 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
   const title = pageTitle(packet);
   const queries = g?.topQueries ?? [];
 
-  const snippetDeficit = !!g && (g.ctrGap ?? 0) >= SNIPPET_DEFICIT_MIN_GAP;
+  // Per-query: any high-impression query whose CTR trails the curve at its
+  // position. This is the real signal — the blended gap is only a coarse fallback.
+  const perQueryDeficit =
+    !!g &&
+    queries.some(
+      (q) =>
+        q.impressions >= PERQ_DEFICIT_MIN_IMPR &&
+        expectedCtrForPosition(q.position) - q.ctr >= PERQ_DEFICIT_MIN_GAP,
+    );
+  const snippetDeficit = !!g && (perQueryDeficit || (g.ctrGap ?? 0) >= SNIPPET_DEFICIT_BLENDED_GAP);
 
   const dominant = queries[0];
   const titleMissingDominantQuery = !!dominant && !phraseCoveredBy(dominant.query, title);

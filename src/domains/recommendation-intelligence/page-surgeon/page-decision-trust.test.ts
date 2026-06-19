@@ -338,6 +338,35 @@ describe("Page Surgeon trust gate — WL3 numeric fidelity", () => {
   });
 });
 
+describe("Page Surgeon trust gate — WL5 per-query snippet deficit", () => {
+  it("catches a deficit blended CTR HIDES: a winner masks a high-impression bleeder", () => {
+    const p = packet({
+      gsc: gsc({
+        ctr: 0.06, expectedCtrForPosition: 0.05, ctrGap: 0, avgPosition: 5,
+        topQueries: [
+          { query: "alpha winner", impressions: 200, clicks: 60, ctr: 0.3, position: 2 }, // inflates the blend
+          { query: "beta bleeder", impressions: 1500, clicks: 30, ctr: 0.02, position: 4 }, // pos-4 expects ~7%
+        ],
+      }),
+    });
+    expect(detectPageProblems(p).snippetDeficit).toBe(true);
+  });
+
+  it("does NOT fire on a coarse blended gap driven only by a tiny low-impression tail", () => {
+    const p = packet({
+      gsc: gsc({
+        ctr: 0.04, expectedCtrForPosition: 0.05, ctrGap: 0.01, avgPosition: 6,
+        topQueries: [
+          { query: "big winner", impressions: 3000, clicks: 300, ctr: 0.1, position: 3 }, // pos-3 expects ~10% → fine
+          { query: "tiny tail", impressions: 30, clicks: 0, ctr: 0.0, position: 8 }, // below the impression floor
+        ],
+      }),
+    });
+    // Old blended-only logic (gap 0.01 ≥ 0.005) over-fired here; per-query is honest.
+    expect(detectPageProblems(p).snippetDeficit).toBe(false);
+  });
+});
+
 describe("Page Surgeon trust gate — WL4 cap + defer supporting changes", () => {
   it("a ready plan is primary + at most 2 supports; the rest are deferred, not dropped", () => {
     const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
