@@ -438,6 +438,125 @@ function cleanClaimText(text: string, fallback: string): string {
   return out.length > 0 ? out : fallback;
 }
 
+/** Numeric-fidelity gate (the single biggest trust risk): the judge may cite
+ *  ONLY metrics that exist in the EvidencePacket. We extract metric-tagged
+ *  numbers from a change's prose and reconcile each against the packet's real
+ *  values. A cited number that matches NO measured value for that metric — and
+ *  isn't a forward-looking TARGET — is a fabrication, so the change is rejected
+ *  and never reaches the operator with a wrong number on it.
+ *
+ *  Deliberately conservative (a false rejection nukes a good rec):
+ *   - only unambiguous, backward-looking metrics (impressions, CTR, position,
+ *     dead/rage clicks, quickbacks, search volume);
+ *   - numbers introduced by to/reach/target/from/above/→/"+" are treated as
+ *     goals, not claims, and skipped;
+ *   - absent sources are skipped here — citesAbsentEvidence owns that case. */
+function verifyNumericFidelity(change: AtomicChange, packet: EvidencePacket): string | null {
+  const text = `${change.evidence} ${change.hypothesis} ${change.exact_change}`;
+  const g = packet.gsc;
+  const c = packet.clarity;
+  const sem = packet.semrush;
+
+  const parseNum = (raw: string): number => {
+    const s = raw.toLowerCase().replace(/,/g, "").replace(/\s+/g, "");
+    const k = s.endsWith("k");
+    const n = parseFloat(k ? s.slice(0, -1) : s);
+    return k ? n * 1000 : n;
+  };
+  // A number is a forward-looking TARGET (not a claim about current state) when
+  // it follows to/reach/target/from/above/arrow, etc.
+  const TARGET_BEFORE =
+    /(to|reach\w*|target\w*|aim\w*|goal|above|over|at least|toward\w*|hit|raise\w*|lift\w*|improv\w*|grow\w*|from|up to|→|->|>=|≥|>)\s*(?:to\s*)?(?:positions?|pos\.?|rank|#|~)?\s*$/i;
+
+  type Check = { label: string; patterns: RegExp[]; acceptable: number[]; kind: "count" | "percent" | "position" };
+  const checks: Check[] = [];
+  if (g) {
+    checks.push({
+      label: "impressions",
+      patterns: [/\b([\d][\d,]*(?:\.\d+)?\s*k?)\s*(?:impressions?|impr\b)/gi],
+      acceptable: [g.impressions, ...g.topQueries.map((q) => q.impressions)],
+      kind: "count",
+    });
+    checks.push({
+      label: "CTR",
+      patterns: [
+        /\b([\d]+(?:\.\d+)?)\s*%\s*(?:ctr|click[- ]?through)/gi,
+        /(?:ctr|click[- ]?through(?:\s*rate)?)\s*(?:of|:|=|is|at|~|was|,)?\s*([\d]+(?:\.\d+)?)\s*%/gi,
+      ],
+      acceptable: [g.ctr, g.expectedCtrForPosition ?? NaN, ...g.topQueries.map((q) => q.ctr)]
+        .filter((n) => Number.isFinite(n))
+        .map((n) => n * 100),
+      kind: "percent",
+    });
+    checks.push({
+      label: "position",
+      patterns: [
+        /(?:positions?|pos\.?|rank(?:s|ed|ing)?)\s*#?\s*([\d]+(?:\.\d+)?)/gi,
+        /\b([\d]+(?:\.\d+)?)(?:st|nd|rd|th)\s*(?:position|spot|place)/gi,
+      ],
+      acceptable: [g.avgPosition, ...g.topQueries.map((q) => q.position)],
+      kind: "position",
+    });
+  }
+  if (c) {
+    if (c.deadClicks != null)
+      checks.push({ label: "dead clicks", patterns: [/\b([\d][\d,]*)\s*dead[- ]?clicks?/gi], acceptable: [c.deadClicks], kind: "count" });
+    if (c.rageClicks != null)
+      checks.push({ label: "rage clicks", patterns: [/\b([\d][\d,]*)\s*rage[- ]?clicks?/gi], acceptable: [c.rageClicks], kind: "count" });
+    if (c.quickbacks != null)
+      checks.push({ label: "quickbacks", patterns: [/\b([\d][\d,]*)\s*quick[- ]?backs?/gi], acceptable: [c.quickbacks], kind: "count" });
+  }
+  if (sem) {
+    const vols = [
+      ...sem.keywords.map((k) => k.volume),
+      ...(sem.relatedKeywords?.map((k) => k.volume) ?? []),
+      ...(sem.questionKeywords?.map((k) => k.volume) ?? []),
+    ].filter((n) => Number.isFinite(n));
+    if (vols.length > 0)
+      checks.push({
+        label: "search volume",
+        patterns: [
+          /\b([\d][\d,]*(?:\.\d+)?\s*k?)\s*(?:monthly\s*)?(?:search(?:es)?\s*)?(?:volume|monthly searches)/gi,
+          /(?:search\s*)?volume\s*(?:of|:|=|is|~|,)?\s*([\d][\d,]*(?:\.\d+)?\s*k?)/gi,
+        ],
+        acceptable: vols,
+        kind: "count",
+      });
+  }
+
+  const reconciles = (v: number, accept: number[], kind: Check["kind"]): boolean => {
+    if (!Number.isFinite(v)) return true; // un-parseable → don't flag
+    return accept.some((a) => {
+      if (kind === "percent") return Math.abs(v - a) <= Math.max(0.3, 0.12 * Math.abs(a));
+      if (kind === "position") return Math.abs(v - a) <= 1.0;
+      return Math.abs(v - a) <= Math.max(1, 0.05 * Math.abs(a));
+    });
+  };
+  const fmt = (n: number, kind: Check["kind"]): string =>
+    kind === "percent" ? `${n.toFixed(2)}%` : String(Math.round(n));
+
+  for (const chk of checks) {
+    if (chk.acceptable.length === 0) continue;
+    for (const re of chk.patterns) {
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) != null) {
+        const raw = m[1];
+        if (raw == null) continue;
+        const before = text.slice(Math.max(0, m.index - 16), m.index);
+        if (TARGET_BEFORE.test(before)) continue;
+        if (text.slice(re.lastIndex, re.lastIndex + 2).trimStart().startsWith("+")) continue;
+        const v = parseNum(raw);
+        if (!reconciles(v, chk.acceptable, chk.kind)) {
+          const real = chk.acceptable.slice(0, 4).map((n) => fmt(n, chk.kind)).join(", ");
+          return `Dropped ${change.action}: cited ${chk.label} "${raw.trim()}" doesn't match this page's measured ${chk.label} (${real}). Numbers must come from the evidence packet.`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /** Gate one atomic change: P2 evidence-citation + P1/P3 eligibility, then the
  *  AEO cap + publishability. Returns the gated change, or null + a reason when
  *  the change isn't substantiated. */
@@ -450,6 +569,12 @@ function gateChange(
 
   const ineligible = changeEligibilityReason(change, packet, p);
   if (ineligible) return { change: null, confCap: "needs_more_evidence", note: ineligible };
+
+  // Numeric-fidelity: a change whose prose cites a metric that contradicts the
+  // packet is rejected outright — a wrong number is a trust failure, not a
+  // downgrade. (Absent-source citations are handled in changeEligibilityReason.)
+  const numericViolation = verifyNumericFidelity(change, packet);
+  if (numericViolation) return { change: null, confCap: "needs_more_evidence", note: numericViolation };
 
   // Strip any deprecated/unsupported justification (e.g. FAQ rich-result CTR)
   // from the reasoning before it can reach the operator.

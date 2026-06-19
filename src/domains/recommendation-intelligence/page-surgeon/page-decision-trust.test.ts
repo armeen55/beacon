@@ -292,6 +292,52 @@ describe("Page Surgeon trust gate — WL2 per-claim absent-evidence", () => {
   });
 });
 
+describe("Page Surgeon trust gate — WL3 numeric fidelity", () => {
+  it("rejects a change whose prose fabricates impressions the packet doesn't have", () => {
+    // packet impressions = 20000 (page) / 800 (top query); 5,000 matches neither.
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const t = change("title", { evidence: 'Top query "alpha beta" pulls 5,000 impressions at 2.50% CTR.' });
+    const out = applyDeterministicGate(decision(t), p);
+    expect(out.rejected_changes.some((r) => /impressions/.test(r.reason) && /5,000/.test(r.reason))).toBe(true);
+    expect(out.recommended_atomic_action).not.toBe("title");
+  });
+
+  it("keeps a change that cites the packet's real impressions / CTR / position", () => {
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const t = change("title", { evidence: "Page gets 20,000 impressions, 2.50% CTR, ranks position 7." });
+    const out = applyDeterministicGate(decision(t), p);
+    expect(out.recommended_atomic_action).toBe("title");
+    expect(out.rejected_changes.some((r) => /doesn't match/.test(r.reason))).toBe(false);
+  });
+
+  it("does NOT flag forward-looking targets (reach position 1, lift CTR toward 5%)", () => {
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const t = change("title", { evidence: "Ranks position 7 at 2.50% CTR; aim to reach position 1 and lift CTR toward 5%." });
+    const out = applyDeterministicGate(decision(t), p);
+    expect(out.recommended_atomic_action).toBe("title");
+  });
+
+  it("rejects a fabricated Clarity dead-click count (cites 67, page has 3)", () => {
+    const p = packet({
+      gsc: gsc({ ctrGap: 0.03 }),
+      clarity: { windowStart: "", windowEnd: "", scrollDepthMedian: null, engagementTimeSec: null, deadClicks: 3, rageClicks: 0, quickbacks: 1, scriptErrors: 0 },
+      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "semrush", "profound"],
+    });
+    const s = change("internal_link", { evidence: "Clarity shows 67 dead clicks on this page, so add navigation." });
+    const out = applyDeterministicGate(decision(change("title"), [s]), p);
+    expect(out.rejected_changes.some((r) => r.action === "internal_link" && /dead clicks/.test(r.reason) && /67/.test(r.reason))).toBe(true);
+    expect(out.recommended_atomic_action).toBe("title");
+  });
+
+  it("rejects a fabricated rank (cites position 2, page ranks 7)", () => {
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const t = change("title", { evidence: 'This page ranks position 2 for "alpha beta".' });
+    const out = applyDeterministicGate(decision(t), p);
+    expect(out.rejected_changes.some((r) => /position/.test(r.reason))).toBe(true);
+    expect(out.recommended_atomic_action).not.toBe("title");
+  });
+});
+
 describe("Page Surgeon trust gate — P4 fallback consistency", () => {
   it("when everything is gated out and a problem exists → needs_llm_review, no artifacts", () => {
     // deficit exists (problem) but the only proposed change is image_alt (always rejected).

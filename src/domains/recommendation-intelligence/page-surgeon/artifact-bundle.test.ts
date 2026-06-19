@@ -130,7 +130,7 @@ describe("Page Surgeon — auto-QA gate", () => {
     // Build a decision whose faq change cites rich results, run it through the gate.
     const faq = change("faq", {
       faq_items: [{ question: "What does pedar sag mean?", answer: "Literally 'father of a dog'." }],
-      evidence: "Page-1 zero-click 'meaning' queries (pedar sag 438 impr/1 click). FAQ schema will win a rich result and grow SERP real estate for more CTR.",
+      evidence: "Page-1 underperforming query 'persian swear words' (799 impr at pos 7). FAQ schema will win a rich result and grow SERP real estate for more CTR.",
       hypothesis: "Adding FAQ rich results increases CTR via more SERP real estate.",
     });
     const gated = applyDeterministicGate(
