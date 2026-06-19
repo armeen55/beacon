@@ -41,6 +41,8 @@ import { loadTodayV2GateData, loadTodayV2HasAeoData } from "./today-v2-data";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import { DataSourcesStrip } from "@/components/today/data-sources-strip";
 import { CollapsibleSection } from "@/components/today/collapsible-section";
+import { isOperatorModeServer } from "@/lib/operator-mode";
+import { StateOfUnionSection } from "./state-of-union-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -204,6 +206,17 @@ async function TodayV2SectionedContent() {
 
   return (
     <div className="space-y-6">
+      {/* Operator-OS rebuild (2026-06-19) — the State of the Union executive
+          briefing leads the cockpit for operators: one card that reads the
+          whole business across GSC/SEMrush/Clarity/GA4 and says what's
+          happening + what to do. Operator-gated; its own Suspense (null
+          fallback) so its tenant reads never block the rest of the page; it
+          self-hides when there's no data. Customer view is unchanged. */}
+      {isOperatorModeServer() ? (
+        <Suspense fallback={null}>
+          <StateOfUnionSection />
+        </Suspense>
+      ) : null}
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
           the TOP of the cockpit and ORIENTS the operator through the one
           guided loop (Refresh → Review → Approve → Verify → Learn) with the

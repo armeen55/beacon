@@ -17,6 +17,9 @@ function useBreadcrumb(pathname: string) {
   if (segments[0] === "onboard") {
     return { title: "Set up your business", parent: null };
   }
+  if (segments[0] === "opportunities") {
+    return { title: "Opportunity Map", parent: null };
+  }
   if (
     segments[0] === "topics" &&
     segments[1] === "opportunity" &&
