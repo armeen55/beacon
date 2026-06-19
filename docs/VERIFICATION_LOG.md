@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-19 OPERATOR-OS PHASE 1 + SERP GUARD — single page-primary adapter, no title over-claims (`8f9e3ea`, branch `claude/max-capability`, local commit, NOT pushed)
+
+Executed ONLY Phase 1 + the cheap SERP guard from the Operator Execution Manual (no Workbench / Wix-max / GSC proof / Page Intelligence model).
+
+**What changed (16 files, +267/−26):**
+- NEW pure `src/domains/insight/serp-guard.ts` — `deriveSerpGuard`: top-5 (pos≤5) low-CTR + UNKNOWN SERP ⇒ downgrade to "Needs SERP check before title rewrite" (never a blind title claim); observed+feature-owns ⇒ "Likely SERP-owned click loss"; suspected ⇒ downgrade w/o ownership. `serpStatusChip`.
+- NEW pure `src/domains/insight/page-primary.ts` — `resolvePagePrimary` (the ONE per-page resolver; precedence change_pack > diagnosis > legacy), `actionLabel`, `estimateConfidence`, `estClicksLabel`, exported `REVIEW_HREF` (the single constant to flip when Workbench ships; CTAs never say "Open in Workbench" today).
+- `opportunity.ts`: SERP guard on the ctr_leak branch + new fields `packAction`, `estWindow:"90d"`, `estConfidence`, `serpStatus`, `serpGuardLabel`. `compute-opportunity-map.ts`: pass `packHeadlineAction` (pack primary) + `serpStatus:"unknown"`.
+- Opportunity Map UI: truthful CTAs (Review Change Pack / Run Deep Audit), SERP chip, guard warning, est-clicks always carries window + confidence + SERP status.
+- State of the Union: "Do next" = pack primary; qualified est-clicks; AEO/schema copy fixed ("visible Q&A + structured data can support answer extraction; not a guaranteed rich result"). Wix wording: CMS-read + publishing, explicitly NOT a Wix-analytics feed (`compute-state-of-union.ts` + `connection-health.ts`).
+- Cross-surface agreement: Today (`adaptPersistedRecToTodayPrimaryAction`) + the Recommendations card now override the legacy `display_label`/`row.title` with the Change-Pack primary when a pack exists; legacy text demoted (secondary line), not lost.
+
+**Verified:** `npm run typecheck` clean; targeted vitest 68 pass (`src/domains/insight/` 41 incl. new serp-guard.test.ts + page-primary.test.ts; today-v2-do-today-fallback.test.ts incl. 2 new pack-override cases; tests/architecture/customer-nav-exposure.test.ts). No full suite (per operator). Ground-truthed on LIVE Iranopedia (dev server, tenant-iranopedia, operator mode; `.env.local` flipped + restored): `/opportunities` top row "achaemenid empire flag" (#2.4, 10,513 impr, 0.40% CTR) renders ⚠ "Needs SERP check before title rewrite" + "~1,535 / EST. CLICKS AT STAKE OVER 90D / high confidence · SERP unknown / Run Deep Audit" — the SERP guard fires on the single most dangerous over-claim instead of "title problem". "Open in Workbench" absent; no bare "title/snippet problem". Note: a Node/undici × Next 16 Turbopack SSR-streaming warning (`controller[kState].transformAlgorithm`) appears in dev logs on Suspense routes and falls back to client render (pages still 200) — environmental, pre-existing, NOT from these edits.
+
+**Guardrails honored:** operator-gated surfaces only, review-only, NO publish path, NO arming, NO paid pulls, NO migrations, customer 6-route nav unchanged.
+
+---
+
 ## 2026-06-19 LIVE BROWSER/OPERATOR AUDIT — Page-Surgeon-first /recommendations
 
 Ran the new experience in the actual app (not just tests), per operator request. Dev server pinned supabase + operator + Iranopedia (temporary `.claude/launch.json` configs, reverted after; `.env.local` untouched). beacon-main data. No code changes — audit only; **no UI bugs found**.
