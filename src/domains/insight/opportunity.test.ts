@@ -75,6 +75,58 @@ describe("buildOpportunity — real Iranopedia shapes", () => {
     expect(o!.kinds).toContain("friction");
   });
 
+  it("SERP-guards a top-5 low-CTR page with unknown SERP (no blind title claim)", () => {
+    // pos 3.8 + unknown SERP ⇒ a feature may own the clicks; don't claim a title fix.
+    const o = buildOpportunity({
+      canonUrl: "https://www.iranopedia.com/iran-flags/iran-islamic-republic-flag-history",
+      path: "/iran-flags/iran-islamic-republic-flag-history",
+      gsc: { clicks90d: 15, impressions90d: 10753, ctr90d: 0.0014, position90d: 3.8, topQuery: "iran flag" },
+    });
+    expect(o).not.toBeNull();
+    expect(o!.serpStatus).toBe("unknown");
+    expect(o!.serpGuardLabel).toBe("Needs SERP check before title rewrite");
+    expect(o!.why.toLowerCase()).toContain("serp");
+    // honest estimate is still computed (it's the copy, not the number, that's guarded)
+    expect(o!.estClicksAtStake).toBeGreaterThan(500);
+    expect(o!.estWindow).toBe("90d");
+    expect(o!.estConfidence).toBe("high"); // 10,753 impressions ≥ 3,000
+  });
+
+  it("does NOT SERP-guard a pos 6–10 CTR leak (below the feature-dominated top)", () => {
+    const o = buildOpportunity({
+      canonUrl: "https://www.iranopedia.com/cities",
+      path: "/cities",
+      gsc: { clicks90d: 70, impressions90d: 16000, ctr90d: 0.0043, position90d: 9, topQuery: "cities in iran list" },
+    });
+    expect(o).not.toBeNull();
+    expect(o!.kind).toBe("ctr_leak");
+    expect(o!.serpGuardLabel).toBeNull();
+    expect(o!.why.toLowerCase()).toContain("title");
+  });
+
+  it("downgrades estimate confidence on thin impression volume", () => {
+    const o = buildOpportunity({
+      canonUrl: "https://x.test/thin",
+      path: "/thin",
+      gsc: { clicks90d: 2, impressions90d: 600, ctr90d: 0.003, position90d: 9, topQuery: "q" },
+    });
+    expect(o).not.toBeNull();
+    expect(o!.estConfidence).toBe("low"); // 600 impressions < 800
+  });
+
+  it("passes the pack primary action through when a Change Pack exists", () => {
+    const o = buildOpportunity({
+      canonUrl: "https://x.test/p",
+      path: "/p",
+      gsc: { clicks90d: 10, impressions90d: 5000, ctr90d: 0.002, position90d: 9, topQuery: "q" },
+      hasChangePack: true,
+      packHeadlineAction: "Rewrite the title",
+    });
+    expect(o).not.toBeNull();
+    expect(o!.hasChangePack).toBe(true);
+    expect(o!.packAction).toBe("Rewrite the title");
+  });
+
   it("returns null for a healthy page with no actionable signal", () => {
     const o = buildOpportunity({
       canonUrl: "https://www.iranopedia.com/persian-male-names",
@@ -114,10 +166,17 @@ describe("buildOpportunity — real Iranopedia shapes", () => {
 
 describe("rankOpportunities", () => {
   it("sorts by score descending", () => {
+    const base = {
+      packAction: null,
+      estWindow: "90d" as const,
+      estConfidence: "low" as const,
+      serpStatus: "unknown" as const,
+      serpGuardLabel: null,
+    };
     const items: OpportunityItem[] = [
-      { canonUrl: "a", path: "/a", kinds: ["decay"], kind: "decay", title: "a", why: "", evidenceBySource: [], expectedLever: "", estClicksAtStake: 10, importance: 1, hasChangePack: false, score: 10 },
-      { canonUrl: "b", path: "/b", kinds: ["ctr_leak"], kind: "ctr_leak", title: "b", why: "", evidenceBySource: [], expectedLever: "", estClicksAtStake: 800, importance: 1, hasChangePack: false, score: 800 },
-      { canonUrl: "c", path: "/c", kinds: ["friction"], kind: "friction", title: "c", why: "", evidenceBySource: [], expectedLever: "", estClicksAtStake: 77, importance: 1, hasChangePack: false, score: 77 },
+      { canonUrl: "a", path: "/a", kinds: ["decay"], kind: "decay", title: "a", why: "", evidenceBySource: [], expectedLever: "", estClicksAtStake: 10, importance: 1, hasChangePack: false, score: 10, ...base },
+      { canonUrl: "b", path: "/b", kinds: ["ctr_leak"], kind: "ctr_leak", title: "b", why: "", evidenceBySource: [], expectedLever: "", estClicksAtStake: 800, importance: 1, hasChangePack: false, score: 800, ...base },
+      { canonUrl: "c", path: "/c", kinds: ["friction"], kind: "friction", title: "c", why: "", evidenceBySource: [], expectedLever: "", estClicksAtStake: 77, importance: 1, hasChangePack: false, score: 77, ...base },
     ];
     const ranked = rankOpportunities(items);
     expect(ranked.map((r) => r.path)).toEqual(["/b", "/c", "/a"]);

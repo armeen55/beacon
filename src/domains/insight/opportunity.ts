@@ -11,6 +11,8 @@
  * honest, DIRECTIONAL estimate (copy must label it so) — never a promise.
  */
 
+import { deriveSerpGuard, type SerpStatus } from "./serp-guard";
+
 export type OpportunityKind =
   | "ctr_leak"
   | "striking_distance"
@@ -41,6 +43,17 @@ export type OpportunityItem = {
   /** GA4 value weight (1.0–1.5); neutral when no GA4 data. */
   importance: number;
   hasChangePack: boolean;
+  /** Pack primary action label when a Change Pack exists — the canonical
+   *  per-page action all surfaces agree on (supersedes the diagnosis lever). */
+  packAction: string | null;
+  /** Window the estimate covers (GSC signals are 90d). */
+  estWindow: "90d";
+  /** Confidence in the clicks-at-stake ESTIMATE (data-volume driven). */
+  estConfidence: "high" | "medium" | "low";
+  /** SERP-feature knowledge for this page (Phase 1 broad scan ⇒ "unknown"). */
+  serpStatus: SerpStatus;
+  /** Non-null when the SERP guard fired (e.g. top-5 + unknown SERP). */
+  serpGuardLabel: string | null;
   /** Ranking weight = estClicksAtStake × importance. */
   score: number;
 };
@@ -63,6 +76,10 @@ export type OpportunityPageInput = {
   /** GA4 value weight (default 1.0). */
   importance?: number;
   hasChangePack?: boolean;
+  /** Labeled pack primary action (from compute layer) when a pack exists. */
+  packHeadlineAction?: string | null;
+  /** SERP-feature knowledge (default "unknown" in the broad scan). */
+  serpStatus?: SerpStatus;
 };
 
 /**
@@ -117,6 +134,8 @@ export function buildOpportunity(
   let estClicksAtStake = 0;
   let why = "";
   let expectedLever = "";
+  const serpStatus: SerpStatus = input.serpStatus ?? "unknown";
+  let serpGuardLabel: string | null = null;
 
   // ── CTR leak: ranks page-1ish, real impressions, CTR well below expected ──
   if (
@@ -135,8 +154,18 @@ export function buildOpportunity(
         source: "gsc",
         line: `Ranks #${input.gsc.position90d.toFixed(1)} for "${input.gsc.topQuery ?? "key terms"}" with ${input.gsc.impressions90d.toLocaleString()} impressions but only ${ctrPct}% CTR (≈${expPct}% expected at this rank).`,
       });
-      why = "Ranking well but barely clicked — a title/snippet problem, not a ranking one.";
-      expectedLever = "Rewrite the title + meta to match intent → recover clicks at the rank you already hold.";
+      // SERP guard: on a top-ranked low-CTR page with NO SERP-feature data, a
+      // feature (AI Overview / featured snippet / image pack) may own the
+      // clicks — DON'T over-claim a title problem. Verify the SERP first.
+      const guard = deriveSerpGuard({ position: input.gsc.position90d, serpStatus });
+      if (guard.downgrade) {
+        serpGuardLabel = guard.label;
+        why = "Likely a title/snippet OR SERP-presentation issue — SERP check needed before rewriting.";
+        expectedLever = "Check the live SERP (AI Overview / featured snippet / image pack). If it's clear, rewrite the title + meta to match intent — otherwise the clicks are SERP-owned, not a title problem.";
+      } else {
+        why = "Ranking on page 1 but under-clicked — likely a title/snippet issue.";
+        expectedLever = "Rewrite the title + meta to match intent → recover clicks at the rank you already hold.";
+      }
     }
   }
 
@@ -219,6 +248,17 @@ export function buildOpportunity(
 
   const kind = KIND_PRIORITY.find((k) => kinds.includes(k)) ?? kinds[0];
 
+  // Confidence in the estimate is data-volume driven (NOT a SERP claim).
+  // Mirrors `estimateConfidence` in page-primary.ts; inlined to avoid a
+  // runtime import cycle (page-primary imports OpportunityItem's type).
+  const estConfidence: "high" | "medium" | "low" = input.gsc
+    ? input.gsc.impressions90d >= 3000
+      ? "high"
+      : input.gsc.impressions90d >= 800
+        ? "medium"
+        : "low"
+    : "low";
+
   return {
     canonUrl: input.canonUrl,
     path: input.path,
@@ -231,6 +271,11 @@ export function buildOpportunity(
     estClicksAtStake,
     importance,
     hasChangePack: input.hasChangePack ?? false,
+    packAction: input.packHeadlineAction ?? null,
+    estWindow: "90d",
+    estConfidence,
+    serpStatus,
+    serpGuardLabel,
     score: Math.round(estClicksAtStake * importance),
   };
 }

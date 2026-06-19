@@ -126,8 +126,9 @@ export async function StateOfUnionSection() {
               {sou.schemaAeoGap.faqCovered}/{sou.schemaAeoGap.faqTotal} pages have FAQ schema
             </div>
             <p className="mt-1 text-[12px] text-muted-foreground">
-              {sou.schemaAeoGap.thinPages} thin pages (&lt;300 words). FAQ schema
-              unlocks AI answers + rich results.
+              {sou.schemaAeoGap.thinPages} thin pages (&lt;300 words). A visible
+              Q&amp;A + structured data can support answer extraction — it&rsquo;s
+              machine-readable support, not a guaranteed rich result.
             </p>
           </div>
         ) : null}
@@ -174,17 +175,28 @@ export async function StateOfUnionSection() {
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Do next
           </div>
-          <ol className="mt-1.5 space-y-1.5">
+          <ol className="mt-1.5 space-y-2">
             {sou.nextBestActions.map((a, i) => (
               <li key={i} className="flex gap-2 text-[13px] text-foreground">
                 <span className="shrink-0 font-semibold tabular-nums text-muted-foreground">
                   {i + 1}.
                 </span>
-                <span>
+                <span className="min-w-0">
                   {a.headline}{" "}
                   <span className="font-mono text-[11px] text-muted-foreground/70">
                     {a.path}
                   </span>
+                  {a.serpGuardLabel ? (
+                    <span className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                      ⚠ {a.serpGuardLabel}
+                    </span>
+                  ) : null}
+                  {a.estClicksAtStake > 0 ? (
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      ~{a.estClicksAtStake.toLocaleString()} est. clicks at stake over{" "}
+                      {a.estWindow} · {a.estConfidence} confidence
+                    </span>
+                  ) : null}
                 </span>
               </li>
             ))}

@@ -136,6 +136,24 @@ describe("adaptPersistedRecToTodayPrimaryAction — Phase 1 Do Today fallback", 
     expect(out.headline).toBe("Add a comparison table on the kitchens page");
   });
 
+  it("OVERRIDES display_label with the Change-Pack primary when a pack exists", () => {
+    // Cross-surface agreement: a page with a Change Pack shows the SAME primary
+    // action everywhere — the pack action, not the stale legacy display_label.
+    const out = adaptPersistedRecToTodayPrimaryAction(
+      makeItem({ displayLabel: "Add a comparison table on the kitchens page" }),
+      "Rewrite the title",
+    );
+    expect(out.headline).toBe("Rewrite the title");
+  });
+
+  it("keeps the legacy headline when there is NO pack (packHeadline null/empty)", () => {
+    const out = adaptPersistedRecToTodayPrimaryAction(
+      makeItem({ displayLabel: "Add a comparison table on the kitchens page" }),
+      null,
+    );
+    expect(out.headline).toBe("Add a comparison table on the kitchens page");
+  });
+
   it("falls back to rec.title when display_label is missing", () => {
     const out = adaptPersistedRecToTodayPrimaryAction(
       makeItem({ displayLabel: null, title: "Reframe the kitchens overview" }),

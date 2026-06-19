@@ -90,6 +90,8 @@ import type { ActionCardAction } from "@/components/today/action-card";
 import type { TodayPrimaryAction } from "./today-shared-types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
+import { loadPageSurgeonSummaries } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
+import { actionLabel } from "@/domains/insight/page-primary";
 import { loadVisibilityReadModelFromSnapshots } from "@/domains/today/visibility-read-model";
 import {
   computeTodayPrimaryShare,
@@ -764,16 +766,27 @@ function fmtDate(iso: string): string {
  * Exported for unit testing — the production call site is the only
  * runtime caller.
  */
-export function adaptPersistedRecToTodayPrimaryAction(item: {
-  rec: { stableKey: string; title: string; description: string; severity: "high" | "medium" | "low" };
-  edits: ReadonlyArray<{ display_label?: string | null; why?: string | null; expected_impact?: string | null; confidence: "low" | "medium" | "high"; target_url: string | null }>;
-  response: { status?: string | null } | null;
-}): TodayPrimaryAction {
+export function adaptPersistedRecToTodayPrimaryAction(
+  item: {
+    rec: { stableKey: string; title: string; description: string; severity: "high" | "medium" | "low" };
+    edits: ReadonlyArray<{ display_label?: string | null; why?: string | null; expected_impact?: string | null; confidence: "low" | "medium" | "high"; target_url: string | null }>;
+    response: { status?: string | null } | null;
+  },
+  /**
+   * Page Surgeon Change-Pack primary action for this rec's target page, when a
+   * pack exists. The Change Pack is the single source of truth per page, so its
+   * primary action OVERRIDES the legacy `display_label` headline — that's how
+   * Today, Opportunities, and Recommendations stay in agreement instead of each
+   * showing a different headline for the same page.
+   */
+  packHeadline?: string | null,
+): TodayPrimaryAction {
   const rec = item.rec;
   const primaryEdit = item.edits[0];
   const targetUrl = primaryEdit?.target_url ?? null;
   const why = (primaryEdit?.why ?? rec.description ?? "").trim();
   const headline =
+    packHeadline?.trim() ||
     primaryEdit?.display_label?.trim() ||
     rec.title?.trim() ||
     "Ship a saved recommendation";
@@ -1049,7 +1062,34 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
         (item) => item.response?.status !== "dismissed",
       );
       if (topItem) {
-        primaryAction = adaptPersistedRecToTodayPrimaryAction(topItem);
+        // If a Page Surgeon Change Pack exists for this rec's target page, its
+        // primary action is the canonical headline every surface shows — it
+        // overrides the legacy `display_label`, killing the cross-surface
+        // divergence (Today vs Recommendations vs Opportunity Map).
+        let packHeadline: string | null = null;
+        try {
+          const targetUrl = topItem.edits[0]?.target_url ?? null;
+          if (targetUrl) {
+            let path = targetUrl;
+            try {
+              path = new URL(targetUrl).pathname || targetUrl;
+            } catch {
+              /* already a path */
+            }
+            const summaries = await loadPageSurgeonSummaries(tenantId);
+            const summary = summaries[path];
+            if (summary?.hasPack) {
+              packHeadline = actionLabel(summary.headlineAction);
+            }
+          }
+        } catch {
+          // Pack lookup is best-effort; never block the primary action on it.
+          packHeadline = null;
+        }
+        primaryAction = adaptPersistedRecToTodayPrimaryAction(
+          topItem,
+          packHeadline,
+        );
       }
     } catch (err) {
       // Silent failure — fall back to the empty state. Do not block the

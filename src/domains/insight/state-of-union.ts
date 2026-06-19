@@ -10,6 +10,7 @@
  */
 
 import type { OpportunityItem } from "./opportunity";
+import type { SerpStatus } from "./serp-guard";
 
 export type StateOfUnionVerdict =
   | "ranking_better_losing_clicks"
@@ -57,10 +58,17 @@ export type StateOfUnion = {
   schemaAeoGap: { faqCovered: number; faqTotal: number; thinPages: number } | null;
   sources: StateOfUnionSource[];
   nextBestActions: {
+    /** Pack primary when a Change Pack exists; else the diagnosis lever. */
     headline: string;
     path: string;
     kind: string;
+    hasChangePack: boolean;
     estClicksAtStake: number;
+    estWindow: "90d";
+    estConfidence: "high" | "medium" | "low";
+    serpStatus: SerpStatus;
+    /** Non-null ⇒ verify the SERP before treating this as a title fix. */
+    serpGuardLabel: string | null;
   }[];
   opportunityCount: number;
 };

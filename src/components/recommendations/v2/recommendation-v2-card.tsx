@@ -249,6 +249,12 @@ export type RecommendationV2CardProps = {
   /** PSQ (operator-only) — the operator's latest review verdict for this page's
    *  pack. Renders a reviewed badge + a "Reopen review" affordance. */
   pageSurgeonReviewVerdict?: "approve" | "reject" | "needs_edit" | null;
+  /** Phase 1 cross-surface agreement — when a Change Pack exists for this page,
+   *  its primary action is the canonical headline (the SAME one Today + the
+   *  Opportunity Map show). It supersedes the legacy `row.title` as the card's
+   *  primary truth; the legacy task text demotes to a secondary line. Null ⇒
+   *  no pack ⇒ legacy title stays primary. */
+  pageSurgeonHeadline?: string | null;
 };
 
 export function RecommendationV2Card({
@@ -267,6 +273,7 @@ export function RecommendationV2Card({
   isFocused = false,
   pageSurgeonReady = false,
   pageSurgeonReviewVerdict = null,
+  pageSurgeonHeadline = null,
 }: RecommendationV2CardProps) {
   const chips = deriveEvidenceChips(row);
   // PS2 — provenance label so an old single-field deterministic suggestion is
@@ -424,10 +431,17 @@ export function RecommendationV2Card({
         </span>
       </header>
 
-      {/* Headline */}
+      {/* Headline — when a Change Pack exists, ITS primary action is the
+          headline (cross-surface agreement). The original legacy task text
+          drops to a secondary line so nothing is lost. */}
       <h3 className="mt-3 text-[15px] font-semibold text-foreground leading-snug">
-        {row.title}
+        {pageSurgeonHeadline?.trim() || row.title}
       </h3>
+      {pageSurgeonHeadline?.trim() && pageSurgeonHeadline.trim() !== row.title ? (
+        <p className="mt-0.5 text-[12px] text-muted-foreground">
+          Legacy task: {row.title}
+        </p>
+      ) : null}
 
       {/* Target — render the resolved URL (mono, accent) when present;
           otherwise fall back to the "Homepage" / "New page" label. */}

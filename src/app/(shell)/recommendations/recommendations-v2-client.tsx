@@ -43,6 +43,7 @@ import {
   type PageSurgeonBucket,
   type PageSurgeonSummary,
 } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
+import { actionLabel } from "@/domains/insight/page-primary";
 import {
   acceptRecommendation,
   acceptAndPublishRecommendation,
@@ -752,6 +753,11 @@ export function RecommendationsV2Client({
                   isFocused={focusedIndex === index}
                   pageSurgeonReady={psSummary != null && psSummary.qaPass}
                   pageSurgeonReviewVerdict={psSummary?.reviewVerdict ?? null}
+                  pageSurgeonHeadline={
+                    psSummary?.hasPack
+                      ? actionLabel(psSummary.headlineAction)
+                      : null
+                  }
                 />
               );
             })}

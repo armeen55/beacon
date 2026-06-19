@@ -30,6 +30,7 @@ import {
   type OpportunityItem,
   type OpportunityPageInput,
 } from "./opportunity";
+import { actionLabel } from "./page-primary";
 
 function toPath(url: string): string {
   try {
@@ -125,6 +126,14 @@ export async function loadOpportunityMap(
         : undefined,
       importance: ga4ValueWeight(ga),
       hasChangePack: summaries[path]?.hasPack === true,
+      // When a Change Pack exists, its primary action is the canonical
+      // per-page action every surface agrees on (supersedes the diagnosis lever).
+      packHeadlineAction: summaries[path]?.hasPack
+        ? actionLabel(summaries[path].headlineAction)
+        : null,
+      // Phase 1 broad scan has no SERP-feature data ⇒ "unknown" (the guard then
+      // downgrades top-5 low-CTR pages rather than over-claiming a title fix).
+      serpStatus: "unknown",
     };
 
     const opp = buildOpportunity(input);

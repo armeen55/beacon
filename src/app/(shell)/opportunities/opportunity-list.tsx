@@ -7,6 +7,8 @@ import type {
   OpportunityKind,
   OpportunitySource,
 } from "@/domains/insight/opportunity";
+import { serpStatusChip } from "@/domains/insight/serp-guard";
+import { REVIEW_HREF } from "@/domains/insight/page-primary";
 
 const KIND_META: Record<OpportunityKind, { label: string; cls: string }> = {
   ctr_leak: { label: "CTR leak", cls: "border-rose-300 bg-rose-50 text-rose-700" },
@@ -111,7 +113,18 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
                       ✓ Change Pack ready
                     </span>
                   ) : null}
+                  {/* SERP-feature knowledge for this page (broad scan ⇒ unknown). */}
+                  <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {serpStatusChip(o.serpStatus)}
+                  </span>
                 </div>
+                {/* Guard warning: a top-ranked low-CTR page where a SERP feature
+                    may own the clicks — don't over-claim a title problem. */}
+                {o.serpGuardLabel ? (
+                  <p className="mt-1.5 inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                    ⚠ {o.serpGuardLabel}
+                  </p>
+                ) : null}
                 <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
                   {o.path}
                 </p>
@@ -130,7 +143,8 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
                 </ul>
 
                 <p className="mt-2 text-[12px] text-foreground/80">
-                  <span className="font-semibold">Move:</span> {o.expectedLever}
+                  <span className="font-semibold">Move:</span>{" "}
+                  {o.hasChangePack && o.packAction ? o.packAction : o.expectedLever}
                 </p>
               </div>
 
@@ -141,8 +155,13 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
                     <div className="text-[18px] font-semibold tabular-nums text-foreground">
                       ~{o.estClicksAtStake.toLocaleString()}
                     </div>
+                    {/* A number never reads as a promise — always carry the
+                        window, confidence, and SERP status next to it. */}
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      est. clicks at stake*
+                      est. clicks at stake over {o.estWindow}
+                    </div>
+                    <div className="text-[10px] tracking-wide text-muted-foreground/80">
+                      {o.estConfidence} confidence · {serpStatusChip(o.serpStatus)}
                     </div>
                   </div>
                 ) : null}
@@ -152,11 +171,11 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
                   </span>
                 ) : null}
                 <Link
-                  href="/recommendations"
+                  href={REVIEW_HREF}
                   prefetch={false}
                   className="rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
                 >
-                  {o.hasChangePack ? "Review Change Pack →" : "Open in Workbench →"}
+                  {o.hasChangePack ? "Review Change Pack →" : "Run Deep Audit →"}
                 </Link>
               </div>
             </div>
@@ -165,8 +184,12 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
       </div>
 
       <p className="pt-1 text-[11px] text-muted-foreground/70">
-        *Directional estimate from impressions × the CTR gap / search volume —
-        an opportunity sizing, not a promise.
+        Estimates are directional — impressions × the CTR gap / search volume,
+        shown with their window + confidence. An opportunity sizing, not a
+        promise. &ldquo;SERP unknown&rdquo; means we haven&rsquo;t verified
+        whether a SERP feature (AI Overview / featured snippet / image pack)
+        owns the clicks; on top-ranked pages, verify the SERP before rewriting
+        a title.
       </p>
     </div>
   );

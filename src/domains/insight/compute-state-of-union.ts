@@ -22,7 +22,7 @@ const SOURCE_META: { key: ConnectorProvider; label: string; unlocks: string }[] 
   { key: "google_ga4", label: "Visitors (Analytics)", unlocks: "which traffic converts — page-value weighting" },
   { key: "semrush", label: "Keywords (SEMrush)", unlocks: "market demand + page-2 keyword opportunities" },
   { key: "clarity", label: "Visitor experience", unlocks: "where visitors get stuck (dead/rage clicks)" },
-  { key: "wix", label: "Publishing (Wix)", unlocks: "shipping changes live (content, SEO, schema)" },
+  { key: "wix", label: "Publishing (Wix)", unlocks: "reading your live CMS content + publishing approved changes (not a Wix-analytics feed)" },
   { key: "profound", label: "AI answers", unlocks: "where AI assistants cite or ignore you" },
 ];
 
@@ -154,11 +154,18 @@ export async function loadStateOfUnion(
       clicks90d: s.clicks90d,
     }));
 
+  // "Do next" shows the SAME primary action every other surface shows: the
+  // Change Pack primary when a pack exists, else the diagnosis lever.
   const nextBestActions = opportunities.slice(0, 3).map((o) => ({
-    headline: o.expectedLever,
+    headline: o.hasChangePack && o.packAction ? o.packAction : o.expectedLever,
     path: o.path,
     kind: o.kind,
+    hasChangePack: o.hasChangePack,
     estClicksAtStake: o.estClicksAtStake,
+    estWindow: o.estWindow,
+    estConfidence: o.estConfidence,
+    serpStatus: o.serpStatus,
+    serpGuardLabel: o.serpGuardLabel,
   }));
 
   const headline = totals
