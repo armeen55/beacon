@@ -302,11 +302,19 @@ describe("connector-store — soft-fail on missing row / missing table", () => {
     expect(t).toBeNull();
   });
 
-  it("READ surfaces non-undefined-table errors by throwing", async () => {
-    _forceError = { code: "23505", message: "unique violation" };
-    await expect(
-      getGoogleConnectorToken("gsc", "tenant-a"),
-    ).rejects.toThrow(/connector-store: read failed/);
+  it("READ soft-fails to null on a read error (app must never white-screen)", async () => {
+    // Resilience (2026-06-17): getConnectorInfo runs in the shell layout on
+    // every render, so a transient Supabase read error (egress restriction /
+    // outage) must NOT crash the app — it degrades to "disconnected". Writes
+    // still throw (asserted below); only the READ degrades.
+    _forceError = { code: "23505", message: "service restricted: exceed_egress_quota" };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t = await getGoogleConnectorToken("gsc", "tenant-a");
+    expect(t).toBeNull();
+    const info = await getConnectorInfo("google_gsc", "tenant-a");
+    expect(info.status).toBe("disconnected");
+    expect(warn).toHaveBeenCalled(); // logged loudly, not silent
+    warn.mockRestore();
   });
 
   it("DELETE soft-fails on undefined_table (idempotent for callers)", async () => {

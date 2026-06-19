@@ -51,6 +51,35 @@ function isConfidentMismatch(fit: PageTopicFit | null): boolean {
 
 export type RecPushReadiness = "paste_ready" | "manual" | "review_only";
 
+/**
+ * Normalized evidence receipt (2026-06-16 trust audit, fix A) — the rec's
+ * evidence families distilled from its raw signals at BUILD time, so the QA
+ * doesn't have to re-derive them from display-shaped fields. The bug this
+ * closes: `hasCoreEvidence` previously read ONLY `gscEvidenceLines` (the
+ * per-query low-CTR/striking-distance lines), which are EMPTY when a page has
+ * real Google demand but no single qualifying query — so a page with 8,465
+ * impressions was falsely flagged "No core evidence family is present" and
+ * capped to needs-more-evidence. Page-level GSC demand IS core evidence.
+ *
+ * Every field is "this family genuinely backs this rec," derived from the live
+ * signals (gscSignal/semrushSignal/claritySignal/observations/competitor), not
+ * from whether a display line happened to render.
+ */
+export type RecEvidenceReceipt = {
+  /** The page has Google Search demand (impressions), even without a per-query line. */
+  gscDemand: boolean;
+  /** The page has GA4 traffic / page value. */
+  ga4Traffic: boolean;
+  /** SEMrush ranked-keyword data exists for the page. */
+  semrush: boolean;
+  /** Microsoft Clarity behavioral data exists for the page. */
+  clarity: boolean;
+  /** Answer-engine evidence (AEO lines or sampled AI observations). */
+  aeo: boolean;
+  /** A competitor is winning the answer/SERP for this topic. */
+  competitor: boolean;
+};
+
 export type RecQaVerdict = {
   /** Page-topic intent-fit (Slice 3), or null when no quotable query. */
   intentFit: PageTopicFit | null;
@@ -169,6 +198,14 @@ export function buildRecommendationQaVerdict(args: {
    * richest page context. Falls back to `deriveRowTopicFit` only when absent.
    */
   preferredTopicFit?: PageTopicFit | null;
+  /**
+   * Normalized evidence receipt from the rec's live signals (trust audit fix
+   * A). When present it is the AUTHORITY for which evidence families back this
+   * rec — page-level GSC demand counts as core evidence even when no per-query
+   * display line rendered. Falls back to the display-line detection when
+   * absent (legacy callers / tests).
+   */
+  evidence?: RecEvidenceReceipt | null;
 }): RecQaVerdict {
   const { row } = args;
   const d = row.detail;
@@ -180,12 +217,22 @@ export function buildRecommendationQaVerdict(args: {
       localeTerms: args.localeTerms,
     });
 
-  const gsc = (d.gscEvidenceLines ?? []).length > 0;
-  const semrush = (d.semrushEvidenceLines ?? []).length > 0;
-  const clarity = (d.clarityEvidenceLines ?? []).length > 0;
-  const aeo = (d.aeoEvidenceLines ?? []).length > 0;
-  const competitor = d.topCompetitor != null;
-  const hasCoreEvidence = gsc || semrush || clarity || aeo || competitor;
+  // Trust audit fix A (2026-06-16): an evidence family backs this rec if its
+  // display LINE rendered OR the normalized receipt says the page genuinely has
+  // that signal. Page-level GSC demand (impressions) counts as core evidence
+  // even when there's no per-query low-CTR/striking-distance headline line —
+  // the bug that nuked every GSC-grounded rec to "no core evidence".
+  const r = args.evidence ?? null;
+  const gsc = (d.gscEvidenceLines ?? []).length > 0 || (r?.gscDemand ?? false);
+  const semrush = (d.semrushEvidenceLines ?? []).length > 0 || (r?.semrush ?? false);
+  const clarity = (d.clarityEvidenceLines ?? []).length > 0 || (r?.clarity ?? false);
+  const aeo =
+    (d.aeoEvidenceLines ?? []).length > 0 ||
+    (r?.aeo ?? false) ||
+    d.observationCount > 0;
+  const ga4 = r?.ga4Traffic ?? false;
+  const competitor = d.topCompetitor != null || (r?.competitor ?? false);
+  const hasCoreEvidence = gsc || ga4 || semrush || clarity || aeo || competitor;
 
   const proposed = d.proposedText?.trim();
   const copySafe = proposed ? detectCopyArtifact(proposed) == null : true;
@@ -205,13 +252,11 @@ export function buildRecommendationQaVerdict(args: {
 
   const evidenceSupports: string[] = [];
   if (gsc) evidenceSupports.push("Google Search demand");
+  if (ga4) evidenceSupports.push("Website traffic");
   if (semrush) evidenceSupports.push("Keyword rankings");
   if (competitor) evidenceSupports.push("Competitor pressure");
   if (aeo) evidenceSupports.push("AI-answer gap");
   if (clarity) evidenceSupports.push("On-page behaviour");
-  if (!gsc && !semrush && d.observationCount > 0) {
-    evidenceSupports.push("AI answers analyzed");
-  }
 
   const evidenceMissing: string[] = [];
   if (!gsc && !semrush) {

@@ -29,7 +29,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("Connectors settings route smoke", () => {
-  it("renders connector page with the GSC card + GA4 card + Yelp section", async () => {
+  it("renders connector page with the GSC + GA4 + SEMrush + Clarity cards", async () => {
     const { default: ConnectorsPage } = await import(
       "@/app/(shell)/settings/connectors/page"
     );
@@ -44,12 +44,11 @@ describe("Connectors settings route smoke", () => {
     expect(html).toContain('data-connector-card="google-ga4"');
     expect(html).toContain("Google Analytics");
     expect(html).toContain("Connect Google Analytics");
-    expect(html).toContain("Yelp");
-    expect(html).toContain("Enter Yelp API Key");
-    expect(html).toContain("Save API Key");
-    // #199/#200 — Yelp card reframed to the on-demand idiom of the other
-    // cards; no longer pitches "no automatic syncing" as a feature.
-    expect(html).toContain("Refresh your Yelp reviews any time with Sync now");
+    // Yelp connector removed 2026-06-18 (operator request — not relevant to
+    // content/AEO tenants). Assert the cards that DO ship instead.
+    expect(html).not.toContain("Enter Yelp API Key");
+    expect(html).toContain('data-connector-card="semrush"');
+    expect(html).toContain('data-connector-card="clarity"');
     // #216 — persistent note that nothing runs on a schedule.
     expect(html).toContain("nothing runs on a schedule");
     expect(html).toContain("Manual CSV/JSON import remains available");

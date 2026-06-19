@@ -31,6 +31,7 @@ import {
   discoverGuidedCollections,
   type DiscoverGuidedResult,
 } from "./actions";
+import { partitionWixCollectionsBySystem } from "@/lib/connectors/wix/suggest-mapping";
 
 export const dynamic = "force-dynamic";
 
@@ -215,8 +216,16 @@ export default async function WixDiagnosticPage(props?: {
             Wix returned no data collections for this site.
           </p>
         ) : (
-          <ul className="space-y-3" data-wix-guided-count={discovery.rows.length}>
-            {discovery.rows.map((row) => {
+          (() => {
+            // Trust audit F (2026-06-16): show likely-CONTENT collections first;
+            // tuck system/private/transactional ones (forms, members, orders,
+            // inventory, coupons) behind an Advanced toggle so the operator maps
+            // real pages first. Nothing is hidden permanently. No auto-mapping —
+            // every mapping is still a deliberate Save.
+            const { content, system } = partitionWixCollectionsBySystem(
+              discovery.rows,
+            );
+            const renderRow = (row: (typeof discovery.rows)[number]) => {
               const m = row.saved ?? row.suggestion;
               const fieldKeys = row.collection.fields.map((f) => f.key);
               return (
@@ -312,8 +321,34 @@ export default async function WixDiagnosticPage(props?: {
                   </form>
                 </li>
               );
-            })}
-          </ul>
+            };
+            return (
+              <>
+                <ul
+                  className="space-y-3"
+                  data-wix-guided-count={discovery.rows.length}
+                  data-wix-content-count={content.length}
+                >
+                  {content.map(renderRow)}
+                </ul>
+                {system.length > 0 && (
+                  <details className="mt-3" data-wix-system-collections="true">
+                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                      Advanced — system / private collections ({system.length}).
+                      These are forms, members, orders, and inventory — usually
+                      not site content. Map only if you know you need to.
+                    </summary>
+                    <ul
+                      className="mt-2 space-y-3"
+                      data-wix-system-count={system.length}
+                    >
+                      {system.map(renderRow)}
+                    </ul>
+                  </details>
+                )}
+              </>
+            );
+          })()
         )}
 
         <p className="mt-3 text-xs text-muted-foreground">

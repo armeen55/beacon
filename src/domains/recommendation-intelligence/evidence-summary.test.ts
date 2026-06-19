@@ -64,7 +64,10 @@ describe("buildGscEvidenceLines — specific, number-rich customer copy", () => 
     expect(line.detail).toContain("you rank #3");
     expect(line.detail).toContain("Your click-through is 1.2%");
     expect(line.detail).toContain("about 10.2% typical for spot #3");
-    expect(line.detail).toMatch(/win about [\d,]+ more visits over 90 days/);
+    // Trust audit E: the upside is a CAVEATED estimate, not a promise.
+    expect(line.detail).toMatch(/recover an estimated [\d,]+ clicks over ~90 days/);
+    expect(line.detail).toMatch(/estimate, not a guarantee/i);
+    expect(line.detail).toMatch(/Google may rewrite/i);
     // Never fabricates a difficulty / competitor we don't have.
     expect(line.detail).not.toMatch(/difficulty|competitor/i);
   });
@@ -93,7 +96,8 @@ describe("buildGscEvidenceLines — specific, number-rich customer copy", () => 
     );
     expect(line.detail).toContain("You already rank #8");
     expect(line.detail).toContain("2,400 times in the last 90 days");
-    expect(line.detail).toMatch(/top 3 could win about [\d,]+ more visits/);
+    expect(line.detail).toMatch(/top 3 could win an estimated [\d,]+ more clicks/);
+    expect(line.detail).toMatch(/estimate, not a guarantee/i);
   });
 
   it("omits clauses honestly: no recoverable-visits clause when there's no gap", () => {

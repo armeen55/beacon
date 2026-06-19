@@ -188,6 +188,16 @@ import { mapRowToEntity } from "./key-mapper";
  *
  * Pure observability. No behavior change.
  */
+/**
+ * Quota/waste pass (2026-06-17): a read returning more than this many rows is
+ * an egress smell (the class of read that burned the egress quota — e.g. a
+ * full prompt_answer_observations pull of 8,700 rows / 17 MB). We ALWAYS warn
+ * on these (cheap — row count is already known, no stringify), even when the
+ * verbose debug flag is off, so an anomalous read can never sneak by unnoticed
+ * again. Full per-read detail (byte estimate) stays behind the debug flag.
+ */
+const BIG_READ_WARN_ROWS = 2_000;
+
 function logEgress(opts: {
   table: string;
   rows: number;
@@ -196,7 +206,21 @@ function logEgress(opts: {
   tenantId?: string | null;
   filter?: string | null;
 }): void {
-  if (process.env.BEACON_SUPABASE_EGRESS_DEBUG !== "1") return;
+  const debug = process.env.BEACON_SUPABASE_EGRESS_DEBUG === "1";
+
+  // Always-on alarm for anomalously large reads (no stringify cost — rows is
+  // already counted). This is the "never surprises us again" guard.
+  if (!debug && opts.rows >= BIG_READ_WARN_ROWS) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[supabase-egress][LARGE READ] table=${opts.table} rows=${opts.rows} ms=${opts.durationMs}` +
+        `${opts.tenantId ? ` tenant=${opts.tenantId}` : ""} — consider column projection / a tighter window. ` +
+        `Set BEACON_SUPABASE_EGRESS_DEBUG=1 for full per-read byte detail.`,
+    );
+    return;
+  }
+  if (!debug) return;
+
   let approxBytes = 0;
   try {
     approxBytes = JSON.stringify(opts.data ?? []).length;

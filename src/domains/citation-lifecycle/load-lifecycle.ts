@@ -578,7 +578,7 @@ export async function resolveTenantThresholdsCached(opts: {
     },
     cacheKey,
     {
-      revalidate: 60,
+      revalidate: 1800, // quota/waste pass 2026-06-17: was 60s (idle re-read every min); operator actions revalidate the layout
       tags: [`recommended_edits:${tenantId}`],
     },
   );
@@ -657,7 +657,7 @@ export async function loadLifecycleForEdit(opts: {
     },
     cacheKey,
     {
-      revalidate: 60,
+      revalidate: 1800, // quota/waste pass 2026-06-17: was 60s (idle re-read every min); operator actions revalidate the layout
       tags: [`recommended_edits:${tenantId}`],
     },
   );
@@ -944,7 +944,7 @@ export async function loadLifecycleSummaryForTenant(opts: {
     },
     cacheKey,
     {
-      revalidate: 60,
+      revalidate: 1800, // quota/waste pass 2026-06-17: was 60s (idle re-read every min); operator actions revalidate the layout
       tags: [`recommended_edits:${tenantId}`],
     },
   );

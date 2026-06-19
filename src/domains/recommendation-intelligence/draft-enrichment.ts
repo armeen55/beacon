@@ -397,8 +397,14 @@ type DraftFill = {
   measurement_plan: string;
 };
 
+// Trust audit fix D (2026-06-16): title / H1 / meta moves are SEARCH-CTR
+// changes — their measurable payoff is Google Search performance, NOT AI
+// citations. The old copy ("tracks whether AI answers start citing it") was an
+// ungrounded AEO claim on search moves with no AI-answer evidence. AI-
+// recommendation lift is claimed ONLY by AEO_MEASURE_PLAN (the answer-block /
+// sources moves that genuinely target it). No cron language (refresh-driven).
 const SCAN_VERIFY_PLAN =
-  "When you refresh your connected data, Beacon re-checks this page and marks the move verified once the change is live; it then tracks whether AI answers start citing it.";
+  "When you refresh your connected data, Beacon re-checks this page in Google Search — impressions, clicks, and average position — and marks the move verified once the change is live.";
 const FIX_VERIFY_PLAN =
   "When you refresh your connected data, Beacon re-checks this page; this issue clears from the queue once it is fixed.";
 
@@ -458,6 +464,19 @@ function composeTitle(
           titleCaseLabel(candidate.topic_cluster_label.trim()),
         ].find((b) => b.length > 0 && !isCmsPlaceholder(b)) ?? "");
   if (!base) return null;
+  // Trust audit E2/E3/E4 (2026-06-16): a title rewrite must ADD the searched
+  // term or fix a real defect — it must NOT merely swap/append the brand suffix
+  // or DROP descriptive words the current title already has. Low CTR alone is
+  // not a reason to rewrite an on-topic title. So when the current title is a
+  // real (non-placeholder) title that ALREADY contains the proposed base, the
+  // only delta would be cosmetic (a brand suffix) or a net LOSS of descriptive
+  // text (e.g. dropping "Persian Flags History") — skip the rec entirely.
+  // (Query-bearing triggers lead with a query that's absent from the title, so
+  // their base is NOT contained here and they still fire.)
+  if (current !== "" && !isCmsPlaceholder(current)) {
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    if (norm(current).includes(norm(base))) return null;
+  }
   const proposed = brand ? `${base}${brand.separator}${brand.suffix}` : base;
   if (proposed.trim().length === 0 || proposed.trim() === current) return null;
   return {
@@ -805,6 +824,124 @@ function humanizePathSegment(segment: string): string {
  *     `position` + `name` are required; `item` is omitted on the LAST
  *     element (Google uses the containing page's URL).
  */
+/**
+ * Content-schema type classifier (2026-06-18) — picks the schema.org @type
+ * that actually fits the page instead of stamping `Article` on everything (a
+ * real quality gap a professional SEO would never ship: a recipe page wants
+ * `Recipe`, a "best X" ranking wants `ItemList`). Deterministic + GENERIC —
+ * it keys off page STRUCTURE (recipe-shaped headings, ranked headline + a
+ * multi-item body), never off the vertical/topic, so it generalizes to any
+ * tenant. `article` stays the safe default when nothing clearly fits.
+ */
+export function classifyContentSchemaType(
+  snap: PageSnapshot,
+  headline: string,
+): "list" | "recipe" | "article" {
+  const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map((h) =>
+    h.toLowerCase(),
+  );
+  // Recipe: the page structurally presents ingredients AND preparation steps.
+  const hasIngredients = headings.some((h) => /\bingredient/.test(h));
+  const hasSteps = headings.some((h) =>
+    /\b(instructions?|directions?|methods?|preparation|steps?|how to make)\b/.test(
+      h,
+    ),
+  );
+  if (hasIngredients && hasSteps) return "recipe";
+  // Ranked list: "best …" / "top N …" / "N best …" headline WITH a real
+  // multi-item body (cards or repeated H2 sections).
+  const itemCount = Math.max(
+    (snap.card_texts ?? []).length,
+    (snap.h2_list ?? []).length,
+  );
+  const looksRanked = /\b(best|top\s+\d+|\d+\s+best)\b/i.test(headline);
+  if (looksRanked && itemCount >= 3) return "list";
+  return "article";
+}
+
+/**
+ * BreadcrumbList block from the URL path (shared by the Article + ItemList
+ * drafts). The leaf carries no `item`. Returns null when the URL is the root
+ * or unparseable.
+ */
+function buildBreadcrumbBlock(
+  pageUrl: string,
+  leafName: string,
+  orgName: string,
+): string | null {
+  try {
+    const u = new URL(pageUrl);
+    const segments = u.pathname.split("/").filter((s) => s.length > 0);
+    if (segments.length === 0) return null;
+    const rootName = orgName || u.hostname.replace(/^www\./i, "");
+    const items: Array<Record<string, unknown>> = [
+      { "@type": "ListItem", position: 1, name: rootName, item: `${u.origin}/` },
+    ];
+    let cumulative = "";
+    for (let i = 0; i < segments.length - 1; i++) {
+      cumulative += `/${segments[i]}`;
+      items.push({
+        "@type": "ListItem",
+        position: items.length + 1,
+        name: humanizePathSegment(segments[i]!),
+        item: `${u.origin}${cumulative}`,
+      });
+    }
+    items.push({ "@type": "ListItem", position: items.length + 1, name: leafName });
+    return jsonLdScript({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: items,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ItemList DIRECTIVE for ranked "best/top" pages. `ItemList` is the type a pro
+ * SEO would use here (it tells engines "this is a ranked collection," which
+ * `Article` cannot). We DELIBERATELY do not auto-build the items: on real
+ * pages the crawl's headings/cards are mostly nav chrome + section labels
+ * ("Explore More", brand name), NOT the actual entries — so a generated
+ * ItemList would be full of garbage list items, which is worse than none and
+ * exactly the kind of fabrication the trust audit forbids. So we name the type
+ * + the entries to mark up, and the owner supplies the verbatim list.
+ */
+function composeContentListDirective(): DraftFill {
+  return {
+    display_label:
+      "Use ItemList structured data so engines read this as a ranked list",
+    current_text: null,
+    proposed_text:
+      "This page is a ranked list (e.g. “best” / “top N”), so it should use schema.org/ItemList structured data, not a generic Article. Add an ItemList JSON-LD block to the <head> with one ListItem per entry on the page, in order (position 1, 2, 3…), each item's name copied from the page. If each entry is a place or product, you can nest its specific type (e.g. Restaurant, Product) for richer results. Beacon doesn't auto-fill the entries because the crawled page mixes the real items with navigation, so they must be taken from your actual content.",
+    expected_impact:
+      "ItemList tells AI engines this is a ranked set of options so they can lift the entries directly — an Article type hides that structure entirely.",
+    measurement_plan: FIX_VERIFY_PLAN,
+  };
+}
+
+/**
+ * Recipe DIRECTIVE for recipe-structured pages. We do NOT emit a half-Recipe:
+ * Google's Recipe rich results REQUIRE recipeIngredient + recipeInstructions,
+ * and those must match the page exactly — fabricating them would be wrong and
+ * an incomplete Recipe is worse than none. So we name the opportunity + the
+ * required fields and let the owner fill the verbatim content. Still far
+ * better than stamping `Article` on a recipe.
+ */
+function composeContentRecipeDirective(): DraftFill {
+  return {
+    display_label:
+      "Add Recipe structured data so this dish can win recipe results",
+    current_text: null,
+    proposed_text:
+      "This page is structured like a recipe (it lists ingredients and preparation steps) but has no Recipe structured data. Add a schema.org/Recipe JSON-LD block to the <head> with at least: name, recipeIngredient (one entry per ingredient, copied verbatim from the page), and recipeInstructions (the steps in order). Recipe markup is what makes a page eligible for recipe rich results and lets AI assistants answer “how do I make this” step by step. Beacon doesn't auto-fill the ingredients and steps because they must match your page exactly.",
+    expected_impact:
+      "A complete Recipe block can win recipe rich results and is far easier for AI assistants to quote step-by-step — a generic Article type captures none of that.",
+    measurement_plan: FIX_VERIFY_PLAN,
+  };
+}
+
 function composeContentArticleSchema(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot,
@@ -812,6 +949,13 @@ function composeContentArticleSchema(
 ): DraftFill | null {
   const headline = snap.h1?.trim() || snap.title?.trim() || "";
   if (!headline) return null;
+
+  // Content-aware @type: a recipe page → Recipe directive; a ranked "best X"
+  // page → ItemList; everything else → the Article default below.
+  const kind = classifyContentSchemaType(snap, headline);
+  if (kind === "recipe") return composeContentRecipeDirective();
+  if (kind === "list") return composeContentListDirective();
+
   const pageUrl = candidate.target_url ?? snap.url;
   const description =
     snap.meta_description?.trim() ||
@@ -833,48 +977,8 @@ function composeContentArticleSchema(
   };
 
   const blocks: string[] = [jsonLdScript(article)];
-
-  // BreadcrumbList from the URL path — only when the page sits below
-  // the root and the URL parses. The last item carries no `item`.
-  try {
-    const u = new URL(pageUrl);
-    const segments = u.pathname.split("/").filter((s) => s.length > 0);
-    if (segments.length > 0) {
-      const rootName = orgName || u.hostname.replace(/^www\./i, "");
-      const items: Array<Record<string, unknown>> = [
-        {
-          "@type": "ListItem",
-          position: 1,
-          name: rootName,
-          item: `${u.origin}/`,
-        },
-      ];
-      let cumulative = "";
-      for (let i = 0; i < segments.length - 1; i++) {
-        cumulative += `/${segments[i]}`;
-        items.push({
-          "@type": "ListItem",
-          position: items.length + 1,
-          name: humanizePathSegment(segments[i]!),
-          item: `${u.origin}${cumulative}`,
-        });
-      }
-      items.push({
-        "@type": "ListItem",
-        position: items.length + 1,
-        name: headline,
-      });
-      blocks.push(
-        jsonLdScript({
-          "@context": "https://schema.org",
-          "@type": "BreadcrumbList",
-          itemListElement: items,
-        }),
-      );
-    }
-  } catch {
-    // Unparseable URL — the Article block alone is still a complete draft.
-  }
+  const crumb = buildBreadcrumbBlock(pageUrl, headline, orgName);
+  if (crumb) blocks.push(crumb);
 
   return {
     display_label:

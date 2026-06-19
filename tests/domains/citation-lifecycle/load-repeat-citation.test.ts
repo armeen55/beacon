@@ -264,7 +264,9 @@ describe("loadRepeatCitationForEdit — cache wiring", () => {
       tenantId: TENANT_A,
       recommendedEdit: edit(),
     });
-    expect(_cacheCalls[0].opts.revalidate).toBe(60);
+    // quota/waste pass 2026-06-17: idle TTL raised 60s → 1800s (operator
+    // actions revalidate the layout, so this only governs idle auto-refresh).
+    expect(_cacheCalls[0].opts.revalidate).toBe(1800);
   });
 
   it("cache key sentinel `no-live` when live_at is missing", async () => {

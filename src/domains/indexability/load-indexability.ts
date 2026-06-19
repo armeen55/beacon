@@ -424,7 +424,7 @@ export async function loadIndexabilityForUrl(opts: {
     },
     cacheKey,
     {
-      revalidate: 60,
+      revalidate: 1800, // quota/waste pass 2026-06-17: was 60s; operator actions revalidate the layout
       tags: [
         `recommended_edits:${opts.tenantId}`,
         `page-snapshots:${opts.tenantId}`,

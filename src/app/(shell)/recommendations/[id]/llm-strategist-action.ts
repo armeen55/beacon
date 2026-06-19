@@ -26,21 +26,22 @@ import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendatio
 import { buildRecommendationActionRows } from "@/domains/recommendations/recommendation-action-rows";
 import { resolveRecommendationDetail } from "@/domains/recommendations/resolve-recommendation-detail";
 import { decodeRecommendationRouteId } from "@/components/recommendations/v2/recommendation-route-id";
-import { buildWhyInput } from "@/domains/recommendations/why-this-matters-narrative";
-import { deriveRowTopicFit } from "@/domains/recommendations/topic-fit-from-evidence";
 import {
-  composeExpertStrategy,
-  type ExpertSynthesis,
-} from "@/domains/recommendations/llm-expert-strategist";
+  buildWhyInput,
+  composeWhyThisMatters,
+} from "@/domains/recommendations/why-this-matters-narrative";
+import { deriveRowTopicFit } from "@/domains/recommendations/topic-fit-from-evidence";
+import { composeExpertStrategy } from "@/domains/recommendations/llm-expert-strategist";
+import {
+  buildDeterministicStrategistResult,
+  type StrategistActionResult,
+} from "./strategist-result";
 
-export type StrategistActionResult = {
-  strategist: ExpertSynthesis["strategist"];
-  enforcedConfidence: ExpertSynthesis["enforcedConfidence"];
-  enforcedApprove: boolean;
-  gateNotes: string[];
-  /** The adversarial QA critic review (the "Adversarial QA" panel), or null. */
-  criticReview: ExpertSynthesis["criticReview"];
-};
+// Re-export the shared type so existing importers (StrategistAct, tests) keep
+// importing it from the action module. The TYPE + the deterministic builder
+// live in strategist-result.ts because this is a "use server" file — only
+// async server actions may be exported from here.
+export type { StrategistActionResult } from "./strategist-result";
 
 export async function requestExpertStrategistAction(
   recId: string,
@@ -71,15 +72,24 @@ export async function requestExpertStrategistAction(
       competitorNames = [];
     }
 
+    let brandName: string | undefined;
+    try {
+      const cfg = await getBusinessConfigForCurrentTenant();
+      brandName = cfg.name?.trim() || undefined;
+    } catch {
+      brandName = undefined;
+    }
     const allRows = buildRecommendationActionRows({
       queue: persisted.queue,
       promptTextById,
+      brandName,
     });
     const resolution = resolveRecommendationDetail(allRows, decodedId);
     if (resolution.kind === "miss") return null;
     const row = resolution.row;
 
     const why = buildWhyInput(row, promptTextById, competitorNames);
+    const whyNarrative = composeWhyThisMatters(why).join(" ").trim();
 
     // Tenant brand/locale terms for intent classification (config, not baked).
     let brandTerms: string[] | undefined;
@@ -99,14 +109,26 @@ export async function requestExpertStrategistAction(
     });
 
     const synthesis = await composeExpertStrategy({ why, topicFit });
-    if (synthesis == null) return null;
+    // Trust audit C (2026-06-16): the LLM path is a PROGRESSIVE ENHANCEMENT on
+    // top of the deterministic read — never a gate on whether the panel shows.
+    // When the LLM is unavailable (no key / budget / sanitize-reject / timeout
+    // → composeExpertStrategy returns null), fall back to the VISIBLE
+    // deterministic panel so the operator always sees Beacon's reasoning + the
+    // evidence receipt, not the bare brief.
+    if (synthesis == null) {
+      return buildDeterministicStrategistResult(row, whyNarrative);
+    }
 
+    const qa = row.detail.qaVerdict ?? null;
     return {
+      source: "llm",
       strategist: synthesis.strategist,
       enforcedConfidence: synthesis.enforcedConfidence,
       enforcedApprove: synthesis.enforcedApprove,
       gateNotes: synthesis.gateNotes,
       criticReview: synthesis.criticReview ?? null,
+      evidenceSupports: qa?.evidenceSupports ?? [],
+      evidenceMissing: qa?.evidenceMissing ?? [],
     };
   } catch {
     return null;

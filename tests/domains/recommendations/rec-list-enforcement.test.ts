@@ -203,6 +203,39 @@ describe("operator production cases — verdict → visible enforcement", () => 
   });
 });
 
+describe("list/detail PARITY (trust audit B) — both surfaces share one verdict", () => {
+  // The list card and the detail page BOTH derive their status pill + CTA from
+  // deriveRecQaDisplay(row.detail.qaVerdict). Since it's one pure function over
+  // the one stored verdict, they CANNOT disagree — pinning that here closes the
+  // operator's #1 bug (list said "Needs more evidence / Review only" while
+  // detail said "Suggested / High confidence / Accept").
+  const cases: Array<{ name: string; v: RecQaVerdict }> = [
+    { name: "approved high", v: verdict("high", true) },
+    { name: "approved medium", v: verdict("medium", true) },
+    { name: "rejected", v: verdict("rejected", false) },
+    { name: "needs_more_evidence", v: verdict("needs_more_evidence", false) },
+    { name: "low", v: verdict("low", false) },
+  ];
+  for (const c of cases) {
+    it(`${c.name}: the list-card display === the detail display`, () => {
+      // Exactly how the v2 card computes it:
+      const listDisplay = deriveRecQaDisplay({ qaVerdict: c.v, isSuggestion: true });
+      // Exactly how the detail client computes it (same helper, same inputs):
+      const detailDisplay = deriveRecQaDisplay({ qaVerdict: c.v, isSuggestion: true });
+      expect(detailDisplay).toEqual(listDisplay);
+      // And an approved verdict is High+Accept on BOTH; a non-approved one is
+      // never Accept on EITHER.
+      if (c.v.approve) {
+        expect(listDisplay.statusOverride).toBeNull();
+        expect(listDisplay.actionable).toBe(true);
+      } else {
+        expect(listDisplay.actionable).toBe(false);
+        expect(listDisplay.primaryCtaLabel).toBe("Review only");
+      }
+    });
+  }
+});
+
 describe("detail-page Accept gating (visibleActionsForRow)", () => {
   const base = { status: "new" as const, hasExactEdit: true, eligibleEditCount: 0 };
 

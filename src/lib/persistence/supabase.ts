@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { assertHermeticSupabase } from "./live-db-guard";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -26,6 +27,11 @@ export function getSupabaseAdmin(): SupabaseClient {
 
   const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+  // Quota/waste guard (2026-06-17): never connect a TEST run to a hosted
+  // Supabase without an explicit opt-in — the dev/prod boundary failure that
+  // burned prod egress. No-op outside tests / for local Supabase.
+  assertHermeticSupabase(url);
 
   _admin = createClient(url, serviceRoleKey, {
     auth: { persistSession: false },

@@ -29,6 +29,9 @@
 
 import Link from "next/link";
 
+import type { PageSurgeonForUrl } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
+import { PageSurgeonPanel } from "./page-surgeon-panel";
+
 import {
   ACTION_ROW_TYPE_LABEL,
   ACTION_ROW_PRIORITY_LABEL,
@@ -120,6 +123,9 @@ export type RecommendationDetailClientProps = {
   /** Approve & Push exposure (2026-06-16) — server-computed publish
    *  authorization for the current tenant; threaded to the action row. */
   canPublish?: boolean;
+  /** Page Surgeon bridge (operator-only, read-only) — the evidence-based plan
+   *  for this rec's target page. null in customer mode / when unavailable. */
+  pageSurgeon?: PageSurgeonForUrl | null;
 };
 
 export function RecommendationDetailClient({
@@ -128,6 +134,7 @@ export function RecommendationDetailClient({
   promptTextById,
   competitorNames,
   canPublish = false,
+  pageSurgeon = null,
 }: RecommendationDetailClientProps) {
   const target =
     row.targetUrl && row.targetUrl !== "needs_new_page" ? row.targetUrl : null;
@@ -724,8 +731,22 @@ export function RecommendationDetailClient({
             className="text-[13px] text-foreground/85 leading-relaxed max-w-2xl"
             data-recommendation-detail-measurement="true"
           >
-            Beacon will watch this page&apos;s citation rate on the affected
-            prompts after the change ships, and surface the result on{" "}
+            {/* Trust audit fix D (2026-06-16): only claim AI-citation tracking
+                when this rec actually has AI-answer evidence. A GSC/search move
+                with no AI signal is measured by Google Search performance. */}
+            {observationCount > 0 || aeoEvidenceLines.length > 0 ? (
+              <>
+                Beacon will watch this page&apos;s AI-answer citation rate on the
+                affected prompts after the change ships, and surface the result
+                on{" "}
+              </>
+            ) : (
+              <>
+                Beacon will re-check this page in Google Search — impressions,
+                clicks, and average position — after the change ships, and
+                surface the result on{" "}
+              </>
+            )}
             <Link
               href="/changes"
               className="text-accent-primary hover:underline"
@@ -762,8 +783,11 @@ export function RecommendationDetailClient({
           row={row}
           changelogId={changelogId}
           canPublish={canPublish}
+          pageSurgeonSupersedes={pageSurgeon?.status === "pack"}
         />
       </Act>
+
+      <PageSurgeonPanel pageSurgeon={pageSurgeon} />
     </div>
   );
 }

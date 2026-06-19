@@ -77,6 +77,7 @@ export function StrategistAct({
  */
 export function StrategistPanel({ result }: { result: StrategistActionResult }) {
   const { strategist, enforcedConfidence, gateNotes } = result;
+  const deterministic = result.source === "deterministic";
   const rejected = enforcedConfidence === "rejected";
   const critic = result.criticReview ?? null;
   const criticRiskGroups = critic
@@ -99,14 +100,17 @@ export function StrategistPanel({ result }: { result: StrategistActionResult }) 
       className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5"
       data-recommendation-detail-strategist="true"
       data-recommendation-detail-strategist-confidence={enforcedConfidence}
+      data-recommendation-detail-strategist-source={result.source}
     >
       <header className="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-baseline gap-2">
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-            Strategist analysis
+            {deterministic ? "Beacon's read" : "Strategist analysis"}
           </span>
           <span className="text-[10px] text-muted-foreground/50">
-            AI-assisted · grounded in your data
+            {deterministic
+              ? "deterministic · grounded in your data"
+              : "AI-assisted · grounded in your data"}
           </span>
         </div>
         <span
@@ -118,6 +122,19 @@ export function StrategistPanel({ result }: { result: StrategistActionResult }) 
           {CONFIDENCE_LABEL[enforcedConfidence] ?? enforcedConfidence}
         </span>
       </header>
+
+      {deterministic && (
+        // Trust audit C (2026-06-16): the LLM analysis is unavailable (no key /
+        // budget / sanitize-reject / timeout). Be VISIBLE about it — show
+        // Beacon's deterministic read instead of silently dropping the panel.
+        <p
+          className="mb-3 rounded-md bg-status-info/[0.06] px-3 py-2 text-[12px] leading-relaxed text-muted-foreground max-w-2xl"
+          data-recommendation-detail-strategist-fallback="true"
+        >
+          Expert (AI) reasoning is unavailable right now — showing Beacon&apos;s
+          deterministic read, grounded in your connected data.
+        </p>
+      )}
 
       {rejected ? (
         // Deterministic gate rejected — show ONLY the honest caution; suppress
@@ -171,6 +188,47 @@ export function StrategistPanel({ result }: { result: StrategistActionResult }) 
           )}
         </div>
       )}
+
+      {/* Trust audit C (2026-06-16): the deterministic fallback surfaces the
+          evidence RECEIPT (what backs this) + the honest gaps (what's missing),
+          so "showing deterministic QA" is concrete, not a hand-wave. */}
+      {deterministic &&
+        (result.evidenceSupports.length > 0 ||
+          result.evidenceMissing.length > 0) && (
+          <div
+            className="mt-4 pt-3 border-t border-border/50 max-w-2xl grid gap-3 sm:grid-cols-2"
+            data-recommendation-detail-strategist-receipt="true"
+          >
+            {result.evidenceSupports.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  What backs this
+                </p>
+                <ul className="list-disc pl-4">
+                  {result.evidenceSupports.map((it, i) => (
+                    <li key={i} className="text-[12px] text-foreground/80 leading-snug">
+                      {it}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {result.evidenceMissing.length > 0 && (
+              <div data-recommendation-detail-strategist-missing="true">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  What&apos;s missing
+                </p>
+                <ul className="list-disc pl-4">
+                  {result.evidenceMissing.map((it, i) => (
+                    <li key={i} className="text-[12px] text-muted-foreground leading-snug">
+                      {it}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
       {/* GQA-3 — the adversarial "Expert QA review": what might be WRONG with
           this recommendation. Visibly separate from the reasoning + source

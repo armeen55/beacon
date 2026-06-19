@@ -641,3 +641,35 @@ describe("Bulk-select — resolveQueueKeyAction (keyboard map)", () => {
     ).toBeNull();
   });
 });
+
+describe("RecommendationsV2Client — PSQ operator gating", () => {
+  it("customer view (default) renders NO Page Surgeon tabs", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationsV2Client
+        queue={[makeRec({ stableKey: "rec-cust-1" })]}
+        watchlist={[]}
+        matrixDate="2026-06-19"
+        promptTextById={promptTextById}
+      />,
+    );
+    expect(html).not.toContain("data-recommendations-v2-ps-tabs");
+    expect(html).not.toContain("Basic legacy");
+  });
+
+  it("operator view renders the Page Surgeon tabs (Ready/Needs edit/Reviewed/Basic legacy)", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationsV2Client
+        queue={[makeRec({ stableKey: "rec-op-1" })]}
+        watchlist={[]}
+        matrixDate="2026-06-19"
+        promptTextById={promptTextById}
+        isOperator
+        pageSurgeonSummaries={{}}
+      />,
+    );
+    expect(html).toContain("data-recommendations-v2-ps-tabs");
+    expect(html).toContain('data-ps-tab="ready"');
+    expect(html).toContain('data-ps-tab="legacy"');
+    expect(html).toContain("Basic legacy");
+  });
+});

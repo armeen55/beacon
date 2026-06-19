@@ -7,26 +7,63 @@
  */
 
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
-import { getTenant } from "@/domains/tenants/store";
+import { getTenant, listTenants } from "@/domains/tenants/store";
 import { currentTenantId } from "@/lib/tenant-context";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { switchTenantFromForm } from "@/app/(shell)/tenant-switch-action";
 
 export async function TenantSwitcher() {
-  let memberships: Array<{ tenant_id: string }> = [];
-  try {
-    const supabase = await getSupabaseServerClient();
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData?.user;
-    if (!user) return null;
-    const { data } = await supabase
-      .from("tenant_members")
-      .select("tenant_id")
-      .eq("user_id", user.id);
-    memberships = data ?? [];
-  } catch {
-    return null; // soft-fail: the header never breaks over the switcher
+  let tenants: Array<{ id: string; name: string }> = [];
+
+  if (isOperatorModeServer()) {
+    // Operator god-view (founder/agency): list EVERY tenant so the founder
+    // can hop between their sites with one click — no login, no membership
+    // rows, works even on the local auth bypass. Customers are never in
+    // operator mode, so they never reach this branch.
+    try {
+      tenants = (await listTenants()).map((t) => ({
+        id: t.id,
+        name: t.business_name || t.slug,
+      }));
+    } catch {
+      return null; // soft-fail: the header never breaks over the switcher
+    }
+  } else {
+    // Customer path: resolve the signed-in user's memberships. A single-
+    // business user (the common case) is a member of one tenant → the
+    // switcher renders nothing. "Agency" = a login that's a member of ≥2.
+    let memberships: Array<{ tenant_id: string }> = [];
+    try {
+      const supabase = await getSupabaseServerClient();
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+      if (!user) return null;
+      const { data } = await supabase
+        .from("tenant_members")
+        .select("tenant_id")
+        .eq("user_id", user.id);
+      memberships = data ?? [];
+    } catch {
+      return null; // soft-fail: the header never breaks over the switcher
+    }
+    if (memberships.length < 2) return null;
+
+    tenants = (
+      await Promise.all(
+        memberships.map(async (m) => {
+          try {
+            const t = await getTenant(m.tenant_id);
+            return t ? { id: t.id, name: t.business_name || t.slug } : null;
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter((t): t is { id: string; name: string } => t !== null);
   }
-  if (memberships.length < 2) return null;
+
+  // One business → nothing to switch between (the common single-tenant case).
+  if (tenants.length < 2) return null;
 
   let activeId = "";
   try {
@@ -34,20 +71,6 @@ export async function TenantSwitcher() {
   } catch {
     /* keep empty — render all as switchable */
   }
-
-  const tenants = (
-    await Promise.all(
-      memberships.map(async (m) => {
-        try {
-          const t = await getTenant(m.tenant_id);
-          return t ? { id: t.id, name: t.business_name || t.slug } : null;
-        } catch {
-          return null;
-        }
-      }),
-    )
-  ).filter((t): t is { id: string; name: string } => t !== null);
-  if (tenants.length < 2) return null;
 
   const active = tenants.find((t) => t.id === activeId);
   const others = tenants.filter((t) => t.id !== activeId);

@@ -8,6 +8,11 @@ export const dynamic = "force-dynamic";
 import { Suspense } from "react";
 
 import { currentTenantId } from "@/lib/tenant-context";
+import { isOperatorModeServer } from "@/lib/operator-mode";
+import {
+  loadPageSurgeonSummaries,
+  type PageSurgeonSummary,
+} from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import {
   loadPersistedRecommendationQueueForPage,
   type LiveRecQueueItem,
@@ -203,6 +208,7 @@ export async function RecommendationsAsyncContent({
     // tenant has no geo vocabulary" and matches nothing.
     let knownCities: string[] | undefined;
     let knownServices: string[] | undefined;
+    let brandName: string | undefined;
     try {
       const { getBusinessConfigForCurrentTenant } = await import(
         "@/lib/business-config"
@@ -210,9 +216,11 @@ export async function RecommendationsAsyncContent({
       const cfg = await getBusinessConfigForCurrentTenant();
       knownCities = cfg.locations;
       knownServices = cfg.services;
+      brandName = cfg.name?.trim() || undefined;
     } catch {
       knownCities = undefined;
       knownServices = undefined;
+      brandName = undefined;
     }
 
     const persisted = await trace.time(
@@ -251,6 +259,17 @@ export async function RecommendationsAsyncContent({
       publishTarget = null;
     }
 
+    // PSQ — operator-only Page Surgeon summaries (read-only). Maps each briefed
+    // page's PATH → its QA/review/headline so the queue can put Page-Surgeon-ready
+    // packs FIRST and demote basic legacy recs. Empty in customer mode → customer
+    // render is byte-identical. The loader is fail-soft internally.
+    const isOperator = isOperatorModeServer();
+    const pageSurgeonSummaries: Record<string, PageSurgeonSummary> = isOperator
+      ? await trace.time("loadPageSurgeonSummaries", () =>
+          loadPageSurgeonSummaries(tenantId),
+        )
+      : {};
+
     return (
       <div className="max-w-5xl">
         {errors.length > 0 && <DataDegradedBanner errors={errors} />}
@@ -262,9 +281,12 @@ export async function RecommendationsAsyncContent({
           competitorNames={competitorNames}
           knownCities={knownCities}
           knownServices={knownServices}
+          brandName={brandName}
           publishingMode={publishingMode}
           canPublish={canPublish}
           publishTarget={publishTarget}
+          isOperator={isOperator}
+          pageSurgeonSummaries={pageSurgeonSummaries}
         />
         {debugResolver && (
           <RecsResolverDebugPanel

@@ -59,6 +59,58 @@ function findFieldKeyByName(
   return undefined;
 }
 
+/**
+ * Trust audit F (2026-06-16) — classify a discovered Wix collection as a SYSTEM
+ * / private / transactional collection (form submissions, members/private data,
+ * orders, inventory, variants, coupons) vs. likely page CONTENT. Wix namespaces
+ * these collections by id prefix ("Forms/…", "Members/…", "Marketing/…") plus a
+ * few transactional Stores subtypes — so the classifier keys on the id
+ * namespace, NOT on names (no hardcoding of any tenant's collection names).
+ *
+ * The mapper shows CONTENT collections first and tucks SYSTEM ones behind an
+ * "Advanced" toggle so a non-technical operator isn't invited to map order/
+ * member/form data as if it were a page. Nothing is hidden permanently —
+ * Advanced still reaches everything. Pure.
+ *
+ * Stores/Products + Stores/Collections are intentionally treated as CONTENT
+ * (product/category pages have public URLs); only the non-page Stores subtypes
+ * (Orders / InventoryItems / Variants) are system.
+ */
+const SYSTEM_NAMESPACE_PREFIXES = ["forms/", "members/", "marketing/"] as const;
+const SYSTEM_COLLECTION_IDS: ReadonlySet<string> = new Set([
+  "stores/orders",
+  "stores/inventoryitems",
+  "stores/variants",
+  "stores/fulfillments",
+  "stores/discountrules",
+]);
+
+export function isSystemWixCollection(collectionId: string): boolean {
+  if (typeof collectionId !== "string") return false;
+  const id = collectionId.trim().toLowerCase();
+  if (id.length === 0) return false;
+  if (SYSTEM_NAMESPACE_PREFIXES.some((p) => id.startsWith(p))) return true;
+  if (SYSTEM_COLLECTION_IDS.has(id)) return true;
+  return false;
+}
+
+/**
+ * Partition discovered-collection rows into content (shown first) and system
+ * (tucked behind Advanced). Stable — preserves input order within each group.
+ * Generic over any row carrying `{ collection: { id } }`.
+ */
+export function partitionWixCollectionsBySystem<
+  T extends { collection: { id: string } },
+>(rows: ReadonlyArray<T>): { content: T[]; system: T[] } {
+  const content: T[] = [];
+  const system: T[] = [];
+  for (const r of rows) {
+    if (isSystemWixCollection(r.collection.id)) system.push(r);
+    else content.push(r);
+  }
+  return { content, system };
+}
+
 /** Known field-key synonyms for each pushable content role. Matched
  *  case-insensitively against the collection's ACTUAL field keys; the
  *  suggestion maps the role to the real key. Add synonyms here, never tenant

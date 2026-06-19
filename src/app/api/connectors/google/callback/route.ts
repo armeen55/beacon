@@ -36,6 +36,7 @@ import {
   decodeOAuthState,
 } from "@/lib/connectors/google-auth";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 
 /**
  * Night-shift hardening (2026-06-11): the signed state carries the
@@ -47,6 +48,13 @@ import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
  * Defense-in-depth: verify membership, fail-closed.
  */
 async function callerIsMemberOfTenant(tenantId: string): Promise<boolean> {
+  // Operator god-view: on the auth bypass / operator mode there's no Supabase
+  // user, so the membership lookup below always fails and blocks the founder
+  // from connecting their own sources. The OAuth `state` is HMAC-signed, so
+  // the tenantId can't be forged — operator mode is the trusted founder
+  // context. Customers never run in operator mode, so they still go through
+  // the membership check.
+  if (isOperatorModeServer()) return true;
   try {
     const supabase = await getSupabaseServerClient();
     const { data: userData } = await supabase.auth.getUser();

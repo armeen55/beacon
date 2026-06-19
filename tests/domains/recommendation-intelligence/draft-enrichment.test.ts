@@ -257,12 +257,58 @@ describe("enrichPromotionRow — content drafts", () => {
   });
 
   it("edit_title: a CMS placeholder h1 (“Page Title”) never becomes the draft", () => {
+    // title: null so the page genuinely lacks a title (else trust-audit E2/E4
+    // correctly skips: rewriting an existing on-topic title just to drop/swap
+    // the brand suffix is not a real improvement).
     const out = enrichPromotionRow(
       row(),
       candidate(),
-      ctxOf(snap({ h1: "Page Title", h2_list: [] })),
+      ctxOf(snap({ title: null, h1: "Page Title", h2_list: [] })),
     );
     // Falls past the placeholder h1 to the title-cased cluster label.
+    expect(out.proposed_text).toBe("Persian Tea Houses");
+  });
+
+  it("E2/E4 (trust audit): skips rewriting an on-topic title whose only delta is the brand suffix", () => {
+    // The page already has a clean, on-topic title; the base (h1) is contained
+    // in it, so the only change would be appending/swapping the brand — not a
+    // real improvement. Low CTR alone is never a reason to rewrite. → no draft.
+    const out = enrichPromotionRow(
+      row(),
+      candidate(),
+      ctxOf(
+        snap({
+          title: "Persian Tea Houses — A Complete Guide",
+          h1: "Persian Tea Houses",
+        }),
+      ),
+    );
+    expect(out.proposed_text).toBeNull();
+  });
+
+  it("E3 (trust audit): does NOT strip useful descriptive terms — skips the rewrite that would drop them", () => {
+    // current carries extra descriptive text ("Persian Flags History"); the
+    // base (h1) is a subset of it, so a rewrite to base+brand would LOSE
+    // descriptive content. Skip rather than make the title worse.
+    const out = enrichPromotionRow(
+      row(),
+      candidate(),
+      ctxOf(
+        snap({
+          title: "Timurid Empire Flag (1370–1507) - Persian Flags History",
+          h1: "Timurid Empire Flag (1370–1507)",
+        }),
+      ),
+    );
+    expect(out.proposed_text).toBeNull();
+  });
+
+  it("E2/E3/E4: still PROPOSES a title when the page genuinely lacks one (no regression)", () => {
+    const out = enrichPromotionRow(
+      row(),
+      candidate(),
+      ctxOf(snap({ title: null, h1: "Persian Tea Houses" })),
+    );
     expect(out.proposed_text).toBe("Persian Tea Houses");
   });
 

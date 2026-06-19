@@ -31,6 +31,7 @@ export async function loadActionRowByEditId(
 
   let knownCities: string[] | undefined;
   let knownServices: string[] | undefined;
+  let brandName: string | undefined;
   try {
     const { getBusinessConfigForCurrentTenant } = await import(
       "@/lib/business-config"
@@ -38,9 +39,11 @@ export async function loadActionRowByEditId(
     const cfg = await getBusinessConfigForCurrentTenant();
     knownCities = cfg.locations;
     knownServices = cfg.services;
+    brandName = cfg.name?.trim() || undefined;
   } catch {
     knownCities = undefined;
     knownServices = undefined;
+    brandName = undefined;
   }
 
   const rows = buildRecommendationActionRows({
@@ -48,6 +51,7 @@ export async function loadActionRowByEditId(
     promptTextById: {},
     knownCities,
     knownServices,
+    brandName,
   });
 
   return (

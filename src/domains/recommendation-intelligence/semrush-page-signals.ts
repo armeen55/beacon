@@ -20,6 +20,25 @@ export type SemrushKeywordSignal = {
   volume: number;
   difficulty: number | null;
   intent: string | null;
+  /** Cost-per-click (USD) — commercial-value signal; null when SEMrush omits it. */
+  cpc?: number | null;
+};
+
+/**
+ * Trust audit G readiness (2026-06-16) — a keyword a competitor ranks for on
+ * this topic that this page/domain ranks worse for (or not at all). DIRECTIONAL
+ * market evidence (a gap to consider), never a confidence input on its own.
+ */
+export type SemrushCompetitorGap = {
+  keyword: string;
+  volume: number;
+  difficulty: number | null;
+  /** The competitor domain that ranks for this keyword. */
+  competitorDomain: string;
+  /** The competitor's position for the keyword. */
+  competitorPosition: number;
+  /** This page/domain's position, or null when it doesn't rank — the gap. */
+  ourPosition: number | null;
 };
 
 export type SemrushPageSignal = {
@@ -28,6 +47,19 @@ export type SemrushPageSignal = {
   keywords: SemrushKeywordSignal[];
   /** Keywords in the striking-distance band (4–20), volume desc. */
   strikingDistance: SemrushKeywordSignal[];
+  // ── Trust audit G readiness (2026-06-16) ─────────────────────────────────
+  // SEMrush is DIRECTIONAL market evidence — it can ENRICH the keyword
+  // portfolio + opportunity scoring, but it must NEVER override GSC first-party
+  // truth or the deterministic QA gate (which band confidence on intent-fit +
+  // first-party demand). These optional fields let the evidence model ACCEPT
+  // the richer SEMrush data as the connector wires each endpoint; all default-
+  // absent, so nothing changes at runtime until a field is populated.
+  /** Related / phrase-match keyword expansions for the page's topic. */
+  relatedKeywords?: SemrushKeywordSignal[];
+  /** Question-phrase keywords (who/what/how/why…) — answer-block fodder. */
+  questionKeywords?: SemrushKeywordSignal[];
+  /** Competitor keyword gaps — terms rivals win that this page/domain doesn't. */
+  competitorGaps?: SemrushCompetitorGap[];
 };
 
 /** Striking-distance band — union of credible practitioner bands
@@ -62,6 +94,7 @@ export async function loadSemrushPageSignalsForTenant(
     url: string;
     difficulty: number | null;
     intent: string | null;
+    cpc: number | null;
   };
   const rows: Row[] = [];
   try {
@@ -76,7 +109,7 @@ export async function loadSemrushPageSignalsForTenant(
     for (let from = 0; from < MAX_ROWS; from += PAGE) {
       const { data, error } = await sb
         .from("semrush_organic_keywords")
-        .select("keyword, position, volume, url, difficulty, intent")
+        .select("keyword, position, volume, url, difficulty, intent, cpc")
         .eq("tenant_id", tenantId)
         .order("url")
         .order("keyword")
@@ -111,6 +144,7 @@ export async function loadSemrushPageSignalsForTenant(
       volume: r.volume ?? 0,
       difficulty: r.difficulty,
       intent: r.intent,
+      cpc: r.cpc ?? null,
     });
   }
 
@@ -284,4 +318,88 @@ export async function loadSemrushKeywordGapsForTenant(
   } catch {
     return [];
   }
+}
+
+// ── Keyword-expansion slice (2026-06-18) ─────────────────────────────
+
+export type SemrushPageExpansions = {
+  page: string;
+  seedQueries: string[];
+  /** phrase_related rows for the page's seed query(ies), volume desc. */
+  relatedKeywords: SemrushKeywordSignal[];
+  /** phrase_questions rows (who/what/how/why…) — answer-block fodder. */
+  questionKeywords: SemrushKeywordSignal[];
+};
+
+/**
+ * Per-page SEMrush query expansions (phrase_related + phrase_questions),
+ * grouped by canonical page URL. The broader QUERY context the Page Surgeon
+ * brief uses alongside first-party GSC demand. Bounded + fail-soft empty.
+ *
+ * Expansion rows carry no position (they describe the market, not where this
+ * page ranks), so `position` is recorded as 0 — these never feed the
+ * striking-distance / cannibalization detectors, only the evidence packet.
+ */
+export async function loadSemrushKeywordExpansionsForTenant(
+  tenantId: string,
+): Promise<Map<string, SemrushPageExpansions>> {
+  const out = new Map<string, SemrushPageExpansions>();
+  type Row = {
+    page_url: string;
+    seed_query: string;
+    kind: "related" | "question";
+    keyword: string;
+    volume: number | null;
+    difficulty: number | null;
+    cpc: number | null;
+    intent: string | null;
+  };
+  const rows: Row[] = [];
+  try {
+    const sb = getSupabaseAdmin();
+    const PAGE = 1000;
+    const MAX = 10_000;
+    for (let from = 0; from < MAX; from += PAGE) {
+      const { data, error } = await sb
+        .from("semrush_keyword_expansions")
+        .select("page_url, seed_query, kind, keyword, volume, difficulty, cpc, intent")
+        .eq("tenant_id", tenantId)
+        .order("page_url")
+        .order("volume", { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error) {
+        log.warn("[semrush-expansions] read failed", { tenantId, error: error.message });
+        break;
+      }
+      const batch = (data ?? []) as unknown as Row[];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+    }
+  } catch {
+    return out;
+  }
+  if (rows.length === 0) return out;
+
+  for (const r of rows) {
+    const page = canonicalizeCitationUrl(r.page_url) ?? r.page_url;
+    let entry = out.get(page);
+    if (!entry) {
+      entry = { page, seedQueries: [], relatedKeywords: [], questionKeywords: [] };
+      out.set(page, entry);
+    }
+    if (r.seed_query && !entry.seedQueries.includes(r.seed_query)) {
+      entry.seedQueries.push(r.seed_query);
+    }
+    const signal: SemrushKeywordSignal = {
+      keyword: r.keyword,
+      position: 0,
+      volume: r.volume ?? 0,
+      difficulty: r.difficulty,
+      intent: r.intent,
+      cpc: r.cpc ?? null,
+    };
+    if (r.kind === "question") entry.questionKeywords.push(signal);
+    else entry.relatedKeywords.push(signal);
+  }
+  return out;
 }

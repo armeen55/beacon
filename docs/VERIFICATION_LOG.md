@@ -7,6 +7,195 @@
 
 ---
 
+## 2026-06-19 LIVE BROWSER/OPERATOR AUDIT — Page-Surgeon-first /recommendations
+
+Ran the new experience in the actual app (not just tests), per operator request. Dev server pinned supabase + operator + Iranopedia (temporary `.claude/launch.json` configs, reverted after; `.env.local` untouched). beacon-main data. No code changes — audit only; **no UI bugs found**.
+
+**Operator `/recommendations` (port 3141, BEACON_OPERATOR_MODE=true, tenant-iranopedia):**
+- Default active tab = **Ready** ✓ (subtitle "Finished Page Surgeon drafts that passed auto-QA — review and approve these first").
+- Tabs: Ready (4) · Needs edit (0) · Reviewed (0) · Basic legacy (39) ✓ — legacy clearly separated/demoted. (Ready=4 not 5: persian-male-names' pack is keep_current but it also has an open legacy edit_title rec, so it appears; the 5th briefed page had no other gap. All 4 Ready cards carry a 🔬 "Page Surgeon ready" chip.)
+- Server log confirmed the operator summaries loader fired for tenant-iranopedia (217 snapshots / 5 briefs).
+- **No publish controls** anywhere (0 publish buttons; only honest "nothing publishes" copy).
+- Recorded one **Approve** (via /diagnostics/page-surgeon/review) → "Recorded 'approve' for …/persian-male-names. Publishing is disabled — nothing was pushed live." Queue then showed **Reviewed (1)**, the card moved to the Reviewed tab with a green **"Approved"** badge + **"Reopen review ↻"** link → `…#page-surgeon`. (This left 1 review-decision row on beacon-main — a legitimate, additive record; persian-male-names=keep_current so "approve" is a correct decision.)
+
+**Detail (a pack page):** PS panel renders with **"primary review"** tag, action + QA pass · 100%; Act 6 shows only **Defer/Dismiss** — the legacy **Accept is removed** and replaced by "A Page Surgeon plan supersedes this … the legacy quick-accept is paused. Nothing publishes." Approve & Push absent. Pushability labels exact: "Wix field ready", "Blocked: no write path for this change type", "Rollback ready".
+
+**Customer mode (port 3142, BEACON_OPERATOR_MODE=false):** `/recommendations` shows the normal flat 7-card queue — **0 Page Surgeon tabs / chips / reopen links, zero "Page Surgeon" text**. Customer view is clean.
+
+Conclusion: the Page-Surgeon-first workflow works in the real UI, end to end, gated correctly. Honest note (not a bug): the queue "Page Surgeon ready" chip means "a pack exists for this page" even when the pack's verdict differs from the legacy rec's action — the detail's supersede banner reconciles it.
+
+---
+
+## 2026-06-19 PAGE SURGEON = PRIMARY /recommendations WORKFLOW PSQ1–6 (autonomous)
+
+Made the operator's `/recommendations` read "review these finished Page Surgeon drafts," not "browse old rec cards." No publish / arm / queue-regen / merge / migration. Branch pushed; NOT merged. Commit `dd5057b`.
+
+**What changed**
+- `loadPageSurgeonSummaries(tenant)` (bridge.ts) → per-briefed-page QA/review/headline keyed by path; `bucketForSummary` + `pushMethodLabel`/`rollbackLabel` (change-pack.ts, pure).
+- `/recommendations/page.tsx`: operator-only summaries load + `isOperator`/`pageSurgeonSummaries` props (empty in customer mode).
+- recommendations-v2-client.tsx: operator tabs Ready/Needs-edit/Reviewed/Basic-legacy (default Ready), client-only bucket reorder (builder sort untouched), per-row PS badges; calm-state now keys off the full actionable set in operator mode (bug fix — empty Ready tab no longer strands an all-legacy operator).
+- recommendation-v2-card.tsx: "🔬 Page Surgeon ready" + reviewed badges + "Reopen review ↻" (#page-surgeon).
+- recommendation-detail-actions.tsx: `pageSurgeonSupersedes` demotes the legacy Accept + Approve&Push with a calm explanation (Defer/Dismiss stay; publish semantics unchanged); panel is primary review target.
+
+**Tested**
+- tsc clean. `vitest run src/domains/recommendation-intelligence src/domains/recommendations src/components/recommendations tests/app/recommendations tests/domains/recommendations/rec-list-enforcement.test.ts` → **1486 pass / 2 skipped** (63 files), incl. the pinned rec-list-enforcement sort + title-isolation. New: change-pack bucket/label (5), v2-client operator-gating render (2), detail-actions supersede (3).
+- **4-lens adversarial review workflow** (customer-unchanged / no-publish-no-mutation / correctness-edges / goal-completeness) → all **pass, 0 confirmed issues** (2 goal-completeness notes adversarially refuted: legacy-in-its-own-tab is the requested behavior).
+- **Headless real-data** (`scripts/_verify-ps-bridge.ts`, beacon-main Iranopedia): `loadPageSurgeonSummaries` → 5 briefed pages all bucket "ready"; the rest of the queue buckets "legacy". `loadPageSurgeonForUrl`/`loadProofPlan` still clean.
+
+**Not done (honest):** no live browser render of the operator queue (would need BEACON_OPERATOR_MODE + tenant env flip + dev server) — covered by render unit tests + real-data + adversarial review instead. Deferred: PS2 age-based staleness/queue demotion (touches the customer sort).
+
+---
+
+## 2026-06-19 PAGE SURGEON → PRODUCT BRIDGE PS1–10 (autonomous)
+
+Continuation of the 10x audit — the remaining items NOT covered by WL1–12: get the Page Surgeon out of `/diagnostics` and into the product review workflow, separate stale legacy recs, make decisions/history/proof/rollback/pushability coherent, and surface live-publish blockers explicitly. No publish / arm / queue-regen. Branch pushed to origin; NOT merged/deployed. Commits: `53920fa` PS1+3+4, `42e5997` PS7+8, `a2bde7c` PS2, `4f31cb4` PS9+10, `69a2334` PS5, `2e45815` PS6, `b11f4e3` verify harness.
+
+**What changed**
+- PS4 `change-pack.ts` AtomicChangePack (+ `classifyArtifactPushability`); PS1/PS3 `bridge.ts` `loadPageSurgeonForUrl` + operator-only read-only panel on `/recommendations/[id]`; PS2 `rec-provenance.ts` + queue-card label; PS7 rollback-readiness visibility; PS8 real `wix_url_map` pushability; PS5 review `note` column + textarea + panel display; PS6 `proof-plan.ts` + `/diagnostics/page-surgeon/proof`; PS9 `migrations/README.md`; PS10 `tests/architecture/page-surgeon-title-isolation.test.ts`.
+
+**Tested**
+- `npx tsc --noEmit` clean after every item.
+- `npx vitest run src/domains/recommendation-intelligence src/domains/recommendations src/components/recommendations` → **1276 pass** / 2 skipped (52 files). New unit tests: change-pack (6), rec-provenance (5), proof-plan (3), title-isolation (2).
+- 1 additive migration APPLIED to beacon-main (`page_surgeon_review_decisions.note`). All PS tables confirmed to have idempotent migrations.
+- **Headless ground-truth** (`scripts/_verify-ps-bridge.ts`, real beacon-main Iranopedia): persian-male-names → keep_current pack (QA pass, 0 artifacts); funny-farsi-phrases → intro_answer_block pack (QA pass, fact-check flagged, pushability mix wix_cms_field/no_write_path/manual, anyAuto=true, 1 blocker); proof plan = 0 rows (no decisions recorded yet). No errors.
+
+**Deferred (logged, not blocking):** age-based staleness + queue demotion (PS2) — would touch the customer sort/enforcement layer + multiple builder push-sites; left for an operator-gated pass. The PS panel is operator-gated and read-only; wiring Approve→push stays behind the existing armed-publishing gates.
+
+---
+
+## 2026-06-19 PAGE SURGEON — trust worklist WL1–12 (autonomous)
+
+Standing-goal autonomous execution of the 12-item Page-Surgeon trust worklist. No publish / Wix / arming / queue regen; branch pushed to origin as backup; NOT merged/deployed. Commits (branch `claude/iranopedia-blockers`): `427ade9` WL1+WL2, `01a8fac` WL3, `2dab700` WL4, `7ae48e7` WL5, `16443e0` WL6, `be4a09f` WL7, `f17f93c` WL8, `c648454` WL9, `d737d36` WL10, `aa0bde3` WL11, `2670389` WL12.
+
+**What changed**
+- WL1 keep_current protective insight (both gate exits); WL2 per-clause absent-evidence; WL3 `verifyNumericFidelity` (reject fabricated metrics, guard targets/absent); WL4 `deferred_changes` cap (primary + ≤2); WL5 per-query snippet deficit + shared `expected-ctr.ts`; WL6 two-stage diagnose-then-plan judge (`diagnosis` folded into insight); WL7 context loader 60s cache + read metering; WL8 `page_surgeon_brief_history` (append-only) + lazy history UI; WL9 persisted review decisions (`page_surgeon_review_decisions`) + list badges, no publish; WL10 answer/FAQ fact-check vs crawl+demand → `factCheckRequired`; WL11 SEMrush kd/cpc null≠0; WL12 schema→`v4-trust-worklist` + 5-page re-run harness.
+
+**Tested**
+- `npx tsc --noEmit` clean after every item.
+- `npx vitest run src/domains/recommendation-intelligence` → 94 pass (6 files); page-surgeon suite 67 (added 5 WL1–2 + 5 WL3 + 2 WL4 + 2 WL5 + 1 WL6 + 3 WL10 + a fixed fixture).
+- 2 additive migrations APPLIED to beacon-main (`vlxwevsdvwxvopkjsewo`): `page_surgeon_brief_history`, `page_surgeon_review_decisions` (RLS-on, no-policy, verified via list_tables).
+- **5-page LIVE re-run** (`scripts/_verify-page-surgeon-5pages.ts --live`, real beacon-main Iranopedia data): every page's insight leads with a packet-true per-query "Bottleneck:" (e.g. funny-farsi-phrases cites "pedar sag meaning" 438 impr @ pos 7.82, 1 click, 0.23% CTR); supports capped at 2 (deferred 0–2); QA PASS 91–100%; 4/5 flagged ⚠ fact-check; numeric-fidelity rejected nothing (cited numbers were real); no crashes; WL7 meter logged (217 snapshots/197 gsc/60 clarity/0 ga4/38 semrush).
+
+**Known limitation (honest):** the verify script runs outside the Next runtime so `getBusinessConfig` falls back to a neutral placeholder (brand-suffix only) — the live app hydrates business_config from Supabase; trust-gate behavior is unaffected.
+
+---
+
+## 2026-06-18 PAGE SURGEON — autonomous batch (goal priorities 1–4 + QA hardening + quota check)
+
+Standing-goal autonomous work toward the "AI Page Surgeon → finished, QA-passed atomic changes I approve" north star. No publish / Wix / queue regen / paid pulls; commits `4346c0d` (P2) + `3c70018` (P3).
+- **P2 — closed the remaining QA failure classes:** Microsoft Clarity now in the absent-source citation guard (a change citing dead/rage clicks when Clarity has no data → rejected); **vague rollback** and **vague measurement** are backfilled by the composer to concrete per-action values (restore the exact prior title/meta/h1; remove the added block/JSON-LD/links; "compare GSC CTR/clicks for the top query 28d after vs before"; ux_cta_fix → re-check Clarity 14–28d). New critical QA checks "Rollback specified" + "Measurement specific". +3 tests.
+- **P3 — artifact reads like a senior operator:** the review surface now renders "why it's not just a title tweak", "what a normal SEO misses", and an explicit "Missing sources" caveat line (on top of the existing primary+supporting dependency order, exact copy, per-change evidence/risk/rollback, rejected alternatives, publishability).
+- **P1 + P4 — all 5 demo pages READY ✅ (QA 100%)**, verified cache-only (zero OpenAI): funny-farsi-phrases (answer block), cities (answer block), farsi-numbers (title), iran-flags (title + Clarity ux fix), persian-male-names (keep_current). Exceeds the "2–3 demo-worthy" goal.
+- **P6 (in-scope quota check):** the Page Surgeon read path is clean — brief-store + the SEMrush/GSC/Clarity/GA4 loaders all use explicit column projections, tenant-scoped; no unbounded `select("*")`. (The shared `getPageSnapshots()` repository read is broader but out of safe autonomous scope.)
+- typecheck clean; 44 page-surgeon + 12 semrush tests green. Branch `claude/iranopedia-blockers`, committed locally (not pushed — CI-minutes conservation).
+
+---
+
+## 2026-06-18 PAGE SURGEON — first demo-worthy artifact: /funny-farsi-phrases now QA-passes (live)
+
+Closed the one QA-withheld page from the artifact slice with the audit-approved plan, making the hard requirements DETERMINISTIC (not LLM luck). Commit `3007040`. No publish / Wix / queue regen.
+- **Composer auto-trim**: any over-limit title/meta/h1 is trimmed to a FINISHED phrase — last clause/sentence boundary within the limit (fallback word boundary), trailing punctuation + dangling conjunction stripped, `autoTrimmed` flagged. Guarantees "meta ≤ 160" with clean copy.
+- **Gate claim-cleaner**: strips deprecated/unsupported justifications (FAQ rich-result / SERP real estate / FAQ-schema-CTR) from every change's evidence+hypothesis before the operator sees it.
+- **Prompt**: meta ≤155; FAQ justified ONLY by question/"meaning" demand; LEAD WITH intro_answer_block when a page has page-1 zero-click "meaning" queries + a CTR deficit.
+- **VERIFIED live (re-drafted, real data): /funny-farsi-phrases → QA PASS 100%, Ready-to-review.** PRIMARY intro_answer_block defines *pedar sag* + *badbakht* (the page-1 zero-click meaning queries — 438 impr/1 click, 220 impr/0 clicks); title→supporting "Persian (Farsi) Swear Words, Insults & Funny Phrases" (52/60, keeps "insults", adds "swear words" per GSC 799/590 + SEMrush variants); meta 127 chars clean; H1 aligned; 4 real Q&A (no rich-result claim); Article+BreadcrumbList schema only; every claim maps to GSC/SEMrush/crawl. All operator hard-requirements met. typecheck clean; 53 page-surgeon + semrush tests green.
+
+---
+
+## 2026-06-18 PAGE SURGEON — finished artifact bundle + auto-QA gate + visual review (live-verified)
+
+The leap from "advice" to "an operator draft I approve" (operator pick 1+4). Commits `6be3edd` (engine) + `e46cfb5` (UI). No publish / Wix / queue regen.
+- **Artifact composer** (`artifact-bundle.ts`, pure): each gated change → a FINISHED, CMS-validated bundle — literal title/meta/h1 with char-limit checks (60/160/70), literal answer-block HTML+text, literal FAQ Q&A, deterministic Article+BreadcrumbList(+FAQPage) JSON-LD, internal links resolved to REAL site URLs by topic (unresolved→null+note, never faked), before/after diff, rollback content, measurement, the gate's publishability, evidence receipt, + a rendered Google SERP snippet before/after. Judge now emits the LITERAL content (artifact_text / faq_items). Never elevates publishability.
+- **Auto-QA gate** (`artifact-qa.ts`, pure deterministic): vets every bundle BEFORE the operator sees it — evidence present, measurable, CMS-valid (in-limit, non-empty, JSON-LD parses), brand/fact-safe (no placeholder/junk), no stale tactics (image_alt / schema-when-present / FAQ-rich-result), ranking-safe (no snippet rewrite without a deficit), decision-consistent. Critical failure → withheld with reasons.
+- **Visual review surface** (`/diagnostics/page-surgeon/review`): SERP before/after, finished content per change in dependency order (char-limit bars, answer-block, FAQ, JSON-LD, resolved links), evidence/risk/rollback/measurement, Approve / Needs-edit / Reject. Three sections: Ready to review (QA-passed) · Not yet drafted · Rejected by QA (with reasons). Publishing disabled — controls record intent only.
+- **VERIFIED live on Iranopedia** (real data, screenshot captured): 4/5 pages produce QA-passed finished bundles — `/cities`→intro_answer_block (literal answer + schema + FAQ), `/iran-flags`→title + ux_cta_fix (Clarity friction), `/farsi-numbers`→title "Persian Numbers 0-9 — Names, Symbols & 1–10" (43/60), `/persian-male-names`→keep_current. **`/funny-farsi-phrases` was WITHHELD by auto-QA** with real reasons (meta 164>160 chars + deprecated FAQ-rich-result justification) — the "only QA-passed drafts reach you" guarantee working on live output. Review page rendered + screenshotted under Iranopedia (Google-style snippet preview, QA-passed badge, evidence line). typecheck clean; 39 page-surgeon + semrush tests green (11 new composer/QA tests). DECISION_SCHEMA_VERSION already v3.
+
+---
+
+## 2026-06-18 PAGE SURGEON — deterministic TRUST HARDENING (audit P1–P4, live-verified)
+
+After an investor-demo audit (5 briefs reviewed by an independent adversarial SEO panel; all 5 scored 4–5/10, demo_worthy=false) found systemic trust defects, hardened the deterministic gate — the SOLE authority, never the LLM. Commit `491d19b`. No queue regen / publish / Wix / new UI.
+- **P1 over-recommendation:** `detectPageProblems()` decides from evidence alone whether a page has a real problem (snippet deficit ctrGap≥0.5pp, title missing dominant query, page-1 zero-click query, or meaningful Clarity friction). No problem → `keep_current` (all proposed edits rejected with honest reasons). Snippet-family changes ineligible without a deficit/justification. **`highValueUnservedCluster` excluded from "hasAnyProblem"** (too soft to touch a healthy page).
+- **P2 evidence-citation sanitizer:** rejects any change that AFFIRMATIVELY cites an empty/absent packet field (SEMrush related/questions, GA4, competitors), with a negative-guard so honest "none returned" mentions survive.
+- **P3 eligibility:** `image_alt` always off (no image crawl); `schema` only when missing; `ux_cta_fix` only on meaningful friction (dead≥20/rage≥5) — tiny samples rejected; `create_new_page` only with a real unserved cluster. **Clarity-friction RESCUE:** meaningful friction + no surviving ux_cta_fix → gate adds a Clarity-grounded one.
+- **P4 fallback consistency:** keep_current/needs_* carries no change artifacts (no rollback/before-after); a detected problem with no safe action → needs_llm_review.
+- **Live re-run (P5) of the 5 pages confirms:** `/persian-male-names` → **keep_current** (CTR 4.40% ≥ 4.00% expected); `image_alt` rejected on **all 5**; GA4-citation variants rejected (P2); `/iran-flags` now **surfaces ux_cta_fix** (67 dead/10 rage clicks) + leads with the page-1 zero-click answer block; `/farsi-numbers` clean (no image_alt, no empty-SEMrush citation). Prompt aligned to the gate; `DECISION_SCHEMA_VERSION → v3-trust-gate`. typecheck clean; 41 page-surgeon + semrush tests green (16 new trust-gate tests). The briefs now survive "where did that evidence come from?" without embarrassment.
+
+---
+
+## 2026-06-18 PAGE SURGEON Slice B — capped SEMrush diagnostic pull + packet enrichment (live)
+
+Made the briefs say not just "what's happening on Iranopedia (GSC)" but "does the broader market/query context support the move (SEMrush)". `claude/iranopedia-blockers`; no queue regen / publish / Wix / broad pulls. Commit `f2a67e1`.
+- **New connector endpoints (fail-soft, test-seamed):** `countapiunits` balance check (0 units), `url_organic` (per-page portfolio), `phrase_related` + `phrase_questions` (query context). `client.ts` generalized to target domain|url|phrase.
+- **Capped-pull orchestrator (7 guardrails):** read live balance → per-endpoint×row estimate → ABORT if est > 20,000 or balance can't cover → live-only → tight limits → log balance before/after → persist exact receipt. Dedupes organic by (keyword,url); `onlyEndpoints` for frugal re-pulls. Pure plan/estimate unit-tested (abort gates incl.).
+- **Latent prod-schema bug FOUND + FIXED:** `semrush_organic_keywords` PK shipped as `(tenant_id,domain,keyword)` with the url-widening **left commented out**, so the upsert (`onConflict …,url`) ALWAYS failed → the nightly SEMrush sync never persisted a single row on this DB. Corrected the migration PK for fresh installs + idempotent ALTER applied to beacon-main.
+- **Packet enrichment:** real `cpc` on the keyword signal; new `semrush_keyword_expansions` loader; `contract` related/question keywords now carry volume+intent + `competitorDomains`; `assemble-packet` maps them; coverage detail shows "N keywords · M related · K questions"; judge prompt fuses GSC (what's happening) + SEMrush (market support).
+- **VERIFIED live on iranopedia (beacon-main):** dry-run first (balance 50,000, est 6,860 < 20k cap), then executed. Two receipts: spend **5,120** then **2,670** = **7,790 units total** (balance 50,000 → **42,210**). Persisted **210 organic rows (38 urls)**, **30 related + 21 question** keywords. Competitors empty (SEMrush has none for the domain) → shown honestly, not faked.
+- **All 5 briefs now show SEMrush ✓ used**, and the judge reasons over it: `/funny-farsi-phrases` grounds "farsi curse words" (vol 590) → title/meta; `/iran-flags` surfaces "iranian flag" (vol 8,100) + question "what does iran's flag look like" (260) → FAQ. GSC×SEMrush fusion working. typecheck clean; 26 page-surgeon + semrush tests green.
+
+---
+
+## 2026-06-18 PAGE SURGEON — multi-change battle plan + LLM judge UNBLOCKED (live on 5 real pages)
+
+Brutal-audit upgrade of the Page Surgeon diagnostic (operator's 7-item spec). On `claude/iranopedia-blockers`; no queue regen, no publish, no Wix arm, no composeTitle change.
+- **Slice A (`820714c`) — multi-change contract.** Judge + deterministic fallback now emit `primary_atomic_change` + `supporting_atomic_changes[]` (dependency_order) + `rejected_changes[]`, each with action/exact_change/evidence/hypothesis/risk/before-after/measurement/rollback/publishability. Every brief carries **source coverage** (gsc/crawl/clarity/ga4/semrush/profound: used+rows, or "connected but no rows pulled", or "not connected"). Fallback is **non-contradictory** (a `keep_current` never claims a snippet bottleneck + CTR lift + rollback; a bottleneck the title can't fix → `needs_llm_review`). Adds **wording research** (alt phrasings grounded in GSC, mapped to title/meta/h1/faq/section), "what a normal SEO misses", "why not just a title". Per-change gate (publishability + required-source drop + AEO cap without Profound). 14 tests green.
+- **CRITICAL fix (`bc11903`) — the judge was silently never running.** Every page fell back to deterministic with zero warnings. Root cause found by direct API probing: **gpt-5-mini is a reasoning model; at its default reasoning_effort a real multi-change call takes ~44s — past the 40s AbortController timeout** → aborted → caught as fallback. Fix: `reasoning_effort: "low"` (~32s, measured), timeout 40s→90s, and **every fallback path now logs a distinct warn** (no-key / finish_reason=length / empty / parse-fail / threw) — a silent fallback is a trust bug that masked this for a full session. Probed latencies on a real packet: minimal ~19s · low ~32s · medium ~44s; 8000 max_completion_tokens good, 16000 caused a reasoning spiral → truncation.
+- **VERIFIED live on 5 real Iranopedia GSC pages** (reasoning_effort low, real loaders, cache-bypassed fresh judge):
+  - `/funny-farsi-phrases` → **title** primary + **8 supporting** (meta/h1/intro_answer_block/FAQ-schema/section_reorder/internal_link/image_alt) + wording research grounding "persian swear words" (799 imp) / "persian insults" (352 imp @ 27.8% CTR) / "meanings" each to a placement.
+  - `/cities` → **intro_answer_block** primary (NOT a title tweak) — diagnosed the 0.41% CTR as a structural snippet gap and authored the actual 40-60w lead answer; + meta/title/section_add/FAQPage-schema/internal_link.
+  - `/persian-male-names` → **title** + 10 supporting incl. `ux_cta_fix` grounded in `clarity.quickbacks`; flagged H1/title inconsistency + unsegmented list.
+  - All capped **review_only / low confidence** by the deterministic gate (never auto-publishable; AEO capped without Profound). Honest gaps shown ("semrush: connected but no rows pulled").
+- Gate authority intact, typecheck clean, 14 page-surgeon tests green. Lesson saved to memory (`project_gpt5mini_reasoning_timeout`). **Next: Slice B — capped SEMrush diagnostic pull** (unit-balance check, ~2.4k est, abort >20k, log before/after) to flip semrush coverage from "no rows" to real keyword enrichment.
+
+---
+
+## 2026-06-18 SUPABASE CUTOVER — fresh `beacon-main` project provisioned + Iranopedia seeded + renders end-to-end
+
+Old prod Supabase (`jdegznovgysxyweknewh`, work org) is RESTRICTED (exceed_egress_quota). Cut over to the operator's personal project **`beacon-main` = `vlxwevsdvwxvopkjsewo`** (org "Armeen Projects", us-east-1) per the consolidation decision (one personal Supabase, ≤2 projects).
+- **Schema:** all 47 migrations applied (baseline + 46 post-baseline) via `scripts/apply-migrations-mgmt-api.mjs` → 58 tables, 96 policies, 4 functions. Verified via MCP.
+- **Seed (`scripts/seed-tenant-to-supabase.mjs`, new — data-plane upsert, idempotent):** the generic backfill reads the legacy GLOBAL `.data/*.json` and never covers `recommended_edits`; this reads the TENANT-scoped `.data/tenants/iranopedia/` directly. Seeded the real data that survives in `.data`: **2 tenants, business_config, 50 recommended_edits, 217 page_snapshots.** (`pages`/`tracked_prompts`/`tracked_entities`/GSC signal tables are EMPTY in `.data` — they only ever lived in the old restricted DB.)
+- **Render proof:** dev server in `DATA_SOURCE=supabase` against `beacon-main`, tenant=iranopedia → `/recommendations` HTTP 200, 253KB, real URLs + real GSC-grounded reasoning ("People searched 'cities in iran' 3,078 times in the last 90 days"). No console errors.
+- **Honest enforcement confirmed:** 10 recs carry stored `high` confidence, 40 `medium`, but the render-time QA gate (`deriveRecQaDisplay`) displays them as **needs_review / needs_more_evidence with Review CTAs** — it will NOT certify HIGH or mark anything pushable because the live `gsc_*` signal tables (needed to RE-VERIFY the baked-in demand) aren't seeded. Correct behavior, not a bug.
+- **Blocker to the full accept→push demo:** HIGH confidence + Accept/Push require re-verifiable GSC demand → **operator must reconnect Google (GSC) in the app** (OAuth — the "connect my code" step). That repopulates the `gsc_*` tables on the new DB, the gate lifts the qualifying recs to HIGH, and Accept→Push unlocks.
+
+### End-to-end lift PROVEN (smoke test, deleted after)
+Traced the full render path to confirm the loop is genuinely clickable the instant GSC lands (not just asserted):
+- The recs page reads the PERSISTED queue via `loadPersistedRecommendationQueueForPage` (unstable_cache, tag `recQueue:<tenant>`); it attaches `gscSignal` live by canonical URL (`load-queue.ts:1133`) and the v2 client computes the verdict via `buildRecommendationActionRows`.
+- Restored the REAL demand for one page into `gsc_daily_rows` (`/cities`, query "cities in iran", impressions 3,078 — the genuine values from the rec's `why`; clicks/position were fixture-only since they don't survive in the rec text). `gsc_page_signals_v1` RPC + `loadGscPageSignalsForTenant` aggregated it correctly (verified: `gscByUrl.size=1`, cities key present; rec attach `gscAttached=3078`).
+- RESULT: the cities rec lifted from **needs_more_evidence → "Suggested"** (actionable), with **"Google Search demand"** in evidenceSupports and the **"60 clicks · 3,078 impressions · avg position 14.0"** evidence line rendered. `enforceExpertConfidence` approved because `hasCoreEvidence` flipped true. So: real GSC demand → real specific reasoning → actionable rec, confirmed on the real new DB.
+- Then **deleted** the smoke `gsc_daily_rows` (fixture clicks/position must not persist as real) and removed the temporary debug probes (`load-queue.ts` unmodified; typecheck clean).
+- Note: `edit_title` push-readiness is `review_only` by deliberate per-action policy (operator reviews title copy before live); structured-data actions are auto-pushable. Push-readiness is independent of the evidence gate.
+
+### accept→push EXECUTED through the real code path (Ritz dev_note, safe)
+Closed the last gap (push action never actually run). Seeded Ritz's 9 real recs, then invoked the production `approveAndPushRecommendedEdit({editId})` server action (the exact fn the Approve&Push button calls) via a temporary route in the live server runtime:
+- RESULT: `{ ok: true, outcome: "dev_note", note: "<full paste-ready ticket: page · element · exact copy · why · expected impact · measurement plan>", reason: "Ritz is advise-mode only (Invariant 2) — exported as a dev ticket" }`.
+- The push mechanic fired end-to-end and produced a complete structured artifact; the safety invariant held — **dev_note tenants get an advise ticket, NO live external write**. (Ritz's rec is a CI fixture so the content is synthetic; the real reasoning quality is the iranopedia GSC path above.)
+- Temp route deleted; typecheck clean; no residue.
+
+**Net: the whole loop is proven through real code** — render real recs (new DB) → real GSC demand lifts a rec to actionable with specific reasoning → accept→push fires and emits a real artifact with the safety rail intact. The only steps I cannot perform are the operator's: (1) Google OAuth (to populate live `gsc_*`), (2) explicit go for a LIVE Wix publish (publishing public content). Everything between those is built, seeded, and executed.
+
+---
+
+## 2026-06-17 TRUST AUDIT batch 2 — C / E / F / G complete (branch, NOT merged, NOT armed)
+
+Finished the operator's prod-trust audit (A/B/D were batch 1). All on `claude/iranopedia-blockers`; publishing/arming still PAUSED.
+- **C — strategist/Adversarial-QA never silent (`d540c2b`).** `requestExpertStrategistAction` returns a VISIBLE deterministic fallback (`buildDeterministicStrategistResult`) when the LLM is unavailable (no key / budget / sanitize-reject / timeout) — panel reads "Expert (AI) reasoning is unavailable — showing Beacon's deterministic read" + the confidence verdict + evidence receipt ("What backs this") + gaps ("What's missing"). No silent null, no secrets, no AI-citation claims. 7 panel tests.
+- **E — SEO recommendation quality (`37c10c7` + `e4c0bbf`).** E1: `applyBrandCasing` normalizes the brand to the tenant's configured casing on every row title (threaded via `brandName` through all 5 build sites) — lowercased "iranopedia" is now impossible. E5: CTR upside is a caveated estimate ("could recover an estimated N clicks over ~90 days — a rough estimate, not a guarantee; Google may rewrite how your title appears"). E2/E3/E4: `composeTitle` now SKIPS a rewrite whose only delta is the brand suffix or that would drop descriptive words the current title already has (when the current non-placeholder title contains the proposed base) — fewer, better, atomic title recs; low CTR alone can't rewrite an on-topic title. Query-bearing triggers still fire. brand-casing (7) + E2/E3/E4 (3) tests.
+- **F — Wix mapper de-noise (`a9c421b`).** `isSystemWixCollection` + `partitionWixCollectionsBySystem` (keyed on Wix id namespaces Forms/ Members/ Marketing/ + transactional Stores subtypes — not names) → the /diagnostics/wix mapper shows likely CONTENT collections first (incl. Stores/Products) and tucks system/private/transactional ones behind an "Advanced" `<details>` toggle. No auto-mapping. 9 tests.
+- **G — SEMrush evidence-model readiness (`<this commit>`).** `SemrushPageSignal` already carries volume/KD/intent/URL-organic-keywords; added OPTIONAL `relatedKeywords` / `questionKeywords` / `competitorGaps` (+ `SemrushCompetitorGap`) so the model can ACCEPT the richer market data as the connector wires each endpoint — DIRECTIONAL only, default-absent, never confidence-overriding (GSC + the deterministic gate stay the authority). 3 readiness tests.
+- **Gate:** typecheck clean throughout; recs + recommendation-intelligence + app **107 files / 1,706 pass** at E; full-suite gate below. **NOT merged / NOT arming** — pending operator review + the first safe mapped Wix test push. **Next:** the cross-source "Page Opportunity Brief" for 3–5 Iranopedia pages.
+
+---
+
+## 2026-06-16 TRUST AUDIT (operator prod review) — batch 1: A evidence-integrity + B list/detail parity + D AI-claim honesty (branch, NOT merged)
+
+Operator did a brutal prod audit as an SEO/AEO operator: the list over-corrected to "everything Needs more evidence / Review only" while detail still read "Suggested / High confidence / Accept" — and cards said "No core evidence family is present" on recs that clearly showed GSC impressions. Trust-breaking. Publishing/arming PAUSED per operator; fixing the integrity layer first. Fix order A→G.
+- **A — evidence-family integrity (ROOT CAUSE).** `buildRecommendationQaVerdict.hasCoreEvidence` read ONLY `gscEvidenceLines` (the per-query low-CTR/striking-distance lines), which are EMPTY when a page has real Google demand but no single qualifying query → a page with 8,465 impressions was falsely "no core evidence" → capped to needs-more-evidence → the WHOLE list collapsed. Fix: a normalized **evidence receipt** (`RecEvidenceReceipt`) computed in the builder from each rec's LIVE signals (gscSignal.impressions90d / semrushSignal / claritySignal / observations / competitor); page-level GSC demand now counts as core evidence even with no per-query line. GA4 wired into the receipt shape (false until a GA4 page signal is threaded). Tests: a GSC-demand rec (empty lines) can't render "No core evidence family"; GA4 alone counts; an empty receipt still → needs_more_evidence.
+- **B — list/detail parity.** Both surfaces derive their status pill + CTA from the SAME `deriveRecQaDisplay(row.detail.qaVerdict)` over the one stored verdict, so they cannot disagree; with A fixed, a GSC rec is High+Accept on BOTH and a rejected rec is Review-only on BOTH. 5 parity tests pin this.
+- **D — ungrounded AI-citation claims removed.** Title/H1/meta moves are SEARCH-CTR changes; their measurement copy claimed "tracks whether AI answers start citing it" with no AI evidence. `SCAN_VERIFY_PLAN` now says Beacon re-checks Google Search (impressions/clicks/position); AI-recommendation lift is claimed ONLY by `AEO_MEASURE_PLAN` (genuine answer-block/sources moves). Detail Act-5 fallback is evidence-aware (AI-citation copy only when observations/aeo exist). (The "nightly scan/daily poll" variant the operator saw is a PERSISTED string from an old generation — regenerates honestly on the next refresh; not in current code.)
+- **Gate:** typecheck clean; recs + recommendation-intelligence + app + architecture **331 files / 6,961 pass**; new QA(3) + parity(5) tests. **NOT merged / NOT arming** per operator. **Remaining (this audit):** C LLM strategist/Adversarial-QA visible-fallback (currently silent-null when the LLM is unavailable on prod), E SEO logic (brand casing Iranopedia not "iranopedia", optional reasoned brand suffix, don't drop useful terms, CTR upside as estimate), F Wix mapper de-noise (hide Forms/Members/Orders/Inventory; guide content collections first), G SEMrush evidence-model readiness.
+
+---
+
 ## 2026-06-16 ARMED PUBLISHING — MIGRATION APPLIED + MERGED → main (operator-approved)
 
 Migration `wix_publishing_mode` **APPLIED to prod Supabase** (project `beacon` / `jdegznovgysxyweknewh`) via MCP, operator-approved. Verified: table exists; columns (tenant_id text NN / mode text NN default 'staged' / armed_at tz / armed_by text / updated_at tz NN default now()); PK (tenant_id); check `mode IN ('staged','armed')`; RLS enabled; one policy `wix_publishing_mode_tenant_rw` (FOR ALL TO authenticated, `is_tenant_member(tenant_id)` using+check); 0 rows (no data written); **security advisor identical to baseline — zero new lints** (the 2 pre-existing WARNs — is_tenant_member SECURITY DEFINER + auth leaked-password-protection — are unrelated). Branch `claude/iranopedia-blockers` `642a8af` **merged → origin/main** (fast-forward `7f67123 → 642a8af`); Vercel auto-deploys. **To go live for a tenant: connect Wix + map collections → arm the site (Settings → One-click publishing). Until armed, behavior is byte-identical to today (two-click).**

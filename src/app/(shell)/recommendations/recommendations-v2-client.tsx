@@ -39,6 +39,11 @@ import {
 
 import { RecommendationV2Card } from "@/components/recommendations/v2/recommendation-v2-card";
 import {
+  bucketForSummary,
+  type PageSurgeonBucket,
+  type PageSurgeonSummary,
+} from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
+import {
   acceptRecommendation,
   acceptAndPublishRecommendation,
   type RecommendationActionPayload,
@@ -212,6 +217,14 @@ export type RecommendationsV2ClientProps = {
   canPublish?: boolean;
   /** The tenant's live write target (only wix_cms supports one-click publish). */
   publishTarget?: PublishTargetKind | null;
+  /** Trust audit E — tenant canonical brand name for title brand-casing. */
+  brandName?: string;
+  /** PSQ (operator-only) — true when this render is in operator mode. Gates the
+   *  Page-Surgeon-first tabs + reorder + legacy separation. Customer view = false. */
+  isOperator?: boolean;
+  /** PSQ (operator-only) — Page Surgeon status per page PATH (QA/review/headline).
+   *  Empty in customer mode. Drives the Ready/Needs-edit/Reviewed/Legacy buckets. */
+  pageSurgeonSummaries?: Record<string, PageSurgeonSummary>;
 };
 
 export function RecommendationsV2Client({
@@ -226,6 +239,9 @@ export function RecommendationsV2Client({
   publishingMode = "staged",
   canPublish = false,
   publishTarget = null,
+  brandName,
+  isOperator = false,
+  pageSurgeonSummaries = {},
 }: RecommendationsV2ClientProps) {
   // 2026-05-13 follow-up — "See full list" used to link to
   // `/recommendations?legacy=1`, pushing customers out of v2 every time
@@ -235,6 +251,10 @@ export function RecommendationsV2Client({
   // "Show fewer" collapses back to the top 7. No legacy hop. No new
   // route. No new data fetch.
   const [showAllSuggested, setShowAllSuggested] = useState(false);
+
+  // PSQ (operator-only) — which Page Surgeon bucket the operator is viewing.
+  // Defaults to "ready" so the operator lands on finished, QA-passed drafts.
+  const [operatorTab, setOperatorTab] = useState<PageSurgeonBucket>("ready");
 
   // One-tap slice (2026-06-12): inline Accept on each card, wired to
   // the SAME acceptRecommendation server action the legacy drawer and
@@ -366,8 +386,9 @@ export function RecommendationsV2Client({
         promptTextById,
         knownCities,
         knownServices,
+        brandName,
       }),
-    [queue, promptTextById, knownCities, knownServices],
+    [queue, promptTextById, knownCities, knownServices, brandName],
   );
 
   const actionableRows = useMemo(
@@ -375,20 +396,40 @@ export function RecommendationsV2Client({
     [allRows],
   );
 
-  const suggested = useMemo(
-    () =>
-      showAllSuggested
-        ? actionableRows
-        : actionableRows.slice(0, MAX_SUGGESTED_CARDS),
-    [actionableRows, showAllSuggested],
+  // PSQ — per-row Page Surgeon bucket (operator-only). Matches a rec to its pack
+  // by page PATH; no pack ⇒ "legacy". Pure derivation; empty in customer mode.
+  const summaryForRow = useCallback(
+    (row: RecommendationActionRow): PageSurgeonSummary | undefined => {
+      if (!isOperator || !row.targetUrl || row.targetUrl === "needs_new_page") return undefined;
+      const path = row.targetUrl.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
+      return pageSurgeonSummaries[path];
+    },
+    [isOperator, pageSurgeonSummaries],
   );
+
+  const bucketed = useMemo(() => {
+    const g: Record<PageSurgeonBucket, RecommendationActionRow[]> = {
+      ready: [], needs_edit: [], reviewed: [], legacy: [],
+    };
+    for (const r of actionableRows) g[bucketForSummary(summaryForRow(r))].push(r);
+    return g;
+  }, [actionableRows, summaryForRow]);
+
+  // The displayed set. Customer: the flat top-N. Operator: the SELECTED Page
+  // Surgeon bucket — tabs ARE the separation (Ready lands first; legacy is its
+  // own tab, clearly demoted). Never mutates the server builder sort.
+  const suggested = useMemo(() => {
+    const base = isOperator ? bucketed[operatorTab] : actionableRows;
+    return showAllSuggested ? base : base.slice(0, MAX_SUGGESTED_CARDS);
+  }, [isOperator, bucketed, operatorTab, actionableRows, showAllSuggested]);
 
   const inFlightCount = useMemo(
     () => allRows.filter((r) => IN_FLIGHT_STATUSES.has(r.status)).length,
     [allRows],
   );
 
-  const hasMoreActionable = actionableRows.length > MAX_SUGGESTED_CARDS;
+  const displayTotal = isOperator ? bucketed[operatorTab].length : actionableRows.length;
+  const hasMoreActionable = displayTotal > MAX_SUGGESTED_CARDS;
 
   // Bulk-select slice — single source of truth for the accept payload
   // both the per-card button AND the batch loop send. Identical to the
@@ -591,7 +632,9 @@ export function RecommendationsV2Client({
 
       {allRows.length === 0 ? (
         <RecommendationsV2EmptyState />
-      ) : suggested.length === 0 ? (
+      ) : (isOperator ? actionableRows.length === 0 : suggested.length === 0) ? (
+        // Operator mode keys the calm state off the FULL actionable set (not the
+        // selected tab) so an empty "Ready" tab still shows the tabs to switch.
         <RecommendationsV2CalmState inFlightCount={inFlightCount} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-5">
@@ -602,6 +645,53 @@ export function RecommendationsV2Client({
             data-recommendations-v2-section="suggested"
             aria-label="Suggested recommendations"
           >
+            {/* PSQ (operator-only) — Page Surgeon-first tabs. The operator works
+                from finished, QA-passed packs ("Ready") first; basic legacy recs
+                are demoted to their own clearly-labeled tab. Customer view never
+                renders these (isOperator=false). */}
+            {isOperator && (
+              <div data-recommendations-v2-ps-tabs="true">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {([
+                    ["ready", "Ready"],
+                    ["needs_edit", "Needs edit"],
+                    ["reviewed", "Reviewed"],
+                    ["legacy", "Basic legacy"],
+                  ] as ReadonlyArray<readonly [PageSurgeonBucket, string]>).map(
+                    ([key, label]) => {
+                      const count = bucketed[key].length;
+                      const active = operatorTab === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setOperatorTab(key)}
+                          aria-pressed={active}
+                          data-ps-tab={key}
+                          className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                            active
+                              ? "border-accent-primary/50 bg-accent-primary/10 text-accent-primary"
+                              : "border-border/60 text-muted-foreground hover:bg-surface-inset/50"
+                          }`}
+                        >
+                          {label} ({count})
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {operatorTab === "legacy"
+                    ? "Basic legacy suggestions — older single-field recs kept for reference. Work from the Page Surgeon tabs above first."
+                    : operatorTab === "needs_edit"
+                      ? "Page Surgeon packs that need an edit or were held back by auto-QA."
+                      : operatorTab === "reviewed"
+                        ? "Packs you've already approved."
+                        : "Finished Page Surgeon drafts that passed auto-QA — review and approve these first."}
+                </p>
+              </div>
+            )}
+
             {/* Bulk action bar — appears only once ≥1 card is selected
                 (spec: ≥1 selected). "Select all" then expands to every
                 selectable card; "Clear selection" / "Select none"
@@ -617,8 +707,15 @@ export function RecommendationsV2Client({
               />
             )}
 
+            {isOperator && suggested.length === 0 && (
+              <p className="text-[12px] text-muted-foreground">
+                Nothing in this view. {operatorTab !== "legacy" ? "Switch tabs above to see other recommendations." : ""}
+              </p>
+            )}
+
             {suggested.map((row, index) => {
               const isAccepted = acceptStates[row.id] === "accepted";
+              const psSummary = summaryForRow(row);
               // Armed publishing — does a click on THIS row publish live in one
               // tap? Only when the site is armed + this user can publish + a live
               // wix_cms target + the deterministic QA verdict approves a paste-
@@ -653,6 +750,8 @@ export function RecommendationsV2Client({
                   selected={selectedIds.has(row.id)}
                   onToggleSelect={() => toggleSelect(row.id)}
                   isFocused={focusedIndex === index}
+                  pageSurgeonReady={psSummary != null && psSummary.qaPass}
+                  pageSurgeonReviewVerdict={psSummary?.reviewVerdict ?? null}
                 />
               );
             })}
@@ -661,7 +760,7 @@ export function RecommendationsV2Client({
               <p className="pt-2 text-[11px] text-muted-foreground/80">
                 {showAllSuggested ? (
                   <>
-                    Showing all {actionableRows.length} recommendations.{" "}
+                    Showing all {displayTotal} recommendations.{" "}
                     <button
                       type="button"
                       onClick={() => setShowAllSuggested(false)}
@@ -674,7 +773,7 @@ export function RecommendationsV2Client({
                 ) : (
                   <>
                     Showing the top {suggested.length} of{" "}
-                    {actionableRows.length} recommendations.{" "}
+                    {displayTotal} recommendations.{" "}
                     <button
                       type="button"
                       onClick={() => setShowAllSuggested(true)}

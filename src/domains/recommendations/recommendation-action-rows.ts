@@ -55,6 +55,7 @@ import {
   composeRecommendedMove,
 } from "./recommendation-evidence-preview";
 import {
+  applyBrandCasing,
   cleanDisplayLabel,
   extractGeoTag,
   extractTopicFromPrompts,
@@ -67,6 +68,7 @@ import { titleCase } from "./providers/generators/_text-utils";
 import {
   buildRecommendationQaVerdict,
   type RecQaVerdict,
+  type RecEvidenceReceipt,
 } from "./recommendation-qa";
 import { dedupeDoubledWords } from "./copy-artifact-guard";
 
@@ -1476,6 +1478,11 @@ export type BuildActionRowsArgs = {
   /** #149-sibling: per-tenant service phrases (BusinessConfig.services)
    *  — topic extraction tries these before the builder topic table. */
   readonly knownServices?: ReadonlyArray<string>;
+  /** Trust audit E (2026-06-16): the tenant's canonical brand name
+   *  (BusinessConfig.name) — every row title is normalized to this casing so a
+   *  lowercased "iranopedia" from an LLM/persisted draft can never render.
+   *  Absent → titles render as-is. */
+  readonly brandName?: string;
 };
 
 /**
@@ -2190,9 +2197,21 @@ export function buildRecommendationActionRows(
   // Built once from each rec's resolution (scored against the full page
   // snapshot in resolvePageIntent); the QA pass uses it over the row-proxy.
   const genFitByRec = new Map<string, import("./page-topic-fit").PageTopicFit>();
+  // Trust audit fix A (2026-06-16) — normalized evidence receipt per rec, from
+  // the LIVE signals (not display-shaped fields). Page-level GSC demand counts
+  // as core evidence so a GSC-grounded rec can never read "no core evidence".
+  const evidenceByRec = new Map<string, RecEvidenceReceipt>();
   for (const { rec } of args.queue) {
     const fit = rec.resolution?.topicFit;
     if (fit) genFitByRec.set(rec.stableKey, fit);
+    evidenceByRec.set(rec.stableKey, {
+      gscDemand: (rec.gscSignal?.impressions90d ?? 0) > 0,
+      ga4Traffic: false, // GA4 page signal not threaded onto the rec yet
+      semrush: rec.semrushSignal != null,
+      clarity: rec.claritySignal != null,
+      aeo: false, // observationCount + aeo lines are read from row.detail in the QA
+      competitor: false, // topCompetitor is read from row.detail in the QA
+    });
   }
   const enriched = rows.map((row) => {
     const affectedPromptTexts: string[] = [];
@@ -2211,6 +2230,7 @@ export function buildRecommendationActionRows(
       affectedPromptTexts,
       localeTerms,
       preferredTopicFit: generationTopicFit,
+      evidence: evidenceByRec.get(row.sourceRecommendationId) ?? null,
     });
     const inSuggestionBucket = STATUS_BUCKET[row.status] === 0;
     // ENFORCE the QA verdict on the displayed confidence (2026-06-16 list-
@@ -2233,7 +2253,9 @@ export function buildRecommendationActionRows(
     // Copy-artifact safety on the visible title: collapse a doubled leading
     // verb ("Add Add Article …" → "Add Article …"). Instruction prefixes
     // ("Change the page title to …") are already stripped at cleanDisplayLabel.
-    const title = dedupeDoubledWords(row.title);
+    // Trust audit E (2026-06-16): normalize the brand to its configured casing
+    // ("iranopedia" → "Iranopedia") so a lowercased draft can never render.
+    const title = applyBrandCasing(dedupeDoubledWords(row.title), args.brandName);
     return {
       ...row,
       title,
