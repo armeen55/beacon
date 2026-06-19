@@ -173,3 +173,29 @@ describe("Page Surgeon — auto-QA gate", () => {
     expect(b.primary!.rollback.length).toBeGreaterThanOrEqual(15);
   });
 });
+
+describe("Page Surgeon — crawl-freshness gate", () => {
+  const crawlAt = (fetchedAt: string) => packet({
+    crawl: { title: "Old Title", h1: "Old H1", metaDescription: "Old meta.", h2List: ["Pedar Sag"], h3List: [], faqs: [], schemaTypes: [], wordCount: 1279, internalLinkCount: 85, cardTexts: [], fetchedAt },
+  });
+  const NOW = Date.parse("2026-06-18T00:00:00Z");
+  const title = () => change("title", { exact_change: "Persian Swear Words & Farsi Insults — Meanings", before_after: { before: "Old Title", after: "x" } });
+
+  it("a >90d-old crawl FAILS the freshness gate for a CMS-field change", () => {
+    const p = crawlAt("2020-01-01T00:00:00Z");
+    const qa = qaArtifactBundle(composeArtifactBundle(decision(title()), p), p, NOW);
+    expect(qa.pass).toBe(false);
+    expect(qa.failures.some((f) => /Crawl fresh/i.test(f))).toBe(true);
+  });
+  it("a fresh crawl PASSES the freshness gate", () => {
+    const p = crawlAt("2026-06-10T00:00:00Z");
+    const qa = qaArtifactBundle(composeArtifactBundle(decision(title()), p), p, NOW);
+    expect(qa.pass).toBe(true);
+  });
+  it("the freshness gate is SKIPPED when nowMs is not supplied", () => {
+    const p = crawlAt("2020-01-01T00:00:00Z");
+    const qa = qaArtifactBundle(composeArtifactBundle(decision(title()), p), p);
+    expect(qa.checks.find((c) => c.name === "Crawl fresh enough")).toBeUndefined();
+    expect(qa.pass).toBe(true);
+  });
+});

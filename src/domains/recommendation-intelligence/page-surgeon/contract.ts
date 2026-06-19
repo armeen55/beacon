@@ -144,6 +144,12 @@ export type CrawlEvidence = {
   wordCount: number | null;
   internalLinkCount: number | null;
   cardTexts: string[];
+  /** When this page was last crawled (ISO). Drives the artifact-QA freshness
+   *  gate — a stale crawl means the before/after diff may no longer match live. */
+  fetchedAt?: string | null;
+  /** "confirmed" when JSON-LD parsed; "uncertain" when the raw fetch may have
+   *  missed client-rendered content. */
+  extractionCertainty?: "confirmed" | "uncertain" | null;
 };
 
 export type EvidencePacket = {

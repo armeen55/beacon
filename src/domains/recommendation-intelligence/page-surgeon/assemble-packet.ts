@@ -290,6 +290,8 @@ export function assemblePacketForUrl(
       wordCount: snap.word_count ?? null,
       internalLinkCount: snap.internal_link_count ?? null,
       cardTexts: snap.card_texts ?? [],
+      fetchedAt: snap.fetched_at ?? null,
+      extractionCertainty: snap.extraction_certainty ?? null,
     };
   }
 

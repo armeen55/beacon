@@ -23,8 +23,16 @@ export type QaVerdict = { pass: boolean; score: number; checks: QaCheck[]; failu
 const SNIPPET_ACTIONS = new Set(["title", "meta", "h1", "intro_answer_block", "faq"]);
 const PLACEHOLDER = /\b(lorem ipsum|\binsert\b|\btodo\b|\btbd\b|example\.com|xxxx|\[[^\]]*\])/i;
 const STALE_FAQ_CLAIM = /(rich result|rich snippet|serp real estate|faq schema.*ctr)/i;
+/** A CMS-field change diffs against the CURRENT crawl, so a very stale crawl
+ *  makes its before/after + rollback untrustworthy. */
+const CMS_DIFF_ACTIONS = new Set(["title", "meta", "h1", "schema"]);
+const STALE_CRAWL_DAYS = 90;
 
-export function qaArtifactBundle(bundle: ArtifactBundle, packet: EvidencePacket): QaVerdict {
+export function qaArtifactBundle(
+  bundle: ArtifactBundle,
+  packet: EvidencePacket,
+  nowMs?: number,
+): QaVerdict {
   const changes: ChangeArtifact[] = [bundle.primary, ...bundle.supporting].filter(
     (c): c is ChangeArtifact => c != null,
   );
@@ -107,6 +115,30 @@ export function qaArtifactBundle(bundle: ArtifactBundle, packet: EvidencePacket)
   if (changes.some((c) => c.action === "schema") && (packet.crawl?.schemaTypes?.length ?? 0) > 0) staleHits.push("schema add on a page that already has schema");
   if (changes.some((c) => STALE_FAQ_CLAIM.test(`${c.evidence} ${c.hypothesis}`))) staleHits.push("FAQ justified by deprecated rich-result CTR");
   add("No stale tactics", staleHits.length === 0, staleHits.length === 0 ? "No deprecated/ungrounded tactics." : staleHits.join("; "));
+
+  // 5b. Crawl freshness — a CMS-field change diffs against the current crawl, so
+  // a very stale crawl makes the before/after + rollback untrustworthy. Only
+  // enforced when the caller supplies `nowMs` (impure context); skipped otherwise.
+  const fetchedAt = packet.crawl?.fetchedAt;
+  const touchesCrawlDiff = changes.some((c) => CMS_DIFF_ACTIONS.has(c.action));
+  if (nowMs != null && fetchedAt && touchesCrawlDiff) {
+    const ageMs = nowMs - Date.parse(fetchedAt);
+    const ageDays = Number.isFinite(ageMs) ? Math.floor(ageMs / 86_400_000) : null;
+    add(
+      "Crawl fresh enough",
+      ageDays == null || ageDays <= STALE_CRAWL_DAYS,
+      ageDays == null
+        ? "Crawl date unparseable."
+        : ageDays <= STALE_CRAWL_DAYS
+          ? `Crawl is ${ageDays}d old (≤ ${STALE_CRAWL_DAYS}d).`
+          : `Crawl is ${ageDays}d old — re-crawl before shipping; the before/after may not match the live page.`,
+    );
+  }
+  // Extraction confidence — advisory: a raw fetch may have missed client-rendered
+  // content, so flag (don't block) when a content change leans on an uncertain crawl.
+  if (packet.crawl?.extractionCertainty === "uncertain" && touchesCrawlDiff) {
+    add("Extraction confident", false, "Crawl extraction was 'uncertain' (client-rendered content may be missing) — eyeball the current page before shipping.", false);
+  }
 
   // 6. Ranking-safe: a snippet change must have a real justification.
   const snippetChange = changes.find((c) => SNIPPET_ACTIONS.has(c.action));

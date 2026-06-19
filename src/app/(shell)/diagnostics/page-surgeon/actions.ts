@@ -154,7 +154,7 @@ export async function listPageSurgeonReview(): Promise<{ rows: PageSurgeonReview
     let qa: QaVerdict | null = null;
     if (c) {
       bundle = composeArtifactBundle(c.decision, packet, siteUrls);
-      qa = qaArtifactBundle(bundle, packet);
+      qa = qaArtifactBundle(bundle, packet, Date.now());
     }
     return {
       canonUrl,
@@ -191,7 +191,7 @@ export async function runPageSurgeonReview(
     await saveBrief(tenantId, packet.current.pageUrl, hash, decision);
   }
   const bundle = composeArtifactBundle(decision, packet, siteUrlsFromCtx(ctx));
-  const qa = qaArtifactBundle(bundle, packet);
+  const qa = qaArtifactBundle(bundle, packet, Date.now());
   return { ok: true, bundle, qa };
 }
 
