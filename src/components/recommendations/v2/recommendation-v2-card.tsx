@@ -42,6 +42,7 @@ import {
 import { checkWhyDisplaySafe } from "@/domains/recommendations/why-display-guard";
 import { filterDisplaySafeEvidenceLines } from "@/domains/recommendations/evidence-line-display-guard";
 import { deriveRecQaDisplay } from "@/domains/recommendations/recommendation-qa";
+import { classifyRecProvenance } from "@/domains/recommendations/rec-provenance";
 import { cn } from "@/lib/utils";
 import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
@@ -260,6 +261,9 @@ export function RecommendationV2Card({
   isFocused = false,
 }: RecommendationV2CardProps) {
   const chips = deriveEvidenceChips(row);
+  // PS2 — provenance label so an old single-field deterministic suggestion is
+  // never mistaken for an evidence-rich one (Basic vs Signal-backed vs AI-drafted).
+  const provenance = classifyRecProvenance(row.editSource);
   const target = row.targetUrl && row.targetUrl !== "needs_new_page"
     ? row.targetUrl
     : null;
@@ -587,6 +591,19 @@ export function RecommendationV2Card({
               {chip.label}
             </span>
           ))}
+          <span
+            className={cn(
+              "inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium",
+              provenance.tone === "success" ? "border-status-success/40 bg-status-success/10 text-status-success"
+              : provenance.tone === "info" ? "border-accent-primary/40 bg-accent-primary/10 text-accent-primary"
+              : provenance.tone === "warn" ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+              : "border-border/60 bg-surface-inset/40 text-muted-foreground",
+            )}
+            data-recommendation-v2-chip="provenance"
+            title={provenance.isBasic ? "Basic deterministic suggestion (legacy generator)" : "Backed by a specific signal/source"}
+          >
+            {provenance.label}
+          </span>
         </div>
       )}
 
