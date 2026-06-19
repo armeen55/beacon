@@ -29,6 +29,9 @@
 
 import Link from "next/link";
 
+import type { PageSurgeonForUrl } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
+import { PageSurgeonPanel } from "./page-surgeon-panel";
+
 import {
   ACTION_ROW_TYPE_LABEL,
   ACTION_ROW_PRIORITY_LABEL,
@@ -120,6 +123,9 @@ export type RecommendationDetailClientProps = {
   /** Approve & Push exposure (2026-06-16) — server-computed publish
    *  authorization for the current tenant; threaded to the action row. */
   canPublish?: boolean;
+  /** Page Surgeon bridge (operator-only, read-only) — the evidence-based plan
+   *  for this rec's target page. null in customer mode / when unavailable. */
+  pageSurgeon?: PageSurgeonForUrl | null;
 };
 
 export function RecommendationDetailClient({
@@ -128,6 +134,7 @@ export function RecommendationDetailClient({
   promptTextById,
   competitorNames,
   canPublish = false,
+  pageSurgeon = null,
 }: RecommendationDetailClientProps) {
   const target =
     row.targetUrl && row.targetUrl !== "needs_new_page" ? row.targetUrl : null;
@@ -778,6 +785,8 @@ export function RecommendationDetailClient({
           canPublish={canPublish}
         />
       </Act>
+
+      <PageSurgeonPanel pageSurgeon={pageSurgeon} />
     </div>
   );
 }

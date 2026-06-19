@@ -29,6 +29,11 @@ import { unstable_noStore as noStore } from "next/cache";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
+import { isOperatorModeServer } from "@/lib/operator-mode";
+import {
+  loadPageSurgeonForUrl,
+  type PageSurgeonForUrl,
+} from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
 import { getChangelogEntries as _getChangelogEntriesUnused } from "@/lib/seed-data.server";
@@ -277,6 +282,22 @@ export default async function RecommendationDetailPage({
       // fail-soft: leave detailRow = resolution.row (proposed-only).
     }
 
+    // Page Surgeon bridge (operator-only, READ-ONLY). Surfaces the evidence-based
+    // Page Surgeon plan for this rec's target page ALONGSIDE the legacy rec — it
+    // never replaces the rec, publishes, or regenerates the queue. Customer view
+    // (operator mode off) is byte-identical to before.
+    let pageSurgeon: PageSurgeonForUrl | null = null;
+    const psTarget = detailRow.targetUrl;
+    if (isOperatorModeServer() && psTarget && psTarget !== "needs_new_page") {
+      try {
+        pageSurgeon = await trace.time("loadPageSurgeon", () =>
+          loadPageSurgeonForUrl(tenantId, psTarget, { history: true }),
+        );
+      } catch {
+        pageSurgeon = null;
+      }
+    }
+
     if (debugResolver) {
       return (
         <>
@@ -304,6 +325,7 @@ export default async function RecommendationDetailPage({
             promptTextById={promptTextById}
             competitorNames={competitorNames}
             canPublish={canPublish}
+            pageSurgeon={pageSurgeon}
           />
         </>
       );
@@ -319,6 +341,7 @@ export default async function RecommendationDetailPage({
           }
           promptTextById={promptTextById}
           canPublish={canPublish}
+          pageSurgeon={pageSurgeon}
         />
       </>
     );
