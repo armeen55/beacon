@@ -3,7 +3,9 @@
 import { useMemo, useState, useTransition } from "react";
 
 import type { PageSurgeonReviewRow } from "../actions";
-import { recordReviewDecision, runPageSurgeonReview } from "../actions";
+import { getPageSurgeonHistory, recordReviewDecision, runPageSurgeonReview } from "../actions";
+
+type HistoryEntry = Awaited<ReturnType<typeof getPageSurgeonHistory>>[number];
 import type { ArtifactBundle, ChangeArtifact, SnippetPreview } from "@/domains/recommendation-intelligence/page-surgeon/artifact-bundle";
 import type { QaVerdict } from "@/domains/recommendation-intelligence/page-surgeon/artifact-qa";
 
@@ -109,6 +111,13 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
       setRecorded(r.message);
     });
 
+  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
+  const [histLoading, startHistory] = useTransition();
+  const loadHistory = () => {
+    if (history) return; // load once
+    startHistory(async () => setHistory(await getPageSurgeonHistory(bundle.pageUrl)));
+  };
+
   return (
     <div className="mt-3 space-y-3">
       {/* SERP before/after */}
@@ -167,6 +176,24 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
         <span className="text-[10px] text-muted-foreground">Publishing is disabled — nothing is pushed.</span>
       </div>
       {recorded && <p className="text-[11px] text-status-success">{recorded}</p>}
+
+      <details
+        className="text-[11px] text-muted-foreground"
+        onToggle={(e) => { if ((e.target as HTMLDetailsElement).open) loadHistory(); }}
+      >
+        <summary className="cursor-pointer">Change history — how this page&apos;s plan evolved</summary>
+        {histLoading && <p className="ml-2 mt-1">Loading…</p>}
+        {history && history.length === 0 && <p className="ml-2 mt-1">No prior versions recorded yet.</p>}
+        {history && history.length > 0 && (
+          <ul className="ml-4 mt-1 list-disc">
+            {history.map((h, i) => (
+              <li key={h.evidence_hash}>
+                <span className="text-foreground/80">{new Date(h.created_at).toLocaleString()}</span> — {h.headline_action || "(no action)"}{i === 0 ? " · current" : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
       <p className="text-[10px] text-muted-foreground">Evidence: {bundle.sourceCoverage.filter((s) => s.used).map((s) => s.source).join(", ") || "—"} · decided by {bundle.decidedBy}</p>
       {bundle.evidenceGaps.length > 0 && (
         <p className="text-[10px] text-amber-600">Missing sources: {bundle.evidenceGaps.join(" · ")}</p>

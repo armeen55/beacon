@@ -19,8 +19,10 @@ import {
   topPagesByDemand,
 } from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
 import {
+  getBriefHistory,
   getCachedBriefs,
   saveBrief,
+  type BriefHistoryEntry,
 } from "@/domains/recommendation-intelligence/page-surgeon/brief-store";
 import { judgePageAtomicChange } from "@/domains/recommendation-intelligence/page-surgeon/llm-judge";
 import type { PageAtomicDecision } from "@/domains/recommendation-intelligence/page-surgeon/page-decision";
@@ -203,6 +205,14 @@ export async function runPageSurgeonReview(
   const bundle = composeArtifactBundle(decision, packet, siteUrlsFromCtx(ctx), controls);
   const qa = qaArtifactBundle(bundle, packet, Date.now());
   return { ok: true, bundle, qa };
+}
+
+/** Append-only change history for a page (newest first). On-demand read so the
+ *  list surface never pays for it. */
+export async function getPageSurgeonHistory(pageUrl: string): Promise<BriefHistoryEntry[]> {
+  gate();
+  const tenantId = await currentTenantId();
+  return getBriefHistory(tenantId, pageUrl);
 }
 
 /** Record the operator's review decision. PUBLISHING IS DISABLED here — this
