@@ -23,6 +23,9 @@ function useBreadcrumb(pathname: string) {
   if (segments[0] === "connections") {
     return { title: "Data Health", parent: null };
   }
+  if (segments[0] === "workbench") {
+    return { title: "Workbench", parent: { label: "Opportunity Map", href: "/opportunities" } };
+  }
   if (segments[0] === "proof") {
     return { title: "Proof & Learning", parent: null };
   }

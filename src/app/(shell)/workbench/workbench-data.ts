@@ -1,0 +1,285 @@
+import "server-only";
+
+/**
+ * Workbench data loader (operator-OS rebuild, Phase 2, v1).
+ *
+ * Composes EXISTING Page Surgeon / Opportunity / Change-Pack loaders into one
+ * locked-page view. NO paid APIs, NO SERP API, NO LLM, NO publish. Cheap SERP
+ * guard only ("SERP unknown" / "needs SERP check"). Fail-soft throughout: a
+ * missing source degrades its section, never the page.
+ *
+ * One heavy read: loadPageSurgeonContext (60s in-process cache). loadPageSurgeonForUrl
+ * reuses that same cache, so the pack lookup is a cache hit, not a second pull.
+ */
+
+import {
+  loadPageSurgeonContext,
+  assemblePacketForUrl,
+  type PageSurgeonContext,
+} from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
+import type { EvidencePacket } from "@/domains/recommendation-intelligence/page-surgeon/contract";
+import {
+  loadPageSurgeonForUrl,
+  loadProofPlan,
+} from "@/domains/recommendation-intelligence/page-surgeon/bridge";
+import type { AtomicChangePack } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
+import type { ProofPlanRow } from "@/domains/recommendation-intelligence/page-surgeon/proof-plan";
+import {
+  buildOpportunity,
+  type OpportunityKind,
+} from "@/domains/insight/opportunity";
+import {
+  estClicksLabel,
+  estimateConfidence,
+} from "@/domains/insight/page-primary";
+import { serpStatusChip, type SerpStatus } from "@/domains/insight/serp-guard";
+import {
+  buildDiagnosisMatrix,
+  type DiagnosisRow,
+} from "@/domains/insight/diagnosis-matrix";
+
+/** Host-stripped path key — mirrors bridge.ts's private `toPath`. */
+function toPath(u: string): string {
+  return u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
+}
+
+/** Resolve a normalized page path → the context's canonical URL key. Mirrors
+ *  bridge.ts's private `resolveCanon` path-match branch (we pass a bare path,
+ *  so the canonicalize-first branch never applies). */
+function resolveCanonFromPath(ctx: PageSurgeonContext, path: string): string | null {
+  for (const k of ctx.snapshotByCanon.keys()) if (toPath(k) === path) return k;
+  for (const k of ctx.gscByUrl.keys()) if (toPath(k) === path) return k;
+  for (const k of ctx.semrushByUrl.keys()) if (toPath(k) === path) return k;
+  for (const k of ctx.clarityByUrl.keys()) if (toPath(k) === path) return k;
+  return null;
+}
+
+// SEMrush striking-distance band (mirrors semrush-page-signals constants).
+const STRIKING_MIN = 4;
+const STRIKING_MAX = 20;
+const STRIKING_MIN_VOLUME = 10;
+
+export type WorkbenchTopQuery = {
+  query: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  position: number;
+};
+
+export type WorkbenchStrikingTerm = {
+  keyword: string;
+  volume: number;
+  position: number;
+};
+
+export type WorkbenchOpportunity = {
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  avgPosition: number;
+  estClicksAtStake: number;
+  estWindow: "90d";
+  estConfidence: "high" | "medium" | "low";
+  serpStatus: SerpStatus;
+  serpStatusChip: string;
+  serpGuardLabel: string | null;
+  estClicksLabel: string | null;
+  kinds: OpportunityKind[];
+};
+
+export type WorkbenchData = {
+  found: boolean;
+  path: string;
+  canonUrl: string | null;
+  identity: {
+    title: string | null;
+    metaDescription: string | null;
+    h1: string | null;
+    crawlFetchedAt: string | null;
+    crawlAgeDays: number | null;
+    staleCrawl: boolean;
+    extractionCertainty: "confirmed" | "uncertain" | null;
+  };
+  opportunity: WorkbenchOpportunity | null;
+  topQueries: WorkbenchTopQuery[];
+  strikingDistance: WorkbenchStrikingTerm[];
+  diagnosis: DiagnosisRow[];
+  packStatus: "pack" | "evidence_only" | "no_page";
+  pack: AtomicChangePack | null;
+  proof: ProofPlanRow | null;
+  primaryCta: { label: string; kind: "review_pack" | "draft_pack" };
+  sourcesPresent: string[];
+  sourcesConnectedButEmpty: string[];
+};
+
+const STALE_CRAWL_DAYS = 30;
+
+function crawlAgeDays(fetchedAt: string | null | undefined, now: Date): number | null {
+  if (!fetchedAt) return null;
+  const t = Date.parse(fetchedAt);
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.floor((now.getTime() - t) / 86_400_000));
+}
+
+function buildOpportunitySummary(
+  packet: EvidencePacket,
+  canonUrl: string,
+  path: string,
+  hasPack: boolean,
+): WorkbenchOpportunity | null {
+  const gsc = packet.gsc;
+  if (!gsc) return null;
+
+  // Reuse the SAME pure classifier the Opportunity Map uses (GSC-only here; the
+  // striking-distance terms get their own section) so the estimate + SERP guard
+  // match the row the operator clicked. serpStatus "unknown" = broad-scan reality.
+  const opp = buildOpportunity({
+    canonUrl,
+    path,
+    gsc: {
+      clicks90d: gsc.clicks,
+      impressions90d: gsc.impressions,
+      ctr90d: gsc.ctr,
+      position90d: gsc.avgPosition,
+      topQuery: gsc.topQueries[0]?.query,
+    },
+    hasChangePack: hasPack,
+    serpStatus: "unknown",
+  });
+
+  const estClicksAtStake = opp?.estClicksAtStake ?? 0;
+  const estConfidence = opp?.estConfidence ?? estimateConfidence(gsc.impressions);
+  const serpStatus: SerpStatus = "unknown";
+  const chip = serpStatusChip(serpStatus);
+
+  return {
+    impressions: gsc.impressions,
+    clicks: gsc.clicks,
+    ctr: gsc.ctr,
+    avgPosition: gsc.avgPosition,
+    estClicksAtStake,
+    estWindow: "90d",
+    estConfidence,
+    serpStatus,
+    serpStatusChip: chip,
+    serpGuardLabel: opp?.serpGuardLabel ?? null,
+    estClicksLabel: estClicksLabel({
+      estClicksAtStake,
+      window: "90d",
+      confidence: estConfidence,
+      serpStatusChip: chip,
+    }),
+    kinds: opp?.kinds ?? [],
+  };
+}
+
+function emptyWorkbench(path: string): WorkbenchData {
+  return {
+    found: false,
+    path,
+    canonUrl: null,
+    identity: {
+      title: null,
+      metaDescription: null,
+      h1: null,
+      crawlFetchedAt: null,
+      crawlAgeDays: null,
+      staleCrawl: false,
+      extractionCertainty: null,
+    },
+    opportunity: null,
+    topQueries: [],
+    strikingDistance: [],
+    diagnosis: [],
+    packStatus: "no_page",
+    pack: null,
+    proof: null,
+    primaryCta: { label: "Run a website scan to add this page", kind: "draft_pack" },
+    sourcesPresent: [],
+    sourcesConnectedButEmpty: [],
+  };
+}
+
+/**
+ * Load the full Workbench view for one normalized page path. Fail-soft: any
+ * loader error degrades to an empty/partial view rather than throwing.
+ */
+export async function loadWorkbench(
+  tenantId: string,
+  path: string,
+  now: Date = new Date(),
+): Promise<WorkbenchData> {
+  let ctx: PageSurgeonContext;
+  try {
+    ctx = await loadPageSurgeonContext(tenantId);
+  } catch {
+    return emptyWorkbench(path);
+  }
+
+  const canon = resolveCanonFromPath(ctx, path);
+  if (!canon) return emptyWorkbench(path);
+
+  const packet = assemblePacketForUrl(ctx, canon);
+
+  // Pack + proof in parallel (loadPageSurgeonForUrl reuses the cached context).
+  const [psResult, proofRows] = await Promise.all([
+    loadPageSurgeonForUrl(tenantId, canon, { history: true }).catch(
+      () => ({ status: "no_page" as const }),
+    ),
+    loadProofPlan(tenantId).catch(() => [] as ProofPlanRow[]),
+  ]);
+
+  const packStatus = psResult.status;
+  const pack = psResult.status === "pack" ? psResult.pack : null;
+  const proof = proofRows.find((r) => toPath(r.pageUrl) === path) ?? null;
+
+  const crawl = packet.crawl;
+  const ageDays = crawlAgeDays(crawl?.fetchedAt ?? null, now);
+
+  const strikingDistance: WorkbenchStrikingTerm[] = (packet.semrush?.keywords ?? [])
+    .filter(
+      (k) =>
+        k.position != null &&
+        k.position >= STRIKING_MIN &&
+        k.position <= STRIKING_MAX &&
+        k.volume >= STRIKING_MIN_VOLUME,
+    )
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 8)
+    .map((k) => ({ keyword: k.keyword, volume: k.volume, position: k.position as number }));
+
+  return {
+    found: true,
+    path,
+    canonUrl: canon,
+    identity: {
+      title: crawl?.title ?? null,
+      metaDescription: crawl?.metaDescription ?? null,
+      h1: crawl?.h1 ?? null,
+      crawlFetchedAt: crawl?.fetchedAt ?? null,
+      crawlAgeDays: ageDays,
+      staleCrawl: ageDays != null && ageDays > STALE_CRAWL_DAYS,
+      extractionCertainty: crawl?.extractionCertainty ?? null,
+    },
+    opportunity: buildOpportunitySummary(packet, canon, path, packStatus === "pack"),
+    topQueries: (packet.gsc?.topQueries ?? []).map((q) => ({
+      query: q.query,
+      impressions: q.impressions,
+      clicks: q.clicks,
+      ctr: q.ctr,
+      position: q.position,
+    })),
+    strikingDistance,
+    diagnosis: buildDiagnosisMatrix(packet),
+    packStatus,
+    pack,
+    proof,
+    primaryCta:
+      packStatus === "pack"
+        ? { label: "Review Change Pack", kind: "review_pack" }
+        : { label: "Draft Change Pack", kind: "draft_pack" },
+    sourcesPresent: packet.sourcesPresent ?? [],
+    sourcesConnectedButEmpty: packet.sourcesConnectedButEmpty ?? [],
+  };
+}
