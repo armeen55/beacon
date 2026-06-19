@@ -174,19 +174,24 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     expect(location).toContain("next=%2Ftoday");
   });
 
-  // De-bloat (2026-06-15): the native-poll/cron scheduled-writer routes
-  // (/api/poll/run, /api/cron/scan, /api/cron/rebuild-citation-evidence-index,
-  // /api/cron/poll-watchdog) were deleted with the abandoned scheduled
-  // automation. The machine-auth allowlist that exposed them is gone, so
-  // every /api/* path now follows the standard auth gate. This pins that
-  // no /api/* path is silently exempted from auth anymore.
-  it("/api/* paths are NOT exempt from auth (no machine-auth allowlist remains)", async () => {
+  // 2026-06-19: a single, narrow machine-auth exemption was re-introduced for
+  // the nightly data-sync cron (/api/cron/*). A Vercel Cron request carries no
+  // Supabase session, so the session gate must let it through; the cron route
+  // authenticates itself via `Authorization: Bearer $CRON_SECRET`. This pins
+  // that ONLY /api/cron is exempt — every OTHER /api/* path still follows the
+  // standard auth gate (no broad machine allowlist creeps back in).
+  it("only /api/cron is machine-auth-exempt; other /api/* paths still redirect to /login", async () => {
     supabaseState.user = null;
-    const req = makeRequest("/api/cron/some-future-route");
-    const res = await updateSession(req);
-    expect(res.status).toBe(307);
-    const location = res.headers.get("location") ?? "";
-    expect(location).toContain("/login");
+
+    // /api/cron/* — middleware lets it through (route does its own secret check).
+    const cron = await updateSession(makeRequest("/api/cron/sync-connectors"));
+    expect(cron.status).not.toBe(307);
+    expect(cron.headers.get("location")).toBeNull();
+
+    // any non-cron /api/* path is still gated by the session redirect.
+    const other = await updateSession(makeRequest("/api/some-route"));
+    expect(other.status).toBe(307);
+    expect(other.headers.get("location") ?? "").toContain("/login");
   });
 
   it("BEACON_AUTH_DISABLED=1 bypasses everything (no tenant lookup, no redirects)", async () => {

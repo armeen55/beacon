@@ -126,6 +126,19 @@ describe("derivePlaceholderBusinessName", () => {
     expect(derivePlaceholderBusinessName("trailing@")).toBe("New Beacon Account");
     expect(derivePlaceholderBusinessName("@nodomain.com")).toBe("Nodomain");
   });
+
+  it("does NOT name the tenant after a personal email provider (gmail/yahoo/…)", () => {
+    // Regression: aminarmeen@gmail.com used to provision a tenant named "Gmail".
+    expect(derivePlaceholderBusinessName("aminarmeen@gmail.com")).toBe(
+      "New Beacon Account",
+    );
+    expect(derivePlaceholderBusinessName("someone@yahoo.com")).toBe(
+      "New Beacon Account",
+    );
+    expect(derivePlaceholderBusinessName("x@outlook.com")).toBe(
+      "New Beacon Account",
+    );
+  });
 });
 
 describe("PROVISIONING_DEFAULTS — operator-locked", () => {

@@ -12,6 +12,11 @@ import { allNavItems } from "@/lib/navigation";
 function useBreadcrumb(pathname: string) {
   if (pathname === "/") return { title: "Today", parent: null };
   const segments = pathname.split("/").filter(Boolean);
+  // Onboarding lives under the shell; give it a real title instead of the
+  // generic "onboard / Detail" breadcrumb fallback.
+  if (segments[0] === "onboard") {
+    return { title: "Set up your business", parent: null };
+  }
   if (
     segments[0] === "topics" &&
     segments[1] === "opportunity" &&

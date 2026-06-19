@@ -27,7 +27,7 @@ import "server-only";
  *     a clearly-bounded section to the configured rich-text body field?
  *     NO — v1 stays surgical: field-targeted cards only; anything else
  *     refuses with a precise reason (the operator sees exactly why).
- *   • git_pr / wix blog — routed via push-adapters (Finglish slice).
+ *   • git_pr / dev_note — formatted dev note only; never a live write.
  *   • dev_note — formatted ticket, never a write.
  *
  * ROUTING MAP (audit #33, 2026-06-12) — which Wix surface each card
@@ -45,9 +45,12 @@ import "server-only";
  *       wixQueryDataItems → wixUpdateDataItem (PUT, full-item replace —
  *       hence the read-modify-write merge below; a bare PUT without the
  *       merge would null every other field).
- *   • Blog posts are NOT pushed from here — the Finglish adapter slice
- *       (wixCreateDraftPost → wixPublishDraftPost) routes via
- *       push-adapters under the git_pr/dev_note targets above.
+ *   • Blog posts + media are NOT wired into any push route today.
+ *       wixCreateDraftPost / wixPublishDraftPost / wixImportMedia exist in
+ *       the Wix client (src/lib/connectors/wix/client.ts) but have NO caller
+ *       in the product (there is no "push-adapters" module). Wiring them is
+ *       tracked as the Wix content-capability work; until then blog/media
+ *       cards are not produced and this service never touches them.
  */
 
 import { getTenant } from "@/domains/tenants/store";
