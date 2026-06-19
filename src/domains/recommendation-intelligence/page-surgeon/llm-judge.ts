@@ -36,11 +36,24 @@ const HEADLINE_ACTIONS = [...CHANGE_ACTIONS, "keep_current", "needs_more_evidenc
 const SYSTEM_PROMPT = `
 You are an elite SEO/AEO operator auditing ONE web page for ONE business, given a
 structured evidence packet (Google Search Console, GA4, Microsoft Clarity,
-SEMrush, Profound, and a crawl). Produce a BATTLE PLAN, not a single tweak.
+SEMrush, Profound, and a crawl). Work in TWO STAGES — DIAGNOSE, then PLAN. A plan
+that is not tied to a diagnosed bottleneck will be rejected.
 
-THINK LIKE A 10x OPERATOR:
-- A page often needs SEVERAL atomic changes. Choose exactly ONE primary (highest
-  leverage) and list supporting changes with a dependency order (1 = do first).
+STAGE 1 — DIAGNOSE (do this FIRST, before considering any change):
+- Identify the SINGLE biggest reason this page underperforms the demand it
+  already has, grounded ONLY in packet numbers (e.g. "page-1 query 'pedar sag
+  meaning' has 438 impressions but 0.2% CTR at position 7 — the result doesn't
+  answer the searcher's intent in the snippet"). Pick ONE root cause, not a list.
+- State what you RULED OUT: the levers that look plausible but the data does NOT
+  support (e.g. "the title already contains the dominant query, so re-titling is
+  not the lever"). This is what stops a reflex title rewrite.
+- Put this in diagnosis = {bottleneck, evidence, ruled_out}, and make
+  operator_insight LEAD with the diagnosed bottleneck.
+
+STAGE 2 — PLAN (only after diagnosing; every change must resolve the bottleneck):
+- Choose exactly ONE primary atomic change that DIRECTLY fixes the diagnosed
+  bottleneck (highest leverage), plus supporting changes with a dependency order
+  (1 = do first). Do not propose changes unrelated to the diagnosis.
 - Consider every lever: title, h1, meta, intro_answer_block, faq, section_add/
   remove/reorder, internal_link, schema, image_alt, ux_cta_fix, citation_source,
   create_new_page. Title is just one.
@@ -110,6 +123,9 @@ FINISHED CONTENT (operator-draft, not a directive — write the REAL thing):
   question + a real answer). Do not describe them — write them.
 
 Output ONE JSON object, no prose around it, with EXACTLY these keys:
+  diagnosis (object) with keys: bottleneck (string), evidence (string),
+    ruled_out (string) — the STAGE 1 root cause, its packet evidence, and what
+    you ruled out,
   recommended_atomic_action (string),
   primary_atomic_change (object or null) with keys: action, exact_change,
     evidence, hypothesis, risk, before_after {before, after},
@@ -195,6 +211,19 @@ function sanitize(raw: unknown, packet: EvidencePacket): PageAtomicDecision | nu
         .filter((w) => w.variant.length > 0)
     : [];
 
+  // STAGE-1 diagnosis: fold the diagnosed bottleneck into operator_insight so the
+  // gate's existing insight plumbing surfaces it (and WL1 still overwrites it with
+  // a protective insight on a keep_current collapse). Requiring the structured
+  // diagnosis is what enforces diagnose-BEFORE-plan; leading the insight with it
+  // is what the operator sees.
+  const dx = o.diagnosis && typeof o.diagnosis === "object" ? (o.diagnosis as Record<string, unknown>) : null;
+  const bottleneck = dx ? asStr(dx.bottleneck) : "";
+  let operatorInsight = asStr(o.operator_insight);
+  const bottleneckKey = bottleneck.slice(0, 24).toLowerCase();
+  if (bottleneck && (!operatorInsight || !operatorInsight.toLowerCase().includes(bottleneckKey))) {
+    operatorInsight = `Bottleneck: ${bottleneck}${operatorInsight ? ` ${operatorInsight}` : ""}`;
+  }
+
   const coverage = buildSourceCoverage(packet);
   return {
     pageUrl: packet.current.pageUrl,
@@ -205,7 +234,7 @@ function sanitize(raw: unknown, packet: EvidencePacket): PageAtomicDecision | nu
     source_coverage: coverage,
     wording_research: wording,
     confidence: conf as PageAtomicDecision["confidence"],
-    operator_insight: asStr(o.operator_insight),
+    operator_insight: operatorInsight,
     what_normal_seo_misses: asStr(o.what_normal_seo_misses),
     why_not_just_title: asStr(o.why_not_just_title),
     evidence_gaps: coverage.filter((c) => !c.used).map((c) => `${c.source}: ${c.detail}`),

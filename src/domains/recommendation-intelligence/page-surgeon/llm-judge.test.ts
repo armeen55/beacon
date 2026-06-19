@@ -63,6 +63,30 @@ describe("Page Surgeon — LLM judge (multi-change battle plan, gated)", () => {
     expect(dec.source_coverage.find((s) => s.source === "semrush")?.detail).toContain("no rows");
   });
 
+  it("folds the STAGE-1 diagnosis bottleneck into operator_insight (diagnose-then-plan)", async () => {
+    const dec = await judgePageAtomicChange({
+      packet: packet({ gsc: gsc("zero trust security"), profound: { aiVisibility: 12, citations: 3 } }),
+      brand: null,
+      fetchImpl: fakeOpenAI({
+        diagnosis: {
+          bottleneck: "the page-1 query earns ~0 clicks because the snippet doesn't answer intent",
+          evidence: "5000 impressions, 0.2% CTR at position 3",
+          ruled_out: "the title already matches the query, so re-titling is not the lever",
+        },
+        recommended_atomic_action: "intro_answer_block",
+        primary_atomic_change: change("intro_answer_block", { dependency_order: 1 }),
+        supporting_atomic_changes: [],
+        rejected_changes: [],
+        wording_research: [],
+        confidence: "high",
+        operator_insight: "Add an answer block above the fold.",
+        what_normal_seo_misses: "x", why_not_just_title: "x",
+      }),
+    });
+    expect(dec.operator_insight.startsWith("Bottleneck:")).toBe(true);
+    expect(dec.operator_insight).toContain("Add an answer block above the fold.");
+  });
+
   it("GATE caps AEO confidence + drops a supporting change whose source is absent", async () => {
     const dec = await judgePageAtomicChange({
       packet: packet({ gsc: gsc("zero trust security") }), // no profound, no clarity
