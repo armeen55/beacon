@@ -120,6 +120,12 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
       <p className="rounded bg-accent-primary/[0.05] p-2 text-[12px] leading-relaxed">
         <span className="font-semibold text-foreground">💡 Why this:</span> {bundle.operatorInsight}
       </p>
+      {bundle.whyNotJustTitle && (
+        <p className="text-[12px] leading-relaxed"><span className="font-semibold text-foreground">Why it&apos;s not just a title tweak:</span> <span className="text-muted-foreground">{bundle.whyNotJustTitle}</span></p>
+      )}
+      {bundle.whatNormalSeoMisses && (
+        <p className="text-[12px] leading-relaxed"><span className="font-semibold text-foreground">What a normal SEO misses:</span> <span className="text-muted-foreground">{bundle.whatNormalSeoMisses}</span></p>
+      )}
 
       {bundle.primary && <ArtifactCard c={bundle.primary} label="PRIMARY" />}
       {bundle.supporting.map((c, i) => <ArtifactCard key={i} c={c} label="supporting" />)}
@@ -142,6 +148,9 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
       </div>
       {recorded && <p className="text-[11px] text-status-success">{recorded}</p>}
       <p className="text-[10px] text-muted-foreground">Evidence: {bundle.sourceCoverage.filter((s) => s.used).map((s) => s.source).join(", ") || "—"} · decided by {bundle.decidedBy}</p>
+      {bundle.evidenceGaps.length > 0 && (
+        <p className="text-[10px] text-amber-600">Missing sources: {bundle.evidenceGaps.join(" · ")}</p>
+      )}
     </div>
   );
 }
