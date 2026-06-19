@@ -146,6 +146,12 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // DETERMINISTIC gate (enforceExpertConfidence) — not the LLM — sets the
   // final confidence/approve verdict and can reject.
   "src/domains/recommendations/llm-expert-strategist.ts",
+  // page-surgeon judge (2026-06-18): the per-page atomic-change judge over the
+  // evidence packet. The deterministic trust gate (applyDeterministicGate) — not
+  // the LLM — is the sole authority on confidence/publishability; the judge only
+  // proposes. Gated by OPENAI_API_KEY presence + a 90s timeout + json_object
+  // response_format; any failure falls back to the deterministic page decision.
+  "src/domains/recommendation-intelligence/page-surgeon/llm-judge.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
