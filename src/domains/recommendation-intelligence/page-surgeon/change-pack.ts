@@ -94,8 +94,9 @@ const CONTENT_BODY_ACTIONS = new Set<ChangeArtifact["action"]>([
 export function classifyArtifactPushability(
   a: ChangeArtifact,
   packet: EvidencePacket,
+  opts: { mappingExists?: boolean } = {},
 ): ArtifactPushability {
-  const mapped = packet.current.cmsFieldMapped; // true ⇒ wix_cms channel + field map
+  const mapped = packet.current.cmsFieldMapped; // true ⇒ wix_cms channel
   const channel = packet.current.publishChannel;
 
   if (a.action === "image_alt") {
@@ -106,6 +107,11 @@ export function classifyArtifactPushability(
     const fieldTargetKnown = a.cmsField != null || a.action === "schema";
     if (!mapped) {
       return { action: a.action, method: "blocked_no_mapping", canAutoApply: false, fieldTargetKnown, rollbackReady: a.before != null, reason: `No Wix CMS mapping for this page (channel: ${channel}) — connect + map the collection to enable a field push.` };
+    }
+    // On Wix CMS but the specific page has no url-map row → the push layer can't
+    // resolve the data item, so it's truly blocked until the collection is synced.
+    if (opts.mappingExists === false) {
+      return { action: a.action, method: "blocked_no_mapping", canAutoApply: false, fieldTargetKnown, rollbackReady: a.before != null, reason: "On Wix CMS, but this exact page has no url-map entry yet — sync/map its collection to enable a one-click field push." };
     }
     const withinLimit = a.cmsField ? a.cmsField.withinLimit : true;
     const canAutoApply = fieldTargetKnown && withinLimit;
@@ -148,6 +154,9 @@ export type BuildChangePackInput = {
   generatedAt?: string | null;
   reviewDecision?: ReviewDecisionRow | null;
   history?: BriefHistoryEntry[];
+  /** Whether THIS page has a Wix url-map entry (resolved by the loader). undefined
+   *  ⇒ not checked → fall back to the publish-channel inference. */
+  mappingExists?: boolean;
 };
 
 /** Assemble the pack from already-composed pieces. Pure. */
@@ -156,7 +165,9 @@ export function buildAtomicChangePack(input: BuildChangePackInput): AtomicChange
   const artifacts: ChangeArtifact[] = [bundle.primary, ...bundle.supporting].filter(
     (c): c is ChangeArtifact => c != null,
   );
-  const pushability = artifacts.map((a) => classifyArtifactPushability(a, packet));
+  const pushability = artifacts.map((a) =>
+    classifyArtifactPushability(a, packet, { mappingExists: input.mappingExists }),
+  );
 
   const anyAutoApplicable = pushability.some((p) => p.canAutoApply);
   const publishBlockers: string[] = [];
