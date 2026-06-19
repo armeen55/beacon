@@ -94,11 +94,21 @@ rejected, so follow them to keep your plan intact):
 - recommended_atomic_action MUST be one of: ${HEADLINE_ACTIONS.join(", ")} and must
   equal the primary change's action when a primary exists.
 
+FINISHED CONTENT (operator-draft, not a directive — write the REAL thing):
+- For title/meta/h1: exact_change MUST be the literal production string to ship
+  (the actual new title text), nothing else. Title ≤ 60 chars, meta ≤ 160.
+- For intro_answer_block or section_add: put the LITERAL 2–4 sentence block to
+  publish in artifact_text (real, on-brand prose — no "[insert]" placeholders).
+- For faq: put the LITERAL Q&A pairs in faq_items (3–5 items, each a real
+  question + a real answer). Do not describe them — write them.
+
 Output ONE JSON object, no prose around it, with EXACTLY these keys:
   recommended_atomic_action (string),
   primary_atomic_change (object or null) with keys: action, exact_change,
     evidence, hypothesis, risk, before_after {before, after},
     measurement, rollback, dependency_order (number),
+    artifact_text (string or null — the literal block copy when applicable),
+    faq_items (array of {question, answer} or null — for the faq action),
   supporting_atomic_changes (array of the same object shape),
   rejected_changes (array of {action, reason}),
   wording_research (array of {variant, evidence, best_placement}),
@@ -127,6 +137,12 @@ function parseChange(raw: unknown, fallbackOrder: number): AtomicChange | null {
   if (typeof action !== "string" || !CHANGE_ACTIONS.includes(action as (typeof CHANGE_ACTIONS)[number]))
     return null;
   const ba = (o.before_after ?? {}) as Record<string, unknown>;
+  const faqItems = Array.isArray(o.faq_items)
+    ? o.faq_items
+        .filter((f): f is Record<string, unknown> => f != null && typeof f === "object")
+        .map((f) => ({ question: asStr(f.question), answer: asStr(f.answer) }))
+        .filter((f) => f.question.length > 0 && f.answer.length > 0)
+    : null;
   return {
     action: action as AtomicChange["action"],
     exact_change: asStr(o.exact_change),
@@ -139,6 +155,8 @@ function parseChange(raw: unknown, fallbackOrder: number): AtomicChange | null {
     publishability: "review_only", // gate overrides
     dependency_order:
       typeof o.dependency_order === "number" ? o.dependency_order : fallbackOrder,
+    artifact_text: asStrOrNull(o.artifact_text),
+    faq_items: faqItems && faqItems.length > 0 ? faqItems : null,
   };
 }
 

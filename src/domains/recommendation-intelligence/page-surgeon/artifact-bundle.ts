@@ -1,0 +1,253 @@
+/**
+ * Page Surgeon — IMPLEMENTATION-READY ARTIFACT BUNDLE (2026-06-18).
+ *
+ * Turns a gated PageAtomicDecision from a DIRECTIVE ("add an answer block")
+ * into a FINISHED, CMS-validated, reversible artifact the operator approves by
+ * eye: the literal title/meta/h1 strings (with char-limit checks), the literal
+ * answer-block HTML, the literal FAQ Q&A, deterministic JSON-LD, internal links
+ * resolved to real URLs, a before/after diff, rollback content, the measurement
+ * plan, the gate's publishability, and an evidence receipt. Plus a rendered
+ * SERP-snippet before/after.
+ *
+ * PURE. No I/O, no LLM. Composes only from the (cached) decision + the packet +
+ * the site's known URLs. The deterministic gate remains the sole authority on
+ * publishability — this layer never elevates it.
+ */
+
+import type { EvidenceConfidence, EvidencePacket } from "./contract";
+import type {
+  AtomicAction,
+  AtomicChange,
+  PageAtomicDecision,
+  SourceCoverage,
+} from "./page-decision";
+
+// SERP / CMS practical limits (truncation points Google + Wix respect).
+export const CMS_LIMITS = { title: 60, meta: 160, h1: 70 } as const;
+
+export type CmsFieldArtifact = {
+  field: "title" | "meta" | "h1";
+  value: string;
+  charCount: number;
+  limit: number;
+  withinLimit: boolean;
+};
+export type FaqItem = { question: string; answer: string };
+export type ResolvedLink = { anchor: string; targetUrl: string | null; note: string };
+
+export type ChangeArtifact = {
+  action: AtomicChange["action"];
+  label: string;
+  dependencyOrder: number;
+  publishability: AtomicChange["publishability"];
+  /** Finished content — only the relevant shape is populated. */
+  cmsField?: CmsFieldArtifact;
+  answerBlockHtml?: string;
+  answerBlockText?: string;
+  faq?: FaqItem[];
+  jsonLd?: { schemaType: string; code: string };
+  internalLinks?: ResolvedLink[];
+  /** Dev-task instruction for non-CMS changes (section_*, ux_cta_fix, …). */
+  instruction?: string;
+  before: string | null;
+  after: string | null;
+  rollback: string;
+  measurement: string;
+  evidence: string;
+  hypothesis: string;
+  risk: string;
+};
+
+export type SnippetPreview = { title: string; url: string; meta: string };
+
+export type ArtifactBundle = {
+  pageUrl: string;
+  currentTitle: string | null;
+  headlineAction: AtomicAction;
+  confidence: EvidenceConfidence;
+  snippetBefore: SnippetPreview;
+  snippetAfter: SnippetPreview;
+  primary: ChangeArtifact | null;
+  supporting: ChangeArtifact[];
+  rejected: Array<{ action: string; reason: string }>;
+  sourceCoverage: SourceCoverage[];
+  operatorInsight: string;
+  whatNormalSeoMisses: string;
+  whyNotJustTitle: string;
+  evidenceGaps: string[];
+  decidedBy: "llm_judge" | "deterministic_fallback";
+};
+
+const ACTION_LABEL: Record<string, string> = {
+  title: "Title tag", meta: "Meta description", h1: "H1 heading",
+  intro_answer_block: "Intro answer block", faq: "FAQ / Q&A",
+  section_add: "Add section", section_remove: "Remove section", section_reorder: "Reorder sections",
+  internal_link: "Internal links", schema: "Structured data (JSON-LD)", image_alt: "Image alt text",
+  ux_cta_fix: "UX / CTA fix", citation_source: "Cite a source", create_new_page: "New page",
+};
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function cmsField(field: "title" | "meta" | "h1", value: string): CmsFieldArtifact {
+  const limit = CMS_LIMITS[field];
+  const charCount = value.length;
+  return { field, value, charCount, limit, withinLimit: charCount <= limit };
+}
+
+/** Deterministic Article + BreadcrumbList (+ FAQPage when FAQ content exists)
+ *  JSON-LD from the packet. No invented values. */
+function composeJsonLd(packet: EvidencePacket, faq: FaqItem[] | undefined): { schemaType: string; code: string } {
+  const url = packet.current.pageUrl;
+  const name = packet.crawl?.title ?? packet.current.currentText ?? "";
+  const graph: Record<string, unknown>[] = [
+    {
+      "@type": "Article",
+      headline: name,
+      ...(packet.crawl?.metaDescription ? { description: packet.crawl.metaDescription } : {}),
+      mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    },
+    {
+      "@type": "BreadcrumbList",
+      itemListElement: [{ "@type": "ListItem", position: 1, name, item: url }],
+    },
+  ];
+  if (faq && faq.length > 0) {
+    graph.push({
+      "@type": "FAQPage",
+      mainEntity: faq.map((f) => ({
+        "@type": "Question",
+        name: f.question,
+        acceptedAnswer: { "@type": "Answer", text: f.answer },
+      })),
+    });
+  }
+  const types = graph.map((g) => g["@type"] as string).join(" + ");
+  const code = JSON.stringify({ "@context": "https://schema.org", "@graph": graph }, null, 2);
+  return { schemaType: types, code };
+}
+
+/** Resolve proposed internal-link anchors to REAL site URLs by token overlap
+ *  with known page titles/paths. No fabrication — unresolved → targetUrl null
+ *  with a note so the operator (not the tool) supplies it. */
+function resolveInternalLinks(
+  change: AtomicChange,
+  siteUrls: Array<{ url: string; title: string | null }>,
+): ResolvedLink[] {
+  // Anchors are quoted phrases in the change copy, else the whole instruction.
+  const quoted = [...`${change.exact_change} ${change.artifact_text ?? ""}`.matchAll(/["“']([^"”']{3,60})["”']/g)].map((m) => m[1]!);
+  const anchors = (quoted.length > 0 ? quoted : [change.exact_change]).slice(0, 3);
+  const tok = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2));
+  return anchors.map((anchor) => {
+    const at = tok(anchor);
+    let best: { url: string; score: number } | null = null;
+    for (const p of siteUrls) {
+      if (p.url === change.action) continue;
+      const pt = tok(`${p.title ?? ""} ${p.url}`);
+      let score = 0;
+      for (const w of at) if (pt.has(w)) score += 1;
+      if (score > 0 && (!best || score > best.score)) best = { url: p.url, score };
+    }
+    return best
+      ? { anchor, targetUrl: best.url, note: "resolved by topic match" }
+      : { anchor, targetUrl: null, note: "no matching page found — pick a target" };
+  });
+}
+
+export function composeChangeArtifact(
+  change: AtomicChange,
+  packet: EvidencePacket,
+  siteUrls: Array<{ url: string; title: string | null }>,
+): ChangeArtifact {
+  const base = {
+    action: change.action,
+    label: ACTION_LABEL[change.action] ?? change.action,
+    dependencyOrder: change.dependency_order,
+    publishability: change.publishability,
+    rollback: change.rollback,
+    measurement: change.measurement,
+    evidence: change.evidence,
+    hypothesis: change.hypothesis,
+    risk: change.risk,
+    before: change.before_after.before,
+    after: change.before_after.after,
+  };
+
+  if (change.action === "title" || change.action === "meta" || change.action === "h1") {
+    const value = change.exact_change.trim();
+    const current =
+      change.action === "title" ? packet.crawl?.title :
+      change.action === "meta" ? packet.crawl?.metaDescription : packet.crawl?.h1;
+    return {
+      ...base,
+      cmsField: cmsField(change.action, value),
+      before: change.before_after.before ?? current ?? null,
+      after: value,
+      rollback: change.rollback || (current ? `Restore the previous ${change.action}: "${current}"` : "Restore the previous value."),
+    };
+  }
+
+  if (change.action === "intro_answer_block" || change.action === "section_add") {
+    const text = (change.artifact_text ?? change.exact_change).trim();
+    return {
+      ...base,
+      answerBlockText: text,
+      answerBlockHtml: `<p>${esc(text)}</p>`,
+      after: text,
+    };
+  }
+
+  if (change.action === "faq") {
+    const faq = (change.faq_items ?? []).filter((f) => f.question && f.answer);
+    return { ...base, faq, after: faq.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n") || change.exact_change };
+  }
+
+  if (change.action === "schema") {
+    const jsonLd = composeJsonLd(packet, change.faq_items ?? undefined);
+    return { ...base, jsonLd, after: jsonLd.code, rollback: change.rollback || "Remove the added JSON-LD block." };
+  }
+
+  if (change.action === "internal_link") {
+    const links = resolveInternalLinks(change, siteUrls);
+    return { ...base, internalLinks: links, after: links.map((l) => `${l.anchor} → ${l.targetUrl ?? "(pick target)"}`).join("; ") };
+  }
+
+  // section_remove/reorder, ux_cta_fix, citation_source, create_new_page, image_alt:
+  // a dev-task instruction, not literal CMS content.
+  return { ...base, instruction: change.artifact_text ?? change.exact_change };
+}
+
+export function composeArtifactBundle(
+  decision: PageAtomicDecision,
+  packet: EvidencePacket,
+  siteUrls: Array<{ url: string; title: string | null }> = [],
+): ArtifactBundle {
+  const compose = (c: AtomicChange) => composeChangeArtifact(c, packet, siteUrls);
+  const primary = decision.primary_atomic_change ? compose(decision.primary_atomic_change) : null;
+  const supporting = decision.supporting_atomic_changes.map(compose);
+
+  const currentTitle = packet.crawl?.title ?? packet.current.currentText ?? "";
+  const currentMeta = packet.crawl?.metaDescription ?? "";
+  const all = [primary, ...supporting].filter((a): a is ChangeArtifact => a != null);
+  const titleArtifact = all.find((a) => a.action === "title")?.cmsField?.value;
+  const metaArtifact = all.find((a) => a.action === "meta")?.cmsField?.value;
+
+  return {
+    pageUrl: decision.pageUrl,
+    currentTitle,
+    headlineAction: decision.recommended_atomic_action,
+    confidence: decision.confidence,
+    snippetBefore: { title: currentTitle, url: decision.pageUrl, meta: currentMeta },
+    snippetAfter: { title: titleArtifact ?? currentTitle, url: decision.pageUrl, meta: metaArtifact ?? currentMeta },
+    primary,
+    supporting,
+    rejected: decision.rejected_changes,
+    sourceCoverage: decision.source_coverage,
+    operatorInsight: decision.operator_insight,
+    whatNormalSeoMisses: decision.what_normal_seo_misses,
+    whyNotJustTitle: decision.why_not_just_title,
+    evidenceGaps: decision.evidence_gaps,
+    decidedBy: decision.decided_by,
+  };
+}

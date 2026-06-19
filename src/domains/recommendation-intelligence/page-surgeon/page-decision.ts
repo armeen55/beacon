@@ -43,6 +43,12 @@ export type AtomicChange = {
   publishability: Publishability;
   /** 1 = do first. Supporting changes may depend on the primary. */
   dependency_order: number;
+  /** FINISHED content (operator-draft, not a directive): the literal copy to
+   *  ship for content changes. For title/meta/h1 the literal value lives in
+   *  `exact_change`; for intro_answer_block/section_add the literal block text
+   *  lives here; for faq the literal Q&A pairs live in `faq_items`. */
+  artifact_text?: string | null;
+  faq_items?: Array<{ question: string; answer: string }> | null;
 };
 
 export type SourceName = "gsc" | "ga4" | "clarity" | "semrush" | "profound" | "crawl";
