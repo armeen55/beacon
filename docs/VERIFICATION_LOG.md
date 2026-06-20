@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-19 OPERATOR-OS PHASE 5 (Path B) — GSC Proof ledger (`3a13a52` + `bd7084c`, branch `claude/max-capability`)
+
+Built the minimal GSC Proof ledger so manually-shipped changes can be MEASURED ("we changed this, here's what happened") — chosen over Path A because the borrowed Profound OpenAI-compatible endpoint (base URL+key+model) was not configured/provided. Path A (Draft Change Pack) was NOT started. SEPARATE from the citation proof engine (`change_outcomes_v2` / `natural-controls` / `loadProvenWins`) — new `src/domains/proof-gsc/`, new enums, new table; that path is untouched.
+
+**Engine (`src/domains/proof-gsc/`):**
+- `measure.ts` (pure, unit-tested): observational diff-in-diff `adjustedLift = (treatedPost−treatedPre) − mean(controlPost−controlPre)`; verdict `measuring/won/lost/inconclusive/insufficient_data` + confidence (controls × baseline volume); honesty-gated copy; 7/14/28d dates.
+- `gsc-window.ts`: arbitrary `[start,end)` page metrics by REUSING the existing `gsc_page_totals_v1` RPC via cumulative subtraction (`since(start) − since(end)`) — no new read migration.
+- `run-measurement.ts`: `recordShippedChange` (capture baseline + controls) + `measureRecord` + `captureChangeMeta` (before/after + target queries from cached Page Surgeon context/pack).
+- `shipped-change-store.ts`: durable Supabase + file fallback (ambient tenant), fail-soft. **Found+fixed a real bug:** a missing table surfaces as PostgREST `PGRST205` ("schema cache"), NOT raw `42P01` — the detector now catches both so the file fallback actually engages pre-migration. **Also registered `proof-gsc-ledger` in store-classification** (else `readStore`/`writeStore` throw "unknown store").
+- Migration `2026-06-19_shipped_change_proof.sql` (additive, idempotent, RLS deny-anon) — **NOT applied to prod** (app uses the file fallback until applied; applying to beacon-main for prod durability is operator-gated).
+
+**Surfaces:** `/proof` — each approved/reviewed page gets "Record shipped change" (manual ship path, operator islands); new "Measured outcomes" section (baseline + 7/14/28d lift vs controls + verdict + "observational, not a controlled experiment" disclaimer); "Recompute outcomes". `/changes` — operator-only "Proof ledger" summary strip (Suspense, read-only) → /proof; the tested enrichment pipeline is untouched.
+
+**Verified:** typecheck clean; 18 proof-gsc/action tests green (measure math + verdict thresholds + honesty copy + operator gating). LIVE ground-truth on Iranopedia (dev server, `.env.local` flipped + restored): clicked "Record shipped change" on `/persian-male-names` → ledger persisted with a REAL 28d baseline (941 clicks / 21,254 impr / 4.43% CTR / pos 7.0), real target queries + 3 real same-site control pages, windows scheduled 2026-06-26/07-03/07-17 → verdict "measuring" (correct — shipped today, nothing to measure yet); `/proof` "Measured outcomes" rendered it; `/changes` strip showed "Proof ledger · 1 shipped & tracked · Open Proof →". Proves the GSC cumulative-subtraction reader, control resolution, capture, persistence + re-measure-on-read all work on real data. No publish, no paid calls, no LLM, no Wix-max, no learning loop. `.data` ground-truth file removed after.
+
+---
+
 ## 2026-06-19 OPERATOR-OS PHASE 2 — Workbench locked-page deep-audit surface (`f25c084` + `2abf390`, branch `claude/max-capability`, local commits, NOT pushed)
 
 Built the real surface every "Run Deep Audit" / "Review Change Pack" CTA lands on. Operator-gated (404 for customers) + force-dynamic. Read-only composition of EXISTING loaders; NO paid APIs, NO SERP API, NO LLM, NO publish, NO migration; cheap SERP guard only. (Phase 1 + SERP guard `8f9e3ea` was pushed first this turn: `da1047b..a79a44d`.)
