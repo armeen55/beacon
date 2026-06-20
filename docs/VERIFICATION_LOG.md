@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-20 GSC Proof ledger migration APPLIED to beacon-main + prod-shaped persistence smoke (no code change)
+
+Applied `migrations/2026-06-19_shipped_change_proof.sql` to **beacon-main** (`vlxwevsdvwxvopkjsewo`, the only project) via Supabase MCP `apply_migration` → `{success:true}`. Pre-confirmed additive + idempotent (create-if-not-exists, create-index-if-not-exists, RLS enable is idempotent; no DROP, no destructive ALTER). **No code/SQL changes needed** — applied as authored.
+
+**Table verified (direct SQL on beacon-main):** `public.shipped_change_proof` — 17 columns (tenant_id,id,page,path,action_type,before_text,after_text,shipped_at,baseline,target_queries,control_pages,windows,verdict,confidence,measured_at,created_at,updated_at); **RLS enabled, 0 policies** (deny anon/auth — service-role only); PK (tenant_id,id); index `shipped_change_proof_tenant_idx`.
+
+**Prod-shaped persistence smoke (dev server on beacon-main, tenant-iranopedia):** clicked "Record shipped change" on `/proof` → the row landed in **Supabase** (confirmed by querying beacon-main directly, bypassing the app: tenant-iranopedia, `/persian-male-names`, verdict `measuring`, real baseline 904 clicks / 20,444 impr, 3 controls, 3 windows, 5 target queries). Server logs showed **NO** "schema cache"/"read failed" fallback this time — the store hit Supabase cleanly (not the file fallback). A fresh `/proof` fetch (= reload, reads back from Supabase since the table now exists) rendered the **Measured outcomes** section with the recorded page, `measuring` verdict + "observational" disclaimer → **records survive reload through Supabase**. Then DELETED the test row (tenant+id scoped; `persian-male-names` is keep_current = no real change, so it was a verification artifact) → table back to 0 rows, clean for real operator use.
+
+Gates: `npm run typecheck` clean; proof-gsc + proof-action tests 18/18 green. NO publish, NO Wix, NO paid APIs, NO full suite. `.env.local` flipped to iranopedia for the smoke + restored; mirror `.data` file removed.
+
+---
+
 ## 2026-06-19 OPERATOR-OS PHASE 5 (Path B) — GSC Proof ledger (`3a13a52` + `bd7084c`, branch `claude/max-capability`)
 
 Built the minimal GSC Proof ledger so manually-shipped changes can be MEASURED ("we changed this, here's what happened") — chosen over Path A because the borrowed Profound OpenAI-compatible endpoint (base URL+key+model) was not configured/provided. Path A (Draft Change Pack) was NOT started. SEPARATE from the citation proof engine (`change_outcomes_v2` / `natural-controls` / `loadProvenWins`) — new `src/domains/proof-gsc/`, new enums, new table; that path is untouched.
