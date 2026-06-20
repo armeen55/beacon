@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
+import { ProofLedgerStrip } from "./proof-ledger-strip";
 import { getOpportunities, getResults } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { getEventDecisions } from "@/domains/attribution/store";
@@ -329,11 +331,16 @@ export default async function ChangeScorecardPage() {
   // output. Pure presentation layer at this boundary; no extra data
   // fetching, no server-action wiring.
   return (
-    <ChangesV2Client
-      rows={enriched}
-      classByChangelogId={Object.fromEntries(classification.classOf)}
-      editStatusByChangelogId={editStatusByChangelogId}
-    />
+    <>
+      <Suspense fallback={null}>
+        <ProofLedgerStrip />
+      </Suspense>
+      <ChangesV2Client
+        rows={enriched}
+        classByChangelogId={Object.fromEntries(classification.classOf)}
+        editStatusByChangelogId={editStatusByChangelogId}
+      />
+    </>
   );
   } finally {
     trace.flush();
