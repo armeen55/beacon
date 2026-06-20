@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-20 Proof made operationally useful + rich record model (Phase 5, Path B)
+
+Made the Changes + Proof loop easy to use while /cities measures, and gave the record model the fields the operator needs.
+
+**Schema + store.** Additive migration `2026-06-20_shipped_change_proof_notes.sql` (APPLIED to beacon-main, idempotent): `notes text`, `verified_live boolean default false`, `live_source_url text`. Wired through `ShippedChangeRecord` / `LedgerRow` / `recordToRow` / `rowToRecord` / `recordShippedChange`.
+
+**Richer record action + form.** `recordShippedChangeAction` now accepts change type, before/after, ship date/time, notes, target queries, verified-live + live URL. Validation: page required; before/after required unless change type is keep_current/monitor; dedup rejects a second record for the same page + ship date (the ledger PK), naming the existing change type on a collision; fails gracefully when fewer than 2 comparable controls exist (no dishonest diff-in-diff). `RecordAnyPageForm` keeps the one-line quick path and adds a collapsible "Add details" panel for all of the above.
+
+**Operational surfaces.** `/proof`: a "What happens next" explainer (Google takes time, first check at 7 days, won/lost/inconclusive, observational not controlled); each card now shows before/after copy, target-query chips, control count, the 7/14/28-day dates, a verified-live badge, notes, and a "Roll back: copy before" button (manual rollback, Beacon never auto-reverts). "Recompute outcomes" is disabled until the first window closes, labeled with the open date. `/changes`: the proof strip is now an active-experiment card for the newest measuring change (status, changed field, ship date, next-check date, baseline CTR/clicks/impressions/position, target queries, control count, link to Proof).
+
+**No-em-dash hardening.** Removed em dashes from every rendered Proof string, including `proofOutcomeSentence` (measure.ts) and the record-form toasts/empty-state.
+
+**/cities row updated** in beacon-main: `verified_live=true`, `live_source_url=https://www.iranopedia.com/cities`, notes recorded (first real Beacon-operated proof-loop change; conservative meta-only CTR test).
+
+Verified: `npm run typecheck` clean; targeted `proof-gsc/` + `(shell)/proof/` + `(shell)/changes/` tests 32 passed / 1 skipped (added cases: explicit fields pass-through, before/after validation, keep_current skip, dedup rejection, <2-controls refusal). LIVE ground-truth on tenant-iranopedia dev server: `/proof` and `/changes` both render 200; fetched HTML confirms the /cities card, explainer, before/after, target queries, verified-live badge, rollback, gated recompute ("First check opens 2026-06-27"); **zero em dashes** in rendered HTML on both routes. No publish / Wix push / paid APIs / full suite. `.env.local` restored to tenant-ritz-founder.
+
+---
+
 ## 2026-06-20 Proof ledger — "Record a shipped change" for ANY page (`3f1d00d`)
 
 Closed the gap from the first /cities change (only review-approved pages could be recorded from the UI; /cities had to be inserted by hand).
