@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-20 MERGED Operator-OS (Phase 1+2+5) to main + deployed to production
+
+Operator asked to ship the proof loop live and "merge all but audit everything, be tough." Verified the proof UI was branch-only (production ran main, 6h old), then ran a tough adversarial pre-merge audit before touching production.
+
+**Pre-merge audit** (2 workflows, ~23 subagents). 6 dimensions, each blocker/high finding independently verified. PASS: build/prerender safety (all data pages force-dynamic, no import-time DB side effects), customer-facing gating (no /workbench 404 reachable by customers, legacy recs demoted not dropped), operator gating (proof/workbench/strip + server actions all fail-closed), migration coherence (both proof migrations already applied to beacon-main; every read/write degrades gracefully). FOUND + FIXED before merge:
+- **Em-dash hard-rule violation (blocker):** ~68 user-visible em/en dashes on the new Insight/Workbench/Opportunity/State-of-Union/Recommendations surfaces (built before the dash enforcer). Stripped all via per-file fan-out (12 files) + StateOfUnionSection; added `tests/architecture/no-banned-dash-display-surfaces.test.ts` to hardcode the rule against regression.
+- **Proof correctness (medium):** verdict could overclaim won/lost on a single control (now requires >=2, else insufficient_data); a bare-path record measured as zero GSC (now refused); a null/corrupt baseline could crash the /proof + /changes render (rowToRecord defaults + render-site guards); PGRST204 now triggers the file fallback so additive-column migrations are deploy-order-independent; StateOfUnionSection gains fail-soft try/catch parity.
+
+**New feature:** operator-markable recrawl note. Additive migration `2026-06-20_shipped_change_proof_recrawl.sql` (APPLIED + verified on beacon-main) + `recrawl_requested_at` field + `markRecrawlRequestedAction` (operator-gated toggle, does not call Google or publish) + a /proof card control ("Mark: recrawl requested in Search Console" -> "Google recrawl requested manually in Search Console - <date>" + Undo).
+
+**Merge mechanics:** clean (no conflicts); merged origin/main into claude/max-capability, fast-forwarded origin/main. Brings Phase 1 (page-primary + SERP guard), Phase 2 (Workbench), Phase 5 (GSC proof ledger + rich record + recrawl) to production.
+
+Verified: typecheck clean; targeted proof/changes/insight/workbench + dash-guard tests 128 pass / 1 skip; two production builds clean (pre- and post-merge). Vercel production deploy + smoke recorded below in the deploy step. NOTE for operator: Vercel **Preview**-scope is missing the Supabase env vars (Production-only since the beacon-main cutover), so every branch *preview* build errors on /briefs/proposed prerender; production is unaffected. Add `NEXT_PUBLIC_SUPABASE_URL` + anon + service-role keys to Preview scope to restore preview deploys.
+
+---
+
 ## 2026-06-20 Proof made operationally useful + rich record model (Phase 5, Path B)
 
 Made the Changes + Proof loop easy to use while /cities measures, and gave the record model the fields the operator needs.
