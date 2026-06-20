@@ -51,7 +51,7 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
   if (items.length === 0) {
     return (
       <p className="text-[13px] text-muted-foreground">
-        No opportunities detected yet — once Search, SEMrush, and Clarity data
+        No opportunities detected yet. Once Search, SEMrush, and Clarity data
         sync, ranked page opportunities appear here.
       </p>
     );
@@ -184,7 +184,7 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
       </div>
 
       <p className="pt-1 text-[11px] text-muted-foreground/70">
-        Estimates are directional — impressions × the CTR gap / search volume,
+        Estimates are directional: impressions × the CTR gap / search volume,
         shown with their window + confidence. An opportunity sizing, not a
         promise. &ldquo;SERP unknown&rdquo; means we haven&rsquo;t verified
         whether a SERP feature (AI Overview / featured snippet / image pack)

@@ -17,6 +17,7 @@ import type { QaVerdict } from "./artifact-qa";
 import type { PageAtomicDecision, SourceCoverage } from "./page-decision";
 import type { BriefHistoryEntry } from "./brief-store";
 import type { ReviewDecisionRow, ReviewVerdict } from "./review-store";
+import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 /** How (if at all) a single artifact can actually be applied to the live site. */
 export type PushMethod =
@@ -143,18 +144,18 @@ export function classifyArtifactPushability(
   const channel = packet.current.publishChannel;
 
   if (a.action === "image_alt") {
-    return { action: a.action, method: "not_applicable", canAutoApply: false, fieldTargetKnown: false, rollbackReady: false, reason: "No crawled image/alt data — not applicable." };
+    return { action: a.action, method: "not_applicable", canAutoApply: false, fieldTargetKnown: false, rollbackReady: false, reason: "No crawled image/alt data; not applicable." };
   }
 
   if (CMS_FIELD_ACTIONS.has(a.action)) {
     const fieldTargetKnown = a.cmsField != null || a.action === "schema";
     if (!mapped) {
-      return { action: a.action, method: "blocked_no_mapping", canAutoApply: false, fieldTargetKnown, rollbackReady: a.before != null, reason: `No Wix CMS mapping for this page (channel: ${channel}) — connect + map the collection to enable a field push.` };
+      return { action: a.action, method: "blocked_no_mapping", canAutoApply: false, fieldTargetKnown, rollbackReady: a.before != null, reason: `No Wix CMS mapping for this page (channel: ${channel}). Connect + map the collection to enable a field push.` };
     }
     // On Wix CMS but the specific page has no url-map row → the push layer can't
     // resolve the data item, so it's truly blocked until the collection is synced.
     if (opts.mappingExists === false) {
-      return { action: a.action, method: "blocked_no_mapping", canAutoApply: false, fieldTargetKnown, rollbackReady: a.before != null, reason: "On Wix CMS, but this exact page has no url-map entry yet — sync/map its collection to enable a one-click field push." };
+      return { action: a.action, method: "blocked_no_mapping", canAutoApply: false, fieldTargetKnown, rollbackReady: a.before != null, reason: "On Wix CMS, but this exact page has no url-map entry yet. Sync/map its collection to enable a one-click field push." };
     }
     const withinLimit = a.cmsField ? a.cmsField.withinLimit : true;
     const canAutoApply = fieldTargetKnown && withinLimit;
@@ -168,22 +169,22 @@ export function classifyArtifactPushability(
       rollbackReady,
       reason: canAutoApply
         ? rollbackReady
-          ? "Mapped Wix CMS field — one-click pushable; exact prior value captured for rollback."
-          : "Mapped Wix CMS field — pushable, but the exact current value isn't captured, so rollback would be best-effort."
+          ? "Mapped Wix CMS field: one-click pushable; exact prior value captured for rollback."
+          : "Mapped Wix CMS field: pushable, but the exact current value isn't captured, so rollback would be best-effort."
         : !withinLimit
-          ? "Copy exceeds the CMS field limit — trim before it can be pushed."
-          : "Field target not resolved — needs a mapping.",
+          ? "Copy exceeds the CMS field limit; trim before it can be pushed."
+          : "Field target not resolved; needs a mapping.",
     };
   }
 
   if (CONTENT_BODY_ACTIONS.has(a.action)) {
     // Reversibility: an ADD is undone by removing it; a remove/reorder by restoring.
     const rollbackReady = true;
-    return { action: a.action, method: "no_write_path", canAutoApply: false, fieldTargetKnown: false, rollbackReady, reason: "Body-content change (answer block / FAQ / section) — no automated CMS writer exists yet; apply manually in the CMS. Reversible (add can be removed)." };
+    return { action: a.action, method: "no_write_path", canAutoApply: false, fieldTargetKnown: false, rollbackReady, reason: "Body-content change (answer block / FAQ / section): no automated CMS writer exists yet; apply manually in the CMS. Reversible (add can be removed)." };
   }
 
   // internal_link, citation_source, ux_cta_fix, create_new_page → manual / out-of-band.
-  return { action: a.action, method: "manual_cms_edit", canAutoApply: false, fieldTargetKnown: false, rollbackReady: a.before != null, reason: "No automated write path for this change type — apply manually." };
+  return { action: a.action, method: "manual_cms_edit", canAutoApply: false, fieldTargetKnown: false, rollbackReady: a.before != null, reason: "No automated write path for this change type; apply manually." };
 }
 
 export type BuildChangePackInput = {
@@ -208,9 +209,11 @@ export function buildAtomicChangePack(input: BuildChangePackInput): AtomicChange
   const artifacts: ChangeArtifact[] = [bundle.primary, ...bundle.supporting].filter(
     (c): c is ChangeArtifact => c != null,
   );
-  const pushability = artifacts.map((a) =>
-    classifyArtifactPushability(a, packet, { mappingExists: input.mappingExists }),
-  );
+  const pushability = artifacts
+    .map((a) => classifyArtifactPushability(a, packet, { mappingExists: input.mappingExists }))
+    // Enforce the no-em-dash rule on the displayed pushability reasons (and, via
+    // the publishBlockers below, the blocker list) at the read-path chokepoint.
+    .map((p) => ({ ...p, reason: stripBannedDashes(p.reason) }));
 
   const anyAutoApplicable = pushability.some((p) => p.canAutoApply);
   const publishBlockers: string[] = [];
@@ -231,7 +234,10 @@ export function buildAtomicChangePack(input: BuildChangePackInput): AtomicChange
     headlineAction: input.decision.recommended_atomic_action,
     confidence: input.decision.confidence,
     decidedBy: input.decision.decided_by,
-    operatorInsight: input.decision.operator_insight,
+    // Cached LLM free-text: strip banned dashes at read (can't re-run the model here).
+    operatorInsight: input.decision.operator_insight
+      ? stripBannedDashes(input.decision.operator_insight)
+      : input.decision.operator_insight,
     evidenceHash: input.evidenceHash,
     generatedAt: input.generatedAt ?? null,
     bundle,

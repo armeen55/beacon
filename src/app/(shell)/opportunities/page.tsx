@@ -25,7 +25,7 @@ export default async function OpportunitiesPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Opportunity Map</h1>
         <p className="mt-1 text-[14px] text-muted-foreground">
-          Every page ranked by what's at stake — fused across Search, SEMrush,
+          Every page ranked by what's at stake, fused across Search, SEMrush,
           Clarity and Analytics. Highest-leverage first.
         </p>
       </div>
