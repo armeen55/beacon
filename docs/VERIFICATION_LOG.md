@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-20 Production logged-in smoke + Preview env repair (post-deploy)
+
+**Part 1, logged-in smoke.** Production is app-login-gated (every route 307 to /login) and I cannot authenticate, so I reproduced the logged-in-operator render on the LOCAL dev server running the EXACT deployed commit against the production DB (beacon-main, tenant-iranopedia, operator mode) - identical code + data to production-logged-in. All checklist items PASS:
+- /proof: record form, /cities row (measuring), before/after, target queries, controls count, 7/14/28-day window dates, Recompute gated ("First check opens"), rollback copy, recrawl toggle, verified-live badge, What-happens-next explainer.
+- /changes: /cities active measuring experiment, next-check date, baseline metrics, link to Proof.
+- /workbench/cities: loads (200), opportunity summary, Change Pack, Wix readiness, proof plan, diagnosis matrix.
+- /opportunities: SERP guard wording ("Needs SERP check before title rewrite", "SERP unknown"), estimates with window + confidence + SERP status.
+
+**Em-dash bug the smoke caught + fixed (deployed `180fa4d`).** Em/en dashes still rendered on /workbench/cities (cached operatorInsight LLM text + static pushability reason strings in change-pack.ts) and /opportunities (static header/footnote/empty copy in opportunities/page.tsx + opportunity-list.tsx, files outside the prior dash sweep + test). Fixed: strip operatorInsight + pushability reasons at the change-pack read-path chokepoint (cleans cached DB data AND the rec-detail panel), cleaned the static literals, cleaned the opportunities JSX, and added all three files to the no-banned-dash regression test. Re-smoke: all five routes render ZERO em/en dashes. Gates: typecheck clean, 142 targeted tests pass / 1 skip, production build clean.
+
+**Part 2, Preview env repair.** Branch preview builds were failing at the /briefs/proposed prerender because the Supabase env vars were Production-scope only. Added `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` to Vercel Preview scope (branch claude/max-capability) with the beacon-main values; Production values untouched. `SUPABASE_SERVICE_ROLE_KEY` is a server secret I do not enter, handed to the operator: `vercel env add SUPABASE_SERVICE_ROLE_KEY preview claude/max-capability` (omit the branch, interactive, for all preview branches). NOTE: this CLI build only completed branch-scoped Preview adds non-interactively; the all-branches omit-form returns git_branch_required. The preview build needs all three vars, so it advances past the NEXT_PUBLIC_SUPABASE_URL failure but still fails on SUPABASE_SERVICE_ROLE_KEY until the operator adds it; once added, branch previews build.
+
+---
+
 ## 2026-06-20 MERGED Operator-OS (Phase 1+2+5) to main + deployed to production
 
 Operator asked to ship the proof loop live and "merge all but audit everything, be tough." Verified the proof UI was branch-only (production ran main, 6h old), then ran a tough adversarial pre-merge audit before touching production.
