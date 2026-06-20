@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-20 FIRST REAL operator change — /cities meta CTR test recorded in the Proof ledger (no code change)
+
+The first real Beacon-operated Iranopedia change. NO code change — pulled the real evidence from beacon-main + recorded a durable proof baseline; the change itself is a MANUAL Wix paste+publish for Armeen (no Wix mapping exists for /cities, and per the standing rails nothing auto-publishes).
+
+**Evidence (beacon-main, real):** /cities crawl title = "List of Largest Cities in Iran: Top 15 by Population (2026)"; meta = "Cities in Iran ranked by population: Tehran, Mashhad, Isfahan, Shiraz, and more. List, interactive map, and fun facts about major Iranian cities." 28d page baseline = **33 clicks / 8,382 impressions / 0.39% CTR / avg pos 9.3** — a textbook CTR leak (expected ~2% at pos 9 ⇒ leaking ~120 clicks/mo). Top queries cluster (pos 7–10, ~0.3% CTR): biggest/largest/major/list cities in iran. SERP risk LOW (cluster below the top-5 feature zone). The cached Change Pack primary is `intro_answer_block` (low confidence) — deliberately OVERRIDDEN for this first loop with a lower-risk, ranking-neutral, reversible **meta** CTR test (flagged, not hidden).
+
+**Change chosen (meta only, reversible):**
+- BEFORE: "Cities in Iran ranked by population: Tehran, Mashhad, Isfahan, Shiraz, and more. List, interactive map, and fun facts about major Iranian cities."
+- AFTER: "The biggest cities in Iran, ranked by population — Tehran, Mashhad, Isfahan, Shiraz and more — with an interactive map and quick facts on each." (front-loads the dominant "biggest cities in iran" query phrasing; ≤160 chars; no fabricated numbers; accurate to a top-15-by-population page).
+
+**Proof record (durable in Supabase beacon-main):** `shipped_change_proof` id `/cities::2026-06-20`, action_type meta, verdict `measuring`, baseline 33/8382/0.39%/9.3, 3 controls (persian-female-first-names, farsi-numbers, funny-farsi-phrases), 5 target queries, before/after meta. Windows open 7d 2026-06-27 / 14d 2026-07-04 / 28d 2026-07-18. Verified `/proof` renders the "Measured outcomes" card (status 200, MEASURING, baseline line, observational disclaimer) — reading back from Supabase.
+
+**PENDING (Armeen, manual):** paste the new meta in the Wix CMS SEO field for the /cities dynamic page → Publish the site → it goes live. Publish TODAY so the treatment date matches shipped_at (else tell Claude to update shipped_at). Then on 2026-06-27 / 07-04 / 07-18, open /proof + "Recompute outcomes" to read the after-vs-controls verdict. **Known UI gap:** "Record shipped change" only surfaces for review-approved /proof rows, so /cities was recorded directly server-side — a follow-up should add a "record any shipped change" entry point + top-demand control fallback. No publish/Wix/paid/LLM by Claude; targeted gates only.
+
+---
+
 ## 2026-06-20 GSC Proof ledger migration APPLIED to beacon-main + prod-shaped persistence smoke (no code change)
 
 Applied `migrations/2026-06-19_shipped_change_proof.sql` to **beacon-main** (`vlxwevsdvwxvopkjsewo`, the only project) via Supabase MCP `apply_migration` → `{success:true}`. Pre-confirmed additive + idempotent (create-if-not-exists, create-index-if-not-exists, RLS enable is idempotent; no DROP, no destructive ALTER). **No code/SQL changes needed** — applied as authored.
