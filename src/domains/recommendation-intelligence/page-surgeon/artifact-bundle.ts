@@ -14,6 +14,7 @@
  * publishability — this layer never elevates it.
  */
 
+import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import type { EvidenceConfidence, EvidencePacket } from "./contract";
 import type {
   AtomicAction,
@@ -297,13 +298,53 @@ export function composeChangeArtifact(
   return { ...base, instruction: change.artifact_text ?? change.exact_change };
 }
 
+/**
+ * HARD RULE: no em/en dash in any Beacon-GENERATED copy. Strips banned dashes
+ * from every generated string field of an artifact (proposed `after`, cmsField
+ * value, answer block, FAQ, instruction, rationale prose). `before` is left
+ * untouched — it reflects the page's CURRENT live copy and must stay truthful.
+ * [[feedback_no_em_dashes]]
+ */
+function finalizeArtifactCopy(a: ChangeArtifact): ChangeArtifact {
+  const d = stripBannedDashes;
+  const out: ChangeArtifact = {
+    ...a,
+    label: d(a.label),
+    after: a.after == null ? a.after : d(a.after),
+    rollback: d(a.rollback),
+    measurement: d(a.measurement),
+    evidence: d(a.evidence),
+    hypothesis: d(a.hypothesis),
+    risk: d(a.risk),
+  };
+  if (a.instruction != null) out.instruction = d(a.instruction);
+  if (a.answerBlockText != null) out.answerBlockText = d(a.answerBlockText);
+  if (a.answerBlockHtml != null) out.answerBlockHtml = d(a.answerBlockHtml);
+  if (a.faq) out.faq = a.faq.map((f) => ({ question: d(f.question), answer: d(f.answer) }));
+  if (a.jsonLd) out.jsonLd = { ...a.jsonLd, code: d(a.jsonLd.code) };
+  if (a.internalLinks) {
+    out.internalLinks = a.internalLinks.map((l) => ({ ...l, anchor: d(l.anchor), note: d(l.note) }));
+  }
+  if (a.cmsField) {
+    const value = d(a.cmsField.value);
+    out.cmsField = {
+      ...a.cmsField,
+      value,
+      charCount: value.length,
+      withinLimit: value.length <= a.cmsField.limit,
+    };
+  }
+  return out;
+}
+
 export function composeArtifactBundle(
   decision: PageAtomicDecision,
   packet: EvidencePacket,
   siteUrls: Array<{ url: string; title: string | null }> = [],
   controlPaths: string[] = [],
 ): ArtifactBundle {
-  const compose = (c: AtomicChange) => composeChangeArtifact(c, packet, siteUrls, controlPaths);
+  const compose = (c: AtomicChange) =>
+    finalizeArtifactCopy(composeChangeArtifact(c, packet, siteUrls, controlPaths));
   const primary = decision.primary_atomic_change ? compose(decision.primary_atomic_change) : null;
   const supporting = decision.supporting_atomic_changes.map(compose);
   const deferred = (decision.deferred_changes ?? []).map(compose);

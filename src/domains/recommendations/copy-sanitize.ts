@@ -15,6 +15,8 @@
  *  Add future prefixes here as they surface. Case-insensitive matching.
  *  Each entry is matched at the START of the string with optional trailing
  *  whitespace, colon, or hyphen. */
+import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+
 const INTERNAL_PREFIXES: ReadonlyArray<string> = [
   "shield:",
   "shield -",
@@ -25,7 +27,8 @@ const INTERNAL_PREFIXES: ReadonlyArray<string> = [
 
 export function sanitizeOperatorCopy(input: string | null | undefined): string {
   if (!input) return "";
-  let s = input.trim();
+  // HARD RULE: never surface an em/en dash in operator copy. [[feedback_no_em_dashes]]
+  let s = stripBannedDashes(input).trim();
   // Strip any recognized internal prefix at the start (possibly repeated).
   let changed = true;
   let safety = 0;

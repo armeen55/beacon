@@ -44,7 +44,8 @@ describe("Page Surgeon — artifact composer (finished, CMS-ready content)", () 
     const b = composeArtifactBundle(decision(change("title", { exact_change: "Persian Swear Words & Farsi Insults — Meanings" })), packet());
     expect(b.primary!.cmsField).toMatchObject({ field: "title", withinLimit: true });
     expect(b.primary!.cmsField!.value).toContain("Swear Words");
-    expect(b.snippetAfter.title).toBe("Persian Swear Words & Farsi Insults — Meanings");
+    // The no-em-dash enforcer converts a spaced " — " in generated copy to ", ".
+    expect(b.snippetAfter.title).toBe("Persian Swear Words & Farsi Insults, Meanings");
     expect(b.snippetBefore.title).toBe("Old Title");
     expect(b.primary!.rollback).toContain("Old Title"); // rollback restores the current value
   });
@@ -74,7 +75,10 @@ describe("Page Surgeon — artifact composer (finished, CMS-ready content)", () 
     const parsed = JSON.parse(b.primary!.jsonLd!.code);
     expect(parsed["@graph"].some((g: { "@type": string }) => g["@type"] === "FAQPage")).toBe(true);
     const faqArtifact = b.supporting.find((c) => c.action === "faq");
-    expect(faqArtifact!.faq).toEqual(faq);
+    // The em dash in the answer is stripped by the no-em-dash enforcer.
+    expect(faqArtifact!.faq).toEqual([
+      { question: "What does pedar sag mean?", answer: "Literally 'father of a dog', a common scolding." },
+    ]);
   });
 
   it("measurement is made counterfactual with control pages (diff-in-diff)", () => {
