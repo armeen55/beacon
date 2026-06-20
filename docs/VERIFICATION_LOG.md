@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-20 Proof ledger — "Record a shipped change" for ANY page (`3f1d00d`)
+
+Closed the gap from the first /cities change (only review-approved pages could be recorded from the UI; /cities had to be inserted by hand).
+- `/proof` now has a **"Record a shipped change" form**: paste a page path or full URL → Record. The manual-ship companion (paste in CMS, then record here). Operator-gated; no publish.
+- `recordShippedChangeAction` derives controls via `topPagesByDemand(8)` (loadPageSurgeonContext) when there's no proof-plan row, excluding the treated page (top 3).
+- `captureChangeMeta` resolves a bare path → canonical GSC/snapshot URL by path-match so baseline + window reads hit.
+- Dropped an em dash from the /proof page copy (no-em-dash rule).
+
+Verified: typecheck clean; proof tests 19/19 (new fallback case: records ANY page, controls auto-derived). LIVE on Iranopedia: typed "/best-persian-restaurants" in the form → resolved to `https://iranopedia.com/best-persian-restaurants`, real baseline (482 impr), 3 auto-derived controls, persisted to Supabase, verdict measuring; **test row deleted** (only the real /cities ledger row remains). No publish/Wix/paid/full-suite.
+
+---
+
 ## 2026-06-20 FIRST REAL operator change — /cities meta CTR test recorded in the Proof ledger (no code change)
 
 The first real Beacon-operated Iranopedia change. NO code change — pulled the real evidence from beacon-main + recorded a durable proof baseline; the change itself is a MANUAL Wix paste+publish for Armeen (no Wix mapping exists for /cities, and per the standing rails nothing auto-publishes).
