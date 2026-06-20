@@ -15,7 +15,9 @@ The first real Beacon-operated Iranopedia change. NO code change — pulled the 
 
 **Change chosen (meta only, reversible):**
 - BEFORE: "Cities in Iran ranked by population: Tehran, Mashhad, Isfahan, Shiraz, and more. List, interactive map, and fun facts about major Iranian cities."
-- AFTER: "The biggest cities in Iran, ranked by population — Tehran, Mashhad, Isfahan, Shiraz and more — with an interactive map and quick facts on each." (front-loads the dominant "biggest cities in iran" query phrasing; ≤160 chars; no fabricated numbers; accurate to a top-15-by-population page).
+- AFTER: "The biggest cities in Iran, ranked by population: Tehran, Mashhad, Isfahan, Shiraz and more. Interactive map and quick facts on each." (front-loads the dominant "biggest cities in iran" query phrasing; 133 chars; no fabricated numbers; NO em dashes — see the hard rule below; accurate to a top-15-by-population page).
+
+**HARD RULE added (2026-06-20, commit `5fde51a`):** never emit an em/en dash in ANY generated copy. Centralized enforcer `src/lib/copy/strip-dashes.ts` (spaced dash → comma, unspaced → hyphen) wired into `composeArtifactBundle` (every generated Change Pack field; `before` stays truthful) + `sanitizeOperatorCopy`. strip-dashes.test.ts + 2 updated artifact-bundle expectations green. The first /cities meta I proposed had em dashes (caught by Armeen); the proof record's after_text was corrected in Supabase to the dash-free version above.
 
 **Proof record (durable in Supabase beacon-main):** `shipped_change_proof` id `/cities::2026-06-20`, action_type meta, verdict `measuring`, baseline 33/8382/0.39%/9.3, 3 controls (persian-female-first-names, farsi-numbers, funny-farsi-phrases), 5 target queries, before/after meta. Windows open 7d 2026-06-27 / 14d 2026-07-04 / 28d 2026-07-18. Verified `/proof` renders the "Measured outcomes" card (status 200, MEASURING, baseline line, observational disclaimer) — reading back from Supabase.
 
