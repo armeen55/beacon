@@ -116,6 +116,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "push-snapshots",
   "wix-url-map",
   "wix-collection-config",
+  // 2026-06-19 Phase 5 — GSC Proof ledger: manually-shipped change records +
+  // their measured 7/14/28-day outcome (file fallback before the migration).
+  "proof-gsc-ledger",
   "source-pattern-evidence",
   "render-checks",
   "page-snapshot-diffs",

@@ -1,0 +1,219 @@
+import "server-only";
+
+/**
+ * GSC Proof ledger — measurement orchestrator (Phase 5, Path B).
+ *
+ * Glues the GSC window reader (gsc-window.ts) to the pure math (measure.ts):
+ *   • recordShippedChange: capture a baseline + create the ledger record.
+ *   • measureRecord: read the pre + 7/14/28-day post windows for the treated page
+ *     and its controls, compute the observational diff-in-diff, roll up a verdict.
+ *
+ * Pure math + thresholds live in measure.ts; this only does the GSC reads + wiring.
+ * No publish. No paid calls (GSC is already synced). Fail-soft.
+ */
+
+import {
+  loadPageSurgeonContext,
+  assemblePacketForUrl,
+} from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
+import { loadPageSurgeonForUrl } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { readWindowForPages } from "./gsc-window";
+import {
+  addDays,
+  computeWindowLift,
+  proofCheckDates,
+  summarizeVerdict,
+  PROOF_WINDOW_DAYS,
+  type ProofWindowResult,
+  type ProofWindowDay,
+} from "./measure";
+import type { ShippedChangeRecord } from "./shipped-change-store";
+
+const BASELINE_WINDOW_DAYS = 28;
+
+function dateOnly(iso: string): string {
+  return iso.length > 10 ? iso.slice(0, 10) : iso;
+}
+
+function toPath(u: string): string {
+  return u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
+}
+
+/**
+ * Pull the human context for a shipped change from the cached Page Surgeon
+ * context + pack: canonical page, path, the change's before/after text + headline
+ * action (from the Change Pack), and the page's top target queries (from GSC).
+ * Best-effort — every field degrades to null/[] on a miss. Reuses cached reads.
+ */
+export async function captureChangeMeta(
+  tenantId: string,
+  pageUrl: string,
+): Promise<{
+  canonPage: string;
+  path: string;
+  before: string | null;
+  after: string | null;
+  targetQueries: string[];
+  headlineAction: string | null;
+}> {
+  const canonPage = canonicalizeCitationUrl(pageUrl) ?? pageUrl;
+  const path = toPath(canonPage);
+
+  let targetQueries: string[] = [];
+  try {
+    const ctx = await loadPageSurgeonContext(tenantId);
+    let key = canonPage;
+    if (!ctx.gscByUrl.has(key) && !ctx.snapshotByCanon.has(key)) {
+      for (const k of ctx.gscByUrl.keys()) {
+        if (toPath(k) === path) {
+          key = k;
+          break;
+        }
+      }
+    }
+    const packet = assemblePacketForUrl(ctx, key);
+    targetQueries = (packet.gsc?.topQueries ?? []).slice(0, 5).map((q) => q.query);
+  } catch {
+    /* best-effort */
+  }
+
+  let before: string | null = null;
+  let after: string | null = null;
+  let headlineAction: string | null = null;
+  try {
+    const ps = await loadPageSurgeonForUrl(tenantId, pageUrl, { history: false });
+    if (ps.status === "pack") {
+      headlineAction = ps.pack.headlineAction;
+      before = ps.pack.bundle.primary?.before ?? null;
+      after = ps.pack.bundle.primary?.after ?? null;
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  return { canonPage, path, before, after, targetQueries, headlineAction };
+}
+
+/**
+ * Recompute the 7/14/28-day outcome for a shipped change from GSC. Reads the
+ * pre-window once + each post-window once, for the treated page + all controls.
+ * Returns a NEW record with windows/verdict/confidence/measuredAt updated.
+ */
+export async function measureRecord(
+  tenantId: string,
+  record: ShippedChangeRecord,
+  now: Date = new Date(),
+): Promise<ShippedChangeRecord> {
+  const shipDate = dateOnly(record.shippedAt);
+  const today = dateOnly(now.toISOString());
+  const pages = [record.page, ...record.controlPages];
+
+  // Pre window: [ship − 28d, ship).
+  const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
+  const pre = await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate });
+
+  const checks = proofCheckDates(record.shippedAt);
+  const windows: ProofWindowResult[] = [];
+  for (const day of PROOF_WINDOW_DAYS) {
+    const checkOn = checks[day as ProofWindowDay];
+    const ran = today >= checkOn; // window has closed (finalized data exists)
+    const postEnd = addDays(shipDate, day);
+    const post = ran
+      ? await readWindowForPages({ tenantId, pages, start: shipDate, end: postEnd })
+      : null;
+
+    const treatedPre = pre.get(record.page)?.clicks ?? 0;
+    const treatedPost = post?.get(record.page)?.clicks ?? 0;
+
+    // A control is usable when it had Search presence in the pre window.
+    const controls = record.controlPages
+      .filter((cp) => (pre.get(cp)?.impressions ?? 0) > 0)
+      .map((cp) => ({
+        preClicks: pre.get(cp)?.clicks ?? 0,
+        postClicks: post?.get(cp)?.clicks ?? 0,
+      }));
+
+    windows.push(
+      computeWindowLift({
+        day: day as ProofWindowDay,
+        checkOn,
+        ran,
+        treatedPreClicks: treatedPre,
+        treatedPostClicks: treatedPost,
+        controls,
+      }),
+    );
+  }
+
+  // Baseline impressions/clicks for the verdict gate come from the pre window
+  // (refreshed here so it reflects real GSC, not just the recorded snapshot).
+  const treatedPre = pre.get(record.page);
+  const { verdict, confidence } = summarizeVerdict({
+    windows,
+    baselineImpressions: treatedPre?.impressions ?? record.baseline.impressions,
+    baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
+  });
+
+  return {
+    ...record,
+    windows,
+    verdict,
+    confidence,
+    measuredAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+}
+
+/**
+ * Capture a baseline + build a ledger record for a manually-shipped change, then
+ * measure it (so a backdated ship with closed windows gets a verdict immediately).
+ * `controlPages` are canonical URLs. Does NOT persist — the caller stores it.
+ */
+export async function recordShippedChange(args: {
+  tenantId: string;
+  page: string; // canonical URL
+  path: string;
+  actionType: string;
+  before: string | null;
+  after: string | null;
+  targetQueries: string[];
+  controlPages: string[]; // canonical URLs
+  shippedAt?: string; // ISO; defaults to now
+  now?: Date;
+}): Promise<ShippedChangeRecord> {
+  const now = args.now ?? new Date();
+  const shippedAt = args.shippedAt ?? now.toISOString();
+  const shipDate = dateOnly(shippedAt);
+
+  // Baseline = the 28d pre-ship window on the treated page (display snapshot).
+  const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
+  const pre = await readWindowForPages({
+    tenantId: args.tenantId,
+    pages: [args.page],
+    start: preStart,
+    end: shipDate,
+  });
+  const base = pre.get(args.page) ?? { clicks: 0, impressions: 0, ctr: 0, position: 0 };
+
+  const draft: ShippedChangeRecord = {
+    id: `${args.path}::${shipDate}`,
+    page: args.page,
+    path: args.path,
+    actionType: args.actionType,
+    before: args.before,
+    after: args.after,
+    shippedAt,
+    baseline: { ...base, windowDays: BASELINE_WINDOW_DAYS },
+    targetQueries: args.targetQueries,
+    controlPages: args.controlPages,
+    windows: [],
+    verdict: "measuring",
+    confidence: "low",
+    measuredAt: null,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+
+  return measureRecord(args.tenantId, draft, now);
+}
