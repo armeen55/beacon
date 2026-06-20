@@ -49,7 +49,7 @@ export const PRIMARY_ACTION_LABEL: Record<string, string> = {
   ux_cta_fix: "Fix UX / CTA",
   citation_source: "Cite a source",
   create_new_page: "Create a new page",
-  keep_current: "Healthy — monitor",
+  keep_current: "Healthy, monitor",
   needs_more_evidence: "Needs more evidence",
   needs_llm_review: "Needs review",
 };

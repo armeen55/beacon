@@ -86,7 +86,7 @@ const CONFIDENCE_LABEL: Record<RecommendationActionRow["derivedConfidence"], str
   // 2026-06-14 — softened from "Needs more evidence" to a non-blocking,
   // optional framing so a low-confidence card doesn't read as scary on
   // an action the owner is invited to take.
-  needs_review: "Lower confidence — optional",
+  needs_review: "Lower confidence, optional",
 };
 
 // ─────────────────────────────────────────────────────────────────────

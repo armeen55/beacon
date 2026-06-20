@@ -160,10 +160,10 @@ export function buildOpportunity(
       const guard = deriveSerpGuard({ position: input.gsc.position90d, serpStatus });
       if (guard.downgrade) {
         serpGuardLabel = guard.label;
-        why = "Likely a title/snippet OR SERP-presentation issue — SERP check needed before rewriting.";
-        expectedLever = "Check the live SERP (AI Overview / featured snippet / image pack). If it's clear, rewrite the title + meta to match intent — otherwise the clicks are SERP-owned, not a title problem.";
+        why = "Likely a title/snippet OR SERP-presentation issue, SERP check needed before rewriting.";
+        expectedLever = "Check the live SERP (AI Overview / featured snippet / image pack). If it's clear, rewrite the title + meta to match intent, otherwise the clicks are SERP-owned, not a title problem.";
       } else {
-        why = "Ranking on page 1 but under-clicked — likely a title/snippet issue.";
+        why = "Ranking on page 1 but under-clicked, likely a title/snippet issue.";
         expectedLever = "Rewrite the title + meta to match intent → recover clicks at the rank you already hold.";
       }
     }
@@ -177,10 +177,10 @@ export function buildOpportunity(
     const top = input.striking[0];
     evidence.push({
       source: "semrush",
-      line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position} — page 2. ${input.striking.length} striking-distance keyword(s) total.`,
+      line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position}, page 2. ${input.striking.length} striking-distance keyword(s) total.`,
     });
     if (!why) {
-      why = "Real search demand one page away — already ranking, just below the fold.";
+      why = "Real search demand one page away, already ranking, just below the fold.";
       expectedLever = "Strengthen the page for these terms (depth + internal links) → push page 2 → page 1.";
     }
   }
@@ -199,7 +199,7 @@ export function buildOpportunity(
       line: `Clicks fell ${input.decay.clicksPrior} → ${input.decay.clicksNow} vs the prior 28 days (−${lost}).`,
     });
     if (!why) {
-      why = "A page that used to perform is sliding — refresh it before it falls further.";
+      why = "A page that used to perform is sliding, refresh it before it falls further.";
       expectedLever = "Refresh the content + intro answer → arrest the decline.";
     }
   }
@@ -215,10 +215,10 @@ export function buildOpportunity(
     estClicksAtStake = Math.max(estClicksAtStake, gained);
     evidence.push({
       source: "gsc",
-      line: `Clicks rose ${input.decay.clicksPrior} → ${input.decay.clicksNow} (+${gained}) — momentum.`,
+      line: `Clicks rose ${input.decay.clicksPrior} → ${input.decay.clicksNow} (+${gained}), momentum.`,
     });
     if (!why) {
-      why = "This page is taking off — pour fuel on it while it's hot.";
+      why = "This page is taking off, pour fuel on it while it's hot.";
       expectedLever = "Expand + add schema + internal links to ride the momentum.";
     }
   }
@@ -236,7 +236,7 @@ export function buildOpportunity(
     );
     evidence.push({
       source: "clarity",
-      line: `${input.clarity.deadClicks} dead clicks + ${input.clarity.rageClicks} rage clicks over ${input.clarity.sessions} sessions — visitors clicking things that don't respond.`,
+      line: `${input.clarity.deadClicks} dead clicks + ${input.clarity.rageClicks} rage clicks over ${input.clarity.sessions} sessions, visitors clicking things that don't respond.`,
     });
     if (!why) {
       why = "Visitors are hitting dead ends on this page.";

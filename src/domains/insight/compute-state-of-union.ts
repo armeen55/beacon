@@ -19,7 +19,7 @@ import {
  *  label: Profound is shown as "AI answers", never the vendor name. */
 const SOURCE_META: { key: ConnectorProvider; label: string; unlocks: string }[] = [
   { key: "google_gsc", label: "Search (Google)", unlocks: "what people search, where you rank, and CTR leaks" },
-  { key: "google_ga4", label: "Visitors (Analytics)", unlocks: "which traffic converts — page-value weighting" },
+  { key: "google_ga4", label: "Visitors (Analytics)", unlocks: "which traffic converts, page-value weighting" },
   { key: "semrush", label: "Keywords (SEMrush)", unlocks: "market demand + page-2 keyword opportunities" },
   { key: "clarity", label: "Visitor experience", unlocks: "where visitors get stuck (dead/rage clicks)" },
   { key: "wix", label: "Publishing (Wix)", unlocks: "reading your live CMS content + publishing approved changes (not a Wix-analytics feed)" },
@@ -112,7 +112,7 @@ export async function loadStateOfUnion(
           const note = !connected
             ? "not connected"
             : stale == null
-              ? "connected — not yet synced"
+              ? "connected, not yet synced"
               : stale <= 2
                 ? "fresh"
                 : `${stale} days stale`;

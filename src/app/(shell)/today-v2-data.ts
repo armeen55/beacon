@@ -915,7 +915,7 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
         : changeDate
           ? `Since your ${changeDate} change`
           : "Since the latest detected change";
-    const rationale = `${rationaleLead}, this page is getting ${pctStr} (${h.confidence} confidence). Hurting for ${daysSinceRecorded}d${trendSuffix}. Review the change — revert, iterate, or confirm it's platform noise.`;
+    const rationale = `${rationaleLead}, this page is getting ${pctStr} (${h.confidence} confidence). Hurting for ${daysSinceRecorded}d${trendSuffix}. Review the change, revert, iterate, or confirm it's platform noise.`;
     return {
       id: `hurt-${h.changeId}-${h.url}`,
       headline,

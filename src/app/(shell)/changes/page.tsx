@@ -133,8 +133,8 @@ export default async function ChangeScorecardPage() {
             No changes yet
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            Every edit you ship — and every change Beacon detects on your site
-            — shows up here, newest first. Accept a recommendation to get your
+            Every edit you ship, and every change Beacon detects on your site,
+            shows up here, newest first. Accept a recommendation to get your
             first change tracked.
           </p>
           <Link

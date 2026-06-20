@@ -46,7 +46,7 @@ export function deriveSerpGuard(args: {
       downgrade: true,
       label: "Likely SERP-owned click loss",
       rationale:
-        "A SERP feature (AI Overview / featured snippet / image pack) owns the answer for this query — a title rewrite won't recover those clicks.",
+        "A SERP feature (AI Overview / featured snippet / image pack) owns the answer for this query, a title rewrite won't recover those clicks.",
     };
   }
   if (status === "suspected") {
@@ -56,7 +56,7 @@ export function deriveSerpGuard(args: {
       downgrade: true,
       label: "SERP feature suspected",
       rationale:
-        "A SERP feature is suspected (from SEMrush / synthetic signal) — verify before treating this as a title/snippet fix.",
+        "A SERP feature is suspected (from SEMrush / synthetic signal), verify before treating this as a title/snippet fix.",
     };
   }
   if (status === "unknown" && topRank) {
@@ -66,7 +66,7 @@ export function deriveSerpGuard(args: {
       downgrade: true,
       label: "Needs SERP check before title rewrite",
       rationale:
-        "Ranks top-5 with low CTR — a SERP feature (AI Overview / featured snippet / image pack) may own the clicks. Verify the live SERP before rewriting the title.",
+        "Ranks top-5 with low CTR, a SERP feature (AI Overview / featured snippet / image pack) may own the clicks. Verify the live SERP before rewriting the title.",
     };
   }
   return {

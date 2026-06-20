@@ -56,7 +56,12 @@ function Stat({
  */
 export async function StateOfUnionSection() {
   const tenantId = await currentTenantId();
-  const sou = await loadStateOfUnion(tenantId);
+  let sou;
+  try {
+    sou = await loadStateOfUnion(tenantId);
+  } catch {
+    return null; // fail-soft parity with ProofLedgerStrip: never throw into the dashboard
+  }
   if (!sou.hasData || !sou.headline) return null;
 
   const h = sou.headline;
@@ -95,7 +100,7 @@ export async function StateOfUnionSection() {
       {/* Two-column: bleeding vs rising */}
       <div className="grid gap-3 md:grid-cols-2">
         <BriefList
-          title="Fix first — bleeding pages"
+          title="Fix first: bleeding pages"
           tone="rose"
           empty="No CTR leaks or decaying pages right now."
           rows={sou.bleedingPages.map((o) => ({
@@ -128,7 +133,7 @@ export async function StateOfUnionSection() {
             </div>
             <p className="mt-1 text-[12px] text-muted-foreground">
               {sou.schemaAeoGap.thinPages} thin pages (&lt;300 words). A visible
-              Q&amp;A + structured data can support answer extraction — it&rsquo;s
+              Q&amp;A + structured data can support answer extraction, it&rsquo;s
               machine-readable support, not a guaranteed rich result.
             </p>
           </div>

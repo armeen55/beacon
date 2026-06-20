@@ -58,7 +58,7 @@ export function buildDiagnosisMatrix(packet: EvidencePacket): DiagnosisRow[] {
   // 1. Title — does the <title> serve the dominant query?
   rows.push(
     !hasCrawl
-      ? row("title", "Title", "unknown", "No crawl yet — can't read the current title.")
+      ? row("title", "Title", "unknown", "No crawl yet, can't read the current title.")
       : p.titleMissingDominantQuery
         ? row("title", "Title", "attention", "The title omits the dominant search query for this page.")
         : crawl!.title
@@ -69,31 +69,31 @@ export function buildDiagnosisMatrix(packet: EvidencePacket): DiagnosisRow[] {
   // 2. Meta description — promises the answer in the snippet?
   rows.push(
     !hasCrawl
-      ? row("meta", "Meta description", "unknown", "No crawl yet — can't read the current meta description.")
+      ? row("meta", "Meta description", "unknown", "No crawl yet, can't read the current meta description.")
       : !crawl!.metaDescription
-        ? row("meta", "Meta description", "attention", "No meta description — Google writes its own snippet.")
+        ? row("meta", "Meta description", "attention", "No meta description, Google writes its own snippet.")
         : p.snippetDeficit && !p.titleMissingDominantQuery
-          ? row("meta", "Meta description", "monitor", "Snippet under-performs for its rank — the meta may not promise the answer.")
+          ? row("meta", "Meta description", "monitor", "Snippet under-performs for its rank, the meta may not promise the answer.")
           : row("meta", "Meta description", "ok", "Meta description is present."),
   );
 
   // 3. H1 — the on-page headline matches intent?
   rows.push(
     !hasCrawl
-      ? row("h1", "Page headline (H1)", "unknown", "No crawl yet — can't read the H1.")
+      ? row("h1", "Page headline (H1)", "unknown", "No crawl yet, can't read the H1.")
       : crawl!.h1
         ? row("h1", "Page headline (H1)", "ok", "An H1 is present on the page.")
-        : row("h1", "Page headline (H1)", "attention", "No H1 found — the page lacks a clear headline."),
+        : row("h1", "Page headline (H1)", "attention", "No H1 found, the page lacks a clear headline."),
   );
 
   // 4. Answer block — direct answer up top for question/zero-click demand?
   rows.push(
     !hasGsc
-      ? row("answer_block", "Direct answer block", "unknown", "No Search data — can't judge answer demand.")
+      ? row("answer_block", "Direct answer block", "unknown", "No Search data, can't judge answer demand.")
       : p.zeroClickPage1 && p.questionDemand
-        ? row("answer_block", "Direct answer block", "attention", "Page-1 queries get impressions but few clicks, and there's question-intent demand — add a direct answer up top.")
+        ? row("answer_block", "Direct answer block", "attention", "Page-1 queries get impressions but few clicks, and there's question-intent demand, add a direct answer up top.")
         : p.questionDemand
-          ? row("answer_block", "Direct answer block", "monitor", "There's question-intent demand — a direct answer block could help extraction.")
+          ? row("answer_block", "Direct answer block", "monitor", "There's question-intent demand, a direct answer block could help extraction.")
           : row("answer_block", "Direct answer block", "ok", "No unmet answer-extraction demand detected."),
   );
 
@@ -105,18 +105,18 @@ export function buildDiagnosisMatrix(packet: EvidencePacket): DiagnosisRow[] {
   // 6. Visible Q&A / structured data.
   rows.push(
     !hasCrawl
-      ? row("qa_schema", "Visible Q&A / structured data", "unknown", "No crawl yet — can't read structured data.")
+      ? row("qa_schema", "Visible Q&A / structured data", "unknown", "No crawl yet, can't read structured data.")
       : p.missingSchema
-        ? row("qa_schema", "Visible Q&A / structured data", "monitor", "No structured data on the page — a visible Q&A + JSON-LD can support answer extraction (support, not a guaranteed rich result).")
+        ? row("qa_schema", "Visible Q&A / structured data", "monitor", "No structured data on the page, a visible Q&A + JSON-LD can support answer extraction (support, not a guaranteed rich result).")
         : row("qa_schema", "Visible Q&A / structured data", "ok", `Structured data present (${crawl!.schemaTypes.join(", ") || "schema"}).`),
   );
 
   // 7. Internal links.
   rows.push(
     !hasCrawl || crawl!.internalLinkCount == null
-      ? row("internal_links", "Internal links", "unknown", "No crawl / link count — can't judge internal linking.")
+      ? row("internal_links", "Internal links", "unknown", "No crawl / link count, can't judge internal linking.")
       : crawl!.internalLinkCount < INTERNAL_LINK_FLOOR
-        ? row("internal_links", "Internal links", "attention", `Only ${crawl!.internalLinkCount} internal link(s) — weak linking for its cluster.`)
+        ? row("internal_links", "Internal links", "attention", `Only ${crawl!.internalLinkCount} internal link(s), weak linking for its cluster.`)
         : row("internal_links", "Internal links", "ok", `${crawl!.internalLinkCount} internal links.`),
   );
 
@@ -142,15 +142,15 @@ export function buildDiagnosisMatrix(packet: EvidencePacket): DiagnosisRow[] {
       "cannibalization",
       "Cannibalization",
       "unknown",
-      "Not evaluated in v1 — needs a cross-page SEMrush scan to detect two pages competing for one query.",
+      "Not evaluated in v1, needs a cross-page SEMrush scan to detect two pages competing for one query.",
     ),
   );
 
   // 11. Keep current — the inverse summary.
   rows.push(
     p.hasAnyProblem
-      ? row("keep_current", "Keep current", "monitor", "This page has at least one actionable issue above — not a keep-current.")
-      : row("keep_current", "Keep current", "ok", "Healthy for its position — monitor and revisit if rankings slip."),
+      ? row("keep_current", "Keep current", "monitor", "This page has at least one actionable issue above, not a keep-current.")
+      : row("keep_current", "Keep current", "ok", "Healthy for its position, monitor and revisit if rankings slip."),
   );
 
   return rows;
@@ -162,20 +162,20 @@ function buildDepthRow(
   hasGsc: boolean,
 ): DiagnosisRow {
   if (p.highValueUnservedCluster) {
-    return row("section_content", "Section / content depth", "attention", "There's real demand for a topic this page doesn't cover — add a section for it.");
+    return row("section_content", "Section / content depth", "attention", "There's real demand for a topic this page doesn't cover, add a section for it.");
   }
   if (crawl?.wordCount != null && crawl.wordCount < THIN_WORDS && hasGsc) {
-    return row("section_content", "Section / content depth", "attention", `Thin for the demand it gets (~${crawl.wordCount} words) — expand the content.`);
+    return row("section_content", "Section / content depth", "attention", `Thin for the demand it gets (~${crawl.wordCount} words), expand the content.`);
   }
   if (crawl?.wordCount != null) {
-    return row("section_content", "Section / content depth", "ok", `~${crawl.wordCount} words — adequate depth.`);
+    return row("section_content", "Section / content depth", "ok", `~${crawl.wordCount} words, adequate depth.`);
   }
-  return row("section_content", "Section / content depth", "unknown", "No crawl / word count — can't judge depth.");
+  return row("section_content", "Section / content depth", "unknown", "No crawl / word count, can't judge depth.");
 }
 
 function buildSerpRow(gsc: EvidencePacket["gsc"]): DiagnosisRow {
   if (!gsc) {
-    return row("serp_presentation", "SERP presentation", "unknown", "No Search data — can't assess SERP presentation.");
+    return row("serp_presentation", "SERP presentation", "unknown", "No Search data, can't assess SERP presentation.");
   }
   const guard = deriveSerpGuard({ position: gsc.avgPosition, serpStatus: "unknown" });
   if (guard.downgrade) {
@@ -185,7 +185,7 @@ function buildSerpRow(gsc: EvidencePacket["gsc"]): DiagnosisRow {
     "serp_presentation",
     "SERP presentation",
     "unknown",
-    "SERP features not verified in v1 — no SERP-feature data is connected yet.",
+    "SERP features not verified in v1, no SERP-feature data is connected yet.",
   );
 }
 

@@ -313,7 +313,7 @@ export function RecommendationsV2Client({
           ...e,
           [rowId]:
             res.error ??
-            "Something went wrong — please try again, or refresh your data.",
+            "Something went wrong, please try again, or refresh your data.",
         }));
         return false;
       } catch (err) {
@@ -608,7 +608,7 @@ export function RecommendationsV2Client({
   const headerSubline = (
     <span data-recommendations-v2-header-subline="true">
       Beacon turns your Google Search demand + AI-answer gaps into safe,
-      review-gated website edits — you approve every change yourself.{" "}
+      review-gated website edits, you approve every change yourself.{" "}
       <span className="text-muted-foreground/80">
         Updated {matrixDate}.
       </span>
@@ -684,12 +684,12 @@ export function RecommendationsV2Client({
                 </div>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
                   {operatorTab === "legacy"
-                    ? "Basic legacy suggestions — older single-field recs kept for reference. Work from the Page Surgeon tabs above first."
+                    ? "Basic legacy suggestions, older single-field recs kept for reference. Work from the Page Surgeon tabs above first."
                     : operatorTab === "needs_edit"
                       ? "Page Surgeon packs that need an edit or were held back by auto-QA."
                       : operatorTab === "reviewed"
                         ? "Packs you've already approved."
-                        : "Finished Page Surgeon drafts that passed auto-QA — review and approve these first."}
+                        : "Finished Page Surgeon drafts that passed auto-QA, review and approve these first."}
                 </p>
               </div>
             )}
@@ -910,7 +910,7 @@ function RecommendationsV2EmptyState() {
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
         Refresh your connected data (Settings → Connectors) to surface the next
-        clear opportunity — fresh search demand or a content gap on your pages.
+        clear opportunity, fresh search demand or a content gap on your pages.
       </p>
     </div>
   );
@@ -933,7 +933,7 @@ function RecommendationsV2CalmState({
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
         {inFlightCount > 0
           ? `Beacon is measuring ${inFlightCount} change${inFlightCount === 1 ? "" : "s"} you've already shipped. Refresh your connected data to surface fresh search demand or a content gap.`
-          : "Refresh your connected data (Settings → Connectors) to surface the next clear opportunity — fresh search demand or a content gap on your pages."}
+          : "Refresh your connected data (Settings → Connectors) to surface the next clear opportunity, fresh search demand or a content gap on your pages."}
       </p>
     </div>
   );

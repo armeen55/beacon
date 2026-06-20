@@ -87,7 +87,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Workbench — locked page
+              Workbench, locked page
             </div>
             <h1 className="mt-1 truncate text-[20px] font-semibold text-foreground">
               {identity.title || data.path}
@@ -119,7 +119,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
             : "Not crawled yet"}
           {identity.staleCrawl ? (
             <span className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-              stale crawl — live page may have drifted
+              stale crawl, live page may have drifted
             </span>
           ) : null}
           {identity.extractionCertainty === "uncertain" ? (
@@ -149,7 +149,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
             </p>
           ) : (
             <p className="mt-3 text-[12px] text-muted-foreground">
-              No recoverable click gap at the current rank — this is not a CTR-leak page.
+              No recoverable click gap at the current rank, this is not a CTR-leak page.
             </p>
           )}
           {opportunity.serpGuardLabel ? (
@@ -226,7 +226,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
       {/* ── Diagnosis matrix ── */}
       <Section
         title="Diagnosis matrix"
-        subtitle="What Beacon checks on every page. v1 is deterministic — dimensions it can't evaluate cheaply say “No data,” not “fine.”"
+        subtitle="What Beacon checks on every page. v1 is deterministic, dimensions it can't evaluate cheaply say “No data,” not “fine.”"
       >
         <ul className="divide-y divide-border/40">
           {diagnosis.map((d) => {
@@ -255,7 +255,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         title="Current Change Pack"
         subtitle={
           packStatus === "pack"
-            ? "Beacon's drafted plan for this page. Review-only — nothing publishes here."
+            ? "Beacon's drafted plan for this page. Review-only, nothing publishes here."
             : "No drafted plan for this page yet."
         }
       >
@@ -264,7 +264,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         ) : packStatus === "evidence_only" ? (
           <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-[12px] text-muted-foreground">
             This page has Search demand but no drafted Change Pack yet. Drafting runs the
-            deterministic gate + analysis model — that endpoint isn&rsquo;t configured, so
+            deterministic gate + analysis model, that endpoint isn&rsquo;t configured, so
             drafting is disabled here for now.
           </div>
         ) : (
@@ -275,14 +275,14 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
       {/* ── Wix readiness ── */}
       <Section
         title="Wix readiness"
-        subtitle="Can an approved change actually ship — and roll back?"
+        subtitle="Can an approved change actually ship, and roll back?"
       >
         {packStatus === "pack" && pack && pack.pushability.length > 0 ? (
           <WixReadiness pack={pack} />
         ) : (
           <p className="text-[12px] text-muted-foreground">
             No change to assess yet. Once a Change Pack exists, each artifact shows whether it
-            maps to a Wix CMS field (one-click), needs a manual CMS edit, or has no write path —
+            maps to a Wix CMS field (one-click), needs a manual CMS edit, or has no write path,
             plus rollback readiness.
           </p>
         )}
@@ -323,7 +323,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
           </div>
         ) : (
           <p className="text-[12px] text-muted-foreground">
-            No proof plan yet — it appears once a change for this page is reviewed and approved,
+            No proof plan yet, it appears once a change for this page is reviewed and approved,
             so Beacon can measure the before/after against comparable pages.
           </p>
         )}
@@ -337,7 +337,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
               <span className="font-medium text-foreground">Latest review:</span>{" "}
               <span className="text-muted-foreground">
                 {pack.reviewDecision.verdict}
-                {pack.reviewDecision.note ? ` — “${pack.reviewDecision.note}”` : ""} (
+                {pack.reviewDecision.note ? `, “${pack.reviewDecision.note}”` : ""} (
                 {pack.reviewDecision.created_at.slice(0, 10)})
               </span>
             </p>
@@ -385,7 +385,7 @@ function Field({ label, value }: { label: string; value: string | null }) {
     <div>
       <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-[12px] text-foreground">
-        {value ? value : <span className="text-muted-foreground/60">— none —</span>}
+        {value ? value : <span className="text-muted-foreground/60">- none -</span>}
       </dd>
     </div>
   );
@@ -436,7 +436,7 @@ function ChangePackBody({ pack }: { pack: AtomicChangePack }) {
 
       {artifacts.length === 0 ? (
         <p className="text-[12px] text-muted-foreground">
-          No content change — this page is healthy (monitor only).
+          No content change, this page is healthy (monitor only).
         </p>
       ) : (
         <ul className="space-y-2.5">
@@ -478,10 +478,10 @@ function ChangePackBody({ pack }: { pack: AtomicChangePack }) {
 }
 
 const PUSH_METHOD_LABEL: Record<ArtifactPushability["method"], string> = {
-  wix_cms_field: "Wix CMS field — one-click ready",
+  wix_cms_field: "Wix CMS field, one-click ready",
   manual_cms_edit: "Manual CMS edit",
   no_write_path: "No automated write path (reversible)",
-  blocked_no_mapping: "Blocked — no Wix mapping",
+  blocked_no_mapping: "Blocked, no Wix mapping",
   not_applicable: "Not applicable",
 };
 
@@ -521,7 +521,7 @@ function WixReadiness({ pack }: { pack: AtomicChangePack }) {
         </p>
       ) : null}
       <p className="text-[11px] text-muted-foreground">
-        Nothing publishes from the Workbench — this only shows whether an approved change could
+        Nothing publishes from the Workbench, this only shows whether an approved change could
         ship and be rolled back.
       </p>
     </div>

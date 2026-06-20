@@ -44,7 +44,7 @@ export const CONNECTION_SOURCES: readonly SourceMeta[] = [
   { key: "google_ga4", label: "Visitors (Analytics)", role: "which pages get traffic + convert", unlocks: "value-weighting (prioritize pages that earn)", blockedWhenMissing: "revenue/value weighting of opportunities" },
   { key: "semrush", label: "Keywords (SEMrush)", role: "external market + competitor demand", unlocks: "page-2 striking-distance opportunities", blockedWhenMissing: "off-site keyword demand + competitor gaps" },
   { key: "clarity", label: "Visitor experience", role: "where visitors get stuck on-page", unlocks: "dead-click / rage-click friction flags", blockedWhenMissing: "UX-friction opportunities" },
-  { key: "wix", label: "Publishing (Wix)", role: "your live CMS content + SEO fields (read) — not a Wix analytics feed", unlocks: "reading current page content + publishing approved changes to your live site", blockedWhenMissing: "publishing changes live (recommendations stay paste-ready)" },
+  { key: "wix", label: "Publishing (Wix)", role: "your live CMS content + SEO fields (read), not a Wix analytics feed", unlocks: "reading current page content + publishing approved changes to your live site", blockedWhenMissing: "publishing changes live (recommendations stay paste-ready)" },
   { key: "profound", label: "AI answers", role: "where AI assistants cite or ignore you", unlocks: "AEO visibility + citation tracking", blockedWhenMissing: "AI-citation visibility" },
 ] as const;
 
@@ -72,7 +72,7 @@ export function deriveConnectionHealth(
     note = "Not connected";
   } else if (daysStale == null) {
     severity = "needs_setup";
-    note = "Connected — no successful sync yet";
+    note = "Connected, no successful sync yet";
   } else if (daysStale > 3) {
     severity = "stale";
     note = `Last synced ${daysStale} days ago`;

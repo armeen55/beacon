@@ -70,7 +70,7 @@ describe("actionLabel", () => {
     expect(actionLabel("title")).toBe("Rewrite the title");
     expect(actionLabel("intro_answer_block")).toBe("Add a direct answer block");
     expect(actionLabel("schema")).toBe("Add structured data (JSON-LD)");
-    expect(actionLabel("keep_current")).toBe("Healthy — monitor");
+    expect(actionLabel("keep_current")).toBe("Healthy, monitor");
   });
 
   it("falls back gracefully on unknown/empty", () => {

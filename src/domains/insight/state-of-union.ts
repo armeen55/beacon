@@ -109,11 +109,11 @@ export function deriveHeadline(
   // get clicked are recoverable clicks at the rank you already hold).
   if (ctrLeakCount >= 5) {
     verdict = "ranking_better_losing_clicks";
-    headline = `${ctrLeakCount} page-1 pages are leaking clicks — your single biggest lever.`;
+    headline = `${ctrLeakCount} page-1 pages are leaking clicks, your single biggest lever.`;
     subline = `${trend} vs the prior 28 days. These pages rank well but barely get clicked; fixing titles/snippets recovers clicks at the rank you already hold.`;
   } else if (down && ctrLeakCount >= 1) {
     verdict = "ranking_better_losing_clicks";
-    headline = "Ranking better, but losing clicks — a CTR problem, not a ranking one.";
+    headline = "Ranking better, but losing clicks, a CTR problem, not a ranking one.";
     subline = `${ctrLeakCount} page-1 page(s) rank well yet barely get clicked. Fix titles/snippets to recover clicks at the current rank.`;
   } else if (down) {
     verdict = "declining";
@@ -122,7 +122,7 @@ export function deriveHeadline(
   } else if (up) {
     verdict = "growing";
     headline = `Search clicks are up ${deltaPct}% vs the prior 28 days.`;
-    subline = "Momentum is building — amplify the rising pages below.";
+    subline = "Momentum is building, amplify the rising pages below.";
   } else {
     verdict = "healthy";
     headline = "Search traffic is holding steady.";
