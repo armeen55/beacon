@@ -218,6 +218,7 @@ export async function recordShippedChange(args: {
     notes: args.notes ?? null,
     verifiedLive: args.verifiedLive ?? false,
     liveSourceUrl: args.liveSourceUrl ?? null,
+    recrawlRequestedAt: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

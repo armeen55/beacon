@@ -128,7 +128,9 @@ export function summarizeVerdict(args: {
   if (!basis) {
     return { verdict: "measuring", confidence: "low", basis: null };
   }
-  if (basis.controlsUsed < 1) {
+  // A single comparator is "treated minus one arbitrary page", not a diff-in-diff.
+  // Require the same floor the recorder enforces (>=2) before naming a won/lost.
+  if (basis.controlsUsed < MIN_CONTROLS_FOR_COMPUTED) {
     return { verdict: "insufficient_data", confidence: "low", basis };
   }
 

@@ -91,6 +91,17 @@ export async function recordShippedChangeAction(args: {
 
     const meta = await captureChangeMeta(tenantId, pageUrl);
 
+    // The treated page must resolve to an absolute URL. GSC windows are keyed by
+    // canonical full URLs, so a bare/unresolved path silently reads zero clicks
+    // and produces a misleading verdict. Refuse rather than measure garbage.
+    if (!/^https?:\/\//i.test(meta.canonPage)) {
+      return {
+        success: false,
+        error:
+          "Couldn't match this page to Search data. Paste the full https:// URL, or connect GSC so Beacon can resolve the path.",
+      };
+    }
+
     // Change type: explicit wins, else the Change Pack headline, else generic.
     const changeType =
       args.changeType?.trim() || meta.headlineAction || row?.headlineAction || "change";
@@ -213,6 +224,39 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
     return {
       success: false,
       error: err instanceof Error ? err.message : "Failed to recompute.",
+    };
+  }
+}
+
+/**
+ * Operator marks (or un-marks) that they manually requested a Google recrawl /
+ * indexing in Search Console for a shipped change. Stamps recrawlRequestedAt;
+ * does NOT call Google, publish, or change the measurement. Operator-only.
+ */
+export async function markRecrawlRequestedAction(args: {
+  id: string;
+  requested: boolean;
+}): Promise<ProofLedgerActionResponse> {
+  if (!isOperatorModeServer()) return { success: false, error: "Operator only." };
+  const id = args?.id?.trim();
+  if (!id) return { success: false, error: "Missing record id." };
+  try {
+    const records = await loadShippedChanges();
+    const rec = records.find((r) => r.id === id);
+    if (!rec) return { success: false, error: "Proof record not found." };
+    const now = new Date().toISOString();
+    await upsertShippedChange({
+      ...rec,
+      recrawlRequestedAt: args.requested ? now : null,
+      updatedAt: now,
+    });
+    revalidatePath("/proof");
+    revalidatePath("/changes");
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to update.",
     };
   }
 }

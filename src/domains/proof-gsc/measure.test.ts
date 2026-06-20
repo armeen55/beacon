@@ -120,6 +120,14 @@ describe("summarizeVerdict — thresholds + confidence", () => {
     });
     expect(r.verdict).toBe("insufficient_data");
   });
+  it("insufficient_data with only ONE usable control (needs >=2 for a verdict)", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedLift: 99, controlsUsed: 1 })],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+    });
+    expect(r.verdict).toBe("insufficient_data"); // not "won", despite clearing the lift floor
+  });
   it("uses the LONGEST window that ran as the basis", () => {
     const r = summarizeVerdict({
       windows: [
@@ -132,7 +140,7 @@ describe("summarizeVerdict — thresholds + confidence", () => {
     expect(r.basis?.day).toBe(28);
     expect(r.verdict).toBe("inconclusive"); // 28d lift (5) < floor, not the 7d (100)
   });
-  it("medium confidence at 2 controls + moderate volume; low below that", () => {
+  it("medium confidence at 2 controls + moderate volume; insufficient_data below that", () => {
     expect(
       summarizeVerdict({
         windows: [win({ adjustedLift: 40, controlsUsed: 2 })],
@@ -145,8 +153,8 @@ describe("summarizeVerdict — thresholds + confidence", () => {
         windows: [win({ adjustedLift: 40, controlsUsed: 1 })],
         baselineImpressions: 1000,
         baselineClicks: 100,
-      }).confidence,
-    ).toBe("low");
+      }).verdict,
+    ).toBe("insufficient_data");
   });
 });
 

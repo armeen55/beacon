@@ -15,6 +15,7 @@ import {
   RecomputeLedgerButton,
   RecordAnyPageForm,
   RollbackCopyButton,
+  RecrawlButton,
 } from "./proof-ledger-client";
 
 /**
@@ -224,7 +225,8 @@ function WhatHappensNext() {
 }
 
 function metricsLine(rec: ShippedChangeRecord): string {
-  return `${rec.baseline.clicks.toLocaleString()} clicks · ${rec.baseline.impressions.toLocaleString()} impressions · ${(rec.baseline.ctr * 100).toFixed(2)}% CTR · pos ${rec.baseline.position.toFixed(1)}`;
+  const b = rec.baseline ?? { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
+  return `${b.clicks.toLocaleString()} clicks · ${b.impressions.toLocaleString()} impressions · ${(b.ctr * 100).toFixed(2)}% CTR · pos ${b.position.toFixed(1)}`;
 }
 
 function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
@@ -326,6 +328,11 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
           <span className="font-medium text-foreground/60">Notes:</span> {rec.notes}
         </p>
       ) : null}
+
+      {/* Operator: mark a manual Search Console recrawl request (speeds re-indexing). */}
+      <div className="mt-2.5">
+        <RecrawlButton recordId={rec.id} requestedAt={rec.recrawlRequestedAt} />
+      </div>
 
       {/* Manual rollback: copy the before text back into the CMS. */}
       {rec.before ? (

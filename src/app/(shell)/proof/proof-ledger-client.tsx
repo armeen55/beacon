@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   recordShippedChangeAction,
   recomputeProofLedgerAction,
+  markRecrawlRequestedAction,
 } from "./actions";
 
 /**
@@ -346,6 +347,64 @@ export function RollbackCopyButton({ before }: { before: string }) {
     >
       {copied ? "Copied before copy ✓" : "Roll back: copy before"}
     </button>
+  );
+}
+
+/**
+ * Operator marker: "I manually requested a Google recrawl/indexing in Search
+ * Console" for this change. Toggles a timestamp; does NOT call Google or publish.
+ */
+export function RecrawlButton({
+  recordId,
+  requestedAt,
+}: {
+  recordId: string;
+  requestedAt: string | null;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+
+  const toggle = (requested: boolean) =>
+    startTransition(async () => {
+      setErr(null);
+      const res = await markRecrawlRequestedAction({ id: recordId, requested });
+      if (res.success) router.refresh();
+      else setErr(res.error ?? "Failed.");
+    });
+
+  if (requestedAt) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+        <span>
+          Google recrawl requested manually in Search Console · {requestedAt.slice(0, 10)}
+        </span>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => toggle(false)}
+          className="underline-offset-2 hover:underline disabled:opacity-50"
+        >
+          Undo
+        </button>
+        {err ? <span className="text-rose-600">{err}</span> : null}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => toggle(true)}
+        className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+        title="Mark that you manually requested indexing / recrawl in Google Search Console. This only records the note; it does not call Google."
+      >
+        Mark: recrawl requested in Search Console
+      </button>
+      {err ? <span className="text-[10px] text-rose-600">{err}</span> : null}
+    </span>
   );
 }
 

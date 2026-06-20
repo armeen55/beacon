@@ -59,6 +59,7 @@ export async function ProofLedgerStrip() {
 function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
   const nextCheck = rec.windows.filter((w) => !w.ran).map((w) => w.checkOn).sort()[0] ?? null;
   const controlsCount = rec.controlPages.length;
+  const baseline = rec.baseline ?? { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
   return (
     <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -111,9 +112,9 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       ) : null}
 
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Baseline (28d before): {rec.baseline.clicks.toLocaleString()} clicks ·{" "}
-        {rec.baseline.impressions.toLocaleString()} impressions ·{" "}
-        {(rec.baseline.ctr * 100).toFixed(2)}% CTR · pos {rec.baseline.position.toFixed(1)}
+        Baseline (28d before): {baseline.clicks.toLocaleString()} clicks ·{" "}
+        {baseline.impressions.toLocaleString()} impressions ·{" "}
+        {(baseline.ctr * 100).toFixed(2)}% CTR · pos {baseline.position.toFixed(1)}
       </p>
 
       <Link

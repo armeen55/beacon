@@ -56,6 +56,8 @@ export type ShippedChangeRecord = {
   verifiedLive: boolean;
   /** Optional URL the operator verified it live at. */
   liveSourceUrl: string | null;
+  /** ISO timestamp the operator manually requested a Google recrawl/indexing. */
+  recrawlRequestedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -79,6 +81,7 @@ type LedgerRow = {
   notes: string | null;
   verified_live: boolean;
   live_source_url: string | null;
+  recrawl_requested_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -86,17 +89,39 @@ type LedgerRow = {
 function isUndefinedTableError(error: unknown): boolean {
   if (error == null || typeof error !== "object") return false;
   const e = error as { code?: unknown; message?: unknown };
-  // Raw Postgres reports 42P01; PostgREST (the supabase-js path) reports PGRST205
-  // with a "Could not find the table … in the schema cache" message. Catch both
-  // so the file fallback engages when the migration hasn't been applied yet.
-  if (typeof e.code === "string" && (e.code === "42P01" || e.code === "PGRST205")) {
+  // Raw Postgres reports 42P01 (undefined table); PostgREST (the supabase-js path)
+  // reports PGRST205 ("Could not find the table … in the schema cache") and PGRST204
+  // ("Could not find the 'x' column … in the schema cache") when an additive-column
+  // migration hasn't been applied yet. Catch all so the file fallback engages and
+  // additive-column migrations stay deploy-order-independent like the table itself.
+  if (
+    typeof e.code === "string" &&
+    (e.code === "42P01" || e.code === "PGRST205" || e.code === "PGRST204")
+  ) {
     return true;
   }
   return (
     typeof e.message === "string" &&
-    /schema cache|could not find the table/i.test(e.message)
+    /schema cache|could not find the (table|.*column)/i.test(e.message)
   );
 }
+
+const VALID_VERDICTS: ReadonlySet<string> = new Set([
+  "measuring",
+  "won",
+  "lost",
+  "inconclusive",
+  "insufficient_data",
+]);
+const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
+/** Fallback so a legacy/partial row without a baseline can't crash a render. */
+const ZERO_BASELINE: ShippedChangeRecord["baseline"] = {
+  clicks: 0,
+  impressions: 0,
+  ctr: 0,
+  position: 0,
+  windowDays: 28,
+};
 
 function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
   return {
@@ -118,6 +143,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     notes: r.notes,
     verified_live: r.verifiedLive,
     live_source_url: r.liveSourceUrl,
+    recrawl_requested_at: r.recrawlRequestedAt,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -132,16 +158,19 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     before: row.before_text ?? null,
     after: row.after_text ?? null,
     shippedAt: row.shipped_at,
-    baseline: row.baseline,
+    baseline: row.baseline ?? ZERO_BASELINE,
     targetQueries: row.target_queries ?? [],
     controlPages: row.control_pages ?? [],
     windows: row.windows ?? [],
-    verdict: row.verdict as GscProofVerdict,
-    confidence: row.confidence as GscProofConfidence,
+    verdict: (VALID_VERDICTS.has(row.verdict) ? row.verdict : "inconclusive") as GscProofVerdict,
+    confidence: (VALID_CONFIDENCES.has(row.confidence)
+      ? row.confidence
+      : "low") as GscProofConfidence,
     measuredAt: row.measured_at ?? null,
     notes: row.notes ?? null,
     verifiedLive: row.verified_live ?? false,
     liveSourceUrl: row.live_source_url ?? null,
+    recrawlRequestedAt: row.recrawl_requested_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
