@@ -14,6 +14,7 @@ import {
   RecordShippedButton,
   RecomputeLedgerButton,
   RecordAnyPageForm,
+  RollbackCopyButton,
 } from "./proof-ledger-client";
 
 /**
@@ -55,6 +56,13 @@ export default async function ProofPage() {
   ]);
   const recordedPaths = new Set(ledger.map((l) => l.path));
 
+  // Recompute only does something once a measurement window has closed. Until
+  // then, gate the button + tell the operator when the first check opens.
+  const anyWindowReady = ledger.some((l) => l.windows.some((w) => w.ran));
+  const earliestCheck = ledger
+    .flatMap((l) => l.windows.filter((w) => !w.ran).map((w) => w.checkOn))
+    .sort()[0];
+
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5 flex items-start justify-between gap-4">
@@ -65,7 +73,18 @@ export default async function ProofPage() {
             against the before/after baseline and comparable untreated pages.
           </p>
         </div>
-        {ledger.length > 0 ? <RecomputeLedgerButton /> : null}
+        {ledger.length > 0 ? (
+          <RecomputeLedgerButton
+            disabled={!anyWindowReady}
+            disabledReason={
+              anyWindowReady
+                ? undefined
+                : earliestCheck
+                  ? `First check opens ${earliestCheck}`
+                  : undefined
+            }
+          />
+        ) : null}
       </div>
 
       {/* Record a shipped change for ANY page (manual-ship companion). */}
@@ -79,7 +98,8 @@ export default async function ProofPage() {
           <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
             Measured outcomes
           </h2>
-          <div className="space-y-2.5">
+          <WhatHappensNext />
+          <div className="mt-3 space-y-2.5">
             {ledger.map((rec) => (
               <LedgerCard key={rec.id} rec={rec} />
             ))}
@@ -94,7 +114,7 @@ export default async function ProofPage() {
       {rows.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
           No reviewed changes to measure yet. Approve a Change Pack in the
-          Workbench and ship it — its 7/14/28-day proof windows appear here.
+          Workbench and ship it. Its 7/14/28-day proof windows appear here.
         </p>
       ) : (
         <div className="space-y-2.5">
@@ -141,7 +161,7 @@ export default async function ProofPage() {
                 <ul className="mt-2 space-y-0.5">
                   {r.metricsToCheck.map((m, i) => (
                     <li key={i} className="text-[12px] text-muted-foreground">
-                      <span className="text-foreground/80">{m.label}</span> — baseline{" "}
+                      <span className="text-foreground/80">{m.label}</span>, baseline{" "}
                       <span className="tabular-nums">{m.baseline}</span>
                     </li>
                   ))}
@@ -174,15 +194,49 @@ export default async function ProofPage() {
   );
 }
 
+/**
+ * Plain-English explainer for the operator: what measuring means, when the first
+ * verdict lands, and the honest limits of an observational comparison.
+ */
+function WhatHappensNext() {
+  return (
+    <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3.5">
+      <div className="text-[12px] font-semibold text-foreground">What happens next</div>
+      <ul className="mt-1.5 space-y-1 text-[11px] text-foreground/75">
+        <li>
+          • Google takes time to recrawl and re-rank. The first check opens{" "}
+          <span className="font-medium">7 days</span> after you shipped, then again at 14
+          and 28 days.
+        </li>
+        <li>
+          • At each window Beacon compares this page&apos;s Search clicks to comparable
+          untreated pages on the same site, then calls it{" "}
+          <span className="font-medium">won</span>, <span className="font-medium">lost</span>,
+          or <span className="font-medium">inconclusive</span>.
+        </li>
+        <li>
+          • This is observational (treated page vs comparable pages), not a controlled
+          experiment, so treat it as directional evidence, not proof.
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+function metricsLine(rec: ShippedChangeRecord): string {
+  return `${rec.baseline.clicks.toLocaleString()} clicks · ${rec.baseline.impressions.toLocaleString()} impressions · ${(rec.baseline.ctr * 100).toFixed(2)}% CTR · pos ${rec.baseline.position.toFixed(1)}`;
+}
+
 function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
   const sentence = proofOutcomeSentence({
     verdict: rec.verdict,
     confidence: rec.confidence,
     basis: rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null,
   });
+  const controlsCount = rec.controlPages.length;
   return (
     <div className="rounded-lg border border-border/60 bg-background p-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-[14px] font-semibold text-foreground">{rec.path}</span>
         <span
           className={
@@ -195,17 +249,53 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
         <span className="text-[11px] text-muted-foreground">
           {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}
         </span>
+        {rec.verifiedLive ? (
+          <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+            ✓ verified live
+          </span>
+        ) : null}
       </div>
 
       <p className="mt-1.5 text-[12px] text-foreground/80">{sentence}</p>
 
+      {/* What actually changed (before → after). */}
+      {rec.before || rec.after ? (
+        <div className="mt-2.5 space-y-1.5 rounded-md border border-border/40 bg-surface-inset/30 p-2.5">
+          {rec.before ? (
+            <p className="text-[11px] text-muted-foreground">
+              <span className="font-medium text-foreground/70">Before:</span> {rec.before}
+            </p>
+          ) : null}
+          {rec.after ? (
+            <p className="text-[11px] text-foreground/85">
+              <span className="font-medium text-foreground/70">After:</span> {rec.after}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Target queries we expect this to move. */}
+      {rec.targetQueries.length > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+            Target queries
+          </span>
+          {rec.targetQueries.slice(0, 6).map((q) => (
+            <span
+              key={q}
+              className="rounded border border-border/50 bg-background px-1.5 py-0.5 text-[10px] text-foreground/70"
+            >
+              {q}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Baseline (28d before): {rec.baseline.clicks.toLocaleString()} clicks ·{" "}
-        {rec.baseline.impressions.toLocaleString()} impressions ·{" "}
-        {(rec.baseline.ctr * 100).toFixed(2)}% CTR · pos {rec.baseline.position.toFixed(1)}
+        Baseline (28d before): {metricsLine(rec)}
       </p>
 
-      {/* Per-window diff-in-diff vs controls. */}
+      {/* Per-window diff-in-diff vs controls, with the check-in dates. */}
       <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
         {rec.windows.map((w) => (
           <span
@@ -224,10 +314,28 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
           </span>
         ))}
       </div>
+
       <p className="mt-2 text-[10px] text-muted-foreground/70">
-        Observational (treated page vs comparable untreated pages) — directional, not a
+        Compared against {controlsCount} comparable untreated page
+        {controlsCount === 1 ? "" : "s"} on the same site. Observational, directional, not a
         controlled experiment.
       </p>
+
+      {rec.notes ? (
+        <p className="mt-2 text-[11px] text-foreground/70">
+          <span className="font-medium text-foreground/60">Notes:</span> {rec.notes}
+        </p>
+      ) : null}
+
+      {/* Manual rollback: copy the before text back into the CMS. */}
+      {rec.before ? (
+        <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-2.5">
+          <RollbackCopyButton before={rec.before} />
+          <span className="text-[10px] text-muted-foreground/70">
+            Beacon never auto-reverts a live page.
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

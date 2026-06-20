@@ -100,6 +100,81 @@ describe("recordShippedChangeAction — operator gating", () => {
     const arg = mocks.recordShippedChange.mock.calls[0][0];
     expect(arg.controlPages.length).toBeGreaterThan(0);
   });
+
+  it("passes explicit change fields through to recordShippedChange", async () => {
+    const res = await recordShippedChangeAction({
+      pageUrl: "/cities",
+      changeType: "edit_meta",
+      before: "old meta",
+      after: "new meta",
+      shippedAt: "2026-06-20",
+      notes: "manual wix edit",
+      targetQueries: "cities in iran\nlargest cities in iran, cities of iran",
+      verifiedLive: true,
+      liveSourceUrl: "https://www.iranopedia.com/cities",
+    });
+    expect(res.success).toBe(true);
+    const arg = mocks.recordShippedChange.mock.calls[0][0];
+    expect(arg.actionType).toBe("edit_meta");
+    expect(arg.before).toBe("old meta");
+    expect(arg.after).toBe("new meta");
+    expect(arg.notes).toBe("manual wix edit");
+    expect(arg.verifiedLive).toBe(true);
+    expect(arg.liveSourceUrl).toBe("https://www.iranopedia.com/cities");
+    expect(arg.targetQueries).toEqual([
+      "cities in iran",
+      "largest cities in iran",
+      "cities of iran",
+    ]);
+  });
+
+  it("real edit with no before/after (and no pack copy) ⇒ refused", async () => {
+    mocks.captureChangeMeta.mockResolvedValue({
+      canonPage: "https://x.test/cities",
+      path: "/cities",
+      before: null,
+      after: null,
+      targetQueries: [],
+      headlineAction: null,
+    });
+    const res = await recordShippedChangeAction({ pageUrl: "/cities", changeType: "edit_title" });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/before and after/i);
+    expect(mocks.recordShippedChange).not.toHaveBeenCalled();
+  });
+
+  it("keep_current with no before/after ⇒ still records (monitor decision)", async () => {
+    mocks.captureChangeMeta.mockResolvedValue({
+      canonPage: "https://x.test/cities",
+      path: "/cities",
+      before: null,
+      after: null,
+      targetQueries: [],
+      headlineAction: null,
+    });
+    const res = await recordShippedChangeAction({ pageUrl: "/cities", changeType: "keep_current" });
+    expect(res.success).toBe(true);
+    expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
+  });
+
+  it("duplicate page + ship date ⇒ refused, nothing overwritten", async () => {
+    mocks.loadShippedChanges.mockResolvedValue([
+      { path: "/cities", actionType: "meta", shippedAt: "2026-06-20T08:00:00.000Z" },
+    ]);
+    const res = await recordShippedChangeAction({ pageUrl: "/cities", shippedAt: "2026-06-20" });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/already recorded/i);
+    expect(mocks.recordShippedChange).not.toHaveBeenCalled();
+  });
+
+  it("fewer than 2 control pages ⇒ refused, nothing recorded", async () => {
+    mocks.loadProofPlan.mockResolvedValue([]); // no plan controls
+    mocks.topPagesByDemand.mockReturnValue(["https://x.test/a"]); // only 1 candidate
+    const res = await recordShippedChangeAction({ pageUrl: "/cities" });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/not enough comparable/i);
+    expect(mocks.recordShippedChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("recomputeProofLedgerAction — operator gating", () => {

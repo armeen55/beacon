@@ -181,6 +181,9 @@ export async function recordShippedChange(args: {
   targetQueries: string[];
   controlPages: string[]; // canonical URLs
   shippedAt?: string; // ISO; defaults to now
+  notes?: string | null;
+  verifiedLive?: boolean;
+  liveSourceUrl?: string | null;
   now?: Date;
 }): Promise<ShippedChangeRecord> {
   const now = args.now ?? new Date();
@@ -212,6 +215,9 @@ export async function recordShippedChange(args: {
     verdict: "measuring",
     confidence: "low",
     measuredAt: null,
+    notes: args.notes ?? null,
+    verifiedLive: args.verifiedLive ?? false,
+    liveSourceUrl: args.liveSourceUrl ?? null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

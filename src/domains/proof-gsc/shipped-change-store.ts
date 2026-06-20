@@ -50,6 +50,12 @@ export type ShippedChangeRecord = {
   verdict: GscProofVerdict;
   confidence: GscProofConfidence;
   measuredAt: string | null;
+  /** Operator free-text on the shipped change. */
+  notes: string | null;
+  /** Operator confirmed it's live on the site (manual ship). */
+  verifiedLive: boolean;
+  /** Optional URL the operator verified it live at. */
+  liveSourceUrl: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -70,6 +76,9 @@ type LedgerRow = {
   verdict: string;
   confidence: string;
   measured_at: string | null;
+  notes: string | null;
+  verified_live: boolean;
+  live_source_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -106,6 +115,9 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     verdict: r.verdict,
     confidence: r.confidence,
     measured_at: r.measuredAt,
+    notes: r.notes,
+    verified_live: r.verifiedLive,
+    live_source_url: r.liveSourceUrl,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -127,6 +139,9 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     verdict: row.verdict as GscProofVerdict,
     confidence: row.confidence as GscProofConfidence,
     measuredAt: row.measured_at ?? null,
+    notes: row.notes ?? null,
+    verifiedLive: row.verified_live ?? false,
+    liveSourceUrl: row.live_source_url ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

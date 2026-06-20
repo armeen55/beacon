@@ -158,7 +158,7 @@ export function proofOutcomeSentence(args: {
 }): string {
   const { verdict, confidence, basis } = args;
   if (verdict === "measuring") {
-    return "Measuring — waiting for the first check-in window to close.";
+    return "Measuring, waiting for the first check-in window to close.";
   }
   if (verdict === "insufficient_data") {
     return "Not enough Search data (or control pages) to judge this change yet.";
@@ -166,10 +166,10 @@ export function proofOutcomeSentence(args: {
   const lift = basis ? Math.round(basis.adjustedLift) : 0;
   const win = basis ? `${basis.day}-day` : "";
   if (verdict === "won") {
-    return `Likely helping — +${lift} clicks vs comparable pages over the ${win} window (${confidence} confidence, observational).`;
+    return `Likely helping: +${lift} clicks vs comparable pages over the ${win} window (${confidence} confidence, observational).`;
   }
   if (verdict === "lost") {
-    return `Likely hurting — ${lift} clicks vs comparable pages over the ${win} window (${confidence} confidence, observational).`;
+    return `Likely hurting: ${lift} clicks vs comparable pages over the ${win} window (${confidence} confidence, observational).`;
   }
-  return `No clear effect yet — movement is within the range of comparable pages (${win}, ${confidence} confidence).`;
+  return `No clear effect yet: movement is within the range of comparable pages (${win}, ${confidence} confidence).`;
 }
