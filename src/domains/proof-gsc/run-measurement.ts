@@ -57,22 +57,23 @@ export async function captureChangeMeta(
   targetQueries: string[];
   headlineAction: string | null;
 }> {
-  const canonPage = canonicalizeCitationUrl(pageUrl) ?? pageUrl;
+  // Start from the canonicalized input; a bare path (e.g. "/cities") won't
+  // canonicalize, so resolve it to the real GSC/snapshot key by path-match below.
+  let canonPage = canonicalizeCitationUrl(pageUrl) ?? pageUrl;
   const path = toPath(canonPage);
 
   let targetQueries: string[] = [];
   try {
     const ctx = await loadPageSurgeonContext(tenantId);
-    let key = canonPage;
-    if (!ctx.gscByUrl.has(key) && !ctx.snapshotByCanon.has(key)) {
-      for (const k of ctx.gscByUrl.keys()) {
-        if (toPath(k) === path) {
-          key = k;
-          break;
-        }
-      }
+    if (!ctx.gscByUrl.has(canonPage) && !ctx.snapshotByCanon.has(canonPage)) {
+      const match =
+        [...ctx.gscByUrl.keys(), ...ctx.snapshotByCanon.keys()].find(
+          (k) => toPath(k) === path,
+        ) ?? null;
+      // Resolve a path-only input to its canonical URL so GSC window reads hit.
+      if (match) canonPage = match;
     }
-    const packet = assemblePacketForUrl(ctx, key);
+    const packet = assemblePacketForUrl(ctx, canonPage);
     targetQueries = (packet.gsc?.topQueries ?? []).slice(0, 5).map((q) => q.query);
   } catch {
     /* best-effort */

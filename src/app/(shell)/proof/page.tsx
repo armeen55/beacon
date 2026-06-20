@@ -13,6 +13,7 @@ import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-sto
 import {
   RecordShippedButton,
   RecomputeLedgerButton,
+  RecordAnyPageForm,
 } from "./proof-ledger-client";
 
 /**
@@ -60,11 +61,16 @@ export default async function ProofPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Proof &amp; Learning</h1>
           <p className="mt-1 text-[14px] text-muted-foreground">
-            Every reviewed change and how we&apos;ll know if it worked — measured
+            Every reviewed change and how we&apos;ll know if it worked, measured
             against the before/after baseline and comparable untreated pages.
           </p>
         </div>
         {ledger.length > 0 ? <RecomputeLedgerButton /> : null}
+      </div>
+
+      {/* Record a shipped change for ANY page (manual-ship companion). */}
+      <div className="mb-6">
+        <RecordAnyPageForm />
       </div>
 
       {/* ── Measured outcomes (shipped changes being tracked vs controls) ── */}

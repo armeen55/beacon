@@ -17,6 +17,10 @@ import { revalidatePath } from "next/cache";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
+import {
+  loadPageSurgeonContext,
+  topPagesByDemand,
+} from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import {
   recordShippedChange,
@@ -51,9 +55,24 @@ export async function recordShippedChangeAction(args: {
       }
     })();
     // Proof-plan controls are PATHS; resolve to canonical URLs on the same host.
-    const controlPages = (row?.controlPaths ?? [])
+    let controlPages = (row?.controlPaths ?? [])
       .map((p) => canonicalizeCitationUrl(origin + p) ?? `${origin}${p}`)
       .filter((u) => u && u !== meta.canonPage);
+
+    // No proof-plan row (e.g. a page that was never review-approved) ⇒ derive
+    // controls the same way the proof plan does: top same-site pages by GSC demand,
+    // excluding the treated page. Lets the operator record ANY shipped page.
+    if (controlPages.length === 0) {
+      try {
+        const ctx = await loadPageSurgeonContext(tenantId);
+        controlPages = topPagesByDemand(ctx, 8)
+          .map((u) => canonicalizeCitationUrl(u) ?? u)
+          .filter((u) => u && u !== meta.canonPage)
+          .slice(0, 3);
+      } catch {
+        controlPages = [];
+      }
+    }
 
     const record = await recordShippedChange({
       tenantId,

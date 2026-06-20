@@ -16,6 +16,8 @@ const { operatorFlag, mocks } = vi.hoisted(() => ({
     measureRecord: vi.fn(),
     loadShippedChanges: vi.fn(),
     upsertShippedChange: vi.fn(),
+    loadPageSurgeonContext: vi.fn(),
+    topPagesByDemand: vi.fn(),
   },
 }));
 
@@ -24,6 +26,10 @@ vi.mock("@/lib/tenant-context", () => ({ currentTenantId: vi.fn(async () => "ten
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/domains/recommendation-intelligence/page-surgeon/bridge", () => ({
   loadProofPlan: mocks.loadProofPlan,
+}));
+vi.mock("@/domains/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
+  loadPageSurgeonContext: mocks.loadPageSurgeonContext,
+  topPagesByDemand: mocks.topPagesByDemand,
 }));
 vi.mock("@/domains/proof-gsc/run-measurement", () => ({
   captureChangeMeta: mocks.captureChangeMeta,
@@ -54,6 +60,12 @@ beforeEach(() => {
   mocks.recordShippedChange.mockResolvedValue({ id: "/cities::2026-06-19", verdict: "measuring" });
   mocks.upsertShippedChange.mockResolvedValue(undefined);
   mocks.loadShippedChanges.mockResolvedValue([]);
+  mocks.loadPageSurgeonContext.mockResolvedValue({});
+  mocks.topPagesByDemand.mockReturnValue([
+    "https://x.test/a",
+    "https://x.test/b",
+    "https://x.test/c",
+  ]);
 });
 
 describe("recordShippedChangeAction — operator gating", () => {
@@ -77,6 +89,16 @@ describe("recordShippedChangeAction — operator gating", () => {
     const res = await recordShippedChangeAction({ pageUrl: "" });
     expect(res.success).toBe(false);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
+  });
+
+  it("ANY page (no proof-plan row) ⇒ still records, controls derived from top-demand pages", async () => {
+    mocks.loadProofPlan.mockResolvedValue([]); // page was never review-approved
+    const res = await recordShippedChangeAction({ pageUrl: "/cities" });
+    expect(res.success).toBe(true);
+    expect(mocks.topPagesByDemand).toHaveBeenCalled(); // fallback control selection fired
+    expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
+    const arg = mocks.recordShippedChange.mock.calls[0][0];
+    expect(arg.controlPages.length).toBeGreaterThan(0);
   });
 });
 
