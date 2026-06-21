@@ -46,7 +46,19 @@ const THIN_WORDS = 300;
  * EvidencePacket; no I/O happens here. Dimensions with no signal report
  * "unknown" (e.g. a missing crawl ⇒ on-page dims are unknowable, not "fine").
  */
-export function buildDiagnosisMatrix(packet: EvidencePacket): DiagnosisRow[] {
+/** GSC-native cannibalization for THIS page (worst case), or null if none. */
+export type DiagnosisCannibalization = {
+  query: string;
+  urlCount: number;
+  combinedImpressions: number;
+  combinedClicks: number;
+  bestPosition: number;
+} | null;
+
+export function buildDiagnosisMatrix(
+  packet: EvidencePacket,
+  cannibalization: DiagnosisCannibalization = null,
+): DiagnosisRow[] {
   const p = detectPageProblems(packet);
   const crawl = packet.crawl;
   const gsc = packet.gsc;
@@ -136,14 +148,23 @@ export function buildDiagnosisMatrix(packet: EvidencePacket): DiagnosisRow[] {
   //    diagnosing a title problem.
   rows.push(buildSerpRow(gsc));
 
-  // 10. Cannibalization — needs a cross-page SEMrush scan; not run in v1.
+  // 10. Cannibalization — GSC-native: 2+ of the tenant's own URLs co-rank the
+  //     same query (pure gsc_daily_rows, no third-party data). When present it is
+  //     a STRUCTURAL cluster issue, not a title problem.
   rows.push(
-    row(
-      "cannibalization",
-      "Cannibalization",
-      "unknown",
-      "Not evaluated in v1, needs a cross-page SEMrush scan to detect two pages competing for one query.",
-    ),
+    cannibalization
+      ? row(
+          "cannibalization",
+          "Cannibalization",
+          "attention",
+          `${cannibalization.urlCount} of your pages compete for "${cannibalization.query}" (${cannibalization.combinedImpressions.toLocaleString()} impressions, ${cannibalization.combinedClicks.toLocaleString()} click${cannibalization.combinedClicks === 1 ? "" : "s"}, best rank #${cannibalization.bestPosition.toFixed(1)}). Pick one lead page and point the others' internal links at it. A structural cluster fix, not a title rewrite.`,
+        )
+      : row(
+          "cannibalization",
+          "Cannibalization",
+          "ok",
+          "No two of your pages are splitting clicks on the same query.",
+        ),
   );
 
   // 11. Keep current — the inverse summary.

@@ -77,8 +77,17 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
     );
   }
 
-  const { identity, opportunity, topQueries, strikingDistance, diagnosis, pack, packStatus, proof } =
-    data;
+  const {
+    identity,
+    opportunity,
+    topQueries,
+    strikingDistance,
+    cannibalization,
+    diagnosis,
+    pack,
+    packStatus,
+    proof,
+  } = data;
 
   return (
     <div className="max-w-4xl space-y-4">
@@ -157,6 +166,106 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
               ⚠ {opportunity.serpGuardLabel}
             </p>
           ) : null}
+        </Section>
+      ) : null}
+
+      {/* ── Cannibalization (same-query page competition) ── */}
+      {cannibalization.length > 0 ? (
+        <Section
+          title="Cannibalization"
+          subtitle="Two or more of your pages compete for the same query. A structural cluster fix, not a title rewrite."
+        >
+          <div className="space-y-4">
+            {cannibalization.map((c) => (
+              <div
+                key={c.query}
+                className="rounded-lg border border-fuchsia-200 bg-fuchsia-50/40 p-3.5"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded border border-fuchsia-300 bg-fuchsia-50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-fuchsia-700">
+                    Cannibalization
+                  </span>
+                  <span className="text-[13px] font-semibold text-foreground">
+                    &ldquo;{c.query}&rdquo;
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {c.competitors.length} pages · {c.totalImpressions.toLocaleString()}{" "}
+                    impressions · {c.totalClicks.toLocaleString()} click
+                    {c.totalClicks === 1 ? "" : "s"}
+                  </span>
+                </div>
+
+                <table className="mt-2.5 w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-muted-foreground">
+                      <th className="font-medium">Page</th>
+                      <th className="font-medium">Rank</th>
+                      <th className="font-medium">Impr</th>
+                      <th className="font-medium">Clicks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {c.competitors.map((u) => (
+                      <tr
+                        key={u.path}
+                        className={u.isThisPage ? "text-foreground" : "text-muted-foreground"}
+                      >
+                        <td className="py-0.5 font-mono">
+                          {u.path}
+                          {u.isLead ? (
+                            <span className="ml-1.5 rounded border border-emerald-300 bg-emerald-50 px-1 py-0.5 text-[9px] font-medium text-emerald-700">
+                              lead
+                            </span>
+                          ) : null}
+                          {u.isThisPage ? (
+                            <span className="ml-1.5 rounded border border-border bg-muted px-1 py-0.5 text-[9px] font-medium">
+                              this page
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="tabular-nums">#{u.position.toFixed(1)}</td>
+                        <td className="tabular-nums">{u.impressions.toLocaleString()}</td>
+                        <td className="tabular-nums">{u.clicks.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="mt-3 rounded-md border border-border/50 bg-background/70 p-2.5">
+                  <div className="text-[11px] font-semibold text-foreground/80">
+                    Recommended (operator review, nothing publishes):
+                  </div>
+                  <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11px] text-foreground/75">
+                    <li>
+                      Choose <span className="font-medium">{c.leadPath}</span> as the lead page
+                      for this query (best current rank
+                      {c.thisPageIsLead ? ", which is this page" : ""}).
+                    </li>
+                    <li>Point the other pages&apos; internal links for this term at the lead page.</li>
+                    <li>
+                      De-optimize or clarify the duplicate pages so they stop targeting the same
+                      query.
+                    </li>
+                    <li>
+                      Consolidate the pages only if they are genuinely the same topic and it is
+                      safe to do so.
+                    </li>
+                  </ol>
+                  <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                    Structural / cluster fix, not a title rewrite. Beacon never merges or deletes
+                    pages automatically.
+                  </p>
+                </div>
+
+                <p className="mt-2 text-[10px] text-muted-foreground/70">
+                  Proof plan: judge this at the cluster level (combined clicks{" "}
+                  {c.totalClicks.toLocaleString()} + impressions{" "}
+                  {c.totalImpressions.toLocaleString()} across all {c.competitors.length} pages,
+                  plus the lead page&apos;s rank), not any single page alone.
+                </p>
+              </div>
+            ))}
+          </div>
         </Section>
       ) : null}
 

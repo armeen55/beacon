@@ -144,15 +144,31 @@ describe("SERP presentation — the cheap guard", () => {
 });
 
 describe("cannibalization + keep_current", () => {
-  it("cannibalization is honestly 'unknown' in v1 (no cross-page scan)", () => {
-    const m = byKey(buildDiagnosisMatrix(packet({ crawl: crawl(), gsc: gsc() })));
-    expect(m.cannibalization.status).toBe("unknown");
-    expect(m.cannibalization.detail.toLowerCase()).toContain("v1");
-  });
-
   it("a clean page (no detected problems) ⇒ keep_current 'ok'", () => {
     // No GSC/Clarity problems + healthy crawl ⇒ detectPageProblems.hasAnyProblem = false.
     const m = byKey(buildDiagnosisMatrix(packet({ crawl: crawl() })));
     expect(m.keep_current.status).toBe("ok");
+  });
+});
+
+describe("buildDiagnosisMatrix — cannibalization", () => {
+  it("flags cannibalization as attention (cluster fix) when a case is passed", () => {
+    const m = byKey(
+      buildDiagnosisMatrix(packet(), {
+        query: "iran flag",
+        urlCount: 4,
+        combinedImpressions: 3394,
+        combinedClicks: 1,
+        bestPosition: 4,
+      }),
+    );
+    expect(m.cannibalization.status).toBe("attention");
+    expect(m.cannibalization.detail).toContain("4 of your pages compete");
+    expect(m.cannibalization.detail).toContain("not a title rewrite");
+  });
+
+  it("reports ok (not unknown) when no cannibalization is detected", () => {
+    const m = byKey(buildDiagnosisMatrix(packet()));
+    expect(m.cannibalization.status).toBe("ok");
   });
 });

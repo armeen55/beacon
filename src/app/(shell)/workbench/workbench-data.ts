@@ -37,6 +37,10 @@ import {
   buildDiagnosisMatrix,
   type DiagnosisRow,
 } from "@/domains/insight/diagnosis-matrix";
+import {
+  loadGscCannibalizationForTenant,
+  type GscCannibalizationCase,
+} from "@/domains/recommendation-intelligence/gsc-cannibalization";
 
 /** Host-stripped path key — mirrors bridge.ts's private `toPath`. */
 function toPath(u: string): string {
@@ -73,6 +77,24 @@ export type WorkbenchStrikingTerm = {
   position: number;
 };
 
+export type WorkbenchCannibalCompetitor = {
+  path: string;
+  clicks: number;
+  impressions: number;
+  position: number;
+  isThisPage: boolean;
+  isLead: boolean;
+};
+
+export type WorkbenchCannibalization = {
+  query: string;
+  competitors: WorkbenchCannibalCompetitor[];
+  totalClicks: number;
+  totalImpressions: number;
+  leadPath: string;
+  thisPageIsLead: boolean;
+};
+
 export type WorkbenchOpportunity = {
   impressions: number;
   clicks: number;
@@ -104,6 +126,8 @@ export type WorkbenchData = {
   opportunity: WorkbenchOpportunity | null;
   topQueries: WorkbenchTopQuery[];
   strikingDistance: WorkbenchStrikingTerm[];
+  /** Same-query competitions THIS page is part of (worst first). Empty if none. */
+  cannibalization: WorkbenchCannibalization[];
   diagnosis: DiagnosisRow[];
   packStatus: "pack" | "evidence_only" | "no_page";
   pack: AtomicChangePack | null;
@@ -191,6 +215,7 @@ function emptyWorkbench(path: string): WorkbenchData {
     opportunity: null,
     topQueries: [],
     strikingDistance: [],
+    cannibalization: [],
     diagnosis: [],
     packStatus: "no_page",
     pack: null,
@@ -222,13 +247,47 @@ export async function loadWorkbench(
 
   const packet = assemblePacketForUrl(ctx, canon);
 
-  // Pack + proof in parallel (loadPageSurgeonForUrl reuses the cached context).
-  const [psResult, proofRows] = await Promise.all([
+  // Pack + proof + cannibalization in parallel (loadPageSurgeonForUrl reuses cache).
+  const [psResult, proofRows, cannibalCases] = await Promise.all([
     loadPageSurgeonForUrl(tenantId, canon, { history: true }).catch(
       () => ({ status: "no_page" as const }),
     ),
     loadProofPlan(tenantId).catch(() => [] as ProofPlanRow[]),
+    loadGscCannibalizationForTenant(tenantId, now).catch(
+      () => [] as GscCannibalizationCase[],
+    ),
   ]);
+
+  // Cannibalizations THIS page is part of (as lead OR as a competing duplicate).
+  const cannibalization: WorkbenchCannibalization[] = cannibalCases
+    .filter((c) => c.competingUrls.some((u) => u.url === canon))
+    .map((c) => ({
+      query: c.query,
+      competitors: c.competingUrls.map((u) => ({
+        path: toPath(u.url),
+        clicks: u.clicks,
+        impressions: u.impressions,
+        position: u.position,
+        isThisPage: u.url === canon,
+        isLead: u.url === c.leadUrl,
+      })),
+      totalClicks: c.totalClicks,
+      totalImpressions: c.totalImpressions,
+      leadPath: toPath(c.leadUrl),
+      thisPageIsLead: c.leadUrl === canon,
+    }))
+    .sort((a, b) => b.totalImpressions - a.totalImpressions);
+  const worstCannibal = cannibalization[0]
+    ? {
+        query: cannibalization[0].query,
+        urlCount: cannibalization[0].competitors.length,
+        combinedImpressions: cannibalization[0].totalImpressions,
+        combinedClicks: cannibalization[0].totalClicks,
+        bestPosition: Math.min(
+          ...cannibalization[0].competitors.map((u) => u.position),
+        ),
+      }
+    : null;
 
   const packStatus = psResult.status;
   const pack = psResult.status === "pack" ? psResult.pack : null;
@@ -271,7 +330,8 @@ export async function loadWorkbench(
       position: q.position,
     })),
     strikingDistance,
-    diagnosis: buildDiagnosisMatrix(packet),
+    cannibalization,
+    diagnosis: buildDiagnosisMatrix(packet, worstCannibal),
     packStatus,
     pack,
     proof,
