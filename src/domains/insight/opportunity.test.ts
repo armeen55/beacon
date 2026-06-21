@@ -182,3 +182,48 @@ describe("rankOpportunities", () => {
     expect(ranked.map((r) => r.path)).toEqual(["/b", "/c", "/a"]);
   });
 });
+
+describe("buildOpportunity — cannibalization", () => {
+  it("is dominant over ctr_leak and frames a cluster fix, not a title rewrite", () => {
+    const o = buildOpportunity({
+      canonUrl: "https://x.test/iran-flags",
+      path: "/iran-flags",
+      gsc: { clicks90d: 1, impressions90d: 3394, ctr90d: 0.0003, position90d: 4, topQuery: "iran flag" },
+      cannibalization: {
+        query: "iran flag",
+        urlCount: 4,
+        combinedImpressions: 3394,
+        combinedClicks: 1,
+        bestPosition: 4,
+        additionalCases: 1,
+      },
+    });
+    expect(o).not.toBeNull();
+    expect(o!.kind).toBe("cannibalization"); // dominant, NOT ctr_leak
+    expect(o!.kinds).toContain("ctr_leak"); // still detected, just not the headline
+    expect(o!.why).toContain("4 of your pages compete");
+    expect(o!.why).toContain("iran flag");
+    expect(o!.why).toContain("3,394");
+    expect(o!.expectedLever.toLowerCase()).toContain("lead page");
+    expect(o!.expectedLever).toContain("not a title rewrite");
+    expect(o!.estConfidence).toBe("low"); // cautious: recovery is uncertain
+    expect(o!.estClicksAtStake).toBeGreaterThan(0);
+  });
+
+  it("fires even when the lead page has no other opportunity signal", () => {
+    const o = buildOpportunity({
+      canonUrl: "https://x.test/lead",
+      path: "/lead",
+      cannibalization: {
+        query: "q",
+        urlCount: 2,
+        combinedImpressions: 800,
+        combinedClicks: 0,
+        bestPosition: 5,
+        additionalCases: 0,
+      },
+    });
+    expect(o).not.toBeNull();
+    expect(o!.kind).toBe("cannibalization");
+  });
+});

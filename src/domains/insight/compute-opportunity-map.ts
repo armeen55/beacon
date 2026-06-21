@@ -23,6 +23,10 @@ import {
   loadPageSurgeonSummaries,
   type PageSurgeonSummary,
 } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
+import {
+  loadGscCannibalizationForTenant,
+  type GscCannibalizationCase,
+} from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import {
   buildOpportunity,
@@ -52,7 +56,7 @@ export async function loadOpportunityMap(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<OpportunityItem[]> {
-  const [gsc, decay, semrush, clarity, ga4, summaries] = await Promise.all([
+  const [gsc, decay, semrush, clarity, ga4, summaries, cannibal] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId, now).catch(
       () => new Map<string, GscPageSignal>(),
     ),
@@ -71,9 +75,37 @@ export async function loadOpportunityMap(
     loadPageSurgeonSummaries(tenantId).catch(
       () => ({}) as Record<string, PageSurgeonSummary>,
     ),
+    loadGscCannibalizationForTenant(tenantId, now).catch(
+      () => [] as GscCannibalizationCase[],
+    ),
   ]);
 
   const canon = (u: string) => canonicalizeCitationUrl(u) ?? u;
+
+  // Cannibalization is a QUERY-level signal; attach it to the LEAD (best-ranking)
+  // page so the Opportunity Map row + its Workbench CTA point at the page the
+  // cluster should consolidate toward. One lead page can top several cannibalized
+  // queries — keep the worst (most impressions) as primary + count the rest.
+  const cannibalByLead = new Map<string, OpportunityPageInput["cannibalization"]>();
+  const casesByLead = new Map<string, GscCannibalizationCase[]>();
+  for (const c of cannibal) {
+    const lead = canon(c.leadUrl);
+    const list = casesByLead.get(lead) ?? [];
+    list.push(c);
+    casesByLead.set(lead, list);
+  }
+  for (const [lead, list] of casesByLead) {
+    list.sort((a, b) => b.totalImpressions - a.totalImpressions);
+    const worst = list[0];
+    cannibalByLead.set(lead, {
+      query: worst.query,
+      urlCount: worst.urlCount,
+      combinedImpressions: worst.totalImpressions,
+      combinedClicks: worst.totalClicks,
+      bestPosition: worst.bestPosition,
+      additionalCases: list.length - 1,
+    });
+  }
 
   // Clarity is keyed by raw `url`; re-key by canonical URL for joining.
   const clarityByCanon = new Map<string, ClarityPageSignal>();
@@ -86,6 +118,7 @@ export async function loadOpportunityMap(
   for (const k of semrush.keys()) urls.add(k);
   for (const k of clarityByCanon.keys()) urls.add(k);
   for (const k of ga4.keys()) urls.add(k);
+  for (const k of cannibalByLead.keys()) urls.add(k);
 
   const items: OpportunityItem[] = [];
   for (const url of urls) {
@@ -124,6 +157,7 @@ export async function loadOpportunityMap(
             rageClicks: cl.rageClicks,
           }
         : undefined,
+      cannibalization: cannibalByLead.get(url),
       importance: ga4ValueWeight(ga),
       hasChangePack: summaries[path]?.hasPack === true,
       // When a Change Pack exists, its primary action is the canonical

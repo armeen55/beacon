@@ -11,6 +11,7 @@ import { serpStatusChip } from "@/domains/insight/serp-guard";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 
 const KIND_META: Record<OpportunityKind, { label: string; cls: string }> = {
+  cannibalization: { label: "Cannibalization", cls: "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700" },
   ctr_leak: { label: "CTR leak", cls: "border-rose-300 bg-rose-50 text-rose-700" },
   striking_distance: { label: "Striking distance", cls: "border-blue-300 bg-blue-50 text-blue-700" },
   decay: { label: "Decaying", cls: "border-amber-300 bg-amber-50 text-amber-700" },
@@ -27,6 +28,7 @@ const SOURCE_LABEL: Record<OpportunitySource, string> = {
 
 const FILTERS: (OpportunityKind | "all")[] = [
   "all",
+  "cannibalization",
   "ctr_leak",
   "striking_distance",
   "decay",

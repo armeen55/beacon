@@ -14,6 +14,7 @@
 import { deriveSerpGuard, type SerpStatus } from "./serp-guard";
 
 export type OpportunityKind =
+  | "cannibalization"
   | "ctr_leak"
   | "striking_distance"
   | "decay"
@@ -70,6 +71,17 @@ export type OpportunityPageInput = {
     position90d: number;
     topQuery?: string;
   };
+  /** Same-query page competition where THIS page is the lead (best-ranking)
+   *  URL. Query-level signal attached to the lead page by the compute layer. */
+  cannibalization?: {
+    query: string;
+    urlCount: number;
+    combinedImpressions: number;
+    combinedClicks: number;
+    bestPosition: number;
+    /** Other cannibalized queries this lead page also tops (for "+N more"). */
+    additionalCases: number;
+  };
   decay?: { clicksNow: number; clicksPrior: number };
   striking?: { keyword: string; position: number; volume: number }[];
   clarity?: { sessions: number; deadClicks: number; rageClicks: number };
@@ -112,8 +124,12 @@ const RISING_MIN_NOW = 15;
 const FRICTION_MIN_DEAD = 10;
 const FRICTION_MIN_RAGE = 5;
 
-/** Priority order for choosing the dominant kind (click/revenue impact first). */
+/** Priority order for choosing the dominant kind (click/revenue impact first).
+ *  Cannibalization is FIRST: when a page both leaks CTR and cannibalizes a
+ *  query, the real fix is the cluster/structural move, NOT a title rewrite, so
+ *  it must win the headline + lever (see #4 in the cannibalization slice). */
 const KIND_PRIORITY: OpportunityKind[] = [
+  "cannibalization",
   "ctr_leak",
   "striking_distance",
   "decay",
@@ -244,6 +260,37 @@ export function buildOpportunity(
     }
   }
 
+  // ── Cannibalization: 2+ of the tenant's own URLs split a query (THIS page is
+  //    the lead / best-ranking URL). A structural cluster issue that OVERRIDES
+  //    the title/CTR framing, because a title rewrite cannot fix duplicate pages
+  //    fighting for the same term. Dominant via KIND_PRIORITY. ──
+  if (input.cannibalization) {
+    const c = input.cannibalization;
+    kinds.push("cannibalization");
+    // Cautious, cluster-level estimate: clicks the cluster could recover if it
+    // ranked alone at its best position, minus what it earns split today.
+    const gain = Math.max(
+      0,
+      Math.round(
+        c.combinedImpressions * expectedCtrForPosition(c.bestPosition) - c.combinedClicks,
+      ),
+    );
+    estClicksAtStake = Math.max(estClicksAtStake, gain);
+    const clk = `${c.combinedClicks.toLocaleString()} click${c.combinedClicks === 1 ? "" : "s"}`;
+    const more =
+      c.additionalCases > 0
+        ? ` (+${c.additionalCases} more quer${c.additionalCases === 1 ? "y" : "ies"})`
+        : "";
+    evidence.push({
+      source: "gsc",
+      line: `${c.urlCount} of your pages compete for "${c.query}": ${c.combinedImpressions.toLocaleString()} impressions, ${clk}, best rank #${c.bestPosition.toFixed(1)}.${more}`,
+    });
+    // Override the headline + lever: structural cluster fix, not a title rewrite.
+    why = `${c.urlCount} of your pages compete for "${c.query}", earning ${clk} from ${c.combinedImpressions.toLocaleString()} impressions.`;
+    expectedLever =
+      "Pick one lead page for this query and point the other pages' internal links at it. A structural cluster fix, not a title rewrite.";
+  }
+
   if (kinds.length === 0) return null;
 
   const kind = KIND_PRIORITY.find((k) => kinds.includes(k)) ?? kinds[0];
@@ -251,13 +298,18 @@ export function buildOpportunity(
   // Confidence in the estimate is data-volume driven (NOT a SERP claim).
   // Mirrors `estimateConfidence` in page-primary.ts; inlined to avoid a
   // runtime import cycle (page-primary imports OpportunityItem's type).
-  const estConfidence: "high" | "medium" | "low" = input.gsc
-    ? input.gsc.impressions90d >= 3000
-      ? "high"
-      : input.gsc.impressions90d >= 800
-        ? "medium"
-        : "low"
-    : "low";
+  // Cannibalization recovery is inherently uncertain (depends on the operator's
+  // consolidation choice), so its estimate stays cautious regardless of volume.
+  const estConfidence: "high" | "medium" | "low" =
+    kind === "cannibalization"
+      ? "low"
+      : input.gsc
+        ? input.gsc.impressions90d >= 3000
+          ? "high"
+          : input.gsc.impressions90d >= 800
+            ? "medium"
+            : "low"
+        : "low";
 
   return {
     canonUrl: input.canonUrl,
