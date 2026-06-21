@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-20 GSC-native cannibalization, visible + actionable (3 commits, local)
+
+**What changed.** Beacon now autonomously detects same-query page competition from pure `gsc_daily_rows` and surfaces it as a first-class opportunity (no third-party data, no paid APIs, no publish path).
+- **Loader + RPC** (`79c3cd4`): `gsc_cannibalization_v1` (server-side group-by, applied + verified to beacon-main) + `loadGscCannibalizationForTenant` (28d, tenant-scoped, fail-soft) + pure `groupCannibalizationRows` (canonical-merge, lead = best position).
+- **Opportunity Map** (`c31cbd7`): new `cannibalization` kind ranked FIRST in `KIND_PRIORITY` (dominates the ctr_leak it would otherwise mimic, so no naive title rewrite); attached to the LEAD page; page-specific copy + "structural cluster fix, not a title rewrite" lever; cautious low-confidence estimate; fuchsia badge + filter.
+- **Workbench + diagnosis** (`184ebf4`): competing-URLs table (lead + this-page flagged), review-only non-destructive operator actions ("Beacon never merges or deletes pages automatically"), cluster proof plan; diagnosis-matrix cannibalization dimension un-stubbed (attention with case detail, else honest ok).
+
+**Tested.** `npm run typecheck` clean; `npx vitest run` on gsc-cannibalization + opportunity + diagnosis-matrix = 32 pass; banned-dash architecture test = 22 pass; `npm run build` succeeds (route manifest includes `/workbench/[encodedPagePath]`, `/opportunities`).
+
+**Ground-truth (dev server, beacon-main, tenant-iranopedia, operator mode).** `/opportunities` 200: "Cannibalization" badge + specific "N pages compete for ..." copy for **iran flag, persian flag, iran national animal**; lead-page action; "not a title rewrite"; **zero em/en dashes**. `/workbench/iran-flags` 200: cannibalization section with competing URLs, "never merges or deletes", "not a title rewrite". One pre-existing en dash on `/workbench/iran-flags` is LLM Change-Pack data ("1-2 sentence answer block"), NOT cannibalization code (the dash-guard test passes; /opportunities is dash-clean) - filed as a separate follow-up.
+
+**State.** 3 logical commits on `claude/max-capability` (== origin/main). **Not pushed** - awaiting operator approval per the CI-minutes batch-checkpoint rule.
+
+---
+
 ## 2026-06-20 Production logged-in smoke + Preview env repair (post-deploy)
 
 **Part 1, logged-in smoke.** Production is app-login-gated (every route 307 to /login) and I cannot authenticate, so I reproduced the logged-in-operator render on the LOCAL dev server running the EXACT deployed commit against the production DB (beacon-main, tenant-iranopedia, operator mode) - identical code + data to production-logged-in. All checklist items PASS:
