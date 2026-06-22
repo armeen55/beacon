@@ -50,8 +50,15 @@ function toPath(url: string): string {
   }
 }
 
-export default async function ProofPage() {
+export default async function ProofPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   if (!isOperatorModeServer()) notFound();
+  const params = await (searchParams ??
+    Promise.resolve<Record<string, string | string[] | undefined>>({}));
+  const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
   const [rows, ledger] = await Promise.all([
     loadProofPlan(tenantId).catch(() => []),
@@ -90,9 +97,11 @@ export default async function ProofPage() {
         ) : null}
       </div>
 
-      {/* Record a shipped change for ANY page (manual-ship companion). */}
+      {/* Record a shipped change for ANY page (manual-ship companion). Prefills
+          the page from a ?page= hand-off (e.g. the Workbench "Record this
+          change" link) so recording doesn't mean re-typing the path. */}
       <div className="mb-6">
-        <RecordAnyPageForm />
+        <RecordAnyPageForm initialPage={initialPage} />
       </div>
 
       {/* ── Measured outcomes (shipped changes being tracked vs controls) ── */}

@@ -43,9 +43,12 @@ const FIELD_INPUT =
  * the change type, before/after copy, ship date, target queries, notes, and mark
  * it verified live. The manual-ship companion to pasting the change in your CMS.
  */
-export function RecordAnyPageForm() {
+export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }) {
   const router = useRouter();
-  const [pageUrl, setPageUrl] = useState("");
+  // initialPage prefills from a /proof?page=... hand-off (e.g. the Workbench
+  // "Record this change" link), so recording a shipped experiment doesn't mean
+  // re-typing the path. The Change Pack auto-fills action/before/after/queries.
+  const [pageUrl, setPageUrl] = useState(initialPage);
   const [showDetails, setShowDetails] = useState(false);
   const [changeType, setChangeType] = useState("");
   const [before, setBefore] = useState("");

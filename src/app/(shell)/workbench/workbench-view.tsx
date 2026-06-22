@@ -271,6 +271,16 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
             ) : (
               <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/80">{data.path}</p>
             )}
+            {/* Hand-off to the proof recorder with the page prefilled, so once
+                the operator pastes a change into Wix they record + measure it in
+                one step (the Change Pack auto-fills action/before/after/queries). */}
+            <Link
+              href={`/proof?page=${encodeURIComponent(data.path)}`}
+              prefetch={false}
+              className="mt-1 inline-block text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Shipped this change? Record it in Proof &rarr;
+            </Link>
           </div>
           <PrimaryCta data={data} />
         </div>
