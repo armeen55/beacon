@@ -815,6 +815,14 @@ export type PersistedRecommendationQueueForPage = {
   changelogEntries: Array<{ id: string; source_rec_id?: string | null }>;
   matrixDateLabel: string;
   errors: string[];
+  /**
+   * audit-4: true ONLY when a QUEUE-CRITICAL read failed (recommended_edits or
+   * recommendation_responses). Distinct from `errors`, which also collects
+   * non-queue ENRICHMENT failures (changelog, GSC/SEMrush/Clarity page signals).
+   * Today's Do-today card keys its "couldn't load" state off THIS, so a
+   * transient enrichment miss on a genuinely-empty queue doesn't cry wolf.
+   */
+  queueError: boolean;
 };
 
 /**
@@ -1068,6 +1076,9 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
 
       if (editsRes.error) errors.push(editsRes.error);
       if (responsesRes.error) errors.push(responsesRes.error);
+      // audit-4: only the queue-critical reads make the Do-today card claim a
+      // LOAD FAILURE. Enrichment failures below stay in `errors` (banner) only.
+      const queueError = editsRes.error != null || responsesRes.error != null;
       if (promptsRes.error) errors.push(promptsRes.error);
       if (changelogRes.error) errors.push(changelogRes.error);
       if (gscRes.error) errors.push(gscRes.error);
@@ -1156,6 +1167,7 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
         // back to today only for an empty queue (no stale data to misstate).
         matrixDateLabel: deriveMatrixDateLabel(recommendedEdits),
         errors,
+        queueError,
       };
     },
     ["recs-persisted:v1", tenantId],

@@ -1071,7 +1071,11 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
       const persisted = await loadPersistedRecommendationQueueForPage({
         tenantId,
       });
-      if (persisted.errors && persisted.errors.length > 0) {
+      // audit-4 self-review: gate on the QUEUE-critical read failing, NOT the
+      // aggregate `errors` (which also collects enrichment-read failures like
+      // changelog / page-signals). A transient enrichment miss on a genuinely
+      // EMPTY queue must NOT show the alarming "couldn't load" state.
+      if (persisted.queueError) {
         queueLoadFailed = true;
       }
       const topItem = persisted.queue.find(

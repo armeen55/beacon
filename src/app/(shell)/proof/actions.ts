@@ -26,6 +26,7 @@ import {
   recordShippedChange,
   captureChangeMeta,
   measureRecord,
+  defaultPacificShipDate,
 } from "@/domains/proof-gsc/run-measurement";
 import {
   loadShippedChanges,
@@ -172,7 +173,10 @@ export async function recordShippedChangeAction(args: {
     }
 
     const shippedAt = normalizeShippedAt(args.shippedAt);
-    const shipDate = dateOnly(shippedAt ?? new Date().toISOString());
+    // audit-4: default to the PACIFIC day (GSC's zone) so the dedup-clash check
+    // matches the same default recordShippedChange stores (was UTC → off-by-one
+    // for evening-Pacific ships). See defaultPacificShipDate.
+    const shipDate = dateOnly(shippedAt ?? defaultPacificShipDate());
 
     // Dedup: reject a second proof record for the same page + ship date. The
     // ledger PK is (page-path, ship-date), so a duplicate would silently

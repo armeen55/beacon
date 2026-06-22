@@ -43,6 +43,21 @@ function dateOnly(iso: string): string {
   return iso.length > 10 ? iso.slice(0, 10) : iso;
 }
 
+/**
+ * audit-4: the DEFAULT treatment day must be a PACIFIC calendar date, because
+ * every GSC date in the ledger (baseline + post windows, the finalized
+ * watermark, the RPC's date filter) is Search-Console Pacific time. Defaulting
+ * to `new Date().toISOString()` (UTC) anchored a change recorded in the US
+ * evening (17:00–23:59 PT = 00:00–06:59 UTC next day) one calendar day LATE,
+ * mis-filing a genuine post-change Pacific day into the baseline window and
+ * biasing the diff-in-diff. en-CA renders YYYY-MM-DD; addDays/dateOnly accept
+ * a date-only string. Exported so the dedup-clash check in proof/actions.ts
+ * uses the SAME default and still collides correctly.
+ */
+export function defaultPacificShipDate(now: Date = new Date()): string {
+  return now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+}
+
 function toPath(u: string): string {
   return u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
 }
@@ -221,7 +236,9 @@ export async function recordShippedChange(args: {
   now?: Date;
 }): Promise<ShippedChangeRecord> {
   const now = args.now ?? new Date();
-  const shippedAt = args.shippedAt ?? now.toISOString();
+  // audit-4: default to the PACIFIC date (GSC's zone), NOT UTC — see
+  // defaultPacificShipDate. An explicit operator-provided shippedAt is honored.
+  const shippedAt = args.shippedAt ?? defaultPacificShipDate(now);
   const shipDate = dateOnly(shippedAt);
 
   // Baseline = the 28d pre-ship window on the treated page (display snapshot).

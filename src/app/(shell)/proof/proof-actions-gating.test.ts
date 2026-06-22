@@ -35,6 +35,8 @@ vi.mock("@/domains/proof-gsc/run-measurement", () => ({
   captureChangeMeta: mocks.captureChangeMeta,
   recordShippedChange: mocks.recordShippedChange,
   measureRecord: mocks.measureRecord,
+  // audit-4: actions.ts now defaults shipDate to the Pacific calendar day.
+  defaultPacificShipDate: () => "2026-06-22",
 }));
 vi.mock("@/domains/proof-gsc/shipped-change-store", () => ({
   loadShippedChanges: mocks.loadShippedChanges,
