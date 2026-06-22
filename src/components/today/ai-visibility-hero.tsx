@@ -241,7 +241,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
         <MetricCard
           label="Visibility score"
           dataAttr="score"
-          headline={hasScore ? `${score!.toFixed(1)}%` : "—"}
+          headline={hasScore ? `${score!.toFixed(1)}%` : "-"}
           sub={
             hasScore && delta !== null
               ? {
@@ -258,7 +258,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
                         : "neutral",
                 }
               : hasScore
-                ? { text: `in this window — limited data`, tone: "neutral" }
+                ? { text: `in this window, limited data`, tone: "neutral" }
                 : { text: "Awaiting sampled data", tone: "neutral" }
           }
         />
@@ -277,7 +277,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
         <MetricCard
           label="Rank"
           dataAttr="rank"
-          headline={hasCompetitiveRank ? `#${rank}` : "—"}
+          headline={hasCompetitiveRank ? `#${rank}` : "-"}
           sub={
             hasCompetitiveRank
               ? {
@@ -294,7 +294,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
         <MetricCard
           label="Closest challenger"
           dataAttr="closest-challenger"
-          headline={closestChallenger ? truncate(closestChallenger.name, 24) : "—"}
+          headline={closestChallenger ? truncate(closestChallenger.name, 24) : "-"}
           sub={
             closestChallenger
               ? {
@@ -312,7 +312,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
           headline={
             currentSampledDays > 0
               ? `${currentSampledDays} day${currentSampledDays === 1 ? "" : "s"}`
-              : "—"
+              : "-"
           }
           sub={
             latestReadingDate

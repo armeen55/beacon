@@ -334,7 +334,7 @@ export function VisibilityScoreChart({
       <div className="flex flex-col gap-1 mb-3">
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold tabular-nums">
-            {headline.hasData ? `${headline.score.toFixed(1)}%` : "—"}
+            {headline.hasData ? `${headline.score.toFixed(1)}%` : "-"}
           </span>
           {headline.hasData && (
             <span
@@ -416,7 +416,7 @@ export function VisibilityScoreChart({
         />
       ) : (
         <div className="h-[180px] flex items-center justify-center text-[12px] text-muted-foreground">
-          Not enough data yet — refresh your connected data to add to this chart.
+          Not enough data yet, refresh your connected data to add to this chart.
         </div>
       )}
 

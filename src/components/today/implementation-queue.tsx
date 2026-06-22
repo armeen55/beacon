@@ -98,7 +98,7 @@ export function TodayImplementationQueue({
                 {item.needsRewrite && (
                   <span
                     className="shrink-0 inline-flex items-center rounded border border-status-warning/40 bg-status-warning/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-status-warning"
-                    title="The proposed text is a generator placeholder — rewrite it before shipping."
+                    title="The proposed text is a generator placeholder, rewrite it before shipping."
                   >
                     needs rewrite
                   </span>

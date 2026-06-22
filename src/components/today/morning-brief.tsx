@@ -35,7 +35,7 @@ function DataFreshness({ date }: { date: string | null }) {
   if (!dataDate || Number.isNaN(dataDate.getTime())) {
     return (
       <p className="text-[11px] text-muted-foreground -mt-4 mb-2">
-        Latest reading date unknown — refresh your connected data for a current picture
+        Latest reading date unknown, refresh your connected data for a current picture
       </p>
     );
   }
@@ -56,7 +56,7 @@ function DataFreshness({ date }: { date: string | null }) {
   if (diffDays === 1) {
     return (
       <p className="text-[11px] text-muted-foreground -mt-4 mb-2">
-        Latest reading is from yesterday — refresh your connected data for today&apos;s picture
+        Latest reading is from yesterday, refresh your connected data for today&apos;s picture
       </p>
     );
   }
@@ -64,14 +64,14 @@ function DataFreshness({ date }: { date: string | null }) {
   if (diffDays <= 3) {
     return (
       <p className="text-[11px] text-muted-foreground -mt-4 mb-2">
-        Latest reading is {diffDays} days old — refresh your connected data for the latest insights
+        Latest reading is {diffDays} days old, refresh your connected data for the latest insights
       </p>
     );
   }
 
   return (
     <p className="text-[11px] text-status-warning -mt-4 mb-2">
-      Latest reading is {diffDays} days old — refresh your connected data to keep recommendations accurate
+      Latest reading is {diffDays} days old, refresh your connected data to keep recommendations accurate
     </p>
   );
 }
@@ -326,7 +326,7 @@ function MemoryInsightCard({ insight }: { insight: SerializedMemoryInsight }) {
     ? `+${deltaAbs}%`
     : isDeclining
       ? `-${deltaAbs}%`
-      : "—";
+      : "-";
 
   return (
     <div className={cn("flex items-center gap-3 rounded-lg border px-4 py-3", borderColor)}>

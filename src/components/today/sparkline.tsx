@@ -44,7 +44,7 @@ export function Sparkline({
         )}
         aria-label={ariaLabel}
       >
-        —
+        -
       </span>
     );
   }

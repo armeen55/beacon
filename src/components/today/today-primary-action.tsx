@@ -95,8 +95,8 @@ export function TodayPrimaryAction({
         {truthDataSecondary ? (
           <p className="text-[10px] text-muted-foreground leading-snug mb-3 pb-2 border-b border-border/35">
             {visibilityImportDeferred
-              ? "Visibility data is behind the latest scan — wait for a fresh poll before accepting this recommendation."
-              : "Data is incomplete — refresh when you can. This recommendation stays here for when you're ready."}
+              ? "Visibility data is behind the latest scan, wait for a fresh poll before accepting this recommendation."
+              : "Data is incomplete, refresh when you can. This recommendation stays here for when you're ready."}
           </p>
         ) : null}
         <div className="flex items-center gap-2 mb-3">
@@ -170,7 +170,7 @@ export function TodayPrimaryAction({
                   ? "Strong data"
                   : primaryAction.confidence === "medium"
                     ? "Moderate data"
-                    : "Early data — small sample"}
+                    : "Early data: small sample"}
               </span>
               {primaryAction.dataFreshness ? (
                 <span className="tabular-nums">· {primaryAction.dataFreshness}</span>
@@ -248,7 +248,7 @@ export function TodayPrimaryAction({
                         operatorNote: note,
                         baselineCitations: primaryAction.baselineCitations ?? null,
                       });
-                      setActionMsg("Got it — we're watching this now.");
+                      setActionMsg("Got it, we're watching this now.");
                     });
                   }}
                   disabled={pending}

@@ -126,11 +126,11 @@ export function TodayVisibilitySnapshot({
                     : "text-accent-primary",
             )}>
               {coverageState === "critical"
-                ? "Refresh recommended — last crawl is stale"
+                ? "Refresh recommended: last crawl is stale"
                 : coverageState === "stale"
-                  ? "Refresh recommended — based on an earlier crawl"
+                  ? "Refresh recommended: based on an earlier crawl"
                   : coverageState === "aging"
-                    ? "Refresh due — nearing freshness threshold"
+                    ? "Refresh due: nearing freshness threshold"
                     : coverageState === "partial" || coverageTone === "partial"
                       ? "Partial visibility sample"
                       : coverageTone === "critical"
@@ -143,7 +143,7 @@ export function TodayVisibilitySnapshot({
           <ul className="text-[11px] text-foreground leading-relaxed list-disc pl-4 space-y-1">
             {crawlStale && (
               <li>
-                Website crawl is <span className="font-semibold tabular-nums">{crawlAgeDays}d</span> old — HTML findings may miss recent edits.
+                Website crawl is <span className="font-semibold tabular-nums">{crawlAgeDays}d</span> old, HTML findings may miss recent edits.
                 <Link href="/pages" className="text-accent-primary hover:underline font-medium ml-1">Run scan →</Link>
               </li>
             )}
@@ -157,8 +157,8 @@ export function TodayVisibilitySnapshot({
             {coverageTone === "partial" && !visStale && (
               <li>
                 {proofContext.visibilitySynthetic
-                  ? "Visibility row is synthetic or demo-pinned — treat charts as directional, not ground truth until a real import is wired."
-                  : "Citation rollup timestamp is missing or older than your crawl — sample may not reflect the latest HTML."}
+                  ? "Visibility row is synthetic or demo-pinned, treat charts as directional, not ground truth until a real import is wired."
+                  : "Citation rollup timestamp is missing or older than your crawl, sample may not reflect the latest HTML."}
               </li>
             )}
           </ul>
@@ -212,7 +212,7 @@ export function TodayVisibilitySnapshot({
                 {milestoneTeaser.title}
               </span>
               {milestoneTeaser.subtitle && (
-                <span className="text-muted-foreground/70"> — {milestoneTeaser.subtitle}</span>
+                <span className="text-muted-foreground/70">: {milestoneTeaser.subtitle}</span>
               )}
               {milestoneTeaser.achievedAt && (
                 <span className="text-muted-foreground/50"> · {relativeDate(milestoneTeaser.achievedAt)}</span>

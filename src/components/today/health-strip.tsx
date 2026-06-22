@@ -101,7 +101,7 @@ export function HealthStrip({
       {isStale && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/[0.04] px-3 py-2">
           <span className="text-[11px] text-status-warning font-medium">
-            {coverageState === "critical" ? "Refresh recommended — last crawl is stale" : "Refresh due — keep findings current"}
+            {coverageState === "critical" ? "Refresh recommended: last crawl is stale" : "Refresh due: keep findings current"}
           </span>
           <Link
             href="/settings/import"
@@ -122,7 +122,7 @@ export function HealthStrip({
           // aria-label give it a stable accessible name.
           aria-expanded={expanded}
           aria-controls="health-strip-how-we-know"
-          aria-label="Data status — show how we know"
+          aria-label="Data status: show how we know"
           className="flex items-center gap-1.5 hover:text-foreground transition-colors"
         >
           {statusDot(dataStatus, "Data")}

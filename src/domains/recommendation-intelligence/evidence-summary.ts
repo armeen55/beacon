@@ -169,7 +169,7 @@ export function buildGscEvidenceLines(
         recoverable > 0
           ? `, so a clearer title could recover an estimated ${n(
               recoverable,
-            )} clicks over ~90 days — a rough estimate, not a guarantee (Google may rewrite how your title appears).`
+            )} clicks over ~90 days, a rough estimate, not a guarantee (Google may rewrite how your title appears).`
           : ".";
       lines.push({
         key: "headline_query",
@@ -186,13 +186,13 @@ export function buildGscEvidenceLines(
         recoverable > 0
           ? ` Reaching the top 3 could win an estimated ${n(
               recoverable,
-            )} more clicks over ~90 days — an estimate, not a guarantee.`
+            )} more clicks over ~90 days, an estimate, not a guarantee.`
           : "";
       lines.push({
         key: "headline_query",
         value: `“${query.query}”`,
         label: `${volume} times shown · you rank #${rank} (striking distance)`,
-        detail: `You already rank #${rank} for “${query.query}” — shown ${volume} times in the last 90 days, just short of page one.${recoverClause}`,
+        detail: `You already rank #${rank} for “${query.query}”, shown ${volume} times in the last 90 days, just short of page one.${recoverClause}`,
       });
     }
   }
@@ -268,7 +268,7 @@ export function buildSemrushEvidenceLines(
       key: "semrush_striking_keyword",
       value: `“${target.keyword}”`,
       label: `search volume ${volume}${kdLabel} · you rank #${rank}`,
-      detail: `“${target.keyword}” gets about ${volume} searches a month and you rank #${rank} — just short of page one.${kdSentence} One content pass could push it onto page one.`,
+      detail: `“${target.keyword}” gets about ${volume} searches a month and you rank #${rank}, just short of page one.${kdSentence} One content pass could push it onto page one.`,
     },
   ];
 }
@@ -338,7 +338,7 @@ export function buildClarityEvidenceLines(
         label: `of sessions hit a page error (${sessions} sessions)`,
         detail: `This page throws an error in ${ratePct(
           scriptErrorRate,
-        )} of visits (${sessions} sessions tracked). Errors break the page for visitors — and AI assistants can't read a page that fails to load — so fixing it protects how often you're recommended.`,
+        )} of visits (${sessions} sessions tracked). Errors break the page for visitors, and AI assistants can't read a page that fails to load, so fixing it protects how often you're recommended.`,
       },
     ];
   }
@@ -352,7 +352,7 @@ export function buildClarityEvidenceLines(
         label: `of sessions rage-click this page (${sessions} sessions)`,
         detail: `Visitors rage-click on this page in ${ratePct(
           signal.rageRate,
-        )} of sessions (${sessions} sessions tracked) — a sign something feels broken or unresponsive. Fixing the friction lifts conversions.`,
+        )} of sessions (${sessions} sessions tracked), a sign something feels broken or unresponsive. Fixing the friction lifts conversions.`,
       },
     ];
   }
@@ -472,7 +472,7 @@ export function buildAeoEvidenceLines(
       key: "aeo_answer_gap",
       value: "Not cited yet",
       label,
-      detail: `AI assistants answer this topic${citingClause}${acrossClause} — you're not cited yet. Add a clear, quotable answer block on your site for this topic so AI engines can cite you instead.`,
+      detail: `AI assistants answer this topic${citingClause}${acrossClause}, you're not cited yet. Add a clear, quotable answer block on your site for this topic so AI engines can cite you instead.`,
     },
   ];
 }

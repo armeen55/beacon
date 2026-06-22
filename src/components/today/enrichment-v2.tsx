@@ -280,7 +280,7 @@ function DescriptorList({
       </ul>
       {sampleStatus === "thin" && (
         <p className="text-[10px] text-muted-foreground/60 leading-snug">
-          Early signal — based on a few answers so far.
+          Early signal: based on a few answers so far.
         </p>
       )}
     </div>
@@ -315,7 +315,7 @@ function DeltaBadge({ entry }: { entry: DescriptorWithDelta }) {
     );
   }
   if (entry.delta === null) {
-    return <span className="text-[10px] text-muted-foreground/40">—</span>;
+    return <span className="text-[10px] text-muted-foreground/40">-</span>;
   }
   if (entry.delta === 0) {
     return (
@@ -323,7 +323,7 @@ function DeltaBadge({ entry }: { entry: DescriptorWithDelta }) {
         className="text-[10px] text-muted-foreground/60"
         title="Same rank as previous window"
       >
-        —
+        -
       </span>
     );
   }
@@ -492,7 +492,7 @@ function FormatSentence({ rollup }: { rollup: FormatWinsRollup }) {
   ) {
     return (
       <span className="text-muted-foreground/70">
-        {platformLabel(rollup.platform)} — not enough data yet.
+        {platformLabel(rollup.platform)}, not enough data yet.
       </span>
     );
   }

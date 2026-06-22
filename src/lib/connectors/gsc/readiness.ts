@@ -315,7 +315,7 @@ export function describeGscReadiness(r: GscReadiness): GscReadinessDescription {
       const parts: string[] = [];
       if (r.coverage != null) {
         parts.push(
-          `Search data ${shortDate(r.coverage.fromDate)} – ${shortDate(
+          `Search data ${shortDate(r.coverage.fromDate)} to ${shortDate(
             r.coverage.toDate,
           )}`,
         );
@@ -342,7 +342,7 @@ export function describeGscReadiness(r: GscReadiness): GscReadinessDescription {
       return {
         headline: "Reconnect Google to resume",
         detail:
-          "Google access stopped working — reconnect to keep your search data fresh.",
+          "Google access stopped working, reconnect to keep your search data fresh.",
         tone: "attention",
       };
     }

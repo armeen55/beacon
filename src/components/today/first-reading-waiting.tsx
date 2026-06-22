@@ -116,7 +116,7 @@ export function FirstReadingWaiting({
               ) : null}
             </dl>
             <p className="text-[12px] text-muted-foreground">
-              Detected from your website during setup — you can adjust any of
+              Detected from your website during setup, you can adjust any of
               this later in Settings.
             </p>
           </div>
@@ -131,18 +131,17 @@ export function FirstReadingWaiting({
                 className="font-medium text-foreground underline underline-offset-2 hover:text-accent-primary"
               >
                 Connect your sources
-              </Link>{" "}
-              — Google Search Console plus optional GA4, SEMrush, or
+              </Link>: Google Search Console plus optional GA4, SEMrush, or
               Clarity.
             </li>
             <li>
-              Refresh — Beacon reviews your website&apos;s pages and checks how
+              Refresh: Beacon reviews your website&apos;s pages and checks how
               the AI search engines describe your business, then fills your
               dashboard with the search demand for your pages and who they
               compare you to.
             </li>
             <li>
-              Review your recommendations — once your first reading comes in,
+              Review your recommendations: once your first reading comes in,
               you&apos;ll see suggestions for the next move you can make.
             </li>
           </ol>

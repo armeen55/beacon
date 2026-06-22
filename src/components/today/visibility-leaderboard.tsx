@@ -152,7 +152,7 @@ export function VisibilityLeaderboard({
             .
           </p>
           <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
-            Directional, not proven — these moves happened in the same
+            Directional, not proven, these moves happened in the same
             window, but Beacon hasn&apos;t verified the gain came from them.
             Worth investigating, not a confirmed win.
           </p>
@@ -163,7 +163,7 @@ export function VisibilityLeaderboard({
       <div className="flex flex-col gap-1 mb-4">
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold tabular-nums">
-            {brandRank !== null ? `#${brandRank}` : "—"}
+            {brandRank !== null ? `#${brandRank}` : "-"}
           </span>
           {brandRow && brandRow.delta !== null ? (
             <span
@@ -185,11 +185,11 @@ export function VisibilityLeaderboard({
               className="text-sm font-medium text-muted-foreground"
               title={
                 windowDays
-                  ? `Only ${previousSampledDays} sampled day${previousSampledDays === 1 ? "" : "s"} in the previous ${windowDays}-day window — too few to compare honestly.`
+                  ? `Only ${previousSampledDays} sampled day${previousSampledDays === 1 ? "" : "s"} in the previous ${windowDays}-day window, too few to compare honestly.`
                   : undefined
               }
             >
-              —
+              -
             </span>
           )}
         </div>
@@ -213,7 +213,7 @@ export function VisibilityLeaderboard({
       {entities.length > 0 ? (
         <table className="w-full text-left border-collapse">
           <caption className="sr-only">
-            AI visibility leaderboard — rank, brand, and {metricLabel.toLowerCase()}
+            AI visibility leaderboard: rank, brand, and {metricLabel.toLowerCase()}
             {windowDays ? ` with change vs. the previous ${windowDays} days` : ""}.
           </caption>
           <thead>
@@ -275,7 +275,7 @@ function LeaderboardRow({ entity }: { entity: EntityVisibility }) {
       ? `${
           entity.delta > 0 ? "up" : entity.delta < 0 ? "down" : "no change"
         } ${Math.abs(entity.delta).toFixed(1)} points vs. previous ${entity.deltaWindowDays} days`
-      : `Change unavailable — only ${entity.previousSampledDays} sampled day${entity.previousSampledDays === 1 ? "" : "s"} in the previous ${entity.deltaWindowDays}-day window, too few to compare.`;
+      : `Change unavailable, only ${entity.previousSampledDays} sampled day${entity.previousSampledDays === 1 ? "" : "s"} in the previous ${entity.deltaWindowDays}-day window, too few to compare.`;
   return (
     <tr
       className={cn(
@@ -336,7 +336,7 @@ function LeaderboardRow({ entity }: { entity: EntityVisibility }) {
             className="text-[10px] font-medium tabular-nums w-14 text-right text-muted-foreground"
             aria-label={deltaAriaLabel}
           >
-            <span aria-hidden="true">—</span>
+            <span aria-hidden="true">-</span>
           </span>
         )}
       </td>

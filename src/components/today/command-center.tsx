@@ -112,7 +112,7 @@ function BrainStatusCard({
       <Card title="Brain readiness">
         <EmptyState>Waiting for your next reading.</EmptyState>
         <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
-          Beacon scores its own brain once enough readings stack up — refresh your connected data to add the next one.
+          Beacon scores its own brain once enough readings stack up, refresh your connected data to add the next one.
         </p>
       </Card>
     );
@@ -310,7 +310,7 @@ function NextBestActionCard({ action }: { action: TodayPrimaryAction | null }) {
       <Card title="Next best action">
         <EmptyState>No action queued yet.</EmptyState>
         <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
-          Beacon will surface one as new readings come in — refresh your connected data to add the next one.
+          Beacon will surface one as new readings come in, refresh your connected data to add the next one.
         </p>
       </Card>
     );

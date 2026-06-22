@@ -257,7 +257,7 @@ export function ActionCard({
               const hi = sorted[0].medianDays + 5;
               return (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset/50 text-[9px] text-muted-foreground/60">
-                  Signal: {lo}–{hi} days
+                  Signal: {lo}-{hi} days
                 </span>
               );
             }
@@ -317,7 +317,7 @@ export function ActionCard({
                     await onRespondToRec(action.id, "dismissed");
                     setActionMsg(
                       action.type === "hurting_verdict"
-                        ? "Acknowledged \u2014 we'll stop surfacing until the verdict changes."
+                        ? "Acknowledged, we'll stop surfacing until the verdict changes."
                         : "Acknowledged.",
                     );
                   })
@@ -351,7 +351,7 @@ export function ActionCard({
                       targetPageUrl: action.targetPageUrl ?? null,
                       patternId: action.patternId ?? null,
                     });
-                    setActionMsg("Noted \u2014 we'll track the next change on this page.");
+                    setActionMsg("Noted, we'll track the next change on this page.");
                   });
                 }}
                 disabled={pending}
@@ -452,7 +452,7 @@ export function ActionCard({
               {action.priorSuccess && (
                 <p className="text-[11px] text-muted-foreground/90">
                   <span className="font-medium text-foreground/80">Worked before:</span>{" "}
-                  {action.priorSuccess.description ? `${action.priorSuccess.description} — ` : ""}
+                  {action.priorSuccess.description ? `${action.priorSuccess.description}: ` : ""}
                   {action.priorSuccess.pagePath} saw +{Math.round(action.priorSuccess.citationDelta)}% citations.
                 </p>
               )}

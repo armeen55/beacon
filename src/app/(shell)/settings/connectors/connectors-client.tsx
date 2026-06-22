@@ -100,7 +100,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Google authorization was denied. You can try again when ready.",
   no_code: "No authorization code received from Google. Please try again.",
   invalid_state:
-    "Authorization could not be verified. The connect link may have expired — please try Connect again.",
+    "Authorization could not be verified. The connect link may have expired, please try Connect again.",
   exchange_failed:
     "Failed to complete authorization with Google. Check that GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set correctly.",
   persistence_failed:
@@ -111,19 +111,19 @@ const ERROR_MESSAGES: Record<string, string> = {
   // but the signed-in user isn't a member of the connecting account.
   // Pre-fix this fell through to the raw "Connection error: not_authorized".
   not_authorized:
-    "You declined the Google permission — try connecting again and approve access.",
+    "You declined the Google permission. Try connecting again and approve access.",
 };
 
 // #213 — friendly catch-all for any error code we don't have explicit copy
 // for, so a non-technical owner never sees a raw code like "not_authorized".
 const DEFAULT_ERROR_MESSAGE =
-  "Couldn't connect to Google — please try again.";
+  "Couldn't connect to Google, please try again.";
 
 /** #90 (2026-06-14) — honest copy when Google returns no refresh token: the
  *  connection works for now but will stop on its own. Plain-English (no
  *  "refresh token" jargon) so a non-technical owner knows to reconnect. */
 const MISSING_REFRESH_TOKEN_WARNING =
-  "Google connected, but didn't grant ongoing access — this connection will stop working soon. Please click Connect again and allow access when Google asks.";
+  "Google connected, but didn't grant ongoing access. This connection will stop working soon. Please click Connect again and allow access when Google asks.";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "Never";
@@ -397,7 +397,7 @@ export function ConnectorsClient({
     // any Google Business Profile connection in one action. Confirm first so
     // a Business Profile connection isn't dropped silently.
     const confirmed = window.confirm(
-      "Disconnect Google? This disconnects Google Search Console and any connected Google Business Profile. Your previously synced data stays — reconnect any time to resume updates.",
+      "Disconnect Google? This disconnects Google Search Console and any connected Google Business Profile. Your previously synced data stays, reconnect any time to resume updates.",
     );
     if (!confirmed) return;
     setError(null);
@@ -445,7 +445,7 @@ export function ConnectorsClient({
         msg += ` ${result.rejected} row${result.rejected === 1 ? "" : "s"} skipped (invalid data).`;
       }
       if (result.partial && result.warnings.length > 0) {
-        msg += ` Completed with ${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"} — some data may be incomplete.`;
+        msg += ` Completed with ${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}, some data may be incomplete.`;
       }
       setSuccess(msg);
       router.refresh();
@@ -487,7 +487,7 @@ export function ConnectorsClient({
         const status = await getWixConnectorStatus();
         setWix(status);
         setSuccess(
-          "Wix connected. Beacon can now prepare publish-ready edits for your site — every change waits for your explicit approval before anything goes live.",
+          "Wix connected. Beacon can now prepare publish-ready edits for your site, and every change waits for your explicit approval before anything goes live.",
         );
       } else {
         setError(result.error ?? "Could not save the Wix connection.");
@@ -513,7 +513,7 @@ export function ConnectorsClient({
         clear();
       } else {
         setError(
-          result.error ?? "Couldn't update this connection — please try again.",
+          result.error ?? "Couldn't update this connection, please try again.",
         );
       }
     });
@@ -535,7 +535,7 @@ export function ConnectorsClient({
         });
       } else {
         setError(
-          result.error ?? "Couldn't update this connection — please try again.",
+          result.error ?? "Couldn't update this connection, please try again.",
         );
       }
     });
@@ -601,7 +601,7 @@ export function ConnectorsClient({
         msg += ` ${result.rejected} row${result.rejected === 1 ? "" : "s"} skipped (invalid data).`;
       }
       if (result.partial && result.warnings.length > 0) {
-        msg += ` Completed with ${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"} — some data may be incomplete.`;
+        msg += ` Completed with ${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}, some data may be incomplete.`;
       }
       setSuccess(msg);
       router.refresh();
@@ -650,12 +650,12 @@ export function ConnectorsClient({
       <div className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3">
         <p className="text-[12px] text-foreground leading-relaxed">
           Connecting a tool just gives Beacon access. Beacon pulls your data
-          when you click &ldquo;Sync now&rdquo; or &ldquo;Pull my data&rdquo; —
+          when you click &ldquo;Sync now&rdquo; or &ldquo;Pull my data&rdquo;,
           nothing runs on a schedule.
         </p>
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
-        Each source updates independently. Connecting a tool is additive — it does not replace manual import.
+        Each source updates independently. Connecting a tool is additive; it does not replace manual import.
       </p>
 
       {/* ── What you'll get once everything's connected ──
@@ -670,11 +670,11 @@ export function ConnectorsClient({
         </h2>
         <p className="text-[12px] text-foreground leading-relaxed">
           Once everything is connected, one click of &ldquo;Refresh my
-          data&rdquo; runs the whole find-fix-prove loop for you — reading all
-          six sources, drafting and ranking the exact fixes — and the only thing
+          data&rdquo; runs the whole find-fix-prove loop for you, reading all
+          six sources, drafting and ranking the exact fixes, and the only thing
           Beacon can&rsquo;t do without you is push a change live: every Wix
           publish is one-click approve, and there is no zero-touch auto-publish.
-          (Nothing runs on a hidden schedule — you&rsquo;re always in control of
+          (Nothing runs on a hidden schedule, you&rsquo;re always in control of
           when it refreshes.)
         </p>
         <ul className="space-y-1.5 text-[12px] text-muted-foreground leading-relaxed">
@@ -683,7 +683,7 @@ export function ConnectorsClient({
             <span>
               When the AI assistants recommend a competitor on a topic real
               people are already searching for, Beacon drafts the answer to add
-              first — so your effort lands where customers are actually looking.
+              first, so your effort lands where customers are actually looking.
             </span>
           </li>
           <li className="flex gap-2">
@@ -754,7 +754,7 @@ export function ConnectorsClient({
                       // color-blind users and announced to screen readers.
                       <p className="text-[12px] text-status-warning" role="status">
                         <span className="font-semibold">Action needed:</span>{" "}
-                        No location selected — choose one below before syncing
+                        No location selected. Choose one below before syncing
                       </p>
                     )}
                     <p className="text-[12px] text-muted-foreground">
@@ -870,7 +870,7 @@ export function ConnectorsClient({
                 {gscReadiness.verdict === "needs_reconnect"
                   ? "Reconnect needed"
                   : gscReadiness.verdict === "connected_no_data"
-                    ? "Connected · no data yet — pull to backfill"
+                    ? "Connected · no data yet, pull to backfill"
                     : "Not ready"}
               </p>
             ) : (
@@ -952,7 +952,7 @@ export function ConnectorsClient({
             {google.status === "connected" ? (
               <>
                 Beacon reads URL Inspection + Search Analytics data. Read-only
-                access — no writes to your Search Console property. Pull the
+                access, no writes to your Search Console property. Pull the
                 latest any time with the &ldquo;Pull my Search Console
                 data&rdquo; button above.
               </>
@@ -999,7 +999,7 @@ export function ConnectorsClient({
                   // and is announced when the state changes after connect.
                   <p className="text-[12px] text-status-warning" role="status">
                     <span className="font-semibold">Action needed:</span>{" "}
-                    Connected — select a property to finish setup.
+                    Connected, select a property to finish setup.
                   </p>
                 )}
                 {ga4SyncResult ? (
@@ -1050,7 +1050,7 @@ export function ConnectorsClient({
                   onClick={handleDisconnectGa4}
                   disabled={isPending || anySync}
                   className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-                  title="Soft disconnect — historical data stays cached but no new data refreshes until you reconnect."
+                  title="Soft disconnect: historical data stays cached but no new data refreshes until you reconnect."
                 >
                   {isPending ? "Disconnecting…" : "Disconnect"}
                 </button>
@@ -1147,7 +1147,7 @@ export function ConnectorsClient({
             {ga4.status === "connected" ? (
               <>
                 Beacon reads your GA4 page/URL traffic, which feeds your
-                priority score. Read-only access — no writes to your Google
+                priority score. Read-only access, no writes to your Google
                 Analytics property.
               </>
             ) : (
@@ -1591,7 +1591,7 @@ export function ConnectorsClient({
           <a href="/settings/import" className="text-accent-primary hover:underline">
             Settings → Import
           </a>{" "}
-          regardless of connector status. Connectors are additive — they do not replace manual import.
+          regardless of connector status. Connectors are additive; they do not replace manual import.
         </p>
       </div>
     </div>

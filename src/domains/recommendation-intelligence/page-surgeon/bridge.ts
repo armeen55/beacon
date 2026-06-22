@@ -185,7 +185,7 @@ export async function loadProofPlan(tenantId: string): Promise<ProofPlanRow[]> {
       buildProofPlanRow({
         pageUrl,
         verdict: decision.verdict,
-        headlineAction: brief?.decision.recommended_atomic_action ?? "—",
+        headlineAction: brief?.decision.recommended_atomic_action ?? "-",
         decidedAt: decision.created_at,
         measurementPlan: brief?.decision.primary_atomic_change?.measurement ?? null,
         note: decision.note,

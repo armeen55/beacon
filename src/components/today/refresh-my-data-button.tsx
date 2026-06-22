@@ -51,7 +51,7 @@ export function RefreshResultList({ results }: { results: RefreshResult[] }) {
             {r.ok ? "✓" : "✗"}
           </span>
           <span className="font-medium">{r.label}</span>
-          <span className="text-muted-foreground">— {r.detail}</span>
+          <span className="text-muted-foreground">{r.detail}</span>
         </li>
       ))}
     </ul>

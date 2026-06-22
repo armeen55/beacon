@@ -41,7 +41,7 @@ export function FixFirstCallout({
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
         {pages.length === 1 ? "This page is" : `These ${pages.length} pages are`}{" "}
         fading in search <strong className="font-semibold text-foreground">and</strong>{" "}
-        tripping up the visitors who do land — the highest-value place to
+        tripping up the visitors who do land, the highest-value place to
         spend your next edit.
       </p>
       <ul className="mt-2.5 space-y-1.5">

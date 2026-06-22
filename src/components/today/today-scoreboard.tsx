@@ -123,7 +123,7 @@ export function TodayScoreboard({
   const mentionRateQualifier =
     mentionSample != null
       ? mentionSample < THIN_SAMPLE
-        ? `small sample (${mentionSample.toLocaleString()} AI answers) — can swing day to day`
+        ? `small sample (${mentionSample.toLocaleString()} AI answers), can swing day to day`
         : `across ${mentionSample.toLocaleString()} AI answers`
       : null;
 
@@ -185,7 +185,7 @@ export function TodayScoreboard({
   const cumulativeFallback =
     (scoreboard.cumulativeFallback ?? false) && !isFirstRunNoData;
   const awaitingMeta =
-    "Awaiting today's reading — refresh your connected data for a current count.";
+    "Awaiting today's reading, refresh your connected data for a current count.";
 
   return (
     <div className="space-y-5">
@@ -204,7 +204,7 @@ export function TodayScoreboard({
           // single-day count.
           value={
             isFirstRunNoData || cumulativeFallback
-              ? "—"
+              ? "-"
               : scoreboard.totalCitations
           }
           // Suppress the week-over-week pill on the cumulative fallback —
@@ -269,7 +269,7 @@ export function TodayScoreboard({
         )}
         <KpiCard
           label="Your pages AI sends people to"
-          value={isFirstRunNoData ? "—" : scoreboard.citedPageCount}
+          value={isFirstRunNoData ? "-" : scoreboard.citedPageCount}
           meta={
             scoreboard.citedPageCount > 0
               ? "pages where AI links directly to you"

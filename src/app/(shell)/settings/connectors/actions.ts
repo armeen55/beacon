@@ -711,12 +711,12 @@ const BENIGN_SKIP_REASONS = new Set([
 const RECONNECT_REASONS: Record<string, string> = {
   // GSC: token row exists but the grant expired / went stale (>7d).
   gsc_token_expired:
-    "Your Google connection expired — reconnect Google to refresh.",
+    "Your Google connection expired. Reconnect Google to refresh.",
   // GSC: a mid-sync 401/403 the refresh couldn't recover (revoked / lost scope).
   gsc_auth_failed_401:
-    "Your Google connection expired — reconnect Google to refresh.",
+    "Your Google connection expired. Reconnect Google to refresh.",
   gsc_auth_failed_403:
-    "Google revoked access for this site — reconnect Google to refresh.",
+    "Google revoked access for this site. Reconnect Google to refresh.",
 };
 
 /**
@@ -730,16 +730,16 @@ const RECONNECT_REASONS: Record<string, string> = {
 const FAILED_REASON_COPY: Record<string, string> = {
   // Beacon's database was briefly unreachable — transient, retry works.
   supabase_unavailable:
-    "Beacon couldn't reach its database just now — please try again in a moment.",
+    "Beacon couldn't reach its database just now, please try again in a moment.",
   // Writing the pulled rows failed — transient, retry works.
   upsert_failed:
-    "Beacon pulled your data but couldn't save it — please try again in a moment.",
+    "Beacon pulled your data but couldn't save it, please try again in a moment.",
   // SEMrush: the key is missing OR the API rejected the request.
   no_key_or_api_error:
-    "Couldn't reach SEMrush — check the API key on this card, then try again.",
+    "Couldn't reach SEMrush, check the API key on this card, then try again.",
   // Profound: the key is present but the API returned an error.
   profound_api_error:
-    "Couldn't reach Profound — check the API key on this card, then try again.",
+    "Couldn't reach Profound, check the API key on this card, then try again.",
   // Profound: no competitor configured yet to pull citations against.
   no_known_competitor:
     "Add at least one competitor in Settings → Config, then sync again.",
@@ -800,7 +800,7 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     if (skipped > 0 && r.categories_total != null) {
       const pulled = r.categories_total - skipped;
       const capNote =
-        `Synced ${pulled} of ${r.categories_total} topics — ` +
+        `Synced ${pulled} of ${r.categories_total} topics, ` +
         `${skipped} not pulled this run (run again to pull more).`;
       const head = bits.length ? `Synced ${bits.join(" · ")}. ` : "";
       return { ok: true, detail: `${head}${capNote}` };
@@ -817,7 +817,7 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
           "Connected and working, but this source returned no data for the window. If it should have data, check that it's actively collecting (for Google Analytics, that the GA4 tracking tag is installed and firing on your site).",
       };
     }
-    return { ok: true, detail: "Synced — nothing new found yet." };
+    return { ok: true, detail: "Synced, nothing new found yet." };
   }
   // #87 — auth broke: an honest, plain-English reconnect prompt (a FAILURE).
   if (r.reason != null && RECONNECT_REASONS[r.reason] != null) {
@@ -834,11 +834,11 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
   // #208 — GA4 ran fine but there's simply no traffic data yet. A benign
   // "nothing yet" state, not a failure to alarm the owner about.
   if (r.reason === "no_traffic_data") {
-    return { ok: true, detail: "Synced — no traffic data yet." };
+    return { ok: true, detail: "Synced, no traffic data yet." };
   }
   // Benign skip — the source isn't connected yet. Not an alarming failure.
   if (r.reason != null && BENIGN_SKIP_REASONS.has(r.reason)) {
-    return { ok: false, error: "Not connected yet — connect this source to sync." };
+    return { ok: false, error: "Not connected yet. Connect this source to sync." };
   }
   // #208 — known real-failure reason codes get plain-English copy instead
   // of leaking the raw token (supabase_unavailable, upsert_failed, …).
@@ -849,7 +849,7 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
   // surface the raw reason code to a non-technical owner.
   return {
     ok: false,
-    error: "Sync didn't finish — please try again in a moment.",
+    error: "Sync didn't finish, please try again in a moment.",
   };
 }
 
@@ -1109,7 +1109,7 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
             provider: s.provider,
             label: s.label,
             ok: false,
-            detail: "Couldn't refresh just now — please try again in a moment.",
+            detail: "Couldn't refresh just now, please try again in a moment.",
           };
         }
         const summary = summarizeConnectorSync(outcome.value);
@@ -1125,7 +1125,7 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
             (summary.ok ? summary.detail : summary.error) ??
             (summary.ok
               ? "Updated."
-              : "Couldn't refresh just now — please try again in a moment."),
+              : "Couldn't refresh just now, please try again in a moment."),
         };
       }),
     );

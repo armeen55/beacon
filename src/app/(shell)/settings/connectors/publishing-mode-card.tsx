@@ -91,8 +91,8 @@ export function PublishingModeCard() {
           </h3>
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {armed
-              ? "Armed — accepting a safe, mapped, high-confidence edit publishes it to your site in one click."
-              : "Off — accepting an edit stages it; you publish with a second click. Arm this to publish safe edits in one click."}
+              ? "Armed. Accepting a safe, mapped, high-confidence edit publishes it to your site in one click."
+              : "Off. Accepting an edit stages it; you publish with a second click. Arm this to publish safe edits in one click."}
           </p>
         </div>
         <span
@@ -191,7 +191,7 @@ export function PublishingModeCard() {
             className="rounded-md border border-border/60 px-3.5 py-2 text-[13px] font-semibold text-foreground hover:bg-surface-inset/40 disabled:opacity-50"
             data-publishing-mode-action="disarm"
           >
-            {pending ? "Disarming…" : "Disarm — back to two-click"}
+            {pending ? "Disarming…" : "Disarm: back to two-click"}
           </button>
           <p className="text-[12px] text-muted-foreground">
             Accepting still snapshots, caps daily pushes, and never changes URLs or links.

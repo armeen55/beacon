@@ -70,7 +70,7 @@ function FindingRow({
       <div className="flex items-start gap-3">
         <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0">
           <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider leading-none", ps.badge)}>
-            {(FINDING_PRIORITY_LABELS as Record<string, string>)[finding.priority] ?? "—"}
+            {(FINDING_PRIORITY_LABELS as Record<string, string>)[finding.priority] ?? "-"}
           </span>
         </div>
         <div className="flex-1 min-w-0">
@@ -422,8 +422,8 @@ export function TodayFindings({
             {truthDataCompromised || staleTruthDominant ? (
               <span className="block mt-2 text-[11px] text-muted-foreground/85 leading-relaxed">
                 {staleTruthDominant
-                  ? "Visibility sample is still behind — refresh import before trusting recommendations. That is separate from “no diffs.” See coverage below."
-                  : "Crawl or coverage is still limiting freshness — that is separate from “no diffs.” See coverage below."}
+                  ? "Visibility sample is still behind, refresh import before trusting recommendations. That is separate from “no diffs.” See coverage below."
+                  : "Crawl or coverage is still limiting freshness, that is separate from “no diffs.” See coverage below."}
               </span>
             ) : null}
           </div>
@@ -527,7 +527,7 @@ export function TodayFindings({
           <span className="tabular-nums font-medium text-foreground">
             {acceptedAwaitingPromotionCount}
           </span>{" "}
-          accepted finding{acceptedAwaitingPromotionCount !== 1 ? "s" : ""} awaiting promotion —{" "}
+          accepted finding{acceptedAwaitingPromotionCount !== 1 ? "s" : ""} awaiting promotion:{" "}
           <Link href="/pages" className="text-accent-primary font-medium hover:underline">
             continue on Pages
           </Link>

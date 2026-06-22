@@ -5,7 +5,7 @@ import { BEACON_METHODOLOGY } from "@/lib/beacon-proof-copy";
 import type { TodayProofContext } from "@/lib/today-proof-context";
 
 function fmt(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   try {
     const d = new Date(iso);
     return d.toLocaleString(undefined, {
@@ -48,7 +48,7 @@ export function HowWeKnowPanel({
               ) : (
                 <span className="text-muted-foreground/80">
                   {context.crawlRunId
-                    ? "observation record not on file — id is shown in Today scan findings when present."
+                    ? "observation record not on file, id is shown in Today scan findings when present."
                     : "no crawl id on file."}
                 </span>
               )}
@@ -62,7 +62,7 @@ export function HowWeKnowPanel({
           <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/80 mb-1">Visibility sample</p>
           <p>{BEACON_METHODOLOGY.visibilitySample}</p>
           <p className="mt-1.5 text-[10px] text-muted-foreground/85">
-            Beacon does not know real-time AI answers or full-web coverage — only what your last
+            Beacon does not know real-time AI answers or full-web coverage, only what your last
             completed crawl and imports contain.
           </p>
           <ul className="mt-1.5 space-y-0.5 list-disc pl-4">
@@ -90,7 +90,7 @@ export function HowWeKnowPanel({
               </li>
             )}
             {context.visibilitySynthetic && (
-              <li className="text-status-warning font-medium">Synthetic visibility wrapper — sample may be pinned to demo defaults.</li>
+              <li className="text-status-warning font-medium">Synthetic visibility wrapper: sample may be pinned to demo defaults.</li>
             )}
             {context.visibilitySource && (
               <li>Source: <span className="font-medium text-foreground">{context.visibilitySource}</span></li>

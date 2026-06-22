@@ -41,7 +41,7 @@ export default async function ConnectionsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Data Health</h1>
         <p className="mt-1 text-[14px] text-muted-foreground">
           {connected} of {sources.length} sources connected. Beacon fuses these
-          into every insight — coverage gaps narrow what it can see.
+          into every insight, coverage gaps narrow what it can see.
         </p>
       </div>
 

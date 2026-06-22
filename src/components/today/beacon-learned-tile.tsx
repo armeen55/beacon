@@ -50,7 +50,7 @@ export function BeaconLearnedTile({ state }: { state: BeaconLearnedState }) {
       {state.kind === "per_tenant" ? (
         <p className="text-sm text-foreground">
           Your shipped edits typically get their first AI citation within{" "}
-          <span className="font-semibold">{state.medianDays} days</span> —
+          <span className="font-semibold">{state.medianDays} days</span>,
           measured from {state.sampleSize} of your own cited edits, not a
           borrowed benchmark.
         </p>
