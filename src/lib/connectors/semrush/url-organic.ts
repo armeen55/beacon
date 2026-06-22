@@ -57,7 +57,15 @@ export async function fetchUrlOrganicKeywords(
       url: args.url,
       trafficPct: null,
       difficulty: semrushNum(r["Keyword Difficulty"] ?? r["Kd"]),
-      intent: (r["Intent"] ?? r["In"] ?? "").trim() || null,
+      // SEMrush returns Intent as a bare numeric CODE (e.g. "0".."3") whose
+      // label mapping we don't reliably decode. Storing the raw code leaks a
+      // meaningless "0"/"1" into the LLM evidence packet (which reads it as the
+      // query's intent), so drop bare-numeric values; keep any real text label.
+      intent: (() => {
+        const raw = (r["Intent"] ?? r["In"] ?? "").trim();
+        if (!raw || /^\d+$/.test(raw)) return null;
+        return raw;
+      })(),
     });
   }
   return out;

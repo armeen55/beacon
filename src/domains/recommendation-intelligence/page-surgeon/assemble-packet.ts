@@ -317,7 +317,15 @@ export function assemblePacketForUrl(
       metaDescription: snap.meta_description ?? null,
       h2List: snap.h2_list ?? [],
       h3List: snap.h3_list ?? [],
-      faqs: (snap.faqs ?? []).map((f) => (typeof f === "string" ? f : JSON.stringify(f))),
+      // Serialize crawl FAQs as readable "question: answer" text, not a raw JSON
+      // blob (keys + source enum) — the judge reads this as its ground truth, so a
+      // blob both wastes tokens and reads as noise instead of the actual Q&A.
+      faqs: (snap.faqs ?? []).map((f) => {
+        if (typeof f === "string") return f;
+        const q = (f as { question?: string }).question ?? "";
+        const a = (f as { answer?: string }).answer ?? "";
+        return [q, a].filter(Boolean).join(": ").trim() || JSON.stringify(f);
+      }),
       schemaTypes: snap.schema_types ?? [],
       wordCount: snap.word_count ?? null,
       internalLinkCount: snap.internal_link_count ?? null,
