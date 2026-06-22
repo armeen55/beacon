@@ -23,7 +23,10 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { getTenant } from "@/domains/tenants/store";
-import { getBusinessConfig } from "@/lib/business-config";
+import {
+  getBusinessConfig,
+  hydrateBusinessConfigFromSupabase,
+} from "@/lib/business-config";
 import {
   generateClusterCards,
   type ClusterDeps,
@@ -192,7 +195,10 @@ export async function runClusterFactoryForTenant(
   // Per-tenant content rules (#35/#67, 2026-06-11): when the plan
   // doesn't carry its own rules, inject the tenant's configured
   // defaults — and MERGE flagged terms (tenant bans always apply).
-  const cfg = getBusinessConfig(tenantId);
+  // Hydrate from Supabase first so a tenant's banned terms configured there are
+  // actually enforced — the sync getBusinessConfig reads env/file only, so the
+  // ban gate was fail-OPEN for Supabase-configured terms. Fall back to sync.
+  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
   const effectivePlan: ClusterPlan = {
     ...plan,
     contentRules:

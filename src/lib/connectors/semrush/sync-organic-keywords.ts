@@ -91,6 +91,25 @@ export async function syncSemrushOrganicKeywordsForTenant(args: {
     upserted += chunk.length;
   }
 
+  // Stale-URL purge: when a keyword's ranking URL changes, the upsert inserts a
+  // NEW (keyword,url) row but the OLD one survives — two URLs then look like they
+  // "compete" for the keyword, FABRICATING a cannibalization rec for up to 30
+  // days. Delete this (tenant,domain)'s rows not refreshed in THIS sync (older
+  // fetched_at than now). Guarded on a non-empty fetch so a transient empty/
+  // partial SEMrush pull can never wipe the cached domain.
+  if (upserted > 0) {
+    try {
+      await sb
+        .from("semrush_organic_keywords")
+        .delete()
+        .eq("tenant_id", tenantId)
+        .eq("domain", domain)
+        .lt("fetched_at", now.toISOString());
+    } catch {
+      /* non-fatal: the 30-day TTL purge below is the backstop */
+    }
+  }
+
   // ToS 30-day TTL purge (this tenant's stale cached rows only).
   let purged = false;
   try {

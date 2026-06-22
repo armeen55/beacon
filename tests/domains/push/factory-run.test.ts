@@ -171,6 +171,9 @@ describe("per-tenant content rules injection (#35/#67, 2026-06-11)", () => {
         contentRules: ["Call the language Persian, never Farsi."],
         flaggedTerms: ["Farsi"],
       }),
+      // Supabase hydrate returns null here → factory falls back to the sync
+      // getBusinessConfig above (this test asserts the sync-config injection).
+      hydrateBusinessConfigFromSupabase: async () => null,
     }));
     vi.resetModules();
     const mod = await import("@/domains/push/factory-run");
@@ -200,6 +203,7 @@ describe("per-tenant content rules injection (#35/#67, 2026-06-11)", () => {
         contentRules: ["tenant rule"],
         flaggedTerms: ["Farsi"],
       }),
+      hydrateBusinessConfigFromSupabase: async () => null,
     }));
     vi.resetModules();
     const mod = await import("@/domains/push/factory-run");
