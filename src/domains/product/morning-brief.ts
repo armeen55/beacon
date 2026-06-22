@@ -1344,14 +1344,18 @@ function generateQueryGapSteps(
  */
 function generateComparisonTableHtml(competitors: string[]): string {
   const cols = ["Your Business", ...competitors.slice(0, 4)];
+  // Vertical-NEUTRAL criteria so the paste-ready table fits any tenant. The old
+  // list was builder-specific ("Design-Build Capability", "Project Types",
+  // "Budget Range") and leaked onto non-builder tenants (e.g. an encyclopedia).
+  // TODO(tool-for-everyone): derive criteria from the tenant's
+  // industry/services config for vertical-specific tables.
   const criteria = [
-    "Years in Business",
-    "Project Types",
-    "Service Area",
-    "Budget Range",
-    "Licensed & Insured",
-    "Design-Build Capability",
-    "Notable Projects",
+    "What they offer",
+    "Coverage / range",
+    "Depth & detail",
+    "Reputation & proof",
+    "Pricing or access",
+    "Last updated",
   ];
 
   const headerCells = ["Criteria", ...cols].map((c) => `    <th>${c}</th>`).join("\n");

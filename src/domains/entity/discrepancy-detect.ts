@@ -198,7 +198,15 @@ export async function detectDiscrepancies(
 }
 
 function buildLocationPatterns(ownedLocations: Set<string>): Map<string, RegExp> {
-  // Common Bay Area / California location terms to check against
+  // The "AI mentions a location not in your page data" class only makes sense for
+  // a tenant with a DEFINED service area. A tenant with NO curated location terms
+  // (a content site like an encyclopedia) has no service area — skip the class
+  // entirely. Otherwise the hardcoded builder/Bay-Area candidate list below fires
+  // false, embarrassing discrepancies on a non-builder tenant (e.g. Iranopedia).
+  if (ownedLocations.size === 0) return new Map();
+  // Builder candidate vocabulary (Bay Area / California). TODO(tool-for-everyone):
+  // derive from the tenant's own region instead of hardcoding, so a non-Bay-Area
+  // service-area tenant gets the right candidates.
   const candidates = [
     "san francisco", "oakland", "berkeley", "fremont", "redwood city",
     "santa clara", "milpitas", "campbell", "saratoga", "los gatos",
@@ -226,6 +234,13 @@ function buildLocationPatterns(ownedLocations: Set<string>): Map<string, RegExp>
 }
 
 function buildServicePatterns(ownedServices: Set<string>): Map<string, RegExp> {
+  // Same gate as locations: the "AI mentions a service not in your data" class
+  // only applies to a tenant with DEFINED services. A content site (no curated
+  // service terms) has none — skip, so the hardcoded construction-services list
+  // never fires false discrepancies on a non-builder tenant.
+  if (ownedServices.size === 0) return new Map();
+  // Builder candidate vocabulary. TODO(tool-for-everyone): derive from the
+  // tenant's own services instead of hardcoding construction trades.
   const candidates = [
     "kitchen remodel", "bathroom remodel", "room addition", "garage conversion",
     "landscaping", "pool construction", "roofing", "foundation repair",
