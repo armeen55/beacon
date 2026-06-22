@@ -322,16 +322,24 @@ export async function getTenantSpentTodayUsd(
 export async function getTenantSpentThisMonthUsd(
   tenantId: string,
   now: Date = new Date(),
+  platform?: LedgerPlatform,
 ): Promise<number | null> {
   if (typeof tenantId !== "string" || tenantId.trim() === "") return 0;
+  if (platform !== undefined && !VALID_PLATFORMS.has(platform)) return null;
   try {
     const supabase = getSupabaseAdmin();
     const monthStart = `${todayUtcDate(now).slice(0, 7)}-01`; // YYYY-MM-01
-    const { data, error } = await supabase
+    let query = supabase
       .from("llm_budget_ledger")
       .select("spent_usd")
       .eq("tenant_id", tenantId)
       .gte("date_utc", monthStart);
+    // Platform-scoped read: the adjudicator's MONTHLY cap must count only
+    // adjudicator spend, not the much larger native-poll spend that shares
+    // this ledger — otherwise poll spend would trip the $10 adjudicator cap
+    // almost immediately (fail-CLOSED prematurely).
+    if (platform !== undefined) query = query.eq("platform", platform);
+    const { data, error } = await query;
     if (error || !Array.isArray(data)) return null;
     let total = 0;
     for (const row of data as Array<{ spent_usd?: number }>) {

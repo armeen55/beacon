@@ -11,12 +11,47 @@ import "server-only";
  * The budget store is single-writer (the adjudicator runs server-side
  * from /recommendations page render or cron). No lock needed at this
  * scale; if two renders race the worst case is a fractional overshoot.
+ *
+ * audit-3 #1 (2026-06-22) — DURABLE CAP. `.data/llm-budget.json` is the
+ * source of truth ONLY where the disk is writable. On Vercel (and every
+ * GitHub Actions run) `json-store` no-ops writes, so the file ledger reads
+ * back 0 forever and the monthly cap fails OPEN — paid adjudicator calls
+ * could run unbounded. We now ALSO consult the durable Supabase
+ * `llm_budget_ledger` (platform `adjudicator-openai`): `checkBudget` blocks on
+ * max(file, durable) monthly spend, and `recordSpend` writes the durable row
+ * as well as the file. Fail-soft: a Supabase read error falls back to the file
+ * spend (per-run cost stays tiny; the file is still the backstop in dev).
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { isSupabaseConfigured } from "@/lib/persistence/supabase";
+import {
+  getTenantSpentThisMonthUsd,
+  recordSpendSupabase,
+} from "@/lib/cost/budget-ledger-supabase";
+import { currentTenantId } from "@/lib/tenant-context";
+import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
 const DEFAULT_CAP_USD = 10;
+
+/** Platform tag for adjudicator/LLM-narrative spend in the durable ledger. */
+const ADJUDICATOR_PLATFORM = "adjudicator-openai" as const;
+
+/**
+ * Durable monthly adjudicator spend from Supabase, or null when the DB is
+ * unconfigured / read errored (caller falls back to the file ledger). Never
+ * throws — resolving the tenant or the read failing both degrade to null.
+ */
+async function durableMonthlySpentUsd(now: Date): Promise<number | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const tenantId = await currentTenantId();
+    return await getTenantSpentThisMonthUsd(tenantId, now, ADJUDICATOR_PLATFORM);
+  } catch {
+    return null;
+  }
+}
 
 export type AdjudicatorBudgetState = {
   /** YYYY-MM. Resets when a new month begins. */
@@ -97,13 +132,20 @@ export async function checkBudget(
   const now = opts.now ?? new Date();
   const state = await readState(now);
   const projected = opts.projectedCostUsd ?? 0;
-  if (isOverAdjudicatorBudget(state.spendUsd, projected, state.capUsd)) {
+
+  // audit-3 #1: take the GREATER of the file spend and the durable Supabase
+  // monthly spend. On Vercel the file reads back 0 (writes no-op), so without
+  // the durable read the cap fails OPEN; the durable spend is the real total.
+  const durable = await durableMonthlySpentUsd(now);
+  const effectiveSpend = durable != null ? Math.max(state.spendUsd, durable) : state.spendUsd;
+
+  if (isOverAdjudicatorBudget(effectiveSpend, projected, state.capUsd)) {
     return {
       allowed: false,
-      reason: `Monthly adjudicator budget cap reached (${state.spendUsd.toFixed(4)} / ${state.capUsd} USD this ${state.monthKey}).`,
+      reason: `Monthly adjudicator budget cap reached (${effectiveSpend.toFixed(4)} / ${state.capUsd} USD this ${state.monthKey}).`,
     };
   }
-  return { allowed: true, remaining: state.capUsd - state.spendUsd };
+  return { allowed: true, remaining: state.capUsd - effectiveSpend };
 }
 
 export async function recordSpend(costUsd: number, opts: { now?: Date } = {}): Promise<void> {
@@ -113,6 +155,26 @@ export async function recordSpend(costUsd: number, opts: { now?: Date } = {}): P
   state.calls += 1;
   state.updatedAt = now.toISOString();
   await writeState(state);
+
+  // audit-3 #1: mirror the spend into the durable Supabase ledger so the cap
+  // survives Vercel's ephemeral disk. Always-on (not flag-gated) — the cap in
+  // checkBudget reads this same table. Never throws (recordSpendSupabase
+  // swallows its own errors); a durable miss only loses cross-run accounting,
+  // it never blocks the paid call that already happened.
+  if (isSupabaseConfigured() && Number.isFinite(costUsd) && costUsd >= 0) {
+    try {
+      const tenantId = await currentTenantId();
+      await recordSpendSupabase({
+        tenantId,
+        platform: ADJUDICATOR_PLATFORM,
+        costUsd,
+      });
+    } catch (e) {
+      log.warn?.("adjudicator durable spend write failed (non-fatal)", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 }
 
 export async function getBudgetState(now?: Date): Promise<AdjudicatorBudgetState> {

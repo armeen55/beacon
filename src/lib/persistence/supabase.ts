@@ -17,6 +17,19 @@ function requireEnv(name: string): string {
 let _admin: SupabaseClient | null = null;
 
 /**
+ * True when both Supabase env vars are present (non-empty). Lets always-on
+ * durable writers/readers short-circuit cleanly when the DB isn't configured
+ * (hermetic test runs blank these), instead of attempting a round-trip that
+ * throws inside `getSupabaseAdmin` and only logs a warn. Cheap to call.
+ */
+export function isSupabaseConfigured(): boolean {
+  return (
+    !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    !!process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
+
+/**
  * Server-only Supabase client using the service role key.
  * Single-tenant, no RLS — used for all server-side DB operations.
  * Lazily initialized on first access so env vars are only required
