@@ -40,15 +40,37 @@ export type CronSyncResult = {
   results: CronSyncSourceResult[];
 };
 
-/** A sync engine that returns `{ ok: false }` ran but didn't pull — don't stamp
- *  freshness for it. (Throwing is handled separately as a hard failure.) */
-function resultLooksFailed(value: unknown): boolean {
-  return (
+/**
+ * POSITIVE success gate (audit-3 #5, 2026-06-22).
+ *
+ * Every read-sync engine returns the discriminated union
+ * `{ synced: false, reason } | { synced: true, ... }` — NONE returns an `ok`
+ * field. The prior `resultLooksFailed` checked `value.ok === false`, which is
+ * ALWAYS false (no such key), so a `{ synced: false }` failure slipped through:
+ * we stamped `last_synced_at` fresh and reported `ok: true` for a sync that
+ * never pulled — the connector card then lied about freshness.
+ *
+ * Gate POSITIVELY on `synced === true`: only a confirmed success stamps
+ * freshness. Anything else (synced:false, or an unexpected shape we can't
+ * confirm) is treated as not-fresh. Throwing is handled separately upstream.
+ */
+export function syncSucceeded(value: unknown): { ok: true } | { ok: false; reason: string } {
+  if (
     typeof value === "object" &&
     value !== null &&
-    "ok" in value &&
-    (value as { ok?: unknown }).ok === false
-  );
+    "synced" in value &&
+    (value as { synced?: unknown }).synced === true
+  ) {
+    return { ok: true };
+  }
+  const reason =
+    typeof value === "object" &&
+    value !== null &&
+    "reason" in value &&
+    typeof (value as { reason?: unknown }).reason === "string"
+      ? (value as { reason: string }).reason
+      : "sync reported not-synced";
+  return { ok: false, reason };
 }
 
 /** Stamp last_synced_at so the connector card's freshness label stays honest.
@@ -114,8 +136,11 @@ async function syncOneTenant(tenantId: string): Promise<CronSyncSourceResult[]> 
         });
         return { tenantId, provider: s.provider, ok: false, detail: err.slice(0, 200) };
       }
-      if (resultLooksFailed(outcome.value)) {
-        return { tenantId, provider: s.provider, ok: false, detail: "sync reported not-ok" };
+      const verdict = syncSucceeded(outcome.value);
+      if (!verdict.ok) {
+        // Failed sync — do NOT stamp freshness (the card must not claim a pull
+        // that didn't happen). Surface the engine's reason for the cron log.
+        return { tenantId, provider: s.provider, ok: false, detail: verdict.reason };
       }
       await stampFreshness(s.provider, tenantId);
       return { tenantId, provider: s.provider, ok: true, detail: "synced" };
