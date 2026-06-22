@@ -24,6 +24,7 @@ import { log } from "@/lib/logger";
 import {
   buildUrlCitationHistory,
   persistUrlCitationHistory,
+  NATIVE_REGIME_START,
   type UrlCitationHistory,
 } from "./url-citation-history";
 // Phase 4 (2026-04-19): experiment-citation-sync removed. URL-level outcomes
@@ -103,7 +104,17 @@ export async function runUrlWatcher(
 
   try {
     // 1. Rebuild URL citation history from existing citation shards (owned only).
-    const history: UrlCitationHistory = await buildUrlCitationHistory({ ownedOnly: true });
+    //    sinceDate = NATIVE_REGIME_START windows OUT the pre-cutover benchmark
+    //    cold-store, which is GLOBAL (founder/Ritz-relative is_owned, no tenant
+    //    dimension). Without it a non-founder tenant (e.g. Iranopedia) PERSISTS
+    //    Ritz's owned benchmark citations into its OWN url-daily-citations store
+    //    — a cross-tenant leak. The /changes render path already windows the
+    //    same way; this makes the persist path consistent. Forward measurement
+    //    relies on the tenant-scoped native/Profound data, not this band.
+    const history: UrlCitationHistory = await buildUrlCitationHistory({
+      ownedOnly: true,
+      sinceDate: NATIVE_REGIME_START,
+    });
 
     // 2. Persist to disk + Supabase (dual-write when enabled).
     await persistUrlCitationHistory(history);

@@ -36,7 +36,10 @@
 
 import "server-only";
 
-import { buildUrlCitationHistory } from "@/domains/product/url-citation-history";
+import {
+  buildUrlCitationHistory,
+  NATIVE_REGIME_START,
+} from "@/domains/product/url-citation-history";
 import type { UrlCitationHistory } from "@/domains/product/url-citation-history";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import {
@@ -164,8 +167,15 @@ export async function buildAndPersistTenantProof(
       } catch {
         profoundOwnedCitations = [];
       }
+      // sinceDate windows OUT the pre-cutover GLOBAL benchmark cold-store
+      // (founder-relative is_owned, no tenant dimension). Without it the proof
+      // engine for a non-founder tenant would attribute Ritz's benchmark-band
+      // citations into this tenant's watch windows — a cross-tenant leak. The
+      // tenant-scoped `observations` + `profoundOwnedCitations` carry forward
+      // the real per-tenant series.
       return buildUrlCitationHistory({
         ownedOnly: true,
+        sinceDate: NATIVE_REGIME_START,
         observations,
         profoundOwnedCitations,
       });
