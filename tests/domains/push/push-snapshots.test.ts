@@ -39,6 +39,11 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
       ok: true,
       value: [{ id: "item-1", dataCollectionId: "col", data: { description: "the original text" } }],
     }),
+    // The field route now fetches the exact item by id (get-by-id).
+    wixGetDataItem: async () => ({
+      ok: true,
+      value: { id: "item-1", dataCollectionId: "col", data: { description: "the original text" } },
+    }),
     wixUpdateDataItem: async (args: Record<string, unknown>) => {
       _updateCalls.push(args);
       return { ok: true, value: { id: "item-1", dataCollectionId: "col", data: {} } };
