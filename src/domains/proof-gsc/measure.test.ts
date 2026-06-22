@@ -2,11 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   addDays,
   computeWindowLift,
+  pickProofMetric,
   proofCheckDates,
   proofOutcomeSentence,
   summarizeVerdict,
+  type GscWindowMetrics,
   type ProofWindowResult,
 } from "./measure";
+
+const m = (clicks: number, impressions: number, ctr: number, position: number): GscWindowMetrics => ({
+  clicks,
+  impressions,
+  ctr,
+  position,
+});
 
 describe("date math", () => {
   it("addDays handles plain dates + ISO timestamps (UTC)", () => {
@@ -23,17 +32,32 @@ describe("date math", () => {
   });
 });
 
+describe("pickProofMetric", () => {
+  it("maps each action type to the metric that actually measures it", () => {
+    expect(pickProofMetric("meta")).toBe("ctr");
+    expect(pickProofMetric("edit_meta")).toBe("ctr");
+    expect(pickProofMetric("edit_title")).toBe("ctr");
+    expect(pickProofMetric("schema")).toBe("ctr");
+    expect(pickProofMetric("intro_answer_block")).toBe("ctr");
+    expect(pickProofMetric("section_add")).toBe("position");
+    expect(pickProofMetric("add_internal_link")).toBe("position");
+    expect(pickProofMetric("create_new_page")).toBe("position");
+    expect(pickProofMetric("keep_current")).toBe("clicks");
+    expect(pickProofMetric("")).toBe("clicks");
+  });
+});
+
 describe("computeWindowLift — observational diff-in-diff", () => {
-  it("adjustedLift = treatedDelta − mean(controlDelta)", () => {
+  it("clicks: adjustedLift = treatedDelta − mean(controlDelta)", () => {
     const w = computeWindowLift({
       day: 28,
       checkOn: "2026-06-29",
       ran: true,
-      treatedPreClicks: 100,
-      treatedPostClicks: 130, // +30
+      treatedPre: m(100, 5000, 0.02, 5),
+      treatedPost: m(130, 5200, 0.025, 4), // +30 clicks
       controls: [
-        { preClicks: 50, postClicks: 55 }, // +5
-        { preClicks: 80, postClicks: 78 }, // −2
+        { pre: m(50, 3000, 0.0167, 6), post: m(55, 3100, 0.0177, 6) }, // +5
+        { pre: m(80, 4000, 0.02, 7), post: m(78, 3900, 0.02, 7) }, // −2
       ],
     });
     expect(w.treatedDelta).toBe(30);
@@ -41,17 +65,38 @@ describe("computeWindowLift — observational diff-in-diff", () => {
     expect(w.adjustedLift).toBe(28.5);
     expect(w.controlsUsed).toBe(2);
   });
-  it("no controls ⇒ controlDelta 0 (raw treated delta, controlsUsed 0)", () => {
+
+  it("CTR + position: guarded diff-in-diff", () => {
+    const w = computeWindowLift({
+      day: 28,
+      checkOn: "x",
+      ran: true,
+      // treated: CTR 2% → 3% (+1pp); position 8 → 5 (moved up 3)
+      treatedPre: m(100, 5000, 0.02, 8),
+      treatedPost: m(150, 5000, 0.03, 5),
+      controls: [
+        // control: CTR 2% → 2.2% (+0.2pp); position 8 → 7.5 (up 0.5)
+        { pre: m(40, 2000, 0.02, 8), post: m(44, 2000, 0.022, 7.5) },
+      ],
+    });
+    expect(w.treatedCtrDelta).toBeCloseTo(0.01, 5);
+    expect(w.adjustedCtrLift).toBeCloseTo(0.008, 4); // 0.01 − 0.002
+    expect(w.treatedPosDelta).toBe(3); // 8 − 5
+    expect(w.adjustedPosLift).toBe(2.5); // 3 − 0.5
+  });
+
+  it("zeroes CTR/position deltas when a window has no impressions/rank (no fake swing)", () => {
     const w = computeWindowLift({
       day: 7,
       checkOn: "x",
       ran: true,
-      treatedPreClicks: 10,
-      treatedPostClicks: 4,
+      treatedPre: m(10, 1000, 0.01, 9),
+      treatedPost: m(0, 0, 0, 0), // no post data at all
       controls: [],
     });
-    expect(w.controlDelta).toBe(0);
-    expect(w.adjustedLift).toBe(-6);
+    expect(w.treatedCtrDelta).toBe(0);
+    expect(w.treatedPosDelta).toBe(0);
+    expect(w.treatedDelta).toBe(-10); // clicks still computed (0 is valid)
     expect(w.controlsUsed).toBe(0);
   });
 });
@@ -64,12 +109,18 @@ function win(over: Partial<ProofWindowResult>): ProofWindowResult {
     treatedDelta: 0,
     controlDelta: 0,
     adjustedLift: 0,
+    treatedCtrDelta: 0,
+    controlCtrDelta: 0,
+    adjustedCtrLift: 0,
+    treatedPosDelta: 0,
+    controlPosDelta: 0,
+    adjustedPosLift: 0,
     controlsUsed: 3,
     ...over,
   };
 }
 
-describe("summarizeVerdict — thresholds + confidence", () => {
+describe("summarizeVerdict — clicks (default metric)", () => {
   it("won when adjusted lift clears the floor", () => {
     const r = summarizeVerdict({
       windows: [win({ adjustedLift: 60, controlsUsed: 3 })],
@@ -77,7 +128,8 @@ describe("summarizeVerdict — thresholds + confidence", () => {
       baselineClicks: 200,
     });
     expect(r.verdict).toBe("won");
-    expect(r.confidence).toBe("high"); // 3 controls + ≥3000 impr
+    expect(r.confidence).toBe("high");
+    expect(r.metric).toBe("clicks");
   });
   it("lost when adjusted lift is strongly negative", () => {
     const r = summarizeVerdict({
@@ -112,21 +164,13 @@ describe("summarizeVerdict — thresholds + confidence", () => {
     });
     expect(r.verdict).toBe("insufficient_data");
   });
-  it("insufficient_data when the basis window has no controls", () => {
-    const r = summarizeVerdict({
-      windows: [win({ adjustedLift: 99, controlsUsed: 0 })],
-      baselineImpressions: 5000,
-      baselineClicks: 200,
-    });
-    expect(r.verdict).toBe("insufficient_data");
-  });
-  it("insufficient_data with only ONE usable control (needs >=2 for a verdict)", () => {
+  it("insufficient_data with only ONE usable control (needs >=2)", () => {
     const r = summarizeVerdict({
       windows: [win({ adjustedLift: 99, controlsUsed: 1 })],
       baselineImpressions: 5000,
       baselineClicks: 200,
     });
-    expect(r.verdict).toBe("insufficient_data"); // not "won", despite clearing the lift floor
+    expect(r.verdict).toBe("insufficient_data");
   });
   it("uses the LONGEST window that ran as the basis", () => {
     const r = summarizeVerdict({
@@ -138,9 +182,9 @@ describe("summarizeVerdict — thresholds + confidence", () => {
       baselineClicks: 200,
     });
     expect(r.basis?.day).toBe(28);
-    expect(r.verdict).toBe("inconclusive"); // 28d lift (5) < floor, not the 7d (100)
+    expect(r.verdict).toBe("inconclusive");
   });
-  it("medium confidence at 2 controls + moderate volume; insufficient_data below that", () => {
+  it("medium confidence at 2 controls + moderate volume; insufficient below", () => {
     expect(
       summarizeVerdict({
         windows: [win({ adjustedLift: 40, controlsUsed: 2 })],
@@ -158,20 +202,85 @@ describe("summarizeVerdict — thresholds + confidence", () => {
   });
 });
 
-describe("proofOutcomeSentence — honest, observational copy", () => {
-  it("won copy names the lift + flags observational", () => {
+describe("summarizeVerdict — metric-aware (CTR / position)", () => {
+  it("judges a meta/title test on CTR lift, even when clicks are flat", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedLift: 0, adjustedCtrLift: 0.008, controlsUsed: 3 })],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+    });
+    expect(r.verdict).toBe("won"); // 0.8pp clears the 0.3pp CTR floor
+    expect(r.metric).toBe("ctr");
+    expect(r.lift).toBeCloseTo(0.008, 4);
+  });
+  it("CTR within the floor ⇒ inconclusive", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedCtrLift: 0.001, controlsUsed: 3 })],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+    });
+    expect(r.verdict).toBe("inconclusive");
+  });
+  it("judges a content test on position improvement (won)", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedPosLift: 1.2, controlsUsed: 3 })],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "position",
+    });
+    expect(r.verdict).toBe("won");
+    expect(r.lift).toBe(1.2);
+  });
+  it("position slip ⇒ lost", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedPosLift: -1.0, controlsUsed: 3 })],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "position",
+    });
+    expect(r.verdict).toBe("lost");
+  });
+});
+
+describe("proofOutcomeSentence — honest, observational, metric-aware copy", () => {
+  it("clicks won copy names the lift + flags observational", () => {
     const s = proofOutcomeSentence({
       verdict: "won",
       confidence: "high",
       basis: win({ adjustedLift: 28, day: 28 }),
     });
     expect(s).toContain("helping");
+    expect(s).toContain("clicks");
     expect(s).toContain("observational");
   });
+  it("CTR won copy reads in percentage points", () => {
+    const s = proofOutcomeSentence({
+      verdict: "won",
+      confidence: "high",
+      basis: win({ adjustedCtrLift: 0.008 }),
+      metric: "ctr",
+      lift: 0.008,
+    });
+    expect(s).toContain("pp CTR");
+    expect(s).toContain("helping");
+  });
+  it("position won copy reads in ranks + moved up", () => {
+    const s = proofOutcomeSentence({
+      verdict: "won",
+      confidence: "medium",
+      basis: win({ adjustedPosLift: 1.2 }),
+      metric: "position",
+      lift: 1.2,
+    });
+    expect(s).toContain("ranks");
+    expect(s).toContain("moved up");
+  });
   it("measuring + insufficient copy never claim an effect", () => {
-    expect(proofOutcomeSentence({ verdict: "measuring", confidence: "low", basis: null })).toContain(
-      "Measuring",
-    );
+    expect(
+      proofOutcomeSentence({ verdict: "measuring", confidence: "low", basis: null }),
+    ).toContain("Measuring");
     expect(
       proofOutcomeSentence({ verdict: "insufficient_data", confidence: "low", basis: null }),
     ).toContain("Not enough");

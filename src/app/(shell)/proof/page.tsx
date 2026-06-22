@@ -6,6 +6,7 @@ import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeo
 import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import {
+  pickProofMetric,
   proofOutcomeSentence,
   type GscProofVerdict,
 } from "@/domains/proof-gsc/measure";
@@ -234,6 +235,9 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
     verdict: rec.verdict,
     confidence: rec.confidence,
     basis: rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null,
+    // Judge a meta/title test on CTR, a content test on position, else clicks,
+    // so the outcome line reads in the unit that actually moved.
+    metric: pickProofMetric(rec.actionType),
   });
   const controlsCount = rec.controlPages.length;
   return (

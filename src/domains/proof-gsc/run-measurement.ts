@@ -22,15 +22,21 @@ import { readWindowForPages } from "./gsc-window";
 import {
   addDays,
   computeWindowLift,
+  pickProofMetric,
   proofCheckDates,
   summarizeVerdict,
   PROOF_WINDOW_DAYS,
+  type GscWindowMetrics,
   type ProofWindowResult,
   type ProofWindowDay,
 } from "./measure";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
 const BASELINE_WINDOW_DAYS = 28;
+/** Stand-in for a page/window with no Search reading (clicks 0 is valid; the
+ *  CTR/position guards in computeWindowLift treat 0 impressions/position as
+ *  "no data", so this never fakes a swing). */
+const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
 
 function dateOnly(iso: string): string {
   return iso.length > 10 ? iso.slice(0, 10) : iso;
@@ -124,15 +130,15 @@ export async function measureRecord(
       ? await readWindowForPages({ tenantId, pages, start: shipDate, end: postEnd })
       : null;
 
-    const treatedPre = pre.get(record.page)?.clicks ?? 0;
-    const treatedPost = post?.get(record.page)?.clicks ?? 0;
+    const treatedPreM = pre.get(record.page) ?? NULL_METRICS;
+    const treatedPostM = post?.get(record.page) ?? NULL_METRICS;
 
     // A control is usable when it had Search presence in the pre window.
     const controls = record.controlPages
       .filter((cp) => (pre.get(cp)?.impressions ?? 0) > 0)
       .map((cp) => ({
-        preClicks: pre.get(cp)?.clicks ?? 0,
-        postClicks: post?.get(cp)?.clicks ?? 0,
+        pre: pre.get(cp) ?? NULL_METRICS,
+        post: post?.get(cp) ?? NULL_METRICS,
       }));
 
     windows.push(
@@ -140,8 +146,8 @@ export async function measureRecord(
         day: day as ProofWindowDay,
         checkOn,
         ran,
-        treatedPreClicks: treatedPre,
-        treatedPostClicks: treatedPost,
+        treatedPre: treatedPreM,
+        treatedPost: treatedPostM,
         controls,
       }),
     );
@@ -154,6 +160,9 @@ export async function measureRecord(
     windows,
     baselineImpressions: treatedPre?.impressions ?? record.baseline.impressions,
     baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
+    // The metric that actually measures this change type (CTR for a meta/title
+    // test, position for a content/section test, else clicks).
+    metric: pickProofMetric(record.actionType),
   });
 
   return {

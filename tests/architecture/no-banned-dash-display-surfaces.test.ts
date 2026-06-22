@@ -132,6 +132,12 @@ describe("no banned dash in display surfaces (hard rule)", () => {
       treatedDelta: 30,
       controlDelta: 2,
       adjustedLift: 28,
+      treatedCtrDelta: 0.01,
+      controlCtrDelta: 0.002,
+      adjustedCtrLift: 0.008,
+      treatedPosDelta: 1.5,
+      controlPosDelta: 0.3,
+      adjustedPosLift: 1.2,
       controlsUsed: 3,
     };
     for (const verdict of verdicts) {
