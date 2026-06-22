@@ -375,7 +375,10 @@ export async function pullDayRows(args: {
    *  a successful refresh is cached here so later pages of the same day reuse
    *  the new token (no per-page re-refresh). */
   refreshAccessToken?: () => Promise<string | null>;
+  /** Test seam (audit-3 #6 truncation test) — defaults to the real query. */
+  queryImpl?: typeof gscSearchAnalyticsQuery;
 }): Promise<GscSearchAnalyticsRow[] | null> {
+  const query = args.queryImpl ?? gscSearchAnalyticsQuery;
   const out: GscSearchAnalyticsRow[] = [];
   let startRow = 0;
   // Track the live token so a mid-pagination refresh propagates to later pages.
@@ -388,7 +391,7 @@ export async function pullDayRows(args: {
       }
     : undefined;
   for (;;) {
-    const page = await gscSearchAnalyticsQuery(
+    const page = await query(
       {
         accessToken: currentToken,
         siteUrl: args.siteUrl,
@@ -400,7 +403,15 @@ export async function pullDayRows(args: {
       },
       { onAuthFailure: args.onAuthFailure, refreshAccessToken },
     );
-    if (page == null) return out.length > 0 ? out : null;
+    // audit-3 #6 (2026-06-22): a null page is a query failure (network / quota /
+    // auth). Pre-fix a failure AFTER the first full page returned the PARTIAL
+    // `out`, and the caller persisted those rows with is_final=true — a
+    // truncated day frozen as complete, which the re-pull watermark then skips
+    // forever. Return null on ANY page failure so the day is treated as
+    // incomplete: the caller stops the run, persists nothing for this day, and
+    // re-pulls it cleanly next run (UPSERT is idempotent). Returning a partial
+    // day is strictly worse than returning none.
+    if (page == null) return null;
     out.push(...page);
     if (page.length < GSC_SA_ROW_LIMIT) break;
     startRow += GSC_SA_ROW_LIMIT;
