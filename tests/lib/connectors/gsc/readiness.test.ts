@@ -52,6 +52,10 @@ let _rows: DailyRow[] = [];
 let _adminThrows = false;
 /** Force a Postgres error on the gsc_daily_rows reads (e.g. undefined_table). */
 let _forceError: { code?: string; message: string } | null = null;
+/** Force an error ONLY on the (property,date) span read (the .order() chain),
+ *  leaving the HEAD count successful — models a statement-timeout on a large
+ *  table where rows demonstrably exist. */
+let _forceSpanError: { code?: string; message: string } | null = null;
 /** Records the tenant_id every query was scoped to (proves tenant-scoping). */
 let _scopedTenantIds: string[] = [];
 
@@ -90,7 +94,7 @@ function buildQueryBuilder() {
       // gsc_daily_rows is read date-desc. Sort our fixture to match so the
       // loader's date-desc fold assumption holds.
       const sorted = [..._rows].sort((a, b) => (a.date < b.date ? 1 : -1));
-      return Promise.resolve({ data: sorted, error: _forceError, count: null });
+      return Promise.resolve({ data: sorted, error: _forceSpanError ?? _forceError, count: null });
     },
   };
   return builder;
@@ -133,6 +137,7 @@ beforeEach(() => {
   _rows = [];
   _adminThrows = false;
   _forceError = null;
+  _forceSpanError = null;
   _scopedTenantIds = [];
 });
 
@@ -270,6 +275,22 @@ describe("loadGscReadiness — soft-fail (never throws)", () => {
     _forceError = { code: "57014", message: "statement timeout" };
     const r = await loadGscReadiness("tenant-a");
     expect(r.verdict).toBe("connected_no_data");
+  });
+
+  it("count proves rows exist but the span read times out → ready, NOT 'no data yet'", async () => {
+    // The bug this guards: a large gsc_daily_rows table can statement-timeout on
+    // the (property,date) span read; the HEAD count already proved rows exist, so
+    // we must report ready (data present, span unknown), never connected_no_data.
+    _info = connectedInfo();
+    _rows = [
+      { property: "sc-domain:iranopedia.com", date: "2026-06-14" },
+      { property: "sc-domain:iranopedia.com", date: "2026-06-10" },
+    ];
+    _forceSpanError = { code: "57014", message: "canceling statement due to statement timeout" };
+    const r = await loadGscReadiness("tenant-a");
+    expect(r.verdict).toBe("ready");
+    // We don't fabricate a date span we couldn't read.
+    expect(r.coverage).toBeNull();
   });
 });
 

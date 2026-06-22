@@ -78,12 +78,18 @@ function daysSince(isoDate: string, now: Date): number {
   return Math.floor(diff / (24 * 60 * 60 * 1000));
 }
 
-type CoverageRead = {
-  property: string;
-  fromDate: string;
-  toDate: string;
-  rowCount: number;
-} | null;
+type CoverageRead =
+  | {
+      property: string;
+      fromDate: string;
+      toDate: string;
+      rowCount: number;
+    }
+  // HEAD count proved rows EXIST, but the (property,date) span read failed or
+  // timed out (a large gsc_daily_rows table). We must NOT report "no data yet"
+  // in this case — data is present, only its date span is unavailable.
+  | { spanUnknown: true; rowCount: number }
+  | null;
 
 /**
  * Read the synced-row coverage for the tenant, tenant-scoped. Returns the
@@ -129,13 +135,18 @@ async function readCoverage(tenantId: string): Promise<CoverageRead> {
       .order("date", { ascending: false });
     if (spanRes.error != null) {
       if (isUndefinedTableError(spanRes.error)) return null;
-      return null;
+      // The HEAD count already proved rows EXIST; this span read failed (a large
+      // gsc_daily_rows table can statement-timeout here). Report data-present /
+      // span-unknown so we never downgrade a tenant WITH data to "no data yet".
+      return { spanUnknown: true, rowCount: totalRows };
     }
     const rows = (spanRes.data ?? []) as Array<{
       property?: string;
       date?: string;
     }>;
-    if (rows.length === 0) return null;
+    // Rows exist (count > 0) but the span projection came back empty — same
+    // story: data is present, its span is just unavailable. Don't claim no data.
+    if (rows.length === 0) return { spanUnknown: true, rowCount: totalRows };
 
     // Fold per property: rows are date-desc, so the first row for a property is
     // its newest date; the last is its oldest. Track newest-overall to pick the
@@ -162,7 +173,7 @@ async function readCoverage(tenantId: string): Promise<CoverageRead> {
         existing.rowCount += 1;
       }
     }
-    if (byProperty.size === 0) return null;
+    if (byProperty.size === 0) return { spanUnknown: true, rowCount: totalRows };
 
     // Pick the property with the most recent data (newest toDate wins; ties
     // broken by higher row count for determinism).
@@ -232,17 +243,22 @@ export async function loadGscReadiness(
   // Read coverage regardless of status so a soft-disconnected tenant still
   // surfaces its cached property + window (honest "here's what we last saw").
   const coverageRead = await readCoverage(tenantId);
+  // A span read that failed/timed out while the count proved rows exist returns
+  // the spanUnknown sentinel — non-null, so it routes to "ready" below (data is
+  // present, only its date span is unavailable), never "connected_no_data".
+  const fullCoverage =
+    coverageRead != null && !("spanUnknown" in coverageRead) ? coverageRead : null;
 
   const coverage =
-    coverageRead != null
+    fullCoverage != null
       ? {
-          fromDate: coverageRead.fromDate,
-          toDate: coverageRead.toDate,
-          rowCount: coverageRead.rowCount,
+          fromDate: fullCoverage.fromDate,
+          toDate: fullCoverage.toDate,
+          rowCount: fullCoverage.rowCount,
         }
       : null;
-  const property = coverageRead?.property ?? null;
-  const lastDataDate = coverageRead?.toDate ?? null;
+  const property = fullCoverage?.property ?? null;
+  const lastDataDate = fullCoverage?.toDate ?? null;
   const freshnessDays =
     lastDataDate != null ? daysSince(lastDataDate, now) : null;
   const dataFields = { property, coverage, lastDataDate, freshnessDays };
@@ -259,12 +275,14 @@ export async function loadGscReadiness(
     return { verdict: "needs_reconnect", ...dataFields };
   }
 
-  // Connected + healthy, but nothing synced yet.
+  // Connected + healthy, but GENUINELY nothing synced yet (count was zero). A
+  // span timeout with rows present is NOT this case — it falls through to ready.
   if (coverageRead == null) {
     return { verdict: "connected_no_data", ...empty };
   }
 
-  // Connected + healthy + has data.
+  // Connected + healthy + has data (full coverage, or data-present/span-unknown
+  // when the span read timed out on a large table). Either way: ready.
   return { verdict: "ready", ...dataFields };
 }
 
