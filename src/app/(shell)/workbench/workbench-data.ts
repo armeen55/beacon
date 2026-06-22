@@ -41,6 +41,14 @@ import {
   loadGscCannibalizationForTenant,
   type GscCannibalizationCase,
 } from "@/domains/recommendation-intelligence/gsc-cannibalization";
+import {
+  buildWorkbenchMatrix,
+  type WorkbenchMatrix,
+} from "@/domains/insight/workbench-matrix";
+import {
+  prioritizeWorkbench,
+  type WorkbenchPicks,
+} from "@/domains/insight/workbench-priority";
 
 /** Host-stripped path key — mirrors bridge.ts's private `toPath`. */
 function toPath(u: string): string {
@@ -129,6 +137,10 @@ export type WorkbenchData = {
   /** Same-query competitions THIS page is part of (worst first). Empty if none. */
   cannibalization: WorkbenchCannibalization[];
   diagnosis: DiagnosisRow[];
+  /** Deep Workbench Optimizer: per-lever SEO action matrix + ranked "do this
+   *  first" picks. Pure projection over the packet/pack already loaded. */
+  matrix: WorkbenchMatrix;
+  picks: WorkbenchPicks;
   packStatus: "pack" | "evidence_only" | "no_page";
   pack: AtomicChangePack | null;
   proof: ProofPlanRow | null;
@@ -217,6 +229,14 @@ function emptyWorkbench(path: string): WorkbenchData {
     strikingDistance: [],
     cannibalization: [],
     diagnosis: [],
+    matrix: { rows: [] },
+    picks: {
+      bestSingle: null,
+      bestBigger: null,
+      safest: null,
+      fastestMeasurable: null,
+      highestUpside: null,
+    },
     packStatus: "no_page",
     pack: null,
     proof: null,
@@ -308,6 +328,11 @@ export async function loadWorkbench(
     .slice(0, 8)
     .map((k) => ({ keyword: k.keyword, volume: k.volume, position: k.position as number }));
 
+  // Deep Workbench Optimizer: project the packet + pack + worst cannibalization
+  // into the per-lever action matrix + ranked picks. Pure, no new I/O.
+  const matrix = buildWorkbenchMatrix(packet, pack, worstCannibal);
+  const picks = prioritizeWorkbench(matrix.rows);
+
   return {
     found: true,
     path,
@@ -332,6 +357,8 @@ export async function loadWorkbench(
     strikingDistance,
     cannibalization,
     diagnosis: buildDiagnosisMatrix(packet, worstCannibal),
+    matrix,
+    picks,
     packStatus,
     pack,
     proof,
