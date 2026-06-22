@@ -366,11 +366,13 @@ function ChangesV2EmptyState({ proofLedgerCount }: { proofLedgerCount: number })
       data-changes-empty="true"
     >
       <p className="text-[14px] font-semibold text-foreground">
-        {hasTracked ? "Nothing new in the timeline yet." : "No changes yet."}
+        {hasTracked
+          ? `${proofLedgerCount} change${proofLedgerCount === 1 ? "" : "s"} tracked above — measuring now.`
+          : "No changes yet."}
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
         {hasTracked
-          ? `Your ${proofLedgerCount} tracked ${proofLedgerCount === 1 ? "experiment is" : "experiments are"} shown above. New accepted recommendations join this timeline once the next scan confirms them live on your site.`
+          ? `Those are the experiments you shipped, each measuring against comparable pages. This timeline adds a row automatically when Beacon's next scan confirms an accepted recommendation went live on your site.`
           : "Beacon logs every accepted recommendation here once the next scan confirms it on your site."}
       </p>
     </div>

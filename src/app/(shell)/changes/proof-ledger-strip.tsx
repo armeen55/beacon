@@ -33,9 +33,22 @@ export async function ProofLedgerStrip() {
   // Ledger is already sorted newest-ship-first.
   const active = ledger.find((l) => l.verdict === "measuring") ?? ledger[0];
 
+  // Every OTHER tracked change gets a compact row, so "7 shipped & tracked"
+  // actually SHOWS 7 (operator confusion 2026-06-22: only the single active
+  // card was rendered, so the page read as "one change" despite the count).
+  const rest = active ? ledger.filter((l) => l.id !== active.id) : [];
+
   return (
     <div className="mb-4 space-y-2.5">
       {active ? <ActiveExperimentCard rec={active} /> : null}
+
+      {rest.length > 0 ? (
+        <div className="divide-y divide-border/40 rounded-lg border border-border/60 bg-surface-inset/20">
+          {rest.map((rec) => (
+            <CompactExperimentRow key={rec.id} rec={rec} />
+          ))}
+        </div>
+      ) : null}
 
       <Link
         href="/proof"
@@ -52,6 +65,36 @@ export async function ProofLedgerStrip() {
         ) : null}
         <span className="ml-auto text-accent-primary">Open Proof →</span>
       </Link>
+    </div>
+  );
+}
+
+/** One-line summary of a tracked change beyond the highlighted active card. */
+function CompactExperimentRow({ rec }: { rec: ShippedChangeRecord }) {
+  const nextCheck = rec.windows.filter((w) => !w.ran).map((w) => w.checkOn).sort()[0] ?? null;
+  const verdictColor =
+    rec.verdict === "won"
+      ? "text-emerald-700"
+      : rec.verdict === "lost"
+        ? "text-rose-700"
+        : rec.verdict === "measuring"
+          ? "text-blue-700"
+          : "text-muted-foreground";
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-[12px]">
+      <span className={`text-[10px] font-medium uppercase tracking-wide ${verdictColor}`}>
+        {rec.verdict.replace(/_/g, " ")}
+      </span>
+      <span className="font-medium text-foreground">{rec.path}</span>
+      <span className="text-[11px] text-muted-foreground">
+        {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}
+      </span>
+      {rec.verifiedLive ? (
+        <span className="text-[10px] font-medium text-emerald-700">✓ live</span>
+      ) : null}
+      {rec.verdict === "measuring" && nextCheck ? (
+        <span className="ml-auto text-[11px] text-muted-foreground">verdict {nextCheck}</span>
+      ) : null}
     </div>
   );
 }
