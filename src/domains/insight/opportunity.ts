@@ -101,24 +101,18 @@ export type OpportunityPageInput = {
  * size a CTR leak, never as a guarantee.
  */
 export function expectedCtrForPosition(position: number): number {
-  const table: [number, number][] = [
-    [1, 0.27], [2, 0.15], [3, 0.1], [4, 0.07], [5, 0.05],
-    [6, 0.04], [7, 0.03], [8, 0.025], [9, 0.02], [10, 0.018],
-  ];
-  if (position <= 1) return 0.27;
-  for (let i = table.length - 1; i >= 0; i--) {
-    if (position >= table[i][0]) {
-      // The table only covers positions 1-10. Below page 1, apply a graduated
-      // floor instead of letting position-10's 0.018 stand for every deep rank
-      // (which overstated the expected CTR — and thus the "CTR leak" — for
-      // pages on page 2+). Monotonic: 0.018 (pos 10) > 0.012 (11-20) > 0.008.
-      if (i === table.length - 1 && position > 10) {
-        return position <= 20 ? 0.012 : 0.008;
-      }
-      return table[i][1];
-    }
-  }
-  return 0.008;
+  const ctrByRank: number[] = [
+    0.27, 0.15, 0.1, 0.07, 0.05, 0.04, 0.03, 0.025, 0.02, 0.018,
+  ]; // index r-1 → expected CTR at rank r (1..10)
+  // ROUND to the nearest integer rank before lookup. GSC avg positions are
+  // fractional (e.g. 3.8); flooring to the lower rank credited the BETTER rank's
+  // higher CTR (3.8 → rank-3's 0.10 instead of rank-4's 0.07), overstating the
+  // "CTR leak" ~40% on essentially every card. Rounding matches the sibling
+  // page-surgeon/expected-ctr.ts convention. Below page 1, a graduated floor
+  // (0.012 for 11-20, else 0.008) instead of letting rank-10's 0.018 stand.
+  const r = Math.max(1, Math.round(position));
+  if (r <= 10) return ctrByRank[r - 1];
+  return r <= 20 ? 0.012 : 0.008;
 }
 
 function pathTail(path: string): string {
@@ -213,10 +207,17 @@ export function buildOpportunity(
   //     (4-10) or page 2 (11-20) — anchor the copy to its ACTUAL position. ──
   if (input.striking && input.striking.length > 0) {
     kinds.push("striking_distance");
-    const vol = input.striking.reduce((s, k) => s + (k.volume || 0), 0);
-    // SEMrush volume is MONTHLY; ×3 converts to a 90-day figure so the estimate
-    // matches the "90d" window label (and the ctr_leak 90d convention).
-    gainByKind.striking_distance = Math.round(vol * 0.05 * 3);
+    // Size the upside off the CTR CURVE: per keyword, the incremental clicks from
+    // its CURRENT rank to a MODEST target (up ~4 ranks, floored at rank 5 — never
+    // assume #1), times monthly volume. The old flat `5% of ALL market volume`
+    // treated market search volume as captured impressions, was unbounded, and
+    // ignored the current rank — overstating page-2 pages badly. ×3 = monthly→90d.
+    const strikingGain = input.striking.reduce((sum, k) => {
+      const cur = expectedCtrForPosition(k.position);
+      const target = expectedCtrForPosition(Math.max(5, Math.round(k.position) - 4));
+      return sum + (k.volume || 0) * Math.max(0, target - cur);
+    }, 0);
+    gainByKind.striking_distance = Math.round(strikingGain * 3);
     const top = input.striking[0];
     const n = input.striking.length;
     const onPage1 = top.position <= 10;
@@ -344,16 +345,25 @@ export function buildOpportunity(
   // runtime import cycle (page-primary imports OpportunityItem's type).
   // Cannibalization recovery is inherently uncertain (depends on the operator's
   // consolidation choice), so its estimate stays cautious regardless of volume.
-  const estConfidence: "high" | "medium" | "low" =
-    kind === "cannibalization"
-      ? "low"
-      : input.gsc
-        ? input.gsc.impressions90d >= 3000
-          ? "high"
-          : input.gsc.impressions90d >= 800
-            ? "medium"
-            : "low"
-        : "low";
+  const estConfidence: "high" | "medium" | "low" = (() => {
+    // Cannibalization recovery depends on the operator's consolidation choice —
+    // inherently uncertain regardless of volume.
+    if (kind === "cannibalization") return "low";
+    // Striking-distance's NUMBER comes from SEMrush market volume, so its
+    // confidence must come from the SAME signal (keyword breadth/volume) — NOT
+    // from GSC impressions, which measure a different thing. Never "high": it's
+    // a market-volume projection of an unrealized rank gain.
+    if (kind === "striking_distance") {
+      const topVol = input.striking?.[0]?.volume ?? 0;
+      const n = input.striking?.length ?? 0;
+      return n >= 3 || topVol >= 1000 ? "medium" : "low";
+    }
+    // CTR-leak / decay / rising are GSC-grounded: confidence from GSC volume.
+    if (!input.gsc) return "low";
+    if (input.gsc.impressions90d >= 3000) return "high";
+    if (input.gsc.impressions90d >= 800) return "medium";
+    return "low";
+  })();
 
   return {
     canonUrl: input.canonUrl,

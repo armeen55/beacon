@@ -12,6 +12,14 @@ describe("expectedCtrForPosition", () => {
     expect(expectedCtrForPosition(5)).toBeGreaterThan(expectedCtrForPosition(10));
     expect(expectedCtrForPosition(50)).toBeLessThanOrEqual(0.02);
   });
+  it("ROUNDS a fractional position to the nearest rank (not floor to the better rank)", () => {
+    // 3.8 must map to rank 4 (0.07), NOT floor to rank 3's higher 0.10 — the
+    // floor overstated every CTR-leak / cannibalization estimate ~40%.
+    expect(expectedCtrForPosition(3.8)).toBe(0.07);
+    expect(expectedCtrForPosition(3.4)).toBe(0.1); // rounds to 3
+    expect(expectedCtrForPosition(9.6)).toBe(0.018); // rounds to 10
+    expect(expectedCtrForPosition(12)).toBe(0.012); // page-2 floor
+  });
 });
 
 describe("buildOpportunity — real Iranopedia shapes", () => {
