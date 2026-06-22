@@ -51,6 +51,13 @@ const VISIBILITY_METS = [
   "mentions_count",
   "executions",
 ] as const;
+// Query Fanouts (#Iranopedia AEO wedge, 2026-06-22) — brand-agnostic: the
+// hidden sub-queries the engine expands each tracked PROMPT into (about the
+// prompt, not the tracked brand, so it's usable on a borrowed workspace). Field
+// names are undocumented, so we request the documented dims/mets and STORE the
+// raw decoded envelope; summarizeFanouts reads it defensively.
+const FANOUT_DIMS = ["date", "prompt", "query"] as const;
+const FANOUT_METS = ["total_fanouts", "fanouts_per_execution", "share"] as const;
 
 export type ProfoundSyncResult =
   | { synced: false; reason: string }
@@ -66,6 +73,9 @@ export type ProfoundSyncResult =
       categories_skipped: number;
       citation_rows: number;
       visibility_rows: number;
+      /** Query Fanouts (#Iranopedia AEO wedge) — 0 when the report isn't
+       *  available on the key OR the table isn't provisioned yet (fail-soft). */
+      fanout_rows: number;
       /** Agent Analytics v2 (bots/referrals) — 0 when the tenant's
        *  Profound plan doesn't include it (the report 4xxs fail-soft). */
       bot_rows: number;
@@ -127,6 +137,7 @@ export async function syncProfoundNightlyForTenant(
   const pulledAt = now.toISOString();
   let citationRows = 0;
   let visibilityRows = 0;
+  let fanoutRows = 0;
 
   for (const cat of batch) {
     // (b) citations — which AI models cite which URLs/domains.
@@ -234,6 +245,68 @@ export async function syncProfoundNightlyForTenant(
           break;
         }
         visibilityRows += chunk.length;
+      }
+    }
+
+    // (d) query-fanouts (#Iranopedia AEO wedge) — the hidden sub-queries the
+    // engine expands each prompt into. Brand-agnostic, so it's the usable
+    // signal on a borrowed (OpenAI-tracked) workspace. Fully fail-soft: a wrong
+    // report/dim name → null → skipped, never breaks citations/visibility. The
+    // raw decoded envelope is stored (replace-per-category, no jsonb dedupe key)
+    // so a first real pull can't silently lose an undocumented field.
+    const fanouts = await queryProfoundReport(
+      {
+        tenantId,
+        report: "query-fanouts",
+        categoryId: cat.id,
+        startDate,
+        endDate,
+        metrics: FANOUT_METS,
+        dimensions: FANOUT_DIMS,
+      },
+      deps,
+    );
+    if (fanouts != null && fanouts.rows.length > 0) {
+      if (fanouts.totalRows > fanouts.rows.length) {
+        log.warn("[profound-sync] fanouts page truncated", {
+          tenantId,
+          category: cat.id,
+          total: fanouts.totalRows,
+          got: fanouts.rows.length,
+        });
+      }
+      const { error: delErr } = await sb
+        .from("profound_fanout_rows")
+        .delete()
+        .eq("tenant_id", tenantId)
+        .eq("category_id", cat.id);
+      if (delErr) {
+        // Missing table (pre-migration) OR a real error → skip fail-soft.
+        log.warn("[profound-sync] fanout clear failed (skipping)", {
+          tenantId,
+          category: cat.id,
+          error: delErr.message,
+        });
+      } else {
+        const mapped = fanouts.rows.map((r) => ({
+          tenant_id: tenantId,
+          category_id: cat.id,
+          pulled_at: pulledAt,
+          dims: r.dims,
+          mets: r.mets,
+        }));
+        for (let i = 0; i < mapped.length; i += UPSERT_CHUNK) {
+          const chunk = mapped.slice(i, i + UPSERT_CHUNK);
+          const { error } = await sb.from("profound_fanout_rows").insert(chunk);
+          if (error) {
+            log.warn("[profound-sync] fanout insert failed", {
+              tenantId,
+              error: error.message,
+            });
+            break;
+          }
+          fanoutRows += chunk.length;
+        }
       }
     }
   }
@@ -360,6 +433,7 @@ export async function syncProfoundNightlyForTenant(
     categories_skipped: Math.max(0, categories.length - MAX_CATEGORIES_PER_NIGHT),
     citation_rows: citationRows,
     visibility_rows: visibilityRows,
+    fanout_rows: fanoutRows,
     bot_rows: botRows,
     referral_rows: referralRows,
   };
