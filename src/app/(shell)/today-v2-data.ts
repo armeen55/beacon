@@ -712,6 +712,15 @@ export type TodayV2ActionCardsData = {
   measuredWins: TodayPrimaryAction[];
   urlVerdictProof: TodayPageData["urlVerdictProof"];
   lifecycleSummary: TodayLifecycleSummary | null;
+  /**
+   * audit-4: true when the persisted recommendation queue could NOT be read
+   * (threw, or `loadPersistedRecommendationQueueForPage` reported errors). The
+   * Do-today card uses this to show a "couldn't load — refresh" state instead
+   * of the calm "Nothing to ship right now" empty state, so a Supabase
+   * timeout/egress failure can't masquerade as "you're caught up" (the
+   * /recommendations surface already does this via DataDegradedBanner).
+   */
+  queueLoadFailed: boolean;
 };
 
 type HurtingRow = {
@@ -1053,11 +1062,18 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
   let primaryAction: TodayPrimaryAction | null =
     (visibleHurtingActions[0] as unknown as TodayPrimaryAction | undefined) ??
     null;
+  // audit-4: track whether the persisted-queue read actually FAILED (vs. a
+  // genuinely empty queue) so the empty state can be honest. A hurting verdict
+  // already supplied a primary action → the queue read is moot, not failed.
+  let queueLoadFailed = false;
   if (!primaryAction) {
     try {
       const persisted = await loadPersistedRecommendationQueueForPage({
         tenantId,
       });
+      if (persisted.errors && persisted.errors.length > 0) {
+        queueLoadFailed = true;
+      }
       const topItem = persisted.queue.find(
         (item) => item.response?.status !== "dismissed",
       );
@@ -1092,9 +1108,11 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
         );
       }
     } catch (err) {
-      // Silent failure — fall back to the empty state. Do not block the
-      // page on a persisted-queue read miss; the user will still see
-      // working / recent wins / descriptors render normally.
+      // audit-4: a thrown persisted-queue read is a LOAD FAILURE, not "caught
+      // up". Record it so the Do-today card shows a "couldn't load" state
+      // instead of the calm empty state. Still non-blocking — the rest of the
+      // page (working / recent wins / descriptors) renders normally.
+      queueLoadFailed = true;
       console.error("[today-v2] persisted-rec fallback failed:", err);
     }
   }
@@ -1147,6 +1165,7 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
     measuredWins,
     urlVerdictProof,
     lifecycleSummary,
+    queueLoadFailed,
   };
 }
 

@@ -148,7 +148,10 @@ export async function TodayV2ActionCardsSection() {
           : "grid grid-cols-1 lg:grid-cols-2 gap-4"
       }
     >
-      <TodayV2DoToday primaryAction={data.primaryAction ?? null} />
+      <TodayV2DoToday
+        primaryAction={data.primaryAction ?? null}
+        queueLoadFailed={data.queueLoadFailed ?? false}
+      />
       <TodayV2Working
         liveChanges={liveChanges}
         pendingImplementationCount={pendingImplementationCount}

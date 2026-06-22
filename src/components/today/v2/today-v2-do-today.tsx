@@ -28,10 +28,46 @@ const CONFIDENCE_DOT: Record<TodayPrimaryAction["confidence"], string> = {
 
 export function TodayV2DoToday({
   primaryAction,
+  queueLoadFailed = false,
 }: {
   primaryAction: TodayPrimaryAction | null;
+  /** audit-4: the recommendation queue read FAILED (not empty). Show a
+   *  "couldn't load" state so a Supabase timeout can't read as "caught up". */
+  queueLoadFailed?: boolean;
 }) {
   if (!primaryAction) {
+    // audit-4: distinguish "couldn't load your recommendations" from the calm
+    // "nothing to ship" empty state — a swallowed read failure must never look
+    // like "you're caught up" (mirrors /recommendations' degraded banner).
+    if (queueLoadFailed) {
+      return (
+        <article
+          className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-5 py-5 h-full flex flex-col"
+          data-today-v2-card="do-today"
+          data-today-v2-degraded="true"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+            Do today
+          </span>
+          <p className="mt-2 text-[14px] font-semibold text-foreground leading-snug">
+            Couldn&apos;t load your recommendations.
+          </p>
+          <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
+            Something went wrong reading your recommendation queue, so this
+            isn&apos;t &ldquo;you&apos;re caught up&rdquo; — it&apos;s a load
+            error. Refresh the page to try again.
+          </p>
+          <div className="mt-auto pt-4">
+            <Link
+              href="/recommendations"
+              className="text-[12px] font-semibold text-accent-primary hover:underline"
+            >
+              Open recommendations →
+            </Link>
+          </div>
+        </article>
+      );
+    }
     return (
       <article
         className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5 h-full flex flex-col"
