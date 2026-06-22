@@ -91,6 +91,11 @@ const MIN_BASELINE_IMPRESSIONS = 200;
 /** Lift must clear the larger of this many clicks OR this fraction of baseline. */
 const MIN_LIFT_CLICKS = 3;
 const MIN_LIFT_FRACTION = 0.1;
+/** The baseline (pre-ship) window length the recorder reads, in days. The clicks
+ *  diff-in-diff pro-rates this pre window to each post window (7/14/28) so a
+ *  28-day click SUM is never subtracted from a 7-day one. Must match
+ *  run-measurement's BASELINE_WINDOW_DAYS. */
+export const PROOF_BASELINE_WINDOW_DAYS = 28;
 /** ≥ this many usable controls ⇒ a computed (not raw) comparison. */
 const MIN_CONTROLS_FOR_COMPUTED = 2;
 const MIN_CONTROLS_FOR_HIGH = 3;
@@ -147,14 +152,26 @@ export function computeWindowLift(args: {
   treatedPost: GscWindowMetrics;
   /** Per-control pre/post readings for controls with usable data. */
   controls: ReadonlyArray<{ pre: GscWindowMetrics; post: GscWindowMetrics }>;
+  /** Length of the PRE window in days. The clicks delta pro-rates the pre clicks
+   *  to the post window (`day`) so two unequal-length click SUMS are never
+   *  subtracted (CTR/position are rates, so they're length-independent). Default
+   *  = `day` (assume equal windows → scale 1, preserves legacy behaviour). */
+  preWindowDays?: number;
 }): ProofWindowResult {
   const { treatedPre, treatedPost, controls } = args;
 
-  const treatedDelta = treatedPost.clicks - treatedPre.clicks;
+  // Pro-rate the pre-window clicks to the post-window length. A page steady at
+  // 10 clicks/day over a 28d pre and a 7d post would otherwise show 70 − 280 =
+  // −210 ("lost") instead of 70 − (280·7/28) = 0 (flat).
+  const preDays = args.preWindowDays ?? args.day;
+  const clicksScale = preDays > 0 ? args.day / preDays : 1;
+  const scaledPreClicks = (m: GscWindowMetrics) => m.clicks * clicksScale;
+
+  const treatedDelta = treatedPost.clicks - scaledPreClicks(treatedPre);
   const treatedCtrDelta = ctrDelta(treatedPre, treatedPost);
   const treatedPosDelta = posImprove(treatedPre, treatedPost);
 
-  const controlDelta = mean(controls.map((c) => c.post.clicks - c.pre.clicks));
+  const controlDelta = mean(controls.map((c) => c.post.clicks - scaledPreClicks(c.pre)));
   const controlCtrDelta = mean(controls.map((c) => ctrDelta(c.pre, c.post)));
   const controlPosDelta = mean(controls.map((c) => posImprove(c.pre, c.post)));
 
@@ -213,12 +230,17 @@ export function summarizeVerdict(args: {
     return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
   }
 
+  // Clicks lift is now in the basis WINDOW's units (pre pro-rated to that
+  // window), so scale the baseline-fraction floor to the same window — otherwise
+  // a 7-day window is judged against a 28-day floor (≈4× too strict).
+  const clicksFloorBaseline =
+    args.baselineClicks * (basis.day / PROOF_BASELINE_WINDOW_DAYS);
   const floor =
     metric === "ctr"
       ? MIN_LIFT_CTR
       : metric === "position"
         ? MIN_LIFT_POSITION
-        : Math.max(MIN_LIFT_CLICKS, args.baselineClicks * MIN_LIFT_FRACTION);
+        : Math.max(MIN_LIFT_CLICKS, clicksFloorBaseline * MIN_LIFT_FRACTION);
   let verdict: GscProofVerdict;
   if (lift >= floor) verdict = "won";
   else if (lift <= -floor) verdict = "lost";

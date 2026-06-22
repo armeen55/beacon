@@ -66,6 +66,48 @@ describe("computeWindowLift — observational diff-in-diff", () => {
     expect(w.controlsUsed).toBe(2);
   });
 
+  it("clicks: pro-rates a 28d pre window to a 7d post window (no false 'lost' on a flat page)", () => {
+    // Steady 10 clicks/day: pre(28d)=280, post(7d)=70. Without pro-rating,
+    // treatedDelta would be 70−280 = −210 (a flat page reported as crashing).
+    const w = computeWindowLift({
+      day: 7,
+      checkOn: "x",
+      ran: true,
+      treatedPre: m(280, 14000, 0.02, 5),
+      treatedPost: m(70, 3500, 0.02, 5),
+      controls: [
+        { pre: m(140, 7000, 0.02, 6), post: m(35, 1750, 0.02, 6) }, // steady 5/day
+        { pre: m(280, 14000, 0.02, 7), post: m(70, 3500, 0.02, 7) }, // steady 10/day
+      ],
+      preWindowDays: 28,
+    });
+    expect(w.treatedDelta).toBe(0); // 70 − 280·(7/28)
+    expect(w.controlDelta).toBe(0);
+    expect(w.adjustedLift).toBe(0);
+  });
+
+  it("summarizeVerdict: a flat page on the 7d window is inconclusive, not lost (floor scales to the window)", () => {
+    const flat7d = computeWindowLift({
+      day: 7,
+      checkOn: "x",
+      ran: true,
+      treatedPre: m(280, 14000, 0.02, 5),
+      treatedPost: m(70, 3500, 0.02, 5),
+      controls: [
+        { pre: m(140, 7000, 0.02, 6), post: m(35, 1750, 0.02, 6) },
+        { pre: m(280, 14000, 0.02, 7), post: m(70, 3500, 0.02, 7) },
+      ],
+      preWindowDays: 28,
+    });
+    const v = summarizeVerdict({
+      windows: [flat7d],
+      baselineImpressions: 14000,
+      baselineClicks: 280,
+      metric: "clicks",
+    });
+    expect(v.verdict).toBe("inconclusive");
+  });
+
   it("CTR + position: guarded diff-in-diff", () => {
     const w = computeWindowLift({
       day: 28,

@@ -158,6 +158,9 @@ export async function measureRecord(
         treatedPre: treatedPreM,
         treatedPost: treatedPostM,
         controls,
+        // The pre window is 28d but each post window is 7/14/28d — tell
+        // computeWindowLift so it pro-rates the pre clicks to the post window.
+        preWindowDays: BASELINE_WINDOW_DAYS,
       }),
     );
   }
