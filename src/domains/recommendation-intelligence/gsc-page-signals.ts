@@ -371,7 +371,9 @@ const DECAY_WINDOW_DAYS = 28;
  * decay/refresh rule (Animalz "two or more signals crossing
  * simultaneously"; Ahrefs "declining pages" opportunity class —
  * sources in the slice commit). Positions are impressions-weighted.
- * Fail-soft: empty Map.
+ * Fail-soft on PARTIAL reads (keeps what loaded before a later-page error);
+ * THROWS on a TOTAL read failure (zero data) so the caller logs it loudly
+ * rather than silently reporting "no decaying pages".
  */
 export async function loadGscDecaySignalsForTenant(
   tenantId: string,
@@ -409,6 +411,7 @@ export async function loadGscDecaySignalsForTenant(
   };
   const nowAcc = new Map<string, Acc>();
   const priorAcc = new Map<string, Acc>();
+  let readError: Error | null = null;
   try {
     const sb = getSupabaseAdmin();
     for (let offset = 0; offset < DECAY_MAX_ROWS; offset += PAGE_SIZE) {
@@ -421,11 +424,14 @@ export async function loadGscDecaySignalsForTenant(
         .order("page")
         .range(offset, offset + PAGE_SIZE - 1);
       if (error) {
-        log.warn("[gsc-decay-signals] rpc read failed", {
+        log.error("[gsc-decay-signals] rpc read failed", {
           tenantId,
           offset,
           error: error.message,
         });
+        readError = new Error(
+          `gsc_decay_v1 read failed at offset ${offset}: ${error.message}`,
+        );
         break;
       }
       const batch = (data ?? []) as unknown as RpcRow[];
@@ -451,8 +457,23 @@ export async function loadGscDecaySignalsForTenant(
       }
       if (batch.length < PAGE_SIZE) break;
     }
-  } catch {
-    return out;
+  } catch (e) {
+    log.error("[gsc-decay-signals] rpc threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    readError = e instanceof Error ? e : new Error(String(e));
+  }
+  // A read failure that accumulated ZERO data is indistinguishable from a
+  // genuine "no decaying pages" result — and silently returning an empty Map
+  // makes the decay trigger emit nothing while the run looks healthy. Surface
+  // it as a throw so the caller (which already wraps this in its own
+  // try/catch) logs it loudly; the run still continues with no decay
+  // candidates, but the failure is observable instead of a silent
+  // false-negative. Partial reads (some data before a later-page error) keep
+  // what they got — better than nothing, and the error was logged above.
+  if (readError != null && nowAcc.size === 0 && priorAcc.size === 0) {
+    throw readError;
   }
   if (nowAcc.size === 0 && priorAcc.size === 0) return out;
   const pages = new Set([...nowAcc.keys(), ...priorAcc.keys()]);
