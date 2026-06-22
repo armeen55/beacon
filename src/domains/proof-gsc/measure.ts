@@ -237,7 +237,7 @@ export function summarizeVerdict(args: {
 }
 
 /** Format the metric-specific lift as a plain-English magnitude (no dashes). */
-function formatLift(metric: ProofMetric, lift: number): string {
+export function formatLift(metric: ProofMetric, lift: number): string {
   if (metric === "ctr") {
     const pp = Math.round(lift * 1000) / 10; // 0–1 fraction → percentage points, 1dp
     return `${pp >= 0 ? "+" : ""}${pp}pp CTR`;
@@ -248,6 +248,28 @@ function formatLift(metric: ProofMetric, lift: number): string {
   }
   const c = Math.round(lift);
   return `${c >= 0 ? "+" : ""}${c} clicks`;
+}
+
+/**
+ * Per-window lift in the SAME unit the verdict is judged on, so the window
+ * breakdown can never contradict the headline sentence. Reads the metric's own
+ * adjusted delta (clicks / ctr / position) instead of always showing clicks.
+ * For position (an unsigned magnitude) it appends the direction, since a smaller
+ * position number is an improvement.
+ */
+export function formatWindowLift(
+  metric: ProofMetric,
+  w: Pick<ProofWindowResult, "adjustedLift" | "adjustedCtrLift" | "adjustedPosLift">,
+): string {
+  if (metric === "ctr") return formatLift("ctr", w.adjustedCtrLift);
+  if (metric === "position") {
+    // adjustedPosLift > 0 = treated page moved UP vs controls (pre−post).
+    const lift = w.adjustedPosLift;
+    const mag = formatLift("position", lift);
+    if (lift === 0) return `${mag} (no change)`;
+    return `${mag} ${lift > 0 ? "up" : "down"}`;
+  }
+  return formatLift("clicks", w.adjustedLift);
 }
 
 /** Plain-English, honesty-gated outcome line for the UI. Pure. Metric-aware:

@@ -8,6 +8,7 @@ import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import {
   pickProofMetric,
   proofOutcomeSentence,
+  formatWindowLift,
   type GscProofVerdict,
 } from "@/domains/proof-gsc/measure";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
@@ -211,8 +212,9 @@ function WhatHappensNext() {
           and 28 days.
         </li>
         <li>
-          • At each window Beacon compares this page&apos;s Search clicks to comparable
-          untreated pages on the same site, then calls it{" "}
+          • At each window Beacon compares this page&apos;s relevant Search metric (clicks,
+          click-through rate, or ranking, depending on the change) to comparable untreated
+          pages on the same site, then calls it{" "}
           <span className="font-medium">won</span>, <span className="font-medium">lost</span>,
           or <span className="font-medium">inconclusive</span>.
         </li>
@@ -227,19 +229,26 @@ function WhatHappensNext() {
 
 function metricsLine(rec: ShippedChangeRecord): string {
   const b = rec.baseline ?? { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
+  // No impressions = no Search data in the baseline window; "pos 0.0" is an
+  // impossible rank, so say so honestly instead of rendering zeros.
+  if (b.impressions <= 0) return "No Search data in the baseline window yet.";
   return `${b.clicks.toLocaleString()} clicks · ${b.impressions.toLocaleString()} impressions · ${(b.ctr * 100).toFixed(2)}% CTR · pos ${b.position.toFixed(1)}`;
 }
 
 function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
+  // Judge a meta/title test on CTR, a content test on position, else clicks, so
+  // every line on this card reads in the unit that actually moved.
+  const metric = pickProofMetric(rec.actionType);
+  const basis = rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
   const sentence = proofOutcomeSentence({
     verdict: rec.verdict,
     confidence: rec.confidence,
-    basis: rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null,
-    // Judge a meta/title test on CTR, a content test on position, else clicks,
-    // so the outcome line reads in the unit that actually moved.
-    metric: pickProofMetric(rec.actionType),
+    basis,
+    metric,
   });
-  const controlsCount = rec.controlPages.length;
+  // Report the controls actually used in the basis window; fall back to assigned
+  // count only before any window has run (measuring state).
+  const controlsCount = basis?.controlsUsed ?? rec.controlPages.length;
   return (
     <div className="rounded-lg border border-border/60 bg-background p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -311,8 +320,8 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
             <span className="font-medium">{w.day}d</span>{" "}
             {w.ran ? (
               <>
-                lift {w.adjustedLift >= 0 ? "+" : ""}
-                {w.adjustedLift} clicks ({w.controlsUsed} controls)
+                lift {formatWindowLift(metric, w)} ({w.controlsUsed} control
+                {w.controlsUsed === 1 ? "" : "s"})
               </>
             ) : (
               <>opens {w.checkOn}</>

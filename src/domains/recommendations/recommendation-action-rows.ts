@@ -1305,6 +1305,19 @@ export function composeRowEvidenceSummary(args: {
       !shouldExcludeFromCompetitorRanking(name),
   );
 
+  // audit trust-fix (2026-06-21): every branch below is an AI-CITATION claim
+  // (cited / not cited / N% share / competitor winning). With ZERO AI-answer
+  // observations Beacon cannot know whether the page is cited — emitting "isn't
+  // cited" / "not cited" is a fabricated claim (Iranopedia has no Profound data,
+  // so observationCount is always 0 on this render path). State the absence of
+  // evidence honestly instead, with no false citation verdict and no "0 AI
+  // answers" lead. (A GSC-grounded "why" is handled upstream before this fn.)
+  if (N === 0) {
+    return topicGeoPhrase
+      ? `No AI-answer or Search data yet for ${topicGeoPhrase}.`
+      : "No AI-answer or Search data for this page yet.";
+  }
+
   // ── Branch: explicit competitor dominance + topic ──
   if (winningCompetitor && topicGeoPhrase) {
     return `${lead}; ${winningCompetitor.name} winning ${topicGeoPhrase}.`;

@@ -58,7 +58,10 @@ export async function ProofLedgerStrip() {
 
 function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
   const nextCheck = rec.windows.filter((w) => !w.ran).map((w) => w.checkOn).sort()[0] ?? null;
-  const controlsCount = rec.controlPages.length;
+  // Controls actually used in the latest run window; falls back to the assigned
+  // count while still measuring (no window has run yet).
+  const basis = rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
+  const controlsCount = basis?.controlsUsed ?? rec.controlPages.length;
   const baseline = rec.baseline ?? { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
   return (
     <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4">
@@ -111,9 +114,10 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       ) : null}
 
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Baseline (28d before): {baseline.clicks.toLocaleString()} clicks ·{" "}
-        {baseline.impressions.toLocaleString()} impressions ·{" "}
-        {(baseline.ctr * 100).toFixed(2)}% CTR · pos {baseline.position.toFixed(1)}
+        Baseline (28d before):{" "}
+        {baseline.impressions > 0
+          ? `${baseline.clicks.toLocaleString()} clicks · ${baseline.impressions.toLocaleString()} impressions · ${(baseline.ctr * 100).toFixed(2)}% CTR · pos ${baseline.position.toFixed(1)}`
+          : "no Search data in the baseline window yet"}
       </p>
 
       <Link

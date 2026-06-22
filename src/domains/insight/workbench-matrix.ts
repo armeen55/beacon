@@ -287,7 +287,9 @@ function buildRow(
     }
   }
 
-  const benefit = CLICK_LEVERS.has(lever) ? pageBenefit : null;
+  // Only a lever Beacon is actually recommending carries the click estimate — a
+  // "Do not touch" / healthy lever must never show "~N clicks at stake".
+  const benefit = CLICK_LEVERS.has(lever) && needed ? pageBenefit : null;
 
   const risk: WorkbenchLeverRow["risk"] =
     lever === "new_page"
@@ -369,5 +371,17 @@ export function buildWorkbenchMatrix(
   const rows = LEVERS.map((lever) =>
     buildRow(lever, packet, pack, diagByKey, pushByAction, pageBenefit),
   );
+
+  // The CTR estimate is ONE shared page-level pool, not additive across levers.
+  // Showing the same "~N clicks at stake" on title + meta + answer block reads as
+  // 3×N. Keep it on the single lead lever (title > meta > answer block, by LEVERS
+  // order) so the number appears exactly once; the others still show their verdict.
+  let benefitShown = false;
+  for (const r of rows) {
+    if (!r.benefit) continue;
+    if (benefitShown) r.benefit = null;
+    else benefitShown = true;
+  }
+
   return { rows };
 }

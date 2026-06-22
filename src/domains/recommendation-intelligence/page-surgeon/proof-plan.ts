@@ -65,7 +65,7 @@ export type ProofPlanInput = {
 export function buildProofPlanRow(input: ProofPlanInput): ProofPlanRow {
   const metricsToCheck: ProofMetric[] = input.gsc
     ? [
-        { label: `CTR for "${input.gsc.topQuery}"`, baseline: `${(input.gsc.ctr * 100).toFixed(2)}%` },
+        { label: `Page CTR (top query: "${input.gsc.topQuery}")`, baseline: `${(input.gsc.ctr * 100).toFixed(2)}%` },
         { label: "Clicks (90d)", baseline: input.gsc.clicks.toLocaleString() },
         { label: "Impressions (90d)", baseline: input.gsc.impressions.toLocaleString() },
         { label: "Avg position", baseline: input.gsc.avgPosition.toFixed(1) },
