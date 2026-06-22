@@ -5,7 +5,7 @@
  * Pins that the GSC card surfaces the pre-composed `gscReadiness` prop:
  *   • READY → resolved property headline + coverage detail + "Ready" badge +
  *     data-gsc-readiness="ready".
- *   • CONNECTED_NO_DATA → "Connected · no data yet — pull to backfill" line +
+ *   • CONNECTED_NO_DATA → "Connected · no data yet, pull to backfill" line +
  *     data-gsc-readiness="connected_no_data".
  *   • NEEDS_RECONNECT → prominent "Reconnect needed" badge +
  *     data-gsc-readiness="needs_reconnect".
@@ -125,7 +125,7 @@ describe("GSC card — readiness surfacing", () => {
     expect(html).toContain(">Ready<");
   });
 
-  it("CONNECTED_NO_DATA → 'Connected · no data yet — pull to backfill' + verdict attr", () => {
+  it("CONNECTED_NO_DATA → 'Connected · no data yet, pull to backfill' + verdict attr", () => {
     const html = renderClient({
       google: connectedInfo(),
       gscReadiness: {
@@ -137,7 +137,7 @@ describe("GSC card — readiness surfacing", () => {
       },
     });
     expect(html).toContain('data-gsc-readiness="connected_no_data"');
-    expect(html).toContain("Connected · no data yet — pull to backfill");
+    expect(html).toContain("Connected · no data yet, pull to backfill");
     expect(html).toContain("Connected, but no Search Console data yet");
   });
 

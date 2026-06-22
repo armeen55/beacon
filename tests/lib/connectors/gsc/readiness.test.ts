@@ -300,7 +300,7 @@ describe("describeGscReadiness — presenter copy", () => {
       }),
     );
     expect(d.headline).toBe("Using property sc-domain:iranopedia.com");
-    expect(d.detail).toBe("Search data Jan 12 – Jun 14 · 12,431 rows · refreshed 2 days ago");
+    expect(d.detail).toBe("Search data Jan 12 to Jun 14 · 12,431 rows · refreshed 2 days ago");
     expect(d.tone).toBe("ready");
   });
 
@@ -314,7 +314,7 @@ describe("describeGscReadiness — presenter copy", () => {
         freshnessDays: 0,
       }),
     );
-    expect(d.detail).toBe("Search data Jun 14 – Jun 14 · 1 row · refreshed today");
+    expect(d.detail).toBe("Search data Jun 14 to Jun 14 · 1 row · refreshed today");
   });
 
   it("ready → 'refreshed 1 day ago' singular", () => {
@@ -345,7 +345,7 @@ describe("describeGscReadiness — presenter copy", () => {
     const d = describeGscReadiness(readiness({ verdict: "needs_reconnect" }));
     expect(d.headline).toBe("Reconnect Google to resume");
     expect(d.detail).toBe(
-      "Google access stopped working — reconnect to keep your search data fresh.",
+      "Google access stopped working, reconnect to keep your search data fresh.",
     );
     expect(d.tone).toBe("attention");
   });

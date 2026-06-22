@@ -313,7 +313,7 @@ describe("buildSourceStatCards — per-page click-loss decomposition (#topDeclin
     expect(fixFirst).not.toBeNull();
     // Only the two pages in BOTH sets, worst combined first.
     expect(fixFirst!.map((p) => p.path)).toEqual(["/both-bad", "/mild-both"]);
-    expect(fixFirst![0]).toEqual({ path: "/both-bad", dropPct: 70, frictionPct: 50 });
+    expect(fixFirst![0]).toEqual({ path: "/both-bad", dropPct: 70, frictionPerVisit: 0.5 });
     // decline-only + friction-only are excluded.
     expect(fixFirst!.map((p) => p.path)).not.toContain("/decline-only");
     expect(fixFirst!.map((p) => p.path)).not.toContain("/friction-only");
@@ -333,7 +333,7 @@ describe("buildSourceStatCards — per-page click-loss decomposition (#topDeclin
     ]);
     const card = buildSourceStatCards(inputs).find((c) => c.key === "clarity");
     expect(card!.topFriction).not.toBeNull();
-    expect(card!.topFriction![0]).toEqual({ path: "/worst", pct: 50 });
+    expect(card!.topFriction![0]).toEqual({ path: "/worst", perVisit: 0.5 });
     expect(card!.topFriction!.map((f) => f.path)).toEqual(["/worst", "/mid"]);
   });
 });

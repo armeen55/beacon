@@ -248,7 +248,7 @@ describe("AIVisibilityHero — delta cases", () => {
     const html = renderToStaticMarkup(
       <AIVisibilityHero {...RITZ_FULL} delta={null} />,
     );
-    expect(html).toContain("in this window — limited data");
+    expect(html).toContain("in this window, limited data");
     expect(html).not.toContain("0.0 pts");
   });
 });

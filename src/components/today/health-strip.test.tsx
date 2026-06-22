@@ -85,6 +85,6 @@ describe("HealthStrip — #399 expand toggle ARIA", () => {
     const html = renderToStaticMarkup(<HealthStrip {...props()} />);
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-controls="health-strip-how-we-know"');
-    expect(html).toContain('aria-label="Data status — show how we know"');
+    expect(html).toContain('aria-label="Data status: show how we know"');
   });
 });

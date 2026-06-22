@@ -211,13 +211,13 @@ describe("Section 1 — Who AI thinks YOU are", () => {
     expect(html).toContain("Ritz Builders");
   });
 
-  it("renders descriptors with rank delta indicators (↑3 / ↓1 / — / new)", () => {
+  it("renders descriptors with rank delta indicators (↑3 / ↓1 / - / new)", () => {
     const html = renderToStaticMarkup(<EnrichmentV2 data={fullData()} />);
     expect(html).toContain("award-winning");
     expect(html).toContain("↑3");
     expect(html).toContain("luxury");
     expect(html).toContain("↓1");
-    // architect-led has delta=0 → em-dash dash mark
+    // architect-led has delta=0 → hyphen dash mark
     expect(html).toContain("architect-led");
     // atherton has rankPriorWindow=null + delta=null → "new" badge
     expect(html).toContain("atherton");
@@ -229,7 +229,7 @@ describe("Section 1 — Who AI thinks YOU are", () => {
       brand: brandRollup({ sampleStatus: "thin" }),
     });
     const html = renderToStaticMarkup(<EnrichmentV2 data={data} />);
-    expect(html).toContain("Early signal — based on a few answers so far.");
+    expect(html).toContain("Early signal: based on a few answers so far.");
   });
 
   it("renders empty-state copy when brand has no descriptors AND sampleStatus='empty'", () => {

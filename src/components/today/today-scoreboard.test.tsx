@@ -84,13 +84,13 @@ function kpiValues(html: string): string[] {
 }
 
 describe("TodayScoreboard — first-run empty-state honesty (wave-6)", () => {
-  it("renders the '—' placeholder, not a bold 0, when there is genuinely no data yet", () => {
+  it("renders the '-' placeholder, not a bold 0, when there is genuinely no data yet", () => {
     const html = renderToStaticMarkup(
       <TodayScoreboard scoreboard={scoreboard()} health={health()} />,
     );
     // isFirstRunNoData is active -> the citations KPI value is the placeholder
     const values = kpiValues(html);
-    expect(values).toContain("—");
+    expect(values).toContain("-");
     expect(values).not.toContain("0");
     // ...and the first-run explainer meta confirms we took that branch
     expect(html).toContain(
@@ -117,7 +117,7 @@ describe("TodayScoreboard — first-run empty-state honesty (wave-6)", () => {
     // ...and the KPI VALUES render the measured "0", never the placeholder.
     const values = kpiValues(html);
     expect(values).toContain("0");
-    expect(values).not.toContain("—");
+    expect(values).not.toContain("-");
     // The as-of meta proves the single-day measured semantics rendered.
     expect(html).toContain("As of");
   });
@@ -142,11 +142,11 @@ describe("TodayScoreboard — #357 cumulative-fallback honesty", () => {
     // The cumulative total must NOT appear as the headline number.
     expect(values).not.toContain("1,234");
     // Instead the awaiting-reading placeholder renders for the count tile.
-    expect(values).toContain("—");
+    expect(values).toContain("-");
     // ...and the honest meta tells the operator why. (renderToStaticMarkup
     // HTML-escapes the apostrophe, so match around it.)
     expect(html).toContain("Awaiting today");
-    expect(html).toContain("reading — refresh your connected data");
+    expect(html).toContain("reading, refresh your connected data");
   });
 });
 

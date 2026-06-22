@@ -12,10 +12,10 @@ describe("Sparkline — W2 Step 2.3", () => {
     expect(html).toContain("<circle"); // latest-point dot
   });
 
-  it("renders an em-dash placeholder when given an empty array", () => {
+  it("renders a placeholder when given an empty array", () => {
     const html = renderToStaticMarkup(<Sparkline points={[]} />);
     expect(html).not.toContain("<svg");
-    expect(html).toContain("—");
+    expect(html).toContain("-");
   });
 
   it("treats null entries as gaps (no path through null)", () => {
