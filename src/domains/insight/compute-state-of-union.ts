@@ -9,11 +9,19 @@ import { getConnectorInfo, type ConnectorProvider } from "@/lib/connector-store"
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { loadOpportunityMap } from "./compute-opportunity-map";
+import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import {
   deriveHeadline,
   type StateOfUnion,
   type StateOfUnionSource,
 } from "./state-of-union";
+
+/** Days to HOLD a page out of the action plan after a change ships there. While
+ *  a change is inside its measurement window, recommending ANOTHER edit to the
+ *  same page would corrupt the experiment — so the plan suppresses it and
+ *  promotes the next-best opportunity instead. Matches the longest proof
+ *  window (28d). */
+const MEASUREMENT_HOLD_DAYS = 28;
 
 /** The data sources the Briefing reports on, with what each unlocks. White-
  *  label: Profound is shown as "AI answers", never the vendor name. */
@@ -95,7 +103,7 @@ export async function loadStateOfUnion(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<StateOfUnion> {
-  const [totals, pageSignals, opportunities, schemaAeoGap, sources] =
+  const [totals, pageSignals, opportunities, schemaAeoGap, sources, shippedChanges] =
     await Promise.all([
       loadGscSiteTotalsForTenant(tenantId, now).catch(() => null),
       loadGscPageSignalsForTenant(tenantId, now).catch(
@@ -127,6 +135,7 @@ export async function loadStateOfUnion(
           };
         }),
       ),
+      loadShippedChanges().catch(() => []),
     ]);
 
   const bleedingPages = opportunities
@@ -156,9 +165,30 @@ export async function loadStateOfUnion(
       clicks90d: s.clicks90d,
     }));
 
+  // Pages with a change shipped inside its measurement window are HELD from the
+  // plan: recommending another edit there would corrupt the running experiment.
+  // This also makes the plan DYNAMIC — as changes ship, their pages drop out and
+  // the next-best opportunities promote into the top 3.
+  const holdCutoffMs = now.getTime() - MEASUREMENT_HOLD_DAYS * 86_400_000;
+  const normPath = (p: string): string => (p || "").replace(/\/+$/, "") || "/";
+  const measuringPaths = new Set(
+    shippedChanges
+      .filter((c) => {
+        const t = Date.parse(c.shippedAt);
+        return !Number.isNaN(t) && t >= holdCutoffMs;
+      })
+      .map((c) => normPath(c.path)),
+  );
+  const planCandidates = opportunities.filter(
+    (o) => !measuringPaths.has(normPath(o.path)),
+  );
+  // How many ranked opportunities are held because they're mid-measurement (for
+  // an honest "N held" note on the plan; the operator sees them on /proof).
+  const heldForMeasurement = opportunities.length - planCandidates.length;
+
   // "Do next" shows the SAME primary action every other surface shows: the
   // Change Pack primary when a pack exists, else the diagnosis lever.
-  const nextBestActions = opportunities.slice(0, 3).map((o) => ({
+  const nextBestActions = planCandidates.slice(0, 3).map((o) => ({
     headline: o.hasChangePack && o.packAction ? o.packAction : o.expectedLever,
     path: o.path,
     kind: o.kind,
@@ -194,5 +224,6 @@ export async function loadStateOfUnion(
     sources,
     nextBestActions,
     opportunityCount: opportunities.length,
+    heldForMeasurement,
   };
 }

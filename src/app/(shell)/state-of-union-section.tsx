@@ -101,7 +101,7 @@ export async function StateOfUnionSection() {
 
       {/* Lead with the plan — the operator's first read is "what do I do today", */}
       {/* not the diagnostics. The supporting detail lives below under "the full picture". */}
-      <PlanBlock actions={sou.nextBestActions} verdict={h.verdict} />
+      <PlanBlock actions={sou.nextBestActions} verdict={h.verdict} held={sou.heldForMeasurement} />
 
       {/* The full picture — supporting evidence behind the plan. */}
       <div className="flex items-center gap-2 pt-1">
@@ -221,9 +221,12 @@ export async function StateOfUnionSection() {
 function PlanBlock({
   actions,
   verdict,
+  held,
 }: {
   actions: StateOfUnion["nextBestActions"];
   verdict: StateOfUnionVerdict;
+  /** Ranked opportunities held out of the plan because they're mid-measurement. */
+  held: number;
 }) {
   if (actions.length === 0) {
     // The plan is empty only when there are zero ranked opportunities. Don't
@@ -237,7 +240,23 @@ function PlanBlock({
         <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
           Today&rsquo;s plan
         </div>
-        {siteDeclining ? (
+        {held > 0 ? (
+          // Every fix-now page is currently mid-measurement — a GOOD state (you
+          // did the work), not "nothing to do". Changing them again now would
+          // corrupt the running experiments.
+          <>
+            <p className="mt-2 text-[15px] font-medium text-foreground">
+              You&rsquo;ve shipped fixes for your top pages. {held} {held === 1 ? "is" : "are"} measuring now.
+            </p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Hold off changing them again until results land. The next moves appear
+              as those windows close or new pages slip.{" "}
+              <Link href="/proof" prefetch={false} className="text-foreground underline-offset-2 hover:underline">
+                See what&rsquo;s measuring &rarr;
+              </Link>
+            </p>
+          </>
+        ) : siteDeclining ? (
           <>
             <p className="mt-2 text-[15px] font-medium text-foreground">
               No single page tripped a fix-now threshold, but Search is slipping site-wide.
@@ -324,6 +343,14 @@ function PlanBlock({
           </li>
         ))}
       </ol>
+      {held > 0 ? (
+        <p className="mt-3 border-t border-border/60 pt-2.5 text-[11px] text-muted-foreground">
+          {held} more {held === 1 ? "page is" : "pages are"} measuring a recent change and held from the plan until results land.{" "}
+          <Link href="/proof" prefetch={false} className="text-foreground underline-offset-2 hover:underline">
+            See what&rsquo;s measuring &rarr;
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }

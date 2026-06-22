@@ -73,6 +73,10 @@ export type StateOfUnion = {
     serpGuardLabel: string | null;
   }[];
   opportunityCount: number;
+  /** Ranked opportunities held OUT of the plan because their page has a change
+   *  inside its measurement window (changing it again would corrupt the
+   *  experiment). Surfaced as an honest "N held, measuring" note on the plan. */
+  heldForMeasurement: number;
 };
 
 export type SiteTotalsLite = {
