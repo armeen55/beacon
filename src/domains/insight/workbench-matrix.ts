@@ -134,7 +134,11 @@ const BODY_LEVERS = new Set<LeverKey>(["answer_block", "h2_sections", "visible_q
 /** Levers whose movement is CTR/snippet recovery — they carry the page's
  *  Opportunity estimate. Structural levers (schema/links/sections/new page/
  *  cannibalization) move rank/extraction slowly and get no fabricated number. */
-const CLICK_LEVERS = new Set<LeverKey>(["title", "meta", "answer_block"]);
+// Only title + meta carry the page's ctr_leak estimate: that figure models CTR
+// RECOVERY at the held rank, whose remedy IS a title/meta rewrite. answer_block
+// is deliberately excluded — it would otherwise inherit a title/meta CTR-leak
+// number ("~N clicks at stake") whose actual remedy is not an answer block.
+const CLICK_LEVERS = new Set<LeverKey>(["title", "meta"]);
 
 const LEVERS: LeverKey[] = [
   "title",
@@ -276,11 +280,15 @@ function buildRow(
     // from the crawl (no LLM needed).
     proposed = composeJsonLd(packet, undefined).code;
     proposedSource = "deterministic";
-  } else if (lever === "title") {
-    // Title can be drafted DETERMINISTICALLY (candidate generation + evidence
-    // scoring, no LLM) on any page with real Search demand. evaluateTitle
-    // returns null when the current title already serves the dominant query or
-    // evidence is too thin, so a proposal only appears where it is warranted.
+  } else if (lever === "title" && needed) {
+    // Title is drafted DETERMINISTICALLY (candidate generation + evidence
+    // scoring, no LLM) — but ONLY when the diagnosis says the title is needed
+    // (status attention/monitor). Without the `needed` gate, evaluateTitle's
+    // tokenCoverage scorer (which keeps stopwords) could propose a rewrite on a
+    // page whose verdict is "Do not touch" (the diagnosis uses stopword-stripped
+    // phraseCoveredBy), so the operator saw "Do not touch" next to a full
+    // "Proposed (auto)" title — a self-contradiction. Gating on `needed` keeps
+    // the verdict and the draft in agreement.
     const titlePacket = packet.current.currentText
       ? packet
       : { ...packet, current: { ...packet.current, currentText: crawl?.title ?? null } };
