@@ -114,11 +114,27 @@ function todayUtcDate(now: Date = new Date()): string {
  * read failure, validation rejection, or insert error WILL NOT
  * affect the JSON ledger or the polling pipeline.
  */
+/**
+ * Flag-gated dual-write for the SHADOW poll path: a no-op unless
+ * `BEACON_BUDGET_LEDGER_DUAL_WRITE === "1"`. Delegates to the always-on writer.
+ */
 export async function recordSpendDualWrite(
   input: RecordSpendDualWriteInput,
 ): Promise<void> {
   if (!isBudgetLedgerDualWriteEnabled()) return;
+  await recordSpendSupabase(input);
+}
 
+/**
+ * ALWAYS-ON durable spend writer to `public.llm_budget_ledger`. NOT flag-gated —
+ * use this for spend that a daily/monthly CAP must actually see (e.g. the page
+ * factory): getTenantSpentTodayUsd reads this same table, so gating the write
+ * behind the shadow-mode flag made those caps structurally fail-OPEN. Never
+ * throws; a Supabase error is logged and swallowed.
+ */
+export async function recordSpendSupabase(
+  input: RecordSpendDualWriteInput,
+): Promise<void> {
   // ── Validation (fail loud BEFORE any Supabase round-trip) ──
   if (typeof input.tenantId !== "string" || input.tenantId.trim() === "") {
     console.warn(

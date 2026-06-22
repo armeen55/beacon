@@ -33,7 +33,7 @@ import {
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import {
   getTenantSpentTodayUsd,
-  recordSpendDualWrite,
+  recordSpendSupabase,
 } from "@/lib/cost/budget-ledger-supabase";
 
 const GLOBAL_DEFAULT_DAILY_BUDGET_USD = 10;
@@ -159,7 +159,7 @@ export type FactoryRunDeps = {
   getSpentTodayUsd?: (tenantId: string) => Promise<number | null>;
   persistLocal?: (rows: RecommendedEditRow[]) => Promise<void>;
   syncRows?: (rows: RecommendedEditRow[], tenantId: string) => Promise<void>;
-  recordSpend?: typeof recordSpendDualWrite;
+  recordSpend?: typeof recordSpendSupabase;
   now?: Date;
 };
 
@@ -222,7 +222,10 @@ export async function runClusterFactoryForTenant(
   }
 
   if (result.totalCostUsd > 0) {
-    await (deps.recordSpend ?? recordSpendDualWrite)({
+    // ALWAYS-ON durable write (not the flag-gated dual-write): the daily cap above
+    // reads getTenantSpentTodayUsd from this same table, so a flag-gated write
+    // would leave the $/day cap structurally fail-open.
+    await (deps.recordSpend ?? recordSpendSupabase)({
       tenantId,
       platform: "openai",
       costUsd: result.totalCostUsd,
