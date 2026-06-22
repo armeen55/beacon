@@ -102,6 +102,9 @@ export async function loadOpportunityMap(
       urlCount: worst.urlCount,
       combinedImpressions: worst.totalImpressions,
       combinedClicks: worst.totalClicks,
+      // competingUrls is sorted best-position-first, so [0] is the lead URL.
+      leadImpressions: worst.competingUrls[0]?.impressions ?? worst.totalImpressions,
+      leadClicks: worst.competingUrls[0]?.clicks ?? worst.totalClicks,
       bestPosition: worst.bestPosition,
       additionalCases: list.length - 1,
     });

@@ -204,6 +204,8 @@ describe("buildOpportunity — cannibalization (one signal, never buries title m
         urlCount: 2,
         combinedImpressions: 600,
         combinedClicks: 1,
+        leadImpressions: 600,
+        leadClicks: 1,
         bestPosition: 4,
         additionalCases: 0,
       },
@@ -233,6 +235,12 @@ describe("buildOpportunity — cannibalization (one signal, never buries title m
         urlCount: 2,
         combinedImpressions: 800,
         combinedClicks: 0,
+        // Lead URL holds 500 of the 800 combined impressions. Recovery is sized
+        // off the LEAD (500 x expectedCtr(5)=0.05 = 25), NOT combined (would be
+        // 40) — consolidating doesn't grant the lead the deep-rank cannibal's
+        // impressions at the top CTR.
+        leadImpressions: 500,
+        leadClicks: 0,
         bestPosition: 5,
         additionalCases: 0,
       },
@@ -242,7 +250,9 @@ describe("buildOpportunity — cannibalization (one signal, never buries title m
     expect(o!.why).toContain("of your pages compete");
     expect(o!.expectedLever).toContain("not a title rewrite");
     expect(o!.estConfidence).toBe("low"); // recovery is inherently uncertain
-    // Cannibalization's OWN cautious estimate: 800 × expectedCtr(5)=0.05 − 0 = 40.
-    expect(o!.estClicksAtStake).toBe(40);
+    // Sized off the LEAD URL's own impressions (500 × expectedCtr(5)=0.05 − 0 = 25),
+    // NOT the cluster's combined 800 (which would be 40) — consolidating doesn't
+    // grant the lead the deep-rank cannibal's impressions at the top CTR.
+    expect(o!.estClicksAtStake).toBe(25);
   });
 });

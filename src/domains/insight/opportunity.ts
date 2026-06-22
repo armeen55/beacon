@@ -79,6 +79,11 @@ export type OpportunityPageInput = {
     urlCount: number;
     combinedImpressions: number;
     combinedClicks: number;
+    /** The LEAD (best-ranking) URL's own impressions/clicks for this query —
+     *  used to size recovery (consolidating doesn't grant the lead the SUM of
+     *  every competing URL's impressions at the top CTR). */
+    leadImpressions: number;
+    leadClicks: number;
     bestPosition: number;
     /** Other cannibalized queries this lead page also tops (for "+N more"). */
     additionalCases: number;
@@ -294,12 +299,15 @@ export function buildOpportunity(
   if (input.cannibalization) {
     const c = input.cannibalization;
     kinds.push("cannibalization");
-    // Cautious, cluster-level estimate: clicks the cluster could recover if it
-    // ranked alone at its best position, minus what it earns split today.
+    // Cautious recovery estimate sized off the LEAD URL's OWN impressions at its
+    // best-rank CTR, minus what the lead earns today. Using the cluster's COMBINED
+    // impressions overstated badly — Google rarely shows two of your URLs for one
+    // query, so summing every competing URL's impressions (incl. deep page-3
+    // ranks) and crediting them all at the lead's top-rank CTR is not achievable.
     const gain = Math.max(
       0,
       Math.round(
-        c.combinedImpressions * expectedCtrForPosition(c.bestPosition) - c.combinedClicks,
+        c.leadImpressions * expectedCtrForPosition(c.bestPosition) - c.leadClicks,
       ),
     );
     gainByKind.cannibalization = gain;
