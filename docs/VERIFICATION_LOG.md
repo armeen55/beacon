@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-21 Trust-fix batch + Deep Workbench Optimizer (autonomous overnight run)
+
+**What shipped (10 commits on `claude/max-capability`).**
+- **Trust-fix 1 `f04c463`** cannibalization integrity: `KIND_PRIORITY` demoted (ctr_leak/striking/decay first); displayed estimate + why now derive from the DOMINANT kind (kills "~1,535 clicks · earning 1 click from 618 impressions"); `site:` operator-query filter in the pure grouper + the RPC; real lead-rank in the Workbench; bare "home" title + "keyword(s)" plural fixed.
+- **Trust-fix 2 `1a77e2f`** pluralization: "page s" x3, "day s", "page(s)" -> real pluralizers (2 audit false-positives correctly skipped after examination).
+- **Trust-fix 3 `778d5f2`** dashes: ~120 user-visible em/en dashes stripped (settings/connectors, today/home, connections, recs evidence) via a 3-agent workflow + manual close; 30 swept files added to the no-banned-dash guard; fixed a stale guard path.
+- **Trust-fix 4 `91e65ac`**: "367%" friction -> honest "clicks/visit"; /changes "No changes yet" above a real measuring change fixed (proof-ledger-aware empty state, operator-gated count); "AI visibility responded" -> "search visibility responded"; /connections counts sources FEEDING data, not just authorized (Wix no longer inflates the headline).
+- **Deep Workbench Optimizer slices 1-4 `48d43a5`/`98cce25`/`7ba1470`/`b78f34e`**: new pure `workbench-matrix.ts` (10-lever action matrix) + `workbench-priority.ts` (6 verdict chips + 5 ranked picks), wired into `loadWorkbench` (no new I/O), + "Beacon's call" header + "SEO action matrix" UI on `/workbench/[page]`. Deterministic-first (pack draft / deterministic JSON-LD / honest needs-endpoint, never fabricated); `composeJsonLd` exported; change-pack imported type-only (server-only) + a coarse pure push helper keeps the module unit-testable.
+
+**Verified.** typecheck clean throughout; targeted tests green (opportunity/cannibalization/diagnosis 33; dash-guard 52 surfaces 84 incl. evidence-summary; workbench-matrix 6 + workbench-priority 10); production `npm run build` clean. LIVE ground-truth on tenant-iranopedia (dev server, operator): `/workbench/cities` full matrix (meta "Ship this now" with a real pack draft + rollback on the mapped page, title/H1 "Do not touch", answer-block/Q&A "Manual only" with real drafts); `/workbench/best-persian-restaurants` (no pack) renders a full deterministic matrix with real schema.org JSON-LD + honest needs-endpoint markers; `/workbench/funny-farsi-phrases` "Ship this now" on the mapped title; ZERO em/en dashes on all. Full suite = pre-deploy gate (in progress at log time).
+
+**Deferred (tracked):** trust-fix-4 long tail (readiness single-date, result-pill copy, connectors "six sources" hero, /recommendations 3-way card — the last is best resolved by the optimizer making recs/workbench agree); the "—" null-marker glyph + operator-only /diagnostics dashes (separate sweep). The RPC `query !~* site:` filter is in the migration file but NOT yet re-applied to beacon-main (the loader filter covers runtime).
+
+---
+
 ## 2026-06-20 Product audit + Deep Workbench Optimizer plan (audit/plan only, no code change)
 
 **What ran.** Brutal 11-surface product audit on REAL Iranopedia data via an 18-agent adversarially-verified workflow (Audit -> Rank+Spec+Drafts -> Plan -> Verify; ~1.5M subagent tokens; first run interrupted, resumed clean from runId). Ground truth = local dev server on branch `claude/max-capability` against prod beacon-main, operator mode, tenant-iranopedia (one push ahead of deployed prod, labeled honestly). Surfaces captured + audited: /, /opportunities, /workbench x4 (cities, funny-farsi-phrases, farsi-numbers, best-persian-restaurants), /recommendations, /proof, /changes, /connections, /settings/connectors.
