@@ -129,7 +129,7 @@ function cmsField(field: "title" | "meta" | "h1", value: string): CmsFieldArtifa
 
 /** Deterministic Article + BreadcrumbList (+ FAQPage when FAQ content exists)
  *  JSON-LD from the packet. No invented values. */
-function composeJsonLd(packet: EvidencePacket, faq: FaqItem[] | undefined): { schemaType: string; code: string } {
+export function composeJsonLd(packet: EvidencePacket, faq: FaqItem[] | undefined): { schemaType: string; code: string } {
   const url = packet.current.pageUrl;
   const name = packet.crawl?.title ?? packet.current.currentText ?? "";
   const graph: Record<string, unknown>[] = [
