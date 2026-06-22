@@ -377,7 +377,12 @@ export function buildOpportunity(
     estClicksAtStake,
     importance,
     hasChangePack: input.hasChangePack ?? false,
-    packAction: input.packHeadlineAction ?? null,
+    // A Change Pack's per-page action (e.g. "Rewrite the title") cannot headline
+    // a CANNIBALIZATION-dominant page — the fix is a structural cluster move, not
+    // a title rewrite, and surfacing the pack action there contradicts the row's
+    // own "why". Suppress the displayed pack action for cannibalization so every
+    // surface (opportunity list, Today plan) shows the cluster-fix lever instead.
+    packAction: kind === "cannibalization" ? null : input.packHeadlineAction ?? null,
     // The estimate's window matches the kind's source window so the number never
     // contradicts the evidence text (decay/rising/friction/cannibalization are
     // 28-day; CTR-leak/striking-distance are 90d).

@@ -1236,10 +1236,13 @@ export function composeRowEvidenceSummary(args: {
   // Minimum 90-day page impressions before we LEAD with the precise Google
   // Search stat line. Below this, clicks/CTR/avg-position are noise — a page
   // with a handful of impressions has no demand signal worth quoting to four
-  // significant figures — so fall through to the AEO/structural "why". 100
-  // matches the page-level STRIKING_MIN_IMPRESSIONS the triggers gate on
-  // (gsc-low-ctr.ts), so the lead and the trigger predicates agree.
-  const GSC_EVIDENCE_MIN_IMPRESSIONS_90D = 100;
+  // significant figures — so fall through to the AEO/structural "why". 200
+  // matches the GSC_MODERATE_IMPRESSIONS floor that priorityForRow + deriveConfidence
+  // use, so the card never LEADS with a precise four-figure Google-demand strip on
+  // a page those two surfaces treat as having no demand (which read as a confident
+  // headline sitting above a "Low priority / Needs review" pill in the 100-199 band).
+  // (STRIKING_MIN_IMPRESSIONS in gsc-low-ctr.ts is a PER-QUERY floor, not the page total.)
+  const GSC_EVIDENCE_MIN_IMPRESSIONS_90D = 200;
   const gsc = args.rec.gscSignal;
   if (gsc != null && gsc.impressions90d >= GSC_EVIDENCE_MIN_IMPRESSIONS_90D) {
     const clicks = Math.round(gsc.clicks90d).toLocaleString();
