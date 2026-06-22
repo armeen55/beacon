@@ -119,6 +119,22 @@ const ERROR_MESSAGES: Record<string, string> = {
 const DEFAULT_ERROR_MESSAGE =
   "Couldn't connect to Google, please try again.";
 
+// 2026-06-22 — when the token exchange fails, the callback forwards Google's
+// actual `error` code as ?detail=…. Turn it into the precise fix so an opaque
+// "check your creds" becomes "here's exactly what's wrong".
+const EXCHANGE_DETAIL_HINTS: Record<string, string> = {
+  invalid_client:
+    " Google rejected the app credentials — GOOGLE_CLIENT_SECRET in Vercel is wrong/missing or doesn't match GOOGLE_CLIENT_ID. Re-copy both from Google Cloud Console → Credentials into Vercel (Production scope), then redeploy.",
+  redirect_uri_mismatch:
+    " This domain's callback URL isn't registered. In Google Cloud Console → Credentials → your OAuth client, add the Authorized redirect URI https://<this-domain>/api/connectors/google/callback (and make sure NEXT_PUBLIC_APP_URL matches this domain).",
+  invalid_grant:
+    " The authorization code expired or was already used — just click Connect again.",
+  unauthorized_client:
+    " This OAuth client can't use this grant — confirm it's a 'Web application' client in Google Cloud Console.",
+  invalid_request:
+    " Google rejected the request — usually a redirect-URI or client-config mismatch.",
+};
+
 /** #90 (2026-06-14) — honest copy when Google returns no refresh token: the
  *  connection works for now but will stop on its own. Plain-English (no
  *  "refresh token" jargon) so a non-technical owner knows to reconnect. */
@@ -217,7 +233,9 @@ export function ConnectorsClient({
     const warning = searchParams.get("warning");
     const missingRefresh = warning === "missing_refresh_token";
     if (err) {
-      setError(ERROR_MESSAGES[err] ?? DEFAULT_ERROR_MESSAGE);
+      const detail = searchParams.get("detail");
+      const hint = detail ? (EXCHANGE_DETAIL_HINTS[detail] ?? ` (${detail})`) : "";
+      setError((ERROR_MESSAGES[err] ?? DEFAULT_ERROR_MESSAGE) + hint);
       window.history.replaceState(null, "", "/settings/connectors");
     }
     if (connected === "google_gsc") {

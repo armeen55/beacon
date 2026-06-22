@@ -134,7 +134,16 @@ export async function GET(request: Request): Promise<NextResponse> {
       provider,
       error: msg.slice(0, 500),
     });
-    return settingsRedirect(request, { error: "exchange_failed" });
+    // Surface Google's actual error code so the operator fixes the RIGHT thing
+    // (e.g. invalid_client = wrong CLIENT_SECRET; redirect_uri_mismatch = the
+    // domain's callback URL isn't registered in Google Cloud Console).
+    const m = msg.match(
+      /(invalid_client|redirect_uri_mismatch|invalid_grant|unauthorized_client|invalid_request)/,
+    );
+    return settingsRedirect(
+      request,
+      m ? { error: "exchange_failed", detail: m[1]! } : { error: "exchange_failed" },
+    );
   }
 
   if (!tokens.refresh_token) {

@@ -268,11 +268,23 @@ export async function exchangeGoogleCode(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // Google returns { error, error_description }. Surface `error` so the
+    // operator sees the ACTUAL cause (invalid_client / redirect_uri_mismatch /
+    // invalid_grant) instead of a generic "check your creds".
+    let googleError = "";
+    try {
+      googleError = (JSON.parse(text) as { error?: string }).error ?? "";
+    } catch {
+      /* non-JSON error body */
+    }
     log.error("Google token exchange failed", {
       status: res.status,
+      googleError,
       body: text.slice(0, 500),
     });
-    throw new Error(`Google token exchange failed (${res.status})`);
+    throw new Error(
+      `Google token exchange failed (${res.status})${googleError ? `: ${googleError}` : ""}`,
+    );
   }
 
   return (await res.json()) as GoogleTokenResponse;
