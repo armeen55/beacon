@@ -166,5 +166,5 @@ export function formatNetworkInsight(
   if (!best) return null;
   const ratio = (best.lift ?? 0).toFixed(1);
   const total = best.withPages + best.withoutPages;
-  return `Across your businesses, pages with ${PAGE_SHAPE_LABELS[best.feature]} get cited by AI ${ratio}× more often (${total} pages compared).`;
+  return `Across the sites Beacon tracks, pages with ${PAGE_SHAPE_LABELS[best.feature]} get cited by AI ${ratio}× more often (${total} pages compared).`;
 }

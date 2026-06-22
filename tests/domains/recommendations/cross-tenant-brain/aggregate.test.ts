@@ -70,6 +70,53 @@ describe("aggregateCrossTenantPatterns — sample-size gate (E3, default 5)", ()
   });
 });
 
+describe("aggregateCrossTenantPatterns — distinct-tenant gate (audit-3 #9)", () => {
+  it("drops a pattern whose ships ALL come from one tenant (not cross-tenant)", () => {
+    // 5 ships clears the sample gate, but they're all tenant-a → single-tenant
+    // data masquerading as cross-tenant learning. Must NOT emit.
+    const recs = Array.from({ length: 5 }, () =>
+      rec(A, "edit_type:add_h2_section", true),
+    );
+    expect(
+      aggregateCrossTenantPatterns(recs, {
+        requestingTenantId: SELF,
+        actionTypes: ["add_h2_section"],
+        blocklist: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("emits when ships span ≥2 distinct tenants", () => {
+    const recs = [
+      ...Array.from({ length: 4 }, () => rec(A, "edit_type:add_h2_section", true)),
+      rec("tenant-b", "edit_type:add_h2_section", true),
+    ];
+    const out = aggregateCrossTenantPatterns(recs, {
+      requestingTenantId: SELF,
+      actionTypes: ["add_h2_section"],
+      blocklist: [],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.sampleSize).toBe(5);
+  });
+
+  it("honors a custom minDistinctTenants", () => {
+    const recs = [
+      ...Array.from({ length: 4 }, () => rec(A, "edit_type:add_faq", true)),
+      rec("tenant-b", "edit_type:add_faq", true),
+    ];
+    // Require 3 distinct tenants → 2 present → dropped.
+    expect(
+      aggregateCrossTenantPatterns(recs, {
+        requestingTenantId: SELF,
+        actionTypes: ["add_faq"],
+        blocklist: [],
+        minDistinctTenants: 3,
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe("aggregateCrossTenantPatterns — exclude-self (locked contract)", () => {
   it("drops the requesting tenant's own records from the aggregate", () => {
     const recs = [

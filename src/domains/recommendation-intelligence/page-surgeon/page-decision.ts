@@ -247,13 +247,27 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
   // problem"; it only justifies an answer block where real demand exists.
   const questionDemand =
     (packet.semrush?.questionKeywords?.length ?? 0) > 0 ||
-    queries.some(
-      (q) =>
-        /^(what|how|why|who|when|where|which|is|are|does|do|can)\b/i.test(q.query) ||
-        /\b(meaning|meanings|meant|definition|define|translation|translate|pronunciation|pronounce|symbols?|in (farsi|persian|english)|to (english|farsi|persian))\b/i.test(
-          q.query,
-        ),
-    );
+    queries.some((q) => {
+      const text = q.query.trim();
+      // Strong interrogatives reliably signal a question — count unconditionally.
+      if (/^(what|how|why|who|when|where|which)\b/i.test(text)) return true;
+      // Bare auxiliaries (is/are/does/do/can) only WEAKLY signal a question:
+      // "do it yourself rugs", "can lights", "are codes", "is mine" are not
+      // questions (audit-3 #14). Floor them at ≥4 words so a genuine auxiliary
+      // question ("is persian rug cleaning worth it") still counts while short
+      // non-questions are dropped.
+      if (
+        /^(is|are|does|do|can)\b/i.test(text) &&
+        text.split(/\s+/).filter(Boolean).length >= 4
+      ) {
+        return true;
+      }
+      // Definitional / translation intent that does NOT start with a question
+      // word ("pedar sag meaning", "X in farsi", "pronounce X").
+      return /\b(meaning|meanings|meant|definition|define|translation|translate|pronunciation|pronounce|symbols?|in (farsi|persian|english)|to (english|farsi|persian))\b/i.test(
+        text,
+      );
+    });
 
   // hasAnyProblem deliberately EXCLUDES highValueUnservedCluster: a soft
   // "different cluster" signal alone (no CTR deficit, no zero-click query, no

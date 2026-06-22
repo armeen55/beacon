@@ -69,6 +69,12 @@ export type AggregateCrossTenantPatternsOpts = {
   /** Minimum aggregated ships to emit a pattern. Defaults to the
    *  locked LLM-packet trust gate (5). */
   minSampleSize?: number;
+  /** audit-3 #9: minimum DISTINCT contributing tenants for a pattern to be
+   *  "cross-tenant". Defaults to MIN_DISTINCT_TENANTS (2). A pattern whose
+   *  ships all came from ONE other tenant is that tenant's own data — emitting
+   *  it as an anonymous "across N sites" insight both misrepresents the sample
+   *  and risks identifiability. */
+  minDistinctTenants?: number;
   /** Max patterns to emit (E5 = 5). */
   cap?: number;
   /** Folded into patternId so a vocabulary bump yields fresh ids. */
@@ -89,6 +95,9 @@ function stableHash(input: string): string {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+/** audit-3 #9: a cross-tenant pattern must aggregate ≥2 distinct tenants. */
+export const MIN_DISTINCT_TENANTS = 2;
 
 /**
  * Decode a matchKey into a short human phrase for the operator-facing
@@ -125,16 +134,23 @@ export function aggregateCrossTenantPatterns(
 ): CrossTenantPattern[] {
   const minSampleSize =
     opts.minSampleSize ?? BRAIN_SAMPLE_THRESHOLDS.llm_packet;
+  const minDistinctTenants = opts.minDistinctTenants ?? MIN_DISTINCT_TENANTS;
   const cap = opts.cap ?? 5;
   const schemaVersion = opts.schemaVersion ?? "v1";
 
-  // 1. Exclude self + filter to referenced action types.
-  const grouped = new Map<string, { helped: number; total: number }>();
+  // 1. Exclude self + filter to referenced action types. Track the DISTINCT
+  //    contributing tenants per matchKey (audit-3 #9) so a single-tenant
+  //    pattern can't masquerade as cross-tenant learning.
+  const grouped = new Map<
+    string,
+    { helped: number; total: number; tenants: Set<string> }
+  >();
   for (const r of records) {
     if (r.tenantId === opts.requestingTenantId) continue; // exclude-self
     if (!matchKeyReferencesAction(r.matchKey, opts.actionTypes)) continue;
-    const g = grouped.get(r.matchKey) ?? { helped: 0, total: 0 };
+    const g = grouped.get(r.matchKey) ?? { helped: 0, total: 0, tenants: new Set<string>() };
     g.total += 1;
+    g.tenants.add(r.tenantId);
     if (r.helped) g.helped += 1;
     grouped.set(r.matchKey, g);
   }
@@ -144,6 +160,8 @@ export function aggregateCrossTenantPatterns(
   const out: CrossTenantPattern[] = [];
   for (const [matchKey, g] of grouped) {
     if (g.total < minSampleSize) continue; // sample-size gate (E3)
+    // audit-3 #9: drop patterns that aren't genuinely cross-tenant.
+    if (g.tenants.size < minDistinctTenants) continue;
     const rawDescription = describePattern(matchKey, g.helped, g.total);
     const description = scrubPatternDescription(rawDescription, opts.blocklist);
     // Belt-and-suspenders: never emit a pattern whose description still
