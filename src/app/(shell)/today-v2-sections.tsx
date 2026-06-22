@@ -57,7 +57,7 @@ import {
   TodayV2ExperimentsMeasuring,
   type MeasuringExperiment,
 } from "@/components/today/v2/today-v2-experiments-measuring";
-import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -292,22 +292,29 @@ export async function TodayV2OffSiteAuthoritySection() {
  */
 /**
  * Experiments measuring — the home-screen mirror of the GSC proof ledger.
- * Reads the SAME loadShippedChanges() as /proof so Today and Proof never
- * disagree: how many shipped changes are mid-measurement, when the first
- * window opens, and a link to /proof. Operator-only (the link target is
- * operator-gated). Self-hides when nothing is measuring or on any read error.
+ * Reads loadProofLedger (the RE-MEASURED ledger, exactly like /proof and
+ * /changes) — NOT the raw stored records — so a window that has since closed
+ * shows its true terminal verdict everywhere and Today never over-counts or
+ * mislabels vs /proof. Operator-only (the /proof link is operator-gated).
+ * Self-hides when nothing is measuring or on any read error.
  */
 export async function TodayV2ExperimentsMeasuringSection() {
   if (!isOperatorModeServer()) return null;
-  const records = await loadShippedChanges().catch(() => []);
+  const tenantId = await currentTenantId().catch(() => null);
+  if (!tenantId) return null;
+  const records = await loadProofLedger(tenantId).catch(() => []);
   const measuring = records.filter((r) => r.verdict === "measuring");
   if (measuring.length === 0) return null;
 
-  // Earliest still-pending check window across the measuring set.
+  // Earliest still-pending check window across the measuring set. Skip windows
+  // whose date is already today/past — a "first results around <past date>" line
+  // would read as broken. (With the re-measured ledger an un-ran window is
+  // already strictly future; this is belt-and-suspenders.)
+  const todayYmd = new Date().toISOString().slice(0, 10);
   let nextCheckDate: string | null = null;
   for (const r of measuring) {
     for (const w of r.windows) {
-      if (w.ran || !w.checkOn) continue;
+      if (w.ran || !w.checkOn || w.checkOn <= todayYmd) continue;
       if (nextCheckDate == null || w.checkOn < nextCheckDate) nextCheckDate = w.checkOn;
     }
   }

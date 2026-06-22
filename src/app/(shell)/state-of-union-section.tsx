@@ -101,7 +101,7 @@ export async function StateOfUnionSection() {
 
       {/* Lead with the plan — the operator's first read is "what do I do today", */}
       {/* not the diagnostics. The supporting detail lives below under "the full picture". */}
-      <PlanBlock actions={sou.nextBestActions} opportunityCount={sou.opportunityCount} />
+      <PlanBlock actions={sou.nextBestActions} verdict={h.verdict} />
 
       {/* The full picture — supporting evidence behind the plan. */}
       <div className="flex items-center gap-2 pt-1">
@@ -220,34 +220,43 @@ export async function StateOfUnionSection() {
  */
 function PlanBlock({
   actions,
-  opportunityCount,
+  verdict,
 }: {
   actions: StateOfUnion["nextBestActions"];
-  opportunityCount: number;
+  verdict: StateOfUnionVerdict;
 }) {
   if (actions.length === 0) {
+    // The plan is empty only when there are zero ranked opportunities. Don't
+    // claim "caught up" when the verdict above says Search is declining — that
+    // contradiction (broad sub-threshold erosion: a site-wide dip with no single
+    // page tripping a per-page fix-now threshold) misreads as "no problem".
+    const siteDeclining =
+      verdict === "declining" || verdict === "ranking_better_losing_clicks";
     return (
       <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
         <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
           Today&rsquo;s plan
         </div>
-        <p className="mt-2 text-[15px] font-medium text-foreground">
-          You&rsquo;re caught up. No must-do moves right now.
-        </p>
-        <p className="mt-1 text-[13px] text-muted-foreground">
-          {opportunityCount > 0
-            ? `${opportunityCount} longer-term opportunities are tracked below.`
-            : "Beacon will surface the next move as new Search data lands."}
-        </p>
-        {opportunityCount > 0 ? (
-          <Link
-            href="/opportunities"
-            prefetch={false}
-            className="mt-3 inline-block text-[13px] font-medium text-foreground underline-offset-2 hover:underline"
-          >
-            Browse opportunities &rarr;
-          </Link>
-        ) : null}
+        {siteDeclining ? (
+          <>
+            <p className="mt-2 text-[15px] font-medium text-foreground">
+              No single page tripped a fix-now threshold, but Search is slipping site-wide.
+            </p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              The dip is spread thin across many pages. Refresh your strongest pages,
+              or connect more sources (SEMrush, Clarity) so Beacon can pinpoint where to act.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-[15px] font-medium text-foreground">
+              You&rsquo;re caught up. No must-do moves right now.
+            </p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Beacon will surface the next move as new Search data lands.
+            </p>
+          </>
+        )}
       </div>
     );
   }

@@ -3,9 +3,10 @@
  *
  * Closes the operator loop on the home screen: the Plan says what to do, and
  * this says what you already shipped and that Beacon is measuring it against
- * untreated pages. Reads the SAME GSC proof ledger as /proof, so Today and
- * Proof never disagree. SELF-HIDES when nothing is being measured, so the home
- * screen stays quiet until there is real shipped work to track.
+ * untreated pages. The section feeds it the RE-MEASURED proof ledger
+ * (loadProofLedger, same as /proof and /changes), so Today never disagrees with
+ * Proof. SELF-HIDES when nothing is being measured, so the home screen stays
+ * quiet until there is real shipped work to track.
  *
  * Pure presentational. Honest framing: "measuring", a date, and a link — never
  * a claimed result before a window has closed.
