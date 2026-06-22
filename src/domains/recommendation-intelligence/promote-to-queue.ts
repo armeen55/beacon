@@ -169,6 +169,11 @@ export type SelectPromotableCandidatesInput = {
   /** Fusion slice (2026-06-12): bounded GA4 value weight per
    *  CANDIDATE target_url (caller canonicalizes). Optional. */
   ga4ValueWeightByUrl?: ReadonlyMap<string, number>;
+  /** Learning-loop slice (#10, 2026-06-22): win-rate-derived priority prior per
+   *  action_type, in [-1,+1], computed by the caller from the proof ledger
+   *  (computeOutcomePriors). Threaded as a pure map so the scorer does NO I/O.
+   *  Absent / no entry ⇒ neutral. */
+  outcomePriorByActionType?: ReadonlyMap<string, number>;
   now: Date;
 };
 
@@ -236,6 +241,10 @@ export function selectPromotableCandidates(
                 candidate.target_url,
             )
           : undefined,
+      // Learning-loop slice (#10, 2026-06-22): how this action_type has
+      // performed in past shipped experiments (proof-ledger win rate). Absent
+      // map / no entry ⇒ neutral.
+      outcome_prior: input.outcomePriorByActionType?.get(candidate.action_type),
     });
 
     const promotion_dedupe_key = buildPromotionDedupeKey({

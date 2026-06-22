@@ -260,6 +260,24 @@ export async function promoteEligibleCandidates(
   } catch {
     // neutral weights
   }
+
+  // Learning loop (#10, 2026-06-22): outcome priors from the proof ledger —
+  // re-rank the next-best set toward action types that have WON in past shipped
+  // experiments (and away from ones that lost). Fail-soft to neutral (no priors
+  // ⇒ exact pre-learning ordering). Priority-only; QA/pushability unaffected.
+  let outcomePriorByActionType = new Map<string, number>();
+  try {
+    const { loadProofLedger } = await import("@/domains/proof-gsc/load-ledger");
+    const { computeOutcomePriors } = await import(
+      "@/domains/recommendation-intelligence/outcome-prior"
+    );
+    outcomePriorByActionType = computeOutcomePriors(
+      await loadProofLedger(input.tenantId),
+    );
+  } catch {
+    // neutral priors
+  }
+
   const triggerCandidates = [
     ...triggerResult.candidates,
     ...triggerResult.diagnostic_only,
@@ -283,6 +301,7 @@ export async function promoteEligibleCandidates(
     recommendationResponses,
     pageTypeByUrl,
     ga4ValueWeightByUrl,
+    outcomePriorByActionType,
     now,
   });
 

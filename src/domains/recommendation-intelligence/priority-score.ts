@@ -206,6 +206,13 @@ export type PriorityScoreInput = {
    *  small additive nudge (see `fusionCorroborationBonus`). Optional —
    *  0/1/absent ⇒ zero bonus (exact pre-fusion behavior). */
   signal_class_count?: number;
+  /** Learning-loop slice (#10, 2026-06-22): a win-rate-derived ± prior in
+   *  [-1,+1] for this candidate's action_type, computed UPSTREAM from the proof
+   *  ledger's resolved verdicts (computeOutcomePriors). +1 = this action_type
+   *  has always WON in past shipped experiments, -1 = always lost, absent ⇒
+   *  neutral. PRIORITY-ONLY: it re-ranks the next-best set toward what has
+   *  proven to work; it never changes confidence, QA, or pushability. */
+  outcome_prior?: number;
 };
 
 /**
@@ -314,6 +321,25 @@ const INDEX_BLOCKER_ACTION_TYPES = new Set<string>([
   "fix_schema",
 ]);
 
+/** Max ± points the learning-loop outcome prior may move the base sum (#10).
+ *  Comparable to the corroboration / page-importance terms — meaningful enough
+ *  to re-order ties toward proven action types, never enough to override a
+ *  severity/index-blocker gap or any safety/QA gate. */
+export const MAX_OUTCOME_PRIOR_BONUS = 6;
+
+/**
+ * Learning-loop term (#10): a bounded ± nudge from how this action_type has
+ * performed in past SHIPPED experiments. `prior` ∈ [-1,+1] (win-rate-derived,
+ * computed upstream from the proof ledger by computeOutcomePriors); absent/0 ⇒
+ * neutral. Symmetric: a historically-losing action type is demoted, a winner
+ * promoted. Priority-only — it feeds the score sum, nothing else.
+ */
+export function outcomePriorBonus(prior: number | undefined): number {
+  if (prior == null || !Number.isFinite(prior)) return 0;
+  const clamped = Math.max(-1, Math.min(1, prior));
+  return Math.round(clamped * MAX_OUTCOME_PRIOR_BONUS);
+}
+
 export function priorityScore(c: PriorityScoreInput): number {
   const severity = SEVERITY_BY_TRIGGER_SIGNAL[c.trigger_signal] ?? 0;
   const indexBlocker =
@@ -345,7 +371,8 @@ export function priorityScore(c: PriorityScoreInput): number {
       indexBlocker +
       pageImportance +
       upsideBonus(c.upside_clicks_90d) +
-      corroborationBonus) *
+      corroborationBonus +
+      outcomePriorBonus(c.outcome_prior)) *
       valueWeight *
       conf *
       prereq *
