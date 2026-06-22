@@ -15,6 +15,7 @@ import {
   type WorkbenchPicks,
   type WorkbenchPick,
 } from "@/domains/insight/workbench-priority";
+import { CopyButton } from "./copy-button";
 
 /**
  * Workbench view (operator-OS rebuild, Phase 2, v1) — presentational, read-only.
@@ -152,7 +153,10 @@ function ProposedBlock({ row }: { row: WorkbenchLeverRow }) {
   const tag = row.proposedSource === "deterministic" ? "Proposed (auto)" : "Proposed";
   return (
     <div className="mt-1">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{tag}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{tag}</span>
+        <CopyButton value={row.proposed} />
+      </div>
       <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px] text-foreground/85">
         {row.proposed}
       </pre>

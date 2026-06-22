@@ -30,6 +30,7 @@ function stripComments(src: string): string {
 // Curated set: every surface the audit flagged + the proof surfaces touched here.
 const DISPLAY_SURFACES = [
   "src/app/(shell)/workbench/workbench-view.tsx",
+  "src/app/(shell)/workbench/copy-button.tsx",
   "src/app/(shell)/state-of-union-section.tsx",
   "src/app/(shell)/today-v2-data.ts",
   "src/app/(shell)/changes/page.tsx",
