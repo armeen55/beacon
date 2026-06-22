@@ -7,6 +7,52 @@
 
 ---
 
+## 2026-06-21 (cont. 4) Compute/data adversarial audit → 18 of 19 confirmed bugs fixed (autonomous run)
+
+Second multi-agent audit (`wf_49cfa94e-17d`, 34 agents) targeting the
+compute/data layer — math, tenant-scoping, gate logic, lifecycle — code-reads
+only, each finding skeptic-verified: **24 raw → 19 confirmed, 5 false positives
+killed.** 18 fixed across 5 commits; #12 deferred. Targeted tests + typecheck
+ONLY (no full suite, no Supabase, no Vercel).
+
+**HIGH:** (#1) the GSC proof clicks diff-in-diff subtracted a 28-day pre-window
+SUM from a 7/14-day post-window — the first verdicts an operator sees were
+systematically biased to "lost" (a flat page read as crashing); clicks is the
+default metric. Now pro-rates the pre window to each post window + scales the
+floor; +2 regression tests. (#2) a control with pre- but no post-window data was
+counted, dragging controlDelta negative and INFLATING the treated lift; controls
+now require post-window presence. (#3) my OWN batch-2 #5 regression — nulling the
+deduped click estimate also dropped the page-level SERP guard, so a SERP-owned
+page could show meta "Ship this now"; serpGuardLabel is now a row field carried
+on every guarded lever. (#4) forward-only lock omitted pushed/needs_review/etc, so
+a nightly re-promotion reset them to "recommended" and wiped live_at; locked all
+operator/live/in-flight states (expired stays unlocked by design). (#5) the
+page-factory $/day cap was structurally fail-OPEN — spend was recorded via a
+flag-gated dual-write the cap reads from; factored an always-on Supabase writer.
+
+**MEDIUM/LOW:** striking estimate monthly→90d (×3); friction event-count out of
+the click-unit score + labeled in its own unit everywhere; expectedCtr graduated
+tail floor; cannibalization zero-impression bogus-lead filtered; index-blocker
+allowlist (no more fix_page_experience bonus); numeric-fidelity +N offset; CTR
+tolerance tightened; self-link path exclusion; changelog action_type join guard;
+dependency_order renumber; title rewrite-risk availability gate; answer-block
+constant rename (28d→90d).
+
+**Deferred — #12** (MEDIUM, ops-only): the budget-ledger VERIFIER compares one
+tenant's row vs fleet-wide observation counts. No production gate consumes it
+(enforcement is getTenantSpentTodayUsd/monthly.ts) — it only mis-alerts in CI/ops.
+The fix is a per-tenant type/API change across the verifier + script + tests; left
+for a focused slice.
+
+**Verified:** typecheck clean throughout; targeted suites green (measure 24 incl.
+2 new, run-measurement path, workbench-matrix/priority incl. regression,
+opportunity, gsc-cannibalization, priority-score, page-decision-trust,
+artifact-bundle, evaluate-title, match-runner, answer-block-readiness,
+budget-ledger + factory-run 32, readiness, dash-guard 53). No full suite, no
+Supabase egress, no Vercel.
+
+---
+
 ## 2026-06-21 (cont. 3) Adversarial trust audit → 23 confirmed bugs fixed (autonomous run)
 
 Ran a 10-surface multi-agent trust/correctness audit (`wf_286cdca7-08e`, 41
