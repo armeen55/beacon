@@ -123,6 +123,33 @@ export const META_HARD_MAX_CHARS = 155;
 export const META_IDEAL_MIN_CHARS = 135;
 export const META_IDEAL_MAX_CHARS = 150;
 
+/**
+ * audit-3 #11 — PUBLISH ceilings for SERP-display fields. Distinct from the
+ * ideal/hard SEO targets above (which are a QUALITY signal that must never hide
+ * a valid rec): these are the points beyond which a title/meta is too long to
+ * publish un-trimmed (Google silently truncates; the value may also overflow
+ * the CMS field). The recommended targets are 60/155; these add headroom so a
+ * slightly-long draft still ships, while an egregiously over-limit one is held
+ * for shortening. Used by BOTH the push service (hard refuse) and the QA layer
+ * (pushReadiness downgrade) so the two never disagree. Single source of truth.
+ */
+export const PUSH_TITLE_MAX_CHARS = 70;
+export const PUSH_META_MAX_CHARS = 175;
+
+/**
+ * True when `text` is too long to PUBLISH for the given action type (title/meta
+ * only; other actions never gate on length here). Pure.
+ */
+export function exceedsPublishLengthLimit(
+  actionType: string,
+  text: string | null | undefined,
+): boolean {
+  const len = (text ?? "").trim().length;
+  if (actionType === "edit_title") return len > PUSH_TITLE_MAX_CHARS;
+  if (actionType === "edit_meta") return len > PUSH_META_MAX_CHARS;
+  return false;
+}
+
 export type LengthStatus = "ok" | "long" | "short";
 
 export type LengthVerdict = {

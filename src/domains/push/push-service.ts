@@ -56,6 +56,11 @@ import "server-only";
 import { getTenant } from "@/domains/tenants/store";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import {
+  exceedsPublishLengthLimit,
+  PUSH_TITLE_MAX_CHARS,
+  PUSH_META_MAX_CHARS,
+} from "@/domains/recommendations/copy-artifact-guard";
+import {
   appendPushLedger,
   assertNonDestructivePatch,
   checkDailyPushCap,
@@ -444,6 +449,22 @@ export async function executePush(
   const field = elementKey.slice("field:".length);
   if (field === "" || field.toLowerCase().includes("slug")) {
     return { kind: "refused", reason: `field "${field}" is not pushable (Invariant 3: no URL/slug changes)` };
+  }
+
+  // audit-3 #11: SERP-display length gate. An over-limit title/meta written
+  // un-trimmed is silently truncated by Google (and may exceed the CMS field) —
+  // refuse with a precise reason naming the recommended target so the operator
+  // shortens it rather than shipping a broken listing. Runs in dry-run too.
+  // Shares one ceiling with the QA pushReadiness downgrade so the two agree.
+  if (exceedsPublishLengthLimit(edit.action_type, edit.proposed_text)) {
+    const proposedLen = (edit.proposed_text ?? "").trim().length;
+    const isTitle = edit.action_type === "edit_title";
+    return {
+      kind: "refused",
+      reason: isTitle
+        ? `proposed title is ${proposedLen} chars — over the ${PUSH_TITLE_MAX_CHARS}-char push limit (aim for ~60); shorten it before publishing`
+        : `proposed meta description is ${proposedLen} chars — over the ${PUSH_META_MAX_CHARS}-char push limit (aim for ~155); shorten it before publishing`,
+    };
   }
 
   const mapEntry = await resolveWixItemForUrl(edit.target_url);

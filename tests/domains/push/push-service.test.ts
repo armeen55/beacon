@@ -250,6 +250,34 @@ describe("Invariant 3 — caps in the push path", () => {
     expect(r.kind).toBe("refused");
   });
 
+  it("audit-3 #11: refuses an over-limit title before any live write", async () => {
+    const longTitle = "Famous Iranian and Persian Poets Writers Authors and Literary Figures Through History"; // > 70 chars
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        action_type: "edit_title" as RecommendedEditRow["action_type"],
+        target_element_key: "field:title",
+        proposed_text: longTitle,
+      }),
+    });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toMatch(/push limit/);
+    expect(_updateCalls).toHaveLength(0);
+  });
+
+  it("audit-3 #11: allows a within-limit title (the gate is not over-strict)", async () => {
+    const okTitle = "Famous Iranian & Persian Poets | Iranopedia"; // ~43 chars
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        action_type: "edit_title" as RecommendedEditRow["action_type"],
+        target_element_key: "field:title",
+        proposed_text: okTitle,
+      }),
+    });
+    expect(r.kind).not.toBe("refused");
+  });
+
   it("refuses non-field targets and slug fields", async () => {
     const r1 = await executePush({ tenantId: "tenant-iranopedia", edit: edit({ target_element_key: "h2" }) });
     expect(r1.kind).toBe("refused");

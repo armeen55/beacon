@@ -17,6 +17,9 @@ import {
   metaLengthVerdict,
   TITLE_HARD_MAX_CHARS,
   META_HARD_MAX_CHARS,
+  exceedsPublishLengthLimit,
+  PUSH_TITLE_MAX_CHARS,
+  PUSH_META_MAX_CHARS,
 } from "@/domains/recommendations/copy-artifact-guard";
 import { checkCopyDisplaySafe } from "@/domains/recommendations/suggested-copy-display-guard";
 
@@ -139,5 +142,29 @@ describe("length budgets (directive PHASE E) — quality signal, not a suppresso
     const longTitle = "Persian Rugs Buyer Guide — Authentic Hand-Knotted Tabriz and Kashan Rugs";
     expect(titleLengthVerdict(longTitle).status).toBe("long");
     expect(checkCopyDisplaySafe(longTitle).safe).toBe(true);
+  });
+});
+
+describe("exceedsPublishLengthLimit (audit-3 #11)", () => {
+  it("flags a title over the push ceiling", () => {
+    expect(exceedsPublishLengthLimit("edit_title", "x".repeat(PUSH_TITLE_MAX_CHARS + 1))).toBe(true);
+  });
+  it("allows a title at/under the push ceiling (headroom over the 60 ideal)", () => {
+    expect(exceedsPublishLengthLimit("edit_title", "x".repeat(PUSH_TITLE_MAX_CHARS))).toBe(false);
+    expect(exceedsPublishLengthLimit("edit_title", "x".repeat(65))).toBe(false);
+  });
+  it("flags a meta over the push ceiling", () => {
+    expect(exceedsPublishLengthLimit("edit_meta", "x".repeat(PUSH_META_MAX_CHARS + 1))).toBe(true);
+  });
+  it("allows a meta at/under the push ceiling", () => {
+    expect(exceedsPublishLengthLimit("edit_meta", "x".repeat(PUSH_META_MAX_CHARS))).toBe(false);
+  });
+  it("never gates non-title/meta actions on length", () => {
+    expect(exceedsPublishLengthLimit("add_faq", "x".repeat(5000))).toBe(false);
+    expect(exceedsPublishLengthLimit("add_section", "x".repeat(5000))).toBe(false);
+  });
+  it("treats null/empty as within limit", () => {
+    expect(exceedsPublishLengthLimit("edit_title", null)).toBe(false);
+    expect(exceedsPublishLengthLimit("edit_title", "")).toBe(false);
   });
 });

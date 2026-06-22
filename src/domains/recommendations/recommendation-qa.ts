@@ -26,7 +26,7 @@
 
 import { deriveRowTopicFit } from "./topic-fit-from-evidence";
 import { enforceExpertConfidence, type FinalConfidence } from "./expert-verdict";
-import { detectCopyArtifact } from "./copy-artifact-guard";
+import { detectCopyArtifact, exceedsPublishLengthLimit } from "./copy-artifact-guard";
 import type { ActionRowType, RecommendationActionRow } from "./recommendation-action-rows";
 import { INTENT_FIT_FLOOR, type PageTopicFit } from "./page-topic-fit";
 
@@ -278,6 +278,18 @@ export function buildRecommendationQaVerdict(args: {
   }
   const confidenceReason = confidenceParts.filter((p) => p.length > 0).join(" ");
 
+  // audit-3 #11: an over-limit title/meta is NOT paste-ready — the push service
+  // would refuse it un-trimmed (same PUSH_*_MAX_CHARS ceiling), so the QA layer
+  // must agree and demote it to review_only instead of advertising one-tap
+  // publish. Length stays a QUALITY signal for confidence (unchanged); this only
+  // affects pushability.
+  const basePushReadiness = PUSH_READINESS_BY_ACTION[row.actionType] ?? "review_only";
+  const pushReadiness: RecPushReadiness =
+    basePushReadiness === "paste_ready" &&
+    exceedsPublishLengthLimit(row.actionType, proposed)
+      ? "review_only"
+      : basePushReadiness;
+
   return {
     intentFit,
     confidence: verdict.enforcedConfidence,
@@ -287,7 +299,7 @@ export function buildRecommendationQaVerdict(args: {
     evidenceSupports,
     evidenceMissing,
     confidenceReason,
-    pushReadiness: PUSH_READINESS_BY_ACTION[row.actionType] ?? "review_only",
+    pushReadiness,
     copySafe,
   };
 }
