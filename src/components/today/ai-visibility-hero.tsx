@@ -141,10 +141,20 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
   const verbIs = subjectIsSecondPerson ? "are" : "is";
   const verbAppears = subjectIsSecondPerson ? "appear" : "appears";
 
+  // audit-4: honesty gate. With NO sampled AI-answer data at all (no score AND
+  // zero sampled days — e.g. a tenant with no AI-answer source connected and no
+  // reading yet), the old lead asserted active tracking that isn't happening.
+  // State the absence instead; don't claim a live capability the tenant hasn't
+  // turned on.
+  const hasSampledData = hasScore || currentSampledDays > 0;
+
   // Lead sentence — "You are #N across tracked AI answers." for the
   // second-person fallback; "Ritz Builders is #N..." for any real brand.
   // Operator-locked copy. Avoids superlatives Beacon can't claim.
   const leadSentence = (() => {
+    if (!hasSampledData) {
+      return `No AI answers sampled for ${brandName} yet. Connect an AI-answer source to start tracking.`;
+    }
     if (!hasCompetitiveRank) {
       return `${brandName} ${verbIs} being tracked across AI answers.`;
     }
@@ -171,7 +181,9 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
             AI Visibility
           </p>
           <p className="text-[13px] text-muted-foreground mt-0.5">
-            How often {brandName} {verbAppears} across tracked AI answers.
+            {hasSampledData
+              ? `How often ${brandName} ${verbAppears} across tracked AI answers.`
+              : `AI answers Beacon has sampled for ${brandName}.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -253,17 +253,32 @@ export default async function CompetitorsPage() {
         </Link>
       </div>
 
-      <MarketLocalStrip model={marketLocalStripModel} className="mb-6" />
+      {/* audit-4: gate on local_service like the other local sections (840,
+          933). A content tenant (e.g. an encyclopedia) is not a local-service
+          business, so "Listing health / NAP / Reviews" is inapplicable local-SEO
+          jargon as the page's lead strip. */}
+      {tenantFeatures.local_service ? (
+        <MarketLocalStrip model={marketLocalStripModel} className="mb-6" />
+      ) : null}
 
       {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. The
           citation_evidence_index feeding rankings below is frozen at the last
           Profound import (no native-poll rebuild yet). Surface the cutoff
-          plainly so the operator reads rankings as "known snapshot" vs live. */}
-      <EvidenceFreshnessBanner
-        builtAt={citIndex?.built_at ?? null}
-        label="Competitor rankings"
-        className="mb-6"
-      />
+          plainly so the operator reads rankings as "known snapshot" vs live.
+
+          audit-4: render ONLY when a real frozen index exists. With no index
+          (no AI-citation source connected — e.g. a content tenant without
+          Profound), the null-copy promised a "rebuild with the latest
+          Perplexity + ChatGPT readings" the tenant can't run. The empty/connect
+          state in the benchmark ternary below carries the honest message
+          instead. */}
+      {citIndex?.built_at ? (
+        <EvidenceFreshnessBanner
+          builtAt={citIndex.built_at}
+          label="Competitor rankings"
+          className="mb-6"
+        />
+      ) : null}
 
       {benchmark ? (
         <div className="space-y-8">

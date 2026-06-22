@@ -121,13 +121,15 @@ describe("UX.6.3 — hero owns the executive copy + 4 metric cards + footer", ()
   it("renders the 'AI Visibility' executive header + brand-name copy template", () => {
     expect(HERO_SRC).toContain("AI Visibility");
     // Dynamic brand-name interpolation in the copy (not a hardcoded brand).
-    // Bundle 2 hosted-verification fix (2026-05-11): the verb is now
-    // a `${verbAppears}` interpolation so "You" subjects pluralize
-    // correctly ("You appear" not "You appears"). Source template
-    // shape: `How often {brandName} {verbAppears} across tracked AI
-    // answers.`
+    // Bundle 2 hosted-verification fix (2026-05-11): the verb is a
+    // `${verbAppears}` interpolation so "You" subjects pluralize correctly.
+    // audit-4 (2026-06-22): the subline is now a template-literal inside a
+    // conditional — `How often ${brandName} ${verbAppears} across tracked AI
+    // answers.` is the HAS-DATA branch; with no sampled data the hero shows
+    // "AI answers Beacon has sampled for ${brandName}." instead of asserting
+    // active tracking. Pin the has-data template shape.
     expect(HERO_SRC).toMatch(
-      /How often \{brandName\} \{verbAppears\} across tracked AI answers\./,
+      /How often \$\{brandName\} \$\{verbAppears\} across tracked AI answers\./,
     );
   });
 

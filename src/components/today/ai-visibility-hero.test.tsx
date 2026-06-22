@@ -410,3 +410,43 @@ describe("AIVisibilityHero — second-person grammar (Bundle 2 verification fix)
     expect(upper).toContain("YOU are #1 across tracked AI answers.");
   });
 });
+
+describe("AIVisibilityHero — no sampled data honesty (audit-4)", () => {
+  const NO_DATA: AIVisibilityHeroProps = {
+    ...RITZ_FULL,
+    brandName: "Iranopedia",
+    score: null,
+    rank: null,
+    delta: null,
+    closestChallenger: null,
+    currentSampledDays: 0,
+    latestReadingDate: null,
+    chatgptPrimaryPct: null,
+    perplexityPrimaryPct: null,
+    sampleState: undefined,
+    freshness: { status: "empty", label: "No data yet" },
+  };
+
+  it("with NO sampled data: states the absence, does NOT claim active tracking", () => {
+    const html = renderToStaticMarkup(<AIVisibilityHero {...NO_DATA} />);
+    expect(html).toContain("No AI answers sampled for Iranopedia yet");
+    expect(html).not.toContain("is being tracked across AI answers");
+    // Header subline is descriptive, not a "how often it appears" claim.
+    expect(html).not.toContain("How often Iranopedia appears across tracked AI answers");
+    expect(html).toContain("AI answers Beacon has sampled for Iranopedia");
+  });
+
+  it("with sampled data but no competitive rank: keeps the 'being tracked' lead", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        rank={null}
+        totalRanked={1}
+        closestChallenger={null}
+      />,
+    );
+    // score + sampled days present → tracking IS happening → lead stands.
+    expect(html).toContain("being tracked across AI answers");
+    expect(html).not.toContain("No AI answers sampled");
+  });
+});
