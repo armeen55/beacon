@@ -125,9 +125,13 @@ export function buildKeywordPortfolio(input: {
       byTerm.set(key, { ...k, term: key, display });
     } else {
       // Merge: prefer the entry with the higher known volume / data.
+      // audit-4: drop the trailing `|| existing.volume || k.volume` — Math.max
+      // already picks the higher value, and the `||` treated a deliberate 0
+      // ("zero demand") as falsy and fell through, blurring known-zero with
+      // unknown. Coalesce missing to 0 explicitly and take the max.
       byTerm.set(key, {
         ...existing,
-        volume: Math.max(existing.volume ?? 0, k.volume ?? 0) || existing.volume || k.volume,
+        volume: Math.max(existing.volume ?? 0, k.volume ?? 0),
         difficulty: existing.difficulty ?? k.difficulty,
         position: existing.position ?? k.position,
       });

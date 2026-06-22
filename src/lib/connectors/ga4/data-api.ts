@@ -389,24 +389,33 @@ export async function runGa4UrlTrafficReport(
   // page0.ok === true from here. Accumulate page-0 rows, then paginate.
   const rows: Ga4UrlTrafficRow[] = narrowRunReportRows(page0.body);
   const reportedRowCount = parseRowCount(page0.body.rowCount);
-  // When GA4 omits/garbles rowCount we cannot know there are more pages,
-  // so treat the page-0 count as the total → no extra fetches.
   const totalRowCount = reportedRowCount ?? rows.length;
+  // audit-4: RAW page-row count (pre-narrow). narrowRunReportRows drops
+  // malformed rows, so its length can be < the API page size even on a FULL
+  // page — using it for the fullness check would stop pagination early.
+  const rawPageRowCount = (body: Ga4RunReportResponseBody | null | undefined): number =>
+    Array.isArray(body?.rows) ? body!.rows.length : 0;
+
+  // audit-4: when GA4 OMITS rowCount we cannot bound the loop by a total, and
+  // the old `offset < rows.length` stopped after page 0 — a silent undercount
+  // (>10k rows reported as complete) feeding the GA4 page-value weight low.
+  // Without a known total, paginate while the PREVIOUS page came back FULL
+  // (a short/empty page is the natural end); GA4_MAX_PAGES is the backstop.
+  const haveTotal = reportedRowCount != null;
+  let lastRawPageFull = rawPageRowCount(page0.body) >= GA4_PAGE_SIZE;
 
   let truncated = false;
   let pagesFetched = 1;
-  for (
-    let offset = GA4_PAGE_SIZE;
-    offset < totalRowCount;
-    offset += GA4_PAGE_SIZE
-  ) {
+  for (let offset = GA4_PAGE_SIZE; ; offset += GA4_PAGE_SIZE) {
+    const moreExpected = haveTotal ? offset < totalRowCount : lastRawPageFull;
+    if (!moreExpected) break;
     if (pagesFetched >= GA4_MAX_PAGES) {
       truncated = true;
       log.warn("[ga4-data-api] hit GA4_MAX_PAGES; result truncated", {
         tenantId,
         pagesFetched,
         rowsGathered: rows.length,
-        totalRowCount,
+        totalRowCount: haveTotal ? totalRowCount : null,
       });
       break;
     }
@@ -422,11 +431,12 @@ export async function runGa4UrlTrafficReport(
         kind: page.kind,
         status: page.kind === "non_2xx" ? page.status : undefined,
         rowsGathered: rows.length,
-        totalRowCount,
+        totalRowCount: haveTotal ? totalRowCount : null,
       });
       break;
     }
     for (const r of narrowRunReportRows(page.body)) rows.push(r);
+    lastRawPageFull = rawPageRowCount(page.body) >= GA4_PAGE_SIZE;
   }
 
   const result: Ga4UrlTrafficReportResult = { ok: true, rows };

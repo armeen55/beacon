@@ -188,7 +188,13 @@ function copyContainsCompetitor(
   if (competitorNames.length === 0) return false;
   for (const name of competitorNames) {
     const trimmed = name.trim();
-    if (trimmed.length < 3) continue; // avoid noise from short tokens
+    // < 3 is DELIBERATE noise-avoidance, not a fail-open (audit-4 verified +
+    // rejected the "raise to <2" suggestion): 2-char fragments like "Co"/"In"
+    // match common copy ("Co-located", "In-house") and all-caps 2-char tokens
+    // like "AI"/"US"/"UK" appear constantly in normal prose — case-insensitive
+    // `\b…\b` matching them would false-positive far more than it would catch a
+    // rare 2-char brand. See confidence.test.ts ("Co-located") for the pin.
+    if (trimmed.length < 3) continue;
     const re = new RegExp(`\\b${escapeRegex(trimmed)}\\b`, "i");
     if (re.test(copy)) return true;
   }
