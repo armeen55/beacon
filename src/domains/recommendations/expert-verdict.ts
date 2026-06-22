@@ -165,23 +165,25 @@ export function enforceExpertConfidence(args: {
   // Unsafe proposed copy can never be high/medium — the draft needs review.
   const copySafe = args.copySafe !== false;
 
-  // Core evidence present but intent-fit not scored → moderate ceiling.
+  // audit-3 #10: intent-fit NOT scored (no query extractable to verify the
+  // query/page match). Pre-fix this fail-OPEN: it returned medium + approve:true,
+  // making an UNVERIFIED rec auto-actionable AND live-pushable (publishing-mode
+  // gates pushability on approve===true). An unscored fit is the same risk class
+  // as the wrong-target reject — Beacon cannot confirm the query belongs on this
+  // page. Distinguish "unscored" (this branch) from "scored benign" (below):
+  // unscored → needs_more_evidence + approve:false, so the rec still surfaces
+  // for the operator but is never one-tap published without a verified fit.
+  // (Keeps the approve===true ⟺ high|medium invariant publishing-mode relies on.)
   if (args.topicMatchScore == null || args.intentMatchScore == null) {
-    return copySafe
-      ? {
-          enforcedConfidence: "medium",
-          enforcedApprove: true,
-          gateNotes: [
-            "Core evidence present; page-topic intent-fit was not scored — capped at medium.",
-          ],
-        }
-      : {
-          enforcedConfidence: "needs_more_evidence",
-          enforcedApprove: false,
-          gateNotes: [
-            "The proposed copy needs review before this can be acted on (it isn't yet clean publishable copy).",
-          ],
-        };
+    return {
+      enforcedConfidence: "needs_more_evidence",
+      enforcedApprove: false,
+      gateNotes: [
+        copySafe
+          ? "Core evidence is present, but page-topic intent-fit was not scored — Beacon can't confirm this query is the right target for this page, so it needs review before it can be acted on or published."
+          : "Page-topic intent-fit was not scored AND the proposed copy needs review — this can't be acted on or published yet.",
+      ],
+    };
   }
 
   const topic = args.topicMatchScore;

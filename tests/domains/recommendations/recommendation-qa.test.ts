@@ -148,8 +148,12 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
 
   it("TRUST FIX A: GA4 traffic alone counts as core evidence", () => {
     const v = buildRecommendationQaVerdict({
+      // A query is present so page-topic intent-fit CAN be scored — otherwise
+      // the audit-3 #10 unscored-fit gate (correctly) holds this for review
+      // regardless of evidence. This test's intent is the EVIDENCE-FAMILY
+      // recognition: GA4 traffic must count as core (not "no core evidence").
       row: row({ gsc: [] }),
-      affectedPromptTexts: [],
+      affectedPromptTexts: ["koobideh kabob recipe"],
       evidence: {
         gscDemand: false,
         ga4Traffic: true,
@@ -159,8 +163,27 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
         competitor: false,
       },
     });
-    expect(v.confidence).not.toBe("needs_more_evidence");
+    expect(v.confidenceReason).not.toMatch(/no core evidence/i);
     expect(v.evidenceSupports).toContain("Website traffic");
+  });
+
+  it("audit-3 #10: core evidence but NO query (intent-fit unscored) → needs review, not pushable", () => {
+    const v = buildRecommendationQaVerdict({
+      row: row({ gsc: [] }),
+      affectedPromptTexts: [], // no query anywhere → intent-fit cannot be scored
+      evidence: {
+        gscDemand: false,
+        ga4Traffic: true, // real core evidence …
+        semrush: false,
+        clarity: false,
+        aeo: false,
+        competitor: false,
+      },
+    });
+    // … but with no query to verify the page/query match, it must NOT be
+    // auto-approved/pushable (pre-fix this fail-opened to medium + approve).
+    expect(v.confidence).toBe("needs_more_evidence");
+    expect(v.approve).toBe(false);
   });
 
   it("TRUST FIX A: an empty receipt with no lines still → needs_more_evidence", () => {

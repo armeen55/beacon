@@ -179,7 +179,11 @@ describe("enforceExpertConfidence — the LLM cannot override the gate", () => {
     expect(v.enforcedConfidence).toBe("needs_more_evidence");
     expect(v.enforcedApprove).toBe(false);
   });
-  it("evidence present, fit not scored → medium", () => {
+  it("audit-3 #10: evidence present, fit NOT scored → needs_more_evidence + NOT approved", () => {
+    // Pre-fix this fail-opened to medium + approve:true, making an unverified
+    // rec auto-actionable AND live-pushable. With no scored intent-fit, Beacon
+    // can't confirm the query belongs on the page, so it must surface for review
+    // but never be one-tap published.
     const v = enforceExpertConfidence({
       deterministicReject: false,
       shouldUseQueryForOptimization: null,
@@ -187,7 +191,8 @@ describe("enforceExpertConfidence — the LLM cannot override the gate", () => {
       topicMatchScore: null,
       intentMatchScore: null,
     });
-    expect(v.enforcedConfidence).toBe("medium");
+    expect(v.enforcedConfidence).toBe("needs_more_evidence");
+    expect(v.enforcedApprove).toBe(false);
   });
   it("strong evidence + strong fit → high; moderate → medium; weak → low", () => {
     expect(
