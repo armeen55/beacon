@@ -418,7 +418,13 @@ export async function syncGscSearchAnalyticsForTenant(args: {
             day,
             error: error.message,
           });
-          break;
+          // audit-4: STOP the run on a page-totals write failure (mirror the
+          // page+query path's return-on-upsert-error) instead of `break`ing the
+          // chunk loop and falling through to `days += 1`. Advancing through more
+          // days after a live DB write is failing both compounds the gap and
+          // leaves THIS day's page-level totals (the surface the GSC card leads
+          // with) partial while the day still counts as synced.
+          return { synced: true, property, days, rows_upserted: rowsUpserted };
         }
       }
     }

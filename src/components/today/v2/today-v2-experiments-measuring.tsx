@@ -52,9 +52,9 @@ export function TodayV2ExperimentsMeasuring({
       </p>
       <p className="mt-1 text-[12px] text-muted-foreground">
         {nextCheckDate
-          ? `First results around ${nextCheckDate}. `
+          ? `Enough Search data to read around ${nextCheckDate}. `
           : ""}
-        Beacon compares each page to comparable untreated pages on the same site at 7, 14, and 28 days.
+        Each time you refresh, Beacon compares these pages to comparable untreated pages on the same site at the 7-, 14-, and 28-day marks.
       </p>
       {recent.length > 0 ? (
         <ul className="mt-3 space-y-1.5">

@@ -2221,7 +2221,12 @@ export function buildRecommendationActionRows(
     const fit = rec.resolution?.topicFit;
     if (fit) genFitByRec.set(rec.stableKey, fit);
     evidenceByRec.set(rec.stableKey, {
-      gscDemand: (rec.gscSignal?.impressions90d ?? 0) > 0,
+      // audit-4: a SINGLE 90-day impression must not launder a page into "core
+      // evidence" (which clears the QA needs-more-evidence cap → can become
+      // one-tap pushable). Require the same documented 200-impression floor the
+      // GSC evidence LINE uses, so a trace-impression page can't become a
+      // confident, publishable rec on search demand alone.
+      gscDemand: (rec.gscSignal?.impressions90d ?? 0) >= 200,
       ga4Traffic: false, // GA4 page signal not threaded onto the rec yet
       semrush: rec.semrushSignal != null,
       clarity: rec.claritySignal != null,

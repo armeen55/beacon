@@ -801,7 +801,7 @@ async function buildChartEvents(): Promise<
       events.push({
         date,
         tone: "danger",
-        label: `${o.url} — ${Math.abs(
+        label: `${o.url}: ${Math.abs(
           (o.delta_pct ?? 0) * 100,
         ).toFixed(0)}% drop after change on ${date}`,
       });
@@ -826,7 +826,7 @@ async function buildChartEvents(): Promise<
       events.push({
         date,
         tone: "success",
-        label: `${url} — citation lift detected after change on ${date}`,
+        label: `${url}: citation lift detected after change on ${date}`,
       });
     }
     return events;

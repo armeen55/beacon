@@ -213,13 +213,20 @@ export function buildOpportunity(
   if (input.striking && input.striking.length > 0) {
     kinds.push("striking_distance");
     // Size the upside off the CTR CURVE: per keyword, the incremental clicks from
-    // its CURRENT rank to a MODEST target (up ~4 ranks, floored at rank 5 — never
-    // assume #1), times monthly volume. The old flat `5% of ALL market volume`
-    // treated market search volume as captured impressions, was unbounded, and
-    // ignored the current rank — overstating page-2 pages badly. ×3 = monthly→90d.
+    // its CURRENT rank to a MODEST target (up ~4 ranks), times monthly volume.
+    // The old flat `5% of ALL market volume` treated market search volume as
+    // captured impressions, was unbounded, and ignored the current rank —
+    // overstating page-2 pages badly. ×3 = monthly→90d.
+    //
+    // audit-4: the target was floored at rank 5 ("never assume #1"), but that
+    // ZEROED the BEST striking keywords — a keyword already at position 4 or 5
+    // got target=CTR(5) ≤ CTR(current) → gain 0 → estClicks 0 → buried below a
+    // weaker page-2 keyword. Floor at rank 3 instead: still never assumes the
+    // top 2 (no "#1" overclaim) but gives positions 4–6 a real, modest upside so
+    // the closest-to-page-1 keywords aren't ranked dead last.
     const strikingGain = input.striking.reduce((sum, k) => {
       const cur = expectedCtrForPosition(k.position);
-      const target = expectedCtrForPosition(Math.max(5, Math.round(k.position) - 4));
+      const target = expectedCtrForPosition(Math.max(3, Math.round(k.position) - 4));
       return sum + (k.volume || 0) * Math.max(0, target - cur);
     }, 0);
     gainByKind.striking_distance = Math.round(strikingGain * 3);
