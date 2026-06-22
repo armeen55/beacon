@@ -236,9 +236,21 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
   const claritySampleTiny = !!packet.clarity && dead + rage + quick < CLARITY_TINY_TOTAL;
 
   const missingSchema = !!packet.crawl && (packet.crawl.schemaTypes?.length ?? 0) === 0;
+  // Question-word queries ("what is X", "how to Y") OR definitional/translation
+  // intent that does NOT start with a question word — the biggest answer-block
+  // demand a leading-question-word test misses: "pedar sag meaning", "X in
+  // farsi", "0-9 names and symbols", "pronounce X". Still supporting-only (not
+  // in hasAnyProblem), so widening can never make a healthy page "have a
+  // problem"; it only justifies an answer block where real demand exists.
   const questionDemand =
     (packet.semrush?.questionKeywords?.length ?? 0) > 0 ||
-    queries.some((q) => /^(what|how|why|who|when|where|which|is|are|does|do|can)\b/i.test(q.query));
+    queries.some(
+      (q) =>
+        /^(what|how|why|who|when|where|which|is|are|does|do|can)\b/i.test(q.query) ||
+        /\b(meaning|meanings|meant|definition|define|translation|translate|pronunciation|pronounce|symbols?|in (farsi|persian|english)|to (english|farsi|persian))\b/i.test(
+          q.query,
+        ),
+    );
 
   // hasAnyProblem deliberately EXCLUDES highValueUnservedCluster: a soft
   // "different cluster" signal alone (no CTR deficit, no zero-click query, no

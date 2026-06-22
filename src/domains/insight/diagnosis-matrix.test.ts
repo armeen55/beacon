@@ -143,6 +143,40 @@ describe("SERP presentation — the cheap guard", () => {
   });
 });
 
+describe("answer_block — definitional zero-click demand (widened detection)", () => {
+  it("flags attention for a 'X meaning' query that gets page-1 impressions but ~0 clicks", () => {
+    const m = byKey(
+      buildDiagnosisMatrix(
+        packet({
+          gsc: gsc({
+            topQueries: [
+              { query: "pedar sag meaning", impressions: 2000, clicks: 1, ctr: 0.0005, position: 3 },
+            ],
+          }),
+        }),
+      ),
+    );
+    // "pedar sag meaning" doesn't start with a question word but is definitional
+    // intent → questionDemand now true → with zero-click page-1 demand → attention.
+    expect(m.answer_block.status).toBe("attention");
+  });
+
+  it("flags monitor for translation intent ('X in farsi') even without zero-click", () => {
+    const m = byKey(
+      buildDiagnosisMatrix(
+        packet({
+          gsc: gsc({
+            topQueries: [
+              { query: "good morning in farsi", impressions: 300, clicks: 40, ctr: 0.13, position: 2 },
+            ],
+          }),
+        }),
+      ),
+    );
+    expect(m.answer_block.status).toBe("monitor");
+  });
+});
+
 describe("cannibalization + keep_current", () => {
   it("a clean page (no detected problems) ⇒ keep_current 'ok'", () => {
     // No GSC/Clarity problems + healthy crawl ⇒ detectPageProblems.hasAnyProblem = false.
