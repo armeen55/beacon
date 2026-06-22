@@ -7,6 +7,43 @@
 
 ---
 
+## 2026-06-21 (cont. 2) Workbench convergence + trust polish (autonomous run, LOCAL — not pushed)
+
+Branch `claude/max-capability`, 3 commits ahead of origin (held local per the
+resource-conservation correction: a branch push would only fire a failing
+Preview build since Supabase env isn't in Preview scope; full suite reserved
+for a final gate). Targeted tests + typecheck ONLY.
+
+- **`a565978` one-click Copy on the matrix** — `copy-button.tsx` (`"use client"`,
+  clipboard, "Copied ✓", read-only — copying never publishes) wired into the
+  Workbench action-matrix proposed cells. Turns a read-only draft into a
+  ship-faster affordance.
+- **`d38ecf5` readiness single-day window** — `describeGscReadiness` no longer
+  renders a one-day coverage window as a broken range ("Jun 14 to Jun 14"); when
+  `fromDate === toDate` it shows the single date. Display-only.
+- **`791d860` page-primary divergence trap closed** — `resolvePagePrimary` is now
+  path-aware: pack/diagnosis/legacy CTAs deep-link into the per-page Workbench
+  (`workbenchHref(path)`) when the path is known, matching every other live
+  surface (Opportunity Map, State of the Union, PS-ready recs, already wired in
+  Phase 2). `REVIEW_HREF` is now only the path-less fallback; the stale "Workbench
+  doesn't exist yet" comment is corrected. Prevents a future wiring of
+  resolvePagePrimary from silently re-introducing the cross-surface divergence.
+
+**Convergence audit finding (no code change needed):** the same-page primary
+action already converges — Opportunity Map / State of the Union / Recommendations
+PS-ready all route to the Workbench via `workbenchHref`; Today drills into the rec
+detail (same `recommended_edits` data), which itself bridges to the Workbench.
+The result-pill "AI visibility responded" copy was checked and LEFT AS-IS — it's
+fed by the attribution (citation) engine, so the label is correct for what it
+measures; changing it to "search visibility" would be a new lie.
+
+**Verified:** `npm run typecheck` clean; targeted cluster 106 pass
+(`page-primary` 11, `workbench-cta-links`, `workbench-page-gating`,
+`workbench-matrix`, `workbench-priority`, `readiness` 17, `no-banned-dash` guard).
+No full suite, no push, no Vercel, no Supabase egress beyond local test reads.
+
+---
+
 ## 2026-06-21 (cont.) Proof metric-aware verdict + deterministic matrix drafting (autonomous run)
 
 Continued the overnight run; all merged to main + deployed.
