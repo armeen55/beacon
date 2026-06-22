@@ -7,6 +7,47 @@
 
 ---
 
+## 2026-06-21 (cont. 5) Ship-path adversarial audit → 24 confirmed; active-impact fixed, live-write infra documented
+
+Third multi-agent audit (`wf_245fe697-9aa`, 31 agents) on the Wix push/publish +
+draft-generation pipeline — the LIVE-write path. Code-reads only, skeptic-verified:
+**25 raw → 24 confirmed** (collapse to ~10 distinct issues). Targeted-only.
+
+**Fixed now (active impact, not behind the inactive Wix push path):**
+- **semrush #18:** the organic-keyword sync never purged a keyword's stale OLD-url
+  row when its ranking URL changed → two urls looked like they competed for one
+  keyword, FABRICATING a cannibalization rec for ≤30d. Now purges this
+  (tenant,domain)'s non-refreshed rows each sync, guarded on a non-empty fetch.
+- **factory ban-gate #16:** banned terms were injected from the SYNC
+  getBusinessConfig (env/file only), so Supabase-configured bans were not enforced
+  (fail-OPEN). Now hydrates from Supabase first with a sync fallback.
+
+**DEFERRED → operator-gated "ship-path hardening" slice** (all behind the
+two-click/armed Wix LIVE-push path, which is NOT active for Iranopedia — the live
+tenant uses manual paste; full findings + per-fix specs in task `w03mj1e53`):
+- **A (HIGH, needs migration):** the daily push CAP (`caps.ts`) and the pre-push
+  rollback SNAPSHOTS (`push-snapshots.ts`) are file/cache-only — on Vercel
+  json-store skips disk (`json-store.ts:149`), so both are LOST on lambda recycle:
+  the 10/day cap resets per-lambda (effectively unbounded) and rollback can't
+  restore. Fix = tenant-scoped Supabase tables (`push_ledger`, `push_snapshots`)
+  mirroring `wix/mappings-store.ts` with file fallback + 2 additive migrations the
+  operator applies. Latent until live Wix push is armed.
+- **add_schema seoData rollback (#3):** revert re-derives JSON-LD and always
+  refuses; route it to `wixUpdateProductSeoData` with the snapshotted tags.
+- **two-click Approve&Push QA gate (#13):** unlike the armed path, it skips the
+  deterministic QA re-derivation + accepts status `recommended`; mirror the armed
+  gate (refuse unless qaVerdict.approve && pushReadiness==='paste_ready').
+- **non-destructive guard vs LIVE value (#10/#12):** re-check
+  assertNonDestructivePatch against the freshly-read live field, not the stale
+  draft.current_text.
+- collection pagination (#14 get-by-id), slug-match precision (#11), and low items
+  (#15/#17/#22/#23/#24 + ops-only #20 cap reservation).
+
+**Verified:** typecheck clean; semrush + factory-run 11 pass. No full suite, no
+Supabase egress, no Vercel.
+
+---
+
 ## 2026-06-21 (cont. 4) Compute/data adversarial audit → 18 of 19 confirmed bugs fixed (autonomous run)
 
 Second multi-agent audit (`wf_49cfa94e-17d`, 34 agents) targeting the
