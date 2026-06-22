@@ -74,6 +74,10 @@ export type WorkbenchLeverRow = {
   proposed: string | null;
   proposedSource: ProposedSource;
   benefit: LeverBenefit | null;
+  /** Page-level SERP guard, carried INDEPENDENTLY of the click-estimate display
+   *  (which is deduped to one lever) so the "Needs SERP check" verdict survives
+   *  on every guarded click lever — never let a SERP-owned page ship a title/meta. */
+  serpGuardLabel: string | null;
   risk: "low" | "medium" | "high";
   pushMethod: PushMethod;
   pushReason: string;
@@ -290,6 +294,11 @@ function buildRow(
   // Only a lever Beacon is actually recommending carries the click estimate — a
   // "Do not touch" / healthy lever must never show "~N clicks at stake".
   const benefit = CLICK_LEVERS.has(lever) && needed ? pageBenefit : null;
+  // The SERP guard is page-level — keep it on EVERY needed click lever, separate
+  // from the deduped numeric estimate, so the "Needs SERP check" verdict can't be
+  // lost on a non-lead lever (a SERP-owned page must never show meta "Ship now").
+  const serpGuardLabel =
+    CLICK_LEVERS.has(lever) && needed ? pageBenefit?.serpGuardLabel ?? null : null;
 
   const risk: WorkbenchLeverRow["risk"] =
     lever === "new_page"
@@ -320,6 +329,7 @@ function buildRow(
     proposed,
     proposedSource,
     benefit,
+    serpGuardLabel,
     risk,
     pushMethod: pushInfo.method,
     pushReason: pushInfo.reason,

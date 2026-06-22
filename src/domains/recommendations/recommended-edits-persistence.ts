@@ -572,11 +572,25 @@ export async function readRecommendedEditsLocal(): Promise<RecommendedEditRow[]>
 export const LIFECYCLE_LOCKED_STATUSES: ReadonlySet<ImplementationStatus> =
   new Set<ImplementationStatus>([
     "accepted",
+    // §push: Beacon published / tried to publish — resetting to "recommended"
+    // loses the push record + live_at (the proof engine's treatment date).
+    "pushed",
+    "push_failed",
     "verified_live",
     "verified_live_modified",
+    // Operator/scan decisions that must survive a nightly re-promotion.
+    "needs_review",
+    "wrong_page",
     "partially_implemented",
+    // A measured "never found live after the bake window" — keep it, don't silently
+    // reset to recommended (matches the match-runner's forward-only contract).
+    "not_found_after_7d",
     "dismissed",
   ]);
+// NOTE: "expired" is deliberately NOT locked — it's machine hygiene with a 30d
+// cooldown whose whole purpose is to let a candidate re-surface later; locking it
+// would strand it as "expired" forever. "recommended" is the only other unlocked
+// state (it SHOULD be refreshed by re-promotion).
 
 /**
  * Drop any incoming row whose persisted twin (same `id`) is in a

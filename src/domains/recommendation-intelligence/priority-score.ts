@@ -301,10 +301,23 @@ export const FUSION_BONUS_NON_BLOCKER_HEADROOM = Math.max(
     1,
 );
 
+/** Action types that fix a true INDEXABILITY blocker (page can't be found/ranked
+ *  until resolved) and earn the index-blocker priority bonus. An explicit
+ *  allowlist, NOT a `fix_` prefix: a content/experience fix like
+ *  `fix_page_experience` must never inherit indexability priority. */
+const INDEX_BLOCKER_ACTION_TYPES = new Set<string>([
+  "fix_sitemap",
+  "fix_robots",
+  "fix_status_code",
+  "fix_canonical",
+  "fix_noindex",
+  "fix_schema",
+]);
+
 export function priorityScore(c: PriorityScoreInput): number {
   const severity = SEVERITY_BY_TRIGGER_SIGNAL[c.trigger_signal] ?? 0;
   const indexBlocker =
-    c.action_type.startsWith("fix_") && c.confidence !== "low" ? 25 : 0;
+    INDEX_BLOCKER_ACTION_TYPES.has(c.action_type) && c.confidence !== "low" ? 25 : 0;
   const pageImportance = PAGE_IMPORTANCE_BY_PAGE_TYPE[c.target_page_type] ?? 3;
   const conf = confidenceMultiplier(c.confidence);
   const prereq = c.prerequisite_resolved ? 1 : 0;

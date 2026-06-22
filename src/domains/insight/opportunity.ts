@@ -107,9 +107,18 @@ export function expectedCtrForPosition(position: number): number {
   ];
   if (position <= 1) return 0.27;
   for (let i = table.length - 1; i >= 0; i--) {
-    if (position >= table[i][0]) return table[i][1];
+    if (position >= table[i][0]) {
+      // The table only covers positions 1-10. Below page 1, apply a graduated
+      // floor instead of letting position-10's 0.018 stand for every deep rank
+      // (which overstated the expected CTR — and thus the "CTR leak" — for
+      // pages on page 2+). Monotonic: 0.018 (pos 10) > 0.012 (11-20) > 0.008.
+      if (i === table.length - 1 && position > 10) {
+        return position <= 20 ? 0.012 : 0.008;
+      }
+      return table[i][1];
+    }
   }
-  return 0.015;
+  return 0.008;
 }
 
 function pathTail(path: string): string {
@@ -205,7 +214,9 @@ export function buildOpportunity(
   if (input.striking && input.striking.length > 0) {
     kinds.push("striking_distance");
     const vol = input.striking.reduce((s, k) => s + (k.volume || 0), 0);
-    gainByKind.striking_distance = Math.round(vol * 0.05);
+    // SEMrush volume is MONTHLY; ×3 converts to a 90-day figure so the estimate
+    // matches the "90d" window label (and the ctr_leak 90d convention).
+    gainByKind.striking_distance = Math.round(vol * 0.05 * 3);
     const top = input.striking[0];
     const n = input.striking.length;
     const onPage1 = top.position <= 10;
@@ -316,7 +327,17 @@ export function buildOpportunity(
   const estClicksAtStake = gainByKind[kind] ?? 0;
   const why = whyByKind[kind] ?? "";
   const expectedLever = leverByKind[kind] ?? "";
-  const maxGain = Math.max(0, ...Object.values(gainByKind));
+  // Ranking score is in SEARCH-CLICK units. Friction's gain is a raw Clarity
+  // dead/rage EVENT count (a different unit) — don't let it inflate the cross-kind
+  // score when a true search-click kind is present. A friction-only page still
+  // ranks on its own gain.
+  const clickKindGains = Object.entries(gainByKind)
+    .filter(([k]) => k !== "friction")
+    .map(([, v]) => v);
+  const maxGain =
+    clickKindGains.length > 0
+      ? Math.max(0, ...clickKindGains)
+      : Math.max(0, gainByKind.friction ?? 0);
 
   // Confidence in the estimate is data-volume driven (NOT a SERP claim).
   // Mirrors `estimateConfidence` in page-primary.ts; inlined to avoid a

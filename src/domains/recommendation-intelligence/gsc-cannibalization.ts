@@ -89,13 +89,19 @@ export function groupCannibalizationRows(
 
   const cases: GscCannibalizationCase[] = [];
   for (const [query, urlsMap] of byQuery) {
-    const competing = [...urlsMap.values()].map((u) => ({
-      url: u.url,
-      clicks: u.clicks,
-      impressions: u.impressions,
-      position: u.impressions > 0 ? u.posWeighted / u.impressions : 0,
-    }));
-    // Canonicalization may have collapsed the row set back to a single page.
+    const competing = [...urlsMap.values()]
+      // Drop URLs with no impressions: their position would be 0, sorting them to
+      // the FRONT and making a non-ranking page the bogus "lead" with bestPosition
+      // 0. Only pages that actually rank for the query can compete for it.
+      .filter((u) => u.impressions > 0)
+      .map((u) => ({
+        url: u.url,
+        clicks: u.clicks,
+        impressions: u.impressions,
+        position: u.posWeighted / u.impressions,
+      }));
+    // Canonicalization (or the impressions filter) may have collapsed the row set
+    // back to a single ranking page.
     if (competing.length < 2) continue;
     competing.sort((a, b) => a.position - b.position);
     const totalClicks = competing.reduce((s, u) => s + u.clicks, 0);

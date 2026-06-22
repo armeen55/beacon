@@ -62,7 +62,7 @@ export function decideVerdict(row: WorkbenchLeverRow): VerdictChip {
   if (!row.needed) {
     return row.status === "ok" ? "Do not touch" : "Hold this";
   }
-  if (row.benefit?.serpGuardLabel) return "Needs SERP check";
+  if (row.serpGuardLabel) return "Needs SERP check";
   if (row.pushMethod === "blocked_no_mapping") return "Needs Wix mapping";
   if (row.pushMethod === "no_write_path" || row.pushMethod === "manual_cms_edit") {
     return "Manual only";

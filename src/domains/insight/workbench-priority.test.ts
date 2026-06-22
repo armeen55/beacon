@@ -13,6 +13,7 @@ function row(over: Partial<WorkbenchLeverRow> & { lever: LeverKey }): WorkbenchL
     proposed: null,
     proposedSource: "needs_endpoint",
     benefit: null,
+    serpGuardLabel: null,
     risk: "low",
     pushMethod: "manual_cms_edit",
     pushReason: "",
@@ -35,7 +36,28 @@ describe("decideVerdict — precedence", () => {
         lever: "title",
         needed: true,
         benefit: { estClicksAtStake: 690, window: "90d", confidence: "high", serpGuardLabel: "Needs SERP check before title rewrite" },
+        serpGuardLabel: "Needs SERP check before title rewrite",
         pushMethod: "blocked_no_mapping",
+      }),
+    );
+    expect(v).toBe("Needs SERP check");
+  });
+
+  it("SERP guard survives even when the click estimate was deduped off this lever (regression: audit #3)", () => {
+    // A SERP-owned page where the numeric benefit got deduped to the lead lever
+    // (benefit:null here) must STILL show "Needs SERP check", never "Ship this now".
+    const v = decideVerdict(
+      row({
+        lever: "meta",
+        needed: true,
+        benefit: null,
+        serpGuardLabel: "Needs SERP check before title rewrite",
+        proposedSource: "llm_brief",
+        proposed: "A drafted meta",
+        pushMethod: "wix_cms_field",
+        canAutoApply: true,
+        rollbackReady: true,
+        risk: "low",
       }),
     );
     expect(v).toBe("Needs SERP check");

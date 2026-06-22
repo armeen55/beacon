@@ -133,9 +133,18 @@ export async function measureRecord(
     const treatedPreM = pre.get(record.page) ?? NULL_METRICS;
     const treatedPostM = post?.get(record.page) ?? NULL_METRICS;
 
-    // A control is usable when it had Search presence in the pre window.
+    // A control is usable when it had Search presence in the pre window AND
+    // (once the window has run) still has presence in the post window. A control
+    // that vanished post-ship (deindexed / zero post traffic) would otherwise
+    // post a huge negative delta, dragging controlDelta down and INFLATING the
+    // treated page's adjusted lift (a disappearing comparison page would falsely
+    // read as the treated page "winning").
     const controls = record.controlPages
-      .filter((cp) => (pre.get(cp)?.impressions ?? 0) > 0)
+      .filter(
+        (cp) =>
+          (pre.get(cp)?.impressions ?? 0) > 0 &&
+          (!ran || (post?.get(cp)?.impressions ?? 0) > 0),
+      )
       .map((cp) => ({
         pre: pre.get(cp) ?? NULL_METRICS,
         post: post?.get(cp) ?? NULL_METRICS,
