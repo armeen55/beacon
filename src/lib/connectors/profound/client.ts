@@ -140,6 +140,158 @@ export async function fetchProfoundCategories(
 }
 
 // ---------------------------------------------------------------------------
+// Agents — the ONLY "submit input, run now" primitive in the API (deep-research
+// 2026-06-22). Prompt Volumes / Query Fanout Estimator / AEO Content Scorecard
+// have NO arbitrary-input REST endpoint; the way to run them on a query/URL of
+// OUR choosing (no tracked category, no waiting for a daily run) is to invoke a
+// PUBLISHED Profound Agent that wraps those nodes:
+//   1. GET  /v1/agents                      → find the published agent + its id
+//   2. GET  /v1/agents/{id}                 → read input/output VARIABLE IDS
+//   3. POST /v1/agents/{id}/runs            → 202 + run id (ASYNC, not sync)
+//   4. GET  /v1/agents/{id}/runs/{run_id}   → poll to terminal, read outputs
+// All fail-soft → null, reusing profoundRequest (X-API-Key, 401/429 skip).
+// ---------------------------------------------------------------------------
+
+export type ProfoundAgent = { id: string; name: string; status: string };
+
+/** A run is done once it reaches one of these (no webhook — poll only). */
+export const TERMINAL_AGENT_RUN_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "canceled",
+  "skipped",
+  "error",
+]);
+
+export function isTerminalAgentRunStatus(status: string | null | undefined): boolean {
+  return status != null && TERMINAL_AGENT_RUN_STATUSES.has(status.toLowerCase());
+}
+
+function asList(raw: unknown): unknown[] | null {
+  if (Array.isArray(raw)) return raw;
+  const data = (raw as { data?: unknown } | null)?.data;
+  return Array.isArray(data) ? data : null;
+}
+
+/** Published + draft agents on the org. Discovery: the load-bearing check for
+ *  whether an arbitrary-input (Prompt-Volumes/Fanout/AEO) agent exists at all. */
+export async function listProfoundAgents(
+  tenantId: string,
+  deps: ProfoundFetchDeps = {},
+): Promise<ProfoundAgent[] | null> {
+  const raw = await profoundRequest({ tenantId, method: "GET", path: "/v1/agents" }, deps);
+  const list = asList(raw);
+  if (list == null) return null;
+  const out: ProfoundAgent[] = [];
+  for (const item of list) {
+    if (item == null || typeof item !== "object") continue;
+    const { id, name, status } = item as { id?: unknown; name?: unknown; status?: unknown };
+    if (typeof id === "string" && id.length > 0) {
+      out.push({
+        id,
+        name: typeof name === "string" ? name : "",
+        status: typeof status === "string" ? status : "",
+      });
+    }
+  }
+  return out;
+}
+
+/** Start an agent run. `inputs` keys are the agent's input VARIABLE IDs (read
+ *  them via GET /v1/agents/{id}). Returns the run id (async). */
+export async function startProfoundAgentRun(
+  args: { tenantId: string; agentId: string; inputs: Record<string, unknown> },
+  deps: ProfoundFetchDeps = {},
+): Promise<{ runId: string } | null> {
+  const raw = await profoundRequest(
+    {
+      tenantId: args.tenantId,
+      method: "POST",
+      path: `/v1/agents/${encodeURIComponent(args.agentId)}/runs`,
+      body: { inputs: args.inputs },
+    },
+    deps,
+  );
+  if (raw == null || typeof raw !== "object") return null;
+  const r = raw as { id?: unknown; run_id?: unknown };
+  const runId = typeof r.id === "string" ? r.id : typeof r.run_id === "string" ? r.run_id : null;
+  return runId ? { runId } : null;
+}
+
+export type ProfoundAgentRun = {
+  status: string;
+  outputs: Record<string, unknown> | null;
+};
+
+/** Poll a single run. status is one of pending/running/<terminal>. */
+export async function getProfoundAgentRun(
+  args: { tenantId: string; agentId: string; runId: string },
+  deps: ProfoundFetchDeps = {},
+): Promise<ProfoundAgentRun | null> {
+  const raw = await profoundRequest(
+    {
+      tenantId: args.tenantId,
+      method: "GET",
+      path: `/v1/agents/${encodeURIComponent(args.agentId)}/runs/${encodeURIComponent(args.runId)}`,
+    },
+    deps,
+  );
+  if (raw == null || typeof raw !== "object") return null;
+  const r = raw as { status?: unknown; outputs?: unknown };
+  return {
+    status: typeof r.status === "string" ? r.status : "",
+    outputs:
+      r.outputs != null && typeof r.outputs === "object"
+        ? (r.outputs as Record<string, unknown>)
+        : null,
+  };
+}
+
+/**
+ * Start an agent run and poll it to terminal status. Bounded: stops after
+ * `maxWaitMs` (default 60s) with `pollMs` spacing (default 3s) so it never
+ * starves the 600/hr budget or hangs a request. Returns the terminal run
+ * (read `.outputs[<variable_id>]`) or null on any failure / timeout. The
+ * `sleep` dep is injectable so tests run instantly.
+ */
+export async function runProfoundAgentToCompletion(
+  args: {
+    tenantId: string;
+    agentId: string;
+    inputs: Record<string, unknown>;
+    maxWaitMs?: number;
+    pollMs?: number;
+  },
+  deps: ProfoundFetchDeps & { sleep?: (ms: number) => Promise<void> } = {},
+): Promise<ProfoundAgentRun | null> {
+  const maxWaitMs = args.maxWaitMs ?? 60_000;
+  const pollMs = args.pollMs ?? 3_000;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const started = await startProfoundAgentRun(
+    { tenantId: args.tenantId, agentId: args.agentId, inputs: args.inputs },
+    deps,
+  );
+  if (started == null) return null;
+
+  const deadline = maxWaitMs;
+  let waited = 0;
+  // Poll until terminal or the budget window elapses.
+  for (;;) {
+    const run = await getProfoundAgentRun(
+      { tenantId: args.tenantId, agentId: args.agentId, runId: started.runId },
+      deps,
+    );
+    if (run == null) return null;
+    if (isTerminalAgentRunStatus(run.status)) return run;
+    if (waited >= deadline) return null; // timed out before terminal
+    await sleep(pollMs);
+    waited += pollMs;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Report envelope decoding — THE positional rule.
 // ---------------------------------------------------------------------------
 
