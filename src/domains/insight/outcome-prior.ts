@@ -15,6 +15,12 @@
  * Shipping a change that wins nudges that lever UP for the next page; a change
  * that regresses nudges it DOWN. Each shipped result compounds into intelligence.
  *
+ * STATUS: this is the pure read-side CORE only (slice 1). It is NOT yet wired
+ * into the ranking pipeline (priority-score.ts / opportunity.ts) — that is
+ * slices 2-4, deferred until the live experiments land verdicts (~late June).
+ * Until then these priors steer nothing; the "compounding loop" above describes
+ * the intended wiring, not current behaviour.
+ *
  * Honesty contract (why this can't make Beacon wrong):
  *   • PURE — no I/O, fully unit-tested; consumers pass patterns in.
  *   • ADDITIVE — a multiplier, never a hard filter; it re-ranks, never invents
@@ -102,17 +108,21 @@ function buildTag(
   asset: AssetType,
   helping: number,
   decided: number,
+  nothingYet: number,
   medianLandingDays: number | null,
 ): string {
   const lever = EDIT_TOKEN_LABELS[token] ?? token;
   const pages = decided === 1 ? "page" : "pages";
+  // "all N" counts only SETTLED (helping+hurting) pages — say "settled" so it
+  // never reads as the full shipped set when changes are still in flight.
   const landed =
     helping === decided
-      ? `landed on all ${decided}`
-      : `landed on ${helping} of ${decided}`;
+      ? `landed on all ${decided} settled`
+      : `landed on ${helping} of ${decided} settled`;
+  const stillMeasuring = nothingYet > 0 ? ` (${nothingYet} still measuring)` : "";
   const timing =
     medianLandingDays != null ? ` (~${medianLandingDays} days to show)` : "";
-  return `Based on your results: ${lever} ${landed} ${assetLabel(asset)} ${pages} like this${timing}.`;
+  return `Based on your results: ${lever} ${landed} ${assetLabel(asset)} ${pages} like this${stillMeasuring}${timing}.`;
 }
 
 /**
@@ -149,7 +159,14 @@ export function priorFromPattern(p: UrlChangePattern): OutcomePrior {
     confidence,
     proven,
     tag: proven
-      ? buildTag(p.edit_type_token, p.asset_type, p.helping_count, decided, p.median_landing_day)
+      ? buildTag(
+          p.edit_type_token,
+          p.asset_type,
+          p.helping_count,
+          decided,
+          p.nothing_yet_count,
+          p.median_landing_day,
+        )
       : "",
   };
 }
@@ -187,7 +204,17 @@ export function outcomePriorFor(
   if (matches.length === 0) return null;
 
   const priors = matches.map(priorFromPattern);
+  // Selection order: a PROVEN lever beats an unproven one; among proven levers
+  // the stronger directional tilt (distance from neutral 1.0) wins — so a
+  // strongly-proven lever is never masked by a higher-volume but neutral (50/50)
+  // bucket; then more landed evidence breaks remaining ties.
   priors.sort((a, b) => {
+    if (a.proven !== b.proven) return a.proven ? -1 : 1;
+    if (a.proven && b.proven) {
+      const da = Math.abs(a.multiplier - 1);
+      const db = Math.abs(b.multiplier - 1);
+      if (da !== db) return db - da;
+    }
     if (a.decidedSample !== b.decidedSample) return b.decidedSample - a.decidedSample;
     return b.multiplier - a.multiplier;
   });

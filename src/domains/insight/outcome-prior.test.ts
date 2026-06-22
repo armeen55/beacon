@@ -124,6 +124,14 @@ describe("priorFromPattern — proven levers move, bounded", () => {
     expect(p.tag).not.toMatch(/[‒–—―]/);
   });
 
+  it("tag discloses in-flight pages: 'settled' wording + '(N still measuring)'", () => {
+    const p = priorFromPattern(
+      pattern({ helping_count: 6, hurting_count: 0, nothing_yet_count: 2 }),
+    );
+    expect(p.tag).toContain("all 6 settled"); // not a bare "all 6" over a partial set
+    expect(p.tag).toContain("2 still measuring");
+  });
+
   it("confidence rises with decided sample (medium at MIN, high at >=5)", () => {
     expect(priorFromPattern(pattern({ helping_count: 3 })).confidence).toBe("medium");
     expect(priorFromPattern(pattern({ helping_count: 5 })).confidence).toBe("high");
@@ -172,6 +180,20 @@ describe("outcomePriorFor — lookup the ranking consumers use", () => {
     // title_change has 6 decided (proven, 1.3); schema_added has 1 decided (unproven, 1.0).
     const p = outcomePriorFor(["schema_added", "title_change"], "city_page", patterns);
     expect(p?.token).toBe("title_change");
+    expect(p?.multiplier).toBe(1.3);
+  });
+
+  it("a strongly-PROVEN lower-volume bucket beats a neutral (50/50) higher-volume one", () => {
+    // title: 2 helping + 2 hurting = decided 4, 50/50 -> proven but NEUTRAL 1.0.
+    // schema: 3 helping = decided 3, all-helping -> proven, strong 1.3.
+    // Decided-first sort would wrongly pick the neutral title (4 > 3); the fixed
+    // comparator prefers the stronger directional tilt among proven buckets.
+    const ps = [
+      pattern({ edit_type_token: "title_change", asset_type: "city_page", helping_count: 2, hurting_count: 2 }),
+      pattern({ edit_type_token: "schema_added", asset_type: "city_page", helping_count: 3, hurting_count: 0 }),
+    ];
+    const p = outcomePriorFor(["title_change", "schema_added"], "city_page", ps);
+    expect(p?.token).toBe("schema_added");
     expect(p?.multiplier).toBe(1.3);
   });
 });
