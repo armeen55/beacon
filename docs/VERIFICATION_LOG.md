@@ -7,6 +7,43 @@
 
 ---
 
+## 2026-06-22 (cont.) Self-audit → 11/11 trust bugs fixed + dynamic plan (branch `claude/iranopedia-blockers`, NOT pushed)
+
+Ran an adversarial self-audit (workflow `w5fzjlr7f`, 18 agents, code-only,
+skeptic-verified: 13 raised → 11 confirmed) on tonight's new code + the proof
+path the live experiments ride on. Fixed ALL 11 across 4 commits, then shipped
+the highest-ranked follow-on (dynamic plan):
+
+- `b2c6724` **today trust:** verdict-aware empty plan (no "caught up" under a
+  declining verdict) + the measuring strip now reads the RE-MEASURED ledger
+  (loadProofLedger) not raw stored verdicts, with a strictly-future check-date
+  guard; killed a provably-dead opportunityCount branch.
+- `c2b740b` **proof measurement integrity** (would mislabel the live verdicts):
+  (#4) gate a window on the actual FINALIZED-data watermark (new
+  readLastFinalizedDate), not wall-clock — crons are off so the watermark lags,
+  and judging early read a short post window biased toward "lost"; (#5) a
+  treated page with zero post impressions now reads insufficient_data, not a
+  false "lost", on CTR/position; (#6) canonical plural lever classes
+  (internal_links/section_added) map to the position metric, not clicks; (#7) a
+  not-yet-run window stores a neutral result, no pre-minus-zero artifact.
+- `61750cf` **outcome-prior honesty** (dead-code hardening): header STATUS note
+  (not wired yet), tag says "N settled (M still measuring)" not a bare "all N",
+  and the lookup prefers a strongly-proven bucket over a neutral higher-volume
+  one.
+- `425513a` **dynamic plan** (priority #5 + integrity): compute-state-of-union
+  now HOLDS any page with a change shipped inside its 28d measurement window OUT
+  of the plan and promotes the next-best opportunity — so the plan can never
+  tell the operator to re-edit a page mid-experiment (which would corrupt it),
+  and it updates as work ships. Honest "N measuring, held" note. VERIFIED live:
+  /cities (06-20 meta) dropped from the plan, the next opportunity promoted,
+  footer "7 more pages are measuring ... held".
+
+**Verified:** typecheck clean throughout; targeted tests green (measure 29,
+outcome-prior 19, state-of-union + dash-guard 59); /proof + /today render 200 on
+Iranopedia. Targeted-only — NO full suite, NO Vercel, NO paid APIs.
+
+---
+
 ## 2026-06-22 Iranopedia experiment batch (operator) + close-the-loop UX + Learning Loop core (branch `claude/iranopedia-blockers`, NOT pushed)
 
 Operator (Armeen) ran the first same-day SEO experiment batch on Iranopedia. I
