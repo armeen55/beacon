@@ -5,10 +5,10 @@
  * bigger / safest / fastest-measurable / highest-upside). Reads ONLY the fields
  * the matrix rows already carry — it can never disagree with a row.
  *
- * Cannibalization is never the single one-click move (consolidation is an
- * operator choice), and only ever the "bigger play" if its estimate truly leads
- * (it carries no click estimate today, so it never does) — matching the
- * operator correction that cannibalization is one signal, not the headline.
+ * Cannibalization is excluded from every pick (it is filtered out of the
+ * candidate set below): consolidation is an operator cluster decision, never the
+ * one-click headline move — matching the operator correction that
+ * cannibalization is one signal, not the headline.
  */
 
 import type { LeverKey, WorkbenchLeverRow } from "./workbench-matrix";
@@ -39,6 +39,19 @@ export type WorkbenchPicks = {
 const RISK_ORDER: Record<WorkbenchLeverRow["risk"], number> = { low: 0, medium: 1, high: 2 };
 const CONF_WEIGHT: Record<"high" | "medium" | "low", number> = { high: 1, medium: 0.6, low: 0.3 };
 const BODY_LEVERS = new Set<LeverKey>(["answer_block", "h2_sections", "visible_qa"]);
+
+/**
+ * How actionable a lever is RIGHT NOW (higher = better): a fully shippable
+ * "Ship this now" lever beats one that merely has a draft, which beats one that
+ * still needs the analysis endpoint / has no draft. Used only as a tie-break so
+ * the headline "do this first" never surfaces a lever the operator can't act on
+ * over an equal-estimate one they can.
+ */
+function actionability(r: WorkbenchLeverRow): number {
+  if (decideVerdict(r) === "Ship this now") return 2;
+  if (r.proposedSource === "deterministic" || r.proposedSource === "llm_brief") return 1;
+  return 0;
+}
 
 /**
  * The single verdict chip for a lever. Precedence (highest binding constraint
@@ -101,11 +114,14 @@ export function prioritizeWorkbench(rows: WorkbenchLeverRow[]): WorkbenchPicks {
 
   const byScore = [...needed].sort((a, b) => score(b) - score(a));
 
-  // bestSingle: the highest-leverage needed lever; tie-break to a faster
-  // CMS-field lever over a body lever.
+  // bestSingle: the highest-leverage needed lever; on an estimate tie prefer the
+  // lever the operator can actually act on now (shippable / has a draft) over one
+  // still waiting on the endpoint, then a faster CMS-field lever over a body lever.
   const bestSingle = [...needed].sort((a, b) => {
     const d = score(b) - score(a);
     if (d !== 0) return d;
+    const act = actionability(b) - actionability(a);
+    if (act !== 0) return act;
     return (BODY_LEVERS.has(a.lever) ? 1 : 0) - (BODY_LEVERS.has(b.lever) ? 1 : 0);
   })[0];
 

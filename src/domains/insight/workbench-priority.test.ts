@@ -96,6 +96,32 @@ describe("prioritizeWorkbench", () => {
     expect(["answer_block", "h2_sections"]).toContain(picks.bestBigger!.lever);
   });
 
+  it("on an estimate tie, bestSingle prefers the actionable lever over a needs-endpoint one", () => {
+    // title (shippable now) and meta (still needs the endpoint) tie on estimate.
+    // Beacon's headline pick must be the one the operator can act on.
+    const tie = { estClicksAtStake: 300, window: "90d" as const, confidence: "high" as const, serpGuardLabel: null };
+    const rows = [
+      row({
+        lever: "meta",
+        benefit: tie,
+        proposedSource: "needs_endpoint",
+        pushMethod: "wix_cms_field",
+      }),
+      row({
+        lever: "title",
+        benefit: tie,
+        proposedSource: "deterministic",
+        proposed: "A real drafted title",
+        pushMethod: "wix_cms_field",
+        canAutoApply: true,
+        rollbackReady: true,
+        risk: "low",
+      }),
+    ];
+    const picks = prioritizeWorkbench(rows);
+    expect(picks.bestSingle!.lever).toBe("title");
+  });
+
   it("never picks cannibalization as the single one-click move", () => {
     const rows = [
       row({ lever: "cannibalization", needed: true, status: "attention", benefit: null }),
