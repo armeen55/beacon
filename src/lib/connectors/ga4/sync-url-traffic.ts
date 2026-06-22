@@ -125,6 +125,22 @@ export async function syncGa4UrlTrafficForTenant(args: {
  */
 async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
   try {
+    // RACE-SAFE (2026-06-22): the on-use auto-refresh fires this sync on every
+    // shell render → concurrent runs race on the OAuth token refresh; the loser
+    // would FALSE-ALARM "revoked" on a live grant. Before stamping, re-read the
+    // token: if a concurrent run already refreshed it (access token valid,
+    // not soft-disconnected), the grant WORKS — clear instead of stamp.
+    const token = await getGoogleConnectorToken("ga4", tenantId);
+    const aliveNow =
+      token != null &&
+      typeof token.expires_at === "number" &&
+      Number.isFinite(token.expires_at) &&
+      token.expires_at > now.getTime() &&
+      (token.disconnected_at == null || token.disconnected_at === "");
+    if (aliveNow) {
+      await updateConnectorToken("google_ga4", { auth_failed_at: null }, tenantId);
+      return;
+    }
     await updateConnectorToken(
       "google_ga4",
       { auth_failed_at: now.toISOString() },

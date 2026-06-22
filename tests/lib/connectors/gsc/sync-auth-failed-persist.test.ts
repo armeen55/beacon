@@ -112,8 +112,14 @@ describe("syncGscSearchAnalyticsForTenant — stamps auth_failed_at on a broken 
   it("token row exists but access token can't resolve (gsc_token_expired) → STAMP", async () => {
     mocks.resolveGscAccessToken.mockResolvedValue(null);
     // classifyMissingGscToken reads the row → a present, in-scope token means
-    // the grant broke → "gsc_token_expired".
-    mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    // the grant broke → "gsc_token_expired". The token is GENUINELY dead here
+    // (expired long ago): the race-safe stamp (2026-06-22) re-reads the row and
+    // only stamps when the grant is truly unusable — a still-valid expires_at
+    // would mean a concurrent run refreshed it, and we'd clear instead.
+    mocks.getGoogleConnectorToken.mockResolvedValue({
+      ...gscTokenRow(),
+      expires_at: Date.now() - 10 * 86_400_000, // expired 10 days ago = dead grant
+    });
 
     const r = await syncGscSearchAnalyticsForTenant({ tenantId: "t1", now: NOW });
     expect(r).toEqual({ synced: false, reason: "gsc_token_expired" });

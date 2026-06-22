@@ -129,6 +129,27 @@ async function classifyMissingGscToken(
  */
 async function stampGscAuthFailure(tenantId: string, now: Date): Promise<void> {
   try {
+    // RACE-SAFE (2026-06-22): the on-use auto-refresh fires this sync on every
+    // shell render, so two syncs can run CONCURRENTLY. When the access token has
+    // expired, both try to refresh it; Google accepts one and may 401 the other
+    // — and the loser would FALSE-ALARM "Google revoked access" on a grant that
+    // is actually alive. So before stamping, re-read the token: if a concurrent
+    // run already refreshed it (access token valid in the future, scope intact,
+    // not soft-disconnected), the grant WORKS — clear the marker instead of
+    // stamping. Only a genuinely-unusable token is stamped.
+    const token = await getGoogleConnectorToken("gsc", tenantId);
+    const aliveNow =
+      token != null &&
+      typeof token.expires_at === "number" &&
+      Number.isFinite(token.expires_at) &&
+      token.expires_at > now.getTime() &&
+      (token.disconnected_at == null || token.disconnected_at === "") &&
+      Array.isArray(token.scopes) &&
+      token.scopes.includes(GSC_REQUIRED_SCOPE);
+    if (aliveNow) {
+      await updateConnectorToken("google_gsc", { auth_failed_at: null }, tenantId);
+      return;
+    }
     await updateConnectorToken(
       "google_gsc",
       { auth_failed_at: now.toISOString() },
