@@ -7,6 +7,44 @@
 
 ---
 
+## 2026-06-21 (cont. 6) Ingest/scan adversarial audit → 22 confirmed; high-leverage + packet-honesty fixed
+
+Fourth multi-agent audit (`wf_70075a62-c9e`, 36 agents) on the ingest/scan path
+(crawl extraction → snapshots → packet → judge prompt). Code-reads only,
+skeptic-verified: **30 raw → 22 confirmed** (collapse to ~12 distinct; the link
+bug appeared 5×, word_count-chrome 3×). Targeted-only.
+
+**Fixed (resolve ~12 of 22):**
+- **gsc #2 (HIGH, active):** the 28d-vs-prior-28d clicks split anchored to `now`
+  while the sync only persists finalized days (~3d behind) → a ~11% PHANTOM
+  decline on a flat site + a "declining" headline. Now anchored to the last
+  finalized day in the data (both windows exactly 28 finalized days).
+- **crawl link-classify (#3/#7/#9/#14/#16):** substring `href.includes(domain)`
+  misclassified look-alike externals as internal + ignored protocol-relative
+  links. Now resolves each href + compares the exact (www-normalized) host.
+- **crawl word_count (#10/#12/#17):** counted nav/header/footer/aside chrome →
+  inflated depth, hid thin pages. Now from a chrome-pruned clone.
+- **packet #5:** crawl FAQs serialized as JSON blobs into the judge packet → now
+  readable "question: answer" text.
+- **packet #11:** SEMrush bare-numeric Intent code (0-3) leaked as the query's
+  intent → dropped for bare numerics (we don't reliably decode the mapping).
+
+**DEFERRED (documented; full findings in task `wtrwz37df`):** **#1 (HIGH)** the
+judge is blind to body prose because the HOT shared `getPageSnapshots` projection
+omits `card_texts`/`body_paragraph_sample` — the SAFE fix is a page-surgeon-
+DEDICATED read (widening the shared projection would raise egress for /today,
+/recommendations, etc. — the egress the operator forbade); **#15** gsc_decay
+window lag (mirrors #2 but flows through a SQL RPC → needs a migration); GA4
+sources-present over-claim (#19), competitors "tracked" KPI cap (#18, needs an
+untruncated count field), Clarity 5000-row + match-runner 500-row truncations
+(#13/#8), /competitors why-them disk-store + /prompts hardcoded platforms (#6/#22),
+single-mainEntity FAQ (#21).
+
+**Verified:** typecheck clean; extractor + state-of-union 29 pass, page-surgeon
+suite 81 pass. No full suite, no Supabase egress, no Vercel.
+
+---
+
 ## 2026-06-21 (cont. 5) Ship-path adversarial audit → 24 confirmed; active-impact fixed, live-write infra documented
 
 Third multi-agent audit (`wf_245fe697-9aa`, 31 agents) on the Wix push/publish +
