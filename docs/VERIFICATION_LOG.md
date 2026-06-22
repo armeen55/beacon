@@ -7,6 +7,49 @@
 
 ---
 
+## 2026-06-21 (cont. 3) Adversarial trust audit → 23 confirmed bugs fixed (autonomous run)
+
+Ran a 10-surface multi-agent trust/correctness audit (`wf_286cdca7-08e`, 41
+agents, code-reads only — ZERO Supabase/Vercel/full-suite). Each finding was
+adversarially verified by a skeptic before action: **31 raw → 23 confirmed real,
+8 false positives killed.** All 23 fixed across 4 commits (branch
+`claude/max-capability`, pushed). Targeted tests + typecheck only.
+
+**Batch 1 (proof/changes/workbench/recs):** per-window proof line is now metric-
+aware (was always "clicks" even on a CTR/position verdict — could show "+0.4pp
+CTR" above "-3 clicks"); recs evidence no longer fabricates "isn't cited" when
+there are zero AI observations (every Iranopedia content rec); "CTR for <query>"
+→ "Page CTR (top query: …)"; explainer names the right metric; controls-used not
+controls-assigned; empty baseline "pos 0.0" → honest "no Search data yet";
+/changes header "search visibility" → "AI visibility" (its pills are citation-
+based — reverted my own earlier mislabel); Workbench "Do not touch" lever no
+longer shows clicks-at-stake; the shared page CTR pool shows on one lead lever,
+not 3 (additive misread).
+
+**Batch 2 (opportunity/diagnosis/today/connectors/page-surgeon):** striking-
+distance copy is position-aware (no more "page 2" for a page-1 keyword); friction
+rows labeled "frustrated clicks (Clarity, 28d)" not "est. clicks at stake";
+estWindow kind-derived (28d vs 90d, type widened); SERP rationale drops the
+unverified "low CTR" claim; UX-friction tile shows the TRUE page count (was
+capped at 5); steady-band headline suppresses the up/down delta badge; leaderboard
+hides "#1" with zero competitors; closest-challenger labeled "% mention rate
+(window avg)"; connector staleness reads last_synced_at not token expires_at;
+connected Wix (publish-only) is healthy not stuck-amber; pluralization sweep.
+
+**Batch 3 (readiness, HIGH):** a span-read statement-timeout on a large
+gsc_daily_rows table no longer reports "connected, no data yet" — a spanUnknown
+sentinel routes to ready (data present, span unavailable) when the HEAD count
+proves rows exist; regression test added. (Bounded aggregate RPC deferred — needs
+an additive migration.)
+
+**Verified:** `npm run typecheck` clean throughout; targeted suites green
+(proof-gsc/measure, proof-plan, gsc-led-evidence, workbench-matrix/priority,
+opportunity, state-of-union, serp-guard, diagnosis-matrix, connection-health,
+llm-judge, artifact-bundle, expiry-handler, ai-visibility-hero, metric-honesty,
+readiness 18, no-banned-dash 53). NO full suite, NO Supabase egress, NO Vercel.
+
+---
+
 ## 2026-06-21 (cont. 2) Workbench convergence + trust polish (autonomous run, LOCAL — not pushed)
 
 Branch `claude/max-capability`, 3 commits ahead of origin (held local per the
