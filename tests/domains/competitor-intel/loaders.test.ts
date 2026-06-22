@@ -59,6 +59,15 @@ let _ourSnapshots: unknown[] = [];
 vi.mock("@/domains/pages/snapshot-store", () => ({
   getPageSnapshots: async () => _ourSnapshots,
 }));
+// loadWhyThemReports now reads OUR page snapshots from the tenant REPOSITORY
+// (commit 468c0d7 / ingest-audit #6 — the disk snapshot-store is empty on
+// Vercel/Supabase). Route that path to the same fixture so the test exercises
+// the prod read shape; otherwise equivalentPageUrl resolves to null.
+vi.mock("@/lib/persistence/repositories", () => ({
+  getRepository: () => ({
+    forTenant: () => ({ getPageSnapshots: async () => _ourSnapshots }),
+  }),
+}));
 
 let _prompts: Array<{ id: string; prompt_text: string }> = [];
 vi.mock("@/domains/prompts/prompt-library", () => ({
