@@ -33,11 +33,14 @@ vi.mock("@/lib/tenant-context", () => ({
 }));
 
 const getTenantSpentThisMonthUsd = vi.fn();
-const recordSpendSupabase = vi.fn(async () => {});
+const recordSpendSupabase = vi.fn(async (_input: unknown) => {});
 vi.mock("@/lib/cost/budget-ledger-supabase", () => ({
-  getTenantSpentThisMonthUsd: (...args: unknown[]) =>
-    getTenantSpentThisMonthUsd(...args),
-  recordSpendSupabase: (...args: unknown[]) => recordSpendSupabase(...args),
+  getTenantSpentThisMonthUsd: (
+    tenantId: string,
+    now?: Date,
+    platform?: string,
+  ) => getTenantSpentThisMonthUsd(tenantId, now, platform),
+  recordSpendSupabase: (input: unknown) => recordSpendSupabase(input),
 }));
 
 import {

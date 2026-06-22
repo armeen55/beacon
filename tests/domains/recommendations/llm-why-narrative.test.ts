@@ -314,6 +314,19 @@ describe("sanitizeLlmWhyOutput", () => {
   it("rejects empty / whitespace output", () => {
     expect(sanitizeLlmWhyOutput("   ", ledger).ok).toBe(false);
   });
+
+  it("audit-3 #3: rejects a number that is only a SUBSTRING of a ledger number", () => {
+    // "12" appears nowhere as its own token; the ledger has "120". The old
+    // substring firewall (serializedInput.includes("12")) wrongly ALLOWED it.
+    const out = sanitizeLlmWhyOutput("This page got 12 clicks.", ledger);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.reason).toBe("invented_number:12");
+  });
+
+  it("audit-3 #3: still allows the exact ledger token (120)", () => {
+    const out = sanitizeLlmWhyOutput("This page got 120 clicks.", ledger);
+    expect(out.ok).toBe(true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────

@@ -175,6 +175,34 @@ export function extractNumberTokens(text: string): string[] {
   return matches.map((m) => m.replace(/[.,]+$/, "")).filter((m) => m.length > 0);
 }
 
+/**
+ * audit-3 #3 — the set of number tokens that appear in the serialized input
+ * ledger, for WHOLE-TOKEN grounding. Both sides normalize via
+ * `extractNumberTokens`, so matching is symmetric.
+ */
+export function inputNumberTokenSet(serializedInput: string): Set<string> {
+  return new Set(extractNumberTokens(serializedInput));
+}
+
+/**
+ * Return the first number token in `text` that is NOT grounded in `grounded`
+ * (the input ledger's token set), or null when every number is grounded.
+ *
+ * Pre-fix this was a SUBSTRING check (`serializedInput.includes(token)`), which
+ * wrongly accepted a hallucinated "12" whenever the ledger contained any
+ * superstring like "123", "2012", or "$1200". Whole-token membership closes
+ * that hole: a number is grounded only if it appears as its own token.
+ */
+export function firstInventedNumber(
+  text: string,
+  grounded: Set<string>,
+): string | null {
+  for (const token of extractNumberTokens(text)) {
+    if (!grounded.has(token)) return token;
+  }
+  return null;
+}
+
 export type SanitizeResult =
   | { ok: true; sentences: string[] }
   | { ok: false; reason: string };
@@ -204,11 +232,11 @@ export function sanitizeLlmWhyOutput(
     }
   }
 
-  // (b) no invented numbers — every output number must be in the ledger.
-  for (const token of extractNumberTokens(text)) {
-    if (!serializedInput.includes(token)) {
-      return { ok: false, reason: `invented_number:${token}` };
-    }
+  // (b) no invented numbers — every output number must be a WHOLE TOKEN in
+  // the ledger (not merely a substring; audit-3 #3).
+  const invented = firstInventedNumber(text, inputNumberTokenSet(serializedInput));
+  if (invented !== null) {
+    return { ok: false, reason: `invented_number:${invented}` };
   }
 
   // (c) shape into sentences.

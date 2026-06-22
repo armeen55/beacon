@@ -38,7 +38,8 @@ import { DEFAULT_OPENAI_MODEL, estimateCost } from "./providers/openai";
 import { checkBudget, recordSpend } from "./adjudicator-budget";
 import {
   ANSWER_ENGINE_VENDOR_PATTERNS,
-  extractNumberTokens,
+  firstInventedNumber,
+  inputNumberTokenSet,
   serializeWhyInput,
 } from "./llm-why-narrative";
 import type { WhyThisMattersInput } from "./why-this-matters-narrative";
@@ -129,14 +130,16 @@ export function sanitizeStrategistReasoning(
     ...r.whyNotAlternatives,
     ...r.risks,
   ];
+  const grounded = inputNumberTokenSet(serializedInput);
   for (const s of strings) {
     for (const p of ANSWER_ENGINE_VENDOR_PATTERNS) {
       if (p.test(s)) return { ok: false, reason: `vendor_name:${p.source}` };
     }
-    for (const tok of extractNumberTokens(s)) {
-      if (!serializedInput.includes(tok)) {
-        return { ok: false, reason: `invented_number:${tok}` };
-      }
+    // Whole-token grounding (audit-3 #3): a substring check wrongly accepted a
+    // hallucinated number that happened to be a substring of a real one.
+    const inventedNum = firstInventedNumber(s, grounded);
+    if (inventedNum !== null) {
+      return { ok: false, reason: `invented_number:${inventedNum}` };
     }
     for (const p of INTERNAL_IDENTIFIER_PATTERNS) {
       if (p.test(s)) return { ok: false, reason: "internal_identifier_leak" };
@@ -457,13 +460,16 @@ function filterSafeCriticStrings(
   max = 5,
 ): string[] {
   if (!Array.isArray(raw)) return [];
+  const grounded = inputNumberTokenSet(serializedInput);
   const out: string[] = [];
   for (const v of raw) {
     if (typeof v !== "string") continue;
     const s = v.trim();
     if (s.length === 0) continue;
     if (CRITIC_LEAK_PATTERNS.some((p) => p.test(s))) continue;
-    if (extractNumberTokens(s).some((tok) => !serializedInput.includes(tok))) continue;
+    // Whole-token grounding (audit-3 #3): drop any bullet with an ungrounded
+    // number instead of substring-matching it against the ledger.
+    if (firstInventedNumber(s, grounded) !== null) continue;
     out.push(s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN).trimEnd() : s);
     if (out.length >= max) break;
   }
