@@ -215,7 +215,7 @@ export function buildOpportunity(
       line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position} (page ${pg}). ${n} striking-distance keyword${n === 1 ? "" : "s"} total.`,
     });
     whyByKind.striking_distance = onPage1
-      ? "Real search demand, already ranking just outside the top spots — a push could lift it higher."
+      ? "Real search demand, already ranking just outside the top spots. A push could lift it higher."
       : "Real search demand one page away, already ranking, just below the fold.";
     leverByKind.striking_distance = onPage1
       ? "Strengthen the page for these terms (depth + internal links) → climb within page 1."
