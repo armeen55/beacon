@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-20 Product audit + Deep Workbench Optimizer plan (audit/plan only, no code change)
+
+**What ran.** Brutal 11-surface product audit on REAL Iranopedia data via an 18-agent adversarially-verified workflow (Audit -> Rank+Spec+Drafts -> Plan -> Verify; ~1.5M subagent tokens; first run interrupted, resumed clean from runId). Ground truth = local dev server on branch `claude/max-capability` against prod beacon-main, operator mode, tenant-iranopedia (one push ahead of deployed prod, labeled honestly). Surfaces captured + audited: /, /opportunities, /workbench x4 (cities, funny-farsi-phrases, farsi-numbers, best-persian-restaurants), /recommendations, /proof, /changes, /connections, /settings/connectors.
+
+**Verified.** No code changed. Captures saved to /tmp/beacon-audit (12 rendered surfaces + real crawl rows for the 5 target pages). Adversarial verify PASS on the 5 page drafts (every GSC/SEMrush number checked line-by-line vs captures, zero invented; all titles <=60, metas <=155, no dashes; cannibalization correctly demoted; 2 upstream pack errors caught). Plan = APPROVE WITH FIXES (3 pre-build corrections logged in the plan doc).
+
+**Decision.** Next big SEO build = **Deep Workbench Optimizer** (build B, score 88) — per-page action matrix + verdict on /workbench, deterministic-first, reusing the existing contract. **Cannibalization ranked LAST (28)**, becomes one matrix row. Full plan + per-page drafts + trust-bug list: `docs/DEEP_WORKBENCH_OPTIMIZER_PLAN.md`.
+
+**Trust bugs found (not yet fixed):** cannibalization KIND_PRIORITY-first buries title money (opportunity.ts:131); `site:` operator query mis-detected as cannibalization on /cities (RPC needs `query not ilike 'site:%'`); /changes "No changes yet" above a real change; /recommendations 3-way card contradiction; em/en-dash leaks on / + /settings/connectors + /connections + evidence-summary.ts:172/189/195/271/341 + bridge.ts:188; pluralization ("page s" x3, "0 sampled day s", "1 days ago", "keyword(s)", "1 clicks", bare "home" title); "367%" friction; Wix counted "connected" while unsynced.
+
+---
+
 ## 2026-06-20 GSC-native cannibalization, visible + actionable (3 commits, local)
 
 **What changed.** Beacon now autonomously detects same-query page competition from pure `gsc_daily_rows` and surfaces it as a first-class opportunity (no third-party data, no paid APIs, no publish path).
