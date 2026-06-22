@@ -59,7 +59,7 @@ function getFaqQuestionsForGap(
     commercial_residential: "custom_home_builder",
   };
 
-  let topicKey = "custom_home_builder";
+  let topicKey: string | null = null;
   for (const mix of tenant.project_mix) {
     if (projectMixTopics[mix]) {
       topicKey = projectMixTopics[mix];
@@ -67,7 +67,12 @@ function getFaqQuestionsForGap(
     }
   }
 
-  const templates = FAQ_TEMPLATES_BY_TOPIC[topicKey] ?? FAQ_TEMPLATES_BY_TOPIC.custom_home_builder;
+  // No builder-vertical topic matched the tenant's project mix (e.g. a content
+  // site like an encyclopedia, which has none). Emit NO FAQ rather than
+  // defaulting to custom-home-builder content on a non-builder tenant
+  // (tool-for-everyone). The FAQ templates here are builder-specific by nature.
+  if (topicKey === null) return [];
+  const templates = FAQ_TEMPLATES_BY_TOPIC[topicKey] ?? [];
 
   // Customize with city if the gap is on a city page
   const city = extractCityFromUrl(gap.page_url);
@@ -150,13 +155,16 @@ function buildComparisonHtml(
   tenant: BeaconTenant,
   competitors: string[],
 ): string {
+  // Vertical-NEUTRAL criteria so the table fits any tenant (was builder-specific:
+  // "Project types", "Budget range", "Design-build capability"). TODO(tool-for-
+  // everyone): derive from the tenant's industry/services config.
   const criteria = [
-    "Years in business",
-    "Project types",
-    "Service area",
-    "Budget range",
-    "Licensed & insured",
-    "Design-build capability",
+    "What they offer",
+    "Coverage / range",
+    "Depth & detail",
+    "Reputation & proof",
+    "Pricing or access",
+    "Recency",
   ];
 
   const cols = [tenant.business_name, ...competitors.slice(0, 4)];
