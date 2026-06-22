@@ -13,6 +13,7 @@
 
 import type { PageSurgeonSummary } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
 import type { OpportunityItem } from "./opportunity";
+import { workbenchHref } from "./workbench-route";
 
 export type PagePrimarySource = "change_pack" | "diagnosis" | "legacy" | "none";
 
@@ -26,9 +27,11 @@ export type PagePrimary = {
 };
 
 /**
- * Where review happens TODAY. The Workbench (`/workbench/[page]`) doesn't exist
- * yet (Phase 2) — until it does, every CTA routes to the recommendations review
- * surface. Flip this one constant when the Workbench ships.
+ * Fallback review surface when a page PATH isn't available to build a per-page
+ * Workbench link. The Workbench (`/workbench/[page]`) now SHIPS (Phase 2) and is
+ * the canonical deep-review destination — every live CTA (Opportunity Map, State
+ * of the Union, PS-ready recs) routes there via `workbenchHref(path)`. This
+ * constant is only the path-less degraded fallback for the generic rec list.
  */
 export const REVIEW_HREF = "/recommendations";
 
@@ -62,20 +65,27 @@ export function actionLabel(action: string | null | undefined): string {
 /**
  * Resolve the single primary action + CTA for a page. Pure.
  * `summary` = Page Surgeon pack summary (or null); `opportunity` = the broad-scan
- * diagnosis (or null); `legacy` = a last-resort legacy headline for Basic/quarantine.
+ * diagnosis (or null); `legacy` = a last-resort legacy headline for Basic/quarantine;
+ * `path` = the page path — when present, pack/diagnosis CTAs deep-link into the
+ * per-page Workbench (`workbenchHref`), matching every other live surface. Without
+ * a path the CTA degrades to the generic rec list (`REVIEW_HREF`).
  */
 export function resolvePagePrimary(args: {
   summary?: PageSurgeonSummary | null;
   opportunity?: Pick<OpportunityItem, "expectedLever" | "why"> | null;
   legacy?: { headline: string } | null;
+  path?: string | null;
 }): PagePrimary {
-  const { summary, opportunity, legacy } = args;
+  const { summary, opportunity, legacy, path } = args;
+  // Deep-review destination: the per-page Workbench when we know the path, else
+  // the generic rec list. Keeps every surface pointing at the same place.
+  const reviewHref = path ? workbenchHref(path) : REVIEW_HREF;
 
   if (summary?.hasPack) {
     return {
       source: "change_pack",
       headline: actionLabel(summary.headlineAction),
-      cta: { label: "Review Change Pack", href: REVIEW_HREF },
+      cta: { label: "Review Change Pack", href: reviewHref },
       hasPack: true,
     };
   }
@@ -83,7 +93,7 @@ export function resolvePagePrimary(args: {
     return {
       source: "diagnosis",
       headline: opportunity.expectedLever || opportunity.why || "Review the page",
-      cta: { label: "Run Deep Audit", href: REVIEW_HREF },
+      cta: { label: "Run Deep Audit", href: reviewHref },
       hasPack: false,
     };
   }
@@ -91,14 +101,14 @@ export function resolvePagePrimary(args: {
     return {
       source: "legacy",
       headline: legacy.headline,
-      cta: { label: "Open", href: REVIEW_HREF },
+      cta: { label: "Open", href: reviewHref },
       hasPack: false,
     };
   }
   return {
     source: "none",
     headline: "Run a deep audit to draft a Change Pack",
-    cta: { label: "Run Deep Audit", href: REVIEW_HREF },
+    cta: { label: "Run Deep Audit", href: reviewHref },
     hasPack: false,
   };
 }

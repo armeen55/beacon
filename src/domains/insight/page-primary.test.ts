@@ -6,6 +6,7 @@ import {
   resolvePagePrimary,
   REVIEW_HREF,
 } from "./page-primary";
+import { workbenchHref } from "./workbench-route";
 import type { PageSurgeonSummary } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
 
 const pack: PageSurgeonSummary = {
@@ -52,7 +53,7 @@ describe("resolvePagePrimary — precedence", () => {
     expect(p.cta.label).toBe("Run Deep Audit");
   });
 
-  it("NEVER routes to a Workbench that doesn't exist yet", () => {
+  it("path-less ⇒ degrades to the generic rec list (fallback only)", () => {
     for (const p of [
       resolvePagePrimary({ summary: pack }),
       resolvePagePrimary({ opportunity: { expectedLever: "x", why: "y" } }),
@@ -60,8 +61,19 @@ describe("resolvePagePrimary — precedence", () => {
       resolvePagePrimary({}),
     ]) {
       expect(p.cta.href).toBe(REVIEW_HREF);
+      // CTA label never leaks an internal surface name.
       expect(p.cta.label.toLowerCase()).not.toContain("workbench");
     }
+  });
+
+  it("WITH a path ⇒ deep-links into the per-page Workbench (matches every other surface)", () => {
+    const expected = workbenchHref("/cities");
+    expect(resolvePagePrimary({ summary: pack, path: "/cities" }).cta.href).toBe(expected);
+    expect(
+      resolvePagePrimary({ opportunity: { expectedLever: "x", why: "y" }, path: "/cities" }).cta.href,
+    ).toBe(expected);
+    expect(resolvePagePrimary({ legacy: { headline: "z" }, path: "/cities" }).cta.href).toBe(expected);
+    expect(resolvePagePrimary({ path: "/cities" }).cta.href).toBe(expected);
   });
 });
 
