@@ -314,11 +314,10 @@ export function describeGscReadiness(r: GscReadiness): GscReadinessDescription {
           : "Connected and pulling search data";
       const parts: string[] = [];
       if (r.coverage != null) {
-        parts.push(
-          `Search data ${shortDate(r.coverage.fromDate)} to ${shortDate(
-            r.coverage.toDate,
-          )}`,
-        );
+        // A one-day window must not read as a broken range ("Jun 14 to Jun 14").
+        const from = shortDate(r.coverage.fromDate);
+        const to = shortDate(r.coverage.toDate);
+        parts.push(from === to ? `Search data ${from}` : `Search data ${from} to ${to}`);
         parts.push(
           `${r.coverage.rowCount.toLocaleString()} row${
             r.coverage.rowCount === 1 ? "" : "s"

@@ -304,7 +304,7 @@ describe("describeGscReadiness — presenter copy", () => {
     expect(d.tone).toBe("ready");
   });
 
-  it("ready → singular 'row' + 'refreshed today' at 0 days", () => {
+  it("ready → singular 'row' + 'refreshed today' at 0 days, single-day window collapses", () => {
     const d = describeGscReadiness(
       readiness({
         verdict: "ready",
@@ -314,7 +314,8 @@ describe("describeGscReadiness — presenter copy", () => {
         freshnessDays: 0,
       }),
     );
-    expect(d.detail).toBe("Search data Jun 14 to Jun 14 · 1 row · refreshed today");
+    // A one-day window reads as a single date, not "Jun 14 to Jun 14".
+    expect(d.detail).toBe("Search data Jun 14 · 1 row · refreshed today");
   });
 
   it("ready → 'refreshed 1 day ago' singular", () => {
