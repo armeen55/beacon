@@ -214,10 +214,14 @@ export function assemblePacketForUrl(
         (expansions.relatedKeywords.length > 0 || expansions.questionKeywords.length > 0),
     );
 
+  // GA4 "present" must mean real traffic, not just a zero-metric row — mirror the
+  // hasSemrush precedent so a 0-session page is honestly "connected but empty".
+  const hasGa4 = !!ga4 && ga4.sessions28d > 0;
+
   const present: string[] = [];
   const empty: string[] = [];
   (gsc ? present : empty).push("gsc");
-  (ga4 ? present : empty).push("ga4");
+  (hasGa4 ? present : empty).push("ga4");
   (clarity ? present : empty).push("clarity");
   (hasSemrush ? present : empty).push("semrush");
   (snap ? present : empty).push("crawl");
@@ -259,7 +263,7 @@ export function assemblePacketForUrl(
       ctrGap: Math.max(0, exp - gsc.ctr90d),
     };
   }
-  if (ga4) {
+  if (hasGa4 && ga4) {
     packet.ga4 = {
       sessions: ga4.sessions28d,
       engagedSessions: ga4.engaged28d,

@@ -118,7 +118,12 @@ export async function runLifecycleMatchAgainstScan(opts: {
         repo.getRecommendedEdits(),
         repo.getRecommendationResponses(),
         repo.getChangelogEntries(),
-        repo.getPageSnapshots(),
+        // Match-runner runs in the nightly/cron scan, never a hot web request, so
+        // use the un-capped paged generation read — getPageSnapshots() caps at 500
+        // and silently drops live edits on pages past row 500 from reconciliation.
+        repo.getAllPageSnapshotsForGeneration
+          ? repo.getAllPageSnapshotsForGeneration()
+          : repo.getPageSnapshots(),
         repo.getPageElementInventory(),
       ]);
 

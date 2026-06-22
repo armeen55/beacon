@@ -21,7 +21,11 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
  *  only exposes ~1-3 days live (we accumulate nightly), so 28d gives
  *  a stable per-URL rate without over-weighting one noisy day. */
 const WINDOW_DAYS = 28;
-const MAX_ROWS = 5000;
+// 28d of url×day friction rows can exceed 5k on a big site, silently truncating
+// the per-URL dead/rage-click SUM (under-counting friction). Raised to match the
+// other per-URL readers (cannibalization/profound/ga4 use ~50k); still well under
+// the GSC reader's 80k bound.
+const MAX_ROWS = 50_000;
 
 export type ClarityPageSignal = {
   /** Page URL (the table's `url` column, repeated for convenience). */

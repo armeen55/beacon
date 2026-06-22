@@ -271,8 +271,8 @@ export default async function CompetitorsPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <KpiCard label="Your Citation Share" value={`${benchmark.ownedAppearanceRate}%`} meta={`of ${benchmark.trackedCitationObservations.toLocaleString()} observations`} />
             <KpiCard label="Your Citations" value={benchmark.ownedAIMentions} meta={`${benchmark.trackedCitationObservations.toLocaleString()} observations tracked`} />
-            <KpiCard label="Competitors Tracked" value={benchmark.topCompetitors.length} />
-            <KpiCard label="Ahead of You" value={aheadCount} meta={aheadCount > 0 ? `of ${benchmark.topCompetitors.length} tracked competitors` : "You lead the field"} />
+            <KpiCard label="Top competitors by citations" value={benchmark.topCompetitors.length} />
+            <KpiCard label="Ahead of You" value={aheadCount} meta={aheadCount > 0 ? `of ${benchmark.topCompetitors.length} top competitors` : "You lead the field"} />
           </div>
           <div className="-mt-5 space-y-0.5">
             <p className="text-[10px] text-muted-foreground/70">

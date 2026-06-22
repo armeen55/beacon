@@ -15,7 +15,8 @@ import { getPromptAnswerObservations } from "@/storage/canonical-store";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getCompetitorPageSnapshotsByUrl } from "@/domains/pages/competitor-page-snapshots";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { getPromptLibrary } from "@/domains/prompts/prompt-library";
 
 import { normalizeHost } from "./citation-series";
@@ -39,12 +40,16 @@ function hostOf(url: string): string | null {
 
 export async function loadWhyThemReports(): Promise<WhyThemReport[]> {
   try {
+    // OUR page snapshots must come from the tenant repository (Supabase on
+    // prod), not the disk-only snapshot-store which is EMPTY on Vercel/Supabase —
+    // otherwise "Why them" silently loses every own-page comparison in prod.
+    const tenantId = await currentTenantId();
     const [universe, index, snapshotsByUrl, ourSnapshots, observations, prompts] =
       await Promise.all([
         loadCompetitorUniverseRuntime(),
         getCitationEvidenceIndex(),
         getCompetitorPageSnapshotsByUrl(),
-        getPageSnapshots(),
+        getRepository().forTenant(tenantId).getPageSnapshots(),
         getPromptAnswerObservations(),
         getPromptLibrary(),
       ]);
