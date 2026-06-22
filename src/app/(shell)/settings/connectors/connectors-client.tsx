@@ -663,13 +663,18 @@ export function ConnectorsClient({
 
   return (
     <div className="space-y-6">
-      {/* #216 — make it unmistakable that connecting a tool never starts a
-          background process. Beacon only pulls data when you click a button. */}
+      {/* 2026-06-22 — connectors now auto-refresh on use (next/after), throttled
+          per-source by last_synced_at. Honest copy: it stays fresh on its own;
+          the buttons are still there to force it. */}
       <div className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3">
         <p className="text-[12px] text-foreground leading-relaxed">
-          Connecting a tool just gives Beacon access. Beacon pulls your data
-          when you click &ldquo;Sync now&rdquo; or &ldquo;Pull my data&rdquo;,
-          nothing runs on a schedule.
+          Connecting a tool just gives Beacon access. After that, Beacon keeps
+          each source fresh automatically — whenever you use the app it quietly
+          re-pulls anything that&rsquo;s gone stale (at most every few hours per
+          source, so it never wastes your API quota). You can still force an
+          immediate refresh anytime with &ldquo;Sync now&rdquo; / &ldquo;Pull my
+          data&rdquo;. No hidden always-on cron — it only runs while you&rsquo;re
+          actually using Beacon.
         </p>
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">

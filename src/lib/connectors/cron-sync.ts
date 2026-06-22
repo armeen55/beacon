@@ -148,6 +148,81 @@ async function syncOneTenant(tenantId: string): Promise<CronSyncSourceResult[]> 
   );
 }
 
+/** Per-provider auto-refresh staleness threshold (hours) for the on-USE refresh.
+ *  Most sources are cheap HTTP→Supabase, so 6h keeps dashboards live. SEMrush is
+ *  longer: its data is daily AND every pull spends paid API units, so we don't
+ *  re-pull it on every few-hour visit. */
+const AUTO_REFRESH_STALE_HOURS: Record<ReadProvider, number> = {
+  google_gsc: 6,
+  google_ga4: 6,
+  clarity: 6,
+  profound: 6,
+  semrush: 24,
+};
+
+function isStale(
+  lastSyncedAt: string | null | undefined,
+  staleHours: number,
+  now: Date,
+): boolean {
+  if (!lastSyncedAt) return true; // never synced → stale
+  const ageMs = now.getTime() - Date.parse(lastSyncedAt);
+  return !Number.isFinite(ageMs) || ageMs > staleHours * 3_600_000;
+}
+
+/**
+ * On-USE auto-refresh for ONE tenant (the "no more Pull-my-data button" path).
+ * Refreshes each CONNECTED read source whose last_synced_at is older than its
+ * per-provider staleness threshold — nothing else. Throttled BY last_synced_at
+ * (durable), so calling it on every app visit can't hammer egress/quota: a
+ * just-synced source is skipped until it ages out. Meant to be scheduled via
+ * next/after so it runs AFTER the response and never delays the page. Fail-soft
+ * per source; never throws.
+ */
+export async function autoRefreshStaleConnectorsForTenant(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<CronSyncSourceResult[]> {
+  const infos = await Promise.all(
+    READ_SOURCES.map(async (s) => {
+      try {
+        return { source: s, info: await getConnectorInfo(s.provider, tenantId) };
+      } catch {
+        return { source: s, info: null };
+      }
+    }),
+  );
+  const stale = infos.filter(
+    ({ source, info }) =>
+      info?.status === "connected" &&
+      isStale(info.last_synced_at, AUTO_REFRESH_STALE_HOURS[source.provider], now),
+  );
+  if (stale.length === 0) return [];
+
+  const settled = await Promise.allSettled(stale.map(({ source }) => source.run(tenantId)));
+  return Promise.all(
+    stale.map(async ({ source }, i): Promise<CronSyncSourceResult> => {
+      const outcome = settled[i]!;
+      if (outcome.status === "rejected") {
+        const err =
+          outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        log.warn("[auto-refresh] source threw", {
+          tenantId,
+          provider: source.provider,
+          error: err.slice(0, 200),
+        });
+        return { tenantId, provider: source.provider, ok: false, detail: err.slice(0, 200) };
+      }
+      const verdict = syncSucceeded(outcome.value);
+      if (!verdict.ok) {
+        return { tenantId, provider: source.provider, ok: false, detail: verdict.reason };
+      }
+      await stampFreshness(source.provider, tenantId);
+      return { tenantId, provider: source.provider, ok: true, detail: "synced" };
+    }),
+  );
+}
+
 /**
  * Nightly DATA-ONLY refresh across every ACTIVE tenant.
  *

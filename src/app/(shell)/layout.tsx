@@ -24,6 +24,8 @@ import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
+import { currentTenantId } from "@/lib/tenant-context";
+import { scheduleConnectorAutoRefresh } from "@/lib/connectors/auto-refresh-on-use";
 
 // T-CustomerNav (2026-05-08) — keys aligned with `navigationGroups`
 // in `src/lib/navigation.ts`. Pre-T-CustomerNav this map carried
@@ -61,6 +63,13 @@ export default async function ShellLayout({
   const trace = createPerfTrace("shell-layout", {
     traceId: await readPerfTraceIdFromHeaders(),
   });
+
+  // On-USE connector auto-refresh (2026-06-22) — keep every connected source
+  // live without a "Pull my data" click. Scheduled via next/after so it runs
+  // AFTER this response (zero added page latency) and only refreshes sources
+  // whose last_synced_at has aged past their per-provider threshold, so firing
+  // on every signed-in click can't hammer egress or paid API quota. Fail-soft.
+  scheduleConnectorAutoRefresh(await currentTenantId());
 
   // Perf bundle 6 (2026-05-12) — parallelize the 4 independent shell
   // reads that fire on EVERY signed-in click.

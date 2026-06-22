@@ -49,8 +49,10 @@ describe("Connectors settings route smoke", () => {
     expect(html).not.toContain("Enter Yelp API Key");
     expect(html).toContain('data-connector-card="semrush"');
     expect(html).toContain('data-connector-card="clarity"');
-    // #216 — persistent note that nothing runs on a schedule.
-    expect(html).toContain("nothing runs on a schedule");
+    // 2026-06-22 — connectors auto-refresh on use (no hidden always-on cron);
+    // the intro now says it keeps sources fresh automatically while you use it.
+    expect(html).toContain("keeps each source fresh automatically");
+    expect(html).toContain("No hidden always-on cron");
     expect(html).toContain("Manual CSV/JSON import remains available");
   });
 });
