@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-21 (cont.) Proof metric-aware verdict + deterministic matrix drafting (autonomous run)
+
+Continued the overnight run; all merged to main + deployed.
+- **BUILD #6 `d08a138`** metric-aware GSC proof verdict: computeWindowLift now does the diff-in-diff for clicks AND CTR AND position (CTR/position impression/rank-guarded); pickProofMetric maps action type → ctr (snippet plays) / position (content) / clicks; summarizeVerdict + proofOutcomeSentence read in the matching unit ("+0.8pp CTR", "1.2 ranks moved up"). Makes the two live meta/CTR experiments judgeable (clicks-only couldn't). Runner + /proof LedgerCard pass the metric. 22 measure tests.
+- **Deterministic title in the matrix `d520565`**: evaluateTitle (pure, brand=null, no LLM) drafts a real title proposal in the Workbench matrix on any page with Search demand where the current title omits the dominant query — so the title cell drafts on all ~215 pages, not just briefed ones (proposedSource "deterministic"). meta/H1/answer stay honest needs_endpoint.
+- **Answer-block widening `ef4a4ef`**: detectPageProblems.questionDemand now matches definitional/translation intent ("pedar sag meaning", "X in farsi", "0-9 names and symbols", "pronounce X"), not just leading question words. Kept supporting-only (not in hasAnyProblem). Flows to the Workbench answer_block dimension.
+
+**Verified.** typecheck clean each slice; full-suite deploy gate twice = 14,857 then 14,860 pass / 1 fail / 71 skip (the lone failure is the PRE-EXISTING visibility-score-filter "Houzz" computeLeaderboard test, unrelated + tracked). LIVE smoke on tenant-iranopedia: /workbench/farsi-numbers renders the matrix with "Title: ship this now" (deterministic) + the widened answer-block ("add a direct answer up top"). The one en-dash on /workbench/farsi-numbers is pre-existing Change-Pack LLM data in a non-artifact field (finalizeArtifactCopy strips all artifact fields), tracked in a spawned task. Branch `claude/max-capability` == main == `ef4a4ef`.
+
+---
+
 ## 2026-06-21 Trust-fix batch + Deep Workbench Optimizer (autonomous overnight run)
 
 **What shipped (10 commits on `claude/max-capability`).**
