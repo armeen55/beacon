@@ -3,6 +3,7 @@ import {
   addDays,
   computeWindowLift,
   pickProofMetric,
+  isSnippetCapturePlay,
   proofCheckDates,
   proofOutcomeSentence,
   summarizeVerdict,
@@ -39,9 +40,11 @@ describe("pickProofMetric", () => {
     expect(pickProofMetric("edit_title")).toBe("ctr");
     expect(pickProofMetric("schema")).toBe("ctr");
     expect(pickProofMetric("intro_answer_block")).toBe("ctr");
-    expect(pickProofMetric("section_add")).toBe("position");
-    expect(pickProofMetric("add_internal_link")).toBe("position");
-    expect(pickProofMetric("create_new_page")).toBe("position");
+    expect(pickProofMetric("add_internal_link")).toBe("position"); // rank play
+    // Coverage / new-content plays grow CLICKS but dilute avg position, so they
+    // are judged on clicks, NOT position.
+    expect(pickProofMetric("section_add")).toBe("clicks");
+    expect(pickProofMetric("create_new_page")).toBe("clicks");
     expect(pickProofMetric("keep_current")).toBe("clicks");
     expect(pickProofMetric("")).toBe("clicks");
   });
@@ -163,16 +166,66 @@ describe("computeWindowLift — observational diff-in-diff", () => {
   });
 });
 
-describe("pickProofMetric — canonical lever class names map to the right metric", () => {
-  it("internal-link levers (singular AND plural canonical) judge on position", () => {
+describe("pickProofMetric — lever class names map to the right metric", () => {
+  it("RANK-improvement levers (internal links, reorder) judge on position", () => {
     expect(pickProofMetric("internal_link")).toBe("position");
     expect(pickProofMetric("internal_links")).toBe("position"); // canonical plural
-    expect(pickProofMetric("section_added")).toBe("position"); // canonical past-tense
+    expect(pickProofMetric("section_reorder")).toBe("position");
+  });
+  it("COVERAGE/new-content levers judge on CLICKS, not position (avg position is diluted by new long-tail)", () => {
+    expect(pickProofMetric("section_add")).toBe("clicks");
+    expect(pickProofMetric("section_added")).toBe("clicks"); // canonical past-tense
+    expect(pickProofMetric("expand_content")).toBe("clicks");
+    expect(pickProofMetric("page_created")).toBe("clicks");
   });
   it("title/meta/answer levers judge on CTR; unknown falls back to clicks", () => {
     expect(pickProofMetric("title")).toBe("ctr");
     expect(pickProofMetric("intro_answer_block")).toBe("ctr");
     expect(pickProofMetric("totally_unknown")).toBe("clicks");
+  });
+  it("isSnippetCapturePlay flags answer-block plays only", () => {
+    expect(isSnippetCapturePlay("intro_answer_block")).toBe(true);
+    expect(isSnippetCapturePlay("answer_block")).toBe(true);
+    expect(isSnippetCapturePlay("title")).toBe(false);
+    expect(isSnippetCapturePlay("meta")).toBe(false);
+  });
+});
+
+describe("summarizeVerdict — answer-block snippet capture (CTR down but rank held)", () => {
+  it("a CTR drop with rank HELD on a snippet play reads inconclusive, NOT lost", () => {
+    const r = summarizeVerdict({
+      windows: [
+        win({ adjustedCtrLift: -0.02, adjustedPosLift: 0.2, controlsUsed: 3, treatedPostImpressions: 5000 }),
+      ],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+      snippetCapturePlay: true,
+    });
+    expect(r.verdict).toBe("inconclusive"); // likely a featured-snippet capture
+  });
+  it("the SAME drop with rank ALSO falling is still a real loss", () => {
+    const r = summarizeVerdict({
+      windows: [
+        win({ adjustedCtrLift: -0.02, adjustedPosLift: -1.5, controlsUsed: 3, treatedPostImpressions: 5000 }),
+      ],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+      snippetCapturePlay: true,
+    });
+    expect(r.verdict).toBe("lost");
+  });
+  it("a non-snippet play (meta) still calls a CTR drop a loss even with rank held", () => {
+    const r = summarizeVerdict({
+      windows: [
+        win({ adjustedCtrLift: -0.02, adjustedPosLift: 0.2, controlsUsed: 3, treatedPostImpressions: 5000 }),
+      ],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+    });
+    expect(r.verdict).toBe("lost");
   });
 });
 

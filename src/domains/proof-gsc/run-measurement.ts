@@ -23,6 +23,7 @@ import {
   addDays,
   computeWindowLift,
   pickProofMetric,
+  isSnippetCapturePlay,
   proofCheckDates,
   summarizeVerdict,
   PROOF_WINDOW_DAYS,
@@ -182,8 +183,11 @@ export async function measureRecord(
     baselineImpressions: treatedPre?.impressions ?? record.baseline.impressions,
     baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
     // The metric that actually measures this change type (CTR for a meta/title
-    // test, position for a content/section test, else clicks).
+    // test, position for a rank play, else clicks for coverage/new-content).
     metric: pickProofMetric(record.actionType),
+    // Answer-block plays can win the snippet (CTR down, rank held) — don't read
+    // that as a loss.
+    snippetCapturePlay: isSnippetCapturePlay(record.actionType),
   });
 
   return {

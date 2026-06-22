@@ -77,19 +77,33 @@ const CTR_LEVER_ACTIONS = new Set([
   "title", "edit_title", "meta", "edit_meta", "h1", "change_h1",
   "intro_answer_block", "answer_block", "faq", "schema", "add_schema", "fix_schema",
 ]);
+// RANK-IMPROVEMENT plays only — judged on POSITION. Internal links and
+// reordering existing content aim to move the page UP for the queries it
+// already ranks for. COVERAGE / NEW-CONTENT plays (section_add, content
+// expansion, new pages) are deliberately NOT here: they grow CLICKS via new
+// query coverage but DILUTE the impressions-weighted average position (the new
+// long-tail queries enter at high rank numbers), so judging them on position
+// would read a SUCCESSFUL expansion as "rank slipped". They fall through to the
+// clicks metric, which is what a coverage play actually moves.
 const POSITION_LEVER_ACTIONS = new Set([
-  "section_add", "section_remove", "section_reorder", "internal_link",
-  "add_internal_link", "create_new_page", "expand_content", "section_content",
-  // Canonical class names emitted by the action-classifier / workbench-matrix
-  // (plural/past-tense). Without these, an internal-link or section change falls
-  // through to the clicks metric, judging a rank play on the wrong unit.
-  "internal_links", "section_added", "page_created",
+  "internal_link", "add_internal_link", "internal_links", "section_reorder",
+]);
+/** Answer-block / snippet plays: a CTR play whose SUCCESS (winning the featured
+ *  snippet / AI overview on a definitional query) can REDUCE the site's own CTR
+ *  because the answer is satisfied in the SERP. Judged on CTR, but the verdict
+ *  must not call a CTR drop "lost" when the rank held/improved (snippet capture).*/
+const SNIPPET_CAPTURE_ACTIONS = new Set([
+  "intro_answer_block", "answer_block", "faq",
 ]);
 export function pickProofMetric(actionType: string): ProofMetric {
   const a = (actionType || "").toLowerCase();
   if (CTR_LEVER_ACTIONS.has(a)) return "ctr";
   if (POSITION_LEVER_ACTIONS.has(a)) return "position";
   return "clicks";
+}
+/** True for answer-block/snippet plays where a CTR drop may be a snippet WIN. */
+export function isSnippetCapturePlay(actionType: string): boolean {
+  return SNIPPET_CAPTURE_ACTIONS.has((actionType || "").toLowerCase());
 }
 
 export const PROOF_WINDOW_DAYS: ProofWindowDay[] = [7, 14, 28];
@@ -236,6 +250,9 @@ export function summarizeVerdict(args: {
   baselineClicks: number;
   /** Which metric judges this change (default clicks for back-compat). */
   metric?: ProofMetric;
+  /** True for answer-block/snippet plays: a CTR drop while rank held/improved is
+   *  most likely a snippet capture (answer satisfied in the SERP), NOT a loss. */
+  snippetCapturePlay?: boolean;
 }): {
   verdict: GscProofVerdict;
   confidence: GscProofConfidence;
@@ -292,6 +309,20 @@ export function summarizeVerdict(args: {
   if (lift >= floor) verdict = "won";
   else if (lift <= -floor) verdict = "lost";
   else verdict = "inconclusive";
+
+  // Answer-block / snippet plays: winning the featured snippet or AI overview on
+  // a definitional query can LOWER the site's own CTR (the answer is satisfied in
+  // the SERP), so a CTR "loss" while the rank HELD or improved is most likely a
+  // snippet capture, not a real loss. Don't call it lost — that would prompt the
+  // operator to roll back a change that achieved its AEO goal.
+  if (
+    args.snippetCapturePlay &&
+    metric === "ctr" &&
+    verdict === "lost" &&
+    basis.adjustedPosLift >= 0
+  ) {
+    verdict = "inconclusive";
+  }
 
   let confidence: GscProofConfidence = "low";
   if (basis.controlsUsed >= MIN_CONTROLS_FOR_HIGH && args.baselineImpressions >= 3000) {
