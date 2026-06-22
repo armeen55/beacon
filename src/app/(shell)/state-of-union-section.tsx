@@ -206,10 +206,19 @@ export async function StateOfUnionSection() {
                     </span>
                   ) : null}
                   {a.estClicksAtStake > 0 ? (
-                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                      ~{a.estClicksAtStake.toLocaleString()} est. clicks at stake over{" "}
-                      {a.estWindow} · {a.estConfidence} confidence
-                    </span>
+                    a.kind === "friction" ? (
+                      // Friction's number is Clarity dead/rage clicks, not
+                      // recoverable search clicks — label its own unit, drop the
+                      // CTR-gap confidence framing.
+                      <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                        {a.estClicksAtStake.toLocaleString()} frustrated clicks (Clarity, {a.estWindow})
+                      </span>
+                    ) : (
+                      <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                        ~{a.estClicksAtStake.toLocaleString()} est. clicks at stake over{" "}
+                        {a.estWindow} · {a.estConfidence} confidence
+                      </span>
+                    )
                   ) : null}
                 </span>
               </li>
