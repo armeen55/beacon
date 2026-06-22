@@ -5,8 +5,16 @@ import type { DiagnosisStatus } from "@/domains/insight/diagnosis-matrix";
 import type {
   AtomicChangePack,
   ArtifactPushability,
+  PushMethod,
 } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
 import type { ChangeArtifact } from "@/domains/recommendation-intelligence/page-surgeon/artifact-bundle";
+import type { WorkbenchLeverRow } from "@/domains/insight/workbench-matrix";
+import {
+  decideVerdict,
+  type VerdictChip,
+  type WorkbenchPicks,
+  type WorkbenchPick,
+} from "@/domains/insight/workbench-priority";
 
 /**
  * Workbench view (operator-OS rebuild, Phase 2, v1) — presentational, read-only.
@@ -61,6 +69,150 @@ function fmtPct(ctr: number): string {
   return `${(ctr * 100).toFixed(2)}%`;
 }
 
+const VERDICT_META: Record<VerdictChip, string> = {
+  "Ship this now": "border-emerald-300 bg-emerald-50 text-emerald-700",
+  "Hold this": "border-amber-300 bg-amber-50 text-amber-700",
+  "Needs SERP check": "border-amber-300 bg-amber-50 text-amber-800",
+  "Needs Wix mapping": "border-sky-300 bg-sky-50 text-sky-700",
+  "Manual only": "border-slate-300 bg-slate-50 text-slate-700",
+  "Do not touch": "border-border bg-muted text-muted-foreground",
+};
+
+function pushMethodText(m: PushMethod): string {
+  switch (m) {
+    case "wix_cms_field":
+      return "Wix field";
+    case "manual_cms_edit":
+      return "Manual edit";
+    case "no_write_path":
+      return "Manual (body content)";
+    case "blocked_no_mapping":
+      return "Needs Wix mapping";
+    case "not_applicable":
+      return "Not applicable";
+  }
+}
+
+/** "Beacon's call": the ranked do-this-first picks, lead with the single move. */
+function BeaconsCall({ picks }: { picks: WorkbenchPicks }) {
+  const labelled: Array<{ label: string; pick: WorkbenchPick }> = [
+    { label: "Best single move", pick: picks.bestSingle },
+    { label: "Bigger play", pick: picks.bestBigger },
+    { label: "Safest", pick: picks.safest },
+    { label: "Fastest to measure", pick: picks.fastestMeasurable },
+    { label: "Highest upside", pick: picks.highestUpside },
+  ].filter((i) => i.pick);
+
+  if (labelled.length === 0) {
+    return (
+      <Section title="Beacon's call" subtitle="What to do first on this page.">
+        <p className="text-[13px] text-muted-foreground">
+          No action warranted right now. This page looks healthy for its position, monitor and
+          revisit if rankings slip.
+        </p>
+      </Section>
+    );
+  }
+
+  const lead = picks.bestSingle;
+  const rest = labelled.filter((i) => i.label !== "Best single move");
+  return (
+    <Section title="Beacon's call" subtitle="What to do first on this page, ranked.">
+      {lead ? (
+        <p className="text-[14px] font-medium text-foreground">Do this first, {lead.oneLine}</p>
+      ) : null}
+      <ul className="mt-2 space-y-1 text-[12px] text-foreground/80">
+        {rest.map((i) => (
+          <li key={i.label}>
+            <span className="text-muted-foreground">{i.label}:</span> {i.pick!.oneLine}
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+function ProposedBlock({ row }: { row: WorkbenchLeverRow }) {
+  if (row.proposedSource === "n/a") {
+    return (
+      <p className="mt-1 text-[11px] text-fuchsia-700">
+        Structural cluster fix: pick one lead page for this query and point the other pages&rsquo;
+        internal links at it. Beacon never merges or deletes pages automatically.
+      </p>
+    );
+  }
+  if (row.proposedSource === "needs_endpoint" || !row.proposed) {
+    return (
+      <p className="mt-1 text-[11px] text-muted-foreground/70">
+        Drafting the exact copy needs the analysis endpoint, which isn&rsquo;t configured yet. No
+        spend happens here.
+      </p>
+    );
+  }
+  const tag = row.proposedSource === "deterministic" ? "Proposed (auto)" : "Proposed";
+  return (
+    <div className="mt-1">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{tag}</span>
+      <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px] text-foreground/85">
+        {row.proposed}
+      </pre>
+    </div>
+  );
+}
+
+function LeverRow({ row }: { row: WorkbenchLeverRow }) {
+  const verdict = decideVerdict(row);
+  const sm = STATUS_META[row.status];
+  return (
+    <div className="rounded-lg border border-border/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${sm.dot}`} />
+        <span className="text-[13px] font-semibold text-foreground">{row.label}</span>
+        <span
+          className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${VERDICT_META[verdict]}`}
+        >
+          {verdict}
+        </span>
+        {row.benefit ? (
+          <span className="text-[11px] text-muted-foreground">
+            ~{row.benefit.estClicksAtStake.toLocaleString()} clicks at stake,{" "}
+            {row.benefit.confidence} confidence
+            {row.benefit.serpGuardLabel ? ` · ${row.benefit.serpGuardLabel}` : ""}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-[12px] text-foreground/75">{row.whyNeeded}</p>
+      {row.current ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          <span className="uppercase tracking-wide">Current:</span> {row.current}
+        </p>
+      ) : null}
+      <ProposedBlock row={row} />
+      <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+        {pushMethodText(row.pushMethod)}
+        {row.rollbackReady ? ", rollback ready" : ""}
+      </p>
+    </div>
+  );
+}
+
+/** The per-page SEO action matrix: one row per lever (slice 1 output). */
+function LeverMatrix({ rows }: { rows: WorkbenchLeverRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <Section
+      title="SEO action matrix"
+      subtitle="Every lever for this page: what's needed, the proposed change, the expected benefit, and how it ships. Read-only, nothing publishes."
+    >
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <LeverRow key={r.lever} row={r} />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 export function WorkbenchView({ data }: { data: WorkbenchData }) {
   if (!data.found) {
     return (
@@ -84,6 +236,8 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
     strikingDistance,
     cannibalization,
     diagnosis,
+    matrix,
+    picks,
     pack,
     packStatus,
     proof,
@@ -138,6 +292,12 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
           ) : null}
         </p>
       </header>
+
+      {/* ── Beacon's call (ranked do-this-first picks) ── */}
+      <BeaconsCall picks={picks} />
+
+      {/* ── SEO action matrix (per-lever) ── */}
+      <LeverMatrix rows={matrix.rows} />
 
       {/* ── Opportunity summary ── */}
       {opportunity ? (
