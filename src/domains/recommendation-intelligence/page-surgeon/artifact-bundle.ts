@@ -165,7 +165,13 @@ export function composeJsonLd(packet: EvidencePacket, faq: FaqItem[] | undefined
 function resolveInternalLinks(
   change: AtomicChange,
   siteUrls: Array<{ url: string; title: string | null }>,
+  currentPageUrl: string,
 ): ResolvedLink[] {
+  // Host-stripped, trailing-slash-normalized path so a page is never linked to
+  // ITSELF (the old guard compared p.url to change.action — the action TYPE, not
+  // a URL — so it never excluded the current page).
+  const toPath = (u: string) => u.replace(/^https?:\/\/[^/]+/i, "").replace(/\/+$/, "") || "/";
+  const here = toPath(currentPageUrl);
   // Anchors are quoted phrases in the change copy, else the whole instruction.
   const quoted = [...`${change.exact_change} ${change.artifact_text ?? ""}`.matchAll(/["“']([^"”']{3,60})["”']/g)].map((m) => m[1]!);
   const anchors = (quoted.length > 0 ? quoted : [change.exact_change]).slice(0, 3);
@@ -174,7 +180,7 @@ function resolveInternalLinks(
     const at = tok(anchor);
     let best: { url: string; score: number } | null = null;
     for (const p of siteUrls) {
-      if (p.url === change.action) continue;
+      if (toPath(p.url) === here) continue;
       const pt = tok(`${p.title ?? ""} ${p.url}`);
       let score = 0;
       for (const w of at) if (pt.has(w)) score += 1;
@@ -291,7 +297,7 @@ export function composeChangeArtifact(
   }
 
   if (change.action === "internal_link") {
-    const links = resolveInternalLinks(change, siteUrls);
+    const links = resolveInternalLinks(change, siteUrls, packet.current.pageUrl);
     return { ...base, internalLinks: links, after: links.map((l) => `${l.anchor} → ${l.targetUrl ?? "(pick target)"}`).join("; ") };
   }
 

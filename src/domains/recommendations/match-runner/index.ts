@@ -250,6 +250,12 @@ export async function runLifecycleMatchAgainstScan(opts: {
         if (targetSnap) {
           for (const cl of changelog) {
             if (cl.source_rec_id !== edit.rec_id) continue;
+            // Match on action_type too (mirrors reconcile.ts's 3-tuple join), so a
+            // multi-action rec with a null element_key doesn't over-stamp live_at
+            // onto unrelated legs. Legacy rows with no action_type still pass.
+            if (cl.action_type !== undefined && cl.action_type !== edit.action_type) {
+              continue;
+            }
             if (
               edit.target_element_key !== null &&
               cl.target_element_key !== undefined &&

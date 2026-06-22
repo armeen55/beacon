@@ -156,10 +156,12 @@ export function evaluateTitle(args: EvaluateTitleArgs): EvaluatorDecision {
   const risks: string[] = [];
   if (effectiveCand.removedTerms.length > 0)
     risks.push(`Drops terms: ${effectiveCand.removedTerms.join(", ")}.`);
-  if (
-    effectiveBest.dimensions.find((d) => d.dimension === "google_title_rewrite_risk")
-      ?.score! < 0.5
-  )
+  const rewriteRisk = effectiveBest.dimensions.find(
+    (d) => d.dimension === "google_title_rewrite_risk",
+  );
+  // Only assert the rewrite risk when the dimension was actually scored — a
+  // present-but-unavailable dimension defaults low and would falsely warn.
+  if (rewriteRisk?.available && rewriteRisk.score < 0.5)
     risks.push("Google may rewrite the displayed title.");
   if (!packet.current.cmsFieldMapped)
     risks.push("No CMS field mapping yet — review-only until mapped.");

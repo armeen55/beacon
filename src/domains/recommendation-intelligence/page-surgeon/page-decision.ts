@@ -562,7 +562,7 @@ function verifyNumericFidelity(change: AtomicChange, packet: EvidencePacket): st
   const reconciles = (v: number, accept: number[], kind: Check["kind"]): boolean => {
     if (!Number.isFinite(v)) return true; // un-parseable → don't flag
     return accept.some((a) => {
-      if (kind === "percent") return Math.abs(v - a) <= Math.max(0.3, 0.12 * Math.abs(a));
+      if (kind === "percent") return Math.abs(v - a) <= Math.max(0.2, 0.05 * Math.abs(a));
       if (kind === "position") return Math.abs(v - a) <= 1.0;
       return Math.abs(v - a) <= Math.max(1, 0.05 * Math.abs(a));
     });
@@ -580,7 +580,11 @@ function verifyNumericFidelity(change: AtomicChange, packet: EvidencePacket): st
         if (raw == null) continue;
         const before = text.slice(Math.max(0, m.index - 16), m.index);
         if (TARGET_BEFORE.test(before)) continue;
-        if (text.slice(re.lastIndex, re.lastIndex + 2).trimStart().startsWith("+")) continue;
+        // Skip an explicit forward-looking "+N" — inspect the char immediately
+        // BEFORE the captured number (the old check looked AFTER re.lastIndex, the
+        // wrong offset, so "+9% ctr" fabrications slipped through).
+        const numStart = m.index + m[0].indexOf(raw);
+        if (text[numStart - 1] === "+") continue;
         const v = parseNum(raw);
         if (!reconciles(v, chk.acceptable, chk.kind)) {
           const real = chk.acceptable.slice(0, 4).map((n) => fmt(n, chk.kind)).join(", ");
@@ -810,6 +814,18 @@ export function applyDeterministicGate(
       why_not_just_title: "",
     };
   }
+
+  // Renumber the operator-facing step order AFTER all promotion + the WL4
+  // cap/defer, so steps read 1..N with no gaps or duplicates (those steps left
+  // stale dependency_order values). New objects — never mutate the inputs.
+  if (primary) primary = { ...primary, dependency_order: 1 };
+  for (let i = 0; i < supporting.length; i++) {
+    supporting[i] = { ...supporting[i], dependency_order: 2 + i };
+  }
+  deferred = deferred.map((c, i) => ({
+    ...c,
+    dependency_order: 2 + supporting.length + i,
+  }));
 
   return {
     ...decision,

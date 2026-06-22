@@ -53,14 +53,15 @@ import type { GscPageSignal } from "../gsc-page-signals";
 export type AnswerBlockReadinessInput = {
   tenantId: string;
   snapshot: PageSnapshot;
-  /** Pre-loaded 28-day GSC signal, or undefined when GSC isn't
+  /** Pre-loaded 90-day GSC signal, or undefined when GSC isn't
    *  connected (the title/H1 fallback still fires). */
   signal: GscPageSignal | undefined;
 };
 
-/** First-party question queries need a real impressions floor (28d)
- *  to be worth a card — mirrors the striking-distance noise floor. */
-const MIN_QUESTION_IMPRESSIONS_28D = 100;
+/** First-party question queries need a real impressions floor (90d)
+ *  to be worth a card — mirrors the striking-distance noise floor, which
+ *  also operates on 90d data. */
+const MIN_QUESTION_IMPRESSIONS_90D = 100;
 
 /** Interrogative openers + the question mark. Lowercased word-boundary
  *  match. Deliberately English-keyworded: the SIGNAL (does this page
@@ -130,7 +131,7 @@ export function strongestQuestion(
     const q = signal.topQueries
       .filter(
         (x) =>
-          x.impressions >= MIN_QUESTION_IMPRESSIONS_28D &&
+          x.impressions >= MIN_QUESTION_IMPRESSIONS_90D &&
           isQuestionShaped(x.query),
       )
       .sort((a, b) => b.impressions - a.impressions)[0];
