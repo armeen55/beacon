@@ -25,6 +25,7 @@ import {
   composeJsonLd,
   type ChangeArtifact,
 } from "@/domains/recommendation-intelligence/page-surgeon/artifact-bundle";
+import { evaluateTitle } from "@/domains/recommendation-intelligence/page-surgeon/evaluate-title";
 import type {
   AtomicChangePack,
   ArtifactPushability,
@@ -271,6 +272,19 @@ function buildRow(
     // from the crawl (no LLM needed).
     proposed = composeJsonLd(packet, undefined).code;
     proposedSource = "deterministic";
+  } else if (lever === "title") {
+    // Title can be drafted DETERMINISTICALLY (candidate generation + evidence
+    // scoring, no LLM) on any page with real Search demand. evaluateTitle
+    // returns null when the current title already serves the dominant query or
+    // evidence is too thin, so a proposal only appears where it is warranted.
+    const titlePacket = packet.current.currentText
+      ? packet
+      : { ...packet, current: { ...packet.current, currentText: crawl?.title ?? null } };
+    const decision = evaluateTitle({ packet: titlePacket, brand: null });
+    if (decision.recommendedText) {
+      proposed = decision.recommendedText;
+      proposedSource = "deterministic";
+    }
   }
 
   const benefit = CLICK_LEVERS.has(lever) ? pageBenefit : null;

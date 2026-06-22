@@ -112,6 +112,27 @@ describe("buildWorkbenchMatrix — structure", () => {
   });
 });
 
+describe("buildWorkbenchMatrix — deterministic title (no LLM, no pack)", () => {
+  it("drafts a title from evaluateTitle when the current title omits the dominant query", () => {
+    const m = buildWorkbenchMatrix(
+      packet({
+        crawl: crawl({ title: "Random Unrelated Page" }),
+        gsc: gsc({
+          topQueries: [
+            { query: "persian swear words", impressions: 9000, clicks: 9, ctr: 0.001, position: 4 },
+          ],
+        }),
+      }),
+      null, // no Change Pack ⇒ deterministic path
+    );
+    const title = m.rows.find((r) => r.lever === "title")!;
+    // Never a fabricated llm_brief without a pack; a real deterministic draft here.
+    expect(title.proposedSource).toBe("deterministic");
+    expect(title.proposed).toBeTruthy();
+    expect(title.proposed!.toLowerCase()).toContain("swear words");
+  });
+});
+
 describe("buildWorkbenchMatrix — benefit + SERP guard (CTR levers)", () => {
   it("carries the page Opportunity estimate + SERP guard on a top-5 low-CTR page", () => {
     const m = buildWorkbenchMatrix(packet({ crawl: crawl(), gsc: gsc({ avgPosition: 4 }) }), null);
