@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadStateOfUnion } from "@/domains/insight/compute-state-of-union";
-import type { StateOfUnionVerdict } from "@/domains/insight/state-of-union";
+import type { StateOfUnion, StateOfUnionVerdict } from "@/domains/insight/state-of-union";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 
 const VERDICT_ACCENT: Record<StateOfUnionVerdict, string> = {
@@ -99,6 +99,18 @@ export async function StateOfUnionSection() {
         </div>
       </div>
 
+      {/* Lead with the plan — the operator's first read is "what do I do today", */}
+      {/* not the diagnostics. The supporting detail lives below under "the full picture". */}
+      <PlanBlock actions={sou.nextBestActions} opportunityCount={sou.opportunityCount} />
+
+      {/* The full picture — supporting evidence behind the plan. */}
+      <div className="flex items-center gap-2 pt-1">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          The full picture
+        </span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+
       {/* Two-column: bleeding vs rising */}
       <div className="grid gap-3 md:grid-cols-2">
         <BriefList
@@ -177,56 +189,6 @@ export async function StateOfUnionSection() {
         </div>
       </div>
 
-      {/* Next best actions */}
-      {sou.nextBestActions.length > 0 ? (
-        <div className="rounded-lg border border-border/60 p-4">
-          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Do next
-          </div>
-          <ol className="mt-1.5 space-y-2">
-            {sou.nextBestActions.map((a, i) => (
-              <li key={i} className="flex gap-2 text-[13px] text-foreground">
-                <span className="shrink-0 font-semibold tabular-nums text-muted-foreground">
-                  {i + 1}.
-                </span>
-                <span className="min-w-0">
-                  <Link
-                    href={workbenchHref(a.path)}
-                    prefetch={false}
-                    className="font-medium text-foreground underline-offset-2 hover:underline"
-                  >
-                    {a.headline}
-                  </Link>{" "}
-                  <span className="font-mono text-[11px] text-muted-foreground/70">
-                    {a.path}
-                  </span>
-                  {a.serpGuardLabel ? (
-                    <span className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                      ⚠ {a.serpGuardLabel}
-                    </span>
-                  ) : null}
-                  {a.estClicksAtStake > 0 ? (
-                    a.kind === "friction" ? (
-                      // Friction's number is Clarity dead/rage clicks, not
-                      // recoverable search clicks — label its own unit, drop the
-                      // CTR-gap confidence framing.
-                      <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                        {a.estClicksAtStake.toLocaleString()} frustrated clicks (Clarity, {a.estWindow})
-                      </span>
-                    ) : (
-                      <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                        ~{a.estClicksAtStake.toLocaleString()} est. clicks at stake over{" "}
-                        {a.estWindow} · {a.estConfidence} confidence
-                      </span>
-                    )
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
-
       {/* Data sources strip */}
       <div className="flex flex-wrap gap-2">
         {sou.sources.map((s) => (
@@ -247,6 +209,113 @@ export async function StateOfUnionSection() {
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * The plan — the hero of the briefing. Leads the page so the operator's first
+ * read is "here is what to do today", not the diagnostics. Each row links to the
+ * page's Workbench. Carries an explicit caught-up state so leading with the plan
+ * never renders a blank top-of-page.
+ */
+function PlanBlock({
+  actions,
+  opportunityCount,
+}: {
+  actions: StateOfUnion["nextBestActions"];
+  opportunityCount: number;
+}) {
+  if (actions.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Today&rsquo;s plan
+        </div>
+        <p className="mt-2 text-[15px] font-medium text-foreground">
+          You&rsquo;re caught up. No must-do moves right now.
+        </p>
+        <p className="mt-1 text-[13px] text-muted-foreground">
+          {opportunityCount > 0
+            ? `${opportunityCount} longer-term opportunities are tracked below.`
+            : "Beacon will surface the next move as new Search data lands."}
+        </p>
+        {opportunityCount > 0 ? (
+          <Link
+            href="/opportunities"
+            prefetch={false}
+            className="mt-3 inline-block text-[13px] font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            Browse opportunities &rarr;
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-foreground/15 bg-card p-5 shadow-sm">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Today&rsquo;s plan
+        </span>
+        <span className="text-[12px] font-medium text-muted-foreground">
+          {actions.length} {actions.length === 1 ? "move" : "moves"} that matter most
+        </span>
+      </div>
+      <ol className="mt-3 space-y-2.5">
+        {actions.map((a, i) => (
+          <li key={i}>
+            <Link
+              href={workbenchHref(a.path)}
+              prefetch={false}
+              className="group flex items-start gap-3 rounded-lg border border-transparent p-2 -mx-2 transition-colors hover:border-border hover:bg-muted/40"
+            >
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[12px] font-semibold tabular-nums text-background">
+                {i + 1}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[14px] font-semibold leading-snug text-foreground group-hover:underline">
+                    {a.headline}
+                  </span>
+                  {a.hasChangePack ? (
+                    <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                      Change Pack ready
+                    </span>
+                  ) : null}
+                  {a.serpGuardLabel ? (
+                    <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                      &#9888; {a.serpGuardLabel}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground/70">
+                  {a.path}
+                </span>
+                {a.estClicksAtStake > 0 ? (
+                  a.kind === "friction" ? (
+                    // Friction's number is Clarity dead/rage clicks, not
+                    // recoverable search clicks — label its own unit, drop the
+                    // CTR-gap confidence framing.
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      {a.estClicksAtStake.toLocaleString()} frustrated clicks (Clarity, {a.estWindow})
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      ~{a.estClicksAtStake.toLocaleString()} est. clicks at stake over{" "}
+                      {a.estWindow} &middot; {a.estConfidence} confidence
+                    </span>
+                  )
+                ) : null}
+              </span>
+              <span className="mt-0.5 shrink-0 self-center text-[13px] font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+                Open &rarr;
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
