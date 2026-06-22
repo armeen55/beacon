@@ -7,6 +7,53 @@
 
 ---
 
+## 2026-06-22 Iranopedia experiment batch (operator) + close-the-loop UX + Learning Loop core (branch `claude/iranopedia-blockers`, NOT pushed)
+
+Operator (Armeen) ran the first same-day SEO experiment batch on Iranopedia. I
+selected one action per page from REAL Beacon data (GSC page+query, SEMrush
+volume, Clarity friction, page snapshots — bounded Supabase reads, NO paid
+APIs), applying SERP-feature discipline (no blind title/meta on snippet- or
+image-pack-owned pages). **5 changes shipped + recorded in the GSC proof
+ledger** (`shipped_change_proof`, tenant-iranopedia, verified_live + recrawl,
+4 UNTREATED controls each, verdict=measuring, first check 2026-06-27/28):
+/farsi-numbers (CMS numbers table), /iran-animals/asiatic-cheetah (national-
+animal answer block), /famous-iranian-comedians (meta), /iranian-actors-
+actresses (title+meta, cannibalization-watch), /famous-iranian-singers (era/
+style H2). Two cards parked (NOT shipped, removed from the measurement set so
+they can't measure noise): persian-female-first-names (already has Q&A; reframed
+as crawl-depth) + iran-flags (dead-click UX needs Clarity diagnosis). Recording
+gotcha caught + fixed: `upsertShippedChange` persists under
+`currentTenantId()`=`BEACON_TENANT_ID` (default Ritz), so the first script run
+misfiled all 7 cross-tenant; deleted + re-ran with the tenant forced.
+
+**3 commits (verified, NOT pushed — a branch push only fires a failing Vercel
+preview build, Supabase env is Production-scope only; held for operator review):**
+- `3a9e4d3` **feat(today): lead with the plan** — the buried 3-action plan
+  (was position 4 of State of the Union) is now an elevated hero card right
+  under the verdict, with a "The full picture" divider demoting the diagnostics
+  + a caught-up empty state. Verified live on Iranopedia.
+- `72dbd67` **feat(learning): outcome-prior core (slice 1)** — pure
+  `outcome-prior.ts`: turns the proof engine's landed verdicts (the
+  currently-passive `learning/change-patterns.ts` aggregates) into a bounded
+  ranking multiplier [0.8,1.3] + plain-English tag. Decided-only (nothing_yet
+  excluded), neutral-until-proven (MIN 3), clamped, additive. 17 tests; imported
+  by nobody yet (zero regression). Slices 2-4 deferred (invisible until outcomes
+  land ~June 28).
+- `565a1c6` **feat(today): experiments-measuring strip** — Today read nothing
+  from the GSC proof ledger; added an operator-only strip (same
+  `loadShippedChanges` as /proof) showing "N changes shipped and measuring,
+  first results <date>" + a /proof link; tenant-scoped, fail-soft, self-hiding.
+  Verified live: "7 changes shipped and measuring". Closes the home-screen loop:
+  plan -> measuring -> proven.
+
+**Verified:** typecheck clean; dash-guard (53) + state-of-union (6) +
+outcome-prior (17) targeted tests green; live ground-truth on tenant-iranopedia
+(/today plan hero + measuring strip; /proof renders all 7 experiments with
+windows/baselines/controls). Resource discipline held: targeted tests + bounded
+reads only — NO full suite, NO Vercel, NO paid APIs, NO live Wix publish.
+
+---
+
 ## 2026-06-21 (cont. 6) Ingest/scan adversarial audit → 22 confirmed; high-leverage + packet-honesty fixed
 
 Fourth multi-agent audit (`wf_70075a62-c9e`, 36 agents) on the ingest/scan path
