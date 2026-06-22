@@ -16,6 +16,7 @@ import {
   type WorkbenchPick,
 } from "@/domains/insight/workbench-priority";
 import { CopyButton } from "./copy-button";
+import { DraftWithAi } from "./draft-with-ai";
 
 /**
  * Workbench view (operator-OS rebuild, Phase 2, v1) — presentational, read-only.
@@ -246,6 +247,10 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
     packStatus,
     proof,
   } = data;
+
+  // Server component — read the key here so the Draft-with-AI panel can tell the
+  // operator whether it'll run the real model or the deterministic fallback.
+  const hasOpenAi = (process.env.OPENAI_API_KEY?.trim().length ?? 0) > 0;
 
   return (
     <div className="max-w-4xl space-y-4">
@@ -544,20 +549,27 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         subtitle={
           packStatus === "pack"
             ? "Beacon's drafted plan for this page. Review-only, nothing publishes here."
-            : "No drafted plan for this page yet."
+            : "Draft this page's exact change with the analysis model. Review-only."
         }
       >
-        {packStatus === "pack" && pack ? (
-          <ChangePackBody pack={pack} />
-        ) : packStatus === "evidence_only" ? (
-          <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-[12px] text-muted-foreground">
-            This page has Search demand but no drafted Change Pack yet. Drafting runs the
-            deterministic gate + analysis model, that endpoint isn&rsquo;t configured, so
-            drafting is disabled here for now.
-          </div>
-        ) : (
-          <p className="text-[12px] text-muted-foreground">No plan available.</p>
-        )}
+        <div className="space-y-3">
+          {/* Draft with AI (#6, 2026-06-22) — on-demand LLM draft for this page,
+              operator-gated + cached, fails soft to the deterministic plan. */}
+          <DraftWithAi path={data.path} hasOpenAi={hasOpenAi} />
+          {packStatus === "pack" && pack ? (
+            <ChangePackBody pack={pack} />
+          ) : packStatus === "evidence_only" ? (
+            <p className="text-[12px] text-muted-foreground">
+              This page has Search demand but no saved Change Pack yet — click &ldquo;Draft with
+              AI&rdquo; above to generate one from its evidence.
+            </p>
+          ) : (
+            <p className="text-[12px] text-muted-foreground">
+              No saved plan yet — &ldquo;Draft with AI&rdquo; above generates one from this
+              page&rsquo;s evidence.
+            </p>
+          )}
+        </div>
       </Section>
 
       {/* ── Wix readiness ── */}
@@ -657,14 +669,14 @@ function PrimaryCta({ data }: { data: WorkbenchData }) {
       </Link>
     );
   }
-  // Draft Change Pack — present but DISABLED in v1 (no analysis endpoint).
+  // Draft Change Pack — now ENABLED (#6): jumps to the Draft-with-AI panel.
   return (
-    <span
-      title="Drafting needs the analysis endpoint, which isn't configured yet. No spend happens here."
-      className="shrink-0 cursor-not-allowed rounded-md border border-border bg-muted px-3 py-1.5 text-[12px] font-medium text-muted-foreground"
+    <Link
+      href="#change-pack"
+      className="shrink-0 rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
     >
-      {data.primaryCta.label} (not configured)
-    </span>
+      Draft with AI ↓
+    </Link>
   );
 }
 

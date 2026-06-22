@@ -58,7 +58,7 @@ function toPath(u: string): string {
 /** Resolve a normalized page path → the context's canonical URL key. Mirrors
  *  bridge.ts's private `resolveCanon` path-match branch (we pass a bare path,
  *  so the canonicalize-first branch never applies). */
-function resolveCanonFromPath(ctx: PageSurgeonContext, path: string): string | null {
+export function resolveCanonFromPath(ctx: PageSurgeonContext, path: string): string | null {
   for (const k of ctx.snapshotByCanon.keys()) if (toPath(k) === path) return k;
   for (const k of ctx.gscByUrl.keys()) if (toPath(k) === path) return k;
   for (const k of ctx.semrushByUrl.keys()) if (toPath(k) === path) return k;
