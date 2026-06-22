@@ -32,6 +32,7 @@ import {
   TodayV2BeaconLearnedSection,
   TodayV2EditLifecycleSection,
   TodayV2EditOutcomesSection,
+  TodayV2ExperimentsMeasuringSection,
   TodayV2GoldenPathSection,
   TodayV2ProvenResultsSection,
   TodayV2OffSiteAuthoritySection,
@@ -264,6 +265,12 @@ async function TodayV2SectionedContent() {
           reserves no layout. */}
       <Suspense fallback={null}>
         <TodayV2BeaconLearnedSection />
+      </Suspense>
+      {/* Experiments measuring (2026-06-22) — mirrors the GSC proof ledger so
+          the home screen shows shipped changes mid-measurement (measuring ->
+          proven). Operator-only; self-hides when nothing is measuring. */}
+      <Suspense fallback={null}>
+        <TodayV2ExperimentsMeasuringSection />
       </Suspense>
       {/* Proven results (2026-06-11) — the causal Proof Engine's measured
           wins. Self-hides until there's a real computed lift, so a null

@@ -53,6 +53,12 @@ import { loadOffSitePresenceSnapshot } from "@/domains/off-site-authority/load-s
 import { computeOffSiteRecommendationCandidates } from "@/domains/off-site-authority/recommendation-rules";
 import { TodayV2ProvenResults } from "@/components/today/v2/today-v2-proven-results";
 import { loadProvenWins } from "@/domains/attribution/load-proven-wins";
+import {
+  TodayV2ExperimentsMeasuring,
+  type MeasuringExperiment,
+} from "@/components/today/v2/today-v2-experiments-measuring";
+import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   BeaconLearnedTile,
@@ -284,6 +290,41 @@ export async function TodayV2OffSiteAuthoritySection() {
  * loader is failure-soft (→ []) and the tile self-hides when empty, so this
  * section reserves no layout until there's a real measured win.
  */
+/**
+ * Experiments measuring — the home-screen mirror of the GSC proof ledger.
+ * Reads the SAME loadShippedChanges() as /proof so Today and Proof never
+ * disagree: how many shipped changes are mid-measurement, when the first
+ * window opens, and a link to /proof. Operator-only (the link target is
+ * operator-gated). Self-hides when nothing is measuring or on any read error.
+ */
+export async function TodayV2ExperimentsMeasuringSection() {
+  if (!isOperatorModeServer()) return null;
+  const records = await loadShippedChanges().catch(() => []);
+  const measuring = records.filter((r) => r.verdict === "measuring");
+  if (measuring.length === 0) return null;
+
+  // Earliest still-pending check window across the measuring set.
+  let nextCheckDate: string | null = null;
+  for (const r of measuring) {
+    for (const w of r.windows) {
+      if (w.ran || !w.checkOn) continue;
+      if (nextCheckDate == null || w.checkOn < nextCheckDate) nextCheckDate = w.checkOn;
+    }
+  }
+
+  const recent: MeasuringExperiment[] = measuring
+    .slice(0, 3)
+    .map((r) => ({ path: r.path, actionType: r.actionType }));
+
+  return (
+    <TodayV2ExperimentsMeasuring
+      count={measuring.length}
+      nextCheckDate={nextCheckDate}
+      recent={recent}
+    />
+  );
+}
+
 export async function TodayV2ProvenResultsSection() {
   const wins = await loadProvenWins({ limit: 4 }).catch(() => []);
   return <TodayV2ProvenResults wins={wins} />;
