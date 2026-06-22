@@ -179,6 +179,20 @@ describe("composeLlmWhyThisMatters — happy path", () => {
     expect(joined.toLowerCase()).not.toContain("chatgpt");
   });
 
+  it("audit-3 #4: sends reasoning_effort:'low' for the default reasoning model", async () => {
+    process.env.BEACON_LLM_WHY = "1";
+    const grounded =
+      "You already rank #6 and were shown 1,800 times in 90 days. " +
+      "A clear FAQ gives AI assistants a quotable answer.";
+    const fetchImpl = fakeFetch(grounded);
+    await composeLlmWhyThisMatters(makeInput(), { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const call = (fetchImpl as unknown as Mock).mock.calls[0];
+    const body = JSON.parse((call[1] as { body: string }).body);
+    expect(body.reasoning_effort).toBe("low");
+    expect(body.model).toBe("gpt-5-mini");
+  });
+
   it("accepts a tiny JSON {\"sentences\":[...]} envelope", async () => {
     process.env.BEACON_LLM_WHY = "1";
     const json = JSON.stringify({

@@ -57,6 +57,18 @@ import type { ActionType } from "../action-types";
  */
 export const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 
+/**
+ * gpt-5 / o-series are REASONING models: they spend `reasoning_tokens` before
+ * emitting output, so at the default reasoning effort a small completion can
+ * still take 40-90s. They accept the `reasoning_effort` request param; older
+ * non-reasoning chat models 400 on it. Callers gate the param on this so the
+ * short-latency LLM paths (why-narrative, strategist, critic) can pin
+ * reasoning_effort:"low" without breaking a non-reasoning model override.
+ */
+export function isReasoningModel(model: string): boolean {
+  return /^(gpt-5|o\d)/i.test(model);
+}
+
 /** Per-million-token rates (USD). Verified against OpenAI pricing 2026-04-23. */
 const COST_PER_MILLION = {
   "gpt-5-mini": { input: 0.25, output: 2.0 },

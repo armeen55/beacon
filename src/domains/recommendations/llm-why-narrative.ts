@@ -37,17 +37,24 @@ import "server-only";
 import {
   DEFAULT_OPENAI_MODEL,
   estimateCost,
+  isReasoningModel,
 } from "./providers/openai";
 import { checkBudget, recordSpend } from "./adjudicator-budget";
+import { log } from "@/lib/logger";
 import type { WhyThisMattersInput } from "./why-this-matters-narrative";
 import type { EvidenceLine } from "@/domains/recommendation-intelligence/evidence-summary";
 
 const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 
-/** Short, hard ceiling — this is a post-mount enhancement, not a blocking
- *  render path. If the model takes longer than this we drop back to the
- *  deterministic baseline rather than make the operator wait. */
-const DEFAULT_TIMEOUT_MS = 8_000;
+/** Hard ceiling for the post-mount enhancement call (server action, NOT the
+ *  blocking render path — the operator already sees the deterministic baseline).
+ *  audit-3 #4 (2026-06-22): bumped 8s → 90s. The default model gpt-5-mini is a
+ *  REASONING model; at default reasoning effort a 2-3 sentence completion still
+ *  routinely takes 40-90s, so the old 8s ceiling fired on EVERY call and the
+ *  LLM "why" silently never appeared. We now also pin reasoning_effort:"low"
+ *  (cuts typical latency to a few seconds) AND log loudly on fallback, so the
+ *  90s is just a safety backstop that's rarely reached. */
+const DEFAULT_TIMEOUT_MS = 90_000;
 
 /** Output bound. 2-3 short sentences need little headroom, but gpt-5-mini
  *  spends reasoning tokens against the same completion pool before emitting
@@ -341,9 +348,13 @@ export async function composeLlmWhyThisMatters(
       },
     ],
     max_completion_tokens: MAX_COMPLETION_TOKENS,
+    // audit-3 #4: reasoning models burn time before output; "low" keeps the
+    // post-mount enhancement fast enough to actually land within the window.
+    ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
   });
 
-  // ── 6. Network call (hard timeout → null). ───────────────────────────
+  // ── 6. Network call (hard timeout → null). LOUD fallback (audit-3 #4) so a
+  //       silent disappearance of the LLM "why" is never a mystery. ─────────
   let response: Response;
   try {
     response = await fetchImpl(OPENAI_CHAT_API, {
@@ -355,12 +366,23 @@ export async function composeLlmWhyThisMatters(
       body,
       signal: AbortSignal.timeout(timeoutMs),
     });
-  } catch {
+  } catch (err) {
     // Network error or timeout — keep the deterministic baseline.
+    log.warn("llm-why fallback: network/timeout", {
+      model,
+      timeoutMs,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    log.warn("llm-why fallback: non-ok response", {
+      model,
+      status: response.status,
+    });
+    return null;
+  }
 
   type OpenAIChatResponse = {
     choices?: Array<{
@@ -371,7 +393,11 @@ export async function composeLlmWhyThisMatters(
   let data: OpenAIChatResponse;
   try {
     data = (await response.json()) as OpenAIChatResponse;
-  } catch {
+  } catch (err) {
+    log.warn("llm-why fallback: json parse failed", {
+      model,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 
@@ -388,16 +414,31 @@ export async function composeLlmWhyThisMatters(
   }
 
   const choice = data.choices?.[0];
-  if (choice?.message?.refusal) return null;
+  if (choice?.message?.refusal) {
+    log.warn("llm-why fallback: model refusal", { model });
+    return null;
+  }
   const content = choice?.message?.content;
-  if (!content) return null;
+  if (!content) {
+    log.warn("llm-why fallback: empty content", { model });
+    return null;
+  }
 
   const rawText = extractRawText(content);
-  if (rawText == null) return null;
+  if (rawText == null) {
+    log.warn("llm-why fallback: unparseable content envelope", { model });
+    return null;
+  }
 
   // ── 8. Sanitize (honesty + white-label firewall). ───────────────────
   const sanitized = sanitizeLlmWhyOutput(rawText, serialized);
-  if (!sanitized.ok) return null;
+  if (!sanitized.ok) {
+    log.warn("llm-why fallback: sanitize rejected", {
+      model,
+      reason: sanitized.reason,
+    });
+    return null;
+  }
 
   return { sentences: sanitized.sentences, model, costUsd };
 }

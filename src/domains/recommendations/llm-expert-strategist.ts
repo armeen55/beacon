@@ -34,7 +34,12 @@ import "server-only";
  * Pinned by tests/domains/recommendations/llm-expert-strategist.test.ts.
  */
 
-import { DEFAULT_OPENAI_MODEL, estimateCost } from "./providers/openai";
+import {
+  DEFAULT_OPENAI_MODEL,
+  estimateCost,
+  isReasoningModel,
+} from "./providers/openai";
+import { log } from "@/lib/logger";
 import { checkBudget, recordSpend } from "./adjudicator-budget";
 import {
   ANSWER_ENGINE_VENDOR_PATTERNS,
@@ -64,7 +69,13 @@ export {
 };
 
 const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_TIMEOUT_MS = 12_000;
+// audit-3 #4 (2026-06-22): 12s → 90s. gpt-5-mini is a reasoning model; the
+// default reasoning effort routinely needs 40-90s before output, so the old
+// ceiling timed out on EVERY strategist/critic call and the LLM expert pass
+// silently never ran. Paired with reasoning_effort:"low" (fast typical
+// latency) + loud fallback logs below; this is a server-action path, not a
+// blocking render, so the longer ceiling is safe.
+const DEFAULT_TIMEOUT_MS = 90_000;
 const MAX_COMPLETION_TOKENS = 3_000;
 const MAX_FIELD_LEN = 320;
 const MAX_LIST_ITEMS = 4;
@@ -330,6 +341,8 @@ export async function composeExpertStrategy(
       },
     ],
     max_completion_tokens: MAX_COMPLETION_TOKENS,
+    // audit-3 #4: keep the reasoning model fast enough to land in-window.
+    ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
   });
 
   let response: Response;
@@ -343,10 +356,21 @@ export async function composeExpertStrategy(
       body,
       signal: AbortSignal.timeout(timeoutMs),
     });
-  } catch {
+  } catch (err) {
+    log.warn("llm-strategist fallback: network/timeout", {
+      model,
+      timeoutMs,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
-  if (!response.ok) return null;
+  if (!response.ok) {
+    log.warn("llm-strategist fallback: non-ok response", {
+      model,
+      status: response.status,
+    });
+    return null;
+  }
 
   type OpenAIChatResponse = {
     choices?: Array<{ message?: { content?: string | null; refusal?: string | null } }>;
@@ -355,7 +379,11 @@ export async function composeExpertStrategy(
   let data: OpenAIChatResponse;
   try {
     data = (await response.json()) as OpenAIChatResponse;
-  } catch {
+  } catch (err) {
+    log.warn("llm-strategist fallback: json parse failed", {
+      model,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 
@@ -369,17 +397,32 @@ export async function composeExpertStrategy(
   }
 
   const choice = data.choices?.[0];
-  if (choice?.message?.refusal) return null;
+  if (choice?.message?.refusal) {
+    log.warn("llm-strategist fallback: model refusal", { model });
+    return null;
+  }
   const content = choice?.message?.content;
-  if (!content) return null;
+  if (!content) {
+    log.warn("llm-strategist fallback: empty content", { model });
+    return null;
+  }
 
   const reasoning = parseStrategistJson(content);
-  if (reasoning == null) return null;
+  if (reasoning == null) {
+    log.warn("llm-strategist fallback: unparseable JSON", { model });
+    return null;
+  }
 
   const sanitized = sanitizeStrategistReasoning(reasoning, serialized, {
     hasAeoEvidence: input.why.aeoEvidenceLines.length > 0,
   });
-  if (!sanitized.ok) return null;
+  if (!sanitized.ok) {
+    log.warn("llm-strategist fallback: sanitize rejected", {
+      model,
+      reason: sanitized.reason,
+    });
+    return null;
+  }
 
   let verdict = enforceExpertConfidence({
     deterministicReject: input.deterministicReject === true,
@@ -568,6 +611,8 @@ async function runCriticReview(
       },
     ],
     max_completion_tokens: MAX_COMPLETION_TOKENS,
+    // audit-3 #4: same reasoning-model latency fix as the main strategist call.
+    ...(isReasoningModel(opts.model) ? { reasoning_effort: "low" } : {}),
   });
 
   let response: Response;
@@ -581,10 +626,21 @@ async function runCriticReview(
       body,
       signal: AbortSignal.timeout(opts.timeoutMs),
     });
-  } catch {
+  } catch (err) {
+    log.warn("llm-critic fallback: network/timeout", {
+      model: opts.model,
+      timeoutMs: opts.timeoutMs,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
-  if (!response.ok) return null;
+  if (!response.ok) {
+    log.warn("llm-critic fallback: non-ok response", {
+      model: opts.model,
+      status: response.status,
+    });
+    return null;
+  }
 
   type OpenAIChatResponse = {
     choices?: Array<{ message?: { content?: string | null; refusal?: string | null } }>;
