@@ -272,14 +272,6 @@ export async function loadGscSiteTotalsForTenant(
     const since90 = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
       .toISOString()
       .slice(0, 10);
-    // Window boundaries for the 28d / prior-28d clicks split (string-
-    // comparable YYYY-MM-DD; the table stores `date` as a date column).
-    const since28 = new Date(now.getTime() - 28 * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
-    const since56 = new Date(now.getTime() - 56 * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
 
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
@@ -296,6 +288,17 @@ export async function loadGscSiteTotalsForTenant(
       impressions: number | string | null;
       position: number | string | null;
     }>;
+
+    // Anchor the 28d / prior-28d split to the LAST FINALIZED day present in the
+    // data (rows arrive ascending; the sync only persists finalized days, ~3d
+    // behind wall-clock). Anchoring to `now` instead would make the "current"
+    // 28d window ~3 days short vs a full prior 28d, manufacturing a ~11% phantom
+    // CLICK DECLINE on a perfectly flat site (and flipping the headline to
+    // "declining"). Both windows are now exactly 28 finalized days.
+    const end = rows[rows.length - 1]!.date;
+    const endMs = Date.parse(end);
+    const since28 = new Date(endMs - 27 * 86_400_000).toISOString().slice(0, 10);
+    const since56 = new Date(endMs - 55 * 86_400_000).toISOString().slice(0, 10);
 
     let clicks90d = 0;
     let impressions90d = 0;

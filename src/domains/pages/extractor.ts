@@ -232,31 +232,43 @@ export function extractPageSnapshot(
   }
 
   // ── Links ──
+  // Classify by RESOLVED HOST, not a substring match. `href.includes(pageDomain)`
+  // misclassified look-alike externals (e.g. "notmysite.com.evil.com" or
+  // "?ref=mysite.com") as internal and ignored protocol-relative ("//cdn…")
+  // links — inflating internal_link_count + polluting internal_links[].
   let internalLinkCount = 0;
   let externalLinks = 0;
-  const pageDomain = extractDomain(url);
+  const stripWww = (h: string) => h.replace(/^www\./i, "").toLowerCase();
+  const pageHost = (() => {
+    try {
+      return stripWww(new URL(url).hostname);
+    } catch {
+      return "";
+    }
+  })();
   const internalLinksArr: { href: string; anchor_text: string }[] = [];
 
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
     if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
-    if (href.startsWith("/") || href.startsWith(url) || (pageDomain && href.includes(pageDomain))) {
+    // Resolve against the page URL so relative + protocol-relative hrefs parse.
+    let resolved: URL | null = null;
+    try {
+      resolved = new URL(href, url);
+    } catch {
+      resolved = null;
+    }
+    if (resolved && resolved.protocol !== "http:" && resolved.protocol !== "https:") return;
+    const isInternal = resolved != null && pageHost !== "" && stripWww(resolved.hostname) === pageHost;
+    if (isInternal && resolved) {
       internalLinkCount++;
       const anchorText = $(el).text().trim();
-      if (anchorText && href.startsWith("/")) {
-        // Store path-relative internal links with their anchor text
-        internalLinksArr.push({ href, anchor_text: anchorText });
-      } else if (anchorText && pageDomain && href.includes(pageDomain)) {
-        // Normalize absolute internal links to path-relative
-        try {
-          const parsed = new URL(href);
-          internalLinksArr.push({ href: parsed.pathname, anchor_text: anchorText });
-        } catch {
-          internalLinksArr.push({ href, anchor_text: anchorText });
-        }
+      // Store internal links path-relative with their anchor text.
+      if (anchorText) {
+        internalLinksArr.push({ href: resolved.pathname, anchor_text: anchorText });
       }
-    } else if (href.startsWith("http")) {
+    } else if (resolved) {
       externalLinks++;
     }
   });
@@ -269,9 +281,13 @@ export function extractPageSnapshot(
     if (rows >= 2) tableCount++; // At least header + 1 data row
   });
 
-  // ── Word count (body text only) ──
-  $("script, style, noscript, svg, iframe").remove();
-  const bodyText = $("body").text().replace(/\s+/g, " ").trim();
+  // ── Word count (page CONTENT only) ──
+  // Exclude nav/header/footer/aside CHROME as well as non-text nodes, so shared
+  // menus/footers don't inflate the count and mask genuinely thin pages. Use a
+  // fresh pruned clone so the main $ (and downstream extractors) stay untouched.
+  const $wc = cheerioLoad($.html());
+  $wc("nav, header, footer, aside, script, style, noscript, svg, iframe").remove();
+  const bodyText = $wc("body").text().replace(/\s+/g, " ").trim();
   const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
 
   // ── Location + service terms (from business config or inline defaults) ──
