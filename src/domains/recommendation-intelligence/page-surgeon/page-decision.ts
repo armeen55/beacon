@@ -107,21 +107,24 @@ export const DECISION_SCHEMA_VERSION = "v4-trust-worklist";
 export function buildSourceCoverage(packet: EvidencePacket): SourceCoverage[] {
   const present = new Set(packet.sourcesPresent);
   const empty = new Set(packet.sourcesConnectedButEmpty);
+  // Singularize count nouns so coverage never reads "1 queries" / "1 sections".
+  const pl = (n: number, singular: string, plural = `${singular}s`) =>
+    `${n} ${n === 1 ? singular : plural}`;
   const detail = (s: SourceName): SourceCoverage => {
     if (present.has(s)) {
       let d = "used";
       if (s === "gsc" && packet.gsc)
-        d = `${packet.gsc.impressions.toLocaleString()} impr · ${packet.gsc.clicks} clicks · ${packet.gsc.topQueries.length} queries`;
+        d = `${packet.gsc.impressions.toLocaleString()} impr · ${packet.gsc.clicks} clicks · ${pl(packet.gsc.topQueries.length, "query", "queries")}`;
       else if (s === "crawl" && packet.crawl)
-        d = `title/${packet.crawl.h1 ? "h1" : "no-h1"}/${packet.crawl.metaDescription ? "meta" : "NO-meta"} · ${packet.crawl.h2List.length} sections · ${packet.crawl.schemaTypes.length} schema`;
+        d = `title/${packet.crawl.h1 ? "h1" : "no-h1"}/${packet.crawl.metaDescription ? "meta" : "NO-meta"} · ${pl(packet.crawl.h2List.length, "section")} · ${pl(packet.crawl.schemaTypes.length, "schema type")}`;
       else if (s === "clarity" && packet.clarity)
         d = `dead ${packet.clarity.deadClicks ?? "—"} · rage ${packet.clarity.rageClicks ?? "—"}`;
-      else if (s === "ga4" && packet.ga4) d = `${packet.ga4.sessions} sessions`;
+      else if (s === "ga4" && packet.ga4) d = pl(packet.ga4.sessions, "session");
       else if (s === "semrush" && packet.semrush) {
-        const parts = [`${packet.semrush.keywords.length} keywords`];
+        const parts = [pl(packet.semrush.keywords.length, "keyword")];
         if (packet.semrush.relatedKeywords?.length) parts.push(`${packet.semrush.relatedKeywords.length} related`);
-        if (packet.semrush.questionKeywords?.length) parts.push(`${packet.semrush.questionKeywords.length} questions`);
-        if (packet.semrush.competitorDomains?.length) parts.push(`${packet.semrush.competitorDomains.length} competitors`);
+        if (packet.semrush.questionKeywords?.length) parts.push(pl(packet.semrush.questionKeywords.length, "question"));
+        if (packet.semrush.competitorDomains?.length) parts.push(pl(packet.semrush.competitorDomains.length, "competitor"));
         d = parts.join(" · ");
       }
       return { source: s, used: true, detail: d };

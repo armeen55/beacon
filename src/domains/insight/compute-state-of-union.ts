@@ -137,9 +137,11 @@ export async function loadStateOfUnion(
       (o) => o.kinds.includes("striking_distance") || o.kinds.includes("rising"),
     )
     .slice(0, 6);
-  const frictionPages = opportunities
-    .filter((o) => o.kinds.includes("friction"))
-    .slice(0, 5);
+  const frictionAll = opportunities.filter((o) => o.kinds.includes("friction"));
+  const frictionPages = frictionAll.slice(0, 5);
+  // Carry the TRUE total so the tile count isn't capped at the 5 shown (the
+  // sliced list under-reports the real number of friction pages).
+  const frictionPageCount = frictionAll.length;
 
   const ctrLeakCount = opportunities.filter((o) =>
     o.kinds.includes("ctr_leak"),
@@ -186,6 +188,7 @@ export async function loadStateOfUnion(
     bleedingPages,
     risingOpportunities,
     frictionPages,
+    frictionPageCount,
     winningClusters,
     schemaAeoGap,
     sources,

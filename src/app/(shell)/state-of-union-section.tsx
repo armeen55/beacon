@@ -90,7 +90,9 @@ export async function StateOfUnionSection() {
           <Stat
             label="clicks (28d)"
             value={h.clicks28d.toLocaleString()}
-            delta={{ pct: h.clicksDeltaPct, goodWhenUp: true }}
+            // Don't show a colored ▲/▼ delta when the headline calls it steady —
+            // the badge would claim a direction the verdict explicitly denies.
+            delta={h.verdict === "healthy" ? null : { pct: h.clicksDeltaPct, goodWhenUp: true }}
           />
           <Stat label="impressions (90d)" value={h.impressions90d.toLocaleString()} />
           <Stat label="avg position" value={h.avgPosition90d.toFixed(1)} />
@@ -161,7 +163,7 @@ export async function StateOfUnionSection() {
             UX friction
           </div>
           <div className="mt-1 text-[15px] font-semibold text-foreground">
-            {sou.frictionPages.length} page{sou.frictionPages.length === 1 ? "" : "s"}
+            {sou.frictionPageCount} page{sou.frictionPageCount === 1 ? "" : "s"}
           </div>
           <p className="mt-1 text-[12px] text-muted-foreground">
             {sou.frictionPages[0]

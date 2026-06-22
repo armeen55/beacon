@@ -298,7 +298,10 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
           sub={
             closestChallenger
               ? {
-                  text: `${closestChallenger.score.toFixed(1)}% visibility`,
+                  // Window-average mention rate — a DIFFERENT formula/window than
+                  // the brand hero's latest-day score, so label it so the two
+                  // numbers aren't read as directly comparable.
+                  text: `${closestChallenger.score.toFixed(1)}% mention rate (window avg)`,
                   tone: "neutral",
                 }
               : { text: "No competitor in range yet", tone: "neutral" }

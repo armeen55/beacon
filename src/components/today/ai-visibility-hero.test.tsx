@@ -82,7 +82,9 @@ describe("AIVisibilityHero — happy path (Ritz mature data)", () => {
   it("closest challenger card surfaces name + score", () => {
     const html = renderToStaticMarkup(<AIVisibilityHero {...RITZ_FULL} />);
     expect(html).toContain("De Mattei Construction");
-    expect(html).toContain("49.3% visibility");
+    // The challenger score is a window-average mention rate, labeled distinctly
+    // from the brand hero's latest-day score so the two aren't read as identical.
+    expect(html).toContain("49.3% mention rate (window avg)");
   });
 
   it("sample card shows day count + latest reading date in 'May 8' format", () => {

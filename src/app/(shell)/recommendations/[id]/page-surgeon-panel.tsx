@@ -35,7 +35,7 @@ function pushTone(p: ArtifactPushability): "good" | "warn" | "bad" | "muted" {
   return "warn";
 }
 function ArtifactRow({ a, push }: { a: ChangeArtifact; push?: ArtifactPushability }) {
-  const copy = a.cmsField?.value ?? a.answerBlockText ?? (a.faq?.length ? `${a.faq.length} Q&A pairs` : a.instruction ?? "");
+  const copy = a.cmsField?.value ?? a.answerBlockText ?? (a.faq?.length ? `${a.faq.length} Q&A pair${a.faq.length === 1 ? "" : "s"}` : a.instruction ?? "");
   return (
     <div className="rounded border border-border/40 bg-surface-inset/30 p-2.5 text-[12px]">
       <div className="flex flex-wrap items-center gap-1.5">

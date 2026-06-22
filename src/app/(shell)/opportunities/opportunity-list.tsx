@@ -153,19 +153,34 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
               {/* Right rail: impact + CTA */}
               <div className="flex shrink-0 flex-col items-end gap-2 text-right">
                 {o.estClicksAtStake > 0 ? (
-                  <div>
-                    <div className="text-[18px] font-semibold tabular-nums text-foreground">
-                      ~{o.estClicksAtStake.toLocaleString()}
+                  o.kind === "friction" ? (
+                    // Friction's number is Clarity dead/rage clicks (on-page
+                    // frustration), NOT recoverable search clicks — label it in its
+                    // own unit and drop the CTR-gap confidence/SERP line, which is
+                    // meaningless here.
+                    <div>
+                      <div className="text-[18px] font-semibold tabular-nums text-foreground">
+                        {o.estClicksAtStake.toLocaleString()}
+                      </div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        frustrated clicks (Clarity, {o.estWindow})
+                      </div>
                     </div>
-                    {/* A number never reads as a promise — always carry the
-                        window, confidence, and SERP status next to it. */}
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      est. clicks at stake over {o.estWindow}
+                  ) : (
+                    <div>
+                      <div className="text-[18px] font-semibold tabular-nums text-foreground">
+                        ~{o.estClicksAtStake.toLocaleString()}
+                      </div>
+                      {/* A number never reads as a promise — always carry the
+                          window, confidence, and SERP status next to it. */}
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        est. clicks at stake over {o.estWindow}
+                      </div>
+                      <div className="text-[10px] tracking-wide text-muted-foreground/80">
+                        {o.estConfidence} confidence · {serpStatusChip(o.serpStatus)}
+                      </div>
                     </div>
-                    <div className="text-[10px] tracking-wide text-muted-foreground/80">
-                      {o.estConfidence} confidence · {serpStatusChip(o.serpStatus)}
-                    </div>
-                  </div>
+                  )
                 ) : null}
                 {o.importance > 1.05 ? (
                   <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
@@ -186,9 +201,11 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
       </div>
 
       <p className="pt-1 text-[11px] text-muted-foreground/70">
-        Estimates are directional: impressions × the CTR gap / search volume,
-        shown with their window + confidence. An opportunity sizing, not a
-        promise. &ldquo;SERP unknown&rdquo; means we haven&rsquo;t verified
+        Estimates are directional, shown with their window + confidence. Search
+        opportunities size impressions × the CTR gap; friction rows instead count
+        Clarity dead/rage clicks (frustration, not recoverable search clicks). An
+        opportunity sizing, not a promise. &ldquo;SERP unknown&rdquo; means we
+        haven&rsquo;t verified
         whether a SERP feature (AI Overview / featured snippet / image pack)
         owns the clicks; on top-ranked pages, verify the SERP before rewriting
         a title.

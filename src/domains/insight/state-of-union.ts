@@ -51,8 +51,10 @@ export type StateOfUnion = {
   bleedingPages: OpportunityItem[];
   /** Page-2 demand + momentum (striking distance + rising). */
   risingOpportunities: OpportunityItem[];
-  /** Clarity dead/rage-click pages. */
+  /** Clarity dead/rage-click pages (sliced to the few shown). */
   frictionPages: OpportunityItem[];
+  /** TRUE count of friction pages (not capped at the shown slice). */
+  frictionPageCount: number;
   /** Top pages by clicks (the engine). */
   winningClusters: { label: string; path: string; clicks90d: number }[];
   schemaAeoGap: { faqCovered: number; faqTotal: number; thinPages: number } | null;
@@ -64,7 +66,7 @@ export type StateOfUnion = {
     kind: string;
     hasChangePack: boolean;
     estClicksAtStake: number;
-    estWindow: "90d";
+    estWindow: "90d" | "28d";
     estConfidence: "high" | "medium" | "low";
     serpStatus: SerpStatus;
     /** Non-null ⇒ verify the SERP before treating this as a title fix. */

@@ -70,6 +70,12 @@ export function deriveConnectionHealth(
   if (!connected) {
     severity = "disconnected";
     note = "Not connected";
+  } else if (meta.key === "wix") {
+    // Wix is a publish-only TARGET, not a data feed — it never records a
+    // last_synced_at, so the "no successful sync yet" branch would leave a
+    // correctly-connected Wix stuck amber forever. Connected = healthy here.
+    severity = "healthy";
+    note = "Connected (publish target, no sync feed)";
   } else if (daysStale == null) {
     severity = "needs_setup";
     note = "Connected, no successful sync yet";

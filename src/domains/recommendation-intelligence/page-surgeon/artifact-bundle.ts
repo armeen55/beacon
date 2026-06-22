@@ -231,8 +231,10 @@ function specificMeasurement(change: AtomicChange, packet: EvidencePacket): stri
 function withControls(measurement: string, change: AtomicChange, controlPaths: string[]): string {
   if (change.action === "ux_cta_fix" || controlPaths.length === 0) return measurement;
   if (/\b(control|comparable|diff-in-diff|counterfactual)\b/i.test(measurement)) return measurement;
-  const controls = controlPaths.slice(0, 3).join(", ");
-  return `${measurement} Use comparable unchanged pages (${controls}) as controls (diff-in-diff) to separate this edit's lift from sitewide movement.`;
+  const shown = controlPaths.slice(0, 3);
+  const controls = shown.join(", ");
+  const s = shown.length === 1 ? "" : "s";
+  return `${measurement} Use comparable unchanged page${s} (${controls}) as control${s} (diff-in-diff) to separate this edit's lift from sitewide movement.`;
 }
 
 export function composeChangeArtifact(

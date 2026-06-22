@@ -47,8 +47,9 @@ export type OpportunityItem = {
   /** Pack primary action label when a Change Pack exists — the canonical
    *  per-page action all surfaces agree on (supersedes the diagnosis lever). */
   packAction: string | null;
-  /** Window the estimate covers (GSC signals are 90d). */
-  estWindow: "90d";
+  /** Window the estimate covers: CTR/striking estimates are 90d; decay / rising /
+   *  friction / cannibalization are computed over a 28-day window. */
+  estWindow: "90d" | "28d";
   /** Confidence in the clicks-at-stake ESTIMATE (data-volume driven). */
   estConfidence: "high" | "medium" | "low";
   /** SERP-feature knowledge for this page (Phase 1 broad scan ⇒ "unknown"). */
@@ -198,21 +199,27 @@ export function buildOpportunity(
     }
   }
 
-  // ── Striking distance: page-2 keywords with real volume (SEMrush) ──
+  // ── Striking distance: near-the-top keywords with real volume (SEMrush). The
+  //     band spans positions ~4-20, so the headline keyword can be on page 1
+  //     (4-10) or page 2 (11-20) — anchor the copy to its ACTUAL position. ──
   if (input.striking && input.striking.length > 0) {
     kinds.push("striking_distance");
     const vol = input.striking.reduce((s, k) => s + (k.volume || 0), 0);
     gainByKind.striking_distance = Math.round(vol * 0.05);
     const top = input.striking[0];
     const n = input.striking.length;
+    const onPage1 = top.position <= 10;
+    const pg = onPage1 ? 1 : 2;
     evidence.push({
       source: "semrush",
-      line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position}, page 2. ${n} striking-distance keyword${n === 1 ? "" : "s"} total.`,
+      line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position} (page ${pg}). ${n} striking-distance keyword${n === 1 ? "" : "s"} total.`,
     });
-    whyByKind.striking_distance =
-      "Real search demand one page away, already ranking, just below the fold.";
-    leverByKind.striking_distance =
-      "Strengthen the page for these terms (depth + internal links) → push page 2 → page 1.";
+    whyByKind.striking_distance = onPage1
+      ? "Real search demand, already ranking just outside the top spots — a push could lift it higher."
+      : "Real search demand one page away, already ranking, just below the fold.";
+    leverByKind.striking_distance = onPage1
+      ? "Strengthen the page for these terms (depth + internal links) → climb within page 1."
+      : "Strengthen the page for these terms (depth + internal links) → push page 2 → page 1.";
   }
 
   // ── Decay: losing clicks vs the prior window ──
@@ -340,7 +347,13 @@ export function buildOpportunity(
     importance,
     hasChangePack: input.hasChangePack ?? false,
     packAction: input.packHeadlineAction ?? null,
-    estWindow: "90d",
+    // The estimate's window matches the kind's source window so the number never
+    // contradicts the evidence text (decay/rising/friction/cannibalization are
+    // 28-day; CTR-leak/striking-distance are 90d).
+    estWindow:
+      kind === "decay" || kind === "rising" || kind === "friction" || kind === "cannibalization"
+        ? "28d"
+        : "90d",
     estConfidence,
     serpStatus,
     serpGuardLabel,

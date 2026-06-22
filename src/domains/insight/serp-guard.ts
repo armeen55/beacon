@@ -66,7 +66,7 @@ export function deriveSerpGuard(args: {
       downgrade: true,
       label: "Needs SERP check before title rewrite",
       rationale:
-        "Ranks top-5 with low CTR, a SERP feature (AI Overview / featured snippet / image pack) may own the clicks. Verify the live SERP before rewriting the title.",
+        "Ranks top-5; a SERP feature (AI Overview / featured snippet / image pack) may own clicks here. Verify the live SERP before treating any CTR gap as a title problem.",
     };
   }
   return {

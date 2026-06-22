@@ -33,6 +33,10 @@ export function VisibilityLeaderboard({
   metricLabel = "Visibility score",
 }: VisibilityLeaderboardProps) {
   const brandRow = entities.find((e) => e.isOwned);
+  // A rank only means something against a real opponent — mirror the hero card,
+  // which hides its rank when there's no competitive field. Showing a bold "#1"
+  // with zero competitors contradicts the hero directly above it.
+  const hasCompetitors = entities.some((e) => !e.isOwned);
   const brandRank = brandRow?.rank ?? null;
   const windowDays = entities[0]?.deltaWindowDays ?? null;
   const previousSampledDays = entities[0]?.previousSampledDays ?? 0;
@@ -163,8 +167,11 @@ export function VisibilityLeaderboard({
       <div className="flex flex-col gap-1 mb-4">
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold tabular-nums">
-            {brandRank !== null ? `#${brandRank}` : "-"}
+            {brandRank !== null && hasCompetitors ? `#${brandRank}` : "-"}
           </span>
+          {!hasCompetitors ? (
+            <span className="text-[11px] text-muted-foreground">No competitors tracked yet</span>
+          ) : null}
           {brandRow && brandRow.delta !== null ? (
             <span
               className={cn(

@@ -40,11 +40,16 @@ export default async function ConnectorsPage() {
   // preserved token row), render the "Last refreshed at X days ago"
   // tooltip server-side. The formatter is `server-only` so it can't
   // ship to the client bundle directly.
+  // "Last refreshed X days ago" must reflect the actual data SYNC time, not the
+  // OAuth token's expires_at (those diverge — a token can expire long after the
+  // last sync). Drive off last_synced_at and show nothing if it never synced.
+  const gscSyncedMs = googleGsc.last_synced_at
+    ? Date.parse(googleGsc.last_synced_at)
+    : NaN;
   const gscStaleCopy =
-    googleGsc.status === "disconnected" &&
-    typeof googleGsc.expires_at === "number"
+    googleGsc.status === "disconnected" && Number.isFinite(gscSyncedMs)
       ? formatLastRefreshedCopy({
-          expiresAtMs: googleGsc.expires_at,
+          expiresAtMs: gscSyncedMs,
           now: Date.now(),
         })
       : null;
@@ -88,11 +93,13 @@ export default async function ConnectorsPage() {
   // Server-side render keeps the formatting helper inlined (the GSC
   // helper says "GSC" verbatim; the GA4 surface needs "Google
   // Analytics" wording, so a separate helper lives here).
+  const ga4SyncedMs = googleGa4.last_synced_at
+    ? Date.parse(googleGa4.last_synced_at)
+    : NaN;
   const ga4StaleCopy =
-    googleGa4.status === "disconnected" &&
-    typeof googleGa4.expires_at === "number"
+    googleGa4.status === "disconnected" && Number.isFinite(ga4SyncedMs)
       ? formatGa4StaleCopy({
-          expiresAtMs: googleGa4.expires_at,
+          expiresAtMs: ga4SyncedMs,
           now: Date.now(),
         })
       : null;
