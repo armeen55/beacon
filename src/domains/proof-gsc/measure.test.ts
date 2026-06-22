@@ -141,6 +141,66 @@ describe("computeWindowLift — observational diff-in-diff", () => {
     expect(w.treatedDelta).toBe(-10); // clicks still computed (0 is valid)
     expect(w.controlsUsed).toBe(0);
   });
+
+  it("a window that has NOT run stores a fully-neutral result (no pre-minus-zero artifact)", () => {
+    const w = computeWindowLift({
+      day: 28,
+      checkOn: "2026-07-19",
+      ran: false,
+      treatedPre: m(25, 5000, 0.005, 7), // would be a -25 treatedDelta if computed
+      treatedPost: m(0, 0, 0, 0),
+      controls: [{ pre: m(300, 9000, 0.033, 6), post: m(0, 0, 0, 0) }],
+      preWindowDays: 28,
+    });
+    expect(w.ran).toBe(false);
+    expect(w.treatedDelta).toBe(0);
+    expect(w.controlDelta).toBe(0);
+    expect(w.adjustedLift).toBe(0); // NOT a bogus +220 from (control pre − treated pre)
+    expect(w.adjustedCtrLift).toBe(0);
+    expect(w.adjustedPosLift).toBe(0);
+    expect(w.controlsUsed).toBe(0);
+    expect(w.treatedPostImpressions).toBe(0);
+  });
+});
+
+describe("pickProofMetric — canonical lever class names map to the right metric", () => {
+  it("internal-link levers (singular AND plural canonical) judge on position", () => {
+    expect(pickProofMetric("internal_link")).toBe("position");
+    expect(pickProofMetric("internal_links")).toBe("position"); // canonical plural
+    expect(pickProofMetric("section_added")).toBe("position"); // canonical past-tense
+  });
+  it("title/meta/answer levers judge on CTR; unknown falls back to clicks", () => {
+    expect(pickProofMetric("title")).toBe("ctr");
+    expect(pickProofMetric("intro_answer_block")).toBe("ctr");
+    expect(pickProofMetric("totally_unknown")).toBe("clicks");
+  });
+});
+
+describe("summarizeVerdict — treated page with no post-window Search data", () => {
+  it("CTR test with zero treated post impressions reads insufficient_data, NOT lost", () => {
+    // Surviving controls gained CTR (adjustedCtrLift negative) but the treated
+    // page had no post impressions — that's missing data, not a real CTR drop.
+    const r = summarizeVerdict({
+      windows: [
+        win({ adjustedCtrLift: -0.02, controlsUsed: 3, treatedPostImpressions: 0 }),
+      ],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+    });
+    expect(r.verdict).toBe("insufficient_data");
+  });
+  it("CTR test still calls a real loss when the treated page HAD post impressions", () => {
+    const r = summarizeVerdict({
+      windows: [
+        win({ adjustedCtrLift: -0.02, controlsUsed: 3, treatedPostImpressions: 4000 }),
+      ],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+    });
+    expect(r.verdict).toBe("lost");
+  });
 });
 
 function win(over: Partial<ProofWindowResult>): ProofWindowResult {

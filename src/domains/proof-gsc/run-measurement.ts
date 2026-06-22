@@ -18,7 +18,7 @@ import {
 } from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
 import { loadPageSurgeonForUrl } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { readWindowForPages } from "./gsc-window";
+import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
 import {
   addDays,
   computeWindowLift,
@@ -111,9 +111,13 @@ export async function measureRecord(
   tenantId: string,
   record: ShippedChangeRecord,
   now: Date = new Date(),
+  /** Pre-read finalized-data watermark (loadProofLedger reads it once for the
+   *  whole ledger). Pass `undefined` to have measureRecord read it itself. */
+  lastFinalizedDate?: string | null,
 ): Promise<ShippedChangeRecord> {
   const shipDate = dateOnly(record.shippedAt);
-  const today = dateOnly(now.toISOString());
+  const lastFinal =
+    lastFinalizedDate !== undefined ? lastFinalizedDate : await readLastFinalizedDate(tenantId);
   const pages = [record.page, ...record.controlPages];
 
   // Pre window: [ship − 28d, ship).
@@ -124,7 +128,12 @@ export async function measureRecord(
   const windows: ProofWindowResult[] = [];
   for (const day of PROOF_WINDOW_DAYS) {
     const checkOn = checks[day as ProofWindowDay];
-    const ran = today >= checkOn; // window has closed (finalized data exists)
+    // The window [shipDate, checkOn) is only judgeable once its LAST day
+    // (checkOn − 1) has finalized GSC data. Gating on the finalized watermark
+    // (not wall-clock `today >= checkOn`) prevents reading a short post window
+    // — GSC finalizes with a multi-day lag and, crons being off, the watermark
+    // can sit well behind today — which would bias the verdict toward "lost".
+    const ran = lastFinal != null && lastFinal >= addDays(checkOn, -1);
     const postEnd = addDays(shipDate, day);
     const post = ran
       ? await readWindowForPages({ tenantId, pages, start: shipDate, end: postEnd })

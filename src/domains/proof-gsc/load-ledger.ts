@@ -10,6 +10,7 @@ import "server-only";
 
 import { loadShippedChanges, type ShippedChangeRecord } from "./shipped-change-store";
 import { measureRecord } from "./run-measurement";
+import { readLastFinalizedDate } from "./gsc-window";
 
 export async function loadProofLedger(
   tenantId: string,
@@ -17,8 +18,12 @@ export async function loadProofLedger(
 ): Promise<ShippedChangeRecord[]> {
   const records = await loadShippedChanges().catch(() => [] as ShippedChangeRecord[]);
   if (records.length === 0) return [];
+  // Read the finalized-data watermark ONCE for the whole ledger (it gates which
+  // windows are judgeable) and pass it to every record, instead of each
+  // measureRecord re-reading it.
+  const lastFinal = await readLastFinalizedDate(tenantId).catch(() => null);
   const measured = await Promise.all(
-    records.map((r) => measureRecord(tenantId, r, now).catch(() => r)),
+    records.map((r) => measureRecord(tenantId, r, now, lastFinal).catch(() => r)),
   );
   return measured;
 }

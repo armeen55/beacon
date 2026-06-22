@@ -64,6 +64,11 @@ export type ProofWindowResult = {
   adjustedPosLift: number;
   /** How many control pages had usable data this window. */
   controlsUsed: number;
+  /** Treated page's POST-window impressions. 0 ⇒ no Search data for the treated
+   *  page in this window, so a CTR/position verdict can't be computed (a flat 0
+   *  rate is "no data", not "the rate fell"). Optional for back-compat with
+   *  records written before this field existed. */
+  treatedPostImpressions?: number;
 };
 
 /** Map a shipped change's action type to the Search metric that actually
@@ -75,6 +80,10 @@ const CTR_LEVER_ACTIONS = new Set([
 const POSITION_LEVER_ACTIONS = new Set([
   "section_add", "section_remove", "section_reorder", "internal_link",
   "add_internal_link", "create_new_page", "expand_content", "section_content",
+  // Canonical class names emitted by the action-classifier / workbench-matrix
+  // (plural/past-tense). Without these, an internal-link or section change falls
+  // through to the clicks metric, judging a rank play on the wrong unit.
+  "internal_links", "section_added", "page_created",
 ]);
 export function pickProofMetric(actionType: string): ProofMetric {
   const a = (actionType || "").toLowerCase();
@@ -160,6 +169,30 @@ export function computeWindowLift(args: {
 }): ProofWindowResult {
   const { treatedPre, treatedPost, controls } = args;
 
+  // A window that hasn't closed has no post data — persist a NEUTRAL result, not
+  // a (pre − 0) artifact. Storing pre-minus-zero would put a large bogus
+  // adjustedLift in the ledger that any future export/debug surface would read
+  // as a pre-launch "lift". Verdicts already filter on `ran`, so this only
+  // hardens the stored shape.
+  if (!args.ran) {
+    return {
+      day: args.day,
+      checkOn: args.checkOn,
+      ran: false,
+      treatedDelta: 0,
+      controlDelta: 0,
+      adjustedLift: 0,
+      treatedCtrDelta: 0,
+      controlCtrDelta: 0,
+      adjustedCtrLift: 0,
+      treatedPosDelta: 0,
+      controlPosDelta: 0,
+      adjustedPosLift: 0,
+      controlsUsed: 0,
+      treatedPostImpressions: 0,
+    };
+  }
+
   // Pro-rate the pre-window clicks to the post-window length. A page steady at
   // 10 clicks/day over a 28d pre and a 7d post would otherwise show 70 − 280 =
   // −210 ("lost") instead of 70 − (280·7/28) = 0 (flat).
@@ -189,6 +222,7 @@ export function computeWindowLift(args: {
     controlPosDelta: round2(controlPosDelta),
     adjustedPosLift: round2(treatedPosDelta - controlPosDelta),
     controlsUsed: controls.length,
+    treatedPostImpressions: treatedPost.impressions,
   };
 }
 
@@ -227,6 +261,19 @@ export function summarizeVerdict(args: {
   // A single comparator is "treated minus one arbitrary page", not a diff-in-diff.
   // Require the same floor the recorder enforces (>=2) before naming a won/lost.
   if (basis.controlsUsed < MIN_CONTROLS_FOR_COMPUTED) {
+    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
+  }
+  // CTR/position are RATES: with zero treated post-window impressions there is no
+  // rate to compare, so the treated delta is a guarded 0. Surviving controls that
+  // gained would then make the adjusted lift negative and read a false "lost" for
+  // a page that simply had no Search data in the window. Require treated post
+  // presence before a rate verdict. (Clicks is exempt: 0 post impressions is a
+  // real "lost all its clicks" signal, not missing data.) Optional field absent
+  // on legacy records ⇒ treat as present, preserving prior behaviour.
+  if (
+    (metric === "ctr" || metric === "position") &&
+    basis.treatedPostImpressions === 0
+  ) {
     return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
   }
 
