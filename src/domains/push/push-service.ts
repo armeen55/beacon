@@ -70,6 +70,7 @@ import {
   wixGetStoreProduct,
   wixInsertDataItem,
   wixQueryDataItems,
+  wixGetDataItem,
   wixUpdateDataItem,
   wixUpdateProductSeoData,
   type WixDeps,
@@ -453,16 +454,18 @@ export async function executePush(
     };
   }
 
-  // Read-modify-write: fetch current item, merge the single field.
-  const items = await wixQueryDataItems(
-    { dataCollectionId: mapEntry.dataCollectionId, limit: 1000 },
+  // Read-modify-write: fetch the EXACT mapped item by id, merge the single field.
+  // (Was a query of the first 1000 collection items + .find() — an item mapped
+  // past row 1000 silently "no longer exists" and mis-refused.)
+  const got = await wixGetDataItem(
+    { dataCollectionId: mapEntry.dataCollectionId, dataItemId: mapEntry.dataItemId },
     { ...deps.wix, tenantId },
   );
-  if (!items.ok) {
-    await recordLedger(tenantId, edit, "push_failed", `read: ${items.reason}`, now);
-    return { kind: "refused", reason: `wix read failed: ${items.reason}${items.detail ? ` (${items.detail})` : ""}` };
+  if (!got.ok) {
+    await recordLedger(tenantId, edit, "push_failed", `read: ${got.reason}`, now);
+    return { kind: "refused", reason: `wix read failed: ${got.reason}${got.detail ? ` (${got.detail})` : ""}` };
   }
-  const item = items.value.find((i) => i.id === mapEntry.dataItemId);
+  const item = got.value;
   if (item == null) {
     await recordLedger(tenantId, edit, "push_failed", "item_gone", now);
     return { kind: "refused", reason: "mapped Wix item no longer exists — re-run the url-map sync" };
@@ -479,6 +482,21 @@ export async function executePush(
       kind: "refused",
       reason: `merged item would exceed ${MAX_CMS_ITEM_BYTES.toLocaleString()} bytes — too large for a safe CMS write`,
     };
+  }
+
+  // Re-run the non-destructive guard against the LIVE field value, not the
+  // (possibly stale) draft's current_text — the page may have changed since the
+  // rec was generated, so a >80% shrink must be judged against what we're about
+  // to overwrite. Reported in dry-run too. (The early check at the top is a cheap
+  // pre-filter on the draft.)
+  const liveField = String((item.data as Record<string, unknown>)[field] ?? "");
+  const liveDestructive = assertNonDestructivePatch({
+    currentText: liveField,
+    proposedText: edit.proposed_text,
+  });
+  if (!liveDestructive.allowed) {
+    await recordLedger(tenantId, edit, "push_failed", `live_destructive: ${liveDestructive.reason}`, now);
+    return { kind: "refused", reason: liveDestructive.reason };
   }
 
   if (dryRun) {

@@ -833,6 +833,27 @@ export async function approveAndPushRecommendedEdit(args: {
   const edit = edits.find((e) => e.id === args.editId);
   if (edit == null) return { ok: false, reason: "edit_not_found" };
 
+  // Defense-in-depth (audit): a two-click Approve & Push must clear the SAME
+  // deterministic QA gate the armed one-click path enforces — re-derive the
+  // verdict server-side and refuse a low-confidence / not-paste-ready rec going
+  // LIVE. (The UI already withholds the button for these; this is the server
+  // backstop.) Lenient only if the verdict can't be loaded, so the armed path —
+  // which already verified QA a moment earlier — is never broken.
+  try {
+    const { loadActionRowByEditId } = await import(
+      "@/domains/recommendations/load-action-row-by-edit"
+    );
+    const qa = (await loadActionRowByEditId(tenantId, args.editId))?.detail.qaVerdict ?? null;
+    if (qa && (qa.approve !== true || qa.pushReadiness !== "paste_ready")) {
+      return {
+        ok: false,
+        reason: `QA gate: not approved for a live push (${qa.pushReadiness ?? "no verdict"}) — open it to review`,
+      };
+    }
+  } catch {
+    /* loader failure → fall through to executePush's structural rails */
+  }
+
   const { executePush, probeLiveText } = await import(
     "@/domains/push/push-service"
   );

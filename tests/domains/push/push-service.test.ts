@@ -49,6 +49,15 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
   return {
     ...actual,
     wixQueryDataItems: async () => _queryResult,
+    // The field route now fetches the exact item by id (get-by-id) instead of
+    // querying the collection — resolve it from the same _queryResult fixture.
+    wixGetDataItem: async (args: { dataItemId?: string }) => {
+      if (!_queryResult.ok) return { ok: false, reason: _queryResult.reason };
+      const found = ((_queryResult.value ?? []) as Array<{ id?: string }>).find(
+        (i) => i.id === args.dataItemId,
+      );
+      return { ok: true, value: found ?? null };
+    },
     wixUpdateDataItem: async (args: Record<string, unknown>) => {
       _updateCalls.push(args);
       return _updateResult.ok
