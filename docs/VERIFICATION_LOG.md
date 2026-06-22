@@ -40,15 +40,25 @@ experiment-data integrity). Fixed 12 across 6 commits:
   card's precise GSC demand strip now leads at the same >=200 floor priority +
   confidence use (no "confident headline above a Low-priority pill").
 
-Deferred (documented): #2 cannibalization est multiplies COMBINED impressions by
-the lead's best-rank CTR (overstates) — clean fix threads the lead URL's own
-impressions through gsc-cannibalization -> compute-opportunity-map -> the type
-(multi-file); low-confidence + rarely headlines, no measurement impact.
+Then CLOSED #2 (`c121c3f`): cannibalization recovery is now sized off the LEAD
+URL's own impressions/clicks (threaded through gsc-cannibalization ->
+compute-opportunity-map -> the type) instead of the pooled cluster impressions.
+Audit-2 = 13/13 actionable findings fixed (the 14th, iran-flags GSC-vs-Clarity,
+is moot — that record was never shipped).
+
+Extra de-vert sweep (`eaf4ff7`, task #75): grepped src for more hardcoded
+builder/Bay-Area leaks beyond the 2 the audit flagged. Fixed guided-execution
+payload-generators (UNWIRED) which defaulted FAQ + comparison criteria to
+custom-home-builder content for any tenant — now emits no FAQ when no builder
+topic matches + neutral comparison criteria. (Noted, not fixed: geo/normalize.ts
++ opportunity-candidates/builders.ts are Bay-Area-locked but are
+normalizers/candidate-pools that simply don't match a content tenant — dead, not
+output-leaking.)
 
 **Verified:** typecheck clean throughout; targeted suites green (measure 34,
-opportunity 17, workbench 19, recs 1178, proof-actions 14). Targeted-only — NO
-full suite, NO Vercel, NO paid APIs. **Both night audits closed: 23/25 confirmed
-trust bugs fixed** (11/11 + 12/14), 2 documented follow-ups.
+opportunity 17, workbench 19, recs 1178, proof-actions 14, proof-gsc+insight 143).
+Targeted-only — NO full suite, NO Vercel, NO paid APIs. **Both night audits
+closed: 25/25 actionable confirmed trust bugs fixed** (11/11 + 14/14, #14 moot).
 
 ---
 
