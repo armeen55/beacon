@@ -318,9 +318,8 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
       </div>
 
       <p className="mt-2 text-[10px] text-muted-foreground/70">
-        Compared against {controlsCount} comparable untreated page
-        {controlsCount === 1 ? "" : "s"} on the same site. Observational, directional, not a
-        controlled experiment.
+        {`Compared against ${controlsCount} comparable untreated page${controlsCount === 1 ? "" : "s"} on the same site.`}{" "}
+        Observational, directional, not a controlled experiment.
       </p>
 
       {rec.notes ? (

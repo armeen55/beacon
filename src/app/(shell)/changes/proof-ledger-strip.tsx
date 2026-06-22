@@ -78,8 +78,7 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       </div>
 
       <p className="mt-1.5 text-[12px] text-foreground/80">
-        Measuring this change against {controlsCount} comparable untreated page
-        {controlsCount === 1 ? "" : "s"}.{" "}
+        {`Measuring this change against ${controlsCount} comparable untreated page${controlsCount === 1 ? "" : "s"}.`}{" "}
         {nextCheck ? (
           <>
             First verdict opens <span className="font-medium">{nextCheck}</span>.

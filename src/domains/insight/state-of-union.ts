@@ -114,7 +114,7 @@ export function deriveHeadline(
   } else if (down && ctrLeakCount >= 1) {
     verdict = "ranking_better_losing_clicks";
     headline = "Ranking better, but losing clicks, a CTR problem, not a ranking one.";
-    subline = `${ctrLeakCount} page-1 page(s) rank well yet barely get clicked. Fix titles/snippets to recover clicks at the current rank.`;
+    subline = `${ctrLeakCount} ${ctrLeakCount === 1 ? "page ranks" : "pages rank"} on page 1 yet barely ${ctrLeakCount === 1 ? "gets" : "get"} clicked. Fix titles/snippets to recover clicks at the current rank.`;
   } else if (down) {
     verdict = "declining";
     headline = `Search clicks are down ${Math.abs(deltaPct)}% vs the prior 28 days.`;

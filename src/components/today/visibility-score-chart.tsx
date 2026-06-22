@@ -359,11 +359,8 @@ export function VisibilityScoreChart({
           )}
         </div>
         <p className="text-[10px] text-muted-foreground">
-          {sampledDayCount} sampled day
-          {sampledDayCount === 1 ? "" : "s"} in this{" "}
-          {timeRange === ALL_TIME_WINDOW
-            ? "all-time"
-            : `${timeRange}-day`}{" "}
+          {`${sampledDayCount} sampled day${sampledDayCount === 1 ? "" : "s"} in this `}
+          {timeRange === ALL_TIME_WINDOW ? "all-time" : `${timeRange}-day`}{" "}
           window
         </p>
         {/* T3.1 — Trust Sprint score provenance disclosure. The trust
