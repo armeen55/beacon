@@ -83,6 +83,10 @@ export type ChangesV2ClientProps = {
   classByChangelogId: Record<string, LifecycleTabClass>;
   /** Linked-edit implementation status per row (when joined). */
   editStatusByChangelogId: Record<string, ImplementationStatus>;
+  /** Count of GSC-proof tracked experiments shown in the strip above. When
+   *  >0, a bare "No changes yet" empty state would contradict it, so the
+   *  empty state acknowledges the tracked experiments instead. */
+  proofLedgerCount?: number;
 };
 
 const MAX_TIMELINE_CARDS = 24;
@@ -91,6 +95,7 @@ export function ChangesV2Client({
   rows,
   classByChangelogId,
   editStatusByChangelogId,
+  proofLedgerCount = 0,
 }: ChangesV2ClientProps) {
   // Resolve the pill + counters + rail rows in one pass. The pure
   // helpers stay pure; this client just orchestrates them.
@@ -120,7 +125,7 @@ export function ChangesV2Client({
     <div data-changes-layout="v2-proof-timeline" className="max-w-6xl">
       <PageHeader
         title="Changes"
-        description="Track what shipped and whether AI visibility responded."
+        description="Track what shipped and whether search visibility responded."
       />
 
       {/* Only show the proof counters once there are real timeline rows —
@@ -128,7 +133,7 @@ export function ChangesV2Client({
       {cardRows.length > 0 && <ProofCounterStrip counters={counters} />}
 
       {cardRows.length === 0 ? (
-        <ChangesV2EmptyState />
+        <ChangesV2EmptyState proofLedgerCount={proofLedgerCount} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-5">
           {/* Timeline */}
@@ -352,7 +357,8 @@ function ProofCounterStrip({ counters }: { counters: ProofCounters }) {
   );
 }
 
-function ChangesV2EmptyState() {
+function ChangesV2EmptyState({ proofLedgerCount }: { proofLedgerCount: number }) {
+  const hasTracked = proofLedgerCount > 0;
   return (
     <div
       className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-8 text-center"
@@ -360,11 +366,12 @@ function ChangesV2EmptyState() {
       data-changes-empty="true"
     >
       <p className="text-[14px] font-semibold text-foreground">
-        No changes yet.
+        {hasTracked ? "Nothing new in the timeline yet." : "No changes yet."}
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
-        Beacon logs every accepted recommendation here once the next scan
-        confirms it on your site.
+        {hasTracked
+          ? `Your ${proofLedgerCount} tracked ${proofLedgerCount === 1 ? "experiment is" : "experiments are"} shown above. New accepted recommendations join this timeline once the next scan confirms them live on your site.`
+          : "Beacon logs every accepted recommendation here once the next scan confirms it on your site."}
       </p>
     </div>
   );

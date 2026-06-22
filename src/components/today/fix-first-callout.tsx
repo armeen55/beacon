@@ -56,7 +56,7 @@ export function FixFirstCallout({
             </span>
             <span className="shrink-0 tabular-nums text-status-warning font-semibold">
               −{p.dropPct}% clicks <span className="text-muted-foreground/60">·</span>{" "}
-              {p.frictionPct}% friction
+              {p.frictionPerVisit} friction clicks/visit
             </span>
           </li>
         ))}

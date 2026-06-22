@@ -90,7 +90,7 @@ export type SourceStatCard = {
    * pages frustrate visitors most instead of only reporting "22% dead
    * clicks". Set on the Clarity card; null/absent when nothing stands out.
    */
-  topFriction?: Array<{ path: string; pct: number }> | null;
+  topFriction?: Array<{ path: string; perVisit: number }> | null;
 };
 
 /**
@@ -164,8 +164,8 @@ export type FixFirstPage = {
   path: string;
   /** % of clicks lost vs the prior 28 days. */
   dropPct: number;
-  /** combined (rage + dead) click rate, as a %. */
-  frictionPct: number;
+  /** average (rage + dead) friction clicks per visit (can exceed 1). */
+  frictionPerVisit: number;
 };
 
 const MAX_FIX_FIRST_ROWS = 3;
@@ -205,10 +205,15 @@ export function buildFixFirstPages(
     const p = pathOf(s.url);
     const dropPct = dropByPath.get(p);
     if (dropPct == null) continue; // not also a decliner → not "fix first"
-    rows.push({ path: p, dropPct, frictionPct: Math.round(rate * 100) });
+    rows.push({ path: p, dropPct, frictionPerVisit: Math.round(rate * 10) / 10 });
   }
   if (rows.length === 0) return null;
-  rows.sort((a, b) => b.dropPct + b.frictionPct - (a.dropPct + a.frictionPct));
+  // Rank by combined severity. frictionPerVisit is rescaled (×100) so the
+  // friction term keeps the same weight in the sort it had as a percentage.
+  rows.sort(
+    (a, b) =>
+      b.dropPct + b.frictionPerVisit * 100 - (a.dropPct + a.frictionPerVisit * 100),
+  );
   return rows.slice(0, MAX_FIX_FIRST_ROWS);
 }
 
@@ -465,7 +470,7 @@ const MAX_FRICTION_ROWS = 3;
  *  ranked by combined (rage + dead) click rate. */
 function topFrictionPages(
   clarity: Map<string, ClarityPageSignal>,
-): Array<{ path: string; pct: number }> | null {
+): Array<{ path: string; perVisit: number }> | null {
   if (clarity.size === 0) return null;
   const rows = [...clarity.values()]
     .filter((s) => s.sessions >= MIN_FRICTION_SESSIONS)
@@ -476,7 +481,7 @@ function topFrictionPages(
     .filter((r) => r.rate >= MIN_FRICTION_RATE)
     .sort((a, b) => b.rate - a.rate)
     .slice(0, MAX_FRICTION_ROWS)
-    .map((r) => ({ path: r.path, pct: Math.round(r.rate * 100) }));
+    .map((r) => ({ path: r.path, perVisit: Math.round(r.rate * 10) / 10 }));
   return rows.length > 0 ? rows : null;
 }
 

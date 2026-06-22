@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { ProofLedgerStrip } from "./proof-ledger-strip";
+import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { getOpportunities, getResults } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { getEventDecisions } from "@/domains/attribution/store";
@@ -327,9 +329,18 @@ export default async function ChangeScorecardPage() {
     };
   });
 
-  // Proof-timeline pass — reuses the same enriched rows + classifier
-  // output. Pure presentation layer at this boundary; no extra data
-  // fetching, no server-action wiring.
+  // Proof-timeline pass — reuses the same enriched rows + classifier output.
+  // Count tracked GSC-proof experiments (operator-only) so the empty-timeline
+  // state can acknowledge them instead of contradicting the proof strip above
+  // with a bare "No changes yet".
+  let proofLedgerCount = 0;
+  if (isOperatorModeServer()) {
+    try {
+      proofLedgerCount = (await loadProofLedger(await currentTenantId())).length;
+    } catch {
+      proofLedgerCount = 0;
+    }
+  }
   return (
     <>
       <Suspense fallback={null}>
@@ -339,6 +350,7 @@ export default async function ChangeScorecardPage() {
         rows={enriched}
         classByChangelogId={Object.fromEntries(classification.classOf)}
         editStatusByChangelogId={editStatusByChangelogId}
+        proofLedgerCount={proofLedgerCount}
       />
     </>
   );

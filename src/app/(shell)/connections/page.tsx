@@ -33,14 +33,19 @@ export default async function ConnectionsPage() {
   const tenantId = await currentTenantId();
   const sources = await loadConnectionHealth(tenantId);
 
-  const connected = sources.filter((s) => s.connected).length;
+  // Count sources actually FEEDING data (synced at least once), not merely
+  // authorized, so a connected-but-never-synced source (e.g. Wix) does not
+  // inflate the headline next to its own "no successful sync yet" card.
+  const feeding = sources.filter(
+    (s) => s.severity === "healthy" || s.severity === "stale",
+  ).length;
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5">
         <h1 className="text-2xl font-semibold tracking-tight">Data Health</h1>
         <p className="mt-1 text-[14px] text-muted-foreground">
-          {connected} of {sources.length} sources connected. Beacon fuses these
+          {feeding} of {sources.length} sources feeding data. Beacon fuses these
           into every insight, coverage gaps narrow what it can see.
         </p>
       </div>
