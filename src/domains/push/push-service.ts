@@ -64,6 +64,8 @@ import {
   appendPushLedger,
   assertNonDestructivePatch,
   checkDailyPushCap,
+  finalizePushReservation,
+  reservePushSlot,
 } from "./caps";
 import { formatDevNote } from "./dev-note";
 import { appendPushSnapshot } from "./push-snapshots";
@@ -200,9 +202,28 @@ export async function executePush(
     };
   }
 
-  // ── Invariant 3: caps IN the push path ──────────────────────────────
-  const cap = await checkDailyPushCap({ tenantId, now });
-  if (!cap.allowed) return { kind: "refused", reason: cap.reason };
+  // ── Invariant 3: caps IN the push path — reserve-before-write (#5) ──
+  // Atomically claim a daily-cap slot BEFORE any live write, so a double-click
+  // on one-click "Accept & publish" can't race two pushes past the cap. The
+  // reservation is finalized to pushed/push_failed by recordLedger on every
+  // write outcome; a structural refusal that returns before the write leaves a
+  // `reserved` row that self-frees after 10 min.
+  // A dry-run must have NO ledger side effect (audit #35 contract), so it uses
+  // the read-only cap check; a REAL push atomically reserves a slot.
+  let reservationId: string | null = null;
+  if (dryRun) {
+    const cap = await checkDailyPushCap({ tenantId, now });
+    if (!cap.allowed) return { kind: "refused", reason: cap.reason };
+  } else {
+    const cap = await reservePushSlot({
+      tenantId,
+      editId: edit.id,
+      targetUrl: edit.target_url,
+      now,
+    });
+    if (!cap.allowed) return { kind: "refused", reason: cap.reason };
+    reservationId = cap.reservationId;
+  }
   const destructive = assertNonDestructivePatch({
     currentText: edit.current_text,
     proposedText: edit.proposed_text,
@@ -265,10 +286,10 @@ export async function executePush(
       { ...deps.wix, tenantId },
     );
     if (!insert.ok) {
-      await recordLedger(tenantId, edit, "push_failed", `create: ${insert.reason}`, now);
+      await recordLedger(tenantId, edit, "push_failed", `create: ${insert.reason}`, now, reservationId);
       return { kind: "refused", reason: `wix create failed: ${insert.reason}${insert.detail ? ` (${insert.detail})` : ""}` };
     }
-    await recordLedger(tenantId, edit, "pushed", `created item ${insert.value.id} in ${collectionId}`, now);
+    await recordLedger(tenantId, edit, "pushed", `created item ${insert.value.id} in ${collectionId}`, now, reservationId);
     return {
       kind: "pushed",
       adapter: "wix_cms",
@@ -406,7 +427,7 @@ export async function executePush(
         captured_at: now.toISOString(),
       });
     } catch (err) {
-      await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now);
+      await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now, reservationId);
       return {
         kind: "refused",
         reason: `could not capture the pre-push snapshot (${err instanceof Error ? err.message : String(err)}) — refusing to change the live site without an undo`,
@@ -417,7 +438,7 @@ export async function executePush(
       { ...deps.wix, tenantId },
     );
     if (!write.ok) {
-      await recordLedger(tenantId, edit, "push_failed", `seoData: ${write.reason}`, now);
+      await recordLedger(tenantId, edit, "push_failed", `seoData: ${write.reason}`, now, reservationId);
       return {
         kind: "refused",
         reason: `wix seoData write failed: ${write.reason}${write.detail ? ` (${write.detail})` : ""}`,
@@ -429,6 +450,7 @@ export async function executePush(
       "pushed",
       `seoData: ${blocks.length} JSON-LD block(s) on product ${match.id}`,
       now,
+      reservationId,
     );
     return {
       kind: "pushed",
@@ -483,12 +505,12 @@ export async function executePush(
     { ...deps.wix, tenantId },
   );
   if (!got.ok) {
-    await recordLedger(tenantId, edit, "push_failed", `read: ${got.reason}`, now);
+    await recordLedger(tenantId, edit, "push_failed", `read: ${got.reason}`, now, reservationId);
     return { kind: "refused", reason: `wix read failed: ${got.reason}${got.detail ? ` (${got.detail})` : ""}` };
   }
   const item = got.value;
   if (item == null) {
-    await recordLedger(tenantId, edit, "push_failed", "item_gone", now);
+    await recordLedger(tenantId, edit, "push_failed", "item_gone", now, reservationId);
     return { kind: "refused", reason: "mapped Wix item no longer exists — re-run the url-map sync" };
   }
 
@@ -516,7 +538,7 @@ export async function executePush(
     proposedText: edit.proposed_text,
   });
   if (!liveDestructive.allowed) {
-    await recordLedger(tenantId, edit, "push_failed", `live_destructive: ${liveDestructive.reason}`, now);
+    await recordLedger(tenantId, edit, "push_failed", `live_destructive: ${liveDestructive.reason}`, now, reservationId);
     return { kind: "refused", reason: liveDestructive.reason };
   }
 
@@ -543,7 +565,7 @@ export async function executePush(
       captured_at: now.toISOString(),
     });
   } catch (err) {
-    await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now);
+    await recordLedger(tenantId, edit, "push_failed", "snapshot_capture_failed", now, reservationId);
     return {
       kind: "refused",
       reason: `could not capture the pre-push snapshot (${err instanceof Error ? err.message : String(err)}) — refusing to change the live site without an undo`,
@@ -560,11 +582,11 @@ export async function executePush(
     { ...deps.wix, tenantId },
   );
   if (!write.ok) {
-    await recordLedger(tenantId, edit, "push_failed", `write: ${write.reason}`, now);
+    await recordLedger(tenantId, edit, "push_failed", `write: ${write.reason}`, now, reservationId);
     return { kind: "refused", reason: `wix write failed: ${write.reason}${write.detail ? ` (${write.detail})` : ""}` };
   }
 
-  await recordLedger(tenantId, edit, "pushed", `field ${field} on item ${mapEntry.dataItemId}`, now);
+  await recordLedger(tenantId, edit, "pushed", `field ${field} on item ${mapEntry.dataItemId}`, now, reservationId);
   return {
     kind: "pushed",
     adapter: "wix_cms",
@@ -578,8 +600,18 @@ async function recordLedger(
   result: "pushed" | "push_failed",
   detail: string,
   now: Date,
+  reservationId: string | null,
 ): Promise<void> {
   try {
+    if (reservationId != null) {
+      // Reserve-before-write path (#5): finalize the slot we already claimed,
+      // so the cap counts exactly one row per push attempt (not reserve + a
+      // second appended row).
+      await finalizePushReservation({ tenantId, reservationId, result, detail });
+      return;
+    }
+    // Fallback (no reservation was made — e.g. a caller that bypassed the
+    // reserve gate): append a fresh ledger row, today's behavior.
     await appendPushLedger({
       id: `push-${now.getTime()}-${edit.id.slice(0, 8)}`,
       tenant_id: tenantId,

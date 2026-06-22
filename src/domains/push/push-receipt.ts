@@ -181,13 +181,22 @@ export async function loadPushReceipt(
     // failed-then-succeeded sequence keeps history; the receipt shows the
     // latest outcome).
     const mine = ledger
-      .filter((e) => e.tenant_id === tenantId && e.edit_id === editId)
+      // Exclude interim `reserved` rows (reserve-before-write, #5) — a receipt
+      // reflects a FINALIZED push outcome, never an in-flight reservation.
+      .filter(
+        (e) =>
+          e.tenant_id === tenantId && e.edit_id === editId && e.result !== "reserved",
+      )
       .sort((a, b) => b.pushed_at.localeCompare(a.pushed_at));
     ledgerEntry = mine[0] ?? null;
   } catch {
     ledgerEntry = null;
   }
   if (ledgerEntry == null) return null;
+  // Narrowing guard (the filter already excluded these): a receipt only exists
+  // for a finalized outcome.
+  if (ledgerEntry.result === "reserved") return null;
+  const finalizedResult: "pushed" | "push_failed" = ledgerEntry.result;
 
   // ── 2. Snapshot (the BEFORE value + the field). Soft-fail → null.
   let before: string | null = null;
@@ -213,7 +222,7 @@ export async function loadPushReceipt(
     rec = null;
   }
 
-  const result = ledgerEntry.result;
+  const result = finalizedResult;
   const verifyStatus = deriveVerifyStatus({
     result,
     lifecycleStatus: rec?.implementation_status ?? null,

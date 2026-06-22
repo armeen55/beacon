@@ -21,7 +21,9 @@ vi.mock("@/lib/persistence/json-store", () => ({
 import {
   assertNonDestructivePatch,
   checkDailyPushCap,
+  finalizePushReservation,
   MAX_PUSHES_PER_DAY,
+  reservePushSlot,
 } from "@/domains/push/caps";
 
 describe("assertNonDestructivePatch — deletion guard (Invariant 3)", () => {
@@ -91,5 +93,60 @@ describe("checkDailyPushCap — per-tenant, per-day, pushed-only", () => {
   it("honors a custom max", async () => {
     _stores.set("push-ledger", [row({ id: "a" }), row({ id: "b" })]);
     expect((await checkDailyPushCap({ tenantId: "t", now: NOW, max: 2 })).allowed).toBe(false);
+  });
+});
+
+describe("reservePushSlot / finalizePushReservation — atomic reserve-before-write (#5)", () => {
+  beforeEach(() => _stores.clear());
+
+  const NOW = new Date("2026-06-22T12:00:00Z");
+  const reservedRow = (over: Record<string, unknown>) => ({
+    id: "r", tenant_id: "t", edit_id: "e", target_url: "u", adapter: "wix_cms",
+    pushed_at: NOW.toISOString(), day: "2026-06-22", result: "reserved", detail: null,
+    ...over,
+  });
+
+  it("claims a slot under the cap and writes a `reserved` ledger row", async () => {
+    const r = await reservePushSlot({ tenantId: "t", editId: "e1", targetUrl: "u1", now: NOW });
+    expect(r.allowed).toBe(true);
+    const ledger = (_stores.get("push-ledger") ?? []) as Array<{ result: string }>;
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]!.result).toBe("reserved");
+  });
+
+  it("counts FRESH reserved rows against the cap (refuses at max)", async () => {
+    _stores.set(
+      "push-ledger",
+      Array.from({ length: MAX_PUSHES_PER_DAY }, (_, i) => reservedRow({ id: `r${i}` })),
+    );
+    const r = await reservePushSlot({ tenantId: "t", editId: "e", targetUrl: "u", now: NOW });
+    expect(r.allowed).toBe(false);
+  });
+
+  it("ignores STALE reserved rows (>10 min) — an abandoned reservation frees the slot", async () => {
+    const stale = new Date(NOW.getTime() - 11 * 60_000).toISOString();
+    _stores.set(
+      "push-ledger",
+      Array.from({ length: MAX_PUSHES_PER_DAY }, (_, i) =>
+        reservedRow({ id: `r${i}`, pushed_at: stale }),
+      ),
+    );
+    const r = await reservePushSlot({ tenantId: "t", editId: "e", targetUrl: "u", now: NOW });
+    expect(r.allowed).toBe(true);
+  });
+
+  it("finalize flips the reserved row to its terminal result (then the pushed-only cap counts it)", async () => {
+    const res = await reservePushSlot({ tenantId: "t", editId: "e1", targetUrl: "u1", now: NOW });
+    expect(res.allowed).toBe(true);
+    if (!res.allowed) return;
+    await finalizePushReservation({
+      tenantId: "t",
+      reservationId: res.reservationId,
+      result: "pushed",
+      detail: "field title on item 42",
+    });
+    const ledger = (_stores.get("push-ledger") ?? []) as Array<{ result: string; detail: string | null }>;
+    expect(ledger[0]!.result).toBe("pushed");
+    expect(ledger[0]!.detail).toBe("field title on item 42");
   });
 });

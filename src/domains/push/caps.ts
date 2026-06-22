@@ -25,10 +25,17 @@ import "server-only";
  * pre-migration deploy window behave exactly as before.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 
 export const MAX_PUSHES_PER_DAY = 10;
+
+/** A `reserved` ledger row older than this is treated as abandoned (a refusal
+ *  that returned before the write, or a crash) and no longer counts against the
+ *  cap — so a never-finalized reservation can never permanently eat a slot. */
+const RESERVATION_FRESH_MINUTES = 10;
 
 const LEDGER_STORE = "push-ledger"; // file fallback (pre-migration substrate)
 const LEDGER_TABLE = "push_ledger"; // durable Supabase table
@@ -42,7 +49,9 @@ export type PushLedgerEntry = {
   pushed_at: string; // ISO
   /** UTC day for the daily cap (YYYY-MM-DD). */
   day: string;
-  result: "pushed" | "push_failed";
+  /** `reserved` = an atomic slot claimed before the write; finalized to
+   *  `pushed` / `push_failed` once the write resolves (see reservePushSlot). */
+  result: "pushed" | "push_failed" | "reserved";
   detail: string | null;
 };
 
@@ -161,6 +170,164 @@ export async function checkDailyPushCap(args: {
     };
   }
   return { allowed: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Reserve-before-write (2026-06-22, #5) — atomic cap claim for one-click.
+// ─────────────────────────────────────────────────────────────────────
+
+export type ReserveResult =
+  | { allowed: true; reservationId: string }
+  | { allowed: false; reason: string };
+
+function capReachedReason(used: number, max: number, day: string): string {
+  return `daily push cap reached (${used}/${max} for ${day}) — resumes tomorrow or raise the cap deliberately`;
+}
+
+/** Treat a PostgREST "function missing" (PGRST202 / 42883) OR a missing table
+ *  as not-provisioned → file fallback. */
+function isMissingFunction(
+  err: { code?: string; message?: string } | null | undefined,
+): boolean {
+  const code = err?.code;
+  return code === "PGRST202" || code === "42883" || isMissingTable(err);
+}
+
+/** File-store reserve: count today's pushed + still-fresh reserved rows, then
+ *  append a `reserved` row if under cap. Non-atomic (today's substrate) but it
+ *  still enforces the cap across reads. */
+async function reservePushSlotFile(args: {
+  tenantId: string;
+  editId: string;
+  targetUrl: string;
+  adapter: string;
+  day: string;
+  max: number;
+  now: Date;
+  id: string;
+}): Promise<ReserveResult> {
+  const all = await readPushLedger();
+  const freshCutoffMs = args.now.getTime() - RESERVATION_FRESH_MINUTES * 60_000;
+  const used = all.filter(
+    (e) =>
+      e.tenant_id === args.tenantId &&
+      e.day === args.day &&
+      (e.result === "pushed" ||
+        (e.result === "reserved" && Date.parse(e.pushed_at) > freshCutoffMs)),
+  ).length;
+  if (used >= args.max) {
+    return { allowed: false, reason: capReachedReason(used, args.max, args.day) };
+  }
+  all.push({
+    id: args.id,
+    tenant_id: args.tenantId,
+    edit_id: args.editId,
+    target_url: args.targetUrl,
+    adapter: args.adapter,
+    pushed_at: args.now.toISOString(),
+    day: args.day,
+    result: "reserved",
+    detail: null,
+  });
+  await writeStore(LEDGER_STORE, all.slice(-1000));
+  return { allowed: true, reservationId: args.id };
+}
+
+/**
+ * Atomically claim a daily-cap slot BEFORE a live write. Inserts a `reserved`
+ * ledger row iff the tenant is still under the cap, under a per-(tenant,day)
+ * advisory lock (push_cap_reserve RPC) so two concurrent one-click pushes can
+ * never both pass. Finalize the returned reservationId once the write resolves.
+ * Falls back to the file store (non-atomic, today's behavior) with no Supabase
+ * env or before the 2026-06-22_push_cap_reserve migration is applied.
+ */
+export async function reservePushSlot(args: {
+  tenantId: string;
+  editId: string;
+  targetUrl: string;
+  adapter?: string;
+  now?: Date;
+  max?: number;
+}): Promise<ReserveResult> {
+  const now = args.now ?? new Date();
+  const day = now.toISOString().slice(0, 10);
+  const max = args.max ?? MAX_PUSHES_PER_DAY;
+  const adapter = args.adapter ?? "wix_cms";
+  const id = `rsv-${randomUUID()}`;
+  const fileArgs = {
+    tenantId: args.tenantId,
+    editId: args.editId,
+    targetUrl: args.targetUrl,
+    adapter,
+    day,
+    max,
+    now,
+    id,
+  };
+
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    return reservePushSlotFile(fileArgs); // no Supabase env (local dev)
+  }
+  try {
+    const { data, error } = await admin.rpc("push_cap_reserve", {
+      p_tenant: args.tenantId,
+      p_day: day,
+      p_max: max,
+      p_id: id,
+      p_edit_id: args.editId,
+      p_target_url: args.targetUrl,
+      p_adapter: adapter,
+    });
+    if (error) {
+      // Function/table not provisioned (pre-migration) OR any RPC error →
+      // file fallback. Never silently uncapped: the file path still enforces.
+      return reservePushSlotFile(fileArgs);
+    }
+    if (data === true) return { allowed: true, reservationId: id };
+    return { allowed: false, reason: capReachedReason(max, max, day) };
+  } catch {
+    return reservePushSlotFile(fileArgs);
+  }
+}
+
+/**
+ * Finalize a reservation to its terminal result once the write resolves.
+ * Best-effort on BOTH backends (the reservation lives in exactly one; updating
+ * the other matches no row and is a harmless no-op), so a Supabase or a file
+ * reservation both finalize. Never throws — the ledger is observability and the
+ * slot was already counted at reserve time.
+ */
+export async function finalizePushReservation(args: {
+  tenantId: string;
+  reservationId: string;
+  result: "pushed" | "push_failed";
+  detail: string | null;
+}): Promise<void> {
+  try {
+    const admin = getSupabaseAdmin();
+    await admin
+      .from(LEDGER_TABLE)
+      .update({ result: args.result, detail: args.detail })
+      .eq("tenant_id", args.tenantId)
+      .eq("id", args.reservationId);
+  } catch {
+    /* no env / write error — fall through to the file mirror */
+  }
+  try {
+    const all = await readPushLedger();
+    const idx = all.findIndex(
+      (e) => e.tenant_id === args.tenantId && e.id === args.reservationId,
+    );
+    if (idx >= 0) {
+      all[idx] = { ...all[idx]!, result: args.result, detail: args.detail };
+      await writeStore(LEDGER_STORE, all.slice(-1000));
+    }
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
