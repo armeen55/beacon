@@ -126,20 +126,36 @@ export async function recordShippedChangeAction(args: {
         return "";
       }
     })();
+    // Load the ledger ONCE: used to (a) exclude any page that is ITSELF treated
+    // from the control set — a treated page is not a clean comparator, its own
+    // change contaminates the diff-in-diff and biases the treated page's verdict
+    // — and (b) dedup below.
+    const existing = await loadShippedChanges();
+    const normPath = (p: string): string => p.replace(/\/+$/, "") || "/";
+    const treatedPaths = new Set(existing.map((r) => normPath(r.path)));
+    const isUntreated = (u: string): boolean => {
+      try {
+        return !treatedPaths.has(normPath(new URL(u).pathname));
+      } catch {
+        return true;
+      }
+    };
+
     // Proof-plan controls are PATHS; resolve to canonical URLs on the same host.
     let controlPages = (row?.controlPaths ?? [])
       .map((p) => canonicalizeCitationUrl(origin + p) ?? `${origin}${p}`)
-      .filter((u) => u && u !== meta.canonPage);
+      .filter((u) => u && u !== meta.canonPage && isUntreated(u));
 
     // No proof-plan row (e.g. a page that was never review-approved) ⇒ derive
     // controls the same way the proof plan does: top same-site pages by GSC demand,
-    // excluding the treated page. Lets the operator record ANY shipped page.
+    // excluding the treated page AND any page that is itself mid-experiment. Pull
+    // a wider candidate pool (12) so enough untreated pages remain to fill 3.
     if (controlPages.length === 0) {
       try {
         const ctx = await loadPageSurgeonContext(tenantId);
-        controlPages = topPagesByDemand(ctx, 8)
+        controlPages = topPagesByDemand(ctx, 12)
           .map((u) => canonicalizeCitationUrl(u) ?? u)
-          .filter((u) => u && u !== meta.canonPage)
+          .filter((u) => u && u !== meta.canonPage && isUntreated(u))
           .slice(0, 3);
       } catch {
         controlPages = [];
@@ -161,8 +177,8 @@ export async function recordShippedChangeAction(args: {
     // Dedup: reject a second proof record for the same page + ship date. The
     // ledger PK is (page-path, ship-date), so a duplicate would silently
     // overwrite the live measurement. Name the existing change type when it
-    // differs so the operator understands the collision.
-    const existing = await loadShippedChanges();
+    // differs so the operator understands the collision. (`existing` was loaded
+    // above for the treated-page control exclusion.)
     const clash = existing.find(
       (r) => r.path === meta.path && dateOnly(r.shippedAt) === shipDate,
     );
