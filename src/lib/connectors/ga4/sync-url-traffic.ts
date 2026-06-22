@@ -32,6 +32,7 @@
 
 import "server-only";
 
+import { log } from "@/lib/logger";
 import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
 import { getRepository } from "@/lib/persistence/repositories";
 
@@ -47,6 +48,11 @@ export type Ga4SyncResult =
       property: string;
       rows_fetched: number;
       rows_upserted: number;
+      /** audit-3 #7: true when GA4 runReport returned a PARTIAL result
+       *  (GA4_MAX_PAGES ceiling or a later page failed). The data is stored
+       *  but incomplete — surfaced so the cron summary doesn't read as a clean
+       *  full pull. */
+      truncated?: boolean;
     };
 
 export async function syncGa4UrlTrafficForTenant(args: {
@@ -91,11 +97,22 @@ export async function syncGa4UrlTrafficForTenant(args: {
   // Auth proved good (data fetched + persisted) → clear any prior marker so
   // the strip drops back to a plain "connected" ✓. Fail-soft.
   await clearGa4AuthFailure(tenantId);
+  // audit-3 #7: a truncated pull stored a PARTIAL day. Log loudly so a silently
+  // incomplete GA4 day is visible in the nightly log (mirrors the GSC path),
+  // and thread the flag up so the cron result is honest.
+  if (result.truncated) {
+    log.warn("[ga4-sync] GA4 report truncated; stored a PARTIAL result", {
+      tenantId,
+      property: propertyId,
+      rows_fetched: result.rows_fetched,
+    });
+  }
   return {
     synced: true,
     property: propertyId,
     rows_fetched: result.rows_fetched,
     rows_upserted: result.rows_upserted,
+    ...(result.truncated ? { truncated: true } : {}),
   };
 }
 

@@ -109,6 +109,10 @@ export type PersistGa4UrlTrafficResult =
       rows_upserted: number;
       startDate: string;
       endDate: string;
+      /** audit-3 #7: true when runReport hit GA4_MAX_PAGES or a later page
+       *  failed — the stored rows are a PARTIAL day. Threaded up so the sync +
+       *  cron can flag it instead of silently treating partial as complete. */
+      truncated?: boolean;
     }
   | {
       ok: false;
@@ -219,6 +223,7 @@ export async function persistGa4UrlTraffic(
       rows_upserted: 0,
       startDate,
       endDate,
+      ...(report.truncated ? { truncated: true } : {}),
     };
   }
 
@@ -295,6 +300,7 @@ export async function persistGa4UrlTraffic(
     rows_upserted: upsertRows.length,
     startDate,
     endDate,
+    ...(report.truncated ? { truncated: true } : {}),
   };
 }
 
