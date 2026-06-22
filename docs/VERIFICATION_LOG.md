@@ -37,9 +37,27 @@ The result-pill "AI visibility responded" copy was checked and LEFT AS-IS — it
 fed by the attribution (citation) engine, so the label is correct for what it
 measures; changing it to "search visibility" would be a new lie.
 
-**Verified:** `npm run typecheck` clean; targeted cluster 106 pass
-(`page-primary` 11, `workbench-cta-links`, `workbench-page-gating`,
-`workbench-matrix`, `workbench-priority`, `readiness` 17, `no-banned-dash` guard).
+- **`<priority>` "do this first" tie-break** — adversarial self-review of the
+  newest code (`workbench-priority.ts`, which drives the prominent "Beacon's call"
+  pick) found a real quality bug: `bestSingle` broke estimate ties only by
+  body-vs-non-body, so two equal-estimate CTR levers (title with a deterministic
+  draft = "Ship this now" vs meta = needs_endpoint = "Hold this") could surface
+  the un-actionable one as the headline pick. This tie is SYSTEMATIC because
+  title/meta/answer_block share the page's single at-stake estimate (a pool, not
+  additive — the picks correctly never sum it). Added an actionability tie-break
+  (shippable > has-a-draft > needs-endpoint), applied ONLY to ties so score order
+  is untouched; corrected the module doc (cannibalization is filtered from the
+  candidate set entirely, never any pick).
+- **Matrix integrity review (no bug):** `workbench-matrix.ts` `proposed` is set
+  ONLY from a real pack artifact / deterministic `composeJsonLd` / deterministic
+  `evaluateTitle` (null unless warranted) — never fabricated; `canAutoApply` comes
+  only from real pack pushability, so "Ship this now" cannot fire on an
+  unshippable lever (no-pack path forces `canAutoApply:false`).
+
+**Verified:** `npm run typecheck` clean; targeted cluster 106 + workbench-priority
+tie-break test pass (`page-primary` 11, `workbench-cta-links`,
+`workbench-page-gating`, `workbench-matrix`, `workbench-priority` now 19,
+`readiness` 17, `no-banned-dash` guard).
 No full suite, no push, no Vercel, no Supabase egress beyond local test reads.
 
 ---
