@@ -183,34 +183,40 @@ describe("rankOpportunities", () => {
   });
 });
 
-describe("buildOpportunity — cannibalization", () => {
-  it("is dominant over ctr_leak and frames a cluster fix, not a title rewrite", () => {
+describe("buildOpportunity — cannibalization (one signal, never buries title money)", () => {
+  it("does NOT headline over a real CTR leak; the title money wins and the estimate matches it", () => {
     const o = buildOpportunity({
-      canonUrl: "https://x.test/iran-flags",
-      path: "/iran-flags",
-      gsc: { clicks90d: 1, impressions90d: 3394, ctr90d: 0.0003, position90d: 4, topQuery: "iran flag" },
+      canonUrl: "https://x.test/iran-flags/achaemenid-empire-flag",
+      path: "/iran-flags/achaemenid-empire-flag",
+      // Page ranks #4 with 10,000 impressions at 0.1% CTR ⇒ a big CTR leak (~690).
+      gsc: { clicks90d: 10, impressions90d: 10000, ctr90d: 0.001, position90d: 4, topQuery: "achaemenid empire flag" },
+      // One query (600 impr) is also split across pages ⇒ a small cannibalization (~41).
       cannibalization: {
-        query: "iran flag",
-        urlCount: 4,
-        combinedImpressions: 3394,
+        query: "achaemenid empire flag",
+        urlCount: 2,
+        combinedImpressions: 600,
         combinedClicks: 1,
         bestPosition: 4,
-        additionalCases: 1,
+        additionalCases: 0,
       },
     });
     expect(o).not.toBeNull();
-    expect(o!.kind).toBe("cannibalization"); // dominant, NOT ctr_leak
-    expect(o!.kinds).toContain("ctr_leak"); // still detected, just not the headline
-    expect(o!.why).toContain("4 of your pages compete");
-    expect(o!.why).toContain("iran flag");
-    expect(o!.why).toContain("3,394");
-    expect(o!.expectedLever.toLowerCase()).toContain("lead page");
-    expect(o!.expectedLever).toContain("not a title rewrite");
-    expect(o!.estConfidence).toBe("low"); // cautious: recovery is uncertain
-    expect(o!.estClicksAtStake).toBeGreaterThan(0);
+    // The recoverable money is the title/snippet rewrite at the held rank, so
+    // ctr_leak headlines, not cannibalization.
+    expect(o!.kind).toBe("ctr_leak");
+    // Cannibalization stays a VISIBLE secondary signal (kind list + evidence line).
+    expect(o!.kinds).toEqual(expect.arrayContaining(["ctr_leak", "cannibalization"]));
+    expect(o!.evidenceBySource.some((e) => /compete for/.test(e.line))).toBe(true);
+    // The displayed estimate is the DOMINANT kind's (the leak's ~690), never the
+    // cannibalization's ~41, and the "why" is the title/SERP narrative, never
+    // "N pages compete". This is what kills the "~1,535 clicks · earning 1 click
+    // from 618 impressions" incoherence the audit flagged.
+    expect(o!.estClicksAtStake).toBe(690);
+    expect(o!.why).not.toContain("compete");
+    expect(o!.why.toLowerCase()).toMatch(/title|serp/);
   });
 
-  it("fires even when the lead page has no other opportunity signal", () => {
+  it("headlines cannibalization only when it is the page's dominant blocker", () => {
     const o = buildOpportunity({
       canonUrl: "https://x.test/lead",
       path: "/lead",
@@ -225,5 +231,10 @@ describe("buildOpportunity — cannibalization", () => {
     });
     expect(o).not.toBeNull();
     expect(o!.kind).toBe("cannibalization");
+    expect(o!.why).toContain("of your pages compete");
+    expect(o!.expectedLever).toContain("not a title rewrite");
+    expect(o!.estConfidence).toBe("low"); // recovery is inherently uncertain
+    // Cannibalization's OWN cautious estimate: 800 × expectedCtr(5)=0.05 − 0 = 40.
+    expect(o!.estClicksAtStake).toBe(40);
   });
 });

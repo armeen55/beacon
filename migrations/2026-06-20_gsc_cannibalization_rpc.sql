@@ -46,6 +46,12 @@ as $function$
       and date >= p_since
       and query is not null
       and query <> ''
+      -- Search-operator queries (site:/inurl:/etc.) make Google list the whole
+      -- site sequentially #1,#2,#3… which looks like every page competing for
+      -- one query. That is the operator browsing their own site, NOT
+      -- cannibalization. Exclude so they never produce a bogus case. The app
+      -- loader mirrors this filter (groupCannibalizationRows) for defense.
+      and query !~* '^\s*(site|inurl|intitle|allintitle|allinurl|cache|related|link|filetype|ext)\s*:'
     group by query, page
   ),
   q as (

@@ -54,6 +54,13 @@ type CannibalRpcRow = {
 const WINDOW_DAYS = 28;
 const MIN_COMBINED_IMPRESSIONS = 100;
 
+/** Search-operator queries (e.g. "site:www.iranopedia.com") make Google list
+ *  the WHOLE site sequentially #1, #2, #3… which looks exactly like every page
+ *  competing for one query — but it is the operator browsing their own site,
+ *  NOT cannibalization. Drop these so they never produce a bogus case (e.g. a
+ *  homepage "lead" with an empty rank). */
+const SEARCH_OPERATOR = /^\s*(?:site|inurl|intitle|allintitle|allinurl|cache|related|link|filetype|ext)\s*:/i;
+
 /** Group flat (query,url) RPC rows into cannibalization cases. PURE. */
 export function groupCannibalizationRows(
   rows: ReadonlyArray<CannibalRpcRow>,
@@ -62,6 +69,7 @@ export function groupCannibalizationRows(
   // URLs to one; sum their metrics so a single page never looks like two.
   const byQuery = new Map<string, Map<string, CannibalCompetingUrl & { posWeighted: number }>>();
   for (const r of rows) {
+    if (SEARCH_OPERATOR.test(r.query)) continue;
     const query = r.query;
     const url = canonicalizeCitationUrl(r.url) ?? r.url;
     const clicks = Number(r.clicks) || 0;

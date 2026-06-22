@@ -238,7 +238,12 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                   <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11px] text-foreground/75">
                     <li>
                       Choose <span className="font-medium">{c.leadPath}</span> as the lead page
-                      for this query (best current rank
+                      for this query (best current rank #
+                      {(
+                        c.competitors.find((u) => u.isLead)?.position ??
+                        c.competitors[0]?.position ??
+                        0
+                      ).toFixed(1)}
                       {c.thisPageIsLead ? ", which is this page" : ""}).
                     </li>
                     <li>Point the other pages&apos; internal links for this term at the lead page.</li>

@@ -113,7 +113,7 @@ export function expectedCtrForPosition(position: number): number {
 
 function pathTail(path: string): string {
   const seg = path.replace(/\/+$/, "").split("/").filter(Boolean).pop();
-  return seg ? seg.replace(/-/g, " ") : "home";
+  return seg ? seg.replace(/-/g, " ") : "Home page";
 }
 
 const CTR_LEAK_MIN_IMPRESSIONS = 500;
@@ -124,15 +124,18 @@ const RISING_MIN_NOW = 15;
 const FRICTION_MIN_DEAD = 10;
 const FRICTION_MIN_RAGE = 5;
 
-/** Priority order for choosing the dominant kind (click/revenue impact first).
- *  Cannibalization is FIRST: when a page both leaks CTR and cannibalizes a
- *  query, the real fix is the cluster/structural move, NOT a title rewrite, so
- *  it must win the headline + lever (see #4 in the cannibalization slice). */
+/** Priority order for choosing the dominant kind (most actionable, highest-
+ *  movement lever first). Cannibalization sits BELOW the direct-movement kinds:
+ *  when a page both leaks CTR and cannibalizes a query, the recoverable money is
+ *  the title/snippet rewrite at the rank already held — a structural cluster
+ *  move is the hardest, slowest, operator-choice fix, so it only HEADLINES when
+ *  it is the page's dominant blocker (no CTR-leak / striking / decay above it).
+ *  It always stays a visible secondary signal via `kinds` + its evidence line. */
 const KIND_PRIORITY: OpportunityKind[] = [
-  "cannibalization",
   "ctr_leak",
   "striking_distance",
   "decay",
+  "cannibalization",
   "friction",
   "rising",
 ];
@@ -147,11 +150,17 @@ export function buildOpportunity(
   const kinds: OpportunityKind[] = [];
   const evidence: OpportunityEvidence[] = [];
   const importance = input.importance ?? 1.0;
-  let estClicksAtStake = 0;
-  let why = "";
-  let expectedLever = "";
   const serpStatus: SerpStatus = input.serpStatus ?? "unknown";
   let serpGuardLabel: string | null = null;
+
+  // Per-kind estimate + narrative, resolved to the DOMINANT kind at the end so
+  // the displayed number always matches the displayed "why". A cannibalization
+  // headline can no longer borrow a CTR-leak's (much larger) clicks-at-stake,
+  // and vice-versa — the incoherent "~1,535 clicks · earning 1 click from 618
+  // impressions" pairing is structurally impossible now.
+  const gainByKind: Partial<Record<OpportunityKind, number>> = {};
+  const whyByKind: Partial<Record<OpportunityKind, string>> = {};
+  const leverByKind: Partial<Record<OpportunityKind, string>> = {};
 
   // ── CTR leak: ranks page-1ish, real impressions, CTR well below expected ──
   if (
@@ -162,8 +171,9 @@ export function buildOpportunity(
     const expected = expectedCtrForPosition(input.gsc.position90d);
     if (input.gsc.ctr90d < expected * 0.5) {
       kinds.push("ctr_leak");
-      const gain = Math.round(input.gsc.impressions90d * (expected - input.gsc.ctr90d));
-      estClicksAtStake = Math.max(estClicksAtStake, gain);
+      gainByKind.ctr_leak = Math.round(
+        input.gsc.impressions90d * (expected - input.gsc.ctr90d),
+      );
       const ctrPct = (input.gsc.ctr90d * 100).toFixed(2);
       const expPct = (expected * 100).toFixed(1);
       evidence.push({
@@ -176,11 +186,14 @@ export function buildOpportunity(
       const guard = deriveSerpGuard({ position: input.gsc.position90d, serpStatus });
       if (guard.downgrade) {
         serpGuardLabel = guard.label;
-        why = "Likely a title/snippet OR SERP-presentation issue, SERP check needed before rewriting.";
-        expectedLever = "Check the live SERP (AI Overview / featured snippet / image pack). If it's clear, rewrite the title + meta to match intent, otherwise the clicks are SERP-owned, not a title problem.";
+        whyByKind.ctr_leak =
+          "Likely a title/snippet OR SERP-presentation issue, SERP check needed before rewriting.";
+        leverByKind.ctr_leak =
+          "Check the live SERP (AI Overview / featured snippet / image pack). If it's clear, rewrite the title + meta to match intent, otherwise the clicks are SERP-owned, not a title problem.";
       } else {
-        why = "Ranking on page 1 but under-clicked, likely a title/snippet issue.";
-        expectedLever = "Rewrite the title + meta to match intent → recover clicks at the rank you already hold.";
+        whyByKind.ctr_leak = "Ranking on page 1 but under-clicked, likely a title/snippet issue.";
+        leverByKind.ctr_leak =
+          "Rewrite the title + meta to match intent → recover clicks at the rank you already hold.";
       }
     }
   }
@@ -189,16 +202,17 @@ export function buildOpportunity(
   if (input.striking && input.striking.length > 0) {
     kinds.push("striking_distance");
     const vol = input.striking.reduce((s, k) => s + (k.volume || 0), 0);
-    estClicksAtStake = Math.max(estClicksAtStake, Math.round(vol * 0.05));
+    gainByKind.striking_distance = Math.round(vol * 0.05);
     const top = input.striking[0];
+    const n = input.striking.length;
     evidence.push({
       source: "semrush",
-      line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position}, page 2. ${input.striking.length} striking-distance keyword(s) total.`,
+      line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position}, page 2. ${n} striking-distance keyword${n === 1 ? "" : "s"} total.`,
     });
-    if (!why) {
-      why = "Real search demand one page away, already ranking, just below the fold.";
-      expectedLever = "Strengthen the page for these terms (depth + internal links) → push page 2 → page 1.";
-    }
+    whyByKind.striking_distance =
+      "Real search demand one page away, already ranking, just below the fold.";
+    leverByKind.striking_distance =
+      "Strengthen the page for these terms (depth + internal links) → push page 2 → page 1.";
   }
 
   // ── Decay: losing clicks vs the prior window ──
@@ -209,15 +223,13 @@ export function buildOpportunity(
   ) {
     kinds.push("decay");
     const lost = input.decay.clicksPrior - input.decay.clicksNow;
-    estClicksAtStake = Math.max(estClicksAtStake, lost);
+    gainByKind.decay = lost;
     evidence.push({
       source: "gsc",
       line: `Clicks fell ${input.decay.clicksPrior} → ${input.decay.clicksNow} vs the prior 28 days (−${lost}).`,
     });
-    if (!why) {
-      why = "A page that used to perform is sliding, refresh it before it falls further.";
-      expectedLever = "Refresh the content + intro answer → arrest the decline.";
-    }
+    whyByKind.decay = "A page that used to perform is sliding, refresh it before it falls further.";
+    leverByKind.decay = "Refresh the content + intro answer → arrest the decline.";
   }
 
   // ── Rising: momentum to protect / amplify ──
@@ -228,15 +240,13 @@ export function buildOpportunity(
   ) {
     kinds.push("rising");
     const gained = input.decay.clicksNow - input.decay.clicksPrior;
-    estClicksAtStake = Math.max(estClicksAtStake, gained);
+    gainByKind.rising = gained;
     evidence.push({
       source: "gsc",
       line: `Clicks rose ${input.decay.clicksPrior} → ${input.decay.clicksNow} (+${gained}), momentum.`,
     });
-    if (!why) {
-      why = "This page is taking off, pour fuel on it while it's hot.";
-      expectedLever = "Expand + add schema + internal links to ride the momentum.";
-    }
+    whyByKind.rising = "This page is taking off, pour fuel on it while it's hot.";
+    leverByKind.rising = "Expand + add schema + internal links to ride the momentum.";
   }
 
   // ── Friction: Clarity dead / rage clicks ──
@@ -246,24 +256,22 @@ export function buildOpportunity(
       input.clarity.rageClicks >= FRICTION_MIN_RAGE)
   ) {
     kinds.push("friction");
-    estClicksAtStake = Math.max(
-      estClicksAtStake,
-      input.clarity.deadClicks + input.clarity.rageClicks,
-    );
+    gainByKind.friction = input.clarity.deadClicks + input.clarity.rageClicks;
     evidence.push({
       source: "clarity",
       line: `${input.clarity.deadClicks} dead clicks + ${input.clarity.rageClicks} rage clicks over ${input.clarity.sessions} sessions, visitors clicking things that don't respond.`,
     });
-    if (!why) {
-      why = "Visitors are hitting dead ends on this page.";
-      expectedLever = "Make the clicked elements real links / fix the broken interaction.";
-    }
+    whyByKind.friction = "Visitors are hitting dead ends on this page.";
+    leverByKind.friction = "Make the clicked elements real links / fix the broken interaction.";
   }
 
   // ── Cannibalization: 2+ of the tenant's own URLs split a query (THIS page is
-  //    the lead / best-ranking URL). A structural cluster issue that OVERRIDES
-  //    the title/CTR framing, because a title rewrite cannot fix duplicate pages
-  //    fighting for the same term. Dominant via KIND_PRIORITY. ──
+  //    the lead / best-ranking URL). A structural cluster issue. It carries its
+  //    OWN cautious estimate + narrative and is ALWAYS pushed as a visible
+  //    secondary signal (kinds + evidence line), but only HEADLINES when it is
+  //    the dominant kind (KIND_PRIORITY) — i.e. there is no CTR-leak / striking
+  //    / decay to fix first. A title rewrite cannot fix duplicate pages, but
+  //    neither should a cluster move bury recoverable title money. ──
   if (input.cannibalization) {
     const c = input.cannibalization;
     kinds.push("cannibalization");
@@ -275,7 +283,7 @@ export function buildOpportunity(
         c.combinedImpressions * expectedCtrForPosition(c.bestPosition) - c.combinedClicks,
       ),
     );
-    estClicksAtStake = Math.max(estClicksAtStake, gain);
+    gainByKind.cannibalization = gain;
     const clk = `${c.combinedClicks.toLocaleString()} click${c.combinedClicks === 1 ? "" : "s"}`;
     const more =
       c.additionalCases > 0
@@ -285,15 +293,23 @@ export function buildOpportunity(
       source: "gsc",
       line: `${c.urlCount} of your pages compete for "${c.query}": ${c.combinedImpressions.toLocaleString()} impressions, ${clk}, best rank #${c.bestPosition.toFixed(1)}.${more}`,
     });
-    // Override the headline + lever: structural cluster fix, not a title rewrite.
-    why = `${c.urlCount} of your pages compete for "${c.query}", earning ${clk} from ${c.combinedImpressions.toLocaleString()} impressions.`;
-    expectedLever =
+    whyByKind.cannibalization = `${c.urlCount} of your pages compete for "${c.query}", earning ${clk} from ${c.combinedImpressions.toLocaleString()} impressions.`;
+    leverByKind.cannibalization =
       "Pick one lead page for this query and point the other pages' internal links at it. A structural cluster fix, not a title rewrite.";
   }
 
   if (kinds.length === 0) return null;
 
   const kind = KIND_PRIORITY.find((k) => kinds.includes(k)) ?? kinds[0];
+
+  // Displayed estimate + narrative = the DOMINANT kind's, so the number always
+  // matches the "why" the operator reads. Ranking still uses the page's BEST
+  // opportunity across all kinds, so a page is never under-ranked just because
+  // its headline kind happens to carry the smaller estimate.
+  const estClicksAtStake = gainByKind[kind] ?? 0;
+  const why = whyByKind[kind] ?? "";
+  const expectedLever = leverByKind[kind] ?? "";
+  const maxGain = Math.max(0, ...Object.values(gainByKind));
 
   // Confidence in the estimate is data-volume driven (NOT a SERP claim).
   // Mirrors `estimateConfidence` in page-primary.ts; inlined to avoid a
@@ -328,7 +344,7 @@ export function buildOpportunity(
     estConfidence,
     serpStatus,
     serpGuardLabel,
-    score: Math.round(estClicksAtStake * importance),
+    score: Math.round(maxGain * importance),
   };
 }
 

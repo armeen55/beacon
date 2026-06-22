@@ -47,6 +47,19 @@ describe("groupCannibalizationRows", () => {
     expect(cases.map((c) => c.query)).toEqual(["big", "small"]);
   });
 
+  it("drops search-operator queries (site:/inurl:) that list the whole site", () => {
+    // `site:www.iranopedia.com` makes Google list every page sequentially #1-#N,
+    // which looks like cannibalization but is the operator browsing their site.
+    const cases = groupCannibalizationRows([
+      r("site:www.iranopedia.com", "https://x.test/a", 0, 10, 1),
+      r("site:www.iranopedia.com", "https://x.test/b", 0, 10, 2),
+      r("site:www.iranopedia.com", "https://x.test/", 0, 10, 3),
+      r("inurl:iran", "https://x.test/c", 0, 10, 1),
+      r("inurl:iran", "https://x.test/d", 0, 10, 2),
+    ]);
+    expect(cases).toEqual([]);
+  });
+
   it("merges rows that canonicalize to the same page (no self-cannibalization)", () => {
     // Same page via trailing slash / fragment should collapse, not look like 2 URLs.
     const cases = groupCannibalizationRows([
