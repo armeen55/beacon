@@ -7,6 +7,51 @@
 
 ---
 
+## 2026-06-22 (cont. 2) Second self-audit → 12/14 trust bugs fixed (branch `claude/iranopedia-blockers`, NOT pushed)
+
+A second adversarial self-audit (workflow `wf9l444jf`, 24 agents, code-only,
+19 raised -> 14 confirmed) on the surfaces the first audit did NOT cover
+(opportunity map, workbench matrix, recs queue, tenant isolation, live
+experiment-data integrity). Fixed 12 across 6 commits:
+
+- `dd37c15` **proof metric correctness** (live verdicts): coverage plays
+  (section_add) judged on CLICKS not avg-position (a successful expansion
+  dilutes position -> false "hurting" on /famous-iranian-singers);
+  answer-block plays snippet-capture-aware (a CTR drop with rank held is a
+  likely featured-snippet WIN on /farsi-numbers + /asiatic-cheetah, not "lost").
+- `7f7c646` **control contamination**: auto-controls now exclude ANY treated
+  page (not just the treated page itself); re-pointed the older /cities +
+  /funny-farsi prod records off their now-treated controls (actors/comedians)
+  to the clean untreated set before their 06-27 windows open.
+- `839d8e5` **est-clicks honesty**: expectedCtrForPosition ROUNDS a fractional
+  position (3.8 -> rank-4's 0.07) instead of flooring to the better rank's CTR
+  (was ~40% inflation on every CTR-leak/cannibalization card); striking-distance
+  sized off the CTR curve (current vs modest target) instead of a flat 5% of all
+  market volume, with confidence from the SEMrush signal not GSC impressions.
+- `ba7bbc2` **de-vert (tool-for-everyone)**: discrepancy-detect + comparison-table
+  no longer leak hardcoded Bay-Area cities / construction services onto a content
+  site (Iranopedia) — the location/service discrepancy class is gated to tenants
+  with a defined service area; comparison criteria are vertical-neutral.
+- `c177c11` **workbench contradictions**: title "Do not touch" can no longer sit
+  next to a "Proposed (auto)" rewrite (draft gated on the same `needed` signal);
+  answer_block no longer inherits the title/meta CTR-leak number.
+- `03e3444` **coherent Move + aligned threshold**: a cannibalization-dominant
+  row no longer headlines a pack title action (shows the cluster fix); the recs
+  card's precise GSC demand strip now leads at the same >=200 floor priority +
+  confidence use (no "confident headline above a Low-priority pill").
+
+Deferred (documented): #2 cannibalization est multiplies COMBINED impressions by
+the lead's best-rank CTR (overstates) — clean fix threads the lead URL's own
+impressions through gsc-cannibalization -> compute-opportunity-map -> the type
+(multi-file); low-confidence + rarely headlines, no measurement impact.
+
+**Verified:** typecheck clean throughout; targeted suites green (measure 34,
+opportunity 17, workbench 19, recs 1178, proof-actions 14). Targeted-only — NO
+full suite, NO Vercel, NO paid APIs. **Both night audits closed: 23/25 confirmed
+trust bugs fixed** (11/11 + 12/14), 2 documented follow-ups.
+
+---
+
 ## 2026-06-22 (cont.) Self-audit → 11/11 trust bugs fixed + dynamic plan (branch `claude/iranopedia-blockers`, NOT pushed)
 
 Ran an adversarial self-audit (workflow `w5fzjlr7f`, 18 agents, code-only,
