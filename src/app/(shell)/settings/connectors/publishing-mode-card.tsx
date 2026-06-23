@@ -91,8 +91,8 @@ export function PublishingModeCard() {
           </h3>
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {armed
-              ? "Armed. Accepting a safe, mapped, high-confidence edit publishes it to your site in one click."
-              : "Off. Accepting an edit stages it; you publish with a second click. Arm this to publish safe edits in one click."}
+              ? "On. When you approve a safe, simple edit, Beacon publishes it to your site in one click."
+              : "Off. When you approve an edit, Beacon gets it ready and you publish with a second click. Turn this on to publish safe edits in one click."}
           </p>
         </div>
         <span
@@ -103,7 +103,7 @@ export function PublishingModeCard() {
           }
           data-publishing-mode-badge={armed ? "armed" : "off"}
         >
-          {armed ? "Armed" : "Off"}
+          {armed ? "On" : "Off"}
         </span>
       </div>
 
@@ -172,11 +172,11 @@ export function PublishingModeCard() {
             className="rounded-md bg-accent-primary px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-accent-primary/90 disabled:opacity-50"
             data-publishing-mode-action="arm"
           >
-            {pending ? "Arming…" : "Arm one-click publishing"}
+            {pending ? "Turning on…" : "Turn on one-click publishing"}
           </button>
           {!readiness.evaluation.canArm && (
             <p className="text-[12px] text-muted-foreground">
-              Finish the steps above to arm one-click publishing.
+              Finish the steps above to turn on one-click publishing.
             </p>
           )}
         </div>

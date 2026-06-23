@@ -669,12 +669,11 @@ export function ConnectorsClient({
       <div className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3">
         <p className="text-[12px] text-foreground leading-relaxed">
           Connecting a tool just gives Beacon access. After that, Beacon keeps
-          each source fresh automatically — whenever you use the app it quietly
-          re-pulls anything that&rsquo;s gone stale (at most every few hours per
-          source, so it never wastes your API quota). You can still force an
-          immediate refresh anytime with &ldquo;Sync now&rdquo; / &ldquo;Pull my
-          data&rdquo;. No hidden always-on cron — it only runs while you&rsquo;re
-          actually using Beacon.
+          your data fresh on its own: whenever you use the app it quietly refreshes
+          anything that has gone out of date (at most every few hours each, so it
+          never runs up any usage limits). You can always refresh right now with
+          the &ldquo;Update now&rdquo; button. Beacon never runs in the background,
+          only while you are actually using it.
         </p>
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
@@ -692,13 +691,12 @@ export function ConnectorsClient({
           What you&rsquo;ll get once everything&rsquo;s connected
         </h2>
         <p className="text-[12px] text-foreground leading-relaxed">
-          Once everything is connected, one click of &ldquo;Refresh my
-          data&rdquo; runs the whole find-fix-prove loop for you, reading all
-          six sources, drafting and ranking the exact fixes, and the only thing
-          Beacon can&rsquo;t do without you is push a change live: every Wix
-          publish is one-click approve, and there is no zero-touch auto-publish.
-          (Nothing runs on a hidden schedule, you&rsquo;re always in control of
-          when it refreshes.)
+          Once everything is connected, one click of &ldquo;Update my
+          data&rdquo; does the whole job for you: it reads all your sources, then
+          finds, drafts, and ranks the exact fixes. The one thing Beacon never
+          does on its own is change your live site: every change to your website
+          needs your one-click approval first. Nothing runs on a hidden schedule,
+          you are always in control of when it refreshes.
         </p>
         <ul className="space-y-1.5 text-[12px] text-muted-foreground leading-relaxed">
           <li className="flex gap-2">

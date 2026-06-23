@@ -40,12 +40,12 @@ type SourceMeta = {
 /** The source registry for the operator Data Health surface. White-label:
  *  Profound is "AI answers", never the vendor name. */
 export const CONNECTION_SOURCES: readonly SourceMeta[] = [
-  { key: "google_gsc", label: "Search (Google)", role: "what people search + where you rank", unlocks: "CTR leaks, decay alerts, page priority", blockedWhenMissing: "the whole Opportunity Map + State of the Union" },
-  { key: "google_ga4", label: "Visitors (Analytics)", role: "which pages get traffic + convert", unlocks: "value-weighting (prioritize pages that earn)", blockedWhenMissing: "revenue/value weighting of opportunities" },
-  { key: "semrush", label: "Keywords (SEMrush)", role: "external market + competitor demand", unlocks: "page-2 striking-distance opportunities", blockedWhenMissing: "off-site keyword demand + competitor gaps" },
-  { key: "clarity", label: "Visitor experience", role: "where visitors get stuck on-page", unlocks: "dead-click / rage-click friction flags", blockedWhenMissing: "UX-friction opportunities" },
-  { key: "wix", label: "Publishing (Wix)", role: "your live CMS content + SEO fields (read), not a Wix analytics feed", unlocks: "reading current page content + publishing approved changes to your live site", blockedWhenMissing: "publishing changes live (recommendations stay paste-ready)" },
-  { key: "profound", label: "AI answers", role: "where AI assistants cite or ignore you", unlocks: "AEO visibility + citation tracking", blockedWhenMissing: "AI-citation visibility" },
+  { key: "google_gsc", label: "Google Search", role: "what people search to find you, and where you rank on Google", unlocks: "pages losing clicks, pages slipping, and what to fix first", blockedWhenMissing: "almost everything Beacon does" },
+  { key: "google_ga4", label: "Website visitors", role: "which pages get the most visitors and sign-ups", unlocks: "focusing on the pages that actually make you money", blockedWhenMissing: "knowing which pages matter most to your business" },
+  { key: "semrush", label: "Search market (SEMrush)", role: "what people search across the web, and what competitors rank for", unlocks: "searches where you are almost on Google's first page", blockedWhenMissing: "competitor and wider-search insights" },
+  { key: "clarity", label: "Visitor behavior (Clarity)", role: "where visitors get stuck or frustrated on your pages", unlocks: "spots where visitors get frustrated or click things that do nothing", blockedWhenMissing: "knowing where visitors get stuck" },
+  { key: "wix", label: "Your website (Wix)", role: "your live website content and SEO settings (read only, not analytics)", unlocks: "reading your current pages and publishing changes you approve", blockedWhenMissing: "one-click publishing (you can still copy and paste changes yourself)" },
+  { key: "profound", label: "AI answers", role: "whether AI assistants like ChatGPT recommend your business", unlocks: "tracking how often AI tools mention you", blockedWhenMissing: "knowing if AI recommends you" },
 ] as const;
 
 function daysSince(iso: string | null, now: Date): number | null {

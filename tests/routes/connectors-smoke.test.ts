@@ -51,8 +51,8 @@ describe("Connectors settings route smoke", () => {
     expect(html).toContain('data-connector-card="clarity"');
     // 2026-06-22 — connectors auto-refresh on use (no hidden always-on cron);
     // the intro now says it keeps sources fresh automatically while you use it.
-    expect(html).toContain("keeps each source fresh automatically");
-    expect(html).toContain("No hidden always-on cron");
+    expect(html).toContain("keeps your data fresh on its own");
+    expect(html).toContain("never runs in the background");
     expect(html).toContain("Manual CSV/JSON import remains available");
   });
 });

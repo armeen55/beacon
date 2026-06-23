@@ -22,8 +22,8 @@ const SEV_STYLE: Record<ConnectionSeverity, string> = {
   disconnected: "border-border bg-muted/40 text-muted-foreground",
 };
 const SEV_LABEL: Record<ConnectionSeverity, string> = {
-  healthy: "Healthy",
-  stale: "Stale",
+  healthy: "Connected",
+  stale: "Out of date, refresh it",
   needs_setup: "Needs setup",
   disconnected: "Not connected",
 };
@@ -43,19 +43,19 @@ export default async function ConnectionsPage() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5">
-        <h1 className="text-2xl font-semibold tracking-tight">Data Health</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Your connected accounts</h1>
         <p className="mt-1 text-[14px] text-muted-foreground">
-          {feeding} of {sources.length} sources feeding data. Beacon fuses these
-          into every insight, coverage gaps narrow what it can see.
+          {feeding} of {sources.length} accounts connected. The more you connect,
+          the better Beacon&rsquo;s recommendations get. Start with Google Search.
         </p>
       </div>
 
-      {/* How the sources interlock — the connection graph, in one line. */}
+      {/* Plain one-line story of what Beacon does with the connected accounts. */}
       <div className="mb-6 rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground">How it connects:</span>{" "}
-        Search demand (GSC) + market (SEMrush) → <b>Opportunity Map</b> →
-        Page Surgeon drafts → publish (Wix) → prove the lift (GSC + Analytics).
-        Clarity flags on-page friction; AI answers track citations.
+        <span className="font-medium text-foreground">How it works:</span>{" "}
+        Beacon looks at how people find you on Google, finds pages worth
+        improving, helps you fix them, and then checks whether more people found
+        you afterward.
       </div>
 
       <div className="space-y-2.5">

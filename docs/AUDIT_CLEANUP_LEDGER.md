@@ -9,9 +9,9 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 ## Tally
 - Total findings: 923 (292 critical)
-- Fixed critical: ~72  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
+- Fixed critical: ~90  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
 - Fixed medium/low (via global patterns): ongoing
-- Remaining critical: ~220
+- Remaining critical: ~202
 - Deferred (with reason): 0
 
 ## Batches
@@ -33,5 +33,7 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 - **B7 — Proof page** (proof/page.tsx + traffic-outcome.ts): title 'Proof & Learning' -> 'Did your changes work?' + plain subtitle; 'won/lost/inconclusive' verdict badge + explainer -> 'Helped / Did not help / No clear change'; 'Controls (diff-in-diff): N comparable untreated pages' -> 'Compared against N similar pages you did not change'; baseline line -> plain 'visits from Google, shown N times, ranked about #N'; THE SCARY -122%: traffic label suppresses the number under 7 days ('too soon to tell') and plain-words 'sessions vs controls'->'visits vs similar pages', 'conversions'->'sign-ups or sales' (#97). traffic-outcome tests updated.
 
+- **B8 — Connectors / Data Health** (connection-health.ts + connections/page.tsx + connectors-client + publishing-mode-card): all 6 source role/unlocks descriptions plain (no CTR leaks/value-weighting/striking-distance/dead-click/AEO/citation jargon); 'Data Health' -> 'Your connected accounts'; 'sources feeding data / fuses / coverage gaps' + the 'How it connects: GSC + SEMrush -> Opportunity Map -> Page Surgeon...' chain -> plain 'How it works'; 'Stale' chip -> 'Out of date, refresh it'; 'API quota / always-on cron / find-fix-prove loop' -> plain; 'Armed / Arm one-click publishing' -> 'On / Turn on one-click publishing'. connectors-smoke test updated.
+
 ## Next
-- B8: Connectors/Data Health (42 critical, biggest), Settings (30), Prompts (24), Experiments, Opportunities, Workbench, Competitors, Onboarding, Global nav. Also B5 leftover: rec card 'Not publishable'/'Accept & publish' safety + Proof record-form/recompute/recrawl button copy. Proof page (verdict/baseline/controls/diff-in-diff/windows + scary -122%), then Connectors (42 critical), Settings (30), Prompts (24). finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).
+- B9: Connectors/Data Health (42 critical, biggest), Settings (30), Prompts (24), Experiments, Opportunities, Workbench, Competitors, Onboarding, Global nav. Also B5 leftover: rec card 'Not publishable'/'Accept & publish' safety + Proof record-form/recompute/recrawl button copy. Proof page (verdict/baseline/controls/diff-in-diff/windows + scary -122%), then Connectors (42 critical), Settings (30), Prompts (24). finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).
