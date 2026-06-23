@@ -20,6 +20,7 @@ import type { LeverKey } from "./workbench-matrix";
 import type { ProposedSource } from "./workbench-matrix";
 import type { OptimizerBuckets, OptimizerCandidate } from "./workbench-optimizer";
 import type { OpportunityItem } from "./opportunity";
+import { workbenchHref } from "./workbench-route";
 
 /** One page's batch input: the opportunity row + its optimizer buckets + the
  *  loader-captured current CMS values and target queries (for before/rollback). */
@@ -99,11 +100,6 @@ function familyOf(lever: LeverKey): ExperimentFamily {
 
 const WANTED_FAMILIES: ExperimentFamily[] = ["ctr", "answer", "content", "structure"];
 
-/** Build the workbench deep-link the same way the rest of the app does. */
-function hrefFor(path: string): string {
-  return `/workbench/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
-}
-
 /** Normalize em/en dashes to a hyphen so surfaced copy (drafts, evidence,
  *  before/rollback values pulled from live pages) never carries the em-dash
  *  tell. Hyphen keeps titles near-verbatim for rollback. */
@@ -167,7 +163,7 @@ function toCard(row: BatchPageRow, c: OptimizerCandidate, isSwing: boolean): Exp
     gscIndexingInstruction: `Want Google to see this sooner? Open Google Search Console, paste this page address into the search box at the top (${row.item.canonUrl}), then click "Request indexing". This tells Google to come look at your change faster.`,
     status: statusOf(c),
     isOptionalSwing: isSwing,
-    workbenchHref: hrefFor(row.item.path),
+    workbenchHref: workbenchHref(row.item.path),
   };
 }
 

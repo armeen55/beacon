@@ -177,7 +177,10 @@ describe("selectExperimentBatch (TASK 4)", () => {
     expect(c!.status).toBe("ready_now");
     expect(c!.proofInstructions).toMatch(/i made this change/i);
     expect(c!.gscIndexingInstruction).toContain("Request indexing");
-    expect(c!.workbenchHref).toBe("/workbench/cities");
+    // workbenchHref now uses the canonical single-segment encoder (slashes
+    // percent-encoded) so multi-segment page paths resolve under the
+    // /workbench/[encodedPagePath] route instead of 404-ing.
+    expect(c!.workbenchHref).toBe("/workbench/%2Fcities");
     const blob = JSON.stringify(c);
     expect(blob).not.toContain("—"); // em dash
     expect(blob).not.toContain("–"); // en dash
