@@ -157,10 +157,10 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
       </div>
       <div>
         <label htmlFor="config-yelp" className="mb-1.5 block text-[12px] font-medium text-foreground">
-          Yelp business ID or alias
+          Your Yelp page
         </label>
         <p className="mb-2 text-[11px] text-muted-foreground">
-          Used when you sync Yelp reviews from Settings → Connectors. Find this in your Yelp business URL or Fusion documentation.
+          Paste your Yelp page link so Beacon can find your reviews. Optional.
         </p>
         <input
           id="config-yelp"
@@ -212,8 +212,8 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label htmlFor="config-competitors" className="mb-1.5 block text-[12px] font-medium text-foreground">Known competitors</label>
-        <p className="mb-2 text-[11px] text-muted-foreground">Comma-separated competitor domains.</p>
+        <label htmlFor="config-competitors" className="mb-1.5 block text-[12px] font-medium text-foreground">Your competitors</label>
+        <p className="mb-2 text-[11px] text-muted-foreground">Their names or website links, separated by commas.</p>
         <input
           id="config-competitors"
           type="text"
@@ -225,12 +225,12 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
 
       <div>
         <label htmlFor="config-content-rules" className="mb-1.5 block text-[12px] font-medium text-foreground">
-          Content rules
+          Writing preferences
         </label>
         <p className="mb-2 text-[11px] text-muted-foreground">
-          One rule per line. Every piece of content Beacon drafts for you
-          follows these — e.g. &ldquo;Call the language Persian, never
-          Farsi.&rdquo;
+          Optional. One rule per line. Beacon follows these whenever it writes a
+          suggestion for you. For example: &ldquo;Always say donut, never
+          doughnut.&rdquo;
         </p>
         <textarea
           id="config-content-rules"
@@ -245,11 +245,11 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
 
       <div>
         <label htmlFor="config-flagged-terms" className="mb-1.5 block text-[12px] font-medium text-foreground">
-          Banned terms
+          Words to never use
         </label>
         <p className="mb-2 text-[11px] text-muted-foreground">
-          Comma-separated. Drafts containing these words are rejected
-          outright — they can never reach your review queue.
+          Separated by commas. Beacon will never use these words when it writes a
+          suggestion for you.
         </p>
         <input
           id="config-flagged-terms"
