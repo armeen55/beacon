@@ -9,12 +9,11 @@ import type {
 } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
 import type { ChangeArtifact } from "@/domains/recommendation-intelligence/page-surgeon/artifact-bundle";
 import type { WorkbenchLeverRow } from "@/domains/insight/workbench-matrix";
-import {
-  decideVerdict,
-  type VerdictChip,
-  type WorkbenchPicks,
-  type WorkbenchPick,
-} from "@/domains/insight/workbench-priority";
+import { decideVerdict, type VerdictChip } from "@/domains/insight/workbench-priority";
+import type {
+  OptimizerBuckets,
+  OptimizerCandidate,
+} from "@/domains/insight/workbench-optimizer";
 import { CopyButton } from "./copy-button";
 import { DraftWithAi } from "./draft-with-ai";
 import { ResolveSerp } from "./resolve-serp";
@@ -96,41 +95,155 @@ function pushMethodText(m: PushMethod): string {
   }
 }
 
-/** "Beacon's call": the ranked do-this-first picks, lead with the single move. */
-function BeaconsCall({ picks }: { picks: WorkbenchPicks }) {
-  const labelled: Array<{ label: string; pick: WorkbenchPick }> = [
-    { label: "Best single move", pick: picks.bestSingle },
-    { label: "Bigger play", pick: picks.bestBigger },
-    { label: "Safest", pick: picks.safest },
-    { label: "Fastest to measure", pick: picks.fastestMeasurable },
-    { label: "Highest upside", pick: picks.highestUpside },
-  ].filter((i) => i.pick);
+const BLOCKER_LABEL: Record<NonNullable<OptimizerCandidate["blockedBy"]>, string> = {
+  serp: "SERP",
+  wix: "Wix mapping",
+  data: "Needs drafting",
+  measuring: "Measuring",
+};
 
-  if (labelled.length === 0) {
+function UpsideLine({ c }: { c: OptimizerCandidate }) {
+  if (c.estClicksAtStake == null) return null;
+  return (
+    <span className="text-[11px] text-muted-foreground">
+      ~{c.estClicksAtStake.toLocaleString()} clicks at stake, {c.upsideConfidence} confidence
+    </span>
+  );
+}
+
+/** One optimizer candidate card. `tone` lifts the headline (best next move). */
+function CandidateCard({
+  role,
+  c,
+  tone = "normal",
+}: {
+  role: string;
+  c: OptimizerCandidate;
+  tone?: "lead" | "normal" | "hold";
+}) {
+  const border =
+    tone === "lead"
+      ? "border-foreground/40 bg-surface-inset/40"
+      : tone === "hold"
+        ? "border-border/50 bg-muted/20"
+        : "border-border/60 bg-background";
+  return (
+    <div className={`rounded-lg border p-3 ${border}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {role}
+        </span>
+        <span className="text-[13px] font-semibold text-foreground">{c.label}</span>
+        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${VERDICT_META[c.verdict]}`}>
+          {c.verdict}
+        </span>
+        {c.blockedBy ? (
+          <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+            {BLOCKER_LABEL[c.blockedBy]}
+          </span>
+        ) : null}
+        <UpsideLine c={c} />
+      </div>
+      <p className="mt-1 text-[12px] text-foreground/80">{c.evidence}</p>
+      {c.draft ? (
+        <div className="mt-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Draft</span>
+            <CopyButton value={c.draft} />
+          </div>
+          <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px] text-foreground/85">
+            {c.draft}
+          </pre>
+        </div>
+      ) : null}
+      <p className="mt-1.5 text-[11px] text-muted-foreground">{c.reason}</p>
+      <p className="mt-1 text-[10px] text-muted-foreground/70">
+        Measure: {c.measurementMetric} · {pushMethodText(c.wixPushMethod)} · rollback {c.rollbackType.replace(/_/g, " ")}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * TASK 3 — the per-page command center: the six operator moves scored over the
+ * lever matrix + proof ledger + SERP. Best next move leads; the rest help the
+ * operator weigh safe-now vs bigger-later and avoid touching what's measuring.
+ */
+function OptimizerView({ buckets }: { buckets: OptimizerBuckets }) {
+  const { bestNextMove, safestChange, highestUpside, fastestMeasurable, holdDoNotTouch, biggerSwingLater } =
+    buckets;
+  const anyMove =
+    bestNextMove || safestChange || highestUpside || fastestMeasurable || biggerSwingLater;
+
+  // Healthy / blocked-only page: nothing to do now, only Hold entries.
+  if (!anyMove) {
     return (
-      <Section title="Beacon's call" subtitle="What to do first on this page.">
-        <p className="text-[13px] text-muted-foreground">
-          No action warranted right now. This page looks healthy for its position, monitor and
-          revisit if rankings slip.
-        </p>
+      <Section title="Best next move" subtitle="What to do first on this page.">
+        {holdDoNotTouch.length > 0 ? (
+          <div className="space-y-2">
+            {holdDoNotTouch.map((c) => (
+              <CandidateCard key={c.lever} role="Hold" c={c} tone="hold" />
+            ))}
+          </div>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">
+            No action warranted right now. This page looks healthy for its position, monitor and
+            revisit if rankings slip.
+          </p>
+        )}
       </Section>
     );
   }
 
-  const lead = picks.bestSingle;
-  const rest = labelled.filter((i) => i.label !== "Best single move");
+  // Secondary picks, deduped against the lead lever so we do not repeat it.
+  const leadLever = bestNextMove?.lever;
+  const secondary: Array<{ role: string; c: OptimizerCandidate }> = [
+    { role: "Safest change", c: safestChange! },
+    { role: "Highest upside", c: highestUpside! },
+    { role: "Fastest measurable", c: fastestMeasurable! },
+  ].filter((s) => s.c && s.c.lever !== leadLever);
+
   return (
-    <Section title="Beacon's call" subtitle="What to do first on this page, ranked.">
-      {lead ? (
-        <p className="text-[14px] font-medium text-foreground">Do this first, {lead.oneLine}</p>
-      ) : null}
-      <ul className="mt-2 space-y-1 text-[12px] text-foreground/80">
-        {rest.map((i) => (
-          <li key={i.label}>
-            <span className="text-muted-foreground">{i.label}:</span> {i.pick!.oneLine}
-          </li>
-        ))}
-      </ul>
+    <Section
+      title="Best next move"
+      subtitle="Beacon's six operator moves for this page, scored over the lever matrix, the proof ledger, and the SERP guard."
+    >
+      <div className="space-y-2.5">
+        {bestNextMove ? <CandidateCard role="Best next move" c={bestNextMove} tone="lead" /> : null}
+
+        {secondary.length > 0 ? (
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {secondary.map((s) => (
+              <CandidateCard key={`${s.role}-${s.c.lever}`} role={s.role} c={s.c} />
+            ))}
+          </div>
+        ) : null}
+
+        {biggerSwingLater ? (
+          <CandidateCard role="Bigger swing later" c={biggerSwingLater} />
+        ) : null}
+
+        {holdDoNotTouch.length > 0 ? (
+          <div className="rounded-lg border border-border/50 bg-muted/20 p-3">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Hold / do not touch
+            </div>
+            <ul className="space-y-1.5">
+              {holdDoNotTouch.map((c) => (
+                <li key={c.lever} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px]">
+                  <span className="font-medium text-foreground">{c.label}</span>
+                  {c.blockedBy ? (
+                    <span className="rounded border border-amber-300 bg-amber-50 px-1 py-0.5 text-[9px] font-medium text-amber-800">
+                      {BLOCKER_LABEL[c.blockedBy]}
+                    </span>
+                  ) : null}
+                  <span className="text-muted-foreground">{c.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
     </Section>
   );
 }
@@ -243,7 +356,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
     cannibalization,
     diagnosis,
     matrix,
-    picks,
+    optimizer,
     pack,
     packStatus,
     proof,
@@ -313,10 +426,10 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         </p>
       </header>
 
-      {/* ── Beacon's call (ranked do-this-first picks) ── */}
-      <BeaconsCall picks={picks} />
+      {/* ── Best next move (TASK 3 optimizer: the six operator moves) ── */}
+      <OptimizerView buckets={optimizer} />
 
-      {/* ── SEO action matrix (per-lever) ── */}
+      {/* ── SEO action matrix (per-lever supporting detail) ── */}
       <LeverMatrix rows={matrix.rows} />
 
       {/* ── Opportunity summary ── */}

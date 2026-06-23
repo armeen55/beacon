@@ -49,6 +49,10 @@ import {
   prioritizeWorkbench,
   type WorkbenchPicks,
 } from "@/domains/insight/workbench-priority";
+import {
+  buildOptimizer,
+  type OptimizerBuckets,
+} from "@/domains/insight/workbench-optimizer";
 
 /** Host-stripped path key — mirrors bridge.ts's private `toPath`. */
 function toPath(u: string): string {
@@ -141,6 +145,9 @@ export type WorkbenchData = {
    *  first" picks. Pure projection over the packet/pack already loaded. */
   matrix: WorkbenchMatrix;
   picks: WorkbenchPicks;
+  /** TASK 3: the six operator moves (best/safest/highest-upside/fastest/hold/
+   *  bigger-later) scored over the matrix + proof ledger + SERP. Pure. */
+  optimizer: OptimizerBuckets;
   packStatus: "pack" | "evidence_only" | "no_page";
   pack: AtomicChangePack | null;
   proof: ProofPlanRow | null;
@@ -237,6 +244,14 @@ function emptyWorkbench(path: string): WorkbenchData {
       fastestMeasurable: null,
       highestUpside: null,
     },
+    optimizer: {
+      bestNextMove: null,
+      safestChange: null,
+      highestUpside: null,
+      fastestMeasurable: null,
+      holdDoNotTouch: [],
+      biggerSwingLater: null,
+    },
     packStatus: "no_page",
     pack: null,
     proof: null,
@@ -332,6 +347,11 @@ export async function loadWorkbench(
   // into the per-lever action matrix + ranked picks. Pure, no new I/O.
   const matrix = buildWorkbenchMatrix(packet, pack, worstCannibal);
   const picks = prioritizeWorkbench(matrix.rows);
+  // The optimizer folds the proof ledger (already-measuring) and SERP guard into
+  // the matrix to produce the six operator moves. serp stays null here (the
+  // page-level guard already rides on the matrix rows); the operator-resolved
+  // SERP hypothesis upgrades it via resolve-serp.tsx, not on first render.
+  const optimizer = buildOptimizer({ matrix, proof, serp: null });
 
   return {
     found: true,
@@ -359,6 +379,7 @@ export async function loadWorkbench(
     diagnosis: buildDiagnosisMatrix(packet, worstCannibal),
     matrix,
     picks,
+    optimizer,
     packStatus,
     pack,
     proof,
