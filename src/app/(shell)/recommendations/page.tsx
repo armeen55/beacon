@@ -13,6 +13,7 @@ import {
   loadPageSurgeonSummaries,
   type PageSurgeonSummary,
 } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
+import { scheduleBriefBackfill } from "@/domains/recommendation-intelligence/page-surgeon/brief-backfill-on-use";
 import {
   loadPersistedRecommendationQueueForPage,
   type LiveRecQueueItem,
@@ -264,6 +265,11 @@ export async function RecommendationsAsyncContent({
     // packs FIRST and demote basic legacy recs. Empty in customer mode → customer
     // render is byte-identical. The loader is fail-soft internally.
     const isOperator = isOperatorModeServer();
+    // Audit gap #2 — make the queue Page-Surgeon-driven on its own: schedule a
+    // small, capped brief backfill (runs AFTER this response, throttled) so the
+    // "Ready" bucket grows toward every top-demand page as the operator uses the
+    // app, instead of only pages someone hand-clicked. Fully fail-soft + bounded.
+    if (isOperator) scheduleBriefBackfill(tenantId);
     const pageSurgeonSummaries: Record<string, PageSurgeonSummary> = isOperator
       ? await trace.time("loadPageSurgeonSummaries", () =>
           loadPageSurgeonSummaries(tenantId),
