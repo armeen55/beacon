@@ -73,9 +73,15 @@ describe("composeRowEvidenceSummary — GSC-led pivot", () => {
     expect(out).toMatch(/AI answer/);
   });
 
+  // The LEAD floor is GSC_EVIDENCE_MIN_IMPRESSIONS_90D = 200, deliberately
+  // aligned with GSC_MODERATE_IMPRESSIONS (commit #62) so a card never leads
+  // with a confident four-figure Google-demand strip on a 100-199-impression
+  // page that priority/confidence treat as no-demand (a confident headline
+  // above a "Needs review" pill). Below 200 → fall through to the AEO/
+  // structural "why".
   it("does NOT lead with the GSC stat below the 90-day impression floor (false precision)", () => {
     // 40 impressions over 90 days has no demand worth quoting to 4 sig figs;
-    // the lead must fall through to the AEO/structural summary (floor = 100).
+    // the lead must fall through to the AEO/structural summary (floor = 200).
     const gsc: GscPageSignal = {
       page: "x",
       clicks90d: 1,
@@ -90,17 +96,31 @@ describe("composeRowEvidenceSummary — GSC-led pivot", () => {
     expect(out).toMatch(/AI answer/);
   });
 
-  it("leads with the GSC stat exactly at the impression floor (100)", () => {
+  it("does NOT lead with the GSC stat just below the floor (199 impressions)", () => {
     const gsc: GscPageSignal = {
       page: "x",
-      clicks90d: 2,
-      impressions90d: 100,
+      clicks90d: 3,
+      impressions90d: 199,
+      ctr90d: 0.015,
+      position90d: 11.0,
+      topQueries: [],
+    };
+    const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });
+    expect(out).not.toContain("Google Search");
+    expect(out).not.toContain("impressions");
+  });
+
+  it("leads with the GSC stat exactly at the 90-day impression floor (200)", () => {
+    const gsc: GscPageSignal = {
+      page: "x",
+      clicks90d: 4,
+      impressions90d: 200,
       ctr90d: 0.02,
       position90d: 12.0,
       topQueries: [],
     };
     const out = composeRowEvidenceSummary({ rec: recWith(gsc), ...baseArgs });
-    expect(out).toContain("100 impressions");
+    expect(out).toContain("200 impressions");
     expect(out).toContain("Google Search");
   });
 });
