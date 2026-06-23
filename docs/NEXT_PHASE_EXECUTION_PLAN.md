@@ -1,5 +1,12 @@
 # Beacon Execution Plan
 
+> 🔭 **NEXT LEVERS (from the 2026-06-23 autonomous big-moves loop — 9 ships; see VERIFICATION_LOG/HANDOFF).** Ranked by impact toward the autonomous-brain dream, with the exact blocker for the deferred ones:
+> 1. **Crawl-staleness LABEL + confidence downgrade** (NOT a hard drop). A rec built on a weeks-old `page_snapshot` is treated as current truth today. Right fix: thread `crawlAgeDays` from `buildPageInventory` to the rec row to `deriveConfidence`, downgrade a tier past a generous threshold (~45d) and show "data N days old". NEVER drop (dropping empties inventory for crons-off/on-demand tenants). Deferred only because it needs careful 3-file threading, not a tail-end edit. Unblocked, ~medium.
+> 2. **First real Iranopedia measured verdict** — time-gated to 2026-06-27 (earliest 7-day window). Re-run the read then; also apply the `operator_verdict_override` migration so the new Exclude-from-learning control persists to Supabase.
+> 3. **Native nightly AI-visibility engine** (the wedge replacing Profound) — BLOCKED on a paid-API budget decision (per-platform LLM calls). Needs operator go + budget.
+> 4. **/today read caching** for very large tenants (#73) — loaders already fail-soft (#72); perf/scale follow-on, medium.
+> 5. **SEMrush expansions freshness gate** — same ToS-TTL pattern as `6e97912`, IF `semrush_keyword_expansions` carries `fetched_at` (verify first).
+
 > 🟢 **STATUS 2026-06-16 — MAX_SEO_AEO AUDIT → 6-PHASE EXECUTION (P0 sequence).** Operator directive: turn `docs/MAX_SEO_AEO_EXPERT_AUDIT_2026-06-16.md` (500 findings) into phases; Iranopedia is the reference tenant but NOTHING Iranopedia-specific is hardcoded in domain logic (tenant config / Supabase rows only); Wix-first; review-gated publishing is non-negotiable. **Phases:**
 > 1. **✅ CODE-COMPLETE (migration apply pending operator OK) — Wix url-map + collection-config → durable, tenant-scoped Supabase** (audit P0 #1). New `wix_collection_config` + `wix_url_map` tables (RLS, content_field_roles jsonb) + `src/lib/connectors/wix/mappings-store.ts` (Supabase-direct, ambient-tenant, durable upsert+delete-stale, file fallback) + `url-map.ts` delegation. Migration `2026-06-16_wix_mappings.sql` written but **NOT applied to prod** (awaiting approval; code falls back to file until then). Commit `412d033`. 11 new tests; 235 files/5,258 pass; adversarial-review-hardened.
 > 2. **Wix collection-mapper UI** — discover collections/fields, suggest field roles, persist per-tenant via the Phase-1 store (replaces hand-edited JSON on /diagnostics/wix).
