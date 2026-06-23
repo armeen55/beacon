@@ -180,6 +180,33 @@ describe("buildOptimizer (TASK 3) — bucketing", () => {
     expect(b.bestNextMove?.lever).toBe("title"); // not new_page
   });
 
+  it("GSC ledger measuringActions hold the lever and its CTR sibling (no proof-plan row needed)", () => {
+    // /cities reality: meta is shipped + measuring on the GSC ledger, no PS proof row.
+    const b = buildOptimizer({
+      matrix: matrix([row("meta"), row("title"), row("schema")]),
+      proof: null,
+      measuringActions: ["meta"],
+      serp: null,
+    });
+    const m = b.holdDoNotTouch.find((c) => c.lever === "meta");
+    const t = b.holdDoNotTouch.find((c) => c.lever === "title");
+    expect(m?.blockedBy).toBe("measuring");
+    expect(m?.reason).toContain("proof ledger");
+    expect(t?.blockedBy).toBe("measuring"); // CTR sibling of the measuring meta
+    expect(b.bestNextMove?.lever).toBe("schema"); // the only non-overlapping lever
+  });
+
+  it("normalizes legacy action spellings in measuringActions (edit_title → title)", () => {
+    const b = buildOptimizer({
+      matrix: matrix([row("title"), row("schema")]),
+      proof: null,
+      measuringActions: ["edit_title"],
+      serp: null,
+    });
+    expect(b.holdDoNotTouch.find((c) => c.lever === "title")?.blockedBy).toBe("measuring");
+    expect(b.bestNextMove?.lever).toBe("schema");
+  });
+
   it("blockedBy precedence: measuring outranks serp on the same lever", () => {
     const b = buildOptimizer({
       matrix: matrix([row("title", { serpGuardLabel: "SERP feature suspected" })]),

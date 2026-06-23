@@ -53,6 +53,10 @@ import {
   buildOptimizer,
   type OptimizerBuckets,
 } from "@/domains/insight/workbench-optimizer";
+import {
+  loadShippedChanges,
+  type ShippedChangeRecord,
+} from "@/domains/proof-gsc/shipped-change-store";
 
 /** Host-stripped path key — mirrors bridge.ts's private `toPath`. */
 function toPath(u: string): string {
@@ -282,8 +286,9 @@ export async function loadWorkbench(
 
   const packet = assemblePacketForUrl(ctx, canon);
 
-  // Pack + proof + cannibalization in parallel (loadPageSurgeonForUrl reuses cache).
-  const [psResult, proofRows, cannibalCases] = await Promise.all([
+  // Pack + proof + cannibalization + GSC proof ledger in parallel
+  // (loadPageSurgeonForUrl reuses cache).
+  const [psResult, proofRows, cannibalCases, shippedChanges] = await Promise.all([
     loadPageSurgeonForUrl(tenantId, canon, { history: true }).catch(
       () => ({ status: "no_page" as const }),
     ),
@@ -291,7 +296,15 @@ export async function loadWorkbench(
     loadGscCannibalizationForTenant(tenantId, now).catch(
       () => [] as GscCannibalizationCase[],
     ),
+    loadShippedChanges().catch(() => [] as ShippedChangeRecord[]),
   ]);
+
+  // Actions UNDER MEASUREMENT on this page (GSC proof ledger, verdict
+  // "measuring") — the authoritative overlap guard so the optimizer never
+  // recommends touching a lever whose proof window is still open.
+  const measuringActions = shippedChanges
+    .filter((s) => toPath(s.path) === path && s.verdict === "measuring")
+    .map((s) => s.actionType);
 
   // Cannibalizations THIS page is part of (as lead OR as a competing duplicate).
   const cannibalization: WorkbenchCannibalization[] = cannibalCases
@@ -351,7 +364,7 @@ export async function loadWorkbench(
   // the matrix to produce the six operator moves. serp stays null here (the
   // page-level guard already rides on the matrix rows); the operator-resolved
   // SERP hypothesis upgrades it via resolve-serp.tsx, not on first render.
-  const optimizer = buildOptimizer({ matrix, proof, serp: null });
+  const optimizer = buildOptimizer({ matrix, proof, measuringActions, serp: null });
 
   return {
     found: true,

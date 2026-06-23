@@ -37,8 +37,12 @@ describe("Workbench view renders the optimizer's six moves", () => {
 
 describe("Workbench loader feeds the optimizer", () => {
   const src = read("./workbench-data.ts");
-  it("builds the optimizer over the matrix + proof ledger and exposes it on WorkbenchData", () => {
-    expect(src).toContain("buildOptimizer({ matrix, proof, serp: null })");
+  it("builds the optimizer over the matrix + proof + GSC ledger and exposes it on WorkbenchData", () => {
+    expect(src).toContain("buildOptimizer({ matrix, proof, measuringActions, serp: null })");
     expect(src).toContain("optimizer: OptimizerBuckets");
+  });
+  it("derives measuringActions from the GSC shipped-change ledger (verdict measuring)", () => {
+    expect(src).toContain("loadShippedChanges");
+    expect(src).toContain('s.verdict === "measuring"');
   });
 });

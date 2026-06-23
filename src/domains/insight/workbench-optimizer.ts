@@ -71,8 +71,13 @@ export type OptimizerBuckets = {
 
 export type OptimizerInput = {
   matrix: WorkbenchMatrix;
-  /** This page's proof row when a change is already under measurement, else null. */
+  /** This page's Page-Surgeon proof-plan row (reviewed change), if any. */
   proof: ProofPlanRow | null;
+  /** Action types currently UNDER MEASUREMENT for this page on the GSC proof
+   *  ledger (shipped-change-store, verdict "measuring"). The authoritative
+   *  "already measuring" source: the proof-plan row only covers reviewed PS
+   *  decisions, not shipped experiments. e.g. ["meta"], ["intro_answer_block"]. */
+  measuringActions?: string[];
   /** Operator-resolved SERP hypothesis (upgrades the page-level guard), else null. */
   serp: SerpHypothesis | null;
 };
@@ -136,12 +141,39 @@ function rollbackOf(row: WorkbenchLeverRow): RollbackType {
   return "reversible_add";
 }
 
-function isMeasuring(lever: LeverKey, proof: ProofPlanRow | null): boolean {
-  if (!proof) return false;
-  if (LEVER_ACTIONS[lever].includes(proof.headlineAction)) return true;
-  // CTR siblings perturb each other's proof window.
-  if (CTR_FAMILY.has(lever) && (proof.headlineAction === "title" || proof.headlineAction === "meta"))
-    return true;
+/** Normalize an action string to the atomic vocabulary (tolerate legacy
+ *  "edit_title" / "add_internal_link" forms recorded by older surfaces). */
+function normAction(a: string): string {
+  return a.toLowerCase().trim().replace(/^(edit|add|change|update|fix|new)_/, "");
+}
+
+function actionMatchesLever(action: string, lever: LeverKey): boolean {
+  const n = normAction(action);
+  if (n === lever) return true;
+  if (LEVER_ACTIONS[lever].some((a) => normAction(a) === n)) return true;
+  // light tolerance for legacy / variant spellings
+  if (lever === "meta" && n.startsWith("meta")) return true;
+  if (lever === "answer_block" && n.includes("answer")) return true;
+  if (lever === "h2_sections" && n.startsWith("section")) return true;
+  if (lever === "visible_qa" && (n === "faq" || n.includes("qa"))) return true;
+  if (lever === "internal_links" && n.includes("internal_link")) return true;
+  if (lever === "new_page" && n.includes("new_page")) return true;
+  return false;
+}
+
+function isCtrAction(action: string): boolean {
+  const n = normAction(action);
+  return n === "title" || n.startsWith("meta");
+}
+
+/** A lever is "already measuring" when ANY action under measurement on this page
+ *  (PS proof-plan row + the GSC shipped-change ledger) maps to it. CTR siblings
+ *  perturb each other's CTR proof window, so a measuring title holds meta too. */
+function isMeasuring(lever: LeverKey, measuringActions: string[]): boolean {
+  for (const a of measuringActions) {
+    if (actionMatchesLever(a, lever)) return true;
+    if (CTR_FAMILY.has(lever) && isCtrAction(a)) return true;
+  }
   return false;
 }
 
@@ -160,7 +192,9 @@ function blockerOf(
 function reasonFor(c: Omit<OptimizerCandidate, "reason">, proof: ProofPlanRow | null): string {
   switch (c.blockedBy) {
     case "measuring":
-      return `Already measuring${proof ? ` (check-in ${proof.windows.checkIn28})` : ""}. Changing it now resets the proof window.`;
+      return proof
+        ? `Already measuring (check-in ${proof.windows.checkIn28}). Changing it now resets the proof window.`
+        : "Already measuring on the proof ledger. Changing it now resets the measurement window.";
     case "serp":
       return "A SERP feature likely owns these clicks. Verify the live SERP before editing the title or meta; prefer an answer block or schema.";
     case "wix":
@@ -177,9 +211,10 @@ function reasonFor(c: Omit<OptimizerCandidate, "reason">, proof: ProofPlanRow | 
 function toCandidate(
   row: WorkbenchLeverRow,
   input: OptimizerInput,
+  measuringActions: string[],
 ): OptimizerCandidate {
   const serpOwns = input.serp?.featureLikelyOwnsAnswer === true;
-  const measuring = isMeasuring(row.lever, input.proof);
+  const measuring = isMeasuring(row.lever, measuringActions);
   const blockedBy = blockerOf(row, measuring, serpOwns);
   const rollbackType = rollbackOf(row);
   const safeNow =
@@ -223,10 +258,17 @@ const RISK_RANK: Record<"low" | "medium" | "high", number> = { low: 0, medium: 1
 
 /** Build the six operator buckets over the lever matrix. Pure + deterministic. */
 export function buildOptimizer(input: OptimizerInput): OptimizerBuckets {
+  // Everything under measurement on this page: the PS proof-plan row's action +
+  // the GSC shipped-change ledger's open ("measuring") actions. Both gate overlap.
+  const measuringActions: string[] = [
+    ...(input.proof ? [input.proof.headlineAction] : []),
+    ...(input.measuringActions ?? []),
+  ];
+
   // Only `needed` levers are real candidates; the rest are healthy / not flagged.
   const candidates = input.matrix.rows
     .filter((r) => r.needed)
-    .map((r) => toCandidate(r, input));
+    .map((r) => toCandidate(r, input, measuringActions));
 
   // Whole-page-healthy: nothing flagged → a single protective Hold, all picks null.
   if (candidates.length === 0) {
