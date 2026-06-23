@@ -120,11 +120,12 @@ describe("v2 QA polish — Recommendations detail Act 4 fallback (P2-5)", () => 
     "src/app/(shell)/recommendations/[id]/recommendation-detail-client.tsx",
   );
 
-  it("renders 'Changes' as the link text (not the literal path '/changes')", () => {
-    // Pre-polish: `<Link href="/changes">/changes</Link>` — read
-    // as URL chrome. Post-polish: link label is the noun.
+  it("renders 'Results' as the link text (not the literal path)", () => {
+    // Pre-polish: `<Link href="...">/changes</Link>` — read as URL chrome.
+    // Post-polish: link label is the noun. IA consolidation (2026-06-23): the
+    // CTA now points at Results (/proof), where the changes timeline lives.
     expect(detailClient).toMatch(
-      /<Link\s+href="\/changes"\s+className="text-accent-primary hover:underline"\s*>\s*Changes\s*<\/Link>/,
+      /<Link\s+href="\/proof"\s+className="text-accent-primary hover:underline"\s*>\s*Results\s*<\/Link>/,
     );
   });
 
@@ -139,10 +140,10 @@ describe("v2 QA polish — Recommendations detail Act 4 fallback (P2-5)", () => 
     );
   });
 
-  it("does NOT render the literal '/changes' inside the link body (pre-polish bug)", () => {
-    // The link body must be the noun "Changes", never "/changes".
+  it("does NOT render the literal path inside the link body (pre-polish bug)", () => {
+    // The link body must be the noun "Results", never the raw URL.
     expect(detailClient).not.toMatch(
-      /<Link\s+href="\/changes"[^>]*>\s*\/changes\s*<\/Link>/,
+      /<Link\s+href="\/proof"[^>]*>\s*\/proof\s*<\/Link>/,
     );
   });
 });

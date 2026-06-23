@@ -40,8 +40,10 @@ const LIFECYCLE_PILL = readFileSync(
   resolve(REPO_ROOT, "src/components/display/lifecycle-status-pill.tsx"),
   "utf8",
 );
+// IA consolidation (2026-06-23): the /changes index empty-state gate moved into
+// the embedded ResultsTimeline (changes/page.tsx is now a thin redirect).
 const CHANGES_PAGE = readFileSync(
-  resolve(REPO_ROOT, "src/app/(shell)/changes/page.tsx"),
+  resolve(REPO_ROOT, "src/app/(shell)/changes/results-timeline.tsx"),
   "utf8",
 );
 // Surface collapse (2026-06-15): scorecard-client.tsx +

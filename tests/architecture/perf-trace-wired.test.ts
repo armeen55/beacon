@@ -32,7 +32,12 @@ const TRACED_FILES = [
     rel: "src/app/(shell)/recommendations/[id]/page.tsx",
     phase: "loader:/recommendations/[id]",
   },
-  { rel: "src/app/(shell)/changes/page.tsx", phase: "loader:/changes" },
+  // IA consolidation (2026-06-23): /changes index is now a thin redirect to
+  // /proof; its heavy traced loader moved into the embedded ResultsTimeline.
+  {
+    rel: "src/app/(shell)/changes/results-timeline.tsx",
+    phase: "loader:results-timeline",
+  },
   { rel: "src/app/(shell)/changes/[id]/page.tsx", phase: "loader:/changes/[id]" },
   { rel: "src/app/(shell)/prompts/page.tsx", phase: "loader:/prompts" },
   { rel: "src/app/(shell)/prompts/[id]/page.tsx", phase: "loader:/prompts/[id]" },

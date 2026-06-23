@@ -53,12 +53,14 @@ function render(over: Partial<ChangeDetailV2Props> = {}): string {
 }
 
 describe("ChangeDetailV2Client — 5-act narrative", () => {
-  it("renders the v2 layout marker and the back link to /changes?v2=1", () => {
+  it("renders the v2 layout marker and the back link to Results (/proof)", () => {
+    // IA consolidation (2026-06-23): the change-detail back link now points at
+    // Results (/proof), where the changes timeline lives, labeled "← Results".
     const html = render();
     expect(html).toContain('data-change-detail-layout="v2-proof-brief"');
     expect(html).toContain('data-change-detail-back="true"');
-    expect(html).toContain('href="/changes?v2=1"');
-    expect(html).toContain("← Changes");
+    expect(html).toContain('href="/proof"');
+    expect(html).toContain("← Results");
   });
 
   it("renders the header title + target URL + date + result pill", () => {

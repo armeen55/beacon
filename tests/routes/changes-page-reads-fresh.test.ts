@@ -20,8 +20,19 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 // the repository and shows an honest error when the read fails.
 // ---------------------------------------------------------------------------
 
-const PAGE_PATH = resolve(__dirname, "../../src/app/(shell)/changes/page.tsx");
+// IA consolidation (2026-06-23): the fresh-read timeline body moved from
+// changes/page.tsx into changes/results-timeline.tsx (embedded in Results /proof).
+// The /changes index is now a thin redirect. The fresh-read invariants below
+// therefore target results-timeline.tsx; force-dynamic lives on the /proof page.
+const PAGE_PATH = resolve(
+  __dirname,
+  "../../src/app/(shell)/changes/results-timeline.tsx",
+);
 const PAGE_SOURCE = readFileSync(PAGE_PATH, "utf8");
+const PROOF_PAGE_SOURCE = readFileSync(
+  resolve(__dirname, "../../src/app/(shell)/proof/page.tsx"),
+  "utf8",
+);
 
 describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
   describe("structural invariants (source-level)", () => {
@@ -45,10 +56,12 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       expect(PAGE_SOURCE).toMatch(/const\s+repository\s*=\s*getRepository\(\)/);
     });
 
-    it("declares `export const dynamic = \"force-dynamic\"` to prevent ISR caching", () => {
-      expect(PAGE_SOURCE).toMatch(
+    it("the /proof Results page (which embeds the timeline) declares force-dynamic", () => {
+      expect(PROOF_PAGE_SOURCE).toMatch(
         /export\s+const\s+dynamic\s*=\s*["']force-dynamic["']/,
       );
+      // And it embeds the extracted timeline component.
+      expect(PROOF_PAGE_SOURCE).toMatch(/ResultsTimeline/);
     });
   });
 
@@ -198,14 +211,13 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
 
     it("renders changelog rows returned by getRepository().getChangelogEntries()", async () => {
       mockRepoWithChangelog(async () => mockEntries);
-      const { default: ChangeScorecardPage } = await import(
-        "@/app/(shell)/changes/page"
+      const { ResultsTimeline } = await import(
+        "@/app/(shell)/changes/results-timeline"
       );
-      // Surface collapse (2026-06-15): the page is now V2-only (the proof
-      // timeline). It still runs the SAME fresh `getChangelogEntries()`
-      // read — this test pins that the read flows through to the rendered
-      // V2 timeline rather than the honest-error branch.
-      const tree = await ChangeScorecardPage();
+      // IA consolidation (2026-06-23): the timeline runs the SAME fresh
+      // `getChangelogEntries()` read — this pins that the read flows through to
+      // the rendered V2 timeline rather than the honest-error branch.
+      const tree = await ResultsTimeline();
       const html = renderToStaticMarkup(tree as ReactElement);
 
       // The V2 proof-timeline container renders when the page consumed a
@@ -221,15 +233,15 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       mockRepoWithChangelog(async () => {
         throw new Error("supabase connection refused");
       });
-      const { default: ChangeScorecardPage } = await import(
-        "@/app/(shell)/changes/page"
+      const { ResultsTimeline } = await import(
+        "@/app/(shell)/changes/results-timeline"
       );
-      const tree = await ChangeScorecardPage();
+      const tree = await ResultsTimeline();
       const html = renderToStaticMarkup(tree as ReactElement);
 
       // Honest error surface, NOT a silent fallback to cached stale data.
       // HTML-entity-encoded apostrophe (&#x27;) covers the React output case.
-      expect(html).toMatch(/Couldn(&#x27;|')t load changes/);
+      expect(html).toMatch(/Couldn(&#x27;|')t load your changes/);
       expect(html).toContain("supabase connection refused");
       // Phase 6A.2 (2026-04-28): the at-a-glance strip's "live verified"
       // label and the dedupe banner MUST NOT render in error state. Pre-6A.2

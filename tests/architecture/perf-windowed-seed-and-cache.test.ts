@@ -158,7 +158,9 @@ describe("/prompts: observation window narrowed + parallel reads (emergency P0 2
 });
 
 describe("/changes: buildUrlCitationHistory sinceDate window passed", () => {
-  const src = read("src/app/(shell)/changes/page.tsx");
+  // IA consolidation (2026-06-23): the windowed citation-history read moved into
+  // the embedded ResultsTimeline (changes/page.tsx is now a thin redirect).
+  const src = read("src/app/(shell)/changes/results-timeline.tsx");
 
   it("computes a YYYY-MM-DD sinceDate (Date.now() - WINDOW * 86_400_000)", () => {
     // Two facts pinned separately so the regex doesn't have to span

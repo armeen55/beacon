@@ -189,11 +189,11 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
       {/* Header */}
       <header data-change-detail-header="true">
         <Link
-          href="/changes?v2=1"
+          href="/proof"
           className="inline-flex items-center text-[12px] font-medium text-muted-foreground hover:text-foreground"
           data-change-detail-back="true"
         >
-          ← Changes
+          ← Results
         </Link>
         <div className="mt-3 flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">

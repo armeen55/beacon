@@ -45,7 +45,9 @@ const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   "/recommendations": "G R",
   "/prompts": "G P",
-  "/changes": "G C",
+  // IA consolidation (2026-06-23): Changes merged into Results (/proof); the
+  // G+C shortcut + sidebar hint now point at Results.
+  "/proof": "G C",
   "/settings/connectors": "G K",
   "/settings": "G S",
 };
@@ -165,7 +167,7 @@ export default async function ShellLayout({
   const badges: NavBadges = {};
   if (todayBadge > 0) badges["/"] = todayBadge;
   if (pagesBadge > 0) badges["/pages"] = pagesBadge;
-  if (changesBadge > 0) badges["/changes"] = changesBadge;
+  if (changesBadge > 0) badges["/proof"] = changesBadge;
 
   // Sample / walkthrough data when no import runs exist (`import-runs` store
   // empty) — UNLESS a real source is connected. A tenant with Wix or GSC wired
@@ -196,7 +198,7 @@ export default async function ShellLayout({
     ).map((c) => ({
       id: c.id,
       label: c.asset_name,
-      group: "Changes",
+      group: "Results",
       href: `/changes/${c.id}`,
       meta: c.topic_targeted || undefined,
     })),
@@ -206,7 +208,7 @@ export default async function ShellLayout({
   trace.data("palette_items", paletteItems.length);
   trace.data("today_badge", badges["/"] ?? 0);
   trace.data("pages_badge", badges["/pages"] ?? 0);
-  trace.data("changes_badge", badges["/changes"] ?? 0);
+  trace.data("changes_badge", badges["/proof"] ?? 0);
   trace.flush();
 
   const isOperator = isOperatorModeServer();

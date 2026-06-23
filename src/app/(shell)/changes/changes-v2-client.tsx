@@ -87,6 +87,14 @@ export type ChangesV2ClientProps = {
    *  >0, a bare "No changes yet" empty state would contradict it, so the
    *  empty state acknowledges the tracked experiments instead. */
   proofLedgerCount?: number;
+  /** IA consolidation (2026-06-23): when this timeline is embedded inside the
+   *  Results (/proof) page, the page already shows the "Results" header, so the
+   *  component's own header is suppressed to avoid a second (legacy "Changes")
+   *  title. Default true keeps the standalone behavior. */
+  showHeader?: boolean;
+  /** Optional header title/description override (used when not embedded). */
+  headerTitle?: string;
+  headerDescription?: string;
 };
 
 const MAX_TIMELINE_CARDS = 24;
@@ -96,6 +104,9 @@ export function ChangesV2Client({
   classByChangelogId,
   editStatusByChangelogId,
   proofLedgerCount = 0,
+  showHeader = true,
+  headerTitle = "Your changes",
+  headerDescription = "See the changes you made and whether more people found you on Google.",
 }: ChangesV2ClientProps) {
   // Resolve the pill + counters + rail rows in one pass. The pure
   // helpers stay pure; this client just orchestrates them.
@@ -123,10 +134,9 @@ export function ChangesV2Client({
 
   return (
     <div data-changes-layout="v2-proof-timeline" className="max-w-6xl">
-      <PageHeader
-        title="Changes"
-        description="See the changes you made and whether more people found you on Google."
-      />
+      {showHeader && (
+        <PageHeader title={headerTitle} description={headerDescription} />
+      )}
 
       {/* Only show the proof counters once there are real timeline rows —
           a fresh tenant should see the calm empty state, not a strip of 0s. */}

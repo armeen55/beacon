@@ -73,7 +73,6 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
     "/recommendations",
     "/experiments",
     "/proof",
-    "/changes",
     "/prompts",
     "/competitors",
     "/connections",
@@ -148,15 +147,15 @@ describe("customer nav exposure — Invariant 2: CMD+K shortcuts target only cus
   });
 
   it("the customer-route shortcuts (g+t/r/p/c/k/s) are wired 1:1 with the nav", () => {
-    // 2026-06-14 — the g+<key> map was widened from t/c/s to cover ALL
-    // six customer routes in `navigationGroups` so the help dialog +
-    // palette labels stop advertising shortcuts the handler never fired.
-    // Every target below is a customer-surface route; none is forbidden.
+    // 2026-06-14 — the g+<key> map was widened to cover the customer routes
+    // so the help dialog + palette labels stop advertising shortcuts the
+    // handler never fired. IA consolidation (2026-06-23): g+c now points at
+    // Results (/proof) since Changes merged into it.
     const src = readSrc("src/components/shell/command-palette.tsx");
     expect(src).toMatch(/t:\s*"\/"/);
     expect(src).toMatch(/r:\s*"\/recommendations"/);
     expect(src).toMatch(/p:\s*"\/prompts"/);
-    expect(src).toMatch(/c:\s*"\/changes"/);
+    expect(src).toMatch(/c:\s*"\/proof"/);
     expect(src).toMatch(/k:\s*"\/settings\/connectors"/);
     expect(src).toMatch(/s:\s*"\/settings"/);
   });
@@ -179,10 +178,12 @@ describe("customer nav exposure — Invariant 3: CMD+K palette items have no Mar
     expect(src).not.toContain('"/competitors#opportunities"');
   });
 
-  it("the legitimate Navigate + Changes groups are preserved", () => {
+  it("the legitimate Navigate + Results groups are preserved", () => {
     const src = readSrc("src/app/(shell)/layout.tsx");
     expect(src).toMatch(/group:\s*"Navigate"/);
-    expect(src).toMatch(/group:\s*"Changes"/);
+    // IA consolidation (2026-06-23): the deep-changelog palette group was
+    // renamed Changes -> Results (links still target /changes/[id]).
+    expect(src).toMatch(/group:\s*"Results"/);
   });
 });
 

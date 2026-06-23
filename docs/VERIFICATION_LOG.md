@@ -7,6 +7,40 @@
 
 ---
 
+## 2026-06-23 (cont.) IA consolidation B26 — `/changes` merged INTO Results (`/proof`)
+
+Operator directive: ONE place for "what changed / is it measuring / did it
+work". Built Max-capability with an ultracode mapping workflow (5 parallel
+readers) + a 4-dimension adversarial review workflow (data-integrity /
+IA-correctness / safety+JSON / links-redirect → **0 confirmed blockers**).
+
+- **`/proof` is the single Results page:** header "Results" + manual record
+  form + measured-outcomes ledger + NEW embedded "Your changes" timeline +
+  "Approved & ready to ship".
+- **Extracted** the `/changes` index compute verbatim into
+  `src/app/(shell)/changes/results-timeline.tsx` (`ResultsTimeline`) — same
+  loaders, lifecycle classification, scorecard, URL-verdict + pattern-brain
+  `readyOn`, 60-day window; **no attribution/proof math changed** (reviewer
+  confirmed byte-for-byte). Embedded with `showHeader={false}` (Results header
+  already shown) and WITHOUT the duplicate proof-ledger strip.
+- **`/changes` index → thin `redirect("/proof")`**; `/changes/[id]` detail
+  unchanged (back link now "← Results" → /proof). `revalidatePath("/changes")`
+  callers still hit an existing (redirecting) route.
+- **Nav:** removed the "Changes" item; cmd+K `g+c` → /proof; palette group +
+  help "Changes" → "Results"; sidebar badge moved to /proof; rec-detail CTA
+  "Changes" → "Results".
+- **`ChangesV2Client`** gained `showHeader` / `headerTitle` / `headerDescription`
+  (default standalone title "Your changes"; legacy "Changes" word retired).
+- **Verified:** `npm run typecheck` clean; `npm run build` green (route manifest
+  emits /proof + /changes); **5,541** route+architecture tests pass (repointed
+  the 8 source-level architecture pins from changes/page.tsx →
+  results-timeline.tsx + the nav-count test); live `/proof` renders Results +
+  Your changes + Measured outcomes + Approved. (Dev-server `/changes` showed a
+  stale 200 from HMR not recompiling the render→redirect change; the production
+  build compiles the redirect correctly.)
+
+---
+
 ## 2026-06-23 Casual-user understandability campaign — B1–B21 shipped to `main` (PUSHED)
 
 Turned the 923-item casual-user audit (292 critical) into a real plain-English

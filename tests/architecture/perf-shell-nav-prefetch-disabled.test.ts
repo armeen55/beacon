@@ -86,12 +86,14 @@ describe("Emergency P0 v3: shell nav Link prefetch disabled", () => {
     expect(prefetchFalseCount).toBe(linkCount);
   });
 
-  it("Navigation registry still ships the 5 top-level routes (no nav removal)", () => {
+  it("Navigation registry still ships the core top-level routes", () => {
     const src = read("src/lib/navigation.ts");
     expect(src).toMatch(/href:\s*["']\/["']/);
     expect(src).toMatch(/href:\s*["']\/recommendations["']/);
     expect(src).toMatch(/href:\s*["']\/prompts["']/);
-    expect(src).toMatch(/href:\s*["']\/changes["']/);
+    // IA consolidation (2026-06-23): Changes merged into Results (/proof) and is
+    // no longer a primary nav item; Results is the one "did it work" route.
+    expect(src).toMatch(/href:\s*["']\/proof["']/);
     expect(src).toMatch(/href:\s*["']\/settings["']/);
   });
 });

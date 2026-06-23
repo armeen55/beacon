@@ -16,7 +16,7 @@ export type PaletteItem = {
 
 type Mode = "palette" | "help" | null;
 
-const GROUP_ORDER = ["Navigate", "Changes", "Market"];
+const GROUP_ORDER = ["Navigate", "Results", "Market"];
 
 /**
  * #347 — subsequence ("fuzzy") match score. Returns null when `query`'s
@@ -137,7 +137,7 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
           t: "/",
           r: "/recommendations",
           p: "/prompts",
-          c: "/changes",
+          c: "/proof",
           k: "/settings/connectors",
           s: "/settings",
         };
@@ -379,7 +379,7 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
                 <HelpRow keys="G T" label="Today" />
                 <HelpRow keys="G R" label="Recommendations" />
                 <HelpRow keys="G P" label="Prompts" />
-                <HelpRow keys="G C" label="Changes" />
+                <HelpRow keys="G C" label="Results" />
                 <HelpRow keys="G K" label="Connectors" />
                 <HelpRow keys="G S" label="Settings" />
               </HelpGroup>

@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { ResultsTimeline } from "../changes/results-timeline";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
@@ -128,6 +130,21 @@ export default async function ProofPage({
           </div>
         </div>
       ) : null}
+
+      {/* ── Your changes timeline (IA consolidation 2026-06-23) ──
+          The former /changes proof timeline, embedded here so Results is the
+          ONE place for "what changed / is it measuring / did it work". Its own
+          Suspense boundary (heavy changelog + scorecard + URL-history compute)
+          so it never blocks the ledger above; header suppressed (this page's
+          "Results" header already covers it). */}
+      <div className="mb-6">
+        <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Your changes
+        </h2>
+        <Suspense fallback={null}>
+          <ResultsTimeline />
+        </Suspense>
+      </div>
 
       <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
         Approved &amp; ready to ship

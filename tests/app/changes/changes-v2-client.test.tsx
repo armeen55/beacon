@@ -111,7 +111,10 @@ describe("ChangesV2Client — proof timeline", () => {
   it("renders the v2 layout marker + header copy", () => {
     const html = render({ rows: [] });
     expect(html).toContain('data-changes-layout="v2-proof-timeline"');
-    expect(html).toContain("Changes");
+    // IA consolidation (2026-06-23): default standalone header title is now
+    // "Your changes" (legacy "Changes" word retired); embedded in Results the
+    // header is suppressed (showHeader=false).
+    expect(html).toContain("Your changes");
     // Subline locked.
     expect(html).toContain(
       "See the changes you made and whether more people found you on Google",
