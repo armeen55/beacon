@@ -219,6 +219,33 @@ describe("runInProcessColdStartScan", () => {
     })();
   });
 
+  it("homepage fallback seeds nav-discovered secondary pages (not just the homepage)", async () => {
+    const cap = capture();
+    const res = await runInProcessColdStartScan({
+      tenantId: "t",
+      domain: "acme.test",
+      deps: {
+        // No sitemap → falls back to homepage + pickSecondaryPaths (which always
+        // appends /about + /contact). Those resolve here, so we get 3 snapshots.
+        fetchImpl: mockFetch({
+          "https://acme.test": { status: 200, body: HTML("Home") }, // discovery fetch
+          "https://acme.test/": { status: 200, body: HTML("Home") }, // crawl fetch
+          "https://acme.test/about": { status: 200, body: HTML("About") },
+          "https://acme.test/contact": { status: 200, body: HTML("Contact") },
+        }),
+        now: () => 1,
+        syncPagesImpl: cap.syncPagesImpl,
+        syncPageSnapshotsImpl: cap.syncPageSnapshotsImpl,
+      },
+    });
+    expect(res.status).toBe("scanned");
+    expect(res.source).toBe("homepage");
+    // Homepage + /about + /contact all crawled → 3 snapshots (vs 1 pre-enhancement).
+    expect(res.snapshotsWritten).toBe(3);
+    const paths = (cap.pages[0] ?? []).map((p) => p.path).sort();
+    expect(paths).toEqual(["/", "/about", "/contact"]);
+  });
+
   it("respects robots.txt: a Disallow-all blocks every page (no snapshots)", async () => {
     const cap = capture();
     const robotsBlockingFetch = (async (input: string | URL) => {

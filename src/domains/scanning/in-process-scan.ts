@@ -39,6 +39,7 @@ import {
 import { extractPageSnapshot } from "@/domains/pages/extractor";
 import type { PageEntity, PageSnapshot, PageType } from "@/domains/pages/types";
 import { syncPages, syncPageSnapshots } from "@/lib/persistence/dual-write";
+import { pickSecondaryPaths } from "@/domains/onboarding/fetch-site-profile";
 
 const DEFAULT_MAX_PAGES = 18;
 const DEFAULT_TOTAL_BUDGET_MS = 22_000;
@@ -150,8 +151,19 @@ async function discoverUrls(
     if (found.size > 0) break;
   }
   if (found.size > 0) return { urls: [...found], source: "sitemap" };
-  // Fallback: seed the homepage so even a sitemap-less site gets one snapshot.
-  return { urls: [origin], source: "homepage" };
+  // Fallback: no sitemap. Seed the homepage PLUS nav-discovered secondary paths
+  // (reusing onboarding's pure pickSecondaryPaths) so a sitemap-less small site
+  // gets real inventory, not just a single homepage snapshot. The crawl loop
+  // still robots-checks + same-host-filters + caps every seeded URL.
+  const seeded = new Set<string>([origin]);
+  const homeHtml = await fetchText(origin, fetchImpl, perRequestMs);
+  if (homeHtml) {
+    for (const path of pickSecondaryPaths(homeHtml)) {
+      seeded.add(`${origin}${path}`);
+      if (seeded.size >= maxPages) break;
+    }
+  }
+  return { urls: [...seeded], source: "homepage" };
 }
 
 /**
