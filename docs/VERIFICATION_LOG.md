@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-23 — Big-moves loop #2/#3: two trust-path fixes (03b7f08, 689e119)
+
+- **gsc-led-evidence lead floor (03b7f08):** the lone persistent red test pinned
+  an old 100-impression floor; the code intentionally LEADS the rec evidence
+  strip only at >=200 impressions (commit #62, aligned with
+  GSC_MODERATE_IMPRESSIONS). Aligned the boundary test to 200 + added a 199
+  just-below case. 10/10 pass; suite now fully green on this file.
+- **verify-live probe (689e119):** `probeLiveText` conflated a transient failure
+  (timeout/TLS/DNS/5xx) with "the change isn't there" (both → found:false). Now
+  returns a tagged `ProbeLiveResult` (found | not_found | unreliable): only a
+  2xx-with-needle is `found` and flips verified_live; non-2xx / thrown is
+  `unreliable` and keeps the row at `pushed` with honest operator copy ("probe
+  inconclusive (network)" vs "not visible yet"). typecheck clean; no stale pins.
+- Both pure-code, unblocked; pushed to main and deploying.
+
+---
+
 ## 2026-06-23 — Big-moves loop #1: Vercel-safe in-process cold-start crawler (commit 73ac018)
 
 - **Biggest unblocked lever** (from a 6-stage adversarial audit, 18 levers → 2
