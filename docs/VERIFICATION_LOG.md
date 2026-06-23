@@ -27080,3 +27080,9 @@ Shipped to main, each typecheck + targeted-tests green, verified live on tenant-
 - 209dba4 feat(page-surgeon): generateTopPageBriefs + scheduleBriefBackfill (on-use, throttled, cap-bounded) → "Ready" bucket grows automatically. Verified cap-2 run 5→6. 266 page-surgeon/recs tests.
 - c2f46df feat(proof): Dollar-ROI — GA4 traffic+conversions (control-adjusted) feed measureRecord/`/proof`; honest revenue degradation (no revenue events in GA4). 44 proof-gsc tests. Verified `/proof` shows Search + Traffic per change.
 REMAINING Big-4: #4 SERP resolve (synthetic, scoped to Workbench deep-audit), then TASK 3 Deep Workbench Optimizer, TASK 4 Batch experiment planner.
+
+## 2026-06-22 — TASK 2: SERP resolve in Workbench (3fdde5f)
+- serp-hypothesis.ts: per-query synthetic SERP-feature classifier (LLM, fail-soft); source always "synthetic", serpStatus "suspected" never "observed", confidence low/medium, em dashes stripped.
+- workbench resolveSerpForWorkbenchPage action (operator-gated, cap 5 queries = 1 model call, no publish) + resolve-serp.tsx panel + "SERP check" section. Broad Opportunity Map UNCHANGED.
+- Verified live on the 3 target pages (iran-flags → image-pack feature-owned; farsi-numbers → snippet-owned; cities → mixed); all synthetic/suspected, no em dashes. typecheck + 130 workbench/page-surgeon tests (8 new serp-hypothesis). Render-only; durable cache + diagnosis-matrix write-back documented as follow-up.
+ALL FOUR Big-4 gaps now shipped. Remaining operator TASKs: 3 (Deep Workbench Optimizer), 4 (Batch experiment planner).
