@@ -27071,3 +27071,12 @@ Portable project instructions for **Claude Code / CLI** (same substance as `.cur
 - **#5 LOW — url-watcher throttle TOCTOU** → two concurrent page loads both pass `shouldRefreshUrlWatcher` and double-run the pipeline; **idempotent (no corruption)**, just wasted compute.
 - **POSITIVE confirmations (verified SOUND, no action):** the proof same-day dedup key (`id = path::shipDate`, deterministic + pre-write) correctly rejects a double-record; the 2026-06-14 cross-tenant DELETE/write scoping holds (every `.from(x).delete/upsert` on a tenant table carries `.eq("tenant_id", …)`); the forward-only lifecycle merge can't regress a locked status; the recommended-edits dual-write is fail-loud. The ACTIVE Iranopedia paths (record proof, page-load refresh) are safe.
 - **Disposition:** #1/#2/#3 fold into the existing operator-gated **ship-path-hardening** slice (push durability migrations + reserve-before-write) — to be done WITH the operator before arming live Wix publish. #4/#5 are single-user-acceptable. Nothing active for Iranopedia. Rails: code-only finder, no Supabase/Vercel, NOT pushed.
+
+## 2026-06-22 — Big-4 campaign (Opp Map, Recs, tokenizer, Page Surgeon queue, Dollar-ROI)
+Shipped to main, each typecheck + targeted-tests green, verified live on tenant-iranopedia:
+- 84fc1ae feat(opportunities): Opportunity Map → one-decision rows (plain chips, "Why" expander, summary strip). Verified `/opportunities` renders "~10,265 clicks/90d at stake across 66 pages".
+- c760de3 fix(recommendations): drop headline-vs-"Legacy task" mismatch; "Basic legacy" → "Standard". Verified live; 30 recs-client tests.
+- 5e9185a fix(extraction): Unicode-aware tokenizer (`\p{L}\p{N}`/u) + Persian stopwords (ASCII `\w+` matched zero Persian). 64 extraction tests.
+- 209dba4 feat(page-surgeon): generateTopPageBriefs + scheduleBriefBackfill (on-use, throttled, cap-bounded) → "Ready" bucket grows automatically. Verified cap-2 run 5→6. 266 page-surgeon/recs tests.
+- c2f46df feat(proof): Dollar-ROI — GA4 traffic+conversions (control-adjusted) feed measureRecord/`/proof`; honest revenue degradation (no revenue events in GA4). 44 proof-gsc tests. Verified `/proof` shows Search + Traffic per change.
+REMAINING Big-4: #4 SERP resolve (synthetic, scoped to Workbench deep-audit), then TASK 3 Deep Workbench Optimizer, TASK 4 Batch experiment planner.
