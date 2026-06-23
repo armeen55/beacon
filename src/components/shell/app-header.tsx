@@ -18,16 +18,16 @@ function useBreadcrumb(pathname: string) {
     return { title: "Set up your business", parent: null };
   }
   if (segments[0] === "opportunities") {
-    return { title: "Opportunity Map", parent: null };
+    return { title: "What to fix first", parent: null };
   }
   if (segments[0] === "connections") {
-    return { title: "Data Health", parent: null };
+    return { title: "Connections", parent: null };
   }
   if (segments[0] === "workbench") {
-    return { title: "Workbench", parent: { label: "Opportunity Map", href: "/opportunities" } };
+    return { title: "Workbench", parent: { label: "What to fix first", href: "/opportunities" } };
   }
   if (segments[0] === "proof") {
-    return { title: "Proof & Learning", parent: null };
+    return { title: "Results", parent: null };
   }
   if (
     segments[0] === "topics" &&
@@ -36,7 +36,7 @@ function useBreadcrumb(pathname: string) {
   ) {
     return {
       title: "Opportunity detail",
-      parent: { label: "Market", href: "/competitors" },
+      parent: { label: "Competitors", href: "/competitors" },
     };
   }
   const base = "/" + segments[0];

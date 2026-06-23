@@ -140,6 +140,20 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
           ))}
         </nav>
       </ScrollArea>
+      {/* Account footer (audit Phase 6): a casual user needs an always-visible
+          way to sign out. Plain <form> POST to the existing /auth/signout route
+          so it works without JS; no-op + redirect to /login if auth is off. */}
+      <div className="border-t border-sidebar-border px-3 py-2.5">
+        <form method="post" action="/auth/signout">
+          <button
+            type="submit"
+            className="w-full rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+            data-sidebar-action="sign-out"
+          >
+            Sign out
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
