@@ -280,3 +280,44 @@ export async function markRecrawlRequestedAction(args: {
     };
   }
 }
+
+/**
+ * Operator excludes (or re-includes) a shipped change from LEARNING by pinning
+ * its verdict to "inconclusive". Use when a measured "won"/"lost" is
+ * mis-attributed (control contamination / seasonal co-movement) and would
+ * otherwise skew the per-action_type outcome prior that steers ranking. The
+ * GSC numbers/windows still compute + display — only the learning verdict is
+ * pinned (applied in measureRecord, so it survives re-measurement). Operator-only.
+ */
+export async function markVerdictInconclusiveAction(args: {
+  id: string;
+  excluded: boolean;
+}): Promise<ProofLedgerActionResponse> {
+  if (!isOperatorModeServer()) return { success: false, error: "Operator only." };
+  const id = args?.id?.trim();
+  if (!id) return { success: false, error: "Missing record id." };
+  try {
+    const tenantId = await currentTenantId();
+    const records = await loadShippedChanges();
+    const rec = records.find((r) => r.id === id);
+    if (!rec) return { success: false, error: "Proof record not found." };
+    const now = new Date().toISOString();
+    // Set the sticky override, then RE-MEASURE so the pinned verdict applies
+    // immediately (and the per-action_type prior recomputes) rather than
+    // waiting for the next read.
+    const measured = await measureRecord(tenantId, {
+      ...rec,
+      operatorVerdictOverride: args.excluded ? "inconclusive" : null,
+      updatedAt: now,
+    });
+    await upsertShippedChange(measured);
+    revalidatePath("/proof");
+    revalidatePath("/changes");
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to update.",
+    };
+  }
+}

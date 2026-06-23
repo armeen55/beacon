@@ -63,6 +63,13 @@ export type ShippedChangeRecord = {
   liveSourceUrl: string | null;
   /** ISO timestamp the operator manually requested a Google recrawl/indexing. */
   recrawlRequestedAt: string | null;
+  /** Operator override that PINS the learning verdict to "inconclusive",
+   *  excluding this change from the per-action_type outcome prior that steers
+   *  recommendation ranking. Use when a measured "won"/"lost" is mis-attributed
+   *  (control contamination / seasonal co-movement) and would otherwise skew
+   *  the prior. Survives re-measurement (applied in measureRecord). null = the
+   *  measured verdict stands. */
+  operatorVerdictOverride: "inconclusive" | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -87,6 +94,11 @@ type LedgerRow = {
   verified_live: boolean;
   live_source_url: string | null;
   recrawl_requested_at: string | null;
+  /** Additive column (migration 2026-06-23). Optional in the row type so the
+   *  store keeps working before the migration is applied — recordToRow only
+   *  emits it when set, and a missing column on read/write is tolerated by
+   *  isUndefinedTableError (PGRST204) → file fallback. */
+  operator_verdict_override?: "inconclusive" | null;
   created_at: string;
   updated_at: string;
 };
@@ -149,6 +161,13 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     verified_live: r.verifiedLive,
     live_source_url: r.liveSourceUrl,
     recrawl_requested_at: r.recrawlRequestedAt,
+    // Only emit the additive column when SET, so normal ledger writes are
+    // unaffected before the migration is applied (a payload without the unknown
+    // column never trips PGRST204); an override write degrades to file fallback
+    // pre-migration and writes through once applied.
+    ...(r.operatorVerdictOverride != null
+      ? { operator_verdict_override: r.operatorVerdictOverride }
+      : {}),
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -176,6 +195,8 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     verifiedLive: row.verified_live ?? false,
     liveSourceUrl: row.live_source_url ?? null,
     recrawlRequestedAt: row.recrawl_requested_at ?? null,
+    operatorVerdictOverride:
+      row.operator_verdict_override === "inconclusive" ? "inconclusive" : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

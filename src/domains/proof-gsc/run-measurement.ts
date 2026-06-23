@@ -34,6 +34,7 @@ import {
   type ProofWindowDay,
 } from "./measure";
 import type { ShippedChangeRecord } from "./shipped-change-store";
+import type { GscProofVerdict } from "./measure";
 
 const BASELINE_WINDOW_DAYS = 28;
 /** Stand-in for a page/window with no Search reading (clicks 0 is valid; the
@@ -250,7 +251,7 @@ export async function measureRecord(
   // Baseline impressions/clicks for the verdict gate come from the pre window
   // (refreshed here so it reflects real GSC, not just the recorded snapshot).
   const treatedPre = pre.get(record.page);
-  const { verdict, confidence } = summarizeVerdict({
+  const { verdict: computedVerdict, confidence } = summarizeVerdict({
     windows,
     baselineImpressions: treatedPre?.impressions ?? record.baseline.impressions,
     baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
@@ -261,6 +262,14 @@ export async function measureRecord(
     // that as a loss.
     snippetCapturePlay: isSnippetCapturePlay(record.actionType),
   });
+
+  // Operator override: a mis-attributed "won"/"lost" (control contamination,
+  // seasonal co-movement) can be PINNED to "inconclusive" so it drops out of
+  // the per-action_type outcome prior that steers ranking. Applied AFTER the
+  // GSC math (the numbers/windows still compute + display), and re-applied on
+  // every measure so neither recompute nor on-load re-measurement clobbers it.
+  const verdict: GscProofVerdict =
+    record.operatorVerdictOverride === "inconclusive" ? "inconclusive" : computedVerdict;
 
   // Dollar-ROI proof (gap #1): attach the GA4 traffic/conversion outcome. Fully
   // fail-soft + computed-only (never persisted) — recomputed on every load like
@@ -339,6 +348,7 @@ export async function recordShippedChange(args: {
     verifiedLive: args.verifiedLive ?? false,
     liveSourceUrl: args.liveSourceUrl ?? null,
     recrawlRequestedAt: null,
+    operatorVerdictOverride: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
