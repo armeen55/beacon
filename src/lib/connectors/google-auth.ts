@@ -308,11 +308,24 @@ export async function refreshGoogleAccessToken(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // Surface Google's error code. `invalid_grant` = the REFRESH TOKEN itself is
+    // dead/revoked/expired → the ONLY condition that genuinely needs a reconnect.
+    // Anything else (5xx, 429, network) is TRANSIENT and must NOT be treated as
+    // a dead grant — callers key the "Reconnect Google" prompt on this string.
+    let googleError = "";
+    try {
+      googleError = (JSON.parse(text) as { error?: string }).error ?? "";
+    } catch {
+      /* non-JSON error body */
+    }
     log.error("Google token refresh failed", {
       status: res.status,
+      googleError,
       body: text.slice(0, 500),
     });
-    throw new Error(`Google token refresh failed (${res.status})`);
+    throw new Error(
+      `Google token refresh failed (${res.status})${googleError ? `: ${googleError}` : ""}`,
+    );
   }
 
   const data = (await res.json()) as GoogleTokenResponse;

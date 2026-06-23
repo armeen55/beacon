@@ -34,6 +34,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
+import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { getRepository } from "@/lib/persistence/repositories";
 
 import {
@@ -125,21 +126,22 @@ export async function syncGa4UrlTrafficForTenant(args: {
  */
 async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
   try {
-    // RACE-SAFE (2026-06-22): the on-use auto-refresh fires this sync on every
-    // shell render → concurrent runs race on the OAuth token refresh; the loser
-    // would FALSE-ALARM "revoked" on a live grant. Before stamping, re-read the
-    // token: if a concurrent run already refreshed it (access token valid,
-    // not soft-disconnected), the grant WORKS — clear instead of stamp.
     const token = await getGoogleConnectorToken("ga4", tenantId);
-    const aliveNow =
-      token != null &&
-      typeof token.expires_at === "number" &&
-      Number.isFinite(token.expires_at) &&
-      token.expires_at > now.getTime() &&
-      (token.disconnected_at == null || token.disconnected_at === "");
-    if (aliveNow) {
-      await updateConnectorToken("google_ga4", { auth_failed_at: null }, tenantId);
-      return;
+    if (token == null) return; // never connected → never fabricate a prompt
+    // DEFINITIVE (2026-06-22, mirrors GSC): "revoked" is set ONLY when the
+    // refresh token is genuinely dead. The on-use auto-refresh fires this sync
+    // concurrently, so probe with a LIVE refresh: success → grant alive → CLEAR;
+    // invalid_grant → dead → STAMP; any other error → transient → leave as-is.
+    if (token.refresh_token) {
+      try {
+        await refreshGoogleAccessToken(token.refresh_token);
+        await updateConnectorToken("google_ga4", { auth_failed_at: null }, tenantId);
+        return;
+      } catch (e) {
+        if (!(e instanceof Error && /invalid_grant/i.test(e.message))) {
+          return; // transient — do NOT alarm
+        }
+      }
     }
     await updateConnectorToken(
       "google_ga4",

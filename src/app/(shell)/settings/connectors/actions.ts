@@ -819,6 +819,17 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     }
     return { ok: true, detail: "Synced, nothing new found yet." };
   }
+  // 2026-06-22 — a mid-sync 401/403 / refresh hiccup where the live-refresh
+  // probe proved the grant is STILL ALIVE. NOT a reconnect case — Google just
+  // had a momentary blip. Say so honestly instead of the alarming "revoked"
+  // copy, so a healthy connection never gets told to reconnect.
+  if (r.reason === "gsc_auth_transient") {
+    return {
+      ok: false,
+      error:
+        "Couldn't refresh from Google just now — your connection is fine. Try again in a moment.",
+    };
+  }
   // #87 — auth broke: an honest, plain-English reconnect prompt (a FAILURE).
   if (r.reason != null && RECONNECT_REASONS[r.reason] != null) {
     return { ok: false, error: RECONNECT_REASONS[r.reason] };

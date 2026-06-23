@@ -52,6 +52,7 @@ import {
   gscListSites,
   pickGscPropertyForDomain,
 } from "./search-analytics";
+import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 
 const FINAL_LAG_DAYS = 3;
 const REPULL_DAYS = 4;
@@ -127,36 +128,60 @@ async function classifyMissingGscToken(
  *   • stampGscAuthFailure  → set auth_failed_at = now ISO (sync ended in auth failure)
  *   • clearGscAuthFailure  → set auth_failed_at = null  (sync succeeded, auth OK)
  */
-async function stampGscAuthFailure(tenantId: string, now: Date): Promise<void> {
+/**
+ * Returns TRUE only when the grant is PROVEN dead (refresh token rejected with
+ * invalid_grant, or no refresh token at all) — i.e. the one case the operator
+ * must actually reconnect. Returns FALSE for an alive or merely-transient
+ * failure, so the caller can emit a non-alarming reason instead of "revoked".
+ */
+async function stampGscAuthFailure(tenantId: string, now: Date): Promise<boolean> {
+  let dead = false;
   try {
-    // RACE-SAFE (2026-06-22): the on-use auto-refresh fires this sync on every
-    // shell render, so two syncs can run CONCURRENTLY. When the access token has
-    // expired, both try to refresh it; Google accepts one and may 401 the other
-    // — and the loser would FALSE-ALARM "Google revoked access" on a grant that
-    // is actually alive. So before stamping, re-read the token: if a concurrent
-    // run already refreshed it (access token valid in the future, scope intact,
-    // not soft-disconnected), the grant WORKS — clear the marker instead of
-    // stamping. Only a genuinely-unusable token is stamped.
     const token = await getGoogleConnectorToken("gsc", tenantId);
-    const aliveNow =
-      token != null &&
-      typeof token.expires_at === "number" &&
-      Number.isFinite(token.expires_at) &&
-      token.expires_at > now.getTime() &&
-      (token.disconnected_at == null || token.disconnected_at === "") &&
-      Array.isArray(token.scopes) &&
-      token.scopes.includes(GSC_REQUIRED_SCOPE);
-    if (aliveNow) {
-      await updateConnectorToken("google_gsc", { auth_failed_at: null }, tenantId);
-      return;
+    // No token row → never connected; never fabricate a "Reconnect" prompt.
+    if (token == null) return false;
+    // DEFINITIVE (2026-06-22): "Google revoked access" is set ONLY when the
+    // REFRESH TOKEN is genuinely dead. The on-use auto-refresh fires this sync
+    // CONCURRENTLY on every shell render, so a transient 401, an
+    // expired-but-refreshable access token, a network blip, or a lost
+    // refresh-race must NEVER false-alarm on a live grant (proven 2026-06-22:
+    // the GSC grant was healthy — sites.list 200 siteOwner + searchAnalytics
+    // 200 with data — yet auth_failed_at kept getting stamped). Probe the grant
+    // with a LIVE refresh and decide off the result:
+    //   • refresh succeeds → grant ALIVE → CLEAR the marker, never stamp.
+    //   • invalid_grant    → refresh token dead → the REAL reconnect case → STAMP.
+    //   • any other error  → TRANSIENT → leave state unchanged (no alarm).
+    if (token.refresh_token) {
+      try {
+        await refreshGoogleAccessToken(token.refresh_token);
+        // alive → clear (the write is fail-soft; its failure never flips the verdict)
+        try {
+          await updateConnectorToken("google_gsc", { auth_failed_at: null }, tenantId);
+        } catch {
+          /* fail-soft */
+        }
+        return false;
+      } catch (e) {
+        if (!(e instanceof Error && /invalid_grant/i.test(e.message))) {
+          return false; // transient (5xx / 429 / network) — do NOT alarm
+        }
+        dead = true; // invalid_grant → genuinely dead
+      }
+    } else {
+      dead = true; // no refresh token → cannot recover → genuinely dead
     }
-    await updateConnectorToken(
-      "google_gsc",
-      { auth_failed_at: now.toISOString() },
-      tenantId,
-    );
+    try {
+      await updateConnectorToken(
+        "google_gsc",
+        { auth_failed_at: now.toISOString() },
+        tenantId,
+      );
+    } catch {
+      /* fail-soft — a write error must not undo the dead verdict */
+    }
+    return dead;
   } catch {
-    /* fail-soft — never alter the sync outcome */
+    return dead; // fail-soft — never alter the sync outcome
   }
 }
 
@@ -249,7 +274,11 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     // would fabricate a "Reconnect" prompt on a source the owner never wired.
     // Fail-soft (never alters this return).
     if (reason === "gsc_token_expired") {
-      await stampGscAuthFailure(tenantId, now);
+      const dead = await stampGscAuthFailure(tenantId, now);
+      // If the live-refresh probe proved the grant is ALIVE (a transient resolve
+      // miss / refresh race), do NOT tell the operator the grant "expired" —
+      // that's the false "revoked/reconnect" alarm. Emit a soft transient reason.
+      if (!dead) return { synced: false, reason: "gsc_auth_transient" };
     }
     return { synced: false, reason };
   }
@@ -313,11 +342,19 @@ export async function syncGscSearchAnalyticsForTenant(args: {
         "[gsc-sa-sync] GSC auth failure — token expired or lost scope; reconnect GSC",
         { tenantId, property, status: authFailureStatus },
       );
-      // Reconnect signal (2026-06-15): a mid-sync 401/403 that survived the
-      // one refresh-retry proves the grant is dead → stamp so the strip can
-      // surface "Reconnect Google". Fail-soft (never alters this return).
-      await stampGscAuthFailure(tenantId, now);
-      return { synced: false, reason: `gsc_auth_failed_${authFailureStatus}` };
+      // Reconnect signal (2026-06-15, hardened 2026-06-22): a mid-sync 401/403
+      // is only a REAL reconnect case if the grant is genuinely dead. Probe with
+      // a live refresh — if it's alive (a transient API blip / token-refresh
+      // race), emit a soft transient reason so the UI never screams "revoked" on
+      // a healthy grant. Only invalid_grant stamps + returns the auth-failed
+      // reason. Fail-soft (never throws).
+      const dead = await stampGscAuthFailure(tenantId, now);
+      return {
+        synced: false,
+        reason: dead
+          ? `gsc_auth_failed_${authFailureStatus}`
+          : "gsc_auth_transient",
+      };
     }
     if (rows == null) {
       // Quota/network — stop here; UPSERTs so far are kept and

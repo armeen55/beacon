@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   updateConnectorToken: vi.fn(),
   resolveGscAccessToken: vi.fn(),
   forceRefreshGscAccessToken: vi.fn(),
+  refreshGoogleAccessToken: vi.fn(),
   pullDayRows: vi.fn(),
   gscListSites: vi.fn(),
   pickGscPropertyForDomain: vi.fn(),
@@ -43,6 +44,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: mocks.getGoogleConnectorToken,
   updateConnectorToken: mocks.updateConnectorToken,
+}));
+
+// The auth-failure stamp now PROBES the grant with a live refresh before
+// stamping (2026-06-22 bulletproof fix): only invalid_grant → stamp.
+vi.mock("@/lib/connectors/google-auth", () => ({
+  refreshGoogleAccessToken: mocks.refreshGoogleAccessToken,
 }));
 
 vi.mock("@/lib/connectors/gsc/search-analytics", () => ({
@@ -106,20 +113,20 @@ beforeEach(() => {
   mocks.getBusinessConfig.mockReturnValue({ domain: "iranopedia.com" });
   mocks.gscListSites.mockResolvedValue([]);
   mocks.pickGscPropertyForDomain.mockReturnValue("sc-domain:iranopedia.com");
+  // Default: the live-refresh probe SUCCEEDS (grant alive). Tests that assert a
+  // STAMP override this to throw invalid_grant.
+  mocks.refreshGoogleAccessToken.mockResolvedValue({ access_token: "new", expires_in: 3600 });
 });
 
 describe("syncGscSearchAnalyticsForTenant — stamps auth_failed_at on a broken grant", () => {
-  it("token row exists but access token can't resolve (gsc_token_expired) → STAMP", async () => {
+  it("refresh token is genuinely dead (invalid_grant) → STAMP auth_failed_at", async () => {
     mocks.resolveGscAccessToken.mockResolvedValue(null);
-    // classifyMissingGscToken reads the row → a present, in-scope token means
-    // the grant broke → "gsc_token_expired". The token is GENUINELY dead here
-    // (expired long ago): the race-safe stamp (2026-06-22) re-reads the row and
-    // only stamps when the grant is truly unusable — a still-valid expires_at
-    // would mean a concurrent run refreshed it, and we'd clear instead.
-    mocks.getGoogleConnectorToken.mockResolvedValue({
-      ...gscTokenRow(),
-      expires_at: Date.now() - 10 * 86_400_000, // expired 10 days ago = dead grant
-    });
+    mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    // The live-refresh probe proves the refresh token is dead → the ONLY real
+    // reconnect case → stamp.
+    mocks.refreshGoogleAccessToken.mockRejectedValue(
+      new Error("Google token refresh failed (400): invalid_grant"),
+    );
 
     const r = await syncGscSearchAnalyticsForTenant({ tenantId: "t1", now: NOW });
     expect(r).toEqual({ synced: false, reason: "gsc_token_expired" });
@@ -133,6 +140,30 @@ describe("syncGscSearchAnalyticsForTenant — stamps auth_failed_at on a broken 
     expect(tenantId).toBe("t1");
   });
 
+  it("resolve fails but the grant is ALIVE (refresh succeeds) → CLEAR + soft transient reason (never 'expired')", async () => {
+    mocks.resolveGscAccessToken.mockResolvedValue(null); // a race / transient resolve miss
+    mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    // default refreshGoogleAccessToken resolves → grant alive.
+    const r = await syncGscSearchAnalyticsForTenant({ tenantId: "t1", now: NOW });
+    // The grant is alive → DON'T tell the operator it "expired"; emit transient.
+    expect(r).toEqual({ synced: false, reason: "gsc_auth_transient" });
+    // It CLEARED (auth_failed_at: null) — it did NOT stamp "revoked" on a live grant.
+    expect(mocks.updateConnectorToken).toHaveBeenCalledTimes(1);
+    const patch = mocks.updateConnectorToken.mock.calls[0]![1] as { auth_failed_at: unknown };
+    expect(patch.auth_failed_at).toBeNull();
+  });
+
+  it("resolve fails with a TRANSIENT refresh error (5xx) → transient reason, neither stamp nor clear", async () => {
+    mocks.resolveGscAccessToken.mockResolvedValue(null);
+    mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    mocks.refreshGoogleAccessToken.mockRejectedValue(
+      new Error("Google token refresh failed (503)"),
+    );
+    const r = await syncGscSearchAnalyticsForTenant({ tenantId: "t1", now: NOW });
+    expect(r).toEqual({ synced: false, reason: "gsc_auth_transient" });
+    expect(mocks.updateConnectorToken).not.toHaveBeenCalled();
+  });
+
   it("NO token row (never connected, no_usable_gsc_token) → does NOT stamp", async () => {
     mocks.resolveGscAccessToken.mockResolvedValue(null);
     mocks.getGoogleConnectorToken.mockResolvedValue(null);
@@ -142,8 +173,14 @@ describe("syncGscSearchAnalyticsForTenant — stamps auth_failed_at on a broken 
     expect(mocks.updateConnectorToken).not.toHaveBeenCalled();
   });
 
-  it("mid-sync 401 that survives the retry → STAMP auth_failed_at", async () => {
+  it("mid-sync 401 AND the refresh token is dead (invalid_grant) → STAMP auth_failed_at", async () => {
     mocks.resolveGscAccessToken.mockResolvedValue("tok");
+    // The stamp probe re-reads the token row → must exist (a 401 means a token
+    // is present). The probe's refresh then returns invalid_grant = dead grant.
+    mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    mocks.refreshGoogleAccessToken.mockRejectedValue(
+      new Error("Google token refresh failed (400): invalid_grant"),
+    );
     // pullDayRows reports an auth failure via the onAuthFailure callback.
     mocks.pullDayRows.mockImplementation(
       async (args: { onAuthFailure?: (s: number) => void }) => {
@@ -164,6 +201,28 @@ describe("syncGscSearchAnalyticsForTenant — stamps auth_failed_at on a broken 
       "string",
     );
     expect(last[2]).toBe("t1");
+  });
+
+  it("mid-sync 401 but the grant is ALIVE (refresh succeeds) → CLEAR + transient reason, NEVER 'revoked'", async () => {
+    mocks.resolveGscAccessToken.mockResolvedValue("tok");
+    mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    // default refreshGoogleAccessToken resolves → the 401 was a transient blip.
+    mocks.pullDayRows.mockImplementation(
+      async (args: { onAuthFailure?: (s: number) => void }) => {
+        args.onAuthFailure?.(401);
+        return null;
+      },
+    );
+
+    const r = await syncGscSearchAnalyticsForTenant({ tenantId: "t1", now: NOW });
+    // A healthy grant must NEVER produce gsc_auth_failed_* (which the UI renders
+    // as "Google revoked access"). It's a soft transient instead.
+    expect(r).toEqual({ synced: false, reason: "gsc_auth_transient" });
+    // Every write was a CLEAR (null) — no string stamp anywhere.
+    const stampedAny = mocks.updateConnectorToken.mock.calls.some(
+      (c) => typeof (c[1] as { auth_failed_at: unknown }).auth_failed_at === "string",
+    );
+    expect(stampedAny).toBe(false);
   });
 });
 
@@ -191,6 +250,11 @@ describe("syncGscSearchAnalyticsForTenant — token-write is fail-soft", () => {
   it("a stamp write error does NOT change the sync's return value or throw", async () => {
     mocks.resolveGscAccessToken.mockResolvedValue(null);
     mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    // Genuinely dead grant (invalid_grant) so the verdict is "dead" → it tries to
+    // STAMP; that write throws but is caught — the dead verdict (and reason) hold.
+    mocks.refreshGoogleAccessToken.mockRejectedValue(
+      new Error("Google token refresh failed (400): invalid_grant"),
+    );
     mocks.updateConnectorToken.mockRejectedValue(new Error("supabase down"));
 
     const r = await syncGscSearchAnalyticsForTenant({ tenantId: "t1", now: NOW });
