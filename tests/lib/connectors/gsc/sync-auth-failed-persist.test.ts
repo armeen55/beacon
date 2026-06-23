@@ -164,6 +164,19 @@ describe("syncGscSearchAnalyticsForTenant — stamps auth_failed_at on a broken 
     expect(mocks.updateConnectorToken).not.toHaveBeenCalled();
   });
 
+  it("refresh rejected with invalid_client (wrong GOOGLE_CLIENT_SECRET) → gsc_client_misconfig, never stamp 'revoked'", async () => {
+    mocks.resolveGscAccessToken.mockResolvedValue(null);
+    mocks.getGoogleConnectorToken.mockResolvedValue(gscTokenRow());
+    // Google rejects Beacon's OWN credentials — server config bug, NOT a dead grant.
+    mocks.refreshGoogleAccessToken.mockRejectedValue(
+      new Error("Google token refresh failed (401): invalid_client"),
+    );
+    const r = await syncGscSearchAnalyticsForTenant({ tenantId: "t1", now: NOW });
+    expect(r).toEqual({ synced: false, reason: "gsc_client_misconfig" });
+    // Must NOT stamp a reconnect prompt — reconnecting can't fix a bad secret.
+    expect(mocks.updateConnectorToken).not.toHaveBeenCalled();
+  });
+
   it("NO token row (never connected, no_usable_gsc_token) → does NOT stamp", async () => {
     mocks.resolveGscAccessToken.mockResolvedValue(null);
     mocks.getGoogleConnectorToken.mockResolvedValue(null);

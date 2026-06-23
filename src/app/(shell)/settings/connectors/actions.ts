@@ -819,6 +819,18 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     }
     return { ok: true, detail: "Synced, nothing new found yet." };
   }
+  // 2026-06-22 — Beacon's OWN Google credentials are wrong (invalid_client):
+  // the refresh fails because GOOGLE_CLIENT_SECRET doesn't match the OAuth
+  // client. This is a SERVER SETUP issue, not the user's connection —
+  // reconnecting can't fix it. Name the real cause so it's diagnosable in
+  // seconds instead of looking like a phantom "revoked".
+  if (r.reason === "gsc_client_misconfig") {
+    return {
+      ok: false,
+      error:
+        "Beacon's Google sign-in credentials are misconfigured (the client secret is invalid). This is a server setup issue, not your Google connection — set GOOGLE_CLIENT_SECRET to match your Google Cloud OAuth client, then redeploy.",
+    };
+  }
   // 2026-06-22 — a mid-sync 401/403 / refresh hiccup where the live-refresh
   // probe proved the grant is STILL ALIVE. NOT a reconnect case — Google just
   // had a momentary blip. Say so honestly instead of the alarming "revoked"

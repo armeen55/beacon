@@ -134,12 +134,21 @@ async function classifyMissingGscToken(
  * must actually reconnect. Returns FALSE for an alive or merely-transient
  * failure, so the caller can emit a non-alarming reason instead of "revoked".
  */
-async function stampGscAuthFailure(tenantId: string, now: Date): Promise<boolean> {
+type GscAuthVerdict =
+  /** refresh token genuinely rejected (invalid_grant) → operator must reconnect */
+  | "dead"
+  /** Google rejected Beacon's OWN credentials (invalid_client) → server config
+   *  bug (wrong GOOGLE_CLIENT_SECRET); reconnecting does NOT help. */
+  | "misconfig"
+  /** grant alive, or a transient/network failure → no alarm */
+  | "ok";
+
+async function stampGscAuthFailure(tenantId: string, now: Date): Promise<GscAuthVerdict> {
   let dead = false;
   try {
     const token = await getGoogleConnectorToken("gsc", tenantId);
     // No token row → never connected; never fabricate a "Reconnect" prompt.
-    if (token == null) return false;
+    if (token == null) return "ok";
     // DEFINITIVE (2026-06-22): "Google revoked access" is set ONLY when the
     // REFRESH TOKEN is genuinely dead. The on-use auto-refresh fires this sync
     // CONCURRENTLY on every shell render, so a transient 401, an
@@ -160,10 +169,15 @@ async function stampGscAuthFailure(tenantId: string, now: Date): Promise<boolean
         } catch {
           /* fail-soft */
         }
-        return false;
+        return "ok";
       } catch (e) {
-        if (!(e instanceof Error && /invalid_grant/i.test(e.message))) {
-          return false; // transient (5xx / 429 / network) — do NOT alarm
+        const msg = e instanceof Error ? e.message : "";
+        // invalid_client = Beacon's OWN client_id/secret is wrong (server config).
+        // The user's grant is fine; reconnecting won't help. Do NOT stamp a
+        // reconnect prompt — surface the real cause (fix GOOGLE_CLIENT_SECRET).
+        if (/invalid_client/i.test(msg)) return "misconfig";
+        if (!/invalid_grant/i.test(msg)) {
+          return "ok"; // transient (5xx / 429 / network) — do NOT alarm
         }
         dead = true; // invalid_grant → genuinely dead
       }
@@ -179,9 +193,9 @@ async function stampGscAuthFailure(tenantId: string, now: Date): Promise<boolean
     } catch {
       /* fail-soft — a write error must not undo the dead verdict */
     }
-    return dead;
+    return dead ? "dead" : "ok";
   } catch {
-    return dead; // fail-soft — never alter the sync outcome
+    return dead ? "dead" : "ok"; // fail-soft — never alter the sync outcome
   }
 }
 
@@ -274,11 +288,14 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     // would fabricate a "Reconnect" prompt on a source the owner never wired.
     // Fail-soft (never alters this return).
     if (reason === "gsc_token_expired") {
-      const dead = await stampGscAuthFailure(tenantId, now);
-      // If the live-refresh probe proved the grant is ALIVE (a transient resolve
-      // miss / refresh race), do NOT tell the operator the grant "expired" —
-      // that's the false "revoked/reconnect" alarm. Emit a soft transient reason.
-      if (!dead) return { synced: false, reason: "gsc_auth_transient" };
+      const verdict = await stampGscAuthFailure(tenantId, now);
+      // misconfig = Beacon's client secret is wrong (server config); "expired"
+      // would mislead the operator into reconnecting (which can't fix it).
+      if (verdict === "misconfig")
+        return { synced: false, reason: "gsc_client_misconfig" };
+      // ALIVE → a transient resolve miss / refresh race; don't say "expired".
+      if (verdict === "ok") return { synced: false, reason: "gsc_auth_transient" };
+      // verdict === "dead" → fall through to the honest gsc_token_expired.
     }
     return { synced: false, reason };
   }
@@ -348,12 +365,15 @@ export async function syncGscSearchAnalyticsForTenant(args: {
       // race), emit a soft transient reason so the UI never screams "revoked" on
       // a healthy grant. Only invalid_grant stamps + returns the auth-failed
       // reason. Fail-soft (never throws).
-      const dead = await stampGscAuthFailure(tenantId, now);
+      const verdict = await stampGscAuthFailure(tenantId, now);
       return {
         synced: false,
-        reason: dead
-          ? `gsc_auth_failed_${authFailureStatus}`
-          : "gsc_auth_transient",
+        reason:
+          verdict === "dead"
+            ? `gsc_auth_failed_${authFailureStatus}`
+            : verdict === "misconfig"
+              ? "gsc_client_misconfig"
+              : "gsc_auth_transient",
       };
     }
     if (rows == null) {
