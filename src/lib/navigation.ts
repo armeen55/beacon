@@ -57,7 +57,7 @@ export const operatorNavGroup: NavGroup = {
   items: [
     { label: "Opportunities", href: "/opportunities", icon: Compass },
     { label: "Experiments", href: "/experiments", icon: ListChecks },
-    { label: "Proof", href: "/proof", icon: LineChart },
-    { label: "Data Health", href: "/connections", icon: Network },
+    { label: "Results", href: "/proof", icon: LineChart },
+    { label: "Connections", href: "/connections", icon: Network },
   ],
 };

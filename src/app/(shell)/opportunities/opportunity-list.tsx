@@ -12,7 +12,7 @@ import { workbenchHref } from "@/domains/insight/workbench-route";
 
 /**
  * Plain-English, scannable map (2026-06-22 redesign). The compute layer already
- * picks ONE dominant `kind` + ONE `estClicksAtStake` per page — the old UI threw
+ * picks ONE dominant `kind` + ONE `estClicksAtStake` per page, the old UI threw
  * that away and rendered every secondary signal as an equal jargon pill, so
  * nothing was scannable. Now: one row = one decision (title · plain chip · big
  * number · one button); all the homework (evidence, Move, SERP guard, secondary
@@ -99,7 +99,7 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
 
   return (
     <div className="space-y-4">
-      {/* Headline strip — opens with the one number that matters. */}
+      {/* Headline strip, opens with the one number that matters. */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-surface-inset/40 px-4 py-3">
         <div className="text-[13px] text-foreground">
           <span className="text-[17px] font-semibold tabular-nums">
@@ -154,7 +154,7 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
           clicks (on-page frustration, not recoverable search clicks). A sizing,
           not a promise. &ldquo;SERP unknown&rdquo; means we haven&rsquo;t
           verified whether a SERP feature (AI Overview / featured snippet / image
-          pack) owns the clicks — on top-ranked pages, verify the SERP before
+          pack) owns the clicks, on top-ranked pages, verify the SERP before
           rewriting a title.
         </p>
       </details>

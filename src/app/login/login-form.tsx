@@ -65,7 +65,7 @@ export function LoginForm({
         disabled={pending || !email}
         className="w-full rounded-md bg-foreground px-4 py-2 text-[13px] font-semibold text-background disabled:opacity-50"
       >
-        {pending ? "Sending…" : "Send magic link"}
+        {pending ? "Sending…" : "Email me a sign-in link"}
       </button>
     </form>
   );

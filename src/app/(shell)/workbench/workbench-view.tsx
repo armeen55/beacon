@@ -19,7 +19,7 @@ import { DraftWithAi } from "./draft-with-ai";
 import { ResolveSerp } from "./resolve-serp";
 
 /**
- * Workbench view (operator-OS rebuild, Phase 2, v1) — presentational, read-only.
+ * Workbench view (operator-OS rebuild, Phase 2, v1), presentational, read-only.
  * Renders one locked page: what Beacon sees, what it thinks, why, and the next
  * safe action. NO publish controls. Server component (the page gates + loads).
  */
@@ -165,7 +165,7 @@ function CandidateCard({
 }
 
 /**
- * TASK 3 — the per-page command center: the six operator moves scored over the
+ * TASK 3, the per-page command center: the six operator moves scored over the
  * lever matrix + proof ledger + SERP. Best next move leads; the rest help the
  * operator weigh safe-now vs bigger-later and avoid touching what's measuring.
  */
@@ -362,7 +362,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
     proof,
   } = data;
 
-  // Server component — read the key here so the Draft-with-AI panel can tell the
+  // Server component, read the key here so the Draft-with-AI panel can tell the
   // operator whether it'll run the real model or the deterministic fallback.
   const hasOpenAi = (process.env.OPENAI_API_KEY?.trim().length ?? 0) > 0;
 
@@ -462,7 +462,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         </Section>
       ) : null}
 
-      {/* ── SERP check (TASK 2) — resolve "SERP unknown" on demand for this
+      {/* ── SERP check (TASK 2), resolve "SERP unknown" on demand for this
           locked page. Bounded synthetic hypothesis (no live fetch / paid API);
           the broad Opportunity Map stays conservative and never runs this. ── */}
       <Section
@@ -678,19 +678,19 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         }
       >
         <div className="space-y-3">
-          {/* Draft with AI (#6, 2026-06-22) — on-demand LLM draft for this page,
+          {/* Draft with AI (#6, 2026-06-22), on-demand LLM draft for this page,
               operator-gated + cached, fails soft to the deterministic plan. */}
           <DraftWithAi path={data.path} hasOpenAi={hasOpenAi} />
           {packStatus === "pack" && pack ? (
             <ChangePackBody pack={pack} />
           ) : packStatus === "evidence_only" ? (
             <p className="text-[12px] text-muted-foreground">
-              This page has Search demand but no saved Change Pack yet — click &ldquo;Draft with
+              This page has Search demand but no saved Change Pack yet, click &ldquo;Draft with
               AI&rdquo; above to generate one from its evidence.
             </p>
           ) : (
             <p className="text-[12px] text-muted-foreground">
-              No saved plan yet — &ldquo;Draft with AI&rdquo; above generates one from this
+              No saved plan yet, &ldquo;Draft with AI&rdquo; above generates one from this
               page&rsquo;s evidence.
             </p>
           )}
@@ -794,7 +794,7 @@ function PrimaryCta({ data }: { data: WorkbenchData }) {
       </Link>
     );
   }
-  // Draft Change Pack — now ENABLED (#6): jumps to the Draft-with-AI panel.
+  // Draft Change Pack, now ENABLED (#6): jumps to the Draft-with-AI panel.
   return (
     <Link
       href="#change-pack"

@@ -22,10 +22,10 @@ export default async function LoginPage({
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">Sign in to Beacon</h1>
           <p className="text-[12px] text-muted-foreground">
-            Beacon shows you the exact website changes that get you
-            recommended by AI assistants and found on Google — and, for the
-            ones you approve, pushes the eligible changes live to your site.
-            The rest come as paste-ready steps. Magic-link sign-in.
+            Beacon shows you the exact website changes that help more people
+            find you on Google and in AI search. Nothing changes on your live
+            site unless you approve it. We&rsquo;ll email you a link to sign in,
+            no password needed.
           </p>
         </div>
         <LoginForm

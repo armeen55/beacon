@@ -43,7 +43,7 @@ type SelectedLocation = { id: string; name: string } | null;
 type LocationOption = { locationId: string; locationName: string; address: string | null };
 
 /**
- * 2026-05-16 — GSC scope split: the Google card is GSC-focused for v1.
+ * 2026-05-16, GSC scope split: the Google card is GSC-focused for v1.
  * Sync now + Location picker are GBP-only affordances; both flip on
  * when the deferred GBP card lands in a follow-up slice. Action code
  * + server actions stay wired; only the UI surfaces are gated.
@@ -53,27 +53,27 @@ const GBP_AFFORDANCES_ENABLED = false;
 type Props = {
   google: ConnectorInfo;
   googleSelectedLocation: SelectedLocation;
-  /** Slice 9.A1β (2026-05-18) — GA4 connector status. Mirrors the
+  /** Slice 9.A1β (2026-05-18), GA4 connector status. Mirrors the
    *  GSC props shape (status, expires_at, ga4_property_id, etc.). */
   ga4: ConnectorInfo;
   yelp: ConnectorInfo;
-  /** North-star onboarding (2026-06-11) — self-serve Wix connection. */
+  /** North-star onboarding (2026-06-11), self-serve Wix connection. */
   wix: ConnectorInfo;
   semrush: ConnectorInfo;
   profound: ConnectorInfo;
   clarity: ConnectorInfo;
-  /** From business config — for operator hint only (not a secret). */
+  /** From business config, for operator hint only (not a secret). */
   configYelpBusinessId: string;
-  /** J5 (2026-05-18) — pre-rendered "GSC data last refreshed X days
+  /** J5 (2026-05-18), pre-rendered "GSC data last refreshed X days
    *  ago. Reconnect to refresh." copy. Computed server-side in
    *  page.tsx so the formatting helper stays `server-only`. Present
    *  only when the GSC connector has a non-null `expires_at` (i.e.,
    *  the operator previously authorized the connector at some
    *  point) AND status is "disconnected". `null` otherwise. */
   gscStaleCopy?: string | null;
-  /** MAX_SEO_AEO Phase 4 (2026-06-16) — pre-composed GSC readiness for the
+  /** MAX_SEO_AEO Phase 4 (2026-06-16), pre-composed GSC readiness for the
    *  card: the resolved property (the one synced data landed under, derived
-   *  from the tenant's own rows — never hardcoded), a plain-English
+   *  from the tenant's own rows, never hardcoded), a plain-English
    *  headline/detail, a hard not-ready verdict, and a tone for styling. All
    *  computed server-side in page.tsx (the loader is server-only + does no live
    *  Google call). Always present (the page soft-fails to a not_connected
@@ -89,7 +89,7 @@ type Props = {
     tone: "ready" | "attention" | "idle";
     property: string | null;
   };
-  /** Slice 9.A1β (2026-05-18) — pre-rendered "Google Analytics data
+  /** Slice 9.A1β (2026-05-18), pre-rendered "Google Analytics data
    *  last refreshed X days ago" copy. Computed server-side in
    *  page.tsx. Present only when the GA4 connector has a non-null
    *  `expires_at` AND status is "disconnected". `null` otherwise. */
@@ -107,35 +107,35 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Authorization succeeded but Beacon could not save the connection. Please try again, or contact support if it persists.",
   env_missing:
     "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and BEACON_OAUTH_STATE_SECRET in your environment.",
-  // #213 — the callback emits ?error=not_authorized when Google grants
+  // #213, the callback emits ?error=not_authorized when Google grants
   // but the signed-in user isn't a member of the connecting account.
   // Pre-fix this fell through to the raw "Connection error: not_authorized".
   not_authorized:
     "You declined the Google permission. Try connecting again and approve access.",
 };
 
-// #213 — friendly catch-all for any error code we don't have explicit copy
+// #213, friendly catch-all for any error code we don't have explicit copy
 // for, so a non-technical owner never sees a raw code like "not_authorized".
 const DEFAULT_ERROR_MESSAGE =
   "Couldn't connect to Google, please try again.";
 
-// 2026-06-22 — when the token exchange fails, the callback forwards Google's
+// 2026-06-22, when the token exchange fails, the callback forwards Google's
 // actual `error` code as ?detail=…. Turn it into the precise fix so an opaque
 // "check your creds" becomes "here's exactly what's wrong".
 const EXCHANGE_DETAIL_HINTS: Record<string, string> = {
   invalid_client:
-    " Google rejected the app credentials — GOOGLE_CLIENT_SECRET in Vercel is wrong/missing or doesn't match GOOGLE_CLIENT_ID. Re-copy both from Google Cloud Console → Credentials into Vercel (Production scope), then redeploy.",
+    " Google rejected the app credentials, GOOGLE_CLIENT_SECRET in Vercel is wrong/missing or doesn't match GOOGLE_CLIENT_ID. Re-copy both from Google Cloud Console → Credentials into Vercel (Production scope), then redeploy.",
   redirect_uri_mismatch:
     " This domain's callback URL isn't registered. In Google Cloud Console → Credentials → your OAuth client, add the Authorized redirect URI https://<this-domain>/api/connectors/google/callback (and make sure NEXT_PUBLIC_APP_URL matches this domain).",
   invalid_grant:
-    " The authorization code expired or was already used — just click Connect again.",
+    " The authorization code expired or was already used, just click Connect again.",
   unauthorized_client:
-    " This OAuth client can't use this grant — confirm it's a 'Web application' client in Google Cloud Console.",
+    " This OAuth client can't use this grant, confirm it's a 'Web application' client in Google Cloud Console.",
   invalid_request:
-    " Google rejected the request — usually a redirect-URI or client-config mismatch.",
+    " Google rejected the request, usually a redirect-URI or client-config mismatch.",
 };
 
-/** #90 (2026-06-14) — honest copy when Google returns no refresh token: the
+/** #90 (2026-06-14), honest copy when Google returns no refresh token: the
  *  connection works for now but will stop on its own. Plain-English (no
  *  "refresh token" jargon) so a non-technical owner knows to reconnect. */
 const MISSING_REFRESH_TOKEN_WARNING =
@@ -194,7 +194,7 @@ export function ConnectorsClient({
   const [yelpSyncInFlight, setYelpSyncInFlight] = useState(false);
   const [yelpKeyInput, setYelpKeyInput] = useState("");
 
-  // Customer "Pull my data now" affordances (2026-06-14) — each
+  // Customer "Pull my data now" affordances (2026-06-14), each
   // connected source gets a per-card sync button wired to its
   // server action; a per-card pending flag + last-result message
   // mirror the Google/Yelp Sync-now idiom above.
@@ -215,10 +215,10 @@ export function ConnectorsClient({
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  // Slice 9.A1β (2026-05-18) — GA4 property picker state. The list of
+  // Slice 9.A1β (2026-05-18), GA4 property picker state. The list of
   // properties is loaded ONLY on explicit user action (Choose property
   // button); never on mount, so the page-load contract stays intact
-  // (no GA4 API call on page render — enforced by the
+  // (no GA4 API call on page render, enforced by the
   // `ga4-no-page-load-call` architecture invariant).
   const [ga4Properties, setGa4Properties] = useState<Ga4Property[] | null>(null);
   const [ga4PropertiesLoading, setGa4PropertiesLoading] = useState(false);
@@ -227,7 +227,7 @@ export function ConnectorsClient({
   useEffect(() => {
     const err = searchParams.get("error");
     const connected = searchParams.get("connected");
-    // #90 (2026-06-14) — Google returned no refresh token. The connection
+    // #90 (2026-06-14), Google returned no refresh token. The connection
     // works now but will quietly die and can't self-heal; show an honest
     // reconnect warning instead of a clean "connected successfully".
     const warning = searchParams.get("warning");
@@ -315,7 +315,7 @@ export function ConnectorsClient({
   }
 
   // ───────────────────────────────────────────────────────────────────
-  // Slice 9.A1β (2026-05-18) — GA4 handlers
+  // Slice 9.A1β (2026-05-18), GA4 handlers
   // ───────────────────────────────────────────────────────────────────
 
   function handleConnectGa4() {
@@ -354,7 +354,7 @@ export function ConnectorsClient({
       }
       setGa4Properties(result.properties);
       if (result.properties.length === 1) {
-        // Auto-select the only property — saves a click in the common case.
+        // Auto-select the only property, saves a click in the common case.
         await handleSelectGa4Property(result.properties[0]!);
       }
     } catch (e) {
@@ -411,7 +411,7 @@ export function ConnectorsClient({
   }
 
   function handleDisconnect() {
-    // #206 — "Disconnect Google" clears BOTH the Search Console grant AND
+    // #206, "Disconnect Google" clears BOTH the Search Console grant AND
     // any Google Business Profile connection in one action. Confirm first so
     // a Business Profile connection isn't dropped silently.
     const confirmed = window.confirm(
@@ -663,7 +663,7 @@ export function ConnectorsClient({
 
   return (
     <div className="space-y-6">
-      {/* 2026-06-22 — connectors now auto-refresh on use (next/after), throttled
+      {/* 2026-06-22, connectors now auto-refresh on use (next/after), throttled
           per-source by last_synced_at. Honest copy: it stays fresh on its own;
           the buttons are still there to force it. */}
       <div className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3">
@@ -768,7 +768,7 @@ export function ConnectorsClient({
                         Selected: {selectedLocation.name}
                       </p>
                     ) : (
-                      // #197 — setup-blocking state. The amber color alone
+                      // #197, setup-blocking state. The amber color alone
                       // was the only urgency cue (color-only) and nothing
                       // announced the state change. A non-color "Action
                       // needed:" prefix + role="status" makes it legible to
@@ -793,7 +793,7 @@ export function ConnectorsClient({
               </>
             ) : (
               <>
-                {/* J5 (2026-05-18) — soft-disconnect aware copy. When
+                {/* J5 (2026-05-18), soft-disconnect aware copy. When
                     a previously-authorized GSC connector is now
                     disconnected, surface the "Last refreshed at X
                     days ago" tooltip alongside the "Not connected"
@@ -869,7 +869,7 @@ export function ConnectorsClient({
 
         {/* ── Readiness (MAX_SEO_AEO Phase 4, 2026-06-16) ──
             Surfaces the RESOLVED property (derived from the tenant's own synced
-            rows — never hardcoded), the backfill window + freshness, and a hard
+            rows, never hardcoded), the backfill window + freshness, and a hard
             NOT-READY line when the connection can't actually deliver data.
             READ-ONLY: every figure is pre-composed server-side from persisted
             state (no live Google call). The verdict is also mirrored onto
@@ -908,7 +908,7 @@ export function ConnectorsClient({
           </div>
         ) : null}
 
-        {/* ── Location picker (Google connected) — GBP only ── */}
+        {/* ── Location picker (Google connected), GBP only ── */}
         {GBP_AFFORDANCES_ENABLED && google.status === "connected" ? (
           <div className="border-t border-border/40 px-5 py-3 space-y-3">
             {locationError && (
@@ -990,7 +990,7 @@ export function ConnectorsClient({
         </div>
       </div>
 
-      {/* ── Google Analytics (GA4) — Slice 9.A1β (2026-05-18) ── */}
+      {/* ── Google Analytics (GA4), Slice 9.A1β (2026-05-18) ── */}
       <div
         id="connector-google-ga4"
         className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
@@ -1014,7 +1014,7 @@ export function ConnectorsClient({
                       : ""}
                   </p>
                 ) : (
-                  // #197 — setup-blocking state (half-wired connector). The
+                  // #197, setup-blocking state (half-wired connector). The
                   // amber color was the only cue; add a non-color "Action
                   // needed:" prefix + role="status" so it's not color-only
                   // and is announced when the state changes after connect.
@@ -1093,7 +1093,7 @@ export function ConnectorsClient({
           <ConnectorCapability {...CONNECTOR_CAPABILITY.google_ga4} />
         </div>
 
-        {/* Property picker — only when connected. Properties load on
+        {/* Property picker, only when connected. Properties load on
             click only (NEVER on mount) so no GA4 API call fires on
             page render. Pinned by the `ga4-no-page-load-call`
             architecture invariant. */}
@@ -1183,12 +1183,12 @@ export function ConnectorsClient({
         </div>
       </div>
 
-      {/* Yelp connector removed 2026-06-18 (operator request — not relevant to
+      {/* Yelp connector removed 2026-06-18 (operator request, not relevant to
           content/AEO tenants). State + actions remain wired but no card renders. */}
 
-      {/* ── Wix — North-star onboarding (2026-06-11) ──
+      {/* ── Wix, North-star onboarding (2026-06-11) ──
           Self-serve publish connection: the customer pastes their own
-          Wix API key + site id. Connecting NEVER publishes anything —
+          Wix API key + site id. Connecting NEVER publishes anything -
           every edit still goes through Approve & Push (your click,
           daily caps, non-destructive guard). */}
       <div
@@ -1283,7 +1283,7 @@ export function ConnectorsClient({
         </div>
       </div>
 
-      {/* ── SEMrush — Connect-cards slice (2026-06-12) ── */}
+      {/* ── SEMrush, Connect-cards slice (2026-06-12) ── */}
       <div
         id="connector-semrush"
         className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
@@ -1403,7 +1403,7 @@ export function ConnectorsClient({
         ) : null}
       </div>
 
-      {/* ── Profound — Connect-cards slice (2026-06-12) ── */}
+      {/* ── Profound, Connect-cards slice (2026-06-12) ── */}
       <div
         id="connector-profound"
         className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
@@ -1505,7 +1505,7 @@ export function ConnectorsClient({
         ) : null}
       </div>
 
-      {/* ── Microsoft Clarity — Connect-cards slice (2026-06-12) ── */}
+      {/* ── Microsoft Clarity, Connect-cards slice (2026-06-12) ── */}
       <div
         id="connector-clarity"
         className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"

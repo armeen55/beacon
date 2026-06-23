@@ -32,7 +32,7 @@ export default async function OnboardBusinessPage() {
     <OnboardingShell
       step={1}
       title="Set up your business"
-      subtitle="Takes about 2 minutes. Tell us your business name and website — then Beacon reads your site and starts tracking how AI assistants and Google describe you. Four short steps, and your answers save as you go."
+      subtitle="Takes about 2 minutes. Tell us your business name and website. Beacon then reads your site and starts tracking how AI assistants and Google describe you. Four short steps, and your answers save as you go."
     >
       <BusinessForm
         initialBusinessName={

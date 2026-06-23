@@ -30,7 +30,7 @@ import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
-// On-demand connector syncs (2026-06-15) — with all crons/Actions off, these
+// On-demand connector syncs (2026-06-15), with all crons/Actions off, these
 // existing per-tenant sync engines (HTTP + Supabase, Vercel-safe) must be
 // triggerable from the product. Each "Sync now" action wraps one.
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
@@ -48,7 +48,7 @@ export async function getGoogleGbpConnectorStatus(): Promise<ConnectorInfo> {
 }
 
 /**
- * Slice 9.A1β (2026-05-18) — read GA4 connector status. Mirrors the
+ * Slice 9.A1β (2026-05-18), read GA4 connector status. Mirrors the
  * GSC/GBP read shape. Returns disconnected when no token exists OR
  * when the existing token has `disconnected_at` set (soft-disconnect
  * aware via `getConnectorInfo`'s shared branch).
@@ -66,13 +66,13 @@ export async function getWixConnectorStatus(): Promise<ConnectorInfo> {
 }
 
 /**
- * North-star onboarding (2026-06-11) — self-serve Wix connection.
+ * North-star onboarding (2026-06-11), self-serve Wix connection.
  * A Wix customer pastes their own API key + site id; the token is
  * stored per-tenant in the connector store (the same row the push
  * service reads). Without this card the publish path dead-ended on
  * the operator hand-seeding the key. The key is held server-side
  * only; pushing still goes through Approve & Push (operator click,
- * caps, non-destructive guard) — connecting a key never publishes
+ * caps, non-destructive guard), connecting a key never publishes
  * anything by itself.
  */
 export async function saveWixConnection(input: {
@@ -352,18 +352,18 @@ export async function disconnectGoogle(): Promise<{
   const t0 = Date.now();
   log.info("Action started", { action });
   try {
-    // Disconnect both Google providers — GSC + GBP are separate token
+    // Disconnect both Google providers, GSC + GBP are separate token
     // grants, but a single "Disconnect Google" affordance clears both
     // so the operator doesn't have to click twice.
     //
-    // J5 (2026-05-18) — GSC uses SOFT disconnect so cached historical
+    // J5 (2026-05-18), GSC uses SOFT disconnect so cached historical
     // state in `gsc_url_inspections` is preserved. Reconnect via the
     // standard OAuth flow naturally clears `disconnected_at` because
     // saveConnectorToken upserts a fresh payload without the field.
     // GBP keeps its existing destructive delete path (Section 7
     // owns the GBP soft-disconnect migration when warranted).
     //
-    // Slice 9.A1β (2026-05-18) — GA4 is INTENTIONALLY excluded from
+    // Slice 9.A1β (2026-05-18), GA4 is INTENTIONALLY excluded from
     // this combined affordance. The Google Analytics card on
     // /settings/connectors owns its own `disconnectGoogleGa4` server
     // action so the operator can manage GA4 independently of the GSC
@@ -387,7 +387,7 @@ export async function disconnectGoogle(): Promise<{
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Slice 9.A1β (2026-05-18) — GA4 server actions
+// Slice 9.A1β (2026-05-18), GA4 server actions
 // ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -449,7 +449,7 @@ export async function selectGa4Property(
     const tenantId = await currentTenantId();
     // Defense-in-depth: re-list the operator's properties + verify
     // the submitted id is in the latest set. Skips when the listing
-    // fails (e.g., transient API error) — in that case we trust the
+    // fails (e.g., transient API error), in that case we trust the
     // form submission since the operator must have just seen the
     // property in the picker to have submitted it. The picker UI
     // re-runs listGa4Properties after disconnect/reconnect so a
@@ -488,7 +488,7 @@ export async function selectGa4Property(
 /**
  * Soft-disconnect the GA4 connector. Mirrors the GSC J5 soft-disconnect
  * contract: sets `disconnected_at` on the existing token payload via
- * `updateConnectorToken` — NO destructive `deleteConnectorToken`. The
+ * `updateConnectorToken`, NO destructive `deleteConnectorToken`. The
  * UI shows the Connect button + "Last refreshed at X days ago" copy
  * until the operator reconnects via OAuth (the callback upserts a
  * fresh payload that omits `disconnected_at`, naturally clearing the
@@ -524,7 +524,7 @@ export async function disconnectGoogleGa4(): Promise<{
   }
 }
 
-// ── Connect-cards slice (2026-06-12) — SEMrush / Profound / Clarity ──
+// ── Connect-cards slice (2026-06-12), SEMrush / Profound / Clarity ──
 // Same self-serve posture as the Wix card: paste a key, it stays on
 // this server, the nightly syncs activate the moment it lands
 // (dormant-honest until then). Disconnect = soft (cached data kept).
@@ -655,7 +655,7 @@ export async function disconnectClarity(): Promise<{ success: boolean; error?: s
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// ON-DEMAND "Sync now" actions (2026-06-15) — golden path with crons OFF.
+// ON-DEMAND "Sync now" actions (2026-06-15), golden path with crons OFF.
 //
 // All GitHub Actions + the Vercel cron are disabled. The per-tenant sync
 // engines (syncGscSearchAnalyticsForTenant / syncGa4UrlTrafficForTenant /
@@ -675,36 +675,36 @@ export type ConnectorSyncNowResult = {
 };
 
 /**
- * #87/#88 honesty fix (2026-06-14) — reasons that genuinely mean "this
+ * #87/#88 honesty fix (2026-06-14), reasons that genuinely mean "this
  * source simply isn't connected / has nothing yet": a benign skip, NOT a
  * failure. Everything NOT in this set (auth expired, supabase down, upsert
  * failed, …) is surfaced as a real failure so the owner is told to act.
  *
- *   • no_token / no_key / no_property / no_domain / disconnected — never set up.
- *   • no_property_derivable — GSC connected but no domain configured yet.
- *   • no_categories_configured — Profound key works, workspace empty.
+ *   • no_token / no_key / no_property / no_domain / disconnected, never set up.
+ *   • no_property_derivable, GSC connected but no domain configured yet.
+ *   • no_categories_configured, Profound key works, workspace empty.
  */
 const BENIGN_SKIP_REASONS = new Set([
   "no_token",
   "no_key",
   "no_property",
   "disconnected",
-  // #208 — `no_domain` / `no_property_derivable` now route to the more
+  // #208, `no_domain` / `no_property_derivable` now route to the more
   // specific NEEDS_DOMAIN_REASONS copy ("set your website domain in
   // Config") instead of the generic "not connected yet" line.
   "no_categories_configured",
   // GSC: token store genuinely had no row → never connected (#87).
   "no_usable_gsc_token",
-  // Profound: no key connected yet (#88) — distinct from profound_api_error.
+  // Profound: no key connected yet (#88), distinct from profound_api_error.
   "no_profound_key",
-  // Clarity: no token connected yet — distinct from a real API error. (The
+  // Clarity: no token connected yet, distinct from a real API error. (The
   // engine still uses the legacy combined reason; treat it as a skip so an
   // unconnected source never alarms. A genuine upsert_failed stays a failure.)
   "no_token_or_api_error",
 ]);
 
 /**
- * #87 (2026-06-14) — reasons that mean "you WERE connected but the auth
+ * #87 (2026-06-14), reasons that mean "you WERE connected but the auth
  * broke": an honest FAILURE that tells the owner to reconnect, never a
  * harmless "skipped". Each maps to plain-English copy (no jargon).
  */
@@ -720,18 +720,18 @@ const RECONNECT_REASONS: Record<string, string> = {
 };
 
 /**
- * #208 — plain-English copy for genuine FAILURE reason codes the sync
+ * #208, plain-English copy for genuine FAILURE reason codes the sync
  * engines emit. Pre-fix these fell through to "Sync failed: <raw_code>."
  * which leaks an internal token (e.g. "supabase_unavailable",
  * "no_key_or_api_error") to a non-technical owner. Anything still NOT in
- * this map keeps the generic "Sync didn't finish" fallback below — never
+ * this map keeps the generic "Sync didn't finish" fallback below, never
  * the raw code.
  */
 const FAILED_REASON_COPY: Record<string, string> = {
-  // Beacon's database was briefly unreachable — transient, retry works.
+  // Beacon's database was briefly unreachable, transient, retry works.
   supabase_unavailable:
     "Beacon couldn't reach its database just now, please try again in a moment.",
-  // Writing the pulled rows failed — transient, retry works.
+  // Writing the pulled rows failed, transient, retry works.
   upsert_failed:
     "Beacon pulled your data but couldn't save it, please try again in a moment.",
   // SEMrush: the key is missing OR the API rejected the request.
@@ -746,9 +746,9 @@ const FAILED_REASON_COPY: Record<string, string> = {
 };
 
 /**
- * #208 — reasons that mean "you're connected, but Beacon needs your
+ * #208, reasons that mean "you're connected, but Beacon needs your
  * website domain in Config before it can pull data". A benign,
- * actionable state — not an alarming failure, but distinct from the
+ * actionable state, not an alarming failure, but distinct from the
  * generic "not connected yet" so the owner knows the exact next step.
  */
 const NEEDS_DOMAIN_REASONS = new Set([
@@ -772,7 +772,7 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     imported?: number;
     days?: number;
     citation_rows?: number;
-    // #113 — Profound caps how many topics it pulls per run. When the
+    // #113, Profound caps how many topics it pulls per run. When the
     // workspace has more topics than the cap, the overflow is silently
     // dropped; these fields let us tell the owner instead of faking a
     // clean success. Read defensively (only Profound sets them).
@@ -781,19 +781,19 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
   };
   if (r.synced) {
     const bits: string[] = [];
-    // #88 (2026-06-14) — a successful sync that returned zero rows is an OK
+    // #88 (2026-06-14), a successful sync that returned zero rows is an OK
     // state, not a failure. Profound especially: a synced run with zero
-    // citations means the engine ran fine and there's simply nothing yet —
+    // citations means the engine ran fine and there's simply nothing yet -
     // distinct from an auth/API error (which fails below as profound_api_error).
     const rowCount = r.rows_upserted ?? r.rows ?? r.imported ?? r.citation_rows;
     // Only count POSITIVE rows as a "N rows" success bit. A successful sync
-    // that returned exactly zero rows is reported separately below — silently
+    // that returned exactly zero rows is reported separately below, silently
     // printing "Synced 0 rows" hid the real story (e.g. GA4 connected but the
     // property has no traffic / its tag isn't collecting). Wave 0 (2026-06-18).
     if (rowCount != null && rowCount > 0)
       bits.push(`${rowCount.toLocaleString()} row${rowCount === 1 ? "" : "s"}`);
     if (r.days != null) bits.push(`${r.days} day${r.days === 1 ? "" : "s"}`);
-    // #113 — honest cap disclosure: when more topics exist than this run
+    // #113, honest cap disclosure: when more topics exist than this run
     // pulled, say so plainly instead of reporting a clean success. The cap
     // itself is intentional (budget discipline); only the reporting changes.
     const skipped = r.categories_skipped ?? 0;
@@ -808,7 +808,7 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     if (bits.length) return { ok: true, detail: `Synced ${bits.join(" · ")}.` };
     // Explicit empty pull (the API call worked but the source returned zero
     // rows for the window). Wave 0 (2026-06-18): say what that means instead of
-    // a bare "Synced 0 rows" — the #1 cause is the source isn't collecting yet
+    // a bare "Synced 0 rows", the #1 cause is the source isn't collecting yet
     // (e.g. a GA4 property whose tracking tag isn't installed/firing on the site).
     if (rowCount === 0) {
       return {
@@ -819,34 +819,34 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     }
     return { ok: true, detail: "Synced, nothing new found yet." };
   }
-  // 2026-06-22 — Beacon's OWN Google credentials are wrong (invalid_client):
+  // 2026-06-22, Beacon's OWN Google credentials are wrong (invalid_client):
   // the refresh fails because GOOGLE_CLIENT_SECRET doesn't match the OAuth
-  // client. This is a SERVER SETUP issue, not the user's connection —
+  // client. This is a SERVER SETUP issue, not the user's connection -
   // reconnecting can't fix it. Name the real cause so it's diagnosable in
   // seconds instead of looking like a phantom "revoked".
   if (r.reason === "gsc_client_misconfig") {
     return {
       ok: false,
       error:
-        "Beacon's Google sign-in credentials are misconfigured (the client secret is invalid). This is a server setup issue, not your Google connection — set GOOGLE_CLIENT_SECRET to match your Google Cloud OAuth client, then redeploy.",
+        "Beacon's Google sign-in credentials are misconfigured (the client secret is invalid). This is a server setup issue, not your Google connection, set GOOGLE_CLIENT_SECRET to match your Google Cloud OAuth client, then redeploy.",
     };
   }
-  // 2026-06-22 — a mid-sync 401/403 / refresh hiccup where the live-refresh
-  // probe proved the grant is STILL ALIVE. NOT a reconnect case — Google just
+  // 2026-06-22, a mid-sync 401/403 / refresh hiccup where the live-refresh
+  // probe proved the grant is STILL ALIVE. NOT a reconnect case, Google just
   // had a momentary blip. Say so honestly instead of the alarming "revoked"
   // copy, so a healthy connection never gets told to reconnect.
   if (r.reason === "gsc_auth_transient") {
     return {
       ok: false,
       error:
-        "Couldn't refresh from Google just now — your connection is fine. Try again in a moment.",
+        "Couldn't refresh from Google just now, your connection is fine. Try again in a moment.",
     };
   }
-  // #87 — auth broke: an honest, plain-English reconnect prompt (a FAILURE).
+  // #87, auth broke: an honest, plain-English reconnect prompt (a FAILURE).
   if (r.reason != null && RECONNECT_REASONS[r.reason] != null) {
     return { ok: false, error: RECONNECT_REASONS[r.reason] };
   }
-  // #208 — connected, but Beacon needs the website domain set in Config
+  // #208, connected, but Beacon needs the website domain set in Config
   // before it can pull. A specific, actionable next step (not a raw code).
   if (r.reason != null && NEEDS_DOMAIN_REASONS.has(r.reason)) {
     return {
@@ -854,21 +854,21 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
       error: "Set your website domain in Settings → Config, then sync again.",
     };
   }
-  // #208 — GA4 ran fine but there's simply no traffic data yet. A benign
+  // #208, GA4 ran fine but there's simply no traffic data yet. A benign
   // "nothing yet" state, not a failure to alarm the owner about.
   if (r.reason === "no_traffic_data") {
     return { ok: true, detail: "Synced, no traffic data yet." };
   }
-  // Benign skip — the source isn't connected yet. Not an alarming failure.
+  // Benign skip, the source isn't connected yet. Not an alarming failure.
   if (r.reason != null && BENIGN_SKIP_REASONS.has(r.reason)) {
     return { ok: false, error: "Not connected yet. Connect this source to sync." };
   }
-  // #208 — known real-failure reason codes get plain-English copy instead
+  // #208, known real-failure reason codes get plain-English copy instead
   // of leaking the raw token (supabase_unavailable, upsert_failed, …).
   if (r.reason != null && FAILED_REASON_COPY[r.reason] != null) {
     return { ok: false, error: FAILED_REASON_COPY[r.reason] };
   }
-  // Anything still unmapped is a real failure — keep it honest, but never
+  // Anything still unmapped is a real failure, keep it honest, but never
   // surface the raw reason code to a non-technical owner.
   return {
     ok: false,
@@ -935,7 +935,7 @@ async function runConnectorSyncNow(
     const tenantId = await currentTenantId();
     const result = await run(tenantId);
     const summary = summarizeConnectorSync(result);
-    // #72/#85 — stamp freshness ONLY on a genuinely successful pull so the
+    // #72/#85, stamp freshness ONLY on a genuinely successful pull so the
     // connector card + freshness label stop saying "never refreshed".
     if (summary.ok && freshnessProvider != null) {
       await writeLastSyncedAt(freshnessProvider, tenantId);
@@ -998,15 +998,15 @@ export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// ONE-CLICK "Refresh my data" (2026-06-15) — Today command-center surface.
+// ONE-CLICK "Refresh my data" (2026-06-15), Today command-center surface.
 //
 // The per-source "Sync now" actions above live on /settings/connectors. The
 // owner asked for a single control on Today ("everything should be updating,
 // I don't need to refresh"). This action pulls EVERY connected READ source in
-// one click — fail-soft, concurrent — and returns a per-source result list the
+// one click, fail-soft, concurrent, and returns a per-source result list the
 // Today button renders. Wix is publish-only (EXCLUDED). White-label rule
 // (main-product-final-confidence-sweep guards src/components/today): the AEO
-// source is labeled "AI answers" — NEVER the vendor name "Profound".
+// source is labeled "AI answers", NEVER the vendor name "Profound".
 // ─────────────────────────────────────────────────────────────────────
 
 /** The READ sources a Today refresh pulls, in display order. Wix is
@@ -1059,7 +1059,7 @@ export type RefreshAllConnectedResult = {
     /** Plain-English customer label (never a vendor name). */
     label: string;
     ok: boolean;
-    /** Short, plain-English line — "Synced …" on success, an actionable
+    /** Short, plain-English line, "Synced …" on success, an actionable
      *  reason on failure. Never a raw reason code. */
     detail: string;
   }>;
@@ -1072,7 +1072,7 @@ export type RefreshAllConnectedResult = {
  *   (`currentTenantId()`).
  * - Reads connector status for the 5 read sources; skips any not 'connected'
  *   (Wix is publish-only and not in the set at all).
- * - Runs the connected engines concurrently with `Promise.allSettled` — one
+ * - Runs the connected engines concurrently with `Promise.allSettled`, one
  *   source failing never blocks the others, and the action NEVER throws.
  * - Stamps `last_synced_at` on each genuinely-successful pull (#72/#85), the
  *   same freshness contract the per-source actions use.
@@ -1118,7 +1118,7 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
       connected.map(async (s, i) => {
         const outcome = settled[i];
         if (outcome.status === "rejected") {
-          // Engine threw — fail-soft, plain-English (never the raw error).
+          // Engine threw, fail-soft, plain-English (never the raw error).
           const err =
             outcome.reason instanceof Error
               ? outcome.reason.message
