@@ -315,7 +315,7 @@ function DeltaBadge({ entry }: { entry: DescriptorWithDelta }) {
     );
   }
   if (entry.delta === null) {
-    return <span className="text-[10px] text-muted-foreground/40">-</span>;
+    return <span className="text-[10px] text-muted-foreground/70">-</span>;
   }
   if (entry.delta === 0) {
     return (

@@ -191,7 +191,7 @@ function FindingRow({
               const r = await onResolve(finding.id, "rejected");
               if (r.consequence) setFeedback(r.consequence);
             })}
-            className="text-[11px] font-medium text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            className="text-[11px] font-medium text-muted-foreground/70 hover:text-foreground transition-colors"
           >
             Not real
           </button>
@@ -227,15 +227,15 @@ function FindingRow({
               await onPromote(finding.id, "history_only");
               setFeedback("Kept in history only.");
             })}
-            className="text-[11px] font-medium text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            className="text-[11px] font-medium text-muted-foreground/70 hover:text-foreground transition-colors"
           >
             History only
           </button>
         </div>
       )}
       {finding.promotionStatus !== "none" && (
-        <div className="flex items-center gap-2 mt-1.5 ml-8 text-[10px] text-muted-foreground/50">
-          <span className="h-1 w-1 rounded-full bg-status-success/40" />
+        <div className="flex items-center gap-2 mt-1.5 ml-8 text-[10px] text-muted-foreground/70">
+          <span aria-hidden="true" className="h-1 w-1 rounded-full bg-status-success/70" />
           {(PROMOTION_STATUS_LABELS as Record<string, string>)[finding.promotionStatus]}
         </div>
       )}

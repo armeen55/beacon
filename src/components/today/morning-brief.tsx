@@ -219,7 +219,7 @@ function BriefCard({ item }: { item: MorningBriefItem }) {
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               {item.contextLines.map((line, i) => (
                 <span key={i} className="inline-flex items-center gap-1">
-                  <span className="h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
+                  <span aria-hidden="true" className="h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
                   {line}
                 </span>
               ))}

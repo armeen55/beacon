@@ -256,13 +256,13 @@ export function ActionCard({
               const lo = Math.max(sorted[0].medianDays - 14, 7);
               const hi = sorted[0].medianDays + 5;
               return (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset/50 text-[9px] text-muted-foreground/60">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset/50 text-[9px] text-muted-foreground/75">
                   Signal: {lo}-{hi} days
                 </span>
               );
             }
             return sorted.map(t => (
-              <span key={t.platform} className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset/50 text-[9px] text-muted-foreground/60">
+              <span key={t.platform} className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset/50 text-[9px] text-muted-foreground/75">
                 {t.platform} ~{t.medianDays}d
               </span>
             ));
@@ -389,7 +389,7 @@ export function ActionCard({
                     })
                   }
                   disabled={pending}
-                  className="text-[11px] font-medium text-muted-foreground/35 hover:text-muted-foreground transition-colors"
+                  className="text-[11px] font-medium text-muted-foreground/70 hover:text-foreground transition-colors"
                 >
                   Dismiss
                 </button>

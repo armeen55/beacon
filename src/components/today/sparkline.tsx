@@ -39,7 +39,7 @@ export function Sparkline({
     return (
       <span
         className={cn(
-          "inline-block text-[10px] text-muted-foreground/40",
+          "inline-block text-[10px] text-muted-foreground/70",
           className,
         )}
         aria-label={ariaLabel}

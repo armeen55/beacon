@@ -499,7 +499,8 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                   </span>
                 </div>
 
-                <table className="mt-2.5 w-full text-[11px]">
+                <div className="mt-2.5 overflow-x-auto">
+                <table className="w-full text-[11px]">
                   <thead>
                     <tr className="text-left text-muted-foreground">
                       <th className="font-medium">Page</th>
@@ -534,6 +535,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                     ))}
                   </tbody>
                 </table>
+                </div>
 
                 <div className="mt-3 rounded-md border border-border/50 bg-background/70 p-2.5">
                   <div className="text-[11px] font-semibold text-foreground/80">

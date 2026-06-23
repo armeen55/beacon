@@ -168,7 +168,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
                 onChange={(e) => setShippedAt(e.target.value)}
                 className={FIELD_INPUT}
               />
-              <p className="mt-0.5 text-[10px] text-muted-foreground/70">
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
                 Leave blank for now. The 7 / 14 / 28-day windows count from here.
               </p>
             </div>
@@ -215,7 +215,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
               placeholder="biggest cities in iran&#10;largest cities in iran"
               className={FIELD_INPUT + " resize-y"}
             />
-            <p className="mt-0.5 text-[10px] text-muted-foreground/70">
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
               Leave blank to use the page&apos;s top Search queries.
             </p>
           </div>
@@ -244,7 +244,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
               />
               <span>
                 I confirmed this change is live on the site.
-                <span className="block text-[10px] text-muted-foreground/70">
+                <span className="block text-[10px] text-muted-foreground">
                   Check this once you can see the new copy on the live page.
                 </span>
               </span>

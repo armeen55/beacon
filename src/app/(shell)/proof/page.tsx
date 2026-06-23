@@ -402,7 +402,7 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
         ))}
       </div>
 
-      <p className="mt-2 text-[10px] text-muted-foreground/70">
+      <p className="mt-2 text-[10px] text-muted-foreground">
         {`Compared against ${controlsCount} comparable untreated page${controlsCount === 1 ? "" : "s"} on the same site.`}{" "}
         Observational, directional, not a controlled experiment.
       </p>
@@ -422,7 +422,7 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
       {rec.before ? (
         <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-2.5">
           <RollbackCopyButton before={rec.before} />
-          <span className="text-[10px] text-muted-foreground/70">
+          <span className="text-[10px] text-muted-foreground">
             Beacon never auto-reverts a live page.
           </span>
         </div>
