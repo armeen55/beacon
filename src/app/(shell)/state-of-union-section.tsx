@@ -72,14 +72,14 @@ export async function StateOfUnionSection() {
       <div className={"rounded-xl border p-5 " + VERDICT_ACCENT[h.verdict]}>
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-            State of the Union
+            How your business is doing
           </span>
           <Link
             href="/opportunities"
             prefetch={false}
             className="text-[12px] font-medium text-foreground underline-offset-2 hover:underline"
           >
-            {sou.opportunityCount} opportunities →
+            {sou.opportunityCount} things you could improve →
           </Link>
         </div>
         <h2 className="mt-2 text-[19px] font-semibold leading-snug text-foreground">
@@ -88,14 +88,14 @@ export async function StateOfUnionSection() {
         <p className="mt-1 text-[13px] text-muted-foreground">{h.subline}</p>
         <div className="mt-4 flex flex-wrap gap-8">
           <Stat
-            label="clicks (28d)"
+            label="Visits from Google (28 days)"
             value={h.clicks28d.toLocaleString()}
             // Don't show a colored ▲/▼ delta when the headline calls it steady —
             // the badge would claim a direction the verdict explicitly denies.
             delta={h.verdict === "healthy" ? null : { pct: h.clicksDeltaPct, goodWhenUp: true }}
           />
-          <Stat label="impressions (90d)" value={h.impressions90d.toLocaleString()} />
-          <Stat label="avg position" value={h.avgPosition90d.toFixed(1)} />
+          <Stat label="Times shown on Google (90 days)" value={h.impressions90d.toLocaleString()} />
+          <Stat label="Average Google rank (90 days)" value={h.avgPosition90d.toFixed(1)} />
         </div>
       </div>
 
@@ -114,19 +114,19 @@ export async function StateOfUnionSection() {
       {/* Two-column: bleeding vs rising */}
       <div className="grid gap-3 md:grid-cols-2">
         <BriefList
-          title="Fix first: bleeding pages"
+          title="Fix first: pages losing visitors"
           tone="rose"
-          empty="No CTR leaks or decaying pages right now."
+          empty="No pages losing visitors right now."
           rows={sou.bleedingPages.map((o) => ({
             title: o.title,
             sub: o.why,
-            metric: o.estClicksAtStake > 0 ? `~${o.estClicksAtStake.toLocaleString()} clicks` : "",
+            metric: o.estClicksAtStake > 0 ? `~${o.estClicksAtStake.toLocaleString()} visits` : "",
           }))}
         />
         <BriefList
-          title="Rising demand & momentum"
+          title="Pages on the rise"
           tone="emerald"
-          empty="No striking-distance or rising pages yet."
+          empty="No pages close to ranking higher yet."
           rows={sou.risingOpportunities.map((o) => ({
             title: o.title,
             sub: o.why,
@@ -140,15 +140,15 @@ export async function StateOfUnionSection() {
         {sou.schemaAeoGap ? (
           <div className="rounded-lg border border-border/60 p-4">
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              AEO / schema gap
+              Help AI answer questions about you
             </div>
             <div className="mt-1 text-[15px] font-semibold text-foreground">
-              {sou.schemaAeoGap.faqCovered}/{sou.schemaAeoGap.faqTotal} pages have FAQ schema
+              {sou.schemaAeoGap.faqCovered} of {sou.schemaAeoGap.faqTotal} pages have a clear Q&amp;A section
             </div>
             <p className="mt-1 text-[12px] text-muted-foreground">
-              {sou.schemaAeoGap.thinPages} thin pages (&lt;300 words). A visible
-              Q&amp;A + structured data can support answer extraction, it&rsquo;s
-              machine-readable support, not a guaranteed rich result.
+              {sou.schemaAeoGap.thinPages} {sou.schemaAeoGap.thinPages === 1 ? "page is" : "pages are"} short on
+              content. Adding a clear question-and-answer section helps Google and AI
+              tools understand and recommend your pages.
             </p>
           </div>
         ) : null}
@@ -172,7 +172,7 @@ export async function StateOfUnionSection() {
         </div>
         <div className="rounded-lg border border-border/60 p-4">
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            UX friction
+            Where visitors get stuck
           </div>
           <div className="mt-1 text-[15px] font-semibold text-foreground">
             {sou.frictionPageCount} page{sou.frictionPageCount === 1 ? "" : "s"}
@@ -184,7 +184,7 @@ export async function StateOfUnionSection() {
                     (e) => e.source === "clarity",
                   )?.line ?? sou.frictionPages[0].why
                 }`
-              : "No dead-click hotspots detected."}
+              : "No spots where visitors are getting stuck."}
           </p>
         </div>
       </div>

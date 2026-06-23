@@ -8,7 +8,7 @@ describe("deriveHeadline", () => {
       6,
     );
     expect(h.verdict).toBe("ranking_better_losing_clicks");
-    expect(h.headline.toLowerCase()).toContain("leaking clicks");
+    expect(h.headline.toLowerCase()).toContain("barely get clicked");
     expect(h.clicksDeltaPct).toBeLessThan(0);
   });
 
@@ -18,7 +18,7 @@ describe("deriveHeadline", () => {
       37,
     );
     expect(h.verdict).toBe("ranking_better_losing_clicks");
-    expect(h.headline).toContain("37 page-1 pages");
+    expect(h.headline).toContain("37 pages");
     expect(h.subline.toLowerCase()).toContain("up"); // trend still reported in the subline
   });
 

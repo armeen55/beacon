@@ -115,24 +115,24 @@ export function deriveHeadline(
   // get clicked are recoverable clicks at the rank you already hold).
   if (ctrLeakCount >= 5) {
     verdict = "ranking_better_losing_clicks";
-    headline = `${ctrLeakCount} page-1 pages are leaking clicks, your single biggest lever.`;
-    subline = `${trend} vs the prior 28 days. These pages rank well but barely get clicked; fixing titles/snippets recovers clicks at the rank you already hold.`;
+    headline = `${ctrLeakCount} pages already rank on Google's first page but barely get clicked. Fixing them is your biggest opportunity.`;
+    subline = `${trend} vs the previous 28 days. These pages rank well but few people click. Better titles and descriptions win back visits at the rank you already have.`;
   } else if (down && ctrLeakCount >= 1) {
     verdict = "ranking_better_losing_clicks";
-    headline = "Ranking better, but losing clicks, a CTR problem, not a ranking one.";
-    subline = `${ctrLeakCount} ${ctrLeakCount === 1 ? "page ranks" : "pages rank"} on page 1 yet barely ${ctrLeakCount === 1 ? "gets" : "get"} clicked. Fix titles/snippets to recover clicks at the current rank.`;
+    headline = "You rank well on Google but are losing clicks. The fix is your titles and descriptions, not your ranking.";
+    subline = `${ctrLeakCount} ${ctrLeakCount === 1 ? "page ranks" : "pages rank"} on Google's first page yet barely ${ctrLeakCount === 1 ? "gets" : "get"} clicked. Better titles and descriptions win back visits at the rank you already have.`;
   } else if (down) {
     verdict = "declining";
-    headline = `Search clicks are down ${Math.abs(deltaPct)}% vs the prior 28 days.`;
-    subline = "Refresh the declining pages below before they slide further.";
+    headline = `Visits from Google are down ${Math.abs(deltaPct)}% vs the previous 28 days.`;
+    subline = "Refresh the slipping pages below before they fall further.";
   } else if (up) {
     verdict = "growing";
-    headline = `Search clicks are up ${deltaPct}% vs the prior 28 days.`;
-    subline = "Momentum is building, amplify the rising pages below.";
+    headline = `Visits from Google are up ${deltaPct}% vs the previous 28 days.`;
+    subline = "You have momentum. Build on the rising pages below.";
   } else {
     verdict = "healthy";
-    headline = "Search traffic is holding steady.";
-    subline = "Work the biggest opportunities below to push it up.";
+    headline = "Visits from Google are holding steady.";
+    subline = "Work the biggest opportunities below to push them up.";
   }
 
   return {
