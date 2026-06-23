@@ -55,3 +55,62 @@ export function computeOutcomePriors(
   }
   return out;
 }
+
+/** Per-action_type breakdown for the /proof learning diagnostic: how many
+ *  settled wins/losses (and operator-excluded results) feed each type's prior,
+ *  so the operator can SEE which action types are steering ranking and spot a
+ *  skew. `prior` is null below MIN_OUTCOME_SAMPLES (not yet trusted). */
+export type OutcomePriorDiagnostic = {
+  actionType: string;
+  won: number;
+  lost: number;
+  /** Results the operator pinned to "inconclusive" (excluded from learning). */
+  excluded: number;
+  settled: number;
+  prior: number | null;
+};
+
+/**
+ * Diagnostic view over the proof ledger. PURE. Counts won/lost (settled) and
+ * operator-excluded results per action_type, and reports the same prior
+ * `computeOutcomePriors` would apply (null until MIN_OUTCOME_SAMPLES settled).
+ * Sorted by strongest prior magnitude, then most evidence.
+ */
+export function computeOutcomePriorDiagnostics(
+  records: readonly (OutcomeVerdictRecord & {
+    operatorVerdictOverride?: string | null;
+  })[],
+): OutcomePriorDiagnostic[] {
+  const won = new Map<string, number>();
+  const lost = new Map<string, number>();
+  const excluded = new Map<string, number>();
+  for (const r of records) {
+    if (!r.actionType) continue;
+    if (r.operatorVerdictOverride === "inconclusive") {
+      excluded.set(r.actionType, (excluded.get(r.actionType) ?? 0) + 1);
+      continue; // pinned out of won/lost by measureRecord; don't double-count
+    }
+    if (r.verdict === "won") won.set(r.actionType, (won.get(r.actionType) ?? 0) + 1);
+    else if (r.verdict === "lost") lost.set(r.actionType, (lost.get(r.actionType) ?? 0) + 1);
+  }
+  const priors = computeOutcomePriors(records);
+  const types = new Set([...won.keys(), ...lost.keys(), ...excluded.keys()]);
+  const rows: OutcomePriorDiagnostic[] = [];
+  for (const at of types) {
+    const w = won.get(at) ?? 0;
+    const l = lost.get(at) ?? 0;
+    rows.push({
+      actionType: at,
+      won: w,
+      lost: l,
+      excluded: excluded.get(at) ?? 0,
+      settled: w + l,
+      prior: priors.get(at) ?? null,
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      Math.abs(b.prior ?? 0) - Math.abs(a.prior ?? 0) || b.settled - a.settled,
+  );
+  return rows;
+}

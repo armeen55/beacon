@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   computeOutcomePriors,
+  computeOutcomePriorDiagnostics,
   MIN_OUTCOME_SAMPLES,
 } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
@@ -67,5 +68,45 @@ describe("outcomePriorBonus — bounded, symmetric, priority-only", () => {
   it("clamps out-of-range priors", () => {
     expect(outcomePriorBonus(5)).toBe(MAX_OUTCOME_PRIOR_BONUS);
     expect(outcomePriorBonus(-5)).toBe(-MAX_OUTCOME_PRIOR_BONUS);
+  });
+});
+
+describe("computeOutcomePriorDiagnostics — per-action_type learning view", () => {
+  const drec = (
+    actionType: string,
+    verdict: string,
+    operatorVerdictOverride: string | null = null,
+  ) => ({ actionType, verdict, operatorVerdictOverride });
+
+  it("counts won/lost/excluded and reports the prior (null below MIN samples)", () => {
+    const rows = computeOutcomePriorDiagnostics([
+      drec("edit_title", "won"),
+      drec("edit_title", "won"),
+      drec("edit_title", "won"),
+      drec("edit_meta", "won"), // only 1 settled → below MIN → prior null
+    ]);
+    const title = rows.find((r) => r.actionType === "edit_title")!;
+    expect(title.won).toBe(3);
+    expect(title.lost).toBe(0);
+    expect(title.settled).toBe(3);
+    expect(title.prior).toBeCloseTo(1, 5);
+    const meta = rows.find((r) => r.actionType === "edit_meta")!;
+    expect(meta.settled).toBe(1);
+    expect(meta.prior).toBeNull();
+  });
+
+  it("an operator-excluded result drops out of won/lost and the prior", () => {
+    const rows = computeOutcomePriorDiagnostics([
+      drec("edit_title", "won"),
+      drec("edit_title", "won"),
+      drec("edit_title", "won"),
+      // measureRecord pins an excluded record's verdict to 'inconclusive'.
+      drec("edit_title", "inconclusive", "inconclusive"),
+    ]);
+    const title = rows.find((r) => r.actionType === "edit_title")!;
+    expect(title.won).toBe(3);
+    expect(title.excluded).toBe(1);
+    expect(title.settled).toBe(3); // the excluded one is NOT counted as settled
+    expect(title.prior).toBeCloseTo(1, 5); // and does not move the prior
   });
 });

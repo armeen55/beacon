@@ -7,6 +7,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
   pickProofMetric,
   proofOutcomeSentence,
@@ -76,6 +77,16 @@ export default async function ProofPage({
     .flatMap((l) => l.windows.filter((w) => !w.ran).map((w) => w.checkOn))
     .sort()[0];
 
+  // Operator-only: which action types past results are nudging Beacon toward /
+  // away from (the prior that steers ranking). Lets the operator SEE a skew and
+  // use "Exclude from learning" on a mis-measured result. Only types with a
+  // trusted prior or an excluded result are worth showing.
+  const learningDiag = isOperatorModeServer()
+    ? computeOutcomePriorDiagnostics(ledger).filter(
+        (d) => d.prior !== null || d.excluded > 0,
+      )
+    : [];
+
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5 flex items-start justify-between gap-4">
@@ -129,6 +140,45 @@ export default async function ProofPage({
               <LedgerCard key={rec.id} rec={rec} />
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {/* ── What Beacon has learned (operator-only): per-action_type prior that
+          steers ranking, so a skew is visible and excludable. ── */}
+      {learningDiag.length > 0 ? (
+        <div className="mb-6">
+          <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+            What Beacon has learned
+          </h2>
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            How your past results nudge which fixes Beacon suggests first. If a result
+            looks mis-measured, use &ldquo;Exclude from learning&rdquo; on it below.
+          </p>
+          <ul className="space-y-1">
+            {learningDiag.map((d) => (
+              <li key={d.actionType} className="text-[12px] text-foreground/80">
+                <span className="font-medium">{d.actionType.replace(/_/g, " ")}</span>:{" "}
+                {d.won} worked, {d.lost} did not
+                {d.excluded > 0 ? `, ${d.excluded} excluded` : ""}
+                {d.prior !== null ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    &rarr; Beacon now{" "}
+                    {d.prior > 0
+                      ? `favors this (+${Math.round(d.prior * 100)}%)`
+                      : d.prior < 0
+                        ? `is cautious here (${Math.round(d.prior * 100)}%)`
+                        : "is neutral"}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    &rarr; not enough results yet to change ranking
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
