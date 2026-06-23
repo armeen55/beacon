@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-23 — Big-moves loop #6/#7: learn-loop UI + transparency (06a93be, 7578781)
+
+- **#6 'Exclude from learning' control (06a93be):** operator-only toggle on each
+  settled (or excluded) /proof result, wired to markVerdictInconclusiveAction —
+  pulls a mis-measured win/loss out of the ranking prior without a DB edit.
+- **#7 'What Beacon has learned' diagnostic (7578781):** operator-only per-action_type
+  strip (worked / did not / excluded → which way the prior nudges ranking), via a
+  new pure computeOutcomePriorDiagnostics + 2 tests. The operator can now SEE a skew
+  and correct it with the exclude control.
+- Both read/markup + a pure helper; typecheck + 93 tests green (incl. no-banned-dash
+  display-surface guard). Checkpoint broad gate after the batch: 5,541 pass / 0 fail.
+- **Push/publish + draft-quality audit:** 15 candidates, 0 confirmed — those stages
+  (push rails, rollback, armed-publish gate, QA, fact-check) are well-hardened.
+
+---
+
 ## 2026-06-23 — Big-moves loop #4/#5: wedge trust fixes (0971dbc, 83ef07d)
 
 From a focused proof/attribution + learn-loop audit (2 confirmed impact-5 levers):
