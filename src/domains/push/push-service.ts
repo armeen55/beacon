@@ -635,20 +635,40 @@ async function recordLedger(
  * verified_live pass on its existing cadence; this gives the operator
  * a same-minute signal.
  */
+/**
+ * Probe outcome — a TAGGED result so the caller never conflates an
+ * authoritative "the text isn't on the page" with a transient "I couldn't
+ * read the page" (timeout / 5xx / TLS / DNS). Only `found` is authoritative
+ * enough to flip `verified_live`; `unreliable` and `not_found` both keep the
+ * row at `pushed` and let the scan cadence verify, but they read differently
+ * to the operator so a repeated `unreliable` (network) is distinguishable
+ * from a genuine `not_found` (propagation lag).
+ */
+export type ProbeLiveResult =
+  | { kind: "found"; status: number }
+  | { kind: "not_found"; status: number }
+  | { kind: "unreliable"; status: number };
+
 export async function probeLiveText(
   args: { url: string; proposedText: string },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ found: boolean; status: number }> {
+): Promise<ProbeLiveResult> {
   try {
     const res = await fetchImpl(args.url, {
       headers: { "User-Agent": "BeaconBot/1.0 (verify-live probe)", Accept: "text/html" },
       signal: AbortSignal.timeout(15_000),
     });
+    // A non-2xx (5xx maintenance, 4xx, redirect loop) RESOLVES rather than
+    // throwing — its body is not a trustworthy snapshot of the live page, so
+    // it's inconclusive, never "the change isn't there".
+    if (!res.ok) return { kind: "unreliable", status: res.status };
     const html = await res.text();
     const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
     const needle = norm(args.proposedText).slice(0, 120);
-    return { found: needle.length > 0 && norm(html).includes(needle), status: res.status };
+    const found = needle.length > 0 && norm(html).includes(needle);
+    return { kind: found ? "found" : "not_found", status: res.status };
   } catch {
-    return { found: false, status: 0 };
+    // Timeout (AbortSignal), TLS, DNS — we never saw the page. Inconclusive.
+    return { kind: "unreliable", status: 0 };
   }
 }

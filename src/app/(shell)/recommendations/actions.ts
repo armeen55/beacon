@@ -882,11 +882,16 @@ export async function approveAndPushRecommendedEdit(args: {
     url: edit.target_url,
     proposedText: edit.proposed_text ?? "",
   });
+  // Only an AUTHORITATIVE positive probe flips verified_live. A transient
+  // "unreliable" (timeout / 5xx / TLS) is NOT treated as "not live" — it keeps
+  // the row at `pushed` (the scan cadence is the authoritative verifier) and
+  // reads as inconclusive, not as a failure, to the operator.
+  const probeFound = probe.kind === "found";
   await markRecommendedEditPushResult({
     editId: args.editId,
     tenantId,
     result: "pushed",
-    verifiedByProbe: probe.found,
+    verifiedByProbe: probeFound,
   });
 
   updateTag(buildRecQueueCacheTag(tenantId));
@@ -896,13 +901,19 @@ export async function approveAndPushRecommendedEdit(args: {
     tenantId,
     editId: args.editId,
     detail: result.detail,
-    probeFound: probe.found,
+    probeKind: probe.kind,
     probeStatus: probe.status,
   });
+  const probeDetail =
+    probe.kind === "found"
+      ? " · verified live by immediate probe"
+      : probe.kind === "unreliable"
+        ? " · probe inconclusive (network); scan cadence will verify"
+        : " · not visible yet; scan cadence will verify";
   return {
     ok: true,
-    outcome: probe.found ? "verified_live" : "pushed",
-    detail: `${result.detail}${probe.found ? " · verified live by immediate probe" : " · probe pending (scan cadence will verify)"}`,
+    outcome: probeFound ? "verified_live" : "pushed",
+    detail: `${result.detail}${probeDetail}`,
   };
 }
 
