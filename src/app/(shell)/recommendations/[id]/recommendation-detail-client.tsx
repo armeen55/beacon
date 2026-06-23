@@ -502,7 +502,7 @@ export function RecommendationDetailClient({
       {/* Act 1 — Recommendation */}
       <Act
         index={1}
-        label="Recommendation"
+        label="What Beacon suggests"
         dataAttr="act-recommendation"
       >
         <div className="space-y-2 text-[13px]">
@@ -815,7 +815,7 @@ function Act({
     >
       <header className="flex items-baseline gap-2 mb-3">
         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-          Act {index}
+          Step {index}
         </span>
         <h2 className="text-[14px] font-semibold text-foreground">
           {label}

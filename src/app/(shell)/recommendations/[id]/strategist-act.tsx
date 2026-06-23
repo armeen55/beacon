@@ -105,12 +105,12 @@ export function StrategistPanel({ result }: { result: StrategistActionResult }) 
       <header className="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-baseline gap-2">
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-            {deterministic ? "Beacon's read" : "Strategist analysis"}
+            {deterministic ? "Beacon's read" : "Beacon's deeper read"}
           </span>
           <span className="text-[10px] text-muted-foreground/50">
             {deterministic
-              ? "deterministic · grounded in your data"
-              : "AI-assisted · grounded in your data"}
+              ? "based on your data"
+              : "written by AI, based on your data"}
           </span>
         </div>
         <span
