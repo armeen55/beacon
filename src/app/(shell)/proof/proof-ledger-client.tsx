@@ -7,6 +7,7 @@ import {
   recordShippedChangeAction,
   recomputeProofLedgerAction,
   markRecrawlRequestedAction,
+  markVerdictInconclusiveAction,
 } from "./actions";
 
 /**
@@ -405,6 +406,64 @@ export function RecrawlButton({
         title="Mark that you manually requested indexing / recrawl in Google Search Console. This only records the note; it does not call Google."
       >
         I asked Google to re-check this page
+      </button>
+      {err ? <span className="text-[10px] text-rose-600">{err}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * Operator control: exclude (or re-include) a settled change from LEARNING.
+ * Pins the verdict to "inconclusive" so a mis-attributed won/lost stops skewing
+ * the per-action_type prior that steers ranking. The GSC numbers still show; only
+ * the learning verdict is pinned. Operator-only (the action self-gates too).
+ */
+export function ExcludeFromLearningButton({
+  recordId,
+  excluded,
+}: {
+  recordId: string;
+  excluded: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+
+  const toggle = (next: boolean) =>
+    startTransition(async () => {
+      setErr(null);
+      const res = await markVerdictInconclusiveAction({ id: recordId, excluded: next });
+      if (res.success) router.refresh();
+      else setErr(res.error ?? "Failed.");
+    });
+
+  if (excluded) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+        <span>Excluded from learning (verdict not counted)</span>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => toggle(false)}
+          className="underline-offset-2 hover:underline disabled:opacity-50"
+        >
+          Include again
+        </button>
+        {err ? <span className="text-rose-600">{err}</span> : null}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => toggle(true)}
+        className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+        title="Stop this result from teaching Beacon (use when the win/loss looks mis-attributed). It still shows here; it just won't sway future rankings."
+      >
+        Exclude from learning
       </button>
       {err ? <span className="text-[10px] text-rose-600">{err}</span> : null}
     </span>

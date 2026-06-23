@@ -20,6 +20,7 @@ import {
   RecordAnyPageForm,
   RollbackCopyButton,
   RecrawlButton,
+  ExcludeFromLearningButton,
 } from "./proof-ledger-client";
 
 /**
@@ -417,6 +418,19 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
       <div className="mt-2.5">
         <RecrawlButton recordId={rec.id} requestedAt={rec.recrawlRequestedAt} />
       </div>
+
+      {/* Operator: exclude a settled (or already-excluded) result from learning so a
+          mis-attributed win/loss stops skewing future ranking. */}
+      {rec.verdict === "won" ||
+      rec.verdict === "lost" ||
+      rec.operatorVerdictOverride === "inconclusive" ? (
+        <div className="mt-1.5">
+          <ExcludeFromLearningButton
+            recordId={rec.id}
+            excluded={rec.operatorVerdictOverride === "inconclusive"}
+          />
+        </div>
+      ) : null}
 
       {/* Manual rollback: copy the before text back into the CMS. */}
       {rec.before ? (
