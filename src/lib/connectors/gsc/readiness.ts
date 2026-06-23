@@ -55,8 +55,15 @@ export type GscReadiness = {
    *  when rows exist — surfaced separately so the presenter can compute
    *  freshness without re-deriving it. */
   lastDataDate: string | null;
-  /** Whole days between `lastDataDate` and `now`. Null when there is no data. */
+  /** Whole days between `lastDataDate` and `now`. Null when there is no data.
+   *  NOTE: this is DATA age, not sync age. GSC finalizes data ~3 days behind, so
+   *  this is ALWAYS ≥ ~2–3 even immediately after a successful sync — it must
+   *  never be presented as "refreshed N days ago". */
   freshnessDays: number | null;
+  /** When the connector last successfully SYNCED (ISO ts), straight off the
+   *  token row. This — NOT the data date — is what "checked / refreshed X ago"
+   *  must read from. Null when never synced. */
+  lastSyncedAt: string | null;
 };
 
 function isUndefinedTableError(error: unknown): boolean {
@@ -229,6 +236,7 @@ export async function loadGscReadiness(
     coverage: null,
     lastDataDate: null,
     freshnessDays: null,
+    lastSyncedAt: null,
   };
 
   // 1/2 — connection + reconnect state (no HTTP). A token-store read failure
@@ -261,7 +269,8 @@ export async function loadGscReadiness(
   const lastDataDate = fullCoverage?.toDate ?? null;
   const freshnessDays =
     lastDataDate != null ? daysSince(lastDataDate, now) : null;
-  const dataFields = { property, coverage, lastDataDate, freshnessDays };
+  const lastSyncedAt = info.last_synced_at ?? null;
+  const dataFields = { property, coverage, lastDataDate, freshnessDays, lastSyncedAt };
 
   // Not connected (no token / soft-disconnected). We still carry the cached
   // property + coverage so the card can show what was last synced.
@@ -311,11 +320,26 @@ function shortDate(isoDate: string): string {
   });
 }
 
-/** "refreshed today" / "refreshed 1 day ago" / "refreshed N days ago". */
-function freshnessPhrase(days: number): string {
-  if (days <= 0) return "refreshed today";
-  if (days === 1) return "refreshed 1 day ago";
-  return `refreshed ${days} days ago`;
+/** DATA-age phrase. GSC finalizes data ~3 days behind, so 0–3 days behind is
+ *  NORMAL (Google's publish lag), never staleness. Only >3 days is worth noting. */
+function dataAgePhrase(freshnessDays: number): string {
+  if (freshnessDays <= 3) return "Google's latest (it publishes ~3 days behind)";
+  return `data ${freshnessDays} days behind`;
+}
+
+/** SYNC-age phrase — when Beacon last PULLED, off last_synced_at (NOT the data
+ *  date). This is the honest "are we keeping it fresh" signal. */
+function syncAgePhrase(lastSyncedAt: string | null, now: Date): string | null {
+  if (!lastSyncedAt) return null;
+  const ms = Date.parse(lastSyncedAt);
+  if (!Number.isFinite(ms)) return null;
+  const mins = Math.max(0, Math.floor((now.getTime() - ms) / 60_000));
+  if (mins < 2) return "checked just now";
+  if (mins < 60) return `checked ${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `checked ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `checked ${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 /**
@@ -323,7 +347,10 @@ function freshnessPhrase(days: number): string {
  * everything from `r` only; never invents numbers or dates. Safe to render on
  * the client.
  */
-export function describeGscReadiness(r: GscReadiness): GscReadinessDescription {
+export function describeGscReadiness(
+  r: GscReadiness,
+  now: Date = new Date(),
+): GscReadinessDescription {
   switch (r.verdict) {
     case "ready": {
       const headline =
@@ -342,7 +369,12 @@ export function describeGscReadiness(r: GscReadiness): GscReadinessDescription {
           }`,
         );
       }
-      if (r.freshnessDays != null) parts.push(freshnessPhrase(r.freshnessDays));
+      // Data-age (Google's lag — normal) and sync-age (when WE last pulled) are
+      // distinct: showing the data date as "refreshed N days ago" made a fresh,
+      // healthy connection look broken. Show both, honestly.
+      if (r.freshnessDays != null) parts.push(dataAgePhrase(r.freshnessDays));
+      const sync = syncAgePhrase(r.lastSyncedAt, now);
+      if (sync != null) parts.push(sync);
       const detail =
         parts.length > 0 ? parts.join(" · ") : "Search data is up to date.";
       return { headline, detail, tone: "ready" };

@@ -109,6 +109,7 @@ function readiness(freshnessDays: number | null): GscReadiness {
     coverage: null,
     lastDataDate: null,
     freshnessDays,
+    lastSyncedAt: null,
   };
 }
 

@@ -305,27 +305,36 @@ function readiness(over: Partial<GscReadiness>): GscReadiness {
     coverage: null,
     lastDataDate: null,
     freshnessDays: null,
+    lastSyncedAt: null,
     ...over,
   };
 }
 
 describe("describeGscReadiness — presenter copy", () => {
-  it("ready → 'Using property …' headline + 'Search data … · N rows · refreshed …' detail", () => {
+  const NOW = new Date("2026-06-16T12:00:00Z");
+
+  it("ready → headline + 'Search data … · N rows · <data-age> · checked <sync-age>'", () => {
     const d = describeGscReadiness(
       readiness({
         verdict: "ready",
         property: "sc-domain:iranopedia.com",
         coverage: { fromDate: "2026-01-12", toDate: "2026-06-14", rowCount: 12431 },
         lastDataDate: "2026-06-14",
-        freshnessDays: 2,
+        freshnessDays: 2, // within Google's ~3-day lag → NORMAL, not stale
+        lastSyncedAt: "2026-06-16T11:55:00Z", // 5 min before NOW
       }),
+      NOW,
     );
     expect(d.headline).toBe("Using property sc-domain:iranopedia.com");
-    expect(d.detail).toBe("Search data Jan 12 to Jun 14 · 12,431 rows · refreshed 2 days ago");
+    // Data-age (Google's lag) and sync-age (when WE pulled) are now distinct:
+    // 2 days behind is the normal publish lag, and the refresh was 5 min ago.
+    expect(d.detail).toBe(
+      "Search data Jan 12 to Jun 14 · 12,431 rows · Google's latest (it publishes ~3 days behind) · checked 5 min ago",
+    );
     expect(d.tone).toBe("ready");
   });
 
-  it("ready → singular 'row' + 'refreshed today' at 0 days, single-day window collapses", () => {
+  it("ready → just-synced + within-lag reads 'Google's latest … · checked just now'", () => {
     const d = describeGscReadiness(
       readiness({
         verdict: "ready",
@@ -333,23 +342,32 @@ describe("describeGscReadiness — presenter copy", () => {
         coverage: { fromDate: "2026-06-14", toDate: "2026-06-14", rowCount: 1 },
         lastDataDate: "2026-06-14",
         freshnessDays: 0,
+        lastSyncedAt: "2026-06-16T11:59:30Z", // 30s before NOW
       }),
+      NOW,
     );
     // A one-day window reads as a single date, not "Jun 14 to Jun 14".
-    expect(d.detail).toBe("Search data Jun 14 · 1 row · refreshed today");
+    expect(d.detail).toBe(
+      "Search data Jun 14 · 1 row · Google's latest (it publishes ~3 days behind) · checked just now",
+    );
   });
 
-  it("ready → 'refreshed 1 day ago' singular", () => {
+  it("ready → GENUINELY stale data (>3 days behind) is flagged, sync recency stays separate", () => {
     const d = describeGscReadiness(
       readiness({
         verdict: "ready",
         property: "sc-domain:x.com",
-        coverage: { fromDate: "2026-06-01", toDate: "2026-06-13", rowCount: 50 },
-        lastDataDate: "2026-06-13",
-        freshnessDays: 1,
+        coverage: { fromDate: "2026-06-01", toDate: "2026-06-04", rowCount: 50 },
+        lastDataDate: "2026-06-04",
+        freshnessDays: 12, // beyond the lag → genuinely behind
+        lastSyncedAt: "2026-06-16T08:00:00Z", // 4 hours before NOW
       }),
+      NOW,
     );
-    expect(d.detail).toContain("refreshed 1 day ago");
+    expect(d.detail).toContain("data 12 days behind");
+    expect(d.detail).toContain("checked 4 hours ago");
+    // Old bug: data-age was shown as "refreshed N days ago" — never again.
+    expect(d.detail).not.toContain("refreshed");
   });
 
   it("connected_no_data → backfill prompt, no numbers invented", () => {
