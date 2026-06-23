@@ -54,7 +54,7 @@ describe("Changes route smoke", () => {
     // stamps the layout marker.
     expect(html).toContain('data-changes-layout="v2-proof-timeline"');
     // The v2 header copy (NOT the deleted legacy header).
-    expect(html).toContain("Track what shipped");
+    expect(html).toContain("Changes");
     // The deleted legacy lifecycle strip + tab chrome must NOT render.
     expect(html).not.toContain("data-today-lifecycle-strip");
     expect(html).not.toContain(">Outcomes<");

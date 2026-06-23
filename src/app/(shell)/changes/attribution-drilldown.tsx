@@ -317,19 +317,19 @@ function NotComputedBody({ outcome }: { outcome: StoredChangeOutcome }) {
 function statusExplanation(status: StoredChangeOutcome["status"]): string {
   switch (status) {
     case "unsupported_scope":
-      return "Sitewide, infrastructure, and offsite changes need a different attribution model. URL-level diff-in-differences doesn't apply to this event in v1.";
+      return "This change affects your whole site or things off your site, so Beacon can't measure it by comparing one page to similar pages.";
     case "insufficient_baseline":
-      return "There's not enough pre-change citation history on the treated URL to build a reliable baseline.";
+      return "There isn't enough history for this page before the change to know what 'normal' looked like.";
     case "insufficient_post_data":
-      return "Not enough post-change days have passed yet. Refresh your connected data over the next week or two, then re-check to measure this change.";
+      return "Not enough time has passed since the change. Refresh your connected data over the next week or two, then check again.";
     case "zero_signal":
-      return "The treated URL has no recorded citations in either the pre or post window.";
+      return "This page wasn't mentioned by AI before or after the change, so there's nothing to compare.";
     case "ineligible_layer":
-      return "This event is a finding, status, noise, infra, or offsite record — not a change-layer edit. URL-level lift math doesn't apply.";
+      return "This entry is a note or a status update, not an edit to a page, so there's nothing to measure here.";
     case "ineligible_event":
-      return "This event is ineligible (vague description, bundle child, or missing URL). Attribute the parent bundle or rewrite the changelog entry with more specificity.";
+      return "Beacon can't measure this one (the description is vague or the page address is missing). Add more detail to measure it.";
     default:
-      return "No attribution produced for this event.";
+      return "Beacon couldn't measure the result of this change.";
   }
 }
 
