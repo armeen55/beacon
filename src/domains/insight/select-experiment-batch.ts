@@ -104,6 +104,16 @@ function hrefFor(path: string): string {
   return `/workbench/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
 }
 
+/** Normalize em/en dashes to a hyphen so surfaced copy (drafts, evidence,
+ *  before/rollback values pulled from live pages) never carries the em-dash
+ *  tell. Hyphen keeps titles near-verbatim for rollback. */
+function noDash(s: string): string {
+  return s.replace(/\s*[—–]\s*/g, " - ");
+}
+function noDashN(s: string | null): string | null {
+  return s == null ? null : noDash(s);
+}
+
 function statusOf(c: OptimizerCandidate): ExperimentStatus {
   if (c.blockedBy === "wix") return "needs_wix_mapping";
   if (c.draftSource === "needs_endpoint" || c.draft == null) return "needs_drafting";
@@ -134,17 +144,17 @@ function toCard(row: BatchPageRow, c: OptimizerCandidate, isSwing: boolean): Exp
   return {
     page: row.item.path,
     canonUrl: row.item.canonUrl,
-    pageTitle: row.item.title,
+    pageTitle: noDash(row.item.title),
     lever: c.lever,
     actionType: ACTION_OF[c.lever],
     family: familyOf(c.lever),
-    whyNow: c.evidence || row.item.why,
-    evidence: row.item.evidenceBySource.map((e) => ({ source: e.source, line: e.line })),
-    draft: c.draft,
+    whyNow: noDash(c.evidence || row.item.why),
+    evidence: row.item.evidenceBySource.map((e) => ({ source: e.source, line: noDash(e.line) })),
+    draft: noDashN(c.draft),
     draftSource: c.draftSource,
-    before,
-    rollbackCopy,
-    targetQueries: row.topQueries.slice(0, 6),
+    before: noDashN(before),
+    rollbackCopy: noDashN(rollbackCopy),
+    targetQueries: row.topQueries.slice(0, 6).map(noDash),
     risk: c.risk,
     measurementWindow: row.item.estWindow,
     measurementMetric: c.measurementMetric,
@@ -170,89 +180,97 @@ type Scored = {
   isSwing: boolean;
 };
 
-function scoreCandidate(c: OptimizerCandidate): number {
-  const impact = c.estClicksAtStake ?? 0;
+/** Impact x confidence with risk / speed / readiness tie-breaks. Non-CTR levers
+ *  carry no per-lever click estimate, so they fall back to a discounted slice of
+ *  the page's overall opportunity value (a content fix captures the page's demand
+ *  less directly than a CTR fix, hence the discount). */
+function scoreOf(c: OptimizerCandidate, pageEstClicks: number): number {
+  const impact = c.estClicksAtStake ?? Math.round(pageEstClicks * 0.5);
   const conf = CONF_W[c.upsideConfidence ?? "low"];
   const speedAdj = c.speed === "ctr_days" ? 1 : c.speed === "rank_weeks" ? 0.85 : 0.7;
   const readyAdj = c.safeNow ? 1 : 0.9;
   return impact * conf * RISK_W[c.risk] * speedAdj * readyAdj;
 }
 
+function isSwingLever(c: OptimizerCandidate): boolean {
+  return c.lever === "new_page" || c.lever === "cannibalization" || (c.lever === "h2_sections" && c.risk === "high");
+}
+
 /**
  * Select the next batch of 5 to 10 experiments across pages. Pure + deterministic.
  */
 export function selectExperimentBatch(rows: BatchPageRow[]): ExperimentCard[] {
-  // 1) Build the candidate pool: one entry per (page, distinct lever) from the
-  //    five single-move buckets. Hold/do-not-touch is never selectable.
+  // 1) Build the candidate pool. Candidates come from the five single-move
+  //    buckets PLUS the drafting/mapping opportunities parked in hold (so a page
+  //    whose best move needs a draft still surfaces, routed to the Workbench).
   const pool: Scored[] = [];
   for (const row of rows) {
+    // PAGE-LEVEL measuring exclusion: while ANY experiment is measuring on this
+    // page, a second change would muddy its window. Skip the whole page, except a
+    // non-overlapping cluster (cannibalization) push.
+    const pageMeasuring = row.measuringActions.length > 0;
     const o = row.optimizer;
+    const holds = o.holdDoNotTouch.filter((c) => c.blockedBy === "data" || c.blockedBy === "wix");
     const cands = [
       o.bestNextMove,
       o.safestChange,
       o.fastestMeasurable,
       o.highestUpside,
       o.biggerSwingLater,
+      ...holds,
     ].filter((c): c is OptimizerCandidate => c != null);
 
     const seen = new Set<LeverKey>();
     for (const c of cands) {
       if (seen.has(c.lever)) continue;
       seen.add(c.lever);
-      // Hard exclusions: an open experiment, or a SERP-owned title/meta.
-      if (c.blockedBy === "measuring" || c.blockedBy === "serp") continue;
-      // Too small to read in Search (a net-new page is exempt; it has no prior clicks).
-      if (c.lever !== "new_page" && (c.estClicksAtStake ?? 0) < MIN_CLICKS) continue;
-      const isSwing = c.lever === "new_page" || (c.lever === "h2_sections" && c.risk === "high");
+      if (pageMeasuring && c.lever !== "cannibalization") continue; // page under measurement
+      if (c.blockedBy === "measuring" || c.blockedBy === "serp") continue; // open / SERP-owned
+      // CTR levers need enough volume to read; content/structure levers are judged
+      // by position (no click-at-stake estimate) so they are never volume-gated.
+      if ((c.lever === "title" || c.lever === "meta") && (c.estClicksAtStake ?? 0) < MIN_CLICKS) continue;
       pool.push({
         row,
         cand: c,
         family: familyOf(c.lever),
         action: ACTION_OF[c.lever],
-        score: scoreCandidate(c),
-        isSwing,
+        score: scoreOf(c, row.item.estClicksAtStake),
+        isSwing: isSwingLever(c),
       });
     }
   }
+  pool.sort((a, b) => b.score - a.score);
 
-  // 2) One experiment per page: keep the highest-scoring candidate per path.
-  const bestPerPath = new Map<string, Scored>();
-  for (const s of pool) {
-    const key = s.row.item.path;
-    const prev = bestPerPath.get(key);
-    if (!prev || s.score > prev.score) bestPerPath.set(key, s);
-  }
-  const ranked = [...bestPerPath.values()].sort((a, b) => b.score - a.score);
-
-  // 3) Diversity-first fill.
+  // 2) Diversity-aware selection, ONE card per page. The diversity pass drives
+  //    which page contributes which family, so the batch is not all metas.
   const picked: Scored[] = [];
+  const usedPages = new Set<string>();
   const perAction = new Map<string, number>();
+  const canTake = (s: Scored) =>
+    !usedPages.has(s.row.item.path) && (perAction.get(s.action) ?? 0) < PER_ACTION_CAP;
   const take = (s: Scored) => {
     picked.push(s);
+    usedPages.add(s.row.item.path);
     perAction.set(s.action, (perAction.get(s.action) ?? 0) + 1);
   };
-  const underCap = (s: Scored) => (perAction.get(s.action) ?? 0) < PER_ACTION_CAP;
-  const isPicked = (s: Scored) => picked.includes(s);
 
-  // Pass 1: one of each wanted family, highest score first.
+  // Pass 1: one of each wanted family (highest score first), distinct pages.
   for (const fam of WANTED_FAMILIES) {
-    const cand = ranked.find((s) => !isPicked(s) && s.family === fam && underCap(s));
+    const cand = pool.find((s) => s.family === fam && canTake(s));
     if (cand) take(cand);
   }
-  // Pass 2: fill by pure score up to the max, honoring the per-action cap.
-  for (const s of ranked) {
+  // Pass 2: fill by score up to the max, honoring per-action cap + one-per-page.
+  for (const s of pool) {
     if (picked.length >= TARGET_MAX) break;
-    if (isPicked(s) || !underCap(s)) continue;
-    take(s);
+    if (canTake(s)) take(s);
   }
-  // Pass 3: guarantee exactly one clearly-optional bigger swing if one exists.
+  // Pass 3: guarantee one clearly-optional bigger swing if one exists.
   if (!picked.some((s) => s.isSwing) && picked.length < TARGET_MAX) {
-    const swing = ranked.find((s) => s.isSwing && !isPicked(s));
+    const swing = pool.find((s) => s.isSwing && canTake(s));
     if (swing) take(swing);
   }
 
-  // 4) Final order: by score, but never return more than the max.
-  void TARGET_MIN; // soft floor — we return whatever is available up to it
+  void TARGET_MIN; // soft floor — return whatever is available up to it
   return picked
     .sort((a, b) => b.score - a.score)
     .slice(0, TARGET_MAX)

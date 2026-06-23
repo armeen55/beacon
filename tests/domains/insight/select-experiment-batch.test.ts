@@ -94,6 +94,30 @@ describe("selectExperimentBatch (TASK 4)", () => {
     expect(cards[0]!.lever).toBe("schema");
   });
 
+  it("excludes the WHOLE page while any experiment is measuring on it (not just the measuring lever)", () => {
+    // /farsi-numbers reality: answer block is measuring; a title experiment on the
+    // same page would muddy its window, so the whole page is held out of the batch.
+    const measuringPage = {
+      ...row("/farsi-numbers", cand("title", { estClicksAtStake: 471 })),
+      measuringActions: ["intro_answer_block"],
+    };
+    const cards = selectExperimentBatch([
+      measuringPage,
+      row("/clean", cand("schema", { rollbackType: "reversible_add" })),
+    ]);
+    expect(cards.map((c) => c.page)).toEqual(["/clean"]);
+  });
+
+  it("allows a non-overlapping cluster (cannibalization) push on a measuring page", () => {
+    const measuringWithCluster = {
+      ...row("/dupe", cand("cannibalization", { estClicksAtStake: 0, rollbackType: "best_effort", speed: "structural", wixPushMethod: "manual_cms_edit" })),
+      measuringActions: ["title"],
+    };
+    const cards = selectExperimentBatch([measuringWithCluster]);
+    expect(cards.map((c) => c.lever)).toEqual(["cannibalization"]);
+    expect(cards[0]!.isOptionalSwing).toBe(true);
+  });
+
   it("excludes a lever with too little volume to measure (except a net-new page)", () => {
     const cards = selectExperimentBatch([
       row("/tiny", cand("meta", { estClicksAtStake: 2 })),
