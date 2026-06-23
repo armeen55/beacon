@@ -7,6 +7,59 @@
 
 ---
 
+## 2026-06-23 Casual-user understandability campaign — B1–B21 shipped to `main` (PUSHED)
+
+Turned the 923-item casual-user audit (292 critical) into a real plain-English
+fix campaign for "Sara", a non-technical business owner. **21 verified batches,
+all committed + pushed to `origin/main`, ~228 of 292 critical fixed (~78%).**
+Each batch: typecheck + targeted tests + pinned-copy test updates; broad
+route+architecture gate (5,572 tests) green at the end.
+
+- **B1 foundation** — `src/lib/plain-language.ts` central term map (METRIC_META +
+  TERM_GLOSSARY + tagline + NOTHING_GOES_LIVE_NOTE) so copy isn't rewritten 50
+  ways; sidebar wordmark + contrast.
+- **B2–B4 Today** — State-of-Union headlines, stat cards (Impressions → "Times
+  shown on Google", Avg position → "Average Google rank", dead clicks → "Clicks
+  that did nothing"), timeframe on every stat.
+- **B5 Recommendations** — header + tab copy; card stats; "Page Surgeon ready" →
+  "Detailed draft ready".
+- **B6 Changes** — raw JSON-LD dump → "Added structured data…"; "controls" →
+  "similar pages we did not change".
+- **B7 Proof** — verdicts Helped/Did not help/No clear change; suppressed the
+  scary sub-7-day "-122%" as "too soon to tell".
+- **B8 Connectors/Data Health** — 6 source descriptions plain; "Data Health" →
+  "Your connected accounts"; "Armed" → "On".
+- **B9 Settings/Business info** — "Business configuration" → "Your business info".
+- **B10 Prompts** — "Prompts" → "AI questions"; detail headings plain.
+- **B11 Competitors** — "Market" → "Competitors"; citation-share KPIs/headings.
+- **B12 Login/Onboarding/Nav** — login + onboarding copy; nav "Proof" → "Results",
+  "Data Health" → "Connections"; stripped em dashes from 4 surfaces.
+- **B13 Publish safety** — "Approve & Push" → "Publish to my site" + what-happens
+  note; "Accept" → "Approve this edit".
+- **B14 Operator surfaces** — "Opportunity Map" → "What to fix first"; Workbench
+  section headings de-jargoned.
+- **B15 Settings/Import** — "Import historical answer data" → "Import past data".
+- **B16 Account/logout + breadcrumbs** — sidebar Sign-out footer; breadcrumb
+  labels aligned to renamed pages.
+- **B17 Help & glossary** — new `/help`: first-run Q&A + glossary from
+  TERM_GLOSSARY; linked in sidebar footer.
+- **B18 Rec detail body** — "Act 1/2/3…" → "Step N"; "Strategist analysis" →
+  "Beacon's deeper read".
+- **B19 Proof record-form** — "Record a shipped change" → "Tell us about an edit
+  you made"; "Recompute outcomes" → "Check for new results".
+- **B20 Changes attribution** — 7 statusExplanation outcomes plain; fixed a
+  latent changes-smoke test pinning the pre-B6 title.
+- **B21 Broad gate + latent safety fix** — ran the full route+architecture set
+  (5,572 tests); fixed a pre-existing red invariant (`serp-hypothesis.ts` was
+  never in the llm-safety allowlist).
+
+Tracking in `docs/AUDIT_CLEANUP_LEDGER.md`. **Remaining (~64):** the visual /
+a11y tail the operator ranked LAST — low-contrast 9-11px critical text,
+color-only status, mobile overflow — which need the running dev server to fix
+safely.
+
+---
+
 ## 2026-06-22 (cont. 2) Second self-audit → 12/14 trust bugs fixed (branch `claude/iranopedia-blockers`, NOT pushed)
 
 A second adversarial self-audit (workflow `wf9l444jf`, 24 agents, code-only,
