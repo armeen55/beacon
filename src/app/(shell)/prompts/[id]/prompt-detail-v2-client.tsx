@@ -215,8 +215,8 @@ export function PromptDetailV2Client(props: PromptDetailV2ClientProps) {
         )}
       </Act>
 
-      {/* Act 3 — Who else gets cited */}
-      <Act number={3} label="Who else gets cited">
+      {/* Act 3 — Other businesses AI recommends */}
+      <Act number={3} label="Other businesses AI recommends">
         {competitors.length === 0 ? (
           <p
             className="text-[12.5px] leading-relaxed text-muted-foreground"

@@ -107,7 +107,7 @@ export default async function ConnectorsPage() {
   return (
     <div>
       <PageHeader
-        title="Connectors"
+        title="Connect your tools"
         description="Connect the tools your business already uses so Beacon can see what's happening and suggest what to do next. Connect Google so Beacon sees what people search to find you. Connect Google Analytics to see what visitors do on your site. Connect Clarity to see where visitors get stuck. Connect Wix so approved edits can publish to your site. Connect the rest as you're ready, or import a spreadsheet instead under Settings → Import."
       />
       <ConnectorsClient

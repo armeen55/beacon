@@ -92,9 +92,9 @@ describe("StrategistPanel", () => {
     };
     const html = renderToStaticMarkup(<StrategistPanel result={result} />);
     expect(html).toContain('data-recommendation-detail-adversarial-qa="true"');
-    expect(html).toContain("Adversarial QA");
+    expect(html).toContain("Things to double-check");
     expect(html).toContain("confirm this is the strongest target page");
-    expect(html).toContain("Unsupported claims");
+    expect(html).toContain("Claims that may not hold up");
     expect(html).toContain("What would make this high-confidence");
     expect(html).toContain("Connect Microsoft Clarity");
   });

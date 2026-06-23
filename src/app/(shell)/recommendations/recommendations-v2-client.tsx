@@ -909,8 +909,8 @@ function RecommendationsV2EmptyState() {
         No recommendations right now.
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
-        Refresh your connected data (Settings → Connectors) to surface the next
-        clear opportunity, fresh search demand or a content gap on your pages.
+        Update your data in Settings to see if anything new comes up. If you
+        haven&apos;t connected Google yet, start there.
       </p>
     </div>
   );
@@ -932,8 +932,8 @@ function RecommendationsV2CalmState({
       </p>
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
         {inFlightCount > 0
-          ? `Beacon is measuring ${inFlightCount} change${inFlightCount === 1 ? "" : "s"} you've already shipped. Refresh your connected data to surface fresh search demand or a content gap.`
-          : "Refresh your connected data (Settings → Connectors) to surface the next clear opportunity, fresh search demand or a content gap on your pages."}
+          ? `Nice work. We're tracking ${inFlightCount} change${inFlightCount === 1 ? "" : "s"} you've already made to see if they helped. Update your data in Settings to check for anything new.`
+          : "Update your data in Settings to check for anything new on your pages."}
       </p>
     </div>
   );

@@ -224,10 +224,10 @@ const PLATFORM_STATE_MICROCOPY: Record<
   string
 > = {
   primary: "Recommended first",
-  cited: "Cited",
+  cited: "AI mentioned you",
   mentioned: "Mentioned",
   absent: "Not mentioned",
-  no_data: "No reading yet",
+  no_data: "Not checked yet",
 };
 
 /**

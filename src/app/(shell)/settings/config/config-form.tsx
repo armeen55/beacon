@@ -123,7 +123,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         />
       </div>
       <div>
-        <label htmlFor="config-domain" className="mb-1.5 block text-[12px] font-medium text-foreground">Website domain</label>
+        <label htmlFor="config-domain" className="mb-1.5 block text-[12px] font-medium text-foreground">Website address</label>
         <input
           id="config-domain"
           type="text"
@@ -191,7 +191,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
       </div>
       <div>
         <label htmlFor="config-locations" className="mb-1.5 block text-[12px] font-medium text-foreground">Service areas / locations</label>
-        <p className="mb-2 text-[11px] text-muted-foreground">Comma-separated cities or regions you serve.</p>
+        <p className="mb-2 text-[11px] text-muted-foreground">List the cities you serve, separated by commas.</p>
         <input
           id="config-locations"
           type="text"
@@ -202,7 +202,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
       </div>
       <div>
         <label htmlFor="config-services" className="mb-1.5 block text-[12px] font-medium text-foreground">Key services</label>
-        <p className="mb-2 text-[11px] text-muted-foreground">Comma-separated services you want to track.</p>
+        <p className="mb-2 text-[11px] text-muted-foreground">List your main services, separated by commas, so we can watch how often people find them on Google.</p>
         <input
           id="config-services"
           type="text"
@@ -256,7 +256,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           type="text"
           value={flaggedTermsLine}
           onChange={(e) => setFlaggedTermsLine(e.target.value)}
-          placeholder="e.g. Farsi, cheapest"
+          placeholder="e.g. cheap, discount"
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
           data-config-field="flagged-terms"
         />
@@ -267,10 +267,15 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           type="button"
           onClick={handleSave}
           disabled={pending || !name.trim() || !domain.trim()}
-          className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-40"
+          className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {pending ? "Saving…" : "Save changes"}
         </button>
+        {(!name.trim() || !domain.trim()) && !pending ? (
+          <span className="text-[11px] text-muted-foreground">
+            Add a business name and website to save.
+          </span>
+        ) : null}
       </div>
 
       {result && (
@@ -283,7 +288,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
               : "border-status-danger/30 bg-status-danger/[0.05] text-status-danger"
           }`}
         >
-          {result.success ? "Business profile saved." : `Error: ${result.error}`}
+          {result.success ? "Business profile saved." : "Couldn't save. Please try again."}
         </div>
       )}
     </div>

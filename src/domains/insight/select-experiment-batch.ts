@@ -126,9 +126,9 @@ function statusOf(c: OptimizerCandidate): ExperimentStatus {
 function windowDaysLabel(window: "90d" | "28d", lever: LeverKey): string {
   // CTR levers read in days; content/structure take weeks to re-crawl and re-rank.
   if (lever === "title" || lever === "meta") {
-    return "First read about 7 days after ship; 14 and 28 day checks confirm it.";
+    return "We'll check results around day 7, then again at 14 and 28 days.";
   }
-  return `Allow ${window === "28d" ? "2 to 4" : "3 to 6"} weeks for re-crawl and re-rank, then read at the 28 day check.`;
+  return `Give Google ${window === "28d" ? "2 to 4" : "3 to 6"} weeks to pick up the change, then we'll check results at day 28.`;
 }
 
 function toCard(row: BatchPageRow, c: OptimizerCandidate, isSwing: boolean): ExperimentCard {
@@ -160,11 +160,11 @@ function toCard(row: BatchPageRow, c: OptimizerCandidate, isSwing: boolean): Exp
     measurementMetric: c.measurementMetric,
     estClicksAtStake: c.estClicksAtStake,
     estConfidence: c.upsideConfidence,
-    proofInstructions: `Ship it on the live site, then mark it shipped to open the proof window. ${windowDaysLabel(
+    proofInstructions: `Make this change on your website, then click "I made this change" below so we can start measuring it. ${windowDaysLabel(
       row.item.estWindow,
       c.lever,
     )}`,
-    gscIndexingInstruction: `In Search Console, use URL Inspection on ${row.item.canonUrl} and Request Indexing so Google re-crawls the change sooner.`,
+    gscIndexingInstruction: `Want Google to see this sooner? Open Google Search Console, paste this page address into the search box at the top (${row.item.canonUrl}), then click "Request indexing". This tells Google to come look at your change faster.`,
     status: statusOf(c),
     isOptionalSwing: isSwing,
     workbenchHref: hrefFor(row.item.path),

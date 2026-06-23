@@ -125,11 +125,13 @@ describe("UX.6.3 — hero owns the executive copy + 4 metric cards + footer", ()
     // `${verbAppears}` interpolation so "You" subjects pluralize correctly.
     // audit-4 (2026-06-22): the subline is now a template-literal inside a
     // conditional — `How often ${brandName} ${verbAppears} across tracked AI
-    // answers.` is the HAS-DATA branch; with no sampled data the hero shows
+    // answers ...` is the HAS-DATA branch; with no sampled data the hero shows
     // "AI answers Beacon has sampled for ${brandName}." instead of asserting
-    // active tracking. Pin the has-data template shape.
+    // active tracking. Pin the has-data template shape (a plain-meaning
+    // clarifier may follow "answers", e.g. "(higher is better; 20% to 40% is
+    // typical)", so the trailing period is not anchored).
     expect(HERO_SRC).toMatch(
-      /How often \$\{brandName\} \$\{verbAppears\} across tracked AI answers\./,
+      /How often \$\{brandName\} \$\{verbAppears\} across tracked AI answers/,
     );
   });
 

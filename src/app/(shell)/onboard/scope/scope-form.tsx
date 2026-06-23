@@ -112,7 +112,7 @@ export function ScopeForm({
           aria-describedby={
             fieldErrors.cities ? "cities-error" : "cities-hint"
           }
-          className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-[14px] outline-none focus:border-foreground/40 font-mono"
+          className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-[14px] outline-none focus:border-foreground/40"
         />
         {fieldErrors.cities ? (
           <p id="cities-error" className="text-[12px] text-rose-600" role="alert">

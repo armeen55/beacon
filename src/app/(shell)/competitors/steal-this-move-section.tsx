@@ -19,16 +19,16 @@ const TIER_BADGE: Record<
   { label: string; className: string }
 > = {
   proven: {
-    label: "Cited after",
+    label: "Working for them",
     className:
       "bg-status-success/15 text-status-success border-status-success/30",
   },
   early: {
-    label: "Early signal",
+    label: "Too early to tell",
     className: "bg-accent-primary/10 text-accent-primary border-accent-primary/30",
   },
   watching: {
-    label: "Watching",
+    label: "Keeping an eye on",
     className: "bg-surface-inset/60 text-muted-foreground border-border/40",
   },
 };
@@ -72,9 +72,10 @@ export function StealThisMoveSection({
                   href={m.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="truncate font-mono text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+                  title={m.path}
+                  className="truncate text-[11px] text-muted-foreground hover:text-foreground hover:underline"
                 >
-                  {m.path}
+                  {m.displayName}
                 </a>
               </div>
               <p className="mt-2 text-[13px] text-foreground leading-relaxed">

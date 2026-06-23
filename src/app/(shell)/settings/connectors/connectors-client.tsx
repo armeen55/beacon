@@ -692,8 +692,8 @@ export function ConnectorsClient({
         </h2>
         <p className="text-[12px] text-foreground leading-relaxed">
           Once everything is connected, one click of &ldquo;Update my
-          data&rdquo; does the whole job for you: it reads all your sources, then
-          finds, drafts, and ranks the exact fixes. The one thing Beacon never
+          data&rdquo; pulls in your latest numbers. Beacon finds problems,
+          drafts fixes, and checks they worked. The one thing Beacon never
           does on its own is change your live site: every change to your website
           needs your one-click approval first. Nothing runs on a hidden schedule,
           you are always in control of when it refreshes.
@@ -1167,8 +1167,8 @@ export function ConnectorsClient({
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {ga4.status === "connected" ? (
               <>
-                Beacon reads your GA4 page/URL traffic, which feeds your
-                priority score. Read-only access, no writes to your Google
+                Beacon sees which pages get the most visitors, so it knows
+                which to fix first. Read-only access, no writes to your Google
                 Analytics property.
               </>
             ) : (

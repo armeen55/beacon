@@ -37,8 +37,8 @@ export function PromptDetailV2NotFound() {
           This prompt is no longer available.
         </h2>
         <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-          Beacon may have paused it, or it was removed. The customer-
-          facing prompt list is up to date.
+          Beacon may have paused it, or it was removed. Your list of
+          tracked questions is up to date.
         </p>
         <Link
           href="/prompts?v2=1"

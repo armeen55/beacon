@@ -252,8 +252,8 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
                   setSelected(0);
                 }}
                 onKeyDown={handlePaletteKeyDown}
-                placeholder="Search Beacon..."
-                aria-label="Search Beacon"
+                placeholder="Jump to a page or section..."
+                aria-label="Jump to a page or section"
                 // #519 — combobox/listbox wiring: announce the active
                 // option as the user arrows through results.
                 role="combobox"

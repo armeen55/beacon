@@ -175,8 +175,8 @@ describe("selectExperimentBatch (TASK 4)", () => {
     expect(c!.draft).toBe("New title for cities");
     expect(c!.targetQueries).toEqual(["query one", "query two"]);
     expect(c!.status).toBe("ready_now");
-    expect(c!.proofInstructions).toMatch(/mark it shipped/i);
-    expect(c!.gscIndexingInstruction).toContain("Request Indexing");
+    expect(c!.proofInstructions).toMatch(/i made this change/i);
+    expect(c!.gscIndexingInstruction).toContain("Request indexing");
     expect(c!.workbenchHref).toBe("/workbench/cities");
     const blob = JSON.stringify(c);
     expect(blob).not.toContain("—"); // em dash

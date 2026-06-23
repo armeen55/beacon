@@ -208,18 +208,18 @@ function PromptsV2EmptyState() {
       data-prompts-v2-empty="true"
     >
       <p className="text-[14px] font-semibold text-foreground">
-        No active prompts yet.
+        You haven&rsquo;t added any questions yet.
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
-        Beacon is still gathering readings. Add prompts in settings to start
-        tracking how AI answers your buyers' questions.
+        Add the questions your buyers ask, and we&rsquo;ll start tracking how
+        AI answers them. Results will appear here soon after.
       </p>
       <Link
         href="/settings/prompts"
         className="mt-4 inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
         data-prompts-v2-empty-cta="manage"
       >
-        Manage prompts →
+        Add your questions →
       </Link>
     </section>
   );

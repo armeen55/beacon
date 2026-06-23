@@ -116,12 +116,12 @@ function metricOf(lever: LeverKey): string {
   switch (lever) {
     case "title":
     case "meta":
-      return "Page CTR for the top query, visible in Search within days";
+      return "We'll watch whether more people click your Google listing, usually visible within a week";
     case "h1":
     case "answer_block":
     case "h2_sections":
     case "visible_qa":
-      return "Avg position and impressions, weeks to re-crawl and re-rank";
+      return "We'll watch your Google ranking and how often you show up; this takes a few weeks to update";
     case "schema":
       return "Rich-result eligibility and impressions";
     case "internal_links":

@@ -55,15 +55,16 @@ export async function ProofLedgerStrip() {
         prefetch={false}
         className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-surface-inset/30 px-4 py-2.5 text-[12px] hover:border-border"
       >
-        <span className="font-semibold text-foreground">Proof ledger</span>
-        <span className="text-muted-foreground">{ledger.length} shipped &amp; tracked</span>
-        {measuring > 0 ? <span className="text-blue-700">{measuring} measuring</span> : null}
-        {won > 0 ? <span className="text-emerald-700">{won} won</span> : null}
-        {lost > 0 ? <span className="text-rose-700">{lost} lost</span> : null}
+        <span className="font-semibold text-foreground">
+          {ledger.length} {ledger.length === 1 ? "change" : "changes"} we are tracking
+        </span>
+        {measuring > 0 ? <span className="text-blue-700">{measuring} still measuring</span> : null}
+        {won > 0 ? <span className="text-emerald-700">{won} helped</span> : null}
+        {lost > 0 ? <span className="text-rose-700">{lost} hurt</span> : null}
         {inconclusive > 0 ? (
-          <span className="text-muted-foreground">{inconclusive} inconclusive</span>
+          <span className="text-muted-foreground">{inconclusive} no change</span>
         ) : null}
-        <span className="ml-auto text-accent-primary">Open Proof →</span>
+        <span className="ml-auto text-accent-primary">Check results →</span>
       </Link>
     </div>
   );
@@ -124,7 +125,7 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       </div>
 
       <p className="mt-1.5 text-[12px] text-foreground/80">
-        {`We are comparing this page to ${controlsCount} similar page${controlsCount === 1 ? "" : "s"} we did not change, so we know it was your edit that helped.`}{" "}
+        {`We compared this page to ${controlsCount} similar page${controlsCount === 1 ? "" : "s"} we did not change, so we can tell whether your change caused the results.`}{" "}
         {nextCheck ? (
           <>
             We will know if this worked by <span className="font-medium">{nextCheck}</span>.
@@ -164,7 +165,7 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       <p className="mt-2 text-[11px] text-muted-foreground">
         Before this change (last 28 days):{" "}
         {baseline.impressions > 0
-          ? `${baseline.clicks.toLocaleString()} visits from Google, shown ${baseline.impressions.toLocaleString()} times, ranked about #${baseline.position.toFixed(1)}`
+          ? `${baseline.clicks.toLocaleString()} ${baseline.clicks === 1 ? "visit" : "visits"} from Google, ranked around #${baseline.position.toFixed(1)}`
           : "no Google data yet for the period before this change"}
       </p>
 

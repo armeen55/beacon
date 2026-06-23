@@ -73,7 +73,7 @@ export function SignupForm({
   return (
     <form onSubmit={onSubmit} className="space-y-3">
       <label className="block text-[12px] text-muted-foreground">
-        Work email
+        Email address
       </label>
       <input
         type="email"
@@ -101,8 +101,8 @@ export function SignupForm({
             edits to their live site). Until a real terms page exists,
             don't request agreement to something that can't be read; keep
             the honest, high-value cost disclosure. */}
-        Free to set up. Running AI readings and data refreshes uses paid
-        APIs — you'll always see the cost before you spend.
+        Setup is free. Some features use paid data, and we'll always show
+        the price and ask before charging you anything.
       </p>
     </form>
   );

@@ -18,20 +18,43 @@ import type {
  * this session. Nothing publishes from here.
  */
 
-const STATUS_META: Record<ExperimentStatus, { label: string; cls: string }> = {
-  ready_now: { label: "Ready now", cls: "border-emerald-300 bg-emerald-50 text-emerald-700" },
-  needs_drafting: { label: "Needs drafting", cls: "border-amber-300 bg-amber-50 text-amber-800" },
-  needs_wix_mapping: { label: "Needs Wix mapping", cls: "border-sky-300 bg-sky-50 text-sky-700" },
-  needs_serp_check: { label: "Needs Google results check", cls: "border-amber-300 bg-amber-50 text-amber-800" },
-  manual_only: { label: "Manual edit", cls: "border-slate-300 bg-slate-50 text-slate-700" },
+const STATUS_META: Record<
+  ExperimentStatus,
+  { label: string; cls: string; hint: string }
+> = {
+  ready_now: {
+    label: "Ready now",
+    cls: "border-emerald-300 bg-emerald-50 text-emerald-700",
+    hint: "The new wording is written and ready for you to make on your site.",
+  },
+  needs_drafting: {
+    label: "Needs the new wording",
+    cls: "border-amber-300 bg-amber-50 text-amber-800",
+    hint: "We still need to write the suggested wording. Open the page editor to create it.",
+  },
+  needs_wix_mapping: {
+    label: "Needs setup",
+    cls: "border-sky-300 bg-sky-50 text-sky-700",
+    hint: "We need to connect this to the right spot on your Wix site first.",
+  },
+  needs_serp_check: {
+    label: "We need to check Google first",
+    cls: "border-amber-300 bg-amber-50 text-amber-800",
+    hint: "We want to look at what Google shows for these searches before changing your title.",
+  },
+  manual_only: {
+    label: "You make this change",
+    cls: "border-slate-300 bg-slate-50 text-slate-700",
+    hint: "You edit this one yourself on your site.",
+  },
 };
 
 const FAMILY_LABEL: Record<ExperimentFamily, string> = {
-  ctr: "Title / meta click rate",
-  answer: "Answer block",
+  ctr: "Headline and Google preview text",
+  answer: "Quick answer at the top of the page",
   content: "Content / sections",
-  structure: "Schema / links",
-  swing: "Bigger swing",
+  structure: "Help Google read your page",
+  swing: "Bigger project (optional)",
 };
 
 function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
@@ -65,17 +88,24 @@ export function ExperimentsClient({ cards }: { cards: ExperimentCard[] }) {
     () =>
       visible
         .filter((c) => c.draft)
-        .map((c) => `# ${c.pageTitle} (${c.actionType})\n${c.draft}`)
+        .map((c) => `${c.pageTitle}\n${c.draft}`)
         .join("\n\n"),
     [visible],
   );
 
   if (cards.length === 0) {
     return (
-      <div className="rounded-xl border border-border/60 bg-muted/30 p-6 text-[13px] text-muted-foreground">
-        No new experiments to plan right now. Either every high-value page already
-        has an experiment measuring, or there is not enough Search data yet. Check
-        back after the open proof windows close, or run a website scan to add pages.
+      <div className="space-y-3 rounded-xl border border-border/60 bg-muted/30 p-6 text-[13px] text-muted-foreground">
+        <p>
+          Nothing to do right now. We will add tasks as we collect more
+          information from Google.
+        </p>
+        <Link
+          href="/settings/connectors"
+          className="inline-flex rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
+        >
+          Update data
+        </Link>
       </div>
     );
   }
@@ -91,9 +121,11 @@ export function ExperimentsClient({ cards }: { cards: ExperimentCard[] }) {
           type="button"
           onClick={() => startTransition(() => router.refresh())}
           disabled={pending}
+          title="Re-check for new suggestions"
+          aria-label="Re-check for new suggestions"
           className="rounded border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
         >
-          {pending ? "Refreshing…" : "Refresh plan"}
+          {pending ? "Checking…" : "Check for new suggestions"}
         </button>
       </div>
 
@@ -123,20 +155,21 @@ function Card({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px] tabular-nums text-muted-foreground">#{rank}</span>
         <span className="text-[14px] font-semibold text-foreground">{card.pageTitle}</span>
-        <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground">
           {FAMILY_LABEL[card.family]}
         </span>
-        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${sm.cls}`}>
+        <span
+          title={sm.hint}
+          className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${sm.cls}`}
+        >
           {sm.label}
         </span>
-        {card.isOptionalSwing ? (
-          <span className="rounded border border-fuchsia-200 bg-fuchsia-50 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-700">
-            Optional bigger swing
-          </span>
-        ) : null}
         {card.estClicksAtStake != null ? (
-          <span className="text-[11px] text-muted-foreground">
-            ~{card.estClicksAtStake.toLocaleString()} clicks at stake, {card.estConfidence} chance it helps
+          <span
+            className="text-[11px] text-muted-foreground"
+            title="How sure we are this change will help, based on your Google data."
+          >
+            about {card.estClicksAtStake.toLocaleString()} visits at stake, {card.estConfidence} chance it helps
           </span>
         ) : null}
       </div>
@@ -148,34 +181,35 @@ function Card({
         <div className="mt-2">
           <div className="flex items-center gap-2">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Paste-ready {card.actionType}
+              New wording, ready to paste
             </span>
             <CopyButton value={card.draft} />
           </div>
-          <pre className="mt-0.5 max-h-44 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px] text-foreground/85">
+          <div className="mt-0.5 max-h-44 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 p-3 text-[12px] leading-relaxed text-foreground/90">
             {card.draft}
-          </pre>
+          </div>
         </div>
       ) : (
         <p className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-2.5 py-1.5 text-[11px] text-amber-800">
-          No drafted copy yet. Open the Workbench and draft the suggested edits, then come back to ship and measure it.
+          We have not written the new text yet. Open the page editor to create it, then come back here.
         </p>
       )}
 
       {card.before ? (
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          <span className="uppercase tracking-wide">Current:</span> {card.before}
+          <span className="uppercase tracking-wide">Now:</span> {card.before}
         </p>
       ) : null}
-      {card.rollbackCopy ? (
+      {card.rollbackCopy && card.rollbackCopy !== card.before ? (
         <p className="mt-0.5 text-[11px] text-muted-foreground">
-          <span className="uppercase tracking-wide">Undo to:</span> {card.rollbackCopy}
+          <span className="uppercase tracking-wide">To undo this later, set it back to:</span>{" "}
+          {card.rollbackCopy}
         </p>
       ) : null}
 
       {card.targetQueries.length > 0 ? (
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Target queries: {card.targetQueries.join(", ")}
+          What people Google to find this: {card.targetQueries.join(", ")}
         </p>
       ) : null}
 
@@ -189,19 +223,22 @@ function Card({
         <Link
           href={`/proof?page=${encodeURIComponent(card.canonUrl)}`}
           prefetch={false}
+          title="Tell us you made this change on your site so we can start checking results."
           className="rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
         >
-          Mark shipped, record in Proof
+          I made this change
         </Link>
         <Link
           href={card.workbenchHref}
+          title="Take a closer look at this page and write the new wording."
           className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-muted"
         >
-          Open Workbench
+          Edit this page
         </Link>
         <button
           type="button"
           onClick={onSkip}
+          title="Hide this card for now. It does not change anything on your website."
           className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground"
         >
           Skip for now

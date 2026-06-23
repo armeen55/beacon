@@ -124,7 +124,7 @@ describe("PromptDetailV2Client — 5-act prompt brief", () => {
     }
     expect(html).toContain(">What you&#x27;re tracking</h2>");
     expect(html).toContain(">Where you stand</h2>");
-    expect(html).toContain(">Who else gets cited</h2>");
+    expect(html).toContain(">Other businesses AI recommends</h2>");
     expect(html).toContain(">What changed recently</h2>");
     expect(html).toContain(">What to do next</h2>");
   });

@@ -23,13 +23,13 @@ export function DemoBanner() {
         <span className="font-semibold text-foreground">Sample data.</span>{" "}
         You&rsquo;re viewing demo content.{" "}
         <Link
-          href="/settings/import"
+          href="/settings/connectors"
           prefetch={false}
           className="font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/80"
         >
-          Upload a visibility export
+          Connect Google
         </Link>{" "}
-        to see your real briefing.
+        to see your own data.
       </p>
       <button
         type="button"

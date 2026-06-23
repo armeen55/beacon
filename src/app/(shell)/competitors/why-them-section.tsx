@@ -38,7 +38,7 @@ export function WhyThemSection({ reports }: { reports: WhyThemReport[] }) {
                 {r.displayName}
               </span>
               <span className="text-[11px] text-muted-foreground">
-                AI cited this page {r.theirCitationTotal} times
+                AI recommended this page {r.theirCitationTotal} times
               </span>
             </summary>
             <div className="mt-3 space-y-3">
@@ -51,12 +51,14 @@ export function WhyThemSection({ reports }: { reports: WhyThemReport[] }) {
                     href={r.theirUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-1 block truncate font-mono text-[10px] text-foreground hover:underline"
+                    className="mt-1 block truncate text-[12px] font-medium text-foreground hover:underline"
                   >
-                    {r.theirUrl}
+                    {r.theirTitle ?? r.theirUrl}
                   </a>
                   {r.theirTitle != null && (
-                    <p className="mt-1 text-muted-foreground">{r.theirTitle}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                      {r.theirUrl}
+                    </p>
                   )}
                 </div>
                 <div className="rounded border border-border/40 bg-surface-inset/30 p-2">
@@ -88,7 +90,7 @@ export function WhyThemSection({ reports }: { reports: WhyThemReport[] }) {
                       data-gap={g.dimension}
                       className="text-[12px] text-foreground leading-relaxed"
                     >
-                      <span className="text-status-warning">▲</span> {g.sentence}
+                      <span className="font-semibold text-status-warning">Gap:</span> {g.sentence}
                     </li>
                   ))}
                 </ul>
@@ -129,12 +131,12 @@ export function WhyThemSection({ reports }: { reports: WhyThemReport[] }) {
                       >
                         <span className="text-foreground">{p.promptText}</span>
                         <span className="text-muted-foreground">
-                          {p.platform} · them #{p.theirRank} · you{" "}
+                          {p.platform} · they rank #{p.theirRank} · you{" "}
                           {p.ourRank != null ? (
-                            `#${p.ourRank}`
+                            `rank #${p.ourRank}`
                           ) : (
                             <span className="font-semibold text-status-warning">
-                              not cited
+                              don&apos;t appear
                             </span>
                           )}
                         </span>

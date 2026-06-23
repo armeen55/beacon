@@ -28,10 +28,10 @@ const STATUS_META: Record<
   DiagnosisStatus,
   { dot: string; label: string; text: string }
 > = {
-  attention: { dot: "bg-rose-500", label: "Act", text: "text-rose-700" },
-  monitor: { dot: "bg-amber-500", label: "Verify", text: "text-amber-700" },
-  ok: { dot: "bg-emerald-500", label: "OK", text: "text-emerald-700" },
-  unknown: { dot: "bg-muted-foreground/40", label: "No data", text: "text-muted-foreground" },
+  attention: { dot: "bg-rose-500", label: "Needs fixing", text: "text-rose-700" },
+  monitor: { dot: "bg-amber-500", label: "Double-check", text: "text-amber-700" },
+  ok: { dot: "bg-emerald-500", label: "Looking good", text: "text-emerald-700" },
+  unknown: { dot: "bg-muted-foreground/40", label: "Not enough info yet", text: "text-muted-foreground" },
 };
 
 function Section({
@@ -80,33 +80,43 @@ const VERDICT_META: Record<VerdictChip, string> = {
   "Do not touch": "border-border bg-muted text-muted-foreground",
 };
 
+// Plain-English wording shown to the operator for each verdict (display only).
+const VERDICT_DISPLAY: Record<VerdictChip, string> = {
+  "Ship this now": "Do this now",
+  "Hold this": "Wait",
+  "Needs SERP check": "Check Google results first",
+  "Needs Wix mapping": "We can't reach this part of Wix yet",
+  "Manual only": "You'll edit this by hand",
+  "Do not touch": "Leave it alone",
+};
+
 function pushMethodText(m: PushMethod): string {
   switch (m) {
     case "wix_cms_field":
-      return "Wix field";
+      return "we can update it automatically on Wix";
     case "manual_cms_edit":
-      return "Manual edit";
+      return "you'll edit it by hand";
     case "no_write_path":
-      return "Manual (body content)";
+      return "you'll edit the page text by hand";
     case "blocked_no_mapping":
-      return "Needs Wix mapping";
+      return "we can't reach this part of Wix yet";
     case "not_applicable":
-      return "Not applicable";
+      return "not applicable";
   }
 }
 
 const BLOCKER_LABEL: Record<NonNullable<OptimizerCandidate["blockedBy"]>, string> = {
-  serp: "SERP",
-  wix: "Wix mapping",
-  data: "Needs drafting",
-  measuring: "Measuring",
+  serp: "Check Google results first",
+  wix: "We can't reach this part of Wix yet",
+  data: "Needs a draft first",
+  measuring: "Still measuring an earlier change",
 };
 
 function UpsideLine({ c }: { c: OptimizerCandidate }) {
   if (c.estClicksAtStake == null) return null;
   return (
     <span className="text-[11px] text-muted-foreground">
-      ~{c.estClicksAtStake.toLocaleString()} clicks at stake, {c.upsideConfidence} chance it helps
+      Could win back about {c.estClicksAtStake.toLocaleString()} more visits, {c.upsideConfidence} chance it helps
     </span>
   );
 }
@@ -135,7 +145,7 @@ function CandidateCard({
         </span>
         <span className="text-[13px] font-semibold text-foreground">{c.label}</span>
         <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${VERDICT_META[c.verdict]}`}>
-          {c.verdict}
+          {VERDICT_DISPLAY[c.verdict]}
         </span>
         {c.blockedBy ? (
           <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
@@ -151,14 +161,14 @@ function CandidateCard({
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Draft</span>
             <CopyButton value={c.draft} />
           </div>
-          <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px] text-foreground/85">
+          <blockquote className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap rounded border-l-2 border-border bg-muted/30 p-2.5 text-[12px] leading-relaxed text-foreground/85">
             {c.draft}
-          </pre>
+          </blockquote>
         </div>
       ) : null}
       <p className="mt-1.5 text-[11px] text-muted-foreground">{c.reason}</p>
       <p className="mt-1 text-[10px] text-muted-foreground/70">
-        Measure: {c.measurementMetric} · {pushMethodText(c.wixPushMethod)} · rollback {c.rollbackType.replace(/_/g, " ")}
+        How we'll check it: {c.measurementMetric} · {pushMethodText(c.wixPushMethod)} · to undo: {c.rollbackType.replace(/_/g, " ")}
       </p>
     </div>
   );
@@ -198,15 +208,15 @@ function OptimizerView({ buckets }: { buckets: OptimizerBuckets }) {
   // Secondary picks, deduped against the lead lever so we do not repeat it.
   const leadLever = bestNextMove?.lever;
   const secondary: Array<{ role: string; c: OptimizerCandidate }> = [
-    { role: "Safest change", c: safestChange! },
-    { role: "Highest upside", c: highestUpside! },
-    { role: "Fastest measurable", c: fastestMeasurable! },
+    { role: "Quickest win", c: safestChange! },
+    { role: "Biggest potential", c: highestUpside! },
+    { role: "Easiest to track", c: fastestMeasurable! },
   ].filter((s) => s.c && s.c.lever !== leadLever);
 
   return (
     <Section
       title="Best next move"
-      subtitle="The fixes Beacon weighed for this page, ranked by which is most likely to help."
+      subtitle="The best things you could do to this page, ranked. Start at the top."
     >
       <div className="space-y-2.5">
         {bestNextMove ? <CandidateCard role="Best next move" c={bestNextMove} tone="lead" /> : null}
@@ -220,7 +230,7 @@ function OptimizerView({ buckets }: { buckets: OptimizerBuckets }) {
         ) : null}
 
         {biggerSwingLater ? (
-          <CandidateCard role="Bigger swing later" c={biggerSwingLater} />
+          <CandidateCard role="Worth doing later" c={biggerSwingLater} />
         ) : null}
 
         {holdDoNotTouch.length > 0 ? (
@@ -260,8 +270,8 @@ function ProposedBlock({ row }: { row: WorkbenchLeverRow }) {
   if (row.proposedSource === "needs_endpoint" || !row.proposed) {
     return (
       <p className="mt-1 text-[11px] text-muted-foreground/70">
-        Drafting the exact copy needs the analysis endpoint, which isn&rsquo;t configured yet. No
-        spend happens here.
+        We can&rsquo;t write the exact wording yet. Connect AI in Settings to draft it. Nothing
+        goes live.
       </p>
     );
   }
@@ -272,9 +282,9 @@ function ProposedBlock({ row }: { row: WorkbenchLeverRow }) {
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{tag}</span>
         <CopyButton value={row.proposed} />
       </div>
-      <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px] text-foreground/85">
+      <blockquote className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap rounded border-l-2 border-border bg-muted/30 p-2.5 text-[12px] leading-relaxed text-foreground/85">
         {row.proposed}
-      </pre>
+      </blockquote>
     </div>
   );
 }
@@ -290,11 +300,11 @@ function LeverRow({ row }: { row: WorkbenchLeverRow }) {
         <span
           className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${VERDICT_META[verdict]}`}
         >
-          {verdict}
+          {VERDICT_DISPLAY[verdict]}
         </span>
         {row.benefit ? (
           <span className="text-[11px] text-muted-foreground">
-            ~{row.benefit.estClicksAtStake.toLocaleString()} clicks at stake,{" "}
+            Could win back about {row.benefit.estClicksAtStake.toLocaleString()} more visits,{" "}
             {row.benefit.confidence} chance it helps
             {row.benefit.serpGuardLabel ? ` · ${row.benefit.serpGuardLabel}` : ""}
           </span>
@@ -308,8 +318,8 @@ function LeverRow({ row }: { row: WorkbenchLeverRow }) {
       ) : null}
       <ProposedBlock row={row} />
       <p className="mt-1.5 text-[10px] text-muted-foreground/70">
-        {pushMethodText(row.pushMethod)}
-        {row.rollbackReady ? ", rollback ready" : ""}
+        To make it live, {pushMethodText(row.pushMethod)}
+        {row.rollbackReady ? ", and it's easy to undo" : ""}
       </p>
     </div>
   );
@@ -320,7 +330,7 @@ function LeverMatrix({ rows }: { rows: WorkbenchLeverRow[] }) {
   if (rows.length === 0) return null;
   return (
     <Section
-      title="Everything you could fix here"
+      title="All the fixes for this page"
       subtitle="Every possible fix for this page: what it needs, the change, the expected benefit, and how it would go live. Nothing publishes from here."
     >
       <div className="space-y-2">
@@ -337,12 +347,12 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
     return (
       <div className="max-w-4xl space-y-4">
         <header>
-          <h1 className="text-[20px] font-semibold text-foreground">Workbench</h1>
-          <p className="mt-1 font-mono text-[12px] text-muted-foreground/80">{data.path}</p>
+          <h1 className="text-[20px] font-semibold text-foreground">A close look at one page</h1>
+          <p className="mt-1 text-[12px] text-muted-foreground/80">{data.path}</p>
         </header>
         <div className="rounded-xl border border-border/60 bg-muted/30 p-6 text-[13px] text-muted-foreground">
-          Beacon has no crawl or Search data for this page yet, so there&rsquo;s nothing to
-          audit. Run a website scan to add it to the inventory, then reopen the Workbench.
+          We haven&rsquo;t looked at this page yet, so there&rsquo;s nothing to review. Scan
+          your website to add it, then come back to this page.
         </div>
       </div>
     );
@@ -373,7 +383,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Workbench, locked page
+              A close look at one page of your website
             </div>
             <h1 className="mt-1 truncate text-[20px] font-semibold text-foreground">
               {identity.title || data.path}
@@ -383,12 +393,12 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                 href={data.canonUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-0.5 inline-block font-mono text-[11px] text-accent-primary hover:underline"
+                className="mt-0.5 inline-block text-[11px] text-accent-primary hover:underline"
               >
                 {data.path} ↗
               </a>
             ) : (
-              <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/80">{data.path}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground/80">{data.path}</p>
             )}
             {/* Hand-off to the proof recorder with the page prefilled, so once
                 the operator pastes a change into Wix they record + measure it in
@@ -398,29 +408,29 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
               prefetch={false}
               className="mt-1 inline-block text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             >
-              Shipped this change? Record it in Proof &rarr;
+              Already updated this page on your site? Check results &rarr;
             </Link>
           </div>
           <PrimaryCta data={data} />
         </div>
 
         <dl className="mt-4 grid gap-3 sm:grid-cols-3">
-          <Field label="Current title" value={identity.title} />
-          <Field label="Current H1" value={identity.h1} />
-          <Field label="Meta description" value={identity.metaDescription} />
+          <Field label="Title (the blue link in Google)" value={identity.title} />
+          <Field label="Main headline on the page" value={identity.h1} />
+          <Field label="The blurb Google shows under the link" value={identity.metaDescription} />
         </dl>
         <p className="mt-3 text-[11px] text-muted-foreground">
           {identity.crawlFetchedAt
-            ? `Crawled ${identity.crawlAgeDays ?? "?"} day(s) ago`
-            : "Not crawled yet"}
+            ? `We last read this page ${identity.crawlAgeDays ?? "?"} day(s) ago`
+            : "We haven't read this page yet"}
           {identity.staleCrawl ? (
             <span className="ml-1.5 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-              stale crawl, live page may have drifted
+              it may have changed since
             </span>
           ) : null}
           {identity.extractionCertainty === "uncertain" ? (
             <span className="ml-1.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              crawl extraction uncertain
+              we couldn&rsquo;t read this page cleanly
             </span>
           ) : null}
         </p>
@@ -468,7 +478,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
       <Section
         id="serp"
         title="Google results check"
-        subtitle="We don't yet know what the Google results page looks like for this. Check it before rewriting the title."
+        subtitle="See what Google shows for your search terms. This helps you decide if a new title would help."
       >
         <ResolveSerp path={data.path} hasOpenAi={hasOpenAi} />
       </Section>
@@ -486,8 +496,8 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                 className="rounded-lg border border-fuchsia-200 bg-fuchsia-50/40 p-3.5"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded border border-fuchsia-300 bg-fuchsia-50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-fuchsia-700">
-                    Cannibalization
+                  <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                    Competing pages
                   </span>
                   <span className="text-[13px] font-semibold text-foreground">
                     &ldquo;{c.query}&rdquo;
@@ -504,9 +514,9 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                   <thead>
                     <tr className="text-left text-muted-foreground">
                       <th className="font-medium">Page</th>
-                      <th className="font-medium">Rank</th>
-                      <th className="font-medium">Impr</th>
-                      <th className="font-medium">Clicks</th>
+                      <th className="font-medium">Google rank</th>
+                      <th className="font-medium">Times shown</th>
+                      <th className="font-medium">Visits</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -515,7 +525,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                         key={u.path}
                         className={u.isThisPage ? "text-foreground" : "text-muted-foreground"}
                       >
-                        <td className="py-0.5 font-mono">
+                        <td className="py-0.5">
                           {u.path}
                           {u.isLead ? (
                             <span className="ml-1.5 rounded border border-emerald-300 bg-emerald-50 px-1 py-0.5 text-[9px] font-medium text-emerald-700">
@@ -554,8 +564,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                     </li>
                     <li>Point the other pages&apos; internal links for this term at the lead page.</li>
                     <li>
-                      De-optimize or clarify the duplicate pages so they stop targeting the same
-                      query.
+                      Tone down the other pages so they stop competing for the same search.
                     </li>
                     <li>
                       Consolidate the pages only if they are genuinely the same topic and it is
@@ -591,11 +600,11 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
               <table className="w-full text-[12px]">
                 <thead className="bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">Query</th>
-                    <th className="px-3 py-2 text-right font-medium">Impr.</th>
-                    <th className="px-3 py-2 text-right font-medium">Clicks</th>
-                    <th className="px-3 py-2 text-right font-medium">CTR</th>
-                    <th className="px-3 py-2 text-right font-medium">Pos.</th>
+                    <th className="px-3 py-2 text-left font-medium">Search</th>
+                    <th className="px-3 py-2 text-right font-medium">Times shown</th>
+                    <th className="px-3 py-2 text-right font-medium">Visits</th>
+                    <th className="px-3 py-2 text-right font-medium">Click rate</th>
+                    <th className="px-3 py-2 text-right font-medium">Google rank</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -626,8 +635,12 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
           {strikingDistance.length > 0 ? (
             <div className="mt-3">
               <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Striking distance (SEMrush, page-2)
+                Almost on page 1
               </div>
+              <p className="mb-1.5 text-[11px] text-muted-foreground">
+                These searches happen the number of times a month shown below, and you are close to
+                ranking. Worth targeting.
+              </p>
               <ul className="flex flex-wrap gap-1.5">
                 {strikingDistance.map((k) => (
                   <li
@@ -645,9 +658,15 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
 
       {/* ── Diagnosis matrix ── */}
       <Section
-        title="What Beacon checked"
-        subtitle="What Beacon looks at on every page. Anything it cannot check says “No data,” not “fine.”"
+        title="Health check"
+        subtitle="What Beacon looks at on every page. When it cannot check something, it says “Not enough info yet,” never “looking good.”"
       >
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Needs fixing</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Double-check</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Looking good</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-muted-foreground/40" /> Not enough info yet (this is normal)</span>
+        </div>
         <ul className="divide-y divide-border/40">
           {diagnosis.map((d) => {
             const m = STATUS_META[d.status];
@@ -803,7 +822,7 @@ function PrimaryCta({ data }: { data: WorkbenchData }) {
       href="#change-pack"
       className="shrink-0 rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
     >
-      Draft with AI ↓
+      Write a suggested fix (won&rsquo;t go live) ↓
     </Link>
   );
 }
@@ -813,7 +832,7 @@ function Field({ label, value }: { label: string; value: string | null }) {
     <div>
       <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-[12px] text-foreground">
-        {value ? value : <span className="text-muted-foreground/60">- none -</span>}
+        {value ? value : <span className="text-muted-foreground/60">empty (nothing set yet)</span>}
       </dd>
     </div>
   );
@@ -906,10 +925,10 @@ function ChangePackBody({ pack }: { pack: AtomicChangePack }) {
 }
 
 const PUSH_METHOD_LABEL: Record<ArtifactPushability["method"], string> = {
-  wix_cms_field: "Wix CMS field, one-click ready",
-  manual_cms_edit: "Manual CMS edit",
-  no_write_path: "No automated write path (reversible)",
-  blocked_no_mapping: "Blocked, no Wix mapping",
+  wix_cms_field: "We can update this automatically on your Wix site",
+  manual_cms_edit: "You'll need to edit this by hand",
+  no_write_path: "You'll edit this by hand (easy to undo)",
+  blocked_no_mapping: "We can't reach this part of your Wix site yet",
   not_applicable: "Not applicable",
 };
 
@@ -937,7 +956,7 @@ function WixReadiness({ pack }: { pack: AtomicChangePack }) {
                 {PUSH_METHOD_LABEL[p.method]}
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {p.rollbackReady ? "rollback ready" : "rollback best-effort"}
+                {p.rollbackReady ? "easy to undo" : "undo may be tricky"}
               </div>
             </div>
           </li>
@@ -949,8 +968,8 @@ function WixReadiness({ pack }: { pack: AtomicChangePack }) {
         </p>
       ) : null}
       <p className="text-[11px] text-muted-foreground">
-        Nothing publishes from the Workbench, this only shows whether an approved change could
-        ship and be rolled back.
+        Nothing goes live from this page. This only shows whether an approved change could go live
+        and be undone.
       </p>
     </div>
   );

@@ -41,7 +41,7 @@ describe("StealThisMoveSection", () => {
   it("renders proven move with badge, line, evidence, CTA", () => {
     const html = renderToStaticMarkup(<StealThisMoveSection moves={[move()]} />);
     expect(html).toContain("Their winning moves");
-    expect(html).toContain("Cited after");
+    expect(html).toContain("Working for them");
     expect(html).toContain("AI started citing it 6 days later");
     expect(html).toContain("In your own history:");
     expect(html).toContain("Publish your own cost guide");
@@ -106,13 +106,13 @@ describe("WhyThemSection", () => {
   it("renders pages, gaps, descriptors, and the loss row", () => {
     const html = renderToStaticMarkup(<WhyThemSection reports={[report()]} />);
     expect(html).toContain("Why them, not you");
-    expect(html).toContain("AI cited this page 5 times");
+    expect(html).toContain("AI recommended this page 5 times");
     expect(html).toContain("https://supplehomesinc.com/adu-cost-guide");
     expect(html).toContain("https://ritzbuilders.com/adu-construction");
     expect(html).toContain("answers 2 common questions");
     expect(html).toContain("luxury, award-winning");
     expect(html).toContain("Who builds the best ADUs in Palo Alto?");
-    expect(html).toContain("not cited");
+    expect(html).toContain("don&#x27;t appear");
   });
 
   it("renders 'no close match' honestly and nothing on empty reports", () => {

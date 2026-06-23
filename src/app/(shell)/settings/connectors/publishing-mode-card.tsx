@@ -145,10 +145,10 @@ export function PublishingModeCard() {
           <div className="rounded-md border border-status-warning/30 bg-status-warning/[0.06] px-3 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
             <p className="font-semibold text-foreground">Before you turn this on:</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
-              <li>Only safe, mapped, high-confidence content edits publish in one click.</li>
+              <li>Only small text edits we&apos;re sure about will publish in one click.</li>
               <li>Rejected, weak, or unmapped recommendations never auto-publish.</li>
               <li>Page URLs, links, and structure are never changed; every edit is reversible.</li>
-              <li>A snapshot is saved before each change, and a daily limit still applies.</li>
+              <li>We save a backup before each change so it can be undone, and there&apos;s a daily limit.</li>
             </ul>
           </div>
 
@@ -191,7 +191,7 @@ export function PublishingModeCard() {
             className="rounded-md border border-border/60 px-3.5 py-2 text-[13px] font-semibold text-foreground hover:bg-surface-inset/40 disabled:opacity-50"
             data-publishing-mode-action="disarm"
           >
-            {pending ? "Disarming…" : "Disarm: back to two-click"}
+            {pending ? "Turning off…" : "Turn off one-click publishing"}
           </button>
           <p className="text-[12px] text-muted-foreground">
             Accepting still snapshots, caps daily pushes, and never changes URLs or links.

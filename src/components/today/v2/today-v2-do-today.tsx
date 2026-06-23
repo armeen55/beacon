@@ -81,9 +81,8 @@ export function TodayV2DoToday({
           Nothing to ship right now.
         </p>
         <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-          No new recommendations right now. Refresh your connected data
-          (Settings → Connectors) to surface fresh search demand or content
-          gaps on your pages.
+          No new suggestions right now. Update your data to check for new
+          things to fix on your pages.
         </p>
         <div className="mt-auto pt-4">
           <Link

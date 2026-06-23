@@ -32,7 +32,7 @@ export function CoMentionSection({ matrix }: { matrix: CoMentionMatrix }) {
   const chartEntries = filtered.slice(0, 12).map((e) => ({
     label: e.domain,
     value: e.co_occurrence_count,
-    meta: `${Math.round(e.co_mention_strength * 100)}% strength · ${e.topics.slice(0, 2).join(", ")}`,
+    meta: `together ${Math.round(e.co_mention_strength * 100)}% of the time · ${e.topics.slice(0, 2).join(", ")}`,
   }));
 
   return (
@@ -40,7 +40,7 @@ export function CoMentionSection({ matrix }: { matrix: CoMentionMatrix }) {
       <details className="group/comention">
         <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground hover:text-accent-primary transition-colors [&::-webkit-details-marker]:hidden">
           <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/comention:rotate-90">▶</span>
-          AI-era competitors
+          Companies AI mentions next to you
           {discoveredOutside.length > 0 && (
             <span className="text-[10px] font-medium text-accent-primary ml-1">
               {discoveredOutside.length} discovered
@@ -49,8 +49,8 @@ export function CoMentionSection({ matrix }: { matrix: CoMentionMatrix }) {
         </summary>
         <div className="mt-3 space-y-3">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Domains that appear alongside yours in AI answers — ranked by co-occurrence frequency
-            across {matrix.total_answers_analyzed.toLocaleString()} analyzed responses.
+            Websites that show up in the same AI answers as you, ranked by how often you appear together,
+            across {matrix.total_answers_analyzed.toLocaleString()} answers we checked.
             {discoveredOutside.length > 0 && (
               <span className="text-foreground font-medium">
                 {" "}{discoveredOutside.length} are not in your configured competitor universe.
@@ -80,17 +80,17 @@ export function CoMentionSection({ matrix }: { matrix: CoMentionMatrix }) {
             <div className="rounded-lg border border-border/60 p-4">
               <MiniBarChart
                 entries={chartEntries}
-                title="Co-mention frequency"
-                subtitle="Top domains by co-occurrence count"
+                title="How often you appear together"
+                subtitle="Websites that show up most in the same AI answers as you"
                 colorScheme="competitive"
               />
             </div>
           ) : (
             <div className="rounded-lg border border-border/70 overflow-hidden">
               <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-3 py-2 bg-surface-inset/50 text-[10px] font-medium text-muted-foreground border-b border-border/60">
-                <span>Domain</span>
-                <span className="text-right">Co-mentions</span>
-                <span className="text-right hidden sm:block">Strength</span>
+                <span>Website</span>
+                <span className="text-right">Times together</span>
+                <span className="text-right hidden sm:block">How often</span>
                 <span className="text-right hidden sm:block">Status</span>
               </div>
               {displayEntries.map((entry) => (
@@ -151,8 +151,8 @@ function CoMentionRow({ entry, maxCount }: { entry: CoMentionEntry; maxCount: nu
           <div className="h-full rounded-full bg-accent-primary/50 transition-all" style={{ width: `${Math.max(barWidth, 1)}%` }} />
         </div>
         <div className="flex gap-2 mt-1 sm:hidden text-[10px] text-muted-foreground tabular-nums">
-          <span>{entry.co_occurrence_count} co-mentions</span>
-          <span>{strengthPct}% strength</span>
+          <span>{entry.co_occurrence_count} times together</span>
+          <span>{strengthPct}% of the time</span>
         </div>
       </div>
       <span className="text-right text-[12px] font-semibold tabular-nums hidden sm:block">

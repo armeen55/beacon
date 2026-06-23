@@ -89,10 +89,12 @@ const CONFIDENCE_DOT: Record<RecommendationActionRow["derivedConfidence"], strin
   needs_review: "bg-muted-foreground/40 ring-1 ring-muted-foreground/40",
 };
 
+// Confidence wording mirrors the v2 recommendation card exactly so the
+// brief reads continuous with the card stack (audit consistency fix).
 const CONFIDENCE_LABEL: Record<RecommendationActionRow["derivedConfidence"], string> = {
-  strong_evidence: "High confidence",
-  moderate_evidence: "Medium confidence",
-  needs_review: "Needs more evidence",
+  strong_evidence: "High",
+  moderate_evidence: "Medium",
+  needs_review: "Lower confidence, optional",
 };
 
 const CONFIDENCE_DESCRIPTION: Record<

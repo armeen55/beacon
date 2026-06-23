@@ -24,13 +24,12 @@ export function SourceTrustSection({ index }: { index: SourceTrustIndex }) {
       <details className="group/trust">
         <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-foreground hover:text-accent-primary transition-colors [&::-webkit-details-marker]:hidden">
           <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/trust:rotate-90">▶</span>
-          Source reliance by platform
+          Where each AI gets its info
         </summary>
         <div className="mt-3 space-y-4">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Which domains each AI platform cites most frequently across{" "}
-            {index.total_citations_analyzed.toLocaleString()} observations.
-            This reflects observed citation behavior — not confirmed algorithmic preference.
+            Based on how often each AI names different websites across{" "}
+            {index.total_citations_analyzed.toLocaleString()} AI answers we checked.
           </p>
 
           {meaningfulPlatforms.map((platform) => (
@@ -103,8 +102,8 @@ function PlatformTrustCard({
         <div className="border-t border-border/50">
           <div className="grid grid-cols-[auto_1fr_auto_auto] gap-x-3 px-3 py-1.5 text-[10px] font-medium text-muted-foreground bg-surface-inset/30">
             <span>#</span>
-            <span>Source</span>
-            <span className="text-right">Citations</span>
+            <span>Website</span>
+            <span className="text-right">Times named</span>
             <span className="text-right">Share</span>
           </div>
           {visibleSources.map((entry, i) => (
@@ -139,7 +138,7 @@ function SourceRow({ entry, rank, maxCitations }: { entry: SourceTrustEntry; ran
             <span className="text-[9px] font-medium text-status-success border border-status-success/20 rounded px-1 py-px shrink-0">you</span>
           )}
           {entry.is_competitor && !entry.is_owned && (
-            <span className="text-[9px] font-medium text-status-danger/70 shrink-0">comp</span>
+            <span className="text-[9px] font-medium text-status-danger/70 shrink-0">competitor</span>
           )}
         </div>
         <div className="h-1 rounded-full bg-border/20 mt-1 overflow-hidden">

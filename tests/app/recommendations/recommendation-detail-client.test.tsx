@@ -144,12 +144,12 @@ describe("Bundle 2B — RecommendationDetailClient", () => {
     expect(html).toContain("Suggested");
   });
 
-  it("renders 'High confidence' for derivedConfidence=strong_evidence", () => {
+  it("renders 'High' for derivedConfidence=strong_evidence", () => {
     const html = render(makeRow());
     expect(html).toContain(
       'data-recommendation-detail-confidence="strong_evidence"',
     );
-    expect(html).toContain("High confidence");
+    expect(html).toContain(">High</span>");
   });
 
   it("renders evidence tiles for prompts / AI answers / competitor", () => {
@@ -282,7 +282,7 @@ describe("Bundle 2B — RecommendationDetailClient", () => {
       }),
     );
     expect(html).toContain('data-recommendation-detail-confidence="needs_review"');
-    expect(html).toContain("Needs more evidence");
+    expect(html).toContain("Lower confidence, optional");
     expect(html).toContain(
       "Beacon needs more evidence before this should be shipped",
     );

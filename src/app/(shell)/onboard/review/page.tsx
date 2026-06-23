@@ -44,10 +44,10 @@ import { resolvePreviewConfigSignals } from "./resolve-preview-config";
 export const dynamic = "force-dynamic";
 
 const CATEGORY_LABELS: Record<PromptCategory, string> = {
-  brand_discovery: "Brand searches",
-  competitor_comparison: "Head-to-head with competitors",
-  service_in_city: "City + service queries",
-  cost_query: "Cost questions",
+  brand_discovery: "When people search your name",
+  competitor_comparison: "When people compare you to others",
+  service_in_city: "When people look for your service nearby",
+  cost_query: "When people ask about price",
 };
 
 const CATEGORY_ORDER: PromptCategory[] = [
@@ -117,7 +117,7 @@ export default async function OnboardReviewPage() {
             <dt className="text-muted-foreground">Business</dt>
             <dd>{displayBusinessName(tenant.business_name, "—")}</dd>
             <dt className="text-muted-foreground">Website</dt>
-            <dd className="font-mono">{tenant.domain || "—"}</dd>
+            <dd>{tenant.domain || "—"}</dd>
             <dt className="text-muted-foreground">Cities</dt>
             <dd>{cities.length ? cities.join(", ") : "—"}</dd>
             <dt className="text-muted-foreground">Work</dt>
@@ -158,10 +158,10 @@ export default async function OnboardReviewPage() {
               if (list.length === 0) return null;
               return (
                 <div key={cat} className="space-y-2">
-                  <p className="text-[12px] uppercase tracking-wide text-muted-foreground">
+                  <p className="text-[12px] font-medium text-muted-foreground">
                     {CATEGORY_LABELS[cat]}{" "}
-                    <span className="font-mono normal-case">
-                      ({list.length})
+                    <span className="font-normal">
+                      ({list.length} {list.length === 1 ? "question" : "questions"})
                     </span>
                   </p>
                   <ul className="space-y-1.5">
@@ -170,7 +170,7 @@ export default async function OnboardReviewPage() {
                         key={p.priority}
                         className="rounded-md border border-foreground/10 px-3 py-2 text-[13px]"
                       >
-                        <span className="font-mono">{p.text}</span>
+                        <span>{p.text}</span>
                         {p.rationale ? (
                           <p className="pt-0.5 text-[12px] text-muted-foreground">
                             {p.rationale}

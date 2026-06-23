@@ -147,8 +147,8 @@ export async function StateOfUnionSection() {
             </div>
             <p className="mt-1 text-[12px] text-muted-foreground">
               {sou.schemaAeoGap.thinPages} {sou.schemaAeoGap.thinPages === 1 ? "page is" : "pages are"} short on
-              content. Adding a clear question-and-answer section helps Google and AI
-              tools understand and recommend your pages.
+              content. Adding a Q&amp;A section (FAQ) makes it easier for Google and AI
+              to explain your business to people searching.
             </p>
           </div>
         ) : null}

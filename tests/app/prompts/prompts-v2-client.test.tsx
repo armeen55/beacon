@@ -65,8 +65,8 @@ describe("PromptsV2Client — strategic surface", () => {
   it("renders the calm empty state with no internal vocabulary when prompts is empty", () => {
     const html = render([]);
     expect(html).toContain('data-prompts-v2-empty="true"');
-    expect(html).toContain("No active prompts yet");
-    expect(html).toContain("Beacon is still gathering readings");
+    expect(html).toContain("added any questions yet");
+    expect(html).toContain("start tracking how");
     expect(html).toContain('data-prompts-v2-empty-cta="manage"');
     expect(html).toContain('href="/settings/prompts"');
   });

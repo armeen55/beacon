@@ -189,7 +189,7 @@ describe("projectPlatformBadge", () => {
   it("returns 'cited' when cited > 0 but no primaries", () => {
     const b = projectPlatformBadge(plat({ cited: 2, observations: 4 }));
     expect(b.state).toBe("cited");
-    expect(b.microcopy).toBe("Cited");
+    expect(b.microcopy).toBe("AI mentioned you");
   });
 
   it("returns 'mentioned' when only mentioned > 0", () => {
@@ -206,7 +206,7 @@ describe("projectPlatformBadge", () => {
   it("returns 'no_data' for zero observations", () => {
     const b = projectPlatformBadge(plat({ observations: 0 }));
     expect(b.state).toBe("no_data");
-    expect(b.microcopy).toBe("No reading yet");
+    expect(b.microcopy).toBe("Not checked yet");
   });
 });
 

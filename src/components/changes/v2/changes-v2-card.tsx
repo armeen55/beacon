@@ -167,10 +167,10 @@ export function ChangesV2Card({
                 "px-2.5 py-1 text-[12px] font-semibold text-accent-primary transition-colors",
                 "hover:bg-accent-primary/[0.12] disabled:opacity-50",
               )}
-              title="Confirm this change is live on your site. Beacon starts tracking its impact now instead of waiting for the next scan."
+              title="Tells us this change is live on your site, so we start checking whether it helped right away."
               data-changes-card-mark-shipped="true"
             >
-              {markShipped.pending ? "Marking…" : "Mark shipped"}
+              {markShipped.pending ? "Saving…" : "I made this change"}
             </button>
             <p
               aria-live="polite"

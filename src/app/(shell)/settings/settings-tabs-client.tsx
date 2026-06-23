@@ -27,7 +27,7 @@ export function SettingsTabsClient({ children }: { children: React.ReactNode }) 
             key={tab.href}
             href={tab.href}
             className={cn(
-              "px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap",
+              "px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap",
               pathname === tab.href
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50",

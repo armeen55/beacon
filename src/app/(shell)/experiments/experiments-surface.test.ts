@@ -39,7 +39,9 @@ describe("/experiments client batch actions", () => {
     expect(src).toContain("router.refresh()");
   });
   it("never fakes copy: a card with no draft routes to the Workbench instead", () => {
-    expect(src).toContain("No drafted copy yet");
+    expect(src).toContain(
+      "We have not written the new text yet. Open the page editor to create it, then come back here.",
+    );
   });
 });
 

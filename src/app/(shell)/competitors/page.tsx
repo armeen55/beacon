@@ -287,17 +287,17 @@ export default async function CompetitorsPage() {
             <KpiCard label="How often AI picks you" value={`${benchmark.ownedAppearanceRate}%`} meta={`out of ${benchmark.trackedCitationObservations.toLocaleString()} AI answers checked`} />
             <KpiCard label="Times AI recommended you" value={benchmark.ownedAIMentions} meta={`across ${benchmark.trackedCitationObservations.toLocaleString()} AI answers checked`} />
             <KpiCard label="Competitors AI recommends" value={benchmark.topCompetitors.length} />
-            <KpiCard label="Ahead of you" value={aheadCount} meta={aheadCount > 0 ? `of ${benchmark.topCompetitors.length} top competitors` : "You lead the field"} />
+            <KpiCard label="Beating you" value={aheadCount} meta={aheadCount > 0 ? `recommended by AI more often than you (of ${benchmark.topCompetitors.length} top competitors)` : "You lead the field"} />
           </div>
           <div className="-mt-5 space-y-0.5">
             <p className="text-[10px] text-muted-foreground/70">
-              Directional — based on your tracked prompt sample, not a market census.
+              These are estimates from the questions we test, not every search out there.
               {marketCoverageState === "partial" && (
                 <span className="text-status-warning/70"> (limited sample)</span>
               )}
               {" "}
               <a href="/settings/methodology#citation-share" className="text-accent-primary hover:underline">
-                How this works →
+                What do these numbers mean? →
               </a>
             </p>
             <p className="text-[10px] text-muted-foreground/60">
@@ -346,10 +346,10 @@ export default async function CompetitorsPage() {
           {marketMilestones.length > 0 && (
             <div className="rounded-lg border border-border/50 px-4 py-3">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                Competitive records
+                Your best moments
               </p>
               <p className="text-[11px] text-muted-foreground mt-1 mb-2 leading-relaxed">
-                Share and lead metrics from the same citation corpus as the table below — logged when a new high is measured.
+                We log it here each time you hit a new high in how often AI recommends you.
               </p>
               <ul className="space-y-2">
                 {marketMilestones.map((e) => (
@@ -378,8 +378,8 @@ export default async function CompetitorsPage() {
                   <span className="hidden sm:block">#</span>
                   <span className="sm:hidden"> </span>
                   <span>Competitor</span>
-                  <span className="text-right hidden sm:block">Citations</span>
-                  <span className="text-right hidden sm:block">Topic share</span>
+                  <span className="text-right hidden sm:block">Times recommended</span>
+                  <span className="text-right hidden sm:block">% of topics they win</span>
                 </div>
                 {benchmark.topCompetitors.map((comp, i) => {
                   const compEntity = competitors.find(
@@ -408,7 +408,7 @@ export default async function CompetitorsPage() {
                             <span className="text-[13px] font-semibold truncate">{comp.name}</span>
                           )}
                           {isAhead && (
-                            <span className="text-[10px] font-medium text-status-danger shrink-0">Ahead of you</span>
+                            <span className="text-[10px] font-medium text-status-danger shrink-0" title="Recommended by AI more often than you">Beating you</span>
                           )}
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -450,7 +450,7 @@ export default async function CompetitorsPage() {
           {benchmark.topNextMoves.length > 0 && (
             <section>
               <h2 className="text-sm font-semibold text-foreground mb-1">Next moves</h2>
-              <p className="text-[11px] text-muted-foreground mb-3">Shortest paths from this snapshot — same links, less chrome.</p>
+              <p className="text-[11px] text-muted-foreground mb-3">The fastest things you can do right now.</p>
               <ul className="rounded-lg border border-border/60 divide-y divide-border/50 overflow-hidden">
                 {benchmark.topNextMoves.map((m, i) => (
                   <li key={i}>
@@ -459,7 +459,7 @@ export default async function CompetitorsPage() {
                       className="flex items-center justify-between gap-3 px-4 py-3 text-[13px] font-medium hover:bg-surface-inset/40 transition-colors"
                     >
                       <span className="min-w-0">{m.label}</span>
-                      <span className="text-xs text-accent-primary shrink-0 font-medium">Open</span>
+                      <span className="text-xs text-accent-primary shrink-0 font-medium">See how →</span>
                     </Link>
                   </li>
                 ))}
@@ -472,14 +472,11 @@ export default async function CompetitorsPage() {
             <section className="rounded-lg border border-border/70 overflow-hidden">
               <div className="px-4 py-3 border-b border-border/50 bg-surface-inset/25">
                 <h2 className="text-sm font-semibold text-foreground">Topic signals</h2>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Three lenses on the same topic model — not three separate stories.
-                </p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 lg:divide-x lg:divide-border/60 divide-y divide-border/60 lg:divide-y-0">
                 {benchmark.strongestAreas.length > 0 && (
                   <div className="p-4 lg:min-h-[140px]">
-                    <p className="text-[10px] font-medium text-status-success mb-3">Where you lead</p>
+                    <p className="text-[10px] font-medium text-status-success mb-3">What you{"'"}re winning</p>
                     <ul className="space-y-3">
                       {benchmark.strongestAreas.map((a) => (
                         <li key={a.topic}>
@@ -502,7 +499,7 @@ export default async function CompetitorsPage() {
                 )}
                 {benchmark.biggestLosses.length > 0 && (
                   <div className="p-4 lg:min-h-[140px]">
-                    <p className="text-[10px] font-medium text-status-danger mb-3">Highest pressure</p>
+                    <p className="text-[10px] font-medium text-status-danger mb-3">Where competitors beat you</p>
                     <ul className="space-y-3">
                       {benchmark.biggestLosses.map((l) => (
                         <li key={l.topic}>
@@ -515,9 +512,9 @@ export default async function CompetitorsPage() {
                               />
                             </div>
                             <span className="text-[11px] font-semibold tabular-nums text-status-danger shrink-0">
-                              {l.competitorRate}%
+                              Them {l.competitorRate}%
                             </span>
-                            <span className="text-[10px] text-muted-foreground shrink-0">you {l.ownedRate}%</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">You {l.ownedRate}%</span>
                           </div>
                         </li>
                       ))}
@@ -526,7 +523,7 @@ export default async function CompetitorsPage() {
                 )}
                 {benchmark.weakestAreas.length > 0 && (
                   <div className="p-4 lg:min-h-[140px]">
-                    <p className="text-[10px] font-medium text-status-warning mb-3">Thinnest share</p>
+                    <p className="text-[10px] font-medium text-status-warning mb-3">Where you{"'"}re barely showing up</p>
                     <ul className="space-y-3">
                       {benchmark.weakestAreas.map((a) => (
                         <li key={a.topic}>
@@ -624,8 +621,7 @@ export default async function CompetitorsPage() {
                   })}
                 </div>
                 <p className="text-[10px] text-muted-foreground/60 mt-1.5 px-1">
-                  From {totalAnswers.toLocaleString()} AI answer observations.
-                  Directories and platforms are excluded.
+                  Based on {totalAnswers.toLocaleString()} AI answers we checked (we leave out listing sites like Yelp).
                 </p>
                 {/* Per-topic: where are you absent? */}
                 {(() => {
@@ -652,12 +648,12 @@ export default async function CompetitorsPage() {
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-[12px] font-medium text-foreground">{topic.topic}</p>
                                 <span className="text-[10px] tabular-nums text-muted-foreground">
-                                  absent in {absentPct}% of answers
+                                  AI skips you in {absentPct}% of answers about this
                                 </span>
                               </div>
                               {topic.top_when_absent.length > 0 && (
                                 <p className="text-[10px] text-muted-foreground mt-1">
-                                  Who fills the gap:{" "}
+                                  Who AI recommends instead:{" "}
                                   <span className="text-foreground font-medium">
                                     {topic.top_when_absent
                                       .slice(0, 3)
@@ -819,15 +815,15 @@ export default async function CompetitorsPage() {
           {/* Domain type breakdown */}
           {discovery.all.length > 5 && (
             <section className="rounded-lg border border-border/50 px-4 py-3">
-              <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Domain universe breakdown</p>
+              <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Website categories</p>
               <div className="flex items-center gap-4 text-[11px]">
-                <span><span className="font-semibold text-foreground">{discovery.direct.length}</span> direct</span>
+                <span><span className="font-semibold text-foreground">{discovery.direct.length}</span> business sites (like yours)</span>
                 <span className="text-border">·</span>
-                <span><span className="font-semibold text-foreground">{discovery.directories.length}</span> directories</span>
+                <span><span className="font-semibold text-foreground">{discovery.directories.length}</span> listing sites (like Yelp)</span>
                 <span className="text-border">·</span>
-                <span><span className="font-semibold text-foreground">{discovery.editorial.length}</span> editorial</span>
+                <span><span className="font-semibold text-foreground">{discovery.editorial.length}</span> news and blogs</span>
                 <span className="text-border">·</span>
-                <span><span className="font-semibold text-foreground">{discovery.forums.length}</span> forums</span>
+                <span><span className="font-semibold text-foreground">{discovery.forums.length}</span> community sites</span>
                 <span className="text-border">·</span>
                 <span className="text-muted-foreground">{discovery.totalDomainsAnalyzed} total</span>
               </div>
@@ -909,7 +905,7 @@ export default async function CompetitorsPage() {
 
             {competitors.length > 0 && (
               <div>
-                <h3 className="text-xs font-semibold text-foreground mb-2">Imported entities vs universe</h3>
+                <h3 className="text-xs font-semibold text-foreground mb-2">Imported competitors vs. your list</h3>
                 <div className="rounded-lg border border-border/60 divide-y divide-border/50 overflow-hidden">
                   {competitors.map((comp) => {
                     const dom = normalizeCompetitorDomain(comp.domain);

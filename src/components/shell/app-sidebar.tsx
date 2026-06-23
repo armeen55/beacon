@@ -61,7 +61,7 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
             <span className="text-[13px] font-semibold tracking-tight text-foreground">
               Beacon
             </span>
-            <span className="text-[10px] font-medium text-sidebar-foreground/70 tracking-tight">
+            <span className="text-[11px] font-medium text-sidebar-foreground tracking-tight">
               Get found on Google &amp; AI search
             </span>
           </span>
@@ -96,7 +96,7 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
                       className={cn(
                         "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
                         isActive
-                          ? "bg-accent-primary-muted text-foreground"
+                          ? "bg-accent-primary-muted text-foreground font-semibold border-l-2 border-accent-primary"
                           : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
                       )}
                     >
@@ -112,7 +112,7 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
                       {badge != null && badge > 0 && badgeStyle && (
                         <span
                           className={cn(
-                            "inline-flex items-center justify-center min-w-[18px] h-[16px] rounded-full text-[9px] font-semibold tabular-nums px-1",
+                            "inline-flex items-center justify-center min-w-[20px] h-[18px] rounded-full text-[11px] font-semibold tabular-nums px-1",
                             badgeStyle
                           )}
                           // a11y #421: the red/amber count badge conveyed

@@ -39,8 +39,8 @@ export function DraftWithAi({ path, hasOpenAi }: { path: string; hasOpenAi: bool
         </button>
         <span className="text-[11px] text-muted-foreground">
           {hasOpenAi
-            ? "Runs the analysis model on this page's evidence. Cached, so re-running an unchanged page is free. Nothing publishes."
-            : "No OpenAI key set — this will use the deterministic draft (no model spend)."}
+            ? "AI writes a suggestion based on this page's data. It is just a draft, nothing goes live."
+            : "AI is not connected yet, so this writes a suggestion without it. Either way, it is just a draft."}
         </span>
       </div>
 
@@ -82,7 +82,7 @@ function DecisionView({ decision }: { decision: PageAtomicDecision }) {
     <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/30 p-3.5">
       <div className="flex flex-wrap items-center gap-1.5">
         <Badge tone={isLlm ? "ai" : "det"}>
-          {isLlm ? "AI-drafted" : "Deterministic draft (no AI key)"}
+          {isLlm ? "AI-drafted" : "Written without AI"}
         </Badge>
         <Badge tone="neutral">{decision.recommended_atomic_action.replace(/_/g, " ")}</Badge>
         <Badge tone="neutral">{decision.confidence.replace(/_/g, " ")} confidence</Badge>

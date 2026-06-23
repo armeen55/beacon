@@ -39,8 +39,8 @@ describe("resolveProofPill", () => {
     );
     expect(pill.kind).toBe("watching");
     expect(pill.label).toBe("Watching");
-    // Watching blurb must signal the row is in-flight.
-    expect(pill.blurb.toLowerCase()).toContain("accepted");
+    // Watching blurb must signal the row is in-flight (waiting to go live).
+    expect(pill.blurb.toLowerCase()).toContain("waiting");
   });
 
   it("returns Needs review when the linked edit is not_found_after_7d, even on a live class", () => {

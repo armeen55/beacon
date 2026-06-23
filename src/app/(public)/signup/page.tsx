@@ -38,9 +38,10 @@ export default async function SignupPage({
           <p className="text-[12px] text-muted-foreground">
             Beacon shows you the exact website changes that get you
             recommended by AI assistants and found on Google. The ones you
-            approve can publish to your Wix site (each change is yours to
-            approve); the rest come as paste-ready steps. Magic-link sign-in,
-            no password.
+            approve can publish directly to your website (Wix supported today),
+            and each change is yours to approve; the rest come as paste-ready
+            steps. Instead of a password, we email you a secure one-time link to
+            sign in, which is safer than a password.
           </p>
         </div>
         <SignupForm sent={params.sent === "1"} error={params.error} />

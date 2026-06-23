@@ -798,7 +798,7 @@ export function RecommendationV2Card({
             onAccept != null && qaDisplay.actionable ? "review" : "primary"
           }
         >
-          {qaDisplay.actionable ? "Review →" : "Review only →"}
+          {qaDisplay.actionable ? "Review →" : "View details →"}
         </Link>
         {(pageSurgeonReviewVerdict === "approve" || pageSurgeonReviewVerdict === "needs_edit") && (
           <Link

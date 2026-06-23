@@ -88,7 +88,7 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
       kind: "needs_review",
       label: "Needs review",
       tone: "warning",
-      blurb: "Beacon couldn't confirm this on the page yet.",
+      blurb: "We couldn't confirm this change is live on the page yet. Worth a look.",
     };
   }
 
@@ -100,7 +100,7 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
       kind: "watching",
       label: "Watching",
       tone: "info",
-      blurb: "Accepted — Beacon is watching for it to land on the page.",
+      blurb: "We are waiting for this change to go live on your page.",
     };
   }
 
@@ -112,7 +112,7 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
       kind: "needs_review",
       label: "Needs review",
       tone: "warning",
-      blurb: "Bake window passed and Beacon couldn't find it on the page.",
+      blurb: "We waited, but couldn't find this change on the page. Worth a look.",
     };
   }
 
@@ -123,14 +123,14 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
           kind: "helping",
           label: "Helping",
           tone: "success",
-          blurb: "AI visibility responded after this shipped.",
+          blurb: "AI started mentioning you more after this change went live.",
         };
       case "hurting":
         return {
           kind: "hurting",
           label: "Hurting",
           tone: "danger",
-          blurb: "AI visibility slipped after this shipped.",
+          blurb: "AI mentioned you less after this change went live.",
         };
       case "too_early":
       case "not_enough_data":
@@ -139,28 +139,28 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
           kind: "too_early",
           label: "Too early",
           tone: "muted",
-          blurb: "Beacon is waiting for the post-change window to fill.",
+          blurb: "Too soon to tell. We need more days of data after the change.",
         };
       case "nothing_yet":
         return {
           kind: "no_signal_yet",
           label: "No signal yet",
           tone: "muted",
-          blurb: "No movement yet — Beacon keeps watching.",
+          blurb: "Nothing has moved yet. We are still watching.",
         };
       case "weak_signal":
         return {
           kind: "watching",
           label: "Watching",
           tone: "info",
-          blurb: "Early signs of movement — not yet a strong signal.",
+          blurb: "Early signs of movement, but not enough to be sure yet.",
         };
       case "not_implemented":
         return {
           kind: "needs_review",
           label: "Needs review",
           tone: "warning",
-          blurb: "Bake window passed and Beacon couldn't find it on the page.",
+          blurb: "We waited, but couldn't find this change on the page. Worth a look.",
         };
     }
   }
@@ -171,7 +171,7 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
       kind: "live",
       label: "Live",
       tone: "success",
-      blurb: "Live on your site. Beacon is watching for AI to respond.",
+      blurb: "Live on your site. We are watching to see if AI mentions you more.",
     };
   }
 
@@ -181,6 +181,6 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
     kind: "watching",
     label: "Watching",
     tone: "info",
-    blurb: "Beacon is tracking this change.",
+    blurb: "We are keeping an eye on this change.",
   };
 }

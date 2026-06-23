@@ -210,8 +210,8 @@ function ChangesV2CardWithActions({ row }: { row: ProjectedCardRow }) {
           setFeedback({
             message:
               flipped > 0
-                ? "Marked live — Beacon is now tracking its impact."
-                : "Already live — no change.",
+                ? "Got it. We'll let you know if this helped."
+                : "Already live. No change needed.",
             isError: false,
           });
           // Re-pull the server pill so the card reflects the new
@@ -224,10 +224,11 @@ function ChangesV2CardWithActions({ row }: { row: ProjectedCardRow }) {
           });
         }
       } catch (err) {
+        // Keep the technical detail in the console for debugging; the
+        // owner sees a friendly, reassuring message instead.
+        console.error("markChangelogEditShipped failed", err);
         setFeedback({
-          message: `Unexpected error: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
+          message: "Something went wrong saving that. Please try again.",
           isError: true,
         });
       }
@@ -383,7 +384,7 @@ function ChangesV2EmptyState({ proofLedgerCount }: { proofLedgerCount: number })
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
         {hasTracked
           ? `Those are the experiments you shipped, each measuring against comparable pages. This timeline adds a row automatically when Beacon's next scan confirms an accepted recommendation went live on your site.`
-          : "Beacon logs every accepted recommendation here once the next scan confirms it on your site."}
+          : "Once you approve a change and it goes live on your site, it will show up here so you can see if it worked."}
       </p>
     </div>
   );

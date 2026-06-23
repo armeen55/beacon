@@ -21,11 +21,11 @@ describe("Workbench view renders the optimizer's six moves", () => {
   it("surfaces all six operator moves", () => {
     for (const label of [
       "Best next move",
-      "Safest change",
-      "Highest upside",
-      "Fastest measurable",
+      "Quickest win",
+      "Biggest potential",
+      "Easiest to track",
       "Hold / do not touch",
-      "Bigger swing later",
+      "Worth doing later",
     ]) {
       expect(src).toContain(label);
     }

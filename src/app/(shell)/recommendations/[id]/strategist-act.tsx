@@ -28,7 +28,7 @@ const CONFIDENCE_LABEL: Record<string, string> = {
   high: "High confidence",
   medium: "Medium confidence",
   low: "Low confidence",
-  needs_more_evidence: "Needs more evidence",
+  needs_more_evidence: "Lower confidence, optional",
   rejected: "Not a confident target",
 };
 
@@ -82,12 +82,12 @@ export function StrategistPanel({ result }: { result: StrategistActionResult }) 
   const critic = result.criticReview ?? null;
   const criticRiskGroups = critic
     ? [
-        { label: "Unsupported claims", items: critic.unsupportedClaims },
-        { label: "Query / page match risks", items: critic.queryPageMismatchRisks },
-        { label: "Copy risks", items: critic.copyRisks },
-        { label: "Publishing risks", items: critic.publishingRisks },
-        { label: "Factual risks", items: critic.factualRisks },
-        { label: "Evidence gaps", items: critic.evidenceGaps },
+        { label: "Claims that may not hold up", items: critic.unsupportedClaims },
+        { label: "May not match what people search for", items: critic.queryPageMismatchRisks },
+        { label: "Wording to watch", items: critic.copyRisks },
+        { label: "Things to check before it goes live", items: critic.publishingRisks },
+        { label: "Facts to verify", items: critic.factualRisks },
+        { label: "Where we're missing proof", items: critic.evidenceGaps },
       ].filter((g) => g.items.length > 0)
     : [];
   const pairs = strategist.alternativesConsidered.map((alt, i) => ({
@@ -239,7 +239,7 @@ export function StrategistPanel({ result }: { result: StrategistActionResult }) 
           data-recommendation-detail-adversarial-qa="true"
         >
           <p className="text-[10px] font-bold uppercase tracking-wider text-status-warning/90 mb-1.5">
-            ⚖ Adversarial QA — what might be wrong
+            Things to double-check
           </p>
           <p
             className="text-[12px] text-foreground/80 leading-relaxed mb-2"

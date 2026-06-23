@@ -129,7 +129,11 @@ export default function ImportPage() {
       />
 
       <p className="text-sm text-muted-foreground mb-6">
-        Most accounts never need to use this page. New AI-answer data lands when you refresh your connected data. If you have a historical export you'd like to bring in, contact support or enable advanced mode below.
+        Most accounts never need to use this page. New AI-answer data lands when you refresh your connected data. If you have a historical export you'd like to bring in,{" "}
+        <a href="mailto:aminarmeen@gmail.com" className="text-accent-primary font-medium hover:underline">
+          contact support
+        </a>{" "}
+        or enable advanced mode below.
       </p>
 
       {/* ── 1. Coverage strip ── */}
@@ -283,7 +287,6 @@ export default function ImportPage() {
               <span className="text-[14px] font-semibold">
                 {profoundResult.success ? "Batch complete" : "Batch failed"}
               </span>
-              <span className="text-[10px] text-muted-foreground font-mono">{profoundResult.elapsed_ms}ms</span>
             </div>
 
             {profoundResult.success && (
@@ -535,7 +538,7 @@ export default function ImportPage() {
                 <Button variant="ghost" size="sm" onClick={() => startTransition(async () => setRuns(await getImportRuns()))} disabled={isPending}>Refresh</Button>
               </div>
               <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
-                File runs on this workspace. For dated visibility rows across platforms, use{" "}
+                A list of your past uploads. For your day-by-day results, go to{" "}
                 <Link href="/settings/history" className="text-accent-primary font-medium hover:underline">
                   History
                 </Link>

@@ -339,7 +339,7 @@ describe("ChangesV2Client — proof timeline", () => {
       editStatusByChangelogId: { "accepted-row": "accepted" },
     });
     expect(acceptedHtml).toContain('data-changes-card-mark-shipped="true"');
-    expect(acceptedHtml).toContain("Mark shipped");
+    expect(acceptedHtml).toContain("I made this change");
 
     // Recommended (NOT yet accepted) → button absent. Mirrors the legacy
     // M4 rule: Mark shipped must never skip the Accept step.

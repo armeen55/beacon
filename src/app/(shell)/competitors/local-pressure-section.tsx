@@ -54,7 +54,7 @@ export function LocalPressureSection({ cities }: { cities: CityCoverage[] }) {
             <div className="rounded-lg border border-border/60 overflow-hidden">
               <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-3 py-1.5 bg-surface-inset/50 text-[10px] font-medium text-muted-foreground border-b border-border/60">
                 <span>Market</span>
-                <span className="text-right">Comp. pages</span>
+                <span className="text-right">Competitor pages</span>
                 <span className="text-right">Your pages</span>
                 <span className="text-right">Status</span>
               </div>

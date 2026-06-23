@@ -126,12 +126,12 @@ export function BusinessForm({
           </p>
         ) : normalizedDomain ? (
           <p id="domain-hint" className="text-[12px] text-muted-foreground">
-            We'll scan{" "}
+            We'll read{" "}
             <span className="font-mono text-foreground">
               https://{normalizedDomain}
             </span>{" "}
-            to learn how AI assistants and Google describe you. No tracking
-            pixel installed.
+            to learn how AI assistants and Google describe you. We don't add any
+            code to your website.
           </p>
         ) : trimmedDomain ? (
           <p id="domain-hint" className="text-[12px] text-amber-600">
@@ -141,8 +141,8 @@ export function BusinessForm({
           </p>
         ) : (
           <p id="domain-hint" className="text-[12px] text-muted-foreground">
-            We'll scan your homepage to learn how AI assistants and Google
-            describe you. No tracking pixel installed.
+            We'll read your homepage to learn how AI assistants and Google
+            describe you. We don't add any code to your website.
           </p>
         )}
       </div>

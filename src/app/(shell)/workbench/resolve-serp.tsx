@@ -28,6 +28,26 @@ const FEATURE_LABEL: Record<SerpFeature, string> = {
   none: "No major feature",
 };
 
+// Plain-English explanation of each Google box, shown on hover so a
+// non-technical owner knows what it is and that it can take their clicks.
+const FEATURE_HELP: Record<SerpFeature, string> = {
+  ai_overview:
+    "Google's AI-written answer at the very top. It can take your clicks because people read it instead of visiting your page.",
+  featured_snippet:
+    "A boxed answer Google pulls to the top. It can take your clicks because the answer shows without anyone clicking through.",
+  image_pack: "A row of photos near the top. It can pull clicks toward images instead of your page.",
+  knowledge_panel:
+    "The big info box on the right. It can take your clicks because it answers the question on Google itself.",
+  people_also_ask:
+    "The drop-down list of related questions. It can take your clicks by answering questions right on Google.",
+  video: "A row of videos near the top. It can pull clicks toward videos instead of your page.",
+  local_pack:
+    "The map with nearby businesses. It can take your clicks because people pick a business from the map.",
+  shopping: "A row of products with prices. It can pull clicks toward shopping listings instead of your page.",
+  top_stories: "A row of news articles. It can pull clicks toward news sites instead of your page.",
+  none: "No big Google box on this search, so normal results still show.",
+};
+
 export function ResolveSerp({ path, hasOpenAi }: { path: string; hasOpenAi: boolean }) {
   const [pending, startTransition] = useTransition();
   const [hyp, setHyp] = useState<SerpHypothesis | null>(null);
@@ -51,12 +71,16 @@ export function ResolveSerp({ path, hasOpenAi }: { path: string; hasOpenAi: bool
           disabled={pending || !hasOpenAi}
           className="rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90 disabled:opacity-60"
         >
-          {pending ? "Checking SERP… (up to ~30s)" : hyp ? "Re-run SERP check" : "Resolve SERP"}
+          {pending
+            ? "Working on it (about 30 sec)…"
+            : hyp
+              ? "Check Google's results again"
+              : "Preview Google's results page (free, about 30 sec)"}
         </button>
         <span className="text-[11px] text-muted-foreground">
           {hasOpenAi
-            ? "SERP unknown. Run a synthetic hypothesis of the live SERP for this page's top queries (no live fetch, no paid API). Verify before acting."
-            : "No OpenAI key set, so a SERP hypothesis cannot be generated. Check the live SERP manually."}
+            ? "We don't yet know what Google's results page looks like for this page's top searches. This shows our best estimate so you can decide whether changing your title would help. It's free and changes nothing on your site. Double-check on Google before acting."
+            : "AI isn't connected yet, so we can't estimate Google's results page. Connect it in Settings, or look up the searches on Google yourself."}
         </span>
       </div>
 
@@ -77,10 +101,10 @@ function HypothesisView({ hyp }: { hyp: SerpHypothesis }) {
     <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3.5">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-          Synthetic SERP hypothesis
+          Our best estimate
         </span>
         <span className="text-[10px] text-muted-foreground">
-          Not observed data. Verify the live SERP before a title rewrite.
+          This is our best estimate, not what Google actually shows. Double-check on Google before changing your title.
         </span>
       </div>
 
@@ -107,11 +131,11 @@ function HypothesisView({ hyp }: { hyp: SerpHypothesis }) {
               <span className="text-[12px] font-medium text-foreground">{q.query}</span>
               {q.featureLikelyOwnsAnswer ? (
                 <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">
-                  feature likely owns clicks
+                  a Google box may be taking these clicks
                 </span>
               ) : (
                 <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                  organic still serves
+                  normal results still show
                 </span>
               )}
               <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -122,7 +146,8 @@ function HypothesisView({ hyp }: { hyp: SerpHypothesis }) {
               {q.likelyFeatures.map((f) => (
                 <span
                   key={f}
-                  className="rounded bg-surface-inset/60 px-1.5 py-0.5 text-[10px] text-foreground/70"
+                  className="rounded bg-surface-inset/60 px-1.5 py-0.5 text-[10px] text-foreground/70 cursor-help"
+                  title={FEATURE_HELP[f]}
                 >
                   {FEATURE_LABEL[f]}
                 </span>

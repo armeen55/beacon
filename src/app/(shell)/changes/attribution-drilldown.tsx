@@ -32,8 +32,8 @@ export function AttributionDrilldown({ outcome }: { outcome: StoredChangeOutcome
     >
       <Header outcome={outcome} />
 
-      {/* Plain-English proof — the customer-facing headline. The technical
-          rationale + diff-in-diff blocks below are the supporting "math". */}
+      {/* Plain-English proof — the customer-facing headline. The
+          rationale + comparison blocks below are the supporting "math". */}
       <ProofLead outcome={outcome} />
 
       {/* Single-line engine rationale (technical; supports the headline) */}
@@ -174,10 +174,9 @@ function OverallLine({ lift }: { lift: PlatformLift }) {
         {lift.adjusted_lift} <span className="text-[11px] text-muted-foreground">cit/day</span>
       </span>
       <span className="text-[12px] text-foreground-secondary">
-        adjusted lift · <span className="font-semibold">{rel}</span> vs baseline
-      </span>
-      <span className="text-[11px] text-muted-foreground ml-auto">
-        N<sub>controls</sub>={lift.controls_used} · treated Δ={lift.treated_delta} · control Δ={lift.control_delta}
+        extra mentions this page earned ·{" "}
+        <span className="font-semibold">{rel}</span> compared to how this page did
+        before your change
       </span>
     </div>
   );
@@ -259,8 +258,8 @@ function RawOverallLine({ raw }: { raw: RawPrePost }) {
   return (
     <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 tabular-nums">
       <span className="text-[18px] font-semibold text-foreground-secondary">
-        treated Δ = {raw.treated_delta > 0 ? "+" : ""}
-        {raw.treated_delta} <span className="text-[11px] text-muted-foreground">cit/day</span>
+        This page changed by {raw.treated_delta > 0 ? "+" : ""}
+        {raw.treated_delta} <span className="text-[11px] text-muted-foreground">mentions per day</span>
       </span>
       <span className="text-[11px] text-muted-foreground">
         pre {raw.treated_pre_avg} → post {raw.treated_post_avg} · days observed pre={raw.pre_days_observed} post={raw.post_days_observed}
@@ -367,8 +366,8 @@ function SparklinesRow({ sparklines }: { sparklines: SparklineData }) {
           Citation trajectory
         </p>
         <p className="text-[9px] text-muted-foreground">
-          vertical line = treatment ({sparklines.treatment_date})
-          {sparklines.control_reference && ` · orange dashed = control cohort mean (N=${sparklines.control_urls.length})`}
+          vertical line = your change ({sparklines.treatment_date})
+          {sparklines.control_reference && ` · orange dashed = average of the similar pages we're comparing against (${sparklines.control_urls.length} pages)`}
         </p>
       </div>
       <Sparkline sparklines={sparklines} />

@@ -23,14 +23,24 @@ export default async function ExperimentsPage() {
   const rows = await loadBatchExperimentRows(tenantId).catch(() => []);
   const cards = selectExperimentBatch(rows);
 
+  const updatedOn = new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Changes to try next</h1>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Changes to try next</h1>
+          <span className="text-[12px] text-muted-foreground">Updated {updatedOn}</span>
+        </div>
         <p className="mt-1 text-[14px] text-muted-foreground">
           The best changes to make today, ranked by impact and picked so you can
           clearly measure each one. Pages you are already testing are left out so
-          their results stay clean. Nothing publishes here.
+          their results stay clean. None of these buttons touch your website. You
+          make each change yourself.
         </p>
       </div>
       <ExperimentsClient cards={cards} />

@@ -20,8 +20,8 @@ export default async function LoginPage({
     <div className="min-h-screen flex items-center justify-center px-6">
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-1">
-          <h1 className="text-xl font-semibold">Sign in to Beacon</h1>
-          <p className="text-[12px] text-muted-foreground">
+          <h1 className="text-2xl font-semibold">Sign in to Beacon</h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
             Beacon shows you the exact website changes that help more people
             find you on Google and in AI search. Nothing changes on your live
             site unless you approve it. We&rsquo;ll email you a link to sign in,

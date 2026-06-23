@@ -182,7 +182,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
           </p>
           <p className="text-[13px] text-muted-foreground mt-0.5">
             {hasSampledData
-              ? `How often ${brandName} ${verbAppears} across tracked AI answers.`
+              ? `How often ${brandName} ${verbAppears} across tracked AI answers (higher is better; 20% to 40% is typical).`
               : `AI answers Beacon has sampled for ${brandName}.`}
           </p>
         </div>
@@ -216,7 +216,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
             <span
               className="rounded-full border border-border/60 bg-surface-raised/40 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground"
               data-today-hero-freshness="empty"
-              title="No snapshots have been recorded yet for this tenant."
+              title="No AI data yet. Connect an AI source first."
             >
               {freshness.label}
             </span>
@@ -313,7 +313,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
                   // Window-average mention rate — a DIFFERENT formula/window than
                   // the brand hero's latest-day score, so label it so the two
                   // numbers aren't read as directly comparable.
-                  text: `${closestChallenger.score.toFixed(1)}% mention rate (window avg)`,
+                  text: `AI named them in ${closestChallenger.score.toFixed(1)}% of answers`,
                   tone: "neutral",
                 }
               : { text: "No competitor in range yet", tone: "neutral" }
@@ -335,7 +335,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
                   text: `Latest ${formatShortDate(latestReadingDate)}`,
                   tone: "neutral",
                 }
-              : { text: "Awaiting first reading", tone: "neutral" }
+              : { text: "Getting your first results", tone: "neutral" }
           }
         />
       </div>
@@ -352,7 +352,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
           {chatgptPrimaryPct !== null && (
             <span data-today-hero-platform="chatgpt">
               <span className="font-semibold text-foreground/90">ChatGPT</span>{" "}
-              {chatgptPrimaryPct}% primary
+              names you first {chatgptPrimaryPct}% of the time
             </span>
           )}
           {chatgptPrimaryPct !== null && perplexityPrimaryPct !== null && (
@@ -363,7 +363,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
               <span className="font-semibold text-foreground/90">
                 Perplexity
               </span>{" "}
-              {perplexityPrimaryPct}% primary
+              names you first {perplexityPrimaryPct}% of the time
             </span>
           )}
           {/* #372 — only render the in-page jump when the consuming

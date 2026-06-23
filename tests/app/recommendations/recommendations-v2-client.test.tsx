@@ -256,7 +256,7 @@ describe("Bundle 2A — RecommendationsV2Client", () => {
     expect(html).toContain('data-recommendations-v2-empty="true"');
     expect(html).toContain("No recommendations right now.");
     expect(html).toContain(
-      "Refresh your connected data (Settings → Connectors) to surface the next",
+      "Update your data in Settings to see if anything new comes up. If you",
     );
   });
 
@@ -472,7 +472,7 @@ describe("Bundle 2A V — v2 classification contract (post-Bundle-2A audit)", ()
     ];
     const html = renderV2(queue);
     expect(html).toContain('data-recommendations-v2-calm="true"');
-    expect(html).toContain("Beacon is measuring 2 changes");
+    expect(html).toContain("tracking 2 changes");
   });
 
   it("Suggested stack renders new + needs_review + needs_fresh_edit rows (mixed bucket)", () => {

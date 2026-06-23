@@ -7,7 +7,6 @@ import type {
   OpportunityKind,
   OpportunitySource,
 } from "@/domains/insight/opportunity";
-import { serpStatusChip } from "@/domains/insight/serp-guard";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 
 /**
@@ -20,45 +19,51 @@ import { workbenchHref } from "@/domains/insight/workbench-route";
  */
 const KIND_META: Record<
   OpportunityKind,
-  { label: string; dot: string; chip: string }
+  { label: string; dot: string; chip: string; hint: string }
 > = {
   ctr_leak: {
     label: "Shown, not clicked",
     dot: "bg-rose-500",
     chip: "bg-rose-50 text-rose-700",
+    hint: "Lots of people see you on Google but few click. Usually the title needs work.",
   },
   striking_distance: {
     label: "Almost on page 1",
     dot: "bg-blue-500",
     chip: "bg-blue-50 text-blue-700",
+    hint: "This page is close to the first page of Google. A small push could get it there.",
   },
   decay: {
     label: "Losing clicks",
     dot: "bg-amber-500",
     chip: "bg-amber-50 text-amber-700",
+    hint: "This page is getting fewer visits from Google than it used to.",
   },
   rising: {
     label: "Gaining clicks",
     dot: "bg-emerald-500",
     chip: "bg-emerald-50 text-emerald-700",
+    hint: "This page is getting more visits from Google than it used to.",
   },
   friction: {
     label: "Visitors get stuck",
     dot: "bg-violet-500",
     chip: "bg-violet-50 text-violet-700",
+    hint: "People who land here click something that does not work, then leave.",
   },
   cannibalization: {
-    label: "Pages competing",
+    label: "Your own pages fighting each other",
     dot: "bg-slate-400",
     chip: "bg-slate-100 text-slate-700",
+    hint: "Two of your own pages target the same search, so they hold each other back.",
   },
 };
 
 const SOURCE_LABEL: Record<OpportunitySource, string> = {
-  gsc: "Search",
-  semrush: "SEMrush",
-  clarity: "Clarity",
-  ga4: "Analytics",
+  gsc: "Google",
+  semrush: "Keyword data",
+  clarity: "Visitor behavior",
+  ga4: "Visitor behavior",
 };
 
 type SortKey = "impact" | "ready";
@@ -91,8 +96,12 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
   if (items.length === 0) {
     return (
       <p className="text-[13px] text-muted-foreground">
-        No opportunities detected yet. Once Search, SEMrush, and Clarity data
-        sync, ranked page opportunities appear here.
+        We don&rsquo;t have enough data yet.{" "}
+        <Link href="/connections" className="font-medium text-foreground underline underline-offset-2">
+          Connect Google
+        </Link>{" "}
+        to get started. Once your data comes in, your best page opportunities
+        appear here.
       </p>
     );
   }
@@ -102,10 +111,11 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
       {/* Headline strip, opens with the one number that matters. */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-surface-inset/40 px-4 py-3">
         <div className="text-[13px] text-foreground">
+          <span className="text-muted-foreground">You could win back about</span>{" "}
           <span className="text-[17px] font-semibold tabular-nums">
-            ~{summary.clicks.toLocaleString()}
+            {summary.clicks.toLocaleString()}
           </span>{" "}
-          <span className="text-muted-foreground">clicks/90d at stake across</span>{" "}
+          <span className="text-muted-foreground">more visits over 90 days across</span>{" "}
           <span className="font-semibold tabular-nums">{summary.pages}</span>{" "}
           <span className="text-muted-foreground">pages</span>
           {summary.ready > 0 ? (
@@ -114,7 +124,7 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
               <span className="font-semibold tabular-nums text-emerald-700">
                 {summary.ready}
               </span>{" "}
-              <span className="text-muted-foreground">ready to review</span>
+              <span className="text-muted-foreground">already have a suggested fix ready for you</span>
             </>
           ) : null}
         </div>
@@ -125,6 +135,7 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
               key={k}
               type="button"
               onClick={() => setSort(k)}
+              aria-pressed={sort === k}
               className={
                 "rounded-full px-2.5 py-1 font-medium transition-colors " +
                 (sort === k
@@ -132,11 +143,17 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
                   : "text-muted-foreground hover:text-foreground")
               }
             >
-              {k === "impact" ? "Biggest impact" : "Ready first"}
+              {sort === k ? "✓ " : ""}
+              {k === "impact" ? "Biggest impact" : "Ones with a fix ready"}
             </button>
           ))}
         </div>
       </div>
+
+      <p className="px-1 text-[12px] text-muted-foreground">
+        Looking never changes your live site. You approve every change before it
+        goes out.
+      </p>
 
       <div className="space-y-2">
         {sorted.map((o) => (
@@ -149,13 +166,12 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
           How these estimates work
         </summary>
         <p className="pt-1.5">
-          Estimates are directional, sized as times-shown × the click-rate gap;
-          &ldquo;Visitors get stuck&rdquo; rows instead count Clarity dead/rage
-          clicks (on-page frustration, not recoverable search clicks). A sizing,
-          not a promise. &ldquo;Google results unknown&rdquo; means we haven&rsquo;t
-          verified whether a Google results feature (AI Overview / featured snippet / image
-          pack) owns the clicks, on top-ranked pages, verify the Google results before
-          rewriting a title.
+          These are rough estimates of the extra visits you could gain, based on
+          your Google and visitor data. They are a guide, not a guarantee. For
+          &ldquo;Visitors get stuck&rdquo; pages, the number counts people who
+          clicked something that did not work, not lost visits. Before you change
+          a page&rsquo;s title, it helps to check how that page currently shows up
+          on Google.
         </p>
       </details>
     </div>
@@ -177,6 +193,7 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
               {o.title}
             </span>
             <span
+              title={meta.hint}
               className={
                 "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium " +
                 meta.chip
@@ -186,18 +203,23 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
               {meta.label}
             </span>
             {o.hasChangePack ? (
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                ✓ Ready
+              <span
+                title="We already have a suggested fix written for this page. Open it to look before anything changes."
+                className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+              >
+                ✓ Fix ready
               </span>
-            ) : null}
-            {o.importance > 1.05 ? (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                High-value
+            ) : o.importance > 1.05 ? (
+              <span
+                title="One of your more important pages, so a change here tends to matter more."
+                className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+              >
+                One of your top pages
               </span>
             ) : null}
           </div>
-          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/70">
-            {o.path}
+          <p className="mt-1 truncate text-[11px] text-muted-foreground/70">
+            Page: {o.path}
           </p>
         </div>
 
@@ -206,11 +228,13 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
           {o.estClicksAtStake > 0 ? (
             <div className="text-right">
               <div className="text-[18px] font-semibold tabular-nums text-foreground">
-                {isFriction ? "" : "~"}
+                {isFriction ? "" : "about "}
                 {o.estClicksAtStake.toLocaleString()}
               </div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                {isFriction ? "stuck clicks" : `clicks/${o.estWindow}`}
+              <div className="text-[10px] tracking-wide text-muted-foreground">
+                {isFriction
+                  ? "visitors clicked something broken"
+                  : `more visits over ${o.estWindow === "90d" ? "90" : "28"} days`}
               </div>
             </div>
           ) : null}
@@ -219,7 +243,7 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
             prefetch={false}
             className="whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
           >
-            {o.hasChangePack ? "Review" : "Audit"}
+            {o.hasChangePack ? "See the fix" : "Look into it"}
           </Link>
         </div>
       </div>
@@ -231,13 +255,14 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
         className="flex w-full items-center gap-1 border-t border-border/40 px-4 py-1.5 text-left text-[11px] font-medium text-muted-foreground hover:text-foreground"
       >
         <span
+          aria-hidden="true"
           className={
             "inline-block transition-transform " + (open ? "rotate-90" : "")
           }
         >
-          ▸
+          ›
         </span>
-        Why · what to do
+        Why this matters and what to do
       </button>
 
       {/* ── Expanded: all the homework, honest + complete ── */}
@@ -262,18 +287,27 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
           </p>
 
           {o.serpGuardLabel ? (
-            <p className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-              ⚠ {o.serpGuardLabel}
-            </p>
+            <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+              <p className="font-semibold">Heads up before you change the title</p>
+              <p className="mt-0.5">
+                Google may be showing the answer itself for this search, so
+                changing the title might not win the clicks back. Check how this
+                page shows up on Google first.
+              </p>
+            </div>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-[10px] tracking-wide text-muted-foreground/70">
             {o.estClicksAtStake > 0 && !isFriction ? (
               <span>
-                {o.estConfidence} chance it helps · {o.estWindow} window
+                {o.estConfidence === "high"
+                  ? "We're fairly confident"
+                  : o.estConfidence === "medium"
+                    ? "Worth a try"
+                    : "A long shot"}{" "}
+                · based on {o.estWindow === "90d" ? "90" : "28"} days of data
               </span>
             ) : null}
-            <span>{serpStatusChip(o.serpStatus)}</span>
             {o.kinds
               .filter((k) => k !== o.kind)
               .map((k) => (

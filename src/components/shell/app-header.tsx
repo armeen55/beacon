@@ -66,7 +66,7 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
         <Menu className="h-4 w-4" />
       </Button>
       {parent ? (
-        <div className="flex items-center gap-1.5 text-[13px]">
+        <div className="flex items-center gap-1.5 text-[15px] md:text-[13px]">
           <Link
             href={parent.href}
             prefetch={false}
@@ -78,12 +78,12 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
           <span className="font-semibold text-foreground">{title ?? "Detail"}</span>
         </div>
       ) : (
-        <h1 className="text-[13px] font-semibold">{title}</h1>
+        <h1 className="text-[15px] md:text-[13px] font-semibold">{title}</h1>
       )}
       {/* Night-shift #119 (2026-06-11): server-rendered tenant switcher
           composed in via RSC props (this component stays client). */}
       {rightSlot ? <div className="ml-auto">{rightSlot}</div> : null}
-      <div className={`${rightSlot ? "ml-3" : "ml-auto"} hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground/40`}>
+      <div className={`${rightSlot ? "ml-3" : "ml-auto"} hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground`}>
         <kbd className="border border-border rounded px-1.5 py-0.5 font-mono">
           ⌘K
         </kbd>

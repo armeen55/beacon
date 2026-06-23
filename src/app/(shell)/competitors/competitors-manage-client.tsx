@@ -52,7 +52,7 @@ export function CompetitorsManageClient({
         setErr(r.error);
         return;
       }
-      setMsg(`Saved · universe v${r.universe_version}`);
+      setMsg("Saved. Your competitor list was updated.");
     });
   }
 
@@ -61,12 +61,11 @@ export function CompetitorsManageClient({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-[12px] font-semibold text-foreground">
-            Manage configured universe
+            Manage your competitor list
           </h3>
           <p className="text-[10px] text-muted-foreground mt-0.5">
-            Saves to <code className="text-[9px] bg-surface-inset px-1 rounded">.data/competitor-universe.json</code>{" "}
-            and bumps <span className="font-medium">universe_version</span>. Current: v
-            {universeVersion ?? "—"} · {universeFingerprint?.slice(0, 14) ?? "—"}…
+            Your competitor list is saved here.
+            {universeVersion != null ? ` Version: v${universeVersion}` : ""}
           </p>
         </div>
         <div className="flex gap-2">
@@ -98,7 +97,7 @@ export function CompetitorsManageClient({
       <div className="space-y-2 max-h-[420px] overflow-y-auto">
         {rows.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">
-            No rows — add a competitor or import seed elsewhere.
+            No competitors added yet. Click + Add a competitor to start.
           </p>
         ) : (
           rows.map((row, i) => (
