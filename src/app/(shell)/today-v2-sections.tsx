@@ -58,6 +58,12 @@ import {
   type MeasuringExperiment,
 } from "@/components/today/v2/today-v2-experiments-measuring";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { loadBatchExperimentRows } from "@/domains/insight/batch-experiment-loader";
+import {
+  selectExperimentBatch,
+  type ExperimentStatus,
+} from "@/domains/insight/select-experiment-batch";
+import Link from "next/link";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -332,6 +338,65 @@ export async function TodayV2ExperimentsMeasuringSection() {
       nextCheckDate={nextCheckDate}
       recent={recent}
     />
+  );
+}
+
+const BATCH_STATUS_LABEL: Record<ExperimentStatus, string> = {
+  ready_now: "ready now",
+  needs_drafting: "needs drafting",
+  needs_wix_mapping: "needs Wix mapping",
+  needs_serp_check: "needs SERP check",
+  manual_only: "manual edit",
+};
+
+/** Compact "Next experiment batch" block on Today (operator-only): the top 3
+ *  picks from the Batch Experiment Planner, linking to the full /experiments
+ *  surface. Fail-soft + self-hiding so it never blocks or breaks the cockpit. */
+export async function TodayV2NextExperimentBatchSection() {
+  if (!isOperatorModeServer()) return null;
+  const tenantId = await currentTenantId().catch(() => null);
+  if (!tenantId) return null;
+  const cards = await loadBatchExperimentRows(tenantId)
+    .then((rows) => selectExperimentBatch(rows))
+    .catch(() => []);
+  if (cards.length === 0) return null;
+  const top = cards.slice(0, 3);
+
+  return (
+    <section className="rounded-xl border border-border/60 bg-background p-5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="text-[14px] font-semibold text-foreground">Next experiment batch</h2>
+        <Link
+          href="/experiments"
+          prefetch={false}
+          className="text-[12px] font-medium text-accent-primary underline-offset-2 hover:underline"
+        >
+          See all {cards.length} &rarr;
+        </Link>
+      </div>
+      <p className="mb-2 text-[12px] text-muted-foreground">
+        The next changes to ship, chosen for a mix you can measure and held clear
+        of pages already running an experiment.
+      </p>
+      <ul className="space-y-1.5">
+        {top.map((c) => (
+          <li key={`${c.page}:${c.lever}`} className="flex flex-wrap items-center gap-2 text-[12px]">
+            <Link href={c.workbenchHref} className="font-medium text-foreground underline-offset-2 hover:underline">
+              {c.pageTitle}
+            </Link>
+            <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              {c.actionType}
+            </span>
+            {c.estClicksAtStake != null ? (
+              <span className="text-[11px] text-muted-foreground">
+                ~{c.estClicksAtStake.toLocaleString()} clicks at stake
+              </span>
+            ) : null}
+            <span className="text-[11px] text-muted-foreground">{BATCH_STATUS_LABEL[c.status]}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

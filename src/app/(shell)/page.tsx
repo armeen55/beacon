@@ -33,6 +33,7 @@ import {
   TodayV2EditLifecycleSection,
   TodayV2EditOutcomesSection,
   TodayV2ExperimentsMeasuringSection,
+  TodayV2NextExperimentBatchSection,
   TodayV2GoldenPathSection,
   TodayV2ProvenResultsSection,
   TodayV2OffSiteAuthoritySection,
@@ -227,6 +228,13 @@ async function TodayV2SectionedContent() {
           self-hides on any composer error. */}
       <Suspense fallback={null}>
         <TodayV2GoldenPathSection />
+      </Suspense>
+      {/* Batch Experiment Planner (TASK 4) — the top 3 of the next batch, right
+          under the Golden Path so the daily loop flows into "here's what to ship
+          today". Operator-gated + fail-soft inside the section; its own Suspense
+          (null fallback) so the planner's reads never block the cockpit. */}
+      <Suspense fallback={null}>
+        <TodayV2NextExperimentBatchSection />
       </Suspense>
       {/* "Your data sources" quick-connect strip (2026-06-15) — mounted
           AFTER the demo + first-reading gate short-circuits above, so it
