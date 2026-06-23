@@ -252,12 +252,12 @@ describe("/prompts/[id] drilldown smoke", () => {
     expect(html).toContain("Bay Area");
 
     // 3. Platform split — both platforms should render
-    expect(html).toContain("Your state, per platform");
+    expect(html).toContain("How you are doing on each AI");
     expect(html).toContain("Perplexity");
     expect(html).toContain("ChatGPT");
 
     // 4. Competitor leaderboard
-    expect(html).toContain("Who else is here");
+    expect(html).toContain("Other businesses AI named");
     expect(html).toContain("CRC Builders");
     expect(html).toContain("Homestead");
     // CRC appears in 3 of 3; Homestead in 2 of 3
@@ -265,11 +265,11 @@ describe("/prompts/[id] drilldown smoke", () => {
     expect(html).toMatch(/2 of 3/);
 
     // 5. Answer shape (all 3 observations are ranked_list → 100% → dominant)
-    expect(html).toContain("Answer shape");
+    expect(html).toContain("How AI usually answers");
     expect(html).toContain("ranked list");
 
     // 6. Raw evidence last 3
-    expect(html).toContain("Raw evidence");
+    expect(html).toContain("What AI actually said");
     expect(html).toContain("Bayside Builders Group"); // pulled from the answer text
 
     // Back link

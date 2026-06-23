@@ -9,9 +9,9 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 ## Tally
 - Total findings: 923 (292 critical)
-- Fixed critical: ~100  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
+- Fixed critical: ~115  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
 - Fixed medium/low (via global patterns): ongoing
-- Remaining critical: ~192
+- Remaining critical: ~177
 - Deferred (with reason): 0
 
 ## Batches
@@ -37,5 +37,7 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 - **B9 — Settings / Business info** (settings/config): 'Business configuration' + run-on 'Core profile...derived' header -> 'Your business info' + plain 'what Beacon knows...you type here replaces our guess'; 'Yelp business ID or alias / Fusion documentation' -> 'Your Yelp page' + 'paste your Yelp link'; 'competitor domains' -> 'names or website links'; 'Content rules / drafts for you / Persian-Farsi' -> 'Writing preferences' + relatable example; 'Banned terms / rejected outright / review queue' -> 'Words to never use'. 170 config/yelp tests green.
 
+- **B10 — Prompts** (prompts list + detail): 'Prompts' -> 'AI questions'; 'See which buyer questions AI answers...' -> plain; detail headings 'Who IS the answer' -> 'Who AI recommends first', 'Your state, per platform' -> 'How you are doing on each AI', 'Who else is here' -> 'Other businesses AI named', 'Words AI used near you' -> 'Words AI uses to describe you', 'Answer shape' -> 'How AI usually answers', 'Raw evidence - last N' -> 'What AI actually said (last N)'. 4 prompt tests updated.
+
 ## Next
-- B10: Settings import page (#241-259: title, legacy importer, Run batch import confirm, Reset, raw error.message), Prompts (24), Experiments, Opportunities, Workbench, Competitors, Onboarding, Global nav + Phase 5/6 (action vocab, Help/glossary, account/logout). Connectors/Data Health (42 critical, biggest), Settings (30), Prompts (24), Experiments, Opportunities, Workbench, Competitors, Onboarding, Global nav. Also B5 leftover: rec card 'Not publishable'/'Accept & publish' safety + Proof record-form/recompute/recrawl button copy. Proof page (verdict/baseline/controls/diff-in-diff/windows + scary -122%), then Connectors (42 critical), Settings (30), Prompts (24). finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).
+- B11: Experiments page jargon, Opportunities chip context, Workbench section headings, Competitors (Market/citations/SoV), Onboarding/Login, Global nav labels + Phase 5/6 (action vocab consistency, Help/glossary, account/logout, em-dash sweep). Settings import page (#241-259: title, legacy importer, Run batch import confirm, Reset, raw error.message), Prompts (24), Experiments, Opportunities, Workbench, Competitors, Onboarding, Global nav + Phase 5/6 (action vocab, Help/glossary, account/logout). Connectors/Data Health (42 critical, biggest), Settings (30), Prompts (24), Experiments, Opportunities, Workbench, Competitors, Onboarding, Global nav. Also B5 leftover: rec card 'Not publishable'/'Accept & publish' safety + Proof record-form/recompute/recrawl button copy. Proof page (verdict/baseline/controls/diff-in-diff/windows + scary -122%), then Connectors (42 critical), Settings (30), Prompts (24). finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).

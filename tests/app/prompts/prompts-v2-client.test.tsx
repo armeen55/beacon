@@ -56,9 +56,9 @@ describe("PromptsV2Client — strategic surface", () => {
   it("renders the v2 layout marker + customer-safe header", () => {
     const html = render([op()], [["p-1", "Best builder in Atherton?"]]);
     expect(html).toContain('data-prompts-layout="v2-strategic-surface"');
-    expect(html).toContain("Prompts");
+    expect(html).toContain("AI questions");
     expect(html).toContain(
-      "See which buyer questions AI answers with or without you",
+      "The questions buyers ask AI assistants about businesses like yours",
     );
   });
 

@@ -9,7 +9,7 @@
  *   - empty / unknown route id        → calm not-found
  *
  * The v2 client is stubbed to a stable marker. Legacy detects
- * itself by the legacy section header "Your state, per platform"
+ * itself by the legacy section header "How you are doing on each AI"
  * which is unique to the legacy renderer.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -228,33 +228,33 @@ describe("/prompts/[id] switcher contract", () => {
     const html = await render("p-test", {});
     expect(html).not.toContain('data-prompts-detail-stub="v2"');
     // Legacy uses this section heading verbatim.
-    expect(html).toContain("Your state, per platform");
+    expect(html).toContain("How you are doing on each AI");
   }, 15_000);
 
   it("renders the v2 brief stub when ?v2=1 is set", async () => {
     const html = await render("p-test", { v2: "1" });
     expect(html).toContain('data-prompts-detail-stub="v2"');
-    expect(html).not.toContain("Your state, per platform");
+    expect(html).not.toContain("How you are doing on each AI");
   }, 15_000);
 
   it("renders the legacy drilldown when ?legacy=1 is set (escape hatch)", async () => {
     const html = await render("p-test", { legacy: "1" });
     expect(html).not.toContain('data-prompts-detail-stub="v2"');
-    expect(html).toContain("Your state, per platform");
+    expect(html).toContain("How you are doing on each AI");
   }, 15_000);
 
   it("?legacy=1 wins over BEACON_PROMPTS_V2=true (escape hatch overrides env)", async () => {
     process.env.BEACON_PROMPTS_V2 = "true";
     const html = await render("p-test", { legacy: "1" });
     expect(html).not.toContain('data-prompts-detail-stub="v2"');
-    expect(html).toContain("Your state, per platform");
+    expect(html).toContain("How you are doing on each AI");
   }, 15_000);
 
   it("renders v2 when BEACON_PROMPTS_V2=true (env default flip)", async () => {
     process.env.BEACON_PROMPTS_V2 = "true";
     const html = await render("p-test", {});
     expect(html).toContain('data-prompts-detail-stub="v2"');
-    expect(html).not.toContain("Your state, per platform");
+    expect(html).not.toContain("How you are doing on each AI");
   }, 15_000);
 
   it("renders calm not-found when the route id is empty", async () => {

@@ -621,7 +621,7 @@ function PlatformSplit({
   if (byPlatform.length === 0) return null;
   return (
     <section className="mb-6">
-      <SectionHeading>Your state, per platform</SectionHeading>
+      <SectionHeading>How you are doing on each AI</SectionHeading>
       <ul className="grid gap-2 sm:grid-cols-2">
         {byPlatform.map((p) => {
           const label = platformLabel(p.platform);
@@ -724,7 +724,7 @@ function PrimaryAnswerBlock({
 
   return (
     <section className="mb-6">
-      <SectionHeading>Who IS the answer</SectionHeading>
+      <SectionHeading>Who AI recommends first</SectionHeading>
       <div
         className={cn(
           "rounded-md border px-3 py-2.5 text-[13px] leading-relaxed",
@@ -754,7 +754,7 @@ function CompetitorList({
 }) {
   return (
     <section className="mb-6">
-      <SectionHeading>Who else is here</SectionHeading>
+      <SectionHeading>Other businesses AI named</SectionHeading>
       <ul className="space-y-1.5">
         {drilldown.competitors.map((c) => {
           const pct = c.totalObservations > 0
@@ -791,7 +791,7 @@ function DescriptorCloud({
   const hasObservations = drilldown.classification.evidence.observationCount > 0;
   return (
     <section className="mb-6">
-      <SectionHeading>Words AI used near you</SectionHeading>
+      <SectionHeading>Words AI uses to describe you</SectionHeading>
       {hasAny ? (
         <ul className="flex flex-wrap gap-1.5">
           {drilldown.descriptorsNearBrand.map((d) => (
@@ -836,7 +836,7 @@ function AnswerShapeCallout({
   const pretty = label.charAt(0).toLowerCase() + label.slice(1);
   return (
     <section className="mb-6">
-      <SectionHeading>Answer shape</SectionHeading>
+      <SectionHeading>How AI usually answers</SectionHeading>
       <p className="text-[13px] text-foreground">
         <span className="font-medium">{pct}%</span> of answers ({s.topCount} of {s.total}) came back as a{" "}
         <span className="font-medium">{pretty}</span>. Worth appearing in one.
@@ -867,7 +867,7 @@ function RawEvidence({
   }
   return (
     <section className="mb-6">
-      <SectionHeading>Raw evidence — last {drilldown.rawSamples.length}</SectionHeading>
+      <SectionHeading>What AI actually said (last {drilldown.rawSamples.length})</SectionHeading>
       <ul className="space-y-2">
         {drilldown.rawSamples.map((s) => {
           const state = STATE_COPY[s.ritzState];

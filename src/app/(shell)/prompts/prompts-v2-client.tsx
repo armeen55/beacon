@@ -73,8 +73,8 @@ export function PromptsV2Client({
       data-prompts-layout="v2-strategic-surface"
     >
       <PageHeader
-        title="Prompts"
-        description="See which buyer questions AI answers with or without you."
+        title="AI questions"
+        description="The questions buyers ask AI assistants about businesses like yours, and whether AI mentions you in the answer."
       />
 
       {totalPrompts === 0 ? (
