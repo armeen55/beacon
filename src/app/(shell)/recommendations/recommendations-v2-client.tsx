@@ -624,7 +624,7 @@ export function RecommendationsV2Client({
       <header className="flex items-baseline justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-lg font-semibold tracking-tight text-foreground">
-            Recommendations
+            Drafts
           </h1>
           <p className="mt-1 text-[13px] text-muted-foreground leading-relaxed">
             {headerSubline}

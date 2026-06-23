@@ -156,7 +156,7 @@ describe("Bundle 2A — RecommendationsV2Client", () => {
 
   it("renders the page header + subline (Updated <date>)", () => {
     const html = renderV2([makeRec()]);
-    expect(html).toContain(">Recommendations</h1>");
+    expect(html).toContain(">Drafts</h1>");
     expect(html).toContain(
       "Beacon finds where your website is losing visitors on Google and AI, and",
     );
