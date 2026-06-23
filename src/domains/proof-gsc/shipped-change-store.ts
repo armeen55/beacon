@@ -25,6 +25,7 @@ import type {
   GscProofConfidence,
   ProofWindowResult,
 } from "./measure";
+import type { TrafficOutcome } from "./traffic-outcome";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -50,6 +51,10 @@ export type ShippedChangeRecord = {
   verdict: GscProofVerdict;
   confidence: GscProofConfidence;
   measuredAt: string | null;
+  /** GA4 traffic + conversion outcome (Dollar-ROI, gap #1). COMPUTED at measure
+   *  time and recomputed on every load — NOT persisted (no column; recordToRow
+   *  omits it), so it stays in lockstep with live GA4 like the GSC verdict. */
+  trafficOutcome?: TrafficOutcome | null;
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */

@@ -19,6 +19,8 @@ import {
 import { loadPageSurgeonForUrl } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
+import { readGa4WindowForPages, readLatestGa4Date } from "./ga4-window";
+import { computeTrafficOutcome, type TrafficOutcome } from "./traffic-outcome";
 import {
   addDays,
   computeWindowLift,
@@ -38,6 +40,61 @@ const BASELINE_WINDOW_DAYS = 28;
  *  CTR/position guards in computeWindowLift treat 0 impressions/position as
  *  "no data", so this never fakes a swing). */
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
+const GA4_ZERO = { sessions: 0, engagedSessions: 0, conversions: 0 };
+
+/**
+ * Dollar-ROI proof (gap #1): the GA4 traffic + conversion outcome for a shipped
+ * change, control-adjusted, ALONGSIDE the GSC search verdict. Picks the largest
+ * proof window whose post period has settled GA4 data (GA4 settles in ~1-2 days,
+ * far faster than GSC finalization); reports the smallest window as "measuring"
+ * when none has settled. Fail-soft → null. Revenue is structurally absent here
+ * (the GA4 connector returns none), so the outcome flags hasRevenue:false and
+ * the UI shows conversion + traffic proof only, never money.
+ */
+async function computeGa4TrafficOutcome(
+  tenantId: string,
+  record: ShippedChangeRecord,
+  shipDate: string,
+  latestGa4: string | null,
+): Promise<TrafficOutcome | null> {
+  // Elapsed post window = ship..latestGa4 inclusive (GA4 settles in ~1-2 days),
+  // capped at the largest proof window. windowDays = the ACTUAL elapsed days so
+  // the pre window pro-rates fairly; ran = a full proof window has elapsed.
+  const maxWindow = Math.max(...PROOF_WINDOW_DAYS);
+  const minWindow = Math.min(...PROOF_WINDOW_DAYS);
+  let elapsed = 0;
+  if (latestGa4 != null && latestGa4 >= shipDate) {
+    const diffDays = Math.round(
+      (Date.parse(latestGa4) - Date.parse(shipDate)) / 86_400_000,
+    );
+    elapsed = Math.min(maxWindow, Math.max(0, diffDays) + 1); // inclusive of both ends
+  }
+  const ran = elapsed >= minWindow;
+  const day = elapsed; // 0 → "measuring (no GA4 day since ship yet)"
+
+  const pages = [record.page, ...record.controlPages];
+  const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
+  const [pre, post] = await Promise.all([
+    readGa4WindowForPages({ tenantId, pages, start: preStart, end: shipDate }),
+    elapsed > 0
+      ? readGa4WindowForPages({ tenantId, pages, start: shipDate, end: addDays(shipDate, elapsed) })
+      : Promise.resolve(new Map()),
+  ]);
+
+  // Only controls with real pre-window traffic anchor the diff-in-diff baseline.
+  const controls = record.controlPages
+    .filter((cp) => (pre.get(cp)?.sessions ?? 0) > 0)
+    .map((cp) => ({ pre: pre.get(cp) ?? GA4_ZERO, post: post.get(cp) ?? GA4_ZERO }));
+
+  return computeTrafficOutcome({
+    windowDays: day,
+    ran,
+    preWindowDays: BASELINE_WINDOW_DAYS,
+    treatedPre: pre.get(record.page) ?? GA4_ZERO,
+    treatedPost: post.get(record.page) ?? GA4_ZERO,
+    controls,
+  });
+}
 
 function dateOnly(iso: string): string {
   return iso.length > 10 ? iso.slice(0, 10) : iso;
@@ -205,11 +262,23 @@ export async function measureRecord(
     snippetCapturePlay: isSnippetCapturePlay(record.actionType),
   });
 
+  // Dollar-ROI proof (gap #1): attach the GA4 traffic/conversion outcome. Fully
+  // fail-soft + computed-only (never persisted) — recomputed on every load like
+  // the verdict, so it tracks live GA4.
+  let trafficOutcome: TrafficOutcome | null = null;
+  try {
+    const latestGa4 = await readLatestGa4Date(tenantId);
+    trafficOutcome = await computeGa4TrafficOutcome(tenantId, record, shipDate, latestGa4);
+  } catch {
+    trafficOutcome = null;
+  }
+
   return {
     ...record,
     windows,
     verdict,
     confidence,
+    trafficOutcome,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

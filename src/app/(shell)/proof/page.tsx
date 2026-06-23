@@ -110,6 +110,16 @@ export default async function ProofPage({
           <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
             Measured outcomes
           </h2>
+          {/* Dollar-ROI honesty (gap #1): show what proof CAN measure. Revenue is
+              only claimed if GA4 actually returns it; this property has no revenue
+              events, so we say so once rather than imply dollars per card. */}
+          {!ledger.some((l) => l.trafficOutcome?.hasRevenue) ? (
+            <p className="mb-2 text-[11px] text-muted-foreground">
+              Each change is measured on Search (clicks, rank, CTR) and GA4 traffic
+              (sessions, conversions). No revenue events are configured in GA4, so
+              proof shows traffic and conversions, not dollars.
+            </p>
+          ) : null}
           <WhatHappensNext />
           <div className="mt-3 space-y-2.5">
             {ledger.map((rec) => (
@@ -280,7 +290,18 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
         ) : null}
       </div>
 
-      <p className="mt-1.5 text-[12px] text-foreground/80">{sentence}</p>
+      <p className="mt-1.5 text-[12px] text-foreground/80">
+        <span className="font-medium text-foreground/60">Search:</span> {sentence}
+      </p>
+
+      {/* Dollar-ROI proof (gap #1): the GA4 traffic + conversion outcome next to
+          the Search verdict. Revenue is honestly absent for this property, so the
+          label never implies money (see the header note). */}
+      {rec.trafficOutcome ? (
+        <p className="mt-1 text-[12px] text-foreground/80">
+          {rec.trafficOutcome.label}
+        </p>
+      ) : null}
 
       {/* What actually changed (before → after). */}
       {rec.before || rec.after ? (
