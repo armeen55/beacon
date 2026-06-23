@@ -27,6 +27,21 @@ describe("computeTrafficOutcome — Dollar-ROI proof (gap #1)", () => {
     expect(o.label).toContain("+50% visits vs similar pages");
   });
 
+  it("does NOT claim 'vs similar pages' when no comparable controls contributed", () => {
+    const o = computeTrafficOutcome({
+      windowDays: 7,
+      ran: true,
+      preWindowDays: 7,
+      treatedPre: M(100, 80, 0),
+      treatedPost: M(150, 120, 0), // +50% treated-only
+      controls: [], // no control pages had pre-window sessions
+    });
+    expect(o.controlSessionsPctChange).toBeNull();
+    expect(o.adjustedSessionsPct).toBeCloseTo(0.5, 5); // falls back to treated-only
+    expect(o.label).not.toContain("vs similar pages");
+    expect(o.label).toContain("vs its own baseline (no comparison pages yet)");
+  });
+
   it("pro-rates a 28d pre window to a 7d post window for a fair comparison", () => {
     const o = computeTrafficOutcome({
       windowDays: 7,

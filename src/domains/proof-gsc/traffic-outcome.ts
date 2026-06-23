@@ -73,8 +73,14 @@ export function computeTrafficOutcome(args: {
     const v = pct(c.pre.sessions * scale, c.post.sessions);
     if (v != null) ctlPcts.push(v);
   }
-  const controlSessionsPctChange =
-    ctlPcts.length > 0 ? ctlPcts.reduce((a, b) => a + b, 0) / ctlPcts.length : null;
+  // Whether any comparable untreated page actually contributed to the
+  // adjustment. When false, `adjustedSessionsPct` is treated-only (vs the
+  // page's own pre-window baseline) — the label MUST NOT claim "vs similar
+  // pages" or it overstates the proof (false control-adjusted confidence).
+  const controlsUsed = ctlPcts.length > 0;
+  const controlSessionsPctChange = controlsUsed
+    ? ctlPcts.reduce((a, b) => a + b, 0) / ctlPcts.length
+    : null;
 
   const adjustedSessionsPct =
     sessionsPctChange != null && controlSessionsPctChange != null
@@ -98,7 +104,7 @@ export function computeTrafficOutcome(args: {
     adjustedSessionsPct,
     conversionsDelta,
     hasRevenue: false,
-    label: buildLabel({ hasData, ran, hasPostWindow, adjustedSessionsPct, conversionsDelta, windowDays }),
+    label: buildLabel({ hasData, ran, hasPostWindow, adjustedSessionsPct, conversionsDelta, windowDays, controlsUsed }),
   };
 }
 
@@ -109,6 +115,7 @@ function buildLabel(a: {
   adjustedSessionsPct: number | null;
   conversionsDelta: number;
   windowDays: number;
+  controlsUsed: boolean;
 }): string {
   if (!a.hasPostWindow) return "Visitor traffic: too soon to tell, first results come a week after you ship";
   if (!a.hasData) return "Visitor traffic: no data for this page yet";
@@ -120,7 +127,14 @@ function buildLabel(a: {
   }
   const parts: string[] = [];
   if (a.adjustedSessionsPct != null) {
-    parts.push(`${pctStr(a.adjustedSessionsPct)} visits vs similar pages`);
+    // Only claim "vs similar pages" when comparable untreated pages actually
+    // contributed. Otherwise this is the page's own before/after — say so,
+    // rather than implying a control-adjusted result that does not exist.
+    parts.push(
+      a.controlsUsed
+        ? `${pctStr(a.adjustedSessionsPct)} visits vs similar pages`
+        : `${pctStr(a.adjustedSessionsPct)} visits vs its own baseline (no comparison pages yet)`,
+    );
   }
   if (a.conversionsDelta !== 0) {
     const sign = a.conversionsDelta > 0 ? "+" : "";
