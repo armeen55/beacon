@@ -827,7 +827,7 @@ export function ConnectorsClient({
                     disabled={googleSyncInFlight || isPending || !selectedLocation}
                     className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
                   >
-                    {googleSyncInFlight ? "Syncing…" : "Sync now"}
+                    {googleSyncInFlight ? "Updating…" : "Update data"}
                   </button>
                 ) : null}
                 <button

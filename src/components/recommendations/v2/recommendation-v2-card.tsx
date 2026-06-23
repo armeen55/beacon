@@ -761,10 +761,10 @@ export function RecommendationV2Card({
             data-accept-state={acceptState}
           >
             {acceptState === "accepted"
-              ? "Approved ✓"
+              ? "Done ✓"
               : acceptState === "pending"
-                ? "Approving…"
-                : "Approve this edit"}
+                ? "Saving…"
+                : "Make this change"}
           </button>
         ) : null}
         {/* #316 — failed Accept: surface the ACTUAL error (not a generic

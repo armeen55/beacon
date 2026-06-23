@@ -51,7 +51,7 @@ export async function draftWorkbenchPageWithAi(path: string): Promise<DraftWithA
   } catch {
     return {
       ok: false,
-      error: "Couldn't load this page's data — try Refresh my data, then retry.",
+      error: "Couldn't load this page's data — try Update data, then retry.",
     };
   }
   const canon = resolveCanonFromPath(ctx, path);
@@ -84,7 +84,7 @@ export async function resolveSerpForWorkbenchPage(path: string): Promise<Resolve
   try {
     ctx = await loadPageSurgeonContext(tenantId);
   } catch {
-    return { ok: false, error: "Couldn't load this page's data — try Refresh my data, then retry." };
+    return { ok: false, error: "Couldn't load this page's data — try Update data, then retry." };
   }
   const canon = resolveCanonFromPath(ctx, path);
   if (!canon) {

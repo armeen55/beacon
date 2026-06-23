@@ -92,7 +92,7 @@ export function RefreshMyDataButton({
         className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span aria-hidden="true">↻</span>
-        <span>Refresh my data</span>
+        <span>Update data</span>
       </button>
       <p className="text-[11px] text-muted-foreground">
         Pulls the latest from every connected source.

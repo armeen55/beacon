@@ -176,7 +176,7 @@ function AtomicChangeCard({ c }: { c: AtomicChange }) {
 
       <div className="mt-2 text-[12px] font-semibold" data-brief-change-cta={c.actionable ? "accept" : "review"}>
         {c.actionable ? (
-          <span className="text-accent-primary">Accept →</span>
+          <span className="text-accent-primary">Make this change →</span>
         ) : (
           <span className="text-muted-foreground">Review only →</span>
         )}

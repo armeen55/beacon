@@ -125,7 +125,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
           onClick={submit}
           className="rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90 disabled:opacity-50"
         >
-          {pending ? "Recording…" : "Record"}
+          {pending ? "Saving…" : "I made this change"}
         </button>
       </div>
 
@@ -313,7 +313,7 @@ export function RecordShippedButton({
         className="rounded-md border border-foreground bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90 disabled:opacity-50"
         title="Confirm you shipped this change live (e.g. manually in Wix). Beacon snapshots the Search baseline now and measures the next 7/14/28 days vs comparable pages. Nothing publishes."
       >
-        {pending ? "Saving…" : "Save this change"}
+        {pending ? "Saving…" : "I made this change"}
       </button>
       {feedback ? (
         <span
@@ -443,7 +443,7 @@ export function RecomputeLedgerButton({
             : "Re-measure every recorded change against the latest Search data."
         }
       >
-        {pending ? "Checking…" : "Check for new results"}
+        {pending ? "Checking…" : "Check results"}
       </button>
       {disabled && disabledReason ? (
         <span className="text-[11px] text-muted-foreground/70">{disabledReason}</span>

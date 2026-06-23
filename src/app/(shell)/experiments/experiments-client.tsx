@@ -169,7 +169,7 @@ function Card({
       ) : null}
       {card.rollbackCopy ? (
         <p className="mt-0.5 text-[11px] text-muted-foreground">
-          <span className="uppercase tracking-wide">Rollback to:</span> {card.rollbackCopy}
+          <span className="uppercase tracking-wide">Undo to:</span> {card.rollbackCopy}
         </p>
       ) : null}
 
