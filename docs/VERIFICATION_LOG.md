@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-06-23 — Big-moves loop #8/#9 + FULL-SUITE RESTORED TO GREEN (6e97912, d62fb48, 26a030d)
+
+- **#8 SEMrush ToS-TTL read gate (6e97912):** `.gte('fetched_at', now-30d)` on the
+  3 organic/gaps reads — enforces the 30-day contractual TTL on the read side
+  (defense-in-depth vs a failed best-effort purge). #9 (d62fb48) extends it to the
+  keyword-expansions read (that table is NEVER purged, so the read gate is the only
+  guard). 65 semrush/striking/cannibalization tests green.
+- **FULL LOCAL SUITE run as the session final gate** caught **11 PRE-EXISTING red
+  tests** (ai-visibility-hero ×7, today-v2-visibility-group ×3 [embeds the hero],
+  visibility-score-filter ×1) — all STALE tests vs already-shipped behavior (B31's
+  copy improvements + the directory-name entity-pollution hardening). Fixed all 11
+  (test-only); **full suite now 852 files / 15,066 pass / 0 fail (26a030d).**
+- **PROCESS GAP (worth fixing):** the per-slice gates I'd been running
+  (architecture + routes + app + domains) DO NOT cover `src/components/**` or
+  `src/domains/product/**`, so reds there shipped unnoticed. Future loops: run the
+  FULL suite as the closeout gate (local — no CI minutes), or add those dirs to the
+  standard gate.
+- All deploys success.
+
+---
+
 ## 2026-06-23 — Big-moves loop #6/#7: learn-loop UI + transparency (06a93be, 7578781)
 
 - **#6 'Exclude from learning' control (06a93be):** operator-only toggle on each
