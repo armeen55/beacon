@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-23 — Big-moves loop #4/#5: wedge trust fixes (0971dbc, 83ef07d)
+
+From a focused proof/attribution + learn-loop audit (2 confirmed impact-5 levers):
+- **#4 GA4 outcome honesty (0971dbc):** `traffic-outcome.ts` claimed "X visits vs
+  similar pages" even when ZERO control pages contributed (it silently fell back
+  to the treated-only delta). Now threads `controlsUsed`: with no controls the
+  copy is honest ("vs its own baseline (no comparison pages yet)"); the
+  control-adjusted phrasing is reserved for when comparable pages actually
+  contributed. +1 zero-control test (8 pass).
+- **#5 learn-loop verdict override (83ef07d):** a mis-attributed won/lost can skew
+  the per-action_type outcome prior (±6 ranking points) with no operator escape.
+  Added a sticky `operatorVerdictOverride` ('inconclusive' | null) applied in
+  `measureRecord` (survives recompute + on-load re-measurement) + operator-gated
+  `markVerdictInconclusiveAction` + additive migration (written, not applied;
+  store tolerates absent column). typecheck + 69 proof-core tests green. UI
+  (exclude button + per-action_type prior diagnostic) is the next slice.
+
+---
+
 ## 2026-06-23 — Big-moves loop #2/#3: two trust-path fixes (03b7f08, 689e119)
 
 - **gsc-led-evidence lead floor (03b7f08):** the lone persistent red test pinned
