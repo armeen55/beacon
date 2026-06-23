@@ -152,6 +152,14 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // proposes. Gated by OPENAI_API_KEY presence + a 90s timeout + json_object
   // response_format; any failure falls back to the deterministic page decision.
   "src/domains/recommendation-intelligence/page-surgeon/llm-judge.ts",
+  // page-surgeon SERP hypothesis (2026-06-22, TASK 2): resolves "SERP unknown"
+  // inside the Workbench with a clearly-labeled SYNTHETIC hypothesis of which
+  // SERP features likely sit above the organic results. Workbench-only +
+  // operator-triggered (never the broad scan); NO paid/live SERP fetch (model
+  // general knowledge only); source is ALWAYS "synthetic" and serpStatus is
+  // "suspected"/"unknown", never "observed"; confidence capped at "medium";
+  // fail-soft to null (caller stays "unknown") on any error / missing key.
+  "src/domains/recommendation-intelligence/page-surgeon/serp-hypothesis.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
