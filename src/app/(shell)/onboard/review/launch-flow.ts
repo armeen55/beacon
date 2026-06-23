@@ -30,6 +30,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
 import { dispatchFirstScanForTenant } from "@/domains/onboarding/first-scan-dispatch";
+import { runInProcessColdStartScan } from "@/domains/scanning/in-process-scan";
 import {
   generateStarterPrompts,
   type PromptDraft,
@@ -117,10 +118,16 @@ export async function executeLaunchTransaction(args: {
   /** 2026-06-11 — injectable launch-time first-scan dispatcher (inert
    *  without the operator PAT; tenant-scoped; failure-soft). */
   dispatchFirstScan?: typeof dispatchFirstScanForTenant;
+  /** 2026-06-23 — injectable Vercel-safe in-process cold-start crawler.
+   *  Used as the FALLBACK when GitHub dispatch is unavailable (no PAT) so a
+   *  brand-new tenant still gets real page inventory on first /today render.
+   *  Failure-soft; bounded page/time caps. */
+  coldStartScan?: typeof runInProcessColdStartScan;
 }): Promise<LaunchTransactionOutcome> {
   const { admin, tenantId, now } = args;
   const persistConfig = args.persistConfig ?? deriveAndPersistTenantConfig;
   const dispatchFirstScan = args.dispatchFirstScan ?? dispatchFirstScanForTenant;
+  const coldStartScan = args.coldStartScan ?? runInProcessColdStartScan;
 
   // 1. Fetch tenant row.
   const { data: tenant, error: tFetchErr } = await admin
@@ -341,9 +348,32 @@ export async function executeLaunchTransaction(args: {
           ? ` (http ${scanDispatch.httpStatus}: ${scanDispatch.error.slice(0, 120)})`
           : ""),
     );
+    // 2026-06-23 — Vercel fallback. GitHub dispatch is INERT without the
+    // operator PAT, and that's the normal hosted-Vercel case. Rather than
+    // leave a brand-new tenant with zero page inventory until the nightly
+    // fleet, crawl their own domain in-process (bounded page/time caps,
+    // crawl-only, failure-soft) and dual-write pages + snapshots straight to
+    // Supabase so the very first /today render has real recommendations.
+    if (scanDispatch.status === "skipped_pat_not_configured") {
+      const scanDomain =
+        (tenant.domain ?? "").trim() || (persistedConfig?.domain ?? "").trim();
+      if (scanDomain) {
+        const cold = await coldStartScan({ tenantId: tenant.id, domain: scanDomain });
+        console.info(
+          `[onboard/review] in-process cold-start scan: ${cold.status} ` +
+            `(discovered=${cold.pagesDiscovered} crawled=${cold.pagesCrawled} ` +
+            `snapshots=${cold.snapshotsWritten} source=${cold.source} ${cold.durationMs}ms)` +
+            (cold.detail ? ` detail=${cold.detail}` : ""),
+        );
+      } else {
+        console.info(
+          "[onboard/review] in-process cold-start scan skipped: no domain on tenant",
+        );
+      }
+    }
   } catch (e) {
     console.error(
-      "[onboard/review] first-scan dispatch threw (launch unaffected):",
+      "[onboard/review] first-scan dispatch/cold-start threw (launch unaffected):",
       e instanceof Error ? e.message : e,
     );
   }

@@ -958,15 +958,32 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
     const dispatchStub = vi.fn(async () => ({
       status: "skipped_pat_not_configured" as const,
     }));
+    // 2026-06-23 — when GitHub dispatch is skipped (no PAT, the Vercel case),
+    // the launch falls back to the in-process cold-start crawler. Inject a
+    // stub so the unit test never makes a real network crawl, and assert the
+    // fallback fires with the tenant id + domain.
+    const coldStartStub = vi.fn(async () => ({
+      status: "scanned" as const,
+      pagesDiscovered: 3,
+      pagesCrawled: 3,
+      snapshotsWritten: 3,
+      durationMs: 12,
+      source: "sitemap" as const,
+    }));
     const r = await executeLaunchTransaction({
       admin: client as never,
       persistConfig: persistConfigStub,
       dispatchFirstScan: dispatchStub as never,
+      coldStartScan: coldStartStub as never,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
     expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
     expect(dispatchStub).toHaveBeenCalledWith(PENDING_TENANT.id);
+    expect(coldStartStub).toHaveBeenCalledWith({
+      tenantId: PENDING_TENANT.id,
+      domain: PENDING_TENANT.domain,
+    });
   });
 
   it("a FAILED launch never dispatches a scan", async () => {
