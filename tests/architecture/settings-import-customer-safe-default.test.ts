@@ -127,20 +127,20 @@ describe("D2 — /settings/import default surface is customer-safe", () => {
     const def = defaultSurfaceText(loadSource());
     // Both phrases exist verbatim — pin them so they cannot be reverted.
     expect(
-      def.includes("Import historical answer data"),
-      "Default page header must read 'Import historical answer data' (D2)",
+      def.includes("Import past data"),
+      "Default page header must read 'Import past data' (D2)",
     ).toBe(true);
     expect(
-      def.includes("Bring in historical AI-answer data"),
-      "Default page must include the customer-safe section heading 'Bring in historical AI-answer data' (D2)",
+      def.includes("Bring in past data"),
+      "Default page must include the customer-safe section heading 'Bring in past data' (D2)",
     ).toBe(true);
   });
 
   it("Advanced disclosure trigger is present (operators with legacy data still reach it)", () => {
     const src = stripComments(loadSource());
     expect(
-      src.includes("Advanced — legacy import paths"),
-      "/settings/import must show an 'Advanced — legacy import paths' disclosure trigger (D2)",
+      src.includes("Advanced: import a spreadsheet"),
+      "/settings/import must show an 'Advanced: import a spreadsheet' disclosure trigger (D2)",
     ).toBe(true);
   });
 
@@ -167,12 +167,12 @@ describe("D2 — /settings/import default surface is customer-safe", () => {
         : advTriggerIdx >= 0
           ? advTriggerIdx
           : -1;
-    const profoundButtonIdx = src.indexOf("Run batch import");
+    const profoundButtonIdx = src.indexOf("Import these files");
     expect(triggerIdx).toBeGreaterThan(0);
     expect(profoundButtonIdx).toBeGreaterThan(0);
     expect(
       profoundButtonIdx,
-      "'Run batch import' button must appear AFTER the operator/advanced disclosure trigger — D2",
+      "'Import these files' button must appear AFTER the operator/advanced disclosure trigger — D2",
     ).toBeGreaterThan(triggerIdx);
   });
 });

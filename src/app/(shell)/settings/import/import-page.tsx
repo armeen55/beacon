@@ -124,8 +124,8 @@ export default function ImportPage() {
   return (
     <div className="max-w-3xl">
       <PageHeader
-        title="Import historical answer data"
-        description="Beacon collects new AI-answer data when you refresh your connected data. This page is only needed if you have a backlog of historical AI-answer exports you want to load into your account."
+        title="Import past data"
+        description="Beacon collects new data each time you refresh your connected accounts. You only need this page if you have older data from before you connected, and you want to load it in."
       />
 
       <p className="text-sm text-muted-foreground mb-6">
@@ -184,10 +184,10 @@ export default function ImportPage() {
       <div className="rounded-lg border border-border/60 bg-surface-raised/30 p-6 mb-6 space-y-3">
         <div className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-[15px] font-semibold">Bring in historical AI-answer data</h2>
+          <h2 className="text-[15px] font-semibold">Bring in past data</h2>
         </div>
         <p className="text-[12px] text-muted-foreground leading-relaxed">
-          For most accounts there's nothing to do here. Beacon picks up new AI-answer data when you refresh your connected data. If you have a legacy export you want to backfill, the legacy importer is below in advanced mode — or reach out to support and we'll help.
+          For most accounts there's nothing to do here. Beacon picks up new data each time you refresh your connected accounts. If you have an older export you want to add, the importer is below under Advanced, or reach out to support and we'll help.
         </p>
       </div>
 
@@ -213,11 +213,11 @@ export default function ImportPage() {
             <span className={cn("transition-transform text-[9px] text-muted-foreground/50", advancedOpen ? "rotate-90" : "")}>
               ▶
             </span>
-            Advanced — legacy import paths (CSV batch, manual paste, reset, import log)
+            Advanced: import a spreadsheet, paste data, reset, or view the import log
           </button>
           {!advancedOpen && (
             <p className="text-[11px] text-muted-foreground/80 mt-2 leading-relaxed">
-              For historical-CSV batch loads, manual entity paste, data reset, and the import-run log.
+              For loading data from a spreadsheet, pasting it in by hand, clearing your data, and seeing past imports.
             </p>
           )}
         </div>
@@ -227,7 +227,7 @@ export default function ImportPage() {
       <div className="rounded-lg border-2 border-border/70 bg-surface-raised/30 p-6 mt-6 mb-6 space-y-4">
         <div className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-accent-primary" />
-          <h2 className="text-[15px] font-semibold">Legacy CSV batch import</h2>
+          <h2 className="text-[15px] font-semibold">Import from a spreadsheet</h2>
         </div>
         <p className="text-[12px] text-muted-foreground leading-relaxed">
           Internal tooling — drop CSV exports on the server filesystem and the importer detects file type from headers. Multiple files of the same type are merged. Newer files win on duplicate keys (mtime order).
@@ -238,7 +238,7 @@ export default function ImportPage() {
           <li>Unrecognized CSVs are skipped; check import result warnings for <span className="font-medium text-foreground">Unclassified CSV</span>.</li>
         </ul>
         <div className="rounded-md border border-border/50 bg-surface-inset/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
-          <span className="font-medium text-foreground">Merge semantics:</span> existing prompts, observations, answer texts, citation shards (per date), and benchmark snapshots are <span className="font-medium text-foreground">unioned</span> with new data; derived metric snapshots are recomputed from the merged observation set. You can add a partial export without deleting older canonical files.
+          <span className="font-medium text-foreground">How merging works:</span> new data is added to what you already have, not swapped in. Nothing existing is deleted, and Beacon recalculates its numbers from the combined set. So you can safely add a partial export without losing older data.
         </div>
         <Button
           type="button"
@@ -263,7 +263,7 @@ export default function ImportPage() {
           disabled={isPending}
           className="bg-accent-primary text-accent-primary-foreground hover:opacity-90"
         >
-          {isPending ? "Running batch…" : "Run batch import"}
+          {isPending ? "Importing…" : "Import these files"}
         </Button>
         {isPending && !profoundResult && (
           <p className="text-[12px] text-accent-primary font-medium animate-pulse">Running importer…</p>

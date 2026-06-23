@@ -195,7 +195,7 @@ describe("Phase 3-bis fix 5 (2026-05-06) — /settings/import advanced gate", ()
     // structural shape: gate present + button label present (not
     // both inside one regex; the `{0,400}` window was too tight).
     expect(IMPORT_PAGE).toMatch(/\{OPERATOR_MODE\s*&&\s*\(/);
-    expect(IMPORT_PAGE).toMatch(/Advanced — legacy import paths/);
+    expect(IMPORT_PAGE).toMatch(/Advanced: import a spreadsheet/);
     expect(IMPORT_PAGE).toMatch(
       /\{OPERATOR_MODE\s*&&\s*advancedOpen\s*&&/,
     );
