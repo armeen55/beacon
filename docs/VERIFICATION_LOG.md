@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-23 — Big-moves loop #1: Vercel-safe in-process cold-start crawler (commit 73ac018)
+
+- **Biggest unblocked lever** (from a 6-stage adversarial audit, 18 levers → 2
+  confirmed): a brand-new Vercel tenant got ZERO recs at launch because
+  `dispatchFirstScanForTenant` is inert without a GitHub PAT and the only scan
+  path spawns `npx tsx` + writes `.data` (impossible on Vercel); the rec path
+  reads pages+snapshots from Supabase, only ever populated by that scan.
+- **Built** `src/domains/scanning/in-process-scan.ts` — bounded (18 pages / 22s),
+  crawl-only, failure-soft crawler composing existing pure pieces (sitemap-parse
+  → polite-fetch → extractPageSnapshot → dual-write). Stable URL-hash page ids
+  (snapshot.page_id ↔ PageEntity.id join holds; idempotent re-runs; nightly
+  reconciles by URL and reuses the id). Dual-writes pages + page_snapshots to
+  Supabase so the first `/today` render has real inventory. Wired into
+  `launch-flow.ts` as the fallback when GitHub dispatch is skipped (no PAT).
+- **Verified:** typecheck clean; 6 new cold-start unit tests + 32 launch-flow
+  tests green (added fallback-fires coverage + stub, no real network in tests).
+  Pure code — no paid API, no migration, no Wix publish, no new cron/auth.
+- **Deploy:** pushed to main `73ac018` (Vercel deploy verification pending in
+  this loop iteration).
+
+---
+
 ## 2026-06-23 — Iranopedia first-verdict read (verification only, no code change)
 
 - **Attempted to read the first measured Results verdict.** Ran the Iranopedia
