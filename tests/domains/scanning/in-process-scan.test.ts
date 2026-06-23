@@ -187,4 +187,63 @@ describe("runInProcessColdStartScan", () => {
     expect(res.status).toBe("no_pages");
     expect(res.pagesCrawled).toBe(0);
   });
+
+  it("never crawls off-domain: sitemap entries on other hosts are filtered out", () => {
+    return (async () => {
+      const cap = capture();
+      const XSITE = `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://acme.test/</loc></url>
+  <url><loc>https://evil.test/phish</loc></url>
+</urlset>`;
+      const res = await runInProcessColdStartScan({
+        tenantId: "t",
+        domain: "acme.test",
+        deps: {
+          fetchImpl: mockFetch({
+            "https://acme.test/sitemap.xml": { status: 200, body: XSITE },
+            "https://acme.test/": { status: 200, body: HTML("Home") },
+            // Present in the table but on a different host — must NOT be fetched.
+            "https://evil.test/phish": { status: 200, body: HTML("Evil") },
+          }),
+          now: () => 1,
+          syncPagesImpl: cap.syncPagesImpl,
+          syncPageSnapshotsImpl: cap.syncPageSnapshotsImpl,
+        },
+      });
+      expect(res.status).toBe("scanned");
+      const pages = cap.pages[0] ?? [];
+      expect(pages).toHaveLength(1);
+      expect(pages.every((p) => p.domain === "acme.test")).toBe(true);
+      expect(pages.some((p) => p.url.includes("evil.test"))).toBe(false);
+    })();
+  });
+
+  it("respects robots.txt: a Disallow-all blocks every page (no snapshots)", async () => {
+    const cap = capture();
+    const robotsBlockingFetch = (async (input: string | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/robots.txt")) {
+        return { ok: true, status: 200, text: async () => "User-agent: *\nDisallow: /" } as Response;
+      }
+      if (url.endsWith("/sitemap.xml")) {
+        return { ok: true, status: 200, text: async () => SITEMAP } as Response;
+      }
+      return { ok: true, status: 200, text: async () => HTML("Home") } as Response;
+    }) as unknown as typeof fetch;
+
+    const res = await runInProcessColdStartScan({
+      tenantId: "t",
+      domain: "acme.test",
+      deps: {
+        fetchImpl: robotsBlockingFetch,
+        now: () => 1,
+        syncPagesImpl: cap.syncPagesImpl,
+        syncPageSnapshotsImpl: cap.syncPageSnapshotsImpl,
+      },
+    });
+    // Every page is robots-blocked → fetched but no HTML extracted → no snapshots.
+    expect(res.status).toBe("no_pages");
+    expect(res.snapshotsWritten).toBe(0);
+  });
 });
