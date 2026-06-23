@@ -14,6 +14,20 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
 
+/**
+ * SEMrush cached rows carry a 30-day CONTRACTUAL TTL (ToS): `sync-organic-keywords`
+ * stamps `fetched_at` and purges rows older than this. Enforce the same cutoff on
+ * the READ side so a failed/skipped purge (it is best-effort) can never surface
+ * SEMrush data older than the ToS allows on a customer rec, and stale
+ * position/volume never drives a recommendation as if current. Kept numerically
+ * identical to the sync's TOS_TTL_DAYS=30 (that constant is module-private, so we
+ * mirror the value rather than import it).
+ */
+const SEMRUSH_TOS_TTL_MS = 30 * 86_400_000;
+function semrushFreshnessCutoffIso(): string {
+  return new Date(Date.now() - SEMRUSH_TOS_TTL_MS).toISOString();
+}
+
 export type SemrushKeywordSignal = {
   keyword: string;
   position: number;
@@ -111,6 +125,7 @@ export async function loadSemrushPageSignalsForTenant(
         .from("semrush_organic_keywords")
         .select("keyword, position, volume, url, difficulty, intent, cpc")
         .eq("tenant_id", tenantId)
+        .gte("fetched_at", semrushFreshnessCutoffIso())
         .order("url")
         .order("keyword")
         .range(from, from + PAGE - 1);
@@ -271,6 +286,7 @@ export async function loadSemrushCannibalRowsForTenant(
         .from("semrush_organic_keywords")
         .select("keyword, position, volume, url, intent")
         .eq("tenant_id", tenantId)
+        .gte("fetched_at", semrushFreshnessCutoffIso())
         .order("keyword")
         .order("url")
         .range(offset, offset + PAGE - 1);
@@ -303,6 +319,7 @@ export async function loadSemrushKeywordGapsForTenant(
       .from("semrush_keyword_gaps")
       .select("keyword, competitor_domain, competitor_position, volume, difficulty")
       .eq("tenant_id", tenantId)
+      .gte("fetched_at", semrushFreshnessCutoffIso())
       // Deterministic 500-row cap: order by volume so the bound keeps the
       // HIGHEST-value gaps (not an arbitrary PostgREST slice).
       .order("volume", { ascending: false })
