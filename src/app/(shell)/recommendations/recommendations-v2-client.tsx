@@ -607,8 +607,8 @@ export function RecommendationsV2Client({
   // rendering only as "as of <date>" — no UTC, no cron.
   const headerSubline = (
     <span data-recommendations-v2-header-subline="true">
-      Beacon turns your Google Search demand + AI-answer gaps into safe,
-      review-gated website edits, you approve every change yourself.{" "}
+      Beacon finds where your website is losing visitors on Google and AI, and
+      gives you the exact fix. You approve every change before anything goes live.{" "}
       <span className="text-muted-foreground/80">
         Updated {matrixDate}.
       </span>
@@ -684,12 +684,12 @@ export function RecommendationsV2Client({
                 </div>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
                   {operatorTab === "legacy"
-                    ? "Standard recommendations — real GSC + SEMrush-grounded fixes, fully usable on their own. The Ready tab is the same kind of rec, just additionally deep-audited by Page Surgeon (so review those first when present)."
+                    ? "Standard suggestions, grounded in your Google and SEMrush data and ready to use. The Ready tab is the same kind of suggestion with a deeper page review, so check those first when present."
                     : operatorTab === "needs_edit"
-                      ? "Page Surgeon packs that need an edit or were held back by auto-QA."
+                      ? "Drafts that need a quick edit, or that our quality check held back."
                       : operatorTab === "reviewed"
-                        ? "Packs you've already approved."
-                        : "Finished Page Surgeon drafts that passed auto-QA, review and approve these first."}
+                        ? "Suggestions you've already approved."
+                        : "Finished drafts that passed our quality check. Review and approve these first."}
                 </p>
               </div>
             )}

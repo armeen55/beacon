@@ -142,7 +142,7 @@ describe("Bundle 2A — RecommendationV2Card", () => {
     expect(html).toContain("8.3");
     expect(html).toContain('data-recommendation-v2-gsc-stat="ctr"');
     expect(html).toContain("6.8%");
-    expect(html).toContain("Last 90 days, Google Search");
+    expect(html).toContain("Last 90 days on Google");
     // The prose `why` paragraph is suppressed for the GSC stat case.
     expect(html).not.toContain('data-recommendation-v2-why="true"');
   });
@@ -218,10 +218,10 @@ describe("parseGscEvidenceStats", () => {
     );
     expect(stats).not.toBeNull();
     expect(stats).toEqual([
-      { key: "impressions", label: "impressions", value: "18,300" },
-      { key: "clicks", label: "clicks", value: "1,240" },
-      { key: "position", label: "avg position", value: "8.3" },
-      { key: "ctr", label: "CTR", value: "6.8%" },
+      { key: "impressions", label: "times shown on Google", value: "18,300" },
+      { key: "clicks", label: "visits from Google", value: "1,240" },
+      { key: "position", label: "average Google rank", value: "8.3" },
+      { key: "ctr", label: "click rate", value: "6.8%" },
     ]);
   });
 

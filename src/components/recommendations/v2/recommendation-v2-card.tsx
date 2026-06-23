@@ -179,10 +179,10 @@ export function parseGscEvidenceStats(
   if (!m) return null;
   const [, clicks, impressions, ctrPct, pos] = m;
   return [
-    { key: "impressions", label: "impressions", value: impressions },
-    { key: "clicks", label: "clicks", value: clicks },
-    { key: "position", label: "avg position", value: pos },
-    { key: "ctr", label: "CTR", value: `${ctrPct}%` },
+    { key: "impressions", label: "times shown on Google", value: impressions },
+    { key: "clicks", label: "visits from Google", value: clicks },
+    { key: "position", label: "average Google rank", value: pos },
+    { key: "ctr", label: "click rate", value: `${ctrPct}%` },
   ];
 }
 
@@ -483,8 +483,8 @@ export function RecommendationV2Card({
               </span>
             </span>
           ))}
-          <span className="text-[10px] text-muted-foreground/60 w-full">
-            Last 90 days, Google Search
+          <span className="text-[10px] text-muted-foreground/70 w-full">
+            Last 90 days on Google
           </span>
         </div>
       ) : (
@@ -630,9 +630,9 @@ export function RecommendationV2Card({
             <span
               className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium border-accent-primary/50 bg-accent-primary/10 text-accent-primary"
               data-recommendation-v2-chip="ps-ready"
-              title="A finished, QA-passed Page Surgeon draft exists for this page"
+              title="A full, checked draft is ready for this page"
             >
-              🔬 Page Surgeon ready
+              Detailed draft ready
             </span>
           )}
           {pageSurgeonReviewVerdict && (
