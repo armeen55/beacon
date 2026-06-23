@@ -34,7 +34,7 @@ describe("AIVisibilityHero — happy path (Ritz mature data)", () => {
     expect(html).toContain('data-today-section="ai-visibility-hero"');
     expect(html).toContain("AI Visibility");
     expect(html).toContain(
-      "How often Ritz Builders appears across tracked AI answers.",
+      "How often Ritz Builders appears across tracked AI answers",
     );
   });
 
@@ -84,7 +84,7 @@ describe("AIVisibilityHero — happy path (Ritz mature data)", () => {
     expect(html).toContain("De Mattei Construction");
     // The challenger score is a window-average mention rate, labeled distinctly
     // from the brand hero's latest-day score so the two aren't read as identical.
-    expect(html).toContain("49.3% mention rate (window avg)");
+    expect(html).toContain("AI named them in 49.3% of answers");
   });
 
   it("sample card shows day count + latest reading date in 'May 8' format", () => {
@@ -99,9 +99,9 @@ describe("AIVisibilityHero — happy path (Ritz mature data)", () => {
     expect(html).toContain('data-today-hero-platform="chatgpt"');
     expect(html).toContain('data-today-hero-platform="perplexity"');
     expect(html).toContain("ChatGPT");
-    expect(html).toContain("42% primary");
+    expect(html).toContain("names you first 42% of the time");
     expect(html).toContain("Perplexity");
-    expect(html).toContain("18% primary");
+    expect(html).toContain("names you first 18% of the time");
   });
 
   it("'Full sample' badge renders when sampleState='full'", () => {
@@ -289,7 +289,7 @@ describe("AIVisibilityHero — empty / first-reading edge cases", () => {
     const html = renderToStaticMarkup(
       <AIVisibilityHero {...RITZ_FULL} latestReadingDate={null} />,
     );
-    expect(html).toContain("Awaiting first reading");
+    expect(html).toContain("Getting your first results");
   });
 
   it("both platform pcts null: footer is hidden entirely (no orphan separator)", () => {
@@ -314,7 +314,7 @@ describe("AIVisibilityHero — empty / first-reading edge cases", () => {
     );
     expect(html).toContain('data-today-hero-platform="chatgpt"');
     expect(html).not.toContain('data-today-hero-platform="perplexity"');
-    expect(html).toContain("42% primary");
+    expect(html).toContain("names you first 42% of the time");
   });
 });
 
@@ -383,7 +383,7 @@ describe("AIVisibilityHero — second-person grammar (Bundle 2 verification fix)
     const html = renderToStaticMarkup(
       <AIVisibilityHero {...RITZ_FULL} brandName="You" />,
     );
-    expect(html).toContain("How often You appear across tracked AI answers.");
+    expect(html).toContain("How often You appear across tracked AI answers");
     expect(html).not.toContain("How often You appears");
   });
 
@@ -393,7 +393,7 @@ describe("AIVisibilityHero — second-person grammar (Bundle 2 verification fix)
     const html = renderToStaticMarkup(<AIVisibilityHero {...RITZ_FULL} />);
     expect(html).toContain("Ritz Builders is #1 across tracked AI answers.");
     expect(html).toContain(
-      "How often Ritz Builders appears across tracked AI answers.",
+      "How often Ritz Builders appears across tracked AI answers",
     );
     expect(html).not.toContain("Ritz Builders are");
     expect(html).not.toContain("Ritz Builders appear ");

@@ -137,8 +137,8 @@ describe("TodayV2VisibilityGroupClient — primaryShare source-swap (Section 6 C
       enrichmentV2: null,
       primaryShare,
     });
-    expect(html).toContain("42% primary");
-    expect(html).toContain("17% primary");
+    expect(html).toContain("names you first 42% of the time");
+    expect(html).toContain("names you first 17% of the time");
   });
 
   it("renders primaryShare values even when enrichmentV2 sparklines carry different primaryRate values (proves source swap)", () => {
@@ -156,9 +156,9 @@ describe("TodayV2VisibilityGroupClient — primaryShare source-swap (Section 6 C
       enrichmentV2,
       primaryShare,
     });
-    expect(html).toContain("42% primary");
-    expect(html).toContain("17% primary");
-    expect(html).not.toContain("88% primary");
+    expect(html).toContain("names you first 42% of the time");
+    expect(html).toContain("names you first 17% of the time");
+    expect(html).not.toContain("names you first 88% of the time");
     expect(html).not.toContain("99% primary");
   });
 
@@ -191,6 +191,6 @@ describe("TodayV2VisibilityGroupClient — primaryShare source-swap (Section 6 C
     });
     expect(html).not.toContain('data-today-hero-platform="chatgpt"');
     expect(html).toContain('data-today-hero-platform="perplexity"');
-    expect(html).toContain("42% primary");
+    expect(html).toContain("names you first 42% of the time");
   });
 });

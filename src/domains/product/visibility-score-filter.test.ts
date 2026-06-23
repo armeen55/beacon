@@ -220,10 +220,11 @@ describe("computeLeaderboard — Step 1.4 entity pollution filter", () => {
     expect(rows.filter((r) => !r.isOwned)).toHaveLength(0);
   });
 
-  it("legacy callers that don't pass trackedEntities preserve unfiltered behaviour", () => {
-    // Only generic-noun names from the strict list should drop. Real-
-    // named directories (without metadata) are kept — defensive default
-    // for non-Today consumers.
+  it("legacy callers (no trackedEntities) still drop KNOWN directories + generic nouns by name", () => {
+    // Even without trackedEntities metadata, the name-only fallback drops both
+    // (a) KNOWN directory brand names (DIRECTORY_NAMES_FOR_FILTER: Houzz, Yelp,
+    // Angi, ...) and (b) the strict generic-noun list. Only genuinely
+    // ambiguous real-company names are kept on the metadata-less path.
     const observations = buildObservations("2026-04-28", 7, [
       "Houzz",
       "General Contractors",
@@ -237,9 +238,8 @@ describe("computeLeaderboard — Step 1.4 entity pollution filter", () => {
       // trackedEntities omitted on purpose.
     });
     const names = rows.map((r) => r.name);
-    // Houzz keeps because we have no metadata to classify it (legacy
-    // safety) — Today always passes trackedEntities, so /today is fine.
-    expect(names).toContain("Houzz");
+    // Houzz is a KNOWN directory name → dropped even without metadata.
+    expect(names).not.toContain("Houzz");
     // Generic-noun list still drops "General Contractors" by name.
     expect(names).not.toContain("General Contractors");
   });
