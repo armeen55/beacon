@@ -56,7 +56,7 @@ export default async function CompetitorsPage() {
     return (
       <div className="max-w-4xl">
         <PageHeader
-          title="Market"
+          title="Competitors"
           description="Who beats you, where they beat you, and exactly what to do about it."
         />
         <section
@@ -67,7 +67,7 @@ export default async function CompetitorsPage() {
             id="market-import-empty-heading"
             className="text-[13px] font-semibold text-foreground tracking-tight"
           >
-            Connect your data sources to see your real Market view
+            Connect your data sources to see your real competitor view
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
             Rankings, co-mentions, battlecards, and local pressure are built from your data and configured
@@ -236,7 +236,7 @@ export default async function CompetitorsPage() {
   return (
     <div className="max-w-4xl">
       <PageHeader
-        title="Market"
+        title="Competitors"
         description="Who beats you, where they beat you, and exactly what to do about it."
       />
 
@@ -284,10 +284,10 @@ export default async function CompetitorsPage() {
         <div className="space-y-8">
           {/* At a glance — KPI strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard label="Your Citation Share" value={`${benchmark.ownedAppearanceRate}%`} meta={`of ${benchmark.trackedCitationObservations.toLocaleString()} observations`} />
-            <KpiCard label="Your Citations" value={benchmark.ownedAIMentions} meta={`${benchmark.trackedCitationObservations.toLocaleString()} observations tracked`} />
-            <KpiCard label="Top competitors by citations" value={benchmark.topCompetitors.length} />
-            <KpiCard label="Ahead of You" value={aheadCount} meta={aheadCount > 0 ? `of ${benchmark.topCompetitors.length} top competitors` : "You lead the field"} />
+            <KpiCard label="How often AI picks you" value={`${benchmark.ownedAppearanceRate}%`} meta={`out of ${benchmark.trackedCitationObservations.toLocaleString()} AI answers checked`} />
+            <KpiCard label="Times AI recommended you" value={benchmark.ownedAIMentions} meta={`across ${benchmark.trackedCitationObservations.toLocaleString()} AI answers checked`} />
+            <KpiCard label="Competitors AI recommends" value={benchmark.topCompetitors.length} />
+            <KpiCard label="Ahead of you" value={aheadCount} meta={aheadCount > 0 ? `of ${benchmark.topCompetitors.length} top competitors` : "You lead the field"} />
           </div>
           <div className="-mt-5 space-y-0.5">
             <p className="text-[10px] text-muted-foreground/70">
@@ -338,7 +338,7 @@ export default async function CompetitorsPage() {
                 href="/settings/methodology#citation-share"
                 className="text-accent-primary font-medium hover:underline"
               >
-                Full methodology: Citation Share &amp; sample quality →
+                How we measure this →
               </Link>
             </p>
           </details>
@@ -367,7 +367,7 @@ export default async function CompetitorsPage() {
             <section>
               <div className="flex items-end justify-between gap-3 mb-3">
                 <div>
-                  <h2 className="text-sm font-semibold text-foreground">Who leads in citations</h2>
+                  <h2 className="text-sm font-semibold text-foreground">Who AI recommends most</h2>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     Ordered by AI-visible citations across tracked topics — not a full market census.
                   </p>
@@ -569,7 +569,7 @@ export default async function CompetitorsPage() {
             return (
               <section>
                 <div className="mb-3">
-                  <h2 className="text-sm font-semibold text-foreground">Who replaces you</h2>
+                  <h2 className="text-sm font-semibold text-foreground">Who AI picks instead of you</h2>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     Competitors who appear in AI answers where you{"'"}re absent.
                     Sorted by how often they show up without you.
@@ -688,7 +688,7 @@ export default async function CompetitorsPage() {
           {discovery.newDiscoveries.length > 0 && (
             <section>
               <div className="mb-3">
-                <h2 className="text-sm font-semibold text-foreground">Discovered competitors</h2>
+                <h2 className="text-sm font-semibold text-foreground">Competitors we found</h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   Domains appearing in AI citations that are not in your configured universe.
                   {discovery.totalDomainsAnalyzed > 0 && (
@@ -855,9 +855,9 @@ export default async function CompetitorsPage() {
         </div>
       ) : (
         <div className="rounded-lg border border-status-warning/25 bg-status-warning/[0.06] px-4 py-4">
-          <p className="text-[13px] text-foreground font-medium mb-1">No citation evidence yet</p>
+          <p className="text-[13px] text-foreground font-medium mb-1">No AI answers tracked yet</p>
           <p className="text-[12px] text-muted-foreground leading-relaxed">
-            Competitive ranking needs citation evidence. Run a poll or import a historical citation CSV to populate this view.
+            We need some AI answers first. Connect Profound or import past data to see how you compare to competitors.
           </p>
           <Link
             href="/settings/import"

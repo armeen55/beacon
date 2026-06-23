@@ -141,9 +141,9 @@ export default async function CompetitorDetailPage({
                   <TableHead className="text-[11px] font-medium">Platform</TableHead>
                   <TableHead className="text-[11px] font-medium">Threat</TableHead>
                   <TableHead className="text-[11px] font-medium text-right">Rank</TableHead>
-                  <TableHead className="text-[11px] font-medium text-right">Citation %</TableHead>
-                  <TableHead className="text-[11px] font-medium text-right">Mentions</TableHead>
-                  <TableHead className="text-[11px] font-medium text-right">SoV %</TableHead>
+                  <TableHead className="text-[11px] font-medium text-right">AI picks %</TableHead>
+                  <TableHead className="text-[11px] font-medium text-right">Times named</TableHead>
+                  <TableHead className="text-[11px] font-medium text-right">Share of answers</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

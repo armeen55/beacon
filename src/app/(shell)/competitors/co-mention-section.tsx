@@ -109,8 +109,8 @@ export function CoMentionSection({ matrix }: { matrix: CoMentionMatrix }) {
           )}
 
           <p className="text-[10px] text-muted-foreground/60">
-            Computed {new Date(matrix.computed_at).toLocaleDateString()} from citation co-occurrence in
-            the citation evidence index. Strength = co-mention count / total domain appearances.
+            Based on how often you and each competitor show up together in the same AI answer.
+            Last updated {new Date(matrix.computed_at).toLocaleDateString()}.
           </p>
         </div>
       </details>
