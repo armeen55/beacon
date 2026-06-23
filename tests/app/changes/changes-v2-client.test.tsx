@@ -114,7 +114,7 @@ describe("ChangesV2Client — proof timeline", () => {
     expect(html).toContain("Changes");
     // Subline locked.
     expect(html).toContain(
-      "Track what shipped and whether search visibility responded",
+      "See the changes you made and whether more people found you on Google",
     );
   });
 

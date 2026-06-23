@@ -125,7 +125,7 @@ export function ChangesV2Client({
     <div data-changes-layout="v2-proof-timeline" className="max-w-6xl">
       <PageHeader
         title="Changes"
-        description="Track what shipped and whether search visibility responded."
+        description="See the changes you made and whether more people found you on Google."
       />
 
       {/* Only show the proof counters once there are real timeline rows —

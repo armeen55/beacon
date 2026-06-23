@@ -124,19 +124,24 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       </div>
 
       <p className="mt-1.5 text-[12px] text-foreground/80">
-        {`Measuring this change against ${controlsCount} comparable untreated page${controlsCount === 1 ? "" : "s"}.`}{" "}
+        {`We are comparing this page to ${controlsCount} similar page${controlsCount === 1 ? "" : "s"} we did not change, so we know it was your edit that helped.`}{" "}
         {nextCheck ? (
           <>
-            First verdict opens <span className="font-medium">{nextCheck}</span>.
+            We will know if this worked by <span className="font-medium">{nextCheck}</span>.
           </>
         ) : (
-          <>All check-in windows have closed.</>
+          <>All the result checks are done.</>
         )}
       </p>
 
       {rec.after ? (
         <p className="mt-2 text-[11px] text-foreground/85">
-          <span className="font-medium text-foreground/70">New copy:</span> {rec.after}
+          <span className="font-medium text-foreground/70">What changed:</span>{" "}
+          {/* Never dump raw JSON-LD code at the user (audit #78/#99) — summarize
+              structured-data edits in plain English; show real copy otherwise. */}
+          {rec.after.trim().startsWith("{") || rec.after.includes('"@context"')
+            ? "Added structured data that helps Google and AI understand this page."
+            : rec.after}
         </p>
       ) : null}
 
@@ -157,10 +162,10 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       ) : null}
 
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Baseline (28d before):{" "}
+        Before this change (last 28 days):{" "}
         {baseline.impressions > 0
-          ? `${baseline.clicks.toLocaleString()} clicks · ${baseline.impressions.toLocaleString()} impressions · ${(baseline.ctr * 100).toFixed(2)}% CTR · pos ${baseline.position.toFixed(1)}`
-          : "no Search data in the baseline window yet"}
+          ? `${baseline.clicks.toLocaleString()} visits from Google, shown ${baseline.impressions.toLocaleString()} times, ranked about #${baseline.position.toFixed(1)}`
+          : "no Google data yet for the period before this change"}
       </p>
 
       <Link
@@ -168,7 +173,7 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
         prefetch={false}
         className="mt-2.5 inline-block text-[11px] font-medium text-accent-primary hover:underline"
       >
-        See the windows and roll it back on Proof →
+        See the results and how to undo this &rarr;
       </Link>
     </div>
   );

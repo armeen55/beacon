@@ -9,9 +9,9 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 ## Tally
 - Total findings: 923 (292 critical)
-- Fixed critical: ~45  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
+- Fixed critical: ~58  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
 - Fixed medium/low (via global patterns): ongoing
-- Remaining critical: ~247
+- Remaining critical: ~234
 - Deferred (with reason): 0
 
 ## Batches
@@ -29,5 +29,7 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 - **B5 — Recommendations** (recommendations-v2-client + recommendation-v2-card): header 'AI-answer gaps/review-gated' -> plain; operator tab descriptions drop 'Page Surgeon'/'auto-QA'; card stat labels impressions/clicks/avg position/CTR -> times shown on Google/visits from Google/average Google rank/click rate; 'Page Surgeon ready' badge -> 'Detailed draft ready'; 'Last 90 days, Google Search' -> 'Last 90 days on Google'. rec tests updated.
 
+- **B6 — Changes** (proof-ledger-strip + changes-v2-client): the raw JSON-LD 'New copy:' dump -> plain 'What changed: Added structured data...' (never shows code, #78/#99); 'comparable untreated pages' -> 'similar pages we did not change'; 'First verdict opens' -> 'We will know if this worked by'; 'Baseline (28d before): N clicks/impressions/CTR/pos' -> 'Before this change (last 28 days): N visits from Google, shown N times, ranked about #N'; 'See the windows and roll it back on Proof' -> 'See the results and how to undo this'; page description plain. tests updated.
+
 ## Next
-- B6: finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).
+- B7: Proof page (verdict/baseline/controls/diff-in-diff/windows + scary -122%), then Connectors (42 critical), Settings (30), Prompts (24). finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).
