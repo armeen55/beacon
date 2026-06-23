@@ -296,7 +296,7 @@ describe("RecommendationV2Card — one-tap Accept", () => {
       <RecommendationV2Card row={makeRow()} onAccept={() => {}} acceptState="idle" />,
     );
     expect(html).toContain('data-recommendation-v2-cta="accept"');
-    expect(html).toContain(">Accept<");
+    expect(html).toContain(">Approve this edit<");
     expect(html).toContain('data-recommendation-v2-cta="review"');
   });
 
@@ -304,7 +304,7 @@ describe("RecommendationV2Card — one-tap Accept", () => {
     const html = renderToStaticMarkup(
       <RecommendationV2Card row={makeRow()} onAccept={() => {}} acceptState="accepted" />,
     );
-    expect(html).toContain("Accepted ✓");
+    expect(html).toContain("Approved ✓");
     expect(html).toContain("disabled");
   });
 
@@ -358,7 +358,7 @@ describe("RecommendationV2Card — armed publishing CTA (2026-06-16)", () => {
     );
     expect(html).toContain('data-recommendation-v2-cta="accept"');
     expect(html).not.toContain('data-recommendation-v2-cta="accept-and-publish"');
-    expect(html).toContain(">Accept</button>");
+    expect(html).toContain(">Approve this edit</button>");
   });
 
   it("armed (onAcceptAndPublish provided) → primary CTA is 'Accept & publish'", () => {
@@ -370,7 +370,7 @@ describe("RecommendationV2Card — armed publishing CTA (2026-06-16)", () => {
       />,
     );
     expect(html).toContain('data-recommendation-v2-cta="accept-and-publish"');
-    expect(html).toContain("Accept &amp; publish");
+    expect(html).toContain("Publish to my site");
     // The plain Accept button is NOT also rendered (one primary CTA).
     expect(html).not.toContain('data-recommendation-v2-cta="accept"');
   });

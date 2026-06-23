@@ -113,7 +113,7 @@ describe("Approve & Push — customer-route exposure", () => {
       />,
     );
     expect(html).toContain('data-recommendation-detail-action="approve-push"');
-    expect(html).toContain("Approve &amp; Push");
+    expect(html).toContain("Publish to my site");
   });
 
   it("HIDES the push button when canPublish is false (safe default)", () => {

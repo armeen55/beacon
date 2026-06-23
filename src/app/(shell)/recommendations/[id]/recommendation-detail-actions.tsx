@@ -444,9 +444,9 @@ export function RecommendationDetailActions({
             onClick={() => runPush(pushEditId!)}
             className={cn(PRIMARY_BTN, TONE.accent)}
             data-recommendation-detail-action="approve-push"
-            title="Publish this change to your connected site"
+            title="Publish this change to your live site"
           >
-            Approve &amp; Push
+            Publish to my site
           </button>
         )}
         {primary.length > 0 ? (
@@ -460,6 +460,16 @@ export function RecommendationDetailActions({
           </p>
         )}
       </div>
+
+      {canShowPush && (
+        <p
+          className="text-[12px] text-muted-foreground"
+          data-recommendation-detail-publish-note="true"
+        >
+          This publishes the change to your live website. Beacon saves a copy of
+          the page first, so you can undo it from Changes if you want.
+        </p>
+      )}
 
       {acceptDemoted && (
         <p

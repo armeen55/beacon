@@ -745,7 +745,7 @@ export function RecommendationV2Card({
               ? "Published ✓"
               : acceptState === "pending"
                 ? "Publishing…"
-                : "Accept & publish"}
+                : "Publish to my site"}
           </button>
         ) : onAccept != null && qaDisplay.actionable ? (
           <button
@@ -761,10 +761,10 @@ export function RecommendationV2Card({
             data-accept-state={acceptState}
           >
             {acceptState === "accepted"
-              ? "Accepted ✓"
+              ? "Approved ✓"
               : acceptState === "pending"
-                ? "Accepting…"
-                : "Accept"}
+                ? "Approving…"
+                : "Approve this edit"}
           </button>
         ) : null}
         {/* #316 — failed Accept: surface the ACTUAL error (not a generic
