@@ -25,6 +25,14 @@ const REASSURANCE: { q: string; a: string }[] = [
     q: "How long until I see results?",
     a: "After you make a change, Beacon re-checks the page after about 1, 2, and 4 weeks and compares it to similar pages you did not change, so you can see whether the change actually helped.",
   },
+  {
+    q: "How do I actually make a change Beacon suggests?",
+    a: "If your Wix site is connected and you have turned on one-click publishing, you click \"Make this change\" and Beacon publishes that single edit for you. Otherwise Beacon gives you the exact text to paste: open the page in your Wix editor, find the title, description, or section Beacon names, paste the new text, and save. Then come back and click \"I made this change\" so Beacon starts measuring.",
+  },
+  {
+    q: "Does this cost me anything to run?",
+    a: "Using Beacon and reading your connected data does not add charges. The only outside costs are ones you control: a paid data tool you connect on your own plan (like SEMrush or Profound), and a small amount of AI usage when Beacon drafts wording for you. Beacon never spends or buys anything on your behalf.",
+  },
 ];
 
 export default function HelpPage() {
