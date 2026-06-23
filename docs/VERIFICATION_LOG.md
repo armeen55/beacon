@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-23 — Iranopedia first-verdict read (verification only, no code change)
+
+- **Attempted to read the first measured Results verdict.** Ran the Iranopedia
+  Results page read-only (operator bypass, `DUAL_WRITE=false`; data files verified
+  byte-identical before/after).
+- **Outcome: no verdict computable yet — correctly "Still measuring."** Today is
+  2026-06-23; the earliest 7-day proof window opens 2026-06-27 (`/cities`,
+  `/funny-farsi-phrases`), 4 days out. All 9 entries render "Still measuring /
+  too soon to tell."
+- **Verified the read is HONEST/trustworthy (the real goal):** 0 computed
+  verdicts shown (no `data-proof-sentence` helping/hurting/flat tone, 0
+  "Helping"/"Hurting"/"Helped" — the engine correctly withholds a verdict);
+  window dates correct (shipped 2026-06-20 → 7d opens 2026-06-27); "only N days
+  of data" computed today-relative and exact (06-20→3, 06-21→2, 06-22→1, correct
+  singular "day"); each entry shows what changed (before/after), live status
+  (✓ verified live), and the next check date. No overclaim, no broken read.
+- **No code blocker found → no edits, no commit.** Reaching a helped / did-not-
+  help / no-clear-change verdict is time-gated (pause rail: do not mutate hosted
+  data, run external Google recompute, or fabricate a verdict).
+
+---
+
 ## 2026-06-23 — Iranopedia real product-loop run + Workbench-link fix (commit 9899f18)
 
 - **Ran the live loop** against Iranopedia on a local dev server (operator-mode
