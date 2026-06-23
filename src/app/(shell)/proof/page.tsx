@@ -77,7 +77,7 @@ export default async function ProofPage({
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Did your changes work?</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
           <p className="mt-1 text-[14px] text-muted-foreground">
             Every change you have made and whether it helped. We compare each page
             to how it did before, and to similar pages you did not change.
@@ -322,9 +322,24 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
             </p>
           ) : null}
           {rec.after ? (
-            <p className="text-[11px] text-foreground/85">
-              <span className="font-medium text-foreground/70">After:</span> {rec.after}
-            </p>
+            rec.after.trim().startsWith("{") || rec.after.includes('"@context"') ? (
+              <div className="text-[11px] text-foreground/85">
+                <span className="font-medium text-foreground/70">What changed:</span>{" "}
+                Added structured data that helps Google and AI understand this page.
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                    View technical code
+                  </summary>
+                  <pre className="mt-1 max-h-40 overflow-auto rounded bg-surface-inset/50 p-2 text-[10px] leading-snug text-muted-foreground">
+                    {rec.after}
+                  </pre>
+                </details>
+              </div>
+            ) : (
+              <p className="text-[11px] text-foreground/85">
+                <span className="font-medium text-foreground/70">After:</span> {rec.after}
+              </p>
+            )
           ) : null}
         </div>
       ) : null}
