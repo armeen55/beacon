@@ -8,6 +8,8 @@ import {
   Network,
   LineChart,
   Plug,
+  FlaskConical,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
@@ -22,20 +24,46 @@ export type NavGroup = {
   items: NavItem[];
 };
 
-// Hidden from nav 2026-04-17 (Day 2 trust cleanup): /local, /topics.
-// Hidden from nav 2026-04-22 (Phase 3.5F "Surface Trust"): /pages, /competitors,
-// /diagnostics/spikes. URLs stay alive for direct access; they read legacy
-// module-level JSON stores that return empty on Vercel and render as
-// half-broken placeholders today. Revisit once rebuilt; for now the dogfood
-// nav is Today · Changes · Settings.
+/**
+ * Unified navigation (2026-06-23 IA consolidation — operator directive
+ * "everything should be available to everyone, I literally have 0 users").
+ *
+ * One nav for one workflow: Today (what to do now) -> Opportunities (everything
+ * Beacon found) + Drafts (ready-to-review fixes) -> Experiments (planned
+ * changes) -> Results (shipped + did it work). Then the data sources + settings.
+ *
+ * No separate "operator" tier any more: the surfaces that used to be
+ * operator-only (Opportunities, Experiments, Results, Competitors, Connections)
+ * now live in the single list so the app reads as ONE product, not two classes
+ * of pages. "Recommendations" is renamed "Drafts" (the word was legacy and
+ * overlapped with Opportunities/Experiments).
+ */
 export const navigationGroups: NavGroup[] = [
   {
     label: "",
+    items: [{ label: "Today", href: "/", icon: Sun }],
+  },
+  {
+    label: "Find & fix",
     items: [
-      { label: "Today", href: "/", icon: Sun },
-      { label: "Recommendations", href: "/recommendations", icon: Target },
-      { label: "Prompts", href: "/prompts", icon: ListChecks },
+      { label: "Opportunities", href: "/opportunities", icon: Compass },
+      { label: "Drafts", href: "/recommendations", icon: Target },
+    ],
+  },
+  {
+    label: "Track results",
+    items: [
+      { label: "Experiments", href: "/experiments", icon: FlaskConical },
+      { label: "Results", href: "/proof", icon: LineChart },
       { label: "Changes", href: "/changes", icon: GitCompareArrows },
+    ],
+  },
+  {
+    label: "Your data",
+    items: [
+      { label: "AI questions", href: "/prompts", icon: ListChecks },
+      { label: "Competitors", href: "/competitors", icon: Users },
+      { label: "Connections", href: "/connections", icon: Network },
       { label: "Connectors", href: "/settings/connectors", icon: Plug },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
@@ -45,19 +73,12 @@ export const navigationGroups: NavGroup[] = [
 export const allNavItems: NavItem[] = navigationGroups.flatMap((g) => g.items);
 
 /**
- * Operator-OS rebuild (2026-06-19) — OPERATOR-ONLY nav, rendered in the sidebar
- * only when `isOperatorModeServer()` is true (threaded from the server layout).
- * Kept SEPARATE from `navigationGroups` (and out of `allNavItems`) so the
- * customer surface stays exactly the 6 customer routes — the cmd+K palette and
- * the customer-nav-exposure invariant both read `navigationGroups`/`allNavItems`,
- * never this. These routes self-gate with `notFound()` for non-operators too.
+ * Kept as an EMPTY group for import compatibility (the server layout + sidebar
+ * still reference it). The 2026-06-23 IA consolidation folded every former
+ * operator-only route into `navigationGroups` above, so there is no longer a
+ * separate operator tier to append.
  */
 export const operatorNavGroup: NavGroup = {
-  label: "Operator",
-  items: [
-    { label: "Opportunities", href: "/opportunities", icon: Compass },
-    { label: "Experiments", href: "/experiments", icon: ListChecks },
-    { label: "Results", href: "/proof", icon: LineChart },
-    { label: "Connections", href: "/connections", icon: Network },
-  ],
+  label: "",
+  items: [],
 };

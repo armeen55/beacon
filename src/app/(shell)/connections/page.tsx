@@ -29,7 +29,7 @@ const SEV_LABEL: Record<ConnectionSeverity, string> = {
 };
 
 export default async function ConnectionsPage() {
-  if (!isOperatorModeServer()) notFound();
+  // IA consolidation (2026-06-23): available to everyone, no operator gate.
   const tenantId = await currentTenantId();
   const sources = await loadConnectionHealth(tenantId);
 

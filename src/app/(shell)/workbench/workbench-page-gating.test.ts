@@ -37,11 +37,11 @@ beforeEach(() => {
 
 const params = (encodedPagePath: string) => Promise.resolve({ encodedPagePath });
 
-describe("Workbench route — operator gating", () => {
-  it("non-operator (customer) ⇒ 404 and the loader never runs", async () => {
+describe("Workbench route — available to everyone (IA consolidation 2026-06-23)", () => {
+  it("non-operator (customer) ⇒ still loads the page (no operator gate any more)", async () => {
     operatorFlag.value = false;
-    await expect(Page({ params: params("%2Fcities") })).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(loadWorkbenchMock).not.toHaveBeenCalled();
+    await expect(Page({ params: params("%2Fcities") })).resolves.toBeDefined();
+    expect(loadWorkbenchMock).toHaveBeenCalledWith("tenant-test", "/cities");
   });
 
   it("operator ⇒ decodes the path + loads the page (no throw)", async () => {

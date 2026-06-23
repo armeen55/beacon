@@ -17,7 +17,7 @@ import { ExperimentsClient } from "./experiments-client";
 export const dynamic = "force-dynamic";
 
 export default async function ExperimentsPage() {
-  if (!isOperatorModeServer()) notFound();
+  // IA consolidation (2026-06-23): available to everyone, no operator gate.
 
   const tenantId = await currentTenantId();
   const rows = await loadBatchExperimentRows(tenantId).catch(() => []);

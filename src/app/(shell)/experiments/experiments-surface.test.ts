@@ -15,9 +15,10 @@ const read = (rel: string) => readFileSync(resolve(__dirname, rel), "utf8");
 
 describe("/experiments route", () => {
   const src = read("./page.tsx");
-  it("is operator-gated and force-dynamic", () => {
-    expect(src).toContain("isOperatorModeServer");
-    expect(src).toContain("notFound()");
+  it("is available to everyone (IA consolidation 2026-06-23) and force-dynamic", () => {
+    // The former operator-only gate was removed: Experiments is now in the one
+    // unified nav, available to everyone (operator directive: 0 users, one app).
+    expect(src).not.toContain("notFound()");
     expect(src).toContain('export const dynamic = "force-dynamic"');
   });
   it("feeds the batch loader into the pure selector", () => {
@@ -42,11 +43,15 @@ describe("/experiments client batch actions", () => {
   });
 });
 
-describe("/experiments is an operator-only nav entry", () => {
+describe("/experiments is in the unified nav (IA consolidation 2026-06-23)", () => {
   const nav = read("../../../lib/navigation.ts");
-  it("appears in operatorNavGroup, not the customer navigationGroups", () => {
-    const opIdx = nav.indexOf("operatorNavGroup");
+  it("appears in the customer navigationGroups, available to everyone", () => {
+    const navGroupsIdx = nav.indexOf("export const navigationGroups");
+    const opGroupIdx = nav.indexOf("export const operatorNavGroup");
     const expIdx = nav.indexOf('"/experiments"');
-    expect(expIdx).toBeGreaterThan(opIdx); // declared inside the operator group block
+    // /experiments is declared inside navigationGroups (before the now-empty
+    // operatorNavGroup export), i.e. in the one nav everyone sees.
+    expect(expIdx).toBeGreaterThan(navGroupsIdx);
+    expect(expIdx).toBeLessThan(opGroupIdx);
   });
 });

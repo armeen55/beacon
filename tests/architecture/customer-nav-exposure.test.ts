@@ -60,33 +60,42 @@ function readSrc(rel: string): string {
 
 // ─── Invariant 1 — SIDEBAR ────────────────────────────────────────────────
 
-describe("customer nav exposure — Invariant 1: SIDEBAR has exactly 6 customer routes", () => {
-  // 2026-06-15 goal pivot: Connectors is now a PRIMARY customer surface
-  // (connect GSC/GA4/SEMrush/Profound/Clarity/Wix + Sync on demand), so
-  // /settings/connectors is intentionally exposed in the sidebar.
+describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow nav", () => {
+  // 2026-06-23 IA consolidation (operator directive: "everything should be
+  // available to everyone, I literally have 0 users"). The former operator-only
+  // tier (Opportunities / Experiments / Results / Competitors / Connections) is
+  // folded into ONE nav so the app reads as a single product. The contract is
+  // now "exactly this unified set" — adding a route still requires updating
+  // this test so the decision is visible in review.
   const EXPECTED_HREFS = new Set([
     "/",
+    "/opportunities",
     "/recommendations",
-    "/prompts",
+    "/experiments",
+    "/proof",
     "/changes",
+    "/prompts",
+    "/competitors",
+    "/connections",
     "/settings/connectors",
     "/settings",
   ]);
 
-  it("navigationGroups exposes only the 6 customer-facing routes", () => {
+  it("navigationGroups exposes exactly the unified workflow routes", () => {
     const allHrefs = navigationGroups
       .flatMap((g) => g.items.map((i) => i.href))
       .sort();
     expect(new Set(allHrefs)).toEqual(EXPECTED_HREFS);
   });
 
-  it("navigationGroups does NOT include any audit-flagged hidden routes", () => {
+  it("navigationGroups does NOT include any truly-dead / debug-only routes", () => {
     const allHrefs = new Set(
       navigationGroups.flatMap((g) => g.items.map((i) => i.href)),
     );
+    // /competitors + /connections + /opportunities + /experiments + /proof are
+    // now intentionally exposed (IA consolidation). These remain dead/debug.
     const FORBIDDEN = [
       "/pages",
-      "/competitors",
       "/local",
       "/topics",
       "/audit",

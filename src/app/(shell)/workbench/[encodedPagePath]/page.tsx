@@ -19,7 +19,7 @@ export default async function WorkbenchPage({
 }: {
   params: Promise<{ encodedPagePath: string }>;
 }) {
-  if (!isOperatorModeServer()) notFound();
+  // IA consolidation (2026-06-23): available to everyone, no operator gate.
 
   const { encodedPagePath } = await params;
   const path = decodeWorkbenchPath(encodedPagePath);

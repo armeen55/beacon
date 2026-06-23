@@ -55,7 +55,7 @@ export default async function ProofPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if (!isOperatorModeServer()) notFound();
+  // IA consolidation (2026-06-23): available to everyone, no operator gate.
   const params = await (searchParams ??
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
