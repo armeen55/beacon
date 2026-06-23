@@ -149,14 +149,18 @@ async function syncOneTenant(tenantId: string): Promise<CronSyncSourceResult[]> 
 }
 
 /** Per-provider auto-refresh staleness threshold (hours) for the on-USE refresh.
- *  Most sources are cheap HTTP→Supabase, so 6h keeps dashboards live. SEMrush is
- *  longer: its data is daily AND every pull spends paid API units, so we don't
- *  re-pull it on every few-hour visit. */
+ *  FREE sources (GSC, GA4, Clarity — Google/Microsoft APIs, no per-call cost) use
+ *  1h so they effectively re-pull on every login session: the operator should
+ *  never see stale free data. (Their underlying data only changes ~daily — GSC is
+ *  3 days behind — so 1h is "always fresh" without re-pulling on every single
+ *  navigation; the 2-min in-process throttle + durable last_synced_at prevent any
+ *  hammering.) PAID sources stay daily: SEMrush spends API units and Profound runs
+ *  once a day, so pulling them every login would burn quota for IDENTICAL numbers. */
 const AUTO_REFRESH_STALE_HOURS: Record<ReadProvider, number> = {
-  google_gsc: 6,
-  google_ga4: 6,
-  clarity: 6,
-  profound: 6,
+  google_gsc: 1,
+  google_ga4: 1,
+  clarity: 1,
+  profound: 12,
   semrush: 24,
 };
 
