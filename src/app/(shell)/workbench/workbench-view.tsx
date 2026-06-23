@@ -106,7 +106,7 @@ function UpsideLine({ c }: { c: OptimizerCandidate }) {
   if (c.estClicksAtStake == null) return null;
   return (
     <span className="text-[11px] text-muted-foreground">
-      ~{c.estClicksAtStake.toLocaleString()} clicks at stake, {c.upsideConfidence} confidence
+      ~{c.estClicksAtStake.toLocaleString()} clicks at stake, {c.upsideConfidence} chance it helps
     </span>
   );
 }
@@ -295,7 +295,7 @@ function LeverRow({ row }: { row: WorkbenchLeverRow }) {
         {row.benefit ? (
           <span className="text-[11px] text-muted-foreground">
             ~{row.benefit.estClicksAtStake.toLocaleString()} clicks at stake,{" "}
-            {row.benefit.confidence} confidence
+            {row.benefit.confidence} chance it helps
             {row.benefit.serpGuardLabel ? ` · ${row.benefit.serpGuardLabel}` : ""}
           </span>
         ) : null}
@@ -446,7 +446,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
               ~{opportunity.estClicksAtStake.toLocaleString()}{" "}
               <span className="font-normal text-muted-foreground">
                 est. clicks at stake over {opportunity.estWindow} · {opportunity.estConfidence}{" "}
-                confidence · {opportunity.serpStatusChip}
+                chance it helps · {opportunity.serpStatusChip}
               </span>
             </p>
           ) : (
@@ -839,7 +839,7 @@ function ChangePackBody({ pack }: { pack: AtomicChangePack }) {
           {pack.headlineAction}
         </span>
         <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-muted-foreground">
-          {pack.confidence} confidence
+          {pack.confidence} chance it helps
         </span>
         <span
           className={

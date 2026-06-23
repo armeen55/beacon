@@ -117,7 +117,7 @@ export default async function ProofPage({
               events, so we say so once rather than imply dollars per card. */}
           {!ledger.some((l) => l.trafficOutcome?.hasRevenue) ? (
             <p className="mb-2 text-[11px] text-muted-foreground">
-              Each change is measured on Search (clicks, rank, CTR) and GA4 traffic
+              Each change is measured on Search (clicks, rank, click rate) and GA4 traffic
               (sessions, conversions). No revenue events are configured in GA4, so
               proof shows traffic and conversions, not dollars.
             </p>
@@ -152,7 +152,7 @@ export default async function ProofPage({
 
       {rows.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
-          No reviewed changes to measure yet. Approve a Change Pack in the
+          No reviewed changes to measure yet. Make a change in the
           Workbench and ship it. Its 7/14/28-day proof windows appear here.
         </p>
       ) : (

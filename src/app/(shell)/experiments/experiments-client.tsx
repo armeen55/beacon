@@ -22,12 +22,12 @@ const STATUS_META: Record<ExperimentStatus, { label: string; cls: string }> = {
   ready_now: { label: "Ready now", cls: "border-emerald-300 bg-emerald-50 text-emerald-700" },
   needs_drafting: { label: "Needs drafting", cls: "border-amber-300 bg-amber-50 text-amber-800" },
   needs_wix_mapping: { label: "Needs Wix mapping", cls: "border-sky-300 bg-sky-50 text-sky-700" },
-  needs_serp_check: { label: "Needs SERP check", cls: "border-amber-300 bg-amber-50 text-amber-800" },
+  needs_serp_check: { label: "Needs Google results check", cls: "border-amber-300 bg-amber-50 text-amber-800" },
   manual_only: { label: "Manual edit", cls: "border-slate-300 bg-slate-50 text-slate-700" },
 };
 
 const FAMILY_LABEL: Record<ExperimentFamily, string> = {
-  ctr: "Title / meta CTR",
+  ctr: "Title / meta click rate",
   answer: "Answer block",
   content: "Content / sections",
   structure: "Schema / links",
@@ -136,7 +136,7 @@ function Card({
         ) : null}
         {card.estClicksAtStake != null ? (
           <span className="text-[11px] text-muted-foreground">
-            ~{card.estClicksAtStake.toLocaleString()} clicks at stake, {card.estConfidence} confidence
+            ~{card.estClicksAtStake.toLocaleString()} clicks at stake, {card.estConfidence} chance it helps
           </span>
         ) : null}
       </div>
@@ -158,7 +158,7 @@ function Card({
         </div>
       ) : (
         <p className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-2.5 py-1.5 text-[11px] text-amber-800">
-          No drafted copy yet. Open the Workbench and draft the Change Pack, then come back to ship and measure it.
+          No drafted copy yet. Open the Workbench and draft the suggested edits, then come back to ship and measure it.
         </p>
       )}
 

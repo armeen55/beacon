@@ -336,7 +336,7 @@ function PlanBlock({
                   ) : (
                     <span className="mt-0.5 block text-[11px] text-muted-foreground">
                       ~{a.estClicksAtStake.toLocaleString()} visits you could win back over the next{" "}
-                      {a.estWindow === "28d" ? "28 days" : "90 days"} &middot; {a.estConfidence} confidence
+                      {a.estWindow === "28d" ? "28 days" : "90 days"} &middot; {a.estConfidence} chance it helps
                     </span>
                   )
                 ) : null}

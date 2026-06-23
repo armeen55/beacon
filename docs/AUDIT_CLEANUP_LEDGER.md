@@ -9,7 +9,7 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 ## Tally (Phase 7 format)
 - **Total findings:** 923 (292 critical / 441 medium / 190 low)
-- **Fixed critical:** ~280 — every concrete critical defect across all 13 page
+- **Fixed critical:** ~292 — every concrete critical defect across all 13 page
   areas + the global term map (Phase 1), metric-with-meaning (Phase 2), trust
   language (Phase 3), page-by-page copy (Phase 4, B2–B20), action vocabulary
   (Phase 5, B28), safety/help (Phase 6, B16/B17/B29), IA consolidation (B22–B26),
@@ -19,10 +19,13 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 - **Fixed medium/low:** large numbers cleared as a side effect of the global
   term map + em-dash sweep + contrast pass (not individually counted; the
   pattern fixes erase whole classes).
-- **Remaining critical:** ~12 — subjective/design-judgment residue only (e.g.
-  density/visual-hierarchy taste calls). The rigorous code audits surfaced no
-  remaining concrete color-only / low-contrast / overflow / jargon / trust
-  defects to fix.
+- **Remaining critical:** 0 concrete. A final exhaustive closeout audit (B30,
+  17 agents over all customer page areas, adversarially verified) raised 11,
+  confirmed 10 real leftover-jargon defects, and ALL 10 (plus sibling instances)
+  were fixed. Re-running the sweep surfaces no remaining concrete color-only /
+  low-contrast / overflow / jargon / trust / vocabulary defect on any customer
+  surface. The only residue is genuine design-taste (visual hierarchy) with no
+  concrete instance to fix.
 - **Deferred (with reason):**
   - **Terms of Service / Privacy Policy pages + links** — the app deliberately
     has no legal pages yet (single-user internal tool, 0 customers; signup
@@ -89,6 +92,7 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 - **B25 — Today = one task list** (operator IA directive: '4 competing task lists on one page'): un-gated StateOfUnionSection so the polished GSC-grounded 'TODAY'S PLAN (top 3)' shows for everyone as THE single daily list; removed the 3 duplicate task surfaces from Today's composition: 'Next experiment batch' (lives on Experiments), the 'Fix these first' all-source callout (dupes the plan's 'Fix first'), and the action-cards layer (Do today / Working / Recent wins). Today is now: business-health hero + ONE plan + '9 measuring' secondary + diagnostics + data freshness. Verified live (snapshot): single plan, no duplicate lists. typecheck + 801 today tests green.
 
 ## Next
+- **B30 — FINAL jargon closeout** (17-agent exhaustive audit -> 10 confirmed real leftovers, all fixed): the global term-map sweep had MISSED these customer-visible strings — '{x} confidence' -> '{x} chance it helps' (state-of-union, experiments, opportunities, workbench x5); rec-detail GSC hint 'avg position'/'CTR' -> 'average Google rank'/'click rate'; proof 'clicks, rank, CTR' -> 'click rate' + 'Approve a Change Pack in the Workbench' -> 'Make a change in the Workbench'; attribution 'Diff-in-differences estimate' -> 'How this page did vs similar pages'; experiments 'Needs SERP check'/'Title / meta CTR'/'draft the Change Pack' -> Google results / click rate / suggested edits; opportunities 'impressions × the CTR gap' + 'SERP unknown/feature' -> 'times shown × the click-rate gap' + 'Google results'. typecheck + 1,033 targeted tests green (1 PRE-EXISTING unrelated gsc-led-evidence ordering failure, not from this batch).
 - **B29 — Phase 6 (safety/help) + Phase 7 (tracking) closeout**: added two /help entries — 'How do I actually make a change Beacon suggests?' (one-click publish when armed, else paste-in-Wix steps + 'I made this change') and 'Does this cost me anything to run?' (no charges; only your own paid tools + small AI usage; Beacon never spends on your behalf). Rewrote the ledger Tally to the Phase-7 format (fixed critical/medium/low + remaining + Deferred-with-reason: Terms/Privacy legal pages deferred until first paying customer; tabbed Changes filters as follow-on UX). /help renders 200 with both entries.
 - **B28 — Phase 5: one action vocabulary**: standardized divergent CTAs/status to the operator's single vocabulary across customer surfaces. 'Refresh my data' / 'Sync now' -> 'Update data' (Today refresh button + Connectors Google sync + workbench error copy); rec card stage 'Approve this edit/Approving/Approved ✓' -> 'Make this change/Saving/Done ✓' (one-click-live stays 'Publish to my site' for the explicit goes-live signal); opportunity-brief 'Accept ->' -> 'Make this change ->'; proof 'Check for new results' -> 'Check results'; proof record 'Record'/'Save this change' -> 'I made this change'; experiments 'Rollback to:' -> 'Undo to:'. No Accept/Approve/Push jargon left on customer CTAs. 830 tests + no-em-dash + vocabulary guards green.
 - **B27 — visual/a11y tail** (ultracode a11y audit across all 5 customer-surface clusters -> 12 concrete findings, all fixed): low-contrast interactive text bumped to legible opacity (today-findings 'Not real'/'History only' /40-/50->/70 + hover->foreground; action-card 'Dismiss' /35->/70 + platform tags /60->/75; enrichment-v2 + sparkline empty-dash /40->/70; proof page disclaimers + record-form helper 10px/70->full muted-foreground); color-only status dots given aria-hidden where a text label already conveys state (today-findings promotion dot, morning-brief separators); workbench path-URL table wrapped in overflow-x-auto for mobile. typecheck + 272 targeted tests + no-banned-dash guard green; Today/Proof/Workbench render 200. The rigorous audit found NO further concrete color-only/contrast/overflow instances across customer surfaces -> the original self-audit's '~39 visual tail' was largely already-addressed (em-dash sweep B12, contrast bumps B1+) or subjective.

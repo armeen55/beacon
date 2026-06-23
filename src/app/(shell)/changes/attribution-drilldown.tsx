@@ -150,7 +150,7 @@ function ComputedBody({ outcome }: { outcome: StoredChangeOutcome }) {
   return (
     <div className="mt-4 rounded-md border border-accent-primary/20 bg-accent-primary/[0.03] px-4 py-3">
       <p className="text-[10px] font-semibold text-accent-primary uppercase tracking-wider">
-        Diff-in-differences estimate
+        How this page did vs similar pages
       </p>
       <OverallLine lift={c.overall} />
       {c.per_platform.length > 0 && (

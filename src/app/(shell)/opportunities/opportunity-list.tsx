@@ -149,12 +149,12 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
           How these estimates work
         </summary>
         <p className="pt-1.5">
-          Estimates are directional, sized as impressions × the CTR gap;
+          Estimates are directional, sized as times-shown × the click-rate gap;
           &ldquo;Visitors get stuck&rdquo; rows instead count Clarity dead/rage
           clicks (on-page frustration, not recoverable search clicks). A sizing,
-          not a promise. &ldquo;SERP unknown&rdquo; means we haven&rsquo;t
-          verified whether a SERP feature (AI Overview / featured snippet / image
-          pack) owns the clicks, on top-ranked pages, verify the SERP before
+          not a promise. &ldquo;Google results unknown&rdquo; means we haven&rsquo;t
+          verified whether a Google results feature (AI Overview / featured snippet / image
+          pack) owns the clicks, on top-ranked pages, verify the Google results before
           rewriting a title.
         </p>
       </details>
@@ -270,7 +270,7 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
             {o.estClicksAtStake > 0 && !isFriction ? (
               <span>
-                {o.estConfidence} confidence · {o.estWindow} window
+                {o.estConfidence} chance it helps · {o.estWindow} window
               </span>
             ) : null}
             <span>{serpStatusChip(o.serpStatus)}</span>

@@ -204,8 +204,8 @@ export function RecommendationDetailClient({
     const pos = byKey("position");
     const ctr = byKey("ctr");
     if (clicks) parts.push(`${clicks} clicks`);
-    if (pos) parts.push(`avg position ${pos}`);
-    if (ctr) parts.push(`${ctr} CTR`);
+    if (pos) parts.push(`average Google rank ${pos}`);
+    if (ctr) parts.push(`${ctr} click rate`);
     const tail = parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
     return {
       value: `${impressions} impressions`,
