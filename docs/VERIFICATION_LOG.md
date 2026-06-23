@@ -7,6 +7,29 @@
 
 ---
 
+## 2026-06-23 — audit-6: 5 cold-start first-impression bugs fixed (8066b46)
+
+Adversarial finder→skeptic audit of the NEWEST code (cold-start → onboarding →
+first-render — a new customer's first impression). 5 confirmed, all fixed+tested:
+- **#1 [high]** www/non-www host mismatch dropped the entire sitemap → `no_pages`
+  for the common bare-apex-with-www-redirect site. Fixed with `stripWww` on host
+  derivation + stable key + same-host filter.
+- **#3 [high]** scan wrote inventory but nothing promoted it → empty first
+  /today+/recommendations. Now runs `promoteEligibleCandidates` (crawl-evidence
+  recs, no GSC needed) after a successful scan, failure-soft.
+- **#2 [high]** crawl awaited in the launch action with no maxDuration → Vercel
+  killed the launch. Added `maxDuration=60` + a hard deadline guard in the
+  previously-unbounded discovery phase + perRequest 7s→5s.
+- **#4 [med]** partial dual-write orphaned snapshots while reporting "scanned".
+  Pages-registry write is now a prerequisite; failure → `error`.
+- **#5 [med]** fallback only fired on `skipped_pat_not_configured`; now also on
+  `dispatch_failed`.
+- Gates: in-process-scan + launch-flow (44), scanning+architecture+onboard sweep
+  (5546) green; typecheck clean. **Lesson reaffirmed: audit the NEWEST code — the
+  two prior mature-code audits found 0; this one found 5 in code shipped hours earlier.**
+
+---
+
 ## 2026-06-23 — Big-moves loop #8/#9 + FULL-SUITE RESTORED TO GREEN (6e97912, d62fb48, 26a030d)
 
 - **#8 SEMrush ToS-TTL read gate (6e97912):** `.gte('fetched_at', now-30d)` on the
