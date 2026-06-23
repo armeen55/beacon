@@ -187,7 +187,7 @@ export function buildOpportunity(
       const expPct = (expected * 100).toFixed(1);
       evidence.push({
         source: "gsc",
-        line: `Ranks #${input.gsc.position90d.toFixed(1)} for "${input.gsc.topQuery ?? "key terms"}" with ${input.gsc.impressions90d.toLocaleString()} impressions but only ${ctrPct}% CTR (≈${expPct}% expected at this rank).`,
+        line: `Shows up around #${input.gsc.position90d.toFixed(1)} on Google for "${input.gsc.topQuery ?? "key terms"}". ${input.gsc.impressions90d.toLocaleString()} people saw it but only ${ctrPct}% clicked (similar pages at this spot usually get about ${expPct}%).`,
       });
       // SERP guard: on a top-ranked low-CTR page with NO SERP-feature data, a
       // feature (AI Overview / featured snippet / image pack) may own the
@@ -196,13 +196,14 @@ export function buildOpportunity(
       if (guard.downgrade) {
         serpGuardLabel = guard.label;
         whyByKind.ctr_leak =
-          "Likely a title/snippet OR SERP-presentation issue, SERP check needed before rewriting.";
+          "People see this page on Google but rarely click. Check how Google shows it before changing the title.";
         leverByKind.ctr_leak =
-          "Check the live SERP (AI Overview / featured snippet / image pack). If it's clear, rewrite the title + meta to match intent, otherwise the clicks are SERP-owned, not a title problem.";
+          "Check how this page shows up in Google results first, since an answer box or images may be taking the clicks. If it looks normal, improve the title and description to match what people search.";
       } else {
-        whyByKind.ctr_leak = "Ranking on page 1 but under-clicked, likely a title/snippet issue.";
+        whyByKind.ctr_leak =
+          "You rank on Google's first page but few people click, usually a title or description problem.";
         leverByKind.ctr_leak =
-          "Rewrite the title + meta to match intent → recover clicks at the rank you already hold.";
+          "Improve the title and description to match what people search, to win back visits at the rank you already have.";
       }
     }
   }

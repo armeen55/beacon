@@ -308,12 +308,16 @@ function PlanBlock({
                   </span>
                   {a.hasChangePack ? (
                     <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                      Change Pack ready
+                      Draft ready
                     </span>
                   ) : null}
-                  {a.serpGuardLabel ? (
+                  {/* The SERP guard is about title/meta clicks, so only show it on
+                      a click-rate (ctr_leak) move. Showing it on an answer-block or
+                      content move read as a contradictory "title rewrite" warning
+                      (audit #9). */}
+                  {a.serpGuardLabel && a.kind === "ctr_leak" ? (
                     <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                      &#9888; {a.serpGuardLabel}
+                      &#9888; Double-check Google results first
                     </span>
                   ) : null}
                 </span>
@@ -326,12 +330,13 @@ function PlanBlock({
                     // recoverable search clicks — label its own unit, drop the
                     // CTR-gap confidence framing.
                     <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                      {a.estClicksAtStake.toLocaleString()} frustrated clicks (Clarity, {a.estWindow})
+                      {a.estClicksAtStake.toLocaleString()} frustrated clicks in the last{" "}
+                      {a.estWindow === "28d" ? "28 days" : "90 days"}
                     </span>
                   ) : (
                     <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                      ~{a.estClicksAtStake.toLocaleString()} est. clicks at stake over{" "}
-                      {a.estWindow} &middot; {a.estConfidence} confidence
+                      ~{a.estClicksAtStake.toLocaleString()} visits you could win back over the next{" "}
+                      {a.estWindow === "28d" ? "28 days" : "90 days"} &middot; {a.estConfidence} confidence
                     </span>
                   )
                 ) : null}

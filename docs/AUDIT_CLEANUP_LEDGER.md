@@ -9,9 +9,9 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 ## Tally
 - Total findings: 923 (292 critical)
-- Fixed critical: 3  (272/276/282 wordmark tagline + #290 sidebar contrast)
+- Fixed critical: ~22  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
 - Fixed medium/low (via global patterns): ongoing
-- Remaining critical: 289
+- Remaining critical: ~270
 - Deferred (with reason): 0
 
 ## Batches
@@ -22,5 +22,8 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
   METRIC_META (label + plain explain + good-direction for every number), TERM_GLOSSARY, BEACON_TAGLINE,
   NOTHING_GOES_LIVE_NOTE. Sidebar wordmark tagline fixed + contrast bumped. typecheck clean.
 
+- **B2 — Today hero** (state-of-union.ts + section): plain headline/sublines, stats carry their own timeframe, section titles/empty-states plain. test updated.
+- **B3 — Today plan + opportunity copy** (state-of-union-section PlanBlock + opportunity.ts): 'Change Pack ready'->'Draft ready'; SERP warning neutralized + gated so it no longer contradicts answer-block moves (#9); est line -> 'visits you could win back'; move-2 SERP paragraph + evidence line rewritten plain. tests updated.
+
 ## Next
-- B2: Metric-with-meaning component + Today State-of-the-Union hero (worst page, 48 critical).
+- B4: finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).

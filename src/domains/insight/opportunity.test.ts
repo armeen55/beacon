@@ -93,7 +93,9 @@ describe("buildOpportunity — real Iranopedia shapes", () => {
     expect(o).not.toBeNull();
     expect(o!.serpStatus).toBe("unknown");
     expect(o!.serpGuardLabel).toBe("Needs SERP check before title rewrite");
-    expect(o!.why.toLowerCase()).toContain("serp");
+    // The "why" still tells the operator to check how Google shows the page
+    // before a title change (plain-language campaign dropped the "SERP" acronym).
+    expect(o!.why.toLowerCase()).toContain("before changing the title");
     // honest estimate is still computed (it's the copy, not the number, that's guarded)
     expect(o!.estClicksAtStake).toBeGreaterThan(500);
     expect(o!.estWindow).toBe("90d");
