@@ -658,7 +658,7 @@ export function RecommendationsV2Client({
                     ["ready", "Ready"],
                     ["needs_edit", "Needs edit"],
                     ["reviewed", "Reviewed"],
-                    ["legacy", "Basic legacy"],
+                    ["legacy", "Standard"],
                   ] as ReadonlyArray<readonly [PageSurgeonBucket, string]>).map(
                     ([key, label]) => {
                       const count = bucketed[key].length;
@@ -684,7 +684,7 @@ export function RecommendationsV2Client({
                 </div>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
                   {operatorTab === "legacy"
-                    ? "Basic legacy suggestions, older single-field recs kept for reference. Work from the Page Surgeon tabs above first."
+                    ? "Standard recommendations — real GSC + SEMrush-grounded fixes, fully usable on their own. The Ready tab is the same kind of rec, just additionally deep-audited by Page Surgeon (so review those first when present)."
                     : operatorTab === "needs_edit"
                       ? "Page Surgeon packs that need an edit or were held back by auto-QA."
                       : operatorTab === "reviewed"

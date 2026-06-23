@@ -656,7 +656,7 @@ describe("RecommendationsV2Client — PSQ operator gating", () => {
     expect(html).not.toContain("Basic legacy");
   });
 
-  it("operator view renders the Page Surgeon tabs (Ready/Needs edit/Reviewed/Basic legacy)", () => {
+  it("operator view renders the Page Surgeon tabs (Ready/Needs edit/Reviewed/Standard)", () => {
     const html = renderToStaticMarkup(
       <RecommendationsV2Client
         queue={[makeRec({ stableKey: "rec-op-1" })]}
@@ -670,6 +670,8 @@ describe("RecommendationsV2Client — PSQ operator gating", () => {
     expect(html).toContain("data-recommendations-v2-ps-tabs");
     expect(html).toContain('data-ps-tab="ready"');
     expect(html).toContain('data-ps-tab="legacy"');
-    expect(html).toContain("Basic legacy");
+    // Relabeled 2026-06-22: "Basic legacy" → "Standard" (the 39 are first-class
+    // GSC/SEMrush recs, not deprecated — operator-reported confusion).
+    expect(html).toContain("Standard");
   });
 });

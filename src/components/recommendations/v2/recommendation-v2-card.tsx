@@ -431,17 +431,17 @@ export function RecommendationV2Card({
         </span>
       </header>
 
-      {/* Headline — when a Change Pack exists, ITS primary action is the
-          headline (cross-surface agreement). The original legacy task text
-          drops to a secondary line so nothing is lost. */}
+      {/* Headline — when a Page Surgeon pack exists, ITS primary action is the
+          ONE canonical headline (same as Today + the Opportunity Map). We do
+          NOT also render the older legacy composer's task for the page: it's a
+          DIFFERENT, weaker-engine action, and showing both made the card read
+          as if it contradicted itself (operator-reported 2026-06-22 — e.g.
+          headline "Add a direct answer block" with "Legacy task: Rewrite the
+          title" under it). The superseded task still lives in the detail page's
+          history; the card stays a single, unambiguous decision. */}
       <h3 className="mt-3 text-[15px] font-semibold text-foreground leading-snug">
         {pageSurgeonHeadline?.trim() || row.title}
       </h3>
-      {pageSurgeonHeadline?.trim() && pageSurgeonHeadline.trim() !== row.title ? (
-        <p className="mt-0.5 text-[12px] text-muted-foreground">
-          Legacy task: {row.title}
-        </p>
-      ) : null}
 
       {/* Target — render the resolved URL (mono, accent) when present;
           otherwise fall back to the "Homepage" / "New page" label. */}
