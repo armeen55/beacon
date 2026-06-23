@@ -61,8 +61,8 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
             <span className="text-[13px] font-semibold tracking-tight text-foreground">
               Beacon
             </span>
-            <span className="text-[9.5px] font-medium text-sidebar-foreground/50 tracking-tight">
-              Review-gated SEO &amp; AEO operator
+            <span className="text-[10px] font-medium text-sidebar-foreground/70 tracking-tight">
+              Get found on Google &amp; AI search
             </span>
           </span>
         </Link>
