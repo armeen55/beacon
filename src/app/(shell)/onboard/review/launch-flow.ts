@@ -31,6 +31,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
 import { dispatchFirstScanForTenant } from "@/domains/onboarding/first-scan-dispatch";
 import { runInProcessColdStartScan } from "@/domains/scanning/in-process-scan";
+import { promoteEligibleCandidates } from "@/domains/recommendation-intelligence/promotion-writer";
 import {
   generateStarterPrompts,
   type PromptDraft,
@@ -123,11 +124,17 @@ export async function executeLaunchTransaction(args: {
    *  brand-new tenant still gets real page inventory on first /today render.
    *  Failure-soft; bounded page/time caps. */
   coldStartScan?: typeof runInProcessColdStartScan;
+  /** 2026-06-23 (audit-6 #3) — injectable promotion. After a cold-start scan
+   *  writes inventory, this turns the fresh snapshots into a visible queue
+   *  (deterministic crawl-evidence recs need no GSC), so the very first
+   *  /today + /recommendations render is non-empty. Failure-soft. */
+  promoteAfterColdStart?: typeof promoteEligibleCandidates;
 }): Promise<LaunchTransactionOutcome> {
   const { admin, tenantId, now } = args;
   const persistConfig = args.persistConfig ?? deriveAndPersistTenantConfig;
   const dispatchFirstScan = args.dispatchFirstScan ?? dispatchFirstScanForTenant;
   const coldStartScan = args.coldStartScan ?? runInProcessColdStartScan;
+  const promoteAfterColdStart = args.promoteAfterColdStart ?? promoteEligibleCandidates;
 
   // 1. Fetch tenant row.
   const { data: tenant, error: tFetchErr } = await admin
@@ -354,7 +361,14 @@ export async function executeLaunchTransaction(args: {
     // fleet, crawl their own domain in-process (bounded page/time caps,
     // crawl-only, failure-soft) and dual-write pages + snapshots straight to
     // Supabase so the very first /today render has real recommendations.
-    if (scanDispatch.status === "skipped_pat_not_configured") {
+    // audit-6 #5: fall back to the in-process crawl whenever the GitHub scan
+    // did NOT actually start — both "skipped (no PAT)" AND "dispatch_failed"
+    // (bad PAT/owner/repo → non-204) leave the tenant with zero inventory, so
+    // both need the fallback. Only a real "dispatched" (204) skips the crawl.
+    if (
+      scanDispatch.status === "skipped_pat_not_configured" ||
+      scanDispatch.status === "dispatch_failed"
+    ) {
       const scanDomain =
         (tenant.domain ?? "").trim() || (persistedConfig?.domain ?? "").trim();
       if (scanDomain) {
@@ -365,6 +379,29 @@ export async function executeLaunchTransaction(args: {
             `snapshots=${cold.snapshotsWritten} source=${cold.source} ${cold.durationMs}ms)` +
             (cold.detail ? ` detail=${cold.detail}` : ""),
         );
+        // audit-6 #3: a scan only writes pages/snapshots — nothing turns them
+        // into recommended_edits, so without this the new tenant's first
+        // /today + /recommendations render EMPTY despite a successful crawl.
+        // Promote the fresh inventory into a visible queue (deterministic
+        // crawl-evidence recs need no GSC). Failure-soft — never blocks launch.
+        if (cold.status === "scanned" && cold.snapshotsWritten > 0) {
+          try {
+            const promo = await promoteAfterColdStart({
+              tenantId: tenant.id,
+              dryRun: false,
+            });
+            console.info(
+              `[onboard/review] cold-start promotion: ` +
+                `candidates=${promo.candidate_count} eligible=${promo.eligible_count} ` +
+                `promoted=${promo.promoted_count} skipped=${promo.skipped_count}`,
+            );
+          } catch (e) {
+            console.error(
+              "[onboard/review] cold-start promotion threw (launch unaffected):",
+              e instanceof Error ? e.message : e,
+            );
+          }
+        }
       } else {
         console.info(
           "[onboard/review] in-process cold-start scan skipped: no domain on tenant",

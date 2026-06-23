@@ -43,8 +43,18 @@ import { pickSecondaryPaths } from "@/domains/onboarding/fetch-site-profile";
 
 const DEFAULT_MAX_PAGES = 18;
 const DEFAULT_TOTAL_BUDGET_MS = 22_000;
-const DEFAULT_PER_REQUEST_MS = 7_000;
+// Per-request timeout. 5s (was 7s) so the worst-case discovery + crawl chain
+// stays comfortably under the route's maxDuration ceiling (audit-6 #2).
+const DEFAULT_PER_REQUEST_MS = 5_000;
 const MAX_CHILD_SITEMAPS = 5;
+
+/** www-insensitive host. A bare-apex domain whose sitemap 301s to the www host
+ *  (or vice-versa) is the common small-business case; comparing/keying on the
+ *  raw host would drop the ENTIRE sitemap (audit-6 #1). Mirrors the repo's other
+ *  same-host comparisons (extractor stripWww, fetch-site-profile normalizeSiteUrl). */
+function stripWww(host: string): string {
+  return host.replace(/^www\./i, "");
+}
 
 export interface InProcessColdStartScanResult {
   status: "scanned" | "no_domain" | "no_pages" | "error";
@@ -80,7 +90,10 @@ function originFromDomain(domain: string): { origin: string; host: string } | nu
   try {
     const u = new URL(candidate);
     if (!u.hostname) return null;
-    return { origin: `https://${u.hostname}`, host: u.hostname.toLowerCase() };
+    // origin keeps the host as-typed (fetched with redirect:follow, so an apex
+    // that 301s to www still resolves); host is www-stripped for comparison +
+    // stable ids so a www/non-www sitemap mismatch can't drop every page.
+    return { origin: `https://${u.hostname}`, host: stripWww(u.hostname.toLowerCase()) };
   } catch {
     return null;
   }
@@ -91,9 +104,11 @@ function normPath(u: URL): string {
   return u.pathname.replace(/\/+$/, "") || "/";
 }
 
-/** Stable join/dedup key: lowercase host + normalized path (no query/hash). */
+/** Stable join/dedup key: www-stripped lowercase host + normalized path (no
+ *  query/hash). www-stripping keeps the id stable whether the sitemap lists the
+ *  apex or the www host. */
 function urlKey(u: URL): string {
-  return `${u.hostname.toLowerCase()}${normPath(u)}`;
+  return `${stripWww(u.hostname.toLowerCase())}${normPath(u)}`;
 }
 
 /** Deterministic page id from the url key — stable across re-runs. */
@@ -129,14 +144,23 @@ async function discoverUrls(
   fetchImpl: typeof fetch,
   perRequestMs: number,
   maxPages: number,
+  now: () => number,
+  deadlineAt: number,
 ): Promise<{ urls: string[]; source: "sitemap" | "homepage" | "none" }> {
+  // audit-6 #2: the discovery phase (up to 2 sitemaps + 5 child sitemaps + a
+  // homepage fetch) shares the crawl's overall budget, so a slow/hanging host
+  // can't run discovery for ~50s before the budget-guarded crawl loop even
+  // starts. Bail out of further discovery fetches once the deadline passes.
+  const overBudget = () => now() > deadlineAt;
   const found = new Set<string>();
   for (const name of ["/sitemap.xml", "/sitemap_index.xml"]) {
+    if (overBudget()) break;
     const xml = await fetchText(`${origin}${name}`, fetchImpl, perRequestMs);
     if (!xml) continue;
     const childLocs = parseSitemapIndexLocs(xml);
     if (childLocs.length > 0) {
       for (const child of childLocs.slice(0, MAX_CHILD_SITEMAPS)) {
+        if (overBudget()) break;
         const childXml = await fetchText(child, fetchImpl, perRequestMs);
         if (!childXml) continue;
         for (const e of dedupeSitemapEntries(parseSitemapUrlEntries(childXml))) {
@@ -156,7 +180,7 @@ async function discoverUrls(
   // gets real inventory, not just a single homepage snapshot. The crawl loop
   // still robots-checks + same-host-filters + caps every seeded URL.
   const seeded = new Set<string>([origin]);
-  const homeHtml = await fetchText(origin, fetchImpl, perRequestMs);
+  const homeHtml = overBudget() ? null : await fetchText(origin, fetchImpl, perRequestMs);
   if (homeHtml) {
     for (const path of pickSecondaryPaths(homeHtml)) {
       seeded.add(`${origin}${path}`);
@@ -203,7 +227,14 @@ export async function runInProcessColdStartScan(args: {
   if (!site) return result({ status: "no_domain", detail: "no_usable_domain" });
 
   try {
-    const { urls, source } = await discoverUrls(site.origin, fetchImpl, perRequestMs, maxPages);
+    const { urls, source } = await discoverUrls(
+      site.origin,
+      fetchImpl,
+      perRequestMs,
+      maxPages,
+      now,
+      started + budgetMs,
+    );
     // Same-origin only, dedup by stable key, cap.
     const seen = new Set<string>();
     const candidates: { url: string; key: string; path: string }[] = [];
@@ -214,7 +245,7 @@ export async function runInProcessColdStartScan(args: {
       } catch {
         continue;
       }
-      if (u.hostname.toLowerCase() !== site.host) continue;
+      if (stripWww(u.hostname.toLowerCase()) !== site.host) continue;
       const key = urlKey(u);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -269,17 +300,32 @@ export async function runInProcessColdStartScan(args: {
       });
     }
 
-    // Persist pages registry FIRST (so snapshots have a row to join to), then
-    // snapshots. Each is independently fail-soft so a partial write still
-    // leaves something usable for the next render.
-    let snapshotsWritten = 0;
+    // Persist the pages registry FIRST — snapshots join to a page row by id, so
+    // the registry write is a PREREQUISITE, not an independent fail-soft step
+    // (audit-6 #4: writing snapshots after a failed registry write leaves
+    // orphaned snapshots the read path can't surface, while the scan falsely
+    // reports "scanned"). If the registry write fails, skip snapshots and
+    // surface the partial failure as an error.
+    let pagesWritten = false;
     try {
       await syncPagesImpl(pages, tenantId);
+      pagesWritten = true;
     } catch (e) {
       console.error(
         `[in-process-scan] syncPages failed (tenant=${tenantId}): ${e instanceof Error ? e.message : e}`,
       );
     }
+    if (!pagesWritten) {
+      return result({
+        status: "error",
+        pagesDiscovered: candidates.length,
+        pagesCrawled: crawled,
+        snapshotsWritten: 0,
+        source,
+        detail: "pages_registry_write_failed",
+      });
+    }
+    let snapshotsWritten = 0;
     try {
       await syncSnapshotsImpl(snapshots, tenantId);
       snapshotsWritten = snapshots.length;

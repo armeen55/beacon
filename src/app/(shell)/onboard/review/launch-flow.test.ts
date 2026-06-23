@@ -970,11 +970,21 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       durationMs: 12,
       source: "sitemap" as const,
     }));
+    // audit-6 #3 — after a successful cold-start scan the launch promotes the
+    // fresh inventory into a visible queue. Inject a stub + assert it fires.
+    const promoteStub = vi.fn(async () => ({
+      candidate_count: 5,
+      eligible_count: 4,
+      promoted_count: 4,
+      skipped_count: 1,
+      rows: [],
+    }));
     const r = await executeLaunchTransaction({
       admin: client as never,
       persistConfig: persistConfigStub,
       dispatchFirstScan: dispatchStub as never,
       coldStartScan: coldStartStub as never,
+      promoteAfterColdStart: promoteStub as never,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -984,6 +994,50 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       tenantId: PENDING_TENANT.id,
       domain: PENDING_TENANT.domain,
     });
+    expect(promoteStub).toHaveBeenCalledWith({
+      tenantId: PENDING_TENANT.id,
+      dryRun: false,
+    });
+  });
+
+  it("a dispatch_failed GitHub scan ALSO falls back to the in-process crawl (audit-6 #5)", async () => {
+    const { client } = makeMockSupabase({ tenants: [{ ...PENDING_TENANT }] });
+    const dispatchStub = vi.fn(async () => ({
+      status: "dispatch_failed" as const,
+      httpStatus: 403,
+      error: "bad pat",
+    }));
+    const coldStartStub = vi.fn(async () => ({
+      status: "scanned" as const,
+      pagesDiscovered: 2,
+      pagesCrawled: 2,
+      snapshotsWritten: 2,
+      durationMs: 9,
+      source: "homepage" as const,
+    }));
+    const promoteStub = vi.fn(async () => ({
+      candidate_count: 2,
+      eligible_count: 2,
+      promoted_count: 2,
+      skipped_count: 0,
+      rows: [],
+    }));
+    const r = await executeLaunchTransaction({
+      admin: client as never,
+      persistConfig: persistConfigStub,
+      dispatchFirstScan: dispatchStub as never,
+      coldStartScan: coldStartStub as never,
+      promoteAfterColdStart: promoteStub as never,
+      tenantId: PENDING_TENANT.id,
+      now: FIXED_NOW,
+    });
+    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
+    // dispatch_failed (not just skipped) must still trigger the fallback crawl.
+    expect(coldStartStub).toHaveBeenCalledWith({
+      tenantId: PENDING_TENANT.id,
+      domain: PENDING_TENANT.domain,
+    });
+    expect(promoteStub).toHaveBeenCalled();
   });
 
   it("a FAILED launch never dispatches a scan", async () => {

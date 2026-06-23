@@ -42,6 +42,12 @@ import { LaunchForm } from "./launch-form";
 import { resolvePreviewConfigSignals } from "./resolve-preview-config";
 
 export const dynamic = "force-dynamic";
+// audit-6 #2: the launch action awaits a bounded in-process cold-start crawl +
+// promotion (the Vercel fallback when GitHub dispatch is inert). Give it
+// headroom above the default function timeout so a brand-new tenant's launch
+// completes instead of being killed mid-crawl. The scan's own budget
+// (discovery + crawl, ~22s shared) stays well under this ceiling.
+export const maxDuration = 60;
 
 const CATEGORY_LABELS: Record<PromptCategory, string> = {
   brand_discovery: "When people search your name",

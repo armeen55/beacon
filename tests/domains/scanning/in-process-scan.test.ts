@@ -136,8 +136,12 @@ describe("runInProcessColdStartScan", () => {
     expect(res.status).toBe("no_domain");
   });
 
-  it("is failure-soft: a syncPages throw does not prevent snapshot write or throw", async () => {
-    const snaps: PageSnapshot[][] = [];
+  // NOTE: a syncPages throw is covered by "a failed pages-registry write
+  // surfaces an error and skips orphan snapshots (audit-6 #4)" below — the
+  // registry write is a prerequisite for snapshots, not an independent
+  // fail-soft step (the old "partial write still usable" behavior was a bug).
+
+  it("is failure-soft: a syncPageSnapshots throw does not throw (pages already written)", async () => {
     const res = await runInProcessColdStartScan({
       tenantId: "t",
       domain: "acme.test",
@@ -148,17 +152,16 @@ describe("runInProcessColdStartScan", () => {
           "https://acme.test/pricing": { status: 200, body: HTML("Pricing") },
         }),
         now: () => 1,
-        syncPagesImpl: async () => {
+        syncPagesImpl: async () => {},
+        syncPageSnapshotsImpl: async () => {
           throw new Error("supabase down");
-        },
-        syncPageSnapshotsImpl: async (rows) => {
-          snaps.push(rows);
         },
       },
     });
+    // Pages registry succeeded; the snapshot write threw but was swallowed —
+    // the scan still resolves (no throw) and reports 0 snapshots written.
     expect(res.status).toBe("scanned");
-    expect(res.snapshotsWritten).toBe(2);
-    expect(snaps[0]).toHaveLength(2);
+    expect(res.snapshotsWritten).toBe(0);
   });
 
   it("stops crawling once the time budget is exceeded", async () => {
@@ -217,6 +220,67 @@ describe("runInProcessColdStartScan", () => {
       expect(pages.every((p) => p.domain === "acme.test")).toBe(true);
       expect(pages.some((p) => p.url.includes("evil.test"))).toBe(false);
     })();
+  });
+
+  it("crawls a www-canonical sitemap even when the tenant domain is the apex (audit-6 #1)", async () => {
+    const cap = capture();
+    // Tenant typed the apex; the sitemap (at the apex URL) lists www-host locs
+    // (the common 301-to-www case). Strict host equality would drop all of them.
+    const WWW_SITEMAP = `<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.acme.test/</loc></url>
+  <url><loc>https://www.acme.test/pricing</loc></url>
+</urlset>`;
+    const res = await runInProcessColdStartScan({
+      tenantId: "t",
+      domain: "acme.test", // apex, no www
+      deps: {
+        fetchImpl: mockFetch({
+          "https://acme.test/sitemap.xml": { status: 200, body: WWW_SITEMAP },
+          "https://www.acme.test/": { status: 200, body: HTML("Home") },
+          "https://www.acme.test/pricing": { status: 200, body: HTML("Pricing") },
+        }),
+        now: () => 1,
+        syncPagesImpl: cap.syncPagesImpl,
+        syncPageSnapshotsImpl: cap.syncPageSnapshotsImpl,
+      },
+    });
+    expect(res.status).toBe("scanned");
+    expect(res.source).toBe("sitemap");
+    expect(res.snapshotsWritten).toBe(2);
+    // page.domain is www-stripped (stable id regardless of which host the
+    // sitemap lists), and both www pages survived the same-host filter.
+    const pages = cap.pages[0] ?? [];
+    expect(pages).toHaveLength(2);
+    expect(pages.every((p) => p.domain === "acme.test")).toBe(true);
+  });
+
+  it("a failed pages-registry write surfaces an error and skips orphan snapshots (audit-6 #4)", async () => {
+    const snapshotWrites: PageSnapshot[][] = [];
+    const res = await runInProcessColdStartScan({
+      tenantId: "t",
+      domain: "acme.test",
+      deps: {
+        fetchImpl: mockFetch({
+          "https://acme.test/sitemap.xml": { status: 200, body: SITEMAP },
+          "https://acme.test/": { status: 200, body: HTML("Home") },
+          "https://acme.test/pricing": { status: 200, body: HTML("Pricing") },
+        }),
+        now: () => 1,
+        syncPagesImpl: async () => {
+          throw new Error("registry write boom");
+        },
+        syncPageSnapshotsImpl: async (rows) => {
+          snapshotWrites.push(rows);
+        },
+      },
+    });
+    // Registry write failed → report error, NOT a phantom "scanned".
+    expect(res.status).toBe("error");
+    expect(res.detail).toBe("pages_registry_write_failed");
+    expect(res.snapshotsWritten).toBe(0);
+    // And no orphaned snapshots were written without their page rows.
+    expect(snapshotWrites).toHaveLength(0);
   });
 
   it("homepage fallback seeds nav-discovered secondary pages (not just the homepage)", async () => {
