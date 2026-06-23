@@ -102,11 +102,11 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4">
-      <div className="text-[13px] font-semibold text-foreground">Record a shipped change</div>
+      <div className="text-[13px] font-semibold text-foreground">Tell us about an edit you made</div>
       <p className="mt-0.5 text-[12px] text-muted-foreground">
-        Shipped an edit manually (e.g. in Wix)? Paste the page and Beacon snapshots the Search
-        baseline, picks comparable control pages, and measures the next 7 / 14 / 28 days. Nothing
-        publishes.
+        Changed a page yourself (for example, in Wix)? Paste the page address and Beacon will
+        record where it stands today, pick similar pages to compare against, and check after 1, 2,
+        and 4 weeks whether more people found you. Nothing publishes.
       </p>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <input
@@ -313,7 +313,7 @@ export function RecordShippedButton({
         className="rounded-md border border-foreground bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90 disabled:opacity-50"
         title="Confirm you shipped this change live (e.g. manually in Wix). Beacon snapshots the Search baseline now and measures the next 7/14/28 days vs comparable pages. Nothing publishes."
       >
-        {pending ? "Recording…" : "Record shipped change"}
+        {pending ? "Saving…" : "Save this change"}
       </button>
       {feedback ? (
         <span
@@ -380,7 +380,7 @@ export function RecrawlButton({
     return (
       <span className="inline-flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
         <span>
-          Google recrawl requested manually in Search Console · {requestedAt.slice(0, 10)}
+          You asked Google to re-check this page · {requestedAt.slice(0, 10)}
         </span>
         <button
           type="button"
@@ -404,7 +404,7 @@ export function RecrawlButton({
         className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
         title="Mark that you manually requested indexing / recrawl in Google Search Console. This only records the note; it does not call Google."
       >
-        Mark: recrawl requested in Search Console
+        I asked Google to re-check this page
       </button>
       {err ? <span className="text-[10px] text-rose-600">{err}</span> : null}
     </span>
@@ -432,7 +432,7 @@ export function RecomputeLedgerButton({
           startTransition(async () => {
             setFeedback(null);
             const res = await recomputeProofLedgerAction();
-            setFeedback(res.success ? "Recomputed." : res.error ?? "Failed.");
+            setFeedback(res.success ? "Done, results updated." : res.error ?? "Something went wrong, try again.");
             if (res.success) router.refresh();
           })
         }
@@ -443,7 +443,7 @@ export function RecomputeLedgerButton({
             : "Re-measure every recorded change against the latest Search data."
         }
       >
-        {pending ? "Recomputing…" : "Recompute outcomes"}
+        {pending ? "Checking…" : "Check for new results"}
       </button>
       {disabled && disabledReason ? (
         <span className="text-[11px] text-muted-foreground/70">{disabledReason}</span>
