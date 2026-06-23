@@ -381,6 +381,9 @@ export async function loadSemrushKeywordExpansionsForTenant(
         .from("semrush_keyword_expansions")
         .select("page_url, seed_query, kind, keyword, volume, difficulty, cpc, intent")
         .eq("tenant_id", tenantId)
+        // expansions are NOT purged by the sync, so the read-side ToS-TTL gate is
+        // the ONLY thing keeping >30-day SEMrush-derived rows off customer recs.
+        .gte("fetched_at", semrushFreshnessCutoffIso())
         .order("page_url")
         .order("volume", { ascending: false })
         .range(from, from + PAGE - 1);
