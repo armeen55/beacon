@@ -26,11 +26,11 @@ export default async function ExperimentsPage() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Next experiment batch</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Changes to try next</h1>
         <p className="mt-1 text-[14px] text-muted-foreground">
-          The next changes to ship today, ranked by impact and chosen for a mix you
-          can measure. Pages already running an experiment are held out so you do
-          not muddy an open proof window. Nothing publishes here.
+          The best changes to make today, ranked by impact and picked so you can
+          clearly measure each one. Pages you are already testing are left out so
+          their results stay clean. Nothing publishes here.
         </p>
       </div>
       <ExperimentsClient cards={cards} />

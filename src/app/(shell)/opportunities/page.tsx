@@ -23,10 +23,11 @@ export default async function OpportunitiesPage() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Opportunity Map</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">What to fix first</h1>
         <p className="mt-1 text-[14px] text-muted-foreground">
-          Every page ranked by what's at stake, fused across Search, SEMrush,
-          Clarity and Analytics. Highest-leverage first.
+          Your pages ranked by how much they could gain, using everything Beacon
+          knows from Google, your analytics, and visitor behavior. Biggest wins
+          first.
         </p>
       </div>
       <OpportunityList items={items} />

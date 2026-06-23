@@ -206,7 +206,7 @@ function OptimizerView({ buckets }: { buckets: OptimizerBuckets }) {
   return (
     <Section
       title="Best next move"
-      subtitle="Beacon's six operator moves for this page, scored over the lever matrix, the proof ledger, and the SERP guard."
+      subtitle="The fixes Beacon weighed for this page, ranked by which is most likely to help."
     >
       <div className="space-y-2.5">
         {bestNextMove ? <CandidateCard role="Best next move" c={bestNextMove} tone="lead" /> : null}
@@ -320,8 +320,8 @@ function LeverMatrix({ rows }: { rows: WorkbenchLeverRow[] }) {
   if (rows.length === 0) return null;
   return (
     <Section
-      title="SEO action matrix"
-      subtitle="Every lever for this page: what's needed, the proposed change, the expected benefit, and how it ships. Read-only, nothing publishes."
+      title="Everything you could fix here"
+      subtitle="Every possible fix for this page: what it needs, the change, the expected benefit, and how it would go live. Nothing publishes from here."
     >
       <div className="space-y-2">
         {rows.map((r) => (
@@ -434,7 +434,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
 
       {/* ── Opportunity summary ── */}
       {opportunity ? (
-        <Section title="Opportunity summary" subtitle="Last 90 days, from Search.">
+        <Section title="What this page could gain" subtitle="Last 90 days, from Google.">
           <div className="flex flex-wrap gap-8">
             <Stat label="impressions" value={opportunity.impressions.toLocaleString()} />
             <Stat label="clicks" value={opportunity.clicks.toLocaleString()} />
@@ -467,8 +467,8 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
           the broad Opportunity Map stays conservative and never runs this. ── */}
       <Section
         id="serp"
-        title="SERP check"
-        subtitle="The broad map leaves SERP unknown. Run a synthetic hypothesis here before any title rewrite."
+        title="Google results check"
+        subtitle="We don't yet know what the Google results page looks like for this. Check it before rewriting the title."
       >
         <ResolveSerp path={data.path} hasOpenAi={hasOpenAi} />
       </Section>
@@ -476,8 +476,8 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
       {/* ── Cannibalization (same-query page competition) ── */}
       {cannibalization.length > 0 ? (
         <Section
-          title="Cannibalization"
-          subtitle="Two or more of your pages compete for the same query. A structural cluster fix, not a title rewrite."
+          title="Pages competing with each other"
+          subtitle="Two or more of your pages are competing for the same Google search. Better to combine or link them than to retitle one."
         >
           <div className="space-y-4">
             {cannibalization.map((c) => (
@@ -582,7 +582,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
       {(topQueries.length > 0 || strikingDistance.length > 0) && (
         <Section
           title="What people search"
-          subtitle="Top Search queries (where you already rank) and SEMrush page-2 terms within striking distance."
+          subtitle="The searches you already show up for, plus close-by searches you are almost ranking for."
         >
           {topQueries.length > 0 ? (
             <div className="overflow-hidden rounded-lg border border-border/60">
@@ -643,8 +643,8 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
 
       {/* ── Diagnosis matrix ── */}
       <Section
-        title="Diagnosis matrix"
-        subtitle="What Beacon checks on every page. v1 is deterministic, dimensions it can't evaluate cheaply say “No data,” not “fine.”"
+        title="What Beacon checked"
+        subtitle="What Beacon looks at on every page. Anything it cannot check says “No data,” not “fine.”"
       >
         <ul className="divide-y divide-border/40">
           {diagnosis.map((d) => {
@@ -670,7 +670,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
       {/* ── Current Change Pack ── */}
       <Section
         id="change-pack"
-        title="Current Change Pack"
+        title="Suggested edits"
         subtitle={
           packStatus === "pack"
             ? "Beacon's drafted plan for this page. Review-only, nothing publishes here."
@@ -685,13 +685,14 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
             <ChangePackBody pack={pack} />
           ) : packStatus === "evidence_only" ? (
             <p className="text-[12px] text-muted-foreground">
-              This page has Search demand but no saved Change Pack yet, click &ldquo;Draft with
-              AI&rdquo; above to generate one from its evidence.
+              People are searching for this page on Google, but Beacon has no
+              suggested edits saved yet. Click &ldquo;Draft with AI&rdquo; above
+              to create them.
             </p>
           ) : (
             <p className="text-[12px] text-muted-foreground">
-              No saved plan yet, &ldquo;Draft with AI&rdquo; above generates one from this
-              page&rsquo;s evidence.
+              No suggested edits yet. Click &ldquo;Draft with AI&rdquo; above to
+              create them from what Beacon knows about this page.
             </p>
           )}
         </div>
@@ -699,24 +700,24 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
 
       {/* ── Wix readiness ── */}
       <Section
-        title="Wix readiness"
+        title="Can this go live?"
         subtitle="Can an approved change actually ship, and roll back?"
       >
         {packStatus === "pack" && pack && pack.pushability.length > 0 ? (
           <WixReadiness pack={pack} />
         ) : (
           <p className="text-[12px] text-muted-foreground">
-            No change to assess yet. Once a Change Pack exists, each artifact shows whether it
-            maps to a Wix CMS field (one-click), needs a manual CMS edit, or has no write path,
-            plus rollback readiness.
+            Nothing to check yet. Once there are suggested edits, each one shows whether Beacon
+            can publish it to your Wix site in one click, whether it needs a manual edit, and
+            whether it can be undone.
           </p>
         )}
       </Section>
 
       {/* ── Proof plan ── */}
       <Section
-        title="Proof plan"
-        subtitle="Baseline now, then measured at 7 / 14 / 28 days vs control pages."
+        title="How we will measure it"
+        subtitle="We record where things stand now, then check again after 1, 2, and 4 weeks against similar pages we did not change."
       >
         {proof ? (
           <div className="space-y-3 text-[12px]">
@@ -756,7 +757,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
 
       {/* ── History ── */}
       {pack && (pack.history.length > 0 || pack.reviewDecision) ? (
-        <Section title="History" subtitle="How this page's plan + reviews have evolved.">
+        <Section title="History" subtitle="How this page's suggestions and reviews have changed over time.">
           {pack.reviewDecision ? (
             <p className="mb-2 text-[12px]">
               <span className="font-medium text-foreground">Latest review:</span>{" "}
