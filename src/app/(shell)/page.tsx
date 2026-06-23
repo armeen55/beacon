@@ -214,11 +214,14 @@ async function TodayV2SectionedContent() {
           happening + what to do. Operator-gated; its own Suspense (null
           fallback) so its tenant reads never block the rest of the page; it
           self-hides when there's no data. Customer view is unchanged. */}
-      {isOperatorModeServer() ? (
-        <Suspense fallback={null}>
-          <StateOfUnionSection />
-        </Suspense>
-      ) : null}
+      {/* The ONE primary task list for everyone (IA consolidation 2026-06-23):
+          "How your business is doing" + Today's plan (top 3) + the measuring
+          summary. Un-gated so every user sees the polished GSC-grounded plan as
+          their single daily list, not the older Do-today / Fix-these-first
+          duplicates (removed below). */}
+      <Suspense fallback={null}>
+        <StateOfUnionSection />
+      </Suspense>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
           the TOP of the cockpit and ORIENTS the operator through the one
           guided loop (Refresh → Review → Approve → Verify → Learn) with the
@@ -229,13 +232,9 @@ async function TodayV2SectionedContent() {
       <Suspense fallback={null}>
         <TodayV2GoldenPathSection />
       </Suspense>
-      {/* Batch Experiment Planner (TASK 4) — the top 3 of the next batch, right
-          under the Golden Path so the daily loop flows into "here's what to ship
-          today". Operator-gated + fail-soft inside the section; its own Suspense
-          (null fallback) so the planner's reads never block the cockpit. */}
-      <Suspense fallback={null}>
-        <TodayV2NextExperimentBatchSection />
-      </Suspense>
+      {/* IA consolidation 2026-06-23: the "Next experiment batch" list was a
+          second task list competing with Today's plan above. It lives on the
+          Experiments page now; Today shows ONE plan. */}
       {/* "Your data sources" quick-connect strip (2026-06-15) — mounted
           AFTER the demo + first-reading gate short-circuits above, so it
           only shows on the real V2 command center. Its own server reads
@@ -255,11 +254,11 @@ async function TodayV2SectionedContent() {
       <Suspense fallback={null}>
         <TodayV2AllSourceSummarySection />
       </Suspense>
-      {/* Universal action layer — promoted up to sit right under the
-          scoreboard (Do today / Working / Recent wins). */}
-      <Suspense fallback={<TodayV2ActionCardsSkeleton />}>
-        <TodayV2ActionCardsSection />
-      </Suspense>
+      {/* IA consolidation 2026-06-23: the action-cards layer (Do today /
+          Working / Recent wins) was two more task lists competing with Today's
+          plan above. "Do today" duplicated the plan; "Working" + "Recent wins"
+          are change-status and belong on Results. Removed from Today so the
+          plan is the single daily list. */}
       {/* GA4-grounded edit outcomes — behavior/SEO-adjacent, kept high. */}
       <Suspense fallback={<TodayV2EditOutcomesSkeleton />}>
         <TodayV2EditOutcomesSection />
