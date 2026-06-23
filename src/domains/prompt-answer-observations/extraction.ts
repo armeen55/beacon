@@ -226,6 +226,17 @@ export const DESCRIPTOR_QUALITY_STOPWORDS: ReadonlySet<string> = new Set([
   "include", "includes", "including", "etc",
   "best", "top",
   "local",
+  // ── Persian/Farsi function-word stopwords (2026-06-22) ───────────────
+  // Now that the tokenizer is Unicode-aware, Persian answer text produces
+  // real tokens — but the most common ones are grammatical glue, not brand
+  // descriptors. Block the high-frequency function words so a Persian-site
+  // descriptor window surfaces meaning, not "and / this / is". (Short ≤2-char
+  // particles like و/در/به are already dropped by the <3-char filter; these
+  // are the 3+ char ones plus a few that also appear inside brand variants.)
+  "این", "آن", "است", "بود", "شده", "شود", "میشود", "هست", "هستند",
+  "برای", "خود", "های", "آنها", "باید", "دیگر", "همه", "نیز", "اما",
+  "یعنی", "روی", "کرد", "کند", "کنید", "دارد", "داشت", "بین", "هیچ",
+  "چون", "اگر", "تنها", "حتی", "بسیار", "خیلی", "یک", "که", "را", "با",
 ]);
 
 /**
@@ -264,10 +275,12 @@ export function extractDescriptorWindow(
   );
 
   // Tokenize the full answer into word positions (start offset → token).
-  // A simple `\w+` walk is sufficient for English-Western text; CJK /
-  // zero-width cases get short windows which is acceptable for v1.
+  // Unicode-aware (2026-06-22): the old ASCII `\w+` ([A-Za-z0-9_]) matched
+  // ZERO tokens in Persian/Arabic (and any non-Latin) script, so on a Persian
+  // site descriptor mining was blind. `\p{L}\p{N}` with the /u flag matches
+  // letters + digits in EVERY script, keeping internal apostrophes/hyphens.
   const tokens: Array<{ start: number; word: string }> = [];
-  const re = /\w+(?:['-]\w+)*/g;
+  const re = /[\p{L}\p{N}_]+(?:['’\-][\p{L}\p{N}_]+)*/gu;
   let match: RegExpExecArray | null;
   while ((match = re.exec(cleaned)) !== null) {
     tokens.push({ start: match.index, word: match[0] });
@@ -291,7 +304,7 @@ export function extractDescriptorWindow(
   const brandVariantWords = new Set<string>();
   for (const variant of brandVariants) {
     if (!variant) continue;
-    const vm = variant.toLowerCase().match(/\w+(?:['-]\w+)*/g);
+    const vm = variant.toLowerCase().match(/[\p{L}\p{N}_]+(?:['’\-][\p{L}\p{N}_]+)*/gu);
     if (vm) for (const w of vm) brandVariantWords.add(w);
   }
 

@@ -442,6 +442,25 @@ describe("extractDescriptorWindow", () => {
       expect(out).not.toContain(stateNoise);
     }
   });
+
+  it("tokenizes Persian/Farsi script (Unicode-aware) and surfaces real descriptors", () => {
+    // Regression for the ASCII `\w+` bug (2026-06-22): Persian/Arabic text used
+    // to tokenize to ZERO words, so descriptor mining was blind on a Persian
+    // site. Now it returns the meaningful words near the brand, with Persian
+    // function-word stopwords filtered.
+    const text = "ایرانوپدیا یک منبع جامع معتبر و فرهنگی است"; // "Iranopedia is a comprehensive, reputable, cultural source"
+    const pos = text.indexOf("ایرانوپدیا");
+    const out = extractDescriptorWindow(text, pos, ["ایرانوپدیا"], {
+      windowWords: 10,
+    });
+    expect(out.length).toBeGreaterThan(0); // proves Persian tokenizes at all
+    expect(out).toContain("جامع"); // comprehensive
+    expect(out).toContain("معتبر"); // reputable
+    expect(out).toContain("فرهنگی"); // cultural
+    expect(out).not.toContain("ایرانوپدیا"); // brand itself dropped
+    expect(out).not.toContain("است"); // Persian stopword "is"
+    expect(out).not.toContain("یک"); // Persian stopword "a/one"
+  });
 });
 
 describe("extractCompetitorCoMentions", () => {
