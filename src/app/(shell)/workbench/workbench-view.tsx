@@ -17,6 +17,7 @@ import {
 } from "@/domains/insight/workbench-priority";
 import { CopyButton } from "./copy-button";
 import { DraftWithAi } from "./draft-with-ai";
+import { ResolveSerp } from "./resolve-serp";
 
 /**
  * Workbench view (operator-OS rebuild, Phase 2, v1) — presentational, read-only.
@@ -347,6 +348,17 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
           ) : null}
         </Section>
       ) : null}
+
+      {/* ── SERP check (TASK 2) — resolve "SERP unknown" on demand for this
+          locked page. Bounded synthetic hypothesis (no live fetch / paid API);
+          the broad Opportunity Map stays conservative and never runs this. ── */}
+      <Section
+        id="serp"
+        title="SERP check"
+        subtitle="The broad map leaves SERP unknown. Run a synthetic hypothesis here before any title rewrite."
+      >
+        <ResolveSerp path={data.path} hasOpenAi={hasOpenAi} />
+      </Section>
 
       {/* ── Cannibalization (same-query page competition) ── */}
       {cannibalization.length > 0 ? (
