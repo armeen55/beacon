@@ -77,10 +77,10 @@ export default async function ProofPage({
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Proof &amp; Learning</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Did your changes work?</h1>
           <p className="mt-1 text-[14px] text-muted-foreground">
-            Every reviewed change and how we&apos;ll know if it worked, measured
-            against the before/after baseline and comparable untreated pages.
+            Every change you have made and whether it helped. We compare each page
+            to how it did before, and to similar pages you did not change.
           </p>
         </div>
         {ledger.length > 0 ? (
@@ -192,8 +192,8 @@ export default async function ProofPage({
 
               {r.controlPaths.length > 0 ? (
                 <p className="mt-2 text-[11px] text-muted-foreground/80">
-                  Controls (diff-in-diff): {r.controlPaths.length} comparable
-                  untreated page{r.controlPaths.length === 1 ? "" : "s"}.
+                  Compared against {r.controlPaths.length} similar page
+                  {r.controlPaths.length === 1 ? "" : "s"} you did not change.
                 </p>
               ) : null}
 
@@ -231,15 +231,16 @@ function WhatHappensNext() {
           and 28 days.
         </li>
         <li>
-          • At each window Beacon compares this page&apos;s relevant Search metric (clicks,
-          click-through rate, or ranking, depending on the change) to comparable untreated
-          pages on the same site, then calls it{" "}
-          <span className="font-medium">won</span>, <span className="font-medium">lost</span>,
-          or <span className="font-medium">inconclusive</span>.
+          • At each check Beacon compares this page (visits, click rate, or Google
+          rank, depending on the change) to similar pages you did not change, then
+          tells you whether it{" "}
+          <span className="font-medium">helped</span>,{" "}
+          <span className="font-medium">did not help</span>, or showed{" "}
+          <span className="font-medium">no clear change</span>.
         </li>
         <li>
-          • This is observational (treated page vs comparable pages), not a controlled
-          experiment, so treat it as directional evidence, not proof.
+          • This compares your page to similar pages, so it is a strong signal, not
+          a lab-perfect guarantee. Google data is naturally a bit noisy.
         </li>
       </ul>
     </div>
@@ -250,8 +251,8 @@ function metricsLine(rec: ShippedChangeRecord): string {
   const b = rec.baseline ?? { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
   // No impressions = no Search data in the baseline window; "pos 0.0" is an
   // impossible rank, so say so honestly instead of rendering zeros.
-  if (b.impressions <= 0) return "No Search data in the baseline window yet.";
-  return `${b.clicks.toLocaleString()} clicks · ${b.impressions.toLocaleString()} impressions · ${(b.ctr * 100).toFixed(2)}% CTR · pos ${b.position.toFixed(1)}`;
+  if (b.impressions <= 0) return "No Google data yet for the period before this change.";
+  return `${b.clicks.toLocaleString()} visits from Google, shown ${b.impressions.toLocaleString()} times, ${(b.ctr * 100).toFixed(2)}% click rate, ranked about #${b.position.toFixed(1)}`;
 }
 
 function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
@@ -278,7 +279,16 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
             OUTCOME_STYLE[rec.verdict]
           }
         >
-          {rec.verdict.replace(/_/g, " ")}
+          {/* Calm, plain verdict words instead of a loud WON/LOST (audit #111). */}
+          {(
+            {
+              won: "Helped",
+              lost: "Did not help",
+              inconclusive: "No clear change",
+              measuring: "Still measuring",
+              insufficient_data: "Not enough data yet",
+            } as Record<string, string>
+          )[rec.verdict] ?? rec.verdict.replace(/_/g, " ")}
         </span>
         <span className="text-[11px] text-muted-foreground">
           {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}

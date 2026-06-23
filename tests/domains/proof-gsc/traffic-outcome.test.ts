@@ -23,8 +23,8 @@ describe("computeTrafficOutcome — Dollar-ROI proof (gap #1)", () => {
     expect(o.adjustedSessionsPct).toBeCloseTo(0.5, 5);
     expect(o.ran).toBe(true);
     expect(o.hasData).toBe(true);
-    expect(o.label).toContain("Traffic (7d):");
-    expect(o.label).toContain("+50% sessions vs controls");
+    expect(o.label).toContain("Visitor traffic (7 days):");
+    expect(o.label).toContain("+50% visits vs similar pages");
   });
 
   it("pro-rates a 28d pre window to a 7d post window for a fair comparison", () => {
@@ -50,7 +50,7 @@ describe("computeTrafficOutcome — Dollar-ROI proof (gap #1)", () => {
       controls: [],
     });
     expect(o.conversionsDelta).toBe(7);
-    expect(o.label).toContain("+7 conversions");
+    expect(o.label).toContain("+7 sign-ups or sales");
   });
 
   it("early window (not a full proof window) is labeled 'so far ... early'", () => {
@@ -64,7 +64,7 @@ describe("computeTrafficOutcome — Dollar-ROI proof (gap #1)", () => {
     });
     expect(o.ran).toBe(false);
     expect(o.hasData).toBe(true);
-    expect(o.label).toContain("Traffic so far (2d, early)");
+    expect(o.label).toContain("too soon to tell");
   });
 
   it("no elapsed window (windowDays 0) reads as measuring, never a -100% artifact", () => {
@@ -78,7 +78,7 @@ describe("computeTrafficOutcome — Dollar-ROI proof (gap #1)", () => {
     });
     expect(o.hasData).toBe(false);
     expect(o.sessionsPctChange).toBeNull(); // NOT -100%
-    expect(o.label).toBe("Traffic: measuring (no GA4 day since ship yet)");
+    expect(o.label).toBe("Visitor traffic: too soon to tell, first results come a week after you ship");
   });
 
   it("post window with zero GA4 rows reads 'no GA4 data', not a fake swing", () => {
@@ -91,7 +91,7 @@ describe("computeTrafficOutcome — Dollar-ROI proof (gap #1)", () => {
       controls: [],
     });
     expect(o.hasData).toBe(false);
-    expect(o.label).toBe("Traffic: no GA4 data for this page");
+    expect(o.label).toBe("Visitor traffic: no data for this page yet");
   });
 
   it("never claims revenue (GA4 returns none for this property)", () => {

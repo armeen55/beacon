@@ -9,9 +9,9 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 ## Tally
 - Total findings: 923 (292 critical)
-- Fixed critical: ~58  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
+- Fixed critical: ~72  (B1 wordmark/contrast; B2 Today hero #1-4/31-38; B3 Today plan #8/9/10/39 + opportunity action copy #135/136/move-2)
 - Fixed medium/low (via global patterns): ongoing
-- Remaining critical: ~234
+- Remaining critical: ~220
 - Deferred (with reason): 0
 
 ## Batches
@@ -31,5 +31,7 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
 
 - **B6 — Changes** (proof-ledger-strip + changes-v2-client): the raw JSON-LD 'New copy:' dump -> plain 'What changed: Added structured data...' (never shows code, #78/#99); 'comparable untreated pages' -> 'similar pages we did not change'; 'First verdict opens' -> 'We will know if this worked by'; 'Baseline (28d before): N clicks/impressions/CTR/pos' -> 'Before this change (last 28 days): N visits from Google, shown N times, ranked about #N'; 'See the windows and roll it back on Proof' -> 'See the results and how to undo this'; page description plain. tests updated.
 
+- **B7 — Proof page** (proof/page.tsx + traffic-outcome.ts): title 'Proof & Learning' -> 'Did your changes work?' + plain subtitle; 'won/lost/inconclusive' verdict badge + explainer -> 'Helped / Did not help / No clear change'; 'Controls (diff-in-diff): N comparable untreated pages' -> 'Compared against N similar pages you did not change'; baseline line -> plain 'visits from Google, shown N times, ranked about #N'; THE SCARY -122%: traffic label suppresses the number under 7 days ('too soon to tell') and plain-words 'sessions vs controls'->'visits vs similar pages', 'conversions'->'sign-ups or sales' (#97). traffic-outcome tests updated.
+
 ## Next
-- B7: Proof page (verdict/baseline/controls/diff-in-diff/windows + scary -122%), then Connectors (42 critical), Settings (30), Prompts (24). finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).
+- B8: Connectors/Data Health (42 critical, biggest), Settings (30), Prompts (24), Experiments, Opportunities, Workbench, Competitors, Onboarding, Global nav. Also B5 leftover: rec card 'Not publishable'/'Accept & publish' safety + Proof record-form/recompute/recrawl button copy. Proof page (verdict/baseline/controls/diff-in-diff/windows + scary -122%), then Connectors (42 critical), Settings (30), Prompts (24). finish Today (AI-visibility hero, all-source stat row, do-today/working cards, daily-flow strip), then Recommendations (29 critical).

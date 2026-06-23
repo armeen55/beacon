@@ -110,17 +110,25 @@ function buildLabel(a: {
   conversionsDelta: number;
   windowDays: number;
 }): string {
-  if (!a.hasPostWindow) return "Traffic: measuring (no GA4 day since ship yet)";
-  if (!a.hasData) return "Traffic: no GA4 data for this page";
+  if (!a.hasPostWindow) return "Visitor traffic: too soon to tell, first results come a week after you ship";
+  if (!a.hasData) return "Visitor traffic: no data for this page yet";
+  // Under ~7 days the percentage is pure noise (and a control-adjusted figure can
+  // even read an impossible "-122%"). Never show a scary early number (audit #97):
+  // say it is too soon and when the first real read lands.
+  if (a.windowDays < 7) {
+    return `Visitor traffic: too soon to tell (only ${a.windowDays} day${a.windowDays === 1 ? "" : "s"} of data, first read after 7 days)`;
+  }
   const parts: string[] = [];
-  if (a.adjustedSessionsPct != null) parts.push(`${pctStr(a.adjustedSessionsPct)} sessions vs controls`);
+  if (a.adjustedSessionsPct != null) {
+    parts.push(`${pctStr(a.adjustedSessionsPct)} visits vs similar pages`);
+  }
   if (a.conversionsDelta !== 0) {
     const sign = a.conversionsDelta > 0 ? "+" : "";
-    parts.push(`${sign}${a.conversionsDelta} conversions`);
+    parts.push(`${sign}${a.conversionsDelta} sign-ups or sales`);
   }
-  const body = parts.length > 0 ? parts.join(", ") : "flat";
+  const body = parts.length > 0 ? parts.join(", ") : "about the same";
   // "early" until a full proof window has settled; full read once it has.
   return a.ran
-    ? `Traffic (${a.windowDays}d): ${body}`
-    : `Traffic so far (${a.windowDays}d, early): ${body}`;
+    ? `Visitor traffic (${a.windowDays} days): ${body}`
+    : `Visitor traffic so far (${a.windowDays} days, still early): ${body}`;
 }
