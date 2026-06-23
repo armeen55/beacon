@@ -7,6 +7,40 @@
 
 ---
 
+## 2026-06-23 — Iranopedia real product-loop run + Workbench-link fix (commit 9899f18)
+
+- **Ran the live loop** against Iranopedia on a local dev server (operator-mode
+  auth bypass, `DUAL_WRITE=false` so no hosted mutation; Iranopedia data files
+  verified byte-identical before/after — the run only read + fixed a link).
+- **Smoked all 6 workflow routes** (`/`, `/opportunities`, `/recommendations`,
+  `/experiments`, `/proof`, `/settings/connectors`) → all HTTP 200. `/experiments`
+  shows 10 real candidates with paste-ready drafts; `/opportunities` ranks 66
+  pages with fix-ready badges; `/proof` (Results) shows 9 real "Still measuring"
+  experiments with before/after, baselines, 7/14/28-day windows, "verified live"
+  status, and the prefilled record form (the `?page=` hand-off works).
+- **Blocker found + fixed:** every `/experiments` card's "Edit this page" CTA
+  linked to `/workbench/<multi/segment/path>` → 404, because the batch planner's
+  hand-rolled `hrefFor()` joined path segments with raw `/` while the route is a
+  single `[encodedPagePath]` segment. Replaced it with the canonical
+  `workbenchHref()` (already used by Opportunities / Today / Recommendations),
+  which percent-encodes the whole path into one segment. Verified live: the
+  candidate URLs that 404'd now return 200 and render the full Workbench page
+  analysis (best-next-move, diagnosis matrix, cannibalization clusters, Wix
+  pushability, measurement plan).
+- **Verified:** `npm run typecheck` clean; `npm run build` clean;
+  select-experiment-batch + workbench-route + experiments tests green (updated
+  one stale pin `/workbench/cities` → canonical `/workbench/%2Fcities`). Deploy
+  9899f18 → Vercel success; hosted `/experiments` `/opportunities` `/proof`
+  return 307→login (healthy, auth-gated). Source edit is a link-builder swap
+  only — no proof/attribution/ranking/tenant-isolation change.
+- **Loop outcome:** the Iranopedia product path works end-to-end; the 9 live
+  Results entries are real and trustworthy (what changed / verified live / still
+  measuring / next check dated), and the path to add a new one (experiments
+  "I made this change" → prefilled `/proof` record form → Workbench "Edit this
+  page") is now unbroken.
+
+---
+
 ## 2026-06-23 — Full casual-user audit closeout (B31, commit ce0bb14)
 
 - **Scope:** the COMPLETE 923-item audit (`/tmp/audit_report.txt`), looped:
