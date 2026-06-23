@@ -7,6 +7,36 @@
 
 ---
 
+## 2026-06-23 (cont.) Phases 5–7 closeout — action vocabulary, safety/help, tracking (B27–B29)
+
+- **B27 — visual/a11y tail** (ultracode 5-agent a11y audit → 12 concrete
+  findings, all fixed): low-contrast interactive text bumped to legible opacity
+  (today-findings / action-card buttons /35–/50 → /70; enrichment + sparkline
+  empty-dash; proof disclaimers + record helper 10px/70 → full); decorative
+  status dots given `aria-hidden` (today-findings promotion, morning-brief
+  separators); workbench path-URL table wrapped in `overflow-x-auto`.
+- **B28 — Phase 5 action vocabulary**: one vocabulary across customer CTAs —
+  "Refresh my data"/"Sync now" → **Update data**; rec stage CTA "Approve this
+  edit" → **Make this change** (one-click live keeps "Publish to my site");
+  opportunity-brief "Accept" → "Make this change"; proof "Check for new results"
+  → **Check results**; record form → **I made this change**; experiments
+  "Rollback to:" → **Undo to:**. No Accept/Approve/Push jargon left on customer
+  CTAs.
+- **B29 — Phase 6 safety/help + Phase 7 tracking**: `/help` gains "How do I
+  actually make a change Beacon suggests?" (one-click vs paste-into-Wix steps)
+  and "Does this cost me anything to run?" (no charges; only your own paid tools
+  + small AI usage). Terms/Privacy **deferred with reason** (no legal pages yet
+  — single-user, 0 customers; don't fabricate legal text). `AUDIT_CLEANUP_LEDGER`
+  Tally rewritten to the Phase-7 format (fixed critical/medium/low + remaining +
+  deferred-with-reason).
+- **Verified:** typecheck clean · **5,541** route+architecture tests pass ·
+  no-em-dash + forbidden-vocabulary guards green · /help + Today + Proof +
+  Workbench render 200 locally. All of Phases 1–7 now substantively complete;
+  every concrete critical defect fixed (the two rigorous follow-up audits found
+  no further concrete instances; the residual ~12 are subjective design taste).
+
+---
+
 ## 2026-06-23 (cont.) IA consolidation B26 — `/changes` merged INTO Results (`/proof`)
 
 Operator directive: ONE place for "what changed / is it measuring / did it
