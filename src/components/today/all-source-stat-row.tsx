@@ -135,7 +135,7 @@ function StatCard({ card }: { card: SourceStatCard }) {
           dataAttr={`friction-${card.key}`}
           rows={card.topFriction.map((f) => ({
             path: f.path,
-            value: `${f.perVisit} clicks/visit`,
+            value: `${f.perVisit} frustrated clicks per visit`,
           }))}
         />
       ) : null}

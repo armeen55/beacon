@@ -316,9 +316,9 @@ function buildGscCard(
     key: "gsc",
     source: "Search (Google)",
     stats: [
-      { label: "Clicks (90d)", value: fmtCompact(totals.clicks90d) },
-      { label: "Impressions", value: fmtCompact(totals.impressions90d) },
-      { label: "Avg. position", value: fmtPosition(totals.avgPosition90d) },
+      { label: "Visits from Google (90 days)", value: fmtCompact(totals.clicks90d) },
+      { label: "Times shown on Google", value: fmtCompact(totals.impressions90d) },
+      { label: "Average Google rank", value: fmtPosition(totals.avgPosition90d) },
       { label: "Click rate", value: fmtPct(totals.ctr90d) },
     ],
     subline,
@@ -346,12 +346,12 @@ function buildGa4Card(ga4: Map<string, Ga4PageValue>): SourceStatCard | null {
 
   const engagedRate = engaged / sessions;
   const stats: SourceStat[] = [
-    { label: "Visits (28d)", value: fmtCompact(sessions) },
-    { label: "Engaged rate", value: fmtPct(engagedRate) },
+    { label: "Visits (28 days)", value: fmtCompact(sessions) },
+    { label: "Engaged visits", value: fmtPct(engagedRate) },
   ];
   // Conversions only earns a stat slot when there are any — never "0".
   if (conversions > 0) {
-    stats.push({ label: "Conversions", value: fmtInt(conversions) });
+    stats.push({ label: "Sign-ups or sales", value: fmtInt(conversions) });
   }
   return {
     key: "ga4",
@@ -389,9 +389,9 @@ function buildSemrushCard(
     key: "semrush",
     source: "Keyword rankings",
     stats: [
-      { label: "Keywords ranked", value: fmtInt(distinctKeywords.size) },
-      { label: "Quick wins", value: fmtInt(strikingDistance) },
-      { label: "Search volume", value: fmtCompact(trackedVolume) },
+      { label: "Searches you rank for", value: fmtInt(distinctKeywords.size) },
+      { label: "Almost on page 1", value: fmtInt(strikingDistance) },
+      { label: "Monthly searches", value: fmtCompact(trackedVolume) },
     ],
     subline:
       strikingDistance > 0
@@ -434,7 +434,7 @@ function buildClarityCard(
   const stats: SourceStat[] = [
     { label: "Visits analyzed", value: fmtCompact(sessions) },
     { label: "Frustrated clicks", value: fmtPct(rageRate) },
-    { label: "Dead clicks", value: fmtPct(deadRate) },
+    { label: "Clicks that did nothing", value: fmtPct(deadRate) },
   ];
 
   // Building-history label when only one day is in: be honest, no delta.
@@ -504,7 +504,7 @@ function buildAeoCard(aeo: TodayDerivedKpis | null): SourceStatCard | null {
   ];
   if (aeo.platformRowCount > 0) {
     stats.push({
-      label: "AI platforms",
+      label: "AI tools checked",
       value: fmtInt(aeo.platformRowCount),
     });
   }

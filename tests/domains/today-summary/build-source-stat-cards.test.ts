@@ -131,9 +131,9 @@ describe("buildSourceStatCards — GSC math", () => {
     expect(card).toBeDefined();
     const labels = Object.fromEntries(card!.stats.map((s) => [s.label, s.value]));
     // Σ impr = 10,000 → compact "10K"
-    expect(labels["Impressions"]).toBe("10K");
+    expect(labels["Times shown on Google"]).toBe("10K");
     // impressions-weighted position from the loader
-    expect(labels["Avg. position"]).toBe("9.5");
+    expect(labels["Average Google rank"]).toBe("9.5");
     // site CTR = 150/10000 = 1.5%
     expect(labels["Click rate"]).toBe("1.5%");
   });
@@ -407,7 +407,7 @@ describe("buildSourceStatCards — Clarity honesty", () => {
     // averaged per-page rageRate (which was 0.5).
     expect(labels["Frustrated clicks"]).toBe("0.5%");
     // Dead = 63/214 = 29.4%
-    expect(labels["Dead clicks"]).toBe("29.4%");
+    expect(labels["Clicks that did nothing"]).toBe("29.4%");
     // Single-day: building-history label, NOT a delta.
     expect(card!.subline?.text).toMatch(/building history/i);
   });
@@ -441,10 +441,10 @@ describe("buildSourceStatCards — SEMrush + AEO present", () => {
     const card = buildSourceStatCards(inputs).find((c) => c.key === "semrush");
     expect(card).toBeDefined();
     const labels = Object.fromEntries(card!.stats.map((s) => [s.label, s.value]));
-    expect(labels["Keywords ranked"]).toBe("2");
-    expect(labels["Quick wins"]).toBe("1");
+    expect(labels["Searches you rank for"]).toBe("2");
+    expect(labels["Almost on page 1"]).toBe("1");
     // 7,000 is below the 10K compaction threshold → grouped integer.
-    expect(labels["Search volume"]).toBe("7,000");
+    expect(labels["Monthly searches"]).toBe("7,000");
   });
 
   it("emits the AEO card (vendor-name-free, plain English) when KPIs have data", () => {
