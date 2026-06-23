@@ -14,7 +14,7 @@
  *             matters when present)
  *   Act 2   → Where you stand (per-platform status cards with
  *             optional sparkline)
- *   Act 3   → Who else gets cited (competitors, or calm empty)
+ *   Act 3   → Other businesses AI recommends (competitors, or calm empty)
  *   Act 4   → What changed recently (humanized movements, or
  *             calm fallback)
  *   Act 5   → What to do next (next-action CTAs)

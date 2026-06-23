@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-23 — Full casual-user audit closeout (B31, commit ce0bb14)
+
+- **Scope:** the COMPLETE 923-item audit (`/tmp/audit_report.txt`), looped:
+  triage (13 agents vs current code) to fix (file-disjoint fan-out) to verify
+  to per-item rescan.
+- **Result:** 413 already fixed by B1-B30; **200 live concrete items applied**
+  across 49 customer files (experiments, competitors, opportunities, workbench,
+  recommendations, today hero, proof-timeline pills, sidebar, onboarding,
+  settings/error); 200 not-actionable explicitly blocked (new-feature /
+  subjective / duplicate, per the no-new-systems + no-redesign constraints).
+  Per-item rescan: 0 remaining live in rendered UI.
+- **Edits:** copy / markup / aria-label only. No logic, math, ranking,
+  attribution, route, or data-shape change.
+- **Verified:** `npm run typecheck` clean; `npm run build` clean; architecture +
+  routes + app + domains suites green (9,455 pass) **except one PRE-EXISTING
+  unrelated failure** — `gsc-led-evidence` impression-floor ordering, which
+  fails identically before B31 (evidence-ordering logic, out of this scope;
+  documented, not masked). Pinned-copy assertions across ~12 test files realigned
+  to the new copy with intent/structure preserved. No em/en dashes introduced.
+
+---
+
 ## 2026-06-23 (cont.) Phases 5–7 closeout — action vocabulary, safety/help, tracking (B27–B29)
 
 - **B27 — visual/a11y tail** (ultracode 5-agent a11y audit → 12 concrete

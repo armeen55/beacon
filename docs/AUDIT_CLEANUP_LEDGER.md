@@ -36,6 +36,27 @@ system, (2) metric-with-meaning, (3) trust language, (4) page-by-page critical, 
     B26 folded the timeline into Results with the existing counters; explicit
     tabbed filters are a follow-on UX enhancement, not a defect.
 
+## Full-audit closeout (B31, 2026-06-23)
+Ran the COMPLETE 923-item audit (`/tmp/audit_report.txt`) through a triage to
+fix to verify to rescan loop:
+- **Triage (13-agent fan-out vs current code):** 413 already fixed by B1-B30,
+  **200 live** (concrete copy/markup/a11y), 200 not-actionable.
+- **Fix (file-disjoint fan-out):** applied every still-live concrete item across
+  49 files (experiments, competitors, opportunities, workbench, recommendations,
+  today hero, proof-timeline pills, sidebar, onboarding, settings/error). Source
+  edits are copy/markup/aria only.
+- **Rescan (per-item grep of every offending phrase):** 0 remaining live in
+  rendered UI (the only residual was one stale JSDoc comment, also fixed).
+- **Not-actionable (200) = explicitly blocked-with-reason:** require building a
+  NEW feature/surface (forbidden by the no-new-systems constraint), are pure
+  subjective design-taste with no concrete string, or duplicate another item.
+- **Known pre-existing failure (NOT from this work):** `gsc-led-evidence`
+  impression-floor ordering test fails identically before B31; it is an
+  evidence-ordering logic bug (changing it would alter recommendation behavior,
+  out of this goal's scope), left documented rather than masked.
+- **Gates:** typecheck + build green; architecture + routes + app + domains
+  suites green except the one pre-existing failure.
+
 ## Batches
 - **B1 — Phase 1 foundation** (`src/lib/plain-language.ts`): canonical term map (CTR→click rate,
   impressions→times shown on Google, SERP→Google results page, schema/JSON-LD→Google-readable page
