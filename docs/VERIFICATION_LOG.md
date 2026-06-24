@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 3 (deterministic competitor teardown)
+
+**Built (NO LLM, NO paid SERP — facts only):**
+- `competitor-page-audit.ts` (NEW): pure `extractCompetitorFacts(html,url)` (cheerio) →
+  title/meta/h1/canonical/og, H2-H3 outline, JSON-LD schema types, FAQ (schema + DOM questions),
+  answer-block heuristic (early 20–120-word paragraph), word count (boilerplate-stripped),
+  section count, internal/external link split (by host), image count, tool/calculator detection,
+  freshness date, top terms. `auditCompetitorPage` (fail-soft polite fetch via `fetchPageHtml` —
+  fixed a scheme-less-URL bug: Profound stores `host/path` without `https://` → `new URL` threw →
+  every page falsely `blocked_robots`; now prepends https). `whatWins()` deterministic summary.
+  Cache = `competitor-page-audit` tenant-scoped json-store keyed by URL (registered in
+  store-classification); `auditTopCompetitorsForTenant` (cache-aware, skips aggregators, top-N).
+- `migrations/2026-06-24_competitor_page_audit.sql` — additive table, RLS deny-anon, **NOT applied**
+  (json-store file-fallback for v1).
+- `/diagnostics/rank-revenue` — new "What wins (teardown)" column + audited-count in coverage.
+
+**Verified:** typecheck clean; 47 targeted tests green (audit extractor/fail-soft 19, demand-graph,
+render, arch); `npm run build` compiled. **TRUTH TEST (real live fetches, Iranopedia):** 14 top
+competitors audited → **13 OK, 1 honest http_error** (theknot 403s the bot). Real deterministic
+facts: persiscollection 1,490w/20 H2/12 schema/answer-block/tool; mypersiancorner farsi-vs-persian
+732w/FAQ schema/answer-block; wikipedia List_of_Iranians 8,720w/25 H2; nationalgeographic Iran
+752w/FAQ; worldhistory Persians 3,575w/23 H2/answer-block; wikipedia Hafez 5,812w. The competitive
+bar (long-form + many sections + schema + answer blocks) is now concrete + cached for Step 4.
+
 ## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 2 (competitor cited-page discovery + edges)
 
 **Approved cache cleanup (Iranopedia only):** `profound_citation_rows` held **36,428 stale**

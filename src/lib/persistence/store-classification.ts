@@ -85,6 +85,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // `competitor-page-evidence` (citation-derived, frequent) so
   // structural fetches stay rare and bounded.
   "competitor-page-snapshots",
+  // 2026-06-24 Rank-&-Revenue Step 3 — deterministic teardown of the competitor
+  // pages AI cites instead of the tenant (structure/schema/links/word-count/etc.).
+  "competitor-page-audit",
   // 2026-06-09 §competitor-intel — structural changes detected when a
   // fresh competitor-page fetch differs from the stored snapshot
   // (FAQ added, new sections, retitle, meta added). Written by

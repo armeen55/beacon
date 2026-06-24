@@ -17,6 +17,8 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
 import type { MoveCandidate, ConfidenceLevel } from "@/domains/demand-graph/build-graph";
+import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +62,11 @@ export default async function RankRevenuePage() {
   if (!isOperatorMode()) notFound();
 
   const tenantId = await currentTenantId();
-  const { graph, coverage } = await loadDemandGraphForTenant(tenantId);
+  const [{ graph, coverage }, audits] = await Promise.all([
+    loadDemandGraphForTenant(tenantId),
+    getCompetitorAuditsForTenant().catch(() => new Map()),
+  ]);
+  const auditedOk = [...audits.values()].filter((a) => a.fetchStatus === "ok").length;
 
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
   const top = actionable.slice(0, TOP_N);
@@ -84,7 +90,8 @@ export default async function RankRevenuePage() {
         ) : null}
         <span className="ml-2 text-gray-400">
           · {coverage.competitorEdges} competitor edges · {coverage.createPageCandidates} create-page
-          candidates · you cited on {coverage.ownedCited} pages
+          candidates · you cited on {coverage.ownedCited} pages · {auditedOk} competitor pages
+          torn down
         </span>
         <span className="ml-2 text-gray-400">
           · {graph.moves.length} clusters · {healthyCount} healthy · {lowDemandCount} below demand floor
@@ -113,6 +120,7 @@ export default async function RankRevenuePage() {
                 <th className="px-2 py-1.5 text-right">Friction</th>
                 <th className="px-2 py-1.5">Conf</th>
                 <th className="px-2 py-1.5">Competitors</th>
+                <th className="px-2 py-1.5">What wins (teardown)</th>
                 <th className="px-2 py-1.5">Your page</th>
                 <th className="px-2 py-1.5">Why</th>
               </tr>
@@ -145,6 +153,16 @@ export default async function RankRevenuePage() {
                       : m.competitorUrls.slice(0, 2).map((u) => (
                           <div key={u}>{shortUrl(u)}</div>
                         ))}
+                  </td>
+                  <td className="px-2 py-1.5 text-gray-600" style={{ maxWidth: 220 }}>
+                    {(() => {
+                      const top = m.competitorUrls[0];
+                      if (!top) return <span className="text-gray-300">—</span>;
+                      const a = audits.get(canonicalizeCitationUrl(top) || top);
+                      if (!a) return <span className="text-gray-300">not audited</span>;
+                      if (a.fetchStatus !== "ok") return <span className="text-amber-600">{a.fetchStatus}</span>;
+                      return <span>{whatWins(a.facts)}</span>;
+                    })()}
                   </td>
                   <td className="px-2 py-1.5 text-gray-500">{shortUrl(m.ownedUrl)}</td>
                   <td className="px-2 py-1.5 text-gray-500" style={{ maxWidth: 280 }}>
