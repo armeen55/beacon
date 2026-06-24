@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 4 (gap compiler → EvidencePacket)
+
+**Built (deterministic, NO LLM, NO paid SERP):**
+- `evidence-packet.ts` (NEW): pure `buildEvidencePacket` → the Source-of-Truth packet (move +
+  demand + competitor teardown + yourPage + gaps + draft skeleton + proofPlan + evidenceHash).
+  Gaps from owned-vs-competitor comparison: missing_page / missing_answer_block / missing_faq /
+  thin_content / missing_schema / weak_title / weak_meta / missing_tool / ux_friction. Draft is a
+  GROUNDED skeleton (title from the query, outline from the competitor's real sections + Profound
+  fanouts, answer-block brief, FAQ questions, schema recommendations, asset spec) — never fabricated.
+- `gap-compiler.ts` (NEW): `loadChangePacksForTenant` fuses graph moves + Step-3 audits + owned
+  `page_snapshots` into packets.
+- `competitor-page-audit.ts`: `auditTopCompetitorsForTenant` now targets the PER-MOVE top
+  competitors (so the teardown aligns 1:1 with packets) — `withCompetitorTeardown` 0 → 14.
+- `/diagnostics/rank-revenue`: each row expands (`<details>`) to its EvidencePacket (gaps + draft
+  skeleton + proof plan + evidenceHash + draft.kind).
+
+**Verified:** typecheck clean; 47 targeted tests green (evidence-packet 8 incl. hash-stability +
+no-LLM; demand-graph; render); `npm run build` compiled. **TRUTH TEST (real Iranopedia, 25 packets):**
+answer_block "iran flag" vs surfiran (whatWins: FAQ + answer-block + 14 schema + 1.8k words + tool +
+30 images + fresh) → gaps missing_answer_block/faq/thin_content/schema/tool; edit_page "iranian
+singer" vs wikipedia (635w/22 sections) → thin_content/schema/weak_title; fix_experience "persian
+boy names" vs teamgroupnames (3.6kw/12 schema) → competitor outline grounds the draft. Packets are
+inspectable + every gap traces to Step 2/3 facts. (create_page packets exist but rank below the
+GSC-demand top-25 — surface separately later; per-move audit had 14 OK / 5 http_error / 1 robots.)
+
 ## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 3 (deterministic competitor teardown)
 
 **Built (NO LLM, NO paid SERP — facts only):**
