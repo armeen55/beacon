@@ -17,12 +17,13 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
 import type { MoveCandidate, ConfidenceLevel } from "@/domains/demand-graph/build-graph";
-import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import { auditTopCompetitorsForTenant, getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function isOperatorMode(): boolean {
   return isOperatorModeServer();
@@ -60,10 +61,22 @@ function shortUrl(url: string | null): string {
   }
 }
 
-export default async function RankRevenuePage() {
+export default async function RankRevenuePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
   if (!isOperatorMode()) notFound();
 
   const tenantId = await currentTenantId();
+  // Operator-triggered teardown refresh (?refresh=1). Competitor teardowns go
+  // stale as the move ranking shifts (the audit cache is keyed by URL); this
+  // re-runs the polite-fetch audit for the current top moves before loading.
+  // Stopgap until Step 6 wires the audit into the nightly cron. Fail-soft.
+  const params = await searchParams;
+  if (params?.refresh === "1") {
+    await auditTopCompetitorsForTenant({ tenantId, limit: TOP_N }).catch(() => null);
+  }
   const [{ graph, coverage }, audits, packsResult] = await Promise.all([
     loadDemandGraphForTenant(tenantId),
     getCompetitorAuditsForTenant().catch(() => new Map()),
@@ -97,7 +110,10 @@ export default async function RankRevenuePage() {
         <span className="ml-2 text-gray-400">
           · {coverage.competitorEdges} competitor edges · {coverage.createPageCandidates} create-page
           candidates · you cited on {coverage.ownedCited} pages · {auditedOk} competitor pages
-          torn down
+          torn down{" "}
+          <a href="?refresh=1" className="text-blue-600 underline hover:text-blue-800" title="Re-run the competitor teardown audit for the current top moves (polite fetch; may take 20-40s)">
+            ↻ refresh teardowns
+          </a>
         </span>
         <span className="ml-2 text-gray-400">
           · {graph.moves.length} clusters · {healthyCount} healthy · {lowDemandCount} below demand floor
