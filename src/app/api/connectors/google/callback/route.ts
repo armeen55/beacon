@@ -30,7 +30,7 @@
 
 import { NextResponse } from "next/server";
 import { log } from "@/lib/logger";
-import { saveConnectorToken } from "@/lib/connector-store";
+import { saveConnectorToken, getConnectorToken } from "@/lib/connector-store";
 import {
   exchangeGoogleCode,
   decodeOAuthState,
@@ -153,12 +153,31 @@ export async function GET(request: Request): Promise<NextResponse> {
     );
   }
 
+  // audit-wave6 #1: Google omits the refresh_token on re-consent for the SAME
+  // client (acknowledged below). saveConnectorToken is a full-row upsert with no
+  // merge, so writing "" here would OVERWRITE a previously-working refresh token
+  // and permanently brick the grant (the access token dies in ~1h with no
+  // self-heal). When the new exchange has no refresh token, preserve the stored
+  // one (mirrors the updateConnectorToken merge pattern).
+  let refreshToken = tokens.refresh_token ?? "";
+  if (!refreshToken) {
+    try {
+      const existing = await getConnectorToken(provider, tenantId);
+      // ConnectorToken is a union (Yelp has no refresh_token) — narrow first.
+      if (existing && "refresh_token" in existing && existing.refresh_token) {
+        refreshToken = existing.refresh_token;
+      }
+    } catch {
+      /* fall through — worst case we surface missing_refresh_token below */
+    }
+  }
+
   try {
     await saveConnectorToken(
       {
         provider,
         access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token ?? "",
+        refresh_token: refreshToken,
         expires_at: Date.now() + tokens.expires_in * 1000,
         connected_at: new Date().toISOString(),
         scopes: tokens.scope ? tokens.scope.split(" ") : [],
@@ -190,7 +209,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   // re-consent for the same client) or revoked it externally. Reporting a
   // clean "connected successfully" here is dishonest — surface a WARNING that
   // tells the owner to reconnect so a fresh refresh token is issued.
-  if (!tokens.refresh_token) {
+  // Only warn when there is STILL no refresh token after the preserve-merge
+  // above — i.e. neither this exchange nor the prior stored row had one.
+  if (!refreshToken) {
     return settingsRedirect(request, {
       connected: provider,
       warning: "missing_refresh_token",
