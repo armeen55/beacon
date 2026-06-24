@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildEvidencePacket, type PageStructureFacts } from "@/domains/demand-graph/evidence-packet";
+import { buildEvidencePacket, competitorRelevance, type PageStructureFacts } from "@/domains/demand-graph/evidence-packet";
 import type { MoveCandidate } from "@/domains/demand-graph/build-graph";
 import type { CompetitorPageFacts } from "@/domains/demand-graph/competitor-page-audit";
 
@@ -231,5 +231,30 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
     expect(p.competitor.relevance).toBeGreaterThanOrEqual(0.6);
     expect(p.draft.outline).toContain("Classic Persian Names");
     expect(p.gaps.map((g) => g.kind)).toContain("thin_content");
+  });
+});
+
+describe("competitorRelevance — exact token match (audit wave 2 fix)", () => {
+  const facts = (over: { title?: string; topTerms?: string[]; outline?: string[] }) => ({
+    canonicalUrl: null, title: over.title ?? null, metaDescription: null, h1: null,
+    h2Count: 0, h3Count: 0, outline: over.outline ?? [], schemaTypes: [], hasFaq: false,
+    faqQuestionCount: 0, faqQuestions: [], hasAnswerBlock: false, wordCount: 0, sectionCount: 0,
+    internalLinkCount: 0, externalLinkCount: 0, imageCount: 0, hasToolOrCalculator: false,
+    freshnessDate: null, ogTitle: null, ogType: null, topTerms: over.topTerms ?? [],
+  });
+
+  it("does NOT count a substring collision (iran⊄irani, flag⊄flagship)", () => {
+    const r = competitorRelevance("iran flag", facts({ title: "Irani Heritage", topTerms: ["flagship", "tourism"] }));
+    expect(r).toBe(0);
+  });
+
+  it("counts exact tokens and tolerates simple plurals (flags≈flag, names≈name)", () => {
+    expect(competitorRelevance("iran flags", facts({ topTerms: ["iran", "flag"] }))).toBe(1);
+    expect(competitorRelevance("persian names", facts({ title: "A Persian Name List" }))).toBe(1);
+  });
+
+  it("returns 0 for null facts or token-less queries", () => {
+    expect(competitorRelevance("iran flag", null)).toBe(0);
+    expect(competitorRelevance("a x", facts({ topTerms: ["iran"] }))).toBe(0);
   });
 });

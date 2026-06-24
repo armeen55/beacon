@@ -125,21 +125,31 @@ function clampTitle(s: string): string {
 const TITLE_WEAK_MIN = 15;
 
 const REL_STOP = new Set(["and", "the", "for", "with", "your", "you", "are", "best", "top"]);
+/** simple plural fold so "flags"≈"flag", "names"≈"name" (avoids over-suppression). */
+function depluralize(w: string): string {
+  return w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w;
+}
 function qTokens(s: string): string[] {
-  return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !REL_STOP.has(t));
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !REL_STOP.has(t)).map(depluralize);
 }
 /** 0–1: share of (≥3-char) query tokens present in the competitor page's
- *  title/topTerms/outline. Guards against off-topic AI-cited pages (borrowed-
- *  Profound-account noise) from driving the draft outline + comparative gaps —
- *  e.g. a "top cultural tours" page cited for "iran flag". */
+ *  title/topTerms/outline, by EXACT (depluralized) TOKEN match — substring
+ *  matching would let "iran" pass on "irani"/"flagship" and defeat the gate.
+ *  Guards against off-topic AI-cited pages (borrowed-Profound-account noise)
+ *  driving the draft — e.g. a "top cultural tours" page cited for "iran flag". */
 export function competitorRelevance(query: string, facts: CompetitorPageFacts | null): number {
   if (!facts) return 0;
   const q = qTokens(query);
   if (!q.length) return 0;
-  const hay = [facts.title ?? "", ...(facts.topTerms ?? []), ...(facts.outline ?? [])]
-    .join(" ")
-    .toLowerCase();
-  return q.filter((t) => hay.includes(t)).length / q.length;
+  const hay = new Set(
+    [facts.title ?? "", ...(facts.topTerms ?? []), ...(facts.outline ?? [])]
+      .join(" ")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean)
+      .map(depluralize),
+  );
+  return q.filter((t) => hay.has(t)).length / q.length;
 }
 const REL_MIN = 0.6;
 
