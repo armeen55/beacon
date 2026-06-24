@@ -87,6 +87,10 @@ export type EvidencePacket = {
     fetchStatus: string | null;
     facts: CompetitorPageFacts | null;
     whatWins: string;
+    /** 0–1 query-token overlap with the cited page. */
+    relevance: number;
+    /** True when AI cited the page but it's off-topic for the query (not inherited). */
+    looselyMatched: boolean;
     otherUrls: string[];
   };
   yourPage: {
@@ -120,11 +124,37 @@ function clampTitle(s: string): string {
 
 const TITLE_WEAK_MIN = 15;
 
+const REL_STOP = new Set(["and", "the", "for", "with", "your", "you", "are", "best", "top"]);
+function qTokens(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !REL_STOP.has(t));
+}
+/** 0–1: share of (≥3-char) query tokens present in the competitor page's
+ *  title/topTerms/outline. Guards against off-topic AI-cited pages (borrowed-
+ *  Profound-account noise) from driving the draft outline + comparative gaps —
+ *  e.g. a "top cultural tours" page cited for "iran flag". */
+export function competitorRelevance(query: string, facts: CompetitorPageFacts | null): number {
+  if (!facts) return 0;
+  const q = qTokens(query);
+  if (!q.length) return 0;
+  const hay = [facts.title ?? "", ...(facts.topTerms ?? []), ...(facts.outline ?? [])]
+    .join(" ")
+    .toLowerCase();
+  return q.filter((t) => hay.includes(t)).length / q.length;
+}
+const REL_MIN = 0.6;
+
 export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePacket {
   const { move, brand, ownedFacts, competitor } = input;
   const cFacts = competitor?.facts ?? null;
   const fanoutSeeds = (input.fanoutSeeds ?? move.fanoutSeeds ?? []).slice(0, 10);
   const primaryQuery = move.label;
+
+  // Relevance gate: only let an on-topic competitor drive the draft + comparative
+  // gaps. AI-cited pages can be tangential (the borrowed Profound account cites
+  // loosely) — a low-relevance page is shown honestly but labeled, not inherited.
+  const relevance = competitorRelevance(primaryQuery, cFacts);
+  const competitorOnTopic = !!cFacts && relevance >= REL_MIN;
+  const looselyMatched = !!cFacts && !competitorOnTopic;
 
   // ── deterministic gap detection (owned vs competitor) ──
   const gaps: EvidenceGap[] = [];
@@ -143,20 +173,20 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
     if (move.gap === "answer_block") {
       gaps.push({
         kind: "missing_answer_block",
-        detail: cFacts?.hasAnswerBlock
+        detail: competitorOnTopic && cFacts?.hasAnswerBlock
           ? `${competitor!.domain} leads with a direct answer block and AI cites them, not you — add a concise, extractable answer to "${primaryQuery}".`
           : `AI cites competitors, not you — add a concise, extractable answer to "${primaryQuery}".`,
       });
     }
-    if ((cFacts?.hasFaq || (cFacts?.faqQuestionCount ?? 0) > 0) && !ownedFacts!.hasFaq) {
+    if (competitorOnTopic && (cFacts?.hasFaq || (cFacts?.faqQuestionCount ?? 0) > 0) && !ownedFacts!.hasFaq) {
       gaps.push({ kind: "missing_faq", detail: `${competitor!.domain} has a FAQ (${cFacts!.faqQuestionCount} Qs); your page has none.` });
     }
-    // thin content
-    if (cFacts && cFacts.wordCount > 0 && ownedFacts!.wordCount > 0 && cFacts.wordCount >= ownedFacts!.wordCount * 1.5) {
+    // thin content (only vs an on-topic competitor)
+    if (competitorOnTopic && cFacts && cFacts.wordCount > 0 && ownedFacts!.wordCount > 0 && cFacts.wordCount >= ownedFacts!.wordCount * 1.5) {
       gaps.push({ kind: "thin_content", detail: `Thin vs competitor: ${ownedFacts!.wordCount}w you vs ${cFacts.wordCount}w ${competitor!.domain} (${cFacts.h2Count} sections).` });
     }
-    // missing schema
-    const missingSchema = (cFacts?.schemaTypes ?? []).filter((t) => !ownedFacts!.schemaTypes.includes(t));
+    // missing schema (only vs an on-topic competitor)
+    const missingSchema = competitorOnTopic ? (cFacts?.schemaTypes ?? []).filter((t) => !ownedFacts!.schemaTypes.includes(t)) : [];
     if (missingSchema.length > 0) {
       gaps.push({ kind: "missing_schema", detail: `Competitor uses schema you lack: ${missingSchema.slice(0, 4).join(", ")}.` });
     }
@@ -174,14 +204,16 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
   if (move.gap === "fix_experience" || move.components.friction >= 15) {
     gaps.push({ kind: "ux_friction", detail: `Clarity friction ${move.components.friction} on a high-demand page — fix dead/rage clicks before chasing traffic.` });
   }
-  // tool / asset
-  if (cFacts?.hasToolOrCalculator && !(ownedFacts && /calculator|tool|converter|quiz|estimator/i.test(ownedFacts.title ?? ""))) {
+  // tool / asset (only vs an on-topic competitor)
+  if (competitorOnTopic && cFacts?.hasToolOrCalculator && !(ownedFacts && /calculator|tool|converter|quiz|estimator/i.test(ownedFacts.title ?? ""))) {
     gaps.push({ kind: "missing_tool", detail: `${competitor!.domain} offers an interactive tool/calculator for this topic; you don't.` });
   }
 
   // ── deterministic draft skeleton (grounded; NO fabricated prose, NO LLM) ──
   const outline: string[] = [];
-  for (const h of cFacts?.outline ?? []) {
+  // Only inherit the competitor's outline when it's on-topic; otherwise the draft
+  // is built from Profound fanouts alone (never an off-topic page's structure).
+  for (const h of (competitorOnTopic ? cFacts?.outline : []) ?? []) {
     if (outline.length >= 12) break;
     if (h && !outline.includes(h)) outline.push(h);
   }
@@ -189,8 +221,8 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
     if (outline.length >= 14) break;
     if (!outline.includes(q)) outline.push(q);
   }
-  const faqQuestions = [...new Set([...(cFacts?.faqQuestions ?? []), ...fanoutSeeds])].slice(0, 8);
-  const schemaRecommendations = (cFacts?.schemaTypes ?? []).filter((t) => !(ownedFacts?.schemaTypes ?? []).includes(t)).slice(0, 6);
+  const faqQuestions = [...new Set([...(competitorOnTopic ? cFacts?.faqQuestions ?? [] : []), ...fanoutSeeds])].slice(0, 8);
+  const schemaRecommendations = (competitorOnTopic ? cFacts?.schemaTypes ?? [] : []).filter((t) => !(ownedFacts?.schemaTypes ?? []).includes(t)).slice(0, 6);
   const isCreate = move.gap === "create_page" || !hasOwned;
   const hasToolGap = gaps.some((g) => g.kind === "missing_tool");
 
@@ -255,7 +287,11 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
       domain: competitor?.domain ?? null,
       fetchStatus: competitor?.fetchStatus ?? null,
       facts: cFacts,
-      whatWins: whatWins(cFacts),
+      whatWins: looselyMatched
+        ? "Loosely matched — AI cited this page but it's off-topic for the query; confirm the real winner with live SERP (DataForSEO)."
+        : whatWins(cFacts),
+      relevance,
+      looselyMatched,
       otherUrls: move.competitorUrls.slice(1, 5),
     },
     yourPage: {

@@ -77,7 +77,7 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
         url: "https://theknot.com/content/persian-wedding",
         domain: "theknot.com",
         fetchStatus: "ok",
-        facts: cfacts({ outline: ["The Sofreh Aghd", "Ceremony Order"], wordCount: 1800, schemaTypes: ["Article"], hasAnswerBlock: true }),
+        facts: cfacts({ title: "Persian Wedding Traditions", topTerms: ["persian", "wedding", "sofreh"], outline: ["The Sofreh Aghd", "Ceremony Order"], wordCount: 1800, schemaTypes: ["Article"], hasAnswerBlock: true }),
       },
     });
     expect(p.gaps.some((g) => g.kind === "missing_page")).toBe(true);
@@ -130,7 +130,7 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
       brand: "Iranopedia",
       ownedFacts: ofacts({ wordCount: 400, schemaTypes: [] }),
       ownedGsc: { clicks: 10, impressions: 4000, ctr: 0.0025, position: 8 },
-      competitor: { url: "https://c.com/x", domain: "c.com", fetchStatus: "ok", facts: cfacts({ wordCount: 3000, h2Count: 20, schemaTypes: ["Article", "FAQPage"] }) },
+      competitor: { url: "https://c.com/x", domain: "c.com", fetchStatus: "ok", facts: cfacts({ title: "Persian Holidays Guide", topTerms: ["persian", "holidays"], wordCount: 3000, h2Count: 20, schemaTypes: ["Article", "FAQPage"] }) },
     });
     expect(p.gaps.some((g) => g.kind === "thin_content")).toBe(true);
     expect(p.gaps.some((g) => g.kind === "missing_schema")).toBe(true);
@@ -143,7 +143,7 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
       brand: "Iranopedia",
       ownedFacts: null,
       ownedGsc: null,
-      competitor: { url: "https://c.com/calc", domain: "c.com", fetchStatus: "ok", facts: cfacts({ hasToolOrCalculator: true }) },
+      competitor: { url: "https://c.com/calc", domain: "c.com", fetchStatus: "ok", facts: cfacts({ title: "ADU Cost Calculator", topTerms: ["adu", "cost"], hasToolOrCalculator: true }) },
     });
     expect(p.gaps.some((g) => g.kind === "missing_tool")).toBe(true);
     expect(p.draft.assetSpec).toBeTruthy();
@@ -172,5 +172,64 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
     });
     expect(p.draft.kind).toBe("deterministic_skeleton");
     expect(p.draft.note.toLowerCase()).toContain("deterministic");
+  });
+
+  it("relevance gate: an off-topic cited page is labeled, not inherited", () => {
+    // "iran flag" cited a cultural-tours page (shares only "iran") → loosely matched.
+    const p = buildEvidencePacket({
+      move: move({ gap: "answer_block", label: "iran flag", ownedUrl: "https://iranopedia.com/iran-flag" }),
+      brand: "Iranopedia",
+      ownedFacts: ofacts({ wordCount: 800 }),
+      ownedGsc: { clicks: 10, impressions: 500, ctr: 0.02, position: 8 },
+      competitor: {
+        url: "https://surfiran.com/mag/top-cultural-tours-in-iran/",
+        domain: "surfiran.com",
+        fetchStatus: "ok",
+        facts: cfacts({
+          title: "Top Cultural Tours in Iran",
+          outline: ["Tehran: The Capital", "Isfahan", "Key Highlights"],
+          schemaTypes: ["TravelAgency", "FAQPage"],
+          hasFaq: true,
+          faqQuestionCount: 8,
+          wordCount: 4000,
+          hasToolOrCalculator: true,
+          topTerms: ["iran", "cultural", "tours", "tehran", "isfahan"],
+        }),
+      },
+    });
+    expect(p.competitor.looselyMatched).toBe(true);
+    expect(p.competitor.relevance).toBeLessThan(0.6);
+    expect(p.competitor.whatWins.toLowerCase()).toContain("loosely matched");
+    expect(p.draft.outline).not.toContain("Tehran: The Capital");
+    const kinds = p.gaps.map((g) => g.kind);
+    expect(kinds).not.toContain("thin_content");
+    expect(kinds).not.toContain("missing_schema");
+    expect(kinds).not.toContain("missing_faq");
+    expect(kinds).not.toContain("missing_tool");
+  });
+
+  it("relevance gate: an on-topic cited page IS inherited", () => {
+    const p = buildEvidencePacket({
+      move: move({ gap: "edit_page", label: "persian boy names", ownedUrl: "https://iranopedia.com/persian-boy-names" }),
+      brand: "Iranopedia",
+      ownedFacts: ofacts({ wordCount: 600, schemaTypes: [] }),
+      ownedGsc: { clicks: 20, impressions: 2000, ctr: 0.01, position: 6 },
+      competitor: {
+        url: "https://teamgroupnames.com/300-persian-boy-names/",
+        domain: "teamgroupnames.com",
+        fetchStatus: "ok",
+        facts: cfacts({
+          title: "300+ Persian Boy Names with Meanings",
+          outline: ["Classic Persian Names", "Nature-Inspired Persian Names"],
+          schemaTypes: ["Article", "Person"],
+          wordCount: 3600,
+          topTerms: ["persian", "names", "name", "boy"],
+        }),
+      },
+    });
+    expect(p.competitor.looselyMatched).toBe(false);
+    expect(p.competitor.relevance).toBeGreaterThanOrEqual(0.6);
+    expect(p.draft.outline).toContain("Classic Persian Names");
+    expect(p.gaps.map((g) => g.kind)).toContain("thin_content");
   });
 });
