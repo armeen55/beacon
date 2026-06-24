@@ -334,6 +334,9 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   const sb = getSupabaseAdmin();
   let days = 0;
   let rowsUpserted = 0;
+  // audit-wave2 #9: track a failed day-pull so a quota/network failure on the
+  // FIRST day (days===0) doesn't return synced:true and stamp freshness fresh.
+  let pullFailed = false;
   // wave-11 follow-on (2026-06-14): set by pullDayRows -> the query on a GSC
   // AUTH failure (401/403). Pre-fix the run stopped and reported synced:true
   // (GREEN) on a dead/expired grant, hiding stale GSC demand (the pivot's core
@@ -384,6 +387,7 @@ export async function syncGscSearchAnalyticsForTenant(args: {
         property,
         day,
       });
+      pullFailed = true;
       break;
     }
     const mapped = rows
@@ -509,5 +513,10 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     days += 1;
   }
 
+  // audit-wave2 #9: a first-day pull failure (quota/network) wrote nothing —
+  // report it as not-synced so freshness isn't stamped fresh on zero data.
+  if (days === 0 && pullFailed) {
+    return { synced: false, reason: "gsc_day_pull_failed" };
+  }
   return { synced: true, property, days, rows_upserted: rowsUpserted };
 }
