@@ -22,6 +22,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
 
 export type GscQuerySignal = {
@@ -380,7 +381,17 @@ export async function loadGscDecaySignalsForTenant(
   now: Date = new Date(),
 ): Promise<Map<string, GscDecaySignal>> {
   const out = new Map<string, GscDecaySignal>();
-  const splitMs = now.getTime() - DECAY_WINDOW_DAYS * 86_400_000;
+  // audit-wave #4 (2026-06-23): anchor the now/prior split to the last FINALIZED
+  // GSC day, not wall-clock. GSC finalizes ~2-3 days behind, so a now-anchored
+  // "now" window holds fewer real data-days than the equal-width "prior" window
+  // → manufactured click "declines" + false fading-page recs. Mirrors the
+  // gsc_page_totals watermark fix; falls back to `now` when no finalized data
+  // exists (best-effort, today's behavior).
+  const lastFinal = await readLastFinalizedDate(tenantId).catch(() => null);
+  const anchorMs = lastFinal
+    ? new Date(`${lastFinal}T00:00:00.000Z`).getTime()
+    : now.getTime();
+  const splitMs = anchorMs - DECAY_WINDOW_DAYS * 86_400_000;
   const split = new Date(splitMs).toISOString().slice(0, 10);
   const since = new Date(splitMs - DECAY_WINDOW_DAYS * 86_400_000)
     .toISOString()

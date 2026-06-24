@@ -84,13 +84,20 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
   }, [items, sort]);
 
   const summary = useMemo(() => {
-    let clicks = 0;
+    // audit-wave #11 (2026-06-23): sum by window — a 28-day estimate and a
+    // 90-day estimate are different time spans; blending them under one "over 90
+    // days" label overstated the total. Keep them separate + label each honestly.
+    let clicks90 = 0;
+    let clicks28 = 0;
     let ready = 0;
     for (const o of items) {
-      if (o.kind !== "friction") clicks += o.estClicksAtStake;
+      if (o.kind !== "friction") {
+        if (o.estWindow === "90d") clicks90 += o.estClicksAtStake;
+        else clicks28 += o.estClicksAtStake;
+      }
       if (o.hasChangePack) ready += 1;
     }
-    return { clicks, ready, pages: items.length };
+    return { clicks90, clicks28, ready, pages: items.length };
   }, [items]);
 
   if (items.length === 0) {
@@ -113,9 +120,21 @@ export function OpportunityList({ items }: { items: OpportunityItem[] }) {
         <div className="text-[13px] text-foreground">
           <span className="text-muted-foreground">You could win back about</span>{" "}
           <span className="text-[17px] font-semibold tabular-nums">
-            {summary.clicks.toLocaleString()}
+            {(summary.clicks90 > 0 ? summary.clicks90 : summary.clicks28).toLocaleString()}
           </span>{" "}
-          <span className="text-muted-foreground">more visits over 90 days across</span>{" "}
+          <span className="text-muted-foreground">
+            more visits over {summary.clicks90 > 0 ? "90" : "28"} days
+          </span>
+          {summary.clicks90 > 0 && summary.clicks28 > 0 ? (
+            <>
+              <span className="text-muted-foreground">, plus about</span>{" "}
+              <span className="font-semibold tabular-nums">
+                {summary.clicks28.toLocaleString()}
+              </span>{" "}
+              <span className="text-muted-foreground">over 28 days</span>
+            </>
+          ) : null}{" "}
+          <span className="text-muted-foreground">across</span>{" "}
           <span className="font-semibold tabular-nums">{summary.pages}</span>{" "}
           <span className="text-muted-foreground">pages</span>
           {summary.ready > 0 ? (

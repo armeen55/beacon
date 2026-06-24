@@ -14,6 +14,7 @@ import {
   getAllCitationDates,
   getCitationsForDate,
 } from "@/lib/persistence/cold-store";
+import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
 import { readStore } from "@/lib/persistence/json-store";
 import type {
   SourceTrustEntry,
@@ -30,7 +31,13 @@ export async function computeSourceTrustIndex(
   ownedDomain: string,
   competitorDomains: Set<string>,
 ): Promise<SourceTrustIndex> {
-  const dates = getAllCitationDates();
+  // audit-wave #1 (2026-06-23): the citation cold store is a single GLOBAL
+  // namespace and its pre-cutover band holds the founder's Profound benchmark
+  // shards. Window to the native regime — the same fix Audit-3 #2 applied to
+  // proof-engine + url-watcher — so a non-founder tenant's Source Trust on
+  // /competitors can't blend in those shared pre-cutover benchmark citations
+  // (a cross-tenant leak). Native-regime citations are written per-tenant.
+  const dates = getAllCitationDates().filter((d) => d >= NATIVE_REGIME_START);
   const ownedNorm = ownedDomain.replace(/^www\./, "").toLowerCase();
 
   // platform → domain → { count, topics }
