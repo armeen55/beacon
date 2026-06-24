@@ -94,11 +94,17 @@ export function computeJourneyCoverage(
     : 0;
   const concentrationWarning = topPct >= 80 && totalActive >= 10;
 
+  // audit-wave4 #7: count covered CORE stages specifically — coveredStages spans
+  // all stages, so "N of 4 core" must not borrow the all-stage covered count.
+  const coreCovered = stages.filter(
+    (s) => CORE_STAGES.includes(s.stage) && s.active_prompt_count > 0,
+  ).length;
+
   let assessment: string;
   if (totalActive === 0) {
     assessment = "No active prompts in the library. Journey coverage cannot be assessed.";
   } else if (absentStages.length >= 3) {
-    assessment = `Prompt coverage exists only in ${coveredStages.length} of 4 core journey stages. ${absentStages.map((s) => JOURNEY_STAGE_LABELS[s]).join(", ")} ${absentStages.length === 1 ? "has" : "have"} no prompts.`;
+    assessment = `Prompt coverage exists only in ${coreCovered} of ${CORE_STAGES.length} core journey stages. ${absentStages.map((s) => JOURNEY_STAGE_LABELS[s]).join(", ")} ${absentStages.length === 1 ? "has" : "have"} no prompts.`;
   } else if (concentrationWarning) {
     const topStage = coveredStages.sort((a, b) => b.pct_of_total - a.pct_of_total)[0];
     assessment = `${topPct}% of prompts are in ${topStage.label} stage. Coverage is concentrated — other stages may be underrepresented.`;

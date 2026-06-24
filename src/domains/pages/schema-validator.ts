@@ -155,7 +155,22 @@ const validateProduct: Validator = (node) => {
     for (const o of offersArr) {
       if (!o || typeof o !== "object") continue;
       const off = o as Record<string, unknown>;
-      if (!isNonEmptyString(off.price) && typeof off.price !== "number") {
+      // audit-wave4 #11: an offer expressed purely as an @id reference resolves
+      // elsewhere in the JSON-LD graph — its price lives on the referenced node,
+      // so don't flag price/currency as missing here.
+      const refOnly =
+        Boolean(off["@id"]) &&
+        Object.keys(off).every((k) => k === "@id" || k === "@type");
+      if (refOnly) continue;
+      // AggregateOffer carries lowPrice/highPrice instead of a single price.
+      const hasAggregatePrice =
+        isNonEmptyString(off.lowPrice) ||
+        typeof off.lowPrice === "number" ||
+        isNonEmptyString(off.highPrice) ||
+        typeof off.highPrice === "number";
+      const hasPrice =
+        isNonEmptyString(off.price) || typeof off.price === "number";
+      if (!hasPrice && !hasAggregatePrice) {
         warnings.push({
           type: "Product",
           severity: "warning",

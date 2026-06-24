@@ -31,6 +31,7 @@ import { OBSERVATION_RUN_PARSER_VERSION } from "../src/domains/observations/type
 import { checkTopPages, type RenderCheckResult } from "../src/domains/pages/render-check";
 import type { PageEntity, PageSnapshot, PageSnapshotDiff } from "../src/domains/pages/types";
 import { writeFileSync, renameSync, existsSync, readFileSync, copyFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { getSiteConfig } from "../src/lib/site-config";
 import { observationUniverseFieldsForCli } from "../src/domains/competitors/universe-fields-cli";
@@ -510,9 +511,7 @@ async function main() {
   }
 
   const canonical: CanonicalPage[] = [];
-  let smIdx = 0;
   for (const entry of sitemapEntries) {
-    smIdx++;
     const normUrl = normalizeUrl(entry.url);
     const registryPage = registryByUrl.get(normUrl);
 
@@ -520,7 +519,13 @@ async function main() {
       url: entry.url,
       path: new URL(entry.url).pathname.replace(/\/+$/, "") || "/",
       registry_page_id: registryPage?.id ?? null,
-      scan_page_id: registryPage?.id ?? `sm-${smIdx}`,
+      // audit-wave4 #10: STABLE id derived from the normalized URL (was a
+      // positional `sm-${idx}` that shifted across scans, so the same
+      // sitemap-only page got a new id whenever sitemap order/count changed —
+      // breaking change-detection joins). Mirrors in-process-scan pageIdFor().
+      scan_page_id:
+        registryPage?.id ??
+        `sm-${createHash("sha256").update(normUrl).digest("hex").slice(0, 16)}`,
       sitemap_lastmod: entry.lastmod,
     });
 

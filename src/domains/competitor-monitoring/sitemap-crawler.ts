@@ -108,6 +108,7 @@ export async function crawlCompetitorSitemap(
 
   const xml = res.text;
   let allEntries: CompetitorSitemapEntry[] = [];
+  let crawlError: string | null = null;
 
   if (isSitemapIndex(xml)) {
     // Sitemap index — fetch each sub-sitemap
@@ -119,6 +120,14 @@ export async function crawlCompetitorSitemap(
         allEntries.push(...parseSitemapXml(subRes.text));
       }
     }
+    // audit-wave4 #4: a sitemap index that listed children but yielded ZERO
+    // entries (every child failed to fetch, or all were empty) must NOT report
+    // success with 0 pages — detectCompetitorChanges would read that as the
+    // competitor removing its entire site. Surface it as an error so the prior
+    // snapshot is kept instead.
+    if (subSitemapUrls.length > 0 && allEntries.length === 0) {
+      crawlError = "Sitemap index returned no entries (all child sitemaps failed or empty)";
+    }
   } else {
     allEntries = parseSitemapXml(xml);
   }
@@ -129,7 +138,7 @@ export async function crawlCompetitorSitemap(
     crawledAt,
     pageCount: allEntries.length,
     entries: allEntries,
-    error: null,
+    error: crawlError,
   };
 }
 

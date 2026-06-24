@@ -263,11 +263,14 @@ export function extractPageSnapshot(
     const isInternal = resolved != null && pageHost !== "" && stripWww(resolved.hostname) === pageHost;
     if (isInternal && resolved) {
       internalLinkCount++;
-      const anchorText = $(el).text().trim();
-      // Store internal links path-relative with their anchor text.
-      if (anchorText) {
-        internalLinksArr.push({ href: resolved.pathname, anchor_text: anchorText });
-      }
+      // audit-wave4 #3: record EVERY internal link, not only text-anchored ones.
+      // Image/icon-anchored links (empty text) were dropped from internal_links[]
+      // while still counted, so a well-linked page read as an orphan downstream.
+      // Fall back to the child <img> alt for the anchor label.
+      const anchorText =
+        $(el).text().trim() || ($(el).find("img").attr("alt") ?? "").trim();
+      // Store internal links path-relative with their anchor text (may be "").
+      internalLinksArr.push({ href: resolved.pathname, anchor_text: anchorText });
     } else if (resolved) {
       externalLinks++;
     }

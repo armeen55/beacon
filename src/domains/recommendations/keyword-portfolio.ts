@@ -191,7 +191,13 @@ export function buildKeywordPortfolio(input: {
       newPageCandidates.push(s.display);
       continue;
     }
-    if (s.question) questionTargets.push(s.display);
+    // audit-wave4 #16: question-shaped terms are FAQ/answer-block fodder, not
+    // title-target priority/support terms — route them to questionTargets only
+    // (don't ALSO list them in onTarget, which feeds primary/secondary targets).
+    if (s.question) {
+      questionTargets.push(s.display);
+      continue;
+    }
     onTarget.push(s);
   }
 
