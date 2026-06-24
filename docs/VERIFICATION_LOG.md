@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-06-23 — 06-27 verdict-read READINESS (non-destructive prep) — 76d68c6
+
+Time-gated goal: prep the first Iranopedia verdict read (windows open 2026-06-27)
+without applying the migration / mutating hosted data / running recompute. Verified
+the whole read path is sound; added the one missing regression guard.
+- **Migration safe:** `2026-06-23_shipped_change_proof_operator_verdict_override.sql`
+  is additive + idempotent (`add column if not exists`), single column
+  (`operator_verdict_override text`, NULL default), no data mutation. NOT applied
+  (pause-gated; apply on/after 06-27 with operator approval).
+- **Store readiness verified:** `recordToRow` emits the column UNCONDITIONALLY
+  (incl. null) so "Include again" clears the exclusion post-migration; pre-migration
+  PGRST204 → file fallback tolerates the absent column; `rowToRecord` reads a
+  missing/legacy column as no override.
+- **Added the audit-9 regression guard:** `tests/domains/proof-gsc/shipped-change-store-row.test.ts`
+  (4 cases) — the null round-trip + excluded/re-included + legacy-column path.
+  Exported the pure `recordToRow`/`rowToRecord` for the test; fixed a stale
+  LedgerRow comment that still claimed conditional emit. No behavior change.
+- **Due-window math is honest:** `run-measurement.ts` gates "judgeable" on the
+  FINALIZED GSC watermark (`lastFinal >= checkOn − 1`), not wall-clock — so on
+  06-27 /cities' 7-day window withholds (GSC finalizes ~2-3 days behind) rather
+  than fabricating. `/proof` has no raw JSON + honest "Still measuring" copy.
+- Gates: typecheck + full suite **853 files / 15,079 pass / 0 fail**.
+
+---
+
 ## 2026-06-23 — audit-9: learn-loop reversibility fix before first verdict (this commit)
 
 Self-review of THIS session's earlier trust-path changes (verdict override, learn
