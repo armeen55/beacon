@@ -95,9 +95,11 @@ type LedgerRow = {
   live_source_url: string | null;
   recrawl_requested_at: string | null;
   /** Additive column (migration 2026-06-23). Optional in the row type so the
-   *  store keeps working before the migration is applied — recordToRow only
-   *  emits it when set, and a missing column on read/write is tolerated by
-   *  isUndefinedTableError (PGRST204) → file fallback. */
+   *  store keeps working before the migration is applied. recordToRow emits it
+   *  UNCONDITIONALLY (audit-9) — incl. null — so the operator-clearable override
+   *  round-trips ("Include again" → null actually clears it post-migration); a
+   *  missing column on read/write is tolerated by isUndefinedTableError
+   *  (PGRST204) → file fallback. */
   operator_verdict_override?: "inconclusive" | null;
   created_at: string;
   updated_at: string;
@@ -140,7 +142,7 @@ const ZERO_BASELINE: ShippedChangeRecord["baseline"] = {
   windowDays: 28,
 };
 
-function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
+export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
   return {
     tenant_id: tid,
     id: r.id,
@@ -174,7 +176,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
   };
 }
 
-function rowToRecord(row: LedgerRow): ShippedChangeRecord {
+export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
   return {
     id: row.id,
     page: row.page,
