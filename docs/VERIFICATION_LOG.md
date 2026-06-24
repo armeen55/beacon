@@ -7,6 +7,36 @@
 
 ---
 
+## 2026-06-24 — AUDIT WAVE 5 (6 deep un-audited surfaces) → 7 fixed / 1 deferred
+
+Fifth wave (proof verdict/placebo math, cron orchestration, brain/attribution
+computation, page-factory composers, candidate generation, digest). 8 confirmed;
+fixed 7, deferred 1 (verify-first). Per-batch targeted-gated; full-suite closeout.
+- **#1 CRITICAL (gsc):** `resolveProperty` returned the process-global
+  `BEACON_GSC_SITE_URL` unconditionally → the nightly cron fan-out wrote ONE
+  tenant's GSC rows under EVERY tenant_id (NIGHT_SHIFT_LOG set it to iranopedia.com;
+  Ritz would see Iranopedia's Search Console clicks as its own). Gated to
+  `BEACON_TENANT_ID===tenantId`. Sacred tenant-isolation rail — verified blocker.
+- **#2 [high]** page-surgeon composeJsonLd shipped Article/BreadcrumbList with an
+  empty/placeholder entity name on null-title pages → guard with isCmsPlaceholder.
+- **#4 [med]** FAQ shipped via a `schema` action bypassed the fact-check → factCheck
+  now parses FAQ Q&A from the JSON-LD.
+- **#5 [med]** withControls over-claimed "comparable unchanged / diff-in-diff" for
+  unverified controls → honest rough-control copy.
+- **#3 [med]** GA4 traffic-outcome could show impossible sub-(-100%) "visits" →
+  floor the displayed value at -100%.
+- **#7 [low]** verdict returned insufficient_data for a fresh low-traffic change →
+  reordered so not-yet-windowed reads "measuring".
+- **#8 [low]** uncited_content treated absent external_link_count as a measured zero.
+- **DEFERRED #6 (verify-first):** profound_aeo_gap emits one card/tenant. The
+  audit's "emit per gap" fix is INEFFECTIVE — all gaps target the root URL and the
+  promotion id derives from cooldown_key (no topic, promotion-writer.ts:340), so
+  multiple candidates collapse to one ([[edit_title promotion dedup]] pattern); 5
+  near-identical root-URL cards would also be noise. Real fix = a BUILD: map each
+  AEO topic gap to its best-matching page (distinct URL + cooldown). In NEXT_PHASE.
+
+---
+
 ## 2026-06-24 (early AM) — full-suite closeout TRUTH-UP (wave 4)
 
 The wave-4 full suite run reported 6 failing tests across 3 files. Investigated:
