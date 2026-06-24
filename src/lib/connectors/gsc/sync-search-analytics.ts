@@ -211,8 +211,21 @@ async function resolveProperty(
   tenantId: string,
   accessToken: string,
 ): Promise<string | null> {
+  // audit-wave5 #1 (CRITICAL tenant-isolation): BEACON_GSC_SITE_URL is a single
+  // process-global env (set during a backfill to ONE tenant's property). The
+  // nightly cron fans out over ALL active tenants and calls resolveProperty for
+  // each — an UNGATED env override would write that one property's GSC rows
+  // (clicks/impressions/queries) under EVERY tenant_id, showing tenant B
+  // tenant A's Search Console numbers as its own. Gate it to the tenant it was
+  // set for (mirrors the BEACON_TENANT_ID===id pattern in currentTenantSlug):
+  // in the cron fan-out BEACON_TENANT_ID is unset/single-valued, so the global
+  // property can never attach to a tenant it doesn't belong to — everyone else
+  // falls through to per-tenant domain derivation below.
   const env = process.env.BEACON_GSC_SITE_URL;
-  if (env != null && env !== "") return env;
+  const envTenant = process.env.BEACON_TENANT_ID;
+  if (env != null && env !== "" && envTenant != null && envTenant === tenantId) {
+    return env;
+  }
   // Domain source: business-config first, then the tenant REGISTRY. On hosted
   // (read-only lambda FS) the business-config files don't deploy, so the
   // operator's Settings→Config domain only reaches the nightly sync via the
