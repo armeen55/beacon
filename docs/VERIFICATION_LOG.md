@@ -23,9 +23,10 @@ confirmed; 1 HIGH fixed now, 5 deferred (all in `select-experiment-batch.ts` /
   open experiment is a reviewed-but-not-yet-ledger'd proof-plan change isn't held
   out (a different lever surfaces a card, muddying that proof). Fix: fold
   `proof.headlineAction` into `measuringActions` in the loader (the optimizer
-  already does for its per-lever block). (#3) the loader reads the RAW persisted
-  proof verdict, so a SETTLED experiment (won/lost) still marks its page measuring
-  and holds it out forever — fix: only treat `measuring` as measuring.
+  already does for its per-lever block). (#3 was a FALSE POSITIVE —
+  verify-first caught it: the loader ALREADY filters `if (s.verdict !== "measuring")
+  continue;` at batch-experiment-loader.ts:75, so settled experiments do NOT hold
+  their page; no fix needed.)
 - **DEFERRED #4 [medium]** zero cards conflates a data-load failure with a healthy
   site ("Nothing to do right now") — needs a load-status signal.
 - **DEFERRED #5/#6 [low]** meta lever volume-gated out (only title carries
