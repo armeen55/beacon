@@ -44,6 +44,18 @@ type ProfoundCitationRow = {
   citationCategory: string;
 };
 
+/** audit-wave7 #4: owned-host match must be SUFFIX-aware (a subdomain of an
+ *  owned domain is owned), mirroring execution-adapter — an exact-only `.has()`
+ *  mislabels blog./www2./shop. citations as "other" and undercounts owned AEO
+ *  citations. */
+function isOwnedHost(host: string, ownedSet: Set<string>): boolean {
+  if (ownedSet.has(host)) return true;
+  for (const d of ownedSet) {
+    if (host === d || host.endsWith("." + d)) return true;
+  }
+  return false;
+}
+
 function mapSourceCategory(
   rawCategory: string,
   normalizedHost: string,
@@ -66,7 +78,7 @@ function mapSourceCategory(
     case "other":
       if (DIRECTORY_DOMAINS.has(normalizedHost)) return "directory";
       if (SOCIAL_DOMAINS.has(normalizedHost)) return "social";
-      if (ownedSet.has(normalizedHost)) return "owned";
+      if (isOwnedHost(normalizedHost, ownedSet)) return "owned";
       return "other";
     default:
       warnings.push(
@@ -74,7 +86,7 @@ function mapSourceCategory(
       );
       if (DIRECTORY_DOMAINS.has(normalizedHost)) return "directory";
       if (SOCIAL_DOMAINS.has(normalizedHost)) return "social";
-      if (ownedSet.has(normalizedHost)) return "owned";
+      if (isOwnedHost(normalizedHost, ownedSet)) return "owned";
       return "other";
   }
 }

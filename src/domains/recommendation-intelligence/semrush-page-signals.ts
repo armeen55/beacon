@@ -224,8 +224,13 @@ export function detectCannibalization(
   for (const [keyword, list] of byKeyword) {
     const urls = new Map<string, typeof rows[number]>();
     for (const r of list) {
-      const cur = urls.get(r.url);
-      if (!cur || r.position < cur.position) urls.set(r.url, r);
+      // audit-wave7 #1: key on the CANONICAL url (mirrors loadSemrushPageSignals
+      // line 150 + the GSC cannibalization sibling) so ONE page under two URL
+      // spellings (http/https, www, trailing slash, ?utm/?ref) never reads as two
+      // competing pages → fabricated "two pages compete" + a self-link remedy.
+      const key = canonicalizeCitationUrl(r.url) ?? r.url;
+      const cur = urls.get(key);
+      if (!cur || r.position < cur.position) urls.set(key, r);
     }
     if (urls.size < 2) continue;
     const sorted = [...urls.values()].sort((a, b) => a.position - b.position);

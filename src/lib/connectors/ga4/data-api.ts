@@ -123,6 +123,13 @@ export function buildRunReportBody(args: {
       { name: "engagedSessions" },
       { name: "conversions" },
     ],
+    // audit-wave7 #5: offset pagination is only exact under a TOTAL deterministic
+    // order. Without orderBys GA4 may return rows in an unstable order across
+    // pages → a high-traffic tenant silently under/over-counts at page seams.
+    orderBys: [
+      { dimension: { dimensionName: "date" } },
+      { dimension: { dimensionName: "pagePath" } },
+    ],
     limit: args.limit ?? GA4_PAGE_SIZE,
     offset: args.offset ?? 0,
   };

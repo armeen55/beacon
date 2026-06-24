@@ -69,8 +69,15 @@ function scanResponseForBrand(
   const haystackLower = response.toLowerCase();
   for (const alias of brandAliases) {
     if (!alias) continue;
-    // Word-boundary match to avoid partial hits like "Ritz-Carlton".
-    const pattern = new RegExp(`\\b${alias.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}\\b`, "i");
+    // audit-wave7 #2: a real \b boundary treats a HYPHEN as a boundary, so
+    // `\bRitz\b` DOES match "Ritz-Carlton" (the case this comment claimed to
+    // avoid). Use a boundary that counts letters/digits/hyphens as word chars so
+    // a hyphenated different entity (Ritz-Carlton) can't false-match a shortened
+    // brand alias. (Residual: a space-separated common noun like "Ritz crackers"
+    // still matches a bare single-word alias — needs alias-scoping, see
+    // NEXT_PHASE; this change is a strict improvement, never looser.)
+    const esc = alias.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const pattern = new RegExp(`(?<![A-Za-z0-9-])${esc}(?![A-Za-z0-9-])`, "i");
     if (pattern.test(haystack)) return true;
   }
   for (const host of ownedHosts) {
