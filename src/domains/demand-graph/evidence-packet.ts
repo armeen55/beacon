@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import type { MoveCandidate, MoveComponents, ConfidenceLevel, GapKind } from "./build-graph";
 import type { CompetitorPageFacts } from "./competitor-page-audit";
 import { whatWins } from "./competitor-page-audit";
+import { bestTitle } from "./ctr-title-scorer";
 
 /** Structural facts both owned + competitor pages expose, for comparison. */
 export type PageStructureFacts = {
@@ -110,14 +111,6 @@ export type BuildEvidencePacketInput = {
   fanoutSeeds?: string[];
 };
 
-function titleCase(s: string): string {
-  return s
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
 function clampTitle(s: string): string {
   return s.length <= 60 ? s : s.slice(0, 57).trimEnd() + "…";
 }
@@ -200,7 +193,7 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
 
   const draft: DraftSkeleton = {
     kind: "deterministic_skeleton",
-    titleSuggestion: clampTitle(`${titleCase(primaryQuery)} | ${brand}`),
+    titleSuggestion: clampTitle(bestTitle(primaryQuery, brand)),
     metaBrief: `Write a ~150-char meta description that directly answers "${primaryQuery}" and promises the page's value.`,
     outline,
     answerBlockBrief:
