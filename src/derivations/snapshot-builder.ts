@@ -166,9 +166,13 @@ export function buildDerivedSnapshots(
           ) / 10
         : null;
 
+    // audit-wave3 #8: gate on the actual denominator (citation_count), not
+    // acc.total, and drop the `|| 0` precedence hazard — `(owned/count) || 0`
+    // let owned>0 with count===0 yield Infinity. Explicit guard → null when
+    // there's nothing to divide by (matches the native builder).
     const sov =
-      acc.total > 0
-        ? Math.round((acc.owned_cited / acc.citation_count || 0) * 10000) / 100
+      acc.citation_count > 0
+        ? Math.round((acc.owned_cited / acc.citation_count) * 10000) / 100
         : null;
 
     // wave-5 #5 (2026-06-14): the platform-scope id MUST match the native

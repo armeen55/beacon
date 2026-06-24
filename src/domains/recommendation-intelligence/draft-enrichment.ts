@@ -947,8 +947,10 @@ function composeContentArticleSchema(
   snap: PageSnapshot,
   brand: { separator: string; suffix: string } | null,
 ): DraftFill | null {
+  // audit-wave3 #6: a CMS template placeholder ("Page Title"/"Untitled") must
+  // NOT be asserted as the page's entity name in JSON-LD — treat it as no headline.
   const headline = snap.h1?.trim() || snap.title?.trim() || "";
-  if (!headline) return null;
+  if (!headline || isCmsPlaceholder(headline)) return null;
 
   // Content-aware @type: a recipe page → Recipe directive; a ranked "best X"
   // page → ItemList; everything else → the Article default below.
@@ -1038,8 +1040,10 @@ function composeStoreBreadcrumbSchema(
   snap: PageSnapshot,
   brand: { separator: string; suffix: string } | null,
 ): DraftFill | null {
+  // audit-wave3 #6: a CMS template placeholder ("Page Title"/"Untitled") must
+  // NOT be asserted as the page's entity name in JSON-LD — treat it as no headline.
   const headline = snap.h1?.trim() || snap.title?.trim() || "";
-  if (!headline) return null;
+  if (!headline || isCmsPlaceholder(headline)) return null;
   const pageUrl = candidate.target_url ?? snap.url;
   const orgName = brand?.suffix?.trim() || "";
   let block: string;

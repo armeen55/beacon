@@ -171,7 +171,11 @@ export function computeLifecycleUpdate(
   ) {
     if (
       currentStatus === "verified_live" ||
-      currentStatus === "verified_live_modified"
+      currentStatus === "verified_live_modified" ||
+      // audit-wave3 #11: a pushed rec must not be downgraded to needs_review by a
+      // scan ambiguity — the operator already shipped it; verify-live (not a
+      // crawl mismatch) decides its fate.
+      currentStatus === "pushed"
     ) {
       return null;
     }
