@@ -118,6 +118,18 @@ describe("selectExperimentBatch (TASK 4)", () => {
     expect(cards[0]!.isOptionalSwing).toBe(true);
   });
 
+  it("does NOT re-surface a cluster push when the page's OPEN experiment IS a cluster (audit-8 #1)", () => {
+    // The carve-out allows a non-overlapping cluster push, but must NOT fire when
+    // the page's measuring action is itself the cluster consolidation — re-shipping
+    // it is the maximally-overlapping change and would reset that exact proof window.
+    const clusterOnCluster = {
+      ...row("/dupe", cand("cannibalization", { estClicksAtStake: 0, rollbackType: "best_effort", speed: "structural", wixPushMethod: "manual_cms_edit" })),
+      measuringActions: ["consolidate_cluster"],
+    };
+    const cards = selectExperimentBatch([clusterOnCluster]);
+    expect(cards).toHaveLength(0);
+  });
+
   it("excludes a lever with too little volume to measure (except a net-new page)", () => {
     const cards = selectExperimentBatch([
       row("/tiny", cand("meta", { estClicksAtStake: 2 })),

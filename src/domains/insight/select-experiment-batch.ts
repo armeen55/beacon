@@ -205,6 +205,14 @@ export function selectExperimentBatch(rows: BatchPageRow[]): ExperimentCard[] {
     // page, a second change would muddy its window. Skip the whole page, except a
     // non-overlapping cluster (cannibalization) push.
     const pageMeasuring = row.measuringActions.length > 0;
+    // audit-8 #1: does the page's OPEN experiment itself overlap the cluster
+    // (cannibalization) lever? The carve-out below allows a NON-overlapping
+    // cluster push on an otherwise-measuring page — but it must NOT fire when the
+    // open experiment IS a cluster consolidation, since re-shipping that is the
+    // MAXIMALLY-overlapping change and would reset that exact proof window.
+    const clusterMeasuring = row.measuringActions.some(
+      (a) => a === ACTION_OF.cannibalization || /consolidat|cannibal|cluster/i.test(a),
+    );
     const o = row.optimizer;
     const holds = o.holdDoNotTouch.filter((c) => c.blockedBy === "data" || c.blockedBy === "wix");
     const cands = [
@@ -220,7 +228,9 @@ export function selectExperimentBatch(rows: BatchPageRow[]): ExperimentCard[] {
     for (const c of cands) {
       if (seen.has(c.lever)) continue;
       seen.add(c.lever);
-      if (pageMeasuring && c.lever !== "cannibalization") continue; // page under measurement
+      // page under measurement: skip every lever EXCEPT a non-overlapping cluster
+      // push — and even that only when the open experiment isn't itself a cluster.
+      if (pageMeasuring && (c.lever !== "cannibalization" || clusterMeasuring)) continue;
       if (c.blockedBy === "measuring" || c.blockedBy === "serp") continue; // open / SERP-owned
       // CTR levers need enough volume to read; content/structure levers are judged
       // by position (no click-at-stake estimate) so they are never volume-gated.
