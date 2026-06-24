@@ -331,14 +331,19 @@ export function buildOptimizer(input: OptimizerInput): OptimizerBuckets {
     )[0] ?? null;
 
   // Safest: lowest risk among eligible, tie-broken by a real (exact-value)
-  // rollback then auto-applicability.
+  // rollback then auto-applicability. audit-wave #3 (2026-06-23): exclude
+  // cannibalization like bestNextMove does — it's an operator cluster decision
+  // (often the lowest-risk eligible candidate on a measuring page), never a
+  // one-click "quickest/safest win".
   const safestChange =
-    [...eligible].sort(
-      (a, b) =>
-        RISK_RANK[a.risk] - RISK_RANK[b.risk] ||
-        Number(b.rollbackType === "exact_prior_value") - Number(a.rollbackType === "exact_prior_value") ||
-        Number(b.canAutoApply) - Number(a.canAutoApply),
-    )[0] ?? null;
+    eligible
+      .filter((c) => c.lever !== "cannibalization")
+      .sort(
+        (a, b) =>
+          RISK_RANK[a.risk] - RISK_RANK[b.risk] ||
+          Number(b.rollbackType === "exact_prior_value") - Number(a.rollbackType === "exact_prior_value") ||
+          Number(b.canAutoApply) - Number(a.canAutoApply),
+      )[0] ?? null;
 
   // Highest upside: biggest estimate regardless of blocker (annotated), so the
   // operator sees the real ceiling even when it needs SERP/Wix/data first.

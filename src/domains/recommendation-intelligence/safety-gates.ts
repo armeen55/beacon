@@ -59,6 +59,12 @@ const CONTENT_EDIT_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
   "update_intro",
   "fix_page_experience",
   "add_answer_block",
+  // audit-wave #7 (2026-06-23): improve_meta (the missing_meta directive) was
+  // NOT gated, so a meta directive could reach the customer queue on a
+  // utility/technical_asset/other page. It fires on missing_meta (not a
+  // GSC_DEMAND_SIGNAL), so Gates 7-9 correctly suppress it off content pages —
+  // matching edit_meta.
+  "improve_meta",
 ]);
 
 /** Page types where content-edit promotion is suppressed.

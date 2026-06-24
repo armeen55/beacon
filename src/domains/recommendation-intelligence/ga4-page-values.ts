@@ -24,7 +24,12 @@ export type Ga4PageValue = {
 };
 
 const WINDOW_DAYS = 28;
-const MAX_ROWS = 25_000;
+// audit-wave #5 (2026-06-23): 25k url×day rows truncated high-traffic tenants
+// (~890 pages × 28d) and dropped the most-recent days, understating the
+// business-value weight. Raised to match the sibling per-URL reader
+// (gsc-page-signals MAX_ROWS = 80k ≈ 2850 pages × 28d). Follow-up: a server-side
+// GROUP BY RPC (one row per page) would remove the cap entirely.
+const MAX_ROWS = 80_000;
 
 export async function loadGa4PageValuesForTenant(
   tenantId: string,
