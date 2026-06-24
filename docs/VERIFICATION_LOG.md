@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · autonomous run (Steps 1–4 complete + L7/L9/L10 scaffolds + 4 trust fixes)
+
+**Context:** operator away; continue the plan non-stop to 8 PM PT, skip operator-gated steps, build everything safe around them.
+
+**Shipped (each: typecheck + targeted vitest + `npm run build` green; pushed to `main`):**
+- `38365c4` — surfaced `create_page` candidates on `/diagnostics/rank-revenue` (rank below the GSC-demand Top-25; AI-attention proxy → labeled LOW confidence).
+- `d87b647` — **L10** `src/domains/demand-graph/ctr-title-scorer.ts` (pure, NO LLM): grounded title variants scored on query-coverage/number/year/parenthetical/power-word/length; `bestTitle()` feeds the EvidencePacket draft. 12 tests.
+- `4fe2850` — **demand-graph adversarial audit** (Workflow `wmzyyks7a`, 32 agents, finder→skeptic): 3 confirmed bugs fixed — removed hard-coded `/iranopedia/i.test(host)` (tenant-isolation leak, fired for every tenant); empty competitor label fallback; EvidencePacket `gscImpressions`/`aiAttention` both = fused demand (mislabeled) → one honest `demandWeight` + `basis`. **+ L7** `src/domains/serp/serp-provider.ts` (Noop default + DataForSEO skeleton, OFF by default, no paid calls; `computeLinkGaps` later). 6 tests.
+- `a50d365` — **L9** `src/domains/link-authority/backlink-provider.ts` + pure `computeLinkGaps` (referring domains linking to competitors but not you, ranked by breadth×rating; OFF by default). 9 tests.
+- `89735be` — **competitor-relevance gate**: `competitorRelevance(query, facts)` = share of ≥3-char query tokens present in the cited page's title/topTerms/outline; `< 0.6` → "loosely matched — confirm with live SERP" + NOT inherited (no outline/comparative gaps). `EvidencePacket.competitor` carries `relevance` + `looselyMatched`. 2 new tests + 3 fixtures made realistic.
+
+**Ground-truth (live Iranopedia, `loadChangePacksForTenant`, DATA_SOURCE=supabase):**
+- Engine runs end-to-end: 25 packets, sane scores (world-cup-jersey 62k, persian boy names 58k), CTR titles render ("Iran Flag (2026 Guide) | Iranopedia"), audit-fixed `demand basis` correct.
+- **Found:** competitor teardowns 0/25 — audit cache stale (keyed to an OLDER move ranking). Re-ran `auditTopCompetitorsForTenant({limit:20})` → ~10 OK (teamgroupnames 3.6kw/14-section/tool, surfiran 16-cities 4.2kw/8-FAQ, history.com, wikipedia, momjunction, ranker), honest 403/429 on britannica/familyeducation/ubuy. → **11/25 packets carry real teardowns**.
+- **Verified the relevance gate live:** "iran flag" → surfiran cultural-tours now "Loosely matched", off-topic outline/gaps suppressed (only `missing_answer_block` from the move type remains).
+
+**⛳ NEEDS OPERATOR (skipped this run):** OK LLM drafting spend (Step 5); DataForSEO account+key (L7/L9, off by default); apply `competitor_page_audit` migration (Vercel persistence; Step 6 must re-audit nightly or teardowns go stale as moves shift); Ritz connectors (0 pages); Profound visibility positional-decode bug.
+
+---
+
 ## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 4 (gap compiler → EvidencePacket)
 
 **Built (deterministic, NO LLM, NO paid SERP):**
