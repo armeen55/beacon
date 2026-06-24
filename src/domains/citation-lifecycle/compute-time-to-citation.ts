@@ -47,6 +47,7 @@ import {
   type TimeToCitationEligibilityReason,
 } from "./eligibility";
 import { canonicalizeCitationUrl } from "./canonicalize-url";
+import { normalizePlatform } from "@/lib/platform";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -279,7 +280,11 @@ export function computeTimeToCitation(
     const dateIso = toUtcDateString(citation.observed_at);
     if (dateIso == null) continue;
 
-    matches.push({ platform: pa.platform, dateUtc: dateIso });
+    // audit-wave2 #1: benchmark/recovered rows store the CAPITALIZED display
+    // variant ("ChatGPT"/"Perplexity"); the per-platform classifier compares
+    // exact-lowercase, so an un-normalized platform dropped the citation from
+    // per_platform AND the aggregate → a cited page read as uncited.
+    matches.push({ platform: normalizePlatform(pa.platform), dateUtc: dateIso });
   }
 
   // ── 5b. Native regime: PromptAnswerObservation.citation_urls ───────
@@ -306,7 +311,7 @@ export function computeTimeToCitation(
       const dateIso = toUtcDateString(obs.observed_at);
       if (dateIso == null) continue;
 
-      matches.push({ platform: obs.platform, dateUtc: dateIso });
+      matches.push({ platform: normalizePlatform(obs.platform), dateUtc: dateIso });
     }
   }
 

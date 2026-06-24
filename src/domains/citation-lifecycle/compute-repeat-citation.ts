@@ -67,6 +67,7 @@ import {
   type TimeToCitationEligibilityReason,
 } from "./eligibility";
 import { canonicalizeCitationUrl } from "./canonicalize-url";
+import { normalizePlatform } from "@/lib/platform";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -296,7 +297,9 @@ export function computeRepeatCitation(
     if (canonical !== canonicalTarget) continue;
     const dateIso = toUtcDateString(citation.observed_at);
     if (dateIso == null) continue;
-    recordMatch(pa.platform, dateIso);
+    // audit-wave2 #12: normalize casing so capitalized benchmark platforms
+    // ("ChatGPT"/"Perplexity") land in per_platform consistently with native rows.
+    recordMatch(normalizePlatform(pa.platform), dateIso);
   }
 
   // 5b. Native regime: PromptAnswerObservation.citation_urls.
@@ -313,7 +316,7 @@ export function computeRepeatCitation(
       seenCanonicalUrls.add(canonical);
       const dateIso = toUtcDateString(obs.observed_at);
       if (dateIso == null) continue;
-      recordMatch(obs.platform, dateIso);
+      recordMatch(normalizePlatform(obs.platform), dateIso);
     }
   }
 
@@ -344,8 +347,9 @@ export function computeRepeatCitation(
     if (dateIso == null) continue;
     if (dateIso < windowStartIso || dateIso > windowEndIso) continue;
     aggregatePollingDates.add(dateIso);
-    if (ACTIVE_PLATFORMS.has(run.platform)) {
-      pollingDatesByPlatform.get(run.platform)!.add(dateIso);
+    const runPlatform = normalizePlatform(run.platform);
+    if (ACTIVE_PLATFORMS.has(runPlatform)) {
+      pollingDatesByPlatform.get(runPlatform)!.add(dateIso);
     }
   }
 
