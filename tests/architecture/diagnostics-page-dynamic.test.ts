@@ -50,6 +50,7 @@ const DIAGNOSTICS_PAGES = [
   "src/app/(shell)/diagnostics/brain/page.tsx",
   "src/app/(shell)/diagnostics/spikes/page.tsx",
   "src/app/(shell)/diagnostics/indexability/page.tsx",
+  "src/app/(shell)/diagnostics/rank-revenue/page.tsx",
 ] as const;
 
 describe("Architecture — operator-only diagnostics pages declare force-dynamic", () => {

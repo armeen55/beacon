@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 1 (real graph + visible Top-25)
+
+**Built (the first truth test):**
+- `src/domains/demand-graph/build-graph.ts` refactored → `MoveCandidate` with EXPOSED raw
+  components (demand / winnability / $value / visibilityGap / friction) + `confidence`
+  (high/medium/low by independent-signal agreement). Classifier hardened so `answer_block` only
+  fires with real competitor-citation evidence (no false-positive storm when Profound data absent).
+- `src/domains/demand-graph/load-graph.ts` (NEW) — assembles the REAL graph from stored GSC page
+  signals + GA4 page values ($ = conversions, money-first) + Clarity friction. Competitor edges +
+  create_page deferred to Step 2 (needs clean topic-scoped Profound). Tenant-agnostic, deterministic, $0.
+- `/diagnostics/rank-revenue` (NEW, operator-gated, force-dynamic) — the ugly-but-undeniable Top-25
+  table with every raw component + confidence + competitors + your-page + why.
+
+**Verified:** `npm run typecheck` clean; 25 targeted tests green (build-graph 10, load-graph 4,
+rank-revenue render 3, diagnostics-dynamic pin 8); `npm run build` passed (new route compiled).
+
+**TRUTH TEST (real data, both tenants):**
+- Iranopedia — 197 GSC pages / 198 GA4 / 135 Clarity. Top moves are sane + demand-ranked:
+  persian boy names (44.6k, fix_experience friction 72), persian girl names (38k, edit), iran
+  world-cup jersey 2026 (15k, edit, **HIGH conf — only page with real GA4 $224, correctly boosted
+  above larger-demand pages**), persian swear words (32k, fix_experience), iran flag, actors,
+  comedians, singers… ✅ demand sane ✅ GA4 $ lifts money pages ✅ Clarity friction → fix_experience
+  ✅ confidence honest (no fake certainty). Distribution: 145 edit_page, 4 fix_experience, 48 low_demand.
+- Ritz — 0 pages: **no GSC/GA4/Clarity synced to this Supabase** (honest empty state; needs connector sync).
+
+**Known-honest gaps (land later):** visibilityGap is constant 1.0 until AEO data (Step 2); no
+create_page/answer_block until competitor citations (Step 2); confidence caps at medium until SEMrush
+volume is wired into load-graph (small follow-up).
+
 ## 2026-06-24 — PROFOUND TOPIC-SCOPING (the Iranopedia AEO unlock)
 
 **Root cause found (live API investigation):** the Profound key wired for Iranopedia

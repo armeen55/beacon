@@ -127,7 +127,6 @@ export type PageNode = {
 export type EdgeKind =
   | "owned_strong"
   | "owned_weak"
-  | "owned_uncited"
   | "owned_friction"
   | "competitor_cited";
 
@@ -147,29 +146,54 @@ export type GapKind =
   | "healthy"
   | "low_demand";
 
-export type DemandGap = {
+export type ConfidenceLevel = "high" | "medium" | "low";
+
+/** The Rank-&-Revenue score broken into its RAW components, exposed so the
+ *  Top-25 table is a lie detector: you can see exactly why a Move ranks, and the
+ *  final weighting can be wrong while the evidence is right. Do not overfit the
+ *  combination early — trust the components. */
+export type MoveComponents = {
+  /** Raw fused demand (GSC impressions + volume + AI-ask volume). */
+  demand: number;
+  /** 0..1 — how beatable the incumbents are / how achievable the gain. */
+  winnability: number;
+  /** Raw $ signal (GA4 value of the owned page; 0 for not-yet-built pages). */
+  dollarValue: number;
+  /** 0..1 — how absent you are where competitors win. */
+  visibilityGap: number;
+  /** Raw friction (Clarity rage + dead + 2×script-errors on the owned page). */
+  friction: number;
+};
+
+/** One actionable Move per demand cluster. The atomic product unit — what the
+ *  operator ships. (DemandGraph → MoveCandidate → EvidencePacket → AtomicChangePack → Proof.) */
+export type MoveCandidate = {
   demandKey: string;
   label: string;
-  demandWeight: number;
-  /** $-value signal: GA4 value of the owned page, when present. */
-  dollarSignal: number;
   gap: GapKind;
+  /** Final Rank-&-Revenue score (derived from components; the sort key). */
+  score: number;
+  /** Raw components — the lie detector. */
+  components: MoveComponents;
+  /** high = multiple independent signals agree; low = speculative (e.g. a new
+   *  page from a single source — create aggressively but flag the uncertainty). */
+  confidence: ConfidenceLevel;
+  /** Which independent signals were present (GSC / volume / AI / $ / owned-page). */
+  signals: string[];
   ownedUrl: string | null;
   /** Competitor pages AI/Google cite instead — the teardown targets. */
   competitorUrls: string[];
-  /** The sub-questions a winning page must answer (fanout seeds). */
+  /** The sub-questions a winning page must answer (Profound fanout seeds). */
   fanoutSeeds: string[];
   rationale: string;
-  /** Priority = demand × competitor pressure × ($ + 1), absent-gap boosted. */
-  score: number;
 };
 
 export type DemandGraph = {
   demandNodes: DemandNode[];
   pageNodes: PageNode[];
   edges: Edge[];
-  /** One actionable gap per demand cluster, ranked desc by score. */
-  gaps: DemandGap[];
+  /** One actionable Move per demand cluster, ranked desc by score. */
+  moves: MoveCandidate[];
 };
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -243,12 +267,14 @@ export function buildDemandGraph(input: {
     });
     for (const key of p.servesDemandKeys) {
       if (!nodeByKey.has(key)) continue;
-      const cited = num(p.aiCitationCount) > cfg.notCitedAtOrBelow;
+      // Edge kind is GSC-driven (works even with NO Profound/citation data).
+      // The AEO "uncited" gap is decided in the Move loop, and only when there
+      // is actual competitor-citation evidence — so a tenant with no Profound
+      // data never gets a false answer_block storm.
       const weakCtr = ctr < expectedCtr(p.gscPosition) * cfg.weakCtrRatio;
       const weakPos = (p.gscPosition ?? 99) > cfg.weakPositionMax;
       let kind: EdgeKind;
       if (friction >= 15) kind = "owned_friction";
-      else if (!cited) kind = "owned_uncited";
       else if (weakCtr || weakPos) kind = "owned_weak";
       else kind = "owned_strong";
       edges.push({ demandKey: key, url: p.url, isOwned: true, kind, weight: num(p.gscImpressions) });
@@ -276,21 +302,16 @@ export function buildDemandGraph(input: {
   }
   pageNodes.push(...competitorByUrl.values());
 
-  // ── gap classification per demand node ──
-  const gaps: DemandGap[] = [];
+  // ── Move classification + component scoring per demand node ──
+  const moves: MoveCandidate[] = [];
   for (const node of demandNodes) {
     const ownedEdges = edges.filter((e) => e.isOwned && e.demandKey === node.key);
     const compEdges = edges
       .filter((e) => !e.isOwned && e.demandKey === node.key)
       .sort((a, b) => b.weight - a.weight);
-    const competitorUrls = compEdges.map((e) => e.url);
+    const competitorUrls = compEdges.map((e) => e.url).slice(0, 8);
     const raw = rawByKey.get(node.key);
     const fanoutSeeds = node.fanoutSubQueries.slice(0, 12);
-
-    if (node.demandWeight < cfg.minDemand) {
-      gaps.push(gapRow(node, "low_demand", null, competitorUrls, fanoutSeeds, 0, "Below the demand floor — not worth acting on yet.", 0));
-      continue;
-    }
 
     // best owned page for this demand (highest impressions edge)
     const bestOwned = ownedEdges.sort((a, b) => b.weight - a.weight)[0] ?? null;
@@ -298,71 +319,104 @@ export function buildDemandGraph(input: {
       ? pageNodes.find((p) => p.isOwned && p.url === bestOwned.url) ?? null
       : null;
     const dollar = ownedPage ? ownedPage.ga4Value : 0;
-    const compPressure = compEdges.reduce((s, e) => s + e.weight, 0);
+    const friction = ownedPage ? ownedPage.frictionScore : 0;
+
+    // ── independent-signal confidence (the lie detector's honesty gate) ──
+    const signals: string[] = [];
+    if (num(raw?.gscImpressions) > 0) signals.push("GSC");
+    if (num(raw?.searchVolume) > 0) signals.push("volume");
+    if (num(raw?.aiExecutions) > 0 || compEdges.length > 0) signals.push("AI");
+    if (dollar > 0) signals.push("$");
+    if (ownedPage) signals.push("owned-page");
+    const confidence: ConfidenceLevel =
+      signals.length >= 3 ? "high" : signals.length === 2 ? "medium" : "low";
+
+    if (node.demandWeight < cfg.minDemand) {
+      moves.push(moveRow(node, "low_demand", null, competitorUrls, fanoutSeeds,
+        { demand: node.demandWeight, winnability: 0.1, dollarValue: dollar, visibilityGap: 0, friction },
+        confidence, signals, "Below the demand floor — not worth acting on yet.", 0));
+      continue;
+    }
 
     let gap: GapKind;
+    let winnability: number;
+    let visibilityGap: number;
     let rationale: string;
     if (ownedEdges.length === 0) {
-      if (compEdges.length > 0) {
-        gap = "create_page";
-        rationale = `${compEdges.length} competitor page(s) own this demand and you have NO page. Highest-leverage: create it (you have the volume, fanouts, and competitor teardown).`;
-      } else {
-        gap = "create_page";
-        rationale = `Real demand with no owned page and no obvious incumbent — a clean land-grab.`;
-      }
+      gap = "create_page";
+      winnability = 0.6; // from scratch — more work than an edit, but full control
+      visibilityGap = 1; // you are completely absent
+      rationale = compEdges.length > 0
+        ? `${compEdges.length} competitor page(s) own this demand and you have NO page. Create it — you have the volume, fanouts, and the competitor teardown.`
+        : `Real demand with no owned page and no obvious incumbent — a clean land-grab.`;
     } else {
       const kind = bestOwned!.kind;
+      const citedHere = ownedPage ? ownedPage.aiCitationCount > cfg.notCitedAtOrBelow : false;
       if (kind === "owned_friction") {
         gap = "fix_experience";
-        rationale = `You rank here but the page frustrates visitors (Clarity friction ${ownedPage?.frictionScore}). Fix the experience before chasing more traffic.`;
-      } else if (kind === "owned_uncited" && compEdges.length > 0) {
+        winnability = 0.8;
+        visibilityGap = Math.max(0.2, 1 - node.ownedAiShare);
+        rationale = `You rank here but the page frustrates visitors (Clarity friction ${friction}). Fix the experience before chasing more traffic.`;
+      } else if (compEdges.length > 0 && !citedHere) {
         gap = "answer_block";
+        winnability = 0.85; // you already rank — just not cited
+        visibilityGap = 0.9;
         rationale = `You have a page but AI cites ${compEdges.length} competitor(s), not you. Add a direct, extractable answer block + the fanout sub-questions to win the citation.`;
       } else if (kind === "owned_weak") {
         gap = "edit_page";
+        winnability = 0.9; // striking distance
+        visibilityGap = Math.max(0.3, 1 - node.ownedAiShare);
         rationale = `You rank but under-perform (position ${ownedPage?.gscPosition ?? "?"}, CTR ${(num(ownedPage?.gscCtr) * 100).toFixed(1)}%). Tighten title/meta to the dominant query.`;
       } else {
         gap = "healthy";
+        winnability = 0.1;
+        visibilityGap = 0.1;
         rationale = `Healthy — you rank and get cited. Monitor; revisit if rankings slip.`;
       }
     }
 
-    // priority: demand × (competitor pressure + 1) × ($-weight + 1), absent boosted
-    const absentBoost = gap === "create_page" ? 1.5 : gap === "answer_block" ? 1.25 : 1;
-    const score = Math.round(
-      node.demandWeight * (compPressure + 1) * (Math.log10(dollar + 10)) * absentBoost,
+    // Final score from EXPOSED components (kept simple/transparent — money-first):
+    //   demand × winnability-band × visibility-band × $-multiplier, + friction boost
+    //   only where friction IS the move. Do not overfit; the components are the truth.
+    const dollarMult = 1 + Math.log10(dollar + 1) / 2; // $0→1.0, $100→2.0, $10k→3.0
+    let score = Math.round(
+      node.demandWeight * (0.5 + winnability) * (0.5 + visibilityGap) * dollarMult,
     );
+    if (gap === "fix_experience") score += Math.round(friction * 5);
+    if (gap === "healthy") score = Math.round(score * 0.05);
 
-    gaps.push(
-      gapRow(node, gap, bestOwned?.url ?? null, competitorUrls, fanoutSeeds, dollar, rationale, score, raw),
-    );
+    moves.push(moveRow(node, gap, bestOwned?.url ?? null, competitorUrls, fanoutSeeds,
+      { demand: node.demandWeight, winnability, dollarValue: dollar, visibilityGap, friction },
+      confidence, signals, rationale, score));
   }
 
-  gaps.sort((a, b) => b.score - a.score);
-  return { demandNodes, pageNodes, edges, gaps };
+  moves.sort((a, b) => b.score - a.score);
+  return { demandNodes, pageNodes, edges, moves };
 }
 
-function gapRow(
+function moveRow(
   node: DemandNode,
   gap: GapKind,
   ownedUrl: string | null,
   competitorUrls: string[],
   fanoutSeeds: string[],
-  dollarSignal: number,
+  components: MoveComponents,
+  confidence: ConfidenceLevel,
+  signals: string[],
   rationale: string,
   score: number,
-  _raw?: DemandInput,
-): DemandGap {
+): MoveCandidate {
   return {
     demandKey: node.key,
     label: node.label,
-    demandWeight: node.demandWeight,
-    dollarSignal,
     gap,
+    score,
+    components,
+    confidence,
+    signals,
     ownedUrl,
-    competitorUrls: competitorUrls.slice(0, 8),
+    competitorUrls,
     fanoutSeeds,
     rationale,
-    score,
   };
 }
