@@ -7,6 +7,29 @@
 
 ---
 
+## 2026-06-23 — audit-7: onboarding new-customer mis-detection (eaf992c)
+
+Adversarial audit of the onboarding → profile/config derivation path (a new
+customer's setup correctness; upstream of the contentSiteMode gap). 7 confirmed;
+3 fixed now (the high-value + safe ones), 4 lower-priority deferred:
+- **FIXED #1/#2 [high]** phone-bearing local biz + incidental Article/BlogPosting
+  schema → mis-flagged content_publisher (local engines off, every page
+  'content'). `contentSiteSignal` now requires `phone===null` too. +test.
+- **FIXED #3 [low]** `SOCIAL_HOST_PATTERN` bare-`x` matched inside wix.com/fox.com
+  → "Made with Wix" footer badge captured as the tenant's x/twitter. Anchored
+  with `(?:^|.)`. +test. (sameAs is unconditionally trusted; only discovered
+  footer links are regex-filtered.)
+- **DEFERRED (documented, lower-value):** #4 service/keyPage extraction reads only
+  the FIRST nav container (utility-bar-first layouts miss the primary nav);
+  #5 `config.locations` includes bare 2-letter region codes (cities-prefill path
+  filters them, `derive-business-config` doesn't — risk: a test may pin "AZ");
+  #6 `normalizeDomain` rejects all IDN/Unicode hosts (needs punycode toASCII —
+  Iranopedia is ASCII, non-ASCII customers are edge); #7 competitor step rejects
+  brand names containing a dot+TLD ("Salesforce.com").
+- Gates: onboarding sweep 253 green; typecheck clean.
+
+---
+
 ## 2026-06-23 — audit-6: 5 cold-start first-impression bugs fixed (8066b46)
 
 Adversarial finder→skeptic audit of the NEWEST code (cold-start → onboarding →
