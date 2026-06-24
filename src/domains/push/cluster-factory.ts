@@ -24,6 +24,7 @@ import "server-only";
  */
 
 import { resolveLLMProvider } from "@/lib/llm/config";
+import { isReasoningModel } from "@/domains/recommendations/providers/openai";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 
 export const MAX_ITEMS_PER_RUN = 10;
@@ -242,6 +243,12 @@ export async function generateClusterCards(
             { role: "user", content: usr },
           ],
           response_format: { type: "json_object" },
+          // audit-wave2 #17: bound output + pin low reasoning effort so a
+          // gpt-5-mini call can't burn its whole pool on reasoning_tokens and
+          // return an empty '{}' (one structured CMS record needs little). Gated
+          // so a non-reasoning model override doesn't 400.
+          max_completion_tokens: 6_000,
+          ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });

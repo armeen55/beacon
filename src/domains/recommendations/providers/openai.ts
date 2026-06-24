@@ -837,6 +837,12 @@ export async function generateOpenAIBundle(
     // both cap recommendations.maxItems at 20, so the actual output is
     // bounded regardless.
     max_completion_tokens: 16_000,
+    // audit-wave2 #16: gpt-5-family models default to high reasoning effort,
+    // which can burn the whole completion pool on reasoning_tokens before any
+    // JSON is emitted (finish_reason="length" → empty bundle). Pin low effort
+    // (gated so a non-reasoning model override doesn't 400). Matches the why /
+    // strategist provider config.
+    ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
   });
 
   // Sprint 6A.2f pre-flight (2026-04-26) — diagnostic logging on empty-
