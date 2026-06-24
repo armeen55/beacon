@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-06-24 — AUDIT WAVE 7 (evidence-path + action surfaces) → 5 fixed / 9 deferred
+
+Seventh wave (SEMrush/Profound adapters, GA4 dollar-ROI, operator actions, Wix
+push, rec-list enforcement) — chosen because these feed the EVIDENCE shown in recs.
+14 confirmed; fixed the 5 that directly affect rec-evidence accuracy + a UI trust
+contradiction; deferred 9 (moderate / armed-push-path / multi-caller refactors).
+- **#1 [high]** cannibalization grouped SEMrush rows by RAW url → one page under
+  two spellings fabricated "two pages compete" + self-link remedy. Canonicalize.
+- **#2 [high]** brand-mention `` matched "Ritz-Carlton" (hyphen = boundary) →
+  inflated AI-mention rate. Tightened boundary (residual common-noun case noted).
+- **#4 [med]** Profound owned-citation used exact host match → subdomains
+  mislabeled, undercounting owned AEO citations. Suffix-aware now.
+- **#5 [med]** GA4 offset-pagination had no orderBys → seam under/over-count.
+- **#8 [med]** "Applies to this page" success chip rendered on a QA page-fit-
+  rejected rec → gated on the fit verdict.
+- **DEFERRED (9, in NEXT_PHASE lever 0i):** #3 add_schema "Revert" doesn't restore
+  seoData (armed-push path); #6 getCitationCount reads a legacy flat .data path
+  (async refactor of 5 callers); #7 push daily-cap fails OPEN on a transient RPC
+  error during a live armed push (fail-closed); #9 url_organic multi-intent code
+  leak; #10 fanout query count splits on bare comma; #11 ga4-window reader
+  unpaginated; #12 mark-shipped writes verified_live with no explicit operator
+  gate (operator-UI-reached; defense-in-depth); #13 acceptRecommendation changelog
+  fan-out no idempotency on double-submit; #14 cluster-factory create_page can
+  duplicate a live page when the url-map is stale (armed-push path).
+
+---
+
 ## 2026-06-24 — AUDIT WAVE 6 (last 6 un-audited surfaces) → 5 fixed / 3 deferred
 
 Sixth wave (SERP guard/diagnosis, persistence, connector token refresh, today
