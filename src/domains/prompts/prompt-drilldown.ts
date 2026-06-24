@@ -26,6 +26,7 @@ import {
 // Task 3 (2026-05-04, post-W4 verification): shared pollution filter
 // dropped directories + generic-noun mentions from competitor lists.
 import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
+import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
 
 /** A competitor appearing on this prompt's observations. */
 export type PromptCompetitorRow = {
@@ -136,8 +137,14 @@ export function buildPromptDrilldown(
   // contract used by the recommendation engine + visibility leaderboard.
   // Real builders (De Mattei, Kasten, CRC, Greenberg, Bay Builders)
   // are unaffected.
+  // audit-wave4 #14: window to the native regime so the drilldown's competitor
+  // share, descriptor counts, raw samples, and totals align with the verdict
+  // (summarizePromptPrimary filters pre-pivot rows internally; the surrounding
+  // share math must use the same denominator or it under-reports the brand).
   const relevant = args.observations.filter(
-    (o) => o.prompt_id === args.prompt.id,
+    (o) =>
+      o.prompt_id === args.prompt.id &&
+      o.observed_at.slice(0, 10) >= NATIVE_REGIME_START,
   );
   const ownedNames = new Set(
     args.activeEntities

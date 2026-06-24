@@ -104,16 +104,24 @@ export default async function CompetitorsPage() {
   void results; // some downstream JSX may use this; keep available
 
   const { siteDomain } = getSiteConfig();
+  // audit-wave4 #6/#12: the OWNED domain for every per-tenant competitor compute
+  // must be THIS tenant's domain, not the global BEACON_SITE_DOMAIN env (which
+  // belongs to the founder/primary tenant). Using the global makes "they beat
+  // you", source-trust rank, co-mention, decay, and milestones compute against
+  // the wrong site for every non-primary tenant. Falls back to siteDomain only
+  // when the tenant config has no domain set.
+  const businessConfig = await getBusinessConfigForCurrentTenant();
+  const ownedDomain = businessConfig.domain || siteDomain;
   const universeDomains = new Set(activeUniverse.map((e) => e.domain.replace(/^www\./, "").toLowerCase()));
   let coMentionMatrix = await getCachedCoMentionMatrix();
   if (!coMentionMatrix) {
-    coMentionMatrix = await computeCoMentionMatrix(siteDomain, universeDomains);
+    coMentionMatrix = await computeCoMentionMatrix(ownedDomain, universeDomains);
     if (coMentionMatrix.entries.length > 0) {
       persistCoMentionMatrix(coMentionMatrix).catch(() => {});
     }
   }
 
-  const trustIndex = await computeSourceTrustIndex(siteDomain, universeDomains);
+  const trustIndex = await computeSourceTrustIndex(ownedDomain, universeDomains);
 
   // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
   const allPages = await getOwnedPages();
@@ -141,7 +149,7 @@ export default async function CompetitorsPage() {
         coMentionMatrix: coMentionMatrix,
         trustIndex,
         geoCoverage,
-        ownedDomain: siteDomain,
+        ownedDomain,
         competitorNames: compNames,
       })
     : null;
@@ -158,10 +166,9 @@ export default async function CompetitorsPage() {
     getCurrentTenantFeatures(),
   ]);
 
-  // MT-2/MT-3B (2026-05-22) — tenant-aware config resolved once here
+  // MT-2/MT-3B (2026-05-22) — tenant-aware config resolved once above
   // (no tenantId in scope on this page); threaded into competitor
   // classification + the local-operator surface below.
-  const businessConfig = await getBusinessConfigForCurrentTenant();
 
   const benchmark: MarketBenchmark | null = citIndex
     ? computeMarketBenchmark(citIndex, await getPageIssues(), {
@@ -173,12 +180,12 @@ export default async function CompetitorsPage() {
     citationIndex: citIndex,
     coMentionMatrix,
     sourceTrustIndex: trustIndex,
-    ownedDomain: siteDomain,
+    ownedDomain,
     universeDomains,
     directoryDomains: businessConfig.directoryDomains,
   });
 
-  const decayForLocal = getDecayAlerts(computeCitationDecay(siteDomain));
+  const decayForLocal = getDecayAlerts(computeCitationDecay(ownedDomain));
   const topGeoGap = geoCoverage.gaps[0] ?? null;
   const localMarketSurface = computeLocalOperatorSurface({
     business: businessConfig,
@@ -220,13 +227,13 @@ export default async function CompetitorsPage() {
 
   const competitorRankForMilestones = buildCompetitorRank(
     citIndex,
-    siteDomain,
+    ownedDomain,
     (domain) => classifyCompetitorType(domain, businessConfig.directoryDomains),
   );
   const { state: milestoneStateMarket } = await syncMilestonesFromWorkspace({
     results,
     citationIndex: citIndex,
-    siteDomain,
+    siteDomain: ownedDomain,
     competitorRank: competitorRankForMilestones,
   });
   const marketMilestones = filterMarketMilestones(milestoneStateMarket.events);

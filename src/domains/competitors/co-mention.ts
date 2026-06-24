@@ -16,6 +16,7 @@ import {
   getAllCitationDates,
   getCitationsForDate,
 } from "@/lib/persistence/cold-store";
+import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 import type { CoMentionEntry, CoMentionMatrix } from "./co-mention-types";
@@ -32,7 +33,11 @@ export async function computeCoMentionMatrix(
   ownedDomain: string,
   universedomains: Set<string>,
 ): Promise<CoMentionMatrix> {
-  const dates = getAllCitationDates();
+  // audit-wave4 #5: window out the GLOBAL pre-cutover cold store (shared across
+  // tenants, pre-pivot Profound rows) — mirrors source-trust.ts. Without this the
+  // co-mention matrix blends other tenants' / pre-native citations into a
+  // per-tenant competitor view.
+  const dates = getAllCitationDates().filter((d) => d >= NATIVE_REGIME_START);
   const ownedNorm = ownedDomain.replace(/^www\./, "").toLowerCase();
 
   const answerDomains = new Map<string, Set<string>>();
@@ -72,12 +77,14 @@ export async function computeCoMentionMatrix(
 
   const domainTotals = new Map<string, number>();
 
+  let ownedAnswerCount = 0; // audit-wave4 #15: answers that actually contain the owned domain
   for (const [answerId, domains] of answerDomains) {
     for (const d of domains) {
       domainTotals.set(d, (domainTotals.get(d) ?? 0) + 1);
     }
 
     if (!domains.has(ownedNorm)) continue;
+    ownedAnswerCount += 1;
 
     const platform = answerPlatforms.get(answerId) ?? "unknown";
     const topic = answerTopics.get(answerId) ?? "unknown";
@@ -121,7 +128,9 @@ export async function computeCoMentionMatrix(
   return {
     owned_domain: ownedNorm,
     computed_at: new Date().toISOString(),
-    total_answers_analyzed: answerDomains.size,
+    // audit-wave4 #15: the co-mention universe is answers that contained the
+    // owned domain (where a co-occurrence is even possible), not every answer.
+    total_answers_analyzed: ownedAnswerCount,
     entries,
   };
 }
