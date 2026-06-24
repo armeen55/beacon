@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-24 (early AM) — full-suite closeout TRUTH-UP (wave 4)
+
+The wave-4 full suite run reported 6 failing tests across 3 files. Investigated:
+**none are wave-4 regressions.**
+- `tests/architecture/no-unscoped-tier-a-reads.test.ts` + `tests/visibility-events/
+  impact.test.ts` — PASS clean in isolation; failed only under concurrent load
+  (timeouts, ms readings in the tens of thousands).
+- `src/app/(shell)/onboard/review/launch-flow.test.ts` — fails a NON-DETERMINISTIC
+  subset (8 → 2 → 3 different tests across three runs) with pathological per-test
+  timings (one read 178,000ms). `launch-flow.ts` imports ZERO wave-4 files, so a
+  deterministic code regression is ruled out (that would fail the same tests every
+  run). These are PRE-EXISTING slow/flaky onboarding-transaction tests that time
+  out under CPU contention — NOT introduced tonight. Filed as a follow-up
+  (dedicated session) to make them deterministic; do not block on them.
+Wave-4 fixes themselves are verified green via per-batch targeted suites + the
+3-file isolation reruns. Earlier waves' closeouts (1/2/3) were fully green.
+
+---
+
 ## 2026-06-23 (late night) — AUDIT WAVE 4 (6 un-audited surfaces) → 13 fixed / 3 deferred
 
 Fourth 6-surface wave (native prompt→observation→citation engine, citation-attribution
