@@ -131,7 +131,7 @@ export async function loadCompetitorCitedPagesForTenant(
     const canon = canonicalizeCitationUrl(r.url || "") || r.url || "";
     if (!canon) continue;
     const count = Number(r.citation_count) || 1;
-    if (isOwned(host, ownedNorm) || /iranopedia/i.test(host)) {
+    if (isOwned(host, ownedNorm)) {
       ownedCitedUrls.set(canon, (ownedCitedUrls.get(canon) ?? 0) + count);
       continue;
     }
@@ -151,7 +151,7 @@ export async function loadCompetitorCitedPagesForTenant(
         url: a.url,
         domain: a.domain,
         topicTokens: tokens,
-        label: label || a.domain,
+        label: label || a.domain || "(unknown)",
         citationCount: a.citationCount,
         modelCount: a.models.size,
         isAggregator: AGGREGATOR_DOMAINS.has(a.domain),

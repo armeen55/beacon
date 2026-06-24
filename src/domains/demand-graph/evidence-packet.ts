@@ -73,8 +73,11 @@ export type EvidencePacket = {
     signals: string[];
   };
   demand: {
-    gscImpressions: number;
-    aiAttention: number; // create_page proxy
+    /** Fused demand weight (GSC impressions/volume + AI-ask). For create_page
+     *  candidates this is an AI-attention proxy, NOT measured search volume —
+     *  `basis` says which, so the number is never silently mislabeled. */
+    demandWeight: number;
+    basis: "gsc" | "ai_attention" | "mixed";
     queries: string[];
     fanoutSeeds: string[];
   };
@@ -238,8 +241,12 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
       signals: move.signals,
     },
     demand: {
-      gscImpressions: move.components.demand,
-      aiAttention: move.components.demand,
+      demandWeight: move.components.demand,
+      basis: move.signals.includes("GSC")
+        ? move.signals.includes("AI")
+          ? "mixed"
+          : "gsc"
+        : "ai_attention",
       queries: [],
       fanoutSeeds,
     },
