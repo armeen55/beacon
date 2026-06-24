@@ -54,7 +54,11 @@ export function uncitedContent(
   if (snapshot.http_status >= 400) return [];
   if (classifyPageType(snapshot.url, businessConfig) !== "content") return [];
   if ((snapshot.word_count ?? 0) < UNCITED_MIN_WORD_COUNT) return [];
-  if ((snapshot.external_link_count ?? 0) !== 0) return [];
+  // audit-wave5 #8: require an EXPLICITLY-measured zero. A null/absent count
+  // (extractor didn't capture it) must NOT be treated as "cites zero sources" —
+  // that fabricates the rec on pages whose links were simply never measured.
+  if (snapshot.external_link_count == null) return [];
+  if (snapshot.external_link_count !== 0) return [];
 
   const actionType = "add_proof_section" as const;
   const targetUrl = snapshot.url;

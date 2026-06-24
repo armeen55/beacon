@@ -127,13 +127,19 @@ function buildLabel(a: {
   }
   const parts: string[] = [];
   if (a.adjustedSessionsPct != null) {
+    // audit-wave5 #3: a "visits" change can't honestly read below -100% — but a
+    // control-adjusted figure (treatedPct − controlPct) can dip under -1.0 when
+    // comparison pages rose. Floor the DISPLAYED value at -100% so the label
+    // never shows an impossible "-110% visits" (the raw value stays unclamped on
+    // the object for any downstream math).
+    const shownPct = Math.max(-1, a.adjustedSessionsPct);
     // Only claim "vs similar pages" when comparable untreated pages actually
     // contributed. Otherwise this is the page's own before/after — say so,
     // rather than implying a control-adjusted result that does not exist.
     parts.push(
       a.controlsUsed
-        ? `${pctStr(a.adjustedSessionsPct)} visits vs similar pages`
-        : `${pctStr(a.adjustedSessionsPct)} visits vs its own baseline (no comparison pages yet)`,
+        ? `${pctStr(shownPct)} visits vs similar pages`
+        : `${pctStr(shownPct)} visits vs its own baseline (no comparison pages yet)`,
     );
   }
   if (a.conversionsDelta !== 0) {

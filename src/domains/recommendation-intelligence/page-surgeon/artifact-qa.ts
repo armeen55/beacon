@@ -51,12 +51,43 @@ function contentTokens(s: string): Set<string> {
  *  on the crawled page, the claims are unverifiable → flag for human fact-check.
  *  Conservative: skipped when the crawl is too thin / uncertain to judge (no
  *  crying wolf), and advisory only (the operator is the fact authority). */
+/** audit-wave5 #4: pull FAQ Q&A text out of a composed JSON-LD string so an
+ *  FAQPage shipped via a `schema` action is fact-checked too (not just the
+ *  `faq`/`intro_answer_block` actions) — otherwise answer claims smuggled into
+ *  structured data bypass the no-fabrication gate. */
+function faqTextFromJsonLd(code: string | undefined): string[] {
+  if (!code) return [];
+  try {
+    const parsed = JSON.parse(code) as unknown;
+    const nodes: unknown[] = Array.isArray(parsed)
+      ? parsed
+      : ((parsed as Record<string, unknown>)?.["@graph"] as unknown[]) ?? [parsed];
+    const out: string[] = [];
+    for (const n of nodes) {
+      const node = n as Record<string, unknown> | null;
+      if (node && node["@type"] === "FAQPage" && Array.isArray(node.mainEntity)) {
+        for (const q of node.mainEntity as Record<string, unknown>[]) {
+          if (typeof q?.name === "string") out.push(q.name);
+          const ans = (q?.acceptedAnswer as Record<string, unknown> | undefined)?.text;
+          if (typeof ans === "string") out.push(ans);
+        }
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 function factCheck(
   changes: ChangeArtifact[],
   packet: EvidencePacket,
 ): { required: boolean; note: string } {
   const contentChanges = changes.filter(
-    (c) => c.action === "intro_answer_block" || c.action === "faq",
+    (c) =>
+      c.action === "intro_answer_block" ||
+      c.action === "faq" ||
+      (c.action === "schema" && faqTextFromJsonLd(c.jsonLd?.code).length > 0),
   );
   if (contentChanges.length === 0) return { required: false, note: "" };
 
@@ -83,7 +114,11 @@ function factCheck(
   const novel: string[] = [];
   let total = 0;
   for (const c of contentChanges) {
-    const text = [c.answerBlockText, ...(c.faq ?? []).flatMap((f) => [f.question, f.answer])]
+    const text = [
+      c.answerBlockText,
+      ...(c.faq ?? []).flatMap((f) => [f.question, f.answer]),
+      ...faqTextFromJsonLd(c.jsonLd?.code), // audit-wave5 #4: schema-action FAQ
+    ]
       .filter((s): s is string => !!s)
       .join(" ");
     const toks = contentTokens(text);

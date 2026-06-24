@@ -269,11 +269,15 @@ export function summarizeVerdict(args: {
     metric === "ctr" ? w.adjustedCtrLift : metric === "position" ? w.adjustedPosLift : w.adjustedLift;
   const lift = basis ? liftOf(basis) : 0;
 
-  if (args.baselineImpressions < MIN_BASELINE_IMPRESSIONS) {
-    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
-  }
+  // audit-wave5 #7: a change with no CLOSED window yet is still MEASURING,
+  // regardless of how thin the baseline is — order this above the baseline gate
+  // so a freshly-shipped change on a low-traffic page reads "measuring" (wait
+  // for the window) instead of "insufficient_data" (looks like a dead end).
   if (!basis) {
     return { verdict: "measuring", confidence: "low", basis: null, metric, lift: 0 };
+  }
+  if (args.baselineImpressions < MIN_BASELINE_IMPRESSIONS) {
+    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
   }
   // A single comparator is "treated minus one arbitrary page", not a diff-in-diff.
   // Require the same floor the recorder enforces (>=2) before naming a won/lost.

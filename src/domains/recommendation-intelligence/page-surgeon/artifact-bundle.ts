@@ -15,6 +15,7 @@
  */
 
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { isCmsPlaceholder } from "@/domains/recommendation-intelligence/draft-enrichment";
 import type { EvidenceConfidence, EvidencePacket } from "./contract";
 import type {
   AtomicAction,
@@ -131,19 +132,27 @@ function cmsField(field: "title" | "meta" | "h1", value: string): CmsFieldArtifa
  *  JSON-LD from the packet. No invented values. */
 export function composeJsonLd(packet: EvidencePacket, faq: FaqItem[] | undefined): { schemaType: string; code: string } {
   const url = packet.current.pageUrl;
-  const name = packet.crawl?.title ?? packet.current.currentText ?? "";
+  // audit-wave5 #2: never assert an EMPTY or CMS-placeholder ("Page Title"/
+  // "Untitled") entity name in shipped JSON-LD. A null crawl title would stamp
+  // headline:"" / breadcrumb name:"" (invalid/embarrassing structured data).
+  // Omit the headline when missing (Article has no required props) and drop the
+  // BreadcrumbList entirely when there's no real page name.
+  const rawName = (packet.crawl?.title ?? packet.current.currentText ?? "").trim();
+  const name = rawName && !isCmsPlaceholder(rawName) ? rawName : null;
   const graph: Record<string, unknown>[] = [
     {
       "@type": "Article",
-      headline: name,
+      ...(name ? { headline: name } : {}),
       ...(packet.crawl?.metaDescription ? { description: packet.crawl.metaDescription } : {}),
       mainEntityOfPage: { "@type": "WebPage", "@id": url },
     },
-    {
+  ];
+  if (name) {
+    graph.push({
       "@type": "BreadcrumbList",
       itemListElement: [{ "@type": "ListItem", position: 1, name, item: url }],
-    },
-  ];
+    });
+  }
   if (faq && faq.length > 0) {
     graph.push({
       "@type": "FAQPage",
@@ -240,7 +249,10 @@ function withControls(measurement: string, change: AtomicChange, controlPaths: s
   const shown = controlPaths.slice(0, 3);
   const controls = shown.join(", ");
   const s = shown.length === 1 ? "" : "s";
-  return `${measurement} Use comparable unchanged page${s} (${controls}) as control${s} (diff-in-diff) to separate this edit's lift from sitewide movement.`;
+  // audit-wave5 #5: controlPaths are top-demand pages, NOT verified topically
+  // comparable or guaranteed unchanged — so don't assert "comparable unchanged"
+  // or a precise "diff-in-diff". Frame as honest rough-control guidance.
+  return `${measurement} As a rough control, also track page${s} you are NOT changing (${controls}) to gauge how much of any movement is sitewide rather than from this edit.`;
 }
 
 export function composeChangeArtifact(
