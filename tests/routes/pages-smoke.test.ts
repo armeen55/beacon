@@ -29,13 +29,14 @@ describe("M5 — /pages not-ready route smoke", () => {
     expect(html).toContain('data-pages-state="not-ready"');
   });
 
-  it("includes navigational links to /, /recommendations, /changes", async () => {
+  it("includes navigational links to /, /recommendations, /proof", async () => {
     const { default: PagesPage } = await import("@/app/(shell)/pages/page");
     const tree = PagesPage();
     const html = renderToStaticMarkup(tree as ReactElement);
     expect(html).toContain('href="/"');
     expect(html).toContain('href="/recommendations"');
-    expect(html).toContain('href="/changes"');
+    // audit-wave #10: the Changes→Results merge (B26) repointed this link to /proof.
+    expect(html).toContain('href="/proof"');
   });
 
   it("does not render any of the legacy 'half-broken' markers", async () => {

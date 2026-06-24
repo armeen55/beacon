@@ -39,6 +39,8 @@ vi.mock("@/lib/connectors/wix/url-map", () => ({
 let _ledger: unknown[] = [];
 vi.mock("@/domains/push/caps", () => ({
   readPushLedger: async () => _ledger,
+  // audit-wave #2: /diagnostics/wix now reads the durable ledger.
+  readPushLedgerDurable: async () => _ledger,
   MAX_PUSHES_PER_DAY: 10,
 }));
 
