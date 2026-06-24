@@ -76,17 +76,18 @@ export default async function RankRevenuePage() {
 
       <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
         Coverage: {coverage.gscPages} GSC pages · {coverage.ga4Pages} GA4 pages ·{" "}
-        {coverage.clarityPages} Clarity pages · {coverage.competitorCitations} competitor citations
+        {coverage.clarityPages} Clarity pages · {coverage.competitorCitations} competitor pages cited
         {coverage.emptySources.length > 0 ? (
           <span className="ml-2 text-amber-700">
             (empty: {coverage.emptySources.join(", ")})
           </span>
         ) : null}
         <span className="ml-2 text-gray-400">
-          · {graph.moves.length} clusters · {healthyCount} healthy · {lowDemandCount} below demand floor
+          · {coverage.competitorEdges} competitor edges · {coverage.createPageCandidates} create-page
+          candidates · you cited on {coverage.ownedCited} pages
         </span>
         <span className="ml-2 text-gray-400">
-          · competitor edges + create_page land in Step 2 (topic-scoped Profound)
+          · {graph.moves.length} clusters · {healthyCount} healthy · {lowDemandCount} below demand floor
         </span>
       </div>
 

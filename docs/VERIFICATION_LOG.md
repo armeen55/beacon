@@ -7,6 +7,41 @@
 
 ---
 
+## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 2 (competitor cited-page discovery + edges)
+
+**Approved cache cleanup (Iranopedia only):** `profound_citation_rows` held **36,428 stale**
+unfiltered rows (whole borrowed-category, 4-day span, AI-company junk). Verified tenant scope
+(iranopedia only; Ritz untouched at 0), backed up all 36,428 rows to
+`/private/tmp/.../iranopedia-citation-cache-backup-36428.json`, deleted (cache only — source =
+Profound API), then rebuilt via the topic-scoped sync → **6,242 clean rows, 1,687 competitor
+domains** (reddit/wikipedia/persiscollection/surfiran/britannica/iranicaonline/mypersiancorner…),
+iranopedia.com itself cited 44×. (Visibility report had a positional-decode hiccup — `"Mystery Of"`
+in the date field; not needed for Step 2, follow-up noted.)
+
+**Built:**
+- `competitor-citations-loader.ts` (NEW) — reads topic-scoped `profound_citation_rows`, excludes
+  owned domain, canonicalizes + aggregates per URL (citationCount + distinct modelCount), classifies
+  generic aggregators, returns competitor pages + the tenant's own cited URLs. Tenant-scoped read.
+- `load-graph.ts` — matches competitors to owned pages by topic-token overlap (→ real answer_block +
+  visibilityGap), marks owned AI-citations (answer_block only fires when genuinely absent), and
+  synthesizes `create_page` candidates from unmatched CONTENT competitors. Two code-based junk
+  filters (no vertical hardcoding): a generic AI-industry-noise set (the borrowed account's
+  "Evaluate <AI company>" meta-prompt citations) + a tenant-vocabulary relevance gate derived from
+  the tenant's own pages.
+- `build-graph.ts` — visibilityGap now competitor-aware (0.9 answer_block / 0.5 cited-edit / 0.25
+  no-evidence); create_page candidates exempt from the GSC-scale demand floor (AI-citation-proxy
+  demand, honest LOW confidence until SERP volume = L7).
+- `/diagnostics/rank-revenue` — coverage line shows competitor edges / create-page candidates /
+  pages-you're-cited-on.
+
+**Verified:** typecheck clean; 22 demand-graph tests + 11 render/arch tests green; `npm run build`
+compiled. **TRUTH TEST (real):** 197 GSC pages, 4,997 competitor citations, 1,236 competitor edges,
+you cited on 21 pages. Distribution: **47 answer_block** (iran world cup jersey vs ubuy [$224, HIGH];
+iran flag vs surfiran; persian empire flag vs history.com; iran national animal vs britannica), 98
+edit_page, **40 clean create_page** (persian wedding/theknot, nowruz activities, persian traditional
+music, iranian diaspora…), 4 fix_experience, 48 low_demand. AI-company junk excluded; visibilityGap
+no longer constant.
+
 ## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 1 (real graph + visible Top-25)
 
 **Built (the first truth test):**

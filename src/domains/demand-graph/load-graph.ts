@@ -1,21 +1,19 @@
 /**
- * load-graph (2026-06-24, Step 1) — assemble the REAL demand graph for a tenant
- * from already-synced signals, then hand it to the pure `buildDemandGraph`
- * assembler. This is the I/O edge; `build-graph.ts` stays pure/testable.
+ * load-graph (2026-06-24, Step 1 + Step 2) — assemble the REAL demand graph for
+ * a tenant from already-synced signals, then hand it to the pure
+ * `buildDemandGraph` assembler. This is the I/O edge; `build-graph.ts` stays pure.
  *
- * v0 sources (all stored, deterministic, $0):
- *   - GSC page+query signals  → demand + owned page CTR/position (the spine)
+ * Sources (all stored, deterministic, $0):
+ *   - GSC page+query signals  → demand + owned CTR/position (the spine)
  *   - GA4 page values         → the $ signal (conversions = money-first)
  *   - Clarity page signals    → friction (conversion leaks)
+ *   - Profound citations      → competitor edges + owned AI-citation presence
  *
- * Competitor citation EDGES are deferred to Step 2: the only stored competitor
- * source today (`profound_citation_rows`) is the pre-topic-scoping cache for
- * Iranopedia (36k AI-company rows) and carries no query/topic to map onto a
- * cluster — so attaching it now would inject junk. Step 2 (the cited-page
- * loader) wires it once the topic-scoped resync lands. Until then the graph is
- * an honest OWNED-page worklist (edit / fix_experience / healthy), which is a
- * valid first truth test: does demand rank sanely? does GA4 $ lift money pages?
- * does Clarity friction surface? Works for ANY tenant via its connectors.
+ * Step 2 wiring: competitor cited pages are matched to owned pages by topic-token
+ * overlap (→ real answer_block / visibilityGap where AI cites a rival but not
+ * you), and unmatched CONTENT competitors are synthesized into `create_page`
+ * candidates (demand proxied by AI-citation breadth × volume, confidence honestly
+ * LOW until SERP/volume confirms — Step L7). Tenant-agnostic via connectors.
  */
 
 import "server-only";
@@ -23,8 +21,10 @@ import "server-only";
 import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
 
+import { loadCompetitorCitedPagesForTenant, type CompetitorCitationsResult } from "./competitor-citations-loader";
 import {
   buildDemandGraph,
   type DemandInput,
@@ -39,7 +39,9 @@ export type DemandGraphCoverage = {
   ga4Pages: number;
   clarityPages: number;
   competitorCitations: number;
-  /** Sources that returned zero rows — honest "why is this empty" for the UI. */
+  competitorEdges: number;
+  createPageCandidates: number;
+  ownedCited: number;
   emptySources: string[];
 };
 
@@ -48,16 +50,52 @@ export type LoadGraphResult = {
   coverage: DemandGraphCoverage;
 };
 
-/** Human label from a URL path, e.g. ".../persian-female-first-names" →
- *  "persian female first names". */
-function prettyLabel(url: string): string {
+const MAX_CREATE_CANDIDATES = 40;
+
+const STOP = new Set([
+  "the", "a", "an", "of", "for", "in", "on", "to", "and", "or", "is", "are",
+  "with", "best", "top", "how", "what", "why", "list", "guide", "your", "you",
+]);
+
+/** AI-industry/meta-prompt noise from the BORROWED Profound account (whose
+ *  "Evaluate <AI company>…" meta-prompts cite AI-company pages). Generic AI-vendor
+ *  tokens — NOT vertical/tenant hardcoding — so this code-excludes the junk the
+ *  operator flagged, for any tenant on that shared account. */
+const AI_NOISE = new Set([
+  "openai", "anthropic", "claude", "chatgpt", "gpt", "gemini", "grok", "deepmind",
+  "copilot", "mistral", "llm", "llms", "frontier", "pentagon", "huggingface",
+  "perplexity", "datacamp", "mckinsey",
+]);
+
+function isAiNoise(domainFirst: string, topicTokens: string[]): boolean {
+  if (AI_NOISE.has(domainFirst)) return true;
+  return topicTokens.some((t) => AI_NOISE.has(t));
+}
+
+function toks(s: string): string[] {
+  return (s || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2 && !STOP.has(t) && !/^\d+$/.test(t));
+}
+
+function pathOf(url: string): string {
   try {
-    const path = new URL(url).pathname;
-    const slug = path.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? "home";
-    return slug.replace(/[-_]+/g, " ").trim() || "home";
+    return new URL(url.startsWith("http") ? url : `https://${url}`).pathname
+      .replace(/\/+$/, "")
+      .toLowerCase();
   } catch {
-    return url;
+    return url.toLowerCase();
   }
+}
+
+function stripWww(h: string): string {
+  return h.replace(/^www\./i, "").toLowerCase();
+}
+
+function prettyLabel(url: string): string {
+  const slug = pathOf(url).split("/").filter(Boolean).pop() ?? "home";
+  return slug.replace(/[-_]+/g, " ").trim() || "home";
 }
 
 export async function loadDemandGraphForTenant(
@@ -80,20 +118,56 @@ export async function loadDemandGraphForTenant(
     }),
   ]);
 
+  // Derive the owned domain from the tenant's own pages (no config dependency).
+  const hostCount = new Map<string, number>();
+  for (const [page] of gsc) {
+    try {
+      const h = stripWww(new URL(page).hostname);
+      hostCount.set(h, (hostCount.get(h) ?? 0) + 1);
+    } catch {
+      /* skip */
+    }
+  }
+  const ownedDomain = [...hostCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+
+  const emptyComp: CompetitorCitationsResult = {
+    competitors: [],
+    ownedCitedUrls: new Map<string, number>(),
+    rowsScanned: 0,
+  };
+  const { competitors, ownedCitedUrls } = ownedDomain
+    ? await loadCompetitorCitedPagesForTenant(tenantId, ownedDomain).catch((e): CompetitorCitationsResult => {
+        log.warn("[load-graph] competitor citations read failed", { tenantId, error: String(e) });
+        return emptyComp;
+      })
+    : emptyComp;
+
+  // Owned pages AI cited → match by pathname so answer_block only fires when you
+  // are genuinely absent from AI answers.
+  const ownedCitedPaths = new Map<string, number>();
+  for (const [u, count] of ownedCitedUrls) ownedCitedPaths.set(pathOf(u), count);
+
   const demand: DemandInput[] = [];
   const ownedPages: OwnedPageInput[] = [];
+  const ownedTokensByKey = new Map<string, Set<string>>();
+  let ownedCitedHits = 0;
 
   for (const [page, g] of gsc) {
-    // One demand cluster per owned page (v0). Real cluster grouping by topic
-    // arrives with the Profound prompt-level data in a later step.
     const key = page;
     const topQuery = g.topQueries[0]?.query;
+    const label = topQuery || prettyLabel(page);
+    const aiCit = ownedCitedPaths.get(pathOf(page)) ?? 0;
+    if (aiCit > 0) ownedCitedHits += 1;
+
     demand.push({
       key,
-      label: topQuery || prettyLabel(page),
+      label,
       queries: g.topQueries.map((q) => q.query),
       gscImpressions: g.impressions90d,
+      // your AI presence for this cluster (drives visibilityGap magnitude)
+      ownedAiShare: aiCit > 0 ? 0.5 : 0,
     });
+    ownedTokensByKey.set(key, new Set([...toks(label), ...toks(pathOf(page))]));
 
     const ga = ga4.get(page);
     const cl = clarity.get(page);
@@ -106,19 +180,79 @@ export async function loadDemandGraphForTenant(
       gscPosition: g.position90d,
       ga4Sessions: ga?.sessions28d ?? null,
       ga4Conversions: ga?.conversions28d ?? null,
-      // Money-first $ signal: real conversions (leads/sales). Content tenants
-      // with no goals configured read 0 — honest; demand still ranks them.
       ga4Value: ga?.conversions28d ?? 0,
       clarityRageClicks: cl?.rageClicks ?? null,
       clarityDeadClicks: cl?.deadClicks ?? null,
       clarityScriptErrors: cl?.scriptErrors ?? null,
-      // Owned AI-citation count is wired in Step 2 (needs clean topic-scoped
-      // Profound rows); 0/undefined here never triggers a false answer_block.
-      aiCitationCount: null,
+      aiCitationCount: aiCit,
     });
   }
 
-  const competitorCitations: CompetitorCitationInput[] = []; // Step 2
+  // Tenant topic vocabulary (union of all owned-page tokens) — used to keep
+  // create_page candidates ON-topic for THIS tenant (derived from its own pages,
+  // not hardcoded), which also drops off-topic junk that slipped the AI-noise net.
+  const tenantVocab = new Set<string>();
+  for (const s of ownedTokensByKey.values()) for (const t of s) tenantVocab.add(t);
+
+  // ── match competitor cited pages to owned demand, or synthesize create_page ──
+  const competitorCitations: CompetitorCitationInput[] = [];
+  let competitorEdges = 0;
+  type CreateCand = { label: string; urls: string[]; citationCount: number; modelCount: number };
+  const createByTopic = new Map<string, CreateCand>();
+
+  for (const c of competitors) {
+    // Drop AI-industry meta-prompt noise from BOTH matched edges and create candidates.
+    if (isAiNoise(c.domain.split(".")[0] ?? "", c.topicTokens)) continue;
+
+    const ctoks = new Set(c.topicTokens);
+    let bestKey: string | null = null;
+    let bestShared = 0;
+    for (const [key, otoks] of ownedTokensByKey) {
+      let shared = 0;
+      for (const t of ctoks) if (otoks.has(t)) shared += 1;
+      if (shared > bestShared) {
+        bestShared = shared;
+        bestKey = key;
+      }
+    }
+    if (bestKey && bestShared >= 2) {
+      competitorCitations.push({ url: c.url, demandKey: bestKey, weight: c.citationCount * (1 + c.modelCount) });
+      competitorEdges += 1;
+    } else if (
+      !c.isAggregator &&
+      c.topicTokens.length >= 2 &&
+      c.topicTokens.some((t) => tenantVocab.has(t)) // on-topic for this tenant
+    ) {
+      // unmatched content competitor → a create_page candidate, grouped by topic
+      const tkey = "gap:" + c.topicTokens.slice(0, 3).sort().join("-");
+      const ex = createByTopic.get(tkey) ?? { label: c.label, urls: [], citationCount: 0, modelCount: 0 };
+      ex.urls.push(c.url);
+      ex.citationCount += c.citationCount;
+      ex.modelCount = Math.max(ex.modelCount, c.modelCount);
+      createByTopic.set(tkey, ex);
+    }
+  }
+
+  // Top create_page candidates by AI attention (breadth × volume). Demand is an
+  // AI-citation proxy (NOT measured search volume) → confidence stays LOW. Scaled
+  // ×100 to read as an "AI-attention score" (citation_count is share-scaled).
+  const createTop = [...createByTopic.entries()]
+    .map(([k, v]) => ({ k, ...v, proxy: Math.max(1, Math.round(v.citationCount * (1 + v.modelCount) * 100)) }))
+    .sort((a, b) => b.proxy - a.proxy)
+    .slice(0, MAX_CREATE_CANDIDATES);
+
+  for (const c of createTop) {
+    demand.push({
+      key: c.k,
+      label: c.label,
+      queries: [],
+      aiExecutions: c.proxy, // AI-attention proxy demand (no GSC/volume yet)
+    });
+    for (const u of c.urls.slice(0, 5)) {
+      competitorCitations.push({ url: u, demandKey: c.k, weight: c.citationCount });
+      competitorEdges += 1;
+    }
+  }
 
   const graph = buildDemandGraph({ demand, ownedPages, competitorCitations, config });
 
@@ -126,6 +260,7 @@ export async function loadDemandGraphForTenant(
   if (gsc.size === 0) emptySources.push("gsc");
   if (ga4.size === 0) emptySources.push("ga4");
   if (clarity.size === 0) emptySources.push("clarity");
+  if (competitors.length === 0) emptySources.push("profound-citations");
 
   return {
     graph,
@@ -133,7 +268,10 @@ export async function loadDemandGraphForTenant(
       gscPages: gsc.size,
       ga4Pages: ga4.size,
       clarityPages: clarity.size,
-      competitorCitations: competitorCitations.length,
+      competitorCitations: competitors.length,
+      competitorEdges,
+      createPageCandidates: createTop.length,
+      ownedCited: ownedCitedHits,
       emptySources,
     },
   };

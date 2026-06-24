@@ -331,7 +331,12 @@ export function buildDemandGraph(input: {
     const confidence: ConfidenceLevel =
       signals.length >= 3 ? "high" : signals.length === 2 ? "medium" : "low";
 
-    if (node.demandWeight < cfg.minDemand) {
+    // A create_page candidate (competitors cited, you have no page) is evidenced
+    // by AI-citation breadth, NOT GSC impressions — so the GSC-scale demand floor
+    // doesn't apply. It surfaces with honest LOW confidence (no measured search
+    // volume yet — that arrives with SERP/DataForSEO in Step L7).
+    const isCreateCandidate = compEdges.length > 0 && ownedEdges.length === 0;
+    if (node.demandWeight < cfg.minDemand && !isCreateCandidate) {
       moves.push(moveRow(node, "low_demand", null, competitorUrls, fanoutSeeds,
         { demand: node.demandWeight, winnability: 0.1, dollarValue: dollar, visibilityGap: 0, friction },
         confidence, signals, "Below the demand floor — not worth acting on yet.", 0));
@@ -365,7 +370,9 @@ export function buildDemandGraph(input: {
       } else if (kind === "owned_weak") {
         gap = "edit_page";
         winnability = 0.9; // striking distance
-        visibilityGap = Math.max(0.3, 1 - node.ownedAiShare);
+        // Real AEO gap only where competitors are actually cited; otherwise this
+        // is a pure CTR/GSC play, so keep visibilityGap low (no AEO evidence).
+        visibilityGap = compEdges.length > 0 ? Math.max(0.3, 1 - node.ownedAiShare) : 0.25;
         rationale = `You rank but under-perform (position ${ownedPage?.gscPosition ?? "?"}, CTR ${(num(ownedPage?.gscCtr) * 100).toFixed(1)}%). Tighten title/meta to the dominant query.`;
       } else {
         gap = "healthy";
