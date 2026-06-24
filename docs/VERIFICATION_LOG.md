@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-06-23 (evening) — 6-SURFACE AUDIT WAVE → 12 fixed / 1 deferred (057656d, 16f0d33, f9befd6, c2c1e5e)
+
+Operator directive: work big things autonomously until midnight LA. Ran a 6-surface
+adversarial audit wave (IA/nav, workbench+opportunity, ingestion-trust,
+tenant-isolation, rec-pipeline, wix-push; finder→skeptic) → 13 confirmed; fixed 12
+in 5 verified batches, deferred 1 with reason. All typecheck + targeted-test gated.
+- **Batch A (057656d)** #7 improve_meta now runs Gates 7-9 (was bypassed → meta
+  directive on utility pages); #5 GA4 page-value cap 25k→80k (was truncating recent
+  days); #3 cannibalization excluded from the 'safest' one-click pick.
+- **Batch B (16f0d33)** #9 Results nav 'G C' shortcut + attention badge (maps still
+  keyed on removed /changes); #10 /pages 'Changes'→'Results' link; #12 'Fix ready'
+  badge/CTA gated on packAction (cannibalization rows falsely showed it).
+- **Batch C (f9befd6)** #2 [high] push receipt / golden-path / diagnostics read the
+  file-only ledger → silent 'never pushed' on Vercel; added durable tenant-scoped +
+  all-tenant readers. #8 reserve cap slot AFTER non-destructive validation (was
+  leaking a slot for 10 min on refusal). #13 add_schema product lookup paginates
+  the full catalog (was limit:1000 + .find()).
+- **Batch D/E (c2c1e5e)** #1 [high] source-trust windowed to NATIVE_REGIME_START —
+  a non-founder tenant's /competitors Source Trust was blending the founder's
+  pre-cutover Profound benchmark citations (the Audit-3 #2 leak class; source-trust
+  was a missed consumer). #4 gsc_decay anchored to the finalized GSC watermark (was
+  wall-clock → phantom click declines). #11 /opportunities headline sums 28d/90d
+  estimates separately (was blended under one '90 days' label).
+- **DEFERRED #6 [med]** getSiteConfig is a process-cached, NOT-tenant-aware sync
+  singleton → one tenant's domain/brand can leak into another's compute. The fix
+  (tenant-keyed cache + threading tenantId through absoluteUrlForPath/stripSiteOrigin)
+  is a large URL-normalization refactor — inappropriate to rush unattended; #1
+  already closes the primary /competitors leak. Tracked in NEXT_PHASE.
+
+---
+
 ## 2026-06-23 — 06-27 verdict-read READINESS (non-destructive prep) — 76d68c6
 
 Time-gated goal: prep the first Iranopedia verdict read (windows open 2026-06-27)
