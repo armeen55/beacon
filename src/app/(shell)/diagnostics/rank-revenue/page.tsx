@@ -221,6 +221,62 @@ export default async function RankRevenuePage() {
           </table>
         </div>
       )}
+
+      {/* Create-page candidates: AI cites competitors for a topic you have no page
+          for. These rank below the GSC-demand Top-25 (AI-attention proxy demand,
+          no measured search volume yet → LOW confidence until SERP/DataForSEO). */}
+      {(() => {
+        const creates = graph.moves
+          .filter((m) => m.gap === "create_page")
+          .sort((a, b) => b.components.demand - a.components.demand)
+          .slice(0, 15);
+        if (creates.length === 0) return null;
+        return (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-gray-800">
+              Create-page candidates ({creates.length}) — AI cites competitors, you have no page
+            </h3>
+            <p className="text-xs text-gray-500">
+              Demand here is an AI-attention proxy (no measured search volume yet) → LOW confidence
+              until SERP/DataForSEO. Build aggressively, but verify volume first.
+            </p>
+            <div className="overflow-x-auto rounded-md border border-emerald-200">
+              <table className="w-full border-collapse text-xs">
+                <thead className="bg-emerald-50 text-left text-gray-600">
+                  <tr>
+                    <th className="px-2 py-1.5">AI-attn</th>
+                    <th className="px-2 py-1.5">Topic to create</th>
+                    <th className="px-2 py-1.5">Conf</th>
+                    <th className="px-2 py-1.5">Competitors AI cites</th>
+                    <th className="px-2 py-1.5">Answer these (fanouts)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {creates.map((m) => (
+                    <tr key={m.demandKey} className="border-t border-gray-100 align-top hover:bg-gray-50">
+                      <td className="px-2 py-1.5 tabular-nums">{fmt(m.components.demand)}</td>
+                      <td className="px-2 py-1.5 font-medium text-gray-900">{m.label}</td>
+                      <td className="px-2 py-1.5">
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${CONF_COLORS[m.confidence]}`}>
+                          {m.confidence}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-gray-500">
+                        {m.competitorUrls.slice(0, 2).map((u) => (
+                          <div key={u}>{shortUrl(u)}</div>
+                        ))}
+                      </td>
+                      <td className="px-2 py-1.5 text-gray-500" style={{ maxWidth: 280 }}>
+                        {m.fanoutSeeds.slice(0, 4).join(" · ") || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
