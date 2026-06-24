@@ -19,6 +19,7 @@ vi.mock("@/lib/logger", () => ({
 import {
   decodeProfoundEnvelope,
   fetchProfoundCategories,
+  getProfoundScope,
   profoundKeyPresent,
   queryProfoundReport,
 } from "@/lib/connectors/profound/client";
@@ -219,6 +220,73 @@ describe("syncProfoundNightlyForTenant — honest failure classification (#88)",
       },
     );
     expect(out).toEqual({ synced: false, reason: "profound_api_error" });
+  });
+});
+
+describe("getProfoundScope (topic-scoping resolver, 2026-06-24)", () => {
+  it("honors the getScope test seam", async () => {
+    expect(
+      await getProfoundScope("t", {
+        getScope: async () => ({ categoryId: "cat-1", topicId: "topic-uuid" }),
+      }),
+    ).toEqual({ categoryId: "cat-1", topicId: "topic-uuid" });
+  });
+  it("a null scope → empty (full-category behavior)", async () => {
+    expect(await getProfoundScope("t", { getScope: async () => null })).toEqual({});
+  });
+  it("no Supabase / no token → empty (soft-fail, never throws)", async () => {
+    // getConnectorToken soft-fails to null without Supabase env → empty scope.
+    expect(await getProfoundScope("t")).toEqual({});
+  });
+});
+
+describe("queryProfoundReport — topic filter passthrough (2026-06-24)", () => {
+  it("adds `filters` to the report body when provided (the sync's topic-scoping call)", async () => {
+    let body: Record<string, unknown> | null = null;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ info: { total_rows: 0 }, data: [] }), {
+        status: 200,
+      });
+    });
+    await queryProfoundReport(
+      {
+        tenantId: "t",
+        report: "citations",
+        categoryId: "cat-1",
+        startDate: "2026-06-10",
+        endDate: "2026-06-12",
+        metrics: ["count"],
+        dimensions: ["date", "url"],
+        filters: [{ field: "topic", operator: "is", value: "topic-uuid" }],
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, getApiKey: async () => "k" },
+    );
+    expect(body!.filters).toEqual([
+      { field: "topic", operator: "is", value: "topic-uuid" },
+    ]);
+  });
+  it("omits `filters` entirely when none provided (back-compat)", async () => {
+    let body: Record<string, unknown> | null = null;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ info: { total_rows: 0 }, data: [] }), {
+        status: 200,
+      });
+    });
+    await queryProfoundReport(
+      {
+        tenantId: "t",
+        report: "citations",
+        categoryId: "cat-1",
+        startDate: "2026-06-10",
+        endDate: "2026-06-12",
+        metrics: ["count"],
+        dimensions: ["date", "url"],
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, getApiKey: async () => "k" },
+    );
+    expect(body!.filters).toBeUndefined();
   });
 });
 

@@ -194,6 +194,19 @@ export type ProfoundConnectorToken = {
   connected_at: string;
   last_synced_at?: string;
   disconnected_at?: string;
+  /**
+   * Topic-scoping (2026-06-24, operator-managed). When the tenant's AEO
+   * prompts live as ONE topic inside a shared/borrowed Profound workspace
+   * category (e.g. Iranopedia's prompts are one of 16 topics in a borrowed
+   * "Frontier Models" category), set these in the SAME payload as the api_key
+   * so the nightly sync scopes every report to the tenant's own topic instead
+   * of pulling the whole (unrelated) category. `topic_id`/`category_id` are
+   * Profound UUIDs; `topic_label` is a human label for surfaces. Optional —
+   * unset → sync pulls the full category (original behavior).
+   */
+  category_id?: string;
+  topic_id?: string;
+  topic_label?: string;
 };
 
 /**

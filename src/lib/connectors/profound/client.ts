@@ -32,11 +32,44 @@ import { log } from "@/lib/logger";
 
 export const PROFOUND_BASE_URL = "https://api.tryprofound.com";
 
+/** Topic-scoping config for a tenant whose prompts live inside a shared
+ *  Profound category (see ProfoundConnectorToken). Resolved from the connector
+ *  token payload the operator manages — never hardcoded. */
+export type ProfoundScope = {
+  categoryId?: string;
+  topicId?: string;
+  topicLabel?: string;
+};
+
 export type ProfoundFetchDeps = {
   fetchImpl?: typeof fetch;
   /** Test seam — resolves the tenant's API key. */
   getApiKey?: (tenantId: string) => Promise<string | null>;
+  /** Test seam — resolves the tenant's topic-scoping config. */
+  getScope?: (tenantId: string) => Promise<ProfoundScope | null>;
 };
+
+/**
+ * Resolve a tenant's Profound topic-scoping from the operator-managed
+ * connector-token payload (`category_id` / `topic_id` / `topic_label`). Returns
+ * an empty scope when nothing is configured (→ full-category behavior). Honors
+ * the `getScope` test seam.
+ */
+export async function getProfoundScope(
+  tenantId: string,
+  deps: ProfoundFetchDeps = {},
+): Promise<ProfoundScope> {
+  if (deps.getScope) return (await deps.getScope(tenantId)) ?? {};
+  const token = await getConnectorToken("profound", tenantId);
+  if (token == null || token.provider !== "profound" || token.disconnected_at) {
+    return {};
+  }
+  return {
+    categoryId: token.category_id?.trim() || undefined,
+    topicId: token.topic_id?.trim() || undefined,
+    topicLabel: token.topic_label?.trim() || undefined,
+  };
+}
 
 async function defaultGetApiKey(tenantId: string): Promise<string | null> {
   const token = await getConnectorToken("profound", tenantId);

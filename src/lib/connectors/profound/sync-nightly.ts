@@ -30,6 +30,7 @@ import { getBusinessConfig } from "@/lib/business-config";
 
 import {
   fetchProfoundCategories,
+  getProfoundScope,
   profoundKeyPresent,
   queryProfoundReport,
   queryProfoundV2Report,
@@ -95,6 +96,23 @@ export async function syncProfoundNightlyForTenant(
   const { tenantId } = args;
   const now = args.now ?? new Date();
 
+  // Topic-scoping (2026-06-24) — when the tenant's prompts live as one TOPIC
+  // inside a shared/borrowed category, scope every report to that topic so we
+  // pull the tenant's real AEO data, not the whole (unrelated) category. Verified
+  // live: Iranopedia is one of 16 topics inside a borrowed "Frontier Models"
+  // category; an unfiltered pull returns ~36k AI-company citations and ~0 for the
+  // tenant. Resolved from the operator-managed connector-token payload, with the
+  // static BusinessConfig.profound as fallback. Unset → original full-category
+  // behavior. Per-tenant config — never hardcoded.
+  const scope = await getProfoundScope(tenantId, deps);
+  const staticCfg = getBusinessConfig(tenantId).profound;
+  const scopeTopicId = (scope.topicId ?? staticCfg?.topicId)?.trim();
+  const scopeCategoryId = (scope.categoryId ?? staticCfg?.categoryId)?.trim();
+  const topicFilter =
+    scopeTopicId && scopeTopicId.length > 0
+      ? ([{ field: "topic", operator: "is", value: scopeTopicId }] as const)
+      : undefined;
+
   const categories = await fetchProfoundCategories(tenantId, deps);
   if (categories == null) {
     // #88 (2026-06-14) — fetchProfoundCategories returns null for BOTH "no key
@@ -113,14 +131,20 @@ export async function syncProfoundNightlyForTenant(
     // every report call requires one; tell the operator honestly.
     return { synced: false, reason: "no_categories_configured" };
   }
-  if (categories.length > MAX_CATEGORIES_PER_NIGHT) {
+  // When a specific category is configured (shared/borrowed workspace), sync
+  // only that one — the others belong to unrelated subjects/tenants.
+  const scopedCategories =
+    scopeCategoryId && scopeCategoryId.length > 0
+      ? categories.filter((c) => c.id === scopeCategoryId)
+      : categories;
+  if (scopedCategories.length > MAX_CATEGORIES_PER_NIGHT) {
     log.warn("[profound-sync] category cap hit — syncing first batch only", {
       tenantId,
-      total: categories.length,
+      total: scopedCategories.length,
       cap: MAX_CATEGORIES_PER_NIGHT,
     });
   }
-  const batch = categories.slice(0, MAX_CATEGORIES_PER_NIGHT);
+  const batch = scopedCategories.slice(0, MAX_CATEGORIES_PER_NIGHT);
 
   const endDate = profoundEstDateString(now);
   const startDate = profoundEstDateString(
@@ -150,6 +174,7 @@ export async function syncProfoundNightlyForTenant(
         endDate,
         metrics: CITATION_METS,
         dimensions: CITATION_DIMS,
+        ...(topicFilter ? { filters: topicFilter } : {}),
       },
       deps,
     );
@@ -204,6 +229,7 @@ export async function syncProfoundNightlyForTenant(
         endDate,
         metrics: VISIBILITY_METS,
         dimensions: VISIBILITY_DIMS,
+        ...(topicFilter ? { filters: topicFilter } : {}),
       },
       deps,
     );
@@ -263,6 +289,7 @@ export async function syncProfoundNightlyForTenant(
         endDate,
         metrics: FANOUT_METS,
         dimensions: FANOUT_DIMS,
+        ...(topicFilter ? { filters: topicFilter } : {}),
       },
       deps,
     );
@@ -426,11 +453,11 @@ export async function syncProfoundNightlyForTenant(
   return {
     synced: true,
     categories: batch.length,
-    categories_total: categories.length,
+    categories_total: scopedCategories.length,
     // #113 — surface the cap honestly. The cap (MAX_CATEGORIES_PER_NIGHT)
     // stays for budget discipline; this just tells the caller how many
     // categories went un-pulled so the UI can stop reporting a clean success.
-    categories_skipped: Math.max(0, categories.length - MAX_CATEGORIES_PER_NIGHT),
+    categories_skipped: Math.max(0, scopedCategories.length - MAX_CATEGORIES_PER_NIGHT),
     citation_rows: citationRows,
     visibility_rows: visibilityRows,
     fanout_rows: fanoutRows,

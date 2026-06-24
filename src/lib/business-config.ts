@@ -39,6 +39,23 @@ export interface BusinessConfig {
   /** Banned terms enforced by the factory validator (word-boundary,
    *  case-sensitive). Pairs with `contentRules`. */
   flaggedTerms?: string[];
+  /**
+   * Profound topic-scoping (2026-06-24). When the tenant's AEO prompts live
+   * INSIDE a shared/borrowed Profound workspace category (one category that
+   * mixes many subjects' topics), set this so the nightly sync scopes every
+   * report to the tenant's OWN topic instead of pulling the whole category
+   * (which would drown the tenant in unrelated citations — e.g. a borrowed
+   * "Frontier Models" category whose Iranopedia prompts are one topic among 16).
+   * `topicId` = the Profound topic UUID (filter `{field:"topic",operator:"is",
+   * value:topicId}`); optional `categoryId` restricts the sync to that one
+   * category. Unset → sync pulls the full category (original behavior).
+   * Per-tenant connection config — never hardcoded vocabulary.
+   */
+  profound?: {
+    categoryId?: string;
+    topicId?: string;
+    topicLabel?: string;
+  };
   phone: string;
   address: string;
   /** Yelp Fusion business id or alias (used by Settings → Connectors → Yelp sync). */
