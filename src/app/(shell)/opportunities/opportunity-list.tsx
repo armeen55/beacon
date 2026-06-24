@@ -202,7 +202,7 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
               <span className={"h-1.5 w-1.5 rounded-full " + meta.dot} />
               {meta.label}
             </span>
-            {o.hasChangePack ? (
+            {o.hasChangePack && o.packAction ? (
               <span
                 title="We already have a suggested fix written for this page. Open it to look before anything changes."
                 className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
@@ -243,7 +243,7 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
             prefetch={false}
             className="whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
           >
-            {o.hasChangePack ? "See the fix" : "Look into it"}
+            {o.hasChangePack && o.packAction ? "See the fix" : "Look into it"}
           </Link>
         </div>
       </div>

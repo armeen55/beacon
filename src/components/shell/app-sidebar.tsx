@@ -23,13 +23,17 @@ const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   "/recommendations": "G R",
   "/prompts": "G P",
-  "/changes": "G C",
+  // audit-wave #9 (2026-06-23): the Changes→Results merge (B26) renamed the route
+  // to /proof, but these maps still keyed on the removed /changes — so the Results
+  // nav item showed no "G C" shortcut + no attention badge. Re-key to /proof to
+  // match navigation.ts + layout.tsx.
+  "/proof": "G C",
   "/settings": "G S",
 };
 
 const BADGE_STYLES: Record<string, string> = {
   "/": "bg-status-danger/15 text-status-danger",
-  "/changes": "bg-status-warning/15 text-status-warning",
+  "/proof": "bg-status-warning/15 text-status-warning",
 };
 
 function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {

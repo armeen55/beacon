@@ -113,13 +113,12 @@ export default function PagesPage() {
           </li>
           <li>
             <Link
-              href="/changes"
+              href="/proof"
               className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
             >
-              Changes
+              Results
             </Link>{" "}
-            &mdash; what&rsquo;s shipped, what&rsquo;s pending, and per-URL
-            attribution.
+            &mdash; every change you&rsquo;ve shipped and whether it helped.
           </li>
         </ul>
         <p className="mt-4 text-[12px] leading-relaxed text-muted-foreground/80 italic">
