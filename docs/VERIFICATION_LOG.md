@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-06-23 (late night) — AUDIT WAVE 3 (6 less-covered surfaces) → 5 fixed / 5 deferred
+
+Third 6-surface wave (proof-measurement math, attribution/brain, priority ranking,
+metric-snapshots/visibility, page-factory/drafts, lifecycle/queue). 11 confirmed;
+fixed the 5 clear/verifiable, deferred 5. Each fixed slice typecheck + targeted-gated.
+- **K (0204875)** #1 [high] GA4 traffic-proof control filter lacked the post-presence
+  guard the GSC path has → a control that vanished post-ship inflated the treated
+  lift (flat page → false +90% WIN, shown to customer). Mirrored the GSC guard.
+  #2/#3 [high] the learning-loop outcome prior (±6) bypassed the index-blocker
+  headroom clamp → a winning-prior content play outranked a comparable index
+  blocker (broke the pinned 'unindexable beats polish' invariant). Joint-clamped
+  the positive corroboration+prior lift for non-blocker rows; negative still demotes.
+- **L (this batch)** #6 [med] schema drafts asserted CMS placeholder ('Page Title')
+  as entity name → guard with isCmsPlaceholder. #8 [low] SoV precedence hazard
+  (owned/count||0, wrong gate) → explicit count>0 guard. #11 [low] forward-only
+  lifecycle omitted 'pushed' → scan downgraded a pushed rec; added 'pushed'.
+- **DEFERRED (real, need focused sessions — in NEXT_PHASE):** #4 visibility
+  citation_rate can exceed 100% (sums citation URLs / obs count — needs a
+  cited_obs_count field on the snapshot row); #5 citation-decay reads cold-store
+  only (blind to native-poll); #7 schema description embeds colon-soup composeMeta
+  rejects (thread the chrome detector + selectMetaSource); #9 Page Surgeon
+  composeJsonLd degenerate single-item BreadcrumbList on root URLs; #10 queue-sweeper
+  is dead code (cap/TTL never invoked); #5/url-watcher per-tenant→global brain
+  materialization (judgment: intended cross-tenant or not?).
+
+---
+
 ## 2026-06-23 (night) — AUDIT WAVE 2 (6 fresh surfaces) → 8 fixed / 9 deferred-or-rejected
 
 Second 6-surface adversarial wave (citation/attribution, today/dashboard, scan
