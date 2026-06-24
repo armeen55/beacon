@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-06-24 — PROFOUND TOPIC-SCOPING (the Iranopedia AEO unlock)
+
+**Root cause found (live API investigation):** the Profound key wired for Iranopedia
+is a borrowed **"Frontier Models"** workspace (the only API-accessible key). It has ONE
+category (`7943f355…`) with **16 topics** — 15 AI-company topics + an **"Iranopedia"**
+topic (`0e181fec…`). The nightly sync pulled the WHOLE category → 36k AI-company
+citations, ~0 Iranopedia. With the verified filter `{field:"topic",operator:"is",
+value:<topic-uuid>}`, the Iranopedia topic has **1,048 answers across 6 engines** and
+**iranopedia.com is cited in 0.0% / mentioned in 0.2%** — AI cites Wikipedia (11% SoV),
+YouTube (12%), Reddit, + displaceable competitors PersianPod101 (7.5%), Easy Persian
+(6.4%), My Persian Corner, Persis Collection, surfiran/adventureiran/orienttrips. That
+0% IS the entire AEO opportunity, now quantified with real data.
+
+**Shipped (commits `a4cca73`, `a5482e6`; typecheck clean, profound suites green):**
+- `queryProfoundReport` + `pullProfoundAnswers` accept `filters` (verified live shape).
+- `getProfoundScope(tenantId)` resolves category/topic from the **operator-managed
+  connector-token payload** (no hardcoding) + `BusinessConfig.profound` static fallback.
+- `sync-nightly` applies the topic filter to citations/visibility/query-fanouts and
+  restricts the category batch to the configured one.
+- Tests: getProfoundScope (seam/empty/soft-fail) + report filter passthrough.
+- **Config set live:** Iranopedia connector payload now carries `topic_id`/`category_id`/
+  `topic_label` (additive merge, api_key preserved).
+
+**OPERATOR-GATED (data deletion — paused):** `profound_citation_rows` holds **36,428
+stale unfiltered rows** for Iranopedia (AI-tool blogs: gmicloud/thesify/openrouter/zemith).
+They're a re-derivable CACHE (source = Profound) but pollute every surface. Clearing them
+(then running the topic-scoped sync → ~1k clean rows) needs operator approval per the
+data-deletion rail. Low-risk: re-pulls from Profound on next sync.
+
 ## 2026-06-24 — DEAD-CODE SWEEP (19 deleted) + PROFOUND MAX-EXTRACTION (build slice 1)
 
 **Dead-code deletion (operator-approved):** orphan detector found 25 never-imported
