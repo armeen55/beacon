@@ -242,6 +242,10 @@ export function buildPromptDrilldown(
     prompt_id: args.prompt.id,
     observations: args.observations,
     ownedEntityNames: ownedNames,
+    // audit-wave4 #1: reuse the same directory/generic-noun filter the
+    // competitor LIST above already applies, so the "Who AI recommends first"
+    // headline can't name a directory (Houzz/Yelp) as the primary winner.
+    competitorFilter: competitorRankingFilter,
   });
 
   return {

@@ -17,6 +17,7 @@ import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import { NATIVE_REGIME_START } from "@/domains/product/url-citation-history";
+import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
 
 /** State-shaped labels — pressure-tested for 8 AM legibility. */
 export type PromptOpportunityCategory =
@@ -125,6 +126,12 @@ export function classifyPromptOpportunity(args: {
   const ownedEntityNames = new Set(
     ownedEntities.map((e) => e.name).filter((n): n is string => Boolean(n)),
   );
+  // audit-wave4 #2: the same directory/generic-noun filter the drilldown uses,
+  // so dominantCompetitors (which drives the "Outranked" verdict, the reasoning
+  // string, and the v2 card chips) can't be polluted by Houzz/Yelp/Angi.
+  const competitorRankingFilter = makeCompetitorRankingFilter(
+    args.activeEntities,
+  );
 
   // Filter observations to this prompt + lookback window + native regime.
   //
@@ -211,6 +218,7 @@ export function classifyPromptOpportunity(args: {
     // activeEntities + not owned.
     for (const name of o.competitor_co_mentions ?? []) {
       if (!name || ownedEntityNames.has(name)) continue;
+      if (!competitorRankingFilter(name)) continue; // audit-wave4 #2: drop directories/generic nouns
       competitorMentionFreq.set(
         name,
         (competitorMentionFreq.get(name) ?? 0) + 1,

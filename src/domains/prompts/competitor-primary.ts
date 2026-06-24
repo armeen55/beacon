@@ -60,6 +60,15 @@ export type SummarizePromptPrimaryArgs = {
   ownedEntityNames: ReadonlySet<string>;
   /** Majority threshold for ritzState="primary" and fragmented=false. Defaults to 0.5. */
   majorityThreshold?: number;
+  /**
+   * audit-wave4 #1: optional pollution filter (makeCompetitorRankingFilter) so
+   * directory listings (Houzz/Yelp/Angi) and generic-noun entities are NOT
+   * eligible for the "primary recommendation" slot. The drilldown already builds
+   * this filter for its competitor LIST; threading it here keeps the prominent
+   * "Who AI recommends first" headline consistent (no directory shown as winner).
+   * Returns true to KEEP a name as a rankable competitor. Absent ⇒ owned-only.
+   */
+  competitorFilter?: (name: string) => boolean;
 };
 
 export function summarizePromptPrimary(
@@ -85,7 +94,10 @@ export function summarizePromptPrimary(
       continue;
     }
     const firstCompetitor = (o.competitor_co_mentions ?? []).find(
-      (n) => n && !args.ownedEntityNames.has(n),
+      (n) =>
+        n &&
+        !args.ownedEntityNames.has(n) &&
+        (args.competitorFilter ? args.competitorFilter(n) : true),
     );
     if (firstCompetitor) {
       competitorPrimaryCounts.set(
@@ -145,6 +157,8 @@ export function summarizeAllPromptsPrimary(args: {
   observations: ReadonlyArray<PromptAnswerObservation>;
   ownedEntityNames: ReadonlySet<string>;
   majorityThreshold?: number;
+  /** audit-wave4 #1: see SummarizePromptPrimaryArgs.competitorFilter. */
+  competitorFilter?: (name: string) => boolean;
 }): Map<string, PromptPrimarySummary> {
   const out = new Map<string, PromptPrimarySummary>();
   for (const prompt_id of args.promptIds) {
@@ -155,6 +169,7 @@ export function summarizeAllPromptsPrimary(args: {
         observations: args.observations,
         ownedEntityNames: args.ownedEntityNames,
         majorityThreshold: args.majorityThreshold,
+        competitorFilter: args.competitorFilter,
       }),
     );
   }

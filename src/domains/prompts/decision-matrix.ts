@@ -26,6 +26,7 @@ import {
   summarizeAllPromptsPrimary,
   type PromptPrimarySummary,
 } from "./competitor-primary";
+import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
 
 export type ClusterWeakness = {
   type: "geo" | "topic";
@@ -244,6 +245,9 @@ export function buildPromptDecisionMatrix(
     promptIds: activePrompts.map((p) => p.id),
     observations: args.observations,
     ownedEntityNames,
+    // audit-wave4 #1: exclude directory/generic-noun entities from the primary
+    // slot so the decision matrix never names a directory as the winner.
+    competitorFilter: makeCompetitorRankingFilter(args.activeEntities),
   });
   const primaryByPromptId: Record<string, PromptPrimarySummary> = {};
   for (const [id, summary] of primarySummaries.entries()) {
