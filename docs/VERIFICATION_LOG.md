@@ -7,6 +7,36 @@
 
 ---
 
+## 2026-06-23 (night) — AUDIT WAVE 2 (6 fresh surfaces) → 8 fixed / 9 deferred-or-rejected
+
+Second 6-surface adversarial wave (citation/attribution, today/dashboard, scan
+ingestion, cron/sync, LLM gateway+cost, schema/content). 17 confirmed; fixed the 8
+clear/verifiable ones, deferred/rejected 9 with reasons (verify-first caught 2 as
+intentional/unsafe). Each fixed slice typecheck + targeted-test gated.
+- **F (a8e9d01) #1 [high]/#12** citation platform-casing: benchmark rows store
+  'ChatGPT'/'Perplexity' but per-platform compare was exact-lowercase → a cited
+  benchmark page read as UNCITED on the lifecycle surface. normalizePlatform at ingest.
+- **G (f4531a1) #16/#17** gpt-5-mini reasoning_effort+token bounds (specific-edit
+  provider + cluster-factory) → no more silent empty bundle/'{}'.
+- **H (51d8192) #9 [med]** GSC sync first-day pull failure returned synced:true
+  (false freshness) → returns synced:false.
+- **I/J (4f838ed) #3 [high]/#6/#13** numeric-fidelity now scans the publishable
+  ship copy (artifact_text + faq_items); AEO card names its single reading day;
+  state-of-union no longer calls growth-from-zero 'steady'.
+- **REJECTED (verify-first):** #15 GBP partial-zero stamp is intentional (test
+  asserts last_synced_at truthy on a 500). #11 answer-block question-shape is a
+  reasonable existing heuristic (narrowing is a fuzzy judgment).
+- **DEFERRED (real, need a focused session — in NEXT_PHASE):** #2 scan-shell guard
+  (must carry-forward prior snapshot or it empties inventory on Wix shell tenants;
+  script, no test); #4 schema-parity content classification; #5 citation-decay
+  blind to native-poll (cold-store only); #7 FAQ-lost/added diff (needs
+  previous_faq_count on the diff type); #8 page registry id stability (pg-N
+  re-derived by Map order — RISKY, broad join impact); #10 AI-claim firewall >48ch
+  bypass (tightening over-rejects valid AEO reasoning — needs sample tuning); #14
+  GSC sparkline densify gappy series.
+
+---
+
 ## 2026-06-23 (evening) — 6-SURFACE AUDIT WAVE → 12 fixed / 1 deferred (057656d, 16f0d33, f9befd6, c2c1e5e)
 
 Operator directive: work big things autonomously until midnight LA. Ran a 6-surface
