@@ -75,6 +75,24 @@ describe("pullProfoundAnswers", () => {
     );
     expect(r).toBeNull();
   });
+  it("passes a topic filter through to the request body (topic-scoping)", async () => {
+    let body: Record<string, unknown> | null = null;
+    const fetchImpl = (async (_u: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return jsonRes({ info: { total_rows: 0 }, data: [] });
+    }) as unknown as typeof fetch;
+    await pullProfoundAnswers(
+      {
+        tenantId: "t",
+        categoryId: "c",
+        startDate: "2026-06-01",
+        endDate: "2026-06-03",
+        filters: [{ field: "topic", operator: "is", value: "topic-uuid" }],
+      },
+      deps(fetchImpl),
+    );
+    expect(body!.filters).toEqual([{ field: "topic", operator: "is", value: "topic-uuid" }]);
+  });
 });
 
 describe("createProfoundPrompts", () => {

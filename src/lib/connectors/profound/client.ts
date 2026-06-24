@@ -358,6 +358,15 @@ export function decodeProfoundEnvelope(
  *  honestly if anything was left behind (no silent caps). */
 const REPORT_PAGE_LIMIT = 50_000;
 
+/** A Profound report/answers filter. The verified shape is
+ *  `{ field, operator, value }` — e.g. scope to one topic with
+ *  `{ field: "topic", operator: "is", value: "<topic-uuid>" }` (value is the
+ *  topic UUID, NOT its name). Critical for multi-topic categories: a workspace
+ *  category can mix unrelated topics (e.g. the borrowed account mixes AI-company
+ *  topics with the tenant's "Iranopedia" topic), so an UNFILTERED pull returns
+ *  the wrong tenant's data. Always topic-scope per-tenant. */
+export type ProfoundFilter = { field: string; operator: string; value: string };
+
 export async function queryProfoundReport(
   args: {
     tenantId: string;
@@ -369,6 +378,8 @@ export async function queryProfoundReport(
     endDate: string;
     metrics: readonly string[];
     dimensions: readonly string[];
+    /** Scope the report (e.g. to one topic) — verified live shape. */
+    filters?: readonly ProfoundFilter[];
   },
   deps: ProfoundFetchDeps = {},
 ): Promise<{ rows: ProfoundReportRow[]; totalRows: number } | null> {
@@ -384,6 +395,7 @@ export async function queryProfoundReport(
         date_interval: "day",
         metrics: args.metrics,
         dimensions: args.dimensions,
+        ...(args.filters && args.filters.length > 0 ? { filters: args.filters } : {}),
         pagination: { limit: REPORT_PAGE_LIMIT, offset: 0 },
       },
     },
@@ -466,6 +478,8 @@ export async function pullProfoundAnswers(
     categoryId: string;
     startDate: string;
     endDate: string;
+    /** Scope to one topic etc. (e.g. the tenant's own topic in a shared category). */
+    filters?: readonly ProfoundFilter[];
     /** Hard ceiling across pages (cost/safety); default 50k. */
     maxRows?: number;
   },
@@ -488,6 +502,7 @@ export async function pullProfoundAnswers(
           category_id: args.categoryId,
           start_date: args.startDate,
           end_date: args.endDate,
+          ...(args.filters && args.filters.length > 0 ? { filters: args.filters } : {}),
           pagination: { limit: Math.min(REPORT_PAGE_LIMIT, remaining), offset },
         },
       },
