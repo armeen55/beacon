@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-06-24 — AUDIT WAVE 6 (last 6 un-audited surfaces) → 5 fixed / 3 deferred
+
+Sixth wave (SERP guard/diagnosis, persistence, connector token refresh, today
+loaders, config derivation, local-reviews/GBP). 8 confirmed; fixed 5, deferred 3.
+- **#1 [high] (connectors):** Google re-consent omits refresh_token for the same
+  client; saveConnectorToken full-row upsert wrote "" → bricked the GSC/GA4/GBP
+  grant (dies in ~1h, no self-heal). Since OAuth dies ~weekly (testing mode),
+  reconnects are routine. Now preserves the stored refresh_token on omit.
+- **#2 [med] (serp-guard):** the SERP guard rode on the ctr_leak benefit (>=500
+  impressions), so a top-ranked low-CTR title/meta lever below that floor read
+  "Ship this now" with no "verify SERP" note. Now derives the guard from page
+  rank for any needed click lever (only ever ADDS a verify note — never a false Ship).
+- **#3 [med]** NAP "Inconsistent" copy claimed name/address/phone checked (only
+  names are) → honest copy + test realigned.
+- **#5 [low]** robots_state/sitemap_reconciliation soft-failed only on 42P01, not
+  PGRST205 (schema cache) → throws on fresh install; now both.
+- **#7 [low]** saveBusinessConfig top-level + singleton writes gated on raw
+  BEACON_TENANT_ID not founderTenantId() → a customer-pinned deploy could leak its
+  config into the founder's shared row. Now symmetric with the read gate.
+- **DEFERRED:** #4 review-id namespace (verify-first: connector uses the GBP
+  resource id, not the manual id, so a prefix wouldn't dedup the same review across
+  sources AND would duplicate existing manual rows on re-import — real dedup needs
+  a content key, a build); #6 State-of-Union schema-coverage 3000-row cap (low; not
+  impactful for Iranopedia's 217 pages — needs DISTINCT-per-URL RPC); #8 mapRowToTenant
+  default segment local_service (a missing-segment DEFAULT is a classification policy
+  decision, rail-gated).
+
+---
+
 ## 2026-06-24 — AUDIT WAVE 5 (6 deep un-audited surfaces) → 7 fixed / 1 deferred
 
 Fifth wave (proof verdict/placebo math, cron orchestration, brain/attribution
