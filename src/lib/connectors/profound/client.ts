@@ -394,6 +394,210 @@ export async function queryProfoundReport(
 }
 
 // ---------------------------------------------------------------------------
+// Raw answers — POST /v1/prompts/answers (the RICHEST extraction: per-answer
+// prompt + mentions[] + citation_details[] + topic/model/asset). This is what
+// turns "is my brand cited for THIS prompt, and who's cited instead" into real
+// per-prompt AEO signal — the report endpoints only give aggregates. Response
+// shape is { info: { total_rows }, data: [AnswersRawData] } (NOT the metrics/
+// dimensions envelope), so it has its own decoder. Offset-paginated (≤50k/page).
+// ---------------------------------------------------------------------------
+
+export type ProfoundAnswerRow = {
+  promptId: string | null;
+  prompt: string;
+  response: string;
+  /** Entity/brand names the answer mentioned (Profound's own extraction). */
+  mentions: string[];
+  /** Hostnames the answer cited (from citation_details[].hostname). */
+  citationHostnames: string[];
+  topic: string | null;
+  model: string | null;
+  /** The tracked asset this answer is about (when prompt_type=visibility). */
+  asset: string | null;
+  createdAt: string | null;
+};
+
+function strArr(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function citationHosts(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const c of v) {
+    if (c && typeof c === "object") {
+      const h = (c as Record<string, unknown>).hostname;
+      if (typeof h === "string" && h) out.push(h);
+    }
+  }
+  return out;
+}
+
+export function decodeProfoundAnswers(
+  raw: unknown,
+): { rows: ProfoundAnswerRow[]; totalRows: number } {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  const info = (obj.info ?? {}) as Record<string, unknown>;
+  const totalRows = Number(info.total_rows ?? 0) || 0;
+  const data = Array.isArray(obj.data) ? obj.data : [];
+  const rows: ProfoundAnswerRow[] = [];
+  for (const d of data) {
+    if (!d || typeof d !== "object") continue;
+    const r = d as Record<string, unknown>;
+    rows.push({
+      promptId: typeof r.prompt_id === "string" ? r.prompt_id : null,
+      prompt: typeof r.prompt === "string" ? r.prompt : "",
+      response: typeof r.response === "string" ? r.response : "",
+      mentions: strArr(r.mentions),
+      citationHostnames: citationHosts(r.citation_details),
+      topic: typeof r.topic === "string" ? r.topic : null,
+      model: typeof r.model === "string" ? r.model : null,
+      asset: typeof r.asset === "string" ? r.asset : null,
+      createdAt: typeof r.created_at === "string" ? r.created_at : null,
+    });
+  }
+  return { rows, totalRows };
+}
+
+/** Pull ALL raw answers for a category over a window, paginating until exhausted
+ *  (or maxRows reached). Fail-soft to null (no key / API error) or partial. */
+export async function pullProfoundAnswers(
+  args: {
+    tenantId: string;
+    categoryId: string;
+    startDate: string;
+    endDate: string;
+    /** Hard ceiling across pages (cost/safety); default 50k. */
+    maxRows?: number;
+  },
+  deps: ProfoundFetchDeps = {},
+): Promise<{ rows: ProfoundAnswerRow[]; totalRows: number } | null> {
+  const cap = args.maxRows ?? REPORT_PAGE_LIMIT;
+  const out: ProfoundAnswerRow[] = [];
+  let totalRows = 0;
+  let offset = 0;
+  // Bounded page loop (≤20 pages) so a runaway total can never spin forever.
+  for (let page = 0; page < 20; page++) {
+    const remaining = cap - out.length;
+    if (remaining <= 0) break;
+    const raw = await profoundRequest(
+      {
+        tenantId: args.tenantId,
+        method: "POST",
+        path: "/v1/prompts/answers",
+        body: {
+          category_id: args.categoryId,
+          start_date: args.startDate,
+          end_date: args.endDate,
+          pagination: { limit: Math.min(REPORT_PAGE_LIMIT, remaining), offset },
+        },
+      },
+      deps,
+    );
+    if (raw == null) {
+      // First-page failure ⇒ null; later-page failure ⇒ return what we have.
+      return out.length > 0 ? { rows: out, totalRows } : null;
+    }
+    const decoded = decodeProfoundAnswers(raw);
+    totalRows = decoded.totalRows;
+    out.push(...decoded.rows);
+    offset += decoded.rows.length;
+    if (decoded.rows.length === 0 || out.length >= totalRows) break;
+  }
+  return { rows: out, totalRows };
+}
+
+// ---------------------------------------------------------------------------
+// Prompt management — POST /v1/org/categories/{category_id}/prompts.
+// Programmatically REGISTER a tenant's own prompts in the workspace so Profound
+// tracks them across every model — the "take over the account" path: push
+// Iranopedia's (or Ritz's) prompts, then pull their answers. Batch + dry_run
+// supported; topics/tags auto-created by name. NO hardcoding — all prompt
+// content is the caller's (a tenant's tracked_prompts).
+// ---------------------------------------------------------------------------
+
+export type ProfoundPromptSpec = {
+  prompt: string;
+  /** Topic name (auto-created if new) or id. */
+  topic: string;
+  /** BCP-47 language; defaults to "en". */
+  language?: string;
+  /** Region names/ids — at least one required by the API. */
+  regions: readonly string[];
+  /** Platform/model names — at least one required by the API. */
+  platforms: readonly string[];
+  tags?: readonly string[];
+  personas?: readonly string[];
+  /** visibility | sentiment | sentiment_v2 | accuracy; defaults to ["visibility"]. */
+  analysisTypes?: readonly string[];
+  /** Required by the API for sentiment prompts. */
+  asset?: string;
+};
+
+export async function createProfoundPrompts(
+  args: {
+    tenantId: string;
+    categoryId: string;
+    prompts: readonly ProfoundPromptSpec[];
+    /** Validate without persisting (API dry_run). */
+    dryRun?: boolean;
+  },
+  deps: ProfoundFetchDeps = {},
+): Promise<
+  | {
+      created: number;
+      topicsCreated: number;
+      tagsCreated: number;
+      dryRun: boolean;
+      promptIds: string[];
+    }
+  | null
+> {
+  if (args.prompts.length === 0) {
+    return { created: 0, topicsCreated: 0, tagsCreated: 0, dryRun: !!args.dryRun, promptIds: [] };
+  }
+  const raw = await profoundRequest(
+    {
+      tenantId: args.tenantId,
+      method: "POST",
+      path: `/v1/org/categories/${encodeURIComponent(args.categoryId)}/prompts`,
+      body: {
+        prompts: args.prompts.map((p) => ({
+          prompt: p.prompt,
+          topic: p.topic,
+          language: p.language ?? "en",
+          regions: p.regions,
+          platforms: p.platforms,
+          ...(p.tags ? { tags: p.tags } : {}),
+          ...(p.personas ? { personas: p.personas } : {}),
+          analysis_types: p.analysisTypes ?? ["visibility"],
+          ...(p.asset ? { asset: p.asset } : {}),
+        })),
+        dry_run: args.dryRun ?? false,
+      },
+    },
+    deps,
+  );
+  if (raw == null) return null;
+  const o = raw as Record<string, unknown>;
+  const promptIds: string[] = [];
+  if (Array.isArray(o.prompts)) {
+    for (const p of o.prompts) {
+      if (p && typeof p === "object") {
+        const id = (p as Record<string, unknown>).id;
+        if (typeof id === "string") promptIds.push(id);
+      }
+    }
+  }
+  return {
+    created: Number(o.created ?? 0) || 0,
+    topicsCreated: Number(o.topics_created ?? 0) || 0,
+    tagsCreated: Number(o.tags_created ?? 0) || 0,
+    dryRun: Boolean(o.dry_run),
+    promptIds,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Agent Analytics v2 — POST /v2/reports/{bots,referrals}.
 // Unlike the /v1 answer-engine reports these take a RAW `domain` (no
 // category_id needed) and default end_date to now-UTC (official spec:

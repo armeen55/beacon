@@ -7,6 +7,42 @@
 
 ---
 
+## 2026-06-24 — DEAD-CODE SWEEP (19 deleted) + PROFOUND MAX-EXTRACTION (build slice 1)
+
+**Dead-code deletion (operator-approved):** orphan detector found 25 never-imported
+modules; an adversarial per-file verification workflow (full-repo grep + dynamic
+import + JSX + barrel + test refs) cleared 21, kept 4 (architecture-test-pinned).
+Deleted 19; **restored 2 (command-center.tsx, recommendation-actions.ts)** —
+verify-first caught that source-SCANNING contract tests (ux6-2/ux5b vocabulary,
+off-site no-queue) read those files (the workflow checked code-imports, not
+string-assertion tests). typecheck clean; the 6 referencing architecture tests
+green after restore. Net: 19 files removed (replication-serialize, citation-
+genealogy, sitemap-reconciliation-store, fix-briefs, universe-defaults,
+hypothesis-editor, wave-actions, 5 unused ui/* primitives, scan-status-banner,
+chart-types, verdict-badge, empty-state, product-truth, attribution-confidence-
+basis, load-page-shape-patterns).
+
+**Profound max-extraction (per operator /goal "maximum profound usage"):** audited
+the full Profound REST API (docs.tryprofound.com) — the connector pulled only
+citations+visibility (capped categories), leaving the richest data unused. Built
+(config-driven, no hardcoding, tested):
+- `pullProfoundAnswers` (client.ts) — POST /v1/prompts/answers, paginated (≤50k),
+  the per-answer extraction: mentions[], citation hostnames, topic/model/asset.
+- `createProfoundPrompts` (client.ts) — POST /v1/org/categories/{id}/prompts,
+  batch + dry_run — REGISTER a tenant's own prompts in the account ("take over"
+  path; works for Iranopedia AND Ritz).
+- `analyzeProfoundAnswers` (recommendation-intelligence/profound-answer-analysis.ts)
+  — PURE: per-topic AEO gaps (owned absent + competitors cited → who to displace),
+  hyphen-aware brand match + suffix-aware owned host (reuses the audit fixes).
+- 20 tests (7 analyzer + 13 client decode/paginate/create), typecheck clean.
+**Honest state:** the borrowed Profound account currently tracks ONE AI-tech
+category (NOT Iranopedia); tracked_prompts/entities/answers are empty. Activation
+(operator): add the Profound API key + run createProfoundPrompts for the tenant's
+prompts → pull answers → analyzer surfaces the real AEO gaps. Storage migration +
+nightly-sync wiring are the next slices (lever 0j).
+
+---
+
 ## 2026-06-24 — AUDIT WAVE 7 (evidence-path + action surfaces) → 5 fixed / 9 deferred
 
 Seventh wave (SEMrush/Profound adapters, GA4 dollar-ROI, operator actions, Wix

@@ -135,6 +135,11 @@ describe("buildRunReportBody", () => {
         { name: "engagedSessions" },
         { name: "conversions" },
       ],
+      // audit-wave7 #5: total deterministic order so offset paging is exact.
+      orderBys: [
+        { dimension: { dimensionName: "date" } },
+        { dimension: { dimensionName: "pagePath" } },
+      ],
       limit: 10000,
       offset: 0,
     });
