@@ -147,6 +147,8 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
     });
     expect(p.gaps.some((g) => g.kind === "missing_tool")).toBe(true);
     expect(p.draft.assetSpec).toBeTruthy();
+    expect(p.draft.asset?.kind).toBe("calculator");
+    expect(p.draft.asset?.buildPath.toLowerCase()).toContain("wix");
   });
 
   it("evidenceHash is stable for identical inputs + changes with the facts", () => {

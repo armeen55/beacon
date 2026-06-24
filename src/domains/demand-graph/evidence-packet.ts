@@ -18,6 +18,7 @@ import type { MoveCandidate, MoveComponents, ConfidenceLevel, GapKind } from "./
 import type { CompetitorPageFacts } from "./competitor-page-audit";
 import { whatWins } from "./competitor-page-audit";
 import { bestTitle } from "./ctr-title-scorer";
+import { buildAssetSpec, type AssetSpec } from "./asset-spec";
 
 /** Structural facts both owned + competitor pages expose, for comparison. */
 export type PageStructureFacts = {
@@ -57,8 +58,10 @@ export type DraftSkeleton = {
   faqQuestions: string[];
   /** Schema types the competitor has that you lack. */
   schemaRecommendations: string[];
-  /** When the gap is a tool/calculator. */
+  /** When the gap is a tool/calculator: human summary. */
   assetSpec: string | null;
+  /** Structured deterministic asset spec (kind + build-path), null otherwise. */
+  asset: AssetSpec | null;
   note: string;
 };
 
@@ -249,6 +252,12 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
     schemaRecommendations,
     assetSpec: hasToolGap
       ? `Spec an interactive tool for "${primaryQuery}" (inputs → outputs) — competitor ${input.competitor?.domain ?? ""} has one; it earns links + citations.`
+      : null,
+    asset: hasToolGap
+      ? buildAssetSpec(primaryQuery, brand, {
+          competitorDomain: input.competitor?.domain ?? null,
+          competitorTitle: competitorOnTopic ? cFacts?.title ?? null : null,
+        })
       : null,
     note: "Deterministic skeleton from grounded facts (competitor teardown + Profound fanouts). LLM drafting is a later, gated step.",
   };
