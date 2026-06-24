@@ -38,6 +38,7 @@ import {
   type DiagnosisStatus,
 } from "./diagnosis-matrix";
 import { buildOpportunity } from "./opportunity";
+import { deriveSerpGuard } from "./serp-guard";
 
 export type LeverKey =
   | "title"
@@ -305,8 +306,26 @@ function buildRow(
   // The SERP guard is page-level — keep it on EVERY needed click lever, separate
   // from the deduped numeric estimate, so the "Needs SERP check" verdict can't be
   // lost on a non-lead lever (a SERP-owned page must never show meta "Ship now").
-  const serpGuardLabel =
+  // audit-wave6 #2: pageBenefit.serpGuardLabel is only computed inside the
+  // ctr_leak path (gated on impressions90d >= 500). A title/meta lever can be
+  // `needed` on a TOP-RANKED page below that floor with NO guard → it would read
+  // "Ship this now" while the SERP may own the answer. Fall back to deriving the
+  // guard directly from the page's rank (deriveSerpGuard only adds a verify note
+  // for top-ranked pages, never a false "Ship now"), so the guard can't be lost.
+  let serpGuardLabel: string | null =
     CLICK_LEVERS.has(lever) && needed ? pageBenefit?.serpGuardLabel ?? null : null;
+  if (
+    serpGuardLabel == null &&
+    CLICK_LEVERS.has(lever) &&
+    needed &&
+    packet.gsc != null
+  ) {
+    const guard = deriveSerpGuard({
+      position: packet.gsc.avgPosition,
+      serpStatus: "unknown",
+    });
+    if (guard.downgrade) serpGuardLabel = guard.label;
+  }
 
   const risk: WorkbenchLeverRow["risk"] =
     lever === "new_page"

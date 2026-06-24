@@ -640,7 +640,11 @@ export function saveBusinessConfig(
   // MT-1 back-compat: the env-named tenant keeps writing the shared
   // top-level file so the operator's /settings/config save path is
   // byte-identical to today.
-  if (process.env.VERCEL !== "1" && tenantId === process.env.BEACON_TENANT_ID) {
+  // audit-wave6 #7: gate the shared TOP-LEVEL config write on the FOUNDER tenant
+  // (symmetric with the read gate), not raw BEACON_TENANT_ID — otherwise a deploy
+  // with BEACON_TENANT_ID set to a CUSTOMER tenant would write that customer's
+  // config into the founder's shared file.
+  if (process.env.VERCEL !== "1" && tenantId === founderTenantId()) {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
     writeFileSync(TOP_LEVEL_CONFIG_PATH, JSON.stringify(updated, null, 2));
   }
@@ -667,7 +671,10 @@ export function saveBusinessConfig(
   // singleton row (id="current") keeps the env-named tenant's
   // pre-multi-tenant channel byte-identical.
   syncTenantBusinessConfig(tenantId, updated).catch(() => {});
-  if (tenantId === process.env.BEACON_TENANT_ID) {
+  // audit-wave6 #7: the legacy singleton "current" Supabase row belongs to the
+  // FOUNDER tenant — gate on founderTenantId() (symmetric with the read path) so
+  // a customer save can't overwrite the founder's singleton.
+  if (tenantId === founderTenantId()) {
     syncBusinessConfig(updated).catch(() => {});
   }
   return updated;

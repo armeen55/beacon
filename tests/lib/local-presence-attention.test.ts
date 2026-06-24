@@ -127,7 +127,9 @@ describe("Track 1.4f — NAP display + explanation helpers", () => {
   it("napStateExplanation returns factual copy", () => {
     expect(napStateExplanation("complete")).toContain("complete");
     expect(napStateExplanation("incomplete")).toContain("missing");
-    expect(napStateExplanation("inconsistent")).toContain("do not agree");
+    // audit-wave6 #3: the inconsistent state is derived from review listing NAMES
+    // only — copy now reflects that (was the over-claiming "do not agree ... phone").
+    expect(napStateExplanation("inconsistent")).toContain("listing names");
     expect(napStateExplanation("unknown")).toContain("not have enough data");
   });
 });

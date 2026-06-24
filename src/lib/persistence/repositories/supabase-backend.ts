@@ -1067,7 +1067,7 @@ export const supabaseBackend: SeedDataRepository = {
           .eq("tenant_id", tenantId)
           .maybeSingle();
         if (error) {
-          if (error.code === "42P01") return null; // undefined_table soft-fail
+          if (error.code === "42P01" || error.code === "PGRST205") return null; // undefined_table / schema-cache soft-fail (audit-wave6 #5)
           throw new Error(
             `Supabase query failed on robots_state: ${error.message}`,
           );
@@ -1120,7 +1120,7 @@ export const supabaseBackend: SeedDataRepository = {
           .eq("tenant_id", tenantId)
           .maybeSingle();
         if (error) {
-          if (error.code === "42P01") return null; // undefined_table soft-fail
+          if (error.code === "42P01" || error.code === "PGRST205") return null; // undefined_table / schema-cache soft-fail (audit-wave6 #5)
           throw new Error(
             `Supabase query failed on sitemap_reconciliation: ${error.message}`,
           );

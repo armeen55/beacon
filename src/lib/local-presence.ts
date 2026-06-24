@@ -540,7 +540,10 @@ export function napStateDisplay(n: NapConsistencyState): string {
 export function napStateExplanation(n: NapConsistencyState): string {
   if (n === "unknown") return "Beacon does not have enough data to judge consistency.";
   if (n === "inconsistent")
-    return "Imported listing records do not agree on name, address, or phone.";
+    // audit-wave6 #3: the inconsistent state is derived ONLY from review listing
+    // NAMES conflicting with the configured business name — don't claim
+    // address/phone were checked.
+    return "Imported review listing names do not match your configured business name.";
   if (n === "incomplete") return "Some required identity fields are missing.";
   return "Required identity fields are complete.";
 }
