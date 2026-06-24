@@ -362,17 +362,34 @@ export function priorityScore(c: PriorityScoreInput): number {
   // blocker on the same page; index-blocker rows take the full bonus
   // (corroboration only ever lifts a blocker further above content).
   const rawCorroboration = fusionCorroborationBonus(c.signal_class_count);
-  const corroborationBonus =
-    indexBlocker > 0
-      ? rawCorroboration
-      : Math.min(rawCorroboration, FUSION_BONUS_NON_BLOCKER_HEADROOM);
+  // audit-wave3 #2/#3: the learning-loop outcome prior must respect the SAME
+  // index-blocker headroom as corroboration — otherwise a +MAX winning-prior
+  // content play outranks a comparable index blocker on the same page, breaking
+  // the pinned "fixable-but-unindexable beats polish" invariant. For
+  // NON-index-blocker rows the POSITIVE fusion lift (corroboration + winning
+  // prior) is JOINTLY clamped to the headroom; a losing prior (negative) always
+  // demotes fully; index-blocker rows take both bonuses in full (they only ever
+  // lift a blocker further above content).
+  const rawOutcome = outcomePriorBonus(c.outcome_prior);
+  let corroborationBonus: number;
+  let outcomeBonus: number;
+  if (indexBlocker > 0) {
+    corroborationBonus = rawCorroboration;
+    outcomeBonus = rawOutcome;
+  } else {
+    corroborationBonus = Math.min(
+      Math.max(0, rawCorroboration) + Math.max(0, rawOutcome),
+      FUSION_BONUS_NON_BLOCKER_HEADROOM,
+    );
+    outcomeBonus = Math.min(0, rawOutcome); // negative prior still demotes
+  }
   const raw =
     ((severity +
       indexBlocker +
       pageImportance +
       upsideBonus(c.upside_clicks_90d) +
       corroborationBonus +
-      outcomePriorBonus(c.outcome_prior)) *
+      outcomeBonus) *
       valueWeight *
       conf *
       prereq *

@@ -83,8 +83,17 @@ async function computeGa4TrafficOutcome(
   ]);
 
   // Only controls with real pre-window traffic anchor the diff-in-diff baseline.
+  // audit-wave3 #1: ALSO require post presence once a full window has run —
+  // mirroring the GSC control guard. A control that vanished post-ship (zero
+  // post sessions) posts -100% and, subtracted as the baseline, INFLATES the
+  // treated page's adjusted lift (a disappearing comparison page would falsely
+  // read as the treated page winning) — fabricating a positive proof number.
   const controls = record.controlPages
-    .filter((cp) => (pre.get(cp)?.sessions ?? 0) > 0)
+    .filter(
+      (cp) =>
+        (pre.get(cp)?.sessions ?? 0) > 0 &&
+        (!ran || (post.get(cp)?.sessions ?? 0) > 0),
+    )
     .map((cp) => ({ pre: pre.get(cp) ?? GA4_ZERO, post: post.get(cp) ?? GA4_ZERO }));
 
   return computeTrafficOutcome({
