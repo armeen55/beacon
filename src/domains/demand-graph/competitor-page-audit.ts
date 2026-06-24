@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
-import { loadCompetitorCitedPagesForTenant } from "./competitor-citations-loader";
+import { loadDemandGraphForTenant } from "./load-graph";
 
 const STORE = "competitor-page-audit";
 const DEFAULT_TOP_N = 20;
@@ -393,33 +393,43 @@ async function saveAudits(audits: CompetitorPageAudit[]): Promise<void> {
 }
 
 /**
- * Audit the top-N competitor cited pages for the tenant (cache-aware): skips a
- * URL already audited "ok" unless `force`. Persists results. Fail-soft per URL.
+ * Audit the competitor pages the Top-N MOVES actually reference (each move's
+ * top cited competitor), so the teardown aligns 1:1 with the EvidencePackets.
+ * Cache-aware (skips a URL already audited "ok" unless `force`). Fail-soft per URL.
  */
 export async function auditTopCompetitorsForTenant(
-  args: { tenantId: string; ownedDomain: string; limit?: number; force?: boolean },
+  args: { tenantId: string; limit?: number; force?: boolean },
   deps: CompetitorAuditDeps = {},
-): Promise<{ audited: CompetitorPageAudit[]; skipped: number; cached: number }> {
+): Promise<{ audited: CompetitorPageAudit[]; targets: number; cached: number }> {
   const limit = args.limit ?? DEFAULT_TOP_N;
-  const { competitors } = await loadCompetitorCitedPagesForTenant(args.tenantId, args.ownedDomain);
-  // Rank: content competitors first (skip aggregators), by model breadth × volume.
-  const targets = competitors
-    .filter((c) => !c.isAggregator)
-    .slice(0, limit);
+  const { graph } = await loadDemandGraphForTenant(args.tenantId);
+  const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
+
+  // The per-move top competitor URLs (what the packets reference), deduped.
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const m of actionable.slice(0, limit)) {
+    const u = m.competitorUrls[0];
+    if (!u) continue;
+    const key = canonicalizeCitationUrl(u) || u;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    urls.push(u);
+  }
 
   const cache = await getCompetitorAuditsForTenant();
   const out: CompetitorPageAudit[] = [];
   let cached = 0;
-  for (const c of targets) {
-    const key = canonicalizeCitationUrl(c.url) || c.url;
+  for (const url of urls) {
+    const key = canonicalizeCitationUrl(url) || url;
     const prior = cache.get(key);
     if (!args.force && prior && prior.fetchStatus === "ok") {
       cached += 1;
       out.push(prior);
       continue;
     }
-    out.push(await auditCompetitorPage(c.url, deps));
+    out.push(await auditCompetitorPage(url, deps));
   }
-  await saveAudits(out.filter((a) => !cache.has(canonicalizeCitationUrl(a.url) || a.url) || args.force || a.fetchStatus === "ok"));
-  return { audited: out, skipped: competitors.length - targets.length, cached };
+  await saveAudits(out);
+  return { audited: out, targets: urls.length, cached };
 }

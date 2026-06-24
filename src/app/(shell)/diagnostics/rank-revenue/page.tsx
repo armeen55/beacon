@@ -19,6 +19,8 @@ import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
 import type { MoveCandidate, ConfidenceLevel } from "@/domains/demand-graph/build-graph";
 import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
+import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 export const dynamic = "force-dynamic";
 
@@ -62,11 +64,15 @@ export default async function RankRevenuePage() {
   if (!isOperatorMode()) notFound();
 
   const tenantId = await currentTenantId();
-  const [{ graph, coverage }, audits] = await Promise.all([
+  const [{ graph, coverage }, audits, packsResult] = await Promise.all([
     loadDemandGraphForTenant(tenantId),
     getCompetitorAuditsForTenant().catch(() => new Map()),
+    loadChangePacksForTenant(tenantId, { limit: 25 }).catch(() => ({ packets: [] as EvidencePacket[] })),
   ]);
   const auditedOk = [...audits.values()].filter((a) => a.fetchStatus === "ok").length;
+  const packetByKey = new Map<string, EvidencePacket>(
+    (packsResult.packets ?? []).map((p) => [p.move.key, p]),
+  );
 
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
   const top = actionable.slice(0, TOP_N);
@@ -165,8 +171,49 @@ export default async function RankRevenuePage() {
                     })()}
                   </td>
                   <td className="px-2 py-1.5 text-gray-500">{shortUrl(m.ownedUrl)}</td>
-                  <td className="px-2 py-1.5 text-gray-500" style={{ maxWidth: 280 }}>
-                    {m.rationale}
+                  <td className="px-2 py-1.5 text-gray-500" style={{ maxWidth: 320 }}>
+                    {(() => {
+                      const pkt = packetByKey.get(m.demandKey);
+                      if (!pkt) return m.rationale;
+                      return (
+                        <details>
+                          <summary className="cursor-pointer">{m.rationale}</summary>
+                          <div className="mt-1 space-y-1 border-l-2 border-gray-200 pl-2 text-[11px]">
+                            <div>
+                              <span className="font-medium text-gray-700">Gaps:</span>{" "}
+                              {pkt.gaps.length === 0
+                                ? "—"
+                                : pkt.gaps.map((g) => (
+                                    <span key={g.kind} className="mr-1 rounded bg-rose-50 px-1 text-rose-700">
+                                      {g.kind}
+                                    </span>
+                                  ))}
+                            </div>
+                            {pkt.draft.titleSuggestion ? (
+                              <div><span className="font-medium text-gray-700">Title:</span> {pkt.draft.titleSuggestion}</div>
+                            ) : null}
+                            {pkt.draft.answerBlockBrief ? (
+                              <div><span className="font-medium text-gray-700">Answer block:</span> {pkt.draft.answerBlockBrief}</div>
+                            ) : null}
+                            {pkt.draft.outline.length > 0 ? (
+                              <div><span className="font-medium text-gray-700">Outline ({pkt.draft.outline.length}):</span> {pkt.draft.outline.slice(0, 6).join(" · ")}</div>
+                            ) : null}
+                            {pkt.draft.faqQuestions.length > 0 ? (
+                              <div><span className="font-medium text-gray-700">FAQ:</span> {pkt.draft.faqQuestions.slice(0, 4).join(" · ")}</div>
+                            ) : null}
+                            {pkt.draft.schemaRecommendations.length > 0 ? (
+                              <div><span className="font-medium text-gray-700">Schema:</span> {pkt.draft.schemaRecommendations.join(", ")}</div>
+                            ) : null}
+                            {pkt.draft.assetSpec ? (
+                              <div><span className="font-medium text-gray-700">Asset:</span> {pkt.draft.assetSpec}</div>
+                            ) : null}
+                            <div className="text-gray-400">
+                              Proof: {pkt.proofPlan.metrics.join(", ")} @ {pkt.proofPlan.windowsDays.join("/")}d · hash {pkt.evidenceHash} · {pkt.draft.kind}
+                            </div>
+                          </div>
+                        </details>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
