@@ -161,13 +161,14 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     verified_live: r.verifiedLive,
     live_source_url: r.liveSourceUrl,
     recrawl_requested_at: r.recrawlRequestedAt,
-    // Only emit the additive column when SET, so normal ledger writes are
-    // unaffected before the migration is applied (a payload without the unknown
-    // column never trips PGRST204); an override write degrades to file fallback
-    // pre-migration and writes through once applied.
-    ...(r.operatorVerdictOverride != null
-      ? { operator_verdict_override: r.operatorVerdictOverride }
-      : {}),
+    // audit-9: emit UNCONDITIONALLY (like every other nullable column) so a null
+    // round-trips. The override is operator-CLEARABLE ("Include again" sets it
+    // null) — a conditional emit omitted the column on re-include, and a Supabase
+    // upsert leaves omitted columns at their existing value, so the exclusion
+    // stuck forever post-migration. Pre-migration the null emit still trips
+    // PGRST204 → isUndefinedTableError routes to the full-record file fallback
+    // (which clears it correctly), so this is safe before AND after the migration.
+    operator_verdict_override: r.operatorVerdictOverride,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };

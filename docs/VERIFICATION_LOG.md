@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-23 — audit-9: learn-loop reversibility fix before first verdict (this commit)
+
+Self-review of THIS session's earlier trust-path changes (verdict override, learn
+prior, verify-live probe, GA4 outcome honesty), run before the first real Iranopedia
+verdict reads ~2026-06-27. 1 real bug confirmed + fixed; the rest verified sound.
+- **FIXED [high→med] learn-loop reversibility:** `recordToRow` emitted
+  `operator_verdict_override` CONDITIONALLY (only when non-null). On "Include
+  again" (re-include → null), the column was omitted from the Supabase upsert
+  payload, and an ON-CONFLICT upsert leaves omitted columns at their existing
+  value — so an excluded record stayed `inconclusive` FOREVER post-migration,
+  silently defeating the feature's "fully reversible" promise + permanently
+  mis-excluding it from the per-action_type ranking prior. (Masked pre-migration
+  by the full-record file fallback; the migration lands 2026-06-27 — the same day
+  the first verdict reads.) FIX: emit it UNCONDITIONALLY like every other nullable
+  column so `null` round-trips; PGRST204 still routes safely to file-fallback
+  pre-migration. typecheck + 45 proof-gsc tests green. Follow-up: add a
+  recordToRow/rowToRecord null-round-trip unit test (no such test file exists yet).
+- The probe (`probeLiveText` unreliable-vs-not_found) + GA4 `controlsUsed` outcome
+  honesty verified correct — no issues.
+
+---
+
 ## 2026-06-23 — audit-8: experiment-batch planner proof-integrity (f68bebe)
 
 Adversarial audit of the planner that decides what the operator ships daily. 6
