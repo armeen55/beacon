@@ -100,11 +100,16 @@ export function deriveHeadline(
   const deltaPct = prev > 0 ? Math.round(((t.clicks28d - prev) / prev) * 100) : 0;
   const down = prev > 0 && t.clicks28d < prev * 0.97;
   const up = prev > 0 && t.clicks28d > prev * 1.03;
+  // audit-wave2 #13: prev===0 with clicks now is growth FROM zero — don't
+  // collapse it into "steady" (the up/down checks both require prev>0).
+  const fromZero = prev === 0 && t.clicks28d > 0;
   const trend = down
     ? `Clicks are down ${Math.abs(deltaPct)}%`
     : up
       ? `Clicks are up ${deltaPct}%`
-      : "Traffic is steady";
+      : fromZero
+        ? "Clicks are climbing from zero"
+        : "Traffic is steady";
 
   let verdict: StateOfUnionVerdict;
   let headline: string;

@@ -501,7 +501,17 @@ function cleanClaimText(text: string, fallback: string): string {
  *     goals, not claims, and skipped;
  *   - absent sources are skipped here — citesAbsentEvidence owns that case. */
 function verifyNumericFidelity(change: AtomicChange, packet: EvidencePacket): string | null {
-  const text = `${change.evidence} ${change.hypothesis} ${change.exact_change}`;
+  // audit-wave2 #3: scan the PUBLISHABLE body copy too — for
+  // intro_answer_block/section_add the literal block lives in artifact_text and
+  // for faq the literal Q&A lives in faq_items. A fabricated number in the copy
+  // that actually ships (not just the evidence/hypothesis prose) must be caught.
+  const text = [
+    change.evidence,
+    change.hypothesis,
+    change.exact_change,
+    change.artifact_text ?? "",
+    ...(change.faq_items ?? []).flatMap((f) => [f.question, f.answer]),
+  ].join(" ");
   const g = packet.gsc;
   const c = packet.clarity;
   const sem = packet.semrush;

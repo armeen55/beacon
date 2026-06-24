@@ -512,9 +512,11 @@ function buildAeoCard(aeo: TodayDerivedKpis | null): SourceStatCard | null {
     key: "aeo",
     source: "AI answers",
     stats,
+    // audit-wave2 #6: these are a SINGLE day's counts — always name the reading
+    // day so they're not read as a cumulative/long-window total.
     subline: aeo.isFallback
       ? { text: "Latest available reading", tone: "neutral" }
-      : null,
+      : { text: `AI answers read on ${aeo.date}`, tone: "neutral" },
   };
 }
 
