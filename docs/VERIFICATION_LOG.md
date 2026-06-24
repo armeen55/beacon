@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-06-23 — audit-8: experiment-batch planner proof-integrity (f68bebe)
+
+Adversarial audit of the planner that decides what the operator ships daily. 6
+confirmed; 1 HIGH fixed now, 5 deferred (all in `select-experiment-batch.ts` /
+`batch-experiment-loader.ts` / `experiments-client.tsx`):
+- **FIXED #1 [high]** cluster-on-cluster carve-out hole — the cannibalization
+  exception to the page-measuring skip fired even when the page's OPEN experiment
+  WAS a cluster consolidation (optimizer never flags the cannibalization lever as
+  measuring), so the planner told the operator to re-do the exact cluster whose
+  proof window is open. Gated the carve-out on `clusterMeasuring`. +test.
+- **DEFERRED #2/#3 [medium] — same proof-integrity class, need loader work:**
+  (#2) `row.measuringActions` is built ONLY from the GSC shipped-change ledger,
+  NOT from Page-Surgeon proof-plan reviewed experiments — so a page whose only
+  open experiment is a reviewed-but-not-yet-ledger'd proof-plan change isn't held
+  out (a different lever surfaces a card, muddying that proof). Fix: fold
+  `proof.headlineAction` into `measuringActions` in the loader (the optimizer
+  already does for its per-lever block). (#3) the loader reads the RAW persisted
+  proof verdict, so a SETTLED experiment (won/lost) still marks its page measuring
+  and holds it out forever — fix: only treat `measuring` as measuring.
+- **DEFERRED #4 [medium]** zero cards conflates a data-load failure with a healthy
+  site ("Nothing to do right now") — needs a load-status signal.
+- **DEFERRED #5/#6 [low]** meta lever volume-gated out (only title carries
+  estClicksAtStake); "Copy all ready drafts" labels each draft only by page-tail.
+- Gates: selector + surface 18 green; typecheck clean.
+
+---
+
 ## 2026-06-23 — audit-7: onboarding new-customer mis-detection (eaf992c)
 
 Adversarial audit of the onboarding → profile/config derivation path (a new
