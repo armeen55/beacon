@@ -131,7 +131,13 @@ export function deriveEvidenceChips(row: RecommendationActionRow): Chip[] {
     return chips.slice(0, 3);
   }
 
-  if (row.detail.evidenceDepth >= 4) {
+  // audit-wave7 #8: don't render the "Applies to this page" success chip when
+  // the deterministic QA page-topic-fit gate says this page does NOT fit the
+  // query (shouldUseQueryForOptimization === false) — a direct contradiction
+  // with the verdict the card itself surfaces.
+  const fitOk =
+    row.detail.qaVerdict?.intentFit?.shouldUseQueryForOptimization !== false;
+  if (row.detail.evidenceDepth >= 4 && fitOk) {
     chips.push({
       key: "depth",
       label: "Applies to this page",
