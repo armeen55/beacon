@@ -41,7 +41,7 @@ import {
   editLifecycleStatus,
   type RecommendedEditRow,
 } from "@/domains/recommendations/recommended-edits-persistence";
-import { readPushLedger } from "@/domains/push/caps";
+import { readPushLedgerForTenant } from "@/domains/push/caps";
 import { loadProvenWins } from "@/domains/attribution/load-proven-wins";
 
 export type GoldenPathStepKey =
@@ -144,7 +144,7 @@ async function readEdits(tenantId: string): Promise<RecommendedEditRow[]> {
 /** Count of pushed edit ids for this tenant in the ledger; soft-fail → empty. */
 async function readPushedEditIds(tenantId: string): Promise<Set<string>> {
   try {
-    const ledger = await readPushLedger();
+    const ledger = await readPushLedgerForTenant(tenantId);
     return new Set(
       ledger
         .filter((e) => e.tenant_id === tenantId && e.result === "pushed")

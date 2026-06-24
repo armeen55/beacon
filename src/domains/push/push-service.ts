@@ -77,6 +77,7 @@ import {
   wixGetStoreProduct,
   wixInsertDataItem,
   wixQueryDataItems,
+  wixQueryAllDataItems,
   wixGetDataItem,
   wixUpdateDataItem,
   wixUpdateProductSeoData,
@@ -202,12 +203,22 @@ export async function executePush(
     };
   }
 
+  // audit-wave #8 (2026-06-23): validate non-destructiveness BEFORE reserving a
+  // cap slot. Previously this ran after reservePushSlot, so a destructive
+  // refusal left a `reserved` row that ate one of the 10 daily slots until the
+  // 10-min self-free — don't spend a slot on a push we're about to refuse.
+  const destructive = assertNonDestructivePatch({
+    currentText: edit.current_text,
+    proposedText: edit.proposed_text,
+  });
+  if (!destructive.allowed) return { kind: "refused", reason: destructive.reason };
+
   // ── Invariant 3: caps IN the push path — reserve-before-write (#5) ──
   // Atomically claim a daily-cap slot BEFORE any live write, so a double-click
   // on one-click "Accept & publish" can't race two pushes past the cap. The
   // reservation is finalized to pushed/push_failed by recordLedger on every
-  // write outcome; a structural refusal that returns before the write leaves a
-  // `reserved` row that self-frees after 10 min.
+  // write outcome; a later structural refusal that returns before the write
+  // leaves a `reserved` row that self-frees after 10 min.
   // A dry-run must have NO ledger side effect (audit #35 contract), so it uses
   // the read-only cap check; a REAL push atomically reserves a slot.
   let reservationId: string | null = null;
@@ -224,11 +235,6 @@ export async function executePush(
     if (!cap.allowed) return { kind: "refused", reason: cap.reason };
     reservationId = cap.reservationId;
   }
-  const destructive = assertNonDestructivePatch({
-    currentText: edit.current_text,
-    proposedText: edit.proposed_text,
-  });
-  if (!destructive.allowed) return { kind: "refused", reason: destructive.reason };
 
   // ── wix_cms CREATE route (§page-factory) ────────────────────────────
   // Cards with element key "create:<collectionId>" insert a NEW item.
@@ -325,8 +331,11 @@ export async function executePush(
     if (!slug) {
       return { kind: "refused", reason: "target URL has no slug segment" };
     }
-    const productsQuery = await wixQueryDataItems(
-      { dataCollectionId: "Stores/Products", limit: 1000 },
+    // audit-wave #13 (2026-06-23): paginate the full catalog instead of a single
+    // limit:1000 page — a slug past row 1000 silently missed (the same
+    // truncation the field-edit + url-map paths were fixed to avoid).
+    const productsQuery = await wixQueryAllDataItems(
+      { dataCollectionId: "Stores/Products" },
       { ...deps.wix, tenantId },
     );
     if (!productsQuery.ok) {

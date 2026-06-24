@@ -26,7 +26,7 @@ import "server-only";
  *   • Pure-ish: reads the three stores; no network, no clock branching.
  */
 
-import { readPushLedger, type PushLedgerEntry } from "./caps";
+import { readPushLedgerForTenant, type PushLedgerEntry } from "./caps";
 import { findLatestSnapshotForEdit } from "./push-snapshots";
 import { getRepository } from "@/lib/persistence/repositories";
 import type {
@@ -176,7 +176,7 @@ export async function loadPushReceipt(
   // ── 1. Ledger (the gating truth: no entry ⇒ never pushed ⇒ no receipt).
   let ledgerEntry: PushLedgerEntry | null = null;
   try {
-    const ledger = await readPushLedger();
+    const ledger = await readPushLedgerForTenant(tenantId);
     // Newest matching entry for THIS tenant + edit wins (a re-push or a
     // failed-then-succeeded sequence keeps history; the receipt shows the
     // latest outcome).

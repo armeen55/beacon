@@ -51,6 +51,9 @@ const capsMocks = vi.hoisted(() => ({
 }));
 vi.mock("@/domains/push/caps", () => ({
   readPushLedger: capsMocks.readPushLedger,
+  // audit-wave #2: golden-path now reads the durable tenant-scoped ledger; share
+  // the same fixture so the existing mockResolvedValue setups apply.
+  readPushLedgerForTenant: capsMocks.readPushLedger,
 }));
 
 const proofMocks = vi.hoisted(() => ({

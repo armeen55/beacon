@@ -15,7 +15,7 @@ import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { PageHeader } from "@/components/data/page-header";
 import { getConnectorInfo } from "@/lib/connector-store";
 import { getWixUrlMap, getWixCollectionConfig } from "@/lib/connectors/wix/url-map";
-import { readPushLedger, MAX_PUSHES_PER_DAY } from "@/domains/push/caps";
+import { readPushLedgerDurable, MAX_PUSHES_PER_DAY } from "@/domains/push/caps";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -68,7 +68,7 @@ export default async function WixDiagnosticPage(props?: {
   const [mappings, urlMap, ledger] = await Promise.all([
     getWixCollectionConfig().catch(() => []),
     getWixUrlMap().catch(() => []),
-    readPushLedger().catch(() => []),
+    readPushLedgerDurable().catch(() => []),
   ]);
   const recentPushes = ledger.slice(-15).reverse();
 

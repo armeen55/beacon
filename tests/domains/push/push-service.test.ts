@@ -49,6 +49,9 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
   return {
     ...actual,
     wixQueryDataItems: async () => _queryResult,
+    // audit-wave #13: the add_schema product lookup now paginates the full
+    // catalog via wixQueryAllDataItems — resolve it from the same fixture.
+    wixQueryAllDataItems: async () => _queryResult,
     // The field route now fetches the exact item by id (get-by-id) instead of
     // querying the collection — resolve it from the same _queryResult fixture.
     wixGetDataItem: async (args: { dataItemId?: string }) => {

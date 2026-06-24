@@ -62,14 +62,50 @@ function isMissingTable(err: { code?: string } | null | undefined): boolean {
   return code === "42P01" || code === "PGRST205";
 }
 
-/** File-backed read of the whole ledger (best-effort). Used by the display
- *  callers (golden-path / push-receipt) + as the cap's fallback. */
+/** File-backed read of the whole ledger (best-effort). The cap's file fallback
+ *  + the append helper's read-modify-write base. NOT for display callers on
+ *  Vercel — the file store is an empty in-process cache on a cold lambda; use
+ *  the durable readers below. */
 export async function readPushLedger(): Promise<PushLedgerEntry[]> {
   try {
     return (await readStore<PushLedgerEntry>(LEDGER_STORE)) ?? [];
   } catch {
     return [];
   }
+}
+
+/** Durable, tenant-scoped ledger ROW read (audit-wave #2, 2026-06-23). The
+ *  2026-06-21 durability work moved the WRITE + cap COUNT to Supabase but left
+ *  the display callers on the file-only path — so on Vercel a real push showed
+ *  as never-pushed (push receipt null, golden-path "nothing shipped"). Reads
+ *  Supabase first (tenant-scoped), falling back to the file store
+ *  (tenant-filtered) pre-migration / no-env. */
+export async function readPushLedgerForTenant(tenantId: string): Promise<PushLedgerEntry[]> {
+  try {
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin
+      .from(LEDGER_TABLE)
+      .select("*")
+      .eq("tenant_id", tenantId);
+    if (!error) return (data ?? []) as PushLedgerEntry[];
+    // Missing table (pre-migration) or any read error → file fallback.
+  } catch {
+    // No Supabase env (local dev) → file fallback.
+  }
+  return (await readPushLedger()).filter((e) => e.tenant_id === tenantId);
+}
+
+/** Durable read of the whole ledger (all tenants) for the operator diagnostics
+ *  view. Supabase first, file fallback. */
+export async function readPushLedgerDurable(): Promise<PushLedgerEntry[]> {
+  try {
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin.from(LEDGER_TABLE).select("*");
+    if (!error) return (data ?? []) as PushLedgerEntry[];
+  } catch {
+    // No Supabase env → file fallback.
+  }
+  return readPushLedger();
 }
 
 /** Append to the file ledger (fallback path + local parity). */
