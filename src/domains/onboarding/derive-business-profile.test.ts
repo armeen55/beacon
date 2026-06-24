@@ -201,6 +201,54 @@ describe("deriveBusinessProfile — restaurant fixture", () => {
   });
 });
 
+describe("deriveBusinessProfile — audit-7 mis-detection guards", () => {
+  // #1/#2: a local business with a phone (footer/tel/JSON-LD) but no JSON-LD
+  // PostalAddress, whose homepage carries an incidental BlogPosting node, must
+  // NOT be flagged as a content publisher.
+  const LOCAL_BLOG_HTML = `<!doctype html><html><head>
+<title>Ace Plumbing — Austin</title>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":["Plumber","LocalBusiness"],"name":"Ace Plumbing","telephone":"+1-512-555-0123"}
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","headline":"5 Signs You Need a New Water Heater"}
+</script></head><body>
+<header><nav><a href="/">Home</a><a href="/services">Services</a><a href="/blog">Blog</a><a href="/contact">Contact</a></nav></header>
+<footer>123 Main St, Austin TX - Call (512) 555-0123</footer>
+</body></html>`;
+
+  it("a phone-bearing local business with incidental blog schema is NOT a content site", () => {
+    const profile = deriveBusinessProfile([
+      { url: "https://aceplumbingaustin.com/", html: LOCAL_BLOG_HTML },
+    ]);
+    expect(profile.phone).not.toBeNull(); // local presence signal present
+    expect(profile.address).toBeNull(); // no JSON-LD PostalAddress
+    expect(profile.contentSiteSignal).toBe(false); // ...so NOT content despite the BlogPosting
+  });
+
+  // #3: discovered FOOTER links are filtered by SOCIAL_HOST_PATTERN (unlike
+  // explicit JSON-LD sameAs, which is trusted as-is). The bare `x` alternative
+  // must match a FULL host label, so a "Made with Wix" footer badge is NOT
+  // captured as the tenant's x/twitter profile, while a real x.com link is.
+  const SOCIAL_ANCHOR_HTML = `<!doctype html><html><head>
+<title>Acme</title></head><body>
+<nav><a href="/">Home</a></nav>
+<footer>
+  <a href="https://wix.com/website-template/acme">Made with Wix</a>
+  <a href="https://x.com/acmehq">Follow us on X</a>
+  <a href="https://www.facebook.com/acme">Facebook</a>
+</footer></body></html>`;
+
+  it("does not capture a wix.com footer badge as an x/twitter profile, but keeps real x.com", () => {
+    const profile = deriveBusinessProfile([
+      { url: "https://acme.example/", html: SOCIAL_ANCHOR_HTML },
+    ]);
+    expect(profile.socialProfiles.some((u) => u.includes("x.com/acmehq"))).toBe(true);
+    expect(profile.socialProfiles.some((u) => u.includes("facebook.com/acme"))).toBe(true);
+    expect(profile.socialProfiles.some((u) => u.includes("wix.com"))).toBe(false);
+  });
+});
+
 describe("brandFromTitle", () => {
   it("takes the brand segment, skipping generic page words", () => {
     expect(brandFromTitle("Welcome - La Palma Taqueria")).toBe("La Palma Taqueria");

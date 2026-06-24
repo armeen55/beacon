@@ -242,8 +242,11 @@ export function brandFromTitle(title: string): string | null {
 
 /** Off-site profile hosts worth carrying into config (channel detection
  *  is generic — host families, not a vertical's directory list). */
+// audit-7 #3: the brand must be a FULL host label — anchor with (?:^|\.) so the
+// bare `x` alternative can't match inside wix.com / netflix.com / fox.com (host
+// is already www-stripped before the test). `x.com` and `foo.x.com` still match.
 const SOCIAL_HOST_PATTERN =
-  /(facebook|instagram|linkedin|twitter|x|youtube|tiktok|pinterest|yelp|houzz|angi|thumbtack|bbb|tripadvisor|zillow|avvo|healthgrades)\.(com|org)$/i;
+  /(?:^|\.)(facebook|instagram|linkedin|twitter|x|youtube|tiktok|pinterest|yelp|houzz|angi|thumbtack|bbb|tripadvisor|zillow|avvo|healthgrades)\.(com|org)$/i;
 
 /**
  * Normalize + dedupe derived locations. Live check 2026-06-11
@@ -403,6 +406,13 @@ export function deriveBusinessProfile(
   profile.services = [...services].slice(0, 24);
   profile.keyPages = nav.paths.length > 0 ? keyPages : ["/"];
   profile.socialProfiles = [...socialProfiles];
-  profile.contentSiteSignal = sawContentSchema && profile.address === null;
+  // audit-7 #1/#2: a phone is a physical-presence signal the rest of the code
+  // already trusts (suggestSegmentFromProfile treats phone OR address as local).
+  // Many real local businesses expose only a footer phone (no JSON-LD
+  // PostalAddress) while their homepage carries an incidental Article/BlogPosting
+  // node — that combination must NOT mis-flag them as a content publisher.
+  // Require the ABSENCE of BOTH address and phone before declaring a content site.
+  profile.contentSiteSignal =
+    sawContentSchema && profile.address === null && profile.phone === null;
   return profile;
 }
