@@ -7,6 +7,38 @@
 
 ---
 
+## 2026-06-23 (late night) — AUDIT WAVE 4 (6 un-audited surfaces) → 13 fixed / 3 deferred
+
+Fourth 6-surface wave (native prompt→observation→citation engine, citation-attribution
+math, scanning/crawler, competitor intel, keyword/fanout merge, visibility-events/digest).
+16 confirmed; fixed 13, deferred 3. Each batch typecheck + targeted-gated; full suite closeout.
+- **M (9c56ab4)** #1/#2 [high] directory listings (Houzz/Yelp/Angi) shown to the
+  customer on the live /prompts surface as the "primary recommendation" winner
+  and the "Outranked" competitor — the pollution filter the competitor LIST uses
+  was never applied to the primary-slot pick or the opportunity classifier.
+  Threaded makeCompetitorRankingFilter through both.
+- **N (192704c)** #5/#6/#12/#14/#15 [high/med] /competitors cross-tenant
+  correctness: co-mention read the global cold store with no native-regime window;
+  /competitors used the global BEACON_SITE_DOMAIN as the OWNED domain for every
+  compute (co-mention, source-trust rank, battlecards, discovery, decay,
+  milestones) → "they beat you"/"you rank #N" against the wrong site for non-
+  primary tenants; co-mention denominator counted all answers not owned-containing;
+  drilldown share denominator included pre-pivot rows. All now tenant/native-scoped.
+- **O (this batch)** #3 [high] extractor dropped image-anchored internal links →
+  false orphan pages; #4 [high] sitemap-index returned success+0-entries when
+  children failed → false "competitor removed site"; #10 [med] unstable sm-N scan
+  id → stable URL hash; #11 [med] schema-validator false "price missing" on @id-ref
+  + AggregateOffer.
+- **P (this batch)** #7 [med] journey "N of 4 core" used all-stage count; #16 [low]
+  keyword-portfolio double-listed question terms in two buckets.
+- **DEFERRED (real, need focused/careful sessions — in NEXT_PHASE):** #8 entity
+  bidirectional brand-substring match can flag a competitor as owned (risky
+  ownership-classification change); #9 Profound 'owned' citationCategory trusted
+  unconditionally regardless of domain (attribution change — pair with #8);
+  #13 spike-forensics card shows two different change counts for one cluster.
+
+---
+
 ## 2026-06-23 (late night) — AUDIT WAVE 3 (6 less-covered surfaces) → 5 fixed / 5 deferred
 
 Third 6-surface wave (proof-measurement math, attribution/brain, priority ranking,
