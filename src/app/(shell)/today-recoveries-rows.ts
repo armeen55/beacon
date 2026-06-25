@@ -45,7 +45,8 @@ export function classifyRecovery(beforeClicks: number, afterClicks: number): Rec
   const pct = net / base;
   if (pct <= -MEANINGFUL) return "slipping";
   if (pct >= 0.25 && net >= 5) return "recovered";
-  if (pct >= MEANINGFUL && net >= 2) return "improving";
+  // Net floor of 3 so a tiny 1→3 page isn't celebrated as "improving".
+  if (pct >= MEANINGFUL && net >= 3) return "improving";
   return "flat";
 }
 
