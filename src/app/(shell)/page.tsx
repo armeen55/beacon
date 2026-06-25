@@ -49,6 +49,7 @@ import { CockpitJumpNav } from "./cockpit-jump-nav";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayPositionBandsSection } from "./today-position-bands-section";
+import { TodayTrendSection } from "./today-trend-section";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
@@ -240,6 +241,7 @@ async function TodayV2SectionedContent() {
       <CockpitJumpNav
         targets={[
           { id: "sec-opportunities", label: "Opportunities" },
+          { id: "sec-trend", label: "Traffic trend" },
           { id: "sec-bands", label: "Where you rank" },
           { id: "sec-recover", label: "Recover" },
           { id: "sec-recoveries", label: "Turned around" },
@@ -268,6 +270,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-opportunities" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayOpportunitiesFeed />
+        </Suspense>
+      </div>
+      {/* Your traffic trend (2026-06-25) — macro weekly clicks trend. Own Suspense / self-hides. */}
+      <div id="sec-trend" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayTrendSection />
         </Suspense>
       </div>
       {/* Where you rank (2026-06-25) — portfolio ranking-distribution funnel. Own Suspense / self-hides. */}

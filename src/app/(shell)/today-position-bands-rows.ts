@@ -26,8 +26,8 @@ function bandKeyFor(position: number): PositionBand["key"] {
 
 const BAND_LABEL: Record<PositionBand["key"], string> = {
   top3: "Top 3 (winning)",
-  striking: "Striking distance (pos 4–10)",
-  page2: "Page 2 (pos 11–20)",
+  striking: "Striking distance (pos 4-10)",
+  page2: "Page 2 (pos 11-20)",
   beyond: "Beyond (pos 21+)",
 };
 const ORDER: PositionBand["key"][] = ["top3", "striking", "page2", "beyond"];

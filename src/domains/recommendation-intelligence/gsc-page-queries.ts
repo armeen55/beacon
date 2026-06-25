@@ -270,6 +270,35 @@ export async function loadToolIntentQueries(
 
 export type DecliningPage = { page: string; topDecline: QueryDecline };
 export type StrikingPage = { page: string; topQuery: PageQuery };
+export type DailyClicks = { date: string; clicks: number };
+
+/**
+ * Property-level per-day clicks from the tiny, accurate `gsc_daily_totals` table
+ * (ungrouped totals GSC reports directly — no truncation), ascending by date over
+ * the trailing `days`. Used by the macro traffic-trend lens. Fail-soft → [].
+ */
+export async function loadDailyClicksForTenant(
+  tenantId: string,
+  days = 56,
+): Promise<DailyClicks[]> {
+  if (!tenantId) return [];
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(days);
+    const { data, error } = await sb
+      .from("gsc_daily_totals")
+      .select("date, clicks")
+      .eq("tenant_id", tenantId)
+      .gte("date", since)
+      .order("date", { ascending: true });
+    if (error || !data) return [];
+    return (data as Array<{ date: string; clicks: number | string | null }>)
+      .map((r) => ({ date: r.date, clicks: Number(r.clicks) || 0 }))
+      .filter((r) => Boolean(r.date));
+  } catch {
+    return [];
+  }
+}
 export type PageWithQueries = { page: string; queries: PageQuery[] };
 
 /**

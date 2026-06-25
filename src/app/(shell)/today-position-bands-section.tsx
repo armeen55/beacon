@@ -46,7 +46,7 @@ export async function TodayPositionBandsSection() {
           <p className="mt-1 max-w-xl text-sm text-gray-500">
             Your whole-site ranking funnel across {fmtNum(total)} top queries.
             {striking && striking.queries > 0
-              ? ` ${fmtNum(striking.queries)} sit in striking distance (pos 4–10) — your biggest near-term pool.`
+              ? ` ${fmtNum(striking.queries)} sit in striking distance (pos 4-10), your biggest near-term pool.`
               : ""}
           </p>
         </div>
