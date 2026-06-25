@@ -46,6 +46,7 @@ import { CollapsibleSection } from "@/components/today/collapsible-section";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { StateOfUnionSection } from "./state-of-union-section";
 import { TodayMovesHeroSection } from "./today-moves-hero";
+import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayMoneyLeakSection } from "./today-moneyleak-section";
@@ -235,6 +236,13 @@ async function TodayV2SectionedContent() {
           section self-hides when the engine is off for the tenant (no Moves). */}
       <Suspense fallback={null}>
         <TodayMovesHeroSection />
+      </Suspense>
+      {/* Biggest opportunities (2026-06-25) — the §2 promise made literal: ONE
+          ranked list fusing recover-declines + win-striking by estimated monthly
+          clicks at stake, the headline above the per-axis detail sections below.
+          Own Suspense / self-hides when nothing clears the bar. */}
+      <Suspense fallback={null}>
+        <TodayOpportunitiesFeed />
       </Suspense>
       {/* Recover lost ground (2026-06-25) — the queries the worklist pages are
           actively LOSING (recent vs prior 28d, GSC-grounded). Names the bleeding
