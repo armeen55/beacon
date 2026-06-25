@@ -67,6 +67,29 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   const conf = CONF[m.confidence];
   const [state, setState] = useState<"idle" | "shipped" | "snoozed">("idle");
   const [pending, startTransition] = useTransition();
+  const [showDraft, setShowDraft] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const hasDraft = Boolean(m.answerBrief || m.faqs.length || m.draftTitle || m.outline.length);
+  const buildPasteBlock = (): string => {
+    const lines: string[] = [`# ${titleCase(m.query)}  (${m.pageLabel})`];
+    if (m.draftTitle) lines.push(`\nTitle: ${m.draftTitle}`);
+    if (m.draftMeta) lines.push(`Meta: ${m.draftMeta}`);
+    if (m.answerBrief) lines.push(`\nAnswer block (write a 40–60 word direct answer):\n${m.answerBrief}`);
+    if (m.outline.length) lines.push(`\nSections to cover:\n${m.outline.map((o) => `- ${o}`).join("\n")}`);
+    if (m.faqs.length) lines.push(`\nFAQ to answer:\n${m.faqs.map((q) => `- ${q}`).join("\n")}`);
+    if (m.schema.length) lines.push(`\nSchema to add: ${m.schema.join(", ")}`);
+    return lines.join("\n");
+  };
+  const copyDraft = () => {
+    navigator.clipboard
+      ?.writeText(buildPasteBlock())
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      })
+      .catch(() => {});
+  };
 
   const ship = () => {
     setState("shipped"); // optimistic
@@ -168,6 +191,54 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </p>
       ) : null}
 
+      {showDraft && hasDraft ? (
+        <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3.5">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+              Paste-ready draft · grounded, no AI guesses
+            </span>
+            <button
+              onClick={copyDraft}
+              className="rounded-md bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-gray-700"
+            >
+              {copied ? "Copied ✓" : "Copy draft"}
+            </button>
+          </div>
+          <dl className="space-y-2 text-xs">
+            {m.draftTitle ? (
+              <div>
+                <dt className="font-semibold text-gray-500">Title</dt>
+                <dd className="text-gray-800">{m.draftTitle}</dd>
+              </div>
+            ) : null}
+            {m.answerBrief ? (
+              <div>
+                <dt className="font-semibold text-gray-500">Answer block</dt>
+                <dd className="text-gray-800">{m.answerBrief}</dd>
+              </div>
+            ) : null}
+            {m.faqs.length ? (
+              <div>
+                <dt className="font-semibold text-gray-500">FAQ to answer</dt>
+                <dd>
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-gray-700">
+                    {m.faqs.map((q, i) => (
+                      <li key={i}>{q}</li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            ) : null}
+            {m.schema.length ? (
+              <div>
+                <dt className="font-semibold text-gray-500">Schema to add</dt>
+                <dd className="text-gray-700">{m.schema.join(", ")}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
+
       <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3">
         <button
           onClick={ship}
@@ -176,8 +247,16 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         >
           ⚡ Ship it
         </button>
+        {hasDraft ? (
+          <button
+            onClick={() => setShowDraft((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900"
+          >
+            {showDraft ? "Hide draft" : "See the draft"}
+          </button>
+        ) : null}
         <Link href="/recommendations" className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900">
-          Open the draft →
+          Open in queue →
         </Link>
         <a href={m.targetUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-gray-700">
           View page ↗

@@ -43,6 +43,11 @@ export type TodayMove = {
   looselyMatched: boolean;
   outline: string[];
   answerBrief: string | null;
+  /** Deterministic, grounded draft skeleton (NO LLM) — what the operator pastes. */
+  draftTitle: string | null;
+  draftMeta: string | null;
+  faqs: string[];
+  schema: string[];
   score: number;
 };
 
@@ -178,6 +183,10 @@ export const loadTodayMovesHeroData = cache(
         looselyMatched,
         outline: (packet?.draft?.outline ?? []).filter(Boolean).slice(0, 5),
         answerBrief: packet?.draft?.answerBlockBrief?.trim() || null,
+        draftTitle: packet?.draft?.titleSuggestion?.trim() || null,
+        draftMeta: packet?.draft?.metaBrief?.trim() || null,
+        faqs: (packet?.draft?.faqQuestions ?? []).filter(Boolean).slice(0, 6),
+        schema: (packet?.draft?.schemaRecommendations ?? []).filter(Boolean).slice(0, 6),
         score: packet?.move?.score ?? 0,
       });
     }
