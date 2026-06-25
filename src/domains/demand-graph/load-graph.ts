@@ -27,6 +27,8 @@ import { log } from "@/lib/logger";
 
 import { loadCompetitorCitedPagesForTenant, type CompetitorCitationsResult } from "./competitor-citations-loader";
 import { loadFanoutSeedsForTenant, fanoutSeedsForNode, type FanoutSeed } from "./load-fanout-seeds";
+import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
+import { applyExperimentPriorToMoves, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 import {
   buildDemandGraph,
   type DemandInput,
@@ -331,6 +333,26 @@ export async function loadDemandGraphForTenant(
 
   const graph = buildDemandGraph({ demand, ownedPages, competitorCitations, config });
 
+  // Sprint 3 — LEARNING REWEIGHT (outside the pure scorer): tilt the ranking by
+  // past won/lost outcomes from the proof ledger. Bounded ±15%, decided-only,
+  // ≥3-sample, with backoff — so it influences ties, never dominates, and a fresh
+  // tenant (no settled outcomes) gets byte-identical ordering. Fail-soft → raw
+  // graph. Raw MoveComponents are never touched (the lie detector stays honest).
+  let moves = graph.moves;
+  try {
+    const outcomes = await loadExperimentOutcomes(tenantId);
+    if (outcomes.length > 0) {
+      moves = applyExperimentPriorToMoves(graph.moves, outcomes, (m) => ({
+        actionType: canonicalMoveType(m.gap),
+        pageType: pageTypeFromUrl(m.ownedUrl ?? ""),
+        queryCluster: queryClusterKey(m.label),
+      }));
+    }
+  } catch {
+    moves = graph.moves; // never let the learning layer break the graph
+  }
+  const reweightedGraph: DemandGraph = moves === graph.moves ? graph : { ...graph, moves };
+
   const emptySources: string[] = [];
   if (gsc.size === 0) emptySources.push("gsc");
   if (ga4.size === 0) emptySources.push("ga4");
@@ -338,7 +360,7 @@ export async function loadDemandGraphForTenant(
   if (competitors.length === 0) emptySources.push("profound-citations");
 
   return {
-    graph,
+    graph: reweightedGraph,
     coverage: {
       gscPages: gsc.size,
       ga4Pages: ga4.size,

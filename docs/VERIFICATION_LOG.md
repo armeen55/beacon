@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-06-25 — B77 · Learning loop (Sprint 3: P11) · branch claude/sprint-3-learning-loop (NOT merged)
+
+**Built (no migration; reuses ShippedChangeRecord + the ship→proof bridge + measureRecord):**
+- `src/domains/learning/experiment-prior.ts` (pure) — multi-dim bounded outcome prior + `applyExperimentPriorToMoves` + dim helpers (`canonicalMoveType`/`pageTypeFromUrl`/`queryClusterKey`).
+- `src/domains/learning/load-experiment-outcomes.ts` — proof ledger → SettledOutcome[] (fail-soft).
+- `src/domains/proof-gsc/measure-lifecycle.ts` (pure) — `isDueForMeasure` + `outcomeStateOf`.
+- `src/domains/proof-gsc/auto-measure-pass.ts` — `autoMeasureDuePass` (reuse measureRecord; no paid; cache-first; fail-soft; bounded).
+- `src/domains/demand-graph/build-graph.ts` — `MoveCandidate.learnedPrior` (inline shape).
+- `src/domains/demand-graph/load-graph.ts` — applies the prior post-buildDemandGraph (fail-soft, outside the pure scorer).
+- `src/domains/proof-gsc/auto-record-on-ship.ts` — bridge gains `verifiedLive`/`notes` overrides (for mark-applied).
+- `src/app/(shell)/today-moves-actions.ts` — `markMoveAppliedAction` + `measureAppliedMovesAction` (operator-gated, no publish).
+- `src/app/(shell)/today-moves-data.ts` + `today-moves-hero.tsx` + `today-moves-card.tsx` — learning summary + "Beacon learned" headline + per-card learned-prior chip.
+- `scripts/run-learning-loop.ts` — live proof harness.
+
+**Verified:**
+- `npm run typecheck` clean. `vitest run src/domains/learning src/domains/proof-gsc src/domains/demand-graph` → **97/97** (incl. +22 new: experiment-prior 13, measure-lifecycle 9). Behaviors proven: won-boosts / lost-lowers / inconclusive-no-adjust / no-evidence-no-learning / ≥3-sample / bounded ±15% / deterministic / due-window / lifecycle states.
+- LIVE Iranopedia (`run-learning-loop.ts`, $0, read-only GSC/GA4): auto-measure ran clean (0 ledger records → 0 due, 0 failed); prior NEUTRAL (0 settled → no fake learning); top-8 ranking byte-identical to pre-Sprint-3 → zero-risk rollout confirmed.
+
+**Posture:** no publish path touched (mark-applied records to the proof ledger only), no migration, no paid calls, no main merge. Branch only. Bounded + decided-only + backoff = influence-not-dominate; raw MoveComponents untouched.
+
+**Known limitation:** the loop is neutral until applied moves settle (won/lost) — by design ("no fake learning"). The outcome read is ambient-tenant (matches the render path); a cross-tenant headless caller would need ambient set.
+
+---
+
 ## 2026-06-25 — B76 · Prepared Today Moves (Sprint 2B: P5)
 
 **Built:**

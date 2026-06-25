@@ -14,6 +14,8 @@ import {
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
 import { prepareTodayMovesForTenant, type PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
+import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
+import { autoMeasureDuePass, type AutoMeasurePassResult } from "@/domains/proof-gsc/auto-measure-pass";
 
 export type SharpenMovesResult =
   | { status: "off" }
@@ -67,6 +69,63 @@ export async function sharpenMovesWithTeardownAction(
   });
   revalidatePath("/");
   return { status: "ok", audited: audited.length, targets, cached };
+}
+
+export type MarkAppliedResult =
+  | { ok: false; reason: string }
+  | { ok: true; recorded: boolean; reason: string };
+
+/**
+ * markMoveAppliedAction (2026-06-25, Sprint 3) — the operator marks a prepared Move
+ * as APPLIED (they made the change, possibly outside Beacon). Captures the GSC
+ * baseline + starts the measurement clock by recording a proof-ledger entry
+ * (reusing the ship→proof bridge with verifiedLive=true). Does NOT publish or
+ * touch any CMS — it only records that the operator says the change is live, so
+ * Beacon can measure it. Operator-gated; idempotent (path+Pacific-date); fail-soft.
+ * Revalidates "/" so the card flips to "measuring".
+ */
+export async function markMoveAppliedAction(args: {
+  pageUrl: string;
+  actionType?: string | null;
+  query?: string | null;
+}): Promise<MarkAppliedResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const res = await autoRecordShippedChangeForRec({
+      tenantId: await currentTenantId(),
+      pageUrl: args.pageUrl,
+      actionType: args.actionType ?? null,
+      targetQuery: args.query ?? null,
+      verifiedLive: true,
+      notes: "Operator marked applied",
+    });
+    revalidatePath("/");
+    return { ok: true, recorded: res.recorded, reason: res.reason };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "mark-applied failed" };
+  }
+}
+
+export type MeasureNowResult =
+  | { ok: false; reason: string }
+  | { ok: true; result: AutoMeasurePassResult };
+
+/**
+ * measureAppliedMovesAction (2026-06-25, Sprint 3) — operator-triggered re-measure
+ * of all applied Moves due for a fresh reading (GSC/GA4 already-synced data only;
+ * NO paid calls). Cache-first, bounded, fail-soft per record. Revalidates "/" +
+ * "/proof" so settled outcomes + the learned re-ranking show. Operator-gated.
+ */
+export async function measureAppliedMovesAction(opts: { maxRecords?: number } = {}): Promise<MeasureNowResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const result = await autoMeasureDuePass(await currentTenantId(), { maxRecords: opts.maxRecords ?? 15 });
+    revalidatePath("/");
+    revalidatePath("/proof");
+    return { ok: true, result };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "measure failed" };
+  }
 }
 
 /**

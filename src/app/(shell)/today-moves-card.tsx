@@ -240,6 +240,12 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       </p>
       <p className="mt-2 text-sm leading-relaxed text-gray-600">{m.why}</p>
 
+      {m.learnedTag ? (
+        <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-indigo-100">
+          🧠 {m.learnedTag}
+        </p>
+      ) : null}
+
       {m.preparedChecklist ? (
         <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-1.5">

@@ -67,7 +67,16 @@ export type AutoRecordResult = {
  * edit_title); `targetQuery` is the demand cluster / top query when known.
  */
 export async function autoRecordShippedChangeForRec(
-  args: { tenantId: string; pageUrl: string | null | undefined; actionType?: string | null; targetQuery?: string | null },
+  args: {
+    tenantId: string;
+    pageUrl: string | null | undefined;
+    actionType?: string | null;
+    targetQuery?: string | null;
+    /** Operator confirmed they applied it live (the "Mark as applied" path). */
+    verifiedLive?: boolean;
+    /** Override the ledger note (default: "Auto-recorded from cockpit Ship"). */
+    notes?: string;
+  },
   depsOverride: Partial<AutoRecordDeps> = {},
 ): Promise<AutoRecordResult> {
   const deps = { ...defaultDeps, ...depsOverride };
@@ -120,8 +129,8 @@ export async function autoRecordShippedChangeForRec(
       after: (meta.after || "").trim() || null,
       targetQueries: args.targetQuery?.trim() ? [args.targetQuery.trim()] : meta.targetQueries,
       controlPages,
-      notes: "Auto-recorded from cockpit Ship",
-      verifiedLive: false,
+      notes: args.notes ?? "Auto-recorded from cockpit Ship",
+      verifiedLive: args.verifiedLive ?? false,
     });
     // Flag the page for a fresh crawl: the snapshot/EvidencePacket must re-read the
     // changed content so the SAME Move stops being re-recommended. The persisted

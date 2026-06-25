@@ -186,6 +186,11 @@ export type MoveCandidate = {
   /** The sub-questions a winning page must answer (Profound fanout seeds). */
   fanoutSeeds: string[];
   rationale: string;
+  /** Learned outcome-prior (Sprint 3) — a bounded multiplier on the final score
+   *  from past won/lost outcomes, attached OUTSIDE the pure scorer (in load-graph)
+   *  by applyExperimentPriorToMoves(). Inline shape so build-graph stays
+   *  dependency-free of the learning layer. Absent until the loop has evidence. */
+  learnedPrior?: { multiplier: number; decidedSample: number; basis: string | null; tag: string | null };
 };
 
 export type DemandGraph = {

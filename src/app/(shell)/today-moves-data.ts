@@ -26,6 +26,8 @@ import {
   type PreparedStatus,
 } from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { outcomeStateOf, type OutcomeState } from "@/domains/proof-gsc/measure-lifecycle";
+import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 
 /**
@@ -118,6 +120,9 @@ export type TodayMove = {
   preparedExperiment: string | null;
   /** True when the prepared pack is stale vs current evidence (re-prepare). */
   preparedStale: boolean;
+  /** Sprint 3 — "ranked higher because similar moves won before" (learned prior
+   *  tag from past outcomes). Null when there's no settled evidence yet. */
+  learnedTag: string | null;
 };
 
 export type TodayMovesHeroData = {
@@ -139,6 +144,14 @@ export type TodayMovesHeroData = {
     heldWhileMeasuring: number;
     /** Shown Moves that are fully prepared (ready to review) after "Prepare my top 10". */
     preparedReady: number;
+  };
+  /** Sprint 3 — the learning loop's state from the proof ledger + priors. */
+  learning: {
+    measuring: number;
+    won: number;
+    lost: number;
+    /** "Beacon learned: …" headline from the strongest learned prior, or null. */
+    headline: string | null;
   };
 };
 
@@ -255,7 +268,7 @@ export async function buildTodayMovesData(
 ): Promise<TodayMovesHeroData> {
     const repo = getRepository().forTenant(tenantId);
 
-    const [edits, packets, responses, savedDrafts, ledger] = await Promise.all([
+    const [edits, packets, responses, savedDrafts, ledger, graphMoves] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
       // Enrichment (teardown/outline/proof) rides the heavy graph compute — guard
       // it so a slow graph degrades the hero to the light queue read, never hangs.
@@ -271,7 +284,26 @@ export async function buildTodayMovesData(
       // Phase 2: the proof ledger → pages mid-measurement are HELD (a 2nd change to
       // a page under measurement contaminates the diff-in-diff). Fail-soft → [].
       withTimeout(loadShippedChanges(), 4000, [] as Awaited<ReturnType<typeof loadShippedChanges>>),
+      // Sprint 3: the cached graph carries each Move's learnedPrior (the outcome
+      // re-weight). Cache hit (loadChangePacksForTenant already computed it). The
+      // learned tag ("ranked higher because similar moves won") rides this.
+      withTimeout(
+        loadDemandGraphForTenantCached(tenantId).then((r) => r.graph.moves).catch(() => []),
+        8000,
+        [] as Awaited<ReturnType<typeof loadDemandGraphForTenantCached>>["graph"]["moves"],
+      ),
     ]);
+    // Learned-prior tag per demand key (from the outcome re-weight on the graph).
+    const learnedByKey = new Map(graphMoves.map((m) => [m.demandKey, m.learnedPrior ?? null]));
+    // Outcome lifecycle state per page (from the proof ledger) — for the hero's
+    // learning summary + the "Beacon learned" headline. Honest: derived from
+    // settled verdicts only.
+    const ledgerStates = ledger.map((r) => outcomeStateOf(r));
+    const learningSummary = {
+      measuring: ledgerStates.filter((s) => s === "measuring").length,
+      won: ledgerStates.filter((s) => s === "win").length,
+      lost: ledgerStates.filter((s) => s === "loss").length,
+    };
     // Owned-page paths currently on measurement-hold (verdict still measuring,
     // within the 28d window). Moves for these pages are suppressed below.
     const heldPaths = buildMeasuringHold(
@@ -449,6 +481,7 @@ export async function buildTodayMovesData(
         preparedDraftText,
         preparedExperiment: persistedFresh ? persistedPack!.experiment?.hypothesis ?? null : null,
         preparedStale,
+        learnedTag: (packet ? learnedByKey.get(packet.move.key)?.tag : null) ?? null,
       });
     }
 
@@ -603,6 +636,14 @@ export async function buildTodayMovesData(
         heldWhileMeasuring,
         preparedReady: top.filter((m) => m.preparedChecklist?.readyToReview).length,
       },
+      learning: (() => {
+        // "Beacon learned: …" from the strongest learned prior (largest tilt).
+        const strongest = graphMoves
+          .map((m) => m.learnedPrior)
+          .filter((p): p is NonNullable<typeof p> => !!p && !!p.tag)
+          .sort((a, b) => Math.abs(b.multiplier - 1) - Math.abs(a.multiplier - 1))[0];
+        return { ...learningSummary, headline: strongest?.tag ? `Beacon learned: ${strongest.tag}` : null };
+      })(),
     };
 }
 

@@ -37,7 +37,7 @@ export async function TodayMovesHeroSection() {
   }
   if (!data.moves.length) return null;
 
-  const { moves, stats } = data;
+  const { moves, stats, learning } = data;
   // Moves still missing the "reverse-engineer the winner" teardown — the operator
   // can run it on demand (the diagnostic's ?refresh, brought into the cockpit).
   const needsTeardown = moves.filter((m) => !m.whatWins && !m.whoCited).length;
@@ -111,6 +111,21 @@ export async function TodayMovesHeroSection() {
               <span className="font-semibold text-gray-800">{stats.heldWhileMeasuring}</span> held while measuring
             </span>
           ) : null}
+        </div>
+      ) : null}
+
+      {learning.headline || learning.measuring + learning.won + learning.lost > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-2 text-xs">
+          {learning.headline ? (
+            <span className="font-semibold text-indigo-800">🧠 {learning.headline}</span>
+          ) : (
+            <span className="font-semibold text-indigo-800">🧠 Beacon is learning from what you ship</span>
+          )}
+          <span className="text-gray-600">
+            {learning.measuring > 0 ? <><span className="font-semibold text-sky-700">{learning.measuring}</span> measuring · </> : null}
+            <span className="font-semibold text-emerald-700">{learning.won}</span> won ·{" "}
+            <span className="font-semibold text-rose-700">{learning.lost}</span> didn&apos;t help
+          </span>
         </div>
       ) : null}
 
