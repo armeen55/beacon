@@ -73,6 +73,56 @@ export function declinesForPage(
   return declines.slice(0, cap);
 }
 
+/** A query whose demand is climbing fast (the inverse of QueryDecline). */
+export type QueryRise = {
+  query: string;
+  recentClicks: number;
+  priorClicks: number;
+  /** % click growth over prior window; 999 sentinel when the query is newly emerging. */
+  gainPct: number;
+  recentImpressions: number;
+  recentPosition: number;
+  /** Prior window had ~no demand — a genuinely new query the site started ranking for. */
+  isNew: boolean;
+};
+
+/**
+ * PURE rise computation for one page (mirror of {@link declinesForPage}): a query
+ * is RISING when it has real RECENT demand (≥`minRecentClicks`) AND either it's
+ * newly emerging (prior ~0) or recent clicks grew ≥`minGainPct` over prior. Sorted
+ * by absolute clicks GAINED (biggest mover first), capped. The "catch emerging
+ * demand early" signal. Unit-testable without a live DB.
+ */
+export function risesForPage(
+  recentQs: Map<string, QueryAgg>,
+  priorQs: Map<string, QueryAgg>,
+  opts: { minRecentClicks?: number; minGainPct?: number; cap?: number } = {},
+): QueryRise[] {
+  const minRecentClicks = opts.minRecentClicks ?? 5;
+  const minGainPct = opts.minGainPct ?? 25;
+  const cap = opts.cap ?? TOP_PER_PAGE;
+  const rises: QueryRise[] = [];
+  for (const [query, r] of recentQs) {
+    if (r.clicks < minRecentClicks) continue; // needs real recent demand
+    const p = priorQs.get(query) ?? { clicks: 0, impressions: 0, posW: 0 };
+    const isNew = p.clicks < 2;
+    const gainPct = p.clicks > 0 ? Math.round(((r.clicks - p.clicks) / p.clicks) * 100) : 999;
+    if (!isNew && gainPct < minGainPct) continue;
+    const recentPosition = r.impressions > 0 ? r.posW / r.impressions : 0;
+    rises.push({
+      query,
+      recentClicks: r.clicks,
+      priorClicks: p.clicks,
+      gainPct,
+      recentImpressions: r.impressions,
+      recentPosition,
+      isNew,
+    });
+  }
+  rises.sort((a, b) => b.recentClicks - b.priorClicks - (a.recentClicks - a.priorClicks));
+  return rises.slice(0, cap);
+}
+
 const WINDOW_DAYS = 90;
 const ROW_BUDGET = 2000; // hard cap — bounded read, never a full-table scan
 const TOP_PER_PAGE = 3;
@@ -502,6 +552,54 @@ export async function loadQueryDeclinesForPages(
       error: e instanceof Error ? e.message : String(e),
     });
     return out;
+  }
+}
+
+export type RisingQuery = QueryRise & { page: string };
+
+/**
+ * Site-wide RISING queries — the inverse of {@link loadTopDecliningPagesForTenant}.
+ * Pulls the tenant's top pages by impressions, runs the same two-window per-query
+ * scan, and surfaces the queries gaining clicks fastest (emerging demand to capture
+ * before competitors lock it in), flattened across pages and ranked by clicks
+ * gained. Bounded + fail-soft → [].
+ */
+export async function loadTopRisingQueriesForTenant(
+  tenantId: string,
+  opts: { topPages?: number; windowDays?: number; cap?: number } = {},
+): Promise<RisingQuery[]> {
+  if (!tenantId) return [];
+  const topN = Math.max(1, Math.min(opts.topPages ?? 25, 25));
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso((opts.windowDays ?? 28) * 2);
+    const { data, error } = await sb
+      .rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: since })
+      .order("impressions", { ascending: false })
+      .limit(topN);
+    if (error || !data) {
+      if (error) log.warn("[gsc-page-queries] rising rpc failed", { tenantId, error: error.message });
+      return [];
+    }
+    const pages = (data as Array<{ page?: string }>).map((r) => r.page).filter((p): p is string => Boolean(p));
+    if (pages.length === 0) return [];
+    const w = opts.windowDays ?? 28;
+    const recentFrom = sinceDateIso(w);
+    const [recent, prior] = await Promise.all([
+      readWindow(sb, tenantId, pages, recentFrom, sinceDateIso(0)),
+      readWindow(sb, tenantId, pages, sinceDateIso(w * 2), recentFrom),
+    ]);
+    const out: RisingQuery[] = [];
+    for (const [page, recentQs] of recent) {
+      for (const rise of risesForPage(recentQs, prior.get(page) ?? new Map())) {
+        out.push({ ...rise, page });
+      }
+    }
+    out.sort((a, b) => b.recentClicks - b.priorClicks - (a.recentClicks - a.priorClicks));
+    return out.slice(0, opts.cap ?? 12);
+  } catch (e) {
+    log.warn("[gsc-page-queries] top-rising threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return [];
   }
 }
 

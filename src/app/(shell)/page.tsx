@@ -53,6 +53,7 @@ import { TodayBrandSplitSection } from "./today-brand-split-section";
 import { TodayTrendSection } from "./today-trend-section";
 import { TodayMomentumSection } from "./today-momentum-section";
 import { TodayDeclinesSection } from "./today-declines-section";
+import { TodayRisingSection } from "./today-rising-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayCtrGapSection } from "./today-ctrgap-section";
@@ -244,6 +245,7 @@ async function TodayV2SectionedContent() {
         targets={[
           { id: "sec-opportunities", label: "Opportunities" },
           { id: "sec-trend", label: "Traffic trend" },
+          { id: "sec-rising", label: "Rising demand" },
           { id: "sec-momentum", label: "Pages moving" },
           { id: "sec-bands", label: "Where you rank" },
           { id: "sec-brand", label: "Branded vs discovery" },
@@ -280,6 +282,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-trend" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayTrendSection />
+        </Suspense>
+      </div>
+      {/* Rising demand (2026-06-25) — emerging queries gaining clicks fast. Own Suspense / self-hides. */}
+      <div id="sec-rising" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayRisingSection />
         </Suspense>
       </div>
       {/* Which pages are moving (2026-06-25) — per-page weekly momentum drill-down. Own Suspense / self-hides. */}
