@@ -3,7 +3,10 @@ import {
   loadDailyClicksByPagesForTenant,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { currentTenantId } from "@/lib/tenant-context";
+import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildPageMomentum, type PageMomentum } from "./today-momentum-rows";
+import { recentlyShippedPageKeys } from "./today-recoveries-rows";
 import { type WeekPoint } from "./today-trend-rows";
 
 /**
@@ -35,13 +38,18 @@ function miniSpark(points: WeekPoint[], w: number, h: number, pad = 2): string {
   return points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.clicks).toFixed(1)}`).join(" ");
 }
 
-function MoverRow({ m, color }: { m: PageMomentum; color: string }) {
+function MoverRow({ m, color, measuring }: { m: PageMomentum; color: string; measuring?: boolean }) {
   const deltaLabel = m.deltaPct > 0 ? `+${m.deltaPct}%` : `${m.deltaPct}%`;
   const netLabel = m.netChange > 0 ? `+${m.netChange}` : `${m.netChange}`;
   return (
     <li className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white/70 px-3 py-2 text-sm">
-      <a href={workbenchHref(m.page)} className="min-w-0 truncate font-medium text-gray-800 hover:text-gray-950" title={m.page}>
-        {slugOf(m.page)}
+      <a href={workbenchHref(m.page)} className="flex min-w-0 items-center gap-2 font-medium text-gray-800 hover:text-gray-950" title={m.page}>
+        <span className="truncate">{slugOf(m.page)}</span>
+        {measuring ? (
+          <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
+            Measuring
+          </span>
+        ) : null}
       </a>
       <div className="flex shrink-0 items-center gap-3">
         <svg viewBox="0 0 80 24" className="h-6 w-20" preserveAspectRatio="none" aria-hidden="true">
@@ -59,16 +67,26 @@ function MoverRow({ m, color }: { m: PageMomentum; color: string }) {
 export async function TodayMomentumSection() {
   let risers: PageMomentum[] = [];
   let fallers: PageMomentum[] = [];
+  let measuringKeys = new Set<string>();
+  const normUrl = (u: string) => canonicalizeCitationUrl(u) ?? u;
   try {
     const tenantId = await currentTenantId();
     const pages = await loadTopPagesWithQueriesForTenant(tenantId).catch(() => []);
     const pageUrls = pages.map((p) => p.page).slice(0, 16);
     if (pageUrls.length === 0) return null;
-    const byPage = await loadDailyClicksByPagesForTenant(tenantId, pageUrls, 70).catch(
-      () => new Map<string, never>(),
-    );
+    const [byPage, shipped] = await Promise.all([
+      loadDailyClicksByPagesForTenant(tenantId, pageUrls, 70).catch(() => new Map<string, never>()),
+      loadShippedChanges().catch(() => []),
+    ]);
     const entries = [...byPage.entries()].map(([page, daily]) => ({ page, daily }));
     ({ risers, fallers } = buildPageMomentum(entries, { cap: 5 }));
+    // A page that just had a fix shipped is mid-measurement, not "failing" — mark
+    // it so the operator doesn't re-fix a page whose experiment is still running.
+    measuringKeys = recentlyShippedPageKeys(
+      shipped.map((s) => ({ page: s.page, shippedAt: s.shippedAt })),
+      Date.now(),
+      normUrl,
+    );
   } catch {
     return null;
   }
@@ -91,7 +109,7 @@ export async function TodayMomentumSection() {
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-600">Slipping (fix first)</h3>
             <ul className="space-y-1.5">
               {fallers.map((m) => (
-                <MoverRow key={m.page} m={m} color="#e11d48" />
+                <MoverRow key={m.page} m={m} color="#e11d48" measuring={measuringKeys.has(normUrl(m.page))} />
               ))}
             </ul>
           </div>
