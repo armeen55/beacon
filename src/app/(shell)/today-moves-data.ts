@@ -378,6 +378,12 @@ export async function buildTodayMovesData(
       if (m.action === "add_answer_block" && tq && m.whoCited) {
         m.why = `AI cites ${m.whoCited} for this. You already rank position ${Math.round(tq.position)} for "${tq.query}" (${tq.impressions.toLocaleString()} monthly impressions) but aren't the cited source — a quotable answer block can win the citation.`;
       }
+      // Highest-priority "why": an ACTIVE loss is more urgent than an opportunity.
+      // If the page is shedding clicks on a real query, lead with that.
+      const topDecline = m.declines[0];
+      if (topDecline && topDecline.dropPct >= 40) {
+        m.why = `You're losing "${topDecline.query}" — clicks dropped ${topDecline.dropPct}% (${topDecline.priorClicks.toLocaleString()} → ${topDecline.recentClicks.toLocaleString()}) over the last month${topDecline.positionSlip >= 1 ? ` as you slipped ${Math.round(topDecline.positionSlip)} positions` : ""}. Refreshing this page can win them back.`;
+      }
     }
 
     // Quick-win boost: a page already ranking in striking distance (pos 4–15, real
@@ -385,10 +391,14 @@ export async function buildTodayMovesData(
     // Score stays primary (trust); striking distance is the next key, before
     // confidence/demand. Re-sort only the bounded pool, then take the shown set.
     const hasStriking = (m: TodayMove) => m.topQueries.some((q) => q.strikingDistance);
+    // An active loss (≥40% click drop on a real query) is urgent — surface those
+    // above equal-score moves, just behind striking distance. Score stays primary.
+    const hasDecline = (m: TodayMove) => m.declines.some((d) => d.dropPct >= 40);
     pool.sort(
       (a, b) =>
         b.score - a.score ||
         Number(hasStriking(b)) - Number(hasStriking(a)) ||
+        Number(hasDecline(b)) - Number(hasDecline(a)) ||
         CONF_RANK[b.confidence] - CONF_RANK[a.confidence] ||
         (b.demand ?? 0) - (a.demand ?? 0),
     );
