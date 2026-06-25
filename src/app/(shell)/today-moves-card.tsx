@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { respondToRecommendation } from "./recommendation-actions";
+import { draftMoveAnswerBlockAction } from "./today-moves-actions";
 import type { TodayMove } from "./today-moves-data";
 
 /**
@@ -78,6 +79,43 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         setTimeout(() => setCopiedTitle(null), 1500);
       })
       .catch(() => {});
+  };
+
+  // On-demand LLM answer-block draft (off unless BEACON_LLM_PROVIDER=openai; the
+  // action is operator-gated + budget-gated + safety-firewalled). Fires only on click.
+  const [aiStatus, setAiStatus] = useState<
+    "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
+  >("idle");
+  const [aiText, setAiText] = useState("");
+  const [aiCopied, setAiCopied] = useState(false);
+  const aiGenerate = () => {
+    setAiStatus("pending");
+    startTransition(async () => {
+      try {
+        const r = await draftMoveAnswerBlockAction({
+          query: m.query,
+          pageLabel: m.pageLabel,
+          brief: m.answerBrief,
+          outline: m.outline,
+          faqs: m.faqs,
+        });
+        if (r.status === "ok") {
+          setAiText(r.text);
+          setAiStatus("ok");
+        } else if (r.status === "off") setAiStatus("off");
+        else if (r.status === "blocked_budget") setAiStatus("blocked");
+        else if (r.status === "rejected") setAiStatus("rejected");
+        else setAiStatus("error");
+      } catch {
+        setAiStatus("error");
+      }
+    });
+  };
+  const copyAi = () => {
+    navigator.clipboard?.writeText(aiText).then(() => {
+      setAiCopied(true);
+      setTimeout(() => setAiCopied(false), 1800);
+    }).catch(() => {});
   };
 
   const hasDraft = Boolean(m.answerBrief || m.faqs.length || m.draftTitle || m.outline.length);
@@ -280,6 +318,48 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
               </div>
             ) : null}
           </dl>
+
+          {m.actionTone === "citation" ? (
+            <div className="mt-3 border-t border-gray-200 pt-3">
+              {aiStatus === "ok" ? (
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-500">
+                      ✨ AI-written answer block
+                    </span>
+                    <button
+                      onClick={copyAi}
+                      className="rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-violet-500"
+                    >
+                      {aiCopied ? "Copied ✓" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="rounded-lg bg-white p-2.5 text-xs leading-relaxed text-gray-800 ring-1 ring-violet-100">
+                    {aiText}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={aiGenerate}
+                    disabled={pending || aiStatus === "pending"}
+                    className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60"
+                  >
+                    {aiStatus === "pending" ? "Writing…" : "✨ Draft with AI"}
+                  </button>
+                  {aiStatus === "off" ? (
+                    <span className="text-[11px] text-gray-400">AI drafting is off — using the outline above.</span>
+                  ) : aiStatus === "blocked" ? (
+                    <span className="text-[11px] text-amber-600">Monthly AI budget reached.</span>
+                  ) : aiStatus === "rejected" ? (
+                    <span className="text-[11px] text-amber-600">Draft failed the fact-safety check — use the outline.</span>
+                  ) : aiStatus === "error" ? (
+                    <span className="text-[11px] text-gray-400">Couldn&apos;t draft right now — use the outline.</span>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
