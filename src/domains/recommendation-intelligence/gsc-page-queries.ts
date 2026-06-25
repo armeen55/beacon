@@ -22,7 +22,16 @@ export type PageQuery = {
   impressions: number;
   /** Impression-weighted average position over the window. */
   position: number;
+  /** Striking distance: ranks just off the top (pos 4–15) with real demand — the
+   *  classic CTR play where a small rank gain captures outsized clicks. */
+  strikingDistance: boolean;
 };
+
+/** Striking-distance test: ranking on page 1's lower half / page 2 top, with
+ *  enough impressions that climbing a few spots is worth real clicks. */
+function isStrikingDistance(position: number, impressions: number): boolean {
+  return position >= 4 && position <= 15 && impressions >= 100;
+}
 
 const WINDOW_DAYS = 90;
 const ROW_BUDGET = 2000; // hard cap — bounded read, never a full-table scan
@@ -84,12 +93,16 @@ export async function loadTopQueriesForPages(
 
     for (const [page, perQuery] of byPage) {
       const ranked: PageQuery[] = [...perQuery.entries()]
-        .map(([query, a]) => ({
-          query,
-          clicks: a.clicks,
-          impressions: a.impressions,
-          position: a.impressions > 0 ? a.posWeighted / a.impressions : 0,
-        }))
+        .map(([query, a]) => {
+          const position = a.impressions > 0 ? a.posWeighted / a.impressions : 0;
+          return {
+            query,
+            clicks: a.clicks,
+            impressions: a.impressions,
+            position,
+            strikingDistance: isStrikingDistance(position, a.impressions),
+          };
+        })
         .filter((q) => q.impressions > 0)
         .sort((x, y) => y.impressions - x.impressions)
         .slice(0, TOP_PER_PAGE);

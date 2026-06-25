@@ -266,11 +266,22 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           {m.topQueries.map((q, i) => (
             <span
               key={i}
-              className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800 ring-1 ring-sky-100"
-              title={`${q.impressions.toLocaleString()} impressions · ${q.clicks.toLocaleString()} clicks · avg position ${q.position.toFixed(1)}`}
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] ring-1 ${
+                q.strikingDistance
+                  ? "bg-amber-50 text-amber-800 ring-amber-200"
+                  : "bg-sky-50 text-sky-800 ring-sky-100"
+              }`}
+              title={
+                q.strikingDistance
+                  ? `Striking distance — ranks position ${q.position.toFixed(1)} for ${q.impressions.toLocaleString()} monthly impressions; climbing a few spots captures outsized clicks.`
+                  : `${q.impressions.toLocaleString()} impressions · ${q.clicks.toLocaleString()} clicks · avg position ${q.position.toFixed(1)}`
+              }
             >
+              {q.strikingDistance ? <span aria-hidden>↑</span> : null}
               <span className="font-medium">{q.query}</span>
-              <span className="text-sky-500">pos {q.position.toFixed(1)} · {fmtNum(q.impressions)} impr</span>
+              <span className={q.strikingDistance ? "text-amber-600" : "text-sky-500"}>
+                pos {q.position.toFixed(1)} · {fmtNum(q.impressions)} impr
+              </span>
             </span>
           ))}
         </div>
