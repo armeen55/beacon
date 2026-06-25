@@ -160,9 +160,15 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   ]);
 }
 
-export const loadTodayMovesHeroData = cache(
-  async (opts: { limit?: number } = {}): Promise<TodayMovesHeroData> => {
-    const tenantId = await currentTenantId();
+/**
+ * Tenant-explicit builder — the core join used by the request-cached loader AND
+ * by the nightly precompute (which has no request context, so it can't derive
+ * the tenant from currentTenantId()). Keep them sharing one implementation.
+ */
+export async function buildTodayMovesData(
+  tenantId: string,
+  opts: { limit?: number } = {},
+): Promise<TodayMovesHeroData> {
     const repo = getRepository().forTenant(tenantId);
 
     const [edits, packets, responses, savedDrafts] = await Promise.all([
@@ -314,5 +320,9 @@ export const loadTodayMovesHeroData = cache(
         pagesCovered,
       },
     };
-  },
+}
+
+export const loadTodayMovesHeroData = cache(
+  async (opts: { limit?: number } = {}): Promise<TodayMovesHeroData> =>
+    buildTodayMovesData(await currentTenantId(), opts),
 );

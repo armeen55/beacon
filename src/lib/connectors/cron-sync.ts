@@ -6,6 +6,7 @@ import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffi
 import { syncSemrushOrganicKeywordsForTenant } from "@/lib/connectors/semrush/sync-organic-keywords";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
+import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -249,6 +250,26 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       log.error("[cron-sync] tenant failed", { tenantId: t.id, error: err.slice(0, 200) });
+    }
+    // §6 precompute — after fresh data lands, pre-draft the top AI-citation Moves
+    // so the cockpit opens with ready answer blocks + FAQ schema (not buttons).
+    // No-op unless BEACON_LLM_PROVIDER=openai; budget-capped + fail-soft (its own
+    // try/catch so a drafting hiccup never affects the sync result).
+    try {
+      const pc = await precomputeMoveDraftsForTenant(t.id, { maxMoves: 8 });
+      if (!pc.skipped && (pc.answerBlocksSaved > 0 || pc.faqSchemasSaved > 0)) {
+        log.info("[cron-sync] precomputed move drafts", {
+          tenantId: t.id,
+          answerBlocks: pc.answerBlocksSaved,
+          faqSchemas: pc.faqSchemasSaved,
+          spendUsd: Number(pc.spendUsd.toFixed(4)),
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] precompute failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
     }
   }
   const ok = results.filter((r) => r.ok).length;
