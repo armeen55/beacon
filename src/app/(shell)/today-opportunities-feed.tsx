@@ -4,10 +4,12 @@ import {
   loadTopDecliningPagesForTenant,
   loadTopStrikingPagesForTenant,
   loadToolIntentQueries,
+  loadTopPagesWithQueriesForTenant,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
+import { buildCtrGapRows } from "./today-ctrgap-rows";
 import { buildNewPagesData } from "./today-newpages-data";
-import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/ctr-curve";
+import { clicksAtStakeForStriking, estimatedCtr } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildRecommendationDetailHref } from "@/components/recommendations/v2/recommendation-route-id";
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
@@ -34,6 +36,7 @@ const KIND_LABEL: Record<FeedKind, string> = {
   cite: "Get cited",
   build: "Build",
   edit: "Improve",
+  snippet: "Snippet",
 };
 const KIND_STYLE: Record<FeedKind, string> = {
   recover: "bg-rose-100 text-rose-700",
@@ -41,6 +44,7 @@ const KIND_STYLE: Record<FeedKind, string> = {
   cite: "bg-violet-100 text-violet-700",
   build: "bg-emerald-100 text-emerald-700",
   edit: "bg-sky-100 text-sky-700",
+  snippet: "bg-orange-100 text-orange-700",
 };
 
 function fmtNum(n: number): string {
@@ -109,18 +113,30 @@ export async function TodayOpportunitiesFeed() {
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
       getBusinessConfigForCurrentTenant().catch(() => null),
       loadToolIntentQueries(tenantId).catch(() => []),
       buildNewPagesData(tenantId).catch(() => ({ opportunities: [], totalCandidates: 0 })),
+      loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
     ]);
     siteName = cfg?.name ?? "";
-    const extra = (hero?.moves ?? [])
+    const moveExtra = (hero?.moves ?? [])
       .map((m) => moveToItem(m))
       .filter((x): x is OpportunityItem => x != null);
+    // CTR-gap (snippet) wins are in the same clicks-at-stake currency → fuse them
+    // into the one ranked list (a 0%-CTR page at a top position is a top opportunity).
+    const ctrGapExtra: OpportunityItem[] = buildCtrGapRows(pagesWithQueries, estimatedCtr).map((r) => ({
+      kind: "snippet",
+      query: r.query,
+      page: r.page,
+      clicksAtStake: r.clicksLeft,
+      detail: `ranks pos ${r.position.toFixed(1)} but only ${(r.actualCtr * 100).toFixed(1)}% CTR (vs ~${(r.expectedCtr * 100).toFixed(0)}% expected) — fix the title/snippet`,
+      route: workbenchHref(r.page),
+    }));
+    const extra = [...moveExtra, ...ctrGapExtra];
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
     items = result.items;
     allItems = result.all;
