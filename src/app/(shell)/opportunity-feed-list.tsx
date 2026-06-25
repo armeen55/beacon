@@ -30,12 +30,33 @@ function fmtNum(n: number): string {
  * opportunity persists off the recomputed feed, with an inline Undo). Optimistic:
  * the row drops on dismiss and the server action persists in the background.
  */
-export function OpportunityFeedList({ rows, initial = 6 }: { rows: FeedDisplayRow[]; initial?: number }) {
+export function OpportunityFeedList({
+  rows,
+  initial = 6,
+  dismissed: dismissedRows = [],
+}: {
+  rows: FeedDisplayRow[];
+  initial?: number;
+  /** Previously-dismissed opportunities (persisted) — shown in a restore drawer. */
+  dismissed?: { oppKey: string; label: string; kind: string }[];
+}) {
   const [expanded, setExpanded] = useState(false);
   // Optimistically-removed keys + the last dismissal (for the Undo affordance).
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [lastDismissed, setLastDismissed] = useState<FeedDisplayRow | null>(null);
+  // Keys restored from the drawer this session (optimistically hidden from it).
+  const [restored, setRestored] = useState<Set<string>>(() => new Set());
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [, startTransition] = useTransition();
+
+  const drawerRows = dismissedRows.filter((d) => !restored.has(d.oppKey));
+
+  function restore(oppKey: string) {
+    setRestored((prev) => new Set(prev).add(oppKey));
+    startTransition(() => {
+      void undismissOpportunityAction(oppKey);
+    });
+  }
 
   const visible = rows.filter((r) => !dismissed.has(r.oppKey));
   const shown = expanded ? visible : visible.slice(0, initial);
@@ -120,6 +141,37 @@ export function OpportunityFeedList({ rows, initial = 6 }: { rows: FeedDisplayRo
           </span>
         ) : null}
       </div>
+
+      {drawerRows.length > 0 ? (
+        <div className="mt-3 border-t border-violet-100 pt-2">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen((v) => !v)}
+            className="text-xs font-medium text-gray-400 hover:text-gray-600"
+          >
+            {drawerOpen ? "Hide" : "Show"} {drawerRows.length} dismissed{" "}
+            <span aria-hidden>{drawerOpen ? "▴" : "▾"}</span>
+          </button>
+          {drawerOpen ? (
+            <ul className="mt-2 space-y-1">
+              {drawerRows.map((d) => (
+                <li key={d.oppKey} className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                  <span className="min-w-0 truncate">
+                    {d.label} <span className="text-gray-300">· {d.kind}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => restore(d.oppKey)}
+                    className="shrink-0 font-semibold text-violet-600 hover:text-violet-800"
+                  >
+                    Restore
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
     </>
   );
 }

@@ -116,6 +116,7 @@ export async function TodayOpportunitiesFeed() {
   let newPageExportItems: ExportItem[] = [];
   let total = 0;
   let totalClicks = 0;
+  let dismissedRows: { oppKey: string; label: string; kind: string }[] = [];
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
@@ -166,6 +167,14 @@ export async function TodayOpportunitiesFeed() {
     items = allItems.slice(0, 6);
     total = allItems.length;
     totalClicks = allItems.reduce((s, it) => s + (it.clicksAtStake || 0), 0);
+    // Recoverable, not a black hole: parse dismissed keys (kind|page|query) into
+    // readable rows so the operator can restore anything they hid.
+    dismissedRows = [...dismissedKeys].map((k) => {
+      const parts = k.split("|");
+      const kind = parts[0] ?? "";
+      const query = parts[2] ?? "";
+      return { oppKey: k, label: query || (parts[1] ?? k), kind };
+    });
     // The dev-handoff doc should be COMPLETE — append the asset-engine tools
     // (build-these) after the rank work, on their own demand metric.
     toolExportItems = buildToolOpportunities(toolQueries, { minImpressions: 5 }).map((t) => ({
@@ -241,6 +250,7 @@ export async function TodayOpportunitiesFeed() {
           href: it.kind === "recover" || it.kind === "win" || it.kind === "snippet" ? workbenchHref(it.page) : it.route,
           oppKey: opportunityKey(it.kind, it.page, it.query),
         }))}
+        dismissed={dismissedRows}
       />
     </section>
   );
