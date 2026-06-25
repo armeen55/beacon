@@ -46,6 +46,7 @@ import { CollapsibleSection } from "@/components/today/collapsible-section";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { StateOfUnionSection } from "./state-of-union-section";
 import { CockpitJumpNav } from "./cockpit-jump-nav";
+import { CommandPalette } from "./command-palette";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayPositionBandsSection } from "./today-position-bands-section";
@@ -243,6 +244,28 @@ async function TodayV2SectionedContent() {
       {/* Jump-nav (2026-06-25) — sticky index for the cockpit's many self-hiding
           sections; only shows anchors that actually rendered content. */}
       <CockpitJumpNav
+        targets={[
+          { id: "sec-opportunities", label: "Opportunities" },
+          { id: "sec-trend", label: "Traffic trend" },
+          { id: "sec-rising", label: "Rising demand" },
+          { id: "sec-momentum", label: "Pages moving" },
+          { id: "sec-bands", label: "Where you rank" },
+          { id: "sec-brand", label: "Branded vs discovery" },
+          { id: "sec-questions", label: "Questions to answer" },
+          { id: "sec-recover", label: "Recover" },
+          { id: "sec-recoveries", label: "Turned around" },
+          { id: "sec-quickwins", label: "Quick wins" },
+          { id: "sec-ctrgap", label: "Seen not clicked" },
+          { id: "sec-cannibal", label: "Self-competing" },
+          { id: "sec-leaks", label: "Conversion leaks" },
+          { id: "sec-tools", label: "Tools" },
+          { id: "sec-newpages", label: "New pages" },
+          { id: "sec-entity", label: "Entity" },
+        ]}
+      />
+      {/* ⌘K command palette (2026-06-25) — jump to any lens/section or key route
+          from the keyboard. Shares the jump-nav anchors. Client-only, no data. */}
+      <CommandPalette
         targets={[
           { id: "sec-opportunities", label: "Opportunities" },
           { id: "sec-trend", label: "Traffic trend" },
