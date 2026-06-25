@@ -4,6 +4,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 /**
@@ -50,6 +51,8 @@ export type TodayMove = {
   draftMeta: string | null;
   faqs: string[];
   schema: string[];
+  /** CTR Title Lab: scored, deterministic title variants for "capture clicks" Moves. */
+  titleVariants: { title: string; score: number; signals: string[] }[];
   score: number;
 };
 
@@ -94,6 +97,17 @@ function prettyPage(url: string): string {
     return slug.replace(/[-_]+/g, " ").trim() || u.hostname;
   } catch {
     return url;
+  }
+}
+
+/** Brand name from the owned domain's first label (e.g. iranopedia.com → Iranopedia). */
+function brandFromUrl(url: string): string {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    const label = h.split(".")[0] ?? h;
+    return label.replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return "";
   }
 }
 
@@ -189,6 +203,22 @@ export const loadTodayMovesHeroData = cache(
         packet?.competitor?.domain && packet.competitor.fetchStatus === "ok" && !looselyMatched
           ? packet.competitor.domain
           : null;
+
+      const query =
+        packet?.move?.label ??
+        (e as { topic_cluster_label?: string }).topic_cluster_label ??
+        prettyPage(targetUrl);
+
+      // CTR Title Lab — deterministic scored title variants for "capture clicks" Moves.
+      let titleVariants: TodayMove["titleVariants"] = [];
+      if (e.action_type === "edit_title") {
+        const brand = brandFromUrl(targetUrl);
+        const year = new Date().getFullYear();
+        titleVariants = titleCandidates(query, brand, year)
+          .map((t) => scoreTitle(t, query, brand))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+      }
 
       moves.push({
         id: (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk,

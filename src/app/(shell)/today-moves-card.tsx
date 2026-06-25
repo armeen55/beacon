@@ -69,6 +69,16 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   const [pending, startTransition] = useTransition();
   const [showDraft, setShowDraft] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedTitle, setCopiedTitle] = useState<number | null>(null);
+  const copyTitle = (i: number, text: string) => {
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopiedTitle(i);
+        setTimeout(() => setCopiedTitle(null), 1500);
+      })
+      .catch(() => {});
+  };
 
   const hasDraft = Boolean(m.answerBrief || m.faqs.length || m.draftTitle || m.outline.length);
   const buildPasteBlock = (): string => {
@@ -181,6 +191,33 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           {m.outline.map((o, i) => (
             <span key={i} className="rounded-md bg-white px-2 py-0.5 text-[11px] text-gray-600 ring-1 ring-gray-200">{o}</span>
           ))}
+        </div>
+      ) : null}
+
+      {m.titleVariants.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-700/70">
+            Title options · pick one, copy, paste
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {m.titleVariants.map((v, i) => (
+              <li
+                key={i}
+                className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-gray-200"
+              >
+                <span className="min-w-0 flex-1 truncate text-xs text-gray-800" title={v.title}>
+                  {i === 0 ? <span className="mr-1 text-[10px] font-bold text-sky-600">BEST</span> : null}
+                  {v.title}
+                </span>
+                <button
+                  onClick={() => copyTitle(i, v.title)}
+                  className="shrink-0 rounded-md bg-gray-900 px-2 py-0.5 text-[10px] font-semibold text-white transition-colors hover:bg-gray-700"
+                >
+                  {copiedTitle === i ? "Copied ✓" : "Copy"}
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
