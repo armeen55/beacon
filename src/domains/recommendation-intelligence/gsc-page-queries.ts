@@ -558,6 +558,32 @@ export async function loadQueryDeclinesForPages(
 export type RisingQuery = QueryRise & { page: string };
 
 /**
+ * RISING queries for ONE explicit page (the Workbench drill-down companion to the
+ * site-wide loader). Two bounded windowed reads on just this page → `risesForPage`.
+ * Fail-soft → []. Lets the per-page workspace show emerging demand in context.
+ */
+export async function loadRisingQueriesForPage(
+  tenantId: string,
+  pageUrl: string,
+  opts: { windowDays?: number } = {},
+): Promise<QueryRise[]> {
+  if (!tenantId || !pageUrl) return [];
+  const w = opts.windowDays ?? 28;
+  try {
+    const sb = getSupabaseAdmin();
+    const recentFrom = sinceDateIso(w);
+    const [recent, prior] = await Promise.all([
+      readWindow(sb, tenantId, [pageUrl], recentFrom, sinceDateIso(0)),
+      readWindow(sb, tenantId, [pageUrl], sinceDateIso(w * 2), recentFrom),
+    ]);
+    return risesForPage(recent.get(pageUrl) ?? new Map(), prior.get(pageUrl) ?? new Map(), { cap: 5 });
+  } catch (e) {
+    log.warn("[gsc-page-queries] page-rising threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return [];
+  }
+}
+
+/**
  * Site-wide RISING queries — the inverse of {@link loadTopDecliningPagesForTenant}.
  * Pulls the tenant's top pages by impressions, runs the same two-window per-query
  * scan, and surfaces the queries gaining clicks fastest (emerging demand to capture
