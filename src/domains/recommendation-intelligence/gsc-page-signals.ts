@@ -353,7 +353,14 @@ export async function loadGscSiteTotalsForTenant(
       clicksPrev28d,
       dailyClicks,
     };
-  } catch {
+  } catch (e) {
+    // LOUD, not silent (mirror the loud sibling at the page-signals read): this
+    // feeds the State-of-Union "Your traffic trend" section, which blanks with zero
+    // telemetry on a transient gsc_daily_totals failure. Surface it.
+    log.warn("[gsc-site-totals] read threw — trend section will be empty", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
     return null;
   }
 }

@@ -3,6 +3,7 @@ import {
   extractCompetitorFacts,
   auditCompetitorPage,
   whatWins,
+  isTeardownFresh,
   type CompetitorFetchResult,
 } from "@/domains/demand-graph/competitor-page-audit";
 
@@ -87,6 +88,24 @@ describe("extractCompetitorFacts — tool/calculator + thin page", () => {
     const f = extractCompetitorFacts(html, "https://x.com/thin");
     expect(f.hasFaq).toBe(false);
     expect(whatWins(f)).toContain("thin page");
+  });
+});
+
+describe("isTeardownFresh (cache TTL — teardown refreshes after competitors change)", () => {
+  const now = Date.parse("2026-06-25T00:00:00Z");
+  const DAY = 86_400_000;
+  it("reuses a recent audit (1 day old, within 14d)", () => {
+    expect(isTeardownFresh(new Date(now - 1 * DAY).toISOString(), now)).toBe(true);
+  });
+  it("re-fetches a stale audit (20 days old, past 14d)", () => {
+    expect(isTeardownFresh(new Date(now - 20 * DAY).toISOString(), now)).toBe(false);
+  });
+  it("treats a missing/garbage auditedAt as stale (never reuse forever)", () => {
+    expect(isTeardownFresh(null, now)).toBe(false);
+    expect(isTeardownFresh("not-a-date", now)).toBe(false);
+  });
+  it("respects an explicit maxAge override", () => {
+    expect(isTeardownFresh(new Date(now - 2 * DAY).toISOString(), now, 1 * DAY)).toBe(false);
   });
 });
 

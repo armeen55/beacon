@@ -24,6 +24,23 @@ import { loadDemandGraphForTenant } from "./load-graph";
 
 const STORE = "competitor-page-audit";
 const DEFAULT_TOP_N = 20;
+// Teardown freshness: a cached "ok" audit is reused only while younger than this.
+// Without it, "what wins" went PERMANENTLY stale — a competitor could rewrite their
+// page and Beacon would keep tearing down the old version forever (the cache was
+// reused on fetchStatus==="ok" with no age check). 14d balances polite re-fetch
+// against the connectedness requirement that teardowns refresh after competitors change.
+const TEARDOWN_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Pure: is a cached teardown still fresh enough to reuse? A bad/unparseable
+ *  `auditedAt` is treated as STALE (re-fetch) — never silently reused forever. */
+export function isTeardownFresh(
+  auditedAt: string | null | undefined,
+  nowMs: number,
+  maxAgeMs: number = TEARDOWN_MAX_AGE_MS,
+): boolean {
+  const t = Date.parse(auditedAt ?? "");
+  return Number.isFinite(t) && nowMs - t < maxAgeMs;
+}
 const MAX_OUTLINE = 12;
 const MAX_FAQ = 8;
 const MAX_TERMS = 10;
@@ -412,6 +429,14 @@ export async function auditTopCompetitorsForTenant(
 
   const cache = await getCompetitorAuditsForTenant();
   const cacheKey = (u: string) => canonicalizeCitationUrl(u) || u;
+  // Resolve "now" from deps (testable) for the teardown freshness check.
+  const nowMs = (() => {
+    const t = Date.parse((deps.now ?? (() => new Date().toISOString()))());
+    return Number.isFinite(t) ? t : Date.now();
+  })();
+  // A cached "ok" audit is fresh only within the TTL — past it we re-fetch so a
+  // competitor's content change is seen (closes the "teardown never refreshes" gap).
+  const isFresh = (a: CompetitorPageAudit): boolean => isTeardownFresh(a.auditedAt, nowMs);
   // A competitor we've already fetched and FAILED on (blocks crawlers / 404 / non-
   // HTML) — don't keep picking it as the move's teardown target when a fetchable
   // rival sits one slot down in the citation list.
@@ -440,7 +465,7 @@ export async function auditTopCompetitorsForTenant(
   for (const url of urls) {
     const key = canonicalizeCitationUrl(url) || url;
     const prior = cache.get(key);
-    if (!args.force && prior && prior.fetchStatus === "ok") {
+    if (!args.force && prior && prior.fetchStatus === "ok" && isFresh(prior)) {
       cached += 1;
       out.push(prior);
       continue;
