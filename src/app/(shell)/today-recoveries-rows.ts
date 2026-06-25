@@ -82,3 +82,26 @@ export function buildRecoveryWins(inputs: RecoveryInput[], opts: { cap?: number 
 export function recoveryClicksRegained(wins: RecoveryWin[]): number {
   return wins.reduce((s, w) => s + Math.max(0, w.afterClicks - w.beforeClicks), 0);
 }
+
+/**
+ * Normalized set of page URLs that have a shipped change within `withinDays` of
+ * `nowMs` — these are IN-FLIGHT (being measured) and should NOT be nagged as "still
+ * losing ground" in the decline section (their outcome shows in the recoveries
+ * section instead). Pure: takes the ship records + a clock + a URL normalizer.
+ */
+export function recentlyShippedPageKeys(
+  shipped: Array<{ page: string; shippedAt: string }>,
+  nowMs: number,
+  normUrl: (u: string) => string,
+  withinDays = 45,
+): Set<string> {
+  const keys = new Set<string>();
+  const cutoff = nowMs - withinDays * 86_400_000;
+  for (const s of shipped) {
+    if (!s.page || !s.shippedAt) continue;
+    const t = Date.parse(s.shippedAt);
+    if (Number.isNaN(t) || t < cutoff) continue;
+    keys.add(normUrl(s.page));
+  }
+  return keys;
+}

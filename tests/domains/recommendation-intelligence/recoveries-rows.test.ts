@@ -4,8 +4,11 @@ import {
   classifyRecovery,
   buildRecoveryWins,
   recoveryClicksRegained,
+  recentlyShippedPageKeys,
   type RecoveryInput,
 } from "@/app/(shell)/today-recoveries-rows";
+
+const norm = (u: string) => u.replace(/\/$/, "").toLowerCase();
 
 const inp = (page: string, beforeClicks: number, afterClicks: number): RecoveryInput => ({
   page,
@@ -56,5 +59,37 @@ describe("buildRecoveryWins", () => {
   it("sums net clicks regained", () => {
     const wins = buildRecoveryWins([inp("/b", 40, 60), inp("/c", 40, 46)]);
     expect(recoveryClicksRegained(wins)).toBe(20 + 6);
+  });
+});
+
+describe("recentlyShippedPageKeys", () => {
+  const now = Date.parse("2026-06-25T00:00:00Z");
+  const day = 86_400_000;
+  it("includes pages shipped within the window, normalized", () => {
+    const keys = recentlyShippedPageKeys(
+      [{ page: "https://X/A/", shippedAt: new Date(now - 10 * day).toISOString() }],
+      now,
+      norm,
+    );
+    expect(keys.has("https://x/a")).toBe(true);
+  });
+  it("excludes pages shipped before the window", () => {
+    const keys = recentlyShippedPageKeys(
+      [{ page: "https://x/old", shippedAt: new Date(now - 90 * day).toISOString() }],
+      now,
+      norm,
+    );
+    expect(keys.size).toBe(0);
+  });
+  it("ignores malformed dates / empty pages", () => {
+    const keys = recentlyShippedPageKeys(
+      [
+        { page: "", shippedAt: new Date(now).toISOString() },
+        { page: "https://x/p", shippedAt: "not-a-date" },
+      ],
+      now,
+      norm,
+    );
+    expect(keys.size).toBe(0);
   });
 });

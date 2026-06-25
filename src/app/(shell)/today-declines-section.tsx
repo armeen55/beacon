@@ -2,8 +2,10 @@ import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { loadTopDecliningPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import { buildRecoveryRows, recoveryClicksLost, type RecoveryRow } from "./today-declines-rows";
+import { recentlyShippedPageKeys } from "./today-recoveries-rows";
 
 function slugOf(url: string): string {
   const s = url.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
@@ -30,23 +32,31 @@ function fmtNum(n: number): string {
 export async function TodayDeclinesSection() {
   let data;
   let sitewide: Awaited<ReturnType<typeof loadTopDecliningPagesForTenant>> = [];
+  let shippedKeys = new Set<string>();
   try {
     const tenantId = await currentTenantId();
-    [data, sitewide] = await Promise.all([
+    const [hero, sw, shipped] = await Promise.all([
       loadTodayMovesHeroData({ limit: 20 }),
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
+      loadShippedChanges().catch(() => []),
     ]);
+    data = hero;
+    sitewide = sw;
+    // Pages with a recent shipped fix are in-flight (being measured) — don't nag
+    // them as "still losing"; their outcome shows in "Pages you've turned around".
+    shippedKeys = recentlyShippedPageKeys(shipped, Date.now(), normUrl);
   } catch {
     return null;
   }
 
   // Worklist declines first (they carry a move to act on), then ADD site-wide
   // declining pages the demand graph never queued (deduped by URL) — so a page
-  // bleeding clicks surfaces here even without a competitor gap.
-  const worklistRows = buildRecoveryRows(data.moves);
+  // bleeding clicks surfaces here even without a competitor gap. Drop any page
+  // with a recent shipped fix (in-flight → shown in the recoveries section).
+  const worklistRows = buildRecoveryRows(data.moves).filter((r) => !shippedKeys.has(normUrl(r.targetUrl)));
   const seen = new Set(worklistRows.map((r) => normUrl(r.targetUrl)));
   const extraRows: RecoveryRow[] = sitewide
-    .filter((dp) => !seen.has(normUrl(dp.page)))
+    .filter((dp) => !seen.has(normUrl(dp.page)) && !shippedKeys.has(normUrl(dp.page)))
     .map((dp) => ({
       moveId: "",
       page: slugOf(dp.page),
