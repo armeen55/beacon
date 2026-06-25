@@ -56,7 +56,12 @@ export function OpportunityFeedList({
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Optimistic pin overrides keyed by oppKey (true=pinned, false=unpinned).
   const [pinOverride, setPinOverride] = useState<Map<string, boolean>>(() => new Map());
+  // "Focus only" mode — work just the pinned list.
+  const [focusOnly, setFocusOnly] = useState(false);
   const [, startTransition] = useTransition();
+
+  const isRowPinned = (r: FeedDisplayRow) => pinOverride.get(r.oppKey) ?? r.pinned;
+  const pinnedCount = rows.filter((r) => isRowPinned(r) && !dismissed.has(r.oppKey)).length;
 
   function togglePin(r: FeedDisplayRow, nextPinned: boolean) {
     setPinOverride((prev) => new Map(prev).set(r.oppKey, nextPinned));
@@ -74,7 +79,9 @@ export function OpportunityFeedList({
     });
   }
 
-  const visible = rows.filter((r) => !dismissed.has(r.oppKey));
+  const visible = rows
+    .filter((r) => !dismissed.has(r.oppKey))
+    .filter((r) => !focusOnly || isRowPinned(r));
   const shown = expanded ? visible : visible.slice(0, initial);
 
   function dismiss(r: FeedDisplayRow) {
@@ -169,6 +176,18 @@ export function OpportunityFeedList({
             className="text-xs font-semibold text-violet-600 hover:text-violet-800"
           >
             {expanded ? "Show fewer" : `Show all ${fmtNum(visible.length)} →`}
+          </button>
+        ) : null}
+        {pinnedCount > 0 || focusOnly ? (
+          <button
+            type="button"
+            onClick={() => setFocusOnly((v) => !v)}
+            className={
+              "rounded-full px-2.5 py-0.5 text-xs font-semibold " +
+              (focusOnly ? "bg-amber-500 text-white" : "bg-amber-100 text-amber-700 hover:bg-amber-200")
+            }
+          >
+            {focusOnly ? "✓ Focusing" : `Focus only (${pinnedCount})`}
           </button>
         ) : null}
         {lastDismissed ? (
