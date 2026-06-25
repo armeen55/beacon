@@ -6,6 +6,8 @@ import { currentTenantId } from "@/lib/tenant-context";
 import {
   dismissOpportunity,
   undismissOpportunity,
+  pinOpportunity,
+  unpinOpportunity,
   type DismissalStatus,
 } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 
@@ -28,6 +30,20 @@ export async function dismissOpportunityAction(
 export async function undismissOpportunityAction(oppKey: string): Promise<{ ok: boolean }> {
   const tenantId = await currentTenantId();
   const ok = await undismissOpportunity(tenantId, oppKey);
+  if (ok) revalidatePath("/");
+  return { ok };
+}
+
+export async function pinOpportunityAction(oppKey: string): Promise<{ ok: boolean }> {
+  const tenantId = await currentTenantId();
+  const ok = await pinOpportunity(tenantId, oppKey);
+  if (ok) revalidatePath("/");
+  return { ok };
+}
+
+export async function unpinOpportunityAction(oppKey: string): Promise<{ ok: boolean }> {
+  const tenantId = await currentTenantId();
+  const ok = await unpinOpportunity(tenantId, oppKey);
   if (ok) revalidatePath("/");
   return { ok };
 }

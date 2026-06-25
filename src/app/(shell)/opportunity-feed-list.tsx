@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 
-import { dismissOpportunityAction, undismissOpportunityAction } from "./opportunity-actions";
+import {
+  dismissOpportunityAction,
+  undismissOpportunityAction,
+  pinOpportunityAction,
+  unpinOpportunityAction,
+} from "./opportunity-actions";
 
 /** Pre-computed display row (server resolves kind/label/style/href so this stays dumb). */
 export type FeedDisplayRow = {
@@ -16,6 +21,8 @@ export type FeedDisplayRow = {
   href: string;
   /** Stable dismissal key (`kind|page|query`) for the curate-the-worklist control. */
   oppKey: string;
+  /** Persisted focus state — pinned rows sort to the top + show a "Focusing" tag. */
+  pinned: boolean;
 };
 
 function fmtNum(n: number): string {
@@ -47,7 +54,16 @@ export function OpportunityFeedList({
   // Keys restored from the drawer this session (optimistically hidden from it).
   const [restored, setRestored] = useState<Set<string>>(() => new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Optimistic pin overrides keyed by oppKey (true=pinned, false=unpinned).
+  const [pinOverride, setPinOverride] = useState<Map<string, boolean>>(() => new Map());
   const [, startTransition] = useTransition();
+
+  function togglePin(r: FeedDisplayRow, nextPinned: boolean) {
+    setPinOverride((prev) => new Map(prev).set(r.oppKey, nextPinned));
+    startTransition(() => {
+      void (nextPinned ? pinOpportunityAction(r.oppKey) : unpinOpportunityAction(r.oppKey));
+    });
+  }
 
   const drawerRows = dismissedRows.filter((d) => !restored.has(d.oppKey));
 
@@ -101,6 +117,11 @@ export function OpportunityFeedList({
               <span className="min-w-0">
                 <span className="font-medium text-gray-900">{r.query}</span>
                 <span className="ml-2 text-xs text-gray-400">on {r.pageSlug}</span>
+                {(pinOverride.get(r.oppKey) ?? r.pinned) ? (
+                  <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                    Focusing
+                  </span>
+                ) : null}
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs">
@@ -108,6 +129,24 @@ export function OpportunityFeedList({
               <Link href={r.href} className="font-semibold text-violet-600 hover:text-violet-800">
                 Act →
               </Link>
+              {(() => {
+                const isPinned = pinOverride.get(r.oppKey) ?? r.pinned;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => togglePin(r, !isPinned)}
+                    title={isPinned ? "Unpin" : "Pin to focus — sorts to the top"}
+                    aria-label={isPinned ? "Unpin opportunity" : "Pin opportunity to focus"}
+                    className={
+                      isPinned
+                        ? "text-amber-500 hover:text-amber-600"
+                        : "text-gray-300 transition-colors hover:text-amber-500 sm:opacity-0 sm:group-hover:opacity-100"
+                    }
+                  >
+                    📌
+                  </button>
+                );
+              })()}
               <button
                 type="button"
                 onClick={() => dismiss(r)}

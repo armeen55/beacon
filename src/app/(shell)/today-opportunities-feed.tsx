@@ -7,7 +7,7 @@ import {
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
 import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
-import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
+import { loadDismissedKeys, loadPinnedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildCtrGapRows } from "./today-ctrgap-rows";
 import { buildCannibalizationCaseRows } from "./today-declines-rows";
@@ -117,10 +117,11 @@ export async function TodayOpportunitiesFeed() {
   let total = 0;
   let totalClicks = 0;
   let dismissedRows: { oppKey: string; label: string; kind: string }[] = [];
+  let pinnedKeys = new Set<string>();
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
@@ -130,7 +131,9 @@ export async function TodayOpportunitiesFeed() {
       loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
       loadGscCannibalizationForTenant(tenantId).catch(() => []),
       loadDismissedKeys(tenantId).catch(() => new Set<string>()),
+      loadPinnedKeys(tenantId).catch(() => new Set<string>()),
     ]);
+    pinnedKeys = pinnedKeysLoaded;
     siteName = cfg?.name ?? "";
     const moveExtra = (hero?.moves ?? [])
       .map((m) => moveToItem(m))
@@ -163,7 +166,11 @@ export async function TodayOpportunitiesFeed() {
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
     // Curate: drop opportunities the operator has dismissed (persisted), so the
     // recomputed-every-render feed honours "I've dealt with that".
-    allItems = result.all.filter((it) => !dismissedKeys.has(opportunityKey(it.kind, it.page, it.query)));
+    const kept = result.all.filter((it) => !dismissedKeys.has(opportunityKey(it.kind, it.page, it.query)));
+    // Pinned opportunities sort to the very top ("Focusing"), preserving the
+    // clicks-at-stake order within the pinned and unpinned groups.
+    const isPinned = (it: OpportunityItem) => pinnedKeys.has(opportunityKey(it.kind, it.page, it.query));
+    allItems = [...kept.filter(isPinned), ...kept.filter((it) => !isPinned(it))];
     items = allItems.slice(0, 6);
     total = allItems.length;
     totalClicks = allItems.reduce((s, it) => s + (it.clicksAtStake || 0), 0);
@@ -249,6 +256,7 @@ export async function TodayOpportunitiesFeed() {
           clicksLabel: `~${fmtNum(it.clicksAtStake)} clicks/mo`,
           href: it.kind === "recover" || it.kind === "win" || it.kind === "snippet" ? workbenchHref(it.page) : it.route,
           oppKey: opportunityKey(it.kind, it.page, it.query),
+          pinned: pinnedKeys.has(opportunityKey(it.kind, it.page, it.query)),
         }))}
         dismissed={dismissedRows}
       />

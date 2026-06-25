@@ -32,6 +32,72 @@ function isMissingTable(code?: string | null): boolean {
   return code === "PGRST205" || code === "42P01";
 }
 
+/** Upsert any status for an opportunity (dismiss=skip/done, focus=pinned). The
+ *  row is unique per (tenant, opp_key), so the status simply flips. Fail-soft. */
+async function setOpportunityStatus(
+  tenantId: string,
+  oppKey: string,
+  status: DismissalStatus | "pinned",
+): Promise<boolean> {
+  const key = (oppKey ?? "").trim();
+  if (!tenantId || !key) return false;
+  try {
+    const sb = getSupabaseAdmin();
+    const { error } = await sb
+      .from("opportunity_dismissals")
+      .upsert({ tenant_id: tenantId, opp_key: key.slice(0, 500), status }, { onConflict: "tenant_id,opp_key" });
+    if (error) {
+      if (!isMissingTable(error.code)) {
+        log.warn("[opp-dismissal] status set failed", { tenantId, oppKey: key, status, error: error.message });
+      }
+      return false;
+    }
+    return true;
+  } catch (e) {
+    log.warn("[opp-dismissal] status set threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return false;
+  }
+}
+
+/** Pin an opportunity to the top of the feed ("Focusing"). Fail-soft → false. */
+export async function pinOpportunity(tenantId: string, oppKey: string): Promise<boolean> {
+  return setOpportunityStatus(tenantId, oppKey, "pinned");
+}
+
+/** Remove a pin (un-focus). Reuses the delete path. Fail-soft → false. */
+export async function unpinOpportunity(tenantId: string, oppKey: string): Promise<boolean> {
+  return undismissOpportunity(tenantId, oppKey);
+}
+
+/** Pinned opportunity keys for a tenant. Fail-soft → empty set. */
+export async function loadPinnedKeys(tenantId: string, limit = 500): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!tenantId) return out;
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("opportunity_dismissals")
+      .select("opp_key")
+      .eq("tenant_id", tenantId)
+      .eq("status", "pinned")
+      .limit(limit);
+    if (error || !data) {
+      if (error && !isMissingTable(error.code)) {
+        log.warn("[opp-dismissal] pinned read failed", { tenantId, error: error.message });
+      }
+      return out;
+    }
+    for (const r of data) {
+      const k = (r as { opp_key?: string }).opp_key;
+      if (k) out.add(k);
+    }
+    return out;
+  } catch (e) {
+    log.warn("[opp-dismissal] pinned read threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return out;
+  }
+}
+
 /** Persist (upsert) a dismissal. Fail-soft → false (never throws). */
 export async function dismissOpportunity(
   tenantId: string,
@@ -99,6 +165,7 @@ export async function loadDismissedKeys(tenantId: string, limit = 2000): Promise
       .from("opportunity_dismissals")
       .select("opp_key")
       .eq("tenant_id", tenantId)
+      .neq("status", "pinned") // pinned ≠ dismissed; they partition the same table
       .limit(limit);
     if (error || !data) {
       if (error && !isMissingTable(error.code)) {
