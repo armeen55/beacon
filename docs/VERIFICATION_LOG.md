@@ -22,6 +22,15 @@
 - `473bec2` — operator **"↻ refresh teardowns"** (`?refresh=1`) on the diagnostic — re-runs the audit for the current top moves (maxDuration=60, fail-soft); fixes teardown staleness until Step 6 cron.
 - `2dfb461` — **Step 5 asset engine core** `asset-spec.ts` (pure): `inferAssetKind` (calculator/converter/generator/quiz/checklist/interactive_table/tool from generic cues) + `buildAssetSpec` (Wix build-path + LLM brief); wired into the draft `asset` field. 4 tests + tool-gap assertions.
 - `09ec402` — diagnostic table "What wins" now respects the relevance gate (off-topic → "loosely matched" not a misleading teardown) + surfaces the structured asset kind/build-path.
+- `af3472d` — **Step 7 bridge** `move-card.ts` (pure): formatMoveCard(packet) → §7 card (Move/Why/What wins/Your gap/Draft/Proof/Ship) in plain English, no jargon; honest about looselyMatched. 3 tests.
+- `d5d6112` — **audit wave 3** (Workflow wi6qihblm, 20 agents): 2 low bugs fixed — asset titleCase didn't lowercase suffixes; move-card conflated off-topic with unfetched ("couldn't read" vs "off-topic"). +2 tests.
+- `8143ee6` — **query-intent** classifier (informational/commercial/transactional/navigational + asset-shape hint, reuses L8) surfaced on the move card. **System-level audit** (Workflow wj5z3kdzc, 14 agents — tenant isolation / score sanity / integration contracts / degenerate data) returned ZERO confirmed bugs.
+- `1790ae8` — move-card **effort** estimate (quick/medium/big) so the daily worklist surfaces quick wins.
+- `61f67a1` — **Step 7 card view** `move-cards.tsx`: "Your top moves" plain-language cards above the debug table on the operator surface (quick-win + confidence + intent badges, draft-ready marker). Operator-gated.
+
+**Cumulative ground-truth (live, via formatMoveCard):** 25 packets → 7 on-topic teardowns, 4 honestly "loosely matched", 5 asset moves; cards plain-English, intent + effort + relevance all correct.
+**Audit tally this run:** 4 waves (32+15+20+14 agents), 6 real bugs fixed, the highest-stakes system-level pass CLEAN.
+**Safe/deterministic scope of the WHOLE plan now built:** Steps 1–5 cores + Step 7 (bridge + operator card view) + L7 SERP / L8 money / L9 backlinks / L10 CTR (off-by-default where paid) + L11 (reuse existing schema composers) + query-intent. Remaining = operator-gated (LLM spend, DataForSEO, migration apply, Step 6 cron) or live-customer-surface fusion (deferred until the operator validates engine output).
 
 **Ground-truth (live Iranopedia, `loadChangePacksForTenant`, DATA_SOURCE=supabase):**
 - Engine runs end-to-end: 25 packets, sane scores (world-cup-jersey 62k, persian boy names 58k), CTR titles render ("Iran Flag (2026 Guide) | Iranopedia"), audit-fixed `demand basis` correct.
