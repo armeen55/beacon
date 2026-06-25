@@ -60,7 +60,7 @@ export type DemandGraphCandidateInput = {
   graph: DemandGraph;
   /** EvidencePackets keyed by move.demandKey, for richer evidence/proof. */
   packetsByKey?: Map<string, EvidencePacket>;
-  /** Cap the number of Moves emitted (keeps the queue focused). */
+  /** Cap the number of top-by-score Moves emitted (keeps the queue focused). */
   limit?: number;
   nowIso: string;
 };
@@ -69,9 +69,16 @@ export function demandGraphToCandidateRows(input: DemandGraphCandidateInput): Re
   const { tenantId, graph, packetsByKey, nowIso } = input;
   const limit = input.limit ?? 25;
   const actionable = graph.moves.filter((m) => m.gap !== "healthy" && m.gap !== "low_demand");
+  // NOTE: create_page Moves (no owned URL yet) are emitted here but the live
+  // edit-queue gate (apply-queue-rules Rule 1) drops on-site rows with a null
+  // target_url — a NEW page belongs in the page-factory path, not the edit queue.
+  // So in practice this source surfaces the EDIT Moves (answer_block / edit /
+  // fix, which target existing pages); create_page Moves are surfaced on the
+  // engine diagnostic + are wired to the factory as a separate step.
+  const selected = actionable.slice(0, limit);
   const out: RecommendationCandidateRow[] = [];
 
-  for (const move of actionable.slice(0, limit)) {
+  for (const move of selected) {
     const actionType = GAP_TO_ACTION[move.gap];
     if (!actionType) continue;
     const query = move.label;

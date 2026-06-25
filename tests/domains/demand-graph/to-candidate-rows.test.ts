@@ -30,10 +30,10 @@ describe("demandGraphToCandidateRows (engine → live pipeline bridge)", () => {
       tenantId: "tenant-iranopedia",
       nowIso: NOW,
       graph: graph([
-        move({ gap: "create_page", label: "persian wedding", competitorUrls: ["https://theknot.com/x"] }),
-        move({ gap: "answer_block", label: "iran flag", ownedUrl: "https://iranopedia.com/iran-flag" }),
-        move({ gap: "edit_page", label: "cities in iran", ownedUrl: "https://iranopedia.com/cities" }),
-        move({ gap: "fix_experience", label: "persian boy names", ownedUrl: "https://iranopedia.com/persian-boy-names" }),
+        move({ gap: "create_page", demandKey: "m1", label: "persian wedding", competitorUrls: ["https://theknot.com/x"] }),
+        move({ gap: "answer_block", demandKey: "m2", label: "iran flag", ownedUrl: "https://iranopedia.com/iran-flag" }),
+        move({ gap: "edit_page", demandKey: "m3", label: "cities in iran", ownedUrl: "https://iranopedia.com/cities" }),
+        move({ gap: "fix_experience", demandKey: "m4", label: "persian boy names", ownedUrl: "https://iranopedia.com/persian-boy-names" }),
       ]),
     });
     expect(rows.map((r) => r.action_type)).toEqual(["create_page", "add_answer_block", "edit_title", "fix_page_experience"]);
@@ -84,12 +84,16 @@ describe("demandGraphToCandidateRows (engine → live pipeline bridge)", () => {
     expect(rows[0]!.cooldown_key).not.toBe(rows[1]!.cooldown_key);
   });
 
-  it("respects the limit", () => {
+  it("respects the limit (top-by-score)", () => {
     const rows = demandGraphToCandidateRows({
       tenantId: "t",
       nowIso: NOW,
       limit: 2,
-      graph: graph([move({ gap: "create_page", demandKey: "a" }), move({ gap: "create_page", demandKey: "b" }), move({ gap: "create_page", demandKey: "c" })]),
+      graph: graph([
+        move({ gap: "edit_page", demandKey: "e1", score: 9000, ownedUrl: "https://x.com/1" }),
+        move({ gap: "edit_page", demandKey: "e2", score: 8000, ownedUrl: "https://x.com/2" }),
+        move({ gap: "edit_page", demandKey: "e3", score: 7000, ownedUrl: "https://x.com/3" }),
+      ]),
     });
     expect(rows).toHaveLength(2);
   });
