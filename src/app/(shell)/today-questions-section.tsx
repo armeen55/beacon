@@ -1,5 +1,6 @@
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadQuestionQueries } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { buildAnswerOpportunities, answerImpressionsAtStake } from "./today-questions-rows";
 
 /**
@@ -19,8 +20,15 @@ export async function TodayQuestionsSection() {
   let rows: ReturnType<typeof buildAnswerOpportunities> = [];
   try {
     const tenantId = await currentTenantId();
-    const queries = await loadQuestionQueries(tenantId).catch(() => []);
-    rows = buildAnswerOpportunities(queries);
+    const [queries, dismissed] = await Promise.all([
+      loadQuestionQueries(tenantId).catch(() => []),
+      loadDismissedKeys(tenantId).catch(() => new Set<string>()),
+    ]);
+    // Honor feed dismissals globally — an "answer" opportunity dismissed on the
+    // headline stays gone here too (same kind|page|query key; page = "site-wide").
+    rows = buildAnswerOpportunities(queries).filter(
+      (r) => !dismissed.has(opportunityKey("answer", "site-wide", r.query)),
+    );
   } catch {
     return null;
   }
