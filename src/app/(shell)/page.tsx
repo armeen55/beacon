@@ -53,6 +53,7 @@ import { CockpitCustomize } from "./cockpit-customize";
  *  jump-nav, the ⌘K palette, and the Customize control (no drift). */
 const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-opportunities", label: "Opportunities" },
+  { id: "sec-leverage", label: "Highest-leverage pages" },
   { id: "sec-trend", label: "Traffic trend" },
   { id: "sec-rising", label: "Rising demand" },
   { id: "sec-momentum", label: "Pages moving" },
@@ -77,6 +78,7 @@ import { TodayPositionBandsSection } from "./today-position-bands-section";
 import { TodayBrandSplitSection } from "./today-brand-split-section";
 import { TodayClustersSection } from "./today-clusters-section";
 import { TodayTrendSection } from "./today-trend-section";
+import { TodayLeverageSection } from "./today-leverage-section";
 import { TodayMomentumSection } from "./today-momentum-section";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRisingSection } from "./today-rising-section";
@@ -301,6 +303,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-opportunities" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayOpportunitiesFeed />
+        </Suspense>
+      </div>
+      {/* Highest-leverage pages (2026-06-25) — cross-lens signal fusion. Own Suspense / self-hides. */}
+      <div id="sec-leverage" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayLeverageSection />
         </Suspense>
       </div>
       {/* Your traffic trend (2026-06-25) — macro weekly clicks trend. Own Suspense / self-hides. */}
