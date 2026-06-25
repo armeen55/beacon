@@ -397,6 +397,23 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <button onClick={snooze} disabled={pending} className="ml-auto text-xs font-medium text-gray-400 hover:text-gray-700 disabled:opacity-60">
           Not now
         </button>
+        <button
+          onClick={() => {
+            setState("snoozed"); // optimistic collapse (reuses the snoozed shell)
+            startTransition(async () => {
+              try {
+                await respondToRecommendation(m.id, "dismissed", { targetPageUrl: m.targetUrl });
+              } catch {
+                setState("idle");
+              }
+            });
+          }}
+          disabled={pending}
+          className="text-xs font-medium text-gray-300 hover:text-rose-500 disabled:opacity-60"
+          title="Permanently remove this move"
+        >
+          Not relevant
+        </button>
       </div>
     </div>
   );
