@@ -1,6 +1,13 @@
+import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadToolIntentQueries } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { buildToolOpportunities, buildAssetSpec } from "@/domains/demand-graph/tool-intent";
+import { buildToolOpportunities, buildAssetSpec, type ToolKind } from "@/domains/demand-graph/tool-intent";
+
+/** Suggested URL path to build the tool at, e.g. "persian name" + generator → "/tools/persian-name-generator". */
+function toolSlug(topic: string, kind: ToolKind): string {
+  const base = `${topic} ${kind}`.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `/tools/${base || kind}`;
+}
 
 /**
  * today-tools-section (2026-06-25, §5/§8 asset engine) — "Tools worth building":
@@ -65,6 +72,7 @@ export async function TodayToolsSection() {
       <ul className="mt-5 space-y-1.5">
         {ops.map((o, i) => {
           const spec = buildAssetSpec(o.kind, o.topic);
+          const slug = toolSlug(o.topic, o.kind);
           return (
             <li key={i} className="rounded-xl border border-cyan-100 bg-white/70 px-3 py-2 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -79,13 +87,23 @@ export async function TodayToolsSection() {
                     <span className="ml-2 text-xs text-gray-400">people search &ldquo;{o.query}&rdquo;</span>
                   </span>
                 </div>
-                <span className="text-xs text-gray-500">{o.impressions.toLocaleString()} searches/mo</span>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-gray-500">{o.impressions.toLocaleString()} searches/mo</span>
+                  {/* Close the loop: once built, record + measure it like any other change. */}
+                  <Link
+                    href={`/proof?page=${encodeURIComponent(slug)}`}
+                    className="font-semibold text-violet-600 hover:text-violet-800"
+                  >
+                    Track build →
+                  </Link>
+                </div>
               </div>
               {/* Deterministic build brief so the idea is shippable, not just a wish. */}
               <details className="mt-1.5 text-xs text-gray-500">
                 <summary className="cursor-pointer text-cyan-700 hover:text-cyan-900">Build brief</summary>
                 <div className="mt-1.5 space-y-1 pl-1">
                   <p>{spec.summary}</p>
+                  <p><span className="font-medium text-gray-700">Build it at:</span> <code className="rounded bg-cyan-50 px-1 py-0.5 text-cyan-800">{slug}</code></p>
                   <p><span className="font-medium text-gray-700">Inputs:</span> {spec.inputs.join("; ")}</p>
                   <p><span className="font-medium text-gray-700">Outputs:</span> {spec.outputs.join("; ")}</p>
                   <p><span className="font-medium text-gray-700">Build path:</span> {spec.buildPath}</p>
