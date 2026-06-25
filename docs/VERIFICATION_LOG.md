@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-25 — B46 · cockpit depth + AI persistence + regression catch (infinite-build run)
+
+**Shipped (all main, typecheck+build green per commit):**
+- **FAQ schema generator** (`66cd98f9`) — `draftFaqSchemaWithLLM` answers the grounded fanout questions (gpt-5-mini, strict-JSON robust parse, numeric-fidelity firewall on every answer) → valid FAQPage JSON-LD. **Verified live:** "persian empire flag" → 3 factual Q&A, `$0.0005`, firewall-passed. Initial empty-response bug (reasoning tokens + `json_object`) fixed (drop json_object, 4000 tokens, robust parse).
+- **"⚡ Ship the top 3"** bulk action (`7c33879b`); **"Not relevant"** dismiss (`a3854d38`); **Shipped→confirm-live** loop link (`d65a2028`).
+- **Persisted AI drafts** (`2f3cfb82`) — `move_drafts` store (deny-anon RLS, latest-per-(tenant,rec,kind)); actions save best-effort, loader hydrates, card opens showing the saved draft. Degrade-safe on missing table. **Migration `2026-06-25_move_drafts.sql` APPLIED to beacon-main; store roundtrip verified live** (save:true / read OK; smoke row cleaned).
+- **New Pages competitor-name fix** (`f3dc0306`) — scheme-less URL parse dropped every competitor name; `domainOf` now prepends `https://`. **Verified:** Persian Wedding→theknot.com, Nowruz→twinkl.com, Travel Iran→nationalgeographic.com.
+- **Eligibility-pin regression** (`f2bbcbd0`) — RED on main since `84aca5d` (3 demand_graph entries unpinned); pinned + count 14→17; **78/78 green**.
+
+**Ground-truth (headless, real Iranopedia/Supabase):** cockpit `loadTodayMovesHeroData` = 6 Moves / 176,197 demand at stake / 3 AI citations; `loadNewPagesData` = 9 of 40 create-page candidates; `loadDemandGraphForTenant` = 237 moves (100 edit_page / 49 answer_block / 40 create_page / 48 low_demand). Vercel env (Production): `BEACON_DEMAND_GRAPH_RECS=tenant-iranopedia` + `BEACON_LLM_PROVIDER=openai`. Wix untouched.
+
+---
+
 ## 2026-06-24 — IRANOPEDIA R&R ACTIVATION · unblock promotion + make cards operator-useful (Phases 0–6; env gate pending)
 
 **Context:** operator: run the first real activation end-to-end — turn the engine on for Iranopedia only, promote Moves into the live queue, inspect customer surfaces, build the smallest missing pieces. Constraints: Iranopedia only, tenant-agnostic code, Ritz/Finglish unaffected, no global flag, no paid APIs/LLM/Wix-publish/Supabase-delete/migrations without approval, flag value only `tenant-iranopedia`.
