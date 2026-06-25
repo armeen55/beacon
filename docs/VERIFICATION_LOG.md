@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-25 — B78 · Demand Expansion core (Sprint 4A-4C + 4I live) · branch claude/sprint-4-demand-expansion (stacked on Sprint 3, NOT merged)
+
+**Built (no migration; shared DataForSEO budget):**
+- `src/domains/serp/dataforseo-keywords.ts` — `runKeywordVolume` (reuses the dataforseo-serp gauntlet; Google Ads Search Volume; spend on shared `dataforseo-serp` ledger key; injectable deps).
+- `src/domains/demand/keyword-opportunities.ts` (pure) — `clusterKeywords`, `matchClusterToPage` (gap map), `buildOpportunities` (typed, gap-mapped, relevance-gated via containment, commerce→concept).
+- `scripts/run-demand-expansion.ts` — capped live proof harness.
+
+**Verified:**
+- `npm run typecheck` clean. `vitest run src/domains/demand src/domains/serp/dataforseo-keywords.test.ts` → **57 passed** (+18 new: gate disabled / cap fail-closed / cache reuse / normalization / no-paid-in-tests / dedup / gap-map strong-partial-none / no-garbage / off-brand-drop / commerce-concept / no-fabrication).
+- LIVE Iranopedia: ONE DataForSEO keyword call, **$0.075** (now cached → $0 re-runs). 10 seeds → 8 real-volume (iran flag 135k/mo, persian food recipes 8.1k, iranian movies 1.6k, persian numbers 1.9k) → 7 typed opportunities (improve-existing vs create vs product-concept), gap-mapped + risk-flagged. Honest: persian boy/girl names returned 0/mo (NOT fabricated).
+
+**Done:** 4A connector, 4B opportunity engine, 4C gap map, 4I live sample; 4D-trend + 4E-product seeds embedded (trend direction + create_product). **Deferred (designed, not built):** 4F Today-Moves scorer wiring, 4G "New Opportunities" UI, dedicated 4D Trend Radar + 4E product modules.
+
+**Posture:** no publish, no migration, no main merge, no paid calls in tests; one sanctioned $0.075 live sample. **Note:** `runKeywordVolume` spend is ambient-tenant (correct on render; pass explicit `tenantId` dep for headless multi-tenant).
+
+---
+
 ## 2026-06-25 — B77 · Learning loop (Sprint 3: P11) · branch claude/sprint-3-learning-loop (NOT merged)
 
 **Built (no migration; reuses ShippedChangeRecord + the ship→proof bridge + measureRecord):**
