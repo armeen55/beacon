@@ -6,6 +6,7 @@ import {
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
+import { buildRecommendationDetailHref } from "@/components/recommendations/v2/recommendation-route-id";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import {
   buildOpportunityFeedWithTotals,
@@ -52,6 +53,7 @@ function slugOf(url: string): string {
 // citation/page move) fall back to a conservative slice of its demand so it can
 // still rank. actionTone → feed kind so the headline shows what KIND of move.
 function moveToItem(m: {
+  id: string;
   targetUrl: string;
   pageLabel: string;
   query: string;
@@ -85,7 +87,9 @@ function moveToItem(m: {
     page: m.targetUrl,
     clicksAtStake: stake,
     detail,
-    route: workbenchHref(m.targetUrl),
+    // A queued move has a ready draft + Ship action on its rec detail — route
+    // there to ACT, not to the page-level Workbench (where site-wide signals go).
+    route: buildRecommendationDetailHref({ id: m.id }),
   };
 }
 
@@ -157,7 +161,12 @@ export async function TodayOpportunitiesFeed() {
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-violet-600">~{fmtNum(it.clicksAtStake)} clicks/mo</span>
-              <Link href={workbenchHref(it.page)} className="font-semibold text-violet-600 hover:text-violet-800">
+              {/* Queued moves (cite/build/edit) carry a rec-detail route to ACT; the
+                  site-wide GSC signals (recover/win) go to the page-level Workbench. */}
+              <Link
+                href={it.kind === "recover" || it.kind === "win" ? workbenchHref(it.page) : it.route}
+                className="font-semibold text-violet-600 hover:text-violet-800"
+              >
                 Act →
               </Link>
             </div>
