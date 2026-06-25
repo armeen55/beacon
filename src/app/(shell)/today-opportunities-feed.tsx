@@ -5,7 +5,9 @@ import {
   loadToolIntentQueries,
   loadTopPagesWithQueriesForTenant,
   loadTopRisingQueriesForTenant,
+  loadQuestionQueries,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { buildAnswerOpportunities } from "./today-questions-rows";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
 import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { loadDismissedKeys, loadPinnedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
@@ -44,6 +46,7 @@ const KIND_LABEL: Record<FeedKind, string> = {
   snippet: "Snippet",
   consolidate: "Consolidate",
   rising: "Rising",
+  answer: "Answer",
 };
 const KIND_STYLE: Record<FeedKind, string> = {
   recover: "bg-rose-100 text-rose-700",
@@ -54,6 +57,7 @@ const KIND_STYLE: Record<FeedKind, string> = {
   snippet: "bg-orange-100 text-orange-700",
   consolidate: "bg-purple-100 text-purple-700",
   rising: "bg-teal-100 text-teal-700",
+  answer: "bg-indigo-100 text-indigo-700",
 };
 
 function fmtNum(n: number): string {
@@ -124,7 +128,7 @@ export async function TodayOpportunitiesFeed() {
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded, risingQueries] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded, risingQueries, questionQueries] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
@@ -136,6 +140,7 @@ export async function TodayOpportunitiesFeed() {
       loadDismissedKeys(tenantId).catch(() => new Set<string>()),
       loadPinnedKeys(tenantId).catch(() => new Set<string>()),
       loadTopRisingQueriesForTenant(tenantId).catch(() => []),
+      loadQuestionQueries(tenantId).catch(() => []),
     ]);
     pinnedKeys = pinnedKeysLoaded;
     siteName = cfg?.name ?? "";
@@ -178,7 +183,17 @@ export async function TodayOpportunitiesFeed() {
         : `Up ${r.gainPct}% (${r.priorClicks} to ${r.recentClicks}/mo), position ${r.recentPosition.toFixed(1)} — press the momentum`,
       route: workbenchHref(r.page),
     }));
-    const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra, ...risingExtra];
+    // Answer-block (AEO) — questions you appear for but don't answer. Winnable
+    // clicks ≈ a conservative snippet-capture share of the unclicked impressions.
+    const answerExtra: OpportunityItem[] = buildAnswerOpportunities(questionQueries).map((a) => ({
+      kind: "answer",
+      query: a.query,
+      page: "site-wide",
+      clicksAtStake: Math.max(1, Math.round(a.impressions * 0.2) - a.clicks),
+      detail: `${a.impressions.toLocaleString()} people ask this/mo, ${(a.ctr * 100).toFixed(1)}% click — add a direct answer block to win the snippet`,
+      route: "#sec-questions",
+    }));
+    const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra, ...risingExtra, ...answerExtra];
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
     // Curate: drop opportunities the operator has dismissed (persisted), so the
     // recomputed-every-render feed honours "I've dealt with that".
