@@ -67,6 +67,20 @@ function toPath(u: string): string {
   return u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
 }
 
+/** The tenant's origin (scheme+host), read from any full-URL key in the Page
+ *  Surgeon context. Lets us reconstruct a page URL from a bare path when the
+ *  page itself isn't in the context (uncrawled but with raw GSC demand). */
+function originFromContext(ctx: PageSurgeonContext): string | null {
+  const maps = [ctx.snapshotByCanon, ctx.gscByUrl, ctx.semrushByUrl, ctx.clarityByUrl];
+  for (const m of maps) {
+    for (const k of m.keys()) {
+      const match = /^https?:\/\/[^/]+/.exec(k);
+      if (match) return match[0];
+    }
+  }
+  return null;
+}
+
 /** Resolve a normalized page path → the context's canonical URL key. Mirrors
  *  bridge.ts's private `resolveCanon` path-match branch (we pass a bare path,
  *  so the canonicalize-first branch never applies). */
@@ -225,7 +239,7 @@ function buildOpportunitySummary(
   };
 }
 
-function emptyWorkbench(path: string): WorkbenchData {
+function emptyWorkbench(path: string, overrides: Partial<WorkbenchData> = {}): WorkbenchData {
   return {
     found: false,
     path,
@@ -266,6 +280,7 @@ function emptyWorkbench(path: string): WorkbenchData {
     primaryCta: { label: "Run a website scan to add this page", kind: "draft_pack" },
     sourcesPresent: [],
     sourcesConnectedButEmpty: [],
+    ...overrides,
   };
 }
 
@@ -286,7 +301,73 @@ export async function loadWorkbench(
   }
 
   const canon = resolveCanonFromPath(ctx, path);
-  if (!canon) return emptyWorkbench(path);
+  if (!canon) {
+    // The page isn't in the Page Surgeon context (uncrawled), but the cockpit's
+    // site-wide scans read `gsc_daily_rows` — a superset — so it may still have
+    // real Google demand. Reconstruct the URL from the tenant origin + path and
+    // hydrate a GSC-only Workbench (queries + striking) so a high-value "Act →"
+    // lands populated, not on a dead "we haven't looked at this page" panel.
+    const origin = originFromContext(ctx);
+    if (origin) {
+      // gsc_daily_rows stores raw page URLs with no canonicalization, so match on
+      // several plausible forms (www on/off, trailing slash) rather than one.
+      const bare = origin.replace(/^https?:\/\/(www\.)?/, "");
+      const scheme = origin.startsWith("http://") ? "http://" : "https://";
+      const hosts = [`${scheme}${bare}`, `${scheme}www.${bare}`];
+      const candidates = hosts.flatMap((h) => [`${h}${path}`, `${h}${path}/`]);
+      const fb = await loadTopQueriesForPages(tenantId, candidates).catch(
+        () => new Map<string, Array<{ query: string; clicks: number; impressions: number; position: number }>>(),
+      );
+      // A page can be tracked under multiple host forms (www / non-www), splitting
+      // its GSC rows. Merge per-query across every matched form so impressions sum
+      // correctly (otherwise the split undercounts striking distance).
+      const merged = new Map<string, { query: string; clicks: number; impressions: number; posWeighted: number }>();
+      for (const v of fb.values()) {
+        for (const q of v) {
+          const a = merged.get(q.query) ?? { query: q.query, clicks: 0, impressions: 0, posWeighted: 0 };
+          a.clicks += q.clicks;
+          a.impressions += q.impressions;
+          a.posWeighted += q.position * q.impressions;
+          merged.set(q.query, a);
+        }
+      }
+      const qs = [...merged.values()]
+        .map((a) => ({
+          query: a.query,
+          clicks: a.clicks,
+          impressions: a.impressions,
+          position: a.impressions > 0 ? a.posWeighted / a.impressions : 0,
+        }))
+        .filter((q) => q.impressions > 0)
+        .sort((x, y) => y.impressions - x.impressions)
+        .slice(0, 12);
+      // Prefer the www form for the "view page" link if it matched, else any.
+      const matchedUrl =
+        [...fb.keys()].find((k) => /:\/\/www\./.test(k)) ?? [...fb.keys()][0] ?? "";
+      if (qs.length > 0) {
+        const topQueries: WorkbenchTopQuery[] = qs.map((q) => ({
+          query: q.query,
+          impressions: q.impressions,
+          clicks: q.clicks,
+          ctr: q.impressions > 0 ? q.clicks / q.impressions : 0,
+          position: q.position,
+        }));
+        const strikingDistance: WorkbenchStrikingTerm[] = qs
+          .filter((q) => isStrikingDistance(q.position, q.impressions))
+          .sort((a, b) => b.impressions - a.impressions)
+          .slice(0, 8)
+          .map((q) => ({ keyword: q.query, volume: q.impressions, position: q.position }));
+        return emptyWorkbench(path, {
+          found: true,
+          canonUrl: matchedUrl,
+          topQueries,
+          strikingDistance,
+          primaryCta: { label: "Draft Change Pack", kind: "draft_pack" },
+        });
+      }
+    }
+    return emptyWorkbench(path);
+  }
 
   const packet = assemblePacketForUrl(ctx, canon);
 
