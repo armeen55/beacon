@@ -6,7 +6,7 @@ import { TERM_GLOSSARY, NOTHING_GOES_LIVE_NOTE } from "@/lib/plain-language";
  * no jargon. The glossary is generated from the shared TERM_GLOSSARY so it
  * stays in lockstep with the term map every other surface imports.
  */
-export const dynamic = "force-static";
+export const dynamic = "force-dynamic"; // shell layout needs request-time tenant context — cannot be statically prerendered
 
 const REASSURANCE: { q: string; a: string }[] = [
   {
