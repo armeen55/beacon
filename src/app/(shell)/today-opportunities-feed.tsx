@@ -8,6 +8,8 @@ import {
   loadQuestionQueries,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildAnswerOpportunities } from "./today-questions-rows";
+import { loadLatestPageSnapshots } from "@/domains/recommendation-intelligence/page-freshness";
+import { buildThinPages } from "./today-thin-rows";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
 import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { loadDismissedKeys, loadPinnedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
@@ -47,6 +49,7 @@ const KIND_LABEL: Record<FeedKind, string> = {
   consolidate: "Consolidate",
   rising: "Rising",
   answer: "Answer",
+  expand: "Expand",
 };
 const KIND_STYLE: Record<FeedKind, string> = {
   recover: "bg-rose-100 text-rose-700",
@@ -58,6 +61,7 @@ const KIND_STYLE: Record<FeedKind, string> = {
   consolidate: "bg-purple-100 text-purple-700",
   rising: "bg-teal-100 text-teal-700",
   answer: "bg-indigo-100 text-indigo-700",
+  expand: "bg-amber-100 text-amber-700",
 };
 
 function fmtNum(n: number): string {
@@ -128,7 +132,7 @@ export async function TodayOpportunitiesFeed() {
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded, risingQueries, questionQueries] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded, risingQueries, questionQueries, pageSnapshots] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
@@ -141,6 +145,7 @@ export async function TodayOpportunitiesFeed() {
       loadPinnedKeys(tenantId).catch(() => new Set<string>()),
       loadTopRisingQueriesForTenant(tenantId).catch(() => []),
       loadQuestionQueries(tenantId).catch(() => []),
+      loadLatestPageSnapshots(tenantId).catch(() => []),
     ]);
     pinnedKeys = pinnedKeysLoaded;
     siteName = cfg?.name ?? "";
@@ -193,7 +198,25 @@ export async function TodayOpportunitiesFeed() {
       detail: `${a.impressions.toLocaleString()} people ask this/mo, ${(a.ctr * 100).toFixed(1)}% click — add a direct answer block to win the snippet`,
       route: "#sec-questions",
     }));
-    const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra, ...risingExtra, ...answerExtra];
+    // Expand (thin content) — thin pages with real impressions. Winnable clicks ≈
+    // a conservative capture share of the impressions the thin page under-serves.
+    const imprByUrl = new Map<string, number>();
+    for (const p of pagesWithQueries) {
+      const u = canonicalizeCitationUrl(p.page) ?? p.page;
+      imprByUrl.set(u, (imprByUrl.get(u) ?? 0) + p.queries.reduce((s, q) => s + q.impressions, 0));
+    }
+    const expandExtra: OpportunityItem[] = buildThinPages(
+      pageSnapshots.map((s) => ({ url: s.url, wordCount: s.wordCount })),
+      imprByUrl,
+    ).map((t) => ({
+      kind: "expand",
+      query: prettyFn(t.url),
+      page: t.url,
+      clicksAtStake: Math.max(1, Math.round(t.impressions * 0.15)),
+      detail: `Only ${t.wordCount} words but ${t.impressions.toLocaleString()} impressions/mo — expand it to capture the clicks it under-serves`,
+      route: workbenchHref(t.url),
+    }));
+    const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra, ...risingExtra, ...answerExtra, ...expandExtra];
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
     // Curate: drop opportunities the operator has dismissed (persisted), so the
     // recomputed-every-render feed honours "I've dealt with that".
