@@ -62,7 +62,12 @@ export async function TodayQuickWinsSection() {
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-amber-600">position {r.topQuery.position.toFixed(1)}</span>
               <span className="text-gray-500">{r.topQuery.impressions.toLocaleString()} impr/mo</span>
-              <Link href="/moves" className="font-semibold text-violet-600 hover:text-violet-800">
+              {/* Site-wide pages may not be in the worklist — route to record-the-change
+                  on /proof (page prefilled) so the title improvement gets measured. */}
+              <Link
+                href={`/proof?page=${encodeURIComponent(r.page)}`}
+                className="font-semibold text-violet-600 hover:text-violet-800"
+              >
                 Improve →
               </Link>
             </div>
