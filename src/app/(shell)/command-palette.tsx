@@ -77,7 +77,21 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
     setActive(0);
   }, [query]);
 
-  if (!open) return null;
+  // Discoverable, clickable trigger (the shortcut alone is invisible). Fixed,
+  // unobtrusive; opens the same palette ⌘K does.
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Open command palette"
+        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-2 text-[12px] font-medium text-muted-foreground shadow-lg backdrop-blur transition-colors hover:text-foreground"
+      >
+        <span aria-hidden>⌘K</span>
+        <span className="hidden sm:inline">Jump to…</span>
+      </button>
+    );
+  }
 
   function run(entry: Entry | undefined) {
     if (!entry) return;
