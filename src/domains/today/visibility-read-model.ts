@@ -405,6 +405,15 @@ export function indexSnapshots(rows: DailyMetricSnapshot[]): SnapshotIndex {
 // Chart time-series builders (per-day)
 // ─────────────────────────────────────────────────────────────────────
 
+/** Clamp a percentage to [0,100]. citation_count is multi-per-observation (one AI
+ *  answer can cite several URLs), so `citation_count / observations` can exceed
+ *  100% — an absurd value for a metric labelled + charted as a rate. Clamp it; the
+ *  trend below 100% is untouched. (Proper fix: a per-platform cited_obs_count column
+ *  → rate = cited_obs / total_obs — audit-wave-3 #4, needs a schema change.) */
+function clampPct(n: number): number {
+  return Math.max(0, Math.min(100, n));
+}
+
 /** Brand chart series for one metric. Skips zero-sample dates. */
 function buildBrandSeries(
   idx: SnapshotIndex,
@@ -424,7 +433,7 @@ function buildBrandSeries(
       if (total === 0) continue;
       totalObs += total;
       totalCitations += r.citation_count;
-      perPlatformCiteRates.push((r.citation_count / total) * 100);
+      perPlatformCiteRates.push(clampPct((r.citation_count / total) * 100));
     }
     if (totalObs === 0) continue;
 
@@ -433,7 +442,7 @@ function buildBrandSeries(
     for (const r of brandDateRows) totalMentions += r.mentioned_obs_count ?? 0;
 
     const mentionRate = (totalMentions / totalObs) * 100;
-    const citationRate = (totalCitations / totalObs) * 100;
+    const citationRate = clampPct((totalCitations / totalObs) * 100);
     const composite =
       perPlatformCiteRates.length > 0
         ? perPlatformCiteRates.reduce((a, b) => a + b, 0) /
@@ -627,8 +636,9 @@ function buildLeaderboardForWindow(
   let brandPrevScore = 0;
   if (totals.totalObs > 0) {
     const mentionRate = (brand.mentionedObs / totals.totalObs) * 100;
-    const posWeightedCitationRate =
-      (brand.positionWeightedCitations / totals.totalObs) * 100;
+    const posWeightedCitationRate = clampPct(
+      (brand.positionWeightedCitations / totals.totalObs) * 100,
+    );
     brandScore =
       metric === "mention_rate"
         ? mentionRate
@@ -638,8 +648,9 @@ function buildLeaderboardForWindow(
   }
   if (prevTotals.totalObs > 0) {
     const mr = (brandPrev.mentionedObs / prevTotals.totalObs) * 100;
-    const cr =
-      (brandPrev.positionWeightedCitations / prevTotals.totalObs) * 100;
+    const cr = clampPct(
+      (brandPrev.positionWeightedCitations / prevTotals.totalObs) * 100,
+    );
     brandPrevScore =
       metric === "mention_rate"
         ? mr
