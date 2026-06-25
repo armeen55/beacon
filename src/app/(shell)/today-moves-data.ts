@@ -403,6 +403,9 @@ export async function buildTodayMovesData(
       // Re-seed the CTR Title Lab from the page's top GSC query (prefer a
       // striking-distance one) when we have it — so title variants target the
       // EXACT phrasing the page measurably ranks for, not just the topic label.
+      // Lowest-priority grounded "why": a self-competing page, when nothing more
+      // urgent applies. The striking / citation / decline overrides below win.
+      if (m.cannibalization.length > 0) m.why = m.cannibalization[0]!.fix;
       if (m.action === "edit_title" && m.topQueries.length > 0) {
         const seed = m.topQueries.find((q) => q.strikingDistance) ?? m.topQueries[0]!;
         const brand = brandFromUrl(m.targetUrl);
