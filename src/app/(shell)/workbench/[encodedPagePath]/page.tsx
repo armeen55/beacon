@@ -5,6 +5,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { decodeWorkbenchPath } from "@/domains/insight/workbench-route";
 import { loadWorkbench } from "../workbench-data";
 import { WorkbenchView } from "../workbench-view";
+import { WorkbenchMomentumStrip } from "../workbench-momentum-strip";
 
 /**
  * Workbench — operator-OS rebuild, Phase 2 (v1). The locked-page deep-audit
@@ -30,6 +31,8 @@ export default async function WorkbenchPage({
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
+      {/* Per-page momentum (2026-06-25) — the 8-week trajectory in context. Self-hides without data. */}
+      <WorkbenchMomentumStrip tenantId={tenantId} canonUrl={data.canonUrl} />
       <WorkbenchView data={data} />
     </div>
   );
