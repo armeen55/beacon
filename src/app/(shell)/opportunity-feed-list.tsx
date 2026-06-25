@@ -92,6 +92,16 @@ export function OpportunityFeedList({
     });
   }
 
+  // "Handled" — same optimistic hide as dismiss, but persists status "done" (off
+  // your list because you did it, not because you won't). Completes the ritual.
+  function markDone(r: FeedDisplayRow) {
+    setDismissed((prev) => new Set(prev).add(r.oppKey));
+    setLastDismissed(r);
+    startTransition(() => {
+      void dismissOpportunityAction(r.oppKey, "done");
+    });
+  }
+
   function undo() {
     if (!lastDismissed) return;
     const key = lastDismissed.oppKey;
@@ -154,6 +164,15 @@ export function OpportunityFeedList({
                   </button>
                 );
               })()}
+              <button
+                type="button"
+                onClick={() => markDone(r)}
+                title="Mark done — you've handled this"
+                aria-label="Mark opportunity done"
+                className="font-semibold text-gray-300 transition-colors hover:text-emerald-600 sm:opacity-0 sm:group-hover:opacity-100"
+              >
+                ✓
+              </button>
               <button
                 type="button"
                 onClick={() => dismiss(r)}
