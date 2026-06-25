@@ -178,6 +178,18 @@ export default async function RankRevenuePage({
                   </td>
                   <td className="px-2 py-1.5 text-gray-600" style={{ maxWidth: 220 }}>
                     {(() => {
+                      // Prefer the packet's competitor view — it respects the
+                      // relevance gate (off-topic cited pages are labeled, not torn down).
+                      const pkt = packetByKey.get(m.demandKey);
+                      if (pkt?.competitor) {
+                        if (pkt.competitor.looselyMatched) {
+                          return <span className="text-amber-600">loosely matched (off-topic) — verify with SERP</span>;
+                        }
+                        if (pkt.competitor.facts) return <span>{pkt.competitor.whatWins}</span>;
+                        if (pkt.competitor.fetchStatus && pkt.competitor.fetchStatus !== "ok") {
+                          return <span className="text-amber-600">{pkt.competitor.fetchStatus}</span>;
+                        }
+                      }
                       const top = m.competitorUrls[0];
                       if (!top) return <span className="text-gray-300">—</span>;
                       const a = audits.get(canonicalizeCitationUrl(top) || top);
@@ -220,7 +232,13 @@ export default async function RankRevenuePage({
                             {pkt.draft.schemaRecommendations.length > 0 ? (
                               <div><span className="font-medium text-gray-700">Schema:</span> {pkt.draft.schemaRecommendations.join(", ")}</div>
                             ) : null}
-                            {pkt.draft.assetSpec ? (
+                            {pkt.draft.asset ? (
+                              <div>
+                                <span className="font-medium text-gray-700">Asset:</span>{" "}
+                                <span className="rounded bg-violet-50 px-1 text-violet-700">{pkt.draft.asset.kind}</span>{" "}
+                                {pkt.draft.asset.buildPath}
+                              </div>
+                            ) : pkt.draft.assetSpec ? (
                               <div><span className="font-medium text-gray-700">Asset:</span> {pkt.draft.assetSpec}</div>
                             ) : null}
                             <div className="text-gray-400">
