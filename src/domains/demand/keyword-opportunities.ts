@@ -94,12 +94,22 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 80);
 }
 
-/** Jaccard token overlap, 0..1. */
+/** Jaccard token overlap, 0..1 — for comparing two SIMILAR-sized token sets. */
 function overlap(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let inter = 0;
   for (const t of a) if (b.has(t)) inter += 1;
   return inter / new Set([...a, ...b]).size;
+}
+
+/** Containment: fraction of `sub`'s tokens present in `sup`, 0..1. Use this when
+ *  `sup` is a LARGE vocabulary (the tenant's whole topic set) — Jaccard would be
+ *  dominated by `sup`'s size and read ~0 for a genuinely on-topic cluster. */
+function containment(sub: Set<string>, sup: Set<string>): number {
+  if (sub.size === 0) return 0;
+  let inter = 0;
+  for (const t of sub) if (sup.has(t)) inter += 1;
+  return inter / sub.size;
 }
 
 /** Group near-duplicate keywords into clusters (shared head token + high overlap).
@@ -173,9 +183,11 @@ export function buildOpportunities(input: BuildOpportunitiesInput): DemandOpport
     // No-garbage gate: needs real demand OR a clear rising trend.
     if (estDemand < minVolume && trend !== "rising") continue;
 
-    // Relevance gate (tenant-agnostic): overlap with the tenant's own topics.
-    const relevance = topicSet.size > 0 ? overlap(clusterTokens, topicSet) : 1;
-    if (topicSet.size > 0 && relevance < 0.15) continue; // off-brand → drop
+    // Relevance gate (tenant-agnostic): how much of the cluster is covered by the
+    // tenant's own topic vocabulary. Containment (not Jaccard) so a real on-topic
+    // cluster isn't drowned by the size of the tenant's full topic set.
+    const relevance = topicSet.size > 0 ? containment(clusterTokens, topicSet) : 1;
+    if (topicSet.size > 0 && relevance < 0.34) continue; // off-brand → drop (need ~1/3 of tokens on-topic)
 
     const isCommerce = [...clusterTokens].some((t) => COMMERCE.has(t));
     // A product is distinct from any content page → never match it to one.
