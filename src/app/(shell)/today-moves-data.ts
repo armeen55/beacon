@@ -17,6 +17,9 @@ import {
   type QueryDecline,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
+import { attachOpinions } from "@/domains/demand-graph/specialist-opinions";
+import { routeMove, type MoveRouterDecision } from "@/domains/demand-graph/move-router";
+import { buildPreparedMovePack, type PreparedStatus } from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 
@@ -84,6 +87,15 @@ export type TodayMove = {
   /** Previously-generated + persisted AI drafts, so they survive reload (no re-spend). */
   savedAnswerBlock: string | null;
   savedFaqJsonLd: string | null;
+  /** P1–P3 (read-only): the specialist team's read on this Move — which teammates
+   *  weighed in, the debated action + its rationale/confidence, and how prepared
+   *  the Move is. Computed in-memory from the EvidencePacket; no writes, no publish,
+   *  no paid calls. Null when there's no packet to reason over. */
+  specialists: string[];
+  routerAction: string | null;
+  routerRationale: string | null;
+  routerConfidence: "high" | "medium" | "low" | null;
+  preparedStatus: PreparedStatus | null;
 };
 
 export type TodayMovesHeroData = {
@@ -248,6 +260,7 @@ export async function buildTodayMovesData(
     // removes the card on the next render (the action revalidates "/").
     const actioned = new Set<string>();
     const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     for (const r of responses as ReadonlyArray<{ recId: string; status: string; deferUntil?: string | null }>) {
       if (r.status === "accepted" || r.status === "dismissed") actioned.add(r.recId);
       else if (r.status === "deferred" && r.deferUntil && new Date(r.deferUntil).getTime() > nowMs) actioned.add(r.recId);
@@ -295,6 +308,17 @@ export async function buildTodayMovesData(
       const e = pageEdits[0]!;
       const targetUrl = e.target_url!;
       const packet = packetByUrl.get(pk);
+      // P1–P3 (read-only): run the specialist team over this Move's packet, debate
+      // it into one routed decision, and derive its prepared status. Pure +
+      // in-memory — no writes, no publish, no paid calls. Extras (live SERP verdict,
+      // CMS pushability) aren't threaded here yet, so DataForSEO/Wix abstain
+      // honestly (broad SERP runs are P5/P6). Null-safe when there's no packet.
+      const opinions = packet ? attachOpinions(packet, { nowIso }) : [];
+      const decision: MoveRouterDecision | null = packet ? routeMove({ packet, opinions }) : null;
+      const preparedPack =
+        packet && decision
+          ? buildPreparedMovePack({ tenantId, packet, opinions, decision, nowIso })
+          : null;
       const meta = ACTION_META[e.action_type] ?? { label: "Make this move", tone: "page" as const };
       const also = [
         ...new Set(
@@ -364,6 +388,11 @@ export async function buildTodayMovesData(
         score: packet?.move?.score ?? 0,
         savedAnswerBlock: savedDrafts.get(`${moveId}::answer_block`)?.content ?? null,
         savedFaqJsonLd: savedDrafts.get(`${moveId}::faq`)?.content ?? null,
+        specialists: opinions.map((o) => o.specialist),
+        routerAction: decision?.action ?? null,
+        routerRationale: decision?.rationale ?? null,
+        routerConfidence: decision?.confidenceLevel ?? null,
+        preparedStatus: preparedPack?.preparedStatus ?? null,
       });
     }
 

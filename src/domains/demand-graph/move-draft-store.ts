@@ -16,9 +16,11 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
 // "serp_verdict" persists the precomputed DataForSEO create-page verdict JSON so
-// the New Pages board arrives "Google checked" with no operator click (the DB
-// `kind` column is free text — no migration needed to add a kind).
-export type MoveDraftKind = "answer_block" | "faq" | "serp_verdict";
+// the New Pages board arrives "Google checked" with no operator click. The DB
+// `kind` column is free text — no migration needed to add a kind.
+// "prepared_pack" (P3) persists a projected PreparedMovePack (specialist opinions
+// + router decision + readiness status) so a Move arrives "prepared, not chore".
+export type MoveDraftKind = "answer_block" | "faq" | "serp_verdict" | "prepared_pack";
 
 export type MoveDraftRow = {
   recId: string;

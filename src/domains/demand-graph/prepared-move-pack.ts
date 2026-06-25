@@ -1,0 +1,195 @@
+/**
+ * prepared-move-pack (2026-06-25, P3 — the Prepared Move Pack) — the envelope that
+ * carries a Move from "the engine found it" to "ready for you to review and ship":
+ * the specialist opinions (P1), the router decision (P2), the proof plan, a
+ * deterministic readiness STATE MACHINE, and (later) the structured draft. It
+ * COMPOSES the existing EvidencePacket (it stores the evidenceHash + scalars, not
+ * a second copy of the packet) so it stays compact and never forks a parallel
+ * system. A projected pack persists via `move_drafts` (kind="prepared_pack") — the
+ * `kind` column is free text, so NO migration is needed.
+ *
+ * Sprint 1 packs reach `competitors_read` at most: there is no structured draft
+ * yet (that is P4), so `draft_ready` / `proof_ready` / `ready_to_review` are
+ * honestly not yet reachable. The state machine reports the TRUE state.
+ *
+ * PURE / deterministic / no I/O. Pinned by prepared-move-pack.test.ts.
+ */
+
+import type { EvidencePacket } from "./evidence-packet";
+import type { GapKind } from "./build-graph";
+import type { MoveRouterDecision, MoveParentType } from "./move-router";
+import type { SpecialistOpinion } from "./specialist-opinions";
+
+/** The readiness chain. Forward-only along the happy path; terminal/recovery
+ *  states branch off. Each transition is fired by a concrete code event. */
+export type PreparedStatus =
+  | "not_ready"
+  | "demand_found"
+  | "serp_checked"
+  | "ai_checked"
+  | "competitors_read"
+  | "draft_ready"
+  | "proof_ready"
+  | "ready_to_review"
+  | "staged"
+  | "shipped"
+  | "manual_done"
+  | "measuring"
+  | "won"
+  | "lost"
+  | "mixed"
+  | "unclear"
+  | "stale"
+  | "failed";
+
+/** Placeholder for the structured, schema-validated draft (P4). Null in Sprint 1. */
+export type StructuredDraft = { kind: string; [k: string]: unknown } | null;
+
+export type ImplementationStep = { step: string; pushMethod: string; done: boolean };
+
+export type PreparedMovePack = {
+  version: 1;
+  tenantId: string;
+  /** = EvidencePacket.move.key (the move_drafts rec_id join key). */
+  moveId: string;
+  moveType: GapKind;
+  parentType: MoveParentType;
+  targetUrl: string | null;
+  proposedSlug: string | null;
+  primaryQuery: string;
+  secondaryQueries: string[];
+  /** The team's opinions (P1) — what each specialist found / objected to. */
+  specialistOpinions: SpecialistOpinion[];
+  /** The debate outcome (P2). */
+  routerDecision: MoveRouterDecision;
+  /** Reuse the packet's proof plan directly. */
+  proofPlan: EvidencePacket["proofPlan"];
+  /** Structured draft (P4) — null until the structured drafter runs. */
+  structuredDraft: StructuredDraft;
+  /** Implementation checklist (P5) — empty placeholder in Sprint 1. */
+  implementationChecklist: ImplementationStep[];
+  /** Cost rolled up across the prepare steps (placeholder zeros in Sprint 1). */
+  costSpent: { llmUsd: number; serpUsd: number };
+  confidence: "high" | "medium" | "low";
+  /** = EvidencePacket.evidenceHash (the staleness key). */
+  evidenceHash: string;
+  generatedAt: string;
+  staleAt: string;
+  preparedStatus: PreparedStatus;
+};
+
+const DAY = 24 * 60 * 60 * 1000;
+const DEFAULT_TTL_MS = 14 * DAY; // align to the DataForSEO SERP cache TTL
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 80);
+}
+
+/** Derive the TRUE readiness state from what's actually attached. Honest by
+ *  construction: it can only claim a stage whose evidence exists. The chain is
+ *  monotonic — reaching `proof_ready` requires a draft, so Sprint 1 (no draft)
+ *  caps at `competitors_read`. */
+export function derivePreparedStatus(args: {
+  packet: EvidencePacket;
+  hasSerpVerdict: boolean;
+  hasAiCheck: boolean;
+  structuredDraft: StructuredDraft;
+}): PreparedStatus {
+  const { packet, hasSerpVerdict, hasAiCheck, structuredDraft } = args;
+  const hasDraft = structuredDraft != null;
+  const hasProofPlan = (packet.proofPlan?.metrics?.length ?? 0) > 0;
+  const competitorsRead = packet.competitor.facts != null;
+
+  // Walk the chain top-down; return the highest stage whose prerequisites hold.
+  if (hasDraft && hasProofPlan) return "ready_to_review"; // P5+: draft + proof + everything
+  if (hasDraft) return "draft_ready"; // P4: structured draft exists
+  if (competitorsRead) return "competitors_read";
+  if (hasAiCheck) return "ai_checked";
+  if (hasSerpVerdict) return "serp_checked";
+  return "demand_found"; // the packet itself proves demand
+}
+
+export type BuildPreparedMovePackInput = {
+  tenantId: string;
+  packet: EvidencePacket;
+  opinions: SpecialistOpinion[];
+  decision: MoveRouterDecision;
+  nowIso?: string;
+  hasSerpVerdict?: boolean;
+  hasAiCheck?: boolean;
+  structuredDraft?: StructuredDraft;
+  costSpent?: { llmUsd: number; serpUsd: number };
+  ttlMs?: number;
+};
+
+/** Assemble a PreparedMovePack from a Move's packet + the team's opinions + the
+ *  router decision. Pure. */
+export function buildPreparedMovePack(input: BuildPreparedMovePackInput): PreparedMovePack {
+  const { tenantId, packet, opinions, decision } = input;
+  const nowIso = input.nowIso ?? new Date().toISOString();
+  const baseMs = Number.isFinite(Date.parse(nowIso)) ? Date.parse(nowIso) : Date.now();
+  const structuredDraft = input.structuredDraft ?? null;
+
+  const preparedStatus = derivePreparedStatus({
+    packet,
+    hasSerpVerdict: input.hasSerpVerdict ?? false,
+    hasAiCheck: input.hasAiCheck ?? false,
+    structuredDraft,
+  });
+
+  const isCreate = packet.move.gapType === "create_page";
+
+  return {
+    version: 1,
+    tenantId,
+    moveId: packet.move.key,
+    moveType: packet.move.gapType,
+    parentType: decision.parentType,
+    targetUrl: packet.yourPage.url,
+    proposedSlug: isCreate ? slugify(packet.move.label) : null,
+    primaryQuery: packet.move.label,
+    secondaryQueries: packet.demand.fanoutSeeds ?? [],
+    specialistOpinions: opinions,
+    routerDecision: decision,
+    proofPlan: packet.proofPlan,
+    structuredDraft,
+    implementationChecklist: [],
+    costSpent: input.costSpent ?? { llmUsd: 0, serpUsd: 0 },
+    confidence: decision.confidenceLevel,
+    evidenceHash: packet.evidenceHash,
+    generatedAt: nowIso,
+    staleAt: new Date(baseMs + (input.ttlMs ?? DEFAULT_TTL_MS)).toISOString(),
+    preparedStatus,
+  };
+}
+
+/** A pack is stale when its evidence drifted or its TTL passed — the read-time
+ *  signal to re-prepare. */
+export function isPackStale(pack: PreparedMovePack, currentEvidenceHash: string, nowIso?: string): boolean {
+  if (pack.evidenceHash !== currentEvidenceHash) return true;
+  const now = nowIso ? Date.parse(nowIso) : Date.now();
+  return Number.isFinite(Date.parse(pack.staleAt)) ? now > Date.parse(pack.staleAt) : false;
+}
+
+/** Projection for durable storage. The pack is already compact (it references the
+ *  packet by hash, never embeds it), so this is near-identity — it exists as the
+ *  single choke point for any future size trimming, and pairs with parse below. */
+export function toPersistedPack(pack: PreparedMovePack): string {
+  return JSON.stringify(pack);
+}
+
+/** Parse a persisted pack. Fail-soft → null on any malformed/legacy content. */
+export function parsePreparedPack(content: string | null | undefined): PreparedMovePack | null {
+  if (!content) return null;
+  try {
+    const obj = JSON.parse(content) as PreparedMovePack;
+    if (!obj || obj.version !== 1 || !obj.moveId || !obj.routerDecision) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}

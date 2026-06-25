@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-25 — B74 · Team Contract foundation (Sprint 1: P1 SpecialistOpinion · P2 MoveRouter · P3 PreparedMovePack)
+
+**Built (all pure / deterministic / no I/O; read-only wiring only — no writes, no publish, no paid calls, no migration):**
+- `src/domains/demand-graph/specialist-opinions.ts` — `SpecialistOpinion`/`EvidenceRef`/`Objection`/`ScoreContribution`/`SpecialistExtras` + 8 emitters (gsc, ga4, clarity, profound, dataforseo, wix, llm, commerce_asset). Each consumes the canonical `EvidencePacket` and abstains (null) without evidence.
+- `src/domains/demand-graph/move-router.ts` — `routeMove` (debate → `MoveRouterDecision`), `GAP_TO_ACTION`, `parentTypeForAction`. Seeds from the graph gap (degrades to today with no opinions), applies vetoes + overlap boost + bounded downgrades; never mutates the pure scorer (baseScore vs adjustedScore).
+- `src/domains/demand-graph/prepared-move-pack.ts` — `PreparedMovePack` + `PreparedStatus` machine + `derivePreparedStatus` + `isPackStale` + `toPersistedPack`/`parsePreparedPack`.
+- `src/domains/demand-graph/move-draft-store.ts` — `MoveDraftKind` += `"prepared_pack"` (type-only; DB `kind` is free text — no migration).
+- `src/app/(shell)/today-moves-data.ts` — read-only: each `TodayMove` now carries `specialists`/`routerAction`/`routerRationale`/`routerConfidence`/`preparedStatus`, computed in-memory from the packet.
+- `scripts/ground-truth-team-contract.ts` — read-only proof harness.
+
+**Verified:**
+- `npm run typecheck` (`tsc --noEmit`) → clean (exit 0).
+- `npx vitest run` on the 3 new suites → **38/38 pass** (`specialist-opinions.test.ts`, `move-router.test.ts`, `prepared-move-pack.test.ts`). No existing test imports the touched modules (additive only).
+- Ground-truth on real `tenant-iranopedia` (Supabase, $0, no paid API): 189 actionable moves; top-10 routed; participation gsc 10/10, profound 9/10, clarity 3/10 (fix_ux_first downgrade cut #2 66394→56435, #5, #10), commerce_asset 3/10, ga4 1/10, dataforseo/wix/llm 0/10 (honest abstention). #1 = "iran world cup jersey 2026" (gsc #7 16.4k impr + ga4 money page 218 + profound cites ubuy.com.bh).
+
+**Not done (by design, Sprint 1 scope):** no structured LLM drafts (P4), no top-N auto-prepare/persist (P5), no auto-measure/learning (P11), no trend/store/Ritz/backlinks/CMS-adapter. Packs honestly cap at `competitors_read` until P4 attaches a structured draft.
+
+---
+
 ## 2026-06-25 — B52–B57 · site-wide intelligence + the §2 one-ranked-list (infinite-build run)
 
 **Shipped (all main, typecheck+build+architecture green per commit; verified on real Iranopedia/Supabase):**
