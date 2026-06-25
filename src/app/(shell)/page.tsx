@@ -45,6 +45,7 @@ import { DataSourcesStrip } from "@/components/today/data-sources-strip";
 import { CollapsibleSection } from "@/components/today/collapsible-section";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { StateOfUnionSection } from "./state-of-union-section";
+import { TodayMovesHeroSection } from "./today-moves-hero";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -221,6 +222,15 @@ async function TodayV2SectionedContent() {
           duplicates (removed below). */}
       <Suspense fallback={null}>
         <StateOfUnionSection />
+      </Suspense>
+      {/* Today's Moves hero (2026-06-24) — the premium §7 ritual surface. Leads
+          the cockpit with the live Rank-&-Revenue Moves (demand-graph engine,
+          now flowing into the real queue) as rich cards: who AI cites now, what
+          wins, the grounded outline, the proof plan, and a one-tap route to ship.
+          Its own Suspense (null fallback) so its reads never block the page; the
+          section self-hides when the engine is off for the tenant (no Moves). */}
+      <Suspense fallback={null}>
+        <TodayMovesHeroSection />
       </Suspense>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
           the TOP of the cockpit and ORIENTS the operator through the one
