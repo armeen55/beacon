@@ -7,6 +7,7 @@ import {
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
 import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
+import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildCtrGapRows } from "./today-ctrgap-rows";
 import { buildCannibalizationCaseRows } from "./today-declines-rows";
@@ -118,7 +119,7 @@ export async function TodayOpportunitiesFeed() {
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
@@ -127,6 +128,7 @@ export async function TodayOpportunitiesFeed() {
       buildNewPagesData(tenantId).catch(() => ({ opportunities: [], totalCandidates: 0 })),
       loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
       loadGscCannibalizationForTenant(tenantId).catch(() => []),
+      loadDismissedKeys(tenantId).catch(() => new Set<string>()),
     ]);
     siteName = cfg?.name ?? "";
     const moveExtra = (hero?.moves ?? [])
@@ -158,10 +160,12 @@ export async function TodayOpportunitiesFeed() {
     }));
     const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra];
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
-    items = result.items;
-    allItems = result.all;
-    total = result.total;
-    totalClicks = result.totalClicksAtStake;
+    // Curate: drop opportunities the operator has dismissed (persisted), so the
+    // recomputed-every-render feed honours "I've dealt with that".
+    allItems = result.all.filter((it) => !dismissedKeys.has(opportunityKey(it.kind, it.page, it.query)));
+    items = allItems.slice(0, 6);
+    total = allItems.length;
+    totalClicks = allItems.reduce((s, it) => s + (it.clicksAtStake || 0), 0);
     // The dev-handoff doc should be COMPLETE — append the asset-engine tools
     // (build-these) after the rank work, on their own demand metric.
     toolExportItems = buildToolOpportunities(toolQueries, { minImpressions: 5 }).map((t) => ({
@@ -235,6 +239,7 @@ export async function TodayOpportunitiesFeed() {
           pageSlug: slugOf(it.page),
           clicksLabel: `~${fmtNum(it.clicksAtStake)} clicks/mo`,
           href: it.kind === "recover" || it.kind === "win" || it.kind === "snippet" ? workbenchHref(it.page) : it.route,
+          oppKey: opportunityKey(it.kind, it.page, it.query),
         }))}
       />
     </section>
