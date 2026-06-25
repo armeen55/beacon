@@ -4,14 +4,26 @@ import { loadTopStrikingPagesForTenant } from "@/domains/recommendation-intellig
 import { buildEntitySchemaScript } from "@/domains/demand-graph/entity-schema";
 import { EntityFoundationCopy } from "./today-entity-foundation-copy";
 
-/** Title-case a page slug into a topic phrase ("persian-female-first-names" → "Persian Female First Names"). */
-function topicFromUrl(url: string): string {
+// Generic/structural slugs that aren't real subject areas.
+const GENERIC_TOPICS = new Set([
+  "cities", "home", "about", "blog", "index", "page", "category", "tag", "search",
+]);
+
+/**
+ * Title-case a page slug into a clean topic phrase, or null if it doesn't read as
+ * a credible subject area: 2–5 words is the sweet spot (a 1-word slug must be ≥8
+ * chars to count, e.g. "Comedians"; a >5-word slug is a specific page, not a
+ * topic). Filters generic/structural slugs so knowsAbout stays authoritative.
+ */
+function topicFromUrl(url: string): string | null {
   const s = url.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
   const last = s.split("/").filter(Boolean).pop() ?? "";
-  return last
-    .replace(/[-_]+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  const slug = last.replace(/[-_]+/g, " ").trim().toLowerCase();
+  if (!slug || GENERIC_TOPICS.has(slug)) return null;
+  const words = slug.split(/\s+/).filter(Boolean);
+  if (words.length > 5) return null; // too specific to be a "topic area"
+  if (words.length === 1 && slug.length < 8) return null; // too thin
+  return slug.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**
@@ -33,7 +45,7 @@ export async function TodayEntityFoundationSection() {
     try {
       const tenantId = await currentTenantId();
       const top = await loadTopStrikingPagesForTenant(tenantId).catch(() => []);
-      knowsAbout = top.map((p) => topicFromUrl(p.page)).filter(Boolean);
+      knowsAbout = top.map((p) => topicFromUrl(p.page)).filter((t): t is string => Boolean(t));
     } catch {
       knowsAbout = [];
     }
