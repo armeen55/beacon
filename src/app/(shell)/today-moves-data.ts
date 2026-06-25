@@ -5,6 +5,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
+import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 /**
@@ -56,6 +57,9 @@ export type TodayMove = {
   /** Plain-language transparency for WHY this Move ranks where it does (the "one number"). */
   rankWhy: string;
   score: number;
+  /** Previously-generated + persisted AI drafts, so they survive reload (no re-spend). */
+  savedAnswerBlock: string | null;
+  savedFaqJsonLd: string | null;
 };
 
 export type TodayMovesHeroData = {
@@ -161,7 +165,7 @@ export const loadTodayMovesHeroData = cache(
     const tenantId = await currentTenantId();
     const repo = getRepository().forTenant(tenantId);
 
-    const [edits, packets, responses] = await Promise.all([
+    const [edits, packets, responses, savedDrafts] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
       // Enrichment (teardown/outline/proof) rides the heavy graph compute — guard
       // it so a slow graph degrades the hero to the light queue read, never hangs.
@@ -171,6 +175,9 @@ export const loadTodayMovesHeroData = cache(
         [] as EvidencePacket[],
       ),
       repo.getRecommendationResponses().catch(() => []),
+      // Previously-generated + persisted AI drafts (answer block / FAQ schema) so
+      // they survive reload. Degrade-safe: empty map if the table isn't migrated.
+      withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
     ]);
 
     // Skip Moves the operator already shipped/dismissed — so a one-tap "Ship it"
@@ -253,8 +260,9 @@ export const loadTodayMovesHeroData = cache(
           .slice(0, 3);
       }
 
+      const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk;
       moves.push({
-        id: (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk,
+        id: moveId,
         action: e.action_type,
         actionLabel: meta.label,
         actionTone: meta.tone,
@@ -279,6 +287,8 @@ export const loadTodayMovesHeroData = cache(
         titleVariants,
         rankWhy: rankWhyFromComponents(packet?.move?.components),
         score: packet?.move?.score ?? 0,
+        savedAnswerBlock: savedDrafts.get(`${moveId}::answer_block`)?.content ?? null,
+        savedFaqJsonLd: savedDrafts.get(`${moveId}::faq`)?.content ?? null,
       });
     }
 

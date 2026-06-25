@@ -85,14 +85,15 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   // action is operator-gated + budget-gated + safety-firewalled). Fires only on click.
   const [aiStatus, setAiStatus] = useState<
     "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
-  >("idle");
-  const [aiText, setAiText] = useState("");
+  >(m.savedAnswerBlock ? "ok" : "idle"); // hydrate a previously-generated+saved draft
+  const [aiText, setAiText] = useState(m.savedAnswerBlock ?? "");
   const [aiCopied, setAiCopied] = useState(false);
   const aiGenerate = () => {
     setAiStatus("pending");
     startTransition(async () => {
       try {
         const r = await draftMoveAnswerBlockAction({
+          recId: m.id,
           query: m.query,
           pageLabel: m.pageLabel,
           brief: m.answerBrief,
@@ -121,14 +122,14 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   // On-demand FAQPage JSON-LD (LLM answers the grounded fanout questions).
   const [faqStatus, setFaqStatus] = useState<
     "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
-  >("idle");
-  const [faqJsonLd, setFaqJsonLd] = useState("");
+  >(m.savedFaqJsonLd ? "ok" : "idle"); // hydrate a previously-generated+saved FAQ schema
+  const [faqJsonLd, setFaqJsonLd] = useState(m.savedFaqJsonLd ?? "");
   const [faqCopied, setFaqCopied] = useState(false);
   const faqGenerate = () => {
     setFaqStatus("pending");
     startTransition(async () => {
       try {
-        const r = await draftMoveFaqAction({ query: m.query, pageLabel: m.pageLabel, faqs: m.faqs });
+        const r = await draftMoveFaqAction({ recId: m.id, query: m.query, pageLabel: m.pageLabel, faqs: m.faqs });
         if (r.status === "ok") {
           setFaqJsonLd(r.jsonLd);
           setFaqStatus("ok");
