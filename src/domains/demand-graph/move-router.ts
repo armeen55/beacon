@@ -184,12 +184,19 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
     scoreMult *= 0.85;
     appliedObjections.push(d);
   }
-  // Any specialist asking for a flat score cut (e.g. Wix not-pushable) applies too.
-  for (const o of opinions) {
-    const m = o.scoreContribution.scoreMultiplier;
-    if (m != null && m < 1) scoreMult *= m;
+  // Any specialist asking for a flat score cut (e.g. Wix not-pushable) applies too —
+  // but never to a "wait" decision, where a CMS/pushability penalty is meaningless.
+  if (action !== "wait") {
+    for (const o of opinions) {
+      const m = o.scoreContribution.scoreMultiplier;
+      if (m != null && m < 1) scoreMult *= m;
+    }
   }
 
+  // NOTE (Sprint 1): only scoreContribution.scoreMultiplier feeds the score here.
+  // The additive deltas (demand / winnabilityDelta / visibilityGapDelta / dollarValue /
+  // friction) are carried on the opinions for the later P6 score-fold + learning
+  // reweight; folding them in is deferred so the pure scorer stays the source of truth.
   confidence = clamp01(confidence);
   const adjustedScore = Math.max(0, Math.round(baseScore * scoreMult));
 

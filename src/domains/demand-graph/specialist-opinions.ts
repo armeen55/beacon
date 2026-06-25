@@ -95,7 +95,11 @@ export type Objection = {
 
 /** Bounded score DELTAS a specialist wants to push into the Rank-&-Revenue score.
  *  Deltas compose; the router applies them transparently (it never re-derives the
- *  pure scorer). `scoreMultiplier` is a flat boost/cut (1 = neutral). */
+ *  pure scorer). `scoreMultiplier` is a flat boost/cut (1 = neutral).
+ *  NOTE (Sprint 1): the router consumes ONLY `scoreMultiplier`. The additive deltas
+ *  (demand/winnabilityDelta/visibilityGapDelta/dollarValue/friction) are carried on
+ *  the opinion for the later P6 score-fold + learning reweight; they are intentionally
+ *  not folded in yet so the pure scorer stays the single source of truth. */
 export type ScoreContribution = {
   demand?: number;
   winnabilityDelta?: number;
@@ -301,8 +305,7 @@ export function emitClarityOpinion(p: EvidencePacket, extras: SpecialistExtras =
 export function emitProfoundOpinion(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion | null {
   const nowIso = extras.nowIso ?? new Date().toISOString();
   const cited = citedCompetitorCount(p);
-  const hasAiSignal = p.demand.basis !== "gsc" || cited > 0;
-  if (cited === 0 || !hasAiSignal) return null; // no competitor-citation evidence → abstain
+  if (cited === 0) return null; // no competitor-citation evidence → abstain
 
   const onTopic = !p.competitor.looselyMatched;
   const domain = p.competitor.domain;
@@ -479,14 +482,16 @@ export function emitCommerceAssetOpinion(p: EvidencePacket, extras: SpecialistEx
  *  (abstentions dropped). The order is the pipeline order (demand → money → UX →
  *  AEO → SERP → CMS → strategist → asset). */
 export function attachOpinions(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion[] {
+  // Pin ONE timestamp for the whole team so every opinion's staleAt is consistent.
+  const ctx: SpecialistExtras = { ...extras, nowIso: extras.nowIso ?? new Date().toISOString() };
   return [
-    emitGscOpinion(p, extras),
-    emitGa4Opinion(p, extras),
-    emitClarityOpinion(p, extras),
-    emitProfoundOpinion(p, extras),
-    emitDataforseoOpinion(p, extras),
-    emitWixOpinion(p, extras),
-    emitLlmOpinion(p, extras),
-    emitCommerceAssetOpinion(p, extras),
+    emitGscOpinion(p, ctx),
+    emitGa4Opinion(p, ctx),
+    emitClarityOpinion(p, ctx),
+    emitProfoundOpinion(p, ctx),
+    emitDataforseoOpinion(p, ctx),
+    emitWixOpinion(p, ctx),
+    emitLlmOpinion(p, ctx),
+    emitCommerceAssetOpinion(p, ctx),
   ].filter((o): o is SpecialistOpinion => o != null);
 }
