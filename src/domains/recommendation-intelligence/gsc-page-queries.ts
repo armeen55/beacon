@@ -270,6 +270,41 @@ export async function loadToolIntentQueries(
 
 export type DecliningPage = { page: string; topDecline: QueryDecline };
 export type StrikingPage = { page: string; topQuery: PageQuery };
+export type PageWithQueries = { page: string; queries: PageQuery[] };
+
+/**
+ * The tenant's top pages by impressions (server-aggregated RPC) WITH their per-page
+ * queries (positions + clicks + impressions) — the substrate for any per-query
+ * site-wide lens (e.g. CTR-gap detection). Bounded (top N pages) + fail-soft → [].
+ */
+export async function loadTopPagesWithQueriesForTenant(
+  tenantId: string,
+  opts: { topPages?: number } = {},
+): Promise<PageWithQueries[]> {
+  if (!tenantId) return [];
+  const topN = Math.max(1, Math.min(opts.topPages ?? 25, 25));
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(WINDOW_DAYS);
+    const { data, error } = await sb
+      .rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: since })
+      .order("impressions", { ascending: false })
+      .limit(topN);
+    if (error || !data) return [];
+    const pages = (data as Array<{ page?: string }>).map((r) => r.page).filter((p): p is string => Boolean(p));
+    if (pages.length === 0) return [];
+    const queryMap = await loadTopQueriesForPages(tenantId, pages);
+    const out: PageWithQueries[] = [];
+    for (const [page, queries] of queryMap) out.push({ page, queries });
+    return out;
+  } catch (e) {
+    log.warn("[gsc-page-queries] top-pages-with-queries threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
 
 /**
  * Site-wide STRIKING-DISTANCE opportunities (symmetric to declining pages): the

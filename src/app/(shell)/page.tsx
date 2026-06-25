@@ -51,6 +51,7 @@ import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
+import { TodayCtrGapSection } from "./today-ctrgap-section";
 import { TodayMoneyLeakSection } from "./today-moneyleak-section";
 import { TodayEntityFoundationSection } from "./today-entity-foundation-section";
 import { TodayToolsSection } from "./today-tools-section";
@@ -240,6 +241,7 @@ async function TodayV2SectionedContent() {
           { id: "sec-recover", label: "Recover" },
           { id: "sec-recoveries", label: "Turned around" },
           { id: "sec-quickwins", label: "Quick wins" },
+          { id: "sec-ctrgap", label: "Seen not clicked" },
           { id: "sec-leaks", label: "Conversion leaks" },
           { id: "sec-tools", label: "Tools" },
           { id: "sec-newpages", label: "New pages" },
@@ -285,6 +287,13 @@ async function TodayV2SectionedContent() {
       <div id="sec-quickwins" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayQuickWinsSection />
+        </Suspense>
+      </div>
+      {/* Seen but not clicked (2026-06-25) — well-ranked pages with CTR far below
+          expected for their position (title/snippet fix). Own Suspense / self-hides. */}
+      <div id="sec-ctrgap" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayCtrGapSection />
         </Suspense>
       </div>
       {/* Fix conversion leaks (2026-06-25, L8/CRO) — the REVENUE site-wide lens:
