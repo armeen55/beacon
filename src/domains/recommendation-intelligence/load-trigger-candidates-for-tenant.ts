@@ -683,15 +683,19 @@ export async function loadTriggerCandidatesForTenant(options: {
         .then((r) => r.packets)
         .catch(() => []);
       const packetsByKey = new Map(packetList.map((p) => [p.move.key, p]));
-      all.push(
-        ...demandGraphToCandidateRows({
-          tenantId,
-          graph,
-          packetsByKey,
-          limit: 25,
-          nowIso: new Date().toISOString(),
-        }),
-      );
+      const engineRows = demandGraphToCandidateRows({
+        tenantId,
+        graph,
+        packetsByKey,
+        limit: 25,
+        nowIso: new Date().toISOString(),
+      });
+      // Cross-source dedup: never duplicate a (tenant, action, url) an existing
+      // predicate already covers (cooldown_key is exactly that triple). The
+      // engine ADDS its UNIQUE Moves (AI-citation answer-blocks, friction fixes
+      // the predicates don't produce); overlapping edits defer to the predicate.
+      const existingCooldownKeys = new Set(all.map((r) => r.cooldown_key));
+      all.push(...engineRows.filter((r) => !existingCooldownKeys.has(r.cooldown_key)));
     } catch {
       // demand-graph load failure must never break the live recommendation pipeline
     }
