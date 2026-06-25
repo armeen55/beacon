@@ -17,6 +17,20 @@ import type { ActionType } from "@/domains/recommendations/action-types";
 import type { RecommendationCandidateRow, CandidateConfidence, CandidateImpactEstimate } from "@/domains/recommendation-intelligence/emitter/candidate-row";
 import type { DemandGraph, MoveCandidate, GapKind } from "./build-graph";
 import type { EvidencePacket } from "./evidence-packet";
+import { UNSUPPORTED_CLAIM_TOKENS } from "@/domains/recommendation-intelligence/safety-audit";
+
+/** Strip unsupported-claim tokens (best / #1 / leading / guaranteed …) from a
+ *  query before it's echoed into customer_copy — the tenant's own GSC query can
+ *  contain a claim word that would otherwise fail the customer-copy vocab scan. */
+function safeQueryForCopy(query: string): string {
+  let s = ` ${query} `;
+  for (const raw of UNSUPPORTED_CLAIM_TOKENS) {
+    const esc = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const wordy = /^[a-z0-9]/i.test(raw) && /[a-z0-9]$/i.test(raw);
+    s = s.replace(new RegExp(wordy ? `\\b${esc}\\b` : esc, "gi"), " ");
+  }
+  return s.replace(/\s+/g, " ").trim() || "this topic";
+}
 
 /** demand-graph gap → a real pipeline ActionType. */
 const GAP_TO_ACTION: Partial<Record<GapKind, ActionType>> = {
@@ -26,8 +40,11 @@ const GAP_TO_ACTION: Partial<Record<GapKind, ActionType>> = {
   fix_experience: "fix_page_experience",
 };
 
-/** Plain-language, jargon-free, competitor-name-free customer copy per gap. */
-function customerCopy(gap: GapKind, query: string): string {
+/** Plain-language, jargon-free, competitor-name-free customer copy per gap.
+ *  The query is claim-token-sanitized so a tenant's own "best …" query doesn't
+ *  echo an unsupported claim into customer copy. */
+function customerCopy(gap: GapKind, rawQuery: string): string {
+  const query = safeQueryForCopy(rawQuery);
   switch (gap) {
     case "create_page":
       return `Create a new page about "${query}". There's real demand for it and none of your pages covers it yet — this is a chance to own the topic.`;

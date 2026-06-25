@@ -186,7 +186,7 @@ export const ARCHITECT_OVERCLAIM_TOKENS: ReadonlyArray<string> = [
   "top-rated",
 ];
 
-const UNSUPPORTED_CLAIM_TOKENS: ReadonlyArray<string> = [
+export const UNSUPPORTED_CLAIM_TOKENS: ReadonlyArray<string> = [
   "best",
   "#1",
   "number one",

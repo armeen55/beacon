@@ -84,6 +84,17 @@ describe("demandGraphToCandidateRows (engine → live pipeline bridge)", () => {
     expect(rows[0]!.cooldown_key).not.toBe(rows[1]!.cooldown_key);
   });
 
+  it("strips unsupported-claim tokens from the tenant query in customer copy", () => {
+    const rows = demandGraphToCandidateRows({
+      tenantId: "t",
+      nowIso: NOW,
+      graph: graph([move({ gap: "edit_page", demandKey: "k1", label: "best persian rugs", ownedUrl: "https://x.com/rugs" })]),
+    });
+    const r = rows[0]!;
+    expect(r.customer_copy.toLowerCase()).not.toMatch(/\bbest\b/); // claim token stripped
+    expect(r.customer_copy).toContain("persian rugs"); // the real topic survives
+  });
+
   it("respects the limit (top-by-score)", () => {
     const rows = demandGraphToCandidateRows({
       tenantId: "t",
