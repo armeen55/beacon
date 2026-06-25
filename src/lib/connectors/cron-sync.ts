@@ -262,11 +262,12 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
   for (const t of tenants) {
     try {
       const pc = await precomputeMoveDraftsForTenant(t.id, { maxMoves: 8 });
-      if (!pc.skipped && (pc.answerBlocksSaved > 0 || pc.faqSchemasSaved > 0)) {
+      if (!pc.skipped && (pc.answerBlocksSaved > 0 || pc.faqSchemasSaved > 0 || pc.newPageOpeningsSaved > 0)) {
         log.info("[cron-sync] precomputed move drafts", {
           tenantId: t.id,
           answerBlocks: pc.answerBlocksSaved,
           faqSchemas: pc.faqSchemasSaved,
+          newPageOpenings: pc.newPageOpeningsSaved,
           spendUsd: Number(pc.spendUsd.toFixed(4)),
         });
       }

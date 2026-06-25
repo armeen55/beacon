@@ -1,6 +1,7 @@
 import "server-only";
 
 import { buildTodayMovesData } from "@/app/(shell)/today-moves-data";
+import { buildNewPagesData } from "@/app/(shell)/today-newpages-data";
 import { draftAnswerBlockWithLLM, draftFaqSchemaWithLLM } from "@/domains/demand-graph/llm-answer-block";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { log } from "@/lib/logger";
@@ -25,6 +26,7 @@ export type PrecomputeResult = {
   consideredCitationMoves: number;
   answerBlocksSaved: number;
   faqSchemasSaved: number;
+  newPageOpeningsSaved: number;
   spendUsd: number;
   skipped: boolean; // true when LLM drafting is off (nothing attempted)
 };
@@ -45,6 +47,7 @@ export async function precomputeMoveDraftsForTenant(
     consideredCitationMoves: 0,
     answerBlocksSaved: 0,
     faqSchemasSaved: 0,
+    newPageOpeningsSaved: 0,
     spendUsd: 0,
     skipped: true,
   };
@@ -115,11 +118,47 @@ export async function precomputeMoveDraftsForTenant(
     }
   }
 
-  if (result.answerBlocksSaved > 0 || result.faqSchemasSaved > 0) {
+  // New Pages openings — same store (keyed by the opportunity's demandKey), so the
+  // create-page wedge cards also open with a ready opener. Capped + idempotent.
+  try {
+    const np = await buildNewPagesData(tenantId);
+    const npTargets = np.opportunities.filter((o) => !o.savedOpening).slice(0, maxMoves);
+    for (const o of npTargets) {
+      try {
+        const r = await draftAnswerBlockWithLLM({
+          query: o.topic,
+          pageLabel: o.topic,
+          brief: `Write the opening paragraph for a NEW encyclopedia/content page about "${o.topic}". Define the topic directly and factually so a reader (and an AI assistant) gets the answer up top.`,
+          outline: o.whatWins ? [`Match the depth of cited pages: ${o.whatWins}`] : [],
+          faqs: [],
+        });
+        if (r.status === "ok") {
+          result.spendUsd += r.costUsd;
+          if (await saveMoveDraft(tenantId, o.id, "answer_block", r.text)) result.newPageOpeningsSaved += 1;
+        } else if (r.status === "blocked_budget") {
+          break;
+        }
+      } catch (e) {
+        log.warn("[precompute-drafts] new-page opening failed", {
+          tenantId,
+          opp: o.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  } catch (e) {
+    log.warn("[precompute-drafts] new-pages load failed", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  if (result.answerBlocksSaved > 0 || result.faqSchemasSaved > 0 || result.newPageOpeningsSaved > 0) {
     log.info("[precompute-drafts] done", {
       tenantId,
       answerBlocks: result.answerBlocksSaved,
       faqSchemas: result.faqSchemasSaved,
+      newPageOpenings: result.newPageOpeningsSaved,
       spendUsd: Number(result.spendUsd.toFixed(4)),
     });
   }

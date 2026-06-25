@@ -63,8 +63,9 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   ]);
 }
 
-export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
-  const tenantId = await currentTenantId();
+/** Tenant-explicit builder — shared by the request-cached loader AND the nightly
+ *  precompute (which has no request context to derive the tenant from). */
+export async function buildNewPagesData(tenantId: string): Promise<NewPagesData> {
   let moves;
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
@@ -119,4 +120,8 @@ export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
   });
 
   return { opportunities, totalCandidates: createMoves.length };
-});
+}
+
+export const loadNewPagesData = cache(
+  async (): Promise<NewPagesData> => buildNewPagesData(await currentTenantId()),
+);
