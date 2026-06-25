@@ -142,14 +142,14 @@ export const loadTodayMovesHeroData = cache(
     const tenantId = await currentTenantId();
     const repo = getRepository().forTenant(tenantId);
 
-    const [edits, packsResult, responses] = await Promise.all([
+    const [edits, packets, responses] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
       // Enrichment (teardown/outline/proof) rides the heavy graph compute — guard
       // it so a slow graph degrades the hero to the light queue read, never hangs.
       withTimeout(
-        loadChangePacksForTenant(tenantId, { limit: 40 }),
+        loadChangePacksForTenant(tenantId, { limit: 40 }).then((r) => r.packets ?? []),
         8000,
-        { packets: [] as EvidencePacket[] },
+        [] as EvidencePacket[],
       ),
       repo.getRecommendationResponses().catch(() => []),
     ]);
@@ -165,7 +165,7 @@ export const loadTodayMovesHeroData = cache(
 
     // Index packets by the owned page URL (the join key to a queued edit).
     const packetByUrl = new Map<string, EvidencePacket>();
-    for (const p of packsResult.packets ?? []) {
+    for (const p of packets) {
       const u = canon(p.yourPage?.url);
       if (u && !packetByUrl.has(u)) packetByUrl.set(u, p);
     }
