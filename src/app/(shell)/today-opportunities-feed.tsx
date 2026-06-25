@@ -4,6 +4,7 @@ import {
   loadTopStrikingPagesForTenant,
   loadToolIntentQueries,
   loadTopPagesWithQueriesForTenant,
+  loadTopRisingQueriesForTenant,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
 import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
@@ -42,6 +43,7 @@ const KIND_LABEL: Record<FeedKind, string> = {
   edit: "Improve",
   snippet: "Snippet",
   consolidate: "Consolidate",
+  rising: "Rising",
 };
 const KIND_STYLE: Record<FeedKind, string> = {
   recover: "bg-rose-100 text-rose-700",
@@ -51,6 +53,7 @@ const KIND_STYLE: Record<FeedKind, string> = {
   edit: "bg-sky-100 text-sky-700",
   snippet: "bg-orange-100 text-orange-700",
   consolidate: "bg-purple-100 text-purple-700",
+  rising: "bg-teal-100 text-teal-700",
 };
 
 function fmtNum(n: number): string {
@@ -121,7 +124,7 @@ export async function TodayOpportunitiesFeed() {
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded, risingQueries] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
@@ -132,6 +135,7 @@ export async function TodayOpportunitiesFeed() {
       loadGscCannibalizationForTenant(tenantId).catch(() => []),
       loadDismissedKeys(tenantId).catch(() => new Set<string>()),
       loadPinnedKeys(tenantId).catch(() => new Set<string>()),
+      loadTopRisingQueriesForTenant(tenantId).catch(() => []),
     ]);
     pinnedKeys = pinnedKeysLoaded;
     siteName = cfg?.name ?? "";
@@ -162,7 +166,19 @@ export async function TodayOpportunitiesFeed() {
       detail: `${r.others.length + 1} of your pages split this query's clicks — consolidate to "${r.leadPage}"`,
       route: "#sec-cannibal",
     }));
-    const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra];
+    // Rising (double-down) — emerging demand is a real opportunity; stake = current
+    // recent momentum (what's already flowing, poised to grow with a small push).
+    const risingExtra: OpportunityItem[] = risingQueries.map((r) => ({
+      kind: "rising",
+      query: r.query,
+      page: r.page,
+      clicksAtStake: r.recentClicks,
+      detail: r.isNew
+        ? `New: ${r.recentClicks} clicks/mo already, position ${r.recentPosition.toFixed(1)} — double down before competitors notice`
+        : `Up ${r.gainPct}% (${r.priorClicks} to ${r.recentClicks}/mo), position ${r.recentPosition.toFixed(1)} — press the momentum`,
+      route: workbenchHref(r.page),
+    }));
+    const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra, ...risingExtra];
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
     // Curate: drop opportunities the operator has dismissed (persisted), so the
     // recomputed-every-render feed honours "I've dealt with that".

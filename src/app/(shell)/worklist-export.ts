@@ -21,6 +21,9 @@ const KIND_VERB: Record<string, string> = {
   build: "Build a page for",
   edit: "Improve",
   tool: "Build a tool for",
+  snippet: "Rewrite the snippet for",
+  consolidate: "Consolidate self-competing pages for",
+  rising: "Double down on rising demand for",
 };
 
 function pretty(url: string): string {
