@@ -6,6 +6,7 @@ import {
   loadTopStrikingPagesForTenant,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadLatestPageSnapshots } from "@/domains/recommendation-intelligence/page-freshness";
+import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { estimatedCtr } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
@@ -37,18 +38,20 @@ const SIGNAL_STYLE: Record<string, string> = {
   Thin: "bg-amber-100 text-amber-700",
   Striking: "bg-emerald-100 text-emerald-700",
   Snippet: "bg-orange-100 text-orange-700",
+  "Self-competing": "bg-purple-100 text-purple-700",
 };
 
 export async function TodayLeverageSection() {
   let rows: LeveragePage[] = [];
   try {
     const tenantId = await currentTenantId();
-    const [declines, rising, pages, snaps, striking] = await Promise.all([
+    const [declines, rising, pages, snaps, striking, cannibal] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopRisingQueriesForTenant(tenantId).catch(() => []),
       loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
       loadLatestPageSnapshots(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
+      loadGscCannibalizationForTenant(tenantId).catch(() => []),
     ]);
     const canon = (u: string) => canonicalizeCitationUrl(u) ?? u;
     const signals: PageSignalInput[] = [];
@@ -75,6 +78,11 @@ export async function TodayLeverageSection() {
     // Snippet (CTR-gap) — reuse the already-loaded pages; clicksLeft is the stake.
     for (const c of buildCtrGapRows(pages, estimatedCtr)) {
       signals.push({ page: canon(c.page), signal: "Snippet", clicksAtStake: c.clicksLeft });
+    }
+    // Self-competing (cannibalization) — leadUrl is a full URL; stake = split clicks.
+    for (const c of cannibal) {
+      const splitClicks = c.competingUrls.reduce((s, u) => s + (Number(u.clicks) || 0), 0);
+      signals.push({ page: canon(c.leadUrl), signal: "Self-competing", clicksAtStake: splitClicks });
     }
     rows = buildLeveragePages(signals);
   } catch {
