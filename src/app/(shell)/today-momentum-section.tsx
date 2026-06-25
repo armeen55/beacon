@@ -7,7 +7,7 @@ import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildPageMomentum, type PageMomentum } from "./today-momentum-rows";
 import { recentlyShippedPageKeys } from "./today-recoveries-rows";
-import { type WeekPoint } from "./today-trend-rows";
+import { buildSparklinePaths } from "./sparkline";
 
 /**
  * today-momentum-section (2026-06-25) — "Which pages are moving": per-page weekly
@@ -29,15 +29,6 @@ function workbenchHref(page: string): string {
   return `/workbench?url=${encodeURIComponent(page)}`;
 }
 
-/** Tiny inline sparkline path across the week points. */
-function miniSpark(points: WeekPoint[], w: number, h: number, pad = 2): string {
-  const max = Math.max(1, ...points.map((p) => p.clicks));
-  const n = points.length;
-  const x = (i: number) => (n <= 1 ? w / 2 : pad + (i * (w - 2 * pad)) / (n - 1));
-  const y = (c: number) => h - pad - (c / max) * (h - 2 * pad);
-  return points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.clicks).toFixed(1)}`).join(" ");
-}
-
 function MoverRow({ m, color, measuring }: { m: PageMomentum; color: string; measuring?: boolean }) {
   const deltaLabel = m.deltaPct > 0 ? `+${m.deltaPct}%` : `${m.deltaPct}%`;
   const netLabel = m.netChange > 0 ? `+${m.netChange}` : `${m.netChange}`;
@@ -53,7 +44,7 @@ function MoverRow({ m, color, measuring }: { m: PageMomentum; color: string; mea
       </a>
       <div className="flex shrink-0 items-center gap-3">
         <svg viewBox="0 0 80 24" className="h-6 w-20" preserveAspectRatio="none" aria-hidden="true">
-          <path d={miniSpark(m.points, 80, 24)} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+          <path d={buildSparklinePaths(m.points, 80, 24, 2).line} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
         </svg>
         <span className="w-16 text-right text-xs font-semibold" style={{ color }}>
           {deltaLabel}

@@ -1,5 +1,6 @@
 import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { buildWeeklyTrend, type WeekPoint } from "../today-trend-rows";
+import { buildWeeklyTrend } from "../today-trend-rows";
+import { buildSparklinePaths, weekBucketIndex } from "../sparkline";
 
 /**
  * workbench-momentum-strip (2026-06-25) — carries the cockpit's per-page momentum
@@ -15,30 +16,6 @@ const DIR: Record<string, { label: string; chip: string; stroke: string; fill: s
   flat: { label: "Holding steady", chip: "bg-slate-100 text-slate-600", stroke: "#64748b", fill: "#e2e8f0" },
   declining: { label: "Slipping", chip: "bg-rose-100 text-rose-700", stroke: "#e11d48", fill: "#fecdd3" },
 };
-
-function paths(points: WeekPoint[], w: number, h: number, pad = 3) {
-  const max = Math.max(1, ...points.map((p) => p.clicks));
-  const n = points.length;
-  const x = (i: number) => (n <= 1 ? w / 2 : pad + (i * (w - 2 * pad)) / (n - 1));
-  const y = (c: number) => h - pad - (c / max) * (h - 2 * pad);
-  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.clicks).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(n - 1).toFixed(1)},${(h - pad).toFixed(1)} L${x(0).toFixed(1)},${(h - pad).toFixed(1)} Z`;
-  return { line, area, x };
-}
-
-/** Fractional x-index of the week-bucket a shipped date falls in (for the marker),
- *  or null when the date is outside the rendered window. Interpolates within the
- *  bucket so the marker lands where the change actually happened, not snapped. */
-function shippedIndex(points: WeekPoint[], shippedIso: string): number | null {
-  const t = Date.parse(`${shippedIso.slice(0, 10)}T00:00:00Z`);
-  if (!Number.isFinite(t)) return null;
-  for (let i = 0; i < points.length; i++) {
-    const start = Date.parse(`${points[i]!.weekStart}T00:00:00Z`);
-    const end = start + 7 * 86_400_000;
-    if (t >= start && t < end) return i + (t - start) / (7 * 86_400_000);
-  }
-  return null;
-}
 
 export async function WorkbenchMomentumStrip({
   tenantId,
@@ -66,11 +43,11 @@ export async function WorkbenchMomentumStrip({
   const dir = DIR[trend.direction] ?? DIR.flat!;
   const W = 180;
   const H = 36;
-  const { line, area, x } = paths(trend.points, W, H);
+  const { line, area, x } = buildSparklinePaths(trend.points, W, H);
   const deltaLabel = trend.deltaPct > 0 ? `+${trend.deltaPct}%` : `${trend.deltaPct}%`;
 
   // Before/after proof marker — where a shipped change lands on the trajectory.
-  const shipIdx = shippedAtIso ? shippedIndex(trend.points, shippedAtIso) : null;
+  const shipIdx = shippedAtIso ? weekBucketIndex(trend.points, shippedAtIso) : null;
   const markerX = shipIdx != null ? x(shipIdx) : null;
 
   return (

@@ -2,7 +2,8 @@ import Link from "next/link";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDailyClicksForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { buildWeeklyTrend, type WeekPoint } from "./today-trend-rows";
+import { buildWeeklyTrend } from "./today-trend-rows";
+import { buildSparklinePaths } from "./sparkline";
 
 /**
  * today-trend-section (2026-06-25) — "Your traffic trend": the site's total Google
@@ -27,17 +28,6 @@ const DIRECTION: Record<string, { label: string; chip: string; stroke: string; f
   declining: { label: "Declining", chip: "bg-rose-100 text-rose-700", stroke: "#e11d48", fill: "#fecdd3" },
 };
 
-/** Build an SVG polyline + area path across the week points. */
-function sparkPaths(points: WeekPoint[], w: number, h: number, pad = 4) {
-  const max = Math.max(1, ...points.map((p) => p.clicks));
-  const n = points.length;
-  const x = (i: number) => (n <= 1 ? w / 2 : pad + (i * (w - 2 * pad)) / (n - 1));
-  const y = (c: number) => h - pad - (c / max) * (h - 2 * pad);
-  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.clicks).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(n - 1).toFixed(1)},${(h - pad).toFixed(1)} L${x(0).toFixed(1)},${(h - pad).toFixed(1)} Z`;
-  return { line, area, x, y, max };
-}
-
 export async function TodayTrendSection() {
   let trend: ReturnType<typeof buildWeeklyTrend> = null;
   try {
@@ -52,7 +42,7 @@ export async function TodayTrendSection() {
   const dir = DIRECTION[trend.direction] ?? DIRECTION.flat!;
   const W = 520;
   const H = 90;
-  const { line, area, x, y } = sparkPaths(trend.points, W, H);
+  const { line, area, x, y } = buildSparklinePaths(trend.points, W, H, 4);
   const deltaLabel = trend.deltaPct > 0 ? `+${trend.deltaPct}%` : `${trend.deltaPct}%`;
 
   return (
