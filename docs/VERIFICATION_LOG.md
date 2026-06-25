@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-25 — B80 · Trend Radar (4D) + Store/Product engine (4E) + wiring (4F/4G) · branch claude/sprint-4-demand-expansion (f4100448, NOT merged)
+
+**Built (pure engines + cockpit wiring, no migration):**
+- `demand/trend-radar.ts` — `buildTrendRadar` + `analyzeSeries` (rising/declining/flat/unknown + seasonal; GSC-delta typed hook; anti-fake-certainty thresholds).
+- `demand/product-opportunities.ts` — `buildProductOpportunities` (commerce classify, concept_only default, licensing/IP risk, product/collection mapping).
+- `load-demand-opportunities.ts` — returns {opportunities, trends, products}; Sprint-3 prior on all three.
+- `today-opportunities-section.tsx` — Trends + Store/product sub-sections.
+- `keyword-opportunities.ts` — exported shared helpers (tokens/slugify/COMMERCE/trendOf) for reuse.
+
+**Verified:**
+- `npm run typecheck` clean. Targeted vitest (demand + serp/keywords + persistence + architecture/llm-safety) → **104 passed** (+20 new: trend-radar 10 — rising/declining/unknown/seasonal/no-fake-trend/GSC-hook; product 9 — concept-only/licensing/inventory-unknown/verified/no-duplicate/weak-drop; loader 4F +1).
+- **4I cached verify ($0, cockpit loader)**: 8 demand + 5 trends + 2 products. Trends: 3 genuine spikes (nowruz-gifts→Mar, iran-flag→Mar, best-cities→Jun) after tightening seasonality (2.5× median + dominance) — fixed an over-claim where all 6 were flagged seasonal. Products: iran-world-cup-jersey (concept + ⚖️ licensing/IP risk), nowruz-gifts (collection concept). All concept_only (no Wix store data → honest).
+
+**Posture:** no paid calls · no publish · no Wix/service change · no migration · no main merge. Branch only.
+
+---
+
 ## 2026-06-25 — B79c · BUILD-BREAK FIX (shell prerender → Supabase) · main=276a5f71
 
 **Symptom:** `next build` exited 1 — `Error occurred prerendering page "/briefs"` → `Supabase query failed on import_runs/url_change_outcomes: Invalid API key` (then `/settings/history`, then `/help`). The operator's Vercel deploys were failing on this (conflated earlier with the rate-limit).
