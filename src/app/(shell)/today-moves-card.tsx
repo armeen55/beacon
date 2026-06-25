@@ -164,9 +164,15 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
     return (
       <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-sm text-emerald-800 transition-all">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-white">✓</span>
-        <div>
+        <div className="flex-1">
           <div className="font-semibold">Shipped — {titleCase(m.query)}</div>
-          <div className="text-xs text-emerald-700">Beacon is measuring it now. You&apos;ll see the result in Proof.</div>
+          <div className="text-xs text-emerald-700">
+            Once it&apos;s live on the page,{" "}
+            <Link href={`/proof?page=${encodeURIComponent(m.targetUrl)}`} className="font-semibold underline hover:text-emerald-900">
+              confirm it&apos;s live →
+            </Link>{" "}
+            so Beacon can measure the lift.
+          </div>
         </div>
       </div>
     );
