@@ -15,6 +15,9 @@ export type EntitySchemaInput = {
   description?: string | null;
   /** Optional public profile URLs (sameAs) — social/wiki links if configured. */
   sameAs?: string[];
+  /** Optional topic areas the entity is authoritative on (knowsAbout) — a strong
+   *  AEO authority signal. Grounded in the site's real top-demand topics. */
+  knowsAbout?: string[];
 };
 
 /** Normalize a domain-or-URL into a clean https origin with a trailing slash. */
@@ -46,6 +49,19 @@ export function buildEntitySchema(input: EntitySchemaInput): string | null {
   if (description) org.description = description;
   const sameAs = (input.sameAs ?? []).map((s) => s.trim()).filter(Boolean);
   if (sameAs.length > 0) org.sameAs = sameAs;
+  // Dedupe (case-insensitive) + cap knowsAbout so the entity claims a focused,
+  // honest set of subject areas rather than a noisy long tail.
+  const seenTopics = new Set<string>();
+  const knowsAbout: string[] = [];
+  for (const raw of input.knowsAbout ?? []) {
+    const t = raw.trim();
+    const k = t.toLowerCase();
+    if (!t || seenTopics.has(k)) continue;
+    seenTopics.add(k);
+    knowsAbout.push(t);
+    if (knowsAbout.length >= 12) break;
+  }
+  if (knowsAbout.length > 0) org.knowsAbout = knowsAbout;
 
   const website: Record<string, unknown> = {
     "@type": "WebSite",

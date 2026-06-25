@@ -34,6 +34,18 @@ describe("buildEntitySchema", () => {
     expect(rich["@graph"][0].sameAs).toEqual(["https://twitter.com/x"]);
   });
 
+  it("adds knowsAbout (deduped case-insensitively, capped at 12)", () => {
+    const many = Array.from({ length: 20 }, (_, i) => `Topic ${i}`);
+    const dup = JSON.parse(
+      buildEntitySchema({ name: "X", domain: "x.com", knowsAbout: ["Persian Names", "persian names", "Iran Flag", " ", ...many] })!,
+    );
+    const ka = dup["@graph"][0].knowsAbout as string[];
+    expect(ka[0]).toBe("Persian Names");
+    expect(ka).toContain("Iran Flag");
+    expect(ka.filter((t) => t.toLowerCase() === "persian names")).toHaveLength(1); // deduped
+    expect(ka.length).toBe(12); // capped
+  });
+
   it("returns null without a name or a usable domain", () => {
     expect(buildEntitySchema({ name: "", domain: "x.com" })).toBeNull();
     expect(buildEntitySchema({ name: "X", domain: "" })).toBeNull();

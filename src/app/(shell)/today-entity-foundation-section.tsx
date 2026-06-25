@@ -1,6 +1,18 @@
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
+import { currentTenantId } from "@/lib/tenant-context";
+import { loadTopStrikingPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildEntitySchemaScript } from "@/domains/demand-graph/entity-schema";
 import { EntityFoundationCopy } from "./today-entity-foundation-copy";
+
+/** Title-case a page slug into a topic phrase ("persian-female-first-names" → "Persian Female First Names"). */
+function topicFromUrl(url: string): string {
+  const s = url.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
+  const last = s.split("/").filter(Boolean).pop() ?? "";
+  return last
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 /**
  * today-entity-foundation-section (2026-06-25, L11) — the SITE entity foundation:
@@ -15,10 +27,21 @@ export async function TodayEntityFoundationSection() {
   try {
     const cfg = await getBusinessConfigForCurrentTenant();
     name = cfg.name;
+    // knowsAbout: the entity's authoritative topic areas, grounded in the site's
+    // real top-demand pages (what it actually ranks/earns impressions for).
+    let knowsAbout: string[] = [];
+    try {
+      const tenantId = await currentTenantId();
+      const top = await loadTopStrikingPagesForTenant(tenantId).catch(() => []);
+      knowsAbout = top.map((p) => topicFromUrl(p.page)).filter(Boolean);
+    } catch {
+      knowsAbout = [];
+    }
     script = buildEntitySchemaScript({
       name: cfg.name,
       domain: cfg.domain,
       description: cfg.industry ? `${cfg.name} — ${cfg.industry}` : undefined,
+      knowsAbout,
     });
   } catch {
     return null;
