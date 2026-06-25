@@ -39,6 +39,12 @@ function OppCard({ o }: { o: NewPageOpportunity }) {
         {o.topCompetitor ? (
           <p className="mt-1 text-[11px] text-gray-400">e.g. {o.topCompetitor}</p>
         ) : null}
+        {o.whatWins ? (
+          <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
+            <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">What the cited page has</div>
+            <div className="mt-0.5 text-[11px] leading-snug text-gray-600">{o.whatWins}</div>
+          </div>
+        ) : null}
       </div>
       <Link
         href="/pages"

@@ -2,6 +2,8 @@ import "server-only";
 import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
+import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 /**
  * today-newpages-data (2026-06-24) — the loader behind the "New Pages to Build"
@@ -19,6 +21,8 @@ export type NewPageOpportunity = {
   topic: string;
   competitorCount: number;
   topCompetitor: string | null;
+  /** What the cited competitor page has (deterministic teardown), when audited. */
+  whatWins: string | null;
   tier: "hot" | "warm" | "emerging";
   score: number;
 };
@@ -43,12 +47,26 @@ function titleCase(s: string): string {
 export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
   const tenantId = await currentTenantId();
   let moves;
+  let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   try {
-    const { graph } = await loadDemandGraphForTenant(tenantId);
-    moves = graph.moves;
+    const [graphRes, auditRes] = await Promise.all([
+      loadDemandGraphForTenant(tenantId),
+      getCompetitorAuditsForTenant().catch(() => new Map()),
+    ]);
+    moves = graphRes.graph.moves;
+    audits = auditRes;
   } catch {
     return { opportunities: [], totalCandidates: 0 };
   }
+
+  // Find a teardown audit by URL so a create_page opportunity can show what the
+  // cited competitor page actually has (when we've torn it down).
+  const canonLower = (u: string) => (canonicalizeCitationUrl(u) ?? u).toLowerCase();
+  const findAudit = (url: string) => {
+    const target = canonLower(url);
+    for (const a of audits.values()) if (canonLower(a.url) === target) return a;
+    return undefined;
+  };
 
   const createMoves = moves
     .filter((m) => m.gap === "create_page")
@@ -56,14 +74,20 @@ export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
 
   // Tier by rank within this tenant's own create-page set (relative, honest —
   // the underlying number is a proxy, so we bucket rather than print it).
-  const opportunities: NewPageOpportunity[] = createMoves.slice(0, 9).map((m, i) => ({
-    id: m.demandKey,
-    topic: titleCase(m.label),
-    competitorCount: m.competitorUrls.length,
-    topCompetitor: m.competitorUrls[0] ? domainOf(m.competitorUrls[0]) : null,
-    tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
-    score: Math.round(m.score),
-  }));
+  const opportunities: NewPageOpportunity[] = createMoves.slice(0, 9).map((m, i) => {
+    const topUrl = m.competitorUrls[0] ?? null;
+    const audit = topUrl ? findAudit(topUrl) : undefined;
+    const ww = audit && audit.fetchStatus === "ok" && audit.facts ? whatWins(audit.facts) : null;
+    return {
+      id: m.demandKey,
+      topic: titleCase(m.label),
+      competitorCount: m.competitorUrls.length,
+      topCompetitor: topUrl ? domainOf(topUrl) : null,
+      whatWins: ww && ww !== "—" ? ww : null,
+      tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
+      score: Math.round(m.score),
+    };
+  });
 
   return { opportunities, totalCandidates: createMoves.length };
 });
