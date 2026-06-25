@@ -32,7 +32,7 @@ async function MovesWorklist() {
   try {
     data = await loadTodayMovesHeroData({ limit: 60 });
   } catch {
-    data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0 } };
+    data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0, draftsReady: 0 } };
   }
   const { moves, stats } = data;
 
@@ -51,7 +51,11 @@ async function MovesWorklist() {
         <StatTile value={String(stats.movesReady)} label="Moves ranked" accent="text-gray-900" />
         <StatTile value={fmtNum(stats.demandAtStake)} label="Monthly demand at stake" accent="text-sky-600" />
         <StatTile value={String(stats.citationsContested)} label="AI citations to win" accent="text-violet-600" />
-        <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />
+        {stats.draftsReady > 0 ? (
+          <StatTile value={String(stats.draftsReady)} label="AI drafts ready" accent="text-emerald-600" />
+        ) : (
+          <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />
+        )}
       </div>
       <MovesWorklistClient moves={moves} />
     </div>
