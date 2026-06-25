@@ -52,6 +52,7 @@ import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayCtrGapSection } from "./today-ctrgap-section";
+import { TodayCannibalizationSection } from "./today-cannibalization-section";
 import { TodayMoneyLeakSection } from "./today-moneyleak-section";
 import { TodayEntityFoundationSection } from "./today-entity-foundation-section";
 import { TodayToolsSection } from "./today-tools-section";
@@ -242,6 +243,7 @@ async function TodayV2SectionedContent() {
           { id: "sec-recoveries", label: "Turned around" },
           { id: "sec-quickwins", label: "Quick wins" },
           { id: "sec-ctrgap", label: "Seen not clicked" },
+          { id: "sec-cannibal", label: "Self-competing" },
           { id: "sec-leaks", label: "Conversion leaks" },
           { id: "sec-tools", label: "Tools" },
           { id: "sec-newpages", label: "New pages" },
@@ -294,6 +296,13 @@ async function TodayV2SectionedContent() {
       <div id="sec-ctrgap" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayCtrGapSection />
+        </Suspense>
+      </div>
+      {/* Stop competing with yourself (2026-06-25) — site-wide cannibalization:
+          own pages co-ranking + splitting clicks. Own Suspense / self-hides. */}
+      <div id="sec-cannibal" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayCannibalizationSection />
         </Suspense>
       </div>
       {/* Fix conversion leaks (2026-06-25, L8/CRO) — the REVENUE site-wide lens:

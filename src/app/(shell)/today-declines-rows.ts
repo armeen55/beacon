@@ -66,6 +66,51 @@ function anchorCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+export type CannibalizationCaseRow = {
+  query: string;
+  leadPage: string;
+  others: string[];
+  /** The query's clicks, summed across all competing own-URLs (split clicks). */
+  clicksAtStake: number;
+  fix: string;
+  /** Paste-ready link a follower adds to point at the canonical lead (or null). */
+  linkSnippet: string | null;
+};
+
+/**
+ * Site-wide "stop competing with yourself" rows: one per cannibalized query (2+ of
+ * your own pages co-ranking), the best-ranking page as the consolidation lead,
+ * ranked by clicks at stake. Pure (canon + pretty injected); homepage-lead aware
+ * (a topic page should NOT defer to the root). The section consumes this.
+ */
+export function buildCannibalizationCaseRows(
+  cases: ReadonlyArray<Pick<GscCannibalizationCase, "query" | "competingUrls">>,
+  canon: (u: string) => string,
+  pretty: (u: string) => string,
+  opts: { cap?: number; maxOthers?: number } = {},
+): CannibalizationCaseRow[] {
+  const cap = opts.cap ?? 8;
+  const maxOthers = opts.maxOthers ?? 3;
+  const rows: CannibalizationCaseRow[] = [];
+  for (const c of cases) {
+    if (c.competingUrls.length < 2) continue;
+    const lead = c.competingUrls[0]!; // sorted best-position first
+    const leadUrl = lead.url;
+    const leadPage = pretty(leadUrl);
+    const leadKey = canon(leadUrl);
+    const others = [...new Set(c.competingUrls.filter((x) => canon(x.url) !== leadKey).map((x) => pretty(x.url)))].slice(0, maxOthers);
+    if (others.length === 0) continue;
+    const clicksAtStake = c.competingUrls.reduce((s, u) => s + Math.max(0, u.clicks), 0);
+    const leadIsHome = /^https?:\/\/[^/]+\/?$/.test(leadUrl);
+    const fix = leadIsHome
+      ? `Your homepage out-ranks your topic pages for "${c.query}" — make one dedicated page the clear answer (stronger title/H1 + depth) and link to it from the homepage.`
+      : `"${leadPage}" is your best-ranking page for "${c.query}" — fold ${others.join(", ")} into it (redirect or internal-link) so they stop splitting its clicks.`;
+    const linkSnippet = leadIsHome ? null : `<a href="${leadUrl}">${anchorCase(c.query)}</a>`;
+    rows.push({ query: c.query, leadPage, others, clicksAtStake, fix, linkSnippet });
+  }
+  return rows.sort((a, b) => b.clicksAtStake - a.clicksAtStake).slice(0, cap);
+}
+
 /**
  * Index cannibalization cases by each competing own-URL → the cases it's in, each
  * with a CONSOLIDATION DIRECTIVE: if this page is the best-ranking one, absorb the
