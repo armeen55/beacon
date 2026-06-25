@@ -45,10 +45,12 @@ describe("State of the Union 'Do next' → Workbench", () => {
 });
 
 describe("Cockpit site-wide sections → Workbench", () => {
-  // The site-wide intelligence sections (B55–B57) all route their "do the work"
-  // CTA to the per-page Workbench, not a bare /proof record form or /moves list.
+  // The site-wide intelligence sections (B55–B57) route their "do the work" CTA to
+  // the per-page Workbench, not a bare /proof record form or /moves list. (The
+  // detail sections use a literal href; the unified feed uses workbenchHref for the
+  // site-wide signal rows but routes queued moves to their rec detail — so for it we
+  // pin the workbenchHref call's PRESENCE, not the exact href wrapper.)
   const cases: Array<[string, string]> = [
-    ["../today-opportunities-feed.tsx", "workbenchHref(it.page)"],
     ["../today-quickwins-section.tsx", "workbenchHref(r.page)"],
     ["../today-moneyleak-section.tsx", "workbenchHref(r.page)"],
     ["../today-declines-section.tsx", "workbenchHref(r.targetUrl)"],
@@ -62,4 +64,11 @@ describe("Cockpit site-wide sections → Workbench", () => {
       expect(src).not.toContain("href={`/proof?page=");
     });
   }
+
+  it("unified opportunities feed routes site-wide signals to Workbench, moves to rec detail", () => {
+    const src = read("../today-opportunities-feed.tsx");
+    expect(src).toContain('from "@/domains/insight/workbench-route"');
+    expect(src).toContain("workbenchHref(it.page)"); // site-wide signal rows
+    expect(src).toContain("buildRecommendationDetailHref({ id: m.id })"); // queued moves
+  });
 });
