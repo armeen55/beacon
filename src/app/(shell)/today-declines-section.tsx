@@ -96,7 +96,12 @@ export async function TodayDeclinesSection() {
                 {r.priorClicks.toLocaleString()} → {r.recentClicks.toLocaleString()}/mo
                 {r.positionSlip >= 1 ? ` · slipped ${r.positionSlip.toFixed(1)} pos` : ""}
               </span>
-              <Link href="/moves" className="font-semibold text-violet-600 hover:text-violet-800">
+              {/* Worklist rows have a queued move (→ /moves); site-wide rows don't,
+                  so route them to record-the-fix on /proof (with the page prefilled). */}
+              <Link
+                href={r.moveId ? "/moves" : `/proof?page=${encodeURIComponent(r.targetUrl)}`}
+                className="font-semibold text-violet-600 hover:text-violet-800"
+              >
                 Fix →
               </Link>
             </div>
