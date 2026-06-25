@@ -963,6 +963,15 @@ function composeContentArticleSchema(
     snap.meta_description?.trim() ||
     clipOnWordBoundary((snap.body_paragraph_sample ?? []).join(" "), 155);
   const orgName = brand?.suffix?.trim() || "";
+  // Entity coherence (L11): reference the site Organization's stable @id (the one
+  // the Entity-foundation Organization+WebSite graph publishes) so this page's
+  // Article links INTO the entity graph instead of declaring an anonymous org.
+  const orgIdMatch = /^https?:\/\/[^/]+/.exec(pageUrl ?? "");
+  const orgRef = orgName
+    ? orgIdMatch
+      ? { "@type": "Organization", "@id": `${orgIdMatch[0]}/#organization`, name: orgName }
+      : { "@type": "Organization", name: orgName }
+    : null;
 
   const article = {
     "@context": "https://schema.org",
@@ -970,12 +979,7 @@ function composeContentArticleSchema(
     headline,
     ...(description ? { description } : {}),
     mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
-    ...(orgName
-      ? {
-          author: { "@type": "Organization", name: orgName },
-          publisher: { "@type": "Organization", name: orgName },
-        }
-      : {}),
+    ...(orgRef ? { author: orgRef, publisher: orgRef } : {}),
   };
 
   const blocks: string[] = [jsonLdScript(article)];

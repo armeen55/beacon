@@ -882,10 +882,12 @@ describe("enrichPromotionRow — businessName precedence (#252)", () => {
     const article = blocks[0]!;
     expect(article["author"]).toEqual({
       "@type": "Organization",
+      "@id": "https://example-site.com/#organization",
       name: "Iranopedia Cultural Encyclopedia",
     });
     expect(article["publisher"]).toEqual({
       "@type": "Organization",
+      "@id": "https://example-site.com/#organization",
       name: "Iranopedia Cultural Encyclopedia",
     });
     const breadcrumb = blocks[1]!;
@@ -906,6 +908,7 @@ describe("enrichPromotionRow — businessName precedence (#252)", () => {
     >;
     expect(blocks[0]!["author"]).toEqual({
       "@type": "Organization",
+      "@id": "https://example-site.com/#organization",
       name: "Iranopedia",
     });
   });
@@ -1026,10 +1029,12 @@ describe("enrichPromotionRow — Content Schema Engine (add_schema, content page
     });
     expect(article["author"]).toEqual({
       "@type": "Organization",
+      "@id": "https://example-site.com/#organization",
       name: "Iranopedia",
     });
     expect(article["publisher"]).toEqual({
       "@type": "Organization",
+      "@id": "https://example-site.com/#organization",
       name: "Iranopedia",
     });
 
