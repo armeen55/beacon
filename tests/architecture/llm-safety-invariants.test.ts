@@ -167,6 +167,13 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // gpt-5-mini reasoning_effort:"low", bounded timeout. Fire only on an explicit
   // click; deterministic brief is the fallback on any non-"ok" status.
   "src/domains/demand-graph/llm-answer-block.ts",
+  // structured drafter (2026-06-25, Sprint 2A/P4): the schema-validated draft
+  // engine + the first prod caller of the gated LLM pattern. OFF unless
+  // BEACON_LLM_PROVIDER=openai, checkBudget/recordSpend (fail-closed monthly cap),
+  // Zod-validate → retry-once → fail-closed, content firewalls (numeric-fidelity,
+  // placeholder, superlative) on every output, gpt-5-mini reasoning_effort:"low",
+  // bounded timeout. Never returns loose/unvalidated text as a product artifact.
+  "src/domains/llm/structured-drafter.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
