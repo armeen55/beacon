@@ -32,7 +32,7 @@ export default async function WorkbenchPage({
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       {/* Per-page momentum (2026-06-25) — the 8-week trajectory in context. Self-hides without data. */}
-      <WorkbenchMomentumStrip tenantId={tenantId} canonUrl={data.canonUrl} />
+      <WorkbenchMomentumStrip tenantId={tenantId} canonUrl={data.canonUrl} shippedAtIso={data.proof?.decidedAt ?? null} />
       <WorkbenchView data={data} />
     </div>
   );
