@@ -189,6 +189,29 @@ async function loadDismissedKeysImpl(tenantId: string, limit = 2000): Promise<Se
   }
 }
 
+/** Count of opportunities the operator has marked DONE (handled). Powers the
+ *  "✓ N handled" ritual-progress tally. Request-cached; fail-soft → 0. */
+export const loadDoneCount = cache(loadDoneCountImpl);
+async function loadDoneCountImpl(tenantId: string): Promise<number> {
+  if (!tenantId) return 0;
+  try {
+    const sb = getSupabaseAdmin();
+    const { count, error } = await sb
+      .from("opportunity_dismissals")
+      .select("*", { count: "exact", head: true })
+      .eq("tenant_id", tenantId)
+      .eq("status", "done");
+    if (error) {
+      if (!isMissingTable(error.code)) log.warn("[opp-dismissal] done-count failed", { tenantId, error: error.message });
+      return 0;
+    }
+    return count ?? 0;
+  } catch (e) {
+    log.warn("[opp-dismissal] done-count threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return 0;
+  }
+}
+
 /** Stable key for a feed opportunity — must match between render + dismiss. */
 export function opportunityKey(kind: string, page: string, query: string): string {
   const p = (page || "").split("?")[0]!.replace(/\/$/, "").toLowerCase();

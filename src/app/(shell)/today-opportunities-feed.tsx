@@ -12,7 +12,7 @@ import { loadLatestPageSnapshots } from "@/domains/recommendation-intelligence/p
 import { buildThinPages } from "./today-thin-rows";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
 import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
-import { loadDismissedKeys, loadPinnedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
+import { loadDismissedKeys, loadPinnedKeys, loadDoneCount, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildCtrGapRows } from "./today-ctrgap-rows";
 import { buildCannibalizationCaseRows } from "./today-declines-rows";
@@ -129,10 +129,11 @@ export async function TodayOpportunitiesFeed() {
   let totalClicks = 0;
   let dismissedRows: { oppKey: string; label: string; kind: string }[] = [];
   let pinnedKeys = new Set<string>();
+  let doneCount = 0;
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded, risingQueries, questionQueries, pageSnapshots] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases, dismissedKeys, pinnedKeysLoaded, risingQueries, questionQueries, pageSnapshots, doneCountLoaded] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
@@ -146,8 +147,10 @@ export async function TodayOpportunitiesFeed() {
       loadTopRisingQueriesForTenant(tenantId).catch(() => []),
       loadQuestionQueries(tenantId).catch(() => []),
       loadLatestPageSnapshots(tenantId).catch(() => []),
+      loadDoneCount(tenantId).catch(() => 0),
     ]);
     pinnedKeys = pinnedKeysLoaded;
+    doneCount = doneCountLoaded;
     siteName = cfg?.name ?? "";
     const moveExtra = (hero?.moves ?? [])
       .map((m) => moveToItem(m))
@@ -285,6 +288,11 @@ export async function TodayOpportunitiesFeed() {
               <span className="ml-1 text-gray-400">Showing the top {items.length} of {total}.</span>
             ) : null}
           </p>
+          {doneCount > 0 ? (
+            <p className="mt-1.5 text-xs font-semibold text-emerald-600">
+              ✓ {doneCount} handled — nice work. Keep clearing the list.
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <WorklistExportButton items={exportItems} siteName={siteName} />
