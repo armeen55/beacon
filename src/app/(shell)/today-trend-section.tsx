@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDailyClicksForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildWeeklyTrend, type WeekPoint } from "./today-trend-rows";
@@ -87,6 +89,30 @@ export async function TodayTrendSection() {
         <span>{shortDate(trend.points[0]!.weekStart)}</span>
         <span>{shortDate(trend.points[trend.points.length - 1]!.weekStart)}</span>
       </div>
+
+      {/* Connect the macro signal to action — don't just report it. */}
+      {trend.direction === "declining" ? (
+        <p className="mt-3 text-sm text-gray-600">
+          Down {Math.abs(trend.deltaPct)}% over the period.{" "}
+          <Link href="#sec-recover" className="font-semibold text-rose-600 hover:text-rose-800">
+            See the pages dragging it down →
+          </Link>
+        </p>
+      ) : trend.direction === "growing" ? (
+        <p className="mt-3 text-sm text-gray-600">
+          Up {trend.deltaPct}% over the period.{" "}
+          <Link href="#sec-opportunities" className="font-semibold text-emerald-600 hover:text-emerald-800">
+            Press the advantage →
+          </Link>
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-gray-600">
+          Holding steady.{" "}
+          <Link href="#sec-opportunities" className="font-semibold text-violet-600 hover:text-violet-800">
+            Find your next gain →
+          </Link>
+        </p>
+      )}
     </section>
   );
 }
