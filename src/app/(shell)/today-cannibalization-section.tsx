@@ -1,5 +1,6 @@
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
+import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildCannibalizationCaseRows } from "./today-declines-rows";
 
@@ -21,8 +22,15 @@ export async function TodayCannibalizationSection() {
   let rows: ReturnType<typeof buildCannibalizationCaseRows> = [];
   try {
     const tenantId = await currentTenantId();
-    const cases = await loadGscCannibalizationForTenant(tenantId).catch(() => []);
-    rows = buildCannibalizationCaseRows(cases, canon, slugOf);
+    const [cases, dismissed] = await Promise.all([
+      loadGscCannibalizationForTenant(tenantId).catch(() => []),
+      loadDismissedKeys(tenantId).catch(() => new Set<string>()),
+    ]);
+    // Honor feed dismissals globally — a "consolidate" opportunity dismissed on
+    // the headline stays gone here too (same kind|page|query key).
+    rows = buildCannibalizationCaseRows(cases, canon, slugOf).filter(
+      (r) => !dismissed.has(opportunityKey("consolidate", r.leadPage, r.query)),
+    );
   } catch {
     return null;
   }
