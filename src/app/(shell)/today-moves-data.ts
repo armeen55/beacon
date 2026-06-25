@@ -243,6 +243,7 @@ export const loadTodayMovesHeroData = cache(
         draftMeta: packet?.draft?.metaBrief?.trim() || null,
         faqs: (packet?.draft?.faqQuestions ?? []).filter(Boolean).slice(0, 6),
         schema: (packet?.draft?.schemaRecommendations ?? []).filter(Boolean).slice(0, 6),
+        titleVariants,
         score: packet?.move?.score ?? 0,
       });
     }
