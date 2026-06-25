@@ -260,11 +260,23 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       </div>
 
-      {m.ga4 ? (
-        <p className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100">
-          {m.ga4.sessions.toLocaleString()} visits / 28d
-          {m.ga4.conversions > 0 ? ` · ${m.ga4.conversions.toLocaleString()} conversions` : ""} (GA4)
-        </p>
+      {m.ga4 || m.friction ? (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {m.ga4 ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100">
+              {m.ga4.sessions.toLocaleString()} visits / 28d
+              {m.ga4.conversions > 0 ? ` · ${m.ga4.conversions.toLocaleString()} conversions` : ""} (GA4)
+            </span>
+          ) : null}
+          {m.friction ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-100"
+              title={`Microsoft Clarity: ${m.friction.deadPct}% of sessions had dead clicks, ${m.friction.ragePct}% rage clicks — visitors are hitting friction on this page.`}
+            >
+              ⚠ {m.friction.deadPct}% dead clicks{m.friction.ragePct > 0 ? ` · ${m.friction.ragePct}% rage` : ""} (Clarity)
+            </span>
+          ) : null}
+        </div>
       ) : null}
 
       {m.topQueries.length > 0 ? (

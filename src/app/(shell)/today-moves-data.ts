@@ -8,6 +8,7 @@ import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-sc
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { loadGscCannibalizationForTenant, type GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
+import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { indexCannibalizationByUrl } from "./today-declines-rows";
 import {
   loadTopQueriesForPages,
@@ -61,6 +62,8 @@ export type TodayMove = {
   cannibalization: { query: string; otherPages: string[] }[];
   /** GA4 engagement/value (28d) for this page when available — the "is it worth it" signal. */
   ga4: { sessions: number; conversions: number } | null;
+  /** Clarity UX friction (dead/rage click rates) when meaningful — the Friction component. */
+  friction: { deadPct: number; ragePct: number } | null;
   looselyMatched: boolean;
   /** Other engine actions queued on the SAME page (so a page is one card, not many). */
   also: string[];
@@ -328,6 +331,7 @@ export async function buildTodayMovesData(
         declines: [], // filled below (recent vs prior window)
         cannibalization: [], // filled below (own-page competition)
         ga4: null, // filled below (GA4 engagement/value)
+        friction: null, // filled below (Clarity dead/rage clicks)
         looselyMatched,
         also,
         outline: (packet?.draft?.outline ?? []).filter(Boolean).slice(0, 5),
@@ -360,17 +364,23 @@ export async function buildTodayMovesData(
     const limit = opts.limit ?? 6;
     const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
     const poolUrls = pool.map((m) => m.targetUrl);
-    const [queryMap, declineMap, cannibalCases, ga4Values] = await Promise.all([
+    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues] = await Promise.all([
       withTimeout(loadTopQueriesForPages(tenantId, poolUrls), 5000, new Map<string, PageQuery[]>()),
       withTimeout(loadQueryDeclinesForPages(tenantId, poolUrls), 6000, new Map<string, QueryDecline[]>()),
       withTimeout(loadGscCannibalizationForTenant(tenantId), 6000, [] as GscCannibalizationCase[]),
       withTimeout(loadGa4PageValuesForTenant(tenantId), 5000, new Map<string, Ga4PageValue>()),
+      withTimeout(loadClarityPageSignalsForTenant(tenantId), 5000, new Map<string, ClarityPageSignal>()),
     ]);
-    // Canon-key the GA4 values so a Move's targetUrl matches regardless of trailing-slash/case.
+    // Canon-key the GA4 + Clarity values so a Move's targetUrl matches regardless of trailing-slash/case.
     const ga4ByCanon = new Map<string, Ga4PageValue>();
     for (const [url, v] of ga4Values) {
       const k = canon(url);
       if (k && !ga4ByCanon.has(k)) ga4ByCanon.set(k, v);
+    }
+    const clarityByCanon = new Map<string, ClarityPageSignal>();
+    for (const [url, v] of clarityValues) {
+      const k = canon(url);
+      if (k && !clarityByCanon.has(k)) clarityByCanon.set(k, v);
     }
 
     // Index cannibalization cases by each competing own-URL → the cases it's in
@@ -384,6 +394,11 @@ export async function buildTodayMovesData(
       const g = ga4ByCanon.get(canon(m.targetUrl));
       m.ga4 = g && (g.sessions28d > 0 || g.conversions28d > 0)
         ? { sessions: g.sessions28d, conversions: g.conversions28d }
+        : null;
+      const cl = clarityByCanon.get(canon(m.targetUrl));
+      // Surface only meaningful friction (≥10% dead OR ≥5% rage per session).
+      m.friction = cl && (cl.deadRate >= 0.1 || cl.rageRate >= 0.05)
+        ? { deadPct: Math.round(cl.deadRate * 100), ragePct: Math.round(cl.rageRate * 100) }
         : null;
       // Re-seed the CTR Title Lab from the page's top GSC query (prefer a
       // striking-distance one) when we have it — so title variants target the
