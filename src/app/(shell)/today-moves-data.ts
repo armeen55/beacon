@@ -6,6 +6,7 @@ import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
+import { loadGscCannibalizationForTenant, type GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import {
   loadTopQueriesForPages,
   loadQueryDeclinesForPages,
@@ -54,6 +55,8 @@ export type TodayMove = {
   topQueries: PageQuery[];
   /** Queries this page is LOSING (recent 28d vs prior 28d) — the honest decay signal. */
   declines: QueryDecline[];
+  /** Queries where this page competes with the tenant's OWN other pages (cannibalization). */
+  cannibalization: { query: string; otherPages: string[] }[];
   looselyMatched: boolean;
   /** Other engine actions queued on the SAME page (so a page is one card, not many). */
   also: string[];
@@ -317,6 +320,7 @@ export async function buildTodayMovesData(
         yourGap: whatWins ? yourGapLine(packet?.gaps ?? []) : "", // only when we have a real teardown to compare against
         topQueries: [], // filled below for the shown top moves (one bounded GSC read)
         declines: [], // filled below (recent vs prior window)
+        cannibalization: [], // filled below (own-page competition)
         looselyMatched,
         also,
         outline: (packet?.draft?.outline ?? []).filter(Boolean).slice(0, 5),
@@ -349,13 +353,30 @@ export async function buildTodayMovesData(
     const limit = opts.limit ?? 6;
     const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
     const poolUrls = pool.map((m) => m.targetUrl);
-    const [queryMap, declineMap] = await Promise.all([
+    const [queryMap, declineMap, cannibalCases] = await Promise.all([
       withTimeout(loadTopQueriesForPages(tenantId, poolUrls), 5000, new Map<string, PageQuery[]>()),
       withTimeout(loadQueryDeclinesForPages(tenantId, poolUrls), 6000, new Map<string, QueryDecline[]>()),
+      withTimeout(loadGscCannibalizationForTenant(tenantId), 6000, [] as GscCannibalizationCase[]),
     ]);
+
+    // Index cannibalization cases by each competing own-URL → the cases it's in
+    // (with the OTHER competing pages), so a Move whose page self-competes shows it.
+    const cannibalByUrl = new Map<string, { query: string; otherPages: string[] }[]>();
+    for (const c of cannibalCases) {
+      for (const cu of c.competingUrls) {
+        const key = canon(cu.url);
+        const others = c.competingUrls.filter((x) => canon(x.url) !== key).map((x) => prettyPage(x.url));
+        if (others.length === 0) continue;
+        const arr = cannibalByUrl.get(key) ?? [];
+        arr.push({ query: c.query, otherPages: [...new Set(others)].slice(0, 3) });
+        cannibalByUrl.set(key, arr);
+      }
+    }
+
     for (const m of pool) {
       m.topQueries = queryMap.get(m.targetUrl) ?? [];
       m.declines = declineMap.get(m.targetUrl) ?? [];
+      m.cannibalization = (cannibalByUrl.get(canon(m.targetUrl)) ?? []).slice(0, 2);
       // Re-seed the CTR Title Lab from the page's top GSC query (prefer a
       // striking-distance one) when we have it — so title variants target the
       // EXACT phrasing the page measurably ranks for, not just the topic label.

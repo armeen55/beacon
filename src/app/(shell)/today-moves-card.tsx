@@ -304,6 +304,26 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       ) : null}
 
+      {m.cannibalization.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-500">Competing with yourself</span>
+          {m.cannibalization.map((c, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-0.5 text-[11px] text-orange-800 ring-1 ring-orange-100"
+              title={`Your other page${c.otherPages.length > 1 ? "s" : ""} (${c.otherPages.join(", ")}) also rank for "${c.query}" — they split each other's clicks. Consolidate or differentiate the pages.`}
+            >
+              <span aria-hidden>⚔</span>
+              <span className="font-medium">{c.query}</span>
+              <span className="text-orange-500">
+                vs your {c.otherPages[0]}
+                {c.otherPages.length > 1 ? ` +${c.otherPages.length - 1}` : ""}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {m.yourGap ? (
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2">
           <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-400">Your gap</span>
