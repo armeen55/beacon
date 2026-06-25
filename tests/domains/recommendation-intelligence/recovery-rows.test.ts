@@ -55,13 +55,20 @@ describe("indexCannibalizationByUrl", () => {
   const canon = (u: string) => u.toLowerCase().replace(/\/$/, "");
   const pretty = (u: string) => u.split("/").pop() || u;
   const cu = (url: string) => ({ url, clicks: 0, impressions: 0, position: 0 });
+  // First URL is the lead (best-ranking) by convention in these fixtures.
   const kase = (query: string, urls: string[]) =>
-    ({ query, competingUrls: urls.map(cu) }) as never;
+    ({ query, competingUrls: urls.map(cu), leadUrl: urls[0]! }) as never;
 
-  it("maps each competing URL to its cases, excluding itself from otherPages", () => {
+  it("maps each competing URL with its others + a lead-aware consolidation fix", () => {
     const idx = indexCannibalizationByUrl([kase("iran flag", ["/iran-flag", "/pahlavi-flag", "/qajar-flag"])], canon, pretty);
-    expect(idx.get("/iran-flag")).toEqual([{ query: "iran flag", otherPages: ["pahlavi-flag", "qajar-flag"] }]);
-    expect(idx.get("/pahlavi-flag")![0].otherPages).toEqual(["iran-flag", "qajar-flag"]);
+    const lead = idx.get("/iran-flag")![0];
+    expect(lead.otherPages).toEqual(["pahlavi-flag", "qajar-flag"]);
+    expect(lead.isLead).toBe(true);
+    expect(lead.fix).toContain("fold"); // lead absorbs the others
+    const follower = idx.get("/pahlavi-flag")![0];
+    expect(follower.isLead).toBe(false);
+    expect(follower.leadPage).toBe("iran-flag");
+    expect(follower.fix).toContain("iran-flag"); // follower points at the lead
   });
 
   it("skips single-URL cases (not actually cannibalization)", () => {

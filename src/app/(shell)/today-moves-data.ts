@@ -9,7 +9,7 @@ import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/m
 import { loadGscCannibalizationForTenant, type GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import { indexCannibalizationByUrl } from "./today-declines-rows";
+import { indexCannibalizationByUrl, type CannibalEntry } from "./today-declines-rows";
 import {
   loadTopQueriesForPages,
   loadQueryDeclinesForPages,
@@ -58,8 +58,8 @@ export type TodayMove = {
   topQueries: PageQuery[];
   /** Queries this page is LOSING (recent 28d vs prior 28d) — the honest decay signal. */
   declines: QueryDecline[];
-  /** Queries where this page competes with the tenant's OWN other pages (cannibalization). */
-  cannibalization: { query: string; otherPages: string[] }[];
+  /** Queries where this page competes with the tenant's OWN other pages (+ a consolidation fix). */
+  cannibalization: CannibalEntry[];
   /** GA4 engagement/value (28d) for this page when available — the "is it worth it" signal. */
   ga4: { sessions: number; conversions: number } | null;
   /** Clarity UX friction (dead/rage click rates) when meaningful — the Friction component. */
