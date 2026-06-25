@@ -171,25 +171,45 @@ export async function draftFaqSchemaWithLLM(input: FaqDraftInput): Promise<FaqDr
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        max_completion_tokens: 2000,
+        // gpt-5-mini spends reasoning tokens against this budget — give ample
+        // headroom or the content comes back empty (audit-wave2 #16). No
+        // response_format: json_object — it interacts badly with reasoning here;
+        // we parse the JSON out of the text robustly instead.
+        max_completion_tokens: 4000,
         reasoning_effort: "low",
-        response_format: { type: "json_object" },
       }),
       signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) return { status: "error", reason: `openai_${res.status}` };
     const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const raw = (json.choices?.[0]?.message?.content ?? "").trim();
+    if (!raw) return { status: "error", reason: "empty_response" };
     costUsd = estimateCostUsd(system.length + user.length, raw.length);
     await recordSpend(costUsd, {}).catch(() => {});
-    // Tolerate {faqs:[...]} or a bare array.
-    const parsed = JSON.parse(raw) as unknown;
-    const arr = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray((parsed as { faqs?: unknown[] })?.faqs)
-        ? (parsed as { faqs: unknown[] }).faqs
-        : Object.values(parsed as Record<string, unknown>).find(Array.isArray) ?? [];
-    pairs = (arr as { q?: string; a?: string; question?: string; answer?: string }[])
+    // Parse JSON robustly: direct, then the first [...]/{...} slice in the text.
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const cand = raw.match(/\[[\s\S]*\]/)?.[0] ?? raw.match(/\{[\s\S]*\}/)?.[0];
+      if (cand) {
+        try {
+          parsed = JSON.parse(cand);
+        } catch {
+          parsed = null;
+        }
+      }
+    }
+    let arr: { q?: string; a?: string; question?: string; answer?: string }[] = [];
+    if (Array.isArray(parsed)) {
+      arr = parsed;
+    } else if (parsed && typeof parsed === "object") {
+      const o = parsed as Record<string, unknown>;
+      const found = Object.values(o).find(Array.isArray);
+      if (found) arr = found as typeof arr;
+      else arr = Object.entries(o).map(([q, a]) => ({ q, a: String(a) })); // {question: answer} map
+    }
+    pairs = arr
       .map((p) => ({ q: String(p.q ?? p.question ?? "").trim(), a: String(p.a ?? p.answer ?? "").trim() }))
       .filter((p) => p.q && p.a);
   } catch (e) {
