@@ -3,6 +3,7 @@ import { loadTodayMovesHeroData } from "./today-moves-data";
 import { MoveCard } from "./today-moves-card";
 import { BulkShipBar } from "./today-moves-bulkship";
 import { SharpenMovesButton } from "./today-moves-sharpen";
+import { PrepareTopMovesButton } from "./today-moves-prepare";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 
 /**
@@ -58,6 +59,7 @@ export async function TodayMovesHeroSection() {
           </p>
         </div>
         <div className="flex items-start gap-2">
+          {operator ? <PrepareTopMovesButton readyCount={stats.preparedReady} total={moves.length} /> : null}
           {operator && needsTeardown > 0 ? <SharpenMovesButton pending={needsTeardown} /> : null}
           <Link
             href="/moves"
@@ -72,7 +74,9 @@ export async function TodayMovesHeroSection() {
         <StatTile value={String(stats.movesReady)} label="Moves ready" accent="text-gray-900" />
         <StatTile value={fmtNum(stats.demandAtStake)} label="Monthly demand at stake" accent="text-sky-600" />
         <StatTile value={String(stats.citationsContested)} label="AI citations to win" accent="text-violet-600" />
-        {stats.draftsReady > 0 ? (
+        {stats.preparedReady > 0 ? (
+          <StatTile value={String(stats.preparedReady)} label="Ready to review" accent="text-indigo-600" />
+        ) : stats.draftsReady > 0 ? (
           <StatTile value={String(stats.draftsReady)} label="AI drafts ready" accent="text-emerald-600" />
         ) : (
           <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />

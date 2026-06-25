@@ -19,6 +19,7 @@ import type { EvidencePacket } from "./evidence-packet";
 import type { GapKind } from "./build-graph";
 import type { MoveRouterDecision, MoveParentType } from "./move-router";
 import type { SpecialistOpinion } from "./specialist-opinions";
+import type { ExperimentPlan } from "@/domains/llm/schemas";
 
 /** The readiness chain. Forward-only along the happy path; terminal/recovery
  *  states branch off. Each transition is fired by a concrete code event. */
@@ -66,7 +67,9 @@ export type PreparedMovePack = {
   proofPlan: EvidencePacket["proofPlan"];
   /** Structured draft (P4) — null until the structured drafter runs. */
   structuredDraft: StructuredDraft;
-  /** Implementation checklist (P5) — empty placeholder in Sprint 1. */
+  /** First-class experiment for this Move (P4 schema) — null until prepared. */
+  experiment: ExperimentPlan | null;
+  /** Implementation checklist — derived from the draft's operatorSteps (P5). */
   implementationChecklist: ImplementationStep[];
   /** Cost rolled up across the prepare steps (placeholder zeros in Sprint 1). */
   costSpent: { llmUsd: number; serpUsd: number };
@@ -122,6 +125,8 @@ export type BuildPreparedMovePackInput = {
   hasSerpVerdict?: boolean;
   hasAiCheck?: boolean;
   structuredDraft?: StructuredDraft;
+  experiment?: ExperimentPlan | null;
+  implementationChecklist?: ImplementationStep[];
   costSpent?: { llmUsd: number; serpUsd: number };
   ttlMs?: number;
 };
@@ -157,7 +162,8 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
     routerDecision: decision,
     proofPlan: packet.proofPlan,
     structuredDraft,
-    implementationChecklist: [],
+    experiment: input.experiment ?? null,
+    implementationChecklist: input.implementationChecklist ?? [],
     costSpent: input.costSpent ?? { llmUsd: 0, serpUsd: 0 },
     confidence: decision.confidenceLevel,
     evidenceHash: packet.evidenceHash,

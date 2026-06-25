@@ -13,10 +13,35 @@ import {
 } from "@/domains/demand-graph/llm-answer-block";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
+import { prepareTodayMovesForTenant, type PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 
 export type SharpenMovesResult =
   | { status: "off" }
   | { status: "ok"; audited: number; targets: number; cached: number };
+
+export type PrepareTopMovesResult =
+  | { ok: false; reason: string }
+  | { ok: true; summary: PrepareMovesSummary };
+
+/**
+ * prepareTopMovesAction (2026-06-25, P5) — "Prepare my top 10". One click runs the
+ * full prepare pipeline (specialist opinions → router → structured draft →
+ * experiment → proof plan → PreparedMovePack) for the tenant's top existing-page
+ * Moves and persists each pack, so the cockpit arrives "ready to review" instead
+ * of chore-ready. Operator-gated, fires only on explicit click (never on render),
+ * cache-first + capped (one budgeted LLM draft per Move; re-runs are cheap). NO
+ * publish, NO SERP, NO migration. Revalidates "/" so the hero re-renders prepared.
+ */
+export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promise<PrepareTopMovesResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const summary = await prepareTodayMovesForTenant(await currentTenantId(), { maxN: opts.maxN ?? 10 });
+    revalidatePath("/");
+    return { ok: true, summary };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "prepare failed" };
+  }
+}
 
 /**
  * sharpenMovesWithTeardownAction (2026-06-25) — bring the core "reverse-engineer

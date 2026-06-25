@@ -108,6 +108,13 @@ describe("callStructuredLLM — validate / retry / fail-closed", () => {
     if (r.status === "validation_failed") expect(r.errors.some((e) => e.includes("firewall:invented_numbers"))).toBe(true);
   });
 
+  it("SANITIZES em-dashes (style, not trust) instead of rejecting the draft", async () => {
+    const withDash = JSON.stringify({ ...validAnswer, answer: validAnswer.answer.replace("them, followed", "them—followed") });
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: withDash }]) });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") expect(r.value.answer).not.toContain("—");
+  });
+
   it("retries past a transient LLM error and then drafts", async () => {
     const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ error: "openai_500" }, { text: JSON.stringify(validAnswer) }]) });
     expect(r.status).toBe("drafted");

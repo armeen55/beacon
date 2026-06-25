@@ -19,7 +19,12 @@ import {
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { attachOpinions } from "@/domains/demand-graph/specialist-opinions";
 import { routeMove, type MoveRouterDecision } from "@/domains/demand-graph/move-router";
-import { buildPreparedMovePack, type PreparedStatus } from "@/domains/demand-graph/prepared-move-pack";
+import {
+  buildPreparedMovePack,
+  parsePreparedPack,
+  isPackStale,
+  type PreparedStatus,
+} from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 
@@ -96,6 +101,23 @@ export type TodayMove = {
   routerRationale: string | null;
   routerConfidence: "high" | "medium" | "low" | null;
   preparedStatus: PreparedStatus | null;
+  /** P5 "prepared, not chores": the readiness strip + the persisted structured
+   *  draft (from "Prepare my top 10"). Null until the Move has been prepared. */
+  preparedChecklist: {
+    googleChecked: boolean;
+    aiChecked: boolean;
+    competitorsRead: boolean;
+    draftPrepared: boolean;
+    proofPlanReady: boolean;
+    readyToReview: boolean;
+  } | null;
+  preparedDraftKind: string | null;
+  /** The paste-ready structured artifact text (answer block, or proposed title). */
+  preparedDraftText: string | null;
+  /** The experiment hypothesis attached to the prepared Move, if any. */
+  preparedExperiment: string | null;
+  /** True when the prepared pack is stale vs current evidence (re-prepare). */
+  preparedStale: boolean;
 };
 
 export type TodayMovesHeroData = {
@@ -115,6 +137,8 @@ export type TodayMovesHeroData = {
     selfCompeting: number;
     /** Moves suppressed because their page is mid-measurement (Phase 2 hold). */
     heldWhileMeasuring: number;
+    /** Shown Moves that are fully prepared (ready to review) after "Prepare my top 10". */
+    preparedReady: number;
   };
 };
 
@@ -315,10 +339,37 @@ export async function buildTodayMovesData(
       // honestly (broad SERP runs are P5/P6). Null-safe when there's no packet.
       const opinions = packet ? attachOpinions(packet, { nowIso }) : [];
       const decision: MoveRouterDecision | null = packet ? routeMove({ packet, opinions }) : null;
-      const preparedPack =
+      const inMemoryPack =
         packet && decision
           ? buildPreparedMovePack({ tenantId, packet, opinions, decision, nowIso })
           : null;
+      // Prefer a PERSISTED prepared pack (from "Prepare my top 10") when it's not
+      // stale — it carries the structured draft + experiment that lift the Move to
+      // ready_to_review. Otherwise fall back to the in-memory (un-drafted) pack.
+      const persistedPack = packet
+        ? parsePreparedPack(savedDrafts.get(`${packet.move.key}::prepared_pack`)?.content)
+        : null;
+      const persistedFresh = !!(packet && persistedPack && !isPackStale(persistedPack, packet.evidenceHash, nowIso));
+      const effectivePack = persistedFresh ? persistedPack : inMemoryPack;
+      const preparedStale = !!(persistedPack && !persistedFresh);
+
+      const specialistSet = new Set(opinions.map((o) => o.specialist));
+      const draftPrepared = persistedFresh && !!persistedPack!.structuredDraft;
+      const preparedChecklist = effectivePack
+        ? {
+            googleChecked: specialistSet.has("gsc"),
+            aiChecked: specialistSet.has("profound"),
+            competitorsRead: !!packet?.competitor?.facts,
+            draftPrepared,
+            proofPlanReady: draftPrepared && (effectivePack.proofPlan?.metrics?.length ?? 0) > 0,
+            readyToReview: effectivePack.preparedStatus === "ready_to_review",
+          }
+        : null;
+      // The paste-ready structured artifact text (answer block / proposed title).
+      const draftValue = (persistedFresh ? persistedPack!.structuredDraft : null) as
+        | { kind?: string; value?: { answer?: string; after?: string } }
+        | null;
+      const preparedDraftText = draftValue?.value?.answer ?? draftValue?.value?.after ?? null;
       const meta = ACTION_META[e.action_type] ?? { label: "Make this move", tone: "page" as const };
       const also = [
         ...new Set(
@@ -392,7 +443,12 @@ export async function buildTodayMovesData(
         routerAction: decision?.action ?? null,
         routerRationale: decision?.rationale ?? null,
         routerConfidence: decision?.confidenceLevel ?? null,
-        preparedStatus: preparedPack?.preparedStatus ?? null,
+        preparedStatus: effectivePack?.preparedStatus ?? null,
+        preparedChecklist,
+        preparedDraftKind: draftValue?.kind ?? null,
+        preparedDraftText,
+        preparedExperiment: persistedFresh ? persistedPack!.experiment?.hypothesis ?? null : null,
+        preparedStale,
       });
     }
 
@@ -545,6 +601,7 @@ export async function buildTodayMovesData(
         losingQueries,
         selfCompeting,
         heldWhileMeasuring,
+        preparedReady: top.filter((m) => m.preparedChecklist?.readyToReview).length,
       },
     };
 }

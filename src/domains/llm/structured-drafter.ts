@@ -8,6 +8,7 @@ import {
   draftStringValues,
   type StructuredDraftKind,
   type AnswerBlockDraft,
+  type AtomicEditDraft,
 } from "./schemas";
 
 /**
@@ -56,6 +57,21 @@ function estimateCostUsd(promptChars: number, completionChars: number): number {
 }
 
 const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
+
+/** Em/en-dashes are a STYLE issue, not a trust issue — normalize them to hyphens
+ *  in every string field before validation, so a good draft isn't rejected for
+ *  punctuation (gpt-5-mini strongly favors em-dashes). Trust firewalls (invented
+ *  numbers, placeholders, superlatives) stay HARD rejects. */
+function sanitizeDashesDeep(v: unknown): unknown {
+  if (typeof v === "string") return v.replace(/\s*[—–]\s*/g, " - ");
+  if (Array.isArray(v)) return v.map(sanitizeDashesDeep);
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = sanitizeDashesDeep(val);
+    return out;
+  }
+  return v;
+}
 
 /** Parse JSON robustly: direct, then the first {...} / [...] slice in the text. */
 function robustJsonExtract(raw: string): unknown {
@@ -189,7 +205,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       errors.push("non_json");
       continue;
     }
-    const result = schema.safeParse(parsedJson);
+    const result = schema.safeParse(sanitizeDashesDeep(parsedJson));
     if (!result.success) {
       errors.push(...result.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
       continue;
@@ -261,6 +277,60 @@ export async function draftAnswerBlockStructured(
   return callStructuredLLM({
     kind: "answer_block",
     system: ANSWER_BLOCK_SYSTEM,
+    user,
+    grounded,
+    projectedCostUsd: 0.02,
+    complete: opts.complete,
+    now: opts.now,
+  });
+}
+
+// ── concrete drafter: AtomicEditDraft (existing-page title/meta edit) ──────────
+
+export type AtomicEditStructuredInput = {
+  query: string;
+  pageLabel: string;
+  field: "title" | "meta";
+  currentValue: string | null;
+  outline: string[];
+  evidenceHints?: string[];
+};
+
+const ATOMIC_EDIT_SYSTEM =
+  "You improve ONE on-page field (a page title or meta description) for an encyclopedia / content site to better match the search intent and earn the click. " +
+  'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
+  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
+  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
+
+/** Draft a schema-valid AtomicEditDraft (title/meta) for one existing-page Move. */
+export async function draftAtomicEditStructured(
+  input: AtomicEditStructuredInput,
+  opts: { complete?: CompleteFn; now?: Date } = {},
+): Promise<StructuredDraftResult<AtomicEditDraft>> {
+  const grounded = [
+    input.query,
+    input.currentValue ?? "",
+    input.outline.join(" "),
+    (input.evidenceHints ?? []).join(" "),
+  ].join(" ");
+  const user = [
+    `Search/topic: "${input.query}"`,
+    `Page: ${input.pageLabel}`,
+    `Field to edit: ${input.field}`,
+    input.currentValue ? `Current ${input.field}: ${input.currentValue}` : `Current ${input.field}: (none/empty)`,
+    input.outline.length ? `Page covers: ${input.outline.slice(0, 8).join("; ")}` : "",
+    (input.evidenceHints ?? []).length ? `Evidence the team established: ${input.evidenceHints!.join("; ")}` : "",
+    "",
+    "Return the JSON now.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return callStructuredLLM({
+    kind: "atomic_edit",
+    system: ATOMIC_EDIT_SYSTEM,
     user,
     grounded,
     projectedCostUsd: 0.02,

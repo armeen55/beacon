@@ -7,6 +7,29 @@
 
 ---
 
+## 2026-06-25 — B76 · Prepared Today Moves (Sprint 2B: P5)
+
+**Built:**
+- `src/domains/demand-graph/prepare-today-moves.ts` — `prepareTodayMovesForTenant` (cache-first, fail-soft, capped): opinions → router → structured draft (answer_block / atomic_edit) → deterministic experiment + proof plan → PreparedMovePack → persist via move_drafts kind=prepared_pack. `PrepareMovesSummary` + per-Move outcomes.
+- `src/app/(shell)/today-moves-actions.ts` — `prepareTopMovesAction` (operator-gated, revalidates "/").
+- `src/app/(shell)/today-moves-prepare.tsx` — "Prepare my top 10" button (hero).
+- `src/app/(shell)/today-moves-data.ts` — reads persisted pack (prefer fresh; re-prepare flag); exposes `preparedChecklist`/`preparedDraftKind`/`preparedDraftText`/`preparedExperiment`/`preparedStale` + `preparedReady` stat.
+- `src/app/(shell)/today-moves-card.tsx` + `today-moves-hero.tsx` — readiness strip + "Ready to review" badge + paste-ready draft + prepared count.
+- `src/domains/demand-graph/prepared-move-pack.ts` — added `experiment` + `implementationChecklist` fields.
+- `src/domains/llm/structured-drafter.ts` — `draftAtomicEditStructured`; em/en-dash normalization (style, not trust) before validation.
+- `scripts/run-prepare-top-moves.ts` — live proof harness.
+
+**Verified:**
+- `npm run typecheck` clean. `npx vitest run src/domains/llm` → **24/24** (added em-dash-sanitize test); foundation 38/38 unaffected.
+- LIVE `prepareTodayMovesForTenant("tenant-iranopedia", {maxN:10})`: **10/10 ready_to_review** (after the LLM's one transient firewall fail self-recovered on a later retry). Real grounded drafts; proof plan on each. **Total LLM ~$0.026** across runs; cache-first re-run served 9 at $0, 1 re-drafted ($0.002). No SERP spend.
+- Cockpit read-back (`buildTodayMovesData`): `preparedReady = 10/10`; each shown Move carries the checklist + paste-ready draft text.
+
+**Known nuance (follow-up, non-blocking):** the prepared-pack lookup keys off the live packet (demandKey); on a cold render where the 8s graph-compute timeout trims packets, fewer prepared cards show until a warm render. The persisted packs are durable + self-heal; a URL-keyed fallback would make cold renders show them immediately.
+
+**Posture:** no publish, no SERP/DataForSEO, no migration, no main merge. Branch `claude/max-capability`. Drafter OFF unless `BEACON_LLM_PROVIDER=openai` (operator-set locally; not in Vercel prod).
+
+---
+
 ## 2026-06-25 — B75 · Structured LLM drafts (Sprint 2A: P4)
 
 **Built:**

@@ -240,6 +240,47 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       </p>
       <p className="mt-2 text-sm leading-relaxed text-gray-600">{m.why}</p>
 
+      {m.preparedChecklist ? (
+        <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {m.preparedChecklist.readyToReview ? (
+              <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Ready to review</span>
+            ) : m.preparedStale ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">Re-prepare (data changed)</span>
+            ) : null}
+            {(
+              [
+                ["Google checked", m.preparedChecklist.googleChecked],
+                ["AI checked", m.preparedChecklist.aiChecked],
+                ["Competitors read", m.preparedChecklist.competitorsRead],
+                ["Draft prepared", m.preparedChecklist.draftPrepared],
+                ["Proof plan ready", m.preparedChecklist.proofPlanReady],
+              ] as const
+            ).map(([label, ok]) => (
+              <span
+                key={label}
+                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${ok ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100" : "bg-gray-100 text-gray-400"}`}
+              >
+                {ok ? "✓" : "○"} {label}
+              </span>
+            ))}
+          </div>
+          {m.preparedDraftText ? (
+            <div className="mt-2">
+              <div className="text-[9px] font-semibold uppercase tracking-wide text-indigo-500">
+                {m.preparedDraftKind === "atomic_edit" ? "Prepared title" : "Prepared answer block"} — paste-ready
+              </div>
+              <p className="mt-0.5 rounded-lg bg-white p-2 text-[12px] leading-relaxed text-gray-800 ring-1 ring-indigo-100">{m.preparedDraftText}</p>
+            </div>
+          ) : null}
+          {m.preparedExperiment ? (
+            <p className="mt-1.5 text-[10px] text-gray-500">
+              <span className="font-semibold text-gray-600">Experiment:</span> {m.preparedExperiment}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl bg-gray-50 px-3 py-2.5">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Who AI cites now</div>
