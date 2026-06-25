@@ -48,6 +48,7 @@ import { StateOfUnionSection } from "./state-of-union-section";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayDeclinesSection } from "./today-declines-section";
+import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayMoneyLeakSection } from "./today-moneyleak-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
@@ -249,6 +250,12 @@ async function TodayV2SectionedContent() {
           so the operator can act. Own Suspense / self-hides when nothing declines. */}
       <Suspense fallback={null}>
         <TodayDeclinesSection />
+      </Suspense>
+      {/* Pages you've turned around (2026-06-25) — the payoff of the recover loop:
+          shipped fixes whose Google clicks climbed back (before/after the ship date).
+          Own Suspense / self-hides when nothing has recovered yet. */}
+      <Suspense fallback={null}>
+        <TodayRecoveriesSection />
       </Suspense>
       {/* Quick CTR wins (2026-06-25) — symmetric to Recover-lost-ground: site-wide
           pages in striking distance (pos 4–15, real demand). Own Suspense / self-hides. */}

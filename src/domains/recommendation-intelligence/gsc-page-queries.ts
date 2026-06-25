@@ -132,6 +132,41 @@ async function readWindow(
   return byPage;
 }
 
+/**
+ * Total GSC clicks per page over an explicit [fromIso, toIso) date range. Used by
+ * the proof-recovery detector to compare a page's clicks BEFORE vs AFTER a shipped
+ * change's date. Bounded + fail-soft → empty Map.
+ */
+export async function loadPageClicksInRange(
+  tenantId: string,
+  pages: string[],
+  fromIso: string,
+  toIso: string,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!tenantId || pages.length === 0) return out;
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("gsc_daily_rows")
+      .select("page, clicks")
+      .eq("tenant_id", tenantId)
+      .in("page", pages.slice(0, 50))
+      .gte("date", fromIso)
+      .lt("date", toIso)
+      .limit(ROW_BUDGET);
+    if (error || !data) return out;
+    for (const r of data) {
+      const page = r.page as string;
+      if (!page) continue;
+      out.set(page, (out.get(page) ?? 0) + (Number(r.clicks) || 0));
+    }
+    return out;
+  } catch {
+    return out;
+  }
+}
+
 export type DecliningPage = { page: string; topDecline: QueryDecline };
 export type StrikingPage = { page: string; topQuery: PageQuery };
 
