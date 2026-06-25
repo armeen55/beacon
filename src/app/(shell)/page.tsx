@@ -47,6 +47,7 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { StateOfUnionSection } from "./state-of-union-section";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayDeclinesSection } from "./today-declines-section";
+import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import {
   createPerfTrace,
@@ -239,6 +240,11 @@ async function TodayV2SectionedContent() {
           so the operator can act. Own Suspense / self-hides when nothing declines. */}
       <Suspense fallback={null}>
         <TodayDeclinesSection />
+      </Suspense>
+      {/* Quick CTR wins (2026-06-25) — symmetric to Recover-lost-ground: site-wide
+          pages in striking distance (pos 4–15, real demand). Own Suspense / self-hides. */}
+      <Suspense fallback={null}>
+        <TodayQuickWinsSection />
       </Suspense>
       {/* New Pages to Build (2026-06-24) — the create_page half of the engine:
           topics competitors own that the tenant has no page for. These never

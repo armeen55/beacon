@@ -133,6 +133,47 @@ async function readWindow(
 }
 
 export type DecliningPage = { page: string; topDecline: QueryDecline };
+export type StrikingPage = { page: string; topQuery: PageQuery };
+
+/**
+ * Site-wide STRIKING-DISTANCE opportunities (symmetric to declining pages): the
+ * tenant's top pages by impressions (server-aggregated RPC) that have a query
+ * ranking position 4–15 with real demand — quick CTR wins, even on pages the
+ * demand graph never queued. Bounded (top N pages) + fail-soft → []. Returns each
+ * page's best striking-distance query (highest impressions).
+ */
+export async function loadTopStrikingPagesForTenant(
+  tenantId: string,
+  opts: { topPages?: number } = {},
+): Promise<StrikingPage[]> {
+  if (!tenantId) return [];
+  const topN = Math.max(1, Math.min(opts.topPages ?? 25, 25));
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(WINDOW_DAYS);
+    const { data, error } = await sb
+      .rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: since })
+      .order("impressions", { ascending: false })
+      .limit(topN);
+    if (error || !data) return [];
+    const pages = (data as Array<{ page?: string }>).map((r) => r.page).filter((p): p is string => Boolean(p));
+    if (pages.length === 0) return [];
+    const queryMap = await loadTopQueriesForPages(tenantId, pages);
+    const out: StrikingPage[] = [];
+    for (const [page, queries] of queryMap) {
+      const best = queries.filter((q) => q.strikingDistance).sort((a, b) => b.impressions - a.impressions)[0];
+      if (best) out.push({ page, topQuery: best });
+    }
+    out.sort((a, b) => b.topQuery.impressions - a.topQuery.impressions);
+    return out;
+  } catch (e) {
+    log.warn("[gsc-page-queries] top-striking threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
 
 /**
  * Site-wide declining pages (not just the worklist): pull the tenant's TOP pages
