@@ -57,6 +57,7 @@ import { TodayRisingSection } from "./today-rising-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayCtrGapSection } from "./today-ctrgap-section";
+import { TodayQuestionsSection } from "./today-questions-section";
 import { TodayCannibalizationSection } from "./today-cannibalization-section";
 import { TodayMoneyLeakSection } from "./today-moneyleak-section";
 import { TodayEntityFoundationSection } from "./today-entity-foundation-section";
@@ -249,6 +250,7 @@ async function TodayV2SectionedContent() {
           { id: "sec-momentum", label: "Pages moving" },
           { id: "sec-bands", label: "Where you rank" },
           { id: "sec-brand", label: "Branded vs discovery" },
+          { id: "sec-questions", label: "Questions to answer" },
           { id: "sec-recover", label: "Recover" },
           { id: "sec-recoveries", label: "Turned around" },
           { id: "sec-quickwins", label: "Quick wins" },
@@ -294,6 +296,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-momentum" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayMomentumSection />
+        </Suspense>
+      </div>
+      {/* Questions to answer (2026-06-25) — AEO answer-block lens. Own Suspense / self-hides. */}
+      <div id="sec-questions" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayQuestionsSection />
         </Suspense>
       </div>
       {/* Where you rank (2026-06-25) — portfolio ranking-distribution funnel. Own Suspense / self-hides. */}

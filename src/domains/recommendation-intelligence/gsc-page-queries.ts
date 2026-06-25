@@ -366,6 +366,54 @@ export async function loadToolIntentQueries(
   }
 }
 
+/**
+ * Question-shaped queries the tenant appears for — the AEO answer-block target set.
+ * Reaches the long tail via a DB ILIKE `.or()` on question stems (GSC top-by-clicks
+ * reads miss these because question queries often have impressions but ~0 clicks —
+ * exactly the answer-block gap). Bounded + fail-soft → []. The pure scorer decides
+ * which are real opportunities. Per-query window aggregate keyed by query.
+ */
+export async function loadQuestionQueries(
+  tenantId: string,
+  opts: { windowDays?: number } = {},
+): Promise<TenantQuery[]> {
+  if (!tenantId) return [];
+  // Leading question words + the literal "?" — ILIKE the start where possible.
+  const stems = ["how ", "what ", "why ", "who ", "when ", "where ", "which ", "is ", "are ", "does ", "can "];
+  const orFilter = [...stems.map((s) => `query.ilike.${s}%`), "query.ilike.%?%"].join(",");
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(opts.windowDays ?? WINDOW_DAYS);
+    const { data, error } = await sb
+      .from("gsc_daily_rows")
+      .select("query, clicks, impressions")
+      .eq("tenant_id", tenantId)
+      .gte("date", since)
+      .or(orFilter)
+      .order("impressions", { ascending: false })
+      .limit(ROW_BUDGET);
+    if (error || !data) {
+      if (error) log.warn("[gsc-page-queries] question-query read failed", { tenantId, error: error.message });
+      return [];
+    }
+    const byQuery = new Map<string, { clicks: number; impressions: number }>();
+    for (const r of data) {
+      const query = (r.query as string)?.trim();
+      if (!query) continue;
+      const a = byQuery.get(query) ?? { clicks: 0, impressions: 0 };
+      a.clicks += Number(r.clicks) || 0;
+      a.impressions += Number(r.impressions) || 0;
+      byQuery.set(query, a);
+    }
+    return [...byQuery.entries()]
+      .map(([query, a]) => ({ query, clicks: a.clicks, impressions: a.impressions }))
+      .sort((x, y) => y.impressions - x.impressions);
+  } catch (e) {
+    log.warn("[gsc-page-queries] question-query threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return [];
+  }
+}
+
 export type DecliningPage = { page: string; topDecline: QueryDecline };
 export type StrikingPage = { page: string; topQuery: PageQuery };
 export type DailyClicks = { date: string; clicks: number };
