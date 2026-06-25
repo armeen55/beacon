@@ -83,6 +83,11 @@ import { getRepository } from "@/lib/persistence/repositories";
 
 import { applyQueueRules } from "./emitter/apply-queue-rules";
 import type { RecommendationCandidateRow } from "./emitter/candidate-row";
+// demand-graph engine source (2026-06-24) — wired in behind BEACON_DEMAND_GRAPH_RECS.
+import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
+import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
+import { demandGraphToCandidateRows } from "@/domains/demand-graph/to-candidate-rows";
+import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { badHttpStatus } from "./triggers/bad-http-status";
 import { canonicalMismatch } from "./triggers/canonical-mismatch";
 import { duplicateMeta } from "./triggers/duplicate-meta";
@@ -661,6 +666,34 @@ export async function loadTriggerCandidatesForTenant(options: {
           }),
         );
       }
+    }
+  }
+
+  // ── demand-graph engine source (2026-06-24, BEACON_DEMAND_GRAPH_RECS) ──
+  // Off by default. When on, the Rank-&-Revenue engine's ranked Moves
+  // (create_page / answer_block / edit / fix) flow into the SAME queue as the
+  // deterministic predicates — the plan's intended convergence ("output stays
+  // RecommendationCandidateRow, consumed by this loader"). Routed + deduped by
+  // applyQueueRules exactly like every other source. Fail-soft: a load error
+  // never breaks the existing pipeline.
+  if (process.env.BEACON_DEMAND_GRAPH_RECS === "true") {
+    try {
+      const { graph } = await loadDemandGraphForTenant(tenantId);
+      const packetList: EvidencePacket[] = await loadChangePacksForTenant(tenantId, { limit: 25 })
+        .then((r) => r.packets)
+        .catch(() => []);
+      const packetsByKey = new Map(packetList.map((p) => [p.move.key, p]));
+      all.push(
+        ...demandGraphToCandidateRows({
+          tenantId,
+          graph,
+          packetsByKey,
+          limit: 25,
+          nowIso: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      // demand-graph load failure must never break the live recommendation pipeline
     }
   }
 
