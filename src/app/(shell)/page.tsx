@@ -57,6 +57,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-rising", label: "Rising demand" },
   { id: "sec-momentum", label: "Pages moving" },
   { id: "sec-bands", label: "Where you rank" },
+  { id: "sec-clusters", label: "What content works" },
   { id: "sec-brand", label: "Branded vs discovery" },
   { id: "sec-questions", label: "Questions to answer" },
   { id: "sec-recover", label: "Recover" },
@@ -73,6 +74,7 @@ import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayPositionBandsSection } from "./today-position-bands-section";
 import { TodayBrandSplitSection } from "./today-brand-split-section";
+import { TodayClustersSection } from "./today-clusters-section";
 import { TodayTrendSection } from "./today-trend-section";
 import { TodayMomentumSection } from "./today-momentum-section";
 import { TodayDeclinesSection } from "./today-declines-section";
@@ -319,6 +321,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-bands" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayPositionBandsSection />
+        </Suspense>
+      </div>
+      {/* What content works (2026-06-25) — content-cluster performance. Own Suspense / self-hides. */}
+      <div id="sec-clusters" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayClustersSection />
         </Suspense>
       </div>
       {/* Branded vs discovery (2026-06-25) — reach split. Own Suspense / self-hides. */}
