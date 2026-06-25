@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 
 /**
  * GSC Proof ledger — read loader (Phase 5, Path B).
@@ -27,3 +28,13 @@ export async function loadProofLedger(
   );
   return measured;
 }
+
+/**
+ * Request-cached single-arg entry point. The ledger RE-MEASURES every shipped
+ * change against fresh GSC on read (heavy) — so when more than one surface loads
+ * it on the same request (the /proof page + a proof summary hero), `react.cache`
+ * shares ONE re-measurement per tenant per request. Use on render paths.
+ */
+export const loadProofLedgerCached = cache(
+  (tenantId: string): Promise<ShippedChangeRecord[]> => loadProofLedger(tenantId),
+);

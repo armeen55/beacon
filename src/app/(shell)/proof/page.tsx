@@ -6,7 +6,8 @@ import { ResultsTimeline } from "../changes/results-timeline";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
-import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { ProofSummarySection } from "./proof-summary-section";
 import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
   pickProofMetric,
@@ -66,7 +67,7 @@ export default async function ProofPage({
   const tenantId = await currentTenantId();
   const [rows, ledger] = await Promise.all([
     loadProofPlan(tenantId).catch(() => []),
-    loadProofLedger(tenantId).catch(() => [] as ShippedChangeRecord[]),
+    loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
   ]);
   const recordedPaths = new Set(ledger.map((l) => l.path));
 
@@ -110,6 +111,13 @@ export default async function ProofPage({
           />
         ) : null}
       </div>
+
+      {/* Premium "Proof at a glance" scoreboard (2026-06-25) — the Results act of
+          the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
+          shipped; reads the request-cached re-measured ledger. */}
+      <Suspense fallback={null}>
+        <ProofSummarySection />
+      </Suspense>
 
       {/* Record a shipped change for ANY page (manual-ship companion). Prefills
           the page from a ?page= hand-off (e.g. the Workbench "Record this
