@@ -50,6 +50,7 @@ import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayPositionBandsSection } from "./today-position-bands-section";
 import { TodayTrendSection } from "./today-trend-section";
+import { TodayMomentumSection } from "./today-momentum-section";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
@@ -242,6 +243,7 @@ async function TodayV2SectionedContent() {
         targets={[
           { id: "sec-opportunities", label: "Opportunities" },
           { id: "sec-trend", label: "Traffic trend" },
+          { id: "sec-momentum", label: "Pages moving" },
           { id: "sec-bands", label: "Where you rank" },
           { id: "sec-recover", label: "Recover" },
           { id: "sec-recoveries", label: "Turned around" },
@@ -276,6 +278,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-trend" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayTrendSection />
+        </Suspense>
+      </div>
+      {/* Which pages are moving (2026-06-25) — per-page weekly momentum drill-down. Own Suspense / self-hides. */}
+      <div id="sec-momentum" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayMomentumSection />
         </Suspense>
       </div>
       {/* Where you rank (2026-06-25) — portfolio ranking-distribution funnel. Own Suspense / self-hides. */}

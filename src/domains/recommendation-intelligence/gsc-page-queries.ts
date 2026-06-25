@@ -167,6 +167,54 @@ export async function loadPageClicksInRange(
   }
 }
 
+/**
+ * Per-page daily clicks for a SMALL explicit page set (the worklist), over the
+ * trailing `days`, for momentum sparklines. Reads the per-page-per-day
+ * `gsc_daily_page_totals` table (already aggregated — NOT the per-query
+ * `gsc_daily_rows`, where 16 pages × ~56d × N queries blows the row budget on the
+ * first page), filtered `page IN (...)` to ≤16 pages so ~16×56 rows stays well
+ * under ROW_BUDGET. Never a full tenant scan. Returns page → ascending daily
+ * {date, clicks}. Fail-soft → empty map.
+ */
+export async function loadDailyClicksByPagesForTenant(
+  tenantId: string,
+  pages: string[],
+  days = 70,
+): Promise<Map<string, DailyClicks[]>> {
+  const out = new Map<string, DailyClicks[]>();
+  if (!tenantId || pages.length === 0) return out;
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(days);
+    const { data, error } = await sb
+      .from("gsc_daily_page_totals")
+      .select("page, date, clicks")
+      .eq("tenant_id", tenantId)
+      .in("page", pages.slice(0, 16))
+      .gte("date", since)
+      .limit(ROW_BUDGET);
+    if (error || !data) return out;
+    // Collapse to a daily total per (page, date) — defensive against any dup rows.
+    const byPageDate = new Map<string, Map<string, number>>();
+    for (const r of data as Array<{ page: string; date: string; clicks: number | string | null }>) {
+      if (!r.page || !r.date) continue;
+      const d = r.date.slice(0, 10);
+      let dm = byPageDate.get(r.page);
+      if (!dm) byPageDate.set(r.page, (dm = new Map()));
+      dm.set(d, (dm.get(d) ?? 0) + (Number(r.clicks) || 0));
+    }
+    for (const [page, dm] of byPageDate) {
+      out.set(
+        page,
+        [...dm.entries()].map(([date, clicks]) => ({ date, clicks })).sort((a, b) => a.date.localeCompare(b.date)),
+      );
+    }
+    return out;
+  } catch {
+    return out;
+  }
+}
+
 export type TenantQuery = { query: string; clicks: number; impressions: number };
 
 /**
