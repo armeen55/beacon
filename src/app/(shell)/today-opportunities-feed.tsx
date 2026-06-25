@@ -6,7 +6,13 @@ import {
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
-import { buildOpportunityFeed, feedClicksAtStake } from "./today-opportunities-feed-rows";
+import { loadTodayMovesHeroData } from "./today-moves-data";
+import {
+  buildOpportunityFeed,
+  feedClicksAtStake,
+  type OpportunityItem,
+  type FeedKind,
+} from "./today-opportunities-feed-rows";
 
 /**
  * today-opportunities-feed (2026-06-25) — the headline "do these first" list: the
@@ -15,6 +21,21 @@ import { buildOpportunityFeed, feedClicksAtStake } from "./today-opportunities-f
  * the operator's eye lands on the single highest-impact handful before the detailed
  * per-axis sections below. Self-hides when nothing clears the bar.
  */
+
+const KIND_LABEL: Record<FeedKind, string> = {
+  recover: "Recover",
+  win: "Win",
+  cite: "Get cited",
+  build: "Build",
+  edit: "Improve",
+};
+const KIND_STYLE: Record<FeedKind, string> = {
+  recover: "bg-rose-100 text-rose-700",
+  win: "bg-amber-100 text-amber-700",
+  cite: "bg-violet-100 text-violet-700",
+  build: "bg-emerald-100 text-emerald-700",
+  edit: "bg-sky-100 text-sky-700",
+};
 
 function fmtNum(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
@@ -26,15 +47,62 @@ function slugOf(url: string): string {
   return last.replace(/[-_]+/g, " ").trim() || url;
 }
 
+// Map a demand-graph worklist move into a unified feed item on the SAME
+// clicks-at-stake currency. A move's stake = the best clicks it could win from
+// its own striking queries; if it has no striking query yet (e.g. a brand-new
+// citation/page move) fall back to a conservative slice of its demand so it can
+// still rank. actionTone → feed kind so the headline shows what KIND of move.
+function moveToItem(m: {
+  targetUrl: string;
+  pageLabel: string;
+  query: string;
+  actionTone: "citation" | "clicks" | "experience" | "page";
+  demand: number | null;
+  topQueries: { query: string; impressions: number; position: number }[];
+}): OpportunityItem | null {
+  const kind: FeedKind =
+    m.actionTone === "citation" ? "cite" : m.actionTone === "page" ? "build" : "edit";
+  let stake = 0;
+  let bestQuery = m.query || m.pageLabel;
+  for (const q of m.topQueries) {
+    const s = clicksAtStakeForStriking(q.impressions, q.position);
+    if (s > stake) {
+      stake = s;
+      bestQuery = q.query;
+    }
+  }
+  // No striking query → conservative demand-based estimate so it still ranks.
+  if (stake === 0 && (m.demand ?? 0) > 0) stake = Math.round((m.demand as number) * 0.05);
+  if (stake <= 0) return null;
+  const detail =
+    kind === "cite"
+      ? `AI cites competitors here — ~${stake.toLocaleString()} clicks/mo in play`
+      : kind === "build"
+        ? `competitors own this — ~${stake.toLocaleString()} clicks/mo to claim`
+        : `~${stake.toLocaleString()} clicks/mo in reach`;
+  return {
+    kind,
+    query: bestQuery,
+    page: m.targetUrl,
+    clicksAtStake: stake,
+    detail,
+    route: workbenchHref(m.targetUrl),
+  };
+}
+
 export async function TodayOpportunitiesFeed() {
   let items: ReturnType<typeof buildOpportunityFeed> = [];
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking] = await Promise.all([
+    const [declines, striking, hero] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
+      loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
     ]);
-    items = buildOpportunityFeed(declines, striking, clicksAtStakeForStriking);
+    const extra = (hero?.moves ?? [])
+      .map((m) => moveToItem(m))
+      .filter((x): x is OpportunityItem => x != null);
+    items = buildOpportunityFeed(declines, striking, clicksAtStakeForStriking, { extra });
   } catch {
     return null;
   }
@@ -71,11 +139,9 @@ export async function TodayOpportunitiesFeed() {
                 {i + 1}
               </span>
               <span
-                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  it.kind === "recover" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"
-                }`}
+                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${KIND_STYLE[it.kind]}`}
               >
-                {it.kind === "recover" ? "Recover" : "Win"}
+                {KIND_LABEL[it.kind]}
               </span>
               <span className="min-w-0">
                 <span className="font-medium text-gray-900">{it.query}</span>

@@ -74,4 +74,32 @@ describe("buildOpportunityFeed", () => {
     const feed = buildOpportunityFeed([decl("https://x/a", "q", 300, 50)], [], clicksAtStakeForStriking);
     expect(feed[0]!.route).toContain("/proof?page=");
   });
+
+  it("merges extra items (worklist moves) into the same ranked list", () => {
+    const extra = [
+      { kind: "cite" as const, query: "big citation gap", page: "https://x/cite", clicksAtStake: 999, detail: "ai cites competitors", route: "/workbench/abc" },
+    ];
+    const feed = buildOpportunityFeed(
+      [decl("https://x/a", "small", 60, 40)], // 20 lost
+      [strike("https://x/b", "mid", 1000, 9)],
+      clicksAtStakeForStriking,
+      { extra },
+    );
+    expect(feed[0]!.kind).toBe("cite"); // the 999-stake move tops the list
+    expect(new Set(feed.map((f) => f.kind))).toContain("cite");
+  });
+
+  it("extra items are subject to the same dedup (page+query)", () => {
+    const extra = [
+      { kind: "edit" as const, query: "shared", page: "https://x/p", clicksAtStake: 5, detail: "", route: "/w" },
+    ];
+    const feed = buildOpportunityFeed(
+      [decl("https://x/p", "shared", 300, 50)], // 250 lost — bigger
+      [],
+      clicksAtStakeForStriking,
+      { extra },
+    );
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.kind).toBe("recover"); // bigger stake wins the dedup
+  });
 });
