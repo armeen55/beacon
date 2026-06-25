@@ -7,7 +7,10 @@ import {
 import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildRecommendationDetailHref } from "@/components/recommendations/v2/recommendation-route-id";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { loadTodayMovesHeroData } from "./today-moves-data";
+import { WorklistExportButton } from "./worklist-export-button";
+import { type ExportItem } from "./worklist-export";
 import {
   buildOpportunityFeedWithTotals,
   type OpportunityItem,
@@ -95,26 +98,40 @@ function moveToItem(m: {
 
 export async function TodayOpportunitiesFeed() {
   let items: OpportunityItem[] = [];
+  let allItems: OpportunityItem[] = [];
   let total = 0;
   let totalClicks = 0;
+  let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero] = await Promise.all([
+    const [declines, striking, hero, cfg] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
+      getBusinessConfigForCurrentTenant().catch(() => null),
     ]);
+    siteName = cfg?.name ?? "";
     const extra = (hero?.moves ?? [])
       .map((m) => moveToItem(m))
       .filter((x): x is OpportunityItem => x != null);
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
     items = result.items;
+    allItems = result.all;
     total = result.total;
     totalClicks = result.totalClicksAtStake;
   } catch {
     return null;
   }
   if (items.length === 0) return null;
+
+  // Full ranked list → a shareable work doc for the operator's dev/VA team.
+  const exportItems: ExportItem[] = allItems.map((it) => ({
+    kind: it.kind,
+    query: it.query,
+    page: it.page,
+    clicksAtStake: it.clicksAtStake,
+    detail: it.detail,
+  }));
 
   return (
     <section className="rounded-3xl border border-violet-200/70 bg-gradient-to-br from-violet-50/60 via-white to-sky-50/40 p-6 shadow-sm">
@@ -131,10 +148,13 @@ export async function TodayOpportunitiesFeed() {
             ) : null}
           </p>
         </div>
-        <div className="rounded-xl border border-violet-100 bg-white px-4 py-2 text-right">
-          <div className="text-2xl font-semibold tracking-tight text-violet-600">~{fmtNum(totalClicks)}</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-            monthly clicks at stake{total > items.length ? " (all moves)" : ""}
+        <div className="flex items-center gap-3">
+          <WorklistExportButton items={exportItems} siteName={siteName} />
+          <div className="rounded-xl border border-violet-100 bg-white px-4 py-2 text-right">
+            <div className="text-2xl font-semibold tracking-tight text-violet-600">~{fmtNum(totalClicks)}</div>
+            <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+              monthly clicks at stake{total > items.length ? " (all moves)" : ""}
+            </div>
           </div>
         </div>
       </div>
