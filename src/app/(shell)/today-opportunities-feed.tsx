@@ -8,8 +8,7 @@ import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import {
-  buildOpportunityFeed,
-  feedClicksAtStake,
+  buildOpportunityFeedWithTotals,
   type OpportunityItem,
   type FeedKind,
 } from "./today-opportunities-feed-rows";
@@ -91,7 +90,9 @@ function moveToItem(m: {
 }
 
 export async function TodayOpportunitiesFeed() {
-  let items: ReturnType<typeof buildOpportunityFeed> = [];
+  let items: OpportunityItem[] = [];
+  let total = 0;
+  let totalClicks = 0;
   try {
     const tenantId = await currentTenantId();
     const [declines, striking, hero] = await Promise.all([
@@ -102,13 +103,14 @@ export async function TodayOpportunitiesFeed() {
     const extra = (hero?.moves ?? [])
       .map((m) => moveToItem(m))
       .filter((x): x is OpportunityItem => x != null);
-    items = buildOpportunityFeed(declines, striking, clicksAtStakeForStriking, { extra });
+    const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
+    items = result.items;
+    total = result.total;
+    totalClicks = result.totalClicksAtStake;
   } catch {
     return null;
   }
   if (items.length === 0) return null;
-
-  const totalClicks = feedClicksAtStake(items);
 
   return (
     <section className="rounded-3xl border border-violet-200/70 bg-gradient-to-br from-violet-50/60 via-white to-sky-50/40 p-6 shadow-sm">
@@ -120,11 +122,16 @@ export async function TodayOpportunitiesFeed() {
           <p className="mt-1 max-w-xl text-sm text-gray-500">
             Your highest-impact moves across the whole site, ranked by the clicks at stake — whether you&apos;re
             losing them or just within reach of winning them. Start at the top.
+            {total > items.length ? (
+              <span className="ml-1 text-gray-400">Showing the top {items.length} of {total}.</span>
+            ) : null}
           </p>
         </div>
         <div className="rounded-xl border border-violet-100 bg-white px-4 py-2 text-right">
           <div className="text-2xl font-semibold tracking-tight text-violet-600">~{fmtNum(totalClicks)}</div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500">monthly clicks at stake</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+            monthly clicks at stake{total > items.length ? " (all moves)" : ""}
+          </div>
         </div>
       </div>
 
