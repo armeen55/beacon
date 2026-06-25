@@ -57,6 +57,10 @@ import {
   loadShippedChanges,
   type ShippedChangeRecord,
 } from "@/domains/proof-gsc/shipped-change-store";
+import {
+  loadTopQueriesForPages,
+  isStrikingDistance,
+} from "@/domains/recommendation-intelligence/gsc-page-queries";
 
 /** Host-stripped path key — mirrors bridge.ts's private `toPath`. */
 function toPath(u: string): string {
@@ -344,7 +348,7 @@ export async function loadWorkbench(
   const crawl = packet.crawl;
   const ageDays = crawlAgeDays(crawl?.fetchedAt ?? null, now);
 
-  const strikingDistance: WorkbenchStrikingTerm[] = (packet.semrush?.keywords ?? [])
+  let strikingDistance: WorkbenchStrikingTerm[] = (packet.semrush?.keywords ?? [])
     .filter(
       (k) =>
         k.position != null &&
@@ -355,6 +359,44 @@ export async function loadWorkbench(
     .sort((a, b) => b.volume - a.volume)
     .slice(0, 8)
     .map((k) => ({ keyword: k.keyword, volume: k.volume, position: k.position as number }));
+
+  // Packet GSC topQueries (the Page Surgeon context's per-page GSC).
+  let topQueries: WorkbenchTopQuery[] = (packet.gsc?.topQueries ?? []).map((q) => ({
+    query: q.query,
+    impressions: q.impressions,
+    clicks: q.clicks,
+    ctr: q.ctr,
+    position: q.position,
+  }));
+
+  // RESILIENCE (2026-06-25): the cockpit's site-wide scans surface opportunities
+  // from `gsc_daily_rows` for pages the Page Surgeon context's GSC set doesn't
+  // cover (e.g. a crawled page with no per-query packet rows). Without this, a
+  // high-value "Act →" lands on an EMPTY Workbench. When the packet yields no
+  // queries, hydrate directly from the same bounded per-page GSC read the cockpit
+  // uses — so every routed page shows its real queries + striking terms.
+  if (topQueries.length === 0 && canon) {
+    const fb = await loadTopQueriesForPages(tenantId, [canon]).catch(
+      () => new Map<string, Array<{ query: string; clicks: number; impressions: number; position: number }>>(),
+    );
+    const qs = fb.get(canon) ?? [...fb.values()][0] ?? [];
+    if (qs.length > 0) {
+      topQueries = qs.map((q) => ({
+        query: q.query,
+        impressions: q.impressions,
+        clicks: q.clicks,
+        ctr: q.impressions > 0 ? q.clicks / q.impressions : 0,
+        position: q.position,
+      }));
+      if (strikingDistance.length === 0) {
+        strikingDistance = qs
+          .filter((q) => isStrikingDistance(q.position, q.impressions))
+          .sort((a, b) => b.impressions - a.impressions)
+          .slice(0, 8)
+          .map((q) => ({ keyword: q.query, volume: q.impressions, position: q.position }));
+      }
+    }
+  }
 
   // Deep Workbench Optimizer: project the packet + pack + worst cannibalization
   // into the per-lever action matrix + ranked picks. Pure, no new I/O.
@@ -380,13 +422,7 @@ export async function loadWorkbench(
       extractionCertainty: crawl?.extractionCertainty ?? null,
     },
     opportunity: buildOpportunitySummary(packet, canon, path, packStatus === "pack"),
-    topQueries: (packet.gsc?.topQueries ?? []).map((q) => ({
-      query: q.query,
-      impressions: q.impressions,
-      clicks: q.clicks,
-      ctr: q.ctr,
-      position: q.position,
-    })),
+    topQueries,
     strikingDistance,
     cannibalization,
     diagnosis: buildDiagnosisMatrix(packet, worstCannibal),
