@@ -7,8 +7,10 @@ import {
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadLatestPageSnapshots } from "@/domains/recommendation-intelligence/page-freshness";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { estimatedCtr } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildThinPages } from "./today-thin-rows";
+import { buildCtrGapRows } from "./today-ctrgap-rows";
 import { buildLeveragePages, type PageSignalInput, type LeveragePage } from "./today-leverage-rows";
 
 /**
@@ -32,6 +34,7 @@ const SIGNAL_STYLE: Record<string, string> = {
   Rising: "bg-teal-100 text-teal-700",
   Thin: "bg-amber-100 text-amber-700",
   Striking: "bg-emerald-100 text-emerald-700",
+  Snippet: "bg-orange-100 text-orange-700",
 };
 
 export async function TodayLeverageSection() {
@@ -66,6 +69,10 @@ export async function TodayLeverageSection() {
     }
     for (const t of buildThinPages(snaps.map((s) => ({ url: s.url, wordCount: s.wordCount })), imprByUrl)) {
       signals.push({ page: canon(t.url), signal: "Thin", clicksAtStake: Math.round(t.impressions * 0.15) });
+    }
+    // Snippet (CTR-gap) — reuse the already-loaded pages; clicksLeft is the stake.
+    for (const c of buildCtrGapRows(pages, estimatedCtr)) {
+      signals.push({ page: canon(c.page), signal: "Snippet", clicksAtStake: c.clicksLeft });
     }
     rows = buildLeveragePages(signals);
   } catch {
