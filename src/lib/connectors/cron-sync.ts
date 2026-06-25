@@ -7,6 +7,7 @@ import { syncSemrushOrganicKeywordsForTenant } from "@/lib/connectors/semrush/sy
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
+import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -256,7 +257,31 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     }
   }
 
-  // PHASE 2 — §6 move-draft precompute, AFTER all data is fresh. No-op unless
+  // PHASE 2a — Step 3 competitor teardown (deterministic, FREE: polite HTTP only,
+  // no LLM/paid API). Populates `competitor_page_audit` so the cockpit + New Pages
+  // board show "what wins" everywhere, not just where the operator visited the
+  // diagnostics page. Idempotent (caches ok audits) + fail-soft. Runs BEFORE the
+  // precompute so drafts get fresh teardown grounding.
+  for (const t of tenants) {
+    try {
+      const a = await auditTopCompetitorsForTenant({ tenantId: t.id, limit: 15 });
+      if (a.audited.length > 0) {
+        log.info("[cron-sync] competitor teardown", {
+          tenantId: t.id,
+          audited: a.audited.length,
+          targets: a.targets,
+          cached: a.cached,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] teardown failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 2b — §6 move-draft precompute, AFTER all data is fresh. No-op unless
   // BEACON_LLM_PROVIDER=openai; budget-capped + idempotent (only un-drafted Moves
   // → steady-state ~free) + fail-soft (per-tenant try/catch, never affects sync).
   for (const t of tenants) {
