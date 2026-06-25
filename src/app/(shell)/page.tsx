@@ -48,6 +48,7 @@ import { StateOfUnionSection } from "./state-of-union-section";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
+import { TodayMoneyLeakSection } from "./today-moneyleak-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import {
   createPerfTrace,
@@ -245,6 +246,11 @@ async function TodayV2SectionedContent() {
           pages in striking distance (pos 4–15, real demand). Own Suspense / self-hides. */}
       <Suspense fallback={null}>
         <TodayQuickWinsSection />
+      </Suspense>
+      {/* Fix conversion leaks (2026-06-25, L8/CRO) — the REVENUE site-wide lens:
+          high-traffic pages with Clarity friction leaking conversions. Own Suspense / self-hides. */}
+      <Suspense fallback={null}>
+        <TodayMoneyLeakSection />
       </Suspense>
       {/* New Pages to Build (2026-06-24) — the create_page half of the engine:
           topics competitors own that the tenant has no page for. These never
