@@ -410,19 +410,31 @@ export async function auditTopCompetitorsForTenant(
   const { graph } = await loadDemandGraphForTenant(args.tenantId);
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
 
-  // The per-move top competitor URLs (what the packets reference), deduped.
+  const cache = await getCompetitorAuditsForTenant();
+  const cacheKey = (u: string) => canonicalizeCitationUrl(u) || u;
+  // A competitor we've already fetched and FAILED on (blocks crawlers / 404 / non-
+  // HTML) — don't keep picking it as the move's teardown target when a fetchable
+  // rival sits one slot down in the citation list.
+  const knownBad = (u: string) => {
+    const a = cache.get(cacheKey(u));
+    return Boolean(a && a.fetchStatus !== "ok");
+  };
+
+  // Per move, pick the FIRST cited competitor that isn't a known failure (so a
+  // blocked top competitor falls through to the next), then dedupe globally. This
+  // keeps teardown coverage high without auditing every competitor of every move.
   const urls: string[] = [];
   const seen = new Set<string>();
   for (const m of actionable.slice(0, limit)) {
-    const u = m.competitorUrls[0];
-    if (!u) continue;
-    const key = canonicalizeCitationUrl(u) || u;
+    const pick =
+      m.competitorUrls.find((u) => u && !knownBad(u)) ?? m.competitorUrls[0];
+    if (!pick) continue;
+    const key = cacheKey(pick);
     if (seen.has(key)) continue;
     seen.add(key);
-    urls.push(u);
+    urls.push(pick);
   }
 
-  const cache = await getCompetitorAuditsForTenant();
   const out: CompetitorPageAudit[] = [];
   let cached = 0;
   for (const url of urls) {
