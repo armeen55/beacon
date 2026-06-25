@@ -122,7 +122,7 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
 });
 
 describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
-  it("returns exactly the 14 customer-queue-ready pairs in stable order", () => {
+  it("returns exactly the 17 customer-queue-ready pairs in stable order", () => {
     const pairs = listCustomerQueueReadyPairs();
     expect(pairs).toEqual([
       "missing_title::edit_title",
@@ -141,12 +141,28 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
       "missing_schema_store::add_schema",
       "gsc_striking_distance::edit_title",
       "gsc_decay::update_intro",
+      // Demand-graph engine (2026-06-24): the Rank-&-Revenue engine's ranked
+      // Moves, each carrying a full evidence packet (more grounded than the
+      // legacy raw-signal triggers). Flag-gated per tenant (BEACON_DEMAND_GRAPH_RECS).
+      "demand_graph_edit_page::edit_title",
+      "demand_graph_answer_block::add_answer_block",
+      "demand_graph_fix_experience::fix_page_experience",
     ]);
+  });
+
+  it("returns blocked for demand_graph_create_page (factory path, not edit queue)", () => {
+    expect(eligibilityForTrigger("demand_graph_create_page", "create_page")).toBe("blocked");
   });
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (33 post-improve-meta)", () => {
+  it("table size matches the locked entry count (36 post-demand-graph)", () => {
+    // 17 customer-queue-ready + 13 operator-review-only + 4 diagnostic-only = 36.
+    // Demand-graph engine (2026-06-24) added 3 customer-queue-ready pairs
+    // (demand_graph_edit_page::edit_title, demand_graph_answer_block::add_answer_block,
+    // demand_graph_fix_experience::fix_page_experience). create_page is intentionally
+    // NOT registered → stays "blocked" from the edit queue (factory/diagnostic path).
+    // ── prior history ──
     // 14 customer-queue-ready + 13 operator-review-only + 4 diagnostic-only = 33.
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
@@ -159,6 +175,6 @@ describe("promotion-eligibility / table snapshot", () => {
     // (operator-review-only — the first trigger to consume Profound).
     // Root-cause-#3 gap (2026-06-16) added `missing_meta::improve_meta`
     // (customer-queue-ready — NON-PUSHABLE directive for un-draftable metas).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(33);
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(36);
   });
 });

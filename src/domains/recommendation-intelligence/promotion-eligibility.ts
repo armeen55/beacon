@@ -162,6 +162,18 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // Decay slice (2026-06-12): both first-party decay signals crossed
   // (clicks -20%+ AND weighted position worse) -> refresh.
   ["gsc_decay::update_intro", "customer-queue-ready"],
+  // Demand-graph engine (2026-06-24): the Rank-&-Revenue engine's ranked
+  // Moves. These carry a FULL evidence packet (GSC demand + competitor
+  // teardown + relevance gate + friction urgency) — strictly more grounded
+  // than the legacy raw-signal answer_block/edit triggers — so they graduate
+  // to customer-queue-ready (surfaced for the operator to review + Accept; the
+  // operator still ships manually). Tenant-agnostic; flag-gated per tenant via
+  // BEACON_DEMAND_GRAPH_RECS (Iranopedia-only at launch). create_page Moves are
+  // intentionally NOT here — they belong in the page-factory / "new pages to
+  // build" diagnostic, not the edit queue.
+  ["demand_graph_edit_page::edit_title", "customer-queue-ready"],
+  ["demand_graph_answer_block::add_answer_block", "customer-queue-ready"],
+  ["demand_graph_fix_experience::fix_page_experience", "customer-queue-ready"],
 
   // ── diagnostic-only ───────────────────────────────────────────
   // Pending industry calibration. Schema expectations are
