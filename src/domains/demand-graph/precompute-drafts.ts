@@ -65,22 +65,34 @@ export async function precomputeMoveDraftsForTenant(
     return base;
   }
 
-  // Only AI-citation Moves that don't already have a saved answer block.
+  // AI-citation Moves OR pages actively LOSING clicks (≥40% drop) — both want a
+  // ready, paste-able answer/refresh block. Skip ones that already have one saved.
   const targets = data.moves
-    .filter((m) => m.actionTone === "citation" && !m.savedAnswerBlock)
+    .filter(
+      (m) =>
+        !m.savedAnswerBlock &&
+        (m.actionTone === "citation" || m.declines.some((d) => d.dropPct >= 40)),
+    )
     .slice(0, maxMoves);
 
   const result: PrecomputeResult = { ...base, skipped: false, consideredCitationMoves: targets.length };
 
   for (const m of targets) {
-    // Answer block.
+    // Answer block. For a declining page, seed the brief with the LOST queries so
+    // the refreshed answer directly targets what the page is shedding clicks on.
+    const decliningQs = m.declines.filter((d) => d.dropPct >= 40).map((d) => d.query);
+    const brief =
+      decliningQs.length > 0
+        ? `This page is losing Google clicks on: ${decliningQs.join(", ")}. ${m.answerBrief ?? ""} Write an updated, comprehensive answer that directly and strongly covers these so the page can recover.`.trim()
+        : m.answerBrief;
+    const faqs = decliningQs.length > 0 ? [...new Set([...m.faqs, ...decliningQs])] : m.faqs;
     try {
       const r = await draftAnswerBlockWithLLM({
         query: m.query,
         pageLabel: m.pageLabel,
-        brief: m.answerBrief,
+        brief,
         outline: m.outline,
-        faqs: m.faqs,
+        faqs,
       });
       if (r.status === "ok") {
         result.spendUsd += r.costUsd;
