@@ -94,7 +94,8 @@ describe("loadDemandGraphForTenant — wires real loaders into the graph", () =>
   it("Clarity friction on a top page surfaces fix_experience", async () => {
     gscMock.mockResolvedValue(
       new Map([
-        ["https://x.com/flags", gscPage({ page: "https://x.com/flags", clicks90d: 400, impressions90d: 10000, ctr90d: 0.04, position90d: 2, topQueries: [{ query: "iran flag", clicks: 400, impressions: 10000, ctr: 0.04, position: 2 }] })],
+        // healthy CTR @ pos 2 → NOT weak; friction is the ONLY issue → fix_experience
+        ["https://x.com/flags", gscPage({ page: "https://x.com/flags", clicks90d: 3000, impressions90d: 10000, ctr90d: 0.30, position90d: 2, topQueries: [{ query: "iran flag", clicks: 3000, impressions: 10000, ctr: 0.30, position: 2 }] })],
       ]),
     );
     clarityMock.mockResolvedValue(
