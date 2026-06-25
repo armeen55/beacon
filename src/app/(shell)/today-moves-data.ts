@@ -7,6 +7,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { loadGscCannibalizationForTenant, type GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
+import { indexCannibalizationByUrl } from "./today-declines-rows";
 import {
   loadTopQueriesForPages,
   loadQueryDeclinesForPages,
@@ -363,17 +364,7 @@ export async function buildTodayMovesData(
 
     // Index cannibalization cases by each competing own-URL → the cases it's in
     // (with the OTHER competing pages), so a Move whose page self-competes shows it.
-    const cannibalByUrl = new Map<string, { query: string; otherPages: string[] }[]>();
-    for (const c of cannibalCases) {
-      for (const cu of c.competingUrls) {
-        const key = canon(cu.url);
-        const others = c.competingUrls.filter((x) => canon(x.url) !== key).map((x) => prettyPage(x.url));
-        if (others.length === 0) continue;
-        const arr = cannibalByUrl.get(key) ?? [];
-        arr.push({ query: c.query, otherPages: [...new Set(others)].slice(0, 3) });
-        cannibalByUrl.set(key, arr);
-      }
-    }
+    const cannibalByUrl = indexCannibalizationByUrl(cannibalCases, canon, prettyPage);
 
     for (const m of pool) {
       m.topQueries = queryMap.get(m.targetUrl) ?? [];

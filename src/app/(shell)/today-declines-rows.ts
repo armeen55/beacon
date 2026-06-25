@@ -1,4 +1,5 @@
 import type { TodayMove } from "./today-moves-data";
+import type { GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 
 /**
  * Pure helpers for the "Recover lost ground" section — no server imports, so they
@@ -44,4 +45,30 @@ export function buildRecoveryRows(
 /** Total monthly clicks slipping across the recovery rows (never negative). */
 export function recoveryClicksLost(rows: ReadonlyArray<RecoveryRow>): number {
   return rows.reduce((s, r) => s + Math.max(0, r.priorClicks - r.recentClicks), 0);
+}
+
+/**
+ * Index cannibalization cases by each competing own-URL → the cases it's in (with
+ * the OTHER competing pages named). Pure (canon + pretty injected) so it's unit-
+ * testable. A self-competing case needs ≥2 own-URLs; the URL's own entry is
+ * excluded from its "otherPages".
+ */
+export function indexCannibalizationByUrl(
+  cases: ReadonlyArray<Pick<GscCannibalizationCase, "query" | "competingUrls">>,
+  canon: (u: string) => string,
+  pretty: (u: string) => string,
+  maxOthers = 3,
+): Map<string, { query: string; otherPages: string[] }[]> {
+  const out = new Map<string, { query: string; otherPages: string[] }[]>();
+  for (const c of cases) {
+    for (const cu of c.competingUrls) {
+      const key = canon(cu.url);
+      const others = c.competingUrls.filter((x) => canon(x.url) !== key).map((x) => pretty(x.url));
+      if (others.length === 0) continue;
+      const arr = out.get(key) ?? [];
+      arr.push({ query: c.query, otherPages: [...new Set(others)].slice(0, maxOthers) });
+      out.set(key, arr);
+    }
+  }
+  return out;
 }

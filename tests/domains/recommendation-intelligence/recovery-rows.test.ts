@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { buildRecoveryRows, recoveryClicksLost } from "@/app/(shell)/today-declines-rows";
+import {
+  buildRecoveryRows,
+  recoveryClicksLost,
+  indexCannibalizationByUrl,
+} from "@/app/(shell)/today-declines-rows";
 
 // Minimal move shapes — only the fields buildRecoveryRows reads.
 const decl = (query: string, dropPct: number, priorClicks: number, recentClicks: number, positionSlip = 0) => ({
@@ -44,5 +48,28 @@ describe("buildRecoveryRows", () => {
   it("never goes negative if a query somehow grew", () => {
     const rows = buildRecoveryRows([move("a", "A", [decl("grew", 0, 50, 80)])]);
     expect(recoveryClicksLost(rows)).toBe(0);
+  });
+});
+
+describe("indexCannibalizationByUrl", () => {
+  const canon = (u: string) => u.toLowerCase().replace(/\/$/, "");
+  const pretty = (u: string) => u.split("/").pop() || u;
+  const cu = (url: string) => ({ url, clicks: 0, impressions: 0, position: 0 });
+  const kase = (query: string, urls: string[]) =>
+    ({ query, competingUrls: urls.map(cu) }) as never;
+
+  it("maps each competing URL to its cases, excluding itself from otherPages", () => {
+    const idx = indexCannibalizationByUrl([kase("iran flag", ["/iran-flag", "/pahlavi-flag", "/qajar-flag"])], canon, pretty);
+    expect(idx.get("/iran-flag")).toEqual([{ query: "iran flag", otherPages: ["pahlavi-flag", "qajar-flag"] }]);
+    expect(idx.get("/pahlavi-flag")![0].otherPages).toEqual(["iran-flag", "qajar-flag"]);
+  });
+
+  it("skips single-URL cases (not actually cannibalization)", () => {
+    expect(indexCannibalizationByUrl([kase("solo", ["/only"])], canon, pretty).size).toBe(0);
+  });
+
+  it("caps otherPages", () => {
+    const idx = indexCannibalizationByUrl([kase("q", ["/a", "/b", "/c", "/d", "/e"])], canon, pretty, 2);
+    expect(idx.get("/a")![0].otherPages).toHaveLength(2);
   });
 });
