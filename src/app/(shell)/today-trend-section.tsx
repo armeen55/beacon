@@ -94,7 +94,7 @@ export async function TodayTrendSection() {
       {trend.direction === "declining" ? (
         <p className="mt-3 text-sm text-gray-600">
           Down {Math.abs(trend.deltaPct)}% over the period.{" "}
-          <Link href="#sec-recover" className="font-semibold text-rose-600 hover:text-rose-800">
+          <Link href="#sec-momentum" className="font-semibold text-rose-600 hover:text-rose-800">
             See the pages dragging it down →
           </Link>
         </p>
