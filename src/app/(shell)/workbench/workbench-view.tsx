@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { PageBriefButton } from "./page-brief-button";
 import type { WorkbenchData } from "./workbench-data";
 import type { DiagnosisStatus } from "@/domains/insight/diagnosis-matrix";
 import type {
@@ -411,7 +412,32 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
               Already updated this page on your site? Check results &rarr;
             </Link>
           </div>
-          <PrimaryCta data={data} />
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <PrimaryCta data={data} />
+            <PageBriefButton
+              brief={{
+                path: data.path,
+                canonUrl: data.canonUrl,
+                title: identity.title,
+                h1: identity.h1,
+                metaDescription: identity.metaDescription,
+                topQueries: topQueries.map((q) => ({
+                  query: q.query,
+                  impressions: q.impressions,
+                  clicks: q.clicks,
+                  position: q.position,
+                })),
+                strikingDistance: strikingDistance.map((s) => ({
+                  keyword: s.keyword,
+                  volume: s.volume,
+                  position: s.position,
+                })),
+                bestMove: optimizer.bestNextMove
+                  ? `${optimizer.bestNextMove.label} — ${optimizer.bestNextMove.evidence}`
+                  : null,
+              }}
+            />
+          </div>
         </div>
 
         <dl className="mt-4 grid gap-3 sm:grid-cols-3">
