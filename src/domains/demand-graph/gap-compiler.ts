@@ -11,7 +11,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import type { PageSnapshot } from "@/domains/pages/types";
 
-import { loadDemandGraphForTenant } from "./load-graph";
+import { loadDemandGraphForTenantCached } from "./load-graph";
 import { getCompetitorAuditsForTenant } from "./competitor-page-audit";
 import {
   buildEvidencePacket,
@@ -72,7 +72,7 @@ export async function loadChangePacksForTenant(
   const limit = opts.limit ?? 25;
 
   const [{ graph }, audits, snapshots, gscSignals] = await Promise.all([
-    loadDemandGraphForTenant(tenantId),
+    loadDemandGraphForTenantCached(tenantId),
     getCompetitorAuditsForTenant().catch(() => new Map()),
     getRepository()
       .forTenant(tenantId)

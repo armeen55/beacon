@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
+import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
@@ -59,8 +59,8 @@ export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   try {
     const [graphRes, auditRes] = await Promise.all([
-      withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenant>> | null>(
-        loadDemandGraphForTenant(tenantId),
+      withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
+        loadDemandGraphForTenantCached(tenantId),
         8000,
         null,
       ),

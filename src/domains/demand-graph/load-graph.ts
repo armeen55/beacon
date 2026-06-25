@@ -17,6 +17,7 @@
  */
 
 import "server-only";
+import { cache } from "react";
 
 import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
@@ -140,6 +141,19 @@ export function cleanTopicLabel(label: string): string {
   const tokens = stripLeadingCmsTokens(label.trim().toLowerCase().split(/\s+/).filter(Boolean));
   return tokens.length ? tokens.join(" ") : label.trim();
 }
+
+/**
+ * Request-cached, single-arg entry point. The heavy graph compute (a paginated
+ * ~22k-row competitor-citation read + GSC/GA4/Clarity reads + in-memory assembly)
+ * is triggered by MULTIPLE in-request callers on one `/` render (Today's Moves via
+ * the change-pack loader + the New Pages board directly). `react.cache` keys on the
+ * args, so this single-arg wrapper shares ONE compute per tenant per request —
+ * halving the Supabase egress on the most-loaded page. Use this on render paths;
+ * the raw function stays for callers that pass an explicit `now`/`config`.
+ */
+export const loadDemandGraphForTenantCached = cache(
+  (tenantId: string): Promise<LoadGraphResult> => loadDemandGraphForTenant(tenantId),
+);
 
 export async function loadDemandGraphForTenant(
   tenantId: string,
