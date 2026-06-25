@@ -341,7 +341,21 @@ export async function buildTodayMovesData(
       5000,
       new Map<string, PageQuery[]>(),
     );
-    for (const m of pool) m.topQueries = queryMap.get(m.targetUrl) ?? [];
+    for (const m of pool) {
+      m.topQueries = queryMap.get(m.targetUrl) ?? [];
+      // Re-seed the CTR Title Lab from the page's top GSC query (prefer a
+      // striking-distance one) when we have it — so title variants target the
+      // EXACT phrasing the page measurably ranks for, not just the topic label.
+      if (m.action === "edit_title" && m.topQueries.length > 0) {
+        const seed = m.topQueries.find((q) => q.strikingDistance) ?? m.topQueries[0]!;
+        const brand = brandFromUrl(m.targetUrl);
+        const year = new Date().getFullYear();
+        m.titleVariants = titleCandidates(seed.query, brand, year)
+          .map((t) => scoreTitle(t, seed.query, brand))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+      }
+    }
 
     // Quick-win boost: a page already ranking in striking distance (pos 4–15, real
     // demand) is the highest-CERTAINTY win — surface those above equal-score moves.
