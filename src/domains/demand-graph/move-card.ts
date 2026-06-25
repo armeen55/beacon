@@ -10,6 +10,7 @@
 import type { EvidencePacket } from "./evidence-packet";
 import type { GapKind, ConfidenceLevel } from "./build-graph";
 import type { GapKindDetail } from "./evidence-packet";
+import { classifyQueryIntent, type QueryIntent } from "./query-intent";
 
 export type MoveCard = {
   /** Imperative action + subject, e.g. "Create a new page: Persian Wedding". */
@@ -25,6 +26,10 @@ export type MoveCard = {
   /** How we'll know it worked, in plain English. */
   proof: string;
   confidence: ConfidenceLevel;
+  /** Searcher intent — helps match the asset shape (informational vs commercial…). */
+  intent: QueryIntent;
+  /** Plain-language hint on the asset shape that wins this intent. */
+  intentHint: string;
   /** The one-click call to action. */
   ship: string;
 };
@@ -68,6 +73,7 @@ function plainMetric(m: string): string {
 export function formatMoveCard(packet: EvidencePacket): MoveCard {
   const { move, competitor, gaps, draft, proofPlan, demand } = packet;
   const subject = move.label;
+  const intent = classifyQueryIntent(subject);
 
   const why = (() => {
     const bits: string[] = [];
@@ -103,6 +109,8 @@ export function formatMoveCard(packet: EvidencePacket): MoveCard {
     draftReady: !!draft.titleSuggestion || draft.outline.length > 0 || !!draft.answerBlockBrief,
     proof: `We'll watch ${proofPlan.metrics.map(plainMetric).join(", ")} over ${proofPlan.windowsDays.join("/")} days vs similar pages you didn't change.`,
     confidence: move.confidence,
+    intent: intent.intent,
+    intentHint: intent.hint,
     ship: draft.titleSuggestion || draft.outline.length > 0 ? "Review & ship" : "Open to plan",
   };
 }

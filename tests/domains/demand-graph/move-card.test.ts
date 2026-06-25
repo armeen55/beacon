@@ -26,6 +26,8 @@ describe("formatMoveCard (Step 7 bridge, plain language)", () => {
     expect(c.yourGap[0]).toContain("no page");
     expect(c.ship).toBe("Review & ship");
     expect(c.confidence).toBe("medium");
+    expect(c.intent).toBe("informational"); // "persian wedding"
+    expect(c.intentHint.toLowerCase()).toContain("concise answer");
   });
 
   it("loosely-matched competitor → honest 'not confirmed' instead of a teardown", () => {
