@@ -115,16 +115,30 @@ const CMS_PATH_FIRST = new Set([
   "collections", "blog", "blogs", "news", "tag", "tags", "page", "pages",
   "market", "author", "profile", "user", "cart", "account",
 ]);
+// Competitor labels are built from the FULL URL path, so section prefixes leak in
+// (/news/persian-new-year → "news persian new year"). Strip leading CMS prefixes so
+// a real topic that merely sits under /news/ or /blogs/ isn't wrongly dropped.
+function stripLeadingCmsTokens(tokens: string[]): string[] {
+  let t = tokens;
+  while (t.length && CMS_PATH_FIRST.has(t[0]!)) t = t.slice(1);
+  return t;
+}
 export function isJunkTopicLabel(label: string): boolean {
   const l = label.trim().toLowerCase();
   if (!l) return true;
-  const tokens = l.split(/\s+/).filter(Boolean);
-  if (CMS_PATH_FIRST.has(tokens[0] ?? "")) return true;
-  if (l.startsWith("research starters")) return true; // EBSCO-style slug
+  const tokens = stripLeadingCmsTokens(l.split(/\s+/).filter(Boolean));
+  if (tokens.length === 0) return true; // bare CMS path ("shop product", "category")
+  if (tokens.join(" ").startsWith("research starters")) return true; // EBSCO-style slug
   // geo/id slug e.g. g293998 (letter-prefixed) or a long pure-digit id — but NOT
   // a 4-digit year (2026/1998 are legit topic tokens).
   if (tokens.some((t) => /^[a-z]{1,2}\d{3,}$/.test(t) || /^\d{5,}$/.test(t))) return true;
   return false;
+}
+// Display label for a create_page candidate: drop the leaked CMS-section prefixes so
+// the card reads "persian new year", not "news persian new year".
+export function cleanTopicLabel(label: string): string {
+  const tokens = stripLeadingCmsTokens(label.trim().toLowerCase().split(/\s+/).filter(Boolean));
+  return tokens.length ? tokens.join(" ") : label.trim();
 }
 
 export async function loadDemandGraphForTenant(
@@ -261,7 +275,7 @@ export async function loadDemandGraphForTenant(
     ) {
       // unmatched content competitor → a create_page candidate, grouped by topic
       const tkey = "gap:" + c.topicTokens.slice(0, 3).sort().join("-");
-      const ex = createByTopic.get(tkey) ?? { label: c.label, urls: [], citationCount: 0, modelCount: 0 };
+      const ex = createByTopic.get(tkey) ?? { label: cleanTopicLabel(c.label), urls: [], citationCount: 0, modelCount: 0 };
       ex.urls.push(c.url);
       ex.citationCount += c.citationCount;
       ex.modelCount = Math.max(ex.modelCount, c.modelCount);
