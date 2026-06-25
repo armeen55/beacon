@@ -46,6 +46,7 @@ import { CollapsibleSection } from "@/components/today/collapsible-section";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { StateOfUnionSection } from "./state-of-union-section";
 import { TodayMovesHeroSection } from "./today-moves-hero";
+import { TodayNewPagesSection } from "./today-newpages-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -231,6 +232,13 @@ async function TodayV2SectionedContent() {
           section self-hides when the engine is off for the tenant (no Moves). */}
       <Suspense fallback={null}>
         <TodayMovesHeroSection />
+      </Suspense>
+      {/* New Pages to Build (2026-06-24) — the create_page half of the engine:
+          topics competitors own that the tenant has no page for. These never
+          enter the edit queue (they're new pages), so this board is their home.
+          Own Suspense / self-hides when there are none. */}
+      <Suspense fallback={null}>
+        <TodayNewPagesSection />
       </Suspense>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
           the TOP of the cockpit and ORIENTS the operator through the one
