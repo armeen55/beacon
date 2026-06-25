@@ -70,16 +70,19 @@ export class DataForSeoSerpProvider implements SerpProvider {
   readonly name = "dataforseo";
   private readonly login: string | undefined;
   private readonly password: string | undefined;
+  private readonly authB64: string | undefined;
   private readonly enabled: boolean;
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
     this.login = env.DATAFORSEO_LOGIN;
     this.password = env.DATAFORSEO_PASSWORD;
+    this.authB64 = env.DATAFORSEO_AUTH_B64;
     this.enabled = env.BEACON_SERP_PROVIDER === "dataforseo";
   }
 
   isConfigured(): boolean {
-    return this.enabled && !!this.login && !!this.password;
+    // Usable auth = the dashboard base64 string OR login+password.
+    return this.enabled && (!!this.authB64 || (!!this.login && !!this.password));
   }
 
   async getSerp(query: string, opts?: { limit?: number; locale?: string }): Promise<SerpSnapshot | null> {

@@ -53,6 +53,10 @@ export type SerpRunResult = {
 export type DataForSeoEnv = {
   login?: string;
   password?: string;
+  /** Pre-encoded base64(login:password) — the "Base64 Format" string DataForSEO
+   *  shows in the dashboard. When present it's used verbatim, bypassing any
+   *  login/password assembly. Most robust auth path. */
+  authB64?: string;
   provider?: string;
   dryRun?: string;
   monthlyCapUsd?: string;
@@ -62,16 +66,25 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): DataForSeoEnv {
   return {
     login: env.DATAFORSEO_LOGIN,
     password: env.DATAFORSEO_PASSWORD,
+    authB64: (env.DATAFORSEO_AUTH_B64 ?? "").trim().replace(/^Basic\s+/i, "") || undefined,
     provider: env.BEACON_SERP_PROVIDER,
     dryRun: env.DATAFORSEO_DRY_RUN,
     monthlyCapUsd: env.DATAFORSEO_MONTHLY_CAP_USD,
   };
 }
 
-/** Configured = provider selected AND both creds present. */
-export function isDataForSeoConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+/** The Basic-auth value to send: the dashboard base64 string if provided, else
+ *  base64(login:password). Returns null when nothing usable is set. */
+export function resolveAuthB64(env: NodeJS.ProcessEnv = process.env): string | null {
   const e = readEnv(env);
-  return e.provider === "dataforseo" && !!e.login && !!e.password;
+  if (e.authB64) return e.authB64;
+  if (e.login && e.password) return Buffer.from(`${e.login}:${e.password}`).toString("base64");
+  return null;
+}
+
+/** Configured = provider selected AND a usable auth (base64 OR login+password). */
+export function isDataForSeoConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return readEnv(env).provider === "dataforseo" && resolveAuthB64(env) !== null;
 }
 
 /** DRY-RUN is the DEFAULT. Only an explicit DATAFORSEO_DRY_RUN=false turns it off. */
@@ -212,9 +225,8 @@ export async function runSerpQuery(
   }
 
   // (5) the paid call.
-  const e = readEnv(deps.env);
   try {
-    const auth = Buffer.from(`${e.login}:${e.password}`).toString("base64");
+    const auth = resolveAuthB64(deps.env) ?? "";
     const res = await deps.fetchImpl(plan.endpoint, {
       method: "POST",
       headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
