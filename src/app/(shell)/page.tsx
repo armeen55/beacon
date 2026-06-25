@@ -48,6 +48,7 @@ import { StateOfUnionSection } from "./state-of-union-section";
 import { CockpitJumpNav } from "./cockpit-jump-nav";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
+import { TodayPositionBandsSection } from "./today-position-bands-section";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
@@ -239,6 +240,7 @@ async function TodayV2SectionedContent() {
       <CockpitJumpNav
         targets={[
           { id: "sec-opportunities", label: "Opportunities" },
+          { id: "sec-bands", label: "Where you rank" },
           { id: "sec-recover", label: "Recover" },
           { id: "sec-recoveries", label: "Turned around" },
           { id: "sec-quickwins", label: "Quick wins" },
@@ -266,6 +268,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-opportunities" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayOpportunitiesFeed />
+        </Suspense>
+      </div>
+      {/* Where you rank (2026-06-25) — portfolio ranking-distribution funnel. Own Suspense / self-hides. */}
+      <div id="sec-bands" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayPositionBandsSection />
         </Suspense>
       </div>
       {/* Recover lost ground (2026-06-25) — the queries the worklist pages are
