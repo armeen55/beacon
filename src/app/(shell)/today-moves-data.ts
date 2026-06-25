@@ -387,6 +387,8 @@ export async function buildTodayMovesData(
       const topDecline = m.declines[0];
       if (topDecline && topDecline.dropPct >= 40) {
         m.why = `You're losing "${topDecline.query}" — clicks dropped ${topDecline.dropPct}% (${topDecline.priorClicks.toLocaleString()} → ${topDecline.recentClicks.toLocaleString()}) over the last month${topDecline.positionSlip >= 1 ? ` as you slipped ${Math.round(topDecline.positionSlip)} positions` : ""}. Refreshing this page can win them back.`;
+        // Symmetric grounded proof — name the exact recovery metric to watch.
+        m.proof = `You'll know it worked when clicks for "${topDecline.query}" recover toward their prior level (~${topDecline.priorClicks.toLocaleString()}/month) over the next few weeks of Search Console data.`;
       }
     }
 
