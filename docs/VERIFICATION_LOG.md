@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-25 — B81 · Operator Execution Layer (Sprint 5) · branch claude/sprint-5-execution-layer (93ddcc88, stacked on Sprint 4, NOT merged)
+
+**Built (pure engine + app loader + UI + actions; NO migration — free-text move_drafts kinds + Sprint-3 proof ledger):**
+- `domains/execution/location-resolver.ts` (5B) — action → location, fail-closed.
+- `domains/execution/implementation-plan.ts` (5A/5C/5G) — Zod schema + buildImplementationPlan + content packs + status machine; fails closed.
+- `app/(shell)/execution-data.ts` — loader (prepared Today Moves via react.cache reuse + demand products → plans).
+- `app/(shell)/execution-section.tsx` + `execution-mark-applied.tsx` (5D) — "Implement" card + confirmation-gated mark-applied + CopyButton; mounted in page.tsx + jump-nav.
+- `app/(shell)/execution-actions.ts` (5E/5F) — markPlanAppliedAction (hard confirmation gate → proof entry → measurement) + captureProofAction (typed proof note).
+
+**Verified:**
+- `npm run typecheck` clean. Targeted vitest (execution + execution-actions + demand + architecture/llm-safety) → **106 passed** (+21 Sprint-5: engine 15 — schema/blocked-location/title-meta/answer/FAQ/product-concept-only/licensing-precedence/verified-inventory/insufficient-evidence/safety-refine; actions 6 — confirmation-required(fail-closed)/operator-gate/missing-url/measurement-start/proof-persist/no-Wix-import). No regressions.
+- **5I cached/live ($0)**: product safety plans real — iran-world-cup-jersey → `legal_or_licensing_risk` (HIGH); nowruz-gifts → `missing_inventory` (concept-only). Content moves localize correctly (iran flag → metadata; persian numbers/food/movies → body section) and **fail closed to `needs_content_review`** when no prepared draft exists (no fabrication). Drafted moves → `ready_to_apply` proven by unit tests; the live cockpit (with prepared moves) shows ready plans. Prepared-Today-Move plans didn't materialize headlessly (today-moves pipeline needs the live render — Supabase degrades headlessly, same env limitation as Sprint 4).
+
+**Safety posture:** no auto-publish · no Wix/CMS write (structurally asserted — execution modules don't import the push path) · mark-applied requires explicit operator confirmation · concept-only never implies live inventory · licensing risk surfaced · no migration · no main merge · no paid calls.
+
+---
+
 ## 2026-06-25 — B80 · Trend Radar (4D) + Store/Product engine (4E) + wiring (4F/4G) · branch claude/sprint-4-demand-expansion (f4100448, NOT merged)
 
 **Built (pure engines + cockpit wiring, no migration):**
