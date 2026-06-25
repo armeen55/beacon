@@ -51,6 +51,7 @@ import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayMoneyLeakSection } from "./today-moneyleak-section";
+import { TodayEntityFoundationSection } from "./today-entity-foundation-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import {
   createPerfTrace,
@@ -266,6 +267,11 @@ async function TodayV2SectionedContent() {
           high-traffic pages with Clarity friction leaking conversions. Own Suspense / self-hides. */}
       <Suspense fallback={null}>
         <TodayMoneyLeakSection />
+      </Suspense>
+      {/* Entity foundation (2026-06-25, L11) — one-time Organization + WebSite JSON-LD
+          (site-level entity recognition for Google + AI). Own Suspense / self-hides. */}
+      <Suspense fallback={null}>
+        <TodayEntityFoundationSection />
       </Suspense>
       {/* New Pages to Build (2026-06-24) — the create_page half of the engine:
           topics competitors own that the tenant has no page for. These never
