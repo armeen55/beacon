@@ -56,12 +56,14 @@ export type LedgerPlatform =
   | "perplexity"
   | "openai"
   | "adjudicator-openai"
+  | "dataforseo-serp"
   | "other";
 
 const VALID_PLATFORMS: ReadonlySet<string> = new Set<LedgerPlatform>([
   "perplexity",
   "openai",
   "adjudicator-openai",
+  "dataforseo-serp",
   "other",
 ]);
 

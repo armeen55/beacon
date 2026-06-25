@@ -82,10 +82,15 @@ export class DataForSeoSerpProvider implements SerpProvider {
     return this.enabled && !!this.login && !!this.password;
   }
 
-  async getSerp(_query: string, _opts?: { limit?: number; locale?: string }): Promise<SerpSnapshot | null> {
-    // Pause rail: no paid API call until the operator enables it. Until the live
-    // fetch is wired (operator-gated), return null = "SERP unknown" (honest).
-    return null;
+  async getSerp(query: string, opts?: { limit?: number; locale?: string }): Promise<SerpSnapshot | null> {
+    // Delegate to the safe runner: cache → DRY-RUN (default, no spend) → hard
+    // monthly cap (fail-closed) → paid call → record spend. Returns the snapshot
+    // only on a real "ok"/"cache_hit"; dry-run/capped/error → null ("SERP unknown",
+    // never fabricated). The live fetch stays inert until the operator sets
+    // DATAFORSEO_DRY_RUN=false AND a tiny test is approved (paid-API pause rail).
+    const { runSerpQuery } = await import("./dataforseo-serp");
+    const r = await runSerpQuery(query, { depth: opts?.limit ?? 10 });
+    return r.snapshot;
   }
 }
 
