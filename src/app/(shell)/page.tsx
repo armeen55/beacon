@@ -49,6 +49,7 @@ import { CockpitJumpNav } from "./cockpit-jump-nav";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayPositionBandsSection } from "./today-position-bands-section";
+import { TodayBrandSplitSection } from "./today-brand-split-section";
 import { TodayTrendSection } from "./today-trend-section";
 import { TodayMomentumSection } from "./today-momentum-section";
 import { TodayDeclinesSection } from "./today-declines-section";
@@ -245,6 +246,7 @@ async function TodayV2SectionedContent() {
           { id: "sec-trend", label: "Traffic trend" },
           { id: "sec-momentum", label: "Pages moving" },
           { id: "sec-bands", label: "Where you rank" },
+          { id: "sec-brand", label: "Branded vs discovery" },
           { id: "sec-recover", label: "Recover" },
           { id: "sec-recoveries", label: "Turned around" },
           { id: "sec-quickwins", label: "Quick wins" },
@@ -290,6 +292,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-bands" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayPositionBandsSection />
+        </Suspense>
+      </div>
+      {/* Branded vs discovery (2026-06-25) — reach split. Own Suspense / self-hides. */}
+      <div id="sec-brand" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayBrandSplitSection />
         </Suspense>
       </div>
       {/* Recover lost ground (2026-06-25) — the queries the worklist pages are
