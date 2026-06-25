@@ -20,6 +20,8 @@ import type { MoveCandidate, ConfidenceLevel } from "@/domains/demand-graph/buil
 import { auditTopCompetitorsForTenant, getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
+import { formatMoveCard } from "@/domains/demand-graph/move-card";
+import { MoveCardList } from "./move-cards";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +91,12 @@ export default async function RankRevenuePage({
 
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
   const top = actionable.slice(0, TOP_N);
+  // §7 Move-ritual cards for the top moves that have a full evidence packet.
+  const moveCards = top
+    .map((m) => packetByKey.get(m.demandKey))
+    .filter((p): p is EvidencePacket => !!p)
+    .slice(0, 8)
+    .map(formatMoveCard);
   const healthyCount = graph.moves.filter((m) => m.gap === "healthy").length;
   const lowDemandCount = graph.moves.filter((m) => m.gap === "low_demand").length;
 
@@ -119,6 +127,17 @@ export default async function RankRevenuePage({
           · {graph.moves.length} clusters · {healthyCount} healthy · {lowDemandCount} below demand floor
         </span>
       </div>
+
+      {moveCards.length > 0 ? (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-gray-800">Your top moves (plain-language)</h2>
+          <p className="text-xs text-gray-500">
+            The §7 Move card — what to do, why, what wins, your gap, and how we&apos;ll prove it. Quick wins
+            are flagged green. The full ranked table with raw scores is below.
+          </p>
+          <MoveCardList cards={moveCards} />
+        </section>
+      ) : null}
 
       {top.length === 0 ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-800">
