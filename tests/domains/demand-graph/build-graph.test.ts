@@ -91,14 +91,34 @@ describe("buildDemandGraph — the everything-helps-everything spine", () => {
         url: "https://iranopedia.com/iran-flags",
         servesDemandKeys: ["iran-flags"],
         gscImpressions: 10000,
-        gscClicks: 400,
+        gscClicks: 3000, // healthy CTR @ pos 2 → NOT weak; friction is the only issue
         gscPosition: 2,
         aiCitationCount: 3,
-        clarityDeadClicks: 60, // friction dominates
+        clarityDeadClicks: 60, // friction-only → fix_experience
       },
     ];
     const g = buildDemandGraph({ demand: d, ownedPages: owned, competitorCitations: [] });
     expect(g.moves.find((x) => x.demandKey === "iran-flags")!.gap).toBe("fix_experience");
+  });
+
+  it("friction does NOT hijack a content gap — cited competitors + high friction → answer_block", () => {
+    const d = [demand({ key: "boy-names", label: "persian boy names", gscImpressions: 40000 })];
+    const owned: OwnedPageInput[] = [
+      {
+        url: "https://iranopedia.com/persian-boy-names",
+        servesDemandKeys: ["boy-names"],
+        gscImpressions: 40000,
+        gscClicks: 12000, // healthy CTR — so it's NOT an edit_page (weak) case
+        gscPosition: 3,
+        aiCitationCount: 0, // you are NOT cited
+        clarityDeadClicks: 90, // high friction — must NOT override the citation gap
+      },
+    ];
+    const competitors = [{ demandKey: "boy-names", url: "teamgroupnames.com/x", weight: 12 }];
+    const g = buildDemandGraph({ demand: d, ownedPages: owned, competitorCitations: competitors });
+    const m = g.moves.find((x) => x.demandKey === "boy-names")!;
+    expect(m.gap).toBe("answer_block"); // strategic gap wins over friction
+    expect(m.rationale.toLowerCase()).toContain("friction"); // friction still surfaced as urgency
   });
 
   it("strong + cited → healthy (monitor, no churn)", () => {
@@ -156,7 +176,7 @@ describe("buildDemandGraph — the everything-helps-everything spine", () => {
   it("exposes raw components + high Clarity friction drives a fix_experience score up", () => {
     const d = [demand({ key: "leak", label: "Leaky", gscImpressions: 9000 })];
     const owned: OwnedPageInput[] = [
-      { url: "https://x.com/leak", servesDemandKeys: ["leak"], gscImpressions: 9000, gscClicks: 350, gscPosition: 2, aiCitationCount: 3, clarityDeadClicks: 80 },
+      { url: "https://x.com/leak", servesDemandKeys: ["leak"], gscImpressions: 9000, gscClicks: 2700, gscPosition: 2, aiCitationCount: 3, clarityDeadClicks: 80 },
     ];
     const g = buildDemandGraph({ demand: d, ownedPages: owned, competitorCitations: [] });
     const m = g.moves.find((x) => x.demandKey === "leak")!;

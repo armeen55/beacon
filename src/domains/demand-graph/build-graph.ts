@@ -355,25 +355,39 @@ export function buildDemandGraph(input: {
         ? `${compEdges.length} competitor page(s) own this demand and you have NO page. Create it — you have the volume, fanouts, and the competitor teardown.`
         : `Real demand with no owned page and no obvious incumbent — a clean land-grab.`;
     } else {
-      const kind = bestOwned!.kind;
+      // Friction is URGENCY, not the strategy. Recompute the strategic signals
+      // independent of the edge.kind (which gets overwritten to owned_friction
+      // when friction is high), so a thin/uncited page isn't mis-classed as
+      // "fix experience" just because Clarity friction is high. Priority:
+      //   answer_block (cited competitors, you're not) > edit_page (weak rank)
+      //   > fix_experience (friction, no stronger content gap) > healthy.
       const citedHere = ownedPage ? ownedPage.aiCitationCount > cfg.notCitedAtOrBelow : false;
-      if (kind === "owned_friction") {
-        gap = "fix_experience";
-        winnability = 0.8;
-        visibilityGap = Math.max(0.2, 1 - node.ownedAiShare);
-        rationale = `You rank here but the page frustrates visitors (Clarity friction ${friction}). Fix the experience before chasing more traffic.`;
-      } else if (compEdges.length > 0 && !citedHere) {
+      const weak = ownedPage
+        ? num(ownedPage.gscCtr) < expectedCtr(ownedPage.gscPosition) * cfg.weakCtrRatio ||
+          (ownedPage.gscPosition ?? 99) > cfg.weakPositionMax
+        : false;
+      const highFriction = friction >= 15;
+      const frictionNote = highFriction
+        ? ` Also: high Clarity friction (${friction}) on this page — fix the dead/rage clicks while you're in here.`
+        : "";
+      if (compEdges.length > 0 && !citedHere) {
         gap = "answer_block";
         winnability = 0.85; // you already rank — just not cited
         visibilityGap = 0.9;
-        rationale = `You have a page but AI cites ${compEdges.length} competitor(s), not you. Add a direct, extractable answer block + the fanout sub-questions to win the citation.`;
-      } else if (kind === "owned_weak") {
+        rationale = `You have a page but AI cites ${compEdges.length} competitor(s), not you. Add a direct, extractable answer block + the fanout sub-questions to win the citation.${frictionNote}`;
+      } else if (weak) {
         gap = "edit_page";
         winnability = 0.9; // striking distance
         // Real AEO gap only where competitors are actually cited; otherwise this
         // is a pure CTR/GSC play, so keep visibilityGap low (no AEO evidence).
         visibilityGap = compEdges.length > 0 ? Math.max(0.3, 1 - node.ownedAiShare) : 0.25;
-        rationale = `You rank but under-perform (position ${ownedPage?.gscPosition ?? "?"}, CTR ${(num(ownedPage?.gscCtr) * 100).toFixed(1)}%). Tighten title/meta to the dominant query.`;
+        rationale = `You rank but under-perform (position ${ownedPage?.gscPosition ?? "?"}, CTR ${(num(ownedPage?.gscCtr) * 100).toFixed(1)}%). Tighten title/meta to the dominant query.${frictionNote}`;
+      } else if (highFriction) {
+        // No stronger content/answer gap — friction IS the move here.
+        gap = "fix_experience";
+        winnability = 0.8;
+        visibilityGap = Math.max(0.2, 1 - node.ownedAiShare);
+        rationale = `You rank and are cited here, but the page frustrates visitors (Clarity friction ${friction}). Fix the experience before chasing more traffic.`;
       } else {
         gap = "healthy";
         winnability = 0.1;
@@ -389,7 +403,11 @@ export function buildDemandGraph(input: {
     let score = Math.round(
       node.demandWeight * (0.5 + winnability) * (0.5 + visibilityGap) * dollarMult,
     );
+    // Friction boosts urgency: full weight when fixing experience IS the move,
+    // a smaller nudge on a content/answer move (so a frustrating high-demand page
+    // rises) — but it never out-ranks the strategic gap on its own.
     if (gap === "fix_experience") score += Math.round(friction * 5);
+    else if (gap !== "healthy" && friction >= 15) score += Math.round(friction * 2);
     if (gap === "healthy") score = Math.round(score * 0.05);
 
     moves.push(moveRow(node, gap, bestOwned?.url ?? null, competitorUrls, fanoutSeeds,
