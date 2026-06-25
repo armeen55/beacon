@@ -2,6 +2,7 @@ import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { loadTopDecliningPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import { buildRecoveryRows, recoveryClicksLost, type RecoveryRow } from "./today-declines-rows";
@@ -33,18 +34,21 @@ export async function TodayDeclinesSection() {
   let data;
   let sitewide: Awaited<ReturnType<typeof loadTopDecliningPagesForTenant>> = [];
   let shippedKeys = new Set<string>();
+  let dismissedKeys = new Set<string>();
   try {
     const tenantId = await currentTenantId();
-    const [hero, sw, shipped] = await Promise.all([
+    const [hero, sw, shipped, dismissed] = await Promise.all([
       loadTodayMovesHeroData({ limit: 20 }),
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadShippedChanges().catch(() => []),
+      loadDismissedKeys(tenantId).catch(() => new Set<string>()),
     ]);
     data = hero;
     sitewide = sw;
     // Pages with a recent shipped fix are in-flight (being measured) — don't nag
     // them as "still losing"; their outcome shows in "Pages you've turned around".
     shippedKeys = recentlyShippedPageKeys(shipped, Date.now(), normUrl);
+    dismissedKeys = dismissed;
   } catch {
     return null;
   }
@@ -68,6 +72,9 @@ export async function TodayDeclinesSection() {
       positionSlip: dp.topDecline.positionSlip,
     }));
   const rows = [...worklistRows, ...extraRows]
+    // Honor feed dismissals globally — a "recover" opportunity dismissed on the
+    // headline stays gone here too (same kind|page|query key).
+    .filter((r) => !dismissedKeys.has(opportunityKey("recover", r.targetUrl, r.query)))
     .sort((a, b) => b.priorClicks - a.priorClicks)
     .slice(0, 10);
   if (rows.length === 0) return null;
