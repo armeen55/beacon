@@ -1,0 +1,314 @@
+import "server-only";
+import { z } from "zod";
+import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
+import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
+import { log } from "@/lib/logger";
+import {
+  SCHEMA_BY_KIND,
+  draftStringValues,
+  type StructuredDraftKind,
+  type AnswerBlockDraft,
+} from "./schemas";
+
+/**
+ * llm/structured-drafter (2026-06-25, P4) — the trustworthy drafting layer and
+ * the FIRST production caller of the gated/budgeted LLM pattern. It turns a
+ * grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
+ *
+ *   gate (BEACON_LLM_PROVIDER=openai + key) → budget (fail-closed cap) → call
+ *   → robust JSON extract → Zod validate → content firewalls (numeric-fidelity,
+ *   placeholder, em-dash, superlative) → RETRY ONCE on failure → FAIL CLOSED.
+ *
+ * It NEVER returns loose/unvalidated text as a product artifact. Spend is
+ * recorded the moment a call returns (even if the draft is later rejected). The
+ * completion fn is injectable so the whole flow is unit-tested with zero paid
+ * calls. Mirrors the lessons in llm-answer-block.ts (gpt-5-mini reasoning models
+ * return empty under response_format, so we parse JSON out of the text robustly).
+ *
+ * Tenant-agnostic. Pinned by structured-drafter.test.ts.
+ */
+
+const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
+const MODEL = "gpt-5-mini";
+const MAX_DRAFT_CHARS = 11_500; // stay under the move_drafts 12k content cap
+
+export type StructuredDraftResult<T> =
+  | { status: "off" }
+  | { status: "blocked_budget"; reason: string }
+  | { status: "validation_failed"; reason: string; errors: string[]; costUsd: number; retried: boolean }
+  | { status: "drafted"; kind: StructuredDraftKind; value: T; costUsd: number; retried: boolean };
+
+/** Injectable completion fn (default = real OpenAI). Returns text or an error. */
+export type CompleteFn = (args: {
+  system: string;
+  user: string;
+  maxTokens: number;
+  timeoutMs: number;
+}) => Promise<{ text: string } | { error: string }>;
+
+function isOn(): boolean {
+  return (process.env.BEACON_LLM_PROVIDER ?? "").trim().toLowerCase() === "openai";
+}
+
+/** Rough gpt-5-mini cost (~$0.25/1M in, ~$2/1M out; ~4 chars/token). */
+function estimateCostUsd(promptChars: number, completionChars: number): number {
+  return (promptChars / 4 / 1_000_000) * 0.25 + (completionChars / 4 / 1_000_000) * 2;
+}
+
+const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
+
+/** Parse JSON robustly: direct, then the first {...} / [...] slice in the text. */
+function robustJsonExtract(raw: string): unknown {
+  const t = raw.trim();
+  try {
+    return JSON.parse(t);
+  } catch {
+    const cand = t.match(/\{[\s\S]*\}/)?.[0] ?? t.match(/\[[\s\S]*\]/)?.[0];
+    if (!cand) return undefined;
+    try {
+      return JSON.parse(cand);
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/** Content firewalls over every string field of a parsed draft. Same trust rails
+ *  as the deterministic drafter: no placeholders, no em-dashes, no superlatives,
+ *  and no invented multi-digit numbers (must be grounded — years allowed). */
+function runContentFirewalls(
+  strings: string[],
+  grounded: string,
+  nowYear: number,
+): { ok: true } | { ok: false; reason: string } {
+  const blob = strings.join("  ");
+  if (/\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.test(blob)) return { ok: false, reason: "placeholder" };
+  if (blob.includes("—")) return { ok: false, reason: "em_dash" };
+  if (SUPERLATIVES.test(blob)) return { ok: false, reason: "superlative" };
+  // Normalize thousands separators so "16,444" matches a grounded "16444" — a
+  // comma-formatted grounded number is the SAME number, not an invented stat.
+  const stripThousands = (s: string) => s.replace(/(?<=\d),(?=\d)/g, "");
+  const groundedNums = new Set(stripThousands(grounded).match(/\d+/g) ?? []);
+  for (const y of [nowYear - 1, nowYear, nowYear + 1]) groundedNums.add(String(y));
+  // Proof-window methodology constants (7/14/28-day measurement) are structural
+  // language, not factual claims — allow them like years.
+  for (const w of [7, 14, 28]) groundedNums.add(String(w));
+  const invented = (stripThousands(blob).match(/\d+/g) ?? []).filter((n) => n.length >= 2 && !groundedNums.has(n));
+  if (invented.length > 0) return { ok: false, reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };
+  return { ok: true };
+}
+
+function defaultComplete(apiKey: string): CompleteFn {
+  return async ({ system, user, maxTokens, timeoutMs }) => {
+    try {
+      const res = await fetch(OPENAI_CHAT_API, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          // gpt-5-mini reasoning tokens count against this budget — give headroom.
+          // No response_format: it returns empty under reasoning; we parse robustly.
+          max_completion_tokens: maxTokens,
+          reasoning_effort: "low",
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) return { error: `openai_${res.status}` };
+      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const text = (json.choices?.[0]?.message?.content ?? "").trim();
+      return text ? { text } : { error: "empty_response" };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message.slice(0, 80) : "fetch_failed" };
+    }
+  };
+}
+
+export type StructuredDraftRequest<K extends StructuredDraftKind> = {
+  kind: K;
+  /** System prompt — describe the JSON shape + the grounding/safety rules. */
+  system: string;
+  /** User prompt — the grounded inputs. */
+  user: string;
+  /** Concatenated grounded text for the numeric-fidelity firewall. */
+  grounded: string;
+  projectedCostUsd?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  now?: Date;
+  /** Injected for tests; defaults to the real OpenAI call. */
+  complete?: CompleteFn;
+};
+
+/**
+ * The engine: validate → retry-once → fail-closed. Returns a typed, schema-valid
+ * draft or a non-"drafted" status. Never throws.
+ */
+export async function callStructuredLLM<K extends StructuredDraftKind>(
+  req: StructuredDraftRequest<K>,
+): Promise<StructuredDraftResult<z.infer<(typeof SCHEMA_BY_KIND)[K]>>> {
+  if (!isOn()) return { status: "off" };
+  const apiKey = process.env.OPENAI_API_KEY;
+  const complete = req.complete ?? (apiKey ? defaultComplete(apiKey) : null);
+  if (!complete) return { status: "off" }; // configured "on" but no key → off
+
+  const projectedCostUsd = req.projectedCostUsd ?? 0.02;
+  const budget = await checkBudget({ projectedCostUsd }).catch(() => ({ allowed: true as const }));
+  if (budget.allowed === false) {
+    return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
+  }
+
+  const schema = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
+  const nowYear = (req.now ?? new Date()).getFullYear();
+  const maxTokens = req.maxTokens ?? 6000;
+  const timeoutMs = req.timeoutMs ?? 60_000;
+
+  let totalCost = 0;
+  const errors: string[] = [];
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const retried = attempt > 0;
+    const system =
+      attempt === 0
+        ? req.system
+        : `${req.system}\n\nYour previous output was invalid: ${errors.slice(-3).join(" | ")}. Return ONLY valid JSON matching the described shape, with non-empty evidenceRefs.`;
+
+    const out = await complete({ system, user: req.user, maxTokens, timeoutMs });
+    if ("error" in out) {
+      errors.push(`llm_${out.error}`);
+      continue;
+    }
+    totalCost += estimateCostUsd(system.length + req.user.length, out.text.length);
+    await recordSpend(estimateCostUsd(system.length + req.user.length, out.text.length), {}).catch(() => {});
+
+    const parsedJson = robustJsonExtract(out.text);
+    if (parsedJson === undefined) {
+      errors.push("non_json");
+      continue;
+    }
+    const result = schema.safeParse(parsedJson);
+    if (!result.success) {
+      errors.push(...result.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
+      continue;
+    }
+    const fw = runContentFirewalls(draftStringValues(result.data), req.grounded, nowYear);
+    if (!fw.ok) {
+      errors.push(`firewall:${fw.reason}`);
+      continue;
+    }
+    return {
+      status: "drafted",
+      kind: req.kind,
+      value: result.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
+      costUsd: totalCost,
+      retried,
+    };
+  }
+
+  log.warn("[structured-drafter] fail-closed", { kind: req.kind, errors: errors.slice(0, 6) });
+  return { status: "validation_failed", reason: errors[0] ?? "unknown", errors, costUsd: totalCost, retried: true };
+}
+
+// ── concrete drafter: AnswerBlockDraft (the Sprint 2A debug/manual path) ──────
+
+export type AnswerBlockStructuredInput = {
+  query: string;
+  pageLabel: string;
+  brief: string | null;
+  outline: string[];
+  faqs: string[];
+  /** Plain-language evidence the team already established (for the LLM to cite). */
+  evidenceHints?: string[];
+};
+
+const ANSWER_BLOCK_SYSTEM =
+  "You write structured AEO answer blocks for an encyclopedia / content site. Return ONLY a JSON object with keys: " +
+  '"answer" (one direct factual answer of 40-60 words an AI assistant could quote verbatim), ' +
+  '"citationHook" (a short quotable phrase, or null), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
+  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
+
+/** Draft a schema-valid AnswerBlockDraft for one Move. Capped + budgeted. */
+export async function draftAnswerBlockStructured(
+  input: AnswerBlockStructuredInput,
+  opts: { complete?: CompleteFn; now?: Date } = {},
+): Promise<StructuredDraftResult<AnswerBlockDraft>> {
+  const grounded = [
+    input.query,
+    input.brief ?? "",
+    input.outline.join(" "),
+    input.faqs.join(" "),
+    (input.evidenceHints ?? []).join(" "),
+  ].join(" ");
+  const user = [
+    `Search/topic: "${input.query}"`,
+    `Page: ${input.pageLabel}`,
+    input.brief ? `Brief: ${input.brief}` : "",
+    input.outline.length ? `Grounded sections: ${input.outline.join("; ")}` : "",
+    input.faqs.length ? `Related questions: ${input.faqs.slice(0, 6).join("; ")}` : "",
+    (input.evidenceHints ?? []).length ? `Evidence the team established: ${input.evidenceHints!.join("; ")}` : "",
+    "",
+    "Return the JSON now.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return callStructuredLLM({
+    kind: "answer_block",
+    system: ANSWER_BLOCK_SYSTEM,
+    user,
+    grounded,
+    projectedCostUsd: 0.02,
+    complete: opts.complete,
+    now: opts.now,
+  });
+}
+
+// ── persistence (projected, under the move_drafts size cap) ───────────────────
+
+const PERSIST_VERSION = 1;
+
+/** Serialize a validated draft for durable storage. */
+export function serializeStructuredDraft(kind: StructuredDraftKind, value: unknown): string {
+  return JSON.stringify({ v: PERSIST_VERSION, kind, value });
+}
+
+/** Parse + RE-VALIDATE a persisted draft (rejects tampered/legacy/fake content).
+ *  Fail-soft → null. The Zod re-check means a hand-edited row with no evidenceRefs
+ *  can never be served as a trusted draft. */
+export function deserializeStructuredDraft(
+  content: string | null | undefined,
+): { kind: StructuredDraftKind; value: unknown } | null {
+  if (!content) return null;
+  try {
+    const obj = JSON.parse(content) as { v?: number; kind?: StructuredDraftKind; value?: unknown };
+    if (!obj || obj.v !== PERSIST_VERSION || !obj.kind || !(obj.kind in SCHEMA_BY_KIND)) return null;
+    const schema = SCHEMA_BY_KIND[obj.kind] as z.ZodTypeAny;
+    const res = schema.safeParse(obj.value);
+    if (!res.success) return null;
+    return { kind: obj.kind, value: res.data };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist a validated draft via move_drafts (kind="structured_draft"). Refuses
+ *  to write past the content cap (returns false) rather than truncate to junk. */
+export async function saveStructuredDraft(
+  tenantId: string,
+  moveId: string,
+  kind: StructuredDraftKind,
+  value: unknown,
+): Promise<boolean> {
+  const content = serializeStructuredDraft(kind, value);
+  if (content.length > MAX_DRAFT_CHARS) {
+    log.warn("[structured-drafter] draft too large to persist", { tenantId, moveId, kind, size: content.length });
+    return false;
+  }
+  return saveMoveDraft(tenantId, moveId, "structured_draft", content);
+}

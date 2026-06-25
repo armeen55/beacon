@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-25 — B75 · Structured LLM drafts (Sprint 2A: P4)
+
+**Built:**
+- `src/domains/llm/schemas.ts` (pure; `zod` added) — AnswerBlockDraft, CreatePageBrief, AtomicEditDraft, ToolAssetSpec, CommerceAssetSpec, CROFixSpec, ExperimentPlan + shared ProofPlan/ImplementationStep/EvidenceRef + `SCHEMA_BY_KIND` + `draftStringValues`. Every draft requires non-empty `evidenceRefs` + `confidence` + `risks` + `operatorSteps`.
+- `src/domains/llm/structured-drafter.ts` (server-only) — `callStructuredLLM` (gate → budget → call → robust JSON extract → Zod validate → content firewalls → retry-once → fail-closed; injectable `complete` fn), `draftAnswerBlockStructured`, `serialize/deserializeStructuredDraft` (re-validate on read), `saveStructuredDraft` (size-capped, via move_drafts kind `structured_draft`).
+- `src/domains/demand-graph/move-draft-store.ts` — `MoveDraftKind` += `structured_draft` (free text; no migration).
+- `scripts/ground-truth-structured-draft.ts` — one-off live proof.
+- Firewall hardening: numeric-fidelity normalizes thousands separators (`16,444`≡`16444`) + allows proof-window constants (7/14/28) — discovered via the live run (was rejecting a grounded comma-formatted count + the proof windows).
+
+**Verified:**
+- `npm run typecheck` clean (exit 0).
+- `npx vitest run src/domains/llm` → **23/23 pass** (valid first-try / invalid-JSON retry-once / fail-closed-twice / evidenceRefs-required / unknown-source rejected / firewall invented-number / transient-error retry / serialize-revalidate round-trip + tamper-reject). Zero paid calls (injected completion).
+- LIVE Iranopedia sample (1 paid gpt-5-mini call, **$0.0012**, inside the `adjudicator-openai` monthly cap): "iran world cup jersey 2026" → drafted first-try, schema-valid 45-word answer block + 1 evidenceRef (owned_snapshot) + 4 risks + 6 operatorSteps + proofPlan (7/14/28). Honest (flags licensing uncertainty); no invented numbers.
+
+**Posture:** Zod added (1 dep). No migration. No publish. No main merge. Branch `claude/max-capability`. The drafter is OFF unless `BEACON_LLM_PROVIDER=openai` (operator-set locally; not in Vercel prod). Persistence is size-capped + re-validated; loose blob text is never a final artifact.
+
+**Not done (2B):** top-N auto-prepare (`prepareTodayMovesForTenant`) + "Prepare my top 10" + UI prepared-status surfacing → existing-page Moves reaching `ready_to_review`.
+
+---
+
 ## 2026-06-25 — B74 · Team Contract foundation (Sprint 1: P1 SpecialistOpinion · P2 MoveRouter · P3 PreparedMovePack)
 
 **Built (all pure / deterministic / no I/O; read-only wiring only — no writes, no publish, no paid calls, no migration):**

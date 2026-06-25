@@ -20,7 +20,14 @@ import { log } from "@/lib/logger";
 // `kind` column is free text — no migration needed to add a kind.
 // "prepared_pack" (P3) persists a projected PreparedMovePack (specialist opinions
 // + router decision + readiness status) so a Move arrives "prepared, not chore".
-export type MoveDraftKind = "answer_block" | "faq" | "serp_verdict" | "prepared_pack";
+// "structured_draft" (P4) persists a Zod-validated structured draft (answer block,
+// create-page brief, atomic edit, …) — never loose blob text.
+export type MoveDraftKind =
+  | "answer_block"
+  | "faq"
+  | "serp_verdict"
+  | "prepared_pack"
+  | "structured_draft";
 
 export type MoveDraftRow = {
   recId: string;
