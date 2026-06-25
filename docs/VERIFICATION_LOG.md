@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-25 — B79c · BUILD-BREAK FIX (shell prerender → Supabase) · main=276a5f71
+
+**Symptom:** `next build` exited 1 — `Error occurred prerendering page "/briefs"` → `Supabase query failed on import_runs/url_change_outcomes: Invalid API key` (then `/settings/history`, then `/help`). The operator's Vercel deploys were failing on this (conflated earlier with the rate-limit).
+
+**Root cause:** `(shell)` pages were prerendered at build time; the `(shell)` layout reads tenant context (TenantSwitcher → `tenants/store`, `seed-data`) from Supabase → any prerendered page under it pulled Supabase into the build → fails without a valid build-time key.
+
+**Fix (2 files, root cause):** `src/app/(shell)/layout.tsx` → `export const dynamic = "force-dynamic"` (cascades → entire shell subtree dynamic, no build-time prerender) + `src/app/(shell)/help/page.tsx` flipped `force-static` → `force-dynamic`.
+
+**Verified:** `npm run build` with deliberately-INVALID `NEXT_PUBLIC_SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` → **REAL_BUILD_EXIT 0, 0 prerender failures** (4 build iterations: each prior failure — /briefs, /settings/history, /help — eliminated; layout cascade was the clean root-cause fix). TypeScript + lint pass in the same build. Merged to main fast-forward `f78e9810..276a5f71`; also merged into the Sprint 4 branch (`101492ad`).
+
+**Still blocked (not code):** Vercel Hobby **daily build rate-limit** — `276a5f71`'s prod build is queued/rejected until the quota resets (≈ midnight) or a Pro upgrade. Build is green; deploy awaits quota.
+
+---
+
 ## 2026-06-25 — B79 · Sprint 3 merge to main + Sprint 4F/4G/4H · branch claude/sprint-4-demand-expansion (NOT merged)
 
 **Sprint 3 merge:** `git push origin claude/sprint-3-learning-loop:main` → fast-forward `d9314378..f78e9810` ✅. **Vercel prod build FAILED — `upgradeToPro=build-rate-limit`** (Hobby daily build quota exhausted by heavy iteration today). Latest READY prod deployment = `d9314378` (Sprint 2); `/login` 200. **Sprint 3 is on main but NOT live** — retry the deploy when the build window resets (≈ midnight UTC) or upgrade Vercel. Not a code issue.
