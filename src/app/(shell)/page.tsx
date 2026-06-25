@@ -47,6 +47,28 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { StateOfUnionSection } from "./state-of-union-section";
 import { CockpitJumpNav } from "./cockpit-jump-nav";
 import { CommandPalette } from "./command-palette";
+import { CockpitCustomize } from "./cockpit-customize";
+
+/** Single source of truth for the cockpit's section anchors — shared by the
+ *  jump-nav, the ⌘K palette, and the Customize control (no drift). */
+const COCKPIT_SECTIONS: { id: string; label: string }[] = [
+  { id: "sec-opportunities", label: "Opportunities" },
+  { id: "sec-trend", label: "Traffic trend" },
+  { id: "sec-rising", label: "Rising demand" },
+  { id: "sec-momentum", label: "Pages moving" },
+  { id: "sec-bands", label: "Where you rank" },
+  { id: "sec-brand", label: "Branded vs discovery" },
+  { id: "sec-questions", label: "Questions to answer" },
+  { id: "sec-recover", label: "Recover" },
+  { id: "sec-recoveries", label: "Turned around" },
+  { id: "sec-quickwins", label: "Quick wins" },
+  { id: "sec-ctrgap", label: "Seen not clicked" },
+  { id: "sec-cannibal", label: "Self-competing" },
+  { id: "sec-leaks", label: "Conversion leaks" },
+  { id: "sec-tools", label: "Tools" },
+  { id: "sec-newpages", label: "New pages" },
+  { id: "sec-entity", label: "Entity" },
+];
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayPositionBandsSection } from "./today-position-bands-section";
@@ -243,48 +265,14 @@ async function TodayV2SectionedContent() {
       </Suspense>
       {/* Jump-nav (2026-06-25) — sticky index for the cockpit's many self-hiding
           sections; only shows anchors that actually rendered content. */}
-      <CockpitJumpNav
-        targets={[
-          { id: "sec-opportunities", label: "Opportunities" },
-          { id: "sec-trend", label: "Traffic trend" },
-          { id: "sec-rising", label: "Rising demand" },
-          { id: "sec-momentum", label: "Pages moving" },
-          { id: "sec-bands", label: "Where you rank" },
-          { id: "sec-brand", label: "Branded vs discovery" },
-          { id: "sec-questions", label: "Questions to answer" },
-          { id: "sec-recover", label: "Recover" },
-          { id: "sec-recoveries", label: "Turned around" },
-          { id: "sec-quickwins", label: "Quick wins" },
-          { id: "sec-ctrgap", label: "Seen not clicked" },
-          { id: "sec-cannibal", label: "Self-competing" },
-          { id: "sec-leaks", label: "Conversion leaks" },
-          { id: "sec-tools", label: "Tools" },
-          { id: "sec-newpages", label: "New pages" },
-          { id: "sec-entity", label: "Entity" },
-        ]}
-      />
+      <CockpitJumpNav targets={COCKPIT_SECTIONS} />
       {/* ⌘K command palette (2026-06-25) — jump to any lens/section or key route
-          from the keyboard. Shares the jump-nav anchors. Client-only, no data. */}
-      <CommandPalette
-        targets={[
-          { id: "sec-opportunities", label: "Opportunities" },
-          { id: "sec-trend", label: "Traffic trend" },
-          { id: "sec-rising", label: "Rising demand" },
-          { id: "sec-momentum", label: "Pages moving" },
-          { id: "sec-bands", label: "Where you rank" },
-          { id: "sec-brand", label: "Branded vs discovery" },
-          { id: "sec-questions", label: "Questions to answer" },
-          { id: "sec-recover", label: "Recover" },
-          { id: "sec-recoveries", label: "Turned around" },
-          { id: "sec-quickwins", label: "Quick wins" },
-          { id: "sec-ctrgap", label: "Seen not clicked" },
-          { id: "sec-cannibal", label: "Self-competing" },
-          { id: "sec-leaks", label: "Conversion leaks" },
-          { id: "sec-tools", label: "Tools" },
-          { id: "sec-newpages", label: "New pages" },
-          { id: "sec-entity", label: "Entity" },
-        ]}
-      />
+          from the keyboard. Shares the cockpit section anchors. Client-only, no data. */}
+      <CommandPalette targets={COCKPIT_SECTIONS} />
+      {/* Customize (2026-06-25) — hide the lenses you don't use, persisted locally. */}
+      <div className="mt-3 flex justify-end">
+        <CockpitCustomize targets={COCKPIT_SECTIONS} />
+      </div>
       {/* Today's Moves hero (2026-06-24) — the premium §7 ritual surface. Leads
           the cockpit with the live Rank-&-Revenue Moves (demand-graph engine,
           now flowing into the real queue) as rich cards: who AI cites now, what
