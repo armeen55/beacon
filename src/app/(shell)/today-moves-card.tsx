@@ -364,12 +364,22 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-500">
                       ✨ AI-written answer block
                     </span>
-                    <button
-                      onClick={copyAi}
-                      className="rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-violet-500"
-                    >
-                      {aiCopied ? "Copied ✓" : "Copy"}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={aiGenerate}
+                        disabled={pending}
+                        className="rounded-md px-1.5 py-1 text-[11px] font-medium text-gray-400 hover:text-violet-600 disabled:opacity-60"
+                        title="Generate a fresh draft"
+                      >
+                        {pending ? "…" : "↻ Regenerate"}
+                      </button>
+                      <button
+                        onClick={copyAi}
+                        className="rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-violet-500"
+                      >
+                        {aiCopied ? "Copied ✓" : "Copy"}
+                      </button>
+                    </div>
                   </div>
                   <p className="rounded-lg bg-white p-2.5 text-xs leading-relaxed text-gray-800 ring-1 ring-violet-100">
                     {aiText}
@@ -402,9 +412,19 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                     <div>
                       <div className="mb-1 flex items-center justify-between">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-500">✨ FAQ schema (JSON-LD)</span>
-                        <button onClick={copyFaq} className="rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-violet-500">
-                          {faqCopied ? "Copied ✓" : "Copy JSON-LD"}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={faqGenerate}
+                            disabled={pending}
+                            className="rounded-md px-1.5 py-1 text-[11px] font-medium text-gray-400 hover:text-violet-600 disabled:opacity-60"
+                            title="Generate a fresh FAQ schema"
+                          >
+                            {pending ? "…" : "↻ Regenerate"}
+                          </button>
+                          <button onClick={copyFaq} className="rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-violet-500">
+                            {faqCopied ? "Copied ✓" : "Copy JSON-LD"}
+                          </button>
+                        </div>
                       </div>
                       <pre className="max-h-44 overflow-auto rounded-lg bg-gray-900 p-2.5 text-[10px] leading-relaxed text-gray-100">{faqJsonLd}</pre>
                     </div>
