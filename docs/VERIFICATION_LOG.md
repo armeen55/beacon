@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-06-24 — RANK-&-REVENUE TRUST HARDENING · 6 slices to make the engine enable-able for Iranopedia only (flag still OFF)
+
+**Context:** post-audit ("smart core, not trustworthy enough to turn on"). Operator: make it trustworthy enough to enable for Iranopedia ONLY; do not flip the flag; no LLM/DataForSEO/paid APIs; do not change the core score formula unless a verified bug requires; Ritz unaffected. Executed 6 numbered slices, verification after each.
+
+**Slices + commits:**
+1. `def37e7` — **honest teardown states** (`teardown-state.ts` + `move-card.ts`): discriminated `torn_down|loosely_matched|blocked|errored|not_audited|none` + plain copy; no bare "—"/"not_audited". 6 tests.
+2. `36efaa8` — **per-page Move collapse** (`group-moves.ts`): one primary Move per owned URL, same-page extras → "also"; create_page (null URL) never merged; wired into the live queue (`to-candidate-rows.ts`) + diagnostic. 4 tests.
+3. `1c9f051` — **friction = urgency, not strategy** (`build-graph.ts`): recompute strategic signals independent of the friction-overwritten edge.kind; priority answer_block > edit_page > fix_experience > healthy; friction → "also fix dead/rage clicks" note + bounded ×2 nudge (×5 only when fix_experience IS the move). 11 build-graph tests incl. a new priority test.
+4. `da791f8` — **tenant-scoped flag** (`flag.ts` `isDemandGraphEnabledForTenant`): unset/""/"false" → off; "true" → all; else comma-separated tenant allowlist. Wired into `loadTriggerCandidatesForTenant`. 4 tenant-isolation tests (Iranopedia on, Ritz/Finglish off).
+5. `b55be4f` — **create-page hygiene** (`load-graph.ts`): drop marketplace/UGC/social hosts (by domain label → catches subdomains/cctlds), URL-path-junk labels (CMS prefixes + geo/id slugs, NOT 4-digit years), brand-on-third-party. 5 filter tests.
+6. `b55be4f` — **honest copy**: "draft ready" → "✓ outline ready" (`move-cards.tsx`).
+   + `4c26377` — update the load-graph friction integration test for the slice-3 priority.
+
+**Verified:**
+- `npm run typecheck` — clean (each slice).
+- `npm run build` — green (each slice).
+- **99/99 demand-graph tests** (`tests/domains/demand-graph/`) + load-trigger pipeline + diagnostic render test green.
+- **Live Iranopedia truth dump (DATA_SOURCE=supabase, real beacon-main):** 237 moves; gap dist `{answer_block:49, edit_page:100, create_page:40, low_demand:48}`. **Slice 3 before/after: 4 high-friction (≥15) owned pages were ALL `fix_experience` under the old rule → now 3 edit_page + 1 answer_block; `fix_experience` = 0 across the whole graph.** "iran flag" (friction 107) + "persian boy names" (friction 79) → edit_page with friction as the urgency note. **Slice 5: "shop iranopedia" / "attractions g293998" / "product category gifts" GONE; gold (persian wedding, nowruz, persian traditional music, iranian diaspora, persian astronomy) remains.** Slice 2: 0 owned pages with duplicate raw moves.
+- **Adversarial verification:** 4-lens finder→skeptic workflow (Ritz-isolation, friction-correctness, create-page false-drops, queue/UI integrity).
+
+**Not done (by design):** flag NOT flipped (operator's call); core score formula untouched; Ritz/Finglish untouched (verified off via the tenant allowlist).
+
+---
+
 ## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · autonomous run (Steps 1–4 complete + L7/L9/L10 scaffolds + 4 trust fixes)
 
 **Context:** operator away; continue the plan non-stop to 8 PM PT, skip operator-gated steps, build everything safe around them.
