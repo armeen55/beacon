@@ -125,6 +125,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   >(m.savedFaqJsonLd ? "ok" : "idle"); // hydrate a previously-generated+saved FAQ schema
   const [faqJsonLd, setFaqJsonLd] = useState(m.savedFaqJsonLd ?? "");
   const [faqCopied, setFaqCopied] = useState(false);
+  const [cannibalCopied, setCannibalCopied] = useState(false);
   const faqGenerate = () => {
     setFaqStatus("pending");
     startTransition(async () => {
@@ -344,6 +345,24 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           </div>
           {/* The consolidation ACTION for the top case, in plain language. */}
           <p className="mt-1.5 text-xs text-orange-700">{m.cannibalization[0]!.fix}</p>
+          {m.cannibalization[0]!.linkSnippet ? (
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="truncate rounded bg-white px-2 py-1 text-[10px] text-orange-900 ring-1 ring-orange-100">
+                {m.cannibalization[0]!.linkSnippet}
+              </code>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(m.cannibalization[0]!.linkSnippet!).then(() => {
+                    setCannibalCopied(true);
+                    setTimeout(() => setCannibalCopied(false), 1800);
+                  }).catch(() => {});
+                }}
+                className="shrink-0 rounded-md bg-orange-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-orange-500"
+              >
+                {cannibalCopied ? "Copied ✓" : "Copy link"}
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

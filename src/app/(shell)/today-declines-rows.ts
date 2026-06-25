@@ -56,7 +56,15 @@ export type CannibalEntry = {
   leadPage: string;
   /** Plain-English consolidation directive (the ACTION, not just the diagnosis). */
   fix: string;
+  /** Paste-ready internal-link snippet a FOLLOWER adds to point at the canonical
+   *  lead (null for the lead page itself). The concrete consolidation artifact. */
+  linkSnippet: string | null;
 };
+
+/** Title-case a query for use as link anchor text. */
+function anchorCase(s: string): string {
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 /**
  * Index cannibalization cases by each competing own-URL → the cases it's in, each
@@ -82,8 +90,10 @@ export function indexCannibalizationByUrl(
       const fix = isLead
         ? `This is your best-ranking page for "${c.query}" — fold ${others.join(", ")} into it (redirect or internal-link) so they stop splitting its clicks.`
         : `Point this page at "${leadPage}" (your best-ranking one for "${c.query}") with an internal link, or differentiate their intent so they stop competing.`;
+      // Paste-ready internal link the FOLLOWER adds, anchored on the shared topic.
+      const linkSnippet = isLead ? null : `<a href="${c.leadUrl}">${anchorCase(c.query)}</a>`;
       const arr = out.get(key) ?? [];
-      arr.push({ query: c.query, otherPages: others, isLead, leadPage, fix });
+      arr.push({ query: c.query, otherPages: others, isLead, leadPage, fix, linkSnippet });
       out.set(key, arr);
     }
   }
