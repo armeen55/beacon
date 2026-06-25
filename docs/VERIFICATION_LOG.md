@@ -39,6 +39,34 @@
 
 **⛳ NEEDS OPERATOR (skipped this run):** OK LLM drafting spend (Step 5); DataForSEO account+key (L7/L9, off by default); apply `competitor_page_audit` migration (Vercel persistence; Step 6 must re-audit nightly or teardowns go stale as moves shift); Ritz connectors (0 pages); Profound visibility positional-decode bug.
 
+### 2026-06-24 (cont.) — BIG: demand-graph engine → LIVE recommendation pipeline (flag-gated)
+
+The engine was a side diagnostic; this makes it a real source in the unified rec pipeline (the plan's
+convergence). Shipped:
+- `50a8ef3` — `to-candidate-rows.ts`: maps ranked Moves (+ EvidencePackets) → `RecommendationCandidateRow`
+  (create_page→create_page, answer_block→add_answer_block, edit_page→edit_title, fix_experience→
+  fix_page_experience; plain + competitor-name-free copy; operator_evidence carries the raw trace).
+  Wired into `loadTriggerCandidatesForTenant` behind `BEACON_DEMAND_GRAPH_RECS` (off, fail-soft).
+  VERIFIED live (flag on, iranopedia): 25 Moves flow to the CUSTOMER queue (11 add_answer_block, 10
+  edit_title, 4 fix_page_experience), status ok, existing predicates unaffected.
+- `122e722` — create_page Moves (40 in the graph) are dropped by apply-queue-rules Rule 1 (null
+  target_url) — they belong in the page-factory path, not the edit-queue. Reverted the futile
+  create_page-into-edit-queue emit; the engine source cleanly surfaces the EDIT Moves.
+- `4f04e47` — cross-source dedup: the engine skips any (tenant, action, url) an existing predicate
+  already covers (cooldown_key) → adds only its UNIQUE Moves. VERIFIED: flag OFF 406 → flag ON 431
+  (+25 unique, 0 (action,url) collisions).
+- `fe42a9f` — kept the flag OFF by default. A default-ON flip was ATTEMPTED + correctly DENIED by the
+  safety classifier (flipping the engine into the live customer queue is a customer-surface change =
+  the operator's validated call, not autonomous). 70 pipeline tests + 5 adapter tests green.
+
+**Call path matters (perf):** `loadTriggerCandidatesForTenant` runs during GENERATION (promotion-writer)
++ the operator diagnostic, NOT on the customer render path — so the engine's multi-source load is off
+the hot path.
+**⛳ NEEDS OPERATOR:** eyeball the engine output on `/diagnostics/rank-revenue`, then set
+`BEACON_DEMAND_GRAPH_RECS=true` to make the engine a live source in /today, /opportunities,
+/recommendations (its unique AI-citation answer-blocks + friction fixes), promoted on the next
+generation. Disable anytime with `=false`.
+
 ---
 
 ## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 4 (gap compiler → EvidencePacket)
