@@ -12,6 +12,8 @@ import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildThinPages } from "./today-thin-rows";
 import { buildCtrGapRows } from "./today-ctrgap-rows";
 import { buildLeveragePages, type PageSignalInput, type LeveragePage } from "./today-leverage-rows";
+import { WorklistExportButton } from "./worklist-export-button";
+import { type ExportItem } from "./worklist-export";
 
 /**
  * today-leverage-section (2026-06-25) — signal FUSION: pages that trip several
@@ -80,16 +82,28 @@ export async function TodayLeverageSection() {
   }
   if (rows.length === 0) return null;
 
+  // A focused dev doc: the prioritized multi-signal pages, each with its signals.
+  const exportItems: ExportItem[] = rows.map((r) => ({
+    kind: "leverage",
+    query: slugOf(r.page),
+    page: r.page,
+    clicksAtStake: r.clicksAtStake,
+    detail: `hits ${r.signalCount} signals (${r.signals.join(", ")}) — one edit pays off on each`,
+  }));
+
   return (
     <section className="rounded-3xl border border-fuchsia-200/70 bg-gradient-to-br from-fuchsia-50/40 via-white to-violet-50/20 p-6 shadow-sm">
-      <div>
-        <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-gray-900">
-          <span className="text-fuchsia-500">✦</span> Highest-leverage pages — fix once, win several ways
-        </h2>
-        <p className="mt-1 max-w-xl text-sm text-gray-500">
-          These pages trip more than one opportunity signal at the same time, so a single edit pays off on
-          several fronts — the best place to spend today&apos;s session.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-gray-900">
+            <span className="text-fuchsia-500">✦</span> Highest-leverage pages — fix once, win several ways
+          </h2>
+          <p className="mt-1 max-w-xl text-sm text-gray-500">
+            These pages trip more than one opportunity signal at the same time, so a single edit pays off on
+            several fronts — the best place to spend today&apos;s session.
+          </p>
+        </div>
+        <WorklistExportButton items={exportItems} />
       </div>
 
       <ul className="mt-4 space-y-1.5">

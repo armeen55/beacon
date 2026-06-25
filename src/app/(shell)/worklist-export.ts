@@ -26,6 +26,7 @@ const KIND_VERB: Record<string, string> = {
   rising: "Double down on rising demand for",
   answer: "Add an answer block for",
   expand: "Expand the thin content for",
+  leverage: "Fix once, win several ways —",
 };
 
 function pretty(url: string): string {
