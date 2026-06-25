@@ -42,6 +42,11 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
       { label: "Competitors — who AI recommends", hint: "Page", go: () => router.push("/competitors") },
       { label: "Changes — your shipped log", hint: "Page", go: () => router.push("/changes") },
       { label: "Settings — connectors & data", hint: "Page", go: () => router.push("/settings/connectors") },
+      {
+        label: "Customize sections — hide lenses you don't use",
+        hint: "Action",
+        go: () => window.dispatchEvent(new CustomEvent("beacon:open-customize")),
+      },
       { label: "Back to top", hint: "Action", go: () => window.scrollTo({ top: 0, behavior: "smooth" }) },
     ];
     return [...sectionEntries, ...routeEntries];

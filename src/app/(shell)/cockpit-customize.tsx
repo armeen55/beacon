@@ -43,6 +43,13 @@ export function CockpitCustomize({ targets }: { targets: { id: string; label: st
     applyHidden(saved, targets);
   }, [targets]);
 
+  // The ⌘K palette can open this panel via a custom event (one control surface).
+  useEffect(() => {
+    const openIt = () => setOpen(true);
+    window.addEventListener("beacon:open-customize", openIt);
+    return () => window.removeEventListener("beacon:open-customize", openIt);
+  }, []);
+
   function toggle(id: string) {
     setHidden((prev) => {
       const next = new Set(prev);
