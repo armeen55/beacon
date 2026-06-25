@@ -260,6 +260,13 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       </div>
 
+      {m.yourGap ? (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2">
+          <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-400">Your gap</span>
+          <span className="text-sm font-medium text-rose-700">{m.yourGap}</span>
+        </div>
+      ) : null}
+
       {m.outline.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Cover</span>

@@ -42,6 +42,8 @@ export type TodayMove = {
   demandBasis: "gsc" | "ai_attention" | "mixed" | null;
   whoCited: string | null;
   whatWins: string | null;
+  /** §1 "Your gap" — what the cited competitor has that your page lacks (plain language). */
+  yourGap: string;
   looselyMatched: boolean;
   /** Other engine actions queued on the SAME page (so a page is one card, not many). */
   also: string[];
@@ -131,6 +133,20 @@ function splitWhyProof(whyRaw: string): { why: string; proof: string } {
 function canon(url: string | null | undefined): string {
   if (!url) return "";
   return (canonicalizeCitationUrl(url) ?? url).toLowerCase();
+}
+
+/** Plain-language "Your gap" from the deterministic owned-vs-competitor gaps
+ *  (§1 Move card) — what the cited competitor has that your page is missing. */
+const GAP_LABEL: Record<string, string> = {
+  missing_page: "No page yet",
+  missing_answer_block: "No answer block",
+  missing_faq: "No FAQ section",
+  missing_schema: "Missing schema",
+  missing_tool: "No interactive tool",
+};
+function yourGapLine(gaps: ReadonlyArray<{ kind: string }>): string {
+  const labels = [...new Set(gaps.map((g) => GAP_LABEL[g.kind]).filter(Boolean))];
+  return labels.slice(0, 4).join(" · ");
 }
 
 /** Plain-language "why it ranks here" from the Rank-&-Revenue score components
@@ -282,6 +298,7 @@ export async function buildTodayMovesData(
         demandBasis: packet?.demand?.basis ?? null,
         whoCited,
         whatWins,
+        yourGap: whatWins ? yourGapLine(packet?.gaps ?? []) : "", // only when we have a real teardown to compare against
         looselyMatched,
         also,
         outline: (packet?.draft?.outline ?? []).filter(Boolean).slice(0, 5),
