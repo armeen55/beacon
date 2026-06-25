@@ -61,6 +61,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-brand", label: "Branded vs discovery" },
   { id: "sec-questions", label: "Questions to answer" },
   { id: "sec-recover", label: "Recover" },
+  { id: "sec-thin", label: "Expand thin pages" },
   { id: "sec-recoveries", label: "Turned around" },
   { id: "sec-quickwins", label: "Quick wins" },
   { id: "sec-ctrgap", label: "Seen not clicked" },
@@ -79,6 +80,7 @@ import { TodayTrendSection } from "./today-trend-section";
 import { TodayMomentumSection } from "./today-momentum-section";
 import { TodayDeclinesSection } from "./today-declines-section";
 import { TodayRisingSection } from "./today-rising-section";
+import { TodayThinSection } from "./today-thin-section";
 import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayCtrGapSection } from "./today-ctrgap-section";
@@ -341,6 +343,12 @@ async function TodayV2SectionedContent() {
       <div id="sec-recover" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayDeclinesSection />
+        </Suspense>
+      </div>
+      {/* Expand thin pages (2026-06-25) — thin-but-trafficked expand candidates. Own Suspense / self-hides. */}
+      <div id="sec-thin" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayThinSection />
         </Suspense>
       </div>
       {/* Pages you've turned around (2026-06-25) — the payoff of the recover loop:
