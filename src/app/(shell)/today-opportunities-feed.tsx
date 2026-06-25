@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   loadTopDecliningPagesForTenant,
@@ -18,6 +17,7 @@ import { buildRecommendationDetailHref } from "@/components/recommendations/v2/r
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import { WorklistExportButton } from "./worklist-export-button";
+import { OpportunityFeedList } from "./opportunity-feed-list";
 import { type ExportItem } from "./worklist-export";
 import {
   buildOpportunityFeedWithTotals,
@@ -223,40 +223,20 @@ export async function TodayOpportunitiesFeed() {
         </div>
       </div>
 
-      <ol className="mt-5 space-y-1.5">
-        {items.map((it, i) => (
-          <li
-            key={i}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-100 bg-white/70 px-3 py-2 text-sm"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[11px] font-bold text-violet-700">
-                {i + 1}
-              </span>
-              <span
-                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${KIND_STYLE[it.kind]}`}
-              >
-                {KIND_LABEL[it.kind]}
-              </span>
-              <span className="min-w-0">
-                <span className="font-medium text-gray-900">{it.query}</span>
-                <span className="ml-2 text-xs text-gray-400">on {slugOf(it.page)}</span>
-              </span>
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-violet-600">~{fmtNum(it.clicksAtStake)} clicks/mo</span>
-              {/* Queued moves (cite/build/edit) carry a rec-detail route to ACT; the
-                  site-wide GSC signals (recover/win) go to the page-level Workbench. */}
-              <Link
-                href={it.kind === "recover" || it.kind === "win" ? workbenchHref(it.page) : it.route}
-                className="font-semibold text-violet-600 hover:text-violet-800"
-              >
-                Act →
-              </Link>
-            </div>
-          </li>
-        ))}
-      </ol>
+      {/* Full ranked list with a "show all" expander (defaults to the top 6). Rows
+          are pre-resolved here; queued moves (cite/build/edit/consolidate) keep their
+          own route, site-wide GSC signals (recover/win/snippet) go to the Workbench. */}
+      <OpportunityFeedList
+        rows={allItems.map((it) => ({
+          kind: it.kind,
+          kindLabel: KIND_LABEL[it.kind],
+          kindStyle: KIND_STYLE[it.kind],
+          query: it.query,
+          pageSlug: slugOf(it.page),
+          clicksLabel: `~${fmtNum(it.clicksAtStake)} clicks/mo`,
+          href: it.kind === "recover" || it.kind === "win" || it.kind === "snippet" ? workbenchHref(it.page) : it.route,
+        }))}
+      />
     </section>
   );
 }
