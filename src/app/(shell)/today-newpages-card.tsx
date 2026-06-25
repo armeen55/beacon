@@ -54,6 +54,25 @@ export function NewPageCard({ o, ownDomain }: { o: NewPageOpportunity; ownDomain
     });
   };
 
+  // What to show: a just-run live verdict wins; else the PRECOMPUTED verdict
+  // (from "Prepare top N") so the card arrives "Google checked" with no click.
+  const live = serp && serp.ok && (serp.status === "ok" || serp.status === "cache_hit") ? serp.validation : null;
+  const shown = live
+    ? {
+        verdict: live.verdict,
+        confidence: live.confidence,
+        contentDomainCount: live.contentDomainCount,
+        marketplaceUgcCount: live.marketplaceUgcCount,
+        profoundOverlapCount: live.profoundOverlapCount,
+        ownAlreadyRanks: live.ownAlreadyRanks,
+        topDomains: live.topDomains,
+        reason: live.reasons[0] ?? "",
+        prepared: false,
+      }
+    : o.preparedVerdict
+    ? { ...o.preparedVerdict, prepared: true }
+    : null;
+
   const generate = () => {
     setAiStatus("pending");
     startTransition(async () => {
@@ -114,25 +133,27 @@ export function NewPageCard({ o, ownDomain }: { o: NewPageOpportunity; ownDomain
             <div className="mt-0.5 text-[11px] leading-snug text-gray-600">{o.whatWins}</div>
           </div>
         ) : null}
-        {serp && serp.ok && (serp.status === "ok" || serp.status === "cache_hit") ? (
+        {shown ? (
           (() => {
-            const v = serp.validation;
-            const vs = VERDICT_STYLE[v.verdict] ?? VERDICT_STYLE.wait;
+            const vs = VERDICT_STYLE[shown.verdict] ?? VERDICT_STYLE.wait;
             return (
               <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-2.5 py-2">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${vs.cls}`}>{vs.label}</span>
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500">{v.confidence} confidence · live SERP</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500">{shown.confidence} confidence</span>
+                  <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                    ✓ Google checked{shown.prepared ? "" : " · just now"}
+                  </span>
                 </div>
-                <p className="mt-1 text-[11px] leading-snug text-gray-700">{v.reasons[0]}</p>
+                <p className="mt-1 text-[11px] leading-snug text-gray-700">{shown.reason}</p>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-500">
-                  <span>{v.contentDomainCount}/10 content</span>
-                  {v.marketplaceUgcCount > 0 ? <span>{v.marketplaceUgcCount} marketplace</span> : null}
-                  {v.profoundOverlapCount > 0 ? <span className="font-semibold text-emerald-700">{v.profoundOverlapCount} AI-cited overlap</span> : null}
-                  {v.ownAlreadyRanks ? <span className="font-semibold text-amber-700">you already rank</span> : null}
+                  <span>{shown.contentDomainCount}/10 content</span>
+                  {shown.marketplaceUgcCount > 0 ? <span>{shown.marketplaceUgcCount} marketplace</span> : null}
+                  {shown.profoundOverlapCount > 0 ? <span className="font-semibold text-emerald-700">{shown.profoundOverlapCount} AI-cited overlap</span> : null}
+                  {shown.ownAlreadyRanks ? <span className="font-semibold text-amber-700">you already rank</span> : null}
                 </div>
-                {v.topDomains.length > 0 ? (
-                  <p className="mt-1 truncate text-[10px] text-gray-400">SERP: {v.topDomains.slice(0, 5).join(", ")}</p>
+                {shown.topDomains.length > 0 ? (
+                  <p className="mt-1 truncate text-[10px] text-gray-400">SERP: {shown.topDomains.slice(0, 5).join(", ")}</p>
                 ) : null}
               </div>
             );
@@ -170,7 +191,7 @@ export function NewPageCard({ o, ownDomain }: { o: NewPageOpportunity; ownDomain
           title="Run a live Google SERP check (DataForSEO) and verdict this page: build, wait, or skip"
           className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-60"
         >
-          {serpPending ? "Checking SERP…" : serp ? "↻ Re-check SERP" : "Validate with live SERP"}
+          {serpPending ? "Checking SERP…" : shown ? "↻ Re-check SERP" : "Validate with live SERP"}
         </button>
         {aiStatus !== "ok" ? (
           <button

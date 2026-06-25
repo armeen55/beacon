@@ -1,8 +1,11 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { currentTenantId } from "@/lib/tenant-context";
 import { runSerpQuery } from "@/domains/serp/dataforseo-serp";
 import { validateCreatePage, type SerpValidation } from "@/domains/serp/serp-validation";
+import { prepareCreatePageVerdicts, type PrepareSummary } from "@/domains/serp/prepare-create-page-verdicts";
 
 /**
  * validateCreatePageWithSerpAction (2026-06-25, Phase 4) — on-demand DataForSEO
@@ -34,4 +37,22 @@ export async function validateCreatePageWithSerpAction(input: {
     searchVolume: input.searchVolume ?? null,
   });
   return { ok: true, status: r.status, costUsd: r.costUsd, validation };
+}
+
+/**
+ * prepareNewPagesAction (2026-06-25) — "Prepare top N": Google-check all the top
+ * create-page candidates in ONE click and PERSIST the verdicts, so the board
+ * arrives prepared (no per-card validate). Operator-gated; capped + cache-first
+ * inside prepareCreatePageVerdicts; revalidates the cockpit so verdicts show.
+ */
+export type PrepareNewPagesResponse =
+  | { ok: false; reason: string }
+  | { ok: true; summary: PrepareSummary };
+
+export async function prepareNewPagesAction(opts: { maxValidations?: number } = {}): Promise<PrepareNewPagesResponse> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator only." };
+  const tenantId = await currentTenantId();
+  const summary = await prepareCreatePageVerdicts(tenantId, { maxValidations: opts.maxValidations ?? 25 });
+  revalidatePath("/");
+  return { ok: true, summary };
 }

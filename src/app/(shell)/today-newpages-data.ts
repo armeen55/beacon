@@ -6,6 +6,7 @@ import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/c
 import { loadSemrushKeywordGapsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 
 /**
  * today-newpages-data (2026-06-24) — the loader behind the "New Pages to Build"
@@ -35,6 +36,9 @@ export type NewPageOpportunity = {
   /** Competitor domains AI cites for this topic — fed to the live-SERP validation
    *  as the "does Google rank the same competitors?" overlap check. */
   competitorDomains: string[];
+  /** Precomputed DataForSEO verdict (from "Prepare top N"), so the card arrives
+   *  "Google checked" with no operator click. null until prepared. */
+  preparedVerdict: PreparedSerpVerdict | null;
 };
 
 export type NewPagesData = {
@@ -148,6 +152,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       score: Math.round(m.score),
       savedOpening: savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null,
       competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
+      preparedVerdict: parsePreparedVerdict(savedDrafts.get(`${m.demandKey}::serp_verdict`)?.content),
     };
   });
 

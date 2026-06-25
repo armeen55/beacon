@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { loadNewPagesData } from "./today-newpages-data";
 import { NewPageCard } from "./today-newpages-card";
+import { NewPagesPrepareButton } from "./today-newpages-prepare";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 
 /**
  * today-newpages-section (2026-06-24) — the "New Pages to Build" board: the
@@ -19,6 +21,9 @@ export async function TodayNewPagesSection() {
   }
   if (!data.opportunities.length) return null;
 
+  const operator = await isOperatorModeServer();
+  const preparedCount = data.opportunities.filter((o) => o.preparedVerdict).length;
+
   return (
     <section className="rounded-3xl border border-gray-200 bg-gradient-to-br from-emerald-50/40 via-white to-gray-50 p-6 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -29,14 +34,17 @@ export async function TodayNewPagesSection() {
             Google are already sending elsewhere.
           </p>
         </div>
-        {data.totalCandidates > data.opportunities.length ? (
-          <Link
-            href="/diagnostics/rank-revenue"
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
-          >
-            +{data.totalCandidates - data.opportunities.length} more →
-          </Link>
-        ) : null}
+        <div className="flex items-start gap-2">
+          {operator ? <NewPagesPrepareButton alreadyPrepared={preparedCount} total={data.opportunities.length} /> : null}
+          {data.totalCandidates > data.opportunities.length ? (
+            <Link
+              href="/diagnostics/rank-revenue"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
+            >
+              +{data.totalCandidates - data.opportunities.length} more →
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
