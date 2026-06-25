@@ -44,15 +44,29 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Fail-fast guard so the heavy demand-graph compute can never hang the cockpit
+ *  (the /today statement-timeout class) — on timeout the board self-hides. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p.catch(() => fallback),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
   const tenantId = await currentTenantId();
   let moves;
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   try {
     const [graphRes, auditRes] = await Promise.all([
-      loadDemandGraphForTenant(tenantId),
+      withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenant>> | null>(
+        loadDemandGraphForTenant(tenantId),
+        8000,
+        null,
+      ),
       getCompetitorAuditsForTenant().catch(() => new Map()),
     ]);
+    if (!graphRes) return { opportunities: [], totalCandidates: 0 };
     moves = graphRes.graph.moves;
     audits = auditRes;
   } catch {

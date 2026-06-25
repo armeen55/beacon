@@ -127,6 +127,16 @@ function canon(url: string | null | undefined): string {
   return (canonicalizeCitationUrl(url) ?? url).toLowerCase();
 }
 
+/** Fail-fast guard: the cockpit must NEVER hang on the heavy demand-graph compute
+ *  (the /today statement-timeout class). On timeout the enrichment degrades to
+ *  empty and the light queue read still renders the hero. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p.catch(() => fallback),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 export const loadTodayMovesHeroData = cache(
   async (): Promise<TodayMovesHeroData> => {
     const tenantId = await currentTenantId();
@@ -134,8 +144,12 @@ export const loadTodayMovesHeroData = cache(
 
     const [edits, packsResult, responses] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
-      loadChangePacksForTenant(tenantId, { limit: 40 }).catch(
-        () => ({ packets: [] as EvidencePacket[] }),
+      // Enrichment (teardown/outline/proof) rides the heavy graph compute — guard
+      // it so a slow graph degrades the hero to the light queue read, never hangs.
+      withTimeout(
+        loadChangePacksForTenant(tenantId, { limit: 40 }),
+        8000,
+        { packets: [] as EvidencePacket[] },
       ),
       repo.getRecommendationResponses().catch(() => []),
     ]);
