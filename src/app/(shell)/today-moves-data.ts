@@ -388,7 +388,14 @@ export async function buildTodayMovesData(
     const demandAtStake = top.reduce((s, m) => s + (m.demand ?? 0), 0);
     const citationsContested = top.filter((m) => m.action === "add_answer_block").length;
     const pagesCovered = new Set(top.map((m) => canon(m.targetUrl))).size;
-    const draftsReady = top.filter((m) => m.savedAnswerBlock || m.savedFaqJsonLd).length;
+    // "Ready" = any paste-ready artifact: a saved AI answer/FAQ, OR (for clicks
+    // moves) the deterministic scored title variants — both are ship-ready on open.
+    const draftsReady = top.filter(
+      (m) =>
+        m.savedAnswerBlock ||
+        m.savedFaqJsonLd ||
+        (m.action === "edit_title" && m.titleVariants.length > 0),
+    ).length;
 
     return {
       moves: top,
