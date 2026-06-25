@@ -391,6 +391,18 @@ export async function buildTodayMovesData(
       m.topQueries = queryMap.get(m.targetUrl) ?? [];
       m.declines = declineMap.get(m.targetUrl) ?? [];
       m.cannibalization = (cannibalByUrl.get(canon(m.targetUrl)) ?? []).slice(0, 2);
+      // Always-actionable answer blocks: when the engine found no competitor FAQ
+      // and no Profound fanout to seed the answer targets (competitor blocks
+      // crawlers, or the topic isn't in the fanout account), fall back to the
+      // EXACT GSC queries this page already ranks for — real, grounded demand, not
+      // invented. If even the per-page query read missed, use the demand-cluster
+      // label itself (also real GSC demand). So the top move never reads as a bare
+      // "add an answer block" with no concrete target.
+      if (m.action === "add_answer_block" && m.faqs.length === 0) {
+        const fromQueries = [...new Set(m.topQueries.map((q) => q.query.trim()).filter((q) => q.length >= 8))];
+        const seeds = fromQueries.length > 0 ? fromQueries : (m.query && m.query.trim().length >= 8 ? [m.query.trim()] : []);
+        m.faqs = seeds.slice(0, 5);
+      }
       const g = ga4ByCanon.get(canon(m.targetUrl));
       m.ga4 = g && (g.sessions28d > 0 || g.conversions28d > 0)
         ? { sessions: g.sessions28d, conversions: g.conversions28d }
