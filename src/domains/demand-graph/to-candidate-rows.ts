@@ -74,6 +74,42 @@ function customerCopy(gap: GapKind, rawQuery: string): string {
   }
 }
 
+/** Plain-English "how you'll know it worked" line per gap — the proof plan in
+ *  customer language (no jargon, no invented numbers, no em-dashes). This is the
+ *  ONE strong-card element that's both missing from the thin queue row AND safe to
+ *  surface in customer copy (the richer teardown/outline lives in operator_evidence
+ *  + the /diagnostics/rank-revenue move cards). */
+function proofLine(gap: GapKind): string {
+  switch (gap) {
+    case "answer_block":
+      return " You'll know it worked if this page starts getting quoted by AI and earns more clicks for that search over the next month or two, versus pages you leave unchanged.";
+    case "edit_page":
+      return " You'll know it worked if this page wins more of the clicks it already shows up for over the next month or two, versus pages you leave unchanged.";
+    case "fix_experience":
+      return " You'll know it worked if visitors stop hitting dead ends here and stay longer over the next month or two, versus pages you leave unchanged.";
+    case "create_page":
+      return " Once it's live, you'll know it worked if it starts pulling in clicks and AI mentions for that topic over the next few months.";
+    default:
+      return "";
+  }
+}
+
+/** Operator-facing brief: what the cited competitor does well + the grounded
+ *  outline + answer-block brief from the EvidencePacket. Competitor specifics are
+ *  fine here (operator_evidence is never shown to a customer). Empty when no packet
+ *  / no teardown. */
+function moveBriefForOperator(packet?: EvidencePacket): string {
+  if (!packet) return "";
+  const parts: string[] = [];
+  const ww = packet.competitor?.whatWins?.trim();
+  if (ww) parts.push(`what wins: ${ww}`);
+  const outline = (packet.draft?.outline ?? []).filter(Boolean).slice(0, 5);
+  if (outline.length) parts.push(`cover: ${outline.join(" · ")}`);
+  const brief = packet.draft?.answerBlockBrief?.trim();
+  if (brief) parts.push(`answer brief: ${brief}`);
+  return parts.length ? ` | ${parts.join(" | ")}` : "";
+}
+
 function titleCaseQuery(s: string): string {
   return s.split(/\s+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
@@ -136,7 +172,8 @@ export function demandGraphToCandidateRows(input: DemandGraphCandidateInput): Re
       `conf=${move.confidence} signals=[${move.signals.join(",")}]` +
       (alsoPhrases.length ? ` | also on this page: ${alsoPhrases.join(", ")}` : "") +
       (packet?.competitor?.looselyMatched ? " | competitor loosely-matched (verify w/ SERP)" : "") +
-      (move.competitorUrls[0] ? ` | top competitor: ${move.competitorUrls[0]}` : "");
+      (move.competitorUrls[0] ? ` | top competitor: ${move.competitorUrls[0]}` : "") +
+      moveBriefForOperator(packet);
 
     out.push({
       tenant_id: tenantId,
@@ -151,6 +188,7 @@ export function demandGraphToCandidateRows(input: DemandGraphCandidateInput): Re
       upside_clicks_90d: upsideClicks90d(packet?.yourPage.gsc ?? null),
       customer_copy:
         customerCopy(move.gap, query) +
+        proofLine(move.gap) +
         (alsoPhrases.length ? ` While you're on this page, also: ${alsoPhrases.join("; ")}.` : ""),
       operator_evidence: operatorEvidence,
       dedupe_key: sha1(`${tenantId}::${actionType}::${identityUrl}::${topicClusterLabel}`),

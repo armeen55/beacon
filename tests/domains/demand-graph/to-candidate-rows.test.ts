@@ -66,6 +66,7 @@ describe("demandGraphToCandidateRows (engine → live pipeline bridge)", () => {
     expect(r.customer_copy).toContain("persian wedding");
     expect(r.customer_copy.toLowerCase()).not.toContain("theknot"); // no competitor name in customer copy
     expect(r.customer_copy).not.toMatch(/\b(CTR|schema|SoV|impressions)\b/);
+    expect(r.customer_copy.toLowerCase()).toContain("you'll know it worked"); // proof plan in plain English
     expect(r.operator_evidence).toContain("theknot.com"); // raw trace is operator-only
     expect(r.operator_evidence).toContain("demand-graph");
     expect(r.generator_kind).toBe("deterministic");
