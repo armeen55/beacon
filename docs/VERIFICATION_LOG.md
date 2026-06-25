@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-24 — IRANOPEDIA R&R ACTIVATION · unblock promotion + make cards operator-useful (Phases 0–6; env gate pending)
+
+**Context:** operator: run the first real activation end-to-end — turn the engine on for Iranopedia only, promote Moves into the live queue, inspect customer surfaces, build the smallest missing pieces. Constraints: Iranopedia only, tenant-agnostic code, Ritz/Finglish unaffected, no global flag, no paid APIs/LLM/Wix-publish/Supabase-delete/migrations without approval, flag value only `tenant-iranopedia`.
+
+**Phase 0 preflight:** git clean @ `5215ccf` = prod; 6 trust fixes present; 145 demand-graph + promotion tests green; `BEACON_DEMAND_GRAPH_RECS` NOT set in Vercel (off). Coverage (Iranopedia): 197 GSC / 198 GA4 / 138 Clarity pages, 4,997 competitor cited, 1,225 edges, 40 create-page candidates, cited on 21 pages, no empty sources.
+
+**Phase 1 teardown refresh** (polite fetch, no paid API/LLM): audits 17→20 (ok 11→14); Top-25 teardown-state not_audited 3→**0** (torn_down 7→9, loosely_matched 4→5; remaining 5 errored + 1 blocked are sites that refuse bots).
+
+**Phase 3 — found + fixed THE activation blocker** (all dry-run, ZERO Supabase writes): with the flag on, the engine added 25 candidates (409→434) but **0 reached the queue** — `eligibilityForTrigger()` returned `blocked` for the unregistered `demand_graph_*` trigger signals. Fixed in `84aca5d` (3 pairs → customer-queue-ready; create_page stays blocked). After fix: promoted rows **36 → 46**, **+10** engine `add_answer_block` Moves (confidence HIGH), **0 collisions**, Ritz isolated (0). Gate instrumentation: all 25 candidates `ELIGIBLE` post-fix.
+
+**Phase 5 — card bridge** (`837e0cf`): only `customer_copy`→`why` reaches the persisted row (shared mapping nulls proposed_text/measurement_plan). Enriched `customer_copy` with a plain-English proof line per gap + `operator_evidence` with the packet's competitor what-wins + outline + answer-block brief. Verified: 46 holds (copy passes the public-copy validator); cards show the proof line; operator brief shows real teardowns.
+
+**Phase 4 top-10 verdict:** 4 strong (achaemenid-flag, cities, safavid-flag, jersey-evolution — real teardowns) + 6 acceptable; **0 bad/noisy** (NO-GO gate >2). 4 are competitor-"loosely-matched" (relevance gate being honest; page→query fit sound in all 10).
+
+**Phase 6 create-page truth check:** PASS — keep-list present (wedding, nowruz, traditional music, diaspora, culture, football, gifts), drop-list gone (etsy/shop-iranopedia/tripadvisor/g293998/product-category/blogs-news/pinterest/reddit).
+
+**Verified:** `npm run typecheck` clean; 100 demand-graph + 101 promotion/eligibility tests green; `npm run build` green; eligibility invariant 14→17 pairs (table 33→36).
+
+**PENDING (operator gate):** set `BEACON_DEMAND_GRAPH_RECS=tenant-iranopedia` in Vercel Production (the only step that activates). Recommendation: GO. Then a real (non-dry-run) generation writes the 10 rows; live-surface inspection + final GO/NO-GO follow.
+
+---
+
 ## 2026-06-24 — RANK-&-REVENUE TRUST HARDENING · 6 slices to make the engine enable-able for Iranopedia only (flag still OFF)
 
 **Context:** post-audit ("smart core, not trustworthy enough to turn on"). Operator: make it trustworthy enough to enable for Iranopedia ONLY; do not flip the flag; no LLM/DataForSEO/paid APIs; do not change the core score formula unless a verified bug requires; Ritz unaffected. Executed 6 numbered slices, verification after each.
