@@ -12,9 +12,14 @@ type Bucket = "winning" | "measuring" | "flat";
 
 function bucketOf(verdict: string): Bucket {
   const v = verdict.toLowerCase();
+  // GscProofVerdict: won | lost | measuring | inconclusive | insufficient_data.
   if (/help|won|improv|\bwin\b|lift/.test(v)) return "winning";
-  if (/measur|insufficient|pending|inconclusive|not_enough|baseline/.test(v)) return "measuring";
-  return "flat"; // nothing / hurting / lost / regressed
+  // "Still measuring" = genuinely not done yet (window open, or not enough data
+  // to judge). "inconclusive" is FINALIZED with no meaningful lift → that's a
+  // "no clear lift" result, NOT pending — bucketing it as measuring would tell
+  // the operator a finished null result is still cooking.
+  if (/measur|insufficient|pending|not_enough|baseline/.test(v)) return "measuring";
+  return "flat"; // nothing / hurting / lost / regressed / inconclusive (finalized null)
 }
 
 function prettyPath(path: string): string {
