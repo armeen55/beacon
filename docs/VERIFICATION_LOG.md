@@ -7,6 +7,29 @@
 
 ---
 
+## 2026-06-25 — B79 · Sprint 3 merge to main + Sprint 4F/4G/4H · branch claude/sprint-4-demand-expansion (NOT merged)
+
+**Sprint 3 merge:** `git push origin claude/sprint-3-learning-loop:main` → fast-forward `d9314378..f78e9810` ✅. **Vercel prod build FAILED — `upgradeToPro=build-rate-limit`** (Hobby daily build quota exhausted by heavy iteration today). Latest READY prod deployment = `d9314378` (Sprint 2); `/login` 200. **Sprint 3 is on main but NOT live** — retry the deploy when the build window resets (≈ midnight UTC) or upgrade Vercel. Not a code issue.
+
+**Sprint 4F/4G/4H built (no migration):**
+- `serp/dataforseo-keywords.ts` — `readAllCachedKeywordDemand` (cache-only $0).
+- `demand/load-demand-opportunities.ts` — cockpit loader (cache → engine → Sprint-3 prior re-rank, fail-soft).
+- `(shell)/today-opportunities-actions.ts` — `discoverDemandAction` (operator-gated, capped, explicit-tenant spend).
+- `(shell)/today-opportunities-section.tsx` + `today-opportunities-panel.tsx` — "New opportunities" panel; mounted in `page.tsx` + jump-nav.
+- `lib/persistence/store-classification.ts` — **COST FIX**: registered `dataforseo-serp-cache` + `dataforseo-keywords-cache` (were unclassified → cache threw → every paid call re-spent).
+
+**Verified:**
+- `npm run typecheck` clean. Targeted vitest (`demand` + `serp/dataforseo-keywords` + `persistence` + `architecture/llm-safety-invariants`) → **83 passed** (+20 new: loader cached→opportunities / no-duplicate-on-match / weak-evidence-not-ranked / concept-only-labeled / fail-soft / prior-influence-not-dominate; cache reader flatten/stale-drop/dedup/fail-soft).
+- Cockpit route compiles + renders **200**; jump-nav shows "New opportunities".
+- **4I (cockpit loader, real cache, $0 read)**: 10 keywords → **8 opportunities** (iran flag 135k → improve /iran-flags; food/numbers/movies → answer-blocks; jersey + nowruz-gifts → concept-only products). Cache fix proven: call-2 = `cache_hit` $0; file on disk at `.data/global/dataforseo-keywords-cache.json`.
+- **Spend correction**: cache was broken → earlier "$0 re-runs" was wrong. **~$0.225 DataForSEO keyword spend total this session**; now genuinely $0 on re-run (cap $50, fail-closed, unaffected).
+
+**Known limitation:** local-preview UI visual blocked by the known local→Supabase connection-pool-timeout (degrades whole cockpit; the section fail-soft-hides — correct, not a Sprint-4 regression). Visual confirms on healthy Supabase / deployed env.
+
+**Posture:** no migration · no publish · no main merge · one sanctioned ~$0.075 live call (+cache-fix proof).
+
+---
+
 ## 2026-06-25 — B78 · Demand Expansion core (Sprint 4A-4C + 4I live) · branch claude/sprint-4-demand-expansion (stacked on Sprint 3, NOT merged)
 
 **Built (no migration; shared DataForSEO budget):**
