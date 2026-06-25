@@ -2,8 +2,16 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadLatestPageSnapshots } from "@/domains/recommendation-intelligence/page-freshness";
 import { loadTopPagesWithQueriesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildThinPages, thinImpressionsAtStake } from "./today-thin-rows";
+
+/** Raw last-slug segment — must match the feed's prettyFn so the dismissal key
+ *  (kind|page|query) is identical across the headline + this section. */
+function rawSlug(u: string): string {
+  const s = u.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
+  return s.split("/").filter(Boolean).pop() || u;
+}
 
 /**
  * today-thin-section (2026-06-25) — "Thin pages with demand → expand them": pages
@@ -26,9 +34,10 @@ export async function TodayThinSection() {
   let rows: ReturnType<typeof buildThinPages> = [];
   try {
     const tenantId = await currentTenantId();
-    const [snaps, pages] = await Promise.all([
+    const [snaps, pages, dismissed] = await Promise.all([
       loadLatestPageSnapshots(tenantId).catch(() => []),
       loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
+      loadDismissedKeys(tenantId).catch(() => new Set<string>()),
     ]);
     if (snaps.length === 0) return null;
     const impressionsByUrl = new Map<string, number>();
@@ -37,10 +46,12 @@ export async function TodayThinSection() {
       const impr = p.queries.reduce((s, q) => s + q.impressions, 0);
       impressionsByUrl.set(u, (impressionsByUrl.get(u) ?? 0) + impr);
     }
+    // Honor feed dismissals globally — an "expand" opportunity dismissed on the
+    // headline stays gone here too (same kind|page|query key; query = raw slug).
     rows = buildThinPages(
       snaps.map((s) => ({ url: s.url, wordCount: s.wordCount })),
       impressionsByUrl,
-    );
+    ).filter((r) => !dismissed.has(opportunityKey("expand", r.url, rawSlug(r.url))));
   } catch {
     return null;
   }
