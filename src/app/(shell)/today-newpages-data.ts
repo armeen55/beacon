@@ -33,10 +33,17 @@ export type NewPagesData = {
 };
 
 function domainOf(url: string): string | null {
+  if (!url) return null;
+  // Competitor URLs from the citation graph are often scheme-less
+  // ("theknot.com/content/persian-wedding") — new URL() throws on those, which
+  // was silently dropping the competitor's name from every New Page card.
+  const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`;
   try {
-    return new URL(url).hostname.replace(/^www\./, "");
+    return new URL(withScheme).hostname.replace(/^www\./, "");
   } catch {
-    return null;
+    // Last-ditch: take the host token before the first slash.
+    const host = url.replace(/^https?:\/\//i, "").split("/")[0]?.replace(/^www\./, "");
+    return host && host.includes(".") ? host : null;
   }
 }
 
