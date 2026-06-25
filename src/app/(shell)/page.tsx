@@ -52,6 +52,7 @@ import { TodayRecoveriesSection } from "./today-recoveries-section";
 import { TodayQuickWinsSection } from "./today-quickwins-section";
 import { TodayMoneyLeakSection } from "./today-moneyleak-section";
 import { TodayEntityFoundationSection } from "./today-entity-foundation-section";
+import { TodayToolsSection } from "./today-tools-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import {
   createPerfTrace,
@@ -272,6 +273,11 @@ async function TodayV2SectionedContent() {
           (site-level entity recognition for Google + AI). Own Suspense / self-hides. */}
       <Suspense fallback={null}>
         <TodayEntityFoundationSection />
+      </Suspense>
+      {/* Tools worth building (2026-06-25, §5/§8 asset engine) — interactive assets
+          the site's searchers ask for (GSC tool-intent demand). Own Suspense / self-hides. */}
+      <Suspense fallback={null}>
+        <TodayToolsSection />
       </Suspense>
       {/* New Pages to Build (2026-06-24) — the create_page half of the engine:
           topics competitors own that the tenant has no page for. These never

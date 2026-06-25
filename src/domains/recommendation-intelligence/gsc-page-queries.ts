@@ -167,6 +167,107 @@ export async function loadPageClicksInRange(
   }
 }
 
+export type TenantQuery = { query: string; clicks: number; impressions: number };
+
+/**
+ * Site-wide top queries (aggregated across ALL pages) for the tenant over the
+ * window — used by demand-level scans (e.g. tool-intent detection) where the
+ * query can live on any page. Bounded: reads the highest-impression daily rows
+ * (ROW_BUDGET cap), aggregates by query, returns the top `limit`. Fail-soft → [].
+ */
+export async function loadTopTenantQueries(
+  tenantId: string,
+  opts: { limit?: number; windowDays?: number } = {},
+): Promise<TenantQuery[]> {
+  if (!tenantId) return [];
+  const limit = Math.max(1, Math.min(opts.limit ?? 300, 1000));
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(opts.windowDays ?? WINDOW_DAYS);
+    const { data, error } = await sb
+      .from("gsc_daily_rows")
+      .select("query, clicks, impressions")
+      .eq("tenant_id", tenantId)
+      .gte("date", since)
+      .order("impressions", { ascending: false })
+      .limit(ROW_BUDGET);
+    if (error || !data) return [];
+    const byQuery = new Map<string, { clicks: number; impressions: number }>();
+    for (const r of data) {
+      const query = (r.query as string)?.trim();
+      if (!query) continue;
+      const a = byQuery.get(query) ?? { clicks: 0, impressions: 0 };
+      a.clicks += Number(r.clicks) || 0;
+      a.impressions += Number(r.impressions) || 0;
+      byQuery.set(query, a);
+    }
+    return [...byQuery.entries()]
+      .map(([query, a]) => ({ query, clicks: a.clicks, impressions: a.impressions }))
+      .sort((x, y) => y.impressions - x.impressions)
+      .slice(0, limit);
+  } catch (e) {
+    log.warn("[gsc-page-queries] top-tenant-queries threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
+
+/**
+ * Tool-intent queries: gsc_daily_rows whose QUERY contains an interactive-asset
+ * word (converter/calculator/generator/quiz/…). DB-filtered (ILIKE OR) so the
+ * long-tail tool queries surface regardless of impression rank — a plain
+ * top-impression scan misses them. Aggregated by query, fail-soft → [].
+ */
+export async function loadToolIntentQueries(
+  tenantId: string,
+  opts: { windowDays?: number } = {},
+): Promise<TenantQuery[]> {
+  if (!tenantId) return [];
+  // Stems (ILIKE %stem%) covering the generic tool vocabulary in tool-intent.ts.
+  const stems = [
+    "convert", "calculat", "generat", "quiz", "check", "estimat",
+    "template", "worksheet", "planner", "checklist", "tool", "widget",
+    "validator", "lookup",
+  ];
+  const orFilter = stems.map((s) => `query.ilike.%${s}%`).join(",");
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(opts.windowDays ?? WINDOW_DAYS);
+    const { data, error } = await sb
+      .from("gsc_daily_rows")
+      .select("query, clicks, impressions")
+      .eq("tenant_id", tenantId)
+      .gte("date", since)
+      .or(orFilter)
+      .order("impressions", { ascending: false })
+      .limit(ROW_BUDGET);
+    if (error || !data) {
+      if (error) log.warn("[gsc-page-queries] tool-intent read failed", { tenantId, error: error.message });
+      return [];
+    }
+    const byQuery = new Map<string, { clicks: number; impressions: number }>();
+    for (const r of data) {
+      const query = (r.query as string)?.trim();
+      if (!query) continue;
+      const a = byQuery.get(query) ?? { clicks: 0, impressions: 0 };
+      a.clicks += Number(r.clicks) || 0;
+      a.impressions += Number(r.impressions) || 0;
+      byQuery.set(query, a);
+    }
+    return [...byQuery.entries()]
+      .map(([query, a]) => ({ query, clicks: a.clicks, impressions: a.impressions }))
+      .sort((x, y) => y.impressions - x.impressions);
+  } catch (e) {
+    log.warn("[gsc-page-queries] tool-intent threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
+
 export type DecliningPage = { page: string; topDecline: QueryDecline };
 export type StrikingPage = { page: string; topQuery: PageQuery };
 
