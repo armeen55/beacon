@@ -84,6 +84,16 @@ function plainMetric(m: string): string {
   return METRIC_PLAIN[m] ?? m;
 }
 
+/** De-jargon the competitor teardown summary for the operator card (the raw
+ *  whatWins() string is SEO-shorthand; the card must read plainly). */
+function plainWins(s: string): string {
+  return s
+    .replace(/schema type\(s\)/gi, "structured-data types")
+    .replace(/\banswer block\b/gi, "a direct answer up top")
+    .replace(/\binternal linking\b/gi, "internal links")
+    .replace(/\bschema\b/gi, "structured data");
+}
+
 export function formatMoveCard(packet: EvidencePacket): MoveCard {
   const { move, competitor, gaps, draft, proofPlan, demand } = packet;
   const subject = move.label;
@@ -103,8 +113,8 @@ export function formatMoveCard(packet: EvidencePacket): MoveCard {
   })();
 
   const whatWins = (() => {
-    // On-topic page with a real teardown → the grounded summary.
-    if (competitor.facts && !competitor.looselyMatched) return competitor.whatWins;
+    // On-topic page with a real teardown → the grounded summary, de-jargoned.
+    if (competitor.facts && !competitor.looselyMatched) return plainWins(competitor.whatWins);
     // No competitor at all → you can own it.
     if (!competitor.domain) return `No single strong competitor found yet — you can own this.`;
     // Off-topic citation (we DID read the page, it just doesn't fit the query).

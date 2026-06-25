@@ -55,6 +55,16 @@ describe("formatMoveCard (Step 7 bridge, plain language)", () => {
     expect(c.whatWins.toLowerCase()).not.toContain("off-topic");
   });
 
+  it("on-topic teardown whatWins is de-jargoned (no 'schema'/'answer block')", () => {
+    const c = formatMoveCard(packet({
+      competitor: { topUrl: "https://t.com/x", domain: "t.com", fetchStatus: "ok", facts: { wordCount: 3600 } as never, whatWins: "answer block · 12 schema type(s) · 3.6k words · strong internal linking", relevance: 1, looselyMatched: false, otherUrls: [] },
+    }));
+    expect(c.whatWins).not.toMatch(/\bschema\b/);
+    expect(c.whatWins).not.toMatch(/answer block/);
+    expect(c.whatWins).toContain("structured-data types");
+    expect(c.whatWins).toContain("a direct answer up top");
+  });
+
   it("no jargon: known SEO terms are translated", () => {
     const c = formatMoveCard(packet({
       move: { key: "k", gapType: "edit_page", label: "cities in iran", confidence: "high", score: 1, components: { demand: 1, winnability: 0.5, dollarValue: 2, visibilityGap: 0.3, friction: 0 }, signals: ["GSC"] },
