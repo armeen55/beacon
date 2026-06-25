@@ -253,6 +253,14 @@ async function TodayV2SectionedContent() {
 
   return (
     <div className="space-y-6">
+      {/* Print-only report header (2026-06-25) — gives the "Save as PDF report"
+          output a proper title block; hidden on screen. */}
+      <header className="hidden print:block border-b border-gray-300 pb-3">
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Beacon — Rank &amp; Revenue Report</h1>
+        <p className="mt-0.5 text-sm text-gray-500">
+          Generated {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+        </p>
+      </header>
       {/* Operator-OS rebuild (2026-06-19) — the State of the Union executive
           briefing leads the cockpit for operators: one card that reads the
           whole business across GSC/SEMrush/Clarity/GA4 and says what's
