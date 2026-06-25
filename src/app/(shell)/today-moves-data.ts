@@ -83,6 +83,10 @@ export type TodayMovesHeroData = {
     pagesCovered: number;
     /** How many of the shown Moves already have a precomputed AI draft waiting. */
     draftsReady: number;
+    /** Striking-distance query opportunities across the shown Moves (quick CTR wins). */
+    strikingWins: number;
+    /** Queries the shown Moves' pages are losing ground on (recent vs prior). */
+    losingQueries: number;
   };
 };
 
@@ -416,6 +420,9 @@ export async function buildTodayMovesData(
         (m.action === "edit_title" && m.titleVariants.length > 0),
     ).length;
 
+    const strikingWins = top.reduce((s, m) => s + m.topQueries.filter((q) => q.strikingDistance).length, 0);
+    const losingQueries = top.reduce((s, m) => s + m.declines.length, 0);
+
     return {
       moves: top,
       stats: {
@@ -424,6 +431,8 @@ export async function buildTodayMovesData(
         citationsContested,
         pagesCovered,
         draftsReady,
+        strikingWins,
+        losingQueries,
       },
     };
 }

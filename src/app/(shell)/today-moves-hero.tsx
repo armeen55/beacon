@@ -70,6 +70,25 @@ export async function TodayMovesHeroSection() {
         )}
       </div>
 
+      {stats.strikingWins > 0 || stats.losingQueries > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
+          {stats.strikingWins > 0 ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="text-amber-500">↑</span>
+              <span className="font-semibold text-gray-800">{stats.strikingWins}</span> striking-distance{" "}
+              {stats.strikingWins === 1 ? "win" : "wins"} (rank 4–15, ready to climb)
+            </span>
+          ) : null}
+          {stats.losingQueries > 0 ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="text-rose-500">↓</span>
+              <span className="font-semibold text-gray-800">{stats.losingQueries}</span>{" "}
+              {stats.losingQueries === 1 ? "query" : "queries"} losing ground
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       <BulkShipBar moves={moves.map((m) => ({ id: m.id, targetUrl: m.targetUrl, query: m.query }))} />
 
       <div className="mt-5 grid gap-3">
