@@ -287,6 +287,23 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       ) : null}
 
+      {m.declines.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">Losing ground</span>
+          {m.declines.map((d, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800 ring-1 ring-rose-100"
+              title={`Clicks fell ${d.dropPct}% (${d.priorClicks.toLocaleString()} → ${d.recentClicks.toLocaleString()}) vs the prior 28 days${d.positionSlip >= 1 ? `; slipped ${d.positionSlip.toFixed(1)} positions` : ""}.`}
+            >
+              <span aria-hidden>↓</span>
+              <span className="font-medium">{d.query}</span>
+              <span className="text-rose-500">−{d.dropPct}% clicks</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {m.yourGap ? (
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2">
           <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-400">Your gap</span>

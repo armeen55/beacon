@@ -45,6 +45,112 @@ function sinceDateIso(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export type QueryDecline = {
+  query: string;
+  recentClicks: number;
+  priorClicks: number;
+  /** % clicks dropped vs the prior equal-length window (0–100). */
+  dropPct: number;
+  recentPosition: number;
+  priorPosition: number;
+  /** Positions slipped (recent − prior; positive = fell down the SERP). */
+  positionSlip: number;
+};
+
+/** One bounded `page IN (...)` read for a date window, aggregated by (page,query). */
+async function readWindow(
+  sb: ReturnType<typeof getSupabaseAdmin>,
+  tenantId: string,
+  pages: string[],
+  fromIso: string,
+  toIso: string,
+): Promise<Map<string, Map<string, { clicks: number; impressions: number; posW: number }>>> {
+  const byPage = new Map<string, Map<string, { clicks: number; impressions: number; posW: number }>>();
+  const { data, error } = await sb
+    .from("gsc_daily_rows")
+    .select("page, query, clicks, impressions, position")
+    .eq("tenant_id", tenantId)
+    .in("page", pages)
+    .gte("date", fromIso)
+    .lt("date", toIso)
+    .order("impressions", { ascending: false })
+    .limit(ROW_BUDGET);
+  if (error || !data) return byPage;
+  for (const r of data) {
+    const page = r.page as string;
+    const query = (r.query as string)?.trim();
+    if (!page || !query) continue;
+    const impr = Number(r.impressions) || 0;
+    const perQ = byPage.get(page) ?? new Map();
+    const a = perQ.get(query) ?? { clicks: 0, impressions: 0, posW: 0 };
+    a.clicks += Number(r.clicks) || 0;
+    a.impressions += impr;
+    a.posW += (Number(r.position) || 0) * impr;
+    perQ.set(query, a);
+    byPage.set(page, perQ);
+  }
+  return byPage;
+}
+
+/**
+ * Per-page DECLINING queries — recent 28d vs the prior 28d, via TWO separate
+ * bounded windowed reads (each its own capped `page IN (...)` read) so truncation
+ * can never mix windows and produce a wrong "you're losing X" claim. A query is
+ * declining when it had real prior demand (≥10 clicks) and recent clicks fell
+ * ≥30%. Fail-soft → empty map. The honest "what you're losing" signal.
+ */
+export async function loadQueryDeclinesForPages(
+  tenantId: string,
+  pageUrls: string[],
+  opts: { windowDays?: number } = {},
+): Promise<Map<string, QueryDecline[]>> {
+  const out = new Map<string, QueryDecline[]>();
+  const pages = [...new Set(pageUrls.filter(Boolean))].slice(0, 25);
+  if (!tenantId || pages.length === 0) return out;
+  const w = opts.windowDays ?? 28;
+  try {
+    const sb = getSupabaseAdmin();
+    const recentFrom = sinceDateIso(w);
+    const priorFrom = sinceDateIso(w * 2);
+    const [recent, prior] = await Promise.all([
+      readWindow(sb, tenantId, pages, recentFrom, sinceDateIso(0)),
+      readWindow(sb, tenantId, pages, priorFrom, recentFrom),
+    ]);
+    for (const [page, priorQs] of prior) {
+      const recentQs = recent.get(page) ?? new Map();
+      const declines: QueryDecline[] = [];
+      for (const [query, p] of priorQs) {
+        if (p.clicks < 10) continue; // needs real prior demand to call it a decline
+        const r = recentQs.get(query) ?? { clicks: 0, impressions: 0, posW: 0 };
+        const dropPct = p.clicks > 0 ? Math.round(((p.clicks - r.clicks) / p.clicks) * 100) : 0;
+        if (dropPct < 30) continue;
+        const recentPosition = r.impressions > 0 ? r.posW / r.impressions : 0;
+        const priorPosition = p.impressions > 0 ? p.posW / p.impressions : 0;
+        declines.push({
+          query,
+          recentClicks: r.clicks,
+          priorClicks: p.clicks,
+          dropPct,
+          recentPosition,
+          priorPosition,
+          positionSlip: recentPosition > 0 && priorPosition > 0 ? recentPosition - priorPosition : 0,
+        });
+      }
+      if (declines.length > 0) {
+        declines.sort((a, b) => b.priorClicks - a.priorClicks);
+        out.set(page, declines.slice(0, TOP_PER_PAGE));
+      }
+    }
+    return out;
+  } catch (e) {
+    log.warn("[gsc-page-queries] declines threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return out;
+  }
+}
+
 /**
  * Top queries per page for a bounded set of worklist pages.
  * @returns Map keyed by the EXACT page URL passed in → its top queries.

@@ -6,7 +6,12 @@ import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
-import { loadTopQueriesForPages, type PageQuery } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import {
+  loadTopQueriesForPages,
+  loadQueryDeclinesForPages,
+  type PageQuery,
+  type QueryDecline,
+} from "@/domains/recommendation-intelligence/gsc-page-queries";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 /**
@@ -47,6 +52,8 @@ export type TodayMove = {
   yourGap: string;
   /** The exact GSC queries this page already ranks for (light per-query path). */
   topQueries: PageQuery[];
+  /** Queries this page is LOSING (recent 28d vs prior 28d) — the honest decay signal. */
+  declines: QueryDecline[];
   looselyMatched: boolean;
   /** Other engine actions queued on the SAME page (so a page is one card, not many). */
   also: string[];
@@ -305,6 +312,7 @@ export async function buildTodayMovesData(
         whatWins,
         yourGap: whatWins ? yourGapLine(packet?.gaps ?? []) : "", // only when we have a real teardown to compare against
         topQueries: [], // filled below for the shown top moves (one bounded GSC read)
+        declines: [], // filled below (recent vs prior window)
         looselyMatched,
         also,
         outline: (packet?.draft?.outline ?? []).filter(Boolean).slice(0, 5),
@@ -336,13 +344,14 @@ export async function buildTodayMovesData(
     // queries attached (then the pool order is just the engine score).
     const limit = opts.limit ?? 6;
     const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
-    const queryMap = await withTimeout(
-      loadTopQueriesForPages(tenantId, pool.map((m) => m.targetUrl)),
-      5000,
-      new Map<string, PageQuery[]>(),
-    );
+    const poolUrls = pool.map((m) => m.targetUrl);
+    const [queryMap, declineMap] = await Promise.all([
+      withTimeout(loadTopQueriesForPages(tenantId, poolUrls), 5000, new Map<string, PageQuery[]>()),
+      withTimeout(loadQueryDeclinesForPages(tenantId, poolUrls), 6000, new Map<string, QueryDecline[]>()),
+    ]);
     for (const m of pool) {
       m.topQueries = queryMap.get(m.targetUrl) ?? [];
+      m.declines = declineMap.get(m.targetUrl) ?? [];
       // Re-seed the CTR Title Lab from the page's top GSC query (prefer a
       // striking-distance one) when we have it — so title variants target the
       // EXACT phrasing the page measurably ranks for, not just the topic label.
