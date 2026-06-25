@@ -26,6 +26,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { log } from "@/lib/logger";
 
 import { loadCompetitorCitedPagesForTenant, type CompetitorCitationsResult } from "./competitor-citations-loader";
+import { loadFanoutSeedsForTenant, fanoutSeedsForNode, type FanoutSeed } from "./load-fanout-seeds";
 import {
   buildDemandGraph,
   type DemandInput,
@@ -160,7 +161,7 @@ export async function loadDemandGraphForTenant(
   now: Date = new Date(),
   config?: DemandGraphConfig,
 ): Promise<LoadGraphResult> {
-  const [gsc, ga4, clarity] = await Promise.all([
+  const [gsc, ga4, clarity, fanoutSeeds] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId, now).catch((e): Map<string, GscPageSignal> => {
       log.warn("[load-graph] gsc read failed", { tenantId, error: String(e) });
       return new Map();
@@ -172,6 +173,12 @@ export async function loadDemandGraphForTenant(
     loadClarityPageSignalsForTenant(tenantId, now).catch((e): Map<string, ClarityPageSignal> => {
       log.warn("[load-graph] clarity read failed", { tenantId, error: String(e) });
       return new Map();
+    }),
+    // Phase 5: Profound fanout sub-queries → grounds content Moves in the actual
+    // AI sub-questions. Empty (honest) until a Profound fanout sync lands rows.
+    loadFanoutSeedsForTenant(tenantId).catch((e): FanoutSeed[] => {
+      log.warn("[load-graph] fanout read failed", { tenantId, error: String(e) });
+      return [];
     }),
   ]);
 
@@ -219,13 +226,16 @@ export async function loadDemandGraphForTenant(
     const aiCit = ownedCitedPaths.get(pathOf(page)) ?? 0;
     if (aiCit > 0) ownedCitedHits += 1;
 
+    const nodeQueries = g.topQueries.map((q) => q.query);
     demand.push({
       key,
       label,
-      queries: g.topQueries.map((q) => q.query),
+      queries: nodeQueries,
       gscImpressions: g.impressions90d,
       // your AI presence for this cluster (drives visibilityGap magnitude)
       ownedAiShare: aiCit > 0 ? 0.5 : 0,
+      // Phase 5: real Profound sub-questions this page's topic expands into.
+      fanoutSubQueries: fanoutSeedsForNode(label, nodeQueries, fanoutSeeds),
     });
     ownedTokensByKey.set(key, new Set([...toks(label), ...toks(pathOf(page))]));
 
@@ -311,6 +321,7 @@ export async function loadDemandGraphForTenant(
       label: c.label,
       queries: [],
       aiExecutions: c.proxy, // AI-attention proxy demand (no GSC/volume yet)
+      fanoutSubQueries: fanoutSeedsForNode(c.label, [], fanoutSeeds),
     });
     for (const u of c.urls.slice(0, 5)) {
       competitorCitations.push({ url: u, demandKey: c.k, weight: c.citationCount });
