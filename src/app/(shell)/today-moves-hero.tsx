@@ -52,10 +52,10 @@ export async function TodayMovesHeroSection() {
           </p>
         </div>
         <Link
-          href="/recommendations"
+          href="/moves"
           className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
         >
-          See all in the queue →
+          See all moves →
         </Link>
       </div>
 
