@@ -361,6 +361,12 @@ export async function buildTodayMovesData(
       if (sd && m.action === "edit_title") {
         m.why = `You already rank position ${Math.round(sd.position)} for "${sd.query}" (${sd.impressions.toLocaleString()} monthly impressions). A sharper title can climb a few spots and capture far more of those clicks.`;
       }
+      // Grounded "why" for an AI-citation move that ALSO ranks on Google: fuse the
+      // citation gap with the real search position — you're visible, just not cited.
+      const tq = m.topQueries[0];
+      if (m.action === "add_answer_block" && tq && m.whoCited) {
+        m.why = `AI cites ${m.whoCited} for this. You already rank position ${Math.round(tq.position)} for "${tq.query}" (${tq.impressions.toLocaleString()} monthly impressions) but aren't the cited source — a quotable answer block can win the citation.`;
+      }
     }
 
     // Quick-win boost: a page already ranking in striking distance (pos 4–15, real
