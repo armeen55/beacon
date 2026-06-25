@@ -243,6 +243,13 @@ export async function autoRefreshStaleConnectorsForTenant(
  */
 export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult> {
   const ranAt = new Date().toISOString();
+  // Soft deadline for the post-sync enrichment (teardown + precompute). The route's
+  // maxDuration is 300s; stop enrichment with headroom so a long run is never KILLED
+  // mid-write (PHASE 1 syncs always finished first; enrichment is best-effort and
+  // idempotent, so a skipped tail just resumes next night).
+  const startMs = Date.now();
+  const ENRICH_DEADLINE_MS = 240_000;
+  const pastDeadline = () => Date.now() - startMs > ENRICH_DEADLINE_MS;
   const tenants = (await listTenants()).filter((t) => t.status === "active");
   const results: CronSyncSourceResult[] = [];
   // PHASE 1 — sync every tenant's data first (the critical path). LLM precompute
@@ -263,6 +270,10 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
   // diagnostics page. Idempotent (caches ok audits) + fail-soft. Runs BEFORE the
   // precompute so drafts get fresh teardown grounding.
   for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached — skipping remaining teardowns");
+      break;
+    }
     try {
       const a = await auditTopCompetitorsForTenant({ tenantId: t.id, limit: 15 });
       if (a.audited.length > 0) {
@@ -285,6 +296,10 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
   // BEACON_LLM_PROVIDER=openai; budget-capped + idempotent (only un-drafted Moves
   // → steady-state ~free) + fail-soft (per-tenant try/catch, never affects sync).
   for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached — skipping remaining precompute");
+      break;
+    }
     try {
       const pc = await precomputeMoveDraftsForTenant(t.id, { maxMoves: 8 });
       if (!pc.skipped && (pc.answerBlocksSaved > 0 || pc.faqSchemasSaved > 0 || pc.newPageOpeningsSaved > 0)) {
