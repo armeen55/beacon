@@ -45,6 +45,7 @@ import { DataSourcesStrip } from "@/components/today/data-sources-strip";
 import { CollapsibleSection } from "@/components/today/collapsible-section";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { StateOfUnionSection } from "./state-of-union-section";
+import { CockpitJumpNav } from "./cockpit-jump-nav";
 import { TodayMovesHeroSection } from "./today-moves-hero";
 import { TodayOpportunitiesFeed } from "./today-opportunities-feed";
 import { TodayDeclinesSection } from "./today-declines-section";
@@ -231,6 +232,20 @@ async function TodayV2SectionedContent() {
       <Suspense fallback={null}>
         <StateOfUnionSection />
       </Suspense>
+      {/* Jump-nav (2026-06-25) — sticky index for the cockpit's many self-hiding
+          sections; only shows anchors that actually rendered content. */}
+      <CockpitJumpNav
+        targets={[
+          { id: "sec-opportunities", label: "Opportunities" },
+          { id: "sec-recover", label: "Recover" },
+          { id: "sec-recoveries", label: "Turned around" },
+          { id: "sec-quickwins", label: "Quick wins" },
+          { id: "sec-leaks", label: "Conversion leaks" },
+          { id: "sec-tools", label: "Tools" },
+          { id: "sec-newpages", label: "New pages" },
+          { id: "sec-entity", label: "Entity" },
+        ]}
+      />
       {/* Today's Moves hero (2026-06-24) — the premium §7 ritual surface. Leads
           the cockpit with the live Rank-&-Revenue Moves (demand-graph engine,
           now flowing into the real queue) as rich cards: who AI cites now, what
@@ -244,48 +259,64 @@ async function TodayV2SectionedContent() {
           ranked list fusing recover-declines + win-striking by estimated monthly
           clicks at stake, the headline above the per-axis detail sections below.
           Own Suspense / self-hides when nothing clears the bar. */}
-      <Suspense fallback={null}>
-        <TodayOpportunitiesFeed />
-      </Suspense>
+      <div id="sec-opportunities" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayOpportunitiesFeed />
+        </Suspense>
+      </div>
       {/* Recover lost ground (2026-06-25) — the queries the worklist pages are
           actively LOSING (recent vs prior 28d, GSC-grounded). Names the bleeding
           so the operator can act. Own Suspense / self-hides when nothing declines. */}
-      <Suspense fallback={null}>
-        <TodayDeclinesSection />
-      </Suspense>
+      <div id="sec-recover" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayDeclinesSection />
+        </Suspense>
+      </div>
       {/* Pages you've turned around (2026-06-25) — the payoff of the recover loop:
           shipped fixes whose Google clicks climbed back (before/after the ship date).
           Own Suspense / self-hides when nothing has recovered yet. */}
-      <Suspense fallback={null}>
-        <TodayRecoveriesSection />
-      </Suspense>
+      <div id="sec-recoveries" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayRecoveriesSection />
+        </Suspense>
+      </div>
       {/* Quick CTR wins (2026-06-25) — symmetric to Recover-lost-ground: site-wide
           pages in striking distance (pos 4–15, real demand). Own Suspense / self-hides. */}
-      <Suspense fallback={null}>
-        <TodayQuickWinsSection />
-      </Suspense>
+      <div id="sec-quickwins" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayQuickWinsSection />
+        </Suspense>
+      </div>
       {/* Fix conversion leaks (2026-06-25, L8/CRO) — the REVENUE site-wide lens:
           high-traffic pages with Clarity friction leaking conversions. Own Suspense / self-hides. */}
-      <Suspense fallback={null}>
-        <TodayMoneyLeakSection />
-      </Suspense>
+      <div id="sec-leaks" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayMoneyLeakSection />
+        </Suspense>
+      </div>
       {/* Entity foundation (2026-06-25, L11) — one-time Organization + WebSite JSON-LD
           (site-level entity recognition for Google + AI). Own Suspense / self-hides. */}
-      <Suspense fallback={null}>
-        <TodayEntityFoundationSection />
-      </Suspense>
+      <div id="sec-entity" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayEntityFoundationSection />
+        </Suspense>
+      </div>
       {/* Tools worth building (2026-06-25, §5/§8 asset engine) — interactive assets
           the site's searchers ask for (GSC tool-intent demand). Own Suspense / self-hides. */}
-      <Suspense fallback={null}>
-        <TodayToolsSection />
-      </Suspense>
+      <div id="sec-tools" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayToolsSection />
+        </Suspense>
+      </div>
       {/* New Pages to Build (2026-06-24) — the create_page half of the engine:
           topics competitors own that the tenant has no page for. These never
           enter the edit queue (they're new pages), so this board is their home.
           Own Suspense / self-hides when there are none. */}
-      <Suspense fallback={null}>
-        <TodayNewPagesSection />
-      </Suspense>
+      <div id="sec-newpages" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayNewPagesSection />
+        </Suspense>
+      </div>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
           the TOP of the cockpit and ORIENTS the operator through the one
           guided loop (Refresh → Review → Approve → Verify → Learn) with the
