@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import { MoveCard } from "./today-moves-card";
+import { BulkShipBar } from "./today-moves-bulkship";
 
 /**
  * today-moves-hero (2026-06-24) — the premium "Today's Moves" ritual hero that
@@ -64,6 +65,8 @@ export async function TodayMovesHeroSection() {
         <StatTile value={String(stats.citationsContested)} label="AI citations to win" accent="text-violet-600" />
         <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />
       </div>
+
+      <BulkShipBar moves={moves.map((m) => ({ id: m.id, targetUrl: m.targetUrl, query: m.query }))} />
 
       <div className="mt-5 grid gap-3">
         {moves.map((m, i) => (
