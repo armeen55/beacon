@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
@@ -373,7 +375,8 @@ export async function loadToolIntentQueries(
  * exactly the answer-block gap). Bounded + fail-soft → []. The pure scorer decides
  * which are real opportunities. Per-query window aggregate keyed by query.
  */
-export async function loadQuestionQueries(
+export const loadQuestionQueries = cache(loadQuestionQueriesImpl);
+async function loadQuestionQueriesImpl(
   tenantId: string,
   opts: { windowDays?: number } = {},
 ): Promise<TenantQuery[]> {
@@ -452,7 +455,8 @@ export type PageWithQueries = { page: string; queries: PageQuery[] };
  * queries (positions + clicks + impressions) — the substrate for any per-query
  * site-wide lens (e.g. CTR-gap detection). Bounded (top N pages) + fail-soft → [].
  */
-export async function loadTopPagesWithQueriesForTenant(
+export const loadTopPagesWithQueriesForTenant = cache(loadTopPagesWithQueriesForTenantImpl);
+async function loadTopPagesWithQueriesForTenantImpl(
   tenantId: string,
   opts: { topPages?: number } = {},
 ): Promise<PageWithQueries[]> {
@@ -638,7 +642,8 @@ export async function loadRisingQueriesForPage(
  * before competitors lock it in), flattened across pages and ranked by clicks
  * gained. Bounded + fail-soft → [].
  */
-export async function loadTopRisingQueriesForTenant(
+export const loadTopRisingQueriesForTenant = cache(loadTopRisingQueriesForTenantImpl);
+async function loadTopRisingQueriesForTenantImpl(
   tenantId: string,
   opts: { topPages?: number; windowDays?: number; cap?: number } = {},
 ): Promise<RisingQuery[]> {

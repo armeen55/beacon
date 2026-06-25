@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
@@ -14,7 +16,8 @@ import { log } from "@/lib/logger";
 
 export type PageSnapshotMeta = { url: string; fetchedAt: string | null; wordCount: number };
 
-export async function loadLatestPageSnapshots(tenantId: string): Promise<PageSnapshotMeta[]> {
+export const loadLatestPageSnapshots = cache(loadLatestPageSnapshotsImpl);
+async function loadLatestPageSnapshotsImpl(tenantId: string): Promise<PageSnapshotMeta[]> {
   if (!tenantId) return [];
   try {
     const sb = getSupabaseAdmin();

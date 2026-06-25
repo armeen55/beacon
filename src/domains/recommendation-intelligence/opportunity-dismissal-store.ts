@@ -17,6 +17,8 @@
 
 import "server-only";
 
+import { cache } from "react";
+
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
@@ -69,8 +71,10 @@ export async function unpinOpportunity(tenantId: string, oppKey: string): Promis
   return undismissOpportunity(tenantId, oppKey);
 }
 
-/** Pinned opportunity keys for a tenant. Fail-soft → empty set. */
-export async function loadPinnedKeys(tenantId: string, limit = 500): Promise<Set<string>> {
+/** Pinned opportunity keys for a tenant. Fail-soft → empty set. Request-cached
+ *  (React cache) so the feed + sections share one read per render. */
+export const loadPinnedKeys = cache(loadPinnedKeysImpl);
+async function loadPinnedKeysImpl(tenantId: string, limit = 500): Promise<Set<string>> {
   const out = new Set<string>();
   if (!tenantId) return out;
   try {
@@ -156,7 +160,8 @@ export async function undismissOpportunity(tenantId: string, oppKey: string): Pr
  * a missing table or DB hiccup never hides the worklist (the safe failure is
  * "show everything", never "show nothing"). Used by the feed loader to filter.
  */
-export async function loadDismissedKeys(tenantId: string, limit = 2000): Promise<Set<string>> {
+export const loadDismissedKeys = cache(loadDismissedKeysImpl);
+async function loadDismissedKeysImpl(tenantId: string, limit = 2000): Promise<Set<string>> {
   const out = new Set<string>();
   if (!tenantId) return out;
   try {
