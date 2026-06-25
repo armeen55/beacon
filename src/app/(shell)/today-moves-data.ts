@@ -100,12 +100,22 @@ export const loadTodayMovesHeroData = cache(
     const tenantId = await currentTenantId();
     const repo = getRepository().forTenant(tenantId);
 
-    const [edits, packsResult] = await Promise.all([
+    const [edits, packsResult, responses] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
       loadChangePacksForTenant(tenantId, { limit: 40 }).catch(
         () => ({ packets: [] as EvidencePacket[] }),
       ),
+      repo.getRecommendationResponses().catch(() => []),
     ]);
+
+    // Skip Moves the operator already shipped/dismissed — so a one-tap "Ship it"
+    // removes the card on the next render (the action revalidates "/").
+    const actioned = new Set<string>();
+    const nowMs = Date.now();
+    for (const r of responses as ReadonlyArray<{ recId: string; status: string; deferUntil?: string | null }>) {
+      if (r.status === "accepted" || r.status === "dismissed") actioned.add(r.recId);
+      else if (r.status === "deferred" && r.deferUntil && new Date(r.deferUntil).getTime() > nowMs) actioned.add(r.recId);
+    }
 
     // Index packets by the owned page URL (the join key to a queued edit).
     const packetByUrl = new Map<string, EvidencePacket>();
@@ -124,6 +134,11 @@ export const loadTodayMovesHeroData = cache(
       if (!targetUrl) continue;
       const key = canon(targetUrl) + "::" + e.action_type;
       if (seen.has(key)) continue;
+      const moveId =
+        (e as { rec_id?: string; id?: string }).rec_id ??
+        (e as { id?: string }).id ??
+        key;
+      if (actioned.has(moveId)) continue; // already shipped / dismissed / deferred
 
       const packet = packetByUrl.get(canon(targetUrl));
       // Hero = the engine's Rank-&-Revenue Moves: either action types the engine
