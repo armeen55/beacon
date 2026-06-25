@@ -328,17 +328,34 @@ export async function buildTodayMovesData(
         CONF_RANK[b.confidence] - CONF_RANK[a.confidence] ||
         (b.demand ?? 0) - (a.demand ?? 0),
     );
-    const top = moves.slice(0, opts.limit ?? 6);
 
-    // Light per-query GSC grounding: ONE bounded `page IN (...)` read for the
-    // shown moves (indexed, capped — never the timeout-prone full RPC). Names the
-    // exact queries each page already ranks for. Fail-soft → no queries attached.
+    // Light per-query GSC grounding: ONE bounded `page IN (...)` read for a small
+    // CANDIDATE POOL (indexed, capped — never the timeout-prone full RPC). Names the
+    // exact queries each page ranks for AND lets striking-distance (the fastest,
+    // highest-certainty CTR wins) influence which moves surface. Fail-soft → no
+    // queries attached (then the pool order is just the engine score).
+    const limit = opts.limit ?? 6;
+    const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
     const queryMap = await withTimeout(
-      loadTopQueriesForPages(tenantId, top.map((m) => m.targetUrl)),
+      loadTopQueriesForPages(tenantId, pool.map((m) => m.targetUrl)),
       5000,
       new Map<string, PageQuery[]>(),
     );
-    for (const m of top) m.topQueries = queryMap.get(m.targetUrl) ?? [];
+    for (const m of pool) m.topQueries = queryMap.get(m.targetUrl) ?? [];
+
+    // Quick-win boost: a page already ranking in striking distance (pos 4–15, real
+    // demand) is the highest-CERTAINTY win — surface those above equal-score moves.
+    // Score stays primary (trust); striking distance is the next key, before
+    // confidence/demand. Re-sort only the bounded pool, then take the shown set.
+    const hasStriking = (m: TodayMove) => m.topQueries.some((q) => q.strikingDistance);
+    pool.sort(
+      (a, b) =>
+        b.score - a.score ||
+        Number(hasStriking(b)) - Number(hasStriking(a)) ||
+        CONF_RANK[b.confidence] - CONF_RANK[a.confidence] ||
+        (b.demand ?? 0) - (a.demand ?? 0),
+    );
+    const top = pool.slice(0, limit);
 
     const demandAtStake = top.reduce((s, m) => s + (m.demand ?? 0), 0);
     const citationsContested = top.filter((m) => m.action === "add_answer_block").length;
