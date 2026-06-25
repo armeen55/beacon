@@ -3,6 +3,7 @@ import {
   loadTopDecliningPagesForTenant,
   loadTopRisingQueriesForTenant,
   loadTopPagesWithQueriesForTenant,
+  loadTopStrikingPagesForTenant,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadLatestPageSnapshots } from "@/domains/recommendation-intelligence/page-freshness";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
@@ -30,17 +31,19 @@ const SIGNAL_STYLE: Record<string, string> = {
   Declining: "bg-rose-100 text-rose-700",
   Rising: "bg-teal-100 text-teal-700",
   Thin: "bg-amber-100 text-amber-700",
+  Striking: "bg-emerald-100 text-emerald-700",
 };
 
 export async function TodayLeverageSection() {
   let rows: LeveragePage[] = [];
   try {
     const tenantId = await currentTenantId();
-    const [declines, rising, pages, snaps] = await Promise.all([
+    const [declines, rising, pages, snaps, striking] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopRisingQueriesForTenant(tenantId).catch(() => []),
       loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
       loadLatestPageSnapshots(tenantId).catch(() => []),
+      loadTopStrikingPagesForTenant(tenantId).catch(() => []),
     ]);
     const canon = (u: string) => canonicalizeCitationUrl(u) ?? u;
     const signals: PageSignalInput[] = [];
@@ -49,6 +52,11 @@ export async function TodayLeverageSection() {
     }
     for (const r of rising) {
       signals.push({ page: canon(r.page), signal: "Rising", clicksAtStake: r.recentClicks });
+    }
+    for (const s of striking) {
+      // Striking-distance: a few-spot rank gain captures outsized clicks ≈ a share
+      // of the impressions it already earns.
+      signals.push({ page: canon(s.page), signal: "Striking", clicksAtStake: Math.round(s.topQuery.impressions * 0.1) });
     }
     // Thin needs impressions joined to snapshots.
     const imprByUrl = new Map<string, number>();
