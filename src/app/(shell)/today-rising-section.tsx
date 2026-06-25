@@ -1,5 +1,6 @@
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadTopRisingQueriesForTenant, type RisingQuery } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 
 /**
@@ -23,7 +24,13 @@ export async function TodayRisingSection() {
   let rows: RisingQuery[] = [];
   try {
     const tenantId = await currentTenantId();
-    rows = await loadTopRisingQueriesForTenant(tenantId).catch(() => []);
+    const [rising, dismissed] = await Promise.all([
+      loadTopRisingQueriesForTenant(tenantId).catch(() => []),
+      loadDismissedKeys(tenantId).catch(() => new Set<string>()),
+    ]);
+    // Honor feed dismissals globally — a "rising" opportunity dismissed on the
+    // headline stays gone here too (same kind|page|query key).
+    rows = rising.filter((r) => !dismissed.has(opportunityKey("rising", r.page, r.query)));
   } catch {
     return null;
   }
