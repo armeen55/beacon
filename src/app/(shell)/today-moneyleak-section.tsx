@@ -3,6 +3,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildMoneyLeakRows, moneyLeakSessionsAtRisk } from "./today-moneyleak-rows";
 
 /**
@@ -76,7 +77,7 @@ export async function TodayMoneyLeakSection() {
                 <span className="font-semibold text-fuchsia-600">{r.friction.pct} {r.friction.label} per 100 visits</span>
                 <span className="text-gray-500">{r.sessions.toLocaleString()} visits/mo</span>
                 <Link
-                  href={`/proof?page=${encodeURIComponent(r.page)}`}
+                  href={workbenchHref(r.page)}
                   className="font-semibold text-violet-600 hover:text-violet-800"
                 >
                   Fix →

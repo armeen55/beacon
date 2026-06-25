@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
+import { workbenchHref } from "@/domains/insight/workbench-route";
 import { loadTopDecliningPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import { buildRecoveryRows, recoveryClicksLost, type RecoveryRow } from "./today-declines-rows";
@@ -96,10 +97,10 @@ export async function TodayDeclinesSection() {
                 {r.priorClicks.toLocaleString()} → {r.recentClicks.toLocaleString()}/mo
                 {r.positionSlip >= 1 ? ` · slipped ${r.positionSlip.toFixed(1)} pos` : ""}
               </span>
-              {/* Worklist rows have a queued move (→ /moves); site-wide rows don't,
-                  so route them to record-the-fix on /proof (with the page prefilled). */}
+              {/* Route to the per-page Workbench — the optimizer where the operator
+                  refreshes the declining page (full picture + AI analysis). */}
               <Link
-                href={r.moveId ? "/moves" : `/proof?page=${encodeURIComponent(r.targetUrl)}`}
+                href={workbenchHref(r.targetUrl)}
                 className="font-semibold text-violet-600 hover:text-violet-800"
               >
                 Fix →

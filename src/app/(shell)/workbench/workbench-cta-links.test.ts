@@ -43,3 +43,23 @@ describe("State of the Union 'Do next' → Workbench", () => {
     expect(src).toContain("href={workbenchHref(a.path)}");
   });
 });
+
+describe("Cockpit site-wide sections → Workbench", () => {
+  // The site-wide intelligence sections (B55–B57) all route their "do the work"
+  // CTA to the per-page Workbench, not a bare /proof record form or /moves list.
+  const cases: Array<[string, string]> = [
+    ["../today-opportunities-feed.tsx", "workbenchHref(it.page)"],
+    ["../today-quickwins-section.tsx", "workbenchHref(r.page)"],
+    ["../today-moneyleak-section.tsx", "workbenchHref(r.page)"],
+    ["../today-declines-section.tsx", "workbenchHref(r.targetUrl)"],
+  ];
+  for (const [rel, call] of cases) {
+    it(`${rel} routes its CTA via workbenchHref`, () => {
+      const src = read(rel);
+      expect(src).toContain('from "@/domains/insight/workbench-route"');
+      expect(src).toContain(`href={${call}}`);
+      // The old record-form / list destinations must not drive the CTA anymore.
+      expect(src).not.toContain("href={`/proof?page=");
+    });
+  }
+});

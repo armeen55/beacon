@@ -2,6 +2,7 @@ import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadTopStrikingPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { bestTitle } from "@/domains/demand-graph/ctr-title-scorer";
+import { workbenchHref } from "@/domains/insight/workbench-route";
 
 /**
  * today-quickwins-section (2026-06-25) — "Quick CTR wins": the symmetric opposite
@@ -77,10 +78,10 @@ export async function TodayQuickWinsSection() {
                 <div className="flex items-center gap-3 text-xs">
                   <span className="font-semibold text-amber-600">position {r.topQuery.position.toFixed(1)}</span>
                   <span className="text-gray-500">{r.topQuery.impressions.toLocaleString()} impr/mo</span>
-                  {/* Site-wide pages may not be in the worklist — route to record-the-change
-                      on /proof (page prefilled) so the title improvement gets measured. */}
+                  {/* Route to the per-page Workbench — the optimizer where the operator
+                      actually does the work (full page picture + AI analysis). */}
                   <Link
-                    href={`/proof?page=${encodeURIComponent(r.page)}`}
+                    href={workbenchHref(r.page)}
                     className="font-semibold text-violet-600 hover:text-violet-800"
                   >
                     Improve →

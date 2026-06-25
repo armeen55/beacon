@@ -5,6 +5,7 @@ import {
   loadTopStrikingPagesForTenant,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/ctr-curve";
+import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildOpportunityFeed, feedClicksAtStake } from "./today-opportunities-feed-rows";
 
 /**
@@ -83,7 +84,7 @@ export async function TodayOpportunitiesFeed() {
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-violet-600">~{fmtNum(it.clicksAtStake)} clicks/mo</span>
-              <Link href={it.route} className="font-semibold text-violet-600 hover:text-violet-800">
+              <Link href={workbenchHref(it.page)} className="font-semibold text-violet-600 hover:text-violet-800">
                 Act →
               </Link>
             </div>
