@@ -75,14 +75,15 @@ const STOP = new Set([
   "with", "your", "you", "near", "me", "list", "top", "guide",
 ]);
 /** Generic commercial-intent tokens (tenant-agnostic SEO lexicon) → a product
- *  opportunity, never live inventory. */
-const COMMERCE = new Set([
+ *  opportunity, never live inventory. Exported so the product/trend engines reuse
+ *  the SAME lexicon (no drift). */
+export const COMMERCE = new Set([
   "buy", "shop", "gift", "gifts", "shirt", "shirts", "tshirt", "t-shirt", "tee", "jersey", "mug", "poster",
   "jewelry", "necklace", "bracelet", "ring", "print", "sticker", "hoodie", "merch", "store", "sale", "price",
 ]);
 const MIN_VOLUME_DEFAULT = 50;
 
-function tokens(s: string): string[] {
+export function tokens(s: string): string[] {
   return s
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -90,7 +91,7 @@ function tokens(s: string): string[] {
     .map((t) => (t.length > 4 && t.endsWith("s") ? t.slice(0, -1) : t));
 }
 
-function slugify(s: string): string {
+export function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 80);
 }
 
@@ -127,7 +128,7 @@ export function clusterKeywords(keywords: KeywordDemand[]): KeywordDemand[][] {
   return clusters.map((c) => c.members);
 }
 
-function trendOf(monthly: KeywordDemand["monthlySearches"]): TrendDirection {
+export function trendOf(monthly: KeywordDemand["monthlySearches"]): TrendDirection {
   if (monthly.length < 6) return "unknown";
   const recent = monthly.slice(-3).reduce((s, m) => s + m.volume, 0) / 3;
   const prior = monthly.slice(-6, -3).reduce((s, m) => s + m.volume, 0) / 3;

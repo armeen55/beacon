@@ -87,7 +87,25 @@ describe("loadDemandOpportunities", () => {
   it("fail-soft: no cached demand → empty + cached:false (honest, no crash)", async () => {
     vi.mocked(readAllCachedKeywordDemand).mockResolvedValue([]);
     const r = await loadDemandOpportunities("t");
-    expect(r).toEqual({ opportunities: [], cached: false, keywordsConsidered: 0 });
+    expect(r).toEqual({ opportunities: [], trends: [], products: [], cached: false, keywordsConsidered: 0 });
+  });
+
+  it("4F: trend + product opportunities flow through the loader alongside demand", async () => {
+    const rising = Array.from({ length: 12 }, (_, i) => ({ year: 2026, month: i + 1, volume: 100 + i * 90 }));
+    vi.mocked(loadDemandGraphForTenantCached).mockResolvedValue(
+      graph([], ["persian rugs", "nowruz gifts"]) as never,
+    );
+    vi.mocked(readAllCachedKeywordDemand).mockResolvedValue([
+      kw("persian rugs", 3000, { monthlySearches: rising }), // rising trend
+      kw("nowruz gifts", 1200, { monthlySearches: rising }), // commerce + rising
+    ]);
+    const r = await loadDemandOpportunities("t", { currentMonth: 6 });
+    expect(r.cached).toBe(true);
+    expect(r.trends.length).toBeGreaterThan(0); // rising trend surfaced
+    expect(r.trends.some((t) => t.trend === "rising")).toBe(true);
+    const product = r.products.find((p) => p.keyword === "nowruz gifts");
+    expect(product).toBeDefined();
+    expect(product!.conceptOnly).toBe(true); // no inventory → concept-only
   });
 
   it("fail-soft: a missing graph still returns opportunities (no relevance gate)", async () => {
