@@ -29,8 +29,48 @@ export type PageQuery = {
 
 /** Striking-distance test: ranking on page 1's lower half / page 2 top, with
  *  enough impressions that climbing a few spots is worth real clicks. */
-function isStrikingDistance(position: number, impressions: number): boolean {
+export function isStrikingDistance(position: number, impressions: number): boolean {
   return position >= 4 && position <= 15 && impressions >= 100;
+}
+
+/** Aggregated per-query window stats (clicks, impressions, impression-weighted position sum). */
+export type QueryAgg = { clicks: number; impressions: number; posW: number };
+
+/**
+ * PURE decline computation for one page: compare a recent window's per-query
+ * aggregates to the prior window's. A query declines when it had real prior
+ * demand (≥`minPriorClicks`) and clicks fell ≥`minDropPct`. Sorted by prior
+ * clicks (biggest loss first), capped. Exported so the windowing logic is unit-
+ * testable without a live DB.
+ */
+export function declinesForPage(
+  recentQs: Map<string, QueryAgg>,
+  priorQs: Map<string, QueryAgg>,
+  opts: { minPriorClicks?: number; minDropPct?: number; cap?: number } = {},
+): QueryDecline[] {
+  const minPriorClicks = opts.minPriorClicks ?? 10;
+  const minDropPct = opts.minDropPct ?? 30;
+  const cap = opts.cap ?? TOP_PER_PAGE;
+  const declines: QueryDecline[] = [];
+  for (const [query, p] of priorQs) {
+    if (p.clicks < minPriorClicks) continue; // needs real prior demand
+    const r = recentQs.get(query) ?? { clicks: 0, impressions: 0, posW: 0 };
+    const dropPct = p.clicks > 0 ? Math.round(((p.clicks - r.clicks) / p.clicks) * 100) : 0;
+    if (dropPct < minDropPct) continue;
+    const recentPosition = r.impressions > 0 ? r.posW / r.impressions : 0;
+    const priorPosition = p.impressions > 0 ? p.posW / p.impressions : 0;
+    declines.push({
+      query,
+      recentClicks: r.clicks,
+      priorClicks: p.clicks,
+      dropPct,
+      recentPosition,
+      priorPosition,
+      positionSlip: recentPosition > 0 && priorPosition > 0 ? recentPosition - priorPosition : 0,
+    });
+  }
+  declines.sort((a, b) => b.priorClicks - a.priorClicks);
+  return declines.slice(0, cap);
 }
 
 const WINDOW_DAYS = 90;
@@ -117,29 +157,8 @@ export async function loadQueryDeclinesForPages(
       readWindow(sb, tenantId, pages, priorFrom, recentFrom),
     ]);
     for (const [page, priorQs] of prior) {
-      const recentQs = recent.get(page) ?? new Map();
-      const declines: QueryDecline[] = [];
-      for (const [query, p] of priorQs) {
-        if (p.clicks < 10) continue; // needs real prior demand to call it a decline
-        const r = recentQs.get(query) ?? { clicks: 0, impressions: 0, posW: 0 };
-        const dropPct = p.clicks > 0 ? Math.round(((p.clicks - r.clicks) / p.clicks) * 100) : 0;
-        if (dropPct < 30) continue;
-        const recentPosition = r.impressions > 0 ? r.posW / r.impressions : 0;
-        const priorPosition = p.impressions > 0 ? p.posW / p.impressions : 0;
-        declines.push({
-          query,
-          recentClicks: r.clicks,
-          priorClicks: p.clicks,
-          dropPct,
-          recentPosition,
-          priorPosition,
-          positionSlip: recentPosition > 0 && priorPosition > 0 ? recentPosition - priorPosition : 0,
-        });
-      }
-      if (declines.length > 0) {
-        declines.sort((a, b) => b.priorClicks - a.priorClicks);
-        out.set(page, declines.slice(0, TOP_PER_PAGE));
-      }
+      const declines = declinesForPage(recent.get(page) ?? new Map(), priorQs);
+      if (declines.length > 0) out.set(page, declines);
     }
     return out;
   } catch (e) {
