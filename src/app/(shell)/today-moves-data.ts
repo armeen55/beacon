@@ -6,6 +6,7 @@ import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
+import { loadTopQueriesForPages, type PageQuery } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 /**
@@ -44,6 +45,8 @@ export type TodayMove = {
   whatWins: string | null;
   /** §1 "Your gap" — what the cited competitor has that your page lacks (plain language). */
   yourGap: string;
+  /** The exact GSC queries this page already ranks for (light per-query path). */
+  topQueries: PageQuery[];
   looselyMatched: boolean;
   /** Other engine actions queued on the SAME page (so a page is one card, not many). */
   also: string[];
@@ -301,6 +304,7 @@ export async function buildTodayMovesData(
         whoCited,
         whatWins,
         yourGap: whatWins ? yourGapLine(packet?.gaps ?? []) : "", // only when we have a real teardown to compare against
+        topQueries: [], // filled below for the shown top moves (one bounded GSC read)
         looselyMatched,
         also,
         outline: (packet?.draft?.outline ?? []).filter(Boolean).slice(0, 5),
@@ -325,6 +329,16 @@ export async function buildTodayMovesData(
         (b.demand ?? 0) - (a.demand ?? 0),
     );
     const top = moves.slice(0, opts.limit ?? 6);
+
+    // Light per-query GSC grounding: ONE bounded `page IN (...)` read for the
+    // shown moves (indexed, capped — never the timeout-prone full RPC). Names the
+    // exact queries each page already ranks for. Fail-soft → no queries attached.
+    const queryMap = await withTimeout(
+      loadTopQueriesForPages(tenantId, top.map((m) => m.targetUrl)),
+      5000,
+      new Map<string, PageQuery[]>(),
+    );
+    for (const m of top) m.topQueries = queryMap.get(m.targetUrl) ?? [];
 
     const demandAtStake = top.reduce((s, m) => s + (m.demand ?? 0), 0);
     const citationsContested = top.filter((m) => m.action === "add_answer_block").length;

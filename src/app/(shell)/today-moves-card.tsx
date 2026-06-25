@@ -260,6 +260,22 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       </div>
 
+      {m.topQueries.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-500">Ranks for</span>
+          {m.topQueries.map((q, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800 ring-1 ring-sky-100"
+              title={`${q.impressions.toLocaleString()} impressions · ${q.clicks.toLocaleString()} clicks · avg position ${q.position.toFixed(1)}`}
+            >
+              <span className="font-medium">{q.query}</span>
+              <span className="text-sky-500">pos {q.position.toFixed(1)} · {fmtNum(q.impressions)} impr</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {m.yourGap ? (
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2">
           <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-400">Your gap</span>
