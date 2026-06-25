@@ -70,6 +70,8 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   const EXPECTED_HREFS = new Set([
     "/",
     "/opportunities",
+    "/moves", // 2026-06-25: the full Rank-&-Revenue worklist (§7) — the engine's
+    //            promoted Moves as one ranked, filterable list. Customer route.
     "/recommendations",
     "/experiments",
     "/proof",
@@ -99,7 +101,6 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
       "/topics",
       "/audit",
       "/rank",
-      "/moves",
       "/review",
       "/expansion",
       "/diagnostics",

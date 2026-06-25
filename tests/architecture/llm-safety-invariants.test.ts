@@ -160,6 +160,13 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // "suspected"/"unknown", never "observed"; confidence capped at "medium";
   // fail-soft to null (caller stays "unknown") on any error / missing key.
   "src/domains/recommendation-intelligence/page-surgeon/serp-hypothesis.ts",
+  // demand-graph cockpit drafters (2026-06-24/25): on-demand answer-block +
+  // FAQ-schema generators for a Today's Moves card. OFF unless
+  // BEACON_LLM_PROVIDER=openai, operator-gated, checkBudget/recordSpend
+  // (fail-closed monthly cap), numeric-fidelity firewall on every output,
+  // gpt-5-mini reasoning_effort:"low", bounded timeout. Fire only on an explicit
+  // click; deterministic brief is the fallback on any non-"ok" status.
+  "src/domains/demand-graph/llm-answer-block.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
