@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadTopStrikingPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { bestTitle } from "@/domains/demand-graph/ctr-title-scorer";
 
 /**
  * today-quickwins-section (2026-06-25) — "Quick CTR wins": the symmetric opposite
  * of Recover-lost-ground. Site-wide pages already ranking in striking distance
  * (position 4–15 with real demand) — a sharper title/snippet climbs a few spots
  * for outsized clicks. Bounded server-aggregated scan; self-hides when none.
+ * Per B54 (every signal ships an artifact) each row carries a deterministic
+ * CTR-scored title suggestion the operator can copy straight in.
  */
 
 function fmtNum(n: number): string {
@@ -17,6 +20,15 @@ function slugOf(url: string): string {
   const s = url.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
   const last = s.split("/").filter(Boolean).pop() ?? url;
   return last.replace(/[-_]+/g, " ").trim() || url;
+}
+function brandFromUrl(url: string): string {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    const label = h.split(".")[0] ?? h;
+    return label.replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return "";
+  }
 }
 
 export async function TodayQuickWinsSection() {
@@ -50,29 +62,38 @@ export async function TodayQuickWinsSection() {
       </div>
 
       <ul className="mt-5 space-y-1.5">
-        {rows.map((r, i) => (
-          <li
-            key={i}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-100 bg-white/70 px-3 py-2 text-sm"
-          >
-            <div className="min-w-0">
-              <span className="font-medium text-gray-900">{r.topQuery.query}</span>
-              <span className="ml-2 text-xs text-gray-400">on {slugOf(r.page)}</span>
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-amber-600">position {r.topQuery.position.toFixed(1)}</span>
-              <span className="text-gray-500">{r.topQuery.impressions.toLocaleString()} impr/mo</span>
-              {/* Site-wide pages may not be in the worklist — route to record-the-change
-                  on /proof (page prefilled) so the title improvement gets measured. */}
-              <Link
-                href={`/proof?page=${encodeURIComponent(r.page)}`}
-                className="font-semibold text-violet-600 hover:text-violet-800"
-              >
-                Improve →
-              </Link>
-            </div>
-          </li>
-        ))}
+        {rows.map((r, i) => {
+          const suggestedTitle = bestTitle(r.topQuery.query, brandFromUrl(r.page));
+          return (
+            <li
+              key={i}
+              className="rounded-xl border border-amber-100 bg-white/70 px-3 py-2 text-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="font-medium text-gray-900">{r.topQuery.query}</span>
+                  <span className="ml-2 text-xs text-gray-400">on {slugOf(r.page)}</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="font-semibold text-amber-600">position {r.topQuery.position.toFixed(1)}</span>
+                  <span className="text-gray-500">{r.topQuery.impressions.toLocaleString()} impr/mo</span>
+                  {/* Site-wide pages may not be in the worklist — route to record-the-change
+                      on /proof (page prefilled) so the title improvement gets measured. */}
+                  <Link
+                    href={`/proof?page=${encodeURIComponent(r.page)}`}
+                    className="font-semibold text-violet-600 hover:text-violet-800"
+                  >
+                    Improve →
+                  </Link>
+                </div>
+              </div>
+              {/* The artifact: a CTR-scored title the operator can paste in. */}
+              <div className="mt-1.5 text-xs text-gray-500">
+                Try this title: <code className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800">{suggestedTitle}</code>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
