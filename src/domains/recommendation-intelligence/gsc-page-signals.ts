@@ -115,7 +115,14 @@ export async function loadGscPageSignalsForTenant(
       rpcRows.push(...batch);
       if (batch.length < PAGE_SIZE) break;
     }
-  } catch {
+  } catch (e) {
+    // LOUD, not silent: this loader feeds the demand graph + every GSC surface.
+    // A swallowed throw here blanks the whole cockpit with zero diagnostics — the
+    // exact "silent empty dashboard" class. Surface it so prod failures are seen.
+    log.warn("[gsc-page-signals] read threw — GSC surfaces will be empty", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
     return out;
   }
   if (rpcRows.length === 0) return out;

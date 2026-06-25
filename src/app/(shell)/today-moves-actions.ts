@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -11,6 +12,37 @@ import {
   type FaqDraftResult,
 } from "@/domains/demand-graph/llm-answer-block";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
+import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
+
+export type SharpenMovesResult =
+  | { status: "off" }
+  | { status: "ok"; audited: number; targets: number; cached: number };
+
+/**
+ * sharpenMovesWithTeardownAction (2026-06-25) — bring the core "reverse-engineer
+ * the winner" IP into the cockpit. Runs the deterministic competitor teardown
+ * (polite-fetch + extract: title/headings/schema/FAQ/answer-blocks/word-count)
+ * for the tenant's top Moves, so cards gain their "what wins" + grounded gaps
+ * instead of a bare "add an answer block". Previously only reachable via the
+ * operator-gated /diagnostics/rank-revenue ?refresh=1 stopgap; crons are off, so
+ * this is the on-demand path that matches the golden-path model.
+ *
+ * Operator-gated, fires only on an explicit click (never on render), read-only
+ * against competitors (no Wix, no mutations to the tenant's site), and caches by
+ * URL so a second click is cheap. Revalidates "/" so the hero re-renders enriched.
+ */
+export async function sharpenMovesWithTeardownAction(
+  opts: { limit?: number } = {},
+): Promise<SharpenMovesResult> {
+  if (!(await isOperatorModeServer())) return { status: "off" };
+  const tenantId = await currentTenantId();
+  const { audited, targets, cached } = await auditTopCompetitorsForTenant({
+    tenantId,
+    limit: opts.limit ?? 12,
+  });
+  revalidatePath("/");
+  return { status: "ok", audited: audited.length, targets, cached };
+}
 
 /**
  * draftMoveAnswerBlockAction (2026-06-24) — on-demand LLM answer-block draft for a

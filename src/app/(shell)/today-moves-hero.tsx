@@ -2,6 +2,8 @@ import Link from "next/link";
 import { loadTodayMovesHeroData } from "./today-moves-data";
 import { MoveCard } from "./today-moves-card";
 import { BulkShipBar } from "./today-moves-bulkship";
+import { SharpenMovesButton } from "./today-moves-sharpen";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 
 /**
  * today-moves-hero (2026-06-24) — the premium "Today's Moves" ritual hero that
@@ -35,6 +37,10 @@ export async function TodayMovesHeroSection() {
   if (!data.moves.length) return null;
 
   const { moves, stats } = data;
+  // Moves still missing the "reverse-engineer the winner" teardown — the operator
+  // can run it on demand (the diagnostic's ?refresh, brought into the cockpit).
+  const needsTeardown = moves.filter((m) => !m.whatWins && !m.whoCited).length;
+  const operator = await isOperatorModeServer();
   return (
     <section className="rounded-3xl border border-gray-200 bg-gradient-to-br from-gray-50 via-white to-violet-50/40 p-6 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -51,12 +57,15 @@ export async function TodayMovesHeroSection() {
             wins it now, what it takes, and how you&apos;ll know it worked. Review, then ship.
           </p>
         </div>
-        <Link
-          href="/moves"
-          className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
-        >
-          See all moves →
-        </Link>
+        <div className="flex items-start gap-2">
+          {operator && needsTeardown > 0 ? <SharpenMovesButton pending={needsTeardown} /> : null}
+          <Link
+            href="/moves"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
+          >
+            See all moves →
+          </Link>
+        </div>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
