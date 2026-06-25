@@ -12,6 +12,7 @@
  */
 
 import "server-only";
+import { cache } from "react";
 
 import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
@@ -377,12 +378,16 @@ export async function auditCompetitorPage(
 
 // ── cache (tenant-scoped json-store; Supabase migration written-not-applied) ──
 
-export async function getCompetitorAuditsForTenant(): Promise<Map<string, CompetitorPageAudit>> {
-  const rows = await readStore<CompetitorPageAudit>(STORE, []).catch(() => []);
-  const map = new Map<string, CompetitorPageAudit>();
-  for (const r of rows) map.set(canonicalizeCitationUrl(r.url) || r.url, r);
-  return map;
-}
+// Request-cached: both cockpit sections (Today's Moves teardown + New Pages
+// "what wins") read the audit store on one `/` render — share a single read.
+export const getCompetitorAuditsForTenant = cache(
+  async (): Promise<Map<string, CompetitorPageAudit>> => {
+    const rows = await readStore<CompetitorPageAudit>(STORE, []).catch(() => []);
+    const map = new Map<string, CompetitorPageAudit>();
+    for (const r of rows) map.set(canonicalizeCitationUrl(r.url) || r.url, r);
+    return map;
+  },
+);
 
 async function saveAudits(audits: CompetitorPageAudit[]): Promise<void> {
   const existing = await readStore<CompetitorPageAudit>(STORE, []).catch(() => []);
