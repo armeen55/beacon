@@ -3,6 +3,7 @@ import {
   Settings,
   ListChecks,
   Target,
+  Zap,
   Compass,
   Network,
   LineChart,
@@ -45,6 +46,7 @@ export const navigationGroups: NavGroup[] = [
   {
     label: "Find & fix",
     items: [
+      { label: "Moves", href: "/moves", icon: Zap },
       { label: "Opportunities", href: "/opportunities", icon: Compass },
       { label: "Drafts", href: "/recommendations", icon: Target },
     ],

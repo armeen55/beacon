@@ -138,7 +138,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 }
 
 export const loadTodayMovesHeroData = cache(
-  async (): Promise<TodayMovesHeroData> => {
+  async (opts: { limit?: number } = {}): Promise<TodayMovesHeroData> => {
     const tenantId = await currentTenantId();
     const repo = getRepository().forTenant(tenantId);
 
@@ -269,7 +269,7 @@ export const loadTodayMovesHeroData = cache(
         CONF_RANK[b.confidence] - CONF_RANK[a.confidence] ||
         (b.demand ?? 0) - (a.demand ?? 0),
     );
-    const top = moves.slice(0, 6);
+    const top = moves.slice(0, opts.limit ?? 6);
 
     const demandAtStake = top.reduce((s, m) => s + (m.demand ?? 0), 0);
     const citationsContested = top.filter((m) => m.action === "add_answer_block").length;
