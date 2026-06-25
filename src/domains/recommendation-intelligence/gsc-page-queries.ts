@@ -492,7 +492,8 @@ async function loadTopPagesWithQueriesForTenantImpl(
  * demand graph never queued. Bounded (top N pages) + fail-soft → []. Returns each
  * page's best striking-distance query (highest impressions).
  */
-export async function loadTopStrikingPagesForTenant(
+export const loadTopStrikingPagesForTenant = cache(loadTopStrikingPagesForTenantImpl);
+async function loadTopStrikingPagesForTenantImpl(
   tenantId: string,
   opts: { topPages?: number } = {},
 ): Promise<StrikingPage[]> {
@@ -532,7 +533,8 @@ export async function loadTopStrikingPagesForTenant(
  * page actively losing clicks surfaces even when the demand graph never queued it.
  * Bounded (top N pages) + fail-soft → []. Returns each page's worst decline.
  */
-export async function loadTopDecliningPagesForTenant(
+export const loadTopDecliningPagesForTenant = cache(loadTopDecliningPagesForTenantImpl);
+async function loadTopDecliningPagesForTenantImpl(
   tenantId: string,
   opts: { topPages?: number; windowDays?: number } = {},
 ): Promise<DecliningPage[]> {
