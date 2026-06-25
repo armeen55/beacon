@@ -210,6 +210,14 @@ export const GLOBAL_STORES = new Set<string>([
   // Phase 7.8a.1 (2026-04-25) — globals added from the live dry-run.
   // Each is operator-shared / cross-tenant by design.
   "adjudicator-cache", // LLM dedup cache, no tenant_id; operator-shared
+  // DataForSEO market-data caches (2026-06-25): public keyword volume / SERP
+  // results keyed by location+lang+query — no tenant secrets, identical across
+  // tenants, so operator-shared/global maximizes reuse + minimizes spend. WITHOUT
+  // this entry readStore/writeStore THROW ("unknown store"), the cache read/write
+  // is swallowed, and every paid call re-spends. Registering them makes the
+  // 14-day cache actually persist (the cost-discipline guarantee).
+  "dataforseo-serp-cache", // SERP top-10 cache (domains/serp/dataforseo-serp.ts)
+  "dataforseo-keywords-cache", // keyword-volume cache (domains/serp/dataforseo-keywords.ts)
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

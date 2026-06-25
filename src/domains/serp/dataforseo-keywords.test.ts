@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   runKeywordVolume,
+  readAllCachedKeywordDemand,
   parseKeywordVolume,
   planKeywordsCall,
   type KeywordsRunDeps,
+  type KeywordDemand,
 } from "./dataforseo-keywords";
 
 const CONFIGURED_ENV = {
@@ -128,5 +130,67 @@ describe("runKeywordVolume — the money gauntlet", () => {
     expect(r.costUsd).toBeGreaterThan(0);
     expect(recordSpend).toHaveBeenCalledTimes(1);
     expect(writeCache).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("readAllCachedKeywordDemand (cache-only, $0)", () => {
+  const NOW = () => new Date("2026-06-25T00:00:00Z");
+  const kd = (keyword: string, vol: number | null, fetchedAt: string): KeywordDemand => ({
+    keyword,
+    searchVolume: vol,
+    cpcUsd: 0,
+    competition: 0,
+    competitionLevel: "low",
+    monthlySearches: [],
+    locationCode: 2840,
+    languageCode: "en",
+    source: "dataforseo",
+    fetchedAt,
+    confidence: vol == null ? "low" : "high",
+    evidenceRef: `kw:${keyword}`,
+  });
+
+  it("flattens fresh cache rows", async () => {
+    const out = await readAllCachedKeywordDemand({
+      now: NOW,
+      readCache: async () => [
+        { key: "a", fetchedAt: "2026-06-24T00:00:00Z", keywords: [kd("iran flag", 135000, "2026-06-24T00:00:00Z")] },
+        { key: "b", fetchedAt: "2026-06-24T00:00:00Z", keywords: [kd("persian food", 8100, "2026-06-24T00:00:00Z")] },
+      ],
+    });
+    expect(out.map((k) => k.keyword).sort()).toEqual(["iran flag", "persian food"]);
+  });
+
+  it("drops stale (>14d) rows", async () => {
+    const out = await readAllCachedKeywordDemand({
+      now: NOW,
+      readCache: async () => [
+        { key: "old", fetchedAt: "2026-05-01T00:00:00Z", keywords: [kd("stale kw", 999, "2026-05-01T00:00:00Z")] },
+        { key: "new", fetchedAt: "2026-06-24T00:00:00Z", keywords: [kd("fresh kw", 1000, "2026-06-24T00:00:00Z")] },
+      ],
+    });
+    expect(out.map((k) => k.keyword)).toEqual(["fresh kw"]);
+  });
+
+  it("dedups by keyword, newest fetch wins", async () => {
+    const out = await readAllCachedKeywordDemand({
+      now: NOW,
+      readCache: async () => [
+        { key: "a", fetchedAt: "2026-06-20T00:00:00Z", keywords: [kd("iran flag", 100, "2026-06-20T00:00:00Z")] },
+        { key: "b", fetchedAt: "2026-06-24T00:00:00Z", keywords: [kd("iran flag", 135000, "2026-06-24T00:00:00Z")] },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].searchVolume).toBe(135000); // newest wins
+  });
+
+  it("fail-soft: a throwing cache read → []", async () => {
+    const out = await readAllCachedKeywordDemand({
+      now: NOW,
+      readCache: async () => {
+        throw new Error("store down");
+      },
+    });
+    expect(out).toEqual([]);
   });
 });

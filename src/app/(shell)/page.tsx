@@ -70,6 +70,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-leaks", label: "Conversion leaks" },
   { id: "sec-tools", label: "Tools" },
   { id: "sec-newpages", label: "New pages" },
+  { id: "sec-opportunities-radar", label: "New opportunities" },
   { id: "sec-entity", label: "Entity" },
 ];
 import { TodayMovesHeroSection } from "./today-moves-hero";
@@ -92,6 +93,7 @@ import { TodayMoneyLeakSection } from "./today-moneyleak-section";
 import { TodayEntityFoundationSection } from "./today-entity-foundation-section";
 import { TodayToolsSection } from "./today-tools-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
+import { TodayOpportunitiesSection } from "./today-opportunities-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -424,6 +426,15 @@ async function TodayV2SectionedContent() {
       <div id="sec-newpages" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayNewPagesSection />
+        </Suspense>
+      </div>
+      {/* New Opportunities / Demand Radar (2026-06-25, Sprint 4G) — real external
+          search demand → discovered opportunities (improve existing vs build new vs
+          product concept). CACHE-ONLY render ($0); operator runs Discover to fetch.
+          Own Suspense / self-hides when empty + no operator. */}
+      <div id="sec-opportunities-radar" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <TodayOpportunitiesSection />
         </Suspense>
       </div>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at

@@ -143,6 +143,32 @@ export function parseKeywordVolume(
   return out;
 }
 
+/**
+ * Read ALL fresh cached keyword demand (no call, NO spend) — flattened + deduped
+ * by keyword (newest wins), stale rows (>14d) dropped. Lets the cockpit surface
+ * already-discovered demand on render at $0. Fail-soft → [].
+ */
+export async function readAllCachedKeywordDemand(
+  deps: { now?: () => Date; readCache?: () => Promise<CacheRow[]> } = {},
+): Promise<KeywordDemand[]> {
+  const nowMs = (deps.now ?? (() => new Date()))().getTime();
+  let rows: CacheRow[];
+  try {
+    rows = await (deps.readCache ?? defaultDeps.readCache)();
+  } catch {
+    return [];
+  }
+  const byKw = new Map<string, KeywordDemand>();
+  for (const r of rows) {
+    if (nowMs - Date.parse(r.fetchedAt) >= KW_CACHE_TTL_MS) continue; // stale row
+    for (const k of r.keywords) {
+      const prev = byKw.get(k.keyword);
+      if (!prev || Date.parse(k.fetchedAt) > Date.parse(prev.fetchedAt)) byKw.set(k.keyword, k);
+    }
+  }
+  return [...byKw.values()];
+}
+
 export type KeywordsRunDeps = {
   env: NodeJS.ProcessEnv;
   now: () => Date;
