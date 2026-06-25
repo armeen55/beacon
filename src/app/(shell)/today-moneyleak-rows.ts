@@ -21,7 +21,18 @@ export type MoneyLeakRow = {
   page: string; // canonical URL
   sessions: number;
   conversions: number;
-  friction: { kind: FrictionKind; rate: number; pct: number; label: string };
+  friction: { kind: FrictionKind; rate: number; pct: number; label: string; directive: string };
+};
+
+// What each friction signal actually means + the concrete fix (signal → directive),
+// so the row prescribes, not just diagnoses. Generic across tenants/verticals.
+const DIRECTIVE: Record<FrictionKind, string> = {
+  dead:
+    "Visitors keep clicking things that don't respond — make non-links stop looking clickable, or wire up the elements they're tapping (images, headings, buttons).",
+  rage:
+    "Visitors rapidly re-click the same spot — something feels broken or too slow. Find the element and fix what it's supposed to do.",
+  quickback:
+    "Visitors bounce straight back to search — the page doesn't deliver what they came for. Lead with a direct answer above the fold that matches the query.",
 };
 
 // Thresholds: a page must clear ONE of these to count as a leak. Tuned to be
@@ -80,6 +91,7 @@ export function buildMoneyLeakRows(
         rate: worst.rate,
         pct: Math.round(worst.rate * 100),
         label: LABEL[worst.kind],
+        directive: DIRECTIVE[worst.kind],
       },
     });
   }

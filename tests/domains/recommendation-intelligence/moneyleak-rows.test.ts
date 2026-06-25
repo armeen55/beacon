@@ -35,6 +35,14 @@ describe("buildMoneyLeakRows", () => {
     expect(rows[0]!.friction.kind).toBe("rage");
   });
 
+  it("carries a friction-specific fix directive (signal → directive)", () => {
+    const dead = buildMoneyLeakRows([ga4("https://x/a", 200)], [clar("https://x/a", 0.4)], canon);
+    expect(dead[0]!.friction.directive).toMatch(/click/i);
+    const qb = buildMoneyLeakRows([ga4("https://x/b", 200)], [clar("https://x/b", 0, 0, 0.5)], canon);
+    expect(qb[0]!.friction.kind).toBe("quickback");
+    expect(qb[0]!.friction.directive).toMatch(/bounce|search|answer/i);
+  });
+
   it("ranks by sessions at risk (desc) and caps", () => {
     const rows = buildMoneyLeakRows(
       [ga4("https://x/a", 100), ga4("https://x/b", 900)],

@@ -63,24 +63,28 @@ export async function TodayMoneyLeakSection() {
         {rows.map((r, i) => (
           <li
             key={i}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-fuchsia-100 bg-white/70 px-3 py-2 text-sm"
+            className="rounded-xl border border-fuchsia-100 bg-white/70 px-3 py-2 text-sm"
           >
-            <div className="min-w-0">
-              <span className="font-medium text-gray-900">{slugOf(r.page)}</span>
-              {r.conversions > 0 ? (
-                <span className="ml-2 text-xs text-emerald-600">{r.conversions.toLocaleString()} conv/mo</span>
-              ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="font-medium text-gray-900">{slugOf(r.page)}</span>
+                {r.conversions > 0 ? (
+                  <span className="ml-2 text-xs text-emerald-600">{r.conversions.toLocaleString()} conv/mo</span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="font-semibold text-fuchsia-600">{r.friction.pct} {r.friction.label} per 100 visits</span>
+                <span className="text-gray-500">{r.sessions.toLocaleString()} visits/mo</span>
+                <Link
+                  href={`/proof?page=${encodeURIComponent(r.page)}`}
+                  className="font-semibold text-violet-600 hover:text-violet-800"
+                >
+                  Fix →
+                </Link>
+              </div>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-fuchsia-600">{r.friction.pct} {r.friction.label} per 100 visits</span>
-              <span className="text-gray-500">{r.sessions.toLocaleString()} visits/mo</span>
-              <Link
-                href={`/proof?page=${encodeURIComponent(r.page)}`}
-                className="font-semibold text-violet-600 hover:text-violet-800"
-              >
-                Fix →
-              </Link>
-            </div>
+            {/* signal → directive: what the friction means + the concrete fix. */}
+            <p className="mt-1.5 text-xs text-gray-500">{r.friction.directive}</p>
           </li>
         ))}
       </ul>
