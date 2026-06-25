@@ -46,13 +46,14 @@ describe("formatMoveCard (Step 7 bridge, plain language)", () => {
     expect(c.whatWins.toLowerCase()).toContain("confirm");
   });
 
-  it("unfetched competitor (facts null, not off-topic) → says 'couldn't read', NOT 'off-topic'", () => {
+  it("errored competitor (facts null, http_error) → 'didn't load', NOT 'off-topic'", () => {
     const c = formatMoveCard(packet({
       competitor: { topUrl: "https://britannica.com/x", domain: "britannica.com", fetchStatus: "http_error", facts: null, whatWins: "—", relevance: 0, looselyMatched: false, otherUrls: [] },
     }));
     expect(c.whatWins).toContain("britannica.com");
-    expect(c.whatWins.toLowerCase()).toContain("couldn't read");
+    expect(c.whatWins.toLowerCase()).toContain("didn't load");
     expect(c.whatWins.toLowerCase()).not.toContain("off-topic");
+    expect(c.teardownState).toBe("errored");
   });
 
   it("on-topic teardown whatWins is de-jargoned (no 'schema'/'answer block')", () => {

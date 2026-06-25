@@ -21,6 +21,7 @@ import { auditTopCompetitorsForTenant, getCompetitorAuditsForTenant, whatWins } 
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { formatMoveCard } from "@/domains/demand-graph/move-card";
+import { teardownView } from "@/domains/demand-graph/teardown-state";
 import { MoveCardList } from "./move-cards";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
@@ -197,24 +198,16 @@ export default async function RankRevenuePage({
                   </td>
                   <td className="px-2 py-1.5 text-gray-600" style={{ maxWidth: 220 }}>
                     {(() => {
-                      // Prefer the packet's competitor view — it respects the
-                      // relevance gate (off-topic cited pages are labeled, not torn down).
+                      // One honest state per row (real teardown / off-topic / blocks
+                      // crawlers / page errored / not analyzed yet / no competitor) —
+                      // never a bare "—".
                       const pkt = packetByKey.get(m.demandKey);
-                      if (pkt?.competitor) {
-                        if (pkt.competitor.looselyMatched) {
-                          return <span className="text-amber-600">loosely matched (off-topic) — verify with SERP</span>;
-                        }
-                        if (pkt.competitor.facts) return <span>{pkt.competitor.whatWins}</span>;
-                        if (pkt.competitor.fetchStatus && pkt.competitor.fetchStatus !== "ok") {
-                          return <span className="text-amber-600">{pkt.competitor.fetchStatus}</span>;
-                        }
-                      }
-                      const top = m.competitorUrls[0];
-                      if (!top) return <span className="text-gray-300">—</span>;
-                      const a = audits.get(canonicalizeCitationUrl(top) || top);
-                      if (!a) return <span className="text-gray-300">not audited</span>;
-                      if (a.fetchStatus !== "ok") return <span className="text-amber-600">{a.fetchStatus}</span>;
-                      return <span>{whatWins(a.facts)}</span>;
+                      const td = teardownView(pkt?.competitor ?? null);
+                      const color =
+                        td.state === "torn_down" ? "text-gray-700"
+                        : td.state === "not_audited" || td.state === "none" ? "text-gray-400"
+                        : "text-amber-600";
+                      return <span className={color}>{td.text}</span>;
                     })()}
                   </td>
                   <td className="px-2 py-1.5 text-gray-500">{shortUrl(m.ownedUrl)}</td>

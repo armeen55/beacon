@@ -11,14 +11,17 @@ import type { EvidencePacket } from "./evidence-packet";
 import type { GapKind, ConfidenceLevel } from "./build-graph";
 import type { GapKindDetail } from "./evidence-packet";
 import { classifyQueryIntent, type QueryIntent } from "./query-intent";
+import { teardownView, type TeardownState } from "./teardown-state";
 
 export type MoveCard = {
   /** Imperative action + subject, e.g. "Create a new page: Persian Wedding". */
   move: string;
   /** Plain-English reason this matters. */
   why: string;
-  /** What the winning competitor does (gated), or an honest absence note. */
+  /** What the winning competitor does, or an honest absence/blocked/errored note. */
   whatWins: string;
+  /** The honest teardown state behind `whatWins` (for badging). */
+  teardownState: TeardownState;
   /** The specific gaps, in plain English. */
   yourGap: string[];
   /** True when a grounded draft skeleton is ready to review. */
@@ -112,23 +115,15 @@ export function formatMoveCard(packet: EvidencePacket): MoveCard {
     return `${bits.join(" ")}.`;
   })();
 
-  const whatWins = (() => {
-    // On-topic page with a real teardown → the grounded summary, de-jargoned.
-    if (competitor.facts && !competitor.looselyMatched) return plainWins(competitor.whatWins);
-    // No competitor at all → you can own it.
-    if (!competitor.domain) return `No single strong competitor found yet — you can own this.`;
-    // Off-topic citation (we DID read the page, it just doesn't fit the query).
-    if (competitor.looselyMatched) {
-      return `We haven't confirmed the exact page that wins yet — the AI citation looked off-topic for this query. Confirm with live search.`;
-    }
-    // Domain cited but the page couldn't be read (blocked/error) — NOT off-topic.
-    return `${competitor.domain} is cited here, but we couldn't read its page yet — confirm with live search.`;
-  })();
+  // Single honest source of truth for the "what wins" state + copy.
+  const td = teardownView(competitor);
+  const whatWins = td.state === "torn_down" ? plainWins(competitor.whatWins) : td.text;
 
   return {
     move: `${ACTION[move.gapType] ?? "Update"}: ${subject}`,
     why,
     whatWins,
+    teardownState: td.state,
     yourGap: gaps.map((g) => GAP_PLAIN[g.kind] ?? g.detail),
     draftReady: !!draft.titleSuggestion || draft.outline.length > 0 || !!draft.answerBlockBrief,
     proof: `We'll watch ${proofPlan.metrics.map(plainMetric).join(", ")} over ${proofPlan.windowsDays.join("/")} days vs similar pages you didn't change.`,
