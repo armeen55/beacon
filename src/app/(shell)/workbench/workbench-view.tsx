@@ -433,7 +433,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                   position: s.position,
                 })),
                 bestMove: optimizer.bestNextMove
-                  ? `${optimizer.bestNextMove.label} — ${optimizer.bestNextMove.evidence}`
+                  ? `${optimizer.bestNextMove.label}: ${optimizer.bestNextMove.evidence}`
                   : null,
               }}
             />
