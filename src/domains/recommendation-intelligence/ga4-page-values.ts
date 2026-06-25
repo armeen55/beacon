@@ -12,9 +12,16 @@
 
 import "server-only";
 
+import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
+
+// Request-memoized: the cockpit now reads GA4 page value from several sections
+// (hero post-pass + the money-leak scan) on one render — cache() dedupes the
+// full-tenant read to a single query per request. Degrades to a no-op outside a
+// React request scope (cron/scripts call it uncached, exactly as before).
+export const loadGa4PageValuesForTenant = cache(loadGa4PageValuesForTenantUncached);
 
 export type Ga4PageValue = {
   page: string;
@@ -31,7 +38,7 @@ const WINDOW_DAYS = 28;
 // GROUP BY RPC (one row per page) would remove the cap entirely.
 const MAX_ROWS = 80_000;
 
-export async function loadGa4PageValuesForTenant(
+async function loadGa4PageValuesForTenantUncached(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<Map<string, Ga4PageValue>> {

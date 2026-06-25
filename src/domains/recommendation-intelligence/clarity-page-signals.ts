@@ -13,9 +13,14 @@
 
 import "server-only";
 
+import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+
+// Request-memoized (see ga4-page-values): the hero post-pass + the money-leak
+// scan both read full-tenant Clarity friction on one render — dedupe to one query.
+export const loadClarityPageSignalsForTenant = cache(loadClarityPageSignalsForTenantUncached);
 
 /** Trailing window for Clarity friction aggregation. Clarity itself
  *  only exposes ~1-3 days live (we accumulate nightly), so 28d gives
@@ -48,7 +53,7 @@ function rate(n: number, sessions: number): number {
   return sessions > 0 ? n / sessions : 0;
 }
 
-export async function loadClarityPageSignalsForTenant(
+async function loadClarityPageSignalsForTenantUncached(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<Map<string, ClarityPageSignal>> {
