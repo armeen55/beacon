@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { draftMoveAnswerBlockAction } from "./today-moves-actions";
+import { validateCreatePageWithSerpAction, type SerpValidationResponse } from "./serp-actions";
 import type { NewPageOpportunity } from "./today-newpages-data";
 
 /**
@@ -18,7 +19,13 @@ const TIER: Record<NewPageOpportunity["tier"], { label: string; cls: string }> =
   emerging: { label: "Emerging", cls: "bg-gray-100 text-gray-500 ring-gray-200" },
 };
 
-export function NewPageCard({ o }: { o: NewPageOpportunity }) {
+const VERDICT_STYLE: Record<string, { label: string; cls: string }> = {
+  build: { label: "BUILD", cls: "bg-emerald-600 text-white" },
+  wait: { label: "WAIT", cls: "bg-amber-100 text-amber-800 ring-1 ring-amber-200" },
+  reject: { label: "SKIP", cls: "bg-gray-200 text-gray-600" },
+};
+
+export function NewPageCard({ o, ownDomain }: { o: NewPageOpportunity; ownDomain: string }) {
   const tier = TIER[o.tier];
   const [aiStatus, setAiStatus] = useState<
     "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
@@ -26,6 +33,26 @@ export function NewPageCard({ o }: { o: NewPageOpportunity }) {
   const [aiText, setAiText] = useState(o.savedOpening ?? "");
   const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  // Phase 4: on-demand live-SERP validation (DataForSEO) → BUILD/WAIT/SKIP verdict.
+  const [serp, setSerp] = useState<SerpValidationResponse | null>(null);
+  const [serpPending, startSerp] = useTransition();
+  const validate = () => {
+    startSerp(async () => {
+      try {
+        setSerp(
+          await validateCreatePageWithSerpAction({
+            topic: o.topic,
+            ownDomain,
+            profoundDomains: o.competitorDomains,
+            searchVolume: o.searchVolume,
+          }),
+        );
+      } catch {
+        setSerp({ ok: false, reason: "Validation failed — try again." });
+      }
+    });
+  };
 
   const generate = () => {
     setAiStatus("pending");
@@ -87,6 +114,36 @@ export function NewPageCard({ o }: { o: NewPageOpportunity }) {
             <div className="mt-0.5 text-[11px] leading-snug text-gray-600">{o.whatWins}</div>
           </div>
         ) : null}
+        {serp && serp.ok && (serp.status === "ok" || serp.status === "cache_hit") ? (
+          (() => {
+            const v = serp.validation;
+            const vs = VERDICT_STYLE[v.verdict] ?? VERDICT_STYLE.wait;
+            return (
+              <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-2.5 py-2">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${vs.cls}`}>{vs.label}</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500">{v.confidence} confidence · live SERP</span>
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-gray-700">{v.reasons[0]}</p>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-500">
+                  <span>{v.contentDomainCount}/10 content</span>
+                  {v.marketplaceUgcCount > 0 ? <span>{v.marketplaceUgcCount} marketplace</span> : null}
+                  {v.profoundOverlapCount > 0 ? <span className="font-semibold text-emerald-700">{v.profoundOverlapCount} AI-cited overlap</span> : null}
+                  {v.ownAlreadyRanks ? <span className="font-semibold text-amber-700">you already rank</span> : null}
+                </div>
+                {v.topDomains.length > 0 ? (
+                  <p className="mt-1 truncate text-[10px] text-gray-400">SERP: {v.topDomains.slice(0, 5).join(", ")}</p>
+                ) : null}
+              </div>
+            );
+          })()
+        ) : serp && !serp.ok ? (
+          <p className="mt-2 text-[10px] text-gray-400">{serp.reason}</p>
+        ) : serp && serp.ok ? (
+          <p className="mt-2 text-[10px] text-gray-400">
+            {serp.status === "dry_run" ? "Dry-run — set DATAFORSEO_DRY_RUN=false to validate live." : serp.status === "capped" ? "SERP budget cap reached." : serp.status === "disabled" ? "DataForSEO not connected." : "No SERP result."}
+          </p>
+        ) : null}
         {aiStatus === "ok" ? (
           <div className="mt-2">
             <div className="mb-1 flex items-center justify-between">
@@ -107,6 +164,14 @@ export function NewPageCard({ o }: { o: NewPageOpportunity }) {
         >
           Plan this page →
         </Link>
+        <button
+          onClick={validate}
+          disabled={serpPending}
+          title="Run a live Google SERP check (DataForSEO) and verdict this page: build, wait, or skip"
+          className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-60"
+        >
+          {serpPending ? "Checking SERP…" : serp ? "↻ Re-check SERP" : "Validate with live SERP"}
+        </button>
         {aiStatus !== "ok" ? (
           <button
             onClick={generate}

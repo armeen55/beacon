@@ -41,7 +41,7 @@ export async function TodayNewPagesSection() {
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {data.opportunities.map((o) => (
-          <NewPageCard key={o.id} o={o} />
+          <NewPageCard key={o.id} o={o} ownDomain={data.ownDomain} />
         ))}
       </div>
     </section>

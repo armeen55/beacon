@@ -32,11 +32,16 @@ export type NewPageOpportunity = {
   score: number;
   /** Previously-generated + persisted AI opening (move_drafts), so it survives reload. */
   savedOpening: string | null;
+  /** Competitor domains AI cites for this topic — fed to the live-SERP validation
+   *  as the "does Google rank the same competitors?" overlap check. */
+  competitorDomains: string[];
 };
 
 export type NewPagesData = {
   opportunities: NewPageOpportunity[];
   totalCandidates: number;
+  /** The tenant's own domain (so the SERP validator can detect "you already rank"). */
+  ownDomain: string;
 };
 
 function domainOf(url: string): string | null {
@@ -58,6 +63,16 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** The tenant's own domain = the most common hostname across its owned pages. */
+function deriveOwnDomain(pageNodes: ReadonlyArray<{ url: string }>): string {
+  const counts = new Map<string, number>();
+  for (const p of pageNodes) {
+    const d = domainOf(p.url);
+    if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+}
+
 /** Fail-fast guard so the heavy demand-graph compute can never hang the cockpit
  *  (the /today statement-timeout class) — on timeout the board self-hides. */
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -73,6 +88,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let moves;
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
+  let ownDomain = "";
   const volumeByKeyword = new Map<string, number>();
   try {
     const [graphRes, auditRes, draftRes, semrushGaps] = await Promise.all([
@@ -88,8 +104,9 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       // topic→keyword grounding (no fuzzy matching → no wrong numbers).
       withTimeout(loadSemrushKeywordGapsForTenant(tenantId), 4000, [] as Awaited<ReturnType<typeof loadSemrushKeywordGapsForTenant>>),
     ]);
-    if (!graphRes) return { opportunities: [], totalCandidates: 0 };
+    if (!graphRes) return { opportunities: [], totalCandidates: 0, ownDomain: "" };
     moves = graphRes.graph.moves;
+    ownDomain = deriveOwnDomain(graphRes.graph.pageNodes);
     audits = auditRes;
     savedDrafts = draftRes;
     for (const g of semrushGaps) {
@@ -97,7 +114,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       if (k && g.volume > 0 && !volumeByKeyword.has(k)) volumeByKeyword.set(k, g.volume);
     }
   } catch {
-    return { opportunities: [], totalCandidates: 0 };
+    return { opportunities: [], totalCandidates: 0, ownDomain: "" };
   }
 
   // Find a teardown audit by URL so a create_page opportunity can show what the
@@ -130,10 +147,11 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
       score: Math.round(m.score),
       savedOpening: savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null,
+      competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
     };
   });
 
-  return { opportunities, totalCandidates: createMoves.length };
+  return { opportunities, totalCandidates: createMoves.length, ownDomain };
 }
 
 export const loadNewPagesData = cache(
