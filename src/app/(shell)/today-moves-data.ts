@@ -360,6 +360,8 @@ export async function buildTodayMovesData(
       const sd = m.topQueries.find((q) => q.strikingDistance);
       if (sd && m.action === "edit_title") {
         m.why = `You already rank position ${Math.round(sd.position)} for "${sd.query}" (${sd.impressions.toLocaleString()} monthly impressions). A sharper title can climb a few spots and capture far more of those clicks.`;
+        // Grounded proof line, symmetric with the why — names the exact metric to watch.
+        m.proof = `You'll know it worked when the click-through rate for "${sd.query}" rises over the next few weeks of Search Console data while the ranking holds.`;
       }
       // Grounded "why" for an AI-citation move that ALSO ranks on Google: fuse the
       // citation gap with the real search position — you're visible, just not cited.
