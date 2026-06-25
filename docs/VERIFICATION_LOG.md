@@ -77,6 +77,10 @@ generation. Disable anytime with `=false`.
 - `61e0fcb` — **Step 5 page-factory bridge** `to-cluster-items.ts`: create_page Moves → the factory's
   `ClusterItemBrief` list (slug + title + grounded brief), lifting cluster-factory from ~10 hand-authored
   items to demand-driven. Pure; the LLM page generation stays operator-gated.
+- `e74f54e` — gap-compiler now populates the packet's GSC signal (was always null) → the CTR-gap upside
+  actually fires. VERIFIED live (flag on): 24/25 engine Moves carry real `upside_clicks_90d` (Iran Flag
+  +1,976/90d, Persian Empire Flag +1,671, Persian Swear Words +768) → high-value Moves rank at the TOP
+  of the queue, not buried.
 
 ---
 
