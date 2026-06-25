@@ -6,6 +6,7 @@ import {
   loadToolIntentQueries,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
+import { buildNewPagesData } from "./today-newpages-data";
 import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildRecommendationDetailHref } from "@/components/recommendations/v2/recommendation-route-id";
@@ -102,17 +103,19 @@ export async function TodayOpportunitiesFeed() {
   let items: OpportunityItem[] = [];
   let allItems: OpportunityItem[] = [];
   let toolExportItems: ExportItem[] = [];
+  let newPageExportItems: ExportItem[] = [];
   let total = 0;
   let totalClicks = 0;
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
       getBusinessConfigForCurrentTenant().catch(() => null),
       loadToolIntentQueries(tenantId).catch(() => []),
+      buildNewPagesData(tenantId).catch(() => ({ opportunities: [], totalCandidates: 0 })),
     ]);
     siteName = cfg?.name ?? "";
     const extra = (hero?.moves ?? [])
@@ -132,12 +135,20 @@ export async function TodayOpportunitiesFeed() {
       clicksAtStake: t.impressions,
       detail: `${t.impressions.toLocaleString()} searches/mo for "${t.query}" — no tool yet`,
     }));
+    // New pages (create_page) — the build-new content opportunities.
+    newPageExportItems = (newPages.opportunities ?? []).map((o) => ({
+      kind: "build",
+      query: o.topic,
+      page: `/${o.topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`,
+      clicksAtStake: o.searchVolume ?? 0,
+      detail: `${o.competitorCount} competitor page(s) own this${o.topCompetitor ? ` (e.g. ${o.topCompetitor})` : ""}${o.searchVolume ? `; ${o.searchVolume.toLocaleString()} searches/mo` : ""} — you have no page`,
+    }));
   } catch {
     return null;
   }
   if (items.length === 0) return null;
 
-  // Full ranked list + tools → one complete work doc for the operator's dev/VA team.
+  // Full ranked list + new pages + tools → one complete whole-site work doc.
   const exportItems: ExportItem[] = [
     ...allItems.map((it) => ({
       kind: it.kind,
@@ -146,6 +157,7 @@ export async function TodayOpportunitiesFeed() {
       clicksAtStake: it.clicksAtStake,
       detail: it.detail,
     })),
+    ...newPageExportItems,
     ...toolExportItems,
   ];
 
