@@ -49,6 +49,8 @@ export type ToolOpportunity = {
   kind: ToolKind;
   impressions: number;
   clicks: number;
+  /** The asset's subject, tool-word stripped (e.g. "persian name"). */
+  topic: string;
   /** Suggested asset, e.g. "Persian Name generator". */
   suggestion: string;
 };
@@ -90,10 +92,81 @@ export function buildToolOpportunities(
         kind: intent.kind,
         impressions: q.impressions,
         clicks: q.clicks,
+        topic,
         suggestion,
       });
     }
   }
 
   return [...byKey.values()].sort((a, b) => b.impressions - a.impressions).slice(0, cap);
+}
+
+export type AssetSpec = {
+  /** One-line what-it-does. */
+  summary: string;
+  /** What the user enters. */
+  inputs: string[];
+  /** What it returns. */
+  outputs: string[];
+  /** How to ship it (generic build paths — no vendor lock). */
+  buildPath: string;
+};
+
+// Deterministic spec scaffolds per asset kind. Generic (no vertical hardcoding) —
+// the topic is slotted in so the brief reads concretely for the operator/dev.
+const SPEC_BY_KIND: Record<ToolKind, (topic: string) => AssetSpec> = {
+  generator: (t) => ({
+    summary: `Generate ${t || "results"} from a few user choices, with a copy/share button.`,
+    inputs: ["A few constraint options (e.g. style, length, category)", "Optional seed/keyword"],
+    outputs: [`A list of ${t || "generated"} options`, "Copy / regenerate / share controls"],
+    buildPath: "Client-side widget (no backend needed) embedded on a dedicated page; or a serverless function if the list is large.",
+  }),
+  converter: (t) => ({
+    summary: `Convert ${t || "values"} between formats instantly as the user types.`,
+    inputs: ["Source value", "From / to units (or auto-detected)"],
+    outputs: ["The converted value", "A short worked-example + reverse direction"],
+    buildPath: "Pure client-side JS widget (instant, no backend) on a dedicated page.",
+  }),
+  calculator: (t) => ({
+    summary: `Calculate ${t || "a result"} from the user's numbers, with the formula shown.`,
+    inputs: ["The numeric fields the calculation needs"],
+    outputs: ["The computed result", "A plain-English breakdown of how it was derived"],
+    buildPath: "Client-side calculator widget on a dedicated page; show the formula for trust + AEO.",
+  }),
+  quiz: (t) => ({
+    summary: `An interactive ${t || "quiz"} that returns a personalized result.`,
+    inputs: ["5–8 multiple-choice questions"],
+    outputs: ["A result archetype with a shareable summary", "Social share + retake controls"],
+    buildPath: "Client-side quiz component (state in the browser) on a dedicated page.",
+  }),
+  checker: (t) => ({
+    summary: `Check / validate ${t || "an input"} and return a clear pass/issue verdict.`,
+    inputs: ["The thing to check (text, URL, value)"],
+    outputs: ["A verdict + the specific issues found", "How to fix each"],
+    buildPath: "Client-side validator (or serverless if it needs an external lookup) on a dedicated page.",
+  }),
+  estimator: (t) => ({
+    summary: `Estimate ${t || "an outcome"} from the user's situation, with the assumptions shown.`,
+    inputs: ["A few situational fields", "Optional ranges for sensitivity"],
+    outputs: ["A range estimate", "The assumptions + what moves the number"],
+    buildPath: "Client-side estimator widget on a dedicated page; surface assumptions for trust.",
+  }),
+  template: (t) => ({
+    summary: `A fill-in ${t || "template"} the user can complete and download.`,
+    inputs: ["A few personalization fields"],
+    outputs: ["A completed, downloadable/printable document"],
+    buildPath: "Client-side form → rendered doc (print/PDF) on a dedicated page.",
+  }),
+  tool: (t) => ({
+    summary: `An interactive tool for ${t || "this task"}.`,
+    inputs: ["The minimal inputs the task needs"],
+    outputs: ["The result, copyable/shareable"],
+    buildPath: "Start client-side on a dedicated page; add a serverless function only if it needs server data.",
+  }),
+};
+
+/** Deterministic build brief for a tool opportunity — what it takes, what it
+ *  returns, and how to ship it. Pure; the topic is the asset's subject. */
+export function buildAssetSpec(kind: ToolKind, topic: string): AssetSpec {
+  return (SPEC_BY_KIND[kind] ?? SPEC_BY_KIND.tool)((topic ?? "").trim());
 }

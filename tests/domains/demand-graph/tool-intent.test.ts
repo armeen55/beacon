@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 
-import { detectToolIntent, buildToolOpportunities, type ToolQueryInput } from "@/domains/demand-graph/tool-intent";
+import {
+  detectToolIntent,
+  buildToolOpportunities,
+  buildAssetSpec,
+  type ToolQueryInput,
+} from "@/domains/demand-graph/tool-intent";
 
 const q = (query: string, impressions: number, clicks = 0): ToolQueryInput => ({ query, impressions, clicks });
 
@@ -44,5 +49,28 @@ describe("buildToolOpportunities", () => {
   it("respects the cap", () => {
     const many = Array.from({ length: 10 }, (_, i) => q(`thing ${i} calculator`, 100 + i));
     expect(buildToolOpportunities(many, { cap: 3 })).toHaveLength(3);
+  });
+
+  it("carries the bare topic for spec generation", () => {
+    const ops = buildToolOpportunities([q("persian name generator", 100)]);
+    expect(ops[0]!.topic).toBe("persian name");
+  });
+});
+
+describe("buildAssetSpec", () => {
+  it("gives a kind-appropriate, topic-slotted build brief", () => {
+    const gen = buildAssetSpec("generator", "persian name");
+    expect(gen.summary).toContain("persian name");
+    expect(gen.inputs.length).toBeGreaterThan(0);
+    expect(gen.outputs.length).toBeGreaterThan(0);
+    expect(gen.buildPath).toMatch(/client|widget|serverless/i);
+    const conv = buildAssetSpec("converter", "farsi numbers");
+    expect(conv.summary).toContain("farsi numbers");
+    expect(conv.summary).not.toBe(gen.summary); // kind-specific
+  });
+  it("falls back to the generic tool spec for an unknown topic", () => {
+    const spec = buildAssetSpec("tool", "");
+    expect(spec.inputs.length).toBeGreaterThan(0);
+    expect(spec.buildPath).toBeTruthy();
   });
 });

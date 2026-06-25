@@ -1,6 +1,6 @@
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadToolIntentQueries } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
+import { buildToolOpportunities, buildAssetSpec } from "@/domains/demand-graph/tool-intent";
 
 /**
  * today-tools-section (2026-06-25, §5/§8 asset engine) — "Tools worth building":
@@ -63,25 +63,37 @@ export async function TodayToolsSection() {
       </div>
 
       <ul className="mt-5 space-y-1.5">
-        {ops.map((o, i) => (
-          <li
-            key={i}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-100 bg-white/70 px-3 py-2 text-sm"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${KIND_STYLE[o.kind] ?? "bg-slate-100 text-slate-700"}`}
-              >
-                {o.kind}
-              </span>
-              <span className="min-w-0">
-                <span className="font-medium text-gray-900">Build a {o.suggestion}</span>
-                <span className="ml-2 text-xs text-gray-400">people search &ldquo;{o.query}&rdquo;</span>
-              </span>
-            </div>
-            <span className="text-xs text-gray-500">{o.impressions.toLocaleString()} searches/mo</span>
-          </li>
-        ))}
+        {ops.map((o, i) => {
+          const spec = buildAssetSpec(o.kind, o.topic);
+          return (
+            <li key={i} className="rounded-xl border border-cyan-100 bg-white/70 px-3 py-2 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${KIND_STYLE[o.kind] ?? "bg-slate-100 text-slate-700"}`}
+                  >
+                    {o.kind}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="font-medium text-gray-900">Build a {o.suggestion}</span>
+                    <span className="ml-2 text-xs text-gray-400">people search &ldquo;{o.query}&rdquo;</span>
+                  </span>
+                </div>
+                <span className="text-xs text-gray-500">{o.impressions.toLocaleString()} searches/mo</span>
+              </div>
+              {/* Deterministic build brief so the idea is shippable, not just a wish. */}
+              <details className="mt-1.5 text-xs text-gray-500">
+                <summary className="cursor-pointer text-cyan-700 hover:text-cyan-900">Build brief</summary>
+                <div className="mt-1.5 space-y-1 pl-1">
+                  <p>{spec.summary}</p>
+                  <p><span className="font-medium text-gray-700">Inputs:</span> {spec.inputs.join("; ")}</p>
+                  <p><span className="font-medium text-gray-700">Outputs:</span> {spec.outputs.join("; ")}</p>
+                  <p><span className="font-medium text-gray-700">Build path:</span> {spec.buildPath}</p>
+                </div>
+              </details>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
