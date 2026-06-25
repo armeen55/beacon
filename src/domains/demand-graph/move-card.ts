@@ -30,9 +30,23 @@ export type MoveCard = {
   intent: QueryIntent;
   /** Plain-language hint on the asset shape that wins this intent. */
   intentHint: string;
+  /** Rough effort to ship — lets the daily worklist surface quick wins first. */
+  effort: "quick" | "medium" | "big";
   /** The one-click call to action. */
   ship: string;
 };
+
+/** Effort to ship a move: a tweak vs a from-scratch build. Deterministic from
+ *  the gap shape — a new page or a tool is a big build; an answer/title is quick. */
+function estimateEffort(gapType: GapKind, gapKinds: GapKindDetail[]): MoveCard["effort"] {
+  if (gapType === "create_page" || gapKinds.includes("missing_tool")) return "big";
+  if (gapType === "answer_block") return "quick";
+  if (gapType === "edit_page") {
+    const onlyMeta = gapKinds.every((k) => k === "weak_title" || k === "weak_meta");
+    return onlyMeta ? "quick" : "medium";
+  }
+  return "medium";
+}
 
 const ACTION: Record<GapKind, string> = {
   create_page: "Create a new page",
@@ -111,6 +125,7 @@ export function formatMoveCard(packet: EvidencePacket): MoveCard {
     confidence: move.confidence,
     intent: intent.intent,
     intentHint: intent.hint,
+    effort: estimateEffort(move.gapType, gaps.map((g) => g.kind)),
     ship: draft.titleSuggestion || draft.outline.length > 0 ? "Review & ship" : "Open to plan",
   };
 }

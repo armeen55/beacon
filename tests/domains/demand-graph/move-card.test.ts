@@ -28,6 +28,15 @@ describe("formatMoveCard (Step 7 bridge, plain language)", () => {
     expect(c.confidence).toBe("medium");
     expect(c.intent).toBe("informational"); // "persian wedding"
     expect(c.intentHint.toLowerCase()).toContain("concise answer");
+    expect(c.effort).toBe("big"); // create_page
+  });
+
+  it("effort: answer_block is a quick win, create_page is a big build", () => {
+    const quick = formatMoveCard(packet({
+      move: { key: "k", gapType: "answer_block", label: "iran flag", confidence: "high", score: 1, components: { demand: 1, winnability: 0.5, dollarValue: 0, visibilityGap: 0.3, friction: 0 }, signals: ["GSC"] },
+      gaps: [{ kind: "missing_answer_block", detail: "x" }],
+    }));
+    expect(quick.effort).toBe("quick");
   });
 
   it("loosely-matched competitor → honest 'not confirmed' instead of a teardown", () => {
