@@ -1,5 +1,6 @@
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadTopPagesWithQueriesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadDismissedKeys, opportunityKey } from "@/domains/recommendation-intelligence/opportunity-dismissal-store";
 import { estimatedCtr } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { bestTitle } from "@/domains/demand-graph/ctr-title-scorer";
@@ -38,8 +39,15 @@ export async function TodayCtrGapSection() {
   let rows: ReturnType<typeof buildCtrGapRows> = [];
   try {
     const tenantId = await currentTenantId();
-    const pages = await loadTopPagesWithQueriesForTenant(tenantId).catch(() => []);
-    rows = buildCtrGapRows(pages, estimatedCtr);
+    const [pages, dismissed] = await Promise.all([
+      loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
+      loadDismissedKeys(tenantId).catch(() => new Set<string>()),
+    ]);
+    // Honor feed dismissals globally — a "snippet" opportunity dismissed on the
+    // headline stays gone here too (same kind|page|query key).
+    rows = buildCtrGapRows(pages, estimatedCtr).filter(
+      (r) => !dismissed.has(opportunityKey("snippet", r.page, r.query)),
+    );
   } catch {
     return null;
   }
