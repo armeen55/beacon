@@ -19,7 +19,7 @@ import {
 } from "@/domains/recommendation-intelligence/promotion-eligibility";
 
 const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
-  // customer-queue-ready (14)
+  // customer-queue-ready (17)
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
   // Root-cause-#3 gap (2026-06-16): missing-meta page composeMeta can't
@@ -47,6 +47,14 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["missing_schema_store::add_schema", "customer-queue-ready"],
   ["gsc_striking_distance::edit_title", "customer-queue-ready"],
   ["gsc_decay::update_intro", "customer-queue-ready"],
+  // Rank-&-Revenue activation (2026-06-24): the demand-graph engine's promoted
+  // Moves. These three trigger signals are the engine's own grounded gaps
+  // (edit-page / answer-block / fix-experience) — registered customer-queue-ready
+  // so the demand-graph Moves actually reach the live queue. create_page stays
+  // OUT (blocked from the edit queue) by deliberate omission.
+  ["demand_graph_edit_page::edit_title", "customer-queue-ready"],
+  ["demand_graph_answer_block::add_answer_block", "customer-queue-ready"],
+  ["demand_graph_fix_experience::fix_page_experience", "customer-queue-ready"],
 
   // operator-review-only (10)
   ["duplicate_title::edit_title", "operator-review-only"],
