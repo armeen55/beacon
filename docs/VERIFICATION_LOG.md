@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-25 — B52–B57 · site-wide intelligence + the §2 one-ranked-list (infinite-build run)
+
+**Shipped (all main, typecheck+build+architecture green per commit; verified on real Iranopedia/Supabase):**
+- **Cannibalization → paste-ready artifact + homepage-lead fix** (`e935c3c2`/`07d0a5f5`) — follower link snippet; corrected the backwards "topic page → homepage" advice. 9 tests.
+- **Site-wide rank intelligence beyond the worklist** (`b6e63c49`…`227c4005`) — `loadTopDecliningPagesForTenant` (Recover lost ground merges worklist+site-wide; caught `iranian-actors-actresses −73%`) + `loadTopStrikingPagesForTenant` (Quick CTR wins, 12 striking pages) via server-aggregated `gsc_page_totals_v1`; non-worklist rows route to `/proof?page=` (prefilled). Quick CTR wins carry a `bestTitle` artifact (`183000ca`).
+- **Revenue axis — Fix conversion leaks** (`e5f13e9d`/`74a7a4c6`) — pure `today-moneyleak-rows.ts` joins GA4 value × Clarity friction; names the most-severe friction + a friction-specific directive; honest "per N visits" framing (caught a >100% false-percentage). 9 tests. Real: 8 leaking pages, 2,102 visits at risk.
+- **Cockpit fan-out memoized** (`fb6e929c`) — GA4 + Clarity loaders React `cache()`-wrapped; verified to degrade to no-op outside a request scope (cron/scripts unaffected).
+- **The §2 promise — ONE ranked list** (`93a80617`) — `today-opportunities-feed.tsx` fuses recover+win into a single feed by estimated monthly clicks at stake; honest cross-axis currency via new pure `ctr-curve.ts` (CTR-by-position model, labeled potential); page+query dedup keeps larger-stake framing. 13 tests. Real: 6 items, ~875 clicks/mo at stake.
+- **Closeout gate:** 339 files / 6,896 tests green (touched domains).
+
 ## 2026-06-25 — B46 · cockpit depth + AI persistence + regression catch (infinite-build run)
 
 **Shipped (all main, typecheck+build green per commit):**
