@@ -244,6 +244,9 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
   const ranAt = new Date().toISOString();
   const tenants = (await listTenants()).filter((t) => t.status === "active");
   const results: CronSyncSourceResult[] = [];
+  // PHASE 1 — sync every tenant's data first (the critical path). LLM precompute
+  // is deferred to phase 2 so a slow draft can never starve a later tenant's sync
+  // if the 300s cron cap is approached.
   for (const t of tenants) {
     try {
       results.push(...(await syncOneTenant(t.id)));
@@ -251,10 +254,12 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       const err = e instanceof Error ? e.message : String(e);
       log.error("[cron-sync] tenant failed", { tenantId: t.id, error: err.slice(0, 200) });
     }
-    // §6 precompute — after fresh data lands, pre-draft the top AI-citation Moves
-    // so the cockpit opens with ready answer blocks + FAQ schema (not buttons).
-    // No-op unless BEACON_LLM_PROVIDER=openai; budget-capped + fail-soft (its own
-    // try/catch so a drafting hiccup never affects the sync result).
+  }
+
+  // PHASE 2 — §6 move-draft precompute, AFTER all data is fresh. No-op unless
+  // BEACON_LLM_PROVIDER=openai; budget-capped + idempotent (only un-drafted Moves
+  // → steady-state ~free) + fail-soft (per-tenant try/catch, never affects sync).
+  for (const t of tenants) {
     try {
       const pc = await precomputeMoveDraftsForTenant(t.id, { maxMoves: 8 });
       if (!pc.skipped && (pc.answerBlocksSaved > 0 || pc.faqSchemasSaved > 0)) {

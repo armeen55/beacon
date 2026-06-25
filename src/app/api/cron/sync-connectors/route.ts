@@ -7,11 +7,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Nightly data-sync cron (scheduled in vercel.json).
+ * Nightly data-sync cron (scheduled in vercel.json, 09:00 UTC).
  *
  * Keeps every connected read source fresh AND keeps Google OAuth tokens alive
- * inside their 7-day refresh window (so connections stop going stale). Free to
- * run — no LLM/OpenAI path.
+ * inside their 7-day refresh window (so connections stop going stale). After
+ * each tenant syncs, it ALSO runs the §6 move-draft precompute (cron-sync.ts)
+ * so the cockpit opens with ready AI drafts — that path is OFF unless
+ * BEACON_LLM_PROVIDER=openai, budget-capped ($10/mo fail-closed), and idempotent
+ * (only un-drafted Moves, so steady-state is ~free). Fail-soft: a precompute or
+ * sync error for one tenant never aborts the rest.
  *
  * Auth: Vercel Cron automatically sends `Authorization: Bearer <CRON_SECRET>`
  * on scheduled invocations when CRON_SECRET is set. We require it so the
