@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"; // shell layout reads tenant context (Supabase) — force the whole shell subtree dynamic so NO page prerenders at build (avoids build-time "Invalid API key")
+
 import { ShellProvider, type NavBadges } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { isOperatorModeServer } from "@/lib/operator-mode";
