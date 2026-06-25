@@ -1,0 +1,47 @@
+import { describe, it, expect } from "vitest";
+import { formatMoveCard } from "@/domains/demand-graph/move-card";
+import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
+
+function packet(over: Partial<EvidencePacket> = {}): EvidencePacket {
+  return {
+    move: { key: "k", gapType: "create_page", label: "persian wedding", confidence: "medium", score: 1000, components: { demand: 5000, winnability: 0.8, dollarValue: 0, visibilityGap: 0.6, friction: 0 }, signals: ["AI"] },
+    demand: { demandWeight: 5000, basis: "ai_attention", queries: [], fanoutSeeds: [] },
+    competitor: { topUrl: "https://theknot.com/x", domain: "theknot.com", fetchStatus: "ok", facts: null, whatWins: "answer block · 1.8k words", relevance: 1, looselyMatched: false, otherUrls: [] },
+    yourPage: { url: null, facts: null, gsc: null, dollarValue: 0, friction: 0 },
+    gaps: [{ kind: "missing_page", detail: "no page" }],
+    draft: { kind: "deterministic_skeleton", titleSuggestion: "Persian Wedding | Iranopedia", metaBrief: null, outline: ["A", "B"], answerBlockBrief: "answer", faqQuestions: [], schemaRecommendations: [], assetSpec: null, asset: null, note: "x" },
+    proofPlan: { metrics: ["new-page clicks", "Profound citations"], windowsDays: [7, 14, 28], controls: "x" },
+    evidenceHash: "abc",
+    ...over,
+  } as EvidencePacket;
+}
+
+describe("formatMoveCard (Step 7 bridge, plain language)", () => {
+  it("create_page → imperative move + plain why + proof in plain English", () => {
+    const c = formatMoveCard(packet());
+    expect(c.move).toBe("Create a new page: persian wedding");
+    expect(c.draftReady).toBe(true);
+    expect(c.proof).toContain("how often AI recommends you"); // Profound citations → plain
+    expect(c.proof).toContain("7/14/28 days");
+    expect(c.yourGap[0]).toContain("no page");
+    expect(c.ship).toBe("Review & ship");
+    expect(c.confidence).toBe("medium");
+  });
+
+  it("loosely-matched competitor → honest 'not confirmed' instead of a teardown", () => {
+    const c = formatMoveCard(packet({
+      competitor: { topUrl: "https://x.com/y", domain: "x.com", fetchStatus: "ok", facts: null, whatWins: "...", relevance: 0.3, looselyMatched: true, otherUrls: [] },
+    }));
+    expect(c.whatWins.toLowerCase()).toContain("confirm");
+  });
+
+  it("no jargon: known SEO terms are translated", () => {
+    const c = formatMoveCard(packet({
+      move: { key: "k", gapType: "edit_page", label: "cities in iran", confidence: "high", score: 1, components: { demand: 1, winnability: 0.5, dollarValue: 2, visibilityGap: 0.3, friction: 0 }, signals: ["GSC"] },
+      gaps: [{ kind: "weak_title", detail: "x" }, { kind: "missing_schema", detail: "y" }],
+    }));
+    expect(c.move).toBe("Improve your page: cities in iran");
+    expect(c.yourGap.join(" ")).not.toMatch(/\bCTR\b|\bschema\b/);
+    expect(c.why).toContain("leads/sales"); // dollarValue>0 surfaced
+  });
+});
