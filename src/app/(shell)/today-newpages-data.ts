@@ -3,6 +3,7 @@ import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import { loadSemrushKeywordGapsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
@@ -24,6 +25,9 @@ export type NewPageOpportunity = {
   topCompetitor: string | null;
   /** What the cited competitor page has (deterministic teardown), when audited. */
   whatWins: string | null;
+  /** Real SEMrush monthly search volume, ONLY on an exact keyword match (else null —
+   *  never a fuzzy guess). Grounds the demand beyond the AI-attention proxy. */
+  searchVolume: number | null;
   tier: "hot" | "warm" | "emerging";
   score: number;
   /** Previously-generated + persisted AI opening (move_drafts), so it survives reload. */
@@ -69,8 +73,9 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let moves;
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
+  const volumeByKeyword = new Map<string, number>();
   try {
-    const [graphRes, auditRes, draftRes] = await Promise.all([
+    const [graphRes, auditRes, draftRes, semrushGaps] = await Promise.all([
       withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
         loadDemandGraphForTenantCached(tenantId),
         8000,
@@ -79,11 +84,18 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       getCompetitorAuditsForTenant().catch(() => new Map()),
       // Persisted AI openings (degrade-safe: empty map if the table isn't migrated).
       withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
+      // Real SEMrush search volume by keyword (bounded, fail-soft []) — for EXACT
+      // topic→keyword grounding (no fuzzy matching → no wrong numbers).
+      withTimeout(loadSemrushKeywordGapsForTenant(tenantId), 4000, [] as Awaited<ReturnType<typeof loadSemrushKeywordGapsForTenant>>),
     ]);
     if (!graphRes) return { opportunities: [], totalCandidates: 0 };
     moves = graphRes.graph.moves;
     audits = auditRes;
     savedDrafts = draftRes;
+    for (const g of semrushGaps) {
+      const k = g.keyword?.trim().toLowerCase().replace(/\s+/g, " ");
+      if (k && g.volume > 0 && !volumeByKeyword.has(k)) volumeByKeyword.set(k, g.volume);
+    }
   } catch {
     return { opportunities: [], totalCandidates: 0 };
   }
@@ -113,6 +125,8 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       competitorCount: m.competitorUrls.length,
       topCompetitor: topUrl ? domainOf(topUrl) : null,
       whatWins: ww && ww !== "—" ? ww : null,
+      // Real volume ONLY on an exact normalized keyword match (else null — honest).
+      searchVolume: volumeByKeyword.get(m.label.trim().toLowerCase().replace(/\s+/g, " ")) ?? null,
       tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
       score: Math.round(m.score),
       savedOpening: savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null,

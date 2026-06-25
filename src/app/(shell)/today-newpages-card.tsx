@@ -75,6 +75,11 @@ export function NewPageCard({ o }: { o: NewPageOpportunity }) {
             <>There&apos;s demand for this and none of your pages covers it yet.</>
           )}
         </p>
+        {o.searchVolume && o.searchVolume > 0 ? (
+          <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-800 ring-1 ring-sky-100">
+            {o.searchVolume.toLocaleString()} monthly searches (SEMrush)
+          </p>
+        ) : null}
         {o.topCompetitor ? <p className="mt-1 text-[11px] text-gray-400">e.g. {o.topCompetitor}</p> : null}
         {o.whatWins ? (
           <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
