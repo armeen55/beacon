@@ -123,7 +123,12 @@ export async function autoRecordShippedChangeForRec(
       notes: "Auto-recorded from cockpit Ship",
       verifiedLive: false,
     });
-    await deps.upsertShippedChange(record);
+    // Flag the page for a fresh crawl: the snapshot/EvidencePacket must re-read the
+    // changed content so the SAME Move stops being re-recommended. The persisted
+    // re-crawl rides the scan path (orchestrate-scan → Supabase); this stamps the
+    // intent on the record so the scan/measurement layer knows the page changed.
+    const stamped: ShippedChangeRecord = { ...record, recrawlRequestedAt: new Date().toISOString() };
+    await deps.upsertShippedChange(stamped);
     log.info("[ship->proof] auto-recorded shipped change", {
       tenantId: args.tenantId,
       path: meta.path,

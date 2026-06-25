@@ -17,6 +17,8 @@ import {
   type QueryDecline,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
+import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 
 /**
  * today-moves-data (2026-06-24) — the loader behind the premium "Today's Moves"
@@ -99,6 +101,8 @@ export type TodayMovesHeroData = {
     losingQueries: number;
     /** Queries where the shown Moves' pages compete with the tenant's own other pages. */
     selfCompeting: number;
+    /** Moves suppressed because their page is mid-measurement (Phase 2 hold). */
+    heldWhileMeasuring: number;
   };
 };
 
@@ -215,7 +219,7 @@ export async function buildTodayMovesData(
 ): Promise<TodayMovesHeroData> {
     const repo = getRepository().forTenant(tenantId);
 
-    const [edits, packets, responses, savedDrafts] = await Promise.all([
+    const [edits, packets, responses, savedDrafts, ledger] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
       // Enrichment (teardown/outline/proof) rides the heavy graph compute — guard
       // it so a slow graph degrades the hero to the light queue read, never hangs.
@@ -228,7 +232,17 @@ export async function buildTodayMovesData(
       // Previously-generated + persisted AI drafts (answer block / FAQ schema) so
       // they survive reload. Degrade-safe: empty map if the table isn't migrated.
       withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
+      // Phase 2: the proof ledger → pages mid-measurement are HELD (a 2nd change to
+      // a page under measurement contaminates the diff-in-diff). Fail-soft → [].
+      withTimeout(loadShippedChanges(), 4000, [] as Awaited<ReturnType<typeof loadShippedChanges>>),
     ]);
+    // Owned-page paths currently on measurement-hold (verdict still measuring,
+    // within the 28d window). Moves for these pages are suppressed below.
+    const heldPaths = buildMeasuringHold(
+      ledger.map((r) => ({ path: r.path, shippedAt: r.shippedAt, verdict: r.verdict })),
+      Date.now(),
+    );
+    let heldWhileMeasuring = 0;
 
     // Skip Moves the operator already shipped/dismissed — so a one-tap "Ship it"
     // removes the card on the next render (the action revalidates "/").
@@ -259,6 +273,11 @@ export async function buildTodayMovesData(
       if (!(e.action_type in ACTION_META)) continue;
       const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? "";
       if (moveId && actioned.has(moveId)) continue;
+      // HOLD: don't recommend a new change to a page that's mid-measurement.
+      if (isHeldForMeasurement(e.target_url, heldPaths)) {
+        heldWhileMeasuring += 1;
+        continue;
+      }
       const pk = canon(e.target_url);
       const arr = byPage.get(pk) ?? [];
       arr.push(e);
@@ -496,6 +515,7 @@ export async function buildTodayMovesData(
         strikingWins,
         losingQueries,
         selfCompeting,
+        heldWhileMeasuring,
       },
     };
 }
