@@ -71,6 +71,8 @@ export type TodayMovesHeroData = {
     demandAtStake: number;
     citationsContested: number;
     pagesCovered: number;
+    /** How many of the shown Moves already have a precomputed AI draft waiting. */
+    draftsReady: number;
   };
 };
 
@@ -327,6 +329,7 @@ export async function buildTodayMovesData(
     const demandAtStake = top.reduce((s, m) => s + (m.demand ?? 0), 0);
     const citationsContested = top.filter((m) => m.action === "add_answer_block").length;
     const pagesCovered = new Set(top.map((m) => canon(m.targetUrl))).size;
+    const draftsReady = top.filter((m) => m.savedAnswerBlock || m.savedFaqJsonLd).length;
 
     return {
       moves: top,
@@ -335,6 +338,7 @@ export async function buildTodayMovesData(
         demandAtStake: Math.round(demandAtStake),
         citationsContested,
         pagesCovered,
+        draftsReady,
       },
     };
 }

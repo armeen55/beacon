@@ -63,7 +63,11 @@ export async function TodayMovesHeroSection() {
         <StatTile value={String(stats.movesReady)} label="Moves ready" accent="text-gray-900" />
         <StatTile value={fmtNum(stats.demandAtStake)} label="Monthly demand at stake" accent="text-sky-600" />
         <StatTile value={String(stats.citationsContested)} label="AI citations to win" accent="text-violet-600" />
-        <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />
+        {stats.draftsReady > 0 ? (
+          <StatTile value={String(stats.draftsReady)} label="AI drafts ready" accent="text-emerald-600" />
+        ) : (
+          <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />
+        )}
       </div>
 
       <BulkShipBar moves={moves.map((m) => ({ id: m.id, targetUrl: m.targetUrl, query: m.query }))} />
