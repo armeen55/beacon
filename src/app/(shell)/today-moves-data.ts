@@ -355,6 +355,12 @@ export async function buildTodayMovesData(
           .sort((a, b) => b.score - a.score)
           .slice(0, 3);
       }
+      // Sharpest, grounded "why" for a striking-distance clicks move: name the
+      // exact query, current rank, and real demand — the most compelling framing.
+      const sd = m.topQueries.find((q) => q.strikingDistance);
+      if (sd && m.action === "edit_title") {
+        m.why = `You already rank position ${Math.round(sd.position)} for "${sd.query}" (${sd.impressions.toLocaleString()} monthly impressions). A sharper title can climb a few spots and capture far more of those clicks.`;
+      }
     }
 
     // Quick-win boost: a page already ranking in striking distance (pos 4–15, real
