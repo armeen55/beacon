@@ -670,12 +670,15 @@ export async function loadTriggerCandidatesForTenant(options: {
   }
 
   // ── demand-graph engine source (2026-06-24, BEACON_DEMAND_GRAPH_RECS) ──
-  // Off by default. When on, the Rank-&-Revenue engine's ranked Moves
-  // (create_page / answer_block / edit / fix) flow into the SAME queue as the
-  // deterministic predicates — the plan's intended convergence ("output stays
-  // RecommendationCandidateRow, consumed by this loader"). Routed + deduped by
-  // applyQueueRules exactly like every other source. Fail-soft: a load error
-  // never breaks the existing pipeline.
+  // OFF by default — set BEACON_DEMAND_GRAPH_RECS=true to enable (operator's
+  // validated call; flipping the engine into the live customer queue is a
+  // customer-surface change). When on, the Rank-&-Revenue engine's ranked Moves
+  // (answer_block / edit / fix) flow into the SAME queue as the deterministic
+  // predicates — the plan's intended convergence ("output stays
+  // RecommendationCandidateRow, consumed by this loader"). Routed by
+  // applyQueueRules + cross-source deduped (below). PERF: this loader runs during
+  // GENERATION (promotion-writer) + the operator diagnostic, NOT on the customer
+  // render path. Fail-soft: a load error never breaks the pipeline.
   if (process.env.BEACON_DEMAND_GRAPH_RECS === "true") {
     try {
       const { graph } = await loadDemandGraphForTenant(tenantId);

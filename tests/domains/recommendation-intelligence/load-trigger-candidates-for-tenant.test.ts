@@ -203,6 +203,11 @@ function makeSnapshot(overrides: Partial<PageSnapshot>): PageSnapshot {
 }
 
 beforeEach(() => {
+  // Defensive: keep the demand-graph engine source (BEACON_DEMAND_GRAPH_RECS,
+  // off by default) disabled so these predicate-pipeline isolation tests hold
+  // even if the flag is set in the runner's env. The engine has its own coverage
+  // (to-candidate-rows.test.ts).
+  delete process.env.BEACON_DEMAND_GRAPH_RECS;
   _getPageSnapshotsMock.mockReset();
   _forTenantSpy.mockReset();
   _getBusinessConfigMock.mockReset();
