@@ -67,6 +67,17 @@ the hot path.
 /recommendations (its unique AI-citation answer-blocks + friction fixes), promoted on the next
 generation. Disable anytime with `=false`.
 
+**Integration hardened + extended (same day):**
+- `f04a0be` — **integration audit** (Workflow wpf2dzlqa) → fixed: customer_copy echoed the tenant's own
+  GSC query verbatim (apply-queue-rules has no vocab scan), so a "best …" query leaked an unsupported
+  claim. `safeQueryForCopy` strips the exported `UNSUPPORTED_CLAIM_TOKENS` before templating.
+- `53b4d19` — engine edit Moves now carry **CTR-gap `upside_clicks_90d`** (same method as the GSC
+  predicates, from the packet's real GSC signal) so they rank FAIRLY in the queue (priorityScore.upsideBonus)
+  instead of being buried for lack of an upside number.
+- `61e0fcb` — **Step 5 page-factory bridge** `to-cluster-items.ts`: create_page Moves → the factory's
+  `ClusterItemBrief` list (slug + title + grounded brief), lifting cluster-factory from ~10 hand-authored
+  items to demand-driven. Pure; the LLM page generation stays operator-gated.
+
 ---
 
 ## 2026-06-24 — v1.0 RANK-&-REVENUE ENGINE · STEP 4 (gap compiler → EvidencePacket)
