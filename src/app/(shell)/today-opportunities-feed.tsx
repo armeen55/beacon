@@ -3,7 +3,9 @@ import { currentTenantId } from "@/lib/tenant-context";
 import {
   loadTopDecliningPagesForTenant,
   loadTopStrikingPagesForTenant,
+  loadToolIntentQueries,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
 import { clicksAtStakeForStriking } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
 import { buildRecommendationDetailHref } from "@/components/recommendations/v2/recommendation-route-id";
@@ -99,16 +101,18 @@ function moveToItem(m: {
 export async function TodayOpportunitiesFeed() {
   let items: OpportunityItem[] = [];
   let allItems: OpportunityItem[] = [];
+  let toolExportItems: ExportItem[] = [];
   let total = 0;
   let totalClicks = 0;
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
       getBusinessConfigForCurrentTenant().catch(() => null),
+      loadToolIntentQueries(tenantId).catch(() => []),
     ]);
     siteName = cfg?.name ?? "";
     const extra = (hero?.moves ?? [])
@@ -119,19 +123,31 @@ export async function TodayOpportunitiesFeed() {
     allItems = result.all;
     total = result.total;
     totalClicks = result.totalClicksAtStake;
+    // The dev-handoff doc should be COMPLETE — append the asset-engine tools
+    // (build-these) after the rank work, on their own demand metric.
+    toolExportItems = buildToolOpportunities(toolQueries, { minImpressions: 5 }).map((t) => ({
+      kind: "tool",
+      query: t.suggestion,
+      page: `/tools/${t.topic.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || t.kind}`,
+      clicksAtStake: t.impressions,
+      detail: `${t.impressions.toLocaleString()} searches/mo for "${t.query}" — no tool yet`,
+    }));
   } catch {
     return null;
   }
   if (items.length === 0) return null;
 
-  // Full ranked list → a shareable work doc for the operator's dev/VA team.
-  const exportItems: ExportItem[] = allItems.map((it) => ({
-    kind: it.kind,
-    query: it.query,
-    page: it.page,
-    clicksAtStake: it.clicksAtStake,
-    detail: it.detail,
-  }));
+  // Full ranked list + tools → one complete work doc for the operator's dev/VA team.
+  const exportItems: ExportItem[] = [
+    ...allItems.map((it) => ({
+      kind: it.kind,
+      query: it.query,
+      page: it.page,
+      clicksAtStake: it.clicksAtStake,
+      detail: it.detail,
+    })),
+    ...toolExportItems,
+  ];
 
   return (
     <section className="rounded-3xl border border-violet-200/70 bg-gradient-to-br from-violet-50/60 via-white to-sky-50/40 p-6 shadow-sm">

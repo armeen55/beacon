@@ -20,6 +20,7 @@ const KIND_VERB: Record<string, string> = {
   cite: "Get cited by AI for",
   build: "Build a page for",
   edit: "Improve",
+  tool: "Build a tool for",
 };
 
 function pretty(url: string): string {
