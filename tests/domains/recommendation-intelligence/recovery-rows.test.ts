@@ -79,4 +79,14 @@ describe("indexCannibalizationByUrl", () => {
     const idx = indexCannibalizationByUrl([kase("q", ["/a", "/b", "/c", "/d", "/e"])], canon, pretty, 2);
     expect(idx.get("/a")![0].otherPages).toHaveLength(2);
   });
+
+  it("does NOT advise a topic page to defer to the homepage (no backwards link)", () => {
+    // Lead is the homepage; a dedicated page competes.
+    const c = { query: "persian boy names", competingUrls: [cu("https://x.com/"), cu("https://x.com/persian-boy-names")], leadUrl: "https://x.com/" } as never;
+    const idx = indexCannibalizationByUrl([c], (u: string) => u.replace(/\/$/, ""), (u: string) => u.split("/").pop() || "home");
+    const follower = idx.get("https://x.com/persian-boy-names")![0];
+    expect(follower.linkSnippet).toBeNull(); // never link a topic page at the root
+    expect(follower.fix).toContain("homepage");
+    expect(follower.fix).toContain("dedicated");
+  });
 });

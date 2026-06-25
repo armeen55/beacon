@@ -87,11 +87,21 @@ export function indexCannibalizationByUrl(
       const others = [...new Set(c.competingUrls.filter((x) => canon(x.url) !== key).map((x) => pretty(x.url)))].slice(0, maxOthers);
       if (others.length === 0) continue;
       const isLead = key === leadKey;
-      const fix = isLead
-        ? `This is your best-ranking page for "${c.query}" — fold ${others.join(", ")} into it (redirect or internal-link) so they stop splitting its clicks.`
-        : `Point this page at "${leadPage}" (your best-ranking one for "${c.query}") with an internal link, or differentiate their intent so they stop competing.`;
-      // Paste-ready internal link the FOLLOWER adds, anchored on the shared topic.
-      const linkSnippet = isLead ? null : `<a href="${c.leadUrl}">${anchorCase(c.query)}</a>`;
+      // A homepage/root "lead" is a special case: a dedicated topic page should NOT
+      // defer to the homepage (that's backwards) — advise differentiation instead,
+      // and don't emit a link pointing a topic page at the root.
+      const leadIsHome = /^https?:\/\/[^/]+\/?$/.test(c.leadUrl);
+      let fix: string;
+      if (isLead) {
+        fix = `This is your best-ranking page for "${c.query}" — fold ${others.join(", ")} into it (redirect or internal-link) so they stop splitting its clicks.`;
+      } else if (leadIsHome) {
+        fix = `Your homepage is currently out-ranking this page for "${c.query}" — make this the clear, dedicated answer (stronger title/H1 + depth) so it becomes the canonical result, and link to it from the homepage.`;
+      } else {
+        fix = `Point this page at "${leadPage}" (your best-ranking one for "${c.query}") with an internal link, or differentiate their intent so they stop competing.`;
+      }
+      // Paste-ready internal link the FOLLOWER adds, anchored on the shared topic —
+      // only when the canonical is a real dedicated page (never point at the homepage).
+      const linkSnippet = isLead || leadIsHome ? null : `<a href="${c.leadUrl}">${anchorCase(c.query)}</a>`;
       const arr = out.get(key) ?? [];
       arr.push({ query: c.query, otherPages: others, isLead, leadPage, fix, linkSnippet });
       out.set(key, arr);
