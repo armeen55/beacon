@@ -53,6 +53,8 @@ export type TodayMove = {
   schema: string[];
   /** CTR Title Lab: scored, deterministic title variants for "capture clicks" Moves. */
   titleVariants: { title: string; score: number; signals: string[] }[];
+  /** Plain-language transparency for WHY this Move ranks where it does (the "one number"). */
+  rankWhy: string;
   score: number;
 };
 
@@ -125,6 +127,23 @@ function splitWhyProof(whyRaw: string): { why: string; proof: string } {
 function canon(url: string | null | undefined): string {
   if (!url) return "";
   return (canonicalizeCitationUrl(url) ?? url).toLowerCase();
+}
+
+/** Plain-language "why it ranks here" from the Rank-&-Revenue score components
+ *  (Demand × Winnability × $Value × Visibility-Gap − Friction) — transparency, no jargon. */
+function rankWhyFromComponents(
+  c: { demand: number; winnability: number; dollarValue: number; visibilityGap: number; friction: number } | undefined,
+): string {
+  if (!c) return "";
+  const bits: string[] = [];
+  if (c.demand >= 5000) bits.push("high demand");
+  else if (c.demand >= 1000) bits.push("real demand");
+  if (c.winnability >= 0.85) bits.push("very winnable");
+  else if (c.winnability >= 0.6) bits.push("winnable");
+  if (c.visibilityGap >= 0.7) bits.push("you're not cited yet");
+  if (c.dollarValue > 0) bits.push("money page");
+  if (c.friction >= 15) bits.push("frustrating to visitors");
+  return bits.slice(0, 3).join(" · ");
 }
 
 /** Fail-fast guard: the cockpit must NEVER hang on the heavy demand-graph compute
@@ -258,6 +277,7 @@ export const loadTodayMovesHeroData = cache(
         faqs: (packet?.draft?.faqQuestions ?? []).filter(Boolean).slice(0, 6),
         schema: (packet?.draft?.schemaRecommendations ?? []).filter(Boolean).slice(0, 6),
         titleVariants,
+        rankWhy: rankWhyFromComponents(packet?.move?.components),
         score: packet?.move?.score ?? 0,
       });
     }
