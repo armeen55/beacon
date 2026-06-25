@@ -18,6 +18,20 @@ import type { RecommendationCandidateRow, CandidateConfidence, CandidateImpactEs
 import type { DemandGraph, MoveCandidate, GapKind } from "./build-graph";
 import type { EvidencePacket } from "./evidence-packet";
 import { UNSUPPORTED_CLAIM_TOKENS } from "@/domains/recommendation-intelligence/safety-audit";
+import { expectedCtrForPosition } from "@/domains/recommendation-intelligence/page-surgeon/expected-ctr";
+
+/** Published CTR-gap upside (same method as the GSC predicates): clicks/90d
+ *  recoverable if CTR rises to the positional benchmark. Lets the engine's edit
+ *  Moves carry the impact signal so they rank FAIRLY in the queue (not buried
+ *  below the GSC predicates for lack of an upside number). Only when we have the
+ *  page's real GSC position + impressions. */
+function upsideClicks90d(gsc: EvidencePacket["yourPage"]["gsc"]): number | undefined {
+  if (!gsc || gsc.position == null || gsc.impressions <= 0) return undefined;
+  const gap = expectedCtrForPosition(gsc.position) - gsc.ctr;
+  if (gap <= 0) return undefined;
+  const clicks = Math.round(gap * gsc.impressions);
+  return clicks > 0 ? clicks : undefined;
+}
 
 /** Strip unsupported-claim tokens (best / #1 / leading / guaranteed …) from a
  *  query before it's echoed into customer_copy — the tenant's own GSC query can
@@ -128,6 +142,7 @@ export function demandGraphToCandidateRows(input: DemandGraphCandidateInput): Re
       evidence,
       confidence: move.confidence,
       impact_estimate: impactFromConfidence(move.confidence),
+      upside_clicks_90d: upsideClicks90d(packet?.yourPage.gsc ?? null),
       customer_copy: customerCopy(move.gap, query),
       operator_evidence: operatorEvidence,
       dedupe_key: sha1(`${tenantId}::${actionType}::${identityUrl}::${topicClusterLabel}`),

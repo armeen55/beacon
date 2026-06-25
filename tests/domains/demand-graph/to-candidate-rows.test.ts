@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { demandGraphToCandidateRows } from "@/domains/demand-graph/to-candidate-rows";
 import type { DemandGraph, MoveCandidate } from "@/domains/demand-graph/build-graph";
+import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 function move(p: Partial<MoveCandidate> & { gap: MoveCandidate["gap"] }): MoveCandidate {
   return {
@@ -93,6 +94,22 @@ describe("demandGraphToCandidateRows (engine → live pipeline bridge)", () => {
     const r = rows[0]!;
     expect(r.customer_copy.toLowerCase()).not.toMatch(/\bbest\b/); // claim token stripped
     expect(r.customer_copy).toContain("persian rugs"); // the real topic survives
+  });
+
+  it("computes upside_clicks_90d from the packet's GSC signal (fair queue ranking)", () => {
+    const m = move({ gap: "edit_page", demandKey: "k9", label: "cities in iran", ownedUrl: "https://x.com/cities" });
+    // pos 8, 2000 impressions, actual CTR 0.5% → real CTR-gap upside.
+    const packet = { move: { key: "k9" }, yourPage: { gsc: { clicks: 10, impressions: 2000, ctr: 0.005, position: 8 } } } as unknown as EvidencePacket;
+    const rows = demandGraphToCandidateRows({
+      tenantId: "t",
+      nowIso: NOW,
+      graph: graph([m]),
+      packetsByKey: new Map([["k9", packet]]),
+    });
+    expect(rows[0]!.upside_clicks_90d).toBeGreaterThan(0);
+    // no packet / no GSC → undefined (no fabricated number)
+    const noGsc = demandGraphToCandidateRows({ tenantId: "t", nowIso: NOW, graph: graph([move({ gap: "answer_block", demandKey: "k0" })]) });
+    expect(noGsc[0]!.upside_clicks_90d).toBeUndefined();
   });
 
   it("respects the limit (top-by-score)", () => {
