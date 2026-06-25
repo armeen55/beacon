@@ -184,6 +184,13 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       ) : null}
 
+      {m.also.length > 0 ? (
+        <p className="mt-3 text-xs text-gray-500">
+          <span className="font-semibold text-gray-400">While you&apos;re on this page, also:</span>{" "}
+          {m.also.join(" · ")}
+        </p>
+      ) : null}
+
       {m.proof ? (
         <p className="mt-3 flex items-start gap-1.5 text-xs text-gray-500">
           <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden />

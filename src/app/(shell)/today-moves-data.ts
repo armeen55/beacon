@@ -41,6 +41,8 @@ export type TodayMove = {
   whoCited: string | null;
   whatWins: string | null;
   looselyMatched: boolean;
+  /** Other engine actions queued on the SAME page (so a page is one card, not many). */
+  also: string[];
   outline: string[];
   answerBrief: string | null;
   /** Deterministic, grounded draft skeleton (NO LLM) — what the operator pastes. */
@@ -70,6 +72,17 @@ const ACTION_META: Record<
   fix_page_experience: { label: "Fix the experience", tone: "experience" },
   create_page: { label: "Build a new page", tone: "page" },
 };
+
+// Hero shows ONLY the engine's Rank-&-Revenue Moves (not every queue row like
+// schema fixes), collapsed to one card per page. Priority picks the primary
+// action when a page has several.
+const ACTION_PRIORITY: Record<string, number> = {
+  add_answer_block: 3,
+  edit_title: 2,
+  fix_page_experience: 1,
+  create_page: 0,
+};
+const CONF_RANK = { high: 3, medium: 2, low: 1 } as const;
 
 const PROOF_MARKERS = ["You'll know it worked", "Once it's live"];
 
@@ -129,44 +142,56 @@ export const loadTodayMovesHeroData = cache(
       if (u && !packetByUrl.has(u)) packetByUrl.set(u, p);
     }
 
-    const moves: TodayMove[] = [];
-    const seen = new Set<string>();
+    // Collect engine-action, live, not-actioned edits grouped by PAGE — so a page
+    // is ONE premium card (primary action + "also on this page"), never several
+    // near-duplicate cards. Non-engine queue rows (schema fixes etc.) are excluded;
+    // they live in the full queue, not the §7 ritual hero.
+    type Edit = (typeof edits)[number];
+    const byPage = new Map<string, Edit[]>();
     for (const e of edits) {
-      // Only live, not-yet-actioned queue items.
       const status = (e as { implementation_status?: string }).implementation_status;
       if (status && status !== "recommended") continue;
-      const targetUrl = e.target_url;
-      if (!targetUrl) continue;
-      const key = canon(targetUrl) + "::" + e.action_type;
-      if (seen.has(key)) continue;
-      const moveId =
-        (e as { rec_id?: string; id?: string }).rec_id ??
-        (e as { id?: string }).id ??
-        key;
-      if (actioned.has(moveId)) continue; // already shipped / dismissed / deferred
+      if (!e.target_url) continue;
+      if (!(e.action_type in ACTION_META)) continue;
+      const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? "";
+      if (moveId && actioned.has(moveId)) continue;
+      const pk = canon(e.target_url);
+      const arr = byPage.get(pk) ?? [];
+      arr.push(e);
+      byPage.set(pk, arr);
+    }
 
-      const packet = packetByUrl.get(canon(targetUrl));
-      // Hero = the engine's Rank-&-Revenue Moves: either action types the engine
-      // emits OR any queued edit we can enrich with a packet. Skip the rest so
-      // the hero stays the premium "moves" surface, not the full queue.
-      const isEngineAction = e.action_type in ACTION_META;
-      if (!packet && !isEngineAction) continue;
-      seen.add(key);
-
+    const moves: TodayMove[] = [];
+    for (const [pk, pageEdits] of byPage) {
+      pageEdits.sort(
+        (a, b) =>
+          (ACTION_PRIORITY[b.action_type] ?? 0) - (ACTION_PRIORITY[a.action_type] ?? 0) ||
+          CONF_RANK[(b.confidence as "high" | "medium" | "low") ?? "low"] -
+            CONF_RANK[(a.confidence as "high" | "medium" | "low") ?? "low"],
+      );
+      const e = pageEdits[0]!;
+      const targetUrl = e.target_url!;
+      const packet = packetByUrl.get(pk);
       const meta = ACTION_META[e.action_type] ?? { label: "Make this move", tone: "page" as const };
+      const also = [
+        ...new Set(
+          pageEdits
+            .slice(1)
+            .map((x) => ACTION_META[x.action_type]?.label)
+            .filter((l): l is string => Boolean(l) && l !== meta.label),
+        ),
+      ];
       const { why, proof } = splitWhyProof(e.why ?? "");
       const looselyMatched = packet?.competitor?.looselyMatched ?? false;
       const wwRaw = packet?.competitor?.whatWins?.trim() ?? "";
       const whatWins = wwRaw && wwRaw !== "—" && !looselyMatched ? wwRaw : null;
       const whoCited =
-        packet?.competitor?.domain &&
-        packet.competitor.fetchStatus === "ok" &&
-        !looselyMatched
+        packet?.competitor?.domain && packet.competitor.fetchStatus === "ok" && !looselyMatched
           ? packet.competitor.domain
           : null;
 
       moves.push({
-        id: (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? key,
+        id: (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk,
         action: e.action_type,
         actionLabel: meta.label,
         actionTone: meta.tone,
@@ -181,6 +206,7 @@ export const loadTodayMovesHeroData = cache(
         whoCited,
         whatWins,
         looselyMatched,
+        also,
         outline: (packet?.draft?.outline ?? []).filter(Boolean).slice(0, 5),
         answerBrief: packet?.draft?.answerBlockBrief?.trim() || null,
         draftTitle: packet?.draft?.titleSuggestion?.trim() || null,
@@ -192,11 +218,10 @@ export const loadTodayMovesHeroData = cache(
     }
 
     // Rank: engine score desc, then confidence, then demand.
-    const confRank = { high: 3, medium: 2, low: 1 } as const;
     moves.sort(
       (a, b) =>
         b.score - a.score ||
-        confRank[b.confidence] - confRank[a.confidence] ||
+        CONF_RANK[b.confidence] - CONF_RANK[a.confidence] ||
         (b.demand ?? 0) - (a.demand ?? 0),
     );
     const top = moves.slice(0, 6);
