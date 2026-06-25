@@ -14,7 +14,7 @@ import { respondToRecommendation } from "./recommendation-actions";
 export function BulkShipBar({
   moves,
 }: {
-  moves: { id: string; targetUrl: string; query: string }[];
+  moves: { id: string; targetUrl: string; query: string; action: string }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -27,7 +27,7 @@ export function BulkShipBar({
     startTransition(async () => {
       const results = await Promise.allSettled(
         top.map((m) =>
-          respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl }),
+          respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl, actionType: m.action, query: m.query }),
         ),
       );
       setDone(results.filter((r) => r.status === "fulfilled").length);

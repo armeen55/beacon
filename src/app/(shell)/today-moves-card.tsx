@@ -172,7 +172,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
     setState("shipped"); // optimistic
     startTransition(async () => {
       try {
-        await respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl });
+        await respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl, actionType: m.action, query: m.query });
       } catch {
         setState("idle"); // revert on failure
       }

@@ -104,7 +104,7 @@ export async function TodayMovesHeroSection() {
         </div>
       ) : null}
 
-      <BulkShipBar moves={moves.map((m) => ({ id: m.id, targetUrl: m.targetUrl, query: m.query }))} />
+      <BulkShipBar moves={moves.map((m) => ({ id: m.id, targetUrl: m.targetUrl, query: m.query, action: m.action }))} />
 
       <div className="mt-5 grid gap-3">
         {moves.map((m, i) => (
