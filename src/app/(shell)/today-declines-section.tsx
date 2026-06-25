@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { loadTodayMovesHeroData } from "./today-moves-data";
+import { buildRecoveryRows, recoveryClicksLost } from "./today-declines-rows";
 
 /**
  * today-declines-section (2026-06-25) — "Recover lost ground": a focused panel of
@@ -23,25 +24,9 @@ export async function TodayDeclinesSection() {
   }
 
   // Flatten declines across the worklist into one ranked recovery list.
-  const rows = data.moves
-    .flatMap((m) =>
-      m.declines.map((d) => ({
-        moveId: m.id,
-        page: m.pageLabel,
-        targetUrl: m.targetUrl,
-        query: d.query,
-        dropPct: d.dropPct,
-        priorClicks: d.priorClicks,
-        recentClicks: d.recentClicks,
-        positionSlip: d.positionSlip,
-      })),
-    )
-    .sort((a, b) => b.priorClicks - a.priorClicks)
-    .slice(0, 8);
-
+  const rows = buildRecoveryRows(data.moves);
   if (rows.length === 0) return null;
-
-  const clicksLost = rows.reduce((s, r) => s + Math.max(0, r.priorClicks - r.recentClicks), 0);
+  const clicksLost = recoveryClicksLost(rows);
 
   return (
     <section className="rounded-3xl border border-rose-200/70 bg-gradient-to-br from-rose-50/50 via-white to-amber-50/30 p-6 shadow-sm">
