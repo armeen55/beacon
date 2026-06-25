@@ -71,6 +71,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-tools", label: "Tools" },
   { id: "sec-newpages", label: "New pages" },
   { id: "sec-opportunities-radar", label: "New opportunities" },
+  { id: "sec-implement", label: "Implement" },
   { id: "sec-entity", label: "Entity" },
 ];
 import { TodayMovesHeroSection } from "./today-moves-hero";
@@ -94,6 +95,7 @@ import { TodayEntityFoundationSection } from "./today-entity-foundation-section"
 import { TodayToolsSection } from "./today-tools-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { TodayOpportunitiesSection } from "./today-opportunities-section";
+import { ExecutionSection } from "./execution-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -435,6 +437,14 @@ async function TodayV2SectionedContent() {
       <div id="sec-opportunities-radar" className="scroll-mt-24">
         <Suspense fallback={null}>
           <TodayOpportunitiesSection />
+        </Suspense>
+      </div>
+      {/* Operator Execution Layer (2026-06-25, Sprint 5) — exact what/where/paste
+          + confirmation-gated mark-applied → measurement. READ-ONLY; no publish.
+          Own Suspense / self-hides when empty + no operator. */}
+      <div id="sec-implement" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <ExecutionSection />
         </Suspense>
       </div>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
