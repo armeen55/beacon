@@ -1,60 +1,14 @@
 import Link from "next/link";
-import { loadNewPagesData, type NewPageOpportunity } from "./today-newpages-data";
+import { loadNewPagesData } from "./today-newpages-data";
+import { NewPageCard } from "./today-newpages-card";
 
 /**
  * today-newpages-section (2026-06-24) — the "New Pages to Build" board: the
  * create_page half of the Rank-&-Revenue engine. Topics competitors own that the
- * tenant has no page for — the biggest growth lever — surfaced as a premium board.
+ * tenant has no page for — the biggest growth lever — surfaced as a premium board,
+ * each card with the competitor teardown + an on-demand "✨ Draft the opening".
  * Read-only, tenant-agnostic; self-hides when there are none.
  */
-
-const TIER: Record<NewPageOpportunity["tier"], { label: string; cls: string }> = {
-  hot: { label: "Hot", cls: "bg-rose-50 text-rose-600 ring-rose-200" },
-  warm: { label: "Warm", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
-  emerging: { label: "Emerging", cls: "bg-gray-100 text-gray-500 ring-gray-200" },
-};
-
-function OppCard({ o }: { o: NewPageOpportunity }) {
-  const tier = TIER[o.tier];
-  return (
-    <div className="group flex flex-col justify-between rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
-      <div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
-            New page
-          </span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${tier.cls}`}>{tier.label}</span>
-        </div>
-        <h3 className="mt-2.5 text-[15px] font-semibold leading-snug tracking-tight text-gray-900">{o.topic}</h3>
-        <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
-          {o.competitorCount > 0 ? (
-            <>
-              <span className="font-medium text-gray-700">{o.competitorCount}</span> competitor page
-              {o.competitorCount === 1 ? "" : "s"} get cited for this — you have no page yet.
-            </>
-          ) : (
-            <>There&apos;s demand for this and none of your pages covers it yet.</>
-          )}
-        </p>
-        {o.topCompetitor ? (
-          <p className="mt-1 text-[11px] text-gray-400">e.g. {o.topCompetitor}</p>
-        ) : null}
-        {o.whatWins ? (
-          <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
-            <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">What the cited page has</div>
-            <div className="mt-0.5 text-[11px] leading-snug text-gray-600">{o.whatWins}</div>
-          </div>
-        ) : null}
-      </div>
-      <Link
-        href="/pages"
-        className="mt-3 inline-flex items-center gap-1 self-start rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
-      >
-        Plan this page →
-      </Link>
-    </div>
-  );
-}
 
 export async function TodayNewPagesSection() {
   let data;
@@ -87,7 +41,7 @@ export async function TodayNewPagesSection() {
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {data.opportunities.map((o) => (
-          <OppCard key={o.id} o={o} />
+          <NewPageCard key={o.id} o={o} />
         ))}
       </div>
     </section>
