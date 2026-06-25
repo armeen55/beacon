@@ -82,7 +82,7 @@ export function CockpitCustomize({ targets }: { targets: { id: string; label: st
   const hiddenCount = hidden.size;
 
   return (
-    <div className="relative">
+    <div className="relative print:hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

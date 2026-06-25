@@ -47,6 +47,11 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
         hint: "Action",
         go: () => window.dispatchEvent(new CustomEvent("beacon:open-customize")),
       },
+      {
+        label: "Save as PDF report — share with your team",
+        hint: "Action",
+        go: () => window.print(),
+      },
       { label: "Back to top", hint: "Action", go: () => window.scrollTo({ top: 0, behavior: "smooth" }) },
     ];
     return [...sectionEntries, ...routeEntries];
@@ -102,7 +107,7 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Open command palette"
-        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-2 text-[12px] font-medium text-muted-foreground shadow-lg backdrop-blur transition-colors hover:text-foreground"
+        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-2 text-[12px] font-medium text-muted-foreground shadow-lg backdrop-blur transition-colors hover:text-foreground print:hidden"
       >
         <span aria-hidden>⌘K</span>
         <span className="hidden sm:inline">Jump to…</span>
