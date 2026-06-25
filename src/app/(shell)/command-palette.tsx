@@ -20,6 +20,9 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  // Section ids that actually rendered content (anchors self-hide when empty);
+  // recomputed each open so the palette never offers a dead jump.
+  const [liveIds, setLiveIds] = useState<Set<string> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const entries = useMemo<Entry[]>(() => {
@@ -27,11 +30,13 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     };
-    const sectionEntries: Entry[] = targets.map((t) => ({
-      label: t.label,
-      hint: "Section",
-      go: scrollTo(t.id),
-    }));
+    const sectionEntries: Entry[] = targets
+      .filter((t) => !liveIds || liveIds.has(t.id))
+      .map((t) => ({
+        label: t.label,
+        hint: "Section",
+        go: scrollTo(t.id),
+      }));
     const routeEntries: Entry[] = [
       { label: "Proof — what your changes did", hint: "Page", go: () => router.push("/proof") },
       { label: "Competitors — who AI recommends", hint: "Page", go: () => router.push("/competitors") },
@@ -62,16 +67,23 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Focus + reset on open.
+  // Focus + reset on open; recompute which section anchors actually rendered
+  // content (self-hiding sections leave an empty wrapper) so dead jumps are hidden.
   useEffect(() => {
     if (open) {
       setQuery("");
       setActive(0);
+      const live = new Set<string>();
+      for (const t of targets) {
+        const el = document.getElementById(t.id);
+        if (el && el.childElementCount > 0) live.add(t.id);
+      }
+      setLiveIds(live);
       const t = setTimeout(() => inputRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
     return undefined;
-  }, [open]);
+  }, [open, targets]);
 
   useEffect(() => {
     setActive(0);
