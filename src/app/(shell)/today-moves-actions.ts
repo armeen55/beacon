@@ -3,8 +3,11 @@
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import {
   draftAnswerBlockWithLLM,
+  draftFaqSchemaWithLLM,
   type AnswerBlockDraftInput,
   type AnswerBlockDraftResult,
+  type FaqDraftInput,
+  type FaqDraftResult,
 } from "@/domains/demand-graph/llm-answer-block";
 
 /**
@@ -19,4 +22,11 @@ export async function draftMoveAnswerBlockAction(
 ): Promise<AnswerBlockDraftResult> {
   if (!(await isOperatorModeServer())) return { status: "off" };
   return draftAnswerBlockWithLLM(input);
+}
+
+/** On-demand FAQPage JSON-LD draft (LLM answers the grounded fanout questions →
+ *  valid schema). Same gating/budget/firewall as the answer-block drafter. */
+export async function draftMoveFaqAction(input: FaqDraftInput): Promise<FaqDraftResult> {
+  if (!(await isOperatorModeServer())) return { status: "off" };
+  return draftFaqSchemaWithLLM(input);
 }

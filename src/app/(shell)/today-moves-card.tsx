@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { respondToRecommendation } from "./recommendation-actions";
-import { draftMoveAnswerBlockAction } from "./today-moves-actions";
+import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-actions";
 import type { TodayMove } from "./today-moves-data";
 
 /**
@@ -115,6 +115,33 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
     navigator.clipboard?.writeText(aiText).then(() => {
       setAiCopied(true);
       setTimeout(() => setAiCopied(false), 1800);
+    }).catch(() => {});
+  };
+
+  // On-demand FAQPage JSON-LD (LLM answers the grounded fanout questions).
+  const [faqStatus, setFaqStatus] = useState<
+    "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
+  >("idle");
+  const [faqJsonLd, setFaqJsonLd] = useState("");
+  const [faqCopied, setFaqCopied] = useState(false);
+  const faqGenerate = () => {
+    setFaqStatus("pending");
+    startTransition(async () => {
+      try {
+        const r = await draftMoveFaqAction({ query: m.query, pageLabel: m.pageLabel, faqs: m.faqs });
+        if (r.status === "ok") {
+          setFaqJsonLd(r.jsonLd);
+          setFaqStatus("ok");
+        } else setFaqStatus(r.status === "blocked_budget" ? "blocked" : r.status === "off" ? "off" : r.status === "rejected" ? "rejected" : "error");
+      } catch {
+        setFaqStatus("error");
+      }
+    });
+  };
+  const copyFaq = () => {
+    navigator.clipboard?.writeText(faqJsonLd).then(() => {
+      setFaqCopied(true);
+      setTimeout(() => setFaqCopied(false), 1800);
     }).catch(() => {});
   };
 
@@ -367,6 +394,39 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                   ) : null}
                 </div>
               )}
+
+              {m.faqs.length > 0 ? (
+                <div className="mt-3">
+                  {faqStatus === "ok" ? (
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-500">✨ FAQ schema (JSON-LD)</span>
+                        <button onClick={copyFaq} className="rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-violet-500">
+                          {faqCopied ? "Copied ✓" : "Copy JSON-LD"}
+                        </button>
+                      </div>
+                      <pre className="max-h-44 overflow-auto rounded-lg bg-gray-900 p-2.5 text-[10px] leading-relaxed text-gray-100">{faqJsonLd}</pre>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={faqGenerate}
+                        disabled={pending || faqStatus === "pending"}
+                        className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60"
+                      >
+                        {faqStatus === "pending" ? "Generating…" : "✨ Generate FAQ schema"}
+                      </button>
+                      {faqStatus === "off" ? (
+                        <span className="text-[11px] text-gray-400">AI drafting is off.</span>
+                      ) : faqStatus === "blocked" ? (
+                        <span className="text-[11px] text-amber-600">Monthly AI budget reached.</span>
+                      ) : faqStatus === "rejected" || faqStatus === "error" ? (
+                        <span className="text-[11px] text-gray-400">Couldn&apos;t generate — try later.</span>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
