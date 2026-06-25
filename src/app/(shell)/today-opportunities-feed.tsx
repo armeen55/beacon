@@ -7,7 +7,10 @@ import {
   loadTopPagesWithQueriesForTenant,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildToolOpportunities } from "@/domains/demand-graph/tool-intent";
+import { loadGscCannibalizationForTenant } from "@/domains/recommendation-intelligence/gsc-cannibalization";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildCtrGapRows } from "./today-ctrgap-rows";
+import { buildCannibalizationCaseRows } from "./today-declines-rows";
 import { buildNewPagesData } from "./today-newpages-data";
 import { clicksAtStakeForStriking, estimatedCtr } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
@@ -37,6 +40,7 @@ const KIND_LABEL: Record<FeedKind, string> = {
   build: "Build",
   edit: "Improve",
   snippet: "Snippet",
+  consolidate: "Consolidate",
 };
 const KIND_STYLE: Record<FeedKind, string> = {
   recover: "bg-rose-100 text-rose-700",
@@ -45,6 +49,7 @@ const KIND_STYLE: Record<FeedKind, string> = {
   build: "bg-emerald-100 text-emerald-700",
   edit: "bg-sky-100 text-sky-700",
   snippet: "bg-orange-100 text-orange-700",
+  consolidate: "bg-purple-100 text-purple-700",
 };
 
 function fmtNum(n: number): string {
@@ -113,7 +118,7 @@ export async function TodayOpportunitiesFeed() {
   let siteName = "";
   try {
     const tenantId = await currentTenantId();
-    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries] = await Promise.all([
+    const [declines, striking, hero, cfg, toolQueries, newPages, pagesWithQueries, cannibalCases] = await Promise.all([
       loadTopDecliningPagesForTenant(tenantId).catch(() => []),
       loadTopStrikingPagesForTenant(tenantId).catch(() => []),
       loadTodayMovesHeroData({ limit: 20 }).catch(() => null),
@@ -121,6 +126,7 @@ export async function TodayOpportunitiesFeed() {
       loadToolIntentQueries(tenantId).catch(() => []),
       buildNewPagesData(tenantId).catch(() => ({ opportunities: [], totalCandidates: 0 })),
       loadTopPagesWithQueriesForTenant(tenantId).catch(() => []),
+      loadGscCannibalizationForTenant(tenantId).catch(() => []),
     ]);
     siteName = cfg?.name ?? "";
     const moveExtra = (hero?.moves ?? [])
@@ -136,7 +142,21 @@ export async function TodayOpportunitiesFeed() {
       detail: `ranks pos ${r.position.toFixed(1)} but only ${(r.actualCtr * 100).toFixed(1)}% CTR (vs ~${(r.expectedCtr * 100).toFixed(0)}% expected) — fix the title/snippet`,
       route: workbenchHref(r.page),
     }));
-    const extra = [...moveExtra, ...ctrGapExtra];
+    // Cannibalization (consolidate) — split clicks are clicks at stake too.
+    const canonFn = (u: string) => canonicalizeCitationUrl(u) ?? u;
+    const prettyFn = (u: string) => {
+      const s = u.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
+      return s.split("/").filter(Boolean).pop() || u;
+    };
+    const consolidateExtra: OpportunityItem[] = buildCannibalizationCaseRows(cannibalCases, canonFn, prettyFn).map((r) => ({
+      kind: "consolidate",
+      query: r.query,
+      page: r.leadPage,
+      clicksAtStake: r.clicksAtStake,
+      detail: `${r.others.length + 1} of your pages split this query's clicks — consolidate to "${r.leadPage}"`,
+      route: "#sec-cannibal",
+    }));
+    const extra = [...moveExtra, ...ctrGapExtra, ...consolidateExtra];
     const result = buildOpportunityFeedWithTotals(declines, striking, clicksAtStakeForStriking, { extra });
     items = result.items;
     allItems = result.all;
