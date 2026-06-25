@@ -260,6 +260,13 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       </div>
 
+      {m.ga4 ? (
+        <p className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100">
+          {m.ga4.sessions.toLocaleString()} visits / 28d
+          {m.ga4.conversions > 0 ? ` · ${m.ga4.conversions.toLocaleString()} conversions` : ""} (GA4)
+        </p>
+      ) : null}
+
       {m.topQueries.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-500">Ranks for</span>
