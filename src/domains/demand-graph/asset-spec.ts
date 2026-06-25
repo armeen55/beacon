@@ -60,7 +60,11 @@ const KIND_LABEL: Record<AssetKind, string> = {
 };
 
 function titleCase(s: string): string {
-  return s.split(/\s+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return s
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export function buildAssetSpec(

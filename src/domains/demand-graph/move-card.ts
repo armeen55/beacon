@@ -82,12 +82,18 @@ export function formatMoveCard(packet: EvidencePacket): MoveCard {
     return `${bits.join(" ")}.`;
   })();
 
-  const whatWins =
-    competitor.looselyMatched || !competitor.facts
-      ? competitor.domain
-        ? `We haven't confirmed the exact page that wins yet (the AI citation looked off-topic) — confirm with live search.`
-        : `No single strong competitor found yet — you can own this.`
-      : competitor.whatWins;
+  const whatWins = (() => {
+    // On-topic page with a real teardown → the grounded summary.
+    if (competitor.facts && !competitor.looselyMatched) return competitor.whatWins;
+    // No competitor at all → you can own it.
+    if (!competitor.domain) return `No single strong competitor found yet — you can own this.`;
+    // Off-topic citation (we DID read the page, it just doesn't fit the query).
+    if (competitor.looselyMatched) {
+      return `We haven't confirmed the exact page that wins yet — the AI citation looked off-topic for this query. Confirm with live search.`;
+    }
+    // Domain cited but the page couldn't be read (blocked/error) — NOT off-topic.
+    return `${competitor.domain} is cited here, but we couldn't read its page yet — confirm with live search.`;
+  })();
 
   return {
     move: `${ACTION[move.gapType] ?? "Update"}: ${subject}`,

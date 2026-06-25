@@ -35,6 +35,15 @@ describe("formatMoveCard (Step 7 bridge, plain language)", () => {
     expect(c.whatWins.toLowerCase()).toContain("confirm");
   });
 
+  it("unfetched competitor (facts null, not off-topic) → says 'couldn't read', NOT 'off-topic'", () => {
+    const c = formatMoveCard(packet({
+      competitor: { topUrl: "https://britannica.com/x", domain: "britannica.com", fetchStatus: "http_error", facts: null, whatWins: "—", relevance: 0, looselyMatched: false, otherUrls: [] },
+    }));
+    expect(c.whatWins).toContain("britannica.com");
+    expect(c.whatWins.toLowerCase()).toContain("couldn't read");
+    expect(c.whatWins.toLowerCase()).not.toContain("off-topic");
+  });
+
   it("no jargon: known SEO terms are translated", () => {
     const c = formatMoveCard(packet({
       move: { key: "k", gapType: "edit_page", label: "cities in iran", confidence: "high", score: 1, components: { demand: 1, winnability: 0.5, dollarValue: 2, visibilityGap: 0.3, friction: 0 }, signals: ["GSC"] },

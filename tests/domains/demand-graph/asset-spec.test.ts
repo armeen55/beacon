@@ -28,4 +28,10 @@ describe("asset-spec (Step 5, deterministic, no LLM)", () => {
     expect(a.briefForLLM).toContain("adu cost");
     expect(buildAssetSpec("adu cost", "Ritz Builders")).toEqual(buildAssetSpec("adu cost", "Ritz Builders"));
   });
+
+  it("title-cases all-caps / mixed-case queries (no FARSI shouting)", () => {
+    const a = buildAssetSpec("FARSI NAME generator", "Iranopedia");
+    expect(a.title).toContain("Farsi Name Generator");
+    expect(a.title).not.toContain("FARSI");
+  });
 });
