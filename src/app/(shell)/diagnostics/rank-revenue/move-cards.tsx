@@ -79,7 +79,7 @@ export function MoveCardList({ cards }: { cards: MoveCard[] }) {
           <div className="mt-3 flex items-center gap-2">
             <span className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white">{c.ship}</span>
             {c.draftReady ? (
-              <span className="text-[11px] text-green-700">✓ draft ready</span>
+              <span className="text-[11px] text-green-700" title="A grounded outline + answer-block brief is ready — not paste-ready copy yet (LLM drafting is gated).">✓ outline ready</span>
             ) : (
               <span className="text-[11px] text-gray-400">plan first</span>
             )}

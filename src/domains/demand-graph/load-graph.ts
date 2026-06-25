@@ -98,6 +98,35 @@ function prettyLabel(url: string): string {
   return slug.replace(/[-_]+/g, " ").trim() || "home";
 }
 
+// ── create-page hygiene (generic, NOT vertical/tenant-specific) ──
+// Marketplace / UGC / social platforms: you can't "out-build" them and a brand's
+// own listing there isn't a content gap. Matched by domain label so subdomains/
+// cctlds are caught (ru.pinterest.com, etsy.com.bh).
+const PLATFORM_NOISE_HOSTS = new Set([
+  "etsy", "pinterest", "reddit", "facebook", "quora", "tripadvisor",
+  "amazon", "instagram", "youtube", "tiktok", "ebay",
+]);
+export function isPlatformNoiseHost(host: string): boolean {
+  return host.toLowerCase().split(".").some((l) => PLATFORM_NOISE_HOSTS.has(l));
+}
+// URL-path fragments that aren't real content topics (CMS prefixes, geo/id slugs).
+const CMS_PATH_FIRST = new Set([
+  "shop", "product", "products", "category", "categories", "collection",
+  "collections", "blog", "blogs", "news", "tag", "tags", "page", "pages",
+  "market", "author", "profile", "user", "cart", "account",
+]);
+export function isJunkTopicLabel(label: string): boolean {
+  const l = label.trim().toLowerCase();
+  if (!l) return true;
+  const tokens = l.split(/\s+/).filter(Boolean);
+  if (CMS_PATH_FIRST.has(tokens[0] ?? "")) return true;
+  if (l.startsWith("research starters")) return true; // EBSCO-style slug
+  // geo/id slug e.g. g293998 (letter-prefixed) or a long pure-digit id — but NOT
+  // a 4-digit year (2026/1998 are legit topic tokens).
+  if (tokens.some((t) => /^[a-z]{1,2}\d{3,}$/.test(t) || /^\d{5,}$/.test(t))) return true;
+  return false;
+}
+
 export async function loadDemandGraphForTenant(
   tenantId: string,
   now: Date = new Date(),
@@ -129,6 +158,9 @@ export async function loadDemandGraphForTenant(
     }
   }
   const ownedDomain = [...hostCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  // Brand token (first label of the owned domain) — used to drop "the tenant's
+  // own brand on a third-party platform" create-page noise (e.g. etsy.com/shop/Iranopedia).
+  const brandToken = (ownedDomain.split(".")[0] ?? "").toLowerCase();
 
   const emptyComp: CompetitorCitationsResult = {
     competitors: [],
@@ -220,6 +252,10 @@ export async function loadDemandGraphForTenant(
       competitorEdges += 1;
     } else if (
       !c.isAggregator &&
+      !isPlatformNoiseHost(c.domain) && // drop etsy/pinterest/reddit/tripadvisor/… marketplace+UGC
+      !isJunkTopicLabel(c.label) && // drop URL-path fragments + geo/id slugs (g293998, "product …")
+      // drop the tenant's own brand on a third-party platform (etsy.com/shop/Iranopedia)
+      !(brandToken.length >= 4 && c.label.toLowerCase().includes(brandToken) && !c.domain.toLowerCase().includes(brandToken)) &&
       c.topicTokens.length >= 2 &&
       c.topicTokens.some((t) => tenantVocab.has(t)) // on-topic for this tenant
     ) {
