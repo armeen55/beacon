@@ -1,6 +1,17 @@
 import Link from "next/link";
+import { currentTenantId } from "@/lib/tenant-context";
+import { loadTopDecliningPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadTodayMovesHeroData } from "./today-moves-data";
-import { buildRecoveryRows, recoveryClicksLost } from "./today-declines-rows";
+import { buildRecoveryRows, recoveryClicksLost, type RecoveryRow } from "./today-declines-rows";
+
+function slugOf(url: string): string {
+  const s = url.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
+  const last = s.split("/").filter(Boolean).pop() ?? url;
+  return last.replace(/[-_]+/g, " ").trim() || url;
+}
+function normUrl(url: string): string {
+  return url.split("?")[0]!.split("#")[0]!.replace(/\/$/, "").toLowerCase();
+}
 
 /**
  * today-declines-section (2026-06-25) — "Recover lost ground": a focused panel of
@@ -17,14 +28,37 @@ function fmtNum(n: number): string {
 
 export async function TodayDeclinesSection() {
   let data;
+  let sitewide: Awaited<ReturnType<typeof loadTopDecliningPagesForTenant>> = [];
   try {
-    data = await loadTodayMovesHeroData({ limit: 20 });
+    const tenantId = await currentTenantId();
+    [data, sitewide] = await Promise.all([
+      loadTodayMovesHeroData({ limit: 20 }),
+      loadTopDecliningPagesForTenant(tenantId).catch(() => []),
+    ]);
   } catch {
     return null;
   }
 
-  // Flatten declines across the worklist into one ranked recovery list.
-  const rows = buildRecoveryRows(data.moves);
+  // Worklist declines first (they carry a move to act on), then ADD site-wide
+  // declining pages the demand graph never queued (deduped by URL) — so a page
+  // bleeding clicks surfaces here even without a competitor gap.
+  const worklistRows = buildRecoveryRows(data.moves);
+  const seen = new Set(worklistRows.map((r) => normUrl(r.targetUrl)));
+  const extraRows: RecoveryRow[] = sitewide
+    .filter((dp) => !seen.has(normUrl(dp.page)))
+    .map((dp) => ({
+      moveId: "",
+      page: slugOf(dp.page),
+      targetUrl: dp.page,
+      query: dp.topDecline.query,
+      dropPct: dp.topDecline.dropPct,
+      priorClicks: dp.topDecline.priorClicks,
+      recentClicks: dp.topDecline.recentClicks,
+      positionSlip: dp.topDecline.positionSlip,
+    }));
+  const rows = [...worklistRows, ...extraRows]
+    .sort((a, b) => b.priorClicks - a.priorClicks)
+    .slice(0, 10);
   if (rows.length === 0) return null;
   const clicksLost = recoveryClicksLost(rows);
 

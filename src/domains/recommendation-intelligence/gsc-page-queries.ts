@@ -132,6 +132,52 @@ async function readWindow(
   return byPage;
 }
 
+export type DecliningPage = { page: string; topDecline: QueryDecline };
+
+/**
+ * Site-wide declining pages (not just the worklist): pull the tenant's TOP pages
+ * by impressions via the server-aggregated `gsc_page_totals_v1` RPC (no client
+ * truncation), then run the bounded two-window decline scan on just those. So a
+ * page actively losing clicks surfaces even when the demand graph never queued it.
+ * Bounded (top N pages) + fail-soft → []. Returns each page's worst decline.
+ */
+export async function loadTopDecliningPagesForTenant(
+  tenantId: string,
+  opts: { topPages?: number; windowDays?: number } = {},
+): Promise<DecliningPage[]> {
+  if (!tenantId) return [];
+  const topN = Math.max(1, Math.min(opts.topPages ?? 25, 25));
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso((opts.windowDays ?? WINDOW_DAYS) * 2);
+    const { data, error } = await sb
+      .rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: since })
+      .order("impressions", { ascending: false })
+      .limit(topN);
+    if (error || !data) {
+      if (error) log.warn("[gsc-page-queries] top-pages rpc failed", { tenantId, error: error.message });
+      return [];
+    }
+    const pages = (data as Array<{ page?: string }>).map((r) => r.page).filter((p): p is string => Boolean(p));
+    if (pages.length === 0) return [];
+    const declineMap = await loadQueryDeclinesForPages(tenantId, pages, { windowDays: opts.windowDays });
+    const out: DecliningPage[] = [];
+    for (const [page, declines] of declineMap) {
+      const worst = declines[0];
+      if (worst) out.push({ page, topDecline: worst });
+    }
+    // Biggest prior-clicks loss first.
+    out.sort((a, b) => b.topDecline.priorClicks - a.topDecline.priorClicks);
+    return out;
+  } catch (e) {
+    log.warn("[gsc-page-queries] top-declining threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
+
 /**
  * Per-page DECLINING queries — recent 28d vs the prior 28d, via TWO separate
  * bounded windowed reads (each its own capped `page IN (...)` read) so truncation
