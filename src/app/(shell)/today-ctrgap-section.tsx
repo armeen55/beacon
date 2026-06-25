@@ -2,7 +2,17 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadTopPagesWithQueriesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { estimatedCtr } from "@/domains/recommendation-intelligence/ctr-curve";
 import { workbenchHref } from "@/domains/insight/workbench-route";
+import { bestTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import { buildCtrGapRows, ctrGapClicksLeft } from "./today-ctrgap-rows";
+
+function brandFromUrl(url: string): string {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    return (h.split(".")[0] ?? h).replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return "";
+  }
+}
 
 /**
  * today-ctrgap-section (2026-06-25) — "Seen but not clicked": pages that already
@@ -57,24 +67,30 @@ export async function TodayCtrGapSection() {
       </div>
 
       <ul className="mt-5 space-y-1.5">
-        {rows.map((r, i) => (
-          <li
-            key={i}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-orange-100 bg-white/70 px-3 py-2 text-sm"
-          >
-            <div className="min-w-0">
-              <span className="font-medium text-gray-900">{r.query}</span>
-              <span className="ml-2 text-xs text-gray-400">on {slugOf(r.page)}</span>
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-orange-600">position {r.position.toFixed(1)}</span>
-              <span className="text-gray-500">{pct(r.actualCtr)} CTR vs ~{pct(r.expectedCtr)} expected</span>
-              <a href={workbenchHref(r.page)} className="font-semibold text-violet-600 hover:text-violet-800">
-                Fix snippet →
-              </a>
-            </div>
-          </li>
-        ))}
+        {rows.map((r, i) => {
+          const suggestedTitle = bestTitle(r.query, brandFromUrl(r.page));
+          return (
+            <li key={i} className="rounded-xl border border-orange-100 bg-white/70 px-3 py-2 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="font-medium text-gray-900">{r.query}</span>
+                  <span className="ml-2 text-xs text-gray-400">on {slugOf(r.page)}</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="font-semibold text-orange-600">position {r.position.toFixed(1)}</span>
+                  <span className="text-gray-500">{pct(r.actualCtr)} CTR vs ~{pct(r.expectedCtr)} expected</span>
+                  <a href={workbenchHref(r.page)} className="font-semibold text-violet-600 hover:text-violet-800">
+                    Fix snippet →
+                  </a>
+                </div>
+              </div>
+              {/* The artifact: a sharper CTR-scored title to win the clicks the rank already earns. */}
+              <div className="mt-1.5 text-xs text-gray-500">
+                Try this title: <code className="rounded bg-orange-50 px-1.5 py-0.5 font-medium text-orange-800">{suggestedTitle}</code>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
