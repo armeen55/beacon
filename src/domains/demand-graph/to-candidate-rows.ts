@@ -17,6 +17,7 @@ import type { ActionType } from "@/domains/recommendations/action-types";
 import type { RecommendationCandidateRow, CandidateConfidence, CandidateImpactEstimate } from "@/domains/recommendation-intelligence/emitter/candidate-row";
 import type { DemandGraph, MoveCandidate, GapKind } from "./build-graph";
 import type { EvidencePacket } from "./evidence-packet";
+import { groupMovesByOwnedPage, secondaryGapPhrase } from "./group-moves";
 import { UNSUPPORTED_CLAIM_TOKENS } from "@/domains/recommendation-intelligence/safety-audit";
 import { expectedCtrForPosition } from "@/domains/recommendation-intelligence/page-surgeon/expected-ctr";
 
@@ -106,12 +107,16 @@ export function demandGraphToCandidateRows(input: DemandGraphCandidateInput): Re
   // So in practice this source surfaces the EDIT Moves (answer_block / edit /
   // fix, which target existing pages); create_page Moves are surfaced on the
   // engine diagnostic + are wired to the factory as a separate step.
-  const selected = actionable.slice(0, limit);
+  // Collapse Moves that target the SAME owned page → one primary + secondary
+  // reasons, so a page never enters the queue twice (e.g. answer_block AND
+  // fix_experience for /iran-flag). create_page (no URL) stays standalone.
+  const groups = groupMovesByOwnedPage(actionable).slice(0, limit);
   const out: RecommendationCandidateRow[] = [];
 
-  for (const move of selected) {
+  for (const { primary: move, secondary } of groups) {
     const actionType = GAP_TO_ACTION[move.gap];
     if (!actionType) continue;
+    const alsoPhrases = secondary.map((s) => secondaryGapPhrase(s.gap));
     const query = move.label;
     const topicClusterLabel = titleCaseQuery(query);
     // create_page has no owned URL; use the demand key as a stable identity.
@@ -129,6 +134,7 @@ export function demandGraphToCandidateRows(input: DemandGraphCandidateInput): Re
       `demand-graph Move (${move.gap}): demand=${Math.round(components.demand)} win=${components.winnability.toFixed(2)} ` +
       `$val=${Math.round(components.dollarValue)} visGap=${components.visibilityGap.toFixed(2)} friction=${Math.round(components.friction)} ` +
       `conf=${move.confidence} signals=[${move.signals.join(",")}]` +
+      (alsoPhrases.length ? ` | also on this page: ${alsoPhrases.join(", ")}` : "") +
       (packet?.competitor?.looselyMatched ? " | competitor loosely-matched (verify w/ SERP)" : "") +
       (move.competitorUrls[0] ? ` | top competitor: ${move.competitorUrls[0]}` : "");
 
@@ -143,7 +149,9 @@ export function demandGraphToCandidateRows(input: DemandGraphCandidateInput): Re
       confidence: move.confidence,
       impact_estimate: impactFromConfidence(move.confidence),
       upside_clicks_90d: upsideClicks90d(packet?.yourPage.gsc ?? null),
-      customer_copy: customerCopy(move.gap, query),
+      customer_copy:
+        customerCopy(move.gap, query) +
+        (alsoPhrases.length ? ` While you're on this page, also: ${alsoPhrases.join("; ")}.` : ""),
       operator_evidence: operatorEvidence,
       dedupe_key: sha1(`${tenantId}::${actionType}::${identityUrl}::${topicClusterLabel}`),
       cooldown_key: sha1(`${tenantId}::${actionType}::${identityUrl}`),

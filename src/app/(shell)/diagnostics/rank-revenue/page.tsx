@@ -22,6 +22,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { formatMoveCard } from "@/domains/demand-graph/move-card";
 import { teardownView } from "@/domains/demand-graph/teardown-state";
+import { groupMovesByOwnedPage, secondaryGapPhrase } from "@/domains/demand-graph/group-moves";
 import { MoveCardList } from "./move-cards";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
@@ -92,12 +93,16 @@ export default async function RankRevenuePage({
 
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
   const top = actionable.slice(0, TOP_N);
-  // §7 Move-ritual cards for the top moves that have a full evidence packet.
-  const moveCards = top
-    .map((m) => packetByKey.get(m.demandKey))
-    .filter((p): p is EvidencePacket => !!p)
+  // §7 Move-ritual cards — collapsed to ONE primary Move per owned page, with
+  // same-page secondary Moves shown as "also" reasons (no duplicate cards).
+  const moveCards = groupMovesByOwnedPage(actionable)
     .slice(0, 8)
-    .map(formatMoveCard);
+    .map(({ primary, secondary }) => {
+      const p = packetByKey.get(primary.demandKey);
+      if (!p) return null;
+      return formatMoveCard(p, { also: secondary.map((s) => secondaryGapPhrase(s.gap)) });
+    })
+    .filter((c): c is NonNullable<typeof c> => !!c);
   const healthyCount = graph.moves.filter((m) => m.gap === "healthy").length;
   const lowDemandCount = graph.moves.filter((m) => m.gap === "low_demand").length;
 

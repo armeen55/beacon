@@ -37,13 +37,13 @@ describe("demandGraphToCandidateRows (engine → live pipeline bridge)", () => {
         move({ gap: "fix_experience", demandKey: "m4", label: "persian boy names", ownedUrl: "https://iranopedia.com/persian-boy-names" }),
       ]),
     });
-    expect(rows.map((r) => r.action_type)).toEqual(["create_page", "add_answer_block", "edit_title", "fix_page_experience"]);
-    expect(rows.map((r) => r.trigger_signal)).toEqual([
-      "demand_graph_create_page",
-      "demand_graph_answer_block",
-      "demand_graph_edit_page",
-      "demand_graph_fix_experience",
-    ]);
+    // distinct pages → no collapse; order is by score so assert the SET.
+    expect(new Set(rows.map((r) => r.action_type))).toEqual(
+      new Set(["create_page", "add_answer_block", "edit_title", "fix_page_experience"]),
+    );
+    expect(new Set(rows.map((r) => r.trigger_signal))).toEqual(
+      new Set(["demand_graph_create_page", "demand_graph_answer_block", "demand_graph_edit_page", "demand_graph_fix_experience"]),
+    );
   });
 
   it("excludes healthy + low_demand moves", () => {

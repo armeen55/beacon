@@ -60,6 +60,12 @@ export function MoveCardList({ cards }: { cards: MoveCard[] }) {
                 </dd>
               </div>
             ) : null}
+            {c.also.length > 0 ? (
+              <div>
+                <dt className="font-medium text-gray-700">Also on this page</dt>
+                <dd className="text-gray-500">{c.also.join(" · ")}</dd>
+              </div>
+            ) : null}
             <div>
               <dt className="font-medium text-gray-700">Best shape</dt>
               <dd className="text-gray-500">{c.intentHint}</dd>

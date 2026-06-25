@@ -35,6 +35,8 @@ export type MoveCard = {
   intentHint: string;
   /** Rough effort to ship — lets the daily worklist surface quick wins first. */
   effort: "quick" | "medium" | "big";
+  /** Secondary "while you're here, also…" reasons collapsed from same-page Moves. */
+  also: string[];
   /** The one-click call to action. */
   ship: string;
 };
@@ -97,7 +99,7 @@ function plainWins(s: string): string {
     .replace(/\bschema\b/gi, "structured data");
 }
 
-export function formatMoveCard(packet: EvidencePacket): MoveCard {
+export function formatMoveCard(packet: EvidencePacket, opts?: { also?: string[] }): MoveCard {
   const { move, competitor, gaps, draft, proofPlan, demand } = packet;
   const subject = move.label;
   const intent = classifyQueryIntent(subject);
@@ -131,6 +133,7 @@ export function formatMoveCard(packet: EvidencePacket): MoveCard {
     intent: intent.intent,
     intentHint: intent.hint,
     effort: estimateEffort(move.gapType, gaps.map((g) => g.kind)),
+    also: opts?.also ?? [],
     ship: draft.titleSuggestion || draft.outline.length > 0 ? "Review & ship" : "Open to plan",
   };
 }
