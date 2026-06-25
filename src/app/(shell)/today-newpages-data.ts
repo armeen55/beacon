@@ -3,6 +3,7 @@ import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 /**
@@ -25,6 +26,8 @@ export type NewPageOpportunity = {
   whatWins: string | null;
   tier: "hot" | "warm" | "emerging";
   score: number;
+  /** Previously-generated + persisted AI opening (move_drafts), so it survives reload. */
+  savedOpening: string | null;
 };
 
 export type NewPagesData = {
@@ -64,18 +67,22 @@ export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
   const tenantId = await currentTenantId();
   let moves;
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
+  let savedDrafts = new Map<string, MoveDraftRow>();
   try {
-    const [graphRes, auditRes] = await Promise.all([
+    const [graphRes, auditRes, draftRes] = await Promise.all([
       withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
         loadDemandGraphForTenantCached(tenantId),
         8000,
         null,
       ),
       getCompetitorAuditsForTenant().catch(() => new Map()),
+      // Persisted AI openings (degrade-safe: empty map if the table isn't migrated).
+      withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
     ]);
     if (!graphRes) return { opportunities: [], totalCandidates: 0 };
     moves = graphRes.graph.moves;
     audits = auditRes;
+    savedDrafts = draftRes;
   } catch {
     return { opportunities: [], totalCandidates: 0 };
   }
@@ -107,6 +114,7 @@ export const loadNewPagesData = cache(async (): Promise<NewPagesData> => {
       whatWins: ww && ww !== "—" ? ww : null,
       tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
       score: Math.round(m.score),
+      savedOpening: savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null,
     };
   });
 

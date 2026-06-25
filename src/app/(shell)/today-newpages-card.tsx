@@ -22,8 +22,8 @@ export function NewPageCard({ o }: { o: NewPageOpportunity }) {
   const tier = TIER[o.tier];
   const [aiStatus, setAiStatus] = useState<
     "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
-  >("idle");
-  const [aiText, setAiText] = useState("");
+  >(o.savedOpening ? "ok" : "idle"); // hydrate a previously-generated+saved opening
+  const [aiText, setAiText] = useState(o.savedOpening ?? "");
   const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -32,6 +32,7 @@ export function NewPageCard({ o }: { o: NewPageOpportunity }) {
     startTransition(async () => {
       try {
         const r = await draftMoveAnswerBlockAction({
+          recId: o.id, // persist so the opening survives reload (move_drafts)
           query: o.topic,
           pageLabel: o.topic,
           brief: `Write the opening paragraph for a NEW encyclopedia/content page about "${o.topic}". Define the topic directly and factually so a reader (and an AI assistant) gets the answer up top.`,
