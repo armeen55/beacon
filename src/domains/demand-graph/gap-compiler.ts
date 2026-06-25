@@ -18,6 +18,7 @@ import {
   type EvidencePacket,
   type PageStructureFacts,
 } from "./evidence-packet";
+import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
 
 function stripWww(h: string): string {
   return h.replace(/^www\./i, "").toLowerCase();
@@ -70,14 +71,24 @@ export async function loadChangePacksForTenant(
 ): Promise<LoadChangePacksResult> {
   const limit = opts.limit ?? 25;
 
-  const [{ graph }, audits, snapshots] = await Promise.all([
+  const [{ graph }, audits, snapshots, gscSignals] = await Promise.all([
     loadDemandGraphForTenant(tenantId),
     getCompetitorAuditsForTenant().catch(() => new Map()),
     getRepository()
       .forTenant(tenantId)
       .getPageSnapshots()
       .catch(() => [] as PageSnapshot[]),
+    loadGscPageSignalsForTenant(tenantId, new Date()).catch((): Map<string, GscPageSignal> => new Map()),
   ]);
+
+  // GSC per-page signal indexed for robust owned-URL matching (canonical + path).
+  const gscByCanon = new Map<string, GscPageSignal>();
+  const gscByPath = new Map<string, GscPageSignal>();
+  for (const [u, sig] of gscSignals) {
+    if (!u) continue;
+    gscByCanon.set(canonicalizeCitationUrl(u) || u, sig);
+    gscByPath.set(pathKey(u), sig);
+  }
 
   // owned page facts indexed by canonical url + by pathname (robust matching)
   const ownedByCanon = new Map<string, PageSnapshot>();
@@ -130,11 +141,23 @@ export async function loadChangePacksForTenant(
     const ownedFacts = ownedSnap ? snapshotToFacts(ownedSnap) : null;
     if (ownedFacts) withSnapshot += 1;
 
+    // Real GSC signal for the owned page → powers the CTR-gap upside + the
+    // "ranks #N, under-clicked" gap detail (was always null before).
+    let ownedGsc: EvidencePacket["yourPage"]["gsc"] = null;
+    if (move.ownedUrl) {
+      const sig =
+        gscByCanon.get(canonicalizeCitationUrl(move.ownedUrl) || move.ownedUrl) ??
+        gscByPath.get(pathKey(move.ownedUrl));
+      if (sig) {
+        ownedGsc = { clicks: sig.clicks90d, impressions: sig.impressions90d, ctr: sig.ctr90d, position: sig.position90d };
+      }
+    }
+
     return buildEvidencePacket({
       move,
       brand,
       ownedFacts,
-      ownedGsc: null,
+      ownedGsc,
       competitor,
       fanoutSeeds: move.fanoutSeeds,
     });
