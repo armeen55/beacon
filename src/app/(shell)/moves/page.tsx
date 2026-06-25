@@ -32,7 +32,7 @@ async function MovesWorklist() {
   try {
     data = await loadTodayMovesHeroData({ limit: 60 });
   } catch {
-    data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0, draftsReady: 0, strikingWins: 0, losingQueries: 0 } };
+    data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0, draftsReady: 0, strikingWins: 0, losingQueries: 0, selfCompeting: 0 } };
   }
   const { moves, stats } = data;
 

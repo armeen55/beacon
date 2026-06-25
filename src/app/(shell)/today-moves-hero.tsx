@@ -70,7 +70,7 @@ export async function TodayMovesHeroSection() {
         )}
       </div>
 
-      {stats.strikingWins > 0 || stats.losingQueries > 0 ? (
+      {stats.strikingWins > 0 || stats.losingQueries > 0 || stats.selfCompeting > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
           {stats.strikingWins > 0 ? (
             <span className="inline-flex items-center gap-1">
@@ -84,6 +84,12 @@ export async function TodayMovesHeroSection() {
               <span className="text-rose-500">↓</span>
               <span className="font-semibold text-gray-800">{stats.losingQueries}</span>{" "}
               {stats.losingQueries === 1 ? "query" : "queries"} losing ground
+            </span>
+          ) : null}
+          {stats.selfCompeting > 0 ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="text-orange-500">⚔</span>
+              <span className="font-semibold text-gray-800">{stats.selfCompeting}</span> self-competing
             </span>
           ) : null}
         </div>

@@ -90,6 +90,8 @@ export type TodayMovesHeroData = {
     strikingWins: number;
     /** Queries the shown Moves' pages are losing ground on (recent vs prior). */
     losingQueries: number;
+    /** Queries where the shown Moves' pages compete with the tenant's own other pages. */
+    selfCompeting: number;
   };
 };
 
@@ -445,6 +447,7 @@ export async function buildTodayMovesData(
 
     const strikingWins = top.reduce((s, m) => s + m.topQueries.filter((q) => q.strikingDistance).length, 0);
     const losingQueries = top.reduce((s, m) => s + m.declines.length, 0);
+    const selfCompeting = top.reduce((s, m) => s + m.cannibalization.length, 0);
 
     return {
       moves: top,
@@ -456,6 +459,7 @@ export async function buildTodayMovesData(
         draftsReady,
         strikingWins,
         losingQueries,
+        selfCompeting,
       },
     };
 }
