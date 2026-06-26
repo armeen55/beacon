@@ -246,7 +246,9 @@ function rankWhyFromComponents(
   if (c.winnability >= 0.85) bits.push("very winnable");
   else if (c.winnability >= 0.6) bits.push("winnable");
   if (c.visibilityGap >= 0.7) bits.push("you're not cited yet");
-  if (c.dollarValue > 0) bits.push("money page");
+  // dollarValue is now REAL GA4 revenue (2026-06-26), not a conversion count, so
+  // this bit only fires on pages with PROVEN money — honest "money page" framing.
+  if (c.dollarValue > 0) bits.push("proven revenue");
   if (c.friction >= 15) bits.push("frustrating to visitors");
   return bits.slice(0, 3).join(" · ");
 }
