@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-25 — Production UI-consistency + data-bridge fix pass (operator-directed) · branch claude/ui-consistency-pass (commit d29504e5, NOT merged)
+
+After the operator's live prod QA surfaced 6 product/data-consistency findings, ran a 6-agent read-only root-cause workflow + live Supabase/connector probes → **3 real bugs fixed, 2 expected-behavior (1 copy-fixed + 1 reported), 1 sound.**
+- **#1 draft-bridge** (`today-moves-data.ts`): "Draft prepared" flag now derived from the same `preparedDraftText` the Implement panel reads (was: structuredDraft existence) → card + Implement panel can't contradict.
+- **#3 GA4 status** (`connector-store.ts getConnectorHealth`): disconnected-but-fresh (< STALE_DAYS) source → `needs_attention` "Showing data from N days ago. Reconnect to refresh." instead of `not_connected` "Connect →". Display-only.
+- **#5 self-competition guardrail**: new pure `opposite-qualifier-guard.ts` wired into `resolve-page-intent` + `semrush-page-signals` cannibalization → never folds opposite-audience pages (male/female, boy/girl, …).
+- **#4 AI-Answers honesty** (`ai-visibility-hero.tsx`): empty-state no longer says "Connect an AI-answer source" when the source is connected but visibility sampling is empty.
+- **#2 keyword cache** (expected, reported): local-only `.data/global/` store, empty + ephemeral on Vercel; durable fix = Supabase-backing (migration → operator decision, NOT done). **#6 page-health scan**: sound, no change.
+- **Verified:** `npx tsc --noEmit` exit 0; targeted vitest **130 passed** (opposite-qualifier-guard 9, ai-visibility-hero empty-state, resolve-page-intent ×3, connector-store ×2, data-sources-strip). 0 migrations / 0 publish-path / 0 paid calls / not merged. Browser-preview verification N/A (local dev renders blank: Node 22 undici SSR-streaming bug + remote-Supabase statement-timeouts — covered by tsc + unit tests).
+
 ## 2026-06-25 — B82 · Sprint 6 (autonomous): Profound-deep + SERP-teardown fusion + Clarity-router + unified worklist + page-factory + image-alt · branch claude/sprint-6-profound-deep (NOT merged)
 
 Six $0/no-migration slices, each tsc-clean + unit-tested (~60 new tests). Domains: profound-deep (referral-signals 6, bot-coverage 4), serp (teardown-fusion 9 + audit regression), recommendation-intelligence (clarity-move-router 8 + clarity-signals extended to read avg_scroll_depth/engagement_time_seconds), worklist (worklist-views 8), page-factory (entity-attribute 6 + image-alt 6). New surfaces: "AI traffic" cockpit section + /worklist route (+nav). No publish/Wix/CMS write, no migration, no paid calls, no main merge. Full detail: docs/AUTONOMOUS_PROGRESS.md. Final-hour full gate (test+typecheck+build) pending after 23:00 PT.
