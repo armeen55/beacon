@@ -35,6 +35,24 @@ export async function ImageAltSection() {
         </div>
       </div>
 
+      {data.eeatSummary.pages > 0 ? (
+        <div className="mt-5 flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="font-semibold text-gray-600">Trust signals (E-E-A-T) across {data.eeatSummary.pages} page{data.eeatSummary.pages === 1 ? "" : "s"}:</span>
+          {(
+            [
+              ["author byline", data.eeatSummary.byline],
+              ["credentials", data.eeatSummary.credentials],
+              ["dates", data.eeatSummary.dates],
+              ["citations", data.eeatSummary.citations],
+            ] as const
+          ).map(([label, n]) => (
+            <span key={label} className={`rounded px-1.5 py-0.5 ring-1 ${n >= data.eeatSummary.pages ? "bg-emerald-50 text-emerald-700 ring-emerald-100" : n > 0 ? "bg-amber-50 text-amber-700 ring-amber-100" : "bg-gray-100 text-gray-500 ring-gray-200"}`}>
+              {n}/{data.eeatSummary.pages} {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {data.productGaps.length > 0 ? (
         <div className="mt-5 rounded-2xl border border-violet-100 bg-violet-50/40 p-4">
           <p className="text-[13px] font-semibold text-violet-900">

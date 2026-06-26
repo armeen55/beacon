@@ -31,7 +31,9 @@ export type MoveDraftKind =
   // Sprint 6: persisted image-alt scan findings (column is free-text → no migration).
   | "image_alt_findings"
   // Sprint 6: persisted product/collection on-page SEO gaps from the same scan.
-  | "product_seo_findings";
+  | "product_seo_findings"
+  // Sprint 6: persisted own-page E-E-A-T / trust signals from the same scan.
+  | "page_eeat_findings";
 
 export type MoveDraftRow = {
   recId: string;
