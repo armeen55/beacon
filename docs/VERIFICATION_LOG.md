@@ -11,6 +11,14 @@
 
 Six $0/no-migration slices, each tsc-clean + unit-tested (~60 new tests). Domains: profound-deep (referral-signals 6, bot-coverage 4), serp (teardown-fusion 9 + audit regression), recommendation-intelligence (clarity-move-router 8 + clarity-signals extended to read avg_scroll_depth/engagement_time_seconds), worklist (worklist-views 8), page-factory (entity-attribute 6 + image-alt 6). New surfaces: "AI traffic" cockpit section + /worklist route (+nav). No publish/Wix/CMS write, no migration, no paid calls, no main merge. Full detail: docs/AUTONOMOUS_PROGRESS.md. Final-hour full gate (test+typecheck+build) pending after 23:00 PT.
 
+### B82 extension (same branch, continued autonomous) — slices [7]–[10] + a build-green gate
+- **[7] crawlability gaps → unified worklist** — `buildWorklist` accepts `crawlGaps` → technical `fix_crawlability` items (+1 test); `/worklist` page wires profound-deep gaps (valuable pages derived from hero moves, no extra load). Engine [1] now feeds engine [4].
+- **overallReferralTrend** — pure helper on the referral engine (recent-half vs prior-half AI-referral visits → rising/flat/declining/unknown; +2 tests) + surfaced in the AI-traffic section.
+- **[8] image-alt END-TO-END** — `image-alt-actions.ts` (operator-gated `scanImageAltAction`: polite-fetch top-6 owned pages $0, fail-soft → analyzeImageAlt → persist `move_drafts` kind `image_alt_findings`, no migration) + `image-alt-client.tsx` scan button + `image-alt-section.tsx` (per-page missing/poor alt + paste-ready suggestion); mounted in cockpit + jump-nav.
+- **[9] Trend Radar spike detector** — `trend-radar/spike-detector.ts` (pure; `detectSpikes` ≥+35% spike / ≥+100% high / 0→N `emerging` no-guess / optional `collapse`, ranked; `describeSpike`; +9 tests) — the plan's named net-new P7 primitive (loader/surface deferred: needs a per-query weekly GSC read not cleanly available headless).
+- **[10] Clarity Move-router surface (P13 read-only)** — `friction-fixes-section.tsx`: routes each page's Clarity signal to the SPECIFIC fix (errors/dead-click/rage/intent/buried-answer) with plain-language label + evidence, ranked; reuses the cached Clarity loader ($0, read-only), self-hides; mounted in cockpit + jump-nav.
+- **GATE (build-green, NOT a deploy):** local `npm run build` on the FULL stacked branch (Sprint 3+4+5+6) = ✓ Compiled successfully, exit 0. tsc clean throughout; targeted suites green per slice. Whole stack verified mergeable. Full merge gate (full `npm run test`) still reserved for after 23:00 PT.
+
 ---
 
 ## 2026-06-25 — B81 · Operator Execution Layer (Sprint 5) · branch claude/sprint-5-execution-layer (93ddcc88, stacked on Sprint 4, NOT merged)
