@@ -198,3 +198,7 @@ Branch **`claude/sprint-6-profound-deep`** (head `ce97275a`, stacked on Sprint 3
 - Focused pass on the spend caps (highest money stakes). DataForSEO (serp + keywords), the adjudicator LLM cap, and dry-run default = SOUND (fail-closed: unknown spend → no call; cap defaults to $50 not Infinity).
 - **Found + FIXED 3 fail-OPEN LLM cap bugs**: `structured-drafter.ts:175`, `llm-answer-block.ts:61` (answer block) + `:153` (FAQ schema, loops per question) used `.catch(() => ({ allowed: true }))` — a budget-check exception (Supabase down / tenant-ctx error) BYPASSED the cap → uncapped OpenAI spend exactly when the ledger is degraded. All three now `.catch(() => ({ allowed: false, reason }))` (fail-closed, matching the DataForSEO/adjudicator caps). tsc clean; 0 fail-open budget catches remain.
 - Bug-hunt campaign tally: **18 real bugs fixed** (push 8 cap-durability + GSC 1 + SEMrush 1 + Profound 5 masked-failure + LLM 3 fail-open spend), all fail-closed-direction, all $0/no-migration/no-behavior-change-on-success.
+
+---
+## 🚀 SHIPPED (2026-06-25 21:31 PT) — operator returned, approved the merge
+`origin/main` 276a5f71 → **0688c251** (clean fast-forward, 54 commits, 76 files, 0 migrations). Vercel prod deploy = ✅ success; live-verified (/login 200, /worklist 307, /today 307). The full session (23 build slices + 18 bug fixes) is now in production. Remaining plan work is operator-gated (migrations / paid APIs / publish-path). Rollback: `git push origin 276a5f71:main`.
