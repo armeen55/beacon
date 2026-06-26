@@ -62,3 +62,15 @@ describe("sliceWorklist views", () => {
     expect(sliceWorklist(w, "all")).toHaveLength(5);
   });
 });
+
+describe("buildWorklist crawlGaps", () => {
+  it("includes crawlability gaps as technical fix_crawlability items", () => {
+    const w = buildWorklist({
+      crawlGaps: [{ path: "/gold", value: 5000, reason: "AI can't crawl it", severity: "high" }],
+    });
+    const g = w.find((i) => i.id === "crawl:/gold")!;
+    expect(g.parent).toBe("technical");
+    expect(g.action).toBe("fix_crawlability");
+    expect(g.confidence).toBe("high");
+  });
+});

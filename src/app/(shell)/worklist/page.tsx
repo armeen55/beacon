@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic"; // tenant-scoped data page (no build-tim
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadTodayMovesHeroData } from "../today-moves-data";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
+import { loadProfoundDeepSignals } from "@/domains/profound-deep/load-profound-deep";
 import { buildWorklist, type WorklistItem } from "@/domains/worklist/worklist-views";
 import { WorklistClient } from "./worklist-client";
 
@@ -21,7 +22,12 @@ export default async function WorklistPage() {
       loadTodayMovesHeroData({}).catch(() => ({ moves: [] as Awaited<ReturnType<typeof loadTodayMovesHeroData>>["moves"] })),
       loadDemandOpportunities(tenantId, { limit: 20 }).catch(() => ({ opportunities: [], trends: [], products: [] })),
     ]);
+    // Crawlability gaps (Sprint 6 bot-coverage) — valuable pages AI can't crawl;
+    // valuable pages derived from the already-loaded hero moves (no extra load).
+    const valuablePages = hero.moves.filter((m) => m.targetUrl).map((m) => ({ path: m.targetUrl, value: m.demand ?? 1 }));
+    const deep = await loadProfoundDeepSignals(tenantId, valuablePages).catch(() => ({ crawlabilityGaps: [] as Awaited<ReturnType<typeof loadProfoundDeepSignals>>["crawlabilityGaps"] }));
     items = buildWorklist({
+      crawlGaps: deep.crawlabilityGaps.map((g) => ({ path: g.path, value: g.value, reason: g.reason, severity: g.severity })),
       moves: hero.moves.map((m) => ({
         id: m.id,
         action: m.action,

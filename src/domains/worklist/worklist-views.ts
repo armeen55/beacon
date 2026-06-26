@@ -62,6 +62,8 @@ export function buildWorklist(inputs: {
   opportunities?: { id: string; action: string; matchedPageUrl: string | null; estDemand: number; confidence: "high" | "medium" | "low"; primaryKeyword: string; whyNow: string; parentType?: string }[];
   trends?: { id: string; recommendedAction: string; targetPageUrl: string | null; estDemand: number | null; confidence: "high" | "medium" | "low"; query: string; trend: "rising" | "flat" | "declining" | "unknown"; whyNow: string }[];
   products?: { id: string; recommendedAction: string; matchedPageUrl: string | null; estDemand: number; confidence: "high" | "medium" | "low"; keyword: string; whyNow: string; conceptOnly: boolean; trend: "rising" | "flat" | "declining" | "unknown" }[];
+  /** Bot-coverage crawlability gaps (Sprint 6) — valuable pages AI can't crawl. */
+  crawlGaps?: { path: string; value: number; reason: string; severity: "high" | "medium" }[];
 }): WorklistItem[] {
   const items: WorklistItem[] = [];
   // Normalize a demand value to ~0..1 for ranking (log scale; 100k ≈ 1).
@@ -132,6 +134,22 @@ export function buildWorklist(inputs: {
       trend: p.trend,
       conceptOnly: p.conceptOnly,
       why: p.whyNow,
+    });
+  }
+  for (const g of inputs.crawlGaps ?? []) {
+    items.push({
+      id: `crawl:${g.path}`,
+      kind: "move",
+      parent: "technical",
+      title: `Make crawlable: ${g.path}`,
+      action: "fix_crawlability",
+      targetUrl: g.path,
+      rank: demandRank(g.value) * (g.severity === "high" ? 1.2 : 1),
+      demand: g.value,
+      confidence: g.severity === "high" ? "high" : "medium",
+      prepared: false,
+      isNew: false,
+      why: g.reason,
     });
   }
   return items.sort((a, b) => b.rank - a.rank);

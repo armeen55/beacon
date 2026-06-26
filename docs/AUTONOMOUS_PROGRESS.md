@@ -91,3 +91,7 @@ Note: Clarity router→trigger wiring left as a careful follow-up (trigger is te
 Branch `claude/sprint-6-profound-deep` (stacked on Sprint 3+4+5), all pushed, tsc clean throughout, 158+ targeted tests green. Slices landed: [1] Profound dead-data (referral + bot signals + "AI traffic" section), [2] SERP→teardown overlap fusion (wired into competitor-page-audit), [3b] Clarity-move-router + resurrected scroll/engagement columns, [4] unified worklist + `/worklist` route + nav, [5] entity×attribute page factory (+ wired "Page ideas" panel + loader), [6] image-alt analyzer, + overallReferralTrend. ALL $0 / no-migration / no-publish / no-Wix / no-main.
 DEFERRED (migration-gated, need operator approval): GA4 revenue column; Profound `profound_answer_rows` (raw answers). Deferred (risk/tested-surface): Clarity-router→friction-trigger wiring; fanout→demand boost (touches pure scorer).
 FINAL-HOUR PLAN (after 23:00 PT): full `npm run typecheck` + targeted suite + `npm run build` on this branch; fix breakage; stage for review. NO merge, NO deploy (Vercel 100/day cap also still applies until reset). Stack for the eventual one-shot prod deploy: Sprint 3+4+5+6.
+
+**DONE [7]** (19:51 PDT): bot-coverage crawlability gaps → unified worklist.
+- `worklist-views.ts` buildWorklist now accepts `crawlGaps` → technical fix_crawlability items (+1 test, 9/9).
+- `/worklist` page wires profound-deep crawlability gaps (valuable pages derived from hero moves — no extra load). Engine [1] now feeds engine [4]. tsc clean.
