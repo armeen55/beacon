@@ -177,3 +177,160 @@ export function analyzeProfoundAnswers(
     gaps,
   };
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Per-PROMPT analysis (2026-06-26) — the operator's ask: "look inside those
+// prompts for mentions of iranopedia … the top 3-5 cited pages per each prompt."
+// The per-topic view above rolls many prompts together; this drills to the
+// individual tracked prompt (one AI question, e.g. "best persian restaurants in
+// LA") and answers: for THIS prompt, are you mentioned/cited, and which exact
+// pages does AI cite instead? Same pure/no-hardcode/domain-aware contract.
+// ───────────────────────────────────────────────────────────────────────────
+
+export type ProfoundCitedPage = {
+  /** Cited hostname (www-stripped). */
+  hostname: string;
+  /** Distinct answers (across models) that cited it for this prompt. */
+  answers: number;
+  /** True when this is the tenant's own domain (so the UI can say "that's you"). */
+  isOwned: boolean;
+};
+
+export type ProfoundPromptInsight = {
+  /** Stable Profound prompt id (null → grouped by prompt text). */
+  promptId: string | null;
+  /** The verbatim AI question. */
+  prompt: string;
+  /** Topic the prompt belongs to (for grouping in the UI). */
+  topic: string | null;
+  /** Distinct AI answers observed for this prompt (across models) — the demand. */
+  totalAnswers: number;
+  /** AI models that answered it (ChatGPT, Perplexity, …). */
+  models: string[];
+  /** Answers whose mentions[] named the owned brand. */
+  ownMentioned: number;
+  /** Answers that cited the owned domain. */
+  ownCited: number;
+  /** Mentioned OR cited at least once → you have SOME presence on this prompt. */
+  ownPresent: boolean;
+  /** Top cited pages for THIS prompt, ranked desc (owned included + flagged). */
+  topCitedPages: ProfoundCitedPage[];
+  /** AI answers this, a competitor is cited, and you are absent → the play. */
+  isGap: boolean;
+};
+
+export type ProfoundPromptAnalysis = {
+  totalPrompts: number;
+  /** Prompts where you're mentioned or cited at least once. */
+  ownPresentPromptCount: number;
+  /** Prompts that are clean AEO gaps (answered, competitor-cited, you absent). */
+  gapPromptCount: number;
+  /** Per-prompt insights — gaps first (by demand), then your present prompts. */
+  prompts: ProfoundPromptInsight[];
+};
+
+/**
+ * Per-prompt rollup of raw Profound answers. Groups by `promptId` (falling back
+ * to the verbatim prompt text when the id is absent), so each entry is ONE
+ * tracked AI question. `topCitedPages` is the operator's "top cited pages per
+ * prompt"; `ownPresent`/`ownMentioned`/`ownCited` answer "is iranopedia in this
+ * answer". Pure + domain-aware (own detection keys on the real domain, so it
+ * works on a borrowed workspace that tracks a different brand).
+ */
+export function analyzeProfoundAnswersByPrompt(
+  args: AnalyzeProfoundArgs,
+): ProfoundPromptAnalysis {
+  const ownedNorm = stripWww((args.ownedDomain || "").trim());
+  const directory = new Set((args.directoryDomains ?? []).map((d) => stripWww(d)));
+  const minAnswers = args.minAnswers ?? 1; // per-prompt: even 1 answer is signal
+
+  type Acc = {
+    promptId: string | null;
+    prompt: string;
+    topic: string | null;
+    total: number;
+    ownMentioned: number;
+    ownCited: number;
+    models: Set<string>;
+    /** hostname → distinct answers citing it (owned + competitor). */
+    cited: Map<string, number>;
+  };
+  const byPrompt = new Map<string, Acc>();
+
+  for (const a of args.answers) {
+    // Group key: prefer the stable id; fall back to the verbatim prompt so a
+    // workspace that omits ids still groups one question's answers together.
+    const key = (a.promptId ?? "").trim() || `text:${(a.prompt ?? "").trim().toLowerCase()}`;
+    if (key === "text:") continue; // no id AND no prompt text → unusable row
+    let acc = byPrompt.get(key);
+    if (!acc) {
+      acc = {
+        promptId: a.promptId ?? null,
+        prompt: (a.prompt ?? "").trim(),
+        topic: (a.topic ?? "").trim() || null,
+        total: 0,
+        ownMentioned: 0,
+        ownCited: 0,
+        models: new Set(),
+        cited: new Map(),
+      };
+      byPrompt.set(key, acc);
+    }
+    acc.total += 1;
+    if (a.model) acc.models.add(a.model);
+    if (!acc.prompt && a.prompt) acc.prompt = a.prompt.trim();
+
+    if (brandMentioned(a.mentions, args.ownedBrandAliases)) acc.ownMentioned += 1;
+
+    const hosts = new Set(a.citationHostnames.map((h) => stripWww(h)).filter(Boolean));
+    let ownedHere = false;
+    for (const h of hosts) {
+      if (ownedNorm && isOwnedHost(h, ownedNorm)) {
+        ownedHere = true;
+        acc.cited.set(h, (acc.cited.get(h) ?? 0) + 1);
+        continue;
+      }
+      if (directory.has(h)) continue; // aggregator/social — not a displaceable page
+      acc.cited.set(h, (acc.cited.get(h) ?? 0) + 1);
+    }
+    if (ownedHere) acc.ownCited += 1;
+  }
+
+  const prompts: ProfoundPromptInsight[] = [];
+  for (const acc of byPrompt.values()) {
+    if (acc.total < minAnswers) continue;
+    const topCitedPages: ProfoundCitedPage[] = [...acc.cited.entries()]
+      .map(([hostname, answers]) => ({
+        hostname,
+        answers,
+        isOwned: !!ownedNorm && isOwnedHost(hostname, ownedNorm),
+      }))
+      .sort((x, y) => y.answers - x.answers || x.hostname.localeCompare(y.hostname));
+    const ownPresent = acc.ownMentioned > 0 || acc.ownCited > 0;
+    const hasCompetitor = topCitedPages.some((p) => !p.isOwned);
+    prompts.push({
+      promptId: acc.promptId,
+      prompt: acc.prompt,
+      topic: acc.topic,
+      totalAnswers: acc.total,
+      models: [...acc.models].sort(),
+      ownMentioned: acc.ownMentioned,
+      ownCited: acc.ownCited,
+      ownPresent,
+      topCitedPages,
+      isGap: !ownPresent && hasCompetitor,
+    });
+  }
+  // Gaps first (highest-demand gap on top), then present prompts by demand.
+  prompts.sort((a, b) => {
+    if (a.isGap !== b.isGap) return a.isGap ? -1 : 1;
+    return b.totalAnswers - a.totalAnswers || a.prompt.localeCompare(b.prompt);
+  });
+
+  return {
+    totalPrompts: prompts.length,
+    ownPresentPromptCount: prompts.filter((p) => p.ownPresent).length,
+    gapPromptCount: prompts.filter((p) => p.isGap).length,
+    prompts,
+  };
+}
