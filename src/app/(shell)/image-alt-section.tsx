@@ -22,9 +22,9 @@ export async function ImageAltSection() {
     <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-gray-900">Image alt-text</h2>
+          <h2 className="text-xl font-bold tracking-tight text-gray-900">Page health scan</h2>
           <p className="mt-1 max-w-xl text-sm text-gray-500">
-            Images missing good alt text — invisible to screen readers + image search. Paste the suggestions.
+            One $0 scan of your pages — image alt text, store-page SEO, and trust signals (E-E-A-T). Paste the fixes.
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">

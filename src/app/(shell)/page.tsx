@@ -74,7 +74,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-implement", label: "Implement" },
   { id: "sec-ai-traffic", label: "AI traffic" },
   { id: "sec-friction-fixes", label: "Friction fixes" },
-  { id: "sec-image-alt", label: "Image alt-text" },
+  { id: "sec-image-alt", label: "Page health" },
   { id: "sec-entity", label: "Entity" },
 ];
 import { TodayMovesHeroSection } from "./today-moves-hero";

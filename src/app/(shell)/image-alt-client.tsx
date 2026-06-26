@@ -35,7 +35,7 @@ export function ImageAltScanButton() {
         disabled={pending}
         className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-60"
       >
-        {pending ? "Scanning…" : "🖼️ Scan image alt-text"}
+        {pending ? "Scanning…" : "🔍 Scan my pages"}
       </button>
       {msg ? <span className="text-[11px] text-gray-500">{msg}</span> : null}
     </div>
