@@ -79,3 +79,9 @@ Note: Clarity router→trigger wiring left as a careful follow-up (trigger is te
 - Note: PageSnapshots don't store raw HTML → end-to-end wiring would fetch own-page HTML via the existing polite-fetch ($0); the pure analyzer is the reusable core (works on any HTML).
 - Gates: tsc clean; 12/12 page-factory. No migration/paid/main.
 - NEXT TARGET: keep exhausting the plan with $0/no-migration levers (entity/schema breadth via composeSchema, or wire one of these engines end-to-end). Final-hour gate after 23:00 PT.
+
+**DONE [5b]** (19:45 PDT): wired the page factory end-to-end.
+- `domains/page-factory/load-page-candidates.ts` — server loader (demand graph → owned URLs + labels + topics → generatePageCandidates), fail-soft $0.
+- `(shell)/today-opportunities-section.tsx` — "💡 Page ideas to validate" subsection (chips, clearly needs-validation). Factory now consumed + visible.
+- Gates: tsc clean. No migration/paid/main.
+- NEXT: broad regression of all touched domains together, then continue or hold for the final-hour merge gate (after 23:00 PT).

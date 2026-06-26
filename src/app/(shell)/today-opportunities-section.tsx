@@ -1,5 +1,7 @@
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
+import { loadPageCandidates } from "@/domains/page-factory/load-page-candidates";
+import type { PageCandidate } from "@/domains/page-factory/entity-attribute-factory";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { DiscoverDemandButton } from "./today-opportunities-panel";
 
@@ -54,8 +56,15 @@ export async function TodayOpportunitiesSection() {
   } catch {
     return null;
   }
+  // Programmatic page ideas (Sprint 6 factory) — needs-demand-validation candidates.
+  let ideas: PageCandidate[] = [];
+  try {
+    ideas = await loadPageCandidates(await currentTenantId(), { max: 8 });
+  } catch {
+    ideas = [];
+  }
   // Self-hide when there's nothing AND no operator to discover (keep cockpit clean).
-  if (data.opportunities.length === 0 && data.trends.length === 0 && data.products.length === 0 && !operator)
+  if (data.opportunities.length === 0 && data.trends.length === 0 && data.products.length === 0 && ideas.length === 0 && !operator)
     return null;
 
   return (
@@ -169,6 +178,21 @@ export async function TodayOpportunitiesSection() {
                 {p.licensingRisk ? <p className="mt-0.5 text-[10px] font-medium text-red-700">⚖️ {p.licensingRisk}</p> : null}
                 {p.risk && !p.licensingRisk ? <p className="mt-0.5 text-[10px] text-amber-700">⚠ {p.risk}</p> : null}
               </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {/* 💡 Programmatic page ideas (Sprint 6 factory) — needs demand validation. */}
+      {ideas.length > 0 ? (
+        <div className="mt-7">
+          <h3 className="text-sm font-bold tracking-tight text-gray-800">💡 Page ideas to validate</h3>
+          <p className="mt-0.5 text-[11px] text-gray-400">Generated from your recurring themes — validate demand (Discover) before building.</p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {ideas.slice(0, 8).map((c) => (
+              <span key={c.slug} className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 shadow-sm" title={c.why}>
+                {c.title}
+                <span className="ml-1 text-[9px] text-gray-400">validate</span>
+              </span>
             ))}
           </div>
         </div>
