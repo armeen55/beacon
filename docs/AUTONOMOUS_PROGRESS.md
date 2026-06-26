@@ -105,3 +105,8 @@ FINAL-HOUR PLAN (after 23:00 PT): full `npm run typecheck` + targeted suite + `n
 - `image-alt-client.tsx` (NEW): "🖼️ Scan image alt-text" operator button (useTransition + router.refresh).
 - `image-alt-section.tsx` (NEW): per-page missing/poor alt + deterministic suggestion to paste; self-hides w/o data+operator. Mounted in page.tsx ("sec-image-alt") + jump-nav.
 - tsc clean; analyzer 7/7. Engine [6] (image-alt) now consumed by a real UI + $0 fetch path. No paid/publish/main.
+
+**DONE [9]** (19:58 PDT): P7 Trend Radar — spike/anomaly detector (the plan's named NET-NEW piece).
+- `trend-radar/spike-detector.ts` (NEW, pure): `detectSpikes` flags sharp WoW jumps (≥+35% spike, ≥+100% high), 0→N `emerging` (no %-guess, fail-closed), optional `collapse`; minRecent noise floor; ranked. `describeSpike` for cards. +9 tests, tsc clean.
+- The weekly-trend substrate (buildWeeklyTrend ±8% drift) already exists; this adds the spike threshold the plan calls out as net-new. Ready for a weekly-query loader to surface a Trend Radar view.
+NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Radar surface, OR continue P-sequence.
