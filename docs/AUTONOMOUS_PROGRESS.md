@@ -95,3 +95,13 @@ FINAL-HOUR PLAN (after 23:00 PT): full `npm run typecheck` + targeted suite + `n
 **DONE [7]** (19:51 PDT): bot-coverage crawlability gaps → unified worklist.
 - `worklist-views.ts` buildWorklist now accepts `crawlGaps` → technical fix_crawlability items (+1 test, 9/9).
 - `/worklist` page wires profound-deep crawlability gaps (valuable pages derived from hero moves — no extra load). Engine [1] now feeds engine [4]. tsc clean.
+
+**GATE CHECK @ 19:53 PDT:** local `npm run build` on the FULL stacked branch (Sprint 3+4+5+6) = ✓ Compiled successfully, BUILD_EXIT 0. Whole stack verified mergeable (no deploy). Continuing.
+
+## [8] Image-alt engine end-to-end (operator-triggered $0 scan) — lands audit's "highest-leverage commerce-adjacent win"
+
+**DONE [8]** (20:02 PDT): image-alt engine END-TO-END (plan's "highest-leverage commerce-adjacent win, no Wix write").
+- `image-alt-actions.ts` (NEW): operator-gated `scanImageAltAction` — polite-fetch top-6 owned pages ($0, robotsCache, fail-soft per page) → analyzeImageAlt → persist findings (move_drafts kind `image_alt_findings`, no migration); + `loadImageAltReports` fail-soft reader.
+- `image-alt-client.tsx` (NEW): "🖼️ Scan image alt-text" operator button (useTransition + router.refresh).
+- `image-alt-section.tsx` (NEW): per-page missing/poor alt + deterministic suggestion to paste; self-hides w/o data+operator. Mounted in page.tsx ("sec-image-alt") + jump-nav.
+- tsc clean; analyzer 7/7. Engine [6] (image-alt) now consumed by a real UI + $0 fetch path. No paid/publish/main.

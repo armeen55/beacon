@@ -73,6 +73,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-opportunities-radar", label: "New opportunities" },
   { id: "sec-implement", label: "Implement" },
   { id: "sec-ai-traffic", label: "AI traffic" },
+  { id: "sec-image-alt", label: "Image alt-text" },
   { id: "sec-entity", label: "Entity" },
 ];
 import { TodayMovesHeroSection } from "./today-moves-hero";
@@ -98,6 +99,7 @@ import { TodayNewPagesSection } from "./today-newpages-section";
 import { TodayOpportunitiesSection } from "./today-opportunities-section";
 import { ExecutionSection } from "./execution-section";
 import { ProfoundDeepSection } from "./profound-deep-section";
+import { ImageAltSection } from "./image-alt-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -454,6 +456,13 @@ async function TodayV2SectionedContent() {
       <div id="sec-ai-traffic" className="scroll-mt-24">
         <Suspense fallback={null}>
           <ProfoundDeepSection />
+        </Suspense>
+      </div>
+      {/* Sprint 6 — image alt-text: operator-triggered $0 scan of owned pages →
+          missing/poor alt + a deterministic suggestion to paste. Self-hides. */}
+      <div id="sec-image-alt" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <ImageAltSection />
         </Suspense>
       </div>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
