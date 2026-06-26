@@ -72,3 +72,10 @@ Note: Clarity router→trigger wiring left as a careful follow-up (trigger is te
 - `domains/page-factory/entity-attribute-factory.ts` (pure) — generatePageCandidates: mines recurring entities from the tenant's OWN owned-page tokens + demand-cluster labels (tenant-agnostic, no hardcoded categories) × generic SEO attribute templates (meaning/history/guide/examples/list) → deduped (skips pages already covered), relevance-gated, capped create_page CANDIDATES. Every candidate marked needsDemandValidation=true (NO fabricated demand — must pass the DataForSEO verdict before becoming a Move). +6 tests.
 - Gates: tsc clean; broad Sprint-6 regression 66/66. No migration/paid/main.
 - NEXT TARGET: continue exhausting the plan — Profound raw-answers consumer (analyzeProfoundAnswers exists, no caller) OR entity/schema breadth OR more legacy-UI cleanup. Pick the biggest $0 lever next.
+
+## [6] Image-alt analyzer (audit: registered-but-inactive add_image_alt_text; "highest-leverage commerce-adjacent win, no Wix write") — $0/pure
+**DONE [6]** (19:42 PDT):
+- `domains/page-factory/image-alt-analyzer.ts` (pure, cheerio) — analyzeImageAlt(html): extracts <img>, classifies alt as missing/empty/poor/ok, skips decorative (role=presentation/aria-hidden) + tracking pixels, and proposes deterministic alt text from the filename stem (+ page-title fallback for hash-only names; never invented). suggestAltText + summarizeImageAlt. +6 tests.
+- Note: PageSnapshots don't store raw HTML → end-to-end wiring would fetch own-page HTML via the existing polite-fetch ($0); the pure analyzer is the reusable core (works on any HTML).
+- Gates: tsc clean; 12/12 page-factory. No migration/paid/main.
+- NEXT TARGET: keep exhausting the plan with $0/no-migration levers (entity/schema breadth via composeSchema, or wire one of these engines end-to-end). Final-hour gate after 23:00 PT.
