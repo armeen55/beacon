@@ -72,6 +72,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-newpages", label: "New pages" },
   { id: "sec-opportunities-radar", label: "New opportunities" },
   { id: "sec-implement", label: "Implement" },
+  { id: "sec-ai-traffic", label: "AI traffic" },
   { id: "sec-entity", label: "Entity" },
 ];
 import { TodayMovesHeroSection } from "./today-moves-hero";
@@ -96,6 +97,7 @@ import { TodayToolsSection } from "./today-tools-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { TodayOpportunitiesSection } from "./today-opportunities-section";
 import { ExecutionSection } from "./execution-section";
+import { ProfoundDeepSection } from "./profound-deep-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -445,6 +447,13 @@ async function TodayV2SectionedContent() {
       <div id="sec-implement" className="scroll-mt-24">
         <Suspense fallback={null}>
           <ExecutionSection />
+        </Suspense>
+      </div>
+      {/* AI traffic (2026-06-25, Sprint 6) — resurrected Profound bot+referral data:
+          AI-referred visits + uncrawled valuable pages. Self-hides when no data. */}
+      <div id="sec-ai-traffic" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <ProfoundDeepSection />
         </Suspense>
       </div>
       {/* MAX_SEO_AEO Phase 6 (final) — the daily GOLDEN PATH strip. Sits at
