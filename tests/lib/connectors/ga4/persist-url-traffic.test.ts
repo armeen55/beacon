@@ -67,6 +67,11 @@ vi.mock("@/lib/logger", () => ({
 // domain to normalize against. Default is Ritz's production domain;
 // individual tests override via `_businessConfigDomain.current`.
 const _businessConfigDomain = { current: "ritzbuilders.com" };
+// 2026-06-26: the Supabase-backed resolver the persist now PREFERS. Default null
+// → persist falls back to the sync getBusinessConfig mock above (preserving the
+// existing full-URL assertions). A test sets `.current` to a domain to simulate a
+// Supabase-only tenant whose domain lives ONLY in the business_config row.
+const _hydratedDomain: { current: string | null } = { current: null };
 vi.mock("@/lib/business-config", () => ({
   getBusinessConfig: () => ({
     name: "Ritz Builders",
@@ -76,11 +81,17 @@ vi.mock("@/lib/business-config", () => ({
     address: "",
     yelpBusinessId: "",
   }),
-  // Async Supabase-backed resolver — returns null in tests so persist falls back
-  // to the sync getBusinessConfig mock above (preserving the existing
-  // full-URL-normalization assertions). Real code prefers this for Supabase-only
-  // tenants whose domain isn't in the sync chain.
-  hydrateBusinessConfigFromSupabase: async () => null,
+  hydrateBusinessConfigFromSupabase: async () =>
+    _hydratedDomain.current == null
+      ? null
+      : {
+          name: "Supabase Tenant",
+          domain: _hydratedDomain.current,
+          industry: "",
+          phone: "",
+          address: "",
+          yelpBusinessId: "",
+        },
 }));
 
 beforeEach(() => {
@@ -95,6 +106,7 @@ beforeEach(() => {
   _logWarn.mockReset();
   _logInfo.mockReset();
   _businessConfigDomain.current = "ritzbuilders.com";
+  _hydratedDomain.current = null;
 });
 
 // Re-import after mocks.
@@ -370,6 +382,31 @@ describe("persistGa4UrlTraffic — happy path", () => {
       expect(typeof arr[i]!.last_synced_at).toBe("string");
       expect(typeof arr[i]!.updated_at).toBe("string");
     }
+  });
+
+  it("Supabase-only tenant: sync domain empty but hydrate provides it → stores FULL URLs, not path-only (2026-06-26 regression)", async () => {
+    // The exact production bug: the sync getBusinessConfig returns a placeholder
+    // (empty domain) for a tenant whose domain lives ONLY in the Supabase
+    // business_config row (Iranopedia). Before the fix the persist stored
+    // path-only ("/cities"), doubling rows + breaking Mode A matching. Now it
+    // resolves via hydrateBusinessConfigFromSupabase first.
+    _businessConfigDomain.current = ""; // sync env/file chain has NO domain
+    _hydratedDomain.current = "iranopedia.com"; // domain only in the Supabase row
+    _runReportMock.mockResolvedValue({
+      ok: true,
+      rows: [
+        { url: "/cities", date: "2026-05-19", sessions: 7, engaged_sessions: 4, conversions: 0 },
+      ],
+    });
+    _upsertMock.mockResolvedValue({ error: null });
+
+    const r = await persistGa4UrlTraffic(HAPPY_ARGS);
+    expect(r).toMatchObject({ ok: true, rows_upserted: 1 });
+
+    const [upsertedRows] = _upsertMock.mock.calls[0]!;
+    const arr = upsertedRows as Array<Record<string, unknown>>;
+    // Full URL via the hydrated domain, NOT the raw "/cities" path.
+    expect(arr[0]!.url).toBe("https://iranopedia.com/cities");
   });
 
   it("does NOT upsert raw `pagePath` — every stored row.url starts with https://", async () => {
