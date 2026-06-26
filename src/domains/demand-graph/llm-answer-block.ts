@@ -58,7 +58,9 @@ export async function draftAnswerBlockWithLLM(
   if (!apiKey) return { status: "off" };
 
   const projectedCostUsd = 0.01;
-  const budget = await checkBudget({ projectedCostUsd }).catch(() => ({ allowed: true as const }));
+  // B82: fail CLOSED on an unknown budget (was fail-OPEN — risked uncapped LLM spend
+  // when the spend ledger/tenant-ctx read threw). Matches the DataForSEO/adjudicator caps.
+  const budget = await checkBudget({ projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable — failing closed" }));
   if (budget.allowed === false) {
     return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
@@ -148,7 +150,9 @@ export async function draftFaqSchemaWithLLM(input: FaqDraftInput): Promise<FaqDr
   const questions = input.faqs.filter(Boolean).slice(0, 6);
   if (questions.length === 0) return { status: "rejected", reason: "no_questions" };
 
-  const budget = await checkBudget({ projectedCostUsd: 0.02 }).catch(() => ({ allowed: true as const }));
+  // B82: fail CLOSED on an unknown budget (was fail-OPEN). FAQ-schema drafting can
+  // loop per question, so an uncapped path here is the highest LLM-spend risk.
+  const budget = await checkBudget({ projectedCostUsd: 0.02 }).catch(() => ({ allowed: false as const, reason: "budget check unavailable — failing closed" }));
   if (budget.allowed === false) {
     return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }

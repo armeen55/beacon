@@ -172,7 +172,10 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   if (!complete) return { status: "off" }; // configured "on" but no key → off
 
   const projectedCostUsd = req.projectedCostUsd ?? 0.02;
-  const budget = await checkBudget({ projectedCostUsd }).catch(() => ({ allowed: true as const }));
+  // B82: fail CLOSED on an unknown budget (Supabase down / tenant-ctx error) — a
+  // paid LLM call must NOT fire when spend can't be verified (matches the DataForSEO
+  // + adjudicator caps; was fail-OPEN `allowed: true`, risking uncapped spend).
+  const budget = await checkBudget({ projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable — failing closed" }));
   if (budget.allowed === false) {
     return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
