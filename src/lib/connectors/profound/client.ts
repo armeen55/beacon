@@ -453,8 +453,12 @@ export type ProfoundAnswerRow = {
   response: string;
   /** Entity/brand names the answer mentioned (Profound's own extraction). */
   mentions: string[];
-  /** Hostnames the answer cited (from citation_details[].hostname). */
+  /** Full URLs the answer cited (the `citations` field — string[] of URLs). */
+  citationUrls: string[];
+  /** Hostnames derived from `citationUrls` (www-stripped). */
   citationHostnames: string[];
+  /** Profound's theme tags for this answer (may be empty). */
+  themes: string[];
   topic: string | null;
   model: string | null;
   /** The tracked asset this answer is about (when prompt_type=visibility). */
@@ -465,13 +469,37 @@ export type ProfoundAnswerRow = {
 function strArr(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
-function citationHosts(v: unknown): string[] {
-  if (!Array.isArray(v)) return [];
+
+/** Hostname (www-stripped, lowercased) from a URL string; "" when unparseable. */
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Citation extractor. VERIFIED LIVE 2026-06-26 against the Iranopedia topic:
+ * the `/v1/prompts/answers` row carries citations in a `citations` field that
+ * is a STRING ARRAY of full URLs (e.g. "https://www.thebump.com/b/persian-baby-names"),
+ * NOT a `citation_details[].hostname` object array. The prior decoder read
+ * `citation_details` → always empty → the whole per-prompt citation signal was
+ * dead. Defensive: also tolerate the documented `citation_details[]` object
+ * shape (hostname OR url) so a future API shape still decodes.
+ */
+function extractCitationUrls(r: Record<string, unknown>): string[] {
+  // Primary (verified): `citations` is string[] of URLs.
+  const urls = strArr(r.citations);
+  if (urls.length > 0) return urls;
+  // Fallback: `citation_details` object array with url/hostname.
+  const details = Array.isArray(r.citation_details) ? r.citation_details : [];
   const out: string[] = [];
-  for (const c of v) {
+  for (const c of details) {
     if (c && typeof c === "object") {
-      const h = (c as Record<string, unknown>).hostname;
-      if (typeof h === "string" && h) out.push(h);
+      const o = c as Record<string, unknown>;
+      const u = typeof o.url === "string" ? o.url : typeof o.hostname === "string" ? o.hostname : "";
+      if (u) out.push(u);
     }
   }
   return out;
@@ -488,12 +516,18 @@ export function decodeProfoundAnswers(
   for (const d of data) {
     if (!d || typeof d !== "object") continue;
     const r = d as Record<string, unknown>;
+    const citationUrls = extractCitationUrls(r);
+    const citationHostnames = [
+      ...new Set(citationUrls.map((u) => (u.includes("://") ? hostnameOf(u) : u.replace(/^www\./i, "").toLowerCase())).filter(Boolean)),
+    ];
     rows.push({
       promptId: typeof r.prompt_id === "string" ? r.prompt_id : null,
       prompt: typeof r.prompt === "string" ? r.prompt : "",
       response: typeof r.response === "string" ? r.response : "",
       mentions: strArr(r.mentions),
-      citationHostnames: citationHosts(r.citation_details),
+      citationUrls,
+      citationHostnames,
+      themes: strArr(r.themes),
       topic: typeof r.topic === "string" ? r.topic : null,
       model: typeof r.model === "string" ? r.model : null,
       asset: typeof r.asset === "string" ? r.asset : null,
