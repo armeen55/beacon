@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-26 — GA4 REVENUE MIGRATION SPRINT · branch claude/ga4-revenue-migration (commits 186d765c..f585fc49, NOT merged, migration NOT applied)
+
+Operator-approved: real GA4 revenue-aware scoring without breaking existing metrics. Branch-only, additive migration (unapplied), no deploy/publish/paid, conversion fallback preserved.
+- **Root cause fixed:** load-graph fed `conversions28d` into build-graph's dollar-shaped `dollarMult` (conversions-as-dollars). Now uses REAL revenue + a bounded multiplier; conversion-only pages get an honest `conversions` signal, not `$`.
+- **Migration (additive, NOT applied):** `2026-06-26_ga4_url_traffic_revenue.sql` — 6 nullable revenue columns on ga4_url_traffic; NULL=unknown, observed-0 via revenue_synced_at; DROP COLUMN rollback in-file.
+- **Sync:** separate `runGa4RevenueReport` (traffic path untouched); persist enriches best-effort (traffic always persists; failure omits columns; `revenue_unavailable` for no-ecommerce). Tests mock GA4 — no live calls.
+- **Normalization + scoring (pure):** ga4-revenue.ts (confidence ladder, divide-by-zero-safe ratios, bounded multiplier — real $ capped 4.0, conversion fallback capped 2.0, neutral never punishes). Wired into the scorer + load-graph (isolated fail-soft read so existing dashboards keep working pre-migration).
+- **Dry-run (READ-ONLY):** Iranopedia 27,205 rows (1,482/28d), migration unapplied (42703 → fallback confirmed), GA4 disconnected/no-property (backfill also needs reconnect). No prod mutation, no live GA4 call.
+- **Verified:** `tsc --noEmit` exit 0; **323 tests / 22 files** green. NO migration applied · NO live GA4 · NO prod data mutated · NOT merged · NOT deployed.
+
 ## 2026-06-25 — Production UI-consistency + data-bridge fix pass (operator-directed) · branch claude/ui-consistency-pass (commit d29504e5, NOT merged)
 
 After the operator's live prod QA surfaced 6 product/data-consistency findings, ran a 6-agent read-only root-cause workflow + live Supabase/connector probes → **3 real bugs fixed, 2 expected-behavior (1 copy-fixed + 1 reported), 1 sound.**
