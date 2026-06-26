@@ -504,6 +504,39 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     expect(h.healthReason).toBeNull();
   });
 
+  it("soft-disconnected but FRESH data (< STALE_DAYS) → needs_attention 'showing data', NOT a bare Connect → (#3 QA fix)", async () => {
+    // Operator-reported bug: a Google token soft-disconnected (e.g. testing-mode
+    // 7-day refresh-token expiry) yet the last sync landed days ago and the
+    // dashboard is rendering that data. A bare "Connect →" then reads as "no
+    // data / broken". When data is genuinely fresh, surface needs_attention + a
+    // reconnect nudge so the card matches what the page shows.
+    await saveConnectorToken(
+      gscToken({
+        disconnected_at: "2026-06-10T00:00:00Z",
+        last_synced_at: new Date(NOW - 3 * DAY).toISOString(),
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe(
+      "Showing data from 3 days ago. Reconnect to refresh.",
+    );
+  });
+
+  it("soft-disconnected with STALE data (> STALE_DAYS) → stays not_connected (#3 boundary)", async () => {
+    await saveConnectorToken(
+      gscToken({
+        disconnected_at: "2026-06-10T00:00:00Z",
+        last_synced_at: new Date(NOW - 30 * DAY).toISOString(),
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("not_connected");
+    expect(h.healthReason).toBeNull();
+  });
+
   it("GA4 connected but NO property picked → needs_attention with the pick-property reason", async () => {
     await saveConnectorToken(
       ga4Token({ last_synced_at: "2026-06-14T00:00:00Z" }),
