@@ -1,7 +1,8 @@
 -- Migration: 2026-06-26_ga4_url_traffic_revenue.sql
 -- Author:    Claude (GA4 revenue migration sprint) — operator-approved scope.
--- Status:    NOT YET APPLIED — operator-gated. Branch claude/ga4-revenue-migration.
---            Apply only after operator review (see the sprint's final report).
+-- Status:    APPLIED 2026-06-26 to beacon-main (operator-approved) via the Supabase
+--            apply_migration tool. Verified: 6 nullable columns added, 32,110 rows
+--            preserved (0 deleted/overwritten), all revenue values NULL (unknown).
 -- Project:   vlxwevsdvwxvopkjsewo (beacon-main — current prod, cut over 2026-06-18).
 --
 -- Why this migration exists:
