@@ -20,7 +20,8 @@ export type WorklistView =
   | "new_pages"
   | "store"
   | "tools"
-  | "trends";
+  | "trends"
+  | "fixups";
 
 export type WorklistKind = "move" | "opportunity" | "trend" | "product";
 export type WorklistParent = "content" | "commerce" | "trend" | "tool" | "technical";
@@ -182,6 +183,9 @@ export function sliceWorklist(items: WorklistItem[], view: WorklistView, opts: {
       return items.filter((i) => i.parent === "tool");
     case "trends":
       return items.filter((i) => i.kind === "trend" || i.trend === "rising");
+    case "fixups":
+      // Technical fix-ups: crawlability gaps + page-experience/friction fixes.
+      return items.filter((i) => i.parent === "technical");
     default:
       return items;
   }
@@ -195,5 +199,6 @@ export const WORKLIST_VIEWS: { id: WorklistView; label: string }[] = [
   { id: "store", label: "Store" },
   { id: "tools", label: "Tools" },
   { id: "trends", label: "Trends" },
+  { id: "fixups", label: "Fix-ups" },
   { id: "all", label: "All" },
 ];

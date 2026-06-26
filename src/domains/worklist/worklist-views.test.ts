@@ -90,3 +90,15 @@ describe("buildWorklist commerce URL signal", () => {
     expect(w.find((i) => i.id === "mv-c")!.parent).toBe("content");
   });
 });
+
+describe("sliceWorklist fixups view", () => {
+  it("surfaces technical fix-ups (crawlability + friction)", () => {
+    const w = buildWorklist({
+      crawlGaps: [{ path: "/gold", value: 5000, reason: "AI can't crawl it", severity: "high" }],
+      moves: [{ id: "ux", action: "fix_page_experience", targetUrl: "https://x.com/b", score: 40, demand: 200, confidence: "medium" as const, prepared: false, title: "Fix /b UX" }],
+    });
+    const f = sliceWorklist(w, "fixups");
+    expect(f.length).toBe(2);
+    expect(f.every((i) => i.parent === "technical")).toBe(true);
+  });
+});

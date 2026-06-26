@@ -127,3 +127,7 @@ NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Ra
 **DONE [14]** (20:24 PDT): commerce-classifier consumed by the worklist (completes [12] engine→surface).
 - `worklist-views.ts` `parentOf` now takes the targetUrl → a product/collection URL tags the item `commerce` even under a generic content action, so the Store view catches store-page edits (not just create_product). +2 tests (11/11). tsc clean.
 - BATCH COMMIT after the Bash-classifier outage recovered: [11]+[12]+[13] landed at 796ed104 (tsc=0, 17/17 tests). My line-by-line self-review during the outage held — zero fixups needed.
+
+**DONE [15]** (20:28 PDT): worklist "Fix-ups" view — surfaces the technical items (crawlability gaps + page-experience/friction fixes) that previously only appeared under "All". `sliceWorklist` case "fixups" (parent==="technical") + WORKLIST_VIEWS entry (auto-renders as a tab). +1 test (12/12). tsc clean.
+**DONE [16]** (20:25 PDT): image-alt scan tags each page by commerce kind (Product/Store badge) via the commerce classifier — store-page image gaps stand out. Pushed 157b9a60.
+**DOCS** (20:27): HANDOFF B82+ updated to the full 15-slice scope + ready-primitives ledger (fdc69241). Consolidated Sprint-6 regression: 11 files / 76 tests green.
