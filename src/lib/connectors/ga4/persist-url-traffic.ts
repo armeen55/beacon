@@ -61,7 +61,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 import { runGa4RevenueReport, runGa4UrlTrafficReport } from "./data-api";
 import { normalizeGa4PagePathToFullUrl } from "./normalize-page-path";
 import type { Ga4FailReason, Ga4RevenueRow, Ga4UrlTrafficRow } from "./types";
@@ -267,7 +267,15 @@ export async function persistGa4UrlTraffic(
   // path-only value AND emits a single operator-side warn so the
   // operator can fix the config; Mode A continues to surface
   // `no_traffic_data` honestly in that case.
-  const businessConfig = getBusinessConfig(tenantId);
+  // 2026-06-26 fix: resolve the domain via the ASYNC Supabase-backed config.
+  // Supabase-only tenants (e.g. Iranopedia — domain lives in the business_config
+  // ROW, not the sync env/file chain) returned an empty domain from the sync
+  // getBusinessConfig, so GA4 pages stored PATH-ONLY (/x) instead of full URLs
+  // (https://domain/x) → row doubling + broken Mode A matching + fragmented
+  // page-value/revenue aggregation. hydrate runs the sync chain first (env/file
+  // wins), falls back to the Supabase row, and is fail-soft (null → placeholder).
+  const businessConfig =
+    (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
   const domain = businessConfig.domain ?? "";
   if (domain.trim() === "" && report.rows.length > 0) {
     log.warn(

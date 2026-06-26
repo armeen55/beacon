@@ -76,6 +76,11 @@ vi.mock("@/lib/business-config", () => ({
     address: "",
     yelpBusinessId: "",
   }),
+  // Async Supabase-backed resolver — returns null in tests so persist falls back
+  // to the sync getBusinessConfig mock above (preserving the existing
+  // full-URL-normalization assertions). Real code prefers this for Supabase-only
+  // tenants whose domain isn't in the sync chain.
+  hydrateBusinessConfigFromSupabase: async () => null,
 }));
 
 beforeEach(() => {
