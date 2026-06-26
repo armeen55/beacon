@@ -232,3 +232,17 @@ Third adversarial sweep (rec-detail / Implement panel / worklist filters / list�
 - **Verify:** typecheck clean; worklist-views (12) + implementation-plan (15) tests green. 0 migrations / 0 publish-path / 0 paid / not merged.
 
 **Running total on `claude/ui-consistency-pass`:** operator's 6 findings (4 fixed / 1 reported / 1 sound) + audit-2 (4) + audit-3 (6) = **14 real fixes**, ~6 commits, all green, NOT merged. Adversarial-verify rejected 7 (audit-2) + 7 (audit-3) false positives. Reliability pass (`f15712e2`) already on main; both await operator merge. GA4-revenue migration stays gated.
+
+## DONE [30] (2026-06-25 ~22:51 PT): Cockpit consistency audit-4 + FINAL-HOUR GATE (same branch, commit `96ff044b`, NOT merged)
+Fourth adversarial sweep (cockpit hero/KPIs / numeric-safety / prompts / changes): **1 confirmed of 5; 4 false positives rejected** — yield 6→4→6→1 confirms the cockpit is now clean; stopped the audit loop here (diminishing returns).
+- **Proof-pill "went live" overclaim (HIGH)** — the /changes timeline helping/hurting blurbs asserted "after this change went live", but the lifecycle live-gate only short-circuits pending/not-found rows above the verdict switch; an unclassified row with a helping/hurting verdict reached that copy and stated live-on-site as fact. Reworded to "AI has been mentioning you more/less since this change" — honest in every case (the verdict is measured relative to the change date, not its live-verification). 137 changes-v2 tests green.
+- **Notable rejected (audit-4):** 4 numeric-safety / hero / prompts findings adversarially refuted as pre-guarded or expected.
+
+### 🧪 FINAL-HOUR GATE (per the overnight rule — gate only, NO merge, NO deploy)
+- `npx tsc --noEmit` → **exit 0** (clean).
+- `npm run build` (full production build) → **exit 0** — every route compiles + builds.
+- Broad targeted test gate across ALL touched domains + core → **1040 passed / 83 files** (recommendations, worklist, execution, connectors, changes, today components, demand-graph, reliability, architecture pins). The local full-15k suite is dominated by this env's Supabase statement-timeouts (degraded local→remote reads), so it's left for CI on the branch push where Supabase is clean; the targeted gate is the high-signal local proof.
+- **Branch `claude/ui-consistency-pass` is staged + green for operator review. 0 migrations · 0 publish-path edits · 0 paid calls · NOT merged to main · NOT deployed.**
+
+### FINAL STATUS FOR THE 12 AM REVIEW
+**15 real consistency/trust bugs fixed** this session (operator's 6 → 4 fixed+1 reported+1 sound; +audit-2 4; +audit-3 6; +audit-4 1), across 8 commits on `claude/ui-consistency-pass` (off main `f15712e2`). Adversarial verification rejected **15 false positives** — every shipped fix was double-checked by an independent skeptic agent. Two branches await the operator's merge call: (1) `f15712e2` reliability pass — already FF'd onto main, just needs the Vercel deploy (cap had blocked it); (2) `claude/ui-consistency-pass` — this session's consistency work, ready to merge. The one gated item is the **GA4-revenue migration** (operator's stated next priority). Nothing was merged, deployed, published, or charged.

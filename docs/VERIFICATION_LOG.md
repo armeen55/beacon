@@ -16,6 +16,10 @@ After the operator's live prod QA surfaced 6 product/data-consistency findings, 
 - **#4 AI-Answers honesty** (`ai-visibility-hero.tsx`): empty-state no longer says "Connect an AI-answer source" when the source is connected but visibility sampling is empty.
 - **#2 keyword cache** (expected, reported): local-only `.data/global/` store, empty + ephemeral on Vercel; durable fix = Supabase-backing (migration → operator decision, NOT done). **#6 page-health scan**: sound, no change.
 - **Verified:** `npx tsc --noEmit` exit 0; targeted vitest **130 passed** (opposite-qualifier-guard 9, ai-visibility-hero empty-state, resolve-page-intent ×3, connector-store ×2, data-sources-strip). 0 migrations / 0 publish-path / 0 paid calls / not merged. Browser-preview verification N/A (local dev renders blank: Node 22 undici SSR-streaming bug + remote-Supabase statement-timeouts — covered by tsc + unit tests).
+- **Audit-2 (commit 2f83d83e):** GSC deep-link anchor + proof "+N more" + honest connector copy + `lastSyncedMs` rename (4 confirmed of 15; 11 rejected). +#3 regression guards (371205f0).
+- **Audit-3 (commit 14d83750):** accepted-status tone parity + title_meta charCount + Trends taxonomy + 3 worklist per-view empty hints (6 confirmed of 13; 7 rejected).
+- **Audit-4 (commit 96ff044b):** proof-pill "went live" overclaim → "since this change" (1 confirmed of 5; 4 rejected). Yield 6→4→6→1 = cockpit clean; audit loop stopped.
+- **FINAL-HOUR GATE (2026-06-25 ~22:53 PT):** `npx tsc --noEmit` **exit 0** · `npm run build` (full prod build, all routes) **exit 0** · broad targeted vitest across all touched domains + core = **1040 passed / 83 files**. Full 15k suite left for CI (local env's Supabase statement-timeouts would swamp it with env-failures). **8 commits on `claude/ui-consistency-pass`; NOT merged, NOT deployed; 15 real fixes / 15 false positives rejected.**
 
 ## 2026-06-25 — B82 · Sprint 6 (autonomous): Profound-deep + SERP-teardown fusion + Clarity-router + unified worklist + page-factory + image-alt · branch claude/sprint-6-profound-deep (NOT merged)
 
