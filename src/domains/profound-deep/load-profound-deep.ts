@@ -5,6 +5,7 @@ import { log } from "@/lib/logger";
 import {
   aggregateReferralsByPage,
   summarizeReferrals,
+  overallReferralTrend,
   type ProfoundReferralRow,
   type AiReferralByPage,
 } from "./referral-signals";
@@ -79,6 +80,7 @@ export type ProfoundDeepSignals = {
   hasData: boolean;
   referralsByPage: AiReferralByPage[];
   referralSummary: ReturnType<typeof summarizeReferrals>;
+  referralTrend: ReturnType<typeof overallReferralTrend>;
   botCoverage: BotCoverageByPage[];
   botSummary: ReturnType<typeof summarizeBots>;
   crawlabilityGaps: CrawlabilityGap[];
@@ -103,6 +105,7 @@ export async function loadProfoundDeepSignals(
     hasData: referralRows.length > 0 || botRows.length > 0,
     referralsByPage,
     referralSummary: summarizeReferrals(referralRows),
+    referralTrend: overallReferralTrend(referralRows),
     botCoverage,
     botSummary: summarizeBots(botRows),
     crawlabilityGaps,

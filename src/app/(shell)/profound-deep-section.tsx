@@ -52,7 +52,9 @@ export async function ProfoundDeepSection() {
           </p>
         </div>
         <span className="text-[11px] text-gray-400">
-          {fmt(sig.referralSummary.totalVisits)} AI-referred visits · {fmt(sig.botSummary.totalHits)} crawler hits
+          {fmt(sig.referralSummary.totalVisits)} AI-referred visits
+          {sig.referralTrend.direction !== "unknown" ? ` (${sig.referralTrend.direction === "rising" ? "↑ rising" : sig.referralTrend.direction === "declining" ? "↓ declining" : "→ flat"})` : ""}
+          {" · "}{fmt(sig.botSummary.totalHits)} crawler hits
         </span>
       </div>
 
