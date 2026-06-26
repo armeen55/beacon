@@ -73,6 +73,7 @@ const COCKPIT_SECTIONS: { id: string; label: string }[] = [
   { id: "sec-opportunities-radar", label: "New opportunities" },
   { id: "sec-implement", label: "Implement" },
   { id: "sec-ai-traffic", label: "AI traffic" },
+  { id: "sec-friction-fixes", label: "Friction fixes" },
   { id: "sec-image-alt", label: "Image alt-text" },
   { id: "sec-entity", label: "Entity" },
 ];
@@ -100,6 +101,7 @@ import { TodayOpportunitiesSection } from "./today-opportunities-section";
 import { ExecutionSection } from "./execution-section";
 import { ProfoundDeepSection } from "./profound-deep-section";
 import { ImageAltSection } from "./image-alt-section";
+import { FrictionFixesSection } from "./friction-fixes-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -456,6 +458,13 @@ async function TodayV2SectionedContent() {
       <div id="sec-ai-traffic" className="scroll-mt-24">
         <Suspense fallback={null}>
           <ProfoundDeepSection />
+        </Suspense>
+      </div>
+      {/* Sprint 6 (plan P13) — Clarity as a Move router: the specific fix per page
+          (errors / dead click / rage / intent / buried answer). Self-hides. */}
+      <div id="sec-friction-fixes" className="scroll-mt-24">
+        <Suspense fallback={null}>
+          <FrictionFixesSection />
         </Suspense>
       </div>
       {/* Sprint 6 — image alt-text: operator-triggered $0 scan of owned pages →

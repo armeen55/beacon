@@ -110,3 +110,8 @@ FINAL-HOUR PLAN (after 23:00 PT): full `npm run typecheck` + targeted suite + `n
 - `trend-radar/spike-detector.ts` (NEW, pure): `detectSpikes` flags sharp WoW jumps (≥+35% spike, ≥+100% high), 0→N `emerging` (no %-guess, fail-closed), optional `collapse`; minRecent noise floor; ranked. `describeSpike` for cards. +9 tests, tsc clean.
 - The weekly-trend substrate (buildWeeklyTrend ±8% drift) already exists; this adds the spike threshold the plan calls out as net-new. Ready for a weekly-query loader to surface a Trend Radar view.
 NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Radar surface, OR continue P-sequence.
+
+**DONE [10]** (20:05 PDT): P13 Clarity-as-Move-router — read-only surface (consumes engine [3b]).
+- `friction-fixes-section.tsx` (NEW): loads the cached Clarity loader → routeClarityFriction per page → the SPECIFIC fix (errors / dead-click / rage / intent-mismatch / buried-answer) with plain-language label + evidence, ranked by severity. Self-hides when nothing clears the floor. Mounted in cockpit ("sec-friction-fixes") + jump-nav.
+- $0, read-only, reuses loadClarityPageSignalsForTenant (cached, reliable). tsc clean; router 8/8.
+- Deferred (risk): the score-OVERRIDE half (router decides the move type inside the friction trigger) — touches the tested trigger surface.
