@@ -115,3 +115,11 @@ NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Ra
 - `friction-fixes-section.tsx` (NEW): loads the cached Clarity loader → routeClarityFriction per page → the SPECIFIC fix (errors / dead-click / rage / intent-mismatch / buried-answer) with plain-language label + evidence, ranked by severity. Self-hides when nothing clears the floor. Mounted in cockpit ("sec-friction-fixes") + jump-nav.
 - $0, read-only, reuses loadClarityPageSignalsForTenant (cached, reliable). tsc clean; router 8/8.
 - Deferred (risk): the score-OVERRIDE half (router decides the move type inside the friction trigger) — touches the tested trigger surface.
+
+**DONE [11]** (20:12 PDT): specialist DEBATE made visible (plan P1/P15 trust). `demand-graph/debate-summary.ts` (pure) `summarizeSpecialistDebate` → render-ready voices (operator-labeled, ranked) + objections (veto-first) + headline + consensus%; +4 tests. Attached `debate` to each hero Move ($0 — opinions were ALREADY computed on the hero path) + collapsible "Why Beacon recommends this" panel on the Move card. tsc-verified (exit 0) before the Bash outage.
+
+**DONE [12]** (20:20 PDT): commerce/product URL classifier (plan P8 net-new). `page-factory/commerce-classifier.ts` (pure, tenant-agnostic, configurable) — product/collection/content from URL shape + Wix store membership; +6 tests.
+
+**DONE [13]** (20:24 PDT): product-SEO gap detector (plan P8). `page-factory/product-seo-gaps.ts` (pure) — consumes commerce-classifier → flags product/collection pages missing schema (high) / meta / weak title / image-alt; ranked; +7 tests. Composes with image-alt + schema engines.
+
+> ⚠️ INFRA NOTE (~20:14–20:28 PDT): the Bash safety classifier went into a prolonged outage ("auto mode cannot determine the safety of Bash"). [11] was tsc-verified (exit 0) before it; [12]+[13] are pure modules written during the outage and are PENDING the batch verify (tsc + their tests) + commit the moment Bash recovers. No main/deploy/publish/paid touched. Edit/Write/Read kept working, so building continued.

@@ -19,6 +19,7 @@ import {
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { attachOpinions } from "@/domains/demand-graph/specialist-opinions";
 import { routeMove, type MoveRouterDecision } from "@/domains/demand-graph/move-router";
+import { summarizeSpecialistDebate, type DebateSummary } from "@/domains/demand-graph/debate-summary";
 import {
   buildPreparedMovePack,
   parsePreparedPack,
@@ -99,6 +100,9 @@ export type TodayMove = {
    *  the Move is. Computed in-memory from the EvidencePacket; no writes, no publish,
    *  no paid calls. Null when there's no packet to reason over. */
   specialists: string[];
+  /** Read-only specialist debate (who weighed in, conviction, objections) — $0,
+   *  computed from this Move's already-built opinions. */
+  debate: DebateSummary;
   routerAction: string | null;
   routerRationale: string | null;
   routerConfidence: "high" | "medium" | "low" | null;
@@ -472,6 +476,7 @@ export async function buildTodayMovesData(
         savedAnswerBlock: savedDrafts.get(`${moveId}::answer_block`)?.content ?? null,
         savedFaqJsonLd: savedDrafts.get(`${moveId}::faq`)?.content ?? null,
         specialists: opinions.map((o) => o.specialist),
+        debate: summarizeSpecialistDebate(opinions),
         routerAction: decision?.action ?? null,
         routerRationale: decision?.rationale ?? null,
         routerConfidence: decision?.confidenceLevel ?? null,

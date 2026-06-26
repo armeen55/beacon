@@ -287,6 +287,32 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </div>
       ) : null}
 
+      {m.debate && m.debate.voices.length > 0 ? (
+        <details className="mt-3 rounded-xl border border-gray-200 bg-white px-3 py-2">
+          <summary className="cursor-pointer list-none text-[12px] font-semibold text-gray-700">
+            <span className="text-gray-400">▸ </span>Why Beacon recommends this
+            <span className="ml-1.5 font-normal text-gray-400">— {m.debate.headline}</span>
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            {m.debate.voices.map((v) => (
+              <div key={v.specialist} className="flex items-baseline gap-2 text-[12px]">
+                <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{v.label}</span>
+                <span className="text-gray-700">{v.claim}</span>
+                <span className="ml-auto shrink-0 text-[10px] text-gray-400">{v.confidencePct}%</span>
+              </div>
+            ))}
+            {m.debate.objections.map((o, i) => (
+              <div key={`obj-${i}`} className="flex items-baseline gap-2 text-[12px]">
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${o.severity === "veto" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                  {o.severity === "veto" ? "Blocks" : "Caution"} · {o.label}
+                </span>
+                <span className="text-gray-600">{o.reason}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl bg-gray-50 px-3 py-2.5">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Who AI cites now</div>
