@@ -27,6 +27,20 @@ function topic(over: Partial<ProfoundTopicSignal> = {}): ProfoundTopicSignal {
   };
 }
 
+/** A topic where the tenant IS present (own mentions > 0) — proves the
+ *  Profound workspace actually tracks THIS brand, so absent-topic gaps are
+ *  trustworthy. No competitor → this topic itself never emits a gap; it only
+ *  satisfies the 2026-06-26 "own brand ever tracked" guard. */
+function present(over: Partial<ProfoundTopicSignal> = {}): ProfoundTopicSignal {
+  return topic({
+    categoryId: "cat-present",
+    ownMentions: 6,
+    ownShareOfVoice: 0.4,
+    topCompetitor: null,
+    ...over,
+  });
+}
+
 function run(
   signals: ProfoundTopicSignal[],
   siteRootUrl: string | null = ROOT,
@@ -41,7 +55,7 @@ function run(
 
 describe("profoundAeoGap — emits on a clear, sourced gap", () => {
   it("emits one add_answer_block when a competitor wins a topic the tenant is absent from", () => {
-    const out = run([topic()]);
+    const out = run([topic(), present()]);
     expect(out).toHaveLength(1);
     const c = out[0]!;
     expect(c.trigger_signal).toBe("profound_aeo_gap");
@@ -63,7 +77,7 @@ describe("profoundAeoGap — emits on a clear, sourced gap", () => {
   });
 
   it("customer copy formats the AI-answer count and names the competitor", () => {
-    const out = run([topic({ executions: 1234 })]);
+    const out = run([topic({ executions: 1234 }), present()]);
     expect(out[0]!.customer_copy).toContain("1,234");
     expect(out[0]!.customer_copy).toContain("Rival Wiki");
   });
@@ -72,6 +86,7 @@ describe("profoundAeoGap — emits on a clear, sourced gap", () => {
     const out = run([
       topic({ categoryId: "cat-a", topCompetitor: { assetName: "Weak Co", mentions: 5, shareOfVoice: 0.2 } }),
       topic({ categoryId: "cat-b", topCompetitor: { assetName: "Strong Co", mentions: 30, shareOfVoice: 0.7 } }),
+      present(), // tenant tracked somewhere → absent-topic gaps are trustworthy
     ]);
     expect(out).toHaveLength(1);
     expect(out[0]!.topic_cluster_label).toBe("profound_topic:cat-b");
@@ -82,6 +97,19 @@ describe("profoundAeoGap — emits on a clear, sourced gap", () => {
 describe("profoundAeoGap — abstains on thin / non-gap data", () => {
   it("emits NOTHING on empty signals", () => {
     expect(run([])).toEqual([]);
+  });
+
+  it("suppresses ALL gaps when the tenant's own brand is never present (borrowed workspace tracking a different brand)", () => {
+    // 2026-06-26: Iranopedia's prompts live in a Profound account that tracks
+    // openai.com, so the tenant is NEVER an owned asset → ownMentions 0 on
+    // every topic. Without the guard this would fire a false "you're absent"
+    // gap on each. With it: no own presence anywhere → no sound absence claim
+    // → emit nothing (the citation-domain path covers genuine gaps).
+    const out = run([
+      topic({ categoryId: "cat-a", topCompetitor: { assetName: "Rival A", mentions: 20, shareOfVoice: 0.6 } }),
+      topic({ categoryId: "cat-b", topCompetitor: { assetName: "Rival B", mentions: 30, shareOfVoice: 0.7 } }),
+    ]);
+    expect(out).toEqual([]);
   });
 
   it("abstains when too few AI answers were observed (below the executions floor)", () => {

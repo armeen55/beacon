@@ -82,6 +82,23 @@ export function profoundAeoGap(
   // with no configured domain there is no page to anchor the card on.
   if (siteRootUrl == null || siteRootUrl.length === 0) return [];
 
+  // 2026-06-26 borrowed-workspace guard. This trigger reads `ownMentions`
+  // from `profound_visibility_rows`, where ownership is decided by matching
+  // the tracked `asset_name` (a BRAND) to the tenant's name/domain. On a
+  // borrowed/shared Profound workspace that tracks a DIFFERENT brand (e.g.
+  // Iranopedia's prompts live in an account that tracks "openai.com"), the
+  // tenant is NEVER the tracked asset → ownMentions is 0 on EVERY topic →
+  // this would fire a false "you're absent from AI answers" gap on every
+  // topic. If the tenant's own brand is never present anywhere, we cannot
+  // soundly conclude absence — suppress. Genuine AEO gaps still surface via
+  // the demand-graph's citation-DOMAIN path (loadCompetitorCitedPagesForTenant
+  // matches the tenant's real domain in the cited URLs, independent of which
+  // brand the workspace tracks). No hardcoding — pure over the signal set.
+  const ownBrandEverTracked = signals.some(
+    (s) => s.ownMentions > 0 || s.ownShareOfVoice > 0,
+  );
+  if (!ownBrandEverTracked) return [];
+
   // Clear, sourced gaps only: enough observed answers, tenant absent, a
   // real competitor present. Rank by competitor strength (worst gap first).
   const gaps = signals
