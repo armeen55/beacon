@@ -126,7 +126,55 @@ export type Ga4RunReportResponseBody = {
   dimensionHeaders?: Array<{ name?: string }>;
   metricHeaders?: Array<{ name?: string; type?: string }>;
   rowCount?: number;
+  /** GA4 echoes the property's reporting currency here for revenue reports. */
+  metadata?: { currencyCode?: string; timeZone?: string };
 };
+
+// ─────────────────────────────────────────────────────────────────────
+// GA4 revenue report shapes (2026-06-26, GA4 revenue migration) — additive.
+// A SEPARATE report from the traffic report so a revenue-specific failure can
+// never break the proven traffic sync (operator rule: keep traffic successful
+// even if revenue is unavailable). Same (date, url) grain.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * A single narrowed revenue row keyed by (date, url). Values are GA4's parsed
+ * numbers; `null` when GA4 omitted that metric for the row (defensive — the
+ * normalization layer treats null as "not contributing", never as 0).
+ */
+export type Ga4RevenueRow = {
+  date: string;
+  url: string;
+  totalRevenue: number | null;
+  purchaseRevenue: number | null;
+  transactions: number | null;
+};
+
+/**
+ * Revenue report failure reasons: the shared GA4 reasons PLUS
+ * `revenue_unavailable` — the property exposes no usable revenue metrics
+ * (e.g. a 400 naming a revenue metric). The caller treats this as "revenue
+ * unknown" WITHOUT failing the traffic sync.
+ */
+export type Ga4RevenueFailReason = Ga4FailReason | "revenue_unavailable";
+
+/** Discriminated result for `runGa4RevenueReport`. Mirrors the traffic union. */
+export type Ga4RevenueReportResult =
+  | {
+      ok: true;
+      rows: Ga4RevenueRow[];
+      /** Property reporting currency (ISO 4217) from response metadata; null if absent. */
+      currency: string | null;
+      rowCount?: number;
+      /** true when known-incomplete (MAX_PAGES hit or a later page errored). */
+      truncated?: boolean;
+    }
+  | {
+      ok: false;
+      reason: Ga4RevenueFailReason;
+      status?: number;
+      message?: string;
+    };
 
 /**
  * Args for `runGa4UrlTrafficReport`. Every field is required;

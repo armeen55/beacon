@@ -30,8 +30,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ─────────────────────────────────────────────────────────────────────
 
 const _runReportMock = vi.fn();
+const _runRevenueMock = vi.fn();
 vi.mock("@/lib/connectors/ga4/data-api", () => ({
   runGa4UrlTrafficReport: (...args: unknown[]) => _runReportMock(...args),
+  runGa4RevenueReport: (...args: unknown[]) => _runRevenueMock(...args),
 }));
 
 const _upsertMock = vi.fn();
@@ -78,6 +80,11 @@ vi.mock("@/lib/business-config", () => ({
 
 beforeEach(() => {
   _runReportMock.mockReset();
+  _runRevenueMock.mockReset();
+  // Default: revenue unavailable, so the existing traffic-only assertions about
+  // upsert row shape stay valid (no revenue columns added). Revenue-specific
+  // tests override this.
+  _runRevenueMock.mockResolvedValue({ ok: false, reason: "revenue_unavailable" });
   _upsertMock.mockReset();
   _supabaseAdminThrows = false;
   _logWarn.mockReset();
@@ -499,5 +506,74 @@ describe("persistGa4UrlTraffic — Supabase fail-soft", () => {
     });
     _upsertMock.mockResolvedValue({ error: { message: "boom" } });
     await expect(persistGa4UrlTraffic(HAPPY_ARGS)).resolves.toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// 2026-06-26 — revenue enrichment (best-effort; never fails traffic)
+// ─────────────────────────────────────────────────────────────────────
+
+describe("persistGa4UrlTraffic — revenue enrichment", () => {
+  const TRAFFIC = [
+    { url: "/buy", date: "2026-06-10", sessions: 100, engaged_sessions: 60, conversions: 5 },
+    { url: "/blog", date: "2026-06-10", sessions: 50, engaged_sessions: 20, conversions: 0 },
+  ];
+
+  it("revenue OK → rows get revenue columns + revenue_synced_at; absent page = observed 0", async () => {
+    _runReportMock.mockResolvedValue({ ok: true, rows: TRAFFIC });
+    _runRevenueMock.mockResolvedValue({
+      ok: true,
+      currency: "USD",
+      rows: [
+        // only /buy has revenue; /blog is absent → observed 0
+        { date: "2026-06-10", url: "/buy", totalRevenue: 800, purchaseRevenue: 750, transactions: 5 },
+      ],
+    });
+    _upsertMock.mockResolvedValue({ error: null });
+
+    const r = await persistGa4UrlTraffic(HAPPY_ARGS);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.revenue?.synced).toBe(true);
+      expect(r.revenue?.currency).toBe("USD");
+      expect(r.revenue?.rows_with_revenue).toBe(1);
+    }
+    const arr = _upsertMock.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    const buy = arr.find((x) => String(x.url).endsWith("/buy"))!;
+    const blog = arr.find((x) => String(x.url).endsWith("/blog"))!;
+    expect(buy.purchase_revenue).toBe(750);
+    expect(buy.revenue_synced_at).toBeTruthy();
+    expect(buy.revenue_source).toBe("ga4_purchase_revenue");
+    // /blog: revenue call succeeded but no revenue row → OBSERVED 0, still stamped
+    expect(blog.purchase_revenue).toBe(0);
+    expect(blog.total_revenue).toBe(0);
+    expect(blog.revenue_synced_at).toBeTruthy();
+  });
+
+  it("revenue UNAVAILABLE → traffic still persists; revenue columns OMITTED (not wiped)", async () => {
+    _runReportMock.mockResolvedValue({ ok: true, rows: TRAFFIC });
+    _runRevenueMock.mockResolvedValue({ ok: false, reason: "revenue_unavailable" });
+    _upsertMock.mockResolvedValue({ error: null });
+
+    const r = await persistGa4UrlTraffic(HAPPY_ARGS);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.rows_upserted).toBe(2); // traffic persisted regardless
+      expect(r.revenue?.synced).toBe(false);
+      expect(r.revenue?.reason).toBe("revenue_unavailable");
+    }
+    const arr = _upsertMock.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    // revenue columns must be ABSENT so the upsert can't clobber prior revenue
+    expect("revenue_synced_at" in arr[0]!).toBe(false);
+    expect("purchase_revenue" in arr[0]!).toBe(false);
+  });
+
+  it("revenue API error → still ok for traffic, revenue.synced false", async () => {
+    _runReportMock.mockResolvedValue({ ok: true, rows: TRAFFIC });
+    _runRevenueMock.mockResolvedValue({ ok: false, reason: "api_error" });
+    _upsertMock.mockResolvedValue({ error: null });
+    const r = await persistGa4UrlTraffic(HAPPY_ARGS);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.revenue?.synced).toBe(false);
   });
 });

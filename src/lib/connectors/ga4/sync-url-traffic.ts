@@ -40,6 +40,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import {
   computeRefreshDateRange,
   persistGa4UrlTraffic,
+  type Ga4RevenuePersistStatus,
 } from "./persist-url-traffic";
 
 export type Ga4SyncResult =
@@ -54,6 +55,10 @@ export type Ga4SyncResult =
        *  but incomplete — surfaced so the cron summary doesn't read as a clean
        *  full pull. */
       truncated?: boolean;
+      /** 2026-06-26: revenue enrichment outcome. Traffic syncing succeeds
+       *  regardless; this reports whether revenue was also captured (synced),
+       *  was unavailable, or failed — so the cron summary is honest. */
+      revenue?: Ga4RevenuePersistStatus;
     };
 
 export async function syncGa4UrlTrafficForTenant(args: {
@@ -108,12 +113,23 @@ export async function syncGa4UrlTrafficForTenant(args: {
       rows_fetched: result.rows_fetched,
     });
   }
+  // Revenue is best-effort: traffic synced regardless. Log when revenue could
+  // NOT be captured so the operator sees WHY page-value falls back to
+  // conversions (e.g. revenue_unavailable = property has no ecommerce).
+  if (result.revenue && !result.revenue.synced) {
+    log.warn("[ga4-sync] traffic synced but revenue NOT captured; using conversion fallback", {
+      tenantId,
+      property: propertyId,
+      reason: result.revenue.reason,
+    });
+  }
   return {
     synced: true,
     property: propertyId,
     rows_fetched: result.rows_fetched,
     rows_upserted: result.rows_upserted,
     ...(result.truncated ? { truncated: true } : {}),
+    ...(result.revenue ? { revenue: result.revenue } : {}),
   };
 }
 

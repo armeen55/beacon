@@ -60,6 +60,8 @@ import { evaluateExpiry } from "@/lib/connectors/gsc/expiry-handler";
 import { log } from "@/lib/logger";
 
 import type {
+  Ga4RevenueReportResult,
+  Ga4RevenueRow,
   Ga4RunReportArgs,
   Ga4RunReportResponseBody,
   Ga4UrlTrafficReportResult,
@@ -447,6 +449,242 @@ export async function runGa4UrlTrafficReport(
   }
 
   const result: Ga4UrlTrafficReportResult = { ok: true, rows };
+  if (reportedRowCount != null) result.rowCount = reportedRowCount;
+  if (truncated) result.truncated = true;
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GA4 revenue report (2026-06-26, GA4 revenue migration) — SEPARATE from the
+// traffic report so a revenue-specific failure NEVER breaks the proven traffic
+// sync. Same (date, url) grain + same pagination/auth posture.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Revenue metric names requested from GA4 (all standard GA4 metrics). */
+export const GA4_REVENUE_METRICS = ["totalRevenue", "purchaseRevenue", "transactions"] as const;
+
+/** Build the revenue `runReport` body — date×pagePath dims + revenue metrics.
+ *  Pure; exported for tests. */
+export function buildRevenueReportBody(args: {
+  startDate: string;
+  endDate: string;
+  offset?: number;
+  limit?: number;
+}): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
+    dimensions: [{ name: "date" }, { name: "pagePath" }],
+    metrics: GA4_REVENUE_METRICS.map((name) => ({ name })),
+    // Total deterministic order for exact offset pagination (mirrors traffic).
+    orderBys: [
+      { dimension: { dimensionName: "date" } },
+      { dimension: { dimensionName: "pagePath" } },
+    ],
+    limit: args.limit ?? GA4_PAGE_SIZE,
+    offset: args.offset ?? 0,
+  };
+}
+
+function parseMetricFloat(raw: string | undefined): number | null {
+  if (raw == null) return null;
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Narrow a GA4 revenue `runReport` body into `Ga4RevenueRow[]`, mapping metric
+ * values BY HEADER NAME (not index) so a reordered/partial metric set never
+ * misassigns a value. Drops malformed rows. Pure; exported for tests.
+ */
+export function narrowRevenueRows(
+  body: Ga4RunReportResponseBody | null | undefined,
+): Ga4RevenueRow[] {
+  if (body == null || typeof body !== "object") return [];
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  const headers = Array.isArray(body.metricHeaders) ? body.metricHeaders : [];
+  const idxOf = (name: string): number =>
+    headers.findIndex((h) => h?.name === name);
+  const iTotal = idxOf("totalRevenue");
+  const iPurchase = idxOf("purchaseRevenue");
+  const iTxns = idxOf("transactions");
+  const out: Ga4RevenueRow[] = [];
+  for (const row of rows) {
+    if (row == null || typeof row !== "object") continue;
+    const dims = Array.isArray(row.dimensionValues) ? row.dimensionValues : [];
+    const mets = Array.isArray(row.metricValues) ? row.metricValues : [];
+    const dateRaw = typeof dims[0]?.value === "string" ? dims[0]!.value : null;
+    const url = typeof dims[1]?.value === "string" ? dims[1]!.value : null;
+    if (dateRaw == null || url == null) continue;
+    if (!/^\d{8}$/.test(dateRaw)) continue;
+    const date = `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}`;
+    const txnsRaw = iTxns >= 0 ? mets[iTxns]?.value : undefined;
+    out.push({
+      date,
+      url,
+      totalRevenue: iTotal >= 0 ? parseMetricFloat(mets[iTotal]?.value) : null,
+      purchaseRevenue: iPurchase >= 0 ? parseMetricFloat(mets[iPurchase]?.value) : null,
+      transactions:
+        txnsRaw != null && Number.isFinite(Number.parseInt(txnsRaw, 10))
+          ? Number.parseInt(txnsRaw, 10)
+          : null,
+    });
+  }
+  return out;
+}
+
+/** True when a GA4 400 body indicates a revenue metric is unusable for this
+ *  property (→ treat as revenue_unavailable, not a generic error). */
+function looksLikeRevenueUnavailable(status: number | undefined, body: string): boolean {
+  if (status !== 400) return false;
+  const b = body.toLowerCase();
+  return (
+    b.includes("totalrevenue") ||
+    b.includes("purchaserevenue") ||
+    b.includes("transactions") ||
+    b.includes("not a valid metric") ||
+    b.includes("incompatib")
+  );
+}
+
+/**
+ * Run the GA4 revenue `runReport`. Fail-soft discriminated union; NEVER throws.
+ * Mirrors `runGa4UrlTrafficReport`'s auth/refresh/pagination, but on a 400 that
+ * names a revenue metric returns `{ ok: false, reason: "revenue_unavailable" }`
+ * so the caller marks revenue UNKNOWN without failing the traffic sync.
+ */
+export async function runGa4RevenueReport(
+  args: Ga4RunReportArgs,
+): Promise<Ga4RevenueReportResult> {
+  const { tenantId, propertyId, startDate, endDate } = args;
+  if (!tenantId) return { ok: false, reason: "no_token", message: "missing tenantId" };
+  if (!propertyId) return { ok: false, reason: "api_error", message: "missing propertyId" };
+  if (!startDate || !endDate) return { ok: false, reason: "api_error", message: "missing date range" };
+
+  const token = await getGoogleConnectorToken("ga4", tenantId);
+  if (token == null) return { ok: false, reason: "no_token" };
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return { ok: false, reason: "no_token", message: "missing scope" };
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return { ok: false, reason: "disconnected" };
+  }
+
+  const expiryStatus = evaluateExpiry({ token, now: new Date() });
+  if (expiryStatus === "stale_over_7d") {
+    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
+  }
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  }
+
+  const url = buildRunReportUrl(propertyId);
+
+  async function fetchRevenuePage(
+    pageToken: string,
+    offset: number,
+  ): Promise<
+    | { ok: true; body: Ga4RunReportResponseBody }
+    | { ok: false; status?: number; kind: "fetch_threw" | "non_2xx" | "json_parse" | "empty"; errorBody?: string }
+  > {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${pageToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(buildRevenueReportBody({ startDate, endDate, offset })),
+      });
+    } catch {
+      return { ok: false, kind: "fetch_threw" };
+    }
+    if (!response.ok) {
+      let errorBody = "";
+      try {
+        errorBody = (await response.text()).slice(0, 500);
+      } catch {
+        errorBody = "(body unavailable)";
+      }
+      return { ok: false, kind: "non_2xx", status: response.status, errorBody };
+    }
+    try {
+      const data = (await response.json()) as Ga4RunReportResponseBody | null;
+      return data == null ? { ok: false, kind: "empty" } : { ok: true, body: data };
+    } catch {
+      return { ok: false, kind: "json_parse" };
+    }
+  }
+
+  let page0 = await fetchRevenuePage(accessToken, 0);
+  if (!page0.ok && page0.kind === "fetch_threw") {
+    log.warn("[ga4-revenue] fetch threw; api_error", { tenantId });
+    return { ok: false, reason: "api_error", message: "fetch threw" };
+  }
+  if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
+    try {
+      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+      const retry = await fetchRevenuePage(accessToken, 0);
+      if (retry.ok) page0 = retry;
+      else if (retry.kind === "non_2xx" && looksLikeRevenueUnavailable(retry.status, retry.errorBody ?? ""))
+        return { ok: false, reason: "revenue_unavailable", status: retry.status };
+      else if (retry.kind === "non_2xx")
+        return { ok: false, reason: "token_expired", status: retry.status, message: "401 after refresh" };
+      else return { ok: false, reason: "api_error", message: retry.kind };
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  } else if (!page0.ok && page0.kind === "non_2xx") {
+    if (looksLikeRevenueUnavailable(page0.status, page0.errorBody ?? "")) {
+      log.warn("[ga4-revenue] property has no usable revenue metrics; revenue_unavailable", {
+        tenantId,
+        status: page0.status,
+      });
+      return { ok: false, reason: "revenue_unavailable", status: page0.status };
+    }
+    log.warn("[ga4-revenue] non-2xx from GA4 Data API", {
+      tenantId,
+      status: page0.status,
+      body: page0.errorBody ?? "",
+    });
+    return { ok: false, reason: "api_error", status: page0.status, message: "non-2xx response" };
+  } else if (!page0.ok) {
+    return { ok: false, reason: "api_error", message: page0.kind };
+  }
+
+  const rows: Ga4RevenueRow[] = narrowRevenueRows(page0.body);
+  const currency =
+    typeof page0.body.metadata?.currencyCode === "string" ? page0.body.metadata.currencyCode : null;
+  const reportedRowCount = parseRowCount(page0.body.rowCount);
+  const haveTotal = reportedRowCount != null;
+  const totalRowCount = reportedRowCount ?? rows.length;
+  const rawPageRowCount = (b: Ga4RunReportResponseBody | null | undefined): number =>
+    Array.isArray(b?.rows) ? b!.rows.length : 0;
+  let lastRawPageFull = rawPageRowCount(page0.body) >= GA4_PAGE_SIZE;
+
+  let truncated = false;
+  let pagesFetched = 1;
+  for (let offset = GA4_PAGE_SIZE; ; offset += GA4_PAGE_SIZE) {
+    const moreExpected = haveTotal ? offset < totalRowCount : lastRawPageFull;
+    if (!moreExpected) break;
+    if (pagesFetched >= GA4_MAX_PAGES) {
+      truncated = true;
+      break;
+    }
+    const page = await fetchRevenuePage(accessToken, offset);
+    pagesFetched += 1;
+    if (!page.ok) {
+      truncated = true;
+      log.warn("[ga4-revenue] subsequent page failed; returning partial", { tenantId, offset });
+      break;
+    }
+    for (const r of narrowRevenueRows(page.body)) rows.push(r);
+    lastRawPageFull = rawPageRowCount(page.body) >= GA4_PAGE_SIZE;
+  }
+
+  const result: Ga4RevenueReportResult = { ok: true, rows, currency };
   if (reportedRowCount != null) result.rowCount = reportedRowCount;
   if (truncated) result.truncated = true;
   return result;
