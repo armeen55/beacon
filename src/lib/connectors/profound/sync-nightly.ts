@@ -26,7 +26,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 
 import {
   fetchProfoundCategories,
@@ -353,7 +353,11 @@ export async function syncProfoundNightlyForTenant(
   // to 0 rows (non-2xx → null).
   let botRows = 0;
   let referralRows = 0;
-  const domain = getBusinessConfig(tenantId)
+  // 2026-06-26: Supabase-backed domain resolution (mirrors GA4/SEMrush) so a
+  // Supabase-only tenant's bots/referrals reports aren't silently skipped on an
+  // empty domain. hydrate runs the sync chain first, then the business_config row.
+  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+  const domain = cfg
     .domain?.trim()
     .replace(/^https?:\/\//, "")
     .replace(/\/$/, "");

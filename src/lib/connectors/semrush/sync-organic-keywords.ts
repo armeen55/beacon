@@ -23,7 +23,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 import { log } from "@/lib/logger";
 
 import {
@@ -45,7 +45,12 @@ export async function syncSemrushOrganicKeywordsForTenant(args: {
   const { tenantId } = args;
   const now = args.now ?? new Date();
 
-  const domain = getBusinessConfig(tenantId)
+  // 2026-06-26: resolve via the Supabase-backed config so Supabase-only tenants
+  // (domain in the business_config row, not the sync env/file chain) don't get
+  // an empty domain → "no_domain" skip → zero keywords. Mirrors the GA4 persist
+  // fix + GSC's registry fallback. hydrate runs the sync chain first.
+  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+  const domain = cfg
     .domain?.trim()
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "");
@@ -160,7 +165,12 @@ export async function syncSemrushKeywordGapForTenant(args: {
     return { synced: false, reason: "not_gap_day" };
   }
 
-  const domain = getBusinessConfig(tenantId)
+  // 2026-06-26: resolve via the Supabase-backed config so Supabase-only tenants
+  // (domain in the business_config row, not the sync env/file chain) don't get
+  // an empty domain → "no_domain" skip → zero keywords. Mirrors the GA4 persist
+  // fix + GSC's registry fallback. hydrate runs the sync chain first.
+  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+  const domain = cfg
     .domain?.trim()
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "");
