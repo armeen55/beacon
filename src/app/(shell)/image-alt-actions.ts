@@ -6,6 +6,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
 import { analyzeImageAlt, summarizeImageAlt, type ImageAltFinding } from "@/domains/page-factory/image-alt-analyzer";
+import { classifyCommerceUrl, type CommerceKind } from "@/domains/page-factory/commerce-classifier";
 import { saveMoveDraft, getLatestMoveDrafts } from "@/domains/demand-graph/move-draft-store";
 
 /**
@@ -23,7 +24,7 @@ export type ImageAltScanResult =
   | { ok: false; reason: string }
   | { ok: true; pagesScanned: number; imagesFlagged: number };
 
-export type ImageAltPageReport = { url: string; findings: ImageAltFinding[] };
+export type ImageAltPageReport = { url: string; findings: ImageAltFinding[]; kind?: CommerceKind };
 
 export async function scanImageAltAction(opts: { max?: number } = {}): Promise<ImageAltScanResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
@@ -42,7 +43,7 @@ export async function scanImageAltAction(opts: { max?: number } = {}): Promise<I
         if (!res.ok) continue;
         const findings = analyzeImageAlt(res.html, { pageTitle: null, max: 20 });
         if (findings.length > 0) {
-          reports.push({ url, findings });
+          reports.push({ url, findings, kind: classifyCommerceUrl(url).kind });
           flagged += findings.length;
         }
       } catch {

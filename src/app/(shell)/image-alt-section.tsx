@@ -43,7 +43,12 @@ export async function ImageAltSection() {
         <div className="mt-5 space-y-4">
           {data.reports.slice(0, 6).map((rep) => (
             <div key={rep.url} className="rounded-2xl border border-gray-200 p-4">
-              <p className="truncate text-[13px] font-semibold text-gray-900">{rep.url}</p>
+              <p className="flex items-center gap-2 truncate text-[13px] font-semibold text-gray-900">
+                {rep.kind && rep.kind !== "content" ? (
+                  <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-200">{rep.kind === "product" ? "Product" : "Store"}</span>
+                ) : null}
+                <span className="truncate">{rep.url}</span>
+              </p>
               <div className="mt-2 space-y-1.5">
                 {rep.findings.slice(0, 8).map((f, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-2 text-[11px]">
