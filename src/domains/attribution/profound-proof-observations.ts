@@ -25,7 +25,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 import { log } from "@/lib/logger";
 
 export type ProfoundOwnedCitation = {
@@ -48,7 +48,12 @@ function hostOf(raw: string): string {
 export async function loadProfoundOwnedCitations(
   tenantId: string,
 ): Promise<ProfoundOwnedCitation[]> {
-  const domain = getBusinessConfig(tenantId).domain?.trim();
+  // 2026-06-26: resolve via the Supabase-backed config so a Supabase-only tenant
+  // (domain in the business_config row, not the sync env/file chain) matches its
+  // OWN cited domain. Citation-domain matching is the sound Profound signal on a
+  // borrowed workspace (it keys on the real domain, not the tracked brand).
+  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+  const domain = cfg.domain?.trim();
   if (!domain) return [];
   const ownHost = hostOf(domain);
   if (!ownHost) return [];
