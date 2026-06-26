@@ -131,3 +131,9 @@ NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Ra
 **DONE [15]** (20:28 PDT): worklist "Fix-ups" view — surfaces the technical items (crawlability gaps + page-experience/friction fixes) that previously only appeared under "All". `sliceWorklist` case "fixups" (parent==="technical") + WORKLIST_VIEWS entry (auto-renders as a tab). +1 test (12/12). tsc clean.
 **DONE [16]** (20:25 PDT): image-alt scan tags each page by commerce kind (Product/Store badge) via the commerce classifier — store-page image gaps stand out. Pushed 157b9a60.
 **DOCS** (20:27): HANDOFF B82+ updated to the full 15-slice scope + ready-primitives ledger (fdc69241). Consolidated Sprint-6 regression: 11 files / 76 tests green.
+
+**DONE [17]** (20:35 PDT): product-SEO gaps END-TO-END (plan P8) + adversarial self-review fix.
+- Adversarial subagent review of all 14 Sprint-6 files → 13 clean, 1 real (image-alt `as never` cast) → FIXED (added `image_alt_findings` to MoveDraftKind; column is free-text, no migration). 96f39ed0.
+- `page-factory/extract-page-seo.ts` (NEW, pure cheerio): `extractPageSeoSignals(html)` → title / meta (og fallback) / hasProductSchema / hasArticleSchema (walks @graph + array @type, tolerant of malformed JSON-LD). +5 tests.
+- `image-alt-actions.ts`: the scan now ALSO runs detectProductSeoGaps using the SAME fetched HTML (no extra request, $0) → persists `product_seo_findings` (new free-text kind). loadImageAltReports returns productGaps + productSummary.
+- `image-alt-section.tsx`: "Store pages to fix" sub-block (severity + missing schema/meta/title/alt). Engine [13] now consumed end-to-end. tsc clean; 30 page-factory tests green.

@@ -35,6 +35,23 @@ export async function ImageAltSection() {
         </div>
       </div>
 
+      {data.productGaps.length > 0 ? (
+        <div className="mt-5 rounded-2xl border border-violet-100 bg-violet-50/40 p-4">
+          <p className="text-[13px] font-semibold text-violet-900">
+            Store pages to fix <span className="font-normal text-violet-500">· {data.productSummary.pages} page{data.productSummary.pages === 1 ? "" : "s"}{data.productSummary.bySchema > 0 ? ` · ${data.productSummary.bySchema} missing product schema` : ""}</span>
+          </p>
+          <div className="mt-2 space-y-1.5">
+            {data.productGaps.slice(0, 6).map((g) => (
+              <div key={g.url} className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${g.severity === "high" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>{g.severity === "high" ? "High" : "Medium"}</span>
+                <span className="truncate text-violet-900" style={{ maxWidth: "16rem" }}>{g.url}</span>
+                <span className="text-violet-700">{g.summary}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {data.reports.length === 0 ? (
         <p className="mt-5 rounded-xl border border-dashed border-gray-200 bg-white/60 px-4 py-6 text-center text-sm text-gray-500">
           No scan yet.{operator ? " Click Scan to analyze your pages' images (polite fetch, $0)." : ""}
