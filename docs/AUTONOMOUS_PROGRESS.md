@@ -146,3 +146,7 @@ NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Ra
 **DONE [18]** (20:42 PDT): Deep competitor teardown — E-E-A-T/trust/authority winner-patterns (plan P9, core IP).
 - `competitor-intel/winner-patterns.ts` (NEW, pure cheerio): `extractWinnerSignals(html)` pulls the DEEPER "why they win" signals the structural teardown misses — author byline + credentials (E-E-A-T), published/updated freshness, outbound citations to other domains (authority), review/rating schema (trust), FAQ, word count. `compareToWinners(yours, winners[])` names what the MAJORITY of winners have that you lack (fail-closed: no winners → []; word-count gap only vs median). +6 tests.
 - $0 (operates on already-fetched competitor HTML), tenant-agnostic, no migration. tsc clean. Ready to feed the teardown's EvidencePacket (the audit pages already fetch the HTML).
+
+**DONE [19]** (20:46 PDT): winner-patterns wired into the LIVE competitor teardown.
+- `competitor-page-audit.ts`: `CompetitorPageFacts` gains optional `eeat?: WinnerSignals` (no fixture churn); `extractCompetitorFacts` now populates it via `extractWinnerSignals(html, {ownHost})` — so every audited competitor page carries E-E-A-T/trust/authority signals alongside structure. Additive, $0 (same fetched HTML). tsc clean; prepared-move-pack 9/9; winner-patterns 6/6.
+- The deep "why they win" signals now flow through the audit → EvidencePacket → teardown surfaces. `compareToWinners` ready to name the operator's E-E-A-T gaps vs the winners.

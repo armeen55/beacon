@@ -23,6 +23,7 @@ import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
 import { loadDemandGraphForTenant } from "./load-graph";
 import { getLatestMoveDrafts } from "./move-draft-store";
 import { parsePreparedVerdict } from "@/domains/serp/prepare-create-page-verdicts";
+import { extractWinnerSignals, type WinnerSignals } from "@/domains/competitor-intel/winner-patterns";
 import { pickOverlapTeardownUrl, rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
 
 const STORE = "competitor-page-audit";
@@ -90,6 +91,8 @@ export type CompetitorPageFacts = {
   ogType: string | null;
   /** Top content tokens — the topic/entity terms the page leans on. */
   topTerms: string[];
+  /** Deep E-E-A-T / trust / authority winner signals (Sprint 6 · plan P9). */
+  eeat?: WinnerSignals;
 };
 
 export type CompetitorPageAudit = {
@@ -325,6 +328,7 @@ export function extractCompetitorFacts(html: string, url: string): CompetitorPag
     ogTitle,
     ogType,
     topTerms,
+    eeat: extractWinnerSignals(html, { ownHost: hostOf(url) }),
   };
 }
 
