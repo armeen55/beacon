@@ -312,8 +312,15 @@ export function extractPageSnapshot(
     locationRegex = getLocationRegex(cfg);
     serviceRegex = getServiceRegex(cfg);
   } catch {
-    locationRegex = /\b(palo alto|menlo park|atherton|los altos|cupertino|saratoga|woodside|portola valley|mountain view|sunnyvale|san jose|bay area|silicon valley|emerald hills)\b/gi;
-    serviceRegex = /\b(custom home|remodel|renovation|new construction|tear[ -]?down|rebuild|home builder|general contractor|addition|ADU|design[- ]build)\b/gi;
+    // 2026-06-26 de-verticalization (task #75): the previous fallback hardcoded
+    // a Bay-Area city list + builder-service terms, which would falsely tag a
+    // NON-builder tenant's content (e.g. Iranopedia's Persian pages) with
+    // construction/Bay-Area terms if config resolution ever threw. A
+    // tenant-neutral fallback matches NOTHING — no tags beats wrong-vertical
+    // tags. Real tenants are unaffected (the try path uses their configured
+    // regexes from getLocationRegex/getServiceRegex).
+    locationRegex = /(?!)/g;
+    serviceRegex = /(?!)/g;
   }
   const locationTerms = extractTermsByPattern(bodyText, locationRegex);
   const serviceTerms = extractTermsByPattern(bodyText, serviceRegex);
