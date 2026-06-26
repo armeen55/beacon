@@ -43,16 +43,21 @@ export type WorklistItem = {
   why: string;
 };
 
+import { classifyCommerceUrl } from "@/domains/page-factory/commerce-classifier";
+
 const TOOL_ACTIONS = new Set(["build_tool", "build_calculator", "build_checklist", "build_quiz", "build_template", "create_asset"]);
 const COMMERCE_ACTIONS = new Set(["create_product", "create_collection", "improve_product_page", "improve_collection", "optimize_product_page"]);
 const NEW_ACTIONS = new Set(["create_page", "create_product", "create_collection"]);
 const CONF_W: Record<string, number> = { high: 1, medium: 0.7, low: 0.4 };
 
-function parentOf(action: string, kind: WorklistKind): WorklistParent {
+function parentOf(action: string, kind: WorklistKind, url?: string | null): WorklistParent {
   if (kind === "trend") return "trend";
   if (TOOL_ACTIONS.has(action)) return "tool";
   if (COMMERCE_ACTIONS.has(action)) return "commerce";
   if (action === "fix_page_experience" || action === "fix_ux" || action.startsWith("fix_")) return "technical";
+  // URL signal (Sprint 6): a product/collection page is commerce even under a
+  // generic content action — so the Store view catches store-page edits too.
+  if (url && classifyCommerceUrl(url).kind !== "content") return "commerce";
   return "content";
 }
 
@@ -73,7 +78,7 @@ export function buildWorklist(inputs: {
     items.push({
       id: m.id,
       kind: "move",
-      parent: parentOf(m.action, "move"),
+      parent: parentOf(m.action, "move", m.targetUrl),
       title: m.title,
       action: m.action,
       targetUrl: m.targetUrl,
@@ -89,7 +94,7 @@ export function buildWorklist(inputs: {
     items.push({
       id: o.id,
       kind: "opportunity",
-      parent: o.parentType === "commerce_move" ? "commerce" : parentOf(o.action, "opportunity"),
+      parent: o.parentType === "commerce_move" ? "commerce" : parentOf(o.action, "opportunity", o.matchedPageUrl),
       title: o.primaryKeyword,
       action: o.action,
       targetUrl: o.matchedPageUrl,

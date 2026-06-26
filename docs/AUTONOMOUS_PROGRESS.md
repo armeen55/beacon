@@ -123,3 +123,7 @@ NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Ra
 **DONE [13]** (20:24 PDT): product-SEO gap detector (plan P8). `page-factory/product-seo-gaps.ts` (pure) — consumes commerce-classifier → flags product/collection pages missing schema (high) / meta / weak title / image-alt; ranked; +7 tests. Composes with image-alt + schema engines.
 
 > ⚠️ INFRA NOTE (~20:14–20:28 PDT): the Bash safety classifier went into a prolonged outage ("auto mode cannot determine the safety of Bash"). [11] was tsc-verified (exit 0) before it; [12]+[13] are pure modules written during the outage and are PENDING the batch verify (tsc + their tests) + commit the moment Bash recovers. No main/deploy/publish/paid touched. Edit/Write/Read kept working, so building continued.
+
+**DONE [14]** (20:24 PDT): commerce-classifier consumed by the worklist (completes [12] engine→surface).
+- `worklist-views.ts` `parentOf` now takes the targetUrl → a product/collection URL tags the item `commerce` even under a generic content action, so the Store view catches store-page edits (not just create_product). +2 tests (11/11). tsc clean.
+- BATCH COMMIT after the Bash-classifier outage recovered: [11]+[12]+[13] landed at 796ed104 (tsc=0, 17/17 tests). My line-by-line self-review during the outage held — zero fixups needed.

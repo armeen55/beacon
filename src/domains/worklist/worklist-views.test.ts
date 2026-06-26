@@ -74,3 +74,19 @@ describe("buildWorklist crawlGaps", () => {
     expect(g.confidence).toBe("high");
   });
 });
+
+describe("buildWorklist commerce URL signal", () => {
+  it("tags a generic-action move on a /products/ URL as commerce (Store view)", () => {
+    const w = buildWorklist({
+      moves: [{ id: "mv-p", action: "edit_existing_page", targetUrl: "https://x.com/products/blue-rug", score: 50, demand: 300, confidence: "medium" as const, prepared: false, title: "Improve the rug page" }],
+    });
+    expect(w.find((i) => i.id === "mv-p")!.parent).toBe("commerce");
+    expect(sliceWorklist(w, "store").find((i) => i.id === "mv-p")).toBeDefined();
+  });
+  it("leaves a content-URL move as content", () => {
+    const w = buildWorklist({
+      moves: [{ id: "mv-c", action: "edit_existing_page", targetUrl: "https://x.com/persian-wedding", score: 50, demand: 300, confidence: "medium" as const, prepared: false, title: "Improve the article" }],
+    });
+    expect(w.find((i) => i.id === "mv-c")!.parent).toBe("content");
+  });
+});
