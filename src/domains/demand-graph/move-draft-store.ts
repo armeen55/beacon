@@ -27,7 +27,9 @@ export type MoveDraftKind =
   | "faq"
   | "serp_verdict"
   | "prepared_pack"
-  | "structured_draft";
+  | "structured_draft"
+  // Sprint 6: persisted image-alt scan findings (column is free-text → no migration).
+  | "image_alt_findings";
 
 export type MoveDraftRow = {
   recId: string;

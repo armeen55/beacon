@@ -50,7 +50,7 @@ export async function scanImageAltAction(opts: { max?: number } = {}): Promise<I
         /* per-page fail-soft */
       }
     }
-    await saveMoveDraft(tenantId, STORE_REC, "image_alt_findings" as never, JSON.stringify(reports)).catch(() => false);
+    await saveMoveDraft(tenantId, STORE_REC, "image_alt_findings", JSON.stringify(reports)).catch(() => false);
     revalidatePath("/");
     return { ok: true, pagesScanned: urls.length, imagesFlagged: flagged };
   } catch (e) {
