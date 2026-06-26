@@ -628,10 +628,16 @@ export async function runGa4RevenueReport(
       accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
       const retry = await fetchRevenuePage(accessToken, 0);
       if (retry.ok) page0 = retry;
+      // A 401 after refresh means the token is definitively dead → token_expired.
+      // Check the STATUS before the body, so a 401 whose error text happens to
+      // name a revenue metric is never misclassified as revenue_unavailable
+      // (which is a 400-only state — a property legitimately lacking revenue).
+      else if (retry.kind === "non_2xx" && retry.status === 401)
+        return { ok: false, reason: "token_expired", status: retry.status, message: "401 after refresh" };
       else if (retry.kind === "non_2xx" && looksLikeRevenueUnavailable(retry.status, retry.errorBody ?? ""))
         return { ok: false, reason: "revenue_unavailable", status: retry.status };
       else if (retry.kind === "non_2xx")
-        return { ok: false, reason: "token_expired", status: retry.status, message: "401 after refresh" };
+        return { ok: false, reason: "api_error", status: retry.status, message: "non-2xx after refresh" };
       else return { ok: false, reason: "api_error", message: retry.kind };
     } catch {
       return { ok: false, reason: "token_expired" };

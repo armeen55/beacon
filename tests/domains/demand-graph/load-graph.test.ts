@@ -5,6 +5,7 @@ vi.mock("@/domains/recommendation-intelligence/gsc-page-signals", () => ({
 }));
 vi.mock("@/domains/recommendation-intelligence/ga4-page-values", () => ({
   loadGa4PageValuesForTenant: vi.fn(),
+  loadGa4PageRevenueForTenant: vi.fn(),
 }));
 vi.mock("@/domains/recommendation-intelligence/clarity-page-signals", () => ({
   loadClarityPageSignalsForTenant: vi.fn(),
@@ -16,12 +17,14 @@ vi.mock("@/domains/demand-graph/competitor-citations-loader", () => ({
 
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
-import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
+import { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
+import { normalizePageRevenue } from "@/domains/recommendation-intelligence/ga4-revenue";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { loadCompetitorCitedPagesForTenant } from "@/domains/demand-graph/competitor-citations-loader";
 
 const gscMock = loadGscPageSignalsForTenant as unknown as ReturnType<typeof vi.fn>;
 const ga4Mock = loadGa4PageValuesForTenant as unknown as ReturnType<typeof vi.fn>;
+const ga4RevMock = loadGa4PageRevenueForTenant as unknown as ReturnType<typeof vi.fn>;
 const clarityMock = loadClarityPageSignalsForTenant as unknown as ReturnType<typeof vi.fn>;
 const compMock = loadCompetitorCitedPagesForTenant as unknown as ReturnType<typeof vi.fn>;
 
@@ -44,9 +47,12 @@ function gscPage(over: Partial<Record<string, unknown>>): unknown {
 beforeEach(() => {
   gscMock.mockReset();
   ga4Mock.mockReset();
+  ga4RevMock.mockReset();
   clarityMock.mockReset();
   compMock.mockReset();
   ga4Mock.mockResolvedValue(new Map());
+  // Default: no revenue observed → scorer uses the conversion/neutral fallback.
+  ga4RevMock.mockResolvedValue(new Map());
   clarityMock.mockResolvedValue(new Map());
   compMock.mockResolvedValue({ competitors: [], ownedCitedUrls: new Map(), rowsScanned: 0 });
 });
@@ -76,7 +82,7 @@ describe("loadDemandGraphForTenant — wires real loaders into the graph", () =>
     expect(m.signals).toContain("GSC");
   });
 
-  it("GA4 conversions become the $ component (money-first)", async () => {
+  it("real GA4 REVENUE becomes the $ component + '$' signal (revenue-aware, 2026-06-26)", async () => {
     gscMock.mockResolvedValue(
       new Map([
         ["https://x.com/quote", gscPage({ page: "https://x.com/quote", clicks90d: 40, impressions90d: 5000, ctr90d: 0.008, position90d: 8, topQueries: [{ query: "custom home quote", clicks: 40, impressions: 5000, ctr: 0.008, position: 8 }] })],
@@ -85,10 +91,31 @@ describe("loadDemandGraphForTenant — wires real loaders into the graph", () =>
     ga4Mock.mockResolvedValue(
       new Map([["https://x.com/quote", { page: "https://x.com/quote", sessions28d: 200, engaged28d: 150, conversions28d: 12 }]]),
     );
+    // Observed revenue → the $ component is REAL revenue (not the conversion count).
+    ga4RevMock.mockResolvedValue(
+      new Map([["https://x.com/quote", normalizePageRevenue({ page: "https://x.com/quote", sessions: 200, engagedSessions: 150, conversions: 12, totalRevenue: 4000, purchaseRevenue: 4000, transactions: 12, revenueCurrency: "USD", revenueObserved: true })]]),
+    );
     const { graph } = await loadDemandGraphForTenant("tenant-ritz-founder");
     const m = graph.moves.find((x) => x.label === "custom home quote")!;
-    expect(m.components.dollarValue).toBe(12); // conversions surfaced as $
+    expect(m.components.dollarValue).toBe(4000); // real revenue, NOT the 12 conversions
     expect(m.signals).toContain("$");
+  });
+
+  it("GA4 conversions but revenue UNKNOWN → conversion fallback ($=0, 'conversions' not '$')", async () => {
+    gscMock.mockResolvedValue(
+      new Map([
+        ["https://x.com/quote", gscPage({ page: "https://x.com/quote", clicks90d: 40, impressions90d: 5000, ctr90d: 0.008, position90d: 8, topQueries: [{ query: "custom home quote", clicks: 40, impressions: 5000, ctr: 0.008, position: 8 }] })],
+      ]),
+    );
+    ga4Mock.mockResolvedValue(
+      new Map([["https://x.com/quote", { page: "https://x.com/quote", sessions28d: 200, engaged28d: 150, conversions28d: 12 }]]),
+    );
+    // ga4RevMock defaults to empty (revenue never observed) → conversion fallback.
+    const { graph } = await loadDemandGraphForTenant("tenant-ritz-founder");
+    const m = graph.moves.find((x) => x.label === "custom home quote")!;
+    expect(m.components.dollarValue).toBe(0); // revenue unknown — never asserted as $
+    expect(m.signals).not.toContain("$");
+    expect(m.signals).toContain("conversions");
   });
 
   it("Clarity friction on a top page surfaces fix_experience", async () => {
