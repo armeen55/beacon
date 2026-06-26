@@ -153,7 +153,13 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
   // Operator-locked copy. Avoids superlatives Beacon can't claim.
   const leadSentence = (() => {
     if (!hasSampledData) {
-      return `No AI answers sampled for ${brandName} yet. Connect an AI-answer source to start tracking.`;
+      // Honest: a connected AI-answer source can have citations yet ZERO
+      // brand-visibility samples (the visibility rows that feed this score).
+      // Don't tell the operator to "connect a source" — that contradicts the
+      // data-sources strip, which already owns the accurate connect CTA and
+      // shows the source as connected. State the neutral fact instead so this
+      // hero never overclaims OR under-claims the connection.
+      return `No AI-answer visibility sampled for ${brandName} yet. It appears here once your AI-answer source returns visibility data.`;
     }
     if (!hasCompetitiveRank) {
       return `${brandName} ${verbIs} being tracked across AI answers.`;

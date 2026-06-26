@@ -28,6 +28,7 @@
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import { NATIVE_REGIME_START } from "@/domains/product/url-citation-history";
+import { hasOppositeQualifiers } from "./opposite-qualifier-guard";
 import type { RecommendationCandidate } from "./generate";
 import {
   NEEDS_NEW_PAGE,
@@ -283,21 +284,32 @@ function resolveOne(
   );
   if (cannibalizing.length >= 2) {
     const otherUrls = cannibalizing.slice(1).map(([url]) => url);
-    return {
-      ...candidate,
-      resolution: {
-        action: "merge_or_dedupe",
-        motive: "resolve_cannibalization",
-        targetUrl: topUrl,
-        confidence: "medium",
-        confidenceReason: `AI splits citations across ${cannibalizing.length} owned URLs on this cluster.`,
-        tier: "observation",
-        reasoning: `Multiple owned pages compete for this intent. Consolidate into ${topUrl} and redirect or update the others.`,
-        cannibalization: otherUrls,
-        evidenceRefs: buildEvidenceRefs(candidate, sortedUrls.slice(0, 5)),
-        coverage: "cannibalization",
-      },
-    };
+    // Self-competition guardrail: never recommend consolidating pages that carry
+    // OPPOSITE/sensitive audience qualifiers (male/female, boy/girl, men/women,
+    // …). Two pages can split AI citations on an overlapping query yet serve
+    // deliberately distinct audiences — folding "… female names" into "… male
+    // names" is destructive. When detected, fall through to the strengthen path
+    // below (differentiate in place) instead of emitting merge_or_dedupe.
+    const oppositeConflict = otherUrls.some((u) =>
+      hasOppositeQualifiers(topUrl, u),
+    );
+    if (!oppositeConflict) {
+      return {
+        ...candidate,
+        resolution: {
+          action: "merge_or_dedupe",
+          motive: "resolve_cannibalization",
+          targetUrl: topUrl,
+          confidence: "medium",
+          confidenceReason: `AI splits citations across ${cannibalizing.length} owned URLs on this cluster.`,
+          tier: "observation",
+          reasoning: `Multiple owned pages compete for this intent. Consolidate into ${topUrl} and redirect or update the others.`,
+          cannibalization: otherUrls,
+          evidenceRefs: buildEvidenceRefs(candidate, sortedUrls.slice(0, 5)),
+          coverage: "cannibalization",
+        },
+      };
+    }
   }
 
   if (topShare >= STRENGTHEN_SHARE) {

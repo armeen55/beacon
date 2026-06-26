@@ -390,7 +390,17 @@ export async function buildTodayMovesData(
       const preparedStale = !!(persistedPack && !persistedFresh);
 
       const specialistSet = new Set(opinions.map((o) => o.specialist));
-      const draftPrepared = persistedFresh && !!persistedPack!.structuredDraft;
+      // The paste-ready structured artifact text (answer block / proposed title).
+      // Computed BEFORE the checklist so "Draft prepared" reflects real paste-ready
+      // CONTENT — not merely the existence of a structuredDraft object. Otherwise a
+      // pack whose structuredDraft has empty answer/after shows "Draft prepared" on
+      // the card while the Implement panel correctly says "No prepared paste-ready
+      // content yet" (the two surfaces contradicted each other — the reported bug).
+      const draftValue = (persistedFresh ? persistedPack!.structuredDraft : null) as
+        | { kind?: string; value?: { answer?: string; after?: string } }
+        | null;
+      const preparedDraftText = draftValue?.value?.answer ?? draftValue?.value?.after ?? null;
+      const draftPrepared = persistedFresh && !!preparedDraftText;
       const preparedChecklist = effectivePack
         ? {
             googleChecked: specialistSet.has("gsc"),
@@ -401,11 +411,6 @@ export async function buildTodayMovesData(
             readyToReview: effectivePack.preparedStatus === "ready_to_review",
           }
         : null;
-      // The paste-ready structured artifact text (answer block / proposed title).
-      const draftValue = (persistedFresh ? persistedPack!.structuredDraft : null) as
-        | { kind?: string; value?: { answer?: string; after?: string } }
-        | null;
-      const preparedDraftText = draftValue?.value?.answer ?? draftValue?.value?.after ?? null;
       const meta = ACTION_META[e.action_type] ?? { label: "Make this move", tone: "page" as const };
       const also = [
         ...new Set(

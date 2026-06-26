@@ -427,10 +427,14 @@ describe("AIVisibilityHero — no sampled data honesty (audit-4)", () => {
     freshness: { status: "empty", label: "No data yet" },
   };
 
-  it("with NO sampled data: states the absence, does NOT claim active tracking", () => {
+  it("with NO sampled data: states the absence, does NOT claim active tracking OR contradict a connected source", () => {
     const html = renderToStaticMarkup(<AIVisibilityHero {...NO_DATA} />);
-    expect(html).toContain("No AI answers sampled for Iranopedia yet");
+    expect(html).toContain("No AI-answer visibility sampled for Iranopedia yet");
     expect(html).not.toContain("is being tracked across AI answers");
+    // Honesty: must NOT tell the operator to connect a source — that contradicts
+    // the data-sources strip when the AI-answer source is connected (citations
+    // present) but visibility sampling is just empty.
+    expect(html).not.toContain("Connect an AI-answer source");
     // Header subline is descriptive, not a "how often it appears" claim.
     expect(html).not.toContain("How often Iranopedia appears across tracked AI answers");
     expect(html).toContain("AI answers Beacon has sampled for Iranopedia");

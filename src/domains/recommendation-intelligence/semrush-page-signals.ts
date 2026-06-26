@@ -12,6 +12,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { hasOppositeQualifiers } from "@/domains/recommendations/opposite-qualifier-guard";
 import { log } from "@/lib/logger";
 
 /**
@@ -239,6 +240,10 @@ export function detectCannibalization(
       // Same-intent requirement (different intent = legitimately
       // different pages per the Semrush guide).
       if ((preferred.intent ?? "") !== (cannibal.intent ?? "")) continue;
+      // Self-competition guardrail: even at the SAME intent, two pages with
+      // OPPOSITE audience qualifiers (male/female, boy/girl, …) are deliberately
+      // distinct — never recommend folding one into the other.
+      if (hasOppositeQualifiers(preferred.url, cannibal.url)) continue;
       out.push({
         keyword,
         volume: preferred.volume,

@@ -524,6 +524,32 @@ export async function getConnectorHealth(
   }
 
   if (info.status !== "connected") {
+    // A disconnected source can still hold FRESH cached data — e.g. a Google
+    // OAuth refresh-token expired under testing-mode 7-day expiry, but the last
+    // sync landed only days ago and the dashboard is actively rendering that
+    // source's recent numbers. A bare "Connect →" then reads as "no data /
+    // broken" when data is in fact present. Honest middle state: when there's a
+    // genuinely recent last_synced_at (< STALE_DAYS), surface needs_attention
+    // ("showing cached data · reconnect to refresh") so the card matches what the
+    // page shows. Stale or never-synced → not_connected, as before.
+    if (info.last_synced_at != null && info.last_synced_at !== "") {
+      const lastSynced = Date.parse(info.last_synced_at);
+      if (Number.isFinite(lastSynced)) {
+        const days = Math.floor(
+          Math.max(0, now - lastSynced) / (24 * 60 * 60 * 1000),
+        );
+        if (days < STALE_DAYS) {
+          return {
+            ...info,
+            health: "needs_attention",
+            healthReason:
+              days < 1
+                ? "Showing cached data. Reconnect to refresh."
+                : `Showing data from ${days} day${days === 1 ? "" : "s"} ago. Reconnect to refresh.`,
+          };
+        }
+      }
+    }
     return { ...info, health: "not_connected", healthReason: null };
   }
 
