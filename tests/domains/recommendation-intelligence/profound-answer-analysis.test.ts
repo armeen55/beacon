@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { analyzeProfoundAnswers } from "@/domains/recommendation-intelligence/profound-answer-analysis";
+import { analyzeProfoundAnswers, analyzeProfoundAnswersByPrompt } from "@/domains/recommendation-intelligence/profound-answer-analysis";
 import type { ProfoundAnswerRow } from "@/lib/connectors/profound/client";
 
 function ans(p: Partial<ProfoundAnswerRow>): ProfoundAnswerRow {
   return {
-    promptId: null,
+    promptId: p.promptId ?? null,
     prompt: p.prompt ?? "q",
     response: p.response ?? "",
     mentions: p.mentions ?? [],
@@ -100,5 +100,64 @@ describe("analyzeProfoundAnswers", () => {
     expect(r.gaps).toEqual([]);
     expect(r.totalAnswers).toBe(0);
     expect(r.ownedCitationShare).toBe(0);
+  });
+});
+
+describe("analyzeProfoundAnswersByPrompt", () => {
+  it("groups answers by prompt id and ranks the cited pages for that prompt", () => {
+    const answers = [
+      ans({ promptId: "p1", prompt: "best persian cookbooks", model: "ChatGPT", citationHostnames: ["seriouseats.com", "iranopedia.com"], mentions: ["Iranopedia"] }),
+      ans({ promptId: "p1", prompt: "best persian cookbooks", model: "Perplexity", citationHostnames: ["seriouseats.com", "reddit.com"] }),
+    ];
+    const r = analyzeProfoundAnswersByPrompt({ answers, ...OWNED, directoryDomains: ["reddit.com"] });
+    expect(r.totalPrompts).toBe(1);
+    const p = r.prompts[0]!;
+    expect(p.promptId).toBe("p1");
+    expect(p.totalAnswers).toBe(2);
+    expect(p.models).toEqual(["ChatGPT", "Perplexity"]);
+    // present: mentioned once AND cited once
+    expect(p.ownPresent).toBe(true);
+    expect(p.ownMentioned).toBe(1);
+    expect(p.ownCited).toBe(1);
+    expect(p.isGap).toBe(false);
+    // seriouseats cited in BOTH answers → top; iranopedia flagged as owned; reddit excluded
+    expect(p.topCitedPages[0]).toEqual({ hostname: "seriouseats.com", answers: 2, isOwned: false });
+    expect(p.topCitedPages.find((c) => c.hostname === "iranopedia.com")?.isOwned).toBe(true);
+    expect(p.topCitedPages.map((c) => c.hostname)).not.toContain("reddit.com");
+  });
+
+  it("flags a prompt as a GAP when you're absent but a competitor is cited; gaps sort first", () => {
+    const answers = [
+      // gap prompt: you're never cited/mentioned, competitor is
+      ans({ promptId: "gap", prompt: "persian wedding traditions", citationHostnames: ["theknot.com"] }),
+      ans({ promptId: "gap", prompt: "persian wedding traditions", model: "Perplexity", citationHostnames: ["theknot.com"] }),
+      // present prompt: you're cited
+      ans({ promptId: "win", prompt: "what is nowruz", citationHostnames: ["iranopedia.com"] }),
+    ];
+    const r = analyzeProfoundAnswersByPrompt({ answers, ...OWNED });
+    expect(r.totalPrompts).toBe(2);
+    expect(r.gapPromptCount).toBe(1);
+    expect(r.ownPresentPromptCount).toBe(1);
+    // gap (2 answers) sorts before the present prompt
+    expect(r.prompts[0]!.promptId).toBe("gap");
+    expect(r.prompts[0]!.isGap).toBe(true);
+    expect(r.prompts[0]!.topCitedPages[0]!.hostname).toBe("theknot.com");
+  });
+
+  it("falls back to grouping by prompt text when promptId is absent", () => {
+    const answers = [
+      ans({ promptId: null, prompt: "Cities in Iran", citationHostnames: ["wikipedia.org"] }),
+      ans({ promptId: null, prompt: "cities in iran", citationHostnames: ["wikipedia.org"] }),
+    ];
+    const r = analyzeProfoundAnswersByPrompt({ answers, ...OWNED });
+    expect(r.totalPrompts).toBe(1); // case-insensitive text grouping
+    expect(r.prompts[0]!.totalAnswers).toBe(2);
+  });
+
+  it("empty input → no prompts", () => {
+    const r = analyzeProfoundAnswersByPrompt({ answers: [], ...OWNED });
+    expect(r.prompts).toEqual([]);
+    expect(r.totalPrompts).toBe(0);
+    expect(r.gapPromptCount).toBe(0);
   });
 });
