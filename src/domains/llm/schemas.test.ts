@@ -96,6 +96,7 @@ describe("SCHEMA_BY_KIND registry", () => {
   it("covers exactly the Sprint 2 draft kinds", () => {
     const kinds = Object.keys(SCHEMA_BY_KIND).sort();
     const expected: StructuredDraftKind[] = [
+      "aeo_prompt_brief",
       "answer_block",
       "atomic_edit",
       "commerce_asset",

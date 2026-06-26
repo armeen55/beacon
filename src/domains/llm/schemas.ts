@@ -162,6 +162,27 @@ export const ExperimentPlanSchema = z.object({
 });
 export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;
 
+/** 8. AeoPromptBrief — the structured brief to WIN one AI prompt (Profound
+ *  Question Intelligence). NOT a vague summary: a quotable direct answer + the
+ *  fan-out sub-questions to cover + the facts/entities/sources/competitor-pages
+ *  + the schema + internal links. Field names mirror the operator's spec. */
+export const AeoPromptBriefSchema = z.object({
+  // 40–80 words ≈ 220–520 chars (one extractable, quotable answer).
+  direct_answer_40_80_words: z.string().min(150).max(700),
+  fanout_sections: z
+    .array(z.object({ question: z.string().min(4).max(200), answer_goal: z.string().min(3).max(400) }))
+    .min(1)
+    .max(12),
+  facts_to_verify: z.array(z.string().min(1).max(300)).max(20).default([]),
+  entities_to_include: z.array(z.string().min(1).max(120)).max(30).default([]),
+  sources_to_reference: z.array(z.string().min(1).max(300)).max(20).default([]),
+  competitor_pages_to_beat: z.array(z.string().min(1).max(400)).max(10).default([]),
+  schema_recommendation: z.enum(["FAQPage", "Article", "ItemList", "None"]),
+  internal_links: z.array(z.string().min(1).max(300)).max(20).default([]),
+  ...base,
+});
+export type AeoPromptBrief = z.infer<typeof AeoPromptBriefSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -171,7 +192,8 @@ export type StructuredDraftKind =
   | "tool_asset"
   | "commerce_asset"
   | "cro_fix"
-  | "experiment_plan";
+  | "experiment_plan"
+  | "aeo_prompt_brief";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -181,6 +203,7 @@ export const SCHEMA_BY_KIND = {
   commerce_asset: CommerceAssetSpecSchema,
   cro_fix: CROFixSpecSchema,
   experiment_plan: ExperimentPlanSchema,
+  aeo_prompt_brief: AeoPromptBriefSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 /** Every string field in a parsed draft, flattened — fed to the content firewalls

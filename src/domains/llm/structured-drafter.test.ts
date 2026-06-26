@@ -14,6 +14,7 @@ vi.mock("@/domains/recommendations/adjudicator-budget", () => ({
 import {
   callStructuredLLM,
   draftAnswerBlockStructured,
+  draftAeoPromptBrief,
   serializeStructuredDraft,
   deserializeStructuredDraft,
   type CompleteFn,
@@ -148,5 +149,55 @@ describe("serialize / deserialize (persistence projection + re-validation)", () 
     expect(deserializeStructuredDraft("{not json")).toBeNull();
     expect(deserializeStructuredDraft(JSON.stringify({ v: 2, kind: "answer_block", value: validAnswer }))).toBeNull();
     expect(deserializeStructuredDraft(JSON.stringify({ v: 1, kind: "bogus", value: {} }))).toBeNull();
+  });
+});
+
+describe("draftAeoPromptBrief — Profound Question Intelligence brief", () => {
+  const validBrief = {
+    direct_answer_40_80_words:
+      "Taarof is a Persian system of ritual politeness where people offer, refuse, and re-offer hospitality or favors as a sign of respect and humility, so a first offer is often declined out of courtesy and should be repeated sincerely before it is accepted by the other person.",
+    fanout_sections: [
+      { question: "How do you politely refuse taarof?", answer_goal: "Explain the expected decline-then-accept exchange." },
+      { question: "When is taarof used?", answer_goal: "List common settings where taarof appears." },
+    ],
+    facts_to_verify: ["Regional variations in taarof etiquette"],
+    entities_to_include: ["Persian hospitality", "Iran"],
+    sources_to_reference: ["cultural etiquette references"],
+    competitor_pages_to_beat: ["mei.edu/taarof", "tappersia.com/taarof"],
+    schema_recommendation: "FAQPage",
+    internal_links: ["link to a Persian-etiquette overview page"],
+    evidenceRefs: [{ source: "profound", detail: "AI cites mei.edu and tappersia for this prompt; you are absent" }],
+    confidence: "medium",
+    risks: ["keep claims neutral and verifiable"],
+    operatorSteps: ["Add the direct answer near the top of the page", "Add an FAQ block for the fan-out questions"],
+  };
+
+  it("drafts a schema-valid AEO brief from a PromptOpportunity-shaped input", async () => {
+    const res = await draftAeoPromptBrief(
+      {
+        prompt: "What is taarof in Persian culture and how does it actually work?",
+        fanoutQueries: ["how to refuse taarof politely", "taarof etiquette examples"],
+        competitorPages: ["mei.edu/taarof", "tappersia.com/taarof"],
+        ownCitedUrls: [],
+        recommendedMove: "answer_block",
+        tags: ["society-daily-life"],
+      },
+      { complete: fakeComplete([{ text: JSON.stringify(validBrief) }]) },
+    );
+    expect(res.status).toBe("drafted");
+    if (res.status === "drafted") {
+      expect(res.kind).toBe("aeo_prompt_brief");
+      expect(res.value.fanout_sections.length).toBeGreaterThanOrEqual(1);
+      expect(res.value.schema_recommendation).toBe("FAQPage");
+      expect(res.value.competitor_pages_to_beat).toContain("mei.edu/taarof");
+    }
+  });
+
+  it("fails closed when the model returns invalid JSON twice", async () => {
+    const res = await draftAeoPromptBrief(
+      { prompt: "q", fanoutQueries: [], competitorPages: [], ownCitedUrls: [], recommendedMove: "answer_block" },
+      { complete: fakeComplete([{ text: "not json" }]) },
+    );
+    expect(res.status).toBe("validation_failed");
   });
 });

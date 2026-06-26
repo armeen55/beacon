@@ -9,6 +9,7 @@ import {
   type StructuredDraftKind,
   type AnswerBlockDraft,
   type AtomicEditDraft,
+  type AeoPromptBrief,
 } from "./schemas";
 
 /**
@@ -337,6 +338,75 @@ export async function draftAtomicEditStructured(
     user,
     grounded,
     projectedCostUsd: 0.02,
+    complete: opts.complete,
+    now: opts.now,
+  });
+}
+
+// ── concrete drafter: AeoPromptBrief (Profound Question Intelligence) ──────────
+
+export type AeoPromptBriefInput = {
+  /** The verbatim AI prompt to win. */
+  prompt: string;
+  /** Downstream fan-out queries the prompt expands into (grounding). */
+  fanoutQueries: string[];
+  /** Competitor pages/domains AI cites now (to study + beat). */
+  competitorPages: string[];
+  /** Owned pages already cited (expand vs create). */
+  ownCitedUrls: string[];
+  /** Recommended move from the opportunity (answer_block | expand_page | …). */
+  recommendedMove: string;
+  /** Profound theme tags / entities seen (grounding). */
+  tags?: string[];
+};
+
+const AEO_PROMPT_BRIEF_SYSTEM =
+  "You write a STRUCTURED brief (never a vague summary) for an encyclopedia / content site to WIN one specific AI-assistant question (AEO). " +
+  "Return ONLY a JSON object with keys: " +
+  '"direct_answer_40_80_words" (one quotable, self-contained factual answer of 40-80 words an AI could lift verbatim), ' +
+  '"fanout_sections" (array of {"question","answer_goal"} — one per sub-question the page must also answer, from the fan-out queries provided), ' +
+  '"facts_to_verify" (array of specific facts the owner must confirm before publishing — do NOT assert them as true), ' +
+  '"entities_to_include" (array of named people/places/works to mention), ' +
+  '"sources_to_reference" (array of authoritative source types/names to cite), ' +
+  '"competitor_pages_to_beat" (array — the cited competitor pages/domains provided), ' +
+  '"schema_recommendation" ("FAQPage"|"Article"|"ItemList"|"None"), ' +
+  '"internal_links" (array of on-site link suggestions, or []), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
+  "Ground EVERYTHING only in the prompt, fan-out queries, and competitor pages provided. Do NOT invent statistics, dates, prices, rankings, or superlatives (put anything uncertain in facts_to_verify). No marketing language. No em-dashes.";
+
+/** Draft a schema-valid AeoPromptBrief for one Profound PromptOpportunity.
+ *  Capped + budgeted + firewalled; spends only when invoked. */
+export async function draftAeoPromptBrief(
+  input: AeoPromptBriefInput,
+  opts: { complete?: CompleteFn; now?: Date } = {},
+): Promise<StructuredDraftResult<AeoPromptBrief>> {
+  const grounded = [
+    input.prompt,
+    input.fanoutQueries.join(" "),
+    input.competitorPages.join(" "),
+    input.ownCitedUrls.join(" "),
+    (input.tags ?? []).join(" "),
+  ].join(" ");
+  const user = [
+    `AI prompt to win: "${input.prompt}"`,
+    `Recommended move: ${input.recommendedMove}`,
+    input.fanoutQueries.length ? `Fan-out queries this prompt expands into: ${input.fanoutQueries.slice(0, 12).join("; ")}` : "",
+    input.competitorPages.length ? `Pages AI cites now (study + beat): ${input.competitorPages.slice(0, 10).join("; ")}` : "",
+    input.ownCitedUrls.length ? `Your pages already cited: ${input.ownCitedUrls.join("; ")}` : "Your site is NOT currently cited for this prompt.",
+    (input.tags ?? []).length ? `Topic tags: ${input.tags!.join("; ")}` : "",
+    "",
+    "Return the JSON now.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return callStructuredLLM({
+    kind: "aeo_prompt_brief",
+    system: AEO_PROMPT_BRIEF_SYSTEM,
+    user,
+    grounded,
+    projectedCostUsd: 0.03,
     complete: opts.complete,
     now: opts.now,
   });
