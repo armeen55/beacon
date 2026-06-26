@@ -261,8 +261,14 @@ export type SyncWixResult =
 export async function syncWixMap(): Promise<SyncWixResult> {
   if (!(await canPublishForCurrentTenant())) return { ok: false, reason: "not_operator" };
   const tenantId = await currentTenantId();
-  const { getBusinessConfig } = await import("@/lib/business-config");
-  const domain = (getBusinessConfig(tenantId).domain ?? "").trim();
+  const { getBusinessConfig, hydrateBusinessConfigFromSupabase } = await import("@/lib/business-config");
+  // 2026-06-26: resolve via the Supabase-backed config. This is a SERVER ACTION,
+  // so the shell layout's business-config hydrate never ran — the sync
+  // getBusinessConfig returns a placeholder (empty domain) for a Supabase-only
+  // tenant (e.g. Iranopedia), which would block the Wix mapper with "no_domain"
+  // even though the domain is set in the DB. (Same fix class as GA4/Profound.)
+  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+  const domain = (cfg.domain ?? "").trim();
   if (domain === "") return { ok: false, reason: "no_domain" };
   const result = await syncWixUrlMap(
     { siteBaseUrl: `https://www.${domain.replace(/^www\./, "")}` },
