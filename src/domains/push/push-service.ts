@@ -339,6 +339,7 @@ export async function executePush(
       { ...deps.wix, tenantId },
     );
     if (!productsQuery.ok) {
+      await recordLedger(tenantId, edit, "push_failed", `products_query: ${productsQuery.reason}`, now, reservationId);
       return {
         kind: "refused",
         reason: `could not query store products: ${productsQuery.reason} — card stays paste-ready`,
@@ -348,6 +349,7 @@ export async function executePush(
       (it) => String(it.data["slug"] ?? "") === slug,
     );
     if (match == null) {
+      await recordLedger(tenantId, edit, "push_failed", "product_not_found", now, reservationId);
       return {
         kind: "refused",
         reason:
@@ -360,6 +362,7 @@ export async function executePush(
       { ...deps.wix, tenantId },
     );
     if (!product.ok) {
+      await recordLedger(tenantId, edit, "push_failed", `product_read: ${product.reason}`, now, reservationId);
       return {
         kind: "refused",
         reason: `could not read the product for a pre-push snapshot (${product.reason}) — refusing to change the live site without an undo`,
@@ -409,6 +412,7 @@ export async function executePush(
           "application/ld+json",
     ).length;
     if (mergedJsonLdCount > MAX_JSONLD_TAGS_PER_PAGE) {
+      await recordLedger(tenantId, edit, "push_failed", `merged_tags_limit: ${mergedJsonLdCount}`, now, reservationId);
       return {
         kind: "refused",
         reason: `merged seoData would carry ${mergedJsonLdCount} JSON-LD scripts — Wix allows ${MAX_JSONLD_TAGS_PER_PAGE} markups per page (remove stale tags in the Wix dashboard first)`,
@@ -470,6 +474,7 @@ export async function executePush(
 
   // ── wix_cms EDIT route ──────────────────────────────────────────────
   if (!elementKey.startsWith("field:")) {
+    await recordLedger(tenantId, edit, "push_failed", "element_key_mismatch", now, reservationId);
     return {
       kind: "refused",
       reason:
@@ -479,6 +484,7 @@ export async function executePush(
   }
   const field = elementKey.slice("field:".length);
   if (field === "" || field.toLowerCase().includes("slug")) {
+    await recordLedger(tenantId, edit, "push_failed", `protected_field: ${field}`, now, reservationId);
     return { kind: "refused", reason: `field "${field}" is not pushable (Invariant 3: no URL/slug changes)` };
   }
 
@@ -490,6 +496,7 @@ export async function executePush(
   if (exceedsPublishLengthLimit(edit.action_type, edit.proposed_text)) {
     const proposedLen = (edit.proposed_text ?? "").trim().length;
     const isTitle = edit.action_type === "edit_title";
+    await recordLedger(tenantId, edit, "push_failed", `length_limit: ${proposedLen}`, now, reservationId);
     return {
       kind: "refused",
       reason: isTitle
@@ -500,6 +507,7 @@ export async function executePush(
 
   const mapEntry = await resolveWixItemForUrl(edit.target_url);
   if (mapEntry == null) {
+    await recordLedger(tenantId, edit, "push_failed", "unmapped_url", now, reservationId);
     return {
       kind: "refused",
       reason: `no Wix CMS item mapped for ${edit.target_url} — run the url-map sync on /diagnostics/wix first`,
