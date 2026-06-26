@@ -51,11 +51,10 @@ type DataSource = {
   /** Plain-English label shown to the owner. */
   label: string;
   /**
-   * The connectors-page card anchor. The connectors page tags each card with
-   * `data-connector-card="<id>"`; we render an invisible `id` shim there is
-   * none, so we link to the page root for cards without a stable anchor
-   * (Google Search Console). For cards that DO carry a `data-connector-card`,
-   * deep-link to it so the owner lands on the right card.
+   * The connectors-page card anchor. Every connector card carries both
+   * `data-connector-card="<id>"` and `id="connector-<id>"` on its wrapper, so
+   * we deep-link to `#connector-<id>` and the owner lands on the exact card.
+   * (Kept nullable for safety: a null anchor falls back to the page root.)
    */
   cardAnchor: string | null;
 };
@@ -67,7 +66,7 @@ type DataSource = {
  * the gate agree.
  */
 const DATA_SOURCES: readonly DataSource[] = [
-  { provider: "google_gsc", label: "Google Search Console", cardAnchor: null },
+  { provider: "google_gsc", label: "Google Search Console", cardAnchor: "google-gsc" },
   { provider: "google_ga4", label: "Google Analytics 4", cardAnchor: "google-ga4" },
   { provider: "semrush", label: "SEMrush", cardAnchor: "semrush" },
   { provider: "clarity", label: "Microsoft Clarity", cardAnchor: "clarity" },

@@ -702,24 +702,25 @@ export function ConnectorsClient({
           <li className="flex gap-2">
             <span aria-hidden="true" className="text-accent-primary">•</span>
             <span>
-              When the AI assistants recommend a competitor on a topic real
-              people are already searching for, Beacon drafts the answer to add
-              first, so your effort lands where customers are actually looking.
+              When you refresh, Beacon spots where the AI assistants recommend a
+              competitor on a topic real people are already searching for, and
+              drafts the answer for you to add first — so your effort lands where
+              customers are actually looking.
             </span>
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true" className="text-accent-primary">•</span>
             <span>
-              It ranks fixes by the pages that actually make you money, not just
-              the ones with the most clicks.
+              It ranks those fixes by the pages that actually make you money, not
+              just the ones with the most clicks.
             </span>
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true" className="text-accent-primary">•</span>
             <span>
-              After you approve a change, Beacon confirms it went live and then
-              watches your rankings, traffic, and AI mentions to prove the fix
-              actually worked.
+              After you approve a change, Beacon records it and re-measures your
+              rankings, traffic, and AI mentions each time you open Beacon — so
+              you can see whether the fix actually worked.
             </span>
           </li>
         </ul>
@@ -747,6 +748,7 @@ export function ConnectorsClient({
       {/* GBP card is deferred to a follow-up slice. The GBP server action +
           OAuth path are still wired (kind="gbp"); no UI exposes them yet. */}
       <div
+        id="connector-google-gsc"
         data-connector-card="google-gsc"
         data-gsc-readiness={gscReadiness?.verdict ?? "not_connected"}
         className="rounded-lg border border-border/60 bg-surface-inset/20"

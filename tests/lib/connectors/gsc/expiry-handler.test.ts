@@ -126,7 +126,7 @@ describe("evaluateExpiry — now accepts Date | number", () => {
 describe("formatLastRefreshedCopy", () => {
   it("renders 'less than a day' copy when staleness < 1 day", () => {
     const copy = formatLastRefreshedCopy({
-      expiresAtMs: NOW_MS - 60_000,
+      lastSyncedMs: NOW_MS - 60_000,
       now: NOW_MS,
     });
     expect(copy).toBe("GSC data last refreshed less than a day ago.");
@@ -134,7 +134,7 @@ describe("formatLastRefreshedCopy", () => {
 
   it("renders 1-day copy with singular noun", () => {
     const copy = formatLastRefreshedCopy({
-      expiresAtMs: NOW_MS - 24 * 60 * 60 * 1000,
+      lastSyncedMs: NOW_MS - 24 * 60 * 60 * 1000,
       now: NOW_MS,
     });
     expect(copy).toBe("GSC data last refreshed 1 day ago. Reconnect to refresh.");
@@ -142,7 +142,7 @@ describe("formatLastRefreshedCopy", () => {
 
   it("renders N-day copy with plural noun for staleness >= 2 days", () => {
     const copy = formatLastRefreshedCopy({
-      expiresAtMs: NOW_MS - 5 * 24 * 60 * 60 * 1000,
+      lastSyncedMs: NOW_MS - 5 * 24 * 60 * 60 * 1000,
       now: NOW_MS,
     });
     expect(copy).toBe("GSC data last refreshed 5 days ago. Reconnect to refresh.");
@@ -151,7 +151,7 @@ describe("formatLastRefreshedCopy", () => {
   it("clamps negative staleness to 0 (less-than-a-day branch)", () => {
     // expires_at in the future → diffMs goes negative → clamped to 0.
     const copy = formatLastRefreshedCopy({
-      expiresAtMs: NOW_MS + 60 * 60 * 1000,
+      lastSyncedMs: NOW_MS + 60 * 60 * 1000,
       now: NOW_MS,
     });
     expect(copy).toBe("GSC data last refreshed less than a day ago.");
@@ -159,7 +159,7 @@ describe("formatLastRefreshedCopy", () => {
 
   it("accepts Date for now", () => {
     const copy = formatLastRefreshedCopy({
-      expiresAtMs: NOW_MS - 3 * 24 * 60 * 60 * 1000,
+      lastSyncedMs: NOW_MS - 3 * 24 * 60 * 60 * 1000,
       now: new Date(NOW_MS),
     });
     expect(copy).toBe("GSC data last refreshed 3 days ago. Reconnect to refresh.");

@@ -107,11 +107,11 @@ export function evaluateExpiry(args: EvaluateExpiryArgs): ExpiryStatus {
  * refreshed X days ago. Reconnect to refresh."
  */
 export function formatLastRefreshedCopy(args: {
-  expiresAtMs: number;
+  lastSyncedMs: number;
   now: Date | number;
 }): string {
   const nowMs = args.now instanceof Date ? args.now.getTime() : args.now;
-  const diffMs = Math.max(0, nowMs - args.expiresAtMs);
+  const diffMs = Math.max(0, nowMs - args.lastSyncedMs);
   const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
   if (days <= 0) {
     return "GSC data last refreshed less than a day ago.";

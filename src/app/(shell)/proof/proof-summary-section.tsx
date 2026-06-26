@@ -86,6 +86,11 @@ export async function ProofSummarySection() {
               </li>
             ))}
           </ul>
+          {wins.length > 6 ? (
+            <p className="mt-2 text-xs text-gray-500">
+              + {wins.length - 6} more confirmed {wins.length - 6 === 1 ? "win" : "wins"} (showing the top 6)
+            </p>
+          ) : null}
         </div>
       ) : (
         <p className="mt-4 text-sm text-gray-500">

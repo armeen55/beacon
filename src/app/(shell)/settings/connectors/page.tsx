@@ -49,7 +49,7 @@ export default async function ConnectorsPage() {
   const gscStaleCopy =
     googleGsc.status === "disconnected" && Number.isFinite(gscSyncedMs)
       ? formatLastRefreshedCopy({
-          expiresAtMs: gscSyncedMs,
+          lastSyncedMs: gscSyncedMs,
           now: Date.now(),
         })
       : null;
@@ -99,7 +99,7 @@ export default async function ConnectorsPage() {
   const ga4StaleCopy =
     googleGa4.status === "disconnected" && Number.isFinite(ga4SyncedMs)
       ? formatGa4StaleCopy({
-          expiresAtMs: ga4SyncedMs,
+          lastSyncedMs: ga4SyncedMs,
           now: Date.now(),
         })
       : null;
@@ -146,11 +146,11 @@ export default async function ConnectorsPage() {
  * (the substrate is locked from modification in 9.A1β).
  */
 function formatGa4StaleCopy(args: {
-  expiresAtMs: number;
+  lastSyncedMs: number;
   now: Date | number;
 }): string {
   const nowMs = args.now instanceof Date ? args.now.getTime() : args.now;
-  const diffMs = Math.max(0, nowMs - args.expiresAtMs);
+  const diffMs = Math.max(0, nowMs - args.lastSyncedMs);
   const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
   if (days <= 0) {
     return "Google Analytics data last refreshed less than a day ago.";
