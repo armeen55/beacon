@@ -28313,3 +28313,22 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **KNOWN GAPS / NOT auto-fixed (operator decision):** `dataforseo-keywords-cache` is GLOBAL not tenant-scoped (keyword *volume* is global market data + opportunities are relevance-gated, so practical leak is minimal; tenant-scoping would orphan the cache → re-spend). Several sections self-hide silently when empty (intentional clean-cockpit design; could add operator-only "no data yet — connect X" hints if desired). 4 pre-existing test failures unrelated to this work.
 
 **Remaining gates (need operator approval):** migrations (GA4 revenue, profound_answer_rows, operator-feedback columns), paid-API wiring (DataForSEO keywords/labs, structured-LLM-in-prod, top-N prepare), publish-path/CMS-adapter refactor.
+
+---
+
+## 2026-06-26 — Profound Iranopedia Prompt Intelligence (branch `claude/profound-iranopedia-intel`, off `origin/main`, NOT merged)
+
+**Goal:** turn Profound from coarse citations/visibility into per-PROMPT AEO intelligence for the borrowed Iranopedia workspace (operator: "this should become the AEO core").
+
+**Live read-only truth dump (`scripts/_profound-truth-dump.ts`, run against prod token):** category "Frontier Models", 16 topics incl. "Iranopedia" (id 0e181fec); 403 prompts; 1,067 query-fanouts; 3,310 answers. Found + fixed a critical bug.
+
+**What changed (5 commits 8bc64232..30893d8a):**
+1. `client.ts` `decodeProfoundAnswers` — answers carry citations in a `citations` STRING-ARRAY of URLs, NOT `citation_details[].hostname`; the old decoder was always empty → the whole per-prompt signal was dead. Fixed; added `citationUrls` + `themes`. (CRITICAL.)
+2. `recommendation-intelligence/profound-answer-analysis.ts` — `analyzeProfoundAnswersByPrompt` (per-prompt rollup).
+3. `lib/connectors/profound/tenant-scope.ts` — hard-scoped Iranopedia (category 7943f355, topic 0e181fec, owned iranopedia.com, aliases, agentAnalytics OFF) + `isProfoundNoisePrompt` (drops "Evaluate the Frontier Models company X").
+4. `domains/profound-question-intelligence/prompt-opportunity.ts` (pure) + `load.ts` (react.cache live loader: answers + fanouts, topic-scoped, fail-soft; requests canonical fanout dim order).
+5. `app/(shell)/diagnostics/profound-intelligence/page.tsx` — operator-gated surface (per-prompt: move, AI answer/model counts, exact cited pages, fan-outs).
+
+**Verified:** `npx tsc --noEmit` → exit 0. Targeted tests → 45 pass (prompt-opportunity 6, profound-answer-analysis 11, profound client 28). LIVE TRUTH DUMP: 200 real prompts → **152 AEO gaps** with top cited pages per prompt (e.g. "Persian girl names" → honeyname/peanut-app/familyeducation; "taarof" → mei.edu/tappersia; "Hafez" → britannica/poetryfoundation), iranopedia.com cited on only ~8. **PROOFS:** no bots/referrals/Agent-Analytics called (grep clean — only no-call comments); ownership = iranopedia.com citation + "Iranopedia" mention ONLY, never the openai.com/ChatGPT tracked asset.
+
+**NOT done (follow-on):** durable storage + nightly sync (profound_prompt/answer/fanout_rows = migrations, operator-gated); EvidencePacket/New-Pages/Today-Moves fusion; structured-LLM brief drafter; remaining client GET wrappers (topics/tags/assets/prompts). **0 writes · 0 bots/referrals · 0 migrations · 0 prod mutation · NOT merged · NOT deployed.**
