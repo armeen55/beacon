@@ -58,21 +58,24 @@ export function generateCityServiceCandidates(input: CityServiceInput): CityServ
 
   const out: CityServiceCandidate[] = [];
   const seen = new Set<string>();
+  // Space-pad the blob so substring checks are word-boundary-aware (norm() already
+  // turns separators into spaces) — "San" must not match "sandstone".
+  const paddedBlob = ` ${ownedBlob} `;
+  const tokenIn = (t: string) => t.length > 0 && paddedBlob.includes(` ${t} `);
 
-  for (const service of services) {
+  outer: for (const service of services) {
     for (const city of cities) {
-      if (out.length >= max) break;
+      if (out.length >= max) break outer; // stop BOTH loops at the cap
       const slug = slugify(`${service}-${city}`);
       if (seen.has(slug)) continue;
       seen.add(slug);
       // Dedup: skip when an owned URL already covers this city+service pairing.
       const cityN = norm(city);
       const serviceN = norm(service);
-      const alreadyCovered =
-        ownedSlugs.has(slug) || (cityN.length > 0 && serviceN.length > 0 && ownedBlob.includes(cityN) && ownedBlob.includes(serviceN));
+      const alreadyCovered = ownedSlugs.has(slug) || (tokenIn(cityN) && tokenIn(serviceN));
       if (alreadyCovered) continue;
 
-      const echoesOwn = ownedBlob.includes(serviceN); // service is part of the tenant's real offering
+      const echoesOwn = tokenIn(serviceN); // service is part of the tenant's real offering
       const qualifier = input.titleQualifier?.trim();
       const title = qualifier ? `${qualifier} in ${city}` : `${service} in ${city}`;
       out.push({

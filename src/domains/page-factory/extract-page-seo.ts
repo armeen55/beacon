@@ -28,9 +28,10 @@ function hasSchemaType(jsonLdBlocks: string[], types: string[]): boolean {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      // Fall back to a tolerant text scan when the JSON is malformed.
+      // Malformed JSON → tolerant scan of THIS block, but still require the type to be
+      // the value of an "@type" key (not just both strings present somewhere).
       const lc = raw.toLowerCase();
-      if (types.some((t) => lc.includes(`"@type"`) && lc.includes(t.toLowerCase()))) return true;
+      if (types.some((t) => new RegExp(`"@type"\\s*:\\s*\\[?\\s*"${t.toLowerCase()}"`, "i").test(lc))) return true;
       continue;
     }
     const stack: unknown[] = [parsed];

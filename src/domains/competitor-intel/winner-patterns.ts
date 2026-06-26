@@ -34,9 +34,11 @@ function hostOf(href: string): string | null {
 }
 
 function jsonLdMentions(html: string, types: string[]): boolean {
-  // tolerant: a Review/AggregateRating ld+json block (parsed or text-scanned)
+  // Require the type to be the VALUE of an "@type" key (optionally inside an array),
+  // not just both strings appearing somewhere — avoids false positives from the word
+  // (e.g. "Review") in body text while a different @type sits elsewhere.
   const lc = html.toLowerCase();
-  return types.some((t) => lc.includes(`"@type"`) && lc.includes(t.toLowerCase()));
+  return types.some((t) => new RegExp(`"@type"\\s*:\\s*\\[?\\s*"${t.toLowerCase()}"`, "i").test(lc));
 }
 
 /** Extract the deep winner signals from page HTML. PURE. ownHost (the page's own

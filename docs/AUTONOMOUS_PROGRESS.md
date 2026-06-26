@@ -155,3 +155,7 @@ NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Ra
 
 **DONE [21]** (20:52 PDT): city×service page factory (plan P12 — the local-service half).
 - `page-factory/city-service-factory.ts` (NEW, pure): `generateCityServiceCandidates({cities, services, ownedUrls, titleQualifier})` → deduped create_page candidates for the city×service matrix a local business needs; config-driven (NO hardcoded cities — Ritz-safe per de-verticalization), relevance-gated to the tenant's own service vocabulary, every candidate `needsDemandValidation` (no invented volume), deduped vs owned pages. +6 tests. Parallels entity-attribute-factory (content half) → "programmatic page factories" now covers both shapes. tsc clean. No paid/migration/main.
+
+**DONE [22]** (20:54 PDT): city×service config loader + 3rd adversarial review (newest engines) + fixes.
+- `load-page-candidates.ts`: `loadCityServiceCandidates` (config-driven cities×services, fail-closed for content tenants). e6097e47.
+- 3rd adversarial review (winner-patterns, extract-page-seo, city-service, own-page E-E-A-T) → 3 real edge-case findings, all FIXED: (a) jsonLdMentions/hasSchemaType now require the type to be the VALUE of an `"@type"` key via regex (no false-positive when the word appears in body text + a different @type elsewhere); (b) city-service nested cap now `break outer` (stop both loops, not just inner); (c) city-service dedup is word-boundary-aware (space-padded blob → "San" no longer matches "sandstone"). 17/17 affected tests green; tsc clean.
