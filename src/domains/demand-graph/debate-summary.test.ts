@@ -50,3 +50,15 @@ describe("summarizeSpecialistDebate", () => {
     expect(s.voices[0].confidencePct).toBe(100);
   });
 });
+
+describe("operator-friendly fallback labels (B82++ reliability)", () => {
+  it("an unknown specialist/objection key never leaks a raw machine token to the UI", () => {
+    const s = summarizeSpecialistDebate([
+      op({ specialist: "totally_new_specialist" as never, claim: "x", confidence: 0.5,
+        objections: [{ kind: "brand_new_kind" as never, against: [], severity: "downgrade", detail: "d", evidenceRefs: [] }] }),
+    ]);
+    expect(s.voices[0].label).toBe("Another specialist");
+    expect(s.voices[0].label).not.toContain("_");
+    expect(s.objections[0].reason).toBe("Flagged a concern");
+  });
+});

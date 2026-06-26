@@ -72,6 +72,8 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
     "/opportunities",
     "/moves", // 2026-06-25: the full Rank-&-Revenue worklist (§7) — the engine's
     //            promoted Moves as one ranked, filterable list. Customer route.
+    "/worklist", // 2026-06-25 (Sprint 6): unified ranked worklist + filtered views
+    //            (Today/This-week/Big-bets/New-pages/Store/Tools/Trends/Fix-ups/All).
     "/recommendations",
     "/experiments",
     "/proof",

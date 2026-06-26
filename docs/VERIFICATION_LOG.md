@@ -28272,3 +28272,20 @@ Verified SOUND (no change): proof-engine/outcome-measurement, demand-graph score
 
 ## 2026-06-25 21:31 PT — MERGED TO MAIN + DEPLOYED TO PRODUCTION (operator-approved on return)
 Operator returned and authorized "move everything to main and push." Gate (typecheck + build) GREEN → fast-forward `origin/main` `276a5f71 → 0688c251` (Sprint 3+4+5+6 stack: 54 commits, 76 files, **0 migrations, 0 conflicts**). Vercel daily-deploy cap had RESET; **production deploy = ✅ success** ("Deployment has completed"). Live smoke: `beacon-bice.vercel.app/login` 200, `/worklist` 307 (new route present), `/today` 307. Carries the 18 B82++ bug-fixes (push cap-durability ×8, GSC ×1, SEMrush ×1, Profound ×5, LLM fail-open caps ×3). **Verification gap:** full `npm run test` (15k) NOT run; targeted 116 Sprint-6 tests + typecheck + build pass. Rollback: `git push origin 276a5f71:main`.
+
+## 2026-06-26 ~04:40 UTC (2026-06-25 ~21:40 PT) — PRODUCTION RELIABILITY PASS (branch claude/reliability-pass, NOT merged)
+Post-deploy verification of the live stack (main `0688c251`, prod deploy succeeded, **no migrations, no publish-path change, rollback `276a5f71`**).
+
+**Full suite:** 15,658 passed / 5 failed / 71 skipped (15,734). **4 of 5 failures PRE-EXIST on base `276a5f71`** (tenant-switch-action ×3, google callback-state ×1 — mock/auth-env, files my stack never touched; proven by running them on the base). **1 failure was mine** — `customer-nav-exposure` (intentional `/worklist` nav add) → fixed the invariant set.
+
+**Live Iranopedia data probe (Supabase REST counts):** gsc_daily_rows 90,576 · gsc_daily_page_totals 7,879 · ga4_url_traffic 27,205 · profound_citation_rows 11,502 · page_snapshots 217 · clarity_daily_url_metrics 400 · semrush_organic_keywords 210 · recommended_edits 82 · move_drafts 39 · shipped_change_proof 9 · **profound_referral_rows 0 · profound_bot_rows 0 · profound_visibility_rows 0** (borrowed Profound account tracks OpenAI, not Iranopedia referrals/bots) · profound_fanout_rows (probe timed out, unknown).
+
+**Render verdict (6-agent read-only audit):** Today Moves, Worklist (+all 9 views), Specialist debate, New Opportunities/Trends/Store, Page-health (operator scan), Execution/Mark-applied → **render real data** (rich tables present). AI-traffic + Bot-coverage + visibility-AEO → **correctly self-hide** (0 rows; fail-soft, no crash, no overclaim). Friction-fixes → renders iff a page clears the friction floor. **No render-crash or overclaim risks found** (debate voices/objections always arrays; copy is data-grounded).
+
+**Fixes made (branch):** (1) customer-nav-exposure test +/worklist; (2) debate-summary operator-friendly fallback labels (no raw enum key leaks); (3) de-verticalized a stale "Iranopedia/Wix" comment in load-demand-opportunities.
+
+**Tests added:** `tests/domains/reliability/critical-fix-regression.test.ts` — source-level guards for all 18 critical fixes (LLM caps fail-closed, GSC/SEMrush/Profound masked-failure→synced:false, push cap-finalization on every refusal, free-text move_drafts kinds) + a behavioral debate-fallback test. Full behavioral tests for the I/O fixes need Supabase/OpenAI mock infra (deferred — see report).
+
+**KNOWN GAPS / NOT auto-fixed (operator decision):** `dataforseo-keywords-cache` is GLOBAL not tenant-scoped (keyword *volume* is global market data + opportunities are relevance-gated, so practical leak is minimal; tenant-scoping would orphan the cache → re-spend). Several sections self-hide silently when empty (intentional clean-cockpit design; could add operator-only "no data yet — connect X" hints if desired). 4 pre-existing test failures unrelated to this work.
+
+**Remaining gates (need operator approval):** migrations (GA4 revenue, profound_answer_rows, operator-feedback columns), paid-API wiring (DataForSEO keywords/labs, structured-LLM-in-prod, top-N prepare), publish-path/CMS-adapter refactor.

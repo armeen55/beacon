@@ -53,10 +53,12 @@ export type DebateSummary = {
 export function summarizeSpecialistDebate(opinions: SpecialistOpinion[]): DebateSummary {
   const valid = (opinions ?? []).filter((o) => o && o.claim);
 
+  // Fallbacks are operator-friendly strings, not the raw enum key — a typo'd
+  // specialist/objection key never leaks a machine token into the UI.
   const voices: DebateVoice[] = valid
     .map((o) => ({
       specialist: o.specialist,
-      label: SPECIALIST_LABELS[o.specialist] ?? o.specialist,
+      label: SPECIALIST_LABELS[o.specialist] ?? "Another specialist",
       claim: o.claim,
       confidencePct: Math.round(Math.min(1, Math.max(0, o.confidence ?? 0)) * 100),
     }))
@@ -66,9 +68,9 @@ export function summarizeSpecialistDebate(opinions: SpecialistOpinion[]): Debate
     .flatMap((o) =>
       (o.objections ?? []).map((ob) => ({
         specialist: o.specialist,
-        label: SPECIALIST_LABELS[o.specialist] ?? o.specialist,
+        label: SPECIALIST_LABELS[o.specialist] ?? "Another specialist",
         kind: ob.kind,
-        reason: OBJECTION_LABELS[ob.kind] ?? ob.kind,
+        reason: OBJECTION_LABELS[ob.kind] ?? "Flagged a concern",
         severity: ob.severity,
         detail: ob.detail,
       })),

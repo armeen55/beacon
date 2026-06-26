@@ -61,8 +61,10 @@ export async function loadDemandOpportunities(
 
   const opps = buildOpportunities({ keywords, ownedPages, tenantTopics });
   const trends = buildTrendRadar({ keywords, ownedPages, currentMonth });
-  // No Wix store data reachable for Iranopedia → all owned pages pass as candidate
-  // product/collection matches (kind inferred); products stay concept_only.
+  // Tenant-agnostic: without a connected commerce platform (Wix Store, etc.) we
+  // can't verify inventory, so owned pages are candidate product/collection matches
+  // by URL/topic only and every product opportunity stays concept_only until a real
+  // in-stock product is confirmed.
   const products = buildProductOpportunities({ keywords, pages: ownedPages });
 
   // Sprint-3 outcome prior → bounded re-rank + explanation tag. Decided-only,
