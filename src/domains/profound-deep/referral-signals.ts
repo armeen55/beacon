@@ -107,6 +107,26 @@ export function referralOutcomeForPage(
   return { path: key, beforeVisits: before, afterVisits: after, deltaPct, windowDays, verdict };
 }
 
+/** Overall AI-referral trend: recent-half vs prior-half visits across the dated
+ *  rows. PURE. Fewer than 2 distinct dates → "unknown" (never guessed). */
+export function overallReferralTrend(rows: ProfoundReferralRow[]): {
+  direction: "rising" | "flat" | "declining" | "unknown";
+  recentVisits: number;
+  priorVisits: number;
+} {
+  const dated = rows.filter((r) => r.date && (r.visits ?? 0) > 0).sort((a, b) => a.date.localeCompare(b.date));
+  const dates = [...new Set(dated.map((r) => r.date))];
+  if (dates.length < 2) return { direction: "unknown", recentVisits: 0, priorVisits: 0 };
+  const mid = dates[Math.floor(dates.length / 2)];
+  let recent = 0;
+  let prior = 0;
+  for (const r of dated) (r.date >= mid ? (recent += r.visits) : (prior += r.visits));
+  if (prior <= 0) return { direction: recent > 0 ? "rising" : "unknown", recentVisits: recent, priorVisits: prior };
+  const delta = (recent - prior) / prior;
+  const direction = delta >= 0.15 ? "rising" : delta <= -0.15 ? "declining" : "flat";
+  return { direction, recentVisits: recent, priorVisits: prior };
+}
+
 export function summarizeReferrals(rows: ProfoundReferralRow[]): {
   totalVisits: number;
   pages: number;

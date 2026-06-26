@@ -3,6 +3,7 @@ import {
   aggregateReferralsByPage,
   referralOutcomeForPage,
   summarizeReferrals,
+  overallReferralTrend,
   type ProfoundReferralRow,
 } from "./referral-signals";
 
@@ -61,5 +62,19 @@ describe("summarizeReferrals", () => {
     expect(s.totalVisits).toBe(14);
     expect(s.pages).toBe(2);
     expect(s.topSources[0].source).toBe("chatgpt.com");
+  });
+});
+describe("overallReferralTrend", () => {
+  it("rising when recent-half visits exceed prior-half", () => {
+    const rows = [
+      row("2026-06-01", "/a", "chatgpt.com", 10),
+      row("2026-06-02", "/a", "chatgpt.com", 10),
+      row("2026-06-09", "/a", "chatgpt.com", 40),
+      row("2026-06-10", "/a", "chatgpt.com", 40),
+    ];
+    expect(overallReferralTrend(rows).direction).toBe("rising");
+  });
+  it("unknown with <2 distinct dates (no guess)", () => {
+    expect(overallReferralTrend([row("2026-06-01", "/a", "x", 5)]).direction).toBe("unknown");
   });
 });
