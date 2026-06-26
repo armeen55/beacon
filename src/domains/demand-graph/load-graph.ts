@@ -20,7 +20,16 @@ import "server-only";
 import { cache } from "react";
 
 import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
-import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
+import {
+  loadGa4PageValuesForTenant,
+  loadGa4PageRevenueForTenant,
+  type Ga4PageValue,
+} from "@/domains/recommendation-intelligence/ga4-page-values";
+import {
+  normalizePageRevenue,
+  revenueScoreMultiplier,
+  type PageRevenueValue,
+} from "@/domains/recommendation-intelligence/ga4-revenue";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
@@ -163,13 +172,20 @@ export async function loadDemandGraphForTenant(
   now: Date = new Date(),
   config?: DemandGraphConfig,
 ): Promise<LoadGraphResult> {
-  const [gsc, ga4, clarity, fanoutSeeds] = await Promise.all([
+  const [gsc, ga4, ga4Revenue, clarity, fanoutSeeds] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId, now).catch((e): Map<string, GscPageSignal> => {
       log.warn("[load-graph] gsc read failed", { tenantId, error: String(e) });
       return new Map();
     }),
     loadGa4PageValuesForTenant(tenantId, now).catch((e): Map<string, Ga4PageValue> => {
       log.warn("[load-graph] ga4 read failed", { tenantId, error: String(e) });
+      return new Map();
+    }),
+    // 2026-06-26 revenue: SEPARATE, isolated read — empty map (→ conversion
+    // fallback) when revenue columns don't exist yet / no ecommerce. Never
+    // breaks the traffic read above.
+    loadGa4PageRevenueForTenant(tenantId, now).catch((e): Map<string, PageRevenueValue> => {
+      log.warn("[load-graph] ga4 revenue read failed (conversion fallback)", { tenantId, error: String(e) });
       return new Map();
     }),
     loadClarityPageSignalsForTenant(tenantId, now).catch((e): Map<string, ClarityPageSignal> => {
@@ -243,6 +259,24 @@ export async function loadDemandGraphForTenant(
 
     const ga = ga4.get(page);
     const cl = clarity.get(page);
+    // 2026-06-26 revenue-aware $ signal. Prefer the normalized revenue value;
+    // when revenue is unknown (pre-migration / no ecommerce), build a
+    // conversion-only aggregate so the BOUNDED conversion fallback still applies
+    // (revenueScoreMultiplier) — never the old conversions-as-dollars bug.
+    const rev: PageRevenueValue =
+      ga4Revenue.get(page) ??
+      normalizePageRevenue({
+        page,
+        sessions: ga?.sessions28d ?? 0,
+        engagedSessions: ga?.engaged28d ?? 0,
+        conversions: ga?.conversions28d ?? 0,
+        totalRevenue: null,
+        purchaseRevenue: null,
+        transactions: null,
+        revenueCurrency: null,
+        revenueObserved: false,
+      });
+    const revInfluence = revenueScoreMultiplier(rev);
     ownedPages.push({
       url: page,
       servesDemandKeys: [key],
@@ -253,6 +287,9 @@ export async function loadDemandGraphForTenant(
       ga4Sessions: ga?.sessions28d ?? null,
       ga4Conversions: ga?.conversions28d ?? null,
       ga4Value: ga?.conversions28d ?? 0,
+      revenueValue: rev.revenue,
+      revenueMultiplier: revInfluence.multiplier,
+      revenueBasis: revInfluence.basis,
       clarityRageClicks: cl?.rageClicks ?? null,
       clarityDeadClicks: cl?.deadClicks ?? null,
       clarityScriptErrors: cl?.scriptErrors ?? null,

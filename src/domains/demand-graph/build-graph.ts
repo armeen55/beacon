@@ -62,7 +62,21 @@ export type OwnedPageInput = {
   gscPosition?: number | null;
   ga4Sessions?: number | null;
   ga4Conversions?: number | null;
+  /** @deprecated 2026-06-26 — a conversion COUNT, no longer used for the dollar
+   *  multiplier (it conflated conversions with revenue). Kept for back-compat /
+   *  display; the dollar signal now comes from revenueValue + revenueMultiplier. */
   ga4Value?: number | null;
+  /** Real GA4 revenue $ for this page (purchase preferred, else total), or null
+   *  when revenue is unknown. 2026-06-26 revenue migration. */
+  revenueValue?: number | null;
+  /** Precomputed BOUNDED revenue score multiplier (from revenueScoreMultiplier):
+   *  real-revenue tier (capped 4.0), conversion fallback (capped 2.0), or 1.0
+   *  neutral. The scorer applies it verbatim so the multiplier math lives in one
+   *  tested place (ga4-revenue.ts). Neutral 1.0 when absent. */
+  revenueMultiplier?: number | null;
+  /** What drove revenueMultiplier — "revenue" | "conversions" | "none" — for the
+   *  honest "$" vs "conversions" signal + explainability. */
+  revenueBasis?: "revenue" | "conversions" | "none" | null;
   clarityRageClicks?: number | null;
   clarityDeadClicks?: number | null;
   clarityScriptErrors?: number | null;
@@ -119,7 +133,14 @@ export type PageNode = {
   gscCtr: number;
   gscPosition: number | null;
   ga4Sessions: number;
+  /** @deprecated conversion count, kept for display; NOT the dollar multiplier. */
   ga4Value: number;
+  ga4Conversions: number;
+  /** Real GA4 revenue $ for this page, or null when unknown (2026-06-26). */
+  revenueValue: number | null;
+  /** Precomputed bounded revenue score multiplier; 1.0 neutral when absent. */
+  revenueMultiplier: number | null;
+  revenueBasis: "revenue" | "conversions" | "none" | null;
   frictionScore: number;
   aiCitationCount: number;
 };
@@ -267,6 +288,10 @@ export function buildDemandGraph(input: {
       gscPosition: p.gscPosition ?? null,
       ga4Sessions: num(p.ga4Sessions),
       ga4Value: num(p.ga4Value),
+      ga4Conversions: num(p.ga4Conversions),
+      revenueValue: p.revenueValue ?? null,
+      revenueMultiplier: p.revenueMultiplier ?? null,
+      revenueBasis: p.revenueBasis ?? null,
       frictionScore: friction,
       aiCitationCount: num(p.aiCitationCount),
     });
@@ -299,6 +324,10 @@ export function buildDemandGraph(input: {
         gscPosition: null,
         ga4Sessions: 0,
         ga4Value: 0,
+        ga4Conversions: 0,
+        revenueValue: null,
+        revenueMultiplier: null,
+        revenueBasis: null,
         frictionScore: 0,
         aiCitationCount: c.weight,
       });
@@ -323,15 +352,21 @@ export function buildDemandGraph(input: {
     const ownedPage = bestOwned
       ? pageNodes.find((p) => p.isOwned && p.url === bestOwned.url) ?? null
       : null;
-    const dollar = ownedPage ? ownedPage.ga4Value : 0;
+    // 2026-06-26 revenue migration: `dollar` is now REAL GA4 revenue $ (null →
+    // 0), NOT a conversion count. The "$" lie-detector signal therefore fires
+    // only on PROVEN revenue; conversion-only pages get a separate "conversions"
+    // signal so the evidence reads honestly and confidence counts stay stable.
+    const dollar = ownedPage ? num(ownedPage.revenueValue) : 0;
     const friction = ownedPage ? ownedPage.frictionScore : 0;
+    const revenueBasis = ownedPage?.revenueBasis ?? "none";
 
     // ── independent-signal confidence (the lie detector's honesty gate) ──
     const signals: string[] = [];
     if (num(raw?.gscImpressions) > 0) signals.push("GSC");
     if (num(raw?.searchVolume) > 0) signals.push("volume");
     if (num(raw?.aiExecutions) > 0 || compEdges.length > 0) signals.push("AI");
-    if (dollar > 0) signals.push("$");
+    if (revenueBasis === "revenue" && dollar > 0) signals.push("$");
+    else if (ownedPage && num(ownedPage.ga4Conversions) > 0) signals.push("conversions");
     if (ownedPage) signals.push("owned-page");
     const confidence: ConfidenceLevel =
       signals.length >= 3 ? "high" : signals.length === 2 ? "medium" : "low";
@@ -404,7 +439,16 @@ export function buildDemandGraph(input: {
     // Final score from EXPOSED components (kept simple/transparent — money-first):
     //   demand × winnability-band × visibility-band × $-multiplier, + friction boost
     //   only where friction IS the move. Do not overfit; the components are the truth.
-    const dollarMult = 1 + Math.log10(dollar + 1) / 2; // $0→1.0, $100→2.0, $10k→3.0
+    // 2026-06-26 revenue migration: apply the PRECOMPUTED bounded revenue
+    // multiplier (real-$ tier capped 4.0 / conversion fallback capped 2.0 / 1.0
+    // neutral) from revenueScoreMultiplier in load-graph — instead of the old
+    // `1 + log10(dollar+1)/2` that treated a conversion COUNT as dollars. Neutral
+    // 1.0 when absent (e.g. callers/tests that don't supply it) so a missing
+    // multiplier never punishes a page.
+    const dollarMult =
+      ownedPage?.revenueMultiplier != null && Number.isFinite(ownedPage.revenueMultiplier)
+        ? (ownedPage.revenueMultiplier as number)
+        : 1.0;
     let score = Math.round(
       node.demandWeight * (0.5 + winnability) * (0.5 + visibilityGap) * dollarMult,
     );

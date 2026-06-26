@@ -16,6 +16,10 @@ import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
+import {
+  normalizePageRevenue,
+  type PageRevenueValue,
+} from "@/domains/recommendation-intelligence/ga4-revenue";
 
 // Request-memoized: the cockpit now reads GA4 page value from several sections
 // (hero post-pass + the money-leak scan) on one render — cache() dedupes the
@@ -117,4 +121,119 @@ export function ga4ValueWeight(v: Ga4PageValue | undefined): number {
   const mass = v.conversions28d + 0.1 * v.engaged28d;
   if (mass <= 0) return 1.0;
   return Math.min(1.5, 1 + 0.25 * Math.log10(1 + mass));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 2026-06-26 — GA4 REVENUE page values (revenue migration). SEPARATE,
+// ISOLATED read so a pre-migration "column does not exist" error fails ONLY
+// revenue (→ empty map → conversion fallback downstream) and NEVER breaks the
+// existing traffic read above. Returns normalized PageRevenueValue per page.
+// ─────────────────────────────────────────────────────────────────────
+
+export const loadGa4PageRevenueForTenant = cache(loadGa4PageRevenueForTenantUncached);
+
+async function loadGa4PageRevenueForTenantUncached(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<Map<string, PageRevenueValue>> {
+  const out = new Map<string, PageRevenueValue>();
+  type Row = {
+    url: string;
+    sessions: number;
+    engaged_sessions: number;
+    conversions: number;
+    total_revenue: number | null;
+    purchase_revenue: number | null;
+    transactions: number | null;
+    revenue_currency: string | null;
+    revenue_synced_at: string | null;
+  };
+  // Per-page accumulator BEFORE normalization.
+  type Acc = {
+    sessions: number;
+    engaged: number;
+    conversions: number;
+    total: number | null;
+    purchase: number | null;
+    transactions: number | null;
+    currency: string | null;
+    revenueObserved: boolean;
+  };
+  const accs = new Map<string, Acc>();
+  try {
+    const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const sb = getSupabaseAdmin();
+    const PAGE = 1000;
+    for (let from = 0; from < MAX_ROWS; from += PAGE) {
+      const { data, error } = await sb
+        .from("ga4_url_traffic")
+        .select(
+          "url, sessions, engaged_sessions, conversions, total_revenue, purchase_revenue, transactions, revenue_currency, revenue_synced_at",
+        )
+        .eq("tenant_id", tenantId)
+        .gte("date", since)
+        .order("date")
+        .order("url")
+        .range(from, from + PAGE - 1);
+      if (error) {
+        // Pre-migration the revenue columns don't exist (PostgREST 42703) → this
+        // read fails entirely. That's FINE: revenue stays unknown everywhere and
+        // the scorer falls back to conversions. The existing traffic read
+        // (loadGa4PageValuesForTenant) is a SEPARATE query and keeps working.
+        log.warn("[ga4-page-revenue] read failed (revenue unknown; conversion fallback)", {
+          tenantId,
+          error: error.message,
+        });
+        return out; // empty → all pages "revenue unknown"
+      }
+      const batch = (data ?? []) as unknown as Row[];
+      for (const r of batch) {
+        const page = canonicalizeCitationUrl(r.url) ?? r.url;
+        const cur = accs.get(page) ?? {
+          sessions: 0,
+          engaged: 0,
+          conversions: 0,
+          total: null,
+          purchase: null,
+          transactions: null,
+          currency: null,
+          revenueObserved: false,
+        };
+        cur.sessions += r.sessions ?? 0;
+        cur.engaged += r.engaged_sessions ?? 0;
+        cur.conversions += r.conversions ?? 0;
+        const observed = r.revenue_synced_at != null && r.revenue_synced_at !== "";
+        if (observed) {
+          cur.revenueObserved = true;
+          if (r.total_revenue != null) cur.total = (cur.total ?? 0) + r.total_revenue;
+          if (r.purchase_revenue != null) cur.purchase = (cur.purchase ?? 0) + r.purchase_revenue;
+          if (r.transactions != null) cur.transactions = (cur.transactions ?? 0) + r.transactions;
+          if (cur.currency == null && r.revenue_currency) cur.currency = r.revenue_currency;
+        }
+        accs.set(page, cur);
+      }
+      if (batch.length < PAGE) break;
+    }
+  } catch {
+    return out; // fail-soft → revenue unknown everywhere
+  }
+  for (const [page, a] of accs) {
+    out.set(
+      page,
+      normalizePageRevenue({
+        page,
+        sessions: a.sessions,
+        engagedSessions: a.engaged,
+        conversions: a.conversions,
+        totalRevenue: a.total,
+        purchaseRevenue: a.purchase,
+        transactions: a.transactions,
+        revenueCurrency: a.currency,
+        revenueObserved: a.revenueObserved,
+      }),
+    );
+  }
+  return out;
 }
