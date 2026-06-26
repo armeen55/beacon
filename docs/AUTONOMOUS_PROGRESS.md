@@ -56,3 +56,13 @@ Adding GA4 revenue needs a new `revenue` column on `ga4_url_traffic` → a migra
 - `clarity-move-router.ts` (pure): routeClarityFriction → fix_js_errors (high, blocks crawlers) / fix_dead_click / fix_rage_interaction / fix_intent_mismatch / raise_answer (uses scroll-depth). Priority by impact; session floor + fail-closed (no scroll col → never claims raise_answer). +8 tests.
 - Gates: tsc clean; 8/8 clarity tests. No migration, no paid, no main.
 - NEXT TARGET: wire the Clarity router INTO the clarity-friction trigger so the friction rec carries the SPECIFIC move type + reason (consume the router), then the next plan lever (structured-LLM-into-prod is paid; prefer programmatic entity×attribute page factory or unified worklist views — $0).
+
+## [4] Unified ranked worklist + filtered views (plan P15) — $0/additive
+**Why big:** the cockpit is ~30 stacked sections; the plan wants ONE ranked Move list with filtered views (Today / This Week / Big Bets / New Pages / Store / Tools / Trends / Proof). Building it ADDITIVELY (pure view-slicer + a new section) avoids risky deletion of the 30 sections. $0.
+Note: Clarity router→trigger wiring left as a careful follow-up (trigger is tested + load-bearing; won't risk it autonomously). The resurrected scroll/engagement columns already flow to every ClarityPageSignal consumer.
+
+**DONE [4]** (19:37 PDT): Unified ranked worklist + filtered views.
+- `domains/worklist/worklist-views.ts` (pure) — buildWorklist (normalizes moves+opportunities+trends+products into one ranked WorklistItem list) + sliceWorklist (today/this_week/big_bets/new_pages/store/tools/trends/all) + WORKLIST_VIEWS. +8 tests.
+- `(shell)/worklist/page.tsx` (server, force-dynamic) + `worklist-client.tsx` (client view-tabs) — the additive `/worklist` surface; reuses cached loaders ($0). Nav link added (navigation.ts "Worklist" in Find&fix).
+- Gates: tsc clean; 8/8 worklist tests. Additive — existing 30 cockpit sections untouched (no risky deletion). No migration/paid/main.
+- NEXT TARGET: another $0/no-migration lever — programmatic entity×attribute page-candidate factory (P12) OR wire the Clarity router into the move pipeline carefully. Leaning page factory (additive content engine).

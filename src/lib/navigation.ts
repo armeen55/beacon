@@ -5,6 +5,7 @@ import {
   Target,
   Zap,
   Compass,
+  ListTodo,
   Network,
   LineChart,
   Plug,
@@ -46,6 +47,7 @@ export const navigationGroups: NavGroup[] = [
   {
     label: "Find & fix",
     items: [
+      { label: "Worklist", href: "/worklist", icon: ListTodo },
       { label: "Moves", href: "/moves", icon: Zap },
       { label: "Opportunities", href: "/opportunities", icon: Compass },
       { label: "Drafts", href: "/recommendations", icon: Target },
