@@ -182,7 +182,10 @@ export function sliceWorklist(items: WorklistItem[], view: WorklistView, opts: {
     case "tools":
       return items.filter((i) => i.parent === "tool");
     case "trends":
-      return items.filter((i) => i.kind === "trend" || i.trend === "rising");
+      // Search-trend opportunities ONLY (the `trend` producer). A rising PRODUCT
+      // carries trend="rising" too but belongs in Store, not Trends — so gate on
+      // kind, not the trend field, to keep the taxonomy clean.
+      return items.filter((i) => i.kind === "trend");
     case "fixups":
       // Technical fix-ups: crawlability gaps + page-experience/friction fixes.
       return items.filter((i) => i.parent === "technical");
@@ -191,14 +194,16 @@ export function sliceWorklist(items: WorklistItem[], view: WorklistView, opts: {
   }
 }
 
-export const WORKLIST_VIEWS: { id: WorklistView; label: string }[] = [
-  { id: "today", label: "Today" },
-  { id: "this_week", label: "This week" },
-  { id: "big_bets", label: "Big bets" },
-  { id: "new_pages", label: "New pages" },
-  { id: "store", label: "Store" },
-  { id: "tools", label: "Tools" },
-  { id: "trends", label: "Trends" },
-  { id: "fixups", label: "Fix-ups" },
-  { id: "all", label: "All" },
+export const WORKLIST_VIEWS: { id: WorklistView; label: string; emptyHint: string }[] = [
+  // emptyHint explains WHY a view is empty (each view has a distinct filter), so a
+  // 0-count tab never reads as "broken" — it tells the operator what would fill it.
+  { id: "today", label: "Today", emptyHint: "Nothing queued for today yet — your top Moves appear here as data lands." },
+  { id: "this_week", label: "This week", emptyHint: "Nothing for this week yet." },
+  { id: "big_bets", label: "Big bets", emptyHint: "Big bets are net-new pages or products with 1,000+ monthly searches — none yet. Create new content or run Discover." },
+  { id: "new_pages", label: "New pages", emptyHint: "No new-page recommendations yet — run Discover to find keyword gaps where a fresh page would win clicks." },
+  { id: "store", label: "Store", emptyHint: "No store Moves yet — connect a commerce platform (e.g. Wix Stores) to get product & collection recommendations here." },
+  { id: "tools", label: "Tools", emptyHint: "No tool or asset opportunities yet — these appear when demand points to a calculator, checklist, or interactive tool." },
+  { id: "trends", label: "Trends", emptyHint: "No rising search trends detected yet — trend opportunities appear when a query's demand jumps." },
+  { id: "fixups", label: "Fix-ups", emptyHint: "No technical fix-ups right now — crawlability and page-experience issues show here." },
+  { id: "all", label: "All", emptyHint: "No Moves yet." },
 ];

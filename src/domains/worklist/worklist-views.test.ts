@@ -49,9 +49,12 @@ describe("sliceWorklist views", () => {
     expect(s.every((i) => i.parent === "commerce")).toBe(true);
     expect(s.find((i) => i.id === "pr1")).toBeDefined();
   });
-  it("trends = trend items / rising", () => {
+  it("trends = trend producer only (rising PRODUCT stays in Store, not Trends)", () => {
     const tr = sliceWorklist(w, "trends");
-    expect(tr.find((i) => i.id === "tr1")).toBeDefined();
+    expect(tr.find((i) => i.id === "tr1")).toBeDefined(); // kind:"trend"
+    // pr1 is a product with trend:"rising" — it belongs in Store, NOT Trends.
+    expect(tr.find((i) => i.id === "pr1")).toBeUndefined();
+    expect(tr.every((i) => i.kind === "trend")).toBe(true);
   });
   it("big_bets = high-demand net-new, by demand", () => {
     const bb = sliceWorklist(w, "big_bets");

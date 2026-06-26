@@ -189,10 +189,14 @@ export function buildContentPacks(move: MoveForPlan, location: ResolvedLocation)
     const title = move.draftTitle ? clip(move.draftTitle) : "";
     const meta = move.draftMeta ? clip(move.draftMeta) : "";
     const ready = title.length > 0;
+    const copy = ready ? `Title: ${title}${meta ? `\nMeta description: ${meta}` : ""}` : "";
     packs.push({
       type: "title_meta",
-      copy: ready ? `Title: ${title}${meta ? `\nMeta description: ${meta}` : ""}` : "",
-      charCount: ready ? title.length : null,
+      copy,
+      // charCount = the FULL paste length (title + meta), matching the answer_block
+      // pack + what the operator actually pastes. The SERP title-budget concern is
+      // surfaced separately via riskNotes (title > 60 chars).
+      charCount: ready ? copy.length : null,
       whereToPaste: where,
       why: "Improve the click-through title / meta for the queries this page ranks for.",
       evidenceRefs: ev,

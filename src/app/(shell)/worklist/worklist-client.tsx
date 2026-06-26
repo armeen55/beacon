@@ -55,7 +55,9 @@ export function WorklistClient({ items }: { items: WorklistItem[] }) {
 
       <div className="mt-4 space-y-2">
         {shown.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">Nothing in this view.</p>
+          <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
+            {WORKLIST_VIEWS.find((v) => v.id === view)?.emptyHint ?? "Nothing in this view."}
+          </p>
         ) : (
           shown.map((it, i) => (
             <div key={it.id} className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">

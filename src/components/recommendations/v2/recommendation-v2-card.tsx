@@ -52,7 +52,10 @@ import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
 const STATUS_PILL_TONE: Record<ActionRowStatus, string> = {
   new: "bg-accent-primary/10 text-accent-primary",
-  accepted: "bg-status-success/10 text-status-success",
+  // accepted = in-flight (operator accepted, not yet shipped) → INFO tone, matching
+  // the detail page + working rail. Only `shipped` (live) earns the success green;
+  // tinting accepted green too conflated "accepted" with "done" across surfaces.
+  accepted: "bg-status-info/10 text-status-info",
   shipped: "bg-status-success/10 text-status-success",
   measuring: "bg-status-warning/10 text-status-warning",
   needs_review: "bg-muted-foreground/10 text-muted-foreground",
