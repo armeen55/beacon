@@ -12,6 +12,7 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProfoundPromptIntelligence } from "@/domains/profound-question-intelligence/load";
+import { BriefButton } from "./brief-button";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,16 @@ export default async function ProfoundIntelligencePage() {
                       Fan-outs: {o.fanoutQueries.slice(0, 6).join(" · ")}
                     </div>
                   )}
+                  <BriefButton
+                    input={{
+                      prompt: o.prompt,
+                      fanoutQueries: o.fanoutQueries,
+                      competitorPages: o.topCitedPages.filter((p) => !p.isOwned).map((p) => p.url),
+                      ownCitedUrls: o.ownCitedUrls,
+                      recommendedMove: o.recommendedMove,
+                      tags: o.tags,
+                    }}
+                  />
                 </li>
               ))}
             </ul>
