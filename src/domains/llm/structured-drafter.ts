@@ -247,7 +247,7 @@ const ANSWER_BLOCK_SYSTEM =
   "You write structured AEO answer blocks for an encyclopedia / content site. Return ONLY a JSON object with keys: " +
   '"answer" (one direct factual answer of 40-60 words an AI assistant could quote verbatim), ' +
   '"citationHook" (a short quotable phrase, or null), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
@@ -302,7 +302,7 @@ export type AtomicEditStructuredInput = {
 const ATOMIC_EDIT_SYSTEM =
   "You improve ONE on-page field (a page title or meta description) for an encyclopedia / content site to better match the search intent and earn the click. " +
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
-  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";

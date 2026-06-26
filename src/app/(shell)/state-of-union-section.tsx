@@ -263,7 +263,7 @@ function PlanBlock({
             </p>
             <p className="mt-1 text-[13px] text-muted-foreground">
               The dip is spread thin across many pages. Refresh your strongest pages,
-              or connect more sources (SEMrush, Clarity) so Beacon can pinpoint where to act.
+              or connect more sources (Clarity) so Beacon can pinpoint where to act.
             </p>
           </>
         ) : (

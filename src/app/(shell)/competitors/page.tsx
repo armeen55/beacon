@@ -71,7 +71,7 @@ export default async function CompetitorsPage() {
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
             Rankings, co-mentions, battlecards, and local pressure are built from your data and configured
-            competitor universe. Connect Google Search Console (plus GA4, SEMrush, or Clarity) and
+            competitor universe. Connect Google Search Console (plus GA4 or Clarity) and
             refresh to see your business. Until then, this route shows sample market data for orientation
             only — not your business.
           </p>

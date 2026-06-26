@@ -270,7 +270,7 @@ export function qaArtifactBundle(
 
   // 6. Ranking-safe: a snippet change must have a real justification.
   const snippetChange = changes.find((c) => SNIPPET_ACTIONS.has(c.action));
-  const snippetJustified = problems.snippetDeficit || problems.titleMissingDominantQuery || problems.zeroClickPage1 || problems.highValueUnservedCluster;
+  const snippetJustified = problems.snippetDeficit || problems.titleMissingDominantQuery || problems.zeroClickPage1;
   add(
     "Ranking-safe",
     !snippetChange || snippetJustified,

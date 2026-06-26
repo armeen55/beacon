@@ -11,7 +11,7 @@
  * matches the verified per-source capability map.
  *
  * Honesty rules baked into the copy:
- *   • Five of the six sources are READ-ONLY — their `youDo` says Beacon
+ *   • Every source but Wix is READ-ONLY — their `youDo` says Beacon
  *     never changes anything there.
  *   • Wix is the only write path — its `youDo` keeps "you approve each
  *     change" front and centre; there is no auto-publish.
@@ -44,14 +44,6 @@ export const CONNECTOR_CAPABILITY: Record<string, ConnectorCapabilityCopy> = {
       "When you refresh your connected data, Beacon checks your website analytics to see which pages bring in the most visitors and turn them into customers, then focuses its to-do list on improving the pages that matter most to your bottom line.",
     youDo:
       "Sign in with the Google account that has your Analytics, then pick your website from the list. After that, every refresh reads your numbers, and Beacon can never change anything in your Analytics.",
-  },
-
-  // SEMrush — read-only.
-  semrush: {
-    automated:
-      "Beacon pulls the full list of Google search terms your site already ranks for, the terms competitors are winning that you're missing, and your overall site strength, then writes specific fixes: rewrite this page title to grab a term you're #5 for, build a page for a term a competitor owns, or stop two of your own pages from competing for the same term.",
-    youDo:
-      "Make sure your SEMrush plan includes API access (the Business plan) and that you've added some API 'units' to your account, then paste your SEMrush API key into Beacon once. Each refresh pulls fresh data inside a safe usage budget. Beacon only reads your SEMrush data.",
   },
 
   // AI answer tracking (provider key: profound) — read-only.

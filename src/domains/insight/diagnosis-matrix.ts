@@ -111,7 +111,7 @@ export function buildDiagnosisMatrix(
 
   // 5. Section / content depth.
   rows.push(
-    buildDepthRow(p, crawl, hasGsc),
+    buildDepthRow(crawl, hasGsc),
   );
 
   // 6. Visible Q&A / structured data.
@@ -178,13 +178,9 @@ export function buildDiagnosisMatrix(
 }
 
 function buildDepthRow(
-  p: ReturnType<typeof detectPageProblems>,
   crawl: EvidencePacket["crawl"],
   hasGsc: boolean,
 ): DiagnosisRow {
-  if (p.highValueUnservedCluster) {
-    return row("section_content", "Section / content depth", "attention", "There's real demand for a topic this page doesn't cover, add a section for it.");
-  }
   if (crawl?.wordCount != null && crawl.wordCount < THIN_WORDS && hasGsc) {
     return row("section_content", "Section / content depth", "attention", `Thin for the demand it gets (~${crawl.wordCount} words), expand the content.`);
   }

@@ -33,7 +33,6 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
     ["invalid_schema", "fix_schema"],
     // Insight Graph slice 1 (2026-06-12): GSC low-CTR fused signal.
     ["gsc_low_ctr", "edit_title"],
-    ["semrush_striking_distance", "edit_title"],
     ["missing_schema_store", "add_schema"],
     ["gsc_striking_distance", "edit_title"],
     ["gsc_decay", "update_intro"],
@@ -55,8 +54,6 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
     ["title_h1_mismatch", "edit_title"],
     ["title_h1_mismatch", "change_h1"],
     ["weak_h1", "change_h1"],
-    ["semrush_cannibalization", "add_internal_link"],
-    ["semrush_keyword_gap", "create_page"],
   ] as const)(
     "returns operator-review-only for %s::%s",
     (signal, actionType) => {
@@ -122,7 +119,7 @@ describe("promotion-eligibility / eligibilityForTrigger", () => {
 });
 
 describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
-  it("returns exactly the 17 customer-queue-ready pairs in stable order", () => {
+  it("returns exactly the 15 customer-queue-ready pairs in stable order", () => {
     const pairs = listCustomerQueueReadyPairs();
     expect(pairs).toEqual([
       "missing_title::edit_title",
@@ -137,7 +134,6 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
       "missing_schema_content::add_schema",
       "invalid_schema::fix_schema",
       "gsc_low_ctr::edit_title",
-      "semrush_striking_distance::edit_title",
       "missing_schema_store::add_schema",
       "gsc_striking_distance::edit_title",
       "gsc_decay::update_intro",
@@ -156,25 +152,26 @@ describe("promotion-eligibility / listCustomerQueueReadyPairs", () => {
 });
 
 describe("promotion-eligibility / table snapshot", () => {
-  it("table size matches the locked entry count (36 post-demand-graph)", () => {
+  it("table size matches the locked entry count (32 post-keyword-source-removal)", () => {
+    // 16 customer-queue-ready + 12 operator-review-only + 4 diagnostic-only = 32.
+    // The keyword-source removal dropped 4 entries: one customer-queue-ready
+    // striking-distance edit_title pair and three operator-review-only
+    // cannibalization / keyword-gap pairs (create_page + add_internal_link + add_h2_section).
+    // ── prior history ──
     // 17 customer-queue-ready + 13 operator-review-only + 4 diagnostic-only = 36.
     // Demand-graph engine (2026-06-24) added 3 customer-queue-ready pairs
     // (demand_graph_edit_page::edit_title, demand_graph_answer_block::add_answer_block,
     // demand_graph_fix_experience::fix_page_experience). create_page is intentionally
     // NOT registered → stays "blocked" from the edit queue (factory/diagnostic path).
-    // ── prior history ──
-    // 14 customer-queue-ready + 13 operator-review-only + 4 diagnostic-only = 33.
     // Slice 4.5.E.α₁a (2026-05-21) added `weak_h2::rewrite_h2`
     // (diagnostic-only); the Content Schema Engine (2026-06-12) added
     // `missing_schema_content::add_schema`; the fix_schema slice
     // (2026-06-12) added `invalid_schema::fix_schema` (both
-    // customer-queue-ready). Audit #13 originality guard (2026-06-12)
-    // added `semrush_keyword_gap::add_h2_section` (operator-review-only,
-    // deliberate — topical duplicates expand instead of duplicating).
+    // customer-queue-ready).
     // Profound AEO-gap (2026-06-14) added `profound_aeo_gap::add_answer_block`
     // (operator-review-only — the first trigger to consume Profound).
     // Root-cause-#3 gap (2026-06-16) added `missing_meta::improve_meta`
     // (customer-queue-ready — NON-PUSHABLE directive for un-draftable metas).
-    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(36);
+    expect(PROMOTION_ELIGIBILITY_TABLE.size).toBe(32);
   });
 });

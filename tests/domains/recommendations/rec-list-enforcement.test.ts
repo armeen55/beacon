@@ -53,7 +53,6 @@ function row(o: {
     targetUrl: o.targetUrl ?? "https://iranopedia.com/history/abbasid-caliphate",
     detail: {
       gscEvidenceLines: o.gsc ?? [],
-      semrushEvidenceLines: [],
       clarityEvidenceLines: [],
       aeoEvidenceLines: [],
       topCompetitor: null,

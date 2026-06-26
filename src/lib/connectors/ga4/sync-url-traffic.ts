@@ -9,7 +9,7 @@
  * button (`/diagnostics/outcome-attribution` refresh action). So a
  * freshly-connected GA4 key contributed NOTHING to ranking until an
  * operator manually clicked refresh. This wrapper makes GA4 sync
- * nightly like the other connectors (GSC / SEMrush / Clarity / Profound):
+ * nightly like the other connectors (GSC / Clarity / Profound):
  * the moment a GA4 key + property land, traffic flows into the ranking
  * weight with zero further action.
  *

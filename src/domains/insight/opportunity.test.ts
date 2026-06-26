@@ -37,21 +37,6 @@ describe("buildOpportunity — real Iranopedia shapes", () => {
     expect(o!.estClicksAtStake).toBeGreaterThan(500);
   });
 
-  it("flags striking distance from SEMrush page-2 volume", () => {
-    const o = buildOpportunity({
-      canonUrl: "https://www.iranopedia.com/best-persian-restaurants",
-      path: "/best-persian-restaurants",
-      striking: [
-        { keyword: "restaurants persian", position: 13, volume: 8100 },
-        { keyword: "persian restaurants near me", position: 13, volume: 4400 },
-      ],
-    });
-    expect(o).not.toBeNull();
-    expect(o!.kinds).toContain("striking_distance");
-    expect(o!.evidenceBySource.some((e) => e.source === "semrush")).toBe(true);
-    expect(o!.estClicksAtStake).toBeGreaterThan(0);
-  });
-
   it("flags decay when clicks drop vs the prior window", () => {
     const o = buildOpportunity({
       canonUrl: "https://www.iranopedia.com/persian-female-first-names",

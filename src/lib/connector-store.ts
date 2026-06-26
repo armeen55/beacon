@@ -62,7 +62,6 @@ export type ConnectorProvider =
   | "google_gbp"
   | "google_ga4"
   | "yelp"
-  | "semrush"
   | "callrail"
   | "wix"
   | "profound"
@@ -132,24 +131,6 @@ export type YelpConnectorToken = {
   /** Yelp Fusion business id or alias (may mirror Settings → Config). */
   business_id: string;
   last_synced_at?: string;
-};
-
-/**
- * Semrush Analytics API — API key (never sent to the client). Key-based
- * auth like Yelp (no OAuth). `database` is the Semrush regional database
- * (e.g. "us") used as the default for domain reports. Soft-disconnect
- * via `disconnected_at` mirrors the Google connectors so a week-limited
- * key can be disconnected while cached metrics are preserved.
- */
-export type SemrushConnectorToken = {
-  provider: "semrush";
-  api_key: string;
-  connected_at: string;
-  /** Regional database default for domain reports (e.g. "us"). */
-  database: string;
-  last_synced_at?: string;
-  /** Set when the operator disconnects; cached metrics are preserved. */
-  disconnected_at?: string;
 };
 
 /**
@@ -226,7 +207,6 @@ export type ClarityConnectorToken = {
 export type ConnectorToken =
   | GoogleConnectorToken
   | YelpConnectorToken
-  | SemrushConnectorToken
   | CallRailConnectorToken
   | WixConnectorToken
   | ProfoundConnectorToken
@@ -352,13 +332,6 @@ export async function getYelpConnectorToken(
   return t != null && t.provider === "yelp" ? t : null;
 }
 
-export async function getSemrushConnectorToken(
-  tenantId?: string,
-): Promise<SemrushConnectorToken | null> {
-  const t = await getConnectorToken("semrush", tenantId);
-  return t != null && t.provider === "semrush" ? t : null;
-}
-
 export async function getWixConnectorToken(
   tenantId?: string,
 ): Promise<WixConnectorToken | null> {
@@ -426,12 +399,12 @@ export async function getConnectorInfo(
       ...sharedFields,
     };
   }
-  // Semrush + CallRail soft-disconnect mirrors the Google connectors:
+  // CallRail + Wix soft-disconnect mirrors the Google connectors:
   // the row is preserved so cached data survives, but we report
   // `disconnected` when `disconnected_at` is set (UI shows Connect +
   // last-synced).
   const softDisconnected =
-    (token.provider === "semrush" || token.provider === "callrail" || token.provider === "wix") &&
+    (token.provider === "callrail" || token.provider === "wix") &&
     token.disconnected_at != null &&
     token.disconnected_at !== "";
   return {
@@ -630,7 +603,6 @@ export async function getConnectorHealth(
 const REAL_DATA_SOURCE_PROVIDERS: ConnectorProvider[] = [
   "google_gsc",
   "google_ga4",
-  "semrush",
   "profound",
   "clarity",
   "wix",
@@ -711,12 +683,6 @@ type GoogleConnectorPatch = Partial<
 type YelpConnectorPatch = Partial<
   Pick<YelpConnectorToken, "api_key" | "last_synced_at" | "business_id">
 >;
-type SemrushConnectorPatch = Partial<
-  Pick<
-    SemrushConnectorToken,
-    "api_key" | "database" | "last_synced_at" | "disconnected_at"
-  >
->;
 type CallRailConnectorPatch = Partial<
   Pick<
     CallRailConnectorToken,
@@ -747,11 +713,6 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
-  provider: "semrush",
-  patch: SemrushConnectorPatch,
-  tenantId?: string,
-): Promise<void>;
-export async function updateConnectorToken(
   provider: "callrail",
   patch: CallRailConnectorPatch,
   tenantId?: string,
@@ -776,7 +737,6 @@ export async function updateConnectorToken(
   patch:
     | GoogleConnectorPatch
     | YelpConnectorPatch
-    | SemrushConnectorPatch
     | CallRailConnectorPatch
     | WixConnectorPatch
     | ProfoundConnectorPatch

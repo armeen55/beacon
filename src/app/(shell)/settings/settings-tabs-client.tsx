@@ -5,7 +5,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 // Connectors restored to the tab bar 2026-06-15 (goal pivot): it is now the
-// PRIMARY customer self-serve surface — connect GSC/GA4/SEMrush/Profound/Clarity/
+// PRIMARY customer self-serve surface — connect GSC/GA4/Profound/Clarity/
 // Wix and Sync each on demand. It must be reachable by clicking, not URL-typing.
 // Still hidden: Sign-offs (/settings/exit-gates) + Methodology — internal.
 const TABS = [

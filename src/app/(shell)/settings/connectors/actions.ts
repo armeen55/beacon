@@ -37,7 +37,6 @@ import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-searc
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import { syncSemrushOrganicKeywordsForTenant } from "@/lib/connectors/semrush/sync-organic-keywords";
 
 export async function getGoogleGscConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("google_gsc");
@@ -524,53 +523,10 @@ export async function disconnectGoogleGa4(): Promise<{
   }
 }
 
-// ── Connect-cards slice (2026-06-12), SEMrush / Profound / Clarity ──
+// ── Connect-cards slice (2026-06-12), Profound / Clarity ──
 // Same self-serve posture as the Wix card: paste a key, it stays on
 // this server, the nightly syncs activate the moment it lands
 // (dormant-honest until then). Disconnect = soft (cached data kept).
-
-export async function saveSemrushConnection(input: {
-  apiKey: string;
-  database?: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const action = "saveSemrushConnection";
-  const t0 = Date.now();
-  const apiKey = input.apiKey.trim();
-  const database = (input.database ?? "us").trim() || "us";
-  if (!apiKey) return { success: false, error: "Enter your Semrush API key." };
-  log.info("Action started", { action });
-  try {
-    await saveConnectorToken({
-      provider: "semrush",
-      api_key: apiKey,
-      database,
-      connected_at: now(),
-    });
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
-  }
-}
-
-export async function disconnectSemrush(): Promise<{ success: boolean; error?: string }> {
-  const action = "disconnectSemrush";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    await deleteConnectorToken("semrush");
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
-  }
-}
 
 export async function saveProfoundConnection(input: {
   apiKey: string;
@@ -659,8 +615,8 @@ export async function disconnectClarity(): Promise<{ success: boolean; error?: s
 //
 // All GitHub Actions + the Vercel cron are disabled. The per-tenant sync
 // engines (syncGscSearchAnalyticsForTenant / syncGa4UrlTrafficForTenant /
-// syncProfoundNightlyForTenant / syncClarityDailyMetricsForTenant /
-// syncSemrushOrganicKeywordsForTenant) are all pure HTTP→Supabase (no
+// syncProfoundNightlyForTenant / syncClarityDailyMetricsForTenant) are all
+// pure HTTP→Supabase (no
 // subprocess, Vercel-safe) and were previously reachable ONLY from the
 // nightly script. These actions surface each as an operator-clickable
 // "Sync now" so connecting a source actually pulls data. Each is fail-soft
@@ -734,9 +690,6 @@ const FAILED_REASON_COPY: Record<string, string> = {
   // Writing the pulled rows failed, transient, retry works.
   upsert_failed:
     "Beacon pulled your data but couldn't save it, please try again in a moment.",
-  // SEMrush: the key is missing OR the API rejected the request.
-  no_key_or_api_error:
-    "Couldn't reach SEMrush, check the API key on this card, then try again.",
   // Profound: the key is present but the API returned an error.
   profound_api_error:
     "Couldn't reach Profound, check the API key on this card, then try again.",
@@ -884,7 +837,6 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
 type FreshnessProvider =
   | "google_gsc"
   | "google_ga4"
-  | "semrush"
   | "profound"
   | "clarity";
 
@@ -902,9 +854,6 @@ async function writeLastSyncedAt(
     switch (provider) {
       case "google_gsc":
       case "google_ga4":
-        await updateConnectorToken(provider, patch, tenantId);
-        break;
-      case "semrush":
         await updateConnectorToken(provider, patch, tenantId);
         break;
       case "profound":
@@ -988,15 +937,6 @@ export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
   );
 }
 
-/** Pull SEMrush organic keywords (supporting evidence) for this tenant. */
-export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow(
-    "syncSemrushNow",
-    (tenantId) => syncSemrushOrganicKeywordsForTenant({ tenantId }),
-    "semrush",
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────
 // ONE-CLICK "Refresh my data" (2026-06-15), Today command-center surface.
 //
@@ -1013,7 +953,7 @@ export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
  *  publish-only and intentionally excluded. Each entry maps a connector-store
  *  provider → its sync engine + plain-English customer label. */
 const REFRESH_ALL_SOURCES: ReadonlyArray<{
-  provider: "google_gsc" | "google_ga4" | "semrush" | "clarity" | "profound";
+  provider: "google_gsc" | "google_ga4" | "clarity" | "profound";
   label: string;
   run: (tenantId: string) => Promise<unknown>;
   freshnessProvider: FreshnessProvider;
@@ -1029,12 +969,6 @@ const REFRESH_ALL_SOURCES: ReadonlyArray<{
     label: "Visitors (Google Analytics)",
     run: (tenantId) => syncGa4UrlTrafficForTenant({ tenantId }),
     freshnessProvider: "google_ga4",
-  },
-  {
-    provider: "semrush",
-    label: "Keywords (SEMrush)",
-    run: (tenantId) => syncSemrushOrganicKeywordsForTenant({ tenantId }),
-    freshnessProvider: "semrush",
   },
   {
     provider: "clarity",

@@ -419,7 +419,7 @@ const AEO_MEASURE_PLAN =
   "After you publish this, Beacon watches how often AI assistants recommend this page and reports the change on the Proof tab. Perplexity usually reflects edits within about two weeks; Google and ChatGPT take longer, so give it a few weeks before judging the result.";
 
 // Query-bearing edit_title triggers (2026-06-16): these set
-// topic_cluster_label to the actual GSC/SEMrush query AND fire ONLY when that
+// topic_cluster_label to the actual GSC query AND fire ONLY when that
 // query is absent from the current title (the trigger's own containment guard)
 // — so the whole point of the fix is to get the searched term INTO the title.
 // For these, lead the proposed title with the query (the search intent);
@@ -428,7 +428,6 @@ const AEO_MEASURE_PLAN =
 const QUERY_TITLE_TRIGGERS: ReadonlySet<string> = new Set([
   "gsc_low_ctr",
   "gsc_striking_distance",
-  "semrush_striking_distance",
 ]);
 /** A query short enough to BE a title (avoid turning a long-tail query into an
  *  unwieldy title — fall back to the page's own base above this). */

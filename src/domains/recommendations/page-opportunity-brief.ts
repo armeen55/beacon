@@ -7,7 +7,7 @@
  * measurement plan."
  *
  * PURE / deterministic / no I/O. The caller (a loader) assembles the evidence
- * receipt from the live per-page signals (GSC/GA4/Clarity/SEMrush/AI-answers)
+ * receipt from the live per-page signals (GSC/GA4/Clarity/AI-answers)
  * and the already-built atomic rec rows for the URL; this module composes them
  * into the brief. It REUSES the trust-audit machinery — `deriveRecQaDisplay`
  * (pushability + actionable + status), the row's QA verdict (evidence receipt,
@@ -36,11 +36,6 @@ export type BriefEvidenceReceipt = {
     position90d: number | null;
     topQuery: string | null;
   } | null;
-  /** SEMrush directional market data (volume/KD/striking-distance counts). */
-  semrush: {
-    rankedKeywords: number;
-    strikingDistance: number;
-  } | null;
   /** Microsoft Clarity on-page behaviour. */
   clarity: {
     sessions: number;
@@ -58,7 +53,6 @@ export type BriefEvidenceReceipt = {
 
 export const EMPTY_RECEIPT: BriefEvidenceReceipt = {
   gsc: null,
-  semrush: null,
   clarity: null,
   ga4: null,
   aiAnswers: null,
@@ -160,7 +154,6 @@ function sortAtomicChanges(a: AtomicChange, b: AtomicChange): number {
 function receiptHasAnySignal(r: BriefEvidenceReceipt): boolean {
   return (
     r.gsc != null ||
-    r.semrush != null ||
     r.clarity != null ||
     r.ga4 != null ||
     r.aiAnswers != null

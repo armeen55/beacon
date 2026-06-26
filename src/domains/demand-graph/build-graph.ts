@@ -14,7 +14,7 @@
  *   • owned edge strong + cited                           → healthy (monitor)
  *
  * This module is PURE / deterministic / no I/O — it assembles a graph from
- * ALREADY-LOADED signals (GSC, GA4, Clarity, SEMrush, Profound citations +
+ * ALREADY-LOADED signals (GSC, GA4, Clarity, Profound citations +
  * visibility + fanouts) so it is trivially testable and works for ANY tenant.
  * Loaders + trigger wiring live in sibling slices; this is the core. The
  * Iranopedia wedge (0% cited, competitors own the topic) is a first-class graph
@@ -31,15 +31,15 @@ export type DemandInput = {
   key: string;
   /** Human label for surfaces. */
   label: string;
-  /** Member queries (GSC + SEMrush + fanout). */
+  /** Member queries (GSC + fanout). */
   queries: string[];
   /** Profound topic id when this cluster maps to one. */
   topicId?: string | null;
   /** Real demand: 90d GSC impressions for queries you rank for. */
   gscImpressions?: number | null;
-  /** Absolute monthly search volume (SEMrush / DataForSEO), when known. */
+  /** Absolute monthly search volume (DataForSEO), when known. */
   searchVolume?: number | null;
-  /** SEMrush keyword difficulty 0–100, when known. */
+  /** Keyword difficulty 0–100, when known. */
   difficulty?: number | null;
   /** How often AI engines were asked this (Profound executions). */
   aiExecutions?: number | null;

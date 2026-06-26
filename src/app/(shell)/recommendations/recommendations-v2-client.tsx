@@ -684,7 +684,7 @@ export function RecommendationsV2Client({
                 </div>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
                   {operatorTab === "legacy"
-                    ? "Standard suggestions, grounded in your Google and SEMrush data and ready to use. The Ready tab is the same kind of suggestion with a deeper page review, so check those first when present."
+                    ? "Standard suggestions, grounded in your Google data and ready to use. The Ready tab is the same kind of suggestion with a deeper page review, so check those first when present."
                     : operatorTab === "needs_edit"
                       ? "Drafts that need a quick edit, or that our quality check held back."
                       : operatorTab === "reviewed"

@@ -13,7 +13,7 @@
  *   under-performing query + its exact numbers as evidence.
  *
  * Threshold grounding (sources cited in the slice commit):
- *   • Expected per-position CTR benchmarks: Semrush (Dec 2025) —
+ *   • Expected per-position CTR benchmarks: industry study (Dec 2025) —
  *     pos 1 ≈ 39.8%, 2 ≈ 18.7%, 3 ≈ 10.2%, 4 ≈ 7.2%, 5 ≈ 5.1%.
  *     v1 deliberately restricts to positions 1–5 — the band these
  *     benchmarks fully cover (no guessed numbers for 6+).
@@ -57,7 +57,7 @@ export type GscLowCtrInput = {
   signal: GscPageSignal | undefined;
 };
 
-/** Semrush (Dec 2025) per-position organic CTR benchmarks, as
+/** Industry (Dec 2025) per-position organic CTR benchmarks, as
  *  fractions. Positions 1–5 only — the band the source covers. */
 export const EXPECTED_CTR_BY_POSITION: Record<number, number> = {
   1: 0.398,
@@ -188,23 +188,14 @@ export function gscLowCtr(input: GscLowCtrInput): RecommendationCandidateRow[] {
  * <8.1 — v1 uses 4–15 (the overlap the GSC research recommends) with
  * the spec's impressions floor. The play (SEJ): the query must appear
  * in the title — when absent, an edit_title candidate carries the
- * query + numbers. First-party impressions are STRONGER evidence than
- * third-party volume (Mueller: tool volumes "will always be wrong").
+ * query + numbers. First-party impressions are clean, precise demand
+ * evidence (Mueller: third-party tool volumes "will always be wrong").
  *
- * #339 — INTENTIONALLY NARROWER than the SEMrush striking band
- * (4–20, in semrush-page-signals.ts STRIKING_DISTANCE_{MIN,MAX}). The
- * two bands are NOT meant to match: this first-party GSC band is the
- * tighter "overlap the GSC research recommends" because GSC's own
- * impressions are clean, precise demand evidence, so the tighter 4–15
- * keeps cards to the highest-confidence near-page-one queries. The
- * SEMrush band is wider (4–20, the SEJ tooling default) because
- * third-party position/volume estimates are noisier, so a wider net is
- * the right trade for that weaker signal. Narrowing SEMrush to 4–15 to
- * "align" would drop real positions 16–20 the SEJ default explicitly
- * covers and contradict its sourcing — so they stay deliberately
- * distinct (documented, not unified). The customer-facing operator
- * evidence line below states the band per signal ("band=4-15" here vs
- * "band=4-20" in the SEMrush trigger) so the difference is visible.
+ * #339 — the 4–15 band is the tighter "overlap the GSC research
+ * recommends": GSC's own impressions are clean demand evidence, so the
+ * tight band keeps cards to the highest-confidence near-page-one
+ * queries. The customer-facing operator evidence line below states the
+ * band ("band=4-15") so the basis is visible.
  */
 const STRIKING_MIN_POS = 4;
 const STRIKING_MAX_POS = 15;

@@ -9,7 +9,7 @@ import { OpportunityList } from "./opportunity-list";
  * Opportunity Map — operator-OS rebuild, surface (2).
  *
  * A ranked, filterable map of the pages that need action first, fused from
- * GSC + SEMrush + Clarity + GA4 + Page Surgeon. Read-only; CTAs route to the
+ * GSC + Clarity + GA4 + Page Surgeon. Read-only; CTAs route to the
  * Workbench (no publish path here). Operator-gated like /diagnostics/*.
  */
 export const dynamic = "force-dynamic";

@@ -1,8 +1,8 @@
 /**
  * Insight layer — Opportunity Map (operator-OS rebuild, slice 1).
  *
- * PURE composition over already-computed per-page signals (GSC / SEMrush /
- * Clarity / GA4 / Page Surgeon). No data access here — `compute-opportunity-map.ts`
+ * PURE composition over already-computed per-page signals (GSC / Clarity / GA4 /
+ * Page Surgeon). No data access here — `compute-opportunity-map.ts`
  * does the I/O and feeds plain inputs into these pure functions so the
  * classification + ranking logic is unit-testable without a database.
  *
@@ -21,7 +21,7 @@ export type OpportunityKind =
   | "rising"
   | "friction";
 
-export type OpportunitySource = "gsc" | "semrush" | "clarity" | "ga4";
+export type OpportunitySource = "gsc" | "clarity" | "ga4";
 
 export type OpportunityEvidence = { source: OpportunitySource; line: string };
 
@@ -47,7 +47,7 @@ export type OpportunityItem = {
   /** Pack primary action label when a Change Pack exists — the canonical
    *  per-page action all surfaces agree on (supersedes the diagnosis lever). */
   packAction: string | null;
-  /** Window the estimate covers: CTR/striking estimates are 90d; decay / rising /
+  /** Window the estimate covers: CTR estimates are 90d; decay / rising /
    *  friction / cannibalization are computed over a 28-day window. */
   estWindow: "90d" | "28d";
   /** Confidence in the clicks-at-stake ESTIMATE (data-volume driven). */
@@ -89,7 +89,6 @@ export type OpportunityPageInput = {
     additionalCases: number;
   };
   decay?: { clicksNow: number; clicksPrior: number };
-  striking?: { keyword: string; position: number; volume: number }[];
   clarity?: { sessions: number; deadClicks: number; rageClicks: number };
   /** GA4 value weight (default 1.0). */
   importance?: number;
@@ -138,11 +137,10 @@ const FRICTION_MIN_RAGE = 5;
  *  when a page both leaks CTR and cannibalizes a query, the recoverable money is
  *  the title/snippet rewrite at the rank already held — a structural cluster
  *  move is the hardest, slowest, operator-choice fix, so it only HEADLINES when
- *  it is the page's dominant blocker (no CTR-leak / striking / decay above it).
+ *  it is the page's dominant blocker (no CTR-leak / decay above it).
  *  It always stays a visible secondary signal via `kinds` + its evidence line. */
 const KIND_PRIORITY: OpportunityKind[] = [
   "ctr_leak",
-  "striking_distance",
   "decay",
   "cannibalization",
   "friction",
@@ -208,45 +206,6 @@ export function buildOpportunity(
     }
   }
 
-  // ── Striking distance: near-the-top keywords with real volume (SEMrush). The
-  //     band spans positions ~4-20, so the headline keyword can be on page 1
-  //     (4-10) or page 2 (11-20) — anchor the copy to its ACTUAL position. ──
-  if (input.striking && input.striking.length > 0) {
-    kinds.push("striking_distance");
-    // Size the upside off the CTR CURVE: per keyword, the incremental clicks from
-    // its CURRENT rank to a MODEST target (up ~4 ranks), times monthly volume.
-    // The old flat `5% of ALL market volume` treated market search volume as
-    // captured impressions, was unbounded, and ignored the current rank —
-    // overstating page-2 pages badly. ×3 = monthly→90d.
-    //
-    // audit-4: the target was floored at rank 5 ("never assume #1"), but that
-    // ZEROED the BEST striking keywords — a keyword already at position 4 or 5
-    // got target=CTR(5) ≤ CTR(current) → gain 0 → estClicks 0 → buried below a
-    // weaker page-2 keyword. Floor at rank 3 instead: still never assumes the
-    // top 2 (no "#1" overclaim) but gives positions 4–6 a real, modest upside so
-    // the closest-to-page-1 keywords aren't ranked dead last.
-    const strikingGain = input.striking.reduce((sum, k) => {
-      const cur = expectedCtrForPosition(k.position);
-      const target = expectedCtrForPosition(Math.max(3, Math.round(k.position) - 4));
-      return sum + (k.volume || 0) * Math.max(0, target - cur);
-    }, 0);
-    gainByKind.striking_distance = Math.round(strikingGain * 3);
-    const top = input.striking[0];
-    const n = input.striking.length;
-    const onPage1 = top.position <= 10;
-    const pg = onPage1 ? 1 : 2;
-    evidence.push({
-      source: "semrush",
-      line: `"${top.keyword}" (${(top.volume || 0).toLocaleString()}/mo) sits at position ${top.position} (page ${pg}). ${n} striking-distance keyword${n === 1 ? "" : "s"} total.`,
-    });
-    whyByKind.striking_distance = onPage1
-      ? "Real search demand, already ranking just outside the top spots. A push could lift it higher."
-      : "Real search demand one page away, already ranking, just below the fold.";
-    leverByKind.striking_distance = onPage1
-      ? "Strengthen the page for these terms (depth + internal links) → climb within page 1."
-      : "Strengthen the page for these terms (depth + internal links) → push page 2 → page 1.";
-  }
-
   // ── Decay: losing clicks vs the prior window ──
   if (
     input.decay &&
@@ -301,8 +260,8 @@ export function buildOpportunity(
   //    the lead / best-ranking URL). A structural cluster issue. It carries its
   //    OWN cautious estimate + narrative and is ALWAYS pushed as a visible
   //    secondary signal (kinds + evidence line), but only HEADLINES when it is
-  //    the dominant kind (KIND_PRIORITY) — i.e. there is no CTR-leak / striking
-  //    / decay to fix first. A title rewrite cannot fix duplicate pages, but
+  //    the dominant kind (KIND_PRIORITY) — i.e. there is no CTR-leak / decay
+  //    to fix first. A title rewrite cannot fix duplicate pages, but
   //    neither should a cluster move bury recoverable title money. ──
   if (input.cannibalization) {
     const c = input.cannibalization;
@@ -365,15 +324,6 @@ export function buildOpportunity(
     // Cannibalization recovery depends on the operator's consolidation choice —
     // inherently uncertain regardless of volume.
     if (kind === "cannibalization") return "low";
-    // Striking-distance's NUMBER comes from SEMrush market volume, so its
-    // confidence must come from the SAME signal (keyword breadth/volume) — NOT
-    // from GSC impressions, which measure a different thing. Never "high": it's
-    // a market-volume projection of an unrealized rank gain.
-    if (kind === "striking_distance") {
-      const topVol = input.striking?.[0]?.volume ?? 0;
-      const n = input.striking?.length ?? 0;
-      return n >= 3 || topVol >= 1000 ? "medium" : "low";
-    }
     // CTR-leak / decay / rising are GSC-grounded: confidence from GSC volume.
     if (!input.gsc) return "low";
     if (input.gsc.impressions90d >= 3000) return "high";
@@ -401,7 +351,7 @@ export function buildOpportunity(
     packAction: kind === "cannibalization" ? null : input.packHeadlineAction ?? null,
     // The estimate's window matches the kind's source window so the number never
     // contradicts the evidence text (decay/rising/friction/cannibalization are
-    // 28-day; CTR-leak/striking-distance are 90d).
+    // 28-day; CTR-leak is 90d).
     estWindow:
       kind === "decay" || kind === "rising" || kind === "friction" || kind === "cannibalization"
         ? "28d"

@@ -119,7 +119,7 @@ export function presentActionLabel(
  * the AEO evidence derivation (`buildAeoEvidenceLines` reads the edit's OWN
  * evidence array for the answer-engine gap) and falls back to the rec's
  * `why` / `expected_impact` prose. The persisted edit row does NOT carry
- * the per-page GSC/SEMrush/Clarity signals (those live on the render-path
+ * the per-page GSC/Clarity signals (those live on the render-path
  * `LiveRecQueueItem`, not the stored row), so we surface the durable
  * signals that travel with the edit. Returns [] when nothing is available.
  *

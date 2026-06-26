@@ -127,7 +127,7 @@ export function enforceExpertConfidence(args: {
   deterministicReject: boolean;
   /** Page-topic intent-fit verdict (Slice 3). null = not scored. */
   shouldUseQueryForOptimization: boolean | null;
-  /** Any core evidence family present (gsc/semrush/aeo/clarity/competitor). */
+  /** Any core evidence family present (gsc/aeo/clarity/competitor). */
   hasCoreEvidence: boolean;
   topicMatchScore: number | null;
   intentMatchScore: number | null;

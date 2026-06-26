@@ -71,7 +71,7 @@ function toPath(u: string): string {
  *  Surgeon context. Lets us reconstruct a page URL from a bare path when the
  *  page itself isn't in the context (uncrawled but with raw GSC demand). */
 function originFromContext(ctx: PageSurgeonContext): string | null {
-  const maps = [ctx.snapshotByCanon, ctx.gscByUrl, ctx.semrushByUrl, ctx.clarityByUrl];
+  const maps = [ctx.snapshotByCanon, ctx.gscByUrl, ctx.clarityByUrl];
   for (const m of maps) {
     for (const k of m.keys()) {
       const match = /^https?:\/\/[^/]+/.exec(k);
@@ -87,15 +87,9 @@ function originFromContext(ctx: PageSurgeonContext): string | null {
 export function resolveCanonFromPath(ctx: PageSurgeonContext, path: string): string | null {
   for (const k of ctx.snapshotByCanon.keys()) if (toPath(k) === path) return k;
   for (const k of ctx.gscByUrl.keys()) if (toPath(k) === path) return k;
-  for (const k of ctx.semrushByUrl.keys()) if (toPath(k) === path) return k;
   for (const k of ctx.clarityByUrl.keys()) if (toPath(k) === path) return k;
   return null;
 }
-
-// SEMrush striking-distance band (mirrors semrush-page-signals constants).
-const STRIKING_MIN = 4;
-const STRIKING_MAX = 20;
-const STRIKING_MIN_VOLUME = 10;
 
 export type WorkbenchTopQuery = {
   query: string;
@@ -429,18 +423,6 @@ export async function loadWorkbench(
   const crawl = packet.crawl;
   const ageDays = crawlAgeDays(crawl?.fetchedAt ?? null, now);
 
-  let strikingDistance: WorkbenchStrikingTerm[] = (packet.semrush?.keywords ?? [])
-    .filter(
-      (k) =>
-        k.position != null &&
-        k.position >= STRIKING_MIN &&
-        k.position <= STRIKING_MAX &&
-        k.volume >= STRIKING_MIN_VOLUME,
-    )
-    .sort((a, b) => b.volume - a.volume)
-    .slice(0, 8)
-    .map((k) => ({ keyword: k.keyword, volume: k.volume, position: k.position as number }));
-
   // Packet GSC topQueries (the Page Surgeon context's per-page GSC).
   let topQueries: WorkbenchTopQuery[] = (packet.gsc?.topQueries ?? []).map((q) => ({
     query: q.query,
@@ -449,6 +431,14 @@ export async function loadWorkbench(
     ctr: q.ctr,
     position: q.position,
   }));
+
+  // Striking-distance terms — first-party GSC queries that rank just short of
+  // the top (`isStrikingDistance`), ordered by realized demand (impressions).
+  let strikingDistance: WorkbenchStrikingTerm[] = (packet.gsc?.topQueries ?? [])
+    .filter((q) => isStrikingDistance(q.position, q.impressions))
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, 8)
+    .map((q) => ({ keyword: q.query, volume: q.impressions, position: q.position }));
 
   // RESILIENCE (2026-06-25): the cockpit's site-wide scans surface opportunities
   // from `gsc_daily_rows` for pages the Page Surgeon context's GSC set doesn't

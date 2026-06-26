@@ -334,8 +334,8 @@ export async function promoteEligibleCandidates(
   }
   // Dedup by row.id, keeping the FIRST (highest-priority) occurrence
   // (audit 2026-06-14). Several customer-queue-ready triggers can emit the
-  // same action_type on the same page — e.g. gsc_low_ctr,
-  // gsc_striking_distance, and semrush_striking_distance all emit `edit_title`
+  // same action_type on the same page — e.g. gsc_low_ctr and
+  // gsc_striking_distance both emit `edit_title`
   // for one underperforming URL. Their dedupe_key differs (topic), but the
   // promotion id = `${cooldown_key.slice(0,16)}__${action_type}__null`
   // (cooldown_key has no topic) collides, AND the Supabase conflict key

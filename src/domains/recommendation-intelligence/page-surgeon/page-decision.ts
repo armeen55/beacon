@@ -52,7 +52,7 @@ export type AtomicChange = {
   faq_items?: Array<{ question: string; answer: string }> | null;
 };
 
-export type SourceName = "gsc" | "ga4" | "clarity" | "semrush" | "profound" | "crawl";
+export type SourceName = "gsc" | "ga4" | "clarity" | "profound" | "crawl";
 export type SourceCoverage = {
   source: SourceName;
   used: boolean;
@@ -120,20 +120,13 @@ export function buildSourceCoverage(packet: EvidencePacket): SourceCoverage[] {
       else if (s === "clarity" && packet.clarity)
         d = `dead ${packet.clarity.deadClicks ?? "—"} · rage ${packet.clarity.rageClicks ?? "—"}`;
       else if (s === "ga4" && packet.ga4) d = pl(packet.ga4.sessions, "session");
-      else if (s === "semrush" && packet.semrush) {
-        const parts = [pl(packet.semrush.keywords.length, "keyword")];
-        if (packet.semrush.relatedKeywords?.length) parts.push(`${packet.semrush.relatedKeywords.length} related`);
-        if (packet.semrush.questionKeywords?.length) parts.push(pl(packet.semrush.questionKeywords.length, "question"));
-        if (packet.semrush.competitorDomains?.length) parts.push(pl(packet.semrush.competitorDomains.length, "competitor"));
-        d = parts.join(" · ");
-      }
       return { source: s, used: true, detail: d };
     }
     if (empty.has(s))
       return { source: s, used: false, detail: s === "profound" ? "not connected" : "connected but no rows pulled" };
     return { source: s, used: false, detail: "not connected" };
   };
-  return (["gsc", "crawl", "clarity", "ga4", "semrush", "profound"] as SourceName[]).map(detail);
+  return (["gsc", "crawl", "clarity", "ga4", "profound"] as SourceName[]).map(detail);
 }
 
 /** True when GSC shows real demand the page is under-converting (a bottleneck
@@ -156,7 +149,6 @@ const SNIPPET_DEFICIT_BLENDED_GAP = 0.02; // blended-alone is coarse → higher 
 const ZERO_CLICK_MIN_IMPR = 200;
 const ZERO_CLICK_MAX_POS = 10;
 const ZERO_CLICK_MAX_CTR = 0.01;
-const CLUSTER_MIN_VOL = 500;
 const FRICTION_MIN_DEAD = 20;
 const FRICTION_MIN_RAGE = 5;
 const CLARITY_TINY_TOTAL = 10;
@@ -188,7 +180,6 @@ export type PageProblems = {
   snippetDeficit: boolean;
   titleMissingDominantQuery: boolean;
   zeroClickPage1: boolean;
-  highValueUnservedCluster: boolean;
   meaningfulFriction: boolean;
   claritySampleTiny: boolean;
   missingSchema: boolean;
@@ -221,17 +212,6 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
     (q) => q.impressions >= ZERO_CLICK_MIN_IMPR && q.position <= ZERO_CLICK_MAX_POS && q.ctr < ZERO_CLICK_MAX_CTR,
   );
 
-  // Queries the page ALREADY earns clicks on are NOT "unserved" — exclude them
-  // so a synonym of a winning query can't masquerade as a new intent cluster.
-  const earning = new Set(queries.filter((q) => q.clicks > 0).map((q) => q.query.toLowerCase()));
-  const highValueUnservedCluster = (packet.semrush?.keywords ?? []).some(
-    (k) =>
-      k.volume >= CLUSTER_MIN_VOL &&
-      k.position != null && k.position >= 4 && k.position <= 20 &&
-      !phraseCoveredBy(k.keyword, title) &&
-      !earning.has(k.keyword.toLowerCase()),
-  );
-
   const dead = packet.clarity?.deadClicks ?? 0;
   const rage = packet.clarity?.rageClicks ?? 0;
   const quick = packet.clarity?.quickbacks ?? 0;
@@ -246,7 +226,6 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
   // in hasAnyProblem), so widening can never make a healthy page "have a
   // problem"; it only justifies an answer block where real demand exists.
   const questionDemand =
-    (packet.semrush?.questionKeywords?.length ?? 0) > 0 ||
     queries.some((q) => {
       const text = q.query.trim();
       // Strong interrogatives reliably signal a question — count unconditionally.
@@ -269,16 +248,14 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
       );
     });
 
-  // hasAnyProblem deliberately EXCLUDES highValueUnservedCluster: a soft
-  // "different cluster" signal alone (no CTR deficit, no zero-click query, no
-  // friction) is too speculative to justify touching a healthy page — defaulting
-  // to keep_current is the trust-first call. The cluster still grants per-change
-  // eligibility (so a real cluster can shape wording when a hard problem exists).
+  // hasAnyProblem is driven only by HARD, page-grounded signals (CTR deficit,
+  // missing dominant query, page-1 zero-click, meaningful friction) — defaulting
+  // to keep_current when none fire is the trust-first call.
   const hasAnyProblem =
     snippetDeficit || titleMissingDominantQuery || zeroClickPage1 || meaningfulFriction;
 
   return {
-    snippetDeficit, titleMissingDominantQuery, zeroClickPage1, highValueUnservedCluster,
+    snippetDeficit, titleMissingDominantQuery, zeroClickPage1,
     meaningfulFriction, claritySampleTiny, missingSchema, questionDemand, hasAnyProblem,
   };
 }
@@ -297,17 +274,10 @@ function citesAbsentEvidence(change: AtomicChange, packet: EvidencePacket): stri
   const clauses = text.split(/(?<=[.!?;:])\s+|\n+|\s—\s|\s-\s/).filter((c) => c.trim().length > 0);
   const scan = clauses.length > 0 ? clauses : [text];
   const cites = (re: RegExp): boolean => scan.some((c) => re.test(c) && !ABSENCE.test(c));
-  const sem = packet.semrush;
-  if ((sem?.relatedKeywords?.length ?? 0) === 0 && cites(/related (keyword|search|term)|relatedkeyword/))
-    return "Insufficient evidence: cites SEMrush related keywords, but none were pulled for this page.";
-  if ((sem?.questionKeywords?.length ?? 0) === 0 && cites(/question (keyword|phrase|form)|questionkeyword|phrase[_ ]question|people also ask/))
-    return "Insufficient evidence: cites SEMrush question keywords, but none were pulled for this page.";
   if (!packet.ga4 && cites(/\bga4\b|conversion|engaged session|engagement rate|\bsessions?\b/))
     return "Insufficient evidence: cites GA4 engagement/conversion, but GA4 has no rows for this page.";
   if (!packet.clarity && cites(/\bclarity\b|dead[- ]click|rage[- ]click|quickback|pogo[- ]?stick/))
     return "Insufficient evidence: cites Microsoft Clarity behavior, but Clarity has no data for this page.";
-  if ((sem?.competitorDomains?.length ?? 0) === 0 && !(sem?.competitorGaps?.length) && cites(/competitor (url|domain|ranking|page)/))
-    return "Insufficient evidence: cites competitor ranking data, but none was pulled.";
   return null;
 }
 
@@ -337,19 +307,19 @@ function changeEligibilityReason(
     case "title":
     case "meta":
     case "h1":
-      if (p.snippetDeficit || p.titleMissingDominantQuery || p.zeroClickPage1 || p.highValueUnservedCluster) return null;
+      if (p.snippetDeficit || p.titleMissingDominantQuery || p.zeroClickPage1) return null;
       return "No snippet deficit: page CTR is at/above expected for its position and the title already serves the dominant query.";
     case "intro_answer_block":
-      if (p.snippetDeficit || p.zeroClickPage1 || p.highValueUnservedCluster) return null;
+      if (p.snippetDeficit || p.zeroClickPage1) return null;
       return "No unmet query demand: page converts at/above expected and has no page-1 zero-click queries.";
     case "faq":
       if (p.zeroClickPage1 || p.questionDemand || p.snippetDeficit) return null;
       return "No question demand or snippet deficit to justify an FAQ block.";
     case "create_new_page":
-      // A whole new page is the heaviest, most speculative move — only justified
-      // by a genuine high-volume intent the EXISTING page doesn't serve. Absent
-      // that, optimize the existing page instead.
-      if (p.highValueUnservedCluster) return null;
+      // A whole new page is the heaviest, most speculative move — it was justified
+      // only by a high-volume unserved intent cluster, a market signal Beacon no
+      // longer ingests. Without that grounding, never auto-recommend a new page;
+      // optimize the existing page instead.
       return "No high-volume unserved intent cluster — optimize the existing page instead of creating a new one.";
     default:
       // internal_link, section_*, citation_source — no extra P1/P3 gate (still
@@ -514,7 +484,6 @@ function verifyNumericFidelity(change: AtomicChange, packet: EvidencePacket): st
   ].join(" ");
   const g = packet.gsc;
   const c = packet.clarity;
-  const sem = packet.semrush;
 
   const parseNum = (raw: string): number => {
     const s = raw.toLowerCase().replace(/,/g, "").replace(/\s+/g, "");
@@ -565,24 +534,6 @@ function verifyNumericFidelity(change: AtomicChange, packet: EvidencePacket): st
     if (c.quickbacks != null)
       checks.push({ label: "quickbacks", patterns: [/\b([\d][\d,]*)\s*quick[- ]?backs?/gi], acceptable: [c.quickbacks], kind: "count" });
   }
-  if (sem) {
-    const vols = [
-      ...sem.keywords.map((k) => k.volume),
-      ...(sem.relatedKeywords?.map((k) => k.volume) ?? []),
-      ...(sem.questionKeywords?.map((k) => k.volume) ?? []),
-    ].filter((n) => Number.isFinite(n));
-    if (vols.length > 0)
-      checks.push({
-        label: "search volume",
-        patterns: [
-          /\b([\d][\d,]*(?:\.\d+)?\s*k?)\s*(?:monthly\s*)?(?:search(?:es)?\s*)?(?:volume|monthly searches)/gi,
-          /(?:search\s*)?volume\s*(?:of|:|=|is|~|,)?\s*([\d][\d,]*(?:\.\d+)?\s*k?)/gi,
-        ],
-        acceptable: vols,
-        kind: "count",
-      });
-  }
-
   const reconciles = (v: number, accept: number[], kind: Check["kind"]): boolean => {
     if (!Number.isFinite(v)) return true; // un-parseable → don't flag
     return accept.some((a) => {

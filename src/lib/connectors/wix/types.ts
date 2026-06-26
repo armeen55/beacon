@@ -6,7 +6,7 @@
  *   • Blog Draft Posts — create draft + publish
  *   • Media Manager    — import a file by URL
  *
- * Same posture as the SEMrush/CallRail connectors: key-auth headers
+ * Same posture as the CallRail connector: key-auth headers
  * (`Authorization: <api_key>` + `wix-site-id`), server-only, fail-soft
  * discriminated results, injected fetch for tests, key never logged.
  */

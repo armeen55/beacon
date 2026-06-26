@@ -44,7 +44,6 @@ const CONNECTORS: ReadonlyArray<{
   { label: "Microsoft Clarity", provider: "clarity", href: "/settings/connectors" },
   { label: "Profound", provider: "profound", href: "/settings/connectors" },
   { label: "CallRail", provider: "callrail", href: "/diagnostics/callrail" },
-  { label: "Semrush", provider: "semrush", href: "/diagnostics/semrush" },
 ];
 
 async function loadRows(): Promise<Row[]> {
@@ -167,7 +166,7 @@ export default async function ConnectorsDiagnosticPage() {
         Refreshing pulls fresh data from each connected source into
         Beacon&apos;s cache — that&apos;s what keeps Today, Recommendations, and
         the Changes detail current now that nightly crons are off. GSC, GA4,
-        Clarity, Profound, Semrush + CallRail all refresh in the batch above
+        Clarity, Profound + CallRail all refresh in the batch above
         (Profound is the AEO source — &ldquo;how AI describes you&rdquo;); the
         proof recompute is a separate on-demand action.
       </p>

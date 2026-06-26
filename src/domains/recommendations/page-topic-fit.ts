@@ -49,7 +49,7 @@ export type PageTopicFitInput = {
   readonly query: string;
   /** Other GSC queries the page ranks for (supporting topical context). */
   readonly supportingQueries?: ReadonlyArray<string>;
-  /** Keyword-research intent (when SEMrush/keyword data classifies it). */
+  /** Keyword-research intent (when keyword data classifies it). */
   readonly keywordIntentHint?: IntentClass | null;
   /** Tenant brand terms (navigational detection — from config, NOT baked). */
   readonly brandTerms?: ReadonlyArray<string>;

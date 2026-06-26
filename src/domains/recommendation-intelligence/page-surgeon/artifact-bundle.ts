@@ -83,7 +83,7 @@ export type ArtifactBundle = {
   whatNormalSeoMisses: string;
   whyNotJustTitle: string;
   evidenceGaps: string[];
-  /** Alternative phrasings the judge researched (grounded in GSC/SEMrush) with
+  /** Alternative phrasings the judge researched (grounded in GSC) with
    *  the best placement for each — the "senior operator did the homework" texture. */
   wordingResearch: WordingResearch[];
   decidedBy: "llm_judge" | "deterministic_fallback";

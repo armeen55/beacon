@@ -62,16 +62,14 @@ export type RecPushReadiness = "paste_ready" | "manual" | "review_only";
  * capped to needs-more-evidence. Page-level GSC demand IS core evidence.
  *
  * Every field is "this family genuinely backs this rec," derived from the live
- * signals (gscSignal/semrushSignal/claritySignal/observations/competitor), not
- * from whether a display line happened to render.
+ * signals (gscSignal/claritySignal/observations/competitor), not from whether a
+ * display line happened to render.
  */
 export type RecEvidenceReceipt = {
   /** The page has Google Search demand (impressions), even without a per-query line. */
   gscDemand: boolean;
   /** The page has GA4 traffic / page value. */
   ga4Traffic: boolean;
-  /** SEMrush ranked-keyword data exists for the page. */
-  semrush: boolean;
   /** Microsoft Clarity behavioral data exists for the page. */
   clarity: boolean;
   /** Answer-engine evidence (AEO lines or sampled AI observations). */
@@ -224,7 +222,6 @@ export function buildRecommendationQaVerdict(args: {
   // the bug that nuked every GSC-grounded rec to "no core evidence".
   const r = args.evidence ?? null;
   const gsc = (d.gscEvidenceLines ?? []).length > 0 || (r?.gscDemand ?? false);
-  const semrush = (d.semrushEvidenceLines ?? []).length > 0 || (r?.semrush ?? false);
   const clarity = (d.clarityEvidenceLines ?? []).length > 0 || (r?.clarity ?? false);
   const aeo =
     (d.aeoEvidenceLines ?? []).length > 0 ||
@@ -232,7 +229,7 @@ export function buildRecommendationQaVerdict(args: {
     d.observationCount > 0;
   const ga4 = r?.ga4Traffic ?? false;
   const competitor = d.topCompetitor != null || (r?.competitor ?? false);
-  const hasCoreEvidence = gsc || ga4 || semrush || clarity || aeo || competitor;
+  const hasCoreEvidence = gsc || ga4 || clarity || aeo || competitor;
 
   const proposed = d.proposedText?.trim();
   const copySafe = proposed ? detectCopyArtifact(proposed) == null : true;
@@ -253,14 +250,13 @@ export function buildRecommendationQaVerdict(args: {
   const evidenceSupports: string[] = [];
   if (gsc) evidenceSupports.push("Google Search demand");
   if (ga4) evidenceSupports.push("Website traffic");
-  if (semrush) evidenceSupports.push("Keyword rankings");
   if (competitor) evidenceSupports.push("Competitor pressure");
   if (aeo) evidenceSupports.push("AI-answer gap");
   if (clarity) evidenceSupports.push("On-page behaviour");
 
   const evidenceMissing: string[] = [];
-  if (!gsc && !semrush) {
-    evidenceMissing.push("Search demand (connect Google Search Console or SEMrush)");
+  if (!gsc) {
+    evidenceMissing.push("Search demand (connect Google Search Console)");
   }
   if (!aeo && d.observationCount === 0) {
     evidenceMissing.push("AI-answer tracking (connect an answer-engine source)");

@@ -8,7 +8,7 @@
  *   (d) zero connected → empty results.
  *
  * Style matches the existing connectors-action tests: no jsdom, plain function
- * calls + vi.mock for the connector store + the five sync engines.
+ * calls + vi.mock for the connector store + the four sync engines.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -25,13 +25,11 @@ vi.mock("@/lib/logger", () => ({
 let _connected: Record<string, boolean> = {
   google_gsc: true,
   google_ga4: true,
-  semrush: true,
   clarity: true,
   profound: true,
 };
 let _gsc: unknown = { synced: true, rows_upserted: 100, days: 5 };
 let _ga4: unknown = { synced: true, rows_upserted: 12 };
-let _semrush: unknown = { synced: true, rows_upserted: 8 };
 let _clarity: unknown = { synced: true, rows_upserted: 4 };
 let _profound: unknown = { synced: true, citation_rows: 7 };
 
@@ -42,10 +40,6 @@ const syncGsc = vi.fn(async () => {
 const syncGa4 = vi.fn(async () => {
   if (_ga4 instanceof Error) throw _ga4;
   return _ga4;
-});
-const syncSemrush = vi.fn(async () => {
-  if (_semrush instanceof Error) throw _semrush;
-  return _semrush;
 });
 const syncClarity = vi.fn(async () => {
   if (_clarity instanceof Error) throw _clarity;
@@ -76,9 +70,6 @@ vi.mock("@/lib/connectors/gsc/sync-search-analytics", () => ({
 vi.mock("@/lib/connectors/ga4/sync-url-traffic", () => ({
   syncGa4UrlTrafficForTenant: () => syncGa4(),
 }));
-vi.mock("@/lib/connectors/semrush/sync-organic-keywords", () => ({
-  syncSemrushOrganicKeywordsForTenant: () => syncSemrush(),
-}));
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: () => syncClarity(),
 }));
@@ -108,32 +99,28 @@ beforeEach(() => {
   _connected = {
     google_gsc: true,
     google_ga4: true,
-    semrush: true,
     clarity: true,
     profound: true,
   };
   _gsc = { synced: true, rows_upserted: 100, days: 5 };
   _ga4 = { synced: true, rows_upserted: 12 };
-  _semrush = { synced: true, rows_upserted: 8 };
   _clarity = { synced: true, rows_upserted: 4 };
   _profound = { synced: true, citation_rows: 7 };
   syncGsc.mockClear();
   syncGa4.mockClear();
-  syncSemrush.mockClear();
   syncClarity.mockClear();
   syncProfound.mockClear();
   updateConnectorToken.mockClear();
 });
 
 describe("refreshAllConnectedDataNow — only connected sources run", () => {
-  it("runs all five when all five are connected", async () => {
+  it("runs all four when all four are connected", async () => {
     const r = await refreshAllConnectedDataNow();
     expect(syncGsc).toHaveBeenCalledTimes(1);
     expect(syncGa4).toHaveBeenCalledTimes(1);
-    expect(syncSemrush).toHaveBeenCalledTimes(1);
     expect(syncClarity).toHaveBeenCalledTimes(1);
     expect(syncProfound).toHaveBeenCalledTimes(1);
-    expect(r.results).toHaveLength(5);
+    expect(r.results).toHaveLength(4);
     expect(r.results.every((x) => x.ok)).toBe(true);
     expect(typeof r.ranAt).toBe("string");
     expect(Number.isFinite(Date.parse(r.ranAt))).toBe(true);
@@ -143,7 +130,6 @@ describe("refreshAllConnectedDataNow — only connected sources run", () => {
     _connected = {
       google_gsc: true,
       google_ga4: false,
-      semrush: false,
       clarity: false,
       profound: true,
     };
@@ -151,7 +137,6 @@ describe("refreshAllConnectedDataNow — only connected sources run", () => {
     expect(syncGsc).toHaveBeenCalledTimes(1);
     expect(syncProfound).toHaveBeenCalledTimes(1);
     expect(syncGa4).not.toHaveBeenCalled();
-    expect(syncSemrush).not.toHaveBeenCalled();
     expect(syncClarity).not.toHaveBeenCalled();
     expect(r.results.map((x) => x.provider).sort()).toEqual([
       "google_gsc",
@@ -176,7 +161,7 @@ describe("refreshAllConnectedDataNow — fail-soft", () => {
     expect(gsc.detail).toMatch(/try again/i);
     // The other sources still succeeded — one failure didn't block them.
     expect(r.results.find((x) => x.provider === "ga4")?.ok ?? true).toBe(true);
-    expect(r.results.filter((x) => x.ok)).toHaveLength(4);
+    expect(r.results.filter((x) => x.ok)).toHaveLength(3);
   });
 
   it("a reason-coded engine failure → ok:false (e.g. expired Google grant)", async () => {
@@ -196,7 +181,6 @@ describe("refreshAllConnectedDataNow — labels", () => {
     );
     expect(byProvider["google_gsc"]).toBe("Search (Google)");
     expect(byProvider["google_ga4"]).toBe("Visitors (Google Analytics)");
-    expect(byProvider["semrush"]).toBe("Keywords (SEMrush)");
     expect(byProvider["clarity"]).toBe("Visitor experience");
     expect(byProvider["profound"]).toBe("AI answers");
     // White-label invariant: the vendor name must never appear anywhere.
@@ -210,7 +194,6 @@ describe("refreshAllConnectedDataNow — nothing connected", () => {
     _connected = {
       google_gsc: false,
       google_ga4: false,
-      semrush: false,
       clarity: false,
       profound: false,
     };

@@ -6,7 +6,7 @@
  * Profound topic (category): the tenant's own answer-engine presence vs
  * the strongest competitor's, plus how many AI answers were observed.
  *
- * Mirrors gsc-page-signals.ts / semrush-page-signals.ts: this module
+ * Mirrors gsc-page-signals.ts: this module
  * does the Supabase read; the predicate (triggers/profound-aeo-gap.ts)
  * stays pure over the pre-loaded signal (pinned by
  * `recommendation-trigger-predicates-purity`).

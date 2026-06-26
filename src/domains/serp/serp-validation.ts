@@ -54,7 +54,7 @@ export type ValidateInput = {
   ownDomain: string;
   /** competitor domains Profound cites for this topic (overlap = strong signal) */
   profoundDomains?: readonly string[];
-  /** measured monthly search volume when DataForSEO/SEMrush has it (null = unknown) */
+  /** measured monthly search volume when DataForSEO has it (null = unknown) */
   searchVolume?: number | null;
 };
 

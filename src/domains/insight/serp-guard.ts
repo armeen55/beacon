@@ -7,7 +7,7 @@
  * data, we must say "verify the SERP first" — not "rewrite your title."
  *
  * Phase 1 only sets status from what we know (broad scan ⇒ "unknown").
- * Phase 3 will populate "observed"/"suspected" from SEMrush / synthetic / API.
+ * Phase 3 will populate "observed"/"suspected" from synthetic / API signals.
  */
 
 export type SerpStatus = "observed" | "suspected" | "unknown";
@@ -33,7 +33,7 @@ const TOP_RANK_MAX = 5;
 export function deriveSerpGuard(args: {
   position: number;
   serpStatus?: SerpStatus;
-  /** From observed data (SEMrush/API/manual) when available. */
+  /** From observed data (API/manual) when available. */
   featureOwns?: boolean;
 }): SerpGuard {
   const status = args.serpStatus ?? "unknown";
@@ -56,7 +56,7 @@ export function deriveSerpGuard(args: {
       downgrade: true,
       label: "SERP feature suspected",
       rationale:
-        "A SERP feature is suspected (from SEMrush / synthetic signal), verify before treating this as a title/snippet fix.",
+        "A SERP feature is suspected (from a synthetic signal), verify before treating this as a title/snippet fix.",
     };
   }
   if (status === "unknown" && topRank) {

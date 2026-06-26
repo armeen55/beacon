@@ -41,9 +41,6 @@ vi.mock("@/lib/connectors/ga4/sync-url-traffic", () => ({
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: vi.fn(),
 }));
-vi.mock("@/lib/connectors/semrush/sync-organic-keywords", () => ({
-  syncSemrushOrganicKeywordsForTenant: vi.fn(),
-}));
 
 vi.mock("@/lib/connector-store", () => ({
   getConnectorInfo: vi.fn(async () => ({ status: "connected" })),

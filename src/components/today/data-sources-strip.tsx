@@ -29,13 +29,13 @@ import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
  *     connectors page (`/settings/connectors`). That page already owns the
  *     real connect entry points — the Google OAuth `getGoogleAuthUrl` server
  *     action behind the "Connect Google Search Console" / "Connect Google
- *     Analytics" buttons, and the paste-a-key forms for SEMrush, Profound,
- *     Clarity, and Wix. We deep-link straight to each source's card via its
+ *     Analytics" buttons, and the paste-a-key forms for Profound, Clarity,
+ *     and Wix. We deep-link straight to each source's card via its
  *     `data-connector-card` anchor where one exists (#connector-<id>), so the
  *     owner lands on the exact card to finish the connect in one place.
  *
  * Render contract:
- *   - When ALL six sources are connected, render a tiny "All sources
+ *   - When ALL sources are connected, render a tiny "All sources
  *     connected" confirmation (never a heavy empty block).
  *   - Honest copy only: "Connected" / "Connect →". No phantom-automation
  *     claims — connecting just grants access; nothing runs on a schedule.
@@ -60,7 +60,7 @@ type DataSource = {
 };
 
 /**
- * The six read/publish sources, in the order the owner most often connects
+ * The read/publish sources, in the order the owner most often connects
  * them. Mirrors `REAL_DATA_SOURCE_PROVIDERS` in connector-store (the set that
  * defines a "real, non-demo" tenant), so the strip's all-connected state and
  * the gate agree.
@@ -68,7 +68,6 @@ type DataSource = {
 const DATA_SOURCES: readonly DataSource[] = [
   { provider: "google_gsc", label: "Google Search Console", cardAnchor: "google-gsc" },
   { provider: "google_ga4", label: "Google Analytics 4", cardAnchor: "google-ga4" },
-  { provider: "semrush", label: "SEMrush", cardAnchor: "semrush" },
   { provider: "clarity", label: "Microsoft Clarity", cardAnchor: "clarity" },
   // White-label: never surface the vendor name "Profound" on a customer
   // surface (main-product-final-confidence-sweep guards src/components/today).

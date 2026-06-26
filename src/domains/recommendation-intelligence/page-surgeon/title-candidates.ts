@@ -184,26 +184,6 @@ export function generateTitleCandidates(
       );
     }
 
-    // 3. Query + a market modifier (a related SEMrush term, if any, that the
-    //    title doesn't already contain). Directional only.
-    const related = packet.semrush?.relatedKeywords ?? [];
-    const curTokens = tokenSet(queryTitle);
-    const modifier = related.find((r) => {
-      const rt = tokenSet(r.keyword);
-      for (const tok of rt) if (!curTokens.has(tok)) return true;
-      return false;
-    });
-    if (modifier) {
-      pushUnique(
-        mk(
-          "query_plus_modifier",
-          `${queryTitle} ${titleCase(modifier.keyword)}`.trim(),
-          currentTitle,
-          "omit",
-          `Query term plus a related market term "${modifier.keyword}".`,
-        ),
-      );
-    }
   }
 
   // 4/5. Brand-suffix variants (only when a brand is configured/inferred).

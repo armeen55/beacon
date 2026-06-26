@@ -39,8 +39,6 @@ vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
   disconnectYelp: vi.fn(),
   saveWixConnection: vi.fn(),
   disconnectWix: vi.fn(),
-  saveSemrushConnection: vi.fn(),
-  disconnectSemrush: vi.fn(),
   saveProfoundConnection: vi.fn(),
   disconnectProfound: vi.fn(),
   saveClarityConnection: vi.fn(),
@@ -54,7 +52,6 @@ vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
   selectGa4Property: vi.fn(),
   syncGscNow: vi.fn(),
   syncGa4Now: vi.fn(),
-  syncSemrushNow: vi.fn(),
   syncProfoundNow: vi.fn(),
   syncClarityNow: vi.fn(),
 }));
@@ -85,7 +82,6 @@ function renderClient(args: {
       ga4={disconnectedInfo()}
       wix={disconnectedInfo()}
       yelp={disconnectedInfo()}
-      semrush={disconnectedInfo()}
       profound={disconnectedInfo()}
       clarity={disconnectedInfo()}
       configYelpBusinessId=""

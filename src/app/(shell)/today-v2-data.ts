@@ -103,7 +103,6 @@ import {
 } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import { loadSemrushPageSignalsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import { fetchTodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
 import {
   buildSourceStatCards,
@@ -220,7 +219,7 @@ export const loadCachedTodayPageData = cache(async () => {
 
 // ─────────────────────────────────────────────────────────────────────
 // All-source summary stat row (2026-06-15) — the unified command-center
-// scoreboard. Adds the four SEO/behavior loaders (GSC / GA4 / SEMrush /
+// scoreboard. Adds the SEO/behavior loaders (GSC / GA4 /
 // Clarity) to the "/" render path alongside the AEO KPIs that already
 // load here, reduces each to its 2–4 headline numbers, and returns ONLY
 // the cards whose source has REAL data (gate on data presence, never on
@@ -291,7 +290,7 @@ export const loadTodayV2AllSourceSummaryData = cache(
     // avg position, site CTR, 28d/prior-28d clicks split for the arrow —
     // in one tiny indexed read, so the card streams instantly. Fail-soft
     // to null (→ no GSC card; never a zero card).
-    const [gscSiteTotals, gscDecay, ga4, clarity, semrush, aeo, clarityMultiDay] =
+    const [gscSiteTotals, gscDecay, ga4, clarity, aeo, clarityMultiDay] =
       await Promise.all([
         loadGscSiteTotalsForTenant(tenantId, now).catch((err) => {
           console.error("[today-v2] all-source GSC load failed:", err);
@@ -312,10 +311,6 @@ export const loadTodayV2AllSourceSummaryData = cache(
           console.error("[today-v2] all-source Clarity load failed:", err);
           return new Map();
         }),
-        loadSemrushPageSignalsForTenant(tenantId).catch((err) => {
-          console.error("[today-v2] all-source SEMrush load failed:", err);
-          return new Map();
-        }),
         fetchTodayDerivedKpis({ tenantId, now }).catch((err) => {
           console.error("[today-v2] all-source AEO KPIs load failed:", err);
           return null;
@@ -324,7 +319,7 @@ export const loadTodayV2AllSourceSummaryData = cache(
       ]);
 
     const cards = buildSourceStatCards(
-      { gscSiteTotals, gscDecay, ga4, clarity, semrush, aeo },
+      { gscSiteTotals, gscDecay, ga4, clarity, aeo },
       clarityMultiDay,
     );
     // Cross-source fusion: pages BOTH losing Google clicks AND frustrating
@@ -1186,7 +1181,7 @@ export type TodayV2GateData = {
 
 export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   // "Demo mode" (→ the connect-prompt) ONLY when the tenant has NO CSV import
-  // AND no real data source connected. A GSC- (or GA4/SEMrush/Clarity/Profound/
+  // AND no real data source connected. A GSC- (or GA4/Clarity/Profound/
   // Wix-) connected tenant is operating on its own live data, so it sees its
   // real command center — never the connect-prompt — even before its first CSV
   // import or first reading. Mirrors the shell's hasRealConnector gate

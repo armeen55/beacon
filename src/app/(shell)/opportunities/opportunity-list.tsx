@@ -59,9 +59,8 @@ const KIND_META: Record<
   },
 };
 
-const SOURCE_LABEL: Record<OpportunitySource, string> = {
+const SOURCE_LABEL: Partial<Record<OpportunitySource, string>> = {
   gsc: "Google",
-  semrush: "Keyword data",
   clarity: "Visitor behavior",
   ga4: "Visitor behavior",
 };
@@ -293,7 +292,7 @@ function OpportunityRow({ o }: { o: OpportunityItem }) {
             {o.evidenceBySource.map((e, i) => (
               <li key={i} className="flex gap-2 text-[12px] text-muted-foreground">
                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">
-                  {SOURCE_LABEL[e.source]}
+                  {SOURCE_LABEL[e.source] ?? e.source}
                 </span>
                 <span>{e.line}</span>
               </li>

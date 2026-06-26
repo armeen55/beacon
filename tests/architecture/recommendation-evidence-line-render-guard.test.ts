@@ -2,7 +2,7 @@
  * Architecture invariant — Expert-rec-engine Slice 1 (2026-06-16):
  * recommendation EVIDENCE-LINE render-guard contract. The sibling of
  * `recommendation-why-render-guard.test.ts`, closing audit cross-cutting
- * BUG #5 (the GSC/SEMrush/Clarity/AEO evidence lines rendered unguarded).
+ * BUG #5 (the GSC/Clarity/AEO evidence lines rendered unguarded).
  *
  * Pins TWO things:
  *   1. The guard module

@@ -162,9 +162,13 @@ describe("buildDemandGraph — the everything-helps-everything spine", () => {
       demand({ key: "money-q", label: "Money", gscImpressions: 5000 }),
       demand({ key: "vanity-q", label: "Vanity", gscImpressions: 5000 }),
     ];
+    // 2026-06-26 revenue migration: the dollar signal now comes from
+    // revenueValue + revenueMultiplier (revenueBasis "revenue"), NOT the
+    // deprecated ga4Value conversion count. Money page = real $5,000 revenue
+    // with its precomputed multiplier; vanity page = no revenue.
     const owned: OwnedPageInput[] = [
-      { url: "https://x.com/money", servesDemandKeys: ["money-q"], gscImpressions: 5000, gscClicks: 60, gscPosition: 8, aiCitationCount: 2, ga4Value: 5000 },
-      { url: "https://x.com/vanity", servesDemandKeys: ["vanity-q"], gscImpressions: 5000, gscClicks: 60, gscPosition: 8, aiCitationCount: 2, ga4Value: 0 },
+      { url: "https://x.com/money", servesDemandKeys: ["money-q"], gscImpressions: 5000, gscClicks: 60, gscPosition: 8, aiCitationCount: 2, revenueValue: 5000, revenueBasis: "revenue", revenueMultiplier: 2.85 },
+      { url: "https://x.com/vanity", servesDemandKeys: ["vanity-q"], gscImpressions: 5000, gscClicks: 60, gscPosition: 8, aiCitationCount: 2, revenueValue: 0, revenueBasis: "none", revenueMultiplier: 1.0 },
     ];
     const g = buildDemandGraph({ demand: d, ownedPages: owned, competitorCitations: [] });
     const money = g.moves.find((x) => x.demandKey === "money-q")!;

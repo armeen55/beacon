@@ -2,7 +2,7 @@
  * Profound nightly sync (2026-06-12 night shift) — per-tenant pull of
  * answer-engine citations + visibility/share-of-voice into Beacon's
  * own tables, so triggers and the proof engine can fuse "which AI
- * platforms cite which of MY urls" with crawl/GSC/SEMrush truth.
+ * platforms cite which of MY urls" with crawl/GSC truth.
  *
  * Budget (spec, official docs): 600 requests/hour per tenant key. One
  * nightly run is 1 discovery + 2 reports per category — single-digit
@@ -353,7 +353,7 @@ export async function syncProfoundNightlyForTenant(
   // to 0 rows (non-2xx → null).
   let botRows = 0;
   let referralRows = 0;
-  // 2026-06-26: Supabase-backed domain resolution (mirrors GA4/SEMrush) so a
+  // 2026-06-26: Supabase-backed domain resolution (mirrors GA4) so a
   // Supabase-only tenant's bots/referrals reports aren't silently skipped on an
   // empty domain. hydrate runs the sync chain first, then the business_config row.
   const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);

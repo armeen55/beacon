@@ -159,7 +159,6 @@ export function serializeWhyInput(input: WhyThisMattersInput): {
         }
       : null,
     gscEvidence: input.gscEvidenceLines.map(evidenceLineToCompact),
-    semrushEvidence: input.semrushEvidenceLines.map(evidenceLineToCompact),
     clarityEvidence: input.clarityEvidenceLines.map(evidenceLineToCompact),
     aeoEvidence: input.aeoEvidenceLines.map(evidenceLineToCompact),
     promptCount: input.promptCount,

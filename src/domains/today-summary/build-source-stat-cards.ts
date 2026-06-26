@@ -3,11 +3,10 @@
  * unified Today command center's top stat row.
  *
  * Beacon is NOT an AEO-only tool: AEO ("AI answers") is one source
- * among equals alongside GSC search, GA4 traffic, SEMrush rankings,
- * and Clarity friction. This helper takes the GSC site-totals object,
- * three per-page Maps (GA4 / SEMrush / Clarity), and the AEO KPIs
- * object, and reduces each to its 2–4 headline numbers, returning ONE
- * compact card per source.
+ * among equals alongside GSC search, GA4 traffic, and Clarity friction.
+ * This helper takes the GSC site-totals object, two per-page Maps
+ * (GA4 / Clarity), and the AEO KPIs object, and reduces each to its
+ * 2–4 headline numbers, returning ONE compact card per source.
  *
  * GATING CONTRACT (the whole point — see plan risk "GATING TRAP"):
  *   Cards gate on DATA PRESENCE, never on connector status. A source
@@ -16,7 +15,6 @@
  *   must never be hidden by a connect check. Concretely:
  *     - GSC:     emit iff site-totals is non-null AND impressions90d > 0
  *     - GA4:     emit iff Σ sessions28d > 0   (connected-but-empty → no card)
- *     - SEMrush: emit iff the Map is non-empty
  *     - Clarity: emit iff Σ sessions > 0
  *     - AEO:     emit iff the KPIs object is non-null
  *   So a card always shows REAL numbers or doesn't show at all.
@@ -32,7 +30,6 @@ import type {
 } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import type { Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import type { SemrushPageSignal } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import type { TodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
 
 /** One headline number on a card (big value + tiny label under it). */
@@ -54,7 +51,7 @@ export type SourceSubline = {
 /** One compact stat card — a single source's headline scoreboard. */
 export type SourceStatCard = {
   /** Stable key / data-attr value, e.g. "gsc". */
-  key: "gsc" | "ga4" | "semrush" | "clarity" | "aeo";
+  key: "gsc" | "ga4" | "clarity" | "aeo";
   /** Plain-English source label, e.g. "Search (Google)". */
   source: string;
   /** 2–4 headline numbers. */
@@ -111,7 +108,6 @@ export type AllSourceStatInputs = {
   gscDecay?: Map<string, GscDecaySignal>;
   ga4: Map<string, Ga4PageValue>;
   clarity: Map<string, ClarityPageSignal>;
-  semrush: Map<string, SemrushPageSignal>;
   aeo: TodayDerivedKpis | null;
 };
 
@@ -362,48 +358,6 @@ function buildGa4Card(ga4: Map<string, Ga4PageValue>): SourceStatCard | null {
 }
 
 /**
- * SEMrush card: keywords you rank for (distinct), striking-distance
- * quick-wins (positions 4–20), and total tracked search volume.
- * Gate on a non-empty Map (not connected for Iranopedia → empty → hidden).
- */
-function buildSemrushCard(
-  semrush: Map<string, SemrushPageSignal>,
-): SourceStatCard | null {
-  if (semrush.size === 0) return null;
-
-  const distinctKeywords = new Set<string>();
-  let strikingDistance = 0;
-  let trackedVolume = 0;
-  for (const s of semrush.values()) {
-    for (const k of s.keywords) {
-      distinctKeywords.add(k.keyword);
-      trackedVolume += k.volume;
-    }
-    strikingDistance += s.strikingDistance.length;
-  }
-  // A non-empty Map with zero ranked keywords across all pages has no
-  // real headline — gate it out too.
-  if (distinctKeywords.size === 0) return null;
-
-  return {
-    key: "semrush",
-    source: "Keyword rankings",
-    stats: [
-      { label: "Searches you rank for", value: fmtInt(distinctKeywords.size) },
-      { label: "Almost on page 1", value: fmtInt(strikingDistance) },
-      { label: "Monthly searches", value: fmtCompact(trackedVolume) },
-    ],
-    subline:
-      strikingDistance > 0
-        ? {
-            text: `${fmtInt(strikingDistance)} keyword${strikingDistance === 1 ? "" : "s"} close to page one`,
-            tone: "neutral",
-          }
-        : null,
-  };
-}
-
-/**
  * Clarity card: sessions analyzed + rage-click rate + dead-click rate,
  * recomputed from SUMMED counts (Σrage/Σsessions) — never the average of
  * per-page rates. When Clarity is only ~1 day deep we label "building
@@ -522,9 +476,9 @@ function buildAeoCard(aeo: TodayDerivedKpis | null): SourceStatCard | null {
 
 /**
  * Build the all-source stat row. Returns ONLY cards whose source has
- * real data; the order is GSC → GA4 → SEMrush → Clarity → AEO (search-
- * first, AEO as one-among-equals). The caller renders nothing when the
- * array is empty.
+ * real data; the order is GSC → GA4 → Clarity → AEO (search-first, AEO
+ * as one-among-equals). The caller renders nothing when the array is
+ * empty.
  *
  * @param claritySpansMultipleDays whether Clarity has >1 day of data
  *   (drives the "building history" honesty label). Defaults to false
@@ -537,7 +491,6 @@ export function buildSourceStatCards(
   const cards: Array<SourceStatCard | null> = [
     buildGscCard(inputs.gscSiteTotals, inputs.gscDecay),
     buildGa4Card(inputs.ga4),
-    buildSemrushCard(inputs.semrush),
     buildClarityCard(inputs.clarity, claritySpansMultipleDays),
     buildAeoCard(inputs.aeo),
   ];

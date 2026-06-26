@@ -19,7 +19,7 @@ function packet(over: { currentText?: string | null; gsc?: GscEvidence; clarity?
   (over.gsc ? present : empty).push("gsc");
   (over.clarity ? present : empty).push("clarity");
   (over.profound ? present : empty).push("profound");
-  empty.push("ga4", "semrush");
+  empty.push("ga4");
   return {
     current: { tenantId: "t", pageUrl: "https://x.com/p", changeType: "title", elementKey: null, sectionLabel: null, currentText: over.currentText ?? "Current Title", cmsFieldMapped: over.cmsFieldMapped ?? true, publishChannel: "wix_cms" },
     gsc: over.gsc, clarity: over.clarity, profound: over.profound,
@@ -60,7 +60,7 @@ describe("Page Surgeon — LLM judge (multi-change battle plan, gated)", () => {
     expect(dec.supporting_atomic_changes.map((c) => c.action)).toContain("faq");
     expect(dec.decided_by).toBe("llm_judge");
     expect(dec.confidence).toBe("high"); // profound present → AEO claim allowed
-    expect(dec.source_coverage.find((s) => s.source === "semrush")?.detail).toContain("no rows");
+    expect(dec.source_coverage.find((s) => s.source === "ga4")?.detail).toContain("no rows");
   });
 
   it("folds the STAGE-1 diagnosis bottleneck into operator_insight (diagnose-then-plan)", async () => {

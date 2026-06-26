@@ -334,13 +334,6 @@ export function RecommendationV2Card({
     row.detail.gscEvidenceLines,
     evGuard,
   );
-  // 2026-06-15 follow-up — SEMrush evidence (exact search volume + keyword
-  // difficulty + current rank), built from the rec's SEMrush signal.
-  // Default [] mirrors the GSC guard so a row without it never crashes.
-  const semrushEvidenceLines = filterDisplaySafeEvidenceLines(
-    row.detail.semrushEvidenceLines,
-    evGuard,
-  );
   // 2026-06-15 — Microsoft Clarity friction evidence (rage-clicks / page
   // errors) + AI-answer gap evidence (white-label). Same [] guard so a row
   // without either never crashes; dormant until those sources are connected.
@@ -532,34 +525,10 @@ export function RecommendationV2Card({
         </ul>
       )}
 
-      {/* 2026-06-15 follow-up — SEMrush evidence: the SPECIFIC keyword, its
-          monthly search volume, its difficulty (when known), and the current
-          rank. Honest: rendered only when the SEMrush signal carried a
-          striking-distance keyword. Reuses the same list UI as the GSC lines. */}
-      {semrushEvidenceLines.length > 0 && (
-        <ul
-          className="mt-2.5 space-y-1"
-          data-recommendation-v2-semrush-evidence="true"
-        >
-          {semrushEvidenceLines.map((line) => (
-            <li
-              key={line.key}
-              className="text-[11px] leading-snug"
-              data-recommendation-v2-semrush-evidence-line={line.key}
-            >
-              <span className="font-semibold text-foreground">
-                {line.value}
-              </span>{" "}
-              <span className="text-muted-foreground">{line.label}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
       {/* 2026-06-15 — Microsoft Clarity friction evidence: rage-clicks /
           page errors as a percent of sessions. Honest: rendered only when
           the Clarity signal carried friction above the sourced thresholds.
-          Reuses the same list UI as the GSC / SEMrush lines. */}
+          Reuses the same list UI as the GSC lines. */}
       {clarityEvidenceLines.length > 0 && (
         <ul
           className="mt-2.5 space-y-1"

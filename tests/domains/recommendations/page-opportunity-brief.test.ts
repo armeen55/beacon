@@ -57,7 +57,6 @@ function row(o: {
 
 const RECEIPT: BriefEvidenceReceipt = {
   gsc: { impressions90d: 8465, clicks90d: 90, position90d: 3.4, topQuery: "persian last names" },
-  semrush: null,
   clarity: { sessions: 540, frictionRate: 0.22 },
   ga4: null,
   aiAnswers: { observations: 0 },

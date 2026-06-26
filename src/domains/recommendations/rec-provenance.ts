@@ -19,7 +19,7 @@ export type RecProvenance = {
 
 // Sources that fuse a real external signal — the newer, evidence-led generators.
 const SIGNAL_SOURCES = new Set([
-  "gsc_led", "semrush_opportunity", "clarity_friction", "aeo_readiness",
+  "gsc_led", "clarity_friction", "aeo_readiness",
   "uncited_content", "keyword_gap", "striking_distance", "schema_engine",
   "internal_link_brain", "missing_schema_content",
 ]);

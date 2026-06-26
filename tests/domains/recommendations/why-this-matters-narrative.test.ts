@@ -30,7 +30,6 @@ function makeInput(
     affectedPromptTexts: [],
     competitor: null,
     gscEvidenceLines: [],
-    semrushEvidenceLines: [],
     clarityEvidenceLines: [],
     aeoEvidenceLines: [],
     promptCount: 0,
@@ -107,7 +106,6 @@ describe("composeWhyThisMatters", () => {
         affectedPromptTexts: ["best general contractor near me"],
         competitor: null,
         gscEvidenceLines: [],
-        semrushEvidenceLines: [],
         aeoEvidenceLines: [],
         promptCount: 2,
         observationCount: 5,
@@ -196,7 +194,7 @@ describe("composeWhyThisMatters", () => {
     const joined = out.join(" ");
     // The only number that should appear is the competitor's 42% share
     // (the one number actually in the inputs — no prompt text here has
-    // digits, no GSC/SEMrush lines were passed).
+    // digits, no GSC lines were passed).
     const numbers = joined.match(/\d+/g) ?? [];
     expect(numbers).toEqual(["42"]);
   });

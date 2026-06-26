@@ -4,7 +4,7 @@ import { classifyRecProvenance } from "./rec-provenance";
 
 describe("classifyRecProvenance", () => {
   it("signal-led sources are evidence-backed, not basic", () => {
-    for (const s of ["gsc_led", "semrush_opportunity", "clarity_friction", "aeo_readiness"]) {
+    for (const s of ["gsc_led", "clarity_friction", "aeo_readiness"]) {
       const p = classifyRecProvenance(s);
       expect(p.kind).toBe("signal_backed");
       expect(p.isBasic).toBe(false);

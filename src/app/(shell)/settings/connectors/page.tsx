@@ -27,7 +27,6 @@ export default async function ConnectorsPage() {
   const wix = await getConnectorInfo("wix");
   // Connect-cards slice (2026-06-12): the END-STATE contract — every
   // data source connects HERE, self-serve.
-  const semrush = await getConnectorInfo("semrush");
   const profound = await getConnectorInfo("profound");
   const clarity = await getConnectorInfo("clarity");
   const cfg = await getBusinessConfigForCurrentTenant();
@@ -120,7 +119,6 @@ export default async function ConnectorsPage() {
         ga4={googleGa4}
         yelp={yelp}
         wix={wix}
-        semrush={semrush}
         profound={profound}
         clarity={clarity}
         configYelpBusinessId={cfg.yelpBusinessId ?? ""}

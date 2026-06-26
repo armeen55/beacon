@@ -73,7 +73,6 @@ function renderClient(args: {
       ga4={args.ga4}
       wix={{ status: "disconnected", connected_at: null, expires_at: null, last_synced_at: null }}
       yelp={disconnectedInfo()}
-      semrush={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       profound={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       clarity={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       configYelpBusinessId=""

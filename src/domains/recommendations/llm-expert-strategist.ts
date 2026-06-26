@@ -271,7 +271,6 @@ export type ExpertStrategyInput = {
 function hasCoreEvidenceOf(why: WhyThisMattersInput): boolean {
   return (
     why.gscEvidenceLines.length > 0 ||
-    why.semrushEvidenceLines.length > 0 ||
     why.aeoEvidenceLines.length > 0 ||
     why.clarityEvidenceLines.length > 0 ||
     why.competitor != null

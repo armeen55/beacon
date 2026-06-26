@@ -5,7 +5,7 @@ import "server-only";
  *
  * Token-header auth (`Authorization: Token token={key}`), JSON response,
  * scoped to the operator's account: GET /v3/a/{account_id}/calls.json.
- * Mirrors the Semrush/GA4 connector discipline:
+ * Mirrors the GA4 connector discipline:
  *   • Server-only; key never returned to the client, never logged.
  *   • Tenant-scoped: key + account read for `tenantId` only.
  *   • Fail-soft: no key / disconnected / non-2xx / network → discriminated

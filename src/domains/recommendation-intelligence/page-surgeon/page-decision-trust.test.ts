@@ -27,13 +27,13 @@ function packet(over: Partial<EvidencePacket> & { title?: string } = {}): Eviden
       tenantId: "t", pageUrl: "https://x.com/p", changeType: "title", elementKey: null,
       sectionLabel: null, currentText: over.title ?? "Alpha Beta Guide", cmsFieldMapped: true, publishChannel: "wix_cms",
     },
-    gsc: over.gsc, clarity: over.clarity, ga4: over.ga4, semrush: over.semrush,
+    gsc: over.gsc, clarity: over.clarity, ga4: over.ga4,
     crawl: over.crawl ?? {
       title: over.title ?? "Alpha Beta Guide", h1: "Alpha Beta", metaDescription: "m",
       h2List: [], h3List: [], faqs: [], schemaTypes: [], wordCount: 1000, internalLinkCount: 10, cardTexts: [],
     },
     sourcesPresent: over.sourcesPresent ?? ["gsc", "crawl"],
-    sourcesConnectedButEmpty: over.sourcesConnectedButEmpty ?? ["ga4", "clarity", "semrush", "profound"],
+    sourcesConnectedButEmpty: over.sourcesConnectedButEmpty ?? ["ga4", "clarity", "profound"],
   };
 }
 function change(action: AtomicChange["action"], over: Partial<AtomicChange> = {}): AtomicChange {
@@ -64,7 +64,7 @@ describe("Page Surgeon trust gate — P1 over-recommendation suppression", () =>
       gsc: gsc({ ctr: 0.044, expectedCtrForPosition: 0.04, ctrGap: 0, avgPosition: 6.7,
         topQueries: [{ query: "persian boy names", impressions: 4312, clicks: 428, ctr: 0.099, position: 4 }] }),
       clarity: { windowStart: "", windowEnd: "", scrollDepthMedian: null, engagementTimeSec: null, deadClicks: 1, rageClicks: 0, quickbacks: 5, scriptErrors: 0 },
-      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "semrush", "profound"],
+      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "profound"],
     });
     const out = applyDeterministicGate(decision(change("title"), [change("meta"), change("intro_answer_block"), change("image_alt")]), p);
     expect(out.recommended_atomic_action).toBe("keep_current");
@@ -104,26 +104,8 @@ describe("Page Surgeon trust gate — P1 over-recommendation suppression", () =>
   });
 });
 
-describe("Page Surgeon trust gate — create_new_page + cluster-only safety (/persian-male-names class)", () => {
-  const clusterSemrush = {
-    keywords: [{ keyword: "omega zeta", volume: 800, kd: 20, cpc: 0, intent: null, position: 12 }],
-    relatedKeywords: [], questionKeywords: [],
-  };
-  it("a high-value cluster ALONE (no deficit / zero-click / friction) → keep_current, not a new page", () => {
-    const p = packet({
-      title: "Alpha Guide",
-      gsc: gsc({ ctr: 0.05, expectedCtrForPosition: 0.05, ctrGap: 0,
-        topQueries: [{ query: "alpha", impressions: 500, clicks: 50, ctr: 0.1, position: 4 }] }),
-      semrush: clusterSemrush,
-      sourcesPresent: ["gsc", "crawl", "semrush"], sourcesConnectedButEmpty: ["ga4", "clarity", "profound"],
-    });
-    expect(detectPageProblems(p).highValueUnservedCluster).toBe(true);
-    expect(detectPageProblems(p).hasAnyProblem).toBe(false);
-    const out = applyDeterministicGate(decision(change("create_new_page"), [change("title")]), p);
-    expect(out.recommended_atomic_action).toBe("keep_current");
-    expect(out.primary_atomic_change).toBeNull();
-  });
-  it("create_new_page rejected without a cluster, even when a deficit exists", () => {
+describe("Page Surgeon trust gate — create_new_page safety", () => {
+  it("create_new_page is always rejected (optimize the existing page instead), even when a deficit exists", () => {
     const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
     const out = applyDeterministicGate(decision(change("create_new_page"), [change("intro_answer_block")]), p);
     expect(out.rejected_changes.some((r) => r.action === "create_new_page")).toBe(true);
@@ -132,25 +114,9 @@ describe("Page Surgeon trust gate — create_new_page + cluster-only safety (/pe
 });
 
 describe("Page Surgeon trust gate — P2 evidence-citation sanitizer", () => {
-  it("rejects a change citing SEMrush question keywords when none were pulled (/farsi-numbers class)", () => {
-    const p = packet({
-      gsc: gsc({ ctrGap: 0.03 }),
-      semrush: { keywords: [{ keyword: "farsi numbers", volume: 140, kd: 14, cpc: 0, intent: null, position: 8 }], relatedKeywords: [], questionKeywords: [] },
-      sourcesPresent: ["gsc", "crawl", "semrush"], sourcesConnectedButEmpty: ["ga4", "clarity", "profound"],
-    });
-    const faq = change("faq", { evidence: "SEMrush question keywords show users ask how to count in Farsi." });
-    const out = applyDeterministicGate(decision(change("title"), [faq]), p);
-    expect(out.supporting_atomic_changes.some((c) => c.action === "faq")).toBe(false);
-    expect(out.rejected_changes.some((r) => r.action === "faq" && /question keyword/i.test(r.reason))).toBe(true);
-  });
-
   it("does NOT reject a change that HONESTLY acknowledges the absent field", () => {
-    const p = packet({
-      gsc: gsc({ ctrGap: 0.03 }),
-      semrush: { keywords: [{ keyword: "k", volume: 100, kd: 1, cpc: 0, intent: null, position: 8 }], relatedKeywords: [], questionKeywords: [] },
-      sourcesPresent: ["gsc", "crawl", "semrush"], sourcesConnectedButEmpty: ["ga4", "clarity", "profound"],
-    });
-    const ib = change("intro_answer_block", { evidence: "No SEMrush question keywords were returned, so this is grounded in the GSC ctrGap of 0.03." });
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) });
+    const ib = change("intro_answer_block", { evidence: "No GA4 rows were returned, so this is grounded in the GSC ctrGap of 0.03." });
     const out = applyDeterministicGate(decision(ib), p);
     expect(out.recommended_atomic_action).toBe("intro_answer_block");
   });
@@ -191,7 +157,7 @@ describe("Page Surgeon trust gate — P3 candidate eligibility", () => {
     const p = packet({
       gsc: gsc({ ctrGap: 0.03 }),
       clarity: { windowStart: "", windowEnd: "", scrollDepthMedian: null, engagementTimeSec: null, deadClicks: 3, rageClicks: 0, quickbacks: 1, scriptErrors: 0 },
-      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "semrush", "profound"],
+      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "profound"],
     });
     const out = applyDeterministicGate(decision(change("title"), [change("ux_cta_fix")]), p);
     expect(out.supporting_atomic_changes.some((c) => c.action === "ux_cta_fix")).toBe(false);
@@ -204,7 +170,7 @@ describe("Page Surgeon trust gate — Clarity friction rescue (/iran-flags class
     const p = packet({
       gsc: gsc({ ctrGap: 0.016, avgPosition: 11.6 }),
       clarity: { windowStart: "", windowEnd: "", scrollDepthMedian: null, engagementTimeSec: null, deadClicks: 67, rageClicks: 10, quickbacks: 5, scriptErrors: 0 },
-      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "semrush", "profound"],
+      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "profound"],
     });
     const d = decision(change("title"), [change("meta")]);
     d.rejected_changes = [{ action: "ux_cta_fix", reason: "judge declined" }];
@@ -267,19 +233,15 @@ describe("Page Surgeon trust gate — WL1 keep_current narrative honesty", () =>
 
 describe("Page Surgeon trust gate — WL2 per-claim absent-evidence", () => {
   it("one honest absent-source caveat does NOT whitewash a different fabricated citation", () => {
-    // GA4 honestly absent in one clause; SEMrush question keywords fabricated in another.
+    // GA4 honestly absent in one clause; Clarity behavior fabricated in another.
     // Old global acknowledgement would have let this pass — per-clause must still reject.
-    const p = packet({
-      gsc: gsc({ ctrGap: 0.03 }),
-      semrush: { keywords: [{ keyword: "farsi numbers", volume: 140, kd: 14, cpc: 0, intent: null, position: 8 }], relatedKeywords: [], questionKeywords: [] },
-      sourcesPresent: ["gsc", "crawl", "semrush"], sourcesConnectedButEmpty: ["ga4", "clarity", "profound"],
-    });
+    const p = packet({ gsc: gsc({ ctrGap: 0.03 }) }); // ga4 + clarity absent
     const faq = change("faq", {
-      evidence: "No GA4 rows were returned for this page. SEMrush question keywords show users ask how to count in Farsi.",
+      evidence: "No GA4 rows were returned for this page. Clarity shows dead clicks and rage clicks here.",
     });
     const out = applyDeterministicGate(decision(change("title"), [faq]), p);
     expect(out.supporting_atomic_changes.some((c) => c.action === "faq")).toBe(false);
-    expect(out.rejected_changes.some((r) => r.action === "faq" && /question keyword/i.test(r.reason))).toBe(true);
+    expect(out.rejected_changes.some((r) => r.action === "faq" && /clarity/i.test(r.reason))).toBe(true);
   });
 
   it("still rejects a multi-source fabrication where every cited source is empty", () => {
@@ -321,7 +283,7 @@ describe("Page Surgeon trust gate — WL3 numeric fidelity", () => {
     const p = packet({
       gsc: gsc({ ctrGap: 0.03 }),
       clarity: { windowStart: "", windowEnd: "", scrollDepthMedian: null, engagementTimeSec: null, deadClicks: 3, rageClicks: 0, quickbacks: 1, scriptErrors: 0 },
-      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "semrush", "profound"],
+      sourcesPresent: ["gsc", "crawl", "clarity"], sourcesConnectedButEmpty: ["ga4", "profound"],
     });
     const s = change("internal_link", { evidence: "Clarity shows 67 dead clicks on this page, so add navigation." });
     const out = applyDeterministicGate(decision(change("title"), [s]), p);

@@ -225,7 +225,7 @@ async function TodayV2SectionedContent() {
             Connect your data sources to see your real command center
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            Connect Google Search Console (plus GA4, SEMrush, or
+            Connect Google Search Console (plus GA4 or
             Clarity) and refresh to see your visibility scoreboard and ranked
             actions. Three steps: 1. Connect your sources → 2. Refresh → 3.
             Review your recommendations.
@@ -275,7 +275,7 @@ async function TodayV2SectionedContent() {
       </header>
       {/* Operator-OS rebuild (2026-06-19) — the State of the Union executive
           briefing leads the cockpit for operators: one card that reads the
-          whole business across GSC/SEMrush/Clarity/GA4 and says what's
+          whole business across GSC/Clarity/GA4 and says what's
           happening + what to do. Operator-gated; its own Suspense (null
           fallback) so its tenant reads never block the rest of the page; it
           self-hides when there's no data. Customer view is unchanged. */}

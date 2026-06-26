@@ -6,7 +6,7 @@
  * trigger an outbound CallRail HTTP call. NOT invoked on page load —
  * only on explicit operator clicks on `/diagnostics/callrail`.
  *
- * Posture (locked, mirrors the Semrush refresh action):
+ * Posture (locked):
  *   • Operator-gated via `isOperatorModeServer()`. Non-operators get
  *     `{ ok: false, reason: "not_operator" }` and the action never
  *     stores a key, never reads the token, never makes an HTTP call.

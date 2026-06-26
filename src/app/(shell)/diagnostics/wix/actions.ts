@@ -3,7 +3,7 @@
 /**
  * 2026-06-10 — operator-only Wix connect / collection-config / url-map
  * sync (§push layer). Only entry points that store the key or hit Wix.
- * Operator-gated; tenant-scoped; mirrors the SEMrush/CallRail actions.
+ * Operator-gated; tenant-scoped; mirrors the CallRail actions.
  */
 
 import { revalidatePath } from "next/cache";

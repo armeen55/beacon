@@ -114,16 +114,6 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   ["title_h1_mismatch::edit_title", "operator-review-only"],
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],
-  // Cannibalization slice (2026-06-12): link-structure advice wants
-  // human eyes (same posture as orphan_page::add_internal_link).
-  ["semrush_cannibalization::add_internal_link", "operator-review-only"],
-  // Keyword-gap slice (2026-06-12): new-content briefs commit real
-  // authoring effort — human judgment gates them.
-  ["semrush_keyword_gap::create_page", "operator-review-only"],
-  // Originality guard (audit #13, 2026-06-12): when the gap keyword's
-  // topic is already covered by an existing page, the play flips to
-  // expanding that page — same human-judgment tier as the family.
-  ["semrush_keyword_gap::add_h2_section", "operator-review-only"],
 
   // Content Schema Engine (2026-06-12). Unlike the builder-tuned
   // `missing_schema` signal below (diagnostic-only pending industry
@@ -145,13 +135,9 @@ export const PROMOTION_ELIGIBILITY_TABLE: ReadonlyMap<
   // Insight Graph slice 1 (2026-06-12): the first FUSED signal — the
   // tenant's OWN Search Console numbers (impressions/CTR/position per
   // query) drive a title rewrite. Evidence is first-party ground
-  // truth; thresholds are research-derived (Semrush positional CTR
+  // truth; thresholds are research-derived (positional CTR
   // benchmarks, positions 1–5 only). Any vertical/geo/language.
   ["gsc_low_ctr::edit_title", "customer-queue-ready"],
-  // Insight Graph slice 2 (2026-06-12): striking-distance keywords
-  // (third-party rank data, sourced 4-20 band) -> title push when the
-  // keyword is absent from the title.
-  ["semrush_striking_distance::edit_title", "customer-queue-ready"],
   // Wix SEO push slice (2026-06-12): Breadcrumb-only block on store
   // product pages — duplication-safe + one-click pushable via the
   // Stores seoData write behind the Accept click.

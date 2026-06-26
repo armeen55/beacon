@@ -128,7 +128,7 @@ async function loadClarityPageSignalsForTenantUncached(
     engageSessions: number;
   };
   // Key by the CANONICAL url (www/scheme/trailing-slash/query folded), exactly
-  // like the GSC + SEMrush fuses — Clarity's exported URL format often differs
+  // like the GSC fuse — Clarity's exported URL format often differs
   // from the crawler's snapshot URL, so a raw-keyed map silently missed every
   // lookup whenever the two disagreed (review finding 2026-06-13). Canonical
   // keys also correctly MERGE per-URL daily rows that differ only by format.

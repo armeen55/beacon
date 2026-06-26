@@ -1,6 +1,6 @@
 /**
  * Expert-rec-engine PHASE A → Slice 1 (2026-06-16) — render-time display
- * guard for the customer-visible EVIDENCE LINES (GSC / SEMrush / Clarity /
+ * guard for the customer-visible EVIDENCE LINES (GSC / Clarity /
  * answer-engine), the sibling of `why-display-guard.ts`.
  *
  * WHY THIS EXISTS — audit cross-cutting BUG #5: the 2026-06-15 evidence-line

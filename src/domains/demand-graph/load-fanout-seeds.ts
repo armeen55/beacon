@@ -12,7 +12,7 @@ import { summarizeFanouts, type FanoutRow, type FanoutSeed } from "@/lib/connect
  * drafter) consumes fanout seeds, but the demand graph's DemandInput.fanoutSubQueries
  * was always []. This reads the synced profound_fanout_rows → summarizeFanouts →
  * ranked sub-queries, so content Moves can be grounded in the actual AI sub-
- * questions, not just GSC/SEMrush. Request-cached + fail-soft (→ []). Honest empty
+ * questions, not just GSC. Request-cached + fail-soft (→ []). Honest empty
  * state when no fanouts are synced (NEVER fabricated).
  */
 

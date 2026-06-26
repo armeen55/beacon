@@ -1,7 +1,7 @@
 /**
  * Expert-rec-engine PHASE I (2026-06-16) — deriveRowTopicFit adapter.
  * Pins that a live row's intent-fit is derived from the evidence it carries:
- * primary query precedence (GSC → SEMrush → prompt), supporting-query context,
+ * primary query precedence (GSC → prompt), supporting-query context,
  * and null when there's no quotable query.
  */
 
@@ -15,14 +15,12 @@ function row(overrides: {
   targetLabel?: string;
   targetUrl?: string | null;
   gsc?: EvidenceLine[];
-  semrush?: EvidenceLine[];
 }): RecommendationActionRow {
   return {
     targetLabel: overrides.targetLabel ?? "Persian Rug Cleaning page",
     targetUrl: overrides.targetUrl ?? "https://example.com/persian-rug-cleaning",
     detail: {
       gscEvidenceLines: overrides.gsc ?? [],
-      semrushEvidenceLines: overrides.semrush ?? [],
     },
     // The adapter only reads the fields above; the rest of the row shape is
     // irrelevant to this pure derivation.
@@ -45,10 +43,7 @@ describe("deriveRowTopicFit", () => {
     expect(fit!.queryIntent).toContain("persian rug cleaning cost");
   });
 
-  it("falls back to a SEMrush keyword, then a tracked prompt", () => {
-    const semOnly = deriveRowTopicFit(row({ semrush: [gscLine("persian rug pad")] }), []);
-    expect(semOnly!.queryIntent).toContain("persian rug pad");
-
+  it("falls back to a tracked prompt when there is no GSC query", () => {
     const promptOnly = deriveRowTopicFit(row({}), ["how to wash a persian rug"]);
     expect(promptOnly!.queryIntent).toContain("how to wash a persian rug");
   });

@@ -79,7 +79,6 @@ const FRESH_WITHIN_DAYS = 2;
  *  when GSC has no synced rows to date from. Wix is publish-only. */
 const FRESHNESS_FALLBACK_PROVIDERS = [
   "google_ga4",
-  "semrush",
   "profound",
   "clarity",
 ] as const;

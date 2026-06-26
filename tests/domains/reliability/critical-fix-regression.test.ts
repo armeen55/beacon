@@ -43,13 +43,6 @@ describe("connector syncs report synced:false on a DB write failure (no masked s
     expect(src).not.toMatch(/upsert failed[\s\S]{0,160}?return \{ synced: true/);
   });
 
-  it("SEMrush sync — upsert error returns synced:false", () => {
-    const src = read("src/lib/connectors/semrush/sync-organic-keywords.ts");
-    expect(src).toContain('return { synced: false, reason: "upsert_failed" }');
-    // anti-pattern: a synced:true within ~6 lines after the upsert-failed log.
-    expect(src).not.toMatch(/semrush-sync"?\] upsert failed[\s\S]{0,200}?synced: true/);
-  });
-
   it("Profound sync — tracks per-table write failure + returns synced:false if any failed", () => {
     const src = read("src/lib/connectors/profound/sync-nightly.ts");
     // all five table writes flip the failure flag

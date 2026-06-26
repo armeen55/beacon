@@ -671,7 +671,7 @@ describe("RecommendationsV2Client — PSQ operator gating", () => {
     expect(html).toContain('data-ps-tab="ready"');
     expect(html).toContain('data-ps-tab="legacy"');
     // Relabeled 2026-06-22: "Basic legacy" → "Standard" (the 39 are first-class
-    // GSC/SEMrush recs, not deprecated — operator-reported confusion).
+    // GSC recs, not deprecated — operator-reported confusion).
     expect(html).toContain("Standard");
   });
 });

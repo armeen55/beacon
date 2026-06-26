@@ -5,7 +5,7 @@
  * exported URL format often differs from the crawler's snapshot URL by
  * www/scheme/trailing-slash, so a raw-keyed map silently missed every
  * trigger lookup. The map is now keyed by canonicalizeCitationUrl (exactly
- * like the GSC + SEMrush fuses), so variants of the same page MERGE and the
+ * like the GSC fuses), so variants of the same page MERGE and the
  * trigger loader's canonical lookup hits.
  */
 

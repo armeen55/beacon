@@ -18,7 +18,7 @@ function packet(over: Partial<EvidencePacket> = {}): EvidencePacket {
     gsc: over.gsc ?? gsc(),
     crawl: over.crawl ?? { title: "Old Title", h1: "Old H1", metaDescription: "Old meta.", h2List: ["Pedar Sag"], h3List: [], faqs: [], schemaTypes: [], wordCount: 1279, internalLinkCount: 85, cardTexts: [] },
     sourcesPresent: over.sourcesPresent ?? ["gsc", "crawl"],
-    sourcesConnectedButEmpty: over.sourcesConnectedButEmpty ?? ["ga4", "clarity", "semrush", "profound"],
+    sourcesConnectedButEmpty: over.sourcesConnectedButEmpty ?? ["ga4", "clarity", "profound"],
   };
 }
 function change(action: AtomicChange["action"], over: Partial<AtomicChange> = {}): AtomicChange {

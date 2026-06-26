@@ -2,7 +2,7 @@
  * Page Surgeon — LLM JUDGE (W1a upgrade: multi-change battle plan). A 10x
  * SEO/AEO operator over the evidence packet. It returns a PRIMARY atomic change
  * + SUPPORTING changes (with dependency order) + REJECTED changes, researches
- * out-of-the-box WORDING alternatives grounded in GSC/SEMrush, and names what a
+ * out-of-the-box WORDING alternatives grounded in GSC, and names what a
  * normal SEO would miss + why it isn't just a title tweak. Uses ONLY packet
  * numbers. Any failure → deterministic page decision (visible fallback). The
  * deterministic GATE alone sets confidence caps + publishability.
@@ -36,7 +36,7 @@ const HEADLINE_ACTIONS = [...CHANGE_ACTIONS, "keep_current", "needs_more_evidenc
 const SYSTEM_PROMPT = `
 You are an elite SEO/AEO operator auditing ONE web page for ONE business, given a
 structured evidence packet (Google Search Console, GA4, Microsoft Clarity,
-SEMrush, Profound, and a crawl). Work in TWO STAGES — DIAGNOSE, then PLAN. A plan
+Profound, and a crawl). Work in TWO STAGES — DIAGNOSE, then PLAN. A plan
 that is not tied to a diagnosed bottleneck will be rejected.
 
 STAGE 1 — DIAGNOSE (do this FIRST, before considering any change):
@@ -60,16 +60,13 @@ STAGE 2 — PLAN (only after diagnosing; every change must resolve the bottlenec
 - RESEARCH WORDING: brainstorm alternative phrasings for the page's concept
   (synonyms / how real people search — e.g. "swear words" vs "cuss words" vs
   "profanity" vs "bad words" vs "insults" vs "slang"). Ground each in the GSC
-  queries (and SEMrush if present). Decide which wording belongs in the title vs
-  meta vs h1 vs an FAQ vs a section. Put this in wording_research.
-- USE THE MARKET CONTEXT: GSC is first-party truth about what is happening on
-  THIS page. SEMrush (when present) is the broader market: semrush.keywords =
-  this page's keyword portfolio (volume / kd / cpc / intent), relatedKeywords =
-  query variants people also search, questionKeywords = question-form demand
-  (answer-block / FAQ fodder), competitorDomains = the market rivals. Use GSC to
-  say what's happening and SEMrush to judge whether the broader market / query /
-  SERP context SUPPORTS the move (real volume behind a wording, real questions to
-  answer, a competitive term worth targeting). Never let SEMrush override GSC.
+  queries. Decide which wording belongs in the title vs meta vs h1 vs an FAQ vs a
+  section. Put this in wording_research.
+- USE THE FIRST-PARTY TRUTH: GSC is the truth about what is happening on THIS
+  page — which queries it ranks for, where it ranks, and where CTR trails the
+  position's expected curve. Use GSC to say what's happening and to judge whether
+  real demand SUPPORTS the move (a query with real impressions behind a wording, a
+  page-1 query earning ~0 clicks worth re-snippeting).
 - Name what a NORMAL SEO would MISS (what_normal_seo_misses) and why this is not
   just a title tweak (why_not_just_title).
 
@@ -83,18 +80,15 @@ HARD RULES:
 
 TRUST RULES (a deterministic gate enforces these; violating them gets the change
 rejected, so follow them to keep your plan intact):
-- NEVER cite a packet field that is empty/absent. If semrush.relatedKeywords is
-  empty, do not mention related keywords. If semrush.questionKeywords is empty,
-  do not cite SEMrush questions. If ga4 is absent, do not claim conversions/
-  engagement/sessions. Only cite what is actually in the packet.
-- A null metric means NOT MEASURED, not zero. A keyword with kd:null or cpc:null
-  has UNKNOWN difficulty / value — never describe it as "easy to rank", "low
-  difficulty", or "low value". Do not reason from a null as if it were 0.
+- NEVER cite a packet field that is empty/absent. If ga4 is absent, do not claim
+  conversions/engagement/sessions. If clarity is absent, do not claim dead/rage
+  clicks. Only cite what is actually in the packet.
+- A null metric means NOT MEASURED, not zero. Do not reason from a null as if it
+  were 0.
 - NO snippet deficit → NO title/meta rewrite. If GSC CTR is at/above the
   expectedCtrForPosition (ctrGap ≈ 0) AND the current title already contains the
   dominant query's terms, prefer keep_current over a title/meta change — unless a
-  page-1 query gets ~0 clicks, or SEMrush shows a high-volume intent the page
-  doesn't serve. Don't rewrite a title that's already working.
+  page-1 query gets ~0 clicks. Don't rewrite a title that's already working.
 - image_alt is OFF-LIMITS: the crawl carries no image/alt data, so you cannot
   ground an image_alt change. Do not propose one.
 - ux_cta_fix ONLY when Clarity shows MEANINGFUL friction (significant dead/rage
@@ -266,7 +260,7 @@ export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAt
   // packet (2026-06-18): reasoning_effort medium (its default) ~44s — over the
   // old 40s timeout, so EVERY call aborted to fallback; low ~32s; minimal ~19s.
   // "low" keeps genuine reasoning while staying well under the timeout, and 90s
-  // gives headroom for larger packets (e.g. SEMrush keyword enrichment).
+  // gives headroom for larger packets.
   const timeoutMs = args.timeoutMs ?? 90_000;
 
   const body = JSON.stringify({

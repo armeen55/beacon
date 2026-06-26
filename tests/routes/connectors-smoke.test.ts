@@ -29,7 +29,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("Connectors settings route smoke", () => {
-  it("renders connector page with the GSC + GA4 + SEMrush + Clarity cards", async () => {
+  it("renders connector page with the GSC + GA4 + Clarity cards", async () => {
     const { default: ConnectorsPage } = await import(
       "@/app/(shell)/settings/connectors/page"
     );
@@ -47,7 +47,6 @@ describe("Connectors settings route smoke", () => {
     // Yelp connector removed 2026-06-18 (operator request — not relevant to
     // content/AEO tenants). Assert the cards that DO ship instead.
     expect(html).not.toContain("Enter Yelp API Key");
-    expect(html).toContain('data-connector-card="semrush"');
     expect(html).toContain('data-connector-card="clarity"');
     // 2026-06-22 — connectors auto-refresh on use (no hidden always-on cron);
     // the intro now says it keeps sources fresh automatically while you use it.

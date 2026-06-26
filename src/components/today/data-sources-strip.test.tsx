@@ -13,7 +13,7 @@
  *      delivering data — e.g. GA4 with no property picked, or never synced)
  *      render an honest ⚠ treatment with the plain-English reason — NEVER the
  *      success-green ✓ — and deep-link to the connectors page to fix it.
- *   4. ALL six fully connected → the heavy strip collapses to a tiny
+ *   4. ALL sources fully connected → the heavy strip collapses to a tiny
  *      "All data sources connected" confirmation (no per-source list). A
  *      single needs_attention source keeps the full strip visible.
  *   5. Connect affordances are accessible (each carries an aria-label naming
@@ -45,10 +45,9 @@ type StatusInput = {
   lastSynced?: string | null;
 };
 
-const ALL_SIX: StatusInput[] = [
+const ALL_SOURCES: StatusInput[] = [
   { provider: "google_gsc", label: "Google Search Console" },
   { provider: "google_ga4", label: "Google Analytics 4" },
-  { provider: "semrush", label: "SEMrush" },
   { provider: "clarity", label: "Microsoft Clarity" },
   { provider: "profound", label: "Profound" },
   { provider: "wix", label: "Wix" },
@@ -61,7 +60,7 @@ function resolveHealth(patch: Partial<StatusInput> | undefined): ConnectorHealth
 }
 
 function statuses(over: Partial<Record<ConnectorProvider, Partial<StatusInput>>> = {}) {
-  return ALL_SIX.map((s) => {
+  return ALL_SOURCES.map((s) => {
     const patch = over[s.provider];
     return {
       source: { provider: s.provider, label: s.label, cardAnchor: null },
@@ -79,10 +78,9 @@ function render(over?: Parameters<typeof statuses>[0]) {
 describe("DataSourcesStripView — not-connected state", () => {
   it("renders a labeled Connect link for every not-connected source", () => {
     const html = render();
-    // All six names present.
+    // All source names present.
     expect(html).toContain("Google Search Console");
     expect(html).toContain("Google Analytics 4");
-    expect(html).toContain("SEMrush");
     expect(html).toContain("Microsoft Clarity");
     expect(html).toContain("Profound");
     expect(html).toContain("Wix");
@@ -109,7 +107,7 @@ describe("DataSourcesStripView — connected state", () => {
     // The GSC source must NOT also render a Connect affordance.
     expect(html).not.toContain('aria-label="Connect Google Search Console"');
     // Other sources are still connectable.
-    expect(html).toContain('aria-label="Connect SEMrush"');
+    expect(html).toContain('aria-label="Connect Microsoft Clarity"');
   });
 
   it("surfaces last-synced copy when available", () => {
@@ -149,7 +147,7 @@ describe("DataSourcesStripView — needs_attention state", () => {
 
   it("renders the never-synced reason for a connected source with no first reading", () => {
     const html = render({
-      semrush: {
+      profound: {
         health: "needs_attention",
         healthReason: "Connected — click Refresh my data to pull your first reading.",
       },
@@ -157,7 +155,7 @@ describe("DataSourcesStripView — needs_attention state", () => {
     expect(html).toContain(
       "Connected — click Refresh my data to pull your first reading.",
     );
-    expect(html).toContain('aria-label="SEMrush: needs attention.');
+    expect(html).toContain('aria-label="Profound: needs attention.');
     expect(html).toContain("min-h-[44px]");
   });
 
@@ -184,7 +182,6 @@ describe("DataSourcesStripView — needs_attention state", () => {
         healthReason:
           "Connected — pick your Analytics property to start pulling data.",
       },
-      semrush: { connected: true },
       clarity: { connected: true },
       profound: { connected: true },
       wix: { connected: true },
@@ -198,11 +195,10 @@ describe("DataSourcesStripView — needs_attention state", () => {
 });
 
 describe("DataSourcesStripView — all-connected state", () => {
-  it("collapses to a tiny confirmation (no per-source Connect list) when all six connect", () => {
+  it("collapses to a tiny confirmation (no per-source Connect list) when all connect", () => {
     const html = render({
       google_gsc: { connected: true },
       google_ga4: { connected: true },
-      semrush: { connected: true },
       clarity: { connected: true },
       profound: { connected: true },
       wix: { connected: true },
