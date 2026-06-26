@@ -21,6 +21,9 @@ import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
 import { loadDemandGraphForTenant } from "./load-graph";
+import { getLatestMoveDrafts } from "./move-draft-store";
+import { parsePreparedVerdict } from "@/domains/serp/prepare-create-page-verdicts";
+import { pickOverlapTeardownUrl, rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
 
 const STORE = "competitor-page-audit";
 const DEFAULT_TOP_N = 20;
@@ -445,14 +448,39 @@ export async function auditTopCompetitorsForTenant(
     return Boolean(a && a.fetchStatus !== "ok");
   };
 
-  // Per move, pick the FIRST cited competitor that isn't a known failure (so a
-  // blocked top competitor falls through to the next), then dedupe globally. This
-  // keeps teardown coverage high without auditing every competitor of every move.
+  // Sprint 6: prefer Google+AI OVERLAP teardown targets. A competitor that BOTH
+  // ranks on Google (DataForSEO serp_verdict topDomains) AND is AI-cited is the
+  // single best page to reverse-engineer. $0 — reads the cached serp_verdict drafts.
+  const verdictDrafts = await getLatestMoveDrafts(args.tenantId).catch(() => new Map());
+  const serpDomainsByKey = new Map<string, string[]>();
+  for (const m of actionable) {
+    const d = verdictDrafts.get(`${m.demandKey}::serp_verdict`);
+    const v = d ? parsePreparedVerdict(d.content) : null;
+    if (v?.topDomains?.length) serpDomainsByKey.set(m.demandKey, v.topDomains);
+  }
+  const ownDomain = (() => {
+    const counts = new Map<string, number>();
+    for (const p of graph.pageNodes) {
+      const dom = rootDomainOf(p.url);
+      if (dom) counts.set(dom, (counts.get(dom) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  })();
+
+  // Per move, pick the OVERLAP competitor when SERP data confirms it ranks on
+  // Google; else the first cited competitor that isn't a known failure (so a blocked
+  // top competitor falls through). Dedupe globally. Behavior is unchanged when no
+  // serp_verdict exists (falls back to the prior first-usable pick).
   const urls: string[] = [];
   const seen = new Set<string>();
   for (const m of actionable.slice(0, limit)) {
-    const pick =
-      m.competitorUrls.find((u) => u && !knownBad(u)) ?? m.competitorUrls[0];
+    const overlapPick = pickOverlapTeardownUrl(
+      m.competitorUrls,
+      serpDomainsByKey.get(m.demandKey) ?? [],
+      ownDomain,
+      knownBad,
+    );
+    const pick = overlapPick?.url ?? m.competitorUrls.find((u) => u && !knownBad(u)) ?? m.competitorUrls[0];
     if (!pick) continue;
     const key = cacheKey(pick);
     if (seen.has(key)) continue;

@@ -37,3 +37,11 @@ Read this top-to-bottom to see the whole journey. Newest entries appended at the
 - `(shell)/profound-deep-section.tsx` — "AI is sending you traffic" cockpit section (AI-referred visits by page + uncrawled-valuable-page gaps + bot/source summary); mounted in page.tsx + jump-nav ("AI traffic"); self-hides when no data.
 - Gates: tsc clean; 10/10 profound-deep tests. No migration, no paid, no main.
 - NEXT TARGET: DataForSEO SERP-winners → competitor teardown source + drafts (audit #4, HIGH) — pick the Google winners as teardown targets so drafts learn from who actually ranks, not just AI-cited pages.
+
+## [2] DataForSEO SERP-winners → teardown targets (audit #4, HIGH)
+**Why biggest:** teardown only used Profound-cited URLs; the audit's strongest signal is the Google+AI OVERLAP (a page that BOTH ranks on Google AND is AI-cited = reverse-engineer first). $0 — reuses cached serp_verdict drafts.
+**DONE [2]** (19:28 PDT):
+- `domains/serp/serp-teardown-fusion.ts` (pure) — rootDomainOf + fuseTeardownTargets (overlap → AI-only → Google-only) + pickOverlapTeardownUrl. +9 tests.
+- Wired into `competitor-page-audit.ts::auditTopCompetitorsForTenant`: loads each move's cached serp_verdict (topDomains), derives ownDomain, and prefers the overlap competitor URL as the teardown target (behavior-preserving when no verdict). $0.
+- Gates: tsc clean; 20/20 (serp + audit regression). No migration, no paid, no main.
+- NEXT TARGET: GA4 revenue metric (audit #6) — "money-first" scorer currently has hasRevenue:false (conversions/traffic only). Add the revenue/value metric to the GA4 report + page-values so $Value is real, not a proxy. Pure-first + connector field add.
