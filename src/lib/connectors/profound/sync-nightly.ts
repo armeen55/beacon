@@ -162,6 +162,11 @@ export async function syncProfoundNightlyForTenant(
   let citationRows = 0;
   let visibilityRows = 0;
   let fanoutRows = 0;
+  // B82 (same class as the GSC audit-4 fix): track any per-table DB write failure
+  // so the sync reports synced:false at the end instead of stamping freshness over
+  // a partial write. We still attempt every table (write what we can); the failure
+  // just flips the final verdict so the day re-syncs next run.
+  let writeFailed: string | null = null;
 
   for (const cat of batch) {
     // (b) citations — which AI models cite which URLs/domains.
@@ -212,6 +217,7 @@ export async function syncProfoundNightlyForTenant(
             tenantId,
             error: error.message,
           });
+          writeFailed = "citation_upsert_failed";
           break;
         }
         citationRows += chunk.length;
@@ -268,6 +274,7 @@ export async function syncProfoundNightlyForTenant(
             tenantId,
             error: error.message,
           });
+          writeFailed = "visibility_upsert_failed";
           break;
         }
         visibilityRows += chunk.length;
@@ -330,6 +337,7 @@ export async function syncProfoundNightlyForTenant(
               tenantId,
               error: error.message,
             });
+            writeFailed = "fanout_insert_failed";
             break;
           }
           fanoutRows += chunk.length;
@@ -394,6 +402,7 @@ export async function syncProfoundNightlyForTenant(
             tenantId,
             error: error.message,
           });
+          writeFailed = "bot_upsert_failed";
           break;
         }
         botRows += chunk.length;
@@ -443,12 +452,18 @@ export async function syncProfoundNightlyForTenant(
             tenantId,
             error: error.message,
           });
+          writeFailed = "referral_upsert_failed";
           break;
         }
         referralRows += chunk.length;
       }
     }
   }
+
+  // B82 (completes the GSC audit-4 class): if ANY table write failed, report the
+  // sync as NOT synced so cron-sync doesn't stamp freshness over a partial write —
+  // the day re-syncs next run. We still wrote everything that succeeded.
+  if (writeFailed) return { synced: false, reason: writeFailed };
 
   return {
     synced: true,

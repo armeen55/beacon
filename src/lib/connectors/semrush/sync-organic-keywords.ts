@@ -86,7 +86,9 @@ export async function syncSemrushOrganicKeywordsForTenant(args: {
         tenantId,
         error: error.message,
       });
-      return { synced: true, domain, rows_upserted: upserted, purged: false };
+      // B82 (same class as the GSC audit-4 fix): a DB write failure must report
+      // synced:false so cron-sync doesn't stamp freshness over a partial write.
+      return { synced: false, reason: "upsert_failed" };
     }
     upserted += chunk.length;
   }
