@@ -373,3 +373,49 @@ describe("compileCoverage", () => {
     expect(a.missingCoverage.directAnswerMissing).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// IDF over-matching guard (live-dump regression): a pervasive tenant token
+// ("persian") must NOT let high-traffic pages absorb unrelated prompts.
+// ---------------------------------------------------------------------------
+
+describe("corpus-IDF guard against pervasive-token over-matching", () => {
+  // A corpus where "persian" + "names" are pervasive across many name pages.
+  const namesCorpus: OwnedPageCandidate[] = [
+    page({ url: "https://iranopedia.com/persian-male-names", title: "Persian Male Names", h1: "Persian Male Names", gscQueries: ["persian male names", "persian names"], clicks90d: 2113, impressions90d: 48129 }),
+    page({ url: "https://iranopedia.com/persian-female-first-names", title: "Persian Female First Names", h1: "Persian Female First Names", gscQueries: ["persian female names", "persian names"], clicks90d: 1333, impressions90d: 40482 }),
+    page({ url: "https://iranopedia.com/persian-girl-names", title: "Persian Girl Names", h1: "Persian Girl Names", gscQueries: ["persian girl names"], clicks90d: 400, impressions90d: 9000 }),
+    page({ url: "https://iranopedia.com/persian-boy-names", title: "Persian Boy Names", h1: "Persian Boy Names", gscQueries: ["persian boy names"], clicks90d: 350, impressions90d: 8000 }),
+    page({ url: "https://iranopedia.com/persian-rugs", title: "Persian Rugs Guide", h1: "Persian Rugs", h2s: ["Types of Persian rugs"], gscQueries: ["persian rugs", "persian carpet"], clicks90d: 220, impressions90d: 6000 }),
+  ];
+
+  it("a 'Persian kebab' prompt does NOT match a names page on the shared 'persian' token", () => {
+    const o = opp({
+      prompt: "What are popular Persian kebab varieties?",
+      executions: 5,
+      models: ["ChatGPT", "Gemini", "Claude", "Perplexity"],
+      fanoutQueries: ["persian kebab types", "koobideh barg joojeh"],
+      topCitedPages: [comp("https://garsononline.com/iranian-kebab-types/", 3), comp("https://matinabad.com/persian-kebab/", 2)],
+      topCompetitorDomains: [{ hostname: "garsononline.com", answers: 3 }],
+    });
+    const { assignments } = compileCoverage([o], namesCorpus);
+    const a = assignments[0]!;
+    // The bug was existing_page / internal_link_fix onto a names page. With IDF
+    // weighting "kebab" (specific) drives the decision and there is no kebab
+    // page -> a creation move, never a names-page match.
+    expect(["new_page", "hub_page"]).toContain(a.assignment);
+    expect(a.targetUrl).toBeNull();
+  });
+
+  it("a 'Persian rugs' prompt STILL matches the /persian-rugs page (specific token shared)", () => {
+    const o = opp({
+      prompt: "What are Persian rugs known for?",
+      executions: 4,
+      topCitedPages: [comp("https://rugknots.com/persian-rugs", 2)],
+    });
+    const { assignments } = compileCoverage([o], namesCorpus);
+    const a = assignments[0]!;
+    expect(a.assignment).toBe("existing_page");
+    expect(a.targetUrl).toBe("https://iranopedia.com/persian-rugs");
+  });
+});

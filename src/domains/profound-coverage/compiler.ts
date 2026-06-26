@@ -122,6 +122,59 @@ function jaccard(a: string[], b: string[]): number {
   return union === 0 ? 0 : Math.round((inter / union) * 100) / 100;
 }
 
+/**
+ * Continuous corpus-IDF token weights over the owned-page set. A token present
+ * across MANY owned pages (the tenant's pervasive brand/geo/topic word, e.g.
+ * "persian"/"iran") is GENERIC for this tenant and must not, on its own, drive a
+ * page match; a rare specific token ("kebab", "hafez", "soccer") is what
+ * distinguishes pages. Smooth IDF (not a binary cutoff) so a mid-frequency geo
+ * token like "iran" is down-weighted proportionally instead of slipping through
+ * an all-or-nothing threshold. The generic set is DISCOVERED from the corpus (no
+ * hardcoded word list), so it generalizes to any tenant. Returns a weight fn in
+ * ~[0.1, 1]; with no corpus everything weighs 1 (back-compat).
+ */
+function buildTokenWeights(ownedPages: OwnedPageCandidate[]): (t: string) => number {
+  const n = ownedPages.length;
+  if (n === 0) return () => 1;
+  const df = new Map<string, number>();
+  for (const p of ownedPages) {
+    for (const t of pageTokenSet(p)) df.set(t, (df.get(t) ?? 0) + 1);
+  }
+  const maxIdf = Math.log(n + 1); // df=0 (unseen → maximally specific)
+  return (t: string): number => {
+    const d = df.get(t) ?? 0; // unseen-in-corpus token => fully specific
+    const idf = Math.log((n + 1) / (d + 1)); // df=n -> ~0 ; df=0 -> maxIdf
+    return Math.round((0.1 + 0.9 * (maxIdf === 0 ? 1 : idf / maxIdf)) * 1000) / 1000;
+  };
+}
+
+/** All distinguishing tokens for one owned page (title + h1 + h2 + slug + GSC). */
+function pageTokenSet(p: OwnedPageCandidate): Set<string> {
+  return new Set<string>([
+    ...contentTokens(p.title ?? ""),
+    ...contentTokens(p.h1 ?? ""),
+    ...p.h2s.flatMap((h) => contentTokens(h)),
+    ...slugTokens(p.url),
+    ...p.gscQueries.flatMap((q) => contentTokens(q)),
+  ]);
+}
+
+/** IDF-weighted recall of `target` tokens found in `source` (specific tokens
+ *  count far more than pervasive ones). Falls back to plain recall when every
+ *  weight is 1. */
+function weightedCoverage(target: string[], source: string[], w: (t: string) => number): number {
+  if (target.length === 0) return 0;
+  const set = new Set(source);
+  let hit = 0;
+  let total = 0;
+  for (const t of target) {
+    const wt = w(t);
+    total += wt;
+    if (set.has(t)) hit += wt;
+  }
+  return total === 0 ? 0 : Math.round((hit / total) * 100) / 100;
+}
+
 // ---------------------------------------------------------------------------
 // normalizePrompt
 // ---------------------------------------------------------------------------
@@ -314,22 +367,46 @@ type PageMatch = {
   score: number;
 };
 
-/** Score one owned page against the prompt's tokens. */
-function scorePage(promptTokens: string[], promptText: string, page: OwnedPageCandidate): PageMatch {
+/** Score one owned page against the prompt's tokens. `w` is the corpus-IDF
+ *  weight fn so a shared pervasive token ("persian") can't, on its own, clear
+ *  the match bar; a shared specific token ("kebab") can. */
+function scorePage(
+  promptTokens: string[],
+  promptText: string,
+  page: OwnedPageCandidate,
+  w: (t: string) => number = () => 1,
+): PageMatch {
   const titleToks = contentTokens(page.title ?? "");
   const h1Toks = contentTokens(page.h1 ?? "");
   const slugToks = slugTokens(page.url);
   const bodyToks = [...new Set([...titleToks, ...h1Toks, ...page.h2s.flatMap((h) => contentTokens(h)), ...contentTokens(page.metaDescription ?? "")])];
 
-  const titleOverlap = coverage(promptTokens, titleToks);
-  const h1Overlap = coverage(promptTokens, h1Toks);
-  const urlSlugOverlap = coverage(promptTokens, slugToks);
-  const semanticTokenOverlap = jaccard(promptTokens, bodyToks);
+  // Structural head-token gate: a page only OWNS a prompt if its structural
+  // identity (title/h1/slug) shares the prompt's most-distinguishing token(s).
+  // Without this, a high-traffic page with a sprawling GSC vocabulary matches
+  // any prompt that merely shares a geo/brand token ("iran"/"persian") -> e.g.
+  // "soccer in Iran" falsely lands on /persian-male-names. Identity match
+  // required; GSC/body overlap alone is not enough to claim ownership.
+  const identity = new Set([...titleToks, ...h1Toks, ...slugToks]);
+  // Head tokens = the prompt's genuinely distinguishing tokens (absolute IDF bar,
+  // not relative-to-max, so a lone rare filler word can't become the sole anchor).
+  // If the prompt has NO specific token (all geo/brand), the gate abstains.
+  const headTokens = [...new Set(promptTokens)].filter((t) => w(t) >= HEAD_TOKEN_MIN_WEIGHT).sort((a, b) => w(b) - w(a)).slice(0, 4);
+  const headMatched = headTokens.length === 0 || headTokens.some((t) => identity.has(t));
+  if (!headMatched) {
+    return { page, titleOverlap: 0, h1Overlap: 0, gscQueryOverlap: 0, urlSlugOverlap: 0, semanticTokenOverlap: 0, score: 0 };
+  }
 
-  // GSC overlap: does any GSC query for this page share the prompt's intent tokens?
+  const titleOverlap = weightedCoverage(promptTokens, titleToks, w);
+  const h1Overlap = weightedCoverage(promptTokens, h1Toks, w);
+  const urlSlugOverlap = weightedCoverage(promptTokens, slugToks, w);
+  const semanticTokenOverlap = weightedCoverage(promptTokens, bodyToks, w);
+
+  // GSC overlap: does any GSC query for this page share the prompt's SPECIFIC
+  // intent tokens (weighted, so a brand-token-only query doesn't count)?
   let gscQueryOverlap = 0;
   for (const q of page.gscQueries) {
-    gscQueryOverlap = Math.max(gscQueryOverlap, coverage(promptTokens, contentTokens(q)));
+    gscQueryOverlap = Math.max(gscQueryOverlap, weightedCoverage(promptTokens, contentTokens(q), w));
   }
 
   // Blended owned-page match strength. Title + H1 + slug are structural signals;
@@ -352,6 +429,9 @@ function scorePage(promptTokens: string[], promptText: string, page: OwnedPageCa
   };
 }
 
+/** A prompt token at/above this IDF weight is "distinguishing" enough to anchor
+ *  ownership (geo/brand tokens fall below; specific subjects clear it). */
+const HEAD_TOKEN_MIN_WEIGHT = 0.5;
 /** A page is a "real" match (not coincidental) at/above this blended score. */
 const MATCH_THRESHOLD = 0.34;
 /** Two owned pages both at/above this both genuinely cover the prompt. */
@@ -375,7 +455,11 @@ export function assignPromptToPage(
   input: AeoPromptInput,
   ownedPages: OwnedPageCandidate[],
   clusterCount: number,
+  tokenWeight?: (t: string) => number,
 ): PromptPageAssignment {
+  // Corpus-IDF weights: when not supplied (direct callers / tests), derive from
+  // the owned-page set so a single pervasive token can't drive a false match.
+  const w = tokenWeight ?? buildTokenWeights(ownedPages);
   const { tokens, intent } = normalizePrompt(input.prompt);
   const comp = competitorPages(input);
   const { contentLike, strong: competitorsStrong } = competitorStrength(comp);
@@ -437,7 +521,7 @@ export function assignPromptToPage(
 
   // Score every owned page; keep the strongest matches.
   const matches = ownedPages
-    .map((p) => scorePage(tokens, input.prompt, p))
+    .map((p) => scorePage(tokens, input.prompt, p, w))
     .sort((a, b) => b.score - a.score || a.page.url.localeCompare(b.page.url));
   const best = matches[0] ?? null;
   const second = matches[1] ?? null;
@@ -662,17 +746,29 @@ export function compileCoverage(
   // 1) Collapse duplicate / near-identical prompts (same content-token signature).
   const merged = dedupePrompts(inputs);
 
-  // 2) Topic cluster counts: how many distinct prompts share a topic with no
-  //    obvious single owner (used to promote hubs).
-  const clusterByTopic = new Map<string, number>();
+  // Compute the corpus-IDF token weights ONCE over the owned-page set so a
+  // pervasive brand/topic token ("persian") can't, on its own, drive a false
+  // match; specific tokens ("kebab") do. Also anchors subject clustering.
+  const tokenWeight = buildTokenWeights(ownedPages);
+
+  // 2) Cluster counts (to promote hubs). WITH an owned-page corpus we cluster by
+  //    a SUBJECT anchor (most distinctive in-corpus token): clustering by the
+  //    Profound topic alone would lump all 200 prompts together and make every
+  //    unowned prompt a hub, while subject clustering yields new_page for one-off
+  //    subjects and hub_page only where a subject genuinely repeats. WITHOUT a
+  //    corpus (no IDF signal) we fall back to the Profound topic.
+  const hasCorpus = ownedPages.length > 0;
+  const clusterKeyOf = (inp: AeoPromptInput): string =>
+    hasCorpus ? subjectKey(inp, tokenWeight) : ((inp.topic ?? "").trim().toLowerCase() || "__none__");
+  const clusterBySubject = new Map<string, number>();
   for (const inp of merged) {
-    const key = topicKey(inp);
-    clusterByTopic.set(key, (clusterByTopic.get(key) ?? 0) + 1);
+    const key = clusterKeyOf(inp);
+    clusterBySubject.set(key, (clusterBySubject.get(key) ?? 0) + 1);
   }
 
   // 3) Assign each unique prompt.
   const assignments = merged.map((inp) =>
-    assignPromptToPage(inp, ownedPages, clusterByTopic.get(topicKey(inp)) ?? 1),
+    assignPromptToPage(inp, ownedPages, clusterBySubject.get(clusterKeyOf(inp)) ?? 1, tokenWeight),
   );
 
   // 4) Derive action packs (skip pure ignores). Reconsider commercial ignores
@@ -712,8 +808,23 @@ function promptKey(input: AeoPromptInput): string {
   return contentTokens(input.prompt).slice().sort().join(" ");
 }
 
-function topicKey(input: AeoPromptInput): string {
-  return (input.topic ?? "").trim().toLowerCase() || "__none__";
+/**
+ * Subject cluster anchor for a prompt: its single most distinctive IN-CORPUS
+ * token (the tenant has vocabulary about it), excluding ultra-generic geo/brand
+ * tokens (weight < HEAD_TOKEN_MIN_WEIGHT) and novel/unseen tokens (weight >=
+ * 0.95, df=0 -> a one-off subject the tenant has no page family for). When a
+ * prompt has no in-corpus subject token it gets a UNIQUE key (never clusters ->
+ * routes to new_page, not hub). Deterministic; no taxonomy/LLM.
+ */
+function subjectKey(input: AeoPromptInput, w: (t: string) => number): string {
+  const { tokens } = normalizePrompt(input.prompt);
+  const cands = [...new Set(tokens)].filter((t) => {
+    const x = w(t);
+    return x >= HEAD_TOKEN_MIN_WEIGHT && x < 0.95;
+  });
+  if (cands.length === 0) return `__solo__:${input.prompt.trim().toLowerCase().slice(0, 48)}`;
+  cands.sort((a, b) => w(b) - w(a) || a.localeCompare(b));
+  return `subj:${cands[0]!}`;
 }
 
 /**
