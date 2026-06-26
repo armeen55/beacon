@@ -66,3 +66,9 @@ Note: Clarity router→trigger wiring left as a careful follow-up (trigger is te
 - `(shell)/worklist/page.tsx` (server, force-dynamic) + `worklist-client.tsx` (client view-tabs) — the additive `/worklist` surface; reuses cached loaders ($0). Nav link added (navigation.ts "Worklist" in Find&fix).
 - Gates: tsc clean; 8/8 worklist tests. Additive — existing 30 cockpit sections untouched (no risky deletion). No migration/paid/main.
 - NEXT TARGET: another $0/no-migration lever — programmatic entity×attribute page-candidate factory (P12) OR wire the Clarity router into the move pipeline carefully. Leaning page factory (additive content engine).
+
+## [5] Programmatic entity×attribute page-candidate factory (plan P12) — $0/additive/pure
+**DONE [5]** (19:39 PDT):
+- `domains/page-factory/entity-attribute-factory.ts` (pure) — generatePageCandidates: mines recurring entities from the tenant's OWN owned-page tokens + demand-cluster labels (tenant-agnostic, no hardcoded categories) × generic SEO attribute templates (meaning/history/guide/examples/list) → deduped (skips pages already covered), relevance-gated, capped create_page CANDIDATES. Every candidate marked needsDemandValidation=true (NO fabricated demand — must pass the DataForSEO verdict before becoming a Move). +6 tests.
+- Gates: tsc clean; broad Sprint-6 regression 66/66. No migration/paid/main.
+- NEXT TARGET: continue exhausting the plan — Profound raw-answers consumer (analyzeProfoundAnswers exists, no caller) OR entity/schema breadth OR more legacy-UI cleanup. Pick the biggest $0 lever next.
