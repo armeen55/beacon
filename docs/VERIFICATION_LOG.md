@@ -28313,3 +28313,17 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **KNOWN GAPS / NOT auto-fixed (operator decision):** `dataforseo-keywords-cache` is GLOBAL not tenant-scoped (keyword *volume* is global market data + opportunities are relevance-gated, so practical leak is minimal; tenant-scoping would orphan the cache → re-spend). Several sections self-hide silently when empty (intentional clean-cockpit design; could add operator-only "no data yet — connect X" hints if desired). 4 pre-existing test failures unrelated to this work.
 
 **Remaining gates (need operator approval):** migrations (GA4 revenue, profound_answer_rows, operator-feedback columns), paid-API wiring (DataForSEO keywords/labs, structured-LLM-in-prod, top-N prepare), publish-path/CMS-adapter refactor.
+
+---
+
+## 2026-06-26 — GA4/SEMrush/Profound domain-resolution bug class (branch `claude/ga4-url-normalization-fix`, NOT merged)
+
+**Context:** operator reconnected GA4 on Iranopedia, reported the GA4 sync "keeps getting stuck", and the `ga4_url_traffic` row count had ~doubled (27k→54k).
+
+**What changed:**
+1. `ga4/persist-url-traffic.ts` (`6e359da6`) — resolve the site domain via `hydrateBusinessConfigFromSupabase(tenant)` instead of the sync-only `getBusinessConfig(tenant)`, which doesn't read the Supabase `business_config` row. Fixes path-only URL storage (`/cities` vs `https://iranopedia.com/cities`) for Supabase-only tenants. Persist test mock updated to export the async resolver.
+2. `semrush/sync-organic-keywords.ts` (×2) + `profound/sync-nightly.ts` (`d37511fb`) — same Supabase-backed resolution; SEMrush was returning `no_domain` (zero keywords) and Profound was silently skipping bots/referrals for Supabase-only tenants. GSC was already safe (Supabase tenant-registry fallback).
+
+**Verified:** `npx tsc --noEmit` → exit 0. `vitest run tests/lib/connectors/ga4` → 139 passed. `vitest run tests/lib/connectors/semrush tests/lib/connectors/profound` → 45 passed. DB diagnosis done read-only on beacon-main (`vlxwevsdvwxvopkjsewo`): GA4 sync confirmed to have completed server-side (revenue on 54,322 rows, 72 positive) — "didn't finish" is a client timeout, not data loss.
+
+**NOT done (operator-gated):** merge + redeploy; dedupe the existing path-only rows (prod DELETE — needs approval); optional revenue-window perf bound. **0 migrations · 0 publish-path · 0 paid · 0 prod mutation · NOT merged · NOT deployed.**
