@@ -119,18 +119,23 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
   if (urlVerdict) {
     switch (urlVerdict.verdict) {
       case "helping":
+        // "since this change" — NOT "after this change went live": a helping/
+        // hurting verdict can attach to a row that isn't lifecycle-verified live
+        // (the live gate only short-circuits pending/not-found above), so we must
+        // not assert live-on-site as fact. The verdict is measured relative to the
+        // change's recorded date, which "since this change" states honestly.
         return {
           kind: "helping",
           label: "Helping",
           tone: "success",
-          blurb: "AI started mentioning you more after this change went live.",
+          blurb: "AI has been mentioning you more since this change.",
         };
       case "hurting":
         return {
           kind: "hurting",
           label: "Hurting",
           tone: "danger",
-          blurb: "AI mentioned you less after this change went live.",
+          blurb: "AI has been mentioning you less since this change.",
         };
       case "too_early":
       case "not_enough_data":
