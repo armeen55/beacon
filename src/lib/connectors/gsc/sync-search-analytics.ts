@@ -429,7 +429,10 @@ export async function syncGscSearchAnalyticsForTenant(args: {
           day,
           error: error.message,
         });
-        return { synced: true, property, days, rows_upserted: rowsUpserted };
+        // B82 (completes audit-4): report NOT synced on a DB write failure so
+        // cron-sync (which gates positively on synced===true) doesn't stamp the
+        // success watermark over a failed write — the day re-pulls next run.
+        return { synced: false, reason: "gsc_daily_rows_upsert_failed" };
       }
       rowsUpserted += chunk.length;
     }
@@ -513,13 +516,13 @@ export async function syncGscSearchAnalyticsForTenant(args: {
             day,
             error: error.message,
           });
-          // audit-4: STOP the run on a page-totals write failure (mirror the
-          // page+query path's return-on-upsert-error) instead of `break`ing the
-          // chunk loop and falling through to `days += 1`. Advancing through more
-          // days after a live DB write is failing both compounds the gap and
-          // leaves THIS day's page-level totals (the surface the GSC card leads
-          // with) partial while the day still counts as synced.
-          return { synced: true, property, days, rows_upserted: rowsUpserted };
+          // audit-4 + B82 completion: STOP the run on a page-totals write failure
+          // (mirror the page+query path) AND report it as NOT synced. audit-4 fixed
+          // the stop-advancing half but still returned synced:true, so a live DB
+          // write failure silently stamped the success watermark (cron-sync gates
+          // positively on synced===true). Returning synced:false leaves the day
+          // un-stamped → it re-pulls next run instead of masking the gap as success.
+          return { synced: false, reason: "gsc_page_totals_upsert_failed" };
         }
       }
     }
