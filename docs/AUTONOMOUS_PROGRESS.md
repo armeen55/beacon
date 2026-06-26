@@ -45,3 +45,14 @@ Read this top-to-bottom to see the whole journey. Newest entries appended at the
 - Wired into `competitor-page-audit.ts::auditTopCompetitorsForTenant`: loads each move's cached serp_verdict (topDomains), derives ownDomain, and prefers the overlap competitor URL as the teardown target (behavior-preserving when no verdict). $0.
 - Gates: tsc clean; 20/20 (serp + audit regression). No migration, no paid, no main.
 - NEXT TARGET: GA4 revenue metric (audit #6) — "money-first" scorer currently has hasRevenue:false (conversions/traffic only). Add the revenue/value metric to the GA4 report + page-values so $Value is real, not a proxy. Pure-first + connector field add.
+
+## [3] GA4 revenue — DEFERRED (migration-gated)
+Adding GA4 revenue needs a new `revenue` column on `ga4_url_traffic` → a migration (operator-approval-gated). Skipped per the no-migration rule; pivoted to an equal-size $0/no-migration lever.
+
+## [3b] Clarity-as-Move-router (audit P8/P13) + resurrect unused scroll/engagement columns
+**Why biggest no-migration lever:** Clarity friction only produced a generic score; the synced `avg_scroll_depth` + `engagement_time_seconds` columns were DROPPED (never selected). This turns friction PATTERNS into SPECIFIC fixes + reads the unused columns. $0, no migration (columns exist).
+**DONE [3b]** (19:32 PDT):
+- `clarity-page-signals.ts`: now SELECTs avg_scroll_depth + engagement_time_seconds; session-weighted-averaged into `scrollDepthPct` + `engagementSeconds` (optional fields → no churn on existing constructors).
+- `clarity-move-router.ts` (pure): routeClarityFriction → fix_js_errors (high, blocks crawlers) / fix_dead_click / fix_rage_interaction / fix_intent_mismatch / raise_answer (uses scroll-depth). Priority by impact; session floor + fail-closed (no scroll col → never claims raise_answer). +8 tests.
+- Gates: tsc clean; 8/8 clarity tests. No migration, no paid, no main.
+- NEXT TARGET: wire the Clarity router INTO the clarity-friction trigger so the friction rec carries the SPECIFIC move type + reason (consume the router), then the next plan lever (structured-LLM-into-prod is paid; prefer programmatic entity×attribute page factory or unified worklist views — $0).

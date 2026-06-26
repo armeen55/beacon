@@ -47,6 +47,12 @@ export type ClarityPageSignal = {
   deadRate: number;
   /** Quickbacks per session over the window. */
   quickbackRate: number;
+  /** Session-weighted average scroll depth (0–1), or null when not recorded.
+   *  Previously synced but DROPPED — now read (Sprint 6) for the Clarity router.
+   *  Optional so existing constructors/tests don't need to set it. */
+  scrollDepthPct?: number | null;
+  /** Session-weighted average engagement time (seconds), or null. */
+  engagementSeconds?: number | null;
 };
 
 function rate(n: number, sessions: number): number {
@@ -84,7 +90,7 @@ async function loadClarityPageSignalsForTenantUncached(
       const { data, error } = await sb
         .from("clarity_daily_url_metrics")
         .select(
-          "url, sessions, rage_clicks, dead_clicks, quickbacks, excessive_scroll, script_errors",
+          "url, sessions, rage_clicks, dead_clicks, quickbacks, excessive_scroll, script_errors, avg_scroll_depth, engagement_time_seconds",
         )
         .eq("tenant_id", tenantId)
         .gte("date", since)
@@ -115,6 +121,11 @@ async function loadClarityPageSignalsForTenantUncached(
     quickbacks: number;
     scroll: number;
     errors: number;
+    /** Session-weighted running sums (÷ sessions at the end). */
+    scrollDepthW: number;
+    engageW: number;
+    scrollDepthSessions: number;
+    engageSessions: number;
   };
   // Key by the CANONICAL url (www/scheme/trailing-slash/query folded), exactly
   // like the GSC + SEMrush fuses — Clarity's exported URL format often differs
@@ -127,13 +138,24 @@ async function loadClarityPageSignalsForTenantUncached(
     const key = canonicalizeCitationUrl(r.url) ?? r.url;
     const a =
       byUrl.get(key) ??
-      { sessions: 0, rage: 0, dead: 0, quickbacks: 0, scroll: 0, errors: 0 };
-    a.sessions += r.sessions ?? 0;
+      { sessions: 0, rage: 0, dead: 0, quickbacks: 0, scroll: 0, errors: 0, scrollDepthW: 0, engageW: 0, scrollDepthSessions: 0, engageSessions: 0 };
+    const sess = r.sessions ?? 0;
+    a.sessions += sess;
     a.rage += r.rage_clicks ?? 0;
     a.dead += r.dead_clicks ?? 0;
     a.quickbacks += r.quickbacks ?? 0;
     a.scroll += r.excessive_scroll ?? 0;
     a.errors += r.script_errors ?? 0;
+    const sd = (r as { avg_scroll_depth?: number | null }).avg_scroll_depth;
+    const et = (r as { engagement_time_seconds?: number | null }).engagement_time_seconds;
+    if (sd != null && sess > 0) {
+      a.scrollDepthW += sd * sess;
+      a.scrollDepthSessions += sess;
+    }
+    if (et != null && sess > 0) {
+      a.engageW += et * sess;
+      a.engageSessions += sess;
+    }
     byUrl.set(key, a);
   }
 
@@ -149,6 +171,8 @@ async function loadClarityPageSignalsForTenantUncached(
       rageRate: rate(a.rage, a.sessions),
       deadRate: rate(a.dead, a.sessions),
       quickbackRate: rate(a.quickbacks, a.sessions),
+      scrollDepthPct: a.scrollDepthSessions > 0 ? a.scrollDepthW / a.scrollDepthSessions : null,
+      engagementSeconds: a.engageSessions > 0 ? a.engageW / a.engageSessions : null,
     });
   }
   return out;
