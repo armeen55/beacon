@@ -159,3 +159,23 @@ NEXT: wire a weekly-series loader (GSC daily→weekly per query) into a Trend Ra
 **DONE [22]** (20:54 PDT): city×service config loader + 3rd adversarial review (newest engines) + fixes.
 - `load-page-candidates.ts`: `loadCityServiceCandidates` (config-driven cities×services, fail-closed for content tenants). e6097e47.
 - 3rd adversarial review (winner-patterns, extract-page-seo, city-service, own-page E-E-A-T) → 3 real edge-case findings, all FIXED: (a) jsonLdMentions/hasSchemaType now require the type to be the VALUE of an `"@type"` key via regex (no false-positive when the word appears in body text + a different @type elsewhere); (b) city-service nested cap now `break outer` (stop both loops, not just inner); (c) city-service dedup is word-boundary-aware (space-padded blob → "San" no longer matches "sandstone"). 17/17 affected tests green; tsc clean.
+
+---
+## OPERATOR TL;DR — read this first @ 12 AM (state as of ~20:53 PDT)
+Branch **`claude/sprint-6-profound-deep`** (head `ce97275a`, stacked on Sprint 3+4+5; **NOT merged, NOT deployed**). 22 logical slices + 3 adversarial reviews, all tsc-clean, ~103–117 Sprint-6 tests green, full-stack `npm run build` green.
+
+**What's built (all $0 · no migration · no publish · no main):**
+- **Profound dead-data resurrected** → referral signals + AI-referral trend + bot-coverage → "AI traffic" cockpit section.
+- **Deep competitor teardown** → E-E-A-T / trust / authority winner-signals on every audited competitor (`CompetitorPageFacts.eeat`).
+- **Page health scan** (one $0 operator scan) → image alt-text + product-SEO gaps + own-page E-E-A-T, with paste-ready fixes.
+- **Specialist debate made visible** → "Why Beacon recommends this" panel on every Move card.
+- **Unified worklist** (`/worklist`) → Today/This-week/Big-bets/New-pages/Store/Tools/Trends/Fix-ups/All.
+- **Programmatic page factories** → entity×attribute (content) + city×service (local).
+- **SERP→teardown fusion**, **Clarity-as-Move-router** surface, **Trend-Radar spike detector**, **commerce/product classifier**.
+
+**What needs YOU (intentionally deferred — operator-gated):**
+1. **Migrations** (additive): GA4 `revenue` column; `profound_answer_rows` (raw answers); operator-feedback `reason` columns + experiment columns → unlock GA4 money, raw-answer recs, and the learning-prior-into-ranking loop.
+2. **Paid APIs** (cap-gated): DataForSEO Keywords/Labs/Maps; structured-LLM-into-prod; top-N "Prepare my top 10".
+3. **Risky tested surfaces**: CMS-adapter extraction of the Wix publish path; folding specialist opinions into the pure scorer; Clarity-router score-override in the friction trigger.
+
+**Ship steps at 12 AM:** (a) `npm run test` full gate on the branch (final-hour task) → (b) review the diff → (c) merge `claude/sprint-6-profound-deep` → main when satisfied → (d) deploy once the Vercel 100/day cap has cleared (the build itself is green; the cap was the only blocker). Nothing here auto-published or touched main.
