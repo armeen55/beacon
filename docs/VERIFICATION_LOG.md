@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-26 — PROFOUND COVERAGE COMPILER: over-match fix + live loader + diagnostic · branch claude/profound-iranopedia-intel (commits 2c3facb7, c5d2b911; NOT merged)
+
+The Prompt-to-Page Coverage Compiler (the pure decision engine that maps each AI prompt to a page action) was wired into the product and hardened against a real over-matching bug the live truth dump exposed.
+
+- **Over-matching fix (2c3facb7).** Live dump showed the matcher latching onto the tenant's pervasive `persian`/`iran` tokens: high-traffic pages absorbed unrelated prompts (`kebab`/`soccer`/`farsi-vs-persian` → names pages), and all 200 prompts clustered under the single Profound topic → 0 new_page / 164 hub. Three principled fixes in `domains/profound-coverage/compiler.ts`: (1) **continuous corpus-IDF** token weights (smooth log-IDF, not a binary 25% cutoff) so a mid-frequency geo token like `iran` is down-weighted proportionally; (2) **structural head-token gate** — a page only OWNS a prompt if its title/h1/slug shares the prompt's most-distinguishing token (abs IDF bar 0.5); GSC/body overlap on a shared geo token alone is no longer ownership; (3) **subject-anchored clustering** (with a corpus) — cluster by the most distinctive in-corpus token, so one-off subjects become new_page and only genuinely repeated subjects become hub; no-corpus path falls back to topic clustering.
+- **Live result (read-only dump, tenant-iranopedia):** existing 9→13, **new_page 0→89, hub 164→74**, internal_link 26→10, noise 14; top packs now all on-topic (names→names pages, funny-phrases→phrases page; soccer/kebab/farsi-vs-persian no longer falsely absorbed).
+- **Live loader + diagnostic (c5d2b911).** New server-only `domains/profound-coverage/load.ts` (react.cache) fuses live Profound answers+fanouts with the owned-page universe (GSC metrics+queries via `loadGscPageSignalsForTenant`, snapshots via the repository, GA4 visits, Clarity friction) and runs `compileCoverage`; fail-soft on every source. New operator-gated `/diagnostics/profound-coverage` page renders the ranked plan (summary tiles + top-30 action packs). Operator-only (404s otherwise) — the customer cockpit will get prepared moves, never a raw gap count.
+- **Verified:** `tsc --noEmit` exit 0; **28 tests** (profound-coverage + question-intelligence) incl. 2 new IDF regression cases (`persian kebab` must NOT match a names page; `persian rugs` still matches /persian-rugs). **Ground-truth render:** dev server (operator mode, tenant-iranopedia) `GET /diagnostics/profound-coverage` → **HTTP 200**, real data (all 5 tiles; 26 answer-block / 28 internal-link / 4 hub / 2 new packs; on-topic prompt cards), **no loader warnings**. NO writes · NO migrations · NO paid calls · NO prod mutation · NOT merged.
+
+---
+
 ## 2026-06-26 — GA4 REVENUE MIGRATION SPRINT · branch claude/ga4-revenue-migration (commits 186d765c..f585fc49, NOT merged, migration NOT applied)
 
 Operator-approved: real GA4 revenue-aware scoring without breaking existing metrics. Branch-only, additive migration (unapplied), no deploy/publish/paid, conversion fallback preserved.
