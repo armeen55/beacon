@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-26 — NEW PAGES "Profound-validated" BADGE (#4) + fusion-timeout fix · branch claude/profound-iranopedia-intel (commit 596e4700; NOT merged)
+
+Operator step #4 (New Pages AEO badge), evidence-only per the operator's tight scope: an additive badge/receipt on a create-page card ONLY when its underlying Move already carries strong cached `aeoEvidence`. No live Profound call, no fresh matching in the UI, no ranking change, no new action types.
+
+- **`today-newpages-data`:** `NewPageOpportunity.aeoReceipt` (topPrompt, fanoutCount, citedDomains, ownAbsent), read from the Move's ALREADY-ATTACHED cached evidence. Eligible only when `confidence !== "low"` AND ≥1 cited competitor AND a non-empty top prompt.
+- **`today-newpages-card`:** violet "✦ AI-validated" receipt — "AI asks: {prompt}", "Fans out into N related questions", "AI cites: {2-3 domains}", "Iranopedia not cited yet" / "Your page: cited". Hidden when `aeoReceipt` is null.
+- **REGRESSION FIX (load-graph):** the #2 fusion ran the durable AEO read SERIALLY after `buildDemandGraph` (+2.4s → graph 9.8s), which tripped the New Pages board's 8s `withTimeout` and silently emptied it. Fix: start the cached AEO read CONCURRENTLY with the graph's own loaders (overlaps the existing ~7s of I/O) → graph back to **6.6s**, board restored. Cached store only, 1.5s safety-net time-box.
+- **LIVE VERIFIED (tenant-iranopedia):** **5 of 9** New Page cards show the badge. Examples: *Persian wedding etiquette* → AI asks "I was invited to a Persian wedding — what should I expect?", 9 fanouts, cites theknot.com / chaiandconversation / remitly, Iranopedia not cited yet; *Gifts* → "good Persian cultural gifts for kids?", 12 fanouts, cites persiscollection/etsy/littlepersian, your page cited; *Nowruz activities* → "Nowruz activities & crafts for kids?", 12 fanouts, cmes.fas.harvard.edu/littlepersian/twinkl. `/moves` render HTTP 200 (7s, under the 8s guard): 5 "AI-validated" badges + section header present. `tsc` 0; **3 new render-gating tests** (badge shows when present, hidden when null, cited/not-cited variants).
+- **Honest caveat:** the full cockpit `/` can still hide the New Pages section under heavy concurrent load (a PRE-EXISTING 8s-timeout fragility, compounded by the SEPARATE legacy `sync-nightly.ts` firing bots/referrals 403s + writing to its own missing `profound_fanout_rows` — that dead-ish path is NOT this code). The badge renders on `/moves` and is data+test verified. No live Profound API on render (cached read); no bots/referrals in THIS path; ownership=iranopedia.com.
+- **Guards honored:** NO ranking change · NO new action types · NO live Profound API on render · NO bots/referrals · NO Wix · NO cron · NO paid API · NOT merged.
+
+---
+
 ## 2026-06-26 — PROFOUND AEO EVIDENCE FUSION into Moves (evidence-only) · branch claude/profound-iranopedia-intel (commit c3bcc823; NOT merged)
 
 Operator step #2 (EvidencePacket fusion) with the operator's guard: fuse Profound coverage into Moves as EVIDENCE/CONTEXT, never as an action selector or score input; the coverage compiler's internal_link_fix/consolidate stays operator-diagnostic only.
