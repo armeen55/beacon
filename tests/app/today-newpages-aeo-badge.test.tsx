@@ -9,6 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("server-only", () => ({}));
 vi.mock("@/app/(shell)/today-moves-actions", () => ({ draftMoveAnswerBlockAction: async () => ({ status: "off" }) }));
 vi.mock("@/app/(shell)/serp-actions", () => ({ validateCreatePageWithSerpAction: async () => ({ ok: false, reason: "" }) }));
+vi.mock("@/app/(shell)/diagnostics/profound-intelligence/actions", () => ({ draftAeoBriefAction: async () => ({ ok: false, reason: "test" }) }));
 
 import { NewPageCard } from "@/app/(shell)/today-newpages-card";
 import type { NewPageOpportunity } from "@/app/(shell)/today-newpages-data";
@@ -41,6 +42,9 @@ describe("New Pages AEO-validated badge", () => {
             fanoutCount: 5,
             citedDomains: ["garsononline.com", "matinabad.com"],
             ownAbsent: true,
+            fanoutQueries: ["persian kebab types", "koobideh barg"],
+            competitorPages: ["https://garsononline.com/kebab"],
+            ownCitedUrls: [],
           },
         })}
         ownDomain="iranopedia.com"
@@ -53,6 +57,28 @@ describe("New Pages AEO-validated badge", () => {
     expect(html).toContain("Iranopedia not cited yet");
   });
 
+  it("shows the 'Draft AEO brief' button when enableAeoBrief + aeoReceipt", () => {
+    const html = renderToStaticMarkup(
+      <NewPageCard
+        o={opp({ aeoReceipt: { topPrompt: "x", fanoutCount: 2, citedDomains: ["a.com"], ownAbsent: true, fanoutQueries: ["q1"], competitorPages: ["https://a.com/p"], ownCitedUrls: [] } })}
+        ownDomain="iranopedia.com"
+        enableAeoBrief
+      />,
+    );
+    expect(html).toContain("Draft AEO brief");
+  });
+
+  it("does NOT show the brief button when enableAeoBrief is false (e.g. on the cockpit /)", () => {
+    const html = renderToStaticMarkup(
+      <NewPageCard
+        o={opp({ aeoReceipt: { topPrompt: "x", fanoutCount: 2, citedDomains: ["a.com"], ownAbsent: true, fanoutQueries: ["q1"], competitorPages: ["https://a.com/p"], ownCitedUrls: [] } })}
+        ownDomain="iranopedia.com"
+      />,
+    );
+    expect(html).toContain("AI-validated"); // receipt still shows
+    expect(html).not.toContain("Draft AEO brief"); // but not the paid-LLM button
+  });
+
   it("does NOT show the badge when aeoReceipt is null", () => {
     const html = renderToStaticMarkup(<NewPageCard o={opp({ aeoReceipt: null })} ownDomain="iranopedia.com" />);
     expect(html).not.toContain("AI-validated");
@@ -61,7 +87,7 @@ describe("New Pages AEO-validated badge", () => {
   it("shows 'cited' instead of 'not cited yet' when the owned page is cited", () => {
     const html = renderToStaticMarkup(
       <NewPageCard
-        o={opp({ aeoReceipt: { topPrompt: "x", fanoutCount: 0, citedDomains: ["a.com"], ownAbsent: false } })}
+        o={opp({ aeoReceipt: { topPrompt: "x", fanoutCount: 0, citedDomains: ["a.com"], ownAbsent: false, fanoutQueries: [], competitorPages: [], ownCitedUrls: [] } })}
         ownDomain="iranopedia.com"
       />,
     );

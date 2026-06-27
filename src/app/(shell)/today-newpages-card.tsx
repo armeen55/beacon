@@ -5,6 +5,7 @@ import Link from "next/link";
 import { draftMoveAnswerBlockAction } from "./today-moves-actions";
 import { validateCreatePageWithSerpAction, type SerpValidationResponse } from "./serp-actions";
 import type { NewPageOpportunity } from "./today-newpages-data";
+import { BriefButton } from "./diagnostics/profound-intelligence/brief-button";
 
 /**
  * today-newpages-card (2026-06-24) — interactive "New page to build" card. Adds an
@@ -25,7 +26,7 @@ const VERDICT_STYLE: Record<string, { label: string; cls: string }> = {
   reject: { label: "SKIP", cls: "bg-gray-200 text-gray-600" },
 };
 
-export function NewPageCard({ o, ownDomain }: { o: NewPageOpportunity; ownDomain: string }) {
+export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPageOpportunity; ownDomain: string; enableAeoBrief?: boolean }) {
   const tier = TIER[o.tier];
   const [aiStatus, setAiStatus] = useState<
     "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
@@ -142,6 +143,18 @@ export function NewPageCard({ o, ownDomain }: { o: NewPageOpportunity; ownDomain
             <p className="mt-0.5 text-[10px] font-medium text-violet-700">
               {o.aeoReceipt.ownAbsent ? "Iranopedia not cited yet" : "Your page: cited"}
             </p>
+            {enableAeoBrief ? (
+              <BriefButton
+                input={{
+                  prompt: o.aeoReceipt.topPrompt,
+                  fanoutQueries: o.aeoReceipt.fanoutQueries,
+                  competitorPages: o.aeoReceipt.competitorPages,
+                  ownCitedUrls: o.aeoReceipt.ownCitedUrls,
+                  recommendedMove: "create_page",
+                  tags: [],
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
         {o.whatWins ? (

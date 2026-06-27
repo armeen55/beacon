@@ -49,6 +49,10 @@ export type NewPageOpportunity = {
     fanoutCount: number;
     citedDomains: string[];
     ownAbsent: boolean;
+    /** Cached evidence the AEO-brief drafter needs (NO live read at draft time). */
+    fanoutQueries: string[];
+    competitorPages: string[];
+    ownCitedUrls: string[];
   } | null;
 };
 
@@ -161,6 +165,9 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
             fanoutCount: e.fanoutQueries.length,
             citedDomains: e.topCitedDomains.slice(0, 3).map((d) => d.hostname),
             ownAbsent: e.ownCitationCount === 0,
+            fanoutQueries: e.fanoutQueries.slice(0, 12),
+            competitorPages: e.topCitedPages.filter((p) => !p.isOwned).map((p) => p.url).slice(0, 10),
+            ownCitedUrls: e.topCitedPages.filter((p) => p.isOwned).map((p) => p.url).slice(0, 10),
           }
         : null;
     return {

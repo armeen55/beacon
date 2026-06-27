@@ -75,7 +75,9 @@ export default function MovesPage() {
         <MovesWorklist />
       </Suspense>
       <Suspense fallback={null}>
-        <TodayNewPagesSection />
+        {/* AEO-brief button enabled on /moves only (the cockpit "/" still has
+            8s-timeout fragility — don't pile interaction onto it yet). */}
+        <TodayNewPagesSection enableAeoBrief />
       </Suspense>
     </div>
   );
