@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-26 — BEACON v1 CORE CONSOLIDATION: unified ActionPack (Phases A-D) · branch claude/v1-core-consolidation (commit 166d8af2; NOT merged)
+
+Goal: stop layering on legacy; one unified recommendation brain + a map to quarantine/kill the competing old paths.
+
+- **Phase A — legacy map** (`docs/V1_CONSOLIDATION_LEGACY_MAP.md`): 6-agent parallel code audit → **237 modules: KEEP 139 · ADAPT 39 · QUARANTINE 44 · DELETE 15.** Found 3 competing pack primitives (PreparedMovePack / AeoActionPack / EvidencePacket) + 3 scorers (demand-graph R&R / recommendation-intelligence priority-score / legacy recommendations.prioritize). DELETE list: SEMrush connector ×6 + `/diagnostics/semrush` + 6 legacy visibility-score tests + dead agent-analytics migration. QUARANTINE: the whole brand-`visibility-score` machinery (replaced by per-prompt Profound coverage) + the competing `recommendations/prioritize` customer scorer.
+- **Phase B — `domains/action-pack/types.ts`:** ONE flat `ActionPack` (action type, target/slug, priority, evidenceSources, Profound receipt, DataForSEO validation, GSC demand, GA4 value, Clarity friction, competitors-to-beat, draft status, proof plan, confidence, `whyNotNoise`). A normalization layer, not a 4th primitive.
+- **Phase C — `adapters.ts` (PURE):** `moveCandidateToActionPack` (+ EvidencePacket for raw GSC/GA4/Clarity) + `aeoActionPackToActionPack` + `dedupeActionPacks` (collapse by actionType+target, higher score wins, evidence MERGED). HONEST sourcing — never claims dataforseo/competitor_teardown without a real verdict/audit (truth dump caught + fixed an overclaim).
+- **Phase D — `load.ts` + `/diagnostics/action-packs`:** one ranked worklist; adapts demand-graph Moves + the durable cached coverage (NO live Profound API on render), dedupes, summarizes.
+- **LIVE TRUTH DUMP (tenant-iranopedia):** **377 raw (190 R&R + 187 coverage) → 364 unified, 13 duplicates merged**; families existing 160 / new 149 / hub 42 / links 13; honest source coverage rank_revenue 190 / profound 239 / gsc 60 / clarity 34 / competitor_teardown 7 / dataforseo 0 / ga4 0. Top rows fuse multiple sources into one (e.g. *biggest cities in iran* = R&R+profound+gsc+clarity+teardown). `tsc` 0 · `npm run build` PASS · 5 adapter/dedup tests · `/diagnostics/action-packs` HTTP 200 render.
+- **NOT done (Phase E, gated):** removing legacy is HELD until the unified surface is operator-approved to match/beat the old surfaces. No legacy deleted, no customer-queue flip, no Wix, no cron, no live Profound on render. Next: fuse a cached DataForSEO `serp_verdict` into packs (dataforseo coverage currently 0); then execute the Phase-E kill order in the legacy-map doc.
+
+---
+
 ## 2026-06-26 — PROFOUND AEO SLICE MERGED → main + DEPLOYED (#5) · main @ fd58a316
 
 Operator-approved direct FF-merge (option a) of the full Profound AEO product slice to `main`, with a hard pre-merge gate.
