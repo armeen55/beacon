@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-26 — PROFOUND DURABLE STORAGE + ON-DEMAND SYNC + FAST CACHED READER · branch claude/profound-iranopedia-intel (commit f02a6963; migration APPLIED; NOT merged)
+
+Operator-approved Option 1 (tightened): durable storage + on-demand sync/cache reader, **NOT a cron**. Goal: turn the ~22s live Profound read into a fast cached read so New Pages / EvidencePackets / Today Moves can consume Profound coverage without hitting the live API on render.
+
+- **Migration APPLIED** (operator-approved, additive only): `profound_prompt_rows` / `profound_answer_rows` / `profound_query_fanout_rows`, RLS deny-all (0 policies), rollback in-file. Verified empty + RLS-on before first sync. No drops/alters.
+- **client:** new `pullProfoundPrompts` (GET catalog). **sync-prompt-intelligence.ts:** `syncProfoundPromptIntelligenceForTenant` — topic-scoped pulls (answers + fanouts + prompt catalog) → idempotent hash-keyed upserts. Prompt catalog DERIVED from the answered prompts (the borrowed account's GET-prompts catalog holds 195 AI-company prompts across 15 other topics — none under the Iranopedia topic — so deriving from answers is ground-truth-correct), enriched by catalog on text match. Sanitizes NUL/C0 control chars + **unpaired UTF-16 surrogates** (a 500-char excerpt slice can split an emoji pair → lone surrogate → `invalid input syntax for type json` rejecting the whole JSON body); chunk-resilient (continue, not break). No bots/referrals/Agent-Analytics; ownership = iranopedia.com only.
+- **load-cached.ts:** `loadCachedProfoundCoverageForTenant` (full, for the diagnostic) + `loadCachedPromptOpportunities` (LIGHT fusion path, no owned-page load). Same pure engine as live; paginated reads (no 1000-row cap). Diagnostic page now reads the CACHED store with an operator "Refresh Profound coverage" button that runs the single live sync.
+- **LIVE VERIFIED (tenant-iranopedia):** sync persisted **208 prompts / 4358 answers / 1309 fan-outs / 25828 citation URLs**; **198 answers cite iranopedia.com** (ownership correct, never openai.com). Cached vs live: **IDENTICAL summary** (existing 14 / new 109 / hub 42 / link 22 / noise 13), **top-20 overlap 19/20** (1 boundary tie), cached **~3× faster** (5.6s vs 15.7s); light fusion read **2.4s** (vs 22s live, no API call). `tsc` 0; **56 targeted tests** (coverage + question-intelligence + profound client). NO cron added · NO data deleted · NO Wix write · NO customer-queue change · NOT merged.
+- **Follow-up (noted, not done):** a per-prompt rollup table would take the light read from 2.4s → sub-second (the 2.4s is reading 4358 raw rows); "soccer in Iran → internal_links" appears in BOTH live + cached (a pre-existing compiler-quality nuance in the full 197-page corpus, not a durable-storage bug).
+
+---
+
 ## 2026-06-26 — PROFOUND COVERAGE COMPILER: over-match fix + live loader + diagnostic · branch claude/profound-iranopedia-intel (commits 2c3facb7, c5d2b911; NOT merged)
 
 The Prompt-to-Page Coverage Compiler (the pure decision engine that maps each AI prompt to a page action) was wired into the product and hardened against a real over-matching bug the live truth dump exposed.
