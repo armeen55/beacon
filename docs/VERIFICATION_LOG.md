@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-26 — DRAFT AEO BRIEF on Profound-validated New Page cards (#3, /moves only) · branch claude/profound-iranopedia-intel (commit 6dfda714; NOT merged)
+
+Operator step #3, per scope: a "Draft AEO brief" button on New Page cards that already carry strong cached `aeoEvidence`, wired on `/moves` ONLY (not the fragile cockpit `/`). Reuses the existing capped/gated structured drafter; cached evidence only; no live Profound; no ranking change; no new action types; no persistence.
+
+- **`today-newpages-data`:** `aeoReceipt` expanded with the cached fields the drafter needs (`fanoutQueries`, `competitorPages`, `ownCitedUrls`) — read from the Move's already-attached `aeoEvidence` (still no live read).
+- **`today-newpages-section`/`card`:** new `enableAeoBrief` prop (default false). When true AND `aeoReceipt` present → render the reused `BriefButton` (existing `draftAeoBriefAction` → `draftAeoPromptBrief`: operator-gated, budget-capped, firewalled, retry-once, copy-button per field). `moves/page.tsx` passes `enableAeoBrief`; the cockpit `/` does NOT (8s-timeout fragility — no extra interaction there).
+- **LIVE VERIFIED (tenant-iranopedia):** `draftAeoBriefAction` on the real "Persian wedding etiquette" card → **ok=true** (21.7s gpt-5-mini), grounded `direct_answer_40_80_words` (sofreh aghd…), 4 `fanout_sections`, 8 `facts_to_verify`, `schema=FAQPage`, `competitor_pages_to_beat` = the cached competitor URLs — **NO live Profound call** (input from cached receipt; budget ledger fires inside `draftAeoPromptBrief`). `/moves` render HTTP 200 (7s): **5 "AI-validated" badges + 5 "Draft AEO brief" buttons**. `tsc` 0; **5 render tests** (badge gating + brief button shows on /moves, hidden when `enableAeoBrief` false).
+- **Guards honored:** NO live Profound API · NO ranking change · NO new action types · NO persistence · NO Wix · NO cron · NO bots/referrals · ownership=iranopedia.com · respects LLM budget/cap/firewall · branch only NOT merged.
+- **Coherent slice ready to ship:** evidence fusion (#2) + New Pages receipt (#4) + structured brief (#3). Operator's stated next step: **#5 merge/deploy** (their call — irreversible prod merge).
+
+---
+
 ## 2026-06-26 — NEW PAGES "Profound-validated" BADGE (#4) + fusion-timeout fix · branch claude/profound-iranopedia-intel (commit 596e4700; NOT merged)
 
 Operator step #4 (New Pages AEO badge), evidence-only per the operator's tight scope: an additive badge/receipt on a create-page card ONLY when its underlying Move already carries strong cached `aeoEvidence`. No live Profound call, no fresh matching in the UI, no ranking change, no new action types.
