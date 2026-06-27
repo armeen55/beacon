@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-26 — PROFOUND AEO SLICE MERGED → main + DEPLOYED (#5) · main @ fd58a316
+
+Operator-approved direct FF-merge (option a) of the full Profound AEO product slice to `main`, with a hard pre-merge gate.
+
+- **Pre-merge gate (all green):** `tsc` exit 0 · `npm run build` exit 0 (all routes) · 39 targeted tests (profound-coverage + question-intelligence + evidence-fusion + new-pages badge + structured-drafter) pass.
+- **GA4 dollar-value test — PROVEN pre-existing (operator's hard condition):** `git checkout origin/main -- build-graph.ts` then ran `build-graph.test.ts` → **"high GA4 $value raises the score" fails identically** (`expected +0 to be 5000`, 1 failed | 10 passed) on CURRENT `origin/main`, in the same run. Not introduced by this branch (this branch predates the GA4-revenue scoring work on `claude/ga4-revenue-migration`). Merged with a freshly-proven documented red, per operator instruction.
+- **Merge:** clean fast-forward `2c71566d..fd58a316 → main` (22 commits; origin/main was an unchanged ancestor at push time). No migration step (the durable-storage migration was already applied to prod DB).
+- **Deploy:** Vercel production build of `fd58a316` = **success** ("Deployment has completed", commit status green).
+- **Prod smoke (anonymous):** `beacon-bice.vercel.app/login` HTTP 200; `/moves` HTTP 307 (auth redirect — gating intact). Prod serving the new build. The operator-gated UI smoke (5 AI-validated badges, 5 Draft-AEO-brief buttons on /moves, diagnostics rendering Profound prompts/fanouts/cited pages) requires an authenticated operator-mode session and was verified LOCALLY (dev server, operator mode, tenant-iranopedia) — operator to confirm on the live authed session.
+- **Confirmed:** no live Profound API on render (cached durable read) · no bots/referrals/openai-ownership in this path · no customer-queue behavior changed except the additive `/moves` AEO UI · no ranking change.
+
+Commit SHAs (this slice): durable storage `f02a6963`, evidence fusion `c3bcc823`, New Pages badge `596e4700`, Draft-AEO-brief `6dfda714` (+ over-match fix `2c3facb7`, coverage loader/diagnostic `c5d2b911`). main now @ `fd58a316`.
+
+---
+
 ## 2026-06-26 — DRAFT AEO BRIEF on Profound-validated New Page cards (#3, /moves only) · branch claude/profound-iranopedia-intel (commit 6dfda714; NOT merged)
 
 Operator step #3, per scope: a "Draft AEO brief" button on New Page cards that already carry strong cached `aeoEvidence`, wired on `/moves` ONLY (not the fragile cockpit `/`). Reuses the existing capped/gated structured drafter; cached evidence only; no live Profound; no ranking change; no new action types; no persistence.
