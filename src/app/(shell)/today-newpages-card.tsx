@@ -127,6 +127,23 @@ export function NewPageCard({ o, ownDomain }: { o: NewPageOpportunity; ownDomain
           </p>
         ) : null}
         {o.topCompetitor ? <p className="mt-1 text-[11px] text-gray-400">e.g. {o.topCompetitor}</p> : null}
+        {o.aeoReceipt ? (
+          <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700">✦ AI-validated</div>
+            <p className="mt-1 text-[11px] leading-snug text-gray-700">
+              AI asks: <span className="font-medium text-gray-900">“{o.aeoReceipt.topPrompt}”</span>
+            </p>
+            {o.aeoReceipt.fanoutCount > 0 ? (
+              <p className="mt-0.5 text-[10px] text-gray-500">
+                Fans out into {o.aeoReceipt.fanoutCount} related question{o.aeoReceipt.fanoutCount === 1 ? "" : "s"}
+              </p>
+            ) : null}
+            <p className="mt-0.5 text-[10px] text-gray-500">AI cites: {o.aeoReceipt.citedDomains.join(", ")}</p>
+            <p className="mt-0.5 text-[10px] font-medium text-violet-700">
+              {o.aeoReceipt.ownAbsent ? "Iranopedia not cited yet" : "Your page: cited"}
+            </p>
+          </div>
+        ) : null}
         {o.whatWins ? (
           <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">What the cited page has</div>

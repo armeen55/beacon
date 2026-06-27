@@ -174,6 +174,12 @@ export async function loadDemandGraphForTenant(
   now: Date = new Date(),
   config?: DemandGraphConfig,
 ): Promise<LoadGraphResult> {
+  // Kick off the durable Profound evidence read NOW so it runs CONCURRENTLY with
+  // the graph's own loaders (below) — attaching it after buildDemandGraph then
+  // adds ~0 wall-clock instead of a serial +2.4s that would trip downstream
+  // timeouts (e.g. the New Pages board's 8s guard). Cached store only, no live API.
+  const aeoEvidencePromise = loadCachedPromptOpportunities(tenantId).catch(() => null);
+
   const [gsc, ga4, ga4Revenue, clarity, fanoutSeeds] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId, now).catch((e): Map<string, GscPageSignal> => {
       log.warn("[load-graph] gsc read failed", { tenantId, error: String(e) });
@@ -398,9 +404,12 @@ export async function loadDemandGraphForTenant(
   // coverage compiler's internal_link_fix/consolidate decisions are NOT promoted
   // to customer Moves here — they stay in the operator coverage diagnostic.
   try {
+    // The read was started at the top (concurrent with the graph loaders); this
+    // is almost always already resolved, so the await adds ~0. Time-boxed as a
+    // safety net so a slow Supabase read can never delay the graph.
     const aeo = await Promise.race([
-      loadCachedPromptOpportunities(tenantId),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+      aeoEvidencePromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
     ]);
     if (aeo && aeo.opportunities.length > 0) {
       moves = attachProfoundEvidenceToMoves(moves, aeo.opportunities);

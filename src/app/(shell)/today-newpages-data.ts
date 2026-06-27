@@ -39,6 +39,17 @@ export type NewPageOpportunity = {
   /** Precomputed DataForSEO verdict (from "Prepare top N"), so the card arrives
    *  "Google checked" with no operator click. null until prepared. */
   preparedVerdict: PreparedSerpVerdict | null;
+  /** Profound AEO receipt — present ONLY when the underlying Move already carries
+   *  strong cached `aeoEvidence` (confidence ≠ low AND ≥1 cited competitor). Lets
+   *  the card say "AI is already asked this and cites competitors", not just "a
+   *  keyword idea". Read from the durable cached evidence on the Move — NO live
+   *  Profound call, NO fresh matching here. Absent → no badge. */
+  aeoReceipt: {
+    topPrompt: string;
+    fanoutCount: number;
+    citedDomains: string[];
+    ownAbsent: boolean;
+  } | null;
 };
 
 export type NewPagesData = {
@@ -140,6 +151,18 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     const topUrl = m.competitorUrls[0] ?? null;
     const audit = topUrl ? findAudit(topUrl) : undefined;
     const ww = audit && audit.fetchStatus === "ok" && audit.facts ? whatWins(audit.facts) : null;
+    // AEO receipt: read the Move's ALREADY-ATTACHED cached evidence (no live call,
+    // no fresh matching). Eligible only when confident AND a competitor is cited.
+    const e = m.aeoEvidence;
+    const aeoReceipt =
+      e && e.confidence !== "low" && e.topCitedDomains.length > 0 && (e.prompts[0] ?? "").length > 0
+        ? {
+            topPrompt: e.prompts[0]!,
+            fanoutCount: e.fanoutQueries.length,
+            citedDomains: e.topCitedDomains.slice(0, 3).map((d) => d.hostname),
+            ownAbsent: e.ownCitationCount === 0,
+          }
+        : null;
     return {
       id: m.demandKey,
       topic: titleCase(m.label),
@@ -153,6 +176,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       savedOpening: savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null,
       competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
       preparedVerdict: parsePreparedVerdict(savedDrafts.get(`${m.demandKey}::serp_verdict`)?.content),
+      aeoReceipt,
     };
   });
 
