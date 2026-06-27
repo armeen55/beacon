@@ -17,8 +17,9 @@ import { notFound } from "next/navigation";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProfoundCoverageForTenant } from "@/domains/profound-coverage/load";
+import { loadCachedProfoundCoverageForTenant } from "@/domains/profound-coverage/load-cached";
 import type { AeoActionPack } from "@/domains/profound-coverage/types";
+import { RefreshCoverageButton } from "./refresh-button";
 
 export const dynamic = "force-dynamic";
 
@@ -104,7 +105,8 @@ function PackCard({ p }: { p: AeoActionPack }) {
 export default async function ProfoundCoveragePage() {
   if (!gate()) notFound();
   const tenantId = await currentTenantId();
-  const cov = await loadProfoundCoverageForTenant(tenantId);
+  const cov = await loadCachedProfoundCoverageForTenant(tenantId);
+  const empty = cov.scopeFound && cov.answerRows === 0 && cov.fanoutRows === 0;
 
   const tiles = [
     { label: "Existing-page fixes", value: cov.summary.existingPage },
@@ -131,8 +133,17 @@ export default async function ProfoundCoveragePage() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">
           No Profound prompt-intelligence scope is configured for this tenant yet. (Iranopedia-only for now.)
         </div>
+      ) : empty ? (
+        <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">
+          <p>No durable Profound coverage stored yet. Click refresh to pull the live data once (≈20s) — after that this page reads it instantly.</p>
+          <RefreshCoverageButton />
+        </div>
       ) : (
         <>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-400">Reading durable Profound coverage (cached, no live API call).</p>
+            <RefreshCoverageButton />
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {tiles.map((t) => (
               <div key={t.label} className="rounded-lg border border-gray-200 bg-white p-4">
@@ -142,8 +153,8 @@ export default async function ProfoundCoveragePage() {
             ))}
           </div>
           <p className="text-xs text-gray-400">
-            {cov.opportunityCount} AI prompts vs {cov.ownedPageCount} owned pages · live read of {cov.answerRows} answers
-            + {cov.fanoutRows} fan-out rows over 30 days (topic-scoped; no bots/referrals; ownership = owned domain only).
+            {cov.opportunityCount} AI prompts vs {cov.ownedPageCount} owned pages · from {cov.answerRows} stored answers
+            + {cov.fanoutRows} fan-out rows (topic-scoped; no bots/referrals; ownership = owned domain only).
           </p>
 
           {actionable.length === 0 ? (

@@ -1,7 +1,8 @@
 -- Migration: 2026-06-26_profound_prompt_intelligence.sql
 -- Author:    Claude (Profound Iranopedia Prompt Intelligence build) — operator-spec.
--- Status:    NOT APPLIED. Additive only. Apply via the Supabase apply_migration tool
---            AFTER operator approval (hard rule: no migration APPLY without sign-off).
+-- Status:    APPLIED 2026-06-26 (operator-approved, via Supabase apply_migration,
+--            migration name "profound_prompt_intelligence"). Additive only — 3 new
+--            tables + RLS deny-all; verified empty + RLS-on before first sync.
 -- Project:   vlxwevsdvwxvopkjsewo (beacon-main — current prod).
 --
 -- Why this migration exists:

@@ -89,8 +89,9 @@ const EMPTY: ProfoundCoverage = {
   fanoutRows: 0,
 };
 
-/** Build the owned-page universe (GSC spine, enriched with snapshot/GA4/Clarity). */
-async function loadOwnedPageCandidates(tenantId: string): Promise<OwnedPageCandidate[]> {
+/** Build the owned-page universe (GSC spine, enriched with snapshot/GA4/Clarity).
+ *  Exported so the durable cached reader reuses the exact same owned-page logic. */
+export async function loadOwnedPageCandidates(tenantId: string): Promise<OwnedPageCandidate[]> {
   // GSC is the spine: a page must attract search demand to plausibly own a prompt.
   let gsc: Awaited<ReturnType<typeof loadGscPageSignalsForTenant>> = new Map();
   try {

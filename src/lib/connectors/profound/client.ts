@@ -588,6 +588,59 @@ export async function pullProfoundAnswers(
   return { rows: out, totalRows };
 }
 
+/** One tracked prompt in the workspace catalog (GET prompts). */
+export type ProfoundPromptRow = {
+  promptId: string;
+  prompt: string;
+  topicId: string | null;
+  topic: string | null;
+  tags: string[];
+  status: string | null;
+};
+
+/** Pull the workspace's tracked-prompt catalog for a category (GET, single page;
+ *  the catalog is small). Returns prompt id + text + topic + tags + status so the
+ *  caller can filter to ONE topic (borrowed-account scoping). Fail-soft → null. */
+export async function pullProfoundPrompts(
+  args: { tenantId: string; categoryId: string },
+  deps: ProfoundFetchDeps = {},
+): Promise<ProfoundPromptRow[] | null> {
+  const raw = await profoundRequest(
+    {
+      tenantId: args.tenantId,
+      method: "GET",
+      path: `/v1/org/categories/${encodeURIComponent(args.categoryId)}/prompts?limit=10000`,
+    },
+    deps,
+  );
+  if (raw == null) return null;
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  const data = Array.isArray(obj.data) ? obj.data : Array.isArray(raw) ? (raw as unknown[]) : [];
+  const rows: ProfoundPromptRow[] = [];
+  for (const d of data) {
+    if (!d || typeof d !== "object") continue;
+    const r = d as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id : null;
+    const prompt = typeof r.prompt === "string" ? r.prompt : "";
+    if (!id || !prompt) continue;
+    const topicObj = (r.topic && typeof r.topic === "object" ? (r.topic as Record<string, unknown>) : null);
+    const tags = Array.isArray(r.tags)
+      ? (r.tags as unknown[])
+          .map((t) => (t && typeof t === "object" ? String((t as Record<string, unknown>).name ?? "") : ""))
+          .filter(Boolean)
+      : [];
+    rows.push({
+      promptId: id,
+      prompt,
+      topicId: topicObj && typeof topicObj.id === "string" ? topicObj.id : null,
+      topic: topicObj && typeof topicObj.name === "string" ? topicObj.name : null,
+      tags,
+      status: typeof r.status === "string" ? r.status : null,
+    });
+  }
+  return rows;
+}
+
 // ---------------------------------------------------------------------------
 // Prompt management — POST /v1/org/categories/{category_id}/prompts.
 // Programmatically REGISTER a tenant's own prompts in the workspace so Profound
