@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-26 — PROFOUND AEO EVIDENCE FUSION into Moves (evidence-only) · branch claude/profound-iranopedia-intel (commit c3bcc823; NOT merged)
+
+Operator step #2 (EvidencePacket fusion) with the operator's guard: fuse Profound coverage into Moves as EVIDENCE/CONTEXT, never as an action selector or score input; the coverage compiler's internal_link_fix/consolidate stays operator-diagnostic only.
+
+- **`demand-graph/profound-evidence-fusion.ts` (PURE):** `attachProfoundEvidenceToMoves(moves, opportunities)` matches the durable Profound opportunities to existing demand-graph Moves CONSERVATIVELY. Primary signals = competitor-domain overlap (generic-token-immune) + owned-URL citation; subject overlap is a prompt-corpus-IDF gate so pervasive tokens (iran/persian/famous) auto-down-weight (no hardcoded tenant words) — guards against the compiler's "famous Iranian films → athletes" over-match. Emits `AeoEvidence` (prompts, fanouts, top cited pages/domains, own/competitor citation counts, recommended content shape, confidence, matchBasis) + `aeoEvidenceSentence` for the plain-language card line.
+- **`MoveCandidate.aeoEvidence?`** — additive optional field (type-only import → build-graph stays runtime-dependency-free, mirroring `learnedPrior`).
+- **`load-graph` post-pass** (after the learning reweight): reads the DURABLE cached store (`loadCachedPromptOpportunities` — **NO live Profound API on render**), time-boxed 4s + fail-soft, attaches evidence. Score/components/gap UNTOUCHED.
+- **`/diagnostics/rank-revenue`** (operator): new "AI asks (Profound)" column on the main + create tables — the evidence sentence + expandable prompts/fanouts/cited-domains.
+- **LIVE VERIFIED (tenant-iranopedia):** **12/25** Top moves gained Profound evidence. Example (existing-page): `persian boy names` → `/persian-male-names` now reads *AI asks "What Persian names work well for Iranian-American babies?", 12 fanouts, cites peanut-app.io×42 / teamgroupnames×36 / familyeducation×31, you cited ×29, conf high, basis "AI cites this exact page".* Graph load incl fusion **9.8s** (fusion ≈2.4s durable read; **no live Profound API** — `load-cached` imports only the answer-row TYPE from the client, never a runtime call). Dev render `GET /diagnostics/rank-revenue` HTTP 200, column renders, no warnings. `tsc` 0; **6 new matcher tests** incl the over-match guard.
+- **Honest test note:** the 162-test demand-graph+profound suite has **1 PRE-EXISTING failure** (`build-graph.test.ts` "high GA4 $value raises the score") — it fails IDENTICALLY with and without this change (this branch predates the GA4-revenue scoring work on `claude/ga4-revenue-migration`). Not introduced here.
+- **Guards honored:** NO score change · NO new customer action types · NO automatic internal_link_fix/consolidate customer recs · NO live Profound API on render · NO bots/referrals · ownership=iranopedia.com · NO Wix · NO cron · NO paid API · NOT merged.
+
+---
+
 ## 2026-06-26 — PROFOUND DURABLE STORAGE + ON-DEMAND SYNC + FAST CACHED READER · branch claude/profound-iranopedia-intel (commit f02a6963; migration APPLIED; NOT merged)
 
 Operator-approved Option 1 (tightened): durable storage + on-demand sync/cache reader, **NOT a cron**. Goal: turn the ~22s live Profound read into a fast cached read so New Pages / EvidencePackets / Today Moves can consume Profound coverage without hitting the live API on render.
