@@ -212,6 +212,11 @@ export type MoveCandidate = {
    *  by applyExperimentPriorToMoves(). Inline shape so build-graph stays
    *  dependency-free of the learning layer. Absent until the loop has evidence. */
   learnedPrior?: { multiplier: number; decidedSample: number; basis: string | null; tag: string | null };
+  /** Profound AEO EVIDENCE (the AI prompts this Move answers + cited competitors
+   *  + fan-outs), attached OUTSIDE the pure scorer (in load-graph) by
+   *  attachProfoundEvidenceToMoves(). Evidence/context only — never a score or
+   *  action input. Type-only import keeps build-graph runtime-dependency-free. */
+  aeoEvidence?: import("./profound-evidence-fusion").AeoEvidence;
 };
 
 export type DemandGraph = {

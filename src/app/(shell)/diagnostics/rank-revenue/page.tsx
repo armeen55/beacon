@@ -25,6 +25,7 @@ import { teardownView } from "@/domains/demand-graph/teardown-state";
 import { groupMovesByOwnedPage, secondaryGapPhrase } from "@/domains/demand-graph/group-moves";
 import { MoveCardList } from "./move-cards";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
+import { aeoEvidenceSentence } from "@/domains/demand-graph/profound-evidence-fusion";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -170,6 +171,7 @@ export default async function RankRevenuePage({
                 <th className="px-2 py-1.5">What wins (teardown)</th>
                 <th className="px-2 py-1.5">Your page</th>
                 <th className="px-2 py-1.5">Why</th>
+                <th className="px-2 py-1.5">AI asks (Profound)</th>
               </tr>
             </thead>
             <tbody>
@@ -266,6 +268,33 @@ export default async function RankRevenuePage({
                       );
                     })()}
                   </td>
+                  <td className="px-2 py-1.5 text-gray-600" style={{ maxWidth: 300 }}>
+                    {m.aeoEvidence ? (
+                      <details>
+                        <summary className="cursor-pointer text-violet-700">
+                          {aeoEvidenceSentence(m.aeoEvidence)}
+                        </summary>
+                        <div className="mt-1 space-y-1 border-l-2 border-violet-200 pl-2 text-[11px]">
+                          <div>
+                            <span className="font-medium text-gray-700">Prompts ({m.aeoEvidence.promptCount}):</span>{" "}
+                            {m.aeoEvidence.prompts.slice(0, 4).join(" · ")}
+                          </div>
+                          {m.aeoEvidence.fanoutQueries.length > 0 ? (
+                            <div><span className="font-medium text-gray-700">Fan-outs:</span> {m.aeoEvidence.fanoutQueries.slice(0, 5).join(" · ")}</div>
+                          ) : null}
+                          {m.aeoEvidence.topCitedDomains.length > 0 ? (
+                            <div><span className="font-medium text-gray-700">AI cites:</span> {m.aeoEvidence.topCitedDomains.map((d) => `${d.hostname}×${d.answers}`).join(", ")}</div>
+                          ) : null}
+                          <div className="text-gray-400">
+                            shape: {m.aeoEvidence.recommendedContentShape} · conf {m.aeoEvidence.confidence} · {m.aeoEvidence.matchBasis}
+                            {m.aeoEvidence.ownCitationCount === 0 ? " · you absent" : ` · you cited ×${m.aeoEvidence.ownCitationCount}`}
+                          </div>
+                        </div>
+                      </details>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -300,6 +329,7 @@ export default async function RankRevenuePage({
                     <th className="px-2 py-1.5">Conf</th>
                     <th className="px-2 py-1.5">Competitors AI cites</th>
                     <th className="px-2 py-1.5">Answer these (fanouts)</th>
+                    <th className="px-2 py-1.5">AI asks (Profound)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -319,6 +349,9 @@ export default async function RankRevenuePage({
                       </td>
                       <td className="px-2 py-1.5 text-gray-500" style={{ maxWidth: 280 }}>
                         {m.fanoutSeeds.slice(0, 4).join(" · ") || "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-violet-700" style={{ maxWidth: 300 }}>
+                        {m.aeoEvidence ? aeoEvidenceSentence(m.aeoEvidence) : <span className="text-gray-300">—</span>}
                       </td>
                     </tr>
                   ))}

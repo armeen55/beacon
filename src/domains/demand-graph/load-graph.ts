@@ -46,6 +46,8 @@ import {
   type DemandGraph,
   type DemandGraphConfig,
 } from "./build-graph";
+import { attachProfoundEvidenceToMoves } from "./profound-evidence-fusion";
+import { loadCachedPromptOpportunities } from "@/domains/profound-coverage/load-cached";
 
 export type DemandGraphCoverage = {
   gscPages: number;
@@ -387,6 +389,24 @@ export async function loadDemandGraphForTenant(
     }
   } catch {
     moves = graph.moves; // never let the learning layer break the graph
+  }
+  // Profound AEO EVIDENCE fusion (evidence-only; no score change, no new actions).
+  // Reads the DURABLE cached store (loadCachedPromptOpportunities — NO live
+  // Profound API on render), time-boxed + fail-soft so it can never hang or break
+  // the cockpit. Attaches `aeoEvidence` to matched Moves so a card can say "AI is
+  // asked X, fans out into Y, cites these competitors, you're absent". The
+  // coverage compiler's internal_link_fix/consolidate decisions are NOT promoted
+  // to customer Moves here — they stay in the operator coverage diagnostic.
+  try {
+    const aeo = await Promise.race([
+      loadCachedPromptOpportunities(tenantId),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+    ]);
+    if (aeo && aeo.opportunities.length > 0) {
+      moves = attachProfoundEvidenceToMoves(moves, aeo.opportunities);
+    }
+  } catch {
+    // evidence is additive — never let it affect the graph
   }
   const reweightedGraph: DemandGraph = moves === graph.moves ? graph : { ...graph, moves };
 
