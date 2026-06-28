@@ -13,6 +13,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { hasOppositeQualifiers } from "@/domains/recommendations/opposite-qualifier-guard";
+import { isLegacyQuarantined } from "@/lib/legacy-flags";
 import { log } from "@/lib/logger";
 
 /**
@@ -102,6 +103,10 @@ export async function loadSemrushPageSignalsForTenant(
   tenantId: string,
 ): Promise<Map<string, SemrushPageSignal>> {
   const out = new Map<string, SemrushPageSignal>();
+  // Legacy kill-switch (Phase F): one chokepoint turns SEMrush off product-wide.
+  // Default OFF → unchanged. When quarantined, every downstream consumer (triggers,
+  // build-graph demand, evidence packets, today cards) sees zero SEMrush signal.
+  if (isLegacyQuarantined("semrush")) return out;
   type Row = {
     keyword: string;
     position: number;
@@ -280,6 +285,7 @@ export async function loadSemrushCannibalRowsForTenant(
     url: string;
     intent: string | null;
   };
+  if (isLegacyQuarantined("semrush")) return [];
   // PostgREST caps a single response at ~1k rows regardless of `.limit()`,
   // so the old `.limit(5_000)` silently returned only ~1k arbitrary,
   // unordered rows — cannibalization detection (which needs EVERY
@@ -323,6 +329,7 @@ export async function loadSemrushKeywordGapsForTenant(
     difficulty: number | null;
   }>
 > {
+  if (isLegacyQuarantined("semrush")) return [];
   try {
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
@@ -371,6 +378,7 @@ export async function loadSemrushKeywordExpansionsForTenant(
   tenantId: string,
 ): Promise<Map<string, SemrushPageExpansions>> {
   const out = new Map<string, SemrushPageExpansions>();
+  if (isLegacyQuarantined("semrush")) return out;
   type Row = {
     page_url: string;
     seed_query: string;

@@ -24,6 +24,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getBusinessConfig } from "@/lib/business-config";
+import { isLegacyQuarantined } from "@/lib/legacy-flags";
 import { log } from "@/lib/logger";
 
 import {
@@ -43,6 +44,9 @@ export async function syncSemrushOrganicKeywordsForTenant(args: {
   now?: Date;
 }): Promise<SemrushOrganicSyncResult> {
   const { tenantId } = args;
+  // Legacy kill-switch (Phase F): when SEMrush is quarantined, stop WRITING too
+  // (reads are already gated). No new SEMrush data lands. Default OFF → unchanged.
+  if (isLegacyQuarantined("semrush")) return { synced: false, reason: "quarantined" };
   const now = args.now ?? new Date();
 
   const domain = getBusinessConfig(tenantId)
@@ -149,6 +153,7 @@ export async function syncSemrushKeywordGapForTenant(args: {
   now?: Date;
 }): Promise<SemrushGapSyncResult> {
   const { tenantId } = args;
+  if (isLegacyQuarantined("semrush")) return { synced: false, reason: "quarantined" };
   const now = args.now ?? new Date();
 
   // Weekly gate: PT Monday only (the budget spec's rotation).

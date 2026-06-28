@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-27 — CONSOLIDATION Phase F: canonical brain + SEMrush proven-inert · branch claude/v1-core-consolidation (NOT merged)
+
+Make ActionPack the canonical read model + prove SEMrush is safe to retire. One brain, one ranked list.
+
+- **F.1 — canonical worklist loader** (`domains/action-pack/load-canonical-worklist.ts`): the single product read model — `loadCanonicalWorklistForTenant(tenantId, generatedAtIso)` returns `{packs, families{8}, sourceCoverage, parity, staleSources, suppressedLegacyRows, warnings}`. Thin envelope over the existing adapter+dedupe (`load.ts`) + parity proof — NOT a new scorer/model. Cached/durable only; NO live Profound/DataForSEO; fail-VISIBLE (warnings + staleSources, never silent-empty). Not yet wired to customer surfaces (prove first). 1 focused test (family bucketing, all 8 ActionTypes).
+- **F.4 — SEMrush legacy kill-switch wired + PROVEN inert.** `isLegacyQuarantined("semrush")` now gates the **single data chokepoint**: all 4 read loaders in `semrush-page-signals.ts` (`loadSemrushPageSignals/CannibalRows/KeywordGaps/KeywordExpansions`) + both writers (`syncSemrushOrganicKeywordsForTenant`, `syncSemrushKeywordGapForTenant`). One flag turns SEMrush off product-wide (reads + writes); default OFF → unchanged.
+  - **ZERO-DELTA PROOF (live Iranopedia truth dump, SEMrush live vs quarantined):** canonical worklist **byte-identical** — 364 packs both ways, identical families, identical top-15 scores/URLs; only difference = the honest "SEMrush quarantined" warning. Confirms the audit's "SEMrush exact-match → 0 candidate matches": **SEMrush contributes nothing to the ActionPack brain.** Retiring it from the brain is a no-op (satisfies the no-ranking-regression rule).
+  - **Why not the full physical delete this turn:** `rg -i semrush src/` = **831 mentions across ~60 files** (today-v2-data, workbench-data, opportunity.ts, evidence-summary, page-surgeon, recommendations UI, settings cards…) — it is woven into LIVE legacy surfaces, so a blind rip-out would change customer surfaces unwatched + risk the build. The kill-switch is the reversible, proven-safe retirement step; physical deletion is the ranked follow-up below.
+- **F.7 — truth dump (live Iranopedia):** 364 ActionPacks · families {existing 95, newPages 149, hubs 42, internalLinks 13, experienceFixes 0, titleMetaFixes 0, answerBlocks 65, ignoredNoise 13} · sourceCoverage {rank_revenue 190, profound 239, dataforseo 9, gsc 60, ga4 0(stale), clarity 35, competitor_teardown 7} · parity: rank-revenue 190/190 ✓, profound 187/187 ✓, recommendations 35/46 (11 legacy-only gaps), visibility=metric · suppressedLegacyRows 11.
+- **Verified:** `tsc` 0 · `npm run build` PASS · 8 action-pack tests (adapters + DataForSEO honesty + legacy-flags + canonical family-bucket) · live zero-delta truth dump. No legacy deleted · no customer flip · no Wix/cron · no live Profound/DataForSEO on render.
+- **Next deletion (ranked, now de-risked by the zero-delta proof):**
+  1. Operator flips `BEACON_QUARANTINE_SEMRUSH=true` for Iranopedia — instant retirement, proven-zero brain impact (reversible).
+  2. Physical deletion (focused refactor, tsc-driven): delete `lib/connectors/semrush/*` + `domains/recommendation-intelligence/semrush-page-signals.ts` + `triggers/semrush-*` + `/diagnostics/semrush` → fix the ~60 callers (most just drop a SEMrush evidence chip) → remove SEMrush settings/connector card + copy + tests + env refs. Measure the legacy-surface delta (today-v2/workbench) before customer flip.
+  3. Then `/moves` → canonical worklist (F.2), then Today `/` (F.5).
+
+---
+
 ## 2026-06-26 — CONSOLIDATION Phase E.0: ActionPack Parity + Legacy Kill Switch · branch claude/v1-core-consolidation (commit 92e2da21; NOT merged)
 
 Prove the unified brain covers the legacy surfaces, expose a reversible quarantine switch, delete nothing blindly.
