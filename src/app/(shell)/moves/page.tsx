@@ -59,6 +59,11 @@ async function MovesWorklist() {
         )}
       </div>
       <MovesWorklistClient moves={moves} />
+      {stats.movesReady > moves.length ? (
+        <p className="text-center text-xs text-gray-400">
+          Showing the {moves.length} strongest of {stats.movesReady} ranked moves. Use the filters above to narrow.
+        </p>
+      ) : null}
     </div>
   );
 }

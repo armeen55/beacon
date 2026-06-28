@@ -24,6 +24,10 @@ import { loadTodayMovesHeroData, type TodayMove, type TodayMovesHeroData } from 
 
 const canon = (u: string): string => (canonicalizeCitationUrl(u) ?? u).toLowerCase().replace(/\/+$/, "");
 
+/** Render cap for /moves — the strongest N (single-user app; the full brain count
+ *  stays in stats.movesReady). Filters narrow within the shown set. */
+const MOVES_CAP = 75;
+
 const EMPTY_STATS: TodayMovesHeroData["stats"] = {
   movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0,
   draftsReady: 0, strikingWins: 0, losingQueries: 0, selfCompeting: 0,
@@ -146,8 +150,13 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     }
   }
 
+  // Cap the rendered worklist to the strongest MOVES_CAP so /moves feels powerful,
+  // not endless — the true total is preserved in stats.movesReady (the brain size).
+  const trueTotal = moves.length;
+  const shown = moves.slice(0, MOVES_CAP);
+
   const stats: TodayMovesHeroData["stats"] = {
-    movesReady: moves.length,
+    movesReady: trueTotal,
     demandAtStake: Math.round(moves.reduce((s, m) => s + (m.demand ?? 0), 0)),
     citationsContested: moves.filter((m) => m.actionTone === "citation").length,
     pagesCovered: new Set(moves.map((m) => m.targetUrl)).size,
@@ -159,7 +168,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     preparedReady: moves.filter((m) => m.preparedChecklist?.readyToReview).length,
   };
 
-  return { moves, stats, learning: hero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null } };
+  return { moves: shown, stats, learning: hero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null } };
 }
 
 /** Request-memoized /moves worklist, ActionPack-powered. */

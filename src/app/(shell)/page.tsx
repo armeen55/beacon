@@ -13,7 +13,7 @@ import { TodayNewPagesSection } from "./today-newpages-section";
 import {
   TodayV2ExperimentsMeasuringSection,
   TodayV2ProvenResultsSection,
-} from "./today-v2-sections";
+} from "./today-proof-sections";
 
 /**
  * Today `/` — the ActionPack cockpit (2026-06-27 rebuild).

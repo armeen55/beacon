@@ -28,7 +28,7 @@ import "server-only";
 import { cache } from "react";
 
 import { log } from "@/lib/logger";
-import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
+import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { loadChangePacksForTenant, type LoadChangePacksResult } from "@/domains/demand-graph/gap-compiler";
 import { loadCachedProfoundCoverageForTenant } from "@/domains/profound-coverage/load-cached";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
@@ -111,7 +111,7 @@ async function loadUncached(tenantId: string, mode: WorklistMode): Promise<Actio
   const warnings: string[] = [];
 
   const [graphRes, packsRes, coverage, drafts] = await Promise.all([
-    withTimebox("Demand graph", loadDemandGraphForTenant(tenantId), null, mode, warnings).catch((e): null => {
+    withTimebox("Demand graph", loadDemandGraphForTenantCached(tenantId), null, mode, warnings).catch((e): null => {
       log.warn("[action-pack] demand graph failed", { tenantId, error: String(e) });
       warnings.push("Demand graph read failed — rank-&-revenue moves are missing from this worklist.");
       return null;
