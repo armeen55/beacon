@@ -135,6 +135,14 @@ export type TodayMove = {
    *  from ActionPack.dataforseoValidation so the build/wait/skip call is visible
    *  on the card operators use (was computed but dropped at the projection). */
   dataforseoVerdict?: { verdict: "build" | "wait" | "skip"; topDomains: string[]; overlap: number } | null;
+  /** Outcome-threading (2026-06-28) — the proof status of the most recent shipped
+   *  change on this move's page, so the card shows whether it's already measuring /
+   *  won / no-lift without opening Results. Null when no proof row matches. */
+  proofStatus?: "measuring" | "won" | "no_clear_lift" | "no_lift" | null;
+  proofLabel?: string | null;
+  /** True when the SAME page+action family is already mid-measurement (avoid
+   *  encouraging a duplicate ship that would contaminate the open window). */
+  alreadyMeasuring?: boolean;
 };
 
 export type TodayMovesHeroData = {
@@ -321,6 +329,18 @@ export async function buildTodayMovesData(
       won: ledgerStates.filter((s) => s === "win").length,
       lost: ledgerStates.filter((s) => s === "loss").length,
     };
+    // Outcome-threading (2026-06-28): the most recent shipped change per page, so a
+    // card can show "Measuring / Won / No lift" without opening Results. Keyed by
+    // canonical page URL; same conservative URL+action-family basis as the Results
+    // linker. Display only — measurement math is untouched.
+    const proofByPage = new Map<string, { state: OutcomeState; shippedAt: string; actionType: string }>();
+    for (const r of ledger) {
+      const key = canon(r.page) || canon(r.path);
+      const prev = proofByPage.get(key);
+      if (!prev || Date.parse(r.shippedAt) > Date.parse(prev.shippedAt)) {
+        proofByPage.set(key, { state: outcomeStateOf(r), shippedAt: r.shippedAt, actionType: r.actionType });
+      }
+    }
     // Owned-page paths currently on measurement-hold (verdict still measuring,
     // within the 28d window). Moves for these pages are suppressed below.
     const heldPaths = buildMeasuringHold(
@@ -551,6 +571,28 @@ export async function buildTodayMovesData(
       m.topQueries = queryMap.get(m.targetUrl) ?? [];
       m.declines = declineMap.get(m.targetUrl) ?? [];
       m.cannibalization = (cannibalByUrl.get(canon(m.targetUrl)) ?? []).slice(0, 2);
+      // Outcome-threading: surface the page's most recent shipped-change outcome on
+      // the card (display only). Conservative URL+family basis, mirroring Results.
+      const pr = proofByPage.get(canon(m.targetUrl));
+      if (pr) {
+        const fam = (a: string): string =>
+          /title|meta|ctr/.test(a) ? "tm" : /answer|aeo|faq|schema/.test(a) ? "aeo" : /internal|link|consolidat/.test(a) ? "lk" : /friction|experience|cro|ux|conversion/.test(a) ? "cro" : "edit";
+        const sameFamily = fam(m.action) === fam(pr.actionType) || fam(m.action) === "edit" || fam(pr.actionType) === "edit";
+        if (pr.state === "measuring") {
+          m.proofStatus = "measuring";
+          m.alreadyMeasuring = sameFamily;
+          m.proofLabel = `Measuring since ${pr.shippedAt.slice(0, 10)}`;
+        } else if (pr.state === "win") {
+          m.proofStatus = "won";
+          m.proofLabel = "Won in Results";
+        } else if (pr.state === "loss") {
+          m.proofStatus = "no_lift";
+          m.proofLabel = "No lift";
+        } else if (pr.state === "inconclusive" || pr.state === "stale") {
+          m.proofStatus = "no_clear_lift";
+          m.proofLabel = "No clear lift yet";
+        }
+      }
       // Always-actionable answer blocks: when the engine found no competitor FAQ
       // and no Profound fanout to seed the answer targets (competitor blocks
       // crawlers, or the topic isn't in the fanout account), fall back to the

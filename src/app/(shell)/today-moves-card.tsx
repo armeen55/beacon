@@ -265,6 +265,20 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         {preparedPill ? (
           <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${preparedPill.cls}`}>{preparedPill.label}</span>
         ) : null}
+        {m.proofStatus ? (
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
+              m.proofStatus === "won"
+                ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                : m.proofStatus === "measuring"
+                  ? "bg-sky-50 text-sky-700 ring-sky-200"
+                  : "bg-gray-100 text-gray-500 ring-gray-200"
+            }`}
+            title="From Results — the last shipped change on this page"
+          >
+            {m.alreadyMeasuring ? "Already measuring" : m.proofLabel}
+          </span>
+        ) : null}
         {m.demand != null && m.demand > 0 ? (
           <span className="rounded-full bg-gray-50 px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-gray-200">
             {fmtNum(m.demand)} {m.demandBasis === "ai_attention" ? "AI demand" : "monthly demand"}
@@ -718,12 +732,19 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       ) : null}
 
       <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3">
+        {/* Already mid-measurement on this exact page+action: a second ship would
+            contaminate the open proof window — demote Ship, don't block it. */}
         <button
           onClick={ship}
           disabled={pending}
-          className={`inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 ${tone.btn}`}
+          className={
+            m.alreadyMeasuring
+              ? "inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-60"
+              : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 ${tone.btn}`
+          }
+          title={m.alreadyMeasuring ? "This page+change is already measuring — shipping again would muddy the proof window" : undefined}
         >
-          ⚡ Ship it
+          {m.alreadyMeasuring ? "Ship anyway" : "⚡ Ship it"}
         </button>
         {hasDraft ? (
           <button
