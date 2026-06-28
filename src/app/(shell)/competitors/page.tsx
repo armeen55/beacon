@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { KpiCard } from "@/components/viz/kpi-card";
 import { getCompetitors, getResults, hasActiveExperiment } from "@/lib/seed-data.server";
+import { hasAnyConnectedDataSource } from "@/lib/connector-store";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getPageIssues } from "@/domains/pages/issues";
 import { computeMarketBenchmark, prettifyDomain, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
@@ -51,8 +52,11 @@ import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 
 export default async function CompetitorsPage() {
-  // Same signal as Today / Pages / Changes (Phase 2B): no import runs ⇒ sample workspace, not operator Market.
-  if (!(await hasActiveExperiment())) {
+  // Demo gate — MATCH Today's signal (2026-06-28 route consolidation): a tenant
+  // with connected data sources is real, even without a CSV import. The old
+  // `!hasActiveExperiment()`-only gate wrongly showed Iranopedia the "connect your
+  // data" empty state while competitor data was populated everywhere else.
+  if (!(await hasActiveExperiment()) && !(await hasAnyConnectedDataSource())) {
     return (
       <div className="max-w-4xl">
         <PageHeader
@@ -71,7 +75,7 @@ export default async function CompetitorsPage() {
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
             Rankings, co-mentions, battlecards, and local pressure are built from your data and configured
-            competitor universe. Connect Google Search Console (plus GA4, SEMrush, or Clarity) and
+            competitor universe. Connect Google Search Console (plus GA4, Profound, or Clarity) and
             refresh to see your business. Until then, this route shows sample market data for orientation
             only — not your business.
           </p>
