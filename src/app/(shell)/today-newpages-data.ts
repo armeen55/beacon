@@ -7,6 +7,7 @@ import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/m
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
 /**
  * today-newpages-data (2026-06-24) — the loader behind the "New Pages to Build"
@@ -150,6 +151,9 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
 
   const createMoves = moves
     .filter((m) => m.gap === "create_page")
+    // New Pages quality gate (2026-06-28): drop scraped news/security fragments,
+    // slug garbage, and too-generic one-word topics before they reach the board.
+    .filter((m) => !isJunkTopic(m.label))
     .sort((a, b) => b.components.demand - a.components.demand);
 
   // Tier by rank within this tenant's own create-page set (relative, honest —
@@ -175,7 +179,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
         : null;
     return {
       id: m.demandKey,
-      topic: titleCase(m.label),
+      topic: cleanTopicLabel(m.label),
       competitorCount: m.competitorUrls.length,
       topCompetitor: topUrl ? domainOf(topUrl) : null,
       whatWins: ww && ww !== "—" ? ww : null,
