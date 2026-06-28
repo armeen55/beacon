@@ -1,49 +1,73 @@
-import { notFound } from "next/navigation";
-
-import { isOperatorModeServer } from "@/lib/operator-mode";
-import { currentTenantId } from "@/lib/tenant-context";
-import { loadBatchExperimentRows } from "@/domains/insight/batch-experiment-loader";
-import { selectExperimentBatch } from "@/domains/insight/select-experiment-batch";
-import { ExperimentsClient } from "./experiments-client";
-
-/**
- * Batch Experiment Planner (TASK 4) — the daily operating surface.
- *
- * Picks the next 5 to 10 safe, high-upside changes to make today across pages,
- * each with paste-ready copy + proof instructions, built on the per-page TASK-3
- * optimizer. Pages already under measurement are held out so a new change never
- * muddies an open proof window. Read-only: nothing publishes here. Operator-gated.
- */
 export const dynamic = "force-dynamic";
 
-export default async function ExperimentsPage() {
-  // IA consolidation (2026-06-23): available to everyone, no operator gate.
+import { Suspense } from "react";
+import { PageHeader } from "@/components/data/page-header";
+import { loadMovesWorklist } from "../moves/moves-data";
+import { MoveCard } from "../today-moves-card";
+import { PrepareTopMovesButton } from "../today-moves-prepare";
 
-  const tenantId = await currentTenantId();
-  const rows = await loadBatchExperimentRows(tenantId).catch(() => []);
-  const cards = selectExperimentBatch(rows);
+/**
+ * /experiments (2026-06-28 — ActionPack execution loop) — "Ready to ship": the
+ * ActionPacks that have been prepared end-to-end (structured draft + experiment +
+ * proof plan) and are ready for the operator to make the change. Driven by the
+ * canonical worklist (`loadMovesWorklist`), filtered to readyToReview. Each card's
+ * "Ship it" records a proof-ledger entry (via respondToRecommendation →
+ * autoRecordShippedChangeForRec), starting the measurement clock — closing
+ * prepare → ship → measure. Nothing publishes automatically. Replaces the legacy
+ * batch-experiment planner.
+ */
+async function ReadyToShip() {
+  const data = await loadMovesWorklist().catch(() => null);
+  const all = data?.moves ?? [];
+  const ready = all.filter((m) => m.preparedChecklist?.readyToReview);
+  const preparedReady = data?.stats.preparedReady ?? ready.length;
 
-  const updatedOn = new Date().toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-
-  return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">Changes to try next</h1>
-          <span className="text-[12px] text-muted-foreground">Updated {updatedOn}</span>
+  if (ready.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-gray-500">
+            Nothing is prepared to ship yet. Prepare your strongest moves end-to-end — draft,
+            experiment, and proof plan — then they appear here ready to make.
+          </p>
+          <PrepareTopMovesButton readyCount={0} total={all.length} />
         </div>
-        <p className="mt-1 text-[14px] text-muted-foreground">
-          The best changes to make today, ranked by impact and picked so you can
-          clearly measure each one. Pages you are already testing are left out so
-          their results stay clean. None of these buttons touch your website. You
-          make each change yourself.
+        <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
+          No moves are ready to ship. Click “Prepare my top 10” to draft + proof-plan the strongest
+          moves; once prepared they show up here with paste-ready copy and a measurement plan.
         </p>
       </div>
-      <ExperimentsClient cards={cards} />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-gray-500">
+          {ready.length} move{ready.length === 1 ? "" : "s"} prepared end-to-end. Make each change
+          yourself, then hit “Ship it” to start measuring the lift. Nothing here touches your site.
+        </p>
+        <PrepareTopMovesButton readyCount={preparedReady} total={all.length} />
+      </div>
+      <div className="grid gap-3">
+        {ready.map((m, i) => (
+          <MoveCard key={m.id} m={m} rank={i + 1} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function ExperimentsPage() {
+  return (
+    <div className="max-w-5xl space-y-6">
+      <PageHeader
+        title="Ready to ship"
+        description="ActionPacks prepared end-to-end — draft, experiment, and proof plan ready. Make the change yourself, then mark it shipped to measure the lift. Nothing here publishes automatically."
+      />
+      <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
+        <ReadyToShip />
+      </Suspense>
     </div>
   );
 }

@@ -55,7 +55,7 @@ export const navigationGroups: NavGroup[] = [
   {
     label: "Track results",
     items: [
-      { label: "Experiments", href: "/experiments", icon: FlaskConical },
+      { label: "Ready to ship", href: "/experiments", icon: FlaskConical },
       // IA consolidation (2026-06-23): "Changes" merged INTO Results (/proof) —
       // one place for "what changed / is it measuring / did it work". The
       // /changes index redirects to /proof; /changes/[id] detail still works.
