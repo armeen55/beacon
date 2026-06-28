@@ -70,10 +70,11 @@ function Section({ title, blurb, packs }: { title: string; blurb: string; packs:
   );
 }
 
-export default async function ActionPacksPage() {
+export default async function ActionPacksPage({ searchParams }: { searchParams?: Promise<{ mode?: string }> }) {
   if (!gate()) notFound();
   const tenantId = await currentTenantId();
-  const wl = await loadActionPackWorklistForTenant(tenantId);
+  const mode = (await searchParams)?.mode === "full" ? "full" : "fast";
+  const wl = await loadActionPackWorklistForTenant(tenantId, { mode });
   const s = wl.summary;
 
   const fam = (f: ReturnType<typeof actionFamily>, n: number) => wl.packs.filter((p) => actionFamily(p.actionType) === f).slice(0, n);
@@ -92,6 +93,19 @@ export default async function ActionPacksPage() {
         title="Unified action packs (one brain)"
         description="Every recommendation source — Rank-&-Revenue Moves + Profound coverage — normalized into one ranked worklist, deduped. The surface that replaces the competing legacy paths."
       />
+
+      <div className="flex items-center gap-2 text-xs text-gray-500">
+        <span className={`rounded px-1.5 py-0.5 font-medium ${mode === "fast" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{mode} mode</span>
+        <span>{mode === "fast" ? "Bounded reads (canonical default)." : "Full evidence read (deep diagnostic)."}</span>
+        <a href={`/diagnostics/action-packs?mode=${mode === "fast" ? "full" : "fast"}`} className="text-blue-600 underline">switch to {mode === "fast" ? "full" : "fast"}</a>
+      </div>
+
+      {s.warnings.length > 0 ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <span className="font-semibold">Degraded:</span>
+          <ul className="ml-4 list-disc">{s.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {tiles.map((t) => (

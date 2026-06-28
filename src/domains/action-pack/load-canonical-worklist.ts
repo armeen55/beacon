@@ -90,6 +90,8 @@ async function loadUncached(tenantId: string, now: string): Promise<CanonicalWor
   ]);
 
   const packs = wl.packs;
+  // Surface the worklist's own degradation (failed/capped source reads) — fail visible.
+  warnings.push(...wl.summary.warnings);
 
   const families: CanonicalFamilies = {
     existingPageFixes: [],
