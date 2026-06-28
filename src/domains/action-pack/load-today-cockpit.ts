@@ -50,7 +50,11 @@ async function loadUncached(tenantId: string): Promise<TodayCockpit> {
     const fam = actionFamily(p.actionType);
     return fam === "new_page" || fam === "hub";
   }).length;
-  const preparedMovesCount = packs.filter((p) => p.draftStatus === "ready").length;
+  // "Drafts ready" = moves with an actual PERSISTED prepared draft (ready-to-review),
+  // the same number /worklist shows — NOT packs.draftStatus==="ready", which only
+  // means "has a deterministic skeleton" (~every pack) and inflated the tile to the
+  // hundreds, contradicting Worklist. Honest, consistent count.
+  const preparedMovesCount = worklist?.stats.preparedReady ?? 0;
   const aiValidatedCount = packs.filter((p) => p.dataforseoValidation?.verdict === "build").length;
 
   const topThree = (worklist?.moves ?? []).slice(0, 3);
