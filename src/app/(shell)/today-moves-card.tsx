@@ -240,6 +240,19 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
     );
   }
 
+  // At-a-glance preparedness (operator Phase 4: show preparedStatus on every card).
+  // The prepared checklist below already carries the full "Ready to review" detail,
+  // so the header pill only adds the missing signals: "Ready to draft" (evidence is
+  // in place — click Prepare) and "Needs review" (a draft attempt failed).
+  const preparedPill: { label: string; cls: string } | null =
+    m.preparedStatus === "ready_to_review" || m.preparedStatus === "draft_ready" || m.preparedStatus === "proof_ready"
+      ? { label: "Prepared", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" }
+      : m.preparedStatus === "failed"
+        ? { label: "Needs review", cls: "bg-amber-50 text-amber-700 ring-amber-200" }
+        : m.preparedStatus === "shipped" || m.preparedStatus === "measuring" || m.preparedStatus === "won" || m.preparedStatus === "lost"
+          ? null
+          : { label: "Ready to draft", cls: "bg-indigo-50 text-indigo-600 ring-indigo-200" };
+
   return (
     <div
       className={`group relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 pl-6 shadow-sm ring-1 ring-transparent transition-all hover:-translate-y-0.5 hover:shadow-lg ${tone.ring} ${pending ? "opacity-60" : ""}`}
@@ -249,6 +262,9 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-[11px] font-semibold text-white">{rank}</span>
         <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${tone.pill}`}>{m.actionLabel}</span>
         <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${conf.cls}`}>{conf.label}</span>
+        {preparedPill ? (
+          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${preparedPill.cls}`}>{preparedPill.label}</span>
+        ) : null}
         {m.demand != null && m.demand > 0 ? (
           <span className="rounded-full bg-gray-50 px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-gray-200">
             {fmtNum(m.demand)} {m.demandBasis === "ai_attention" ? "AI demand" : "monthly demand"}

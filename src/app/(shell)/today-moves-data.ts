@@ -284,11 +284,14 @@ export async function buildTodayMovesData(
 
     const [edits, packets, responses, savedDrafts, ledger, graphMoves] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
-      // Enrichment (teardown/outline/proof) rides the heavy graph compute — guard
-      // it so a slow graph degrades the hero to the light queue read, never hangs.
+      // Enrichment (teardown/outline/proof + the prepared-pack join) rides the heavy
+      // graph compute. Was 8s — too tight for a cold render, which silently dropped
+      // every move's preparedStatus (the "Prepared/Ready to draft" pill + the rich
+      // checklist). The graph is cached (the cockpit warms it first), so 30s only
+      // guards a genuine stall. Don't disappear.
       withTimeout(
         loadChangePacksForTenant(tenantId, { limit: 40 }).then((r) => r.packets ?? []),
-        8000,
+        30000,
         [] as EvidencePacket[],
       ),
       repo.getRecommendationResponses().catch(() => []),
@@ -303,7 +306,7 @@ export async function buildTodayMovesData(
       // learned tag ("ranked higher because similar moves won") rides this.
       withTimeout(
         loadDemandGraphForTenantCached(tenantId).then((r) => r.graph.moves).catch(() => []),
-        8000,
+        30000,
         [] as Awaited<ReturnType<typeof loadDemandGraphForTenantCached>>["graph"]["moves"],
       ),
     ]);
