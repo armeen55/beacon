@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-28 — PREPARED-FOR-YOU mode: "Beacon found it" → "Beacon prepared it" · main (shipped)
+
+Operator: make the top moves arrive prepared, not just diagnosed. Mapped the existing draft/prepare machinery with a 9-agent workflow FIRST (don't rebuild) — finding the whole stack was already built: PreparedMovePack + 16-state machine (prepared-move-pack.ts), prepare pipeline (prepare-today-moves.ts, cache-first, capped), structured drafters + zod schemas (llm/structured-drafter.ts, llm/schemas.ts), persisted `move_drafts` kind `prepared_pack`, and the card render. The real gap: my ActionPack rebuild had **orphaned the trigger button**, and there was no copy button on the prepared draft.
+
+- **Re-wired `PrepareTopMovesButton`** onto /moves (worklist header) + Today ("Do these first") — it was defined but imported nowhere. `prepareTopMovesAction({maxN})` was intact.
+- **Live prepare run (real LLM, capped/cache-first):** prepared 10, **9 ready to review**, 1 needs a look, **$0.015**. Grounded structured drafts (Asiatic cheetah answer block, "Flag of Iran - History and Timeline" title, Achaemenid answer block). 10 `prepared_pack` persisted.
+- **Copy button** on the prepared structured draft (the paste-ready answer block / title) — it had none.
+- **preparedStatus pill on every card** (Phase 4): "Prepared" / "Ready to draft" / "Needs review".
+- **Fix: cold-render degradation** — `buildTodayMovesData` time-boxed the change-pack read (prepared-pack join + enrichment) at 8s → a cold render silently dropped every move's preparedStatus. Raised both 8s → 30s (graph is cached). Same don't-disappear class as the load.ts / New Pages fixes.
+- **Did NOT build `draftCreatePageStructured`** — create_page already has a prepare path on the New Pages board (SERP verdict via `prepareNewPagesAction` + `draftAeoPromptBrief`); a second drafter would duplicate it. (Both New Pages buttons verified still wired.)
+- **Verified live:** Prepare button on / + /moves; warm /moves shows 5 "Prepared" + 70 "Ready to draft" pills + 5 "Ready to review" checklists + 44 copy buttons. tsc 0; build PASS; / 200, /moves 200.
+- Commits: `6563b3f3` (re-wire + copy), `746f6685` (pill + timebox).
+
+---
+
 ## 2026-06-28 — CONNECTEDNESS sprint: fuse every source into ActionPack + show evidence on the UI · main (shipped)
 
 Operator: "connect everything; call the safe read APIs; fuse every source into ActionPack; make the UI show the evidence; loading states fine; no flags; ship to main; repeat the loop until nothing remains." ActionPack is the brain; SPEED over polish; always main.
