@@ -31,7 +31,7 @@ export default async function ProposedBriefsPage() {
         <p className="text-[14px] font-medium mb-1">No briefs yet</p>
         <p className="text-[12px] text-muted-foreground mb-3">
           A brief is a step-by-step plan for one change to make. Connect a
-          data source (Search Console, GA4, Semrush) so Beacon has something
+          data source (Search Console, GA4, Profound) so Beacon has something
           to work from — then it can draft briefs for you. You can also
           import a spreadsheet export instead.
         </p>

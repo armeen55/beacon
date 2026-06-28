@@ -56,13 +56,8 @@ function EvidenceReceipt({ e }: { e: BriefEvidenceReceipt }) {
       }${e.gsc.topQuery ? ` · “${e.gsc.topQuery}”` : ""}`,
     });
   }
-  if (e.semrush) {
-    chips.push({
-      key: "semrush",
-      label: "SEMrush",
-      value: `${e.semrush.rankedKeywords} ranked · ${e.semrush.strikingDistance} striking-distance`,
-    });
-  }
+  // SEMrush evidence chip removed (dead — SEMrush is retired; DataForSEO is the
+  // search-market source). The packet field no longer populates.
   if (e.clarity) {
     chips.push({
       key: "clarity",
@@ -85,7 +80,7 @@ function EvidenceReceipt({ e }: { e: BriefEvidenceReceipt }) {
         data-brief-evidence-empty="true"
       >
         No connected-source data for this page yet — connect Google / Clarity /
-        SEMrush or refresh to deepen the evidence.
+        Profound or refresh to deepen the evidence.
       </p>
     );
   }
