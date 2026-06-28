@@ -334,13 +334,9 @@ export function RecommendationV2Card({
     row.detail.gscEvidenceLines,
     evGuard,
   );
-  // 2026-06-15 follow-up — SEMrush evidence (exact search volume + keyword
-  // difficulty + current rank), built from the rec's SEMrush signal.
-  // Default [] mirrors the GSC guard so a row without it never crashes.
-  const semrushEvidenceLines = filterDisplaySafeEvidenceLines(
-    row.detail.semrushEvidenceLines,
-    evGuard,
-  );
+  // SEMrush removed Phase F.1 — always empty so the SEMrush evidence UI never
+  // renders (kept as a typed [] to avoid touching every downstream render site).
+  const semrushEvidenceLines = [] as typeof gscEvidenceLines;
   // 2026-06-15 — Microsoft Clarity friction evidence (rage-clicks / page
   // errors) + AI-answer gap evidence (white-label). Same [] guard so a row
   // without either never crashes; dormant until those sources are connected.

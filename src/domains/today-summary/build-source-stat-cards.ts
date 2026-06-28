@@ -32,7 +32,6 @@ import type {
 } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import type { Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import type { SemrushPageSignal } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import type { TodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
 
 /** One headline number on a card (big value + tiny label under it). */
@@ -54,7 +53,7 @@ export type SourceSubline = {
 /** One compact stat card — a single source's headline scoreboard. */
 export type SourceStatCard = {
   /** Stable key / data-attr value, e.g. "gsc". */
-  key: "gsc" | "ga4" | "semrush" | "clarity" | "aeo";
+  key: "gsc" | "ga4" | "clarity" | "aeo";
   /** Plain-English source label, e.g. "Search (Google)". */
   source: string;
   /** 2–4 headline numbers. */
@@ -111,7 +110,6 @@ export type AllSourceStatInputs = {
   gscDecay?: Map<string, GscDecaySignal>;
   ga4: Map<string, Ga4PageValue>;
   clarity: Map<string, ClarityPageSignal>;
-  semrush: Map<string, SemrushPageSignal>;
   aeo: TodayDerivedKpis | null;
 };
 
@@ -366,42 +364,7 @@ function buildGa4Card(ga4: Map<string, Ga4PageValue>): SourceStatCard | null {
  * quick-wins (positions 4–20), and total tracked search volume.
  * Gate on a non-empty Map (not connected for Iranopedia → empty → hidden).
  */
-function buildSemrushCard(
-  semrush: Map<string, SemrushPageSignal>,
-): SourceStatCard | null {
-  if (semrush.size === 0) return null;
-
-  const distinctKeywords = new Set<string>();
-  let strikingDistance = 0;
-  let trackedVolume = 0;
-  for (const s of semrush.values()) {
-    for (const k of s.keywords) {
-      distinctKeywords.add(k.keyword);
-      trackedVolume += k.volume;
-    }
-    strikingDistance += s.strikingDistance.length;
-  }
-  // A non-empty Map with zero ranked keywords across all pages has no
-  // real headline — gate it out too.
-  if (distinctKeywords.size === 0) return null;
-
-  return {
-    key: "semrush",
-    source: "Keyword rankings",
-    stats: [
-      { label: "Searches you rank for", value: fmtInt(distinctKeywords.size) },
-      { label: "Almost on page 1", value: fmtInt(strikingDistance) },
-      { label: "Monthly searches", value: fmtCompact(trackedVolume) },
-    ],
-    subline:
-      strikingDistance > 0
-        ? {
-            text: `${fmtInt(strikingDistance)} keyword${strikingDistance === 1 ? "" : "s"} close to page one`,
-            tone: "neutral",
-          }
-        : null,
-  };
-}
+// (buildSemrushCard removed Phase F.1 — SEMrush deleted caller-first.)
 
 /**
  * Clarity card: sessions analyzed + rage-click rate + dead-click rate,
@@ -537,7 +500,6 @@ export function buildSourceStatCards(
   const cards: Array<SourceStatCard | null> = [
     buildGscCard(inputs.gscSiteTotals, inputs.gscDecay),
     buildGa4Card(inputs.ga4),
-    buildSemrushCard(inputs.semrush),
     buildClarityCard(inputs.clarity, claritySpansMultipleDays),
     buildAeoCard(inputs.aeo),
   ];

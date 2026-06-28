@@ -108,16 +108,6 @@ import {
   loadProfoundTopicSignalsForTenant,
   type ProfoundTopicSignal,
 } from "./profound-topic-signals";
-import { semrushStrikingDistance } from "./triggers/semrush-striking-distance";
-import { semrushCannibalization } from "./triggers/semrush-cannibalization";
-import { semrushKeywordGap } from "./triggers/semrush-keyword-gap";
-import {
-  detectCannibalization,
-  loadSemrushCannibalRowsForTenant,
-  loadSemrushKeywordGapsForTenant,
-  loadSemrushPageSignalsForTenant,
-  type SemrushPageSignal,
-} from "./semrush-page-signals";
 import {
   loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant,
@@ -165,7 +155,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 17;
+const PREDICATE_COUNT = 14;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -333,17 +323,6 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
-  // Insight Graph slice 2 (2026-06-12): pre-load SEMrush per-page
-  // keyword signals. Soft-empty when no key / no rows.
-  let semrushSignals: Map<string, SemrushPageSignal> = new Map();
-  try {
-    semrushSignals = await loadSemrushPageSignalsForTenant(tenantId);
-  } catch (err) {
-    console.error(
-      `[trigger-loader] semrush page-signals load failed for ${tenantId} (semrush predicates skip): ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
   // Profound AEO-gap (2026-06-14): pre-load per-topic answer-engine
   // signals from the ALREADY-SYNCED profound_visibility_rows (this reads
   // synced Supabase rows — it NEVER calls the Profound API). The tenant's
@@ -424,56 +403,9 @@ export async function loadTriggerCandidatesForTenant(options: {
   // Internal-link brain (2026-06-12): contextual topic-cluster link
   // opportunities from the same snapshot link graph.
   all.push(...internalLinkOpportunity({ tenantId, snapshots }));
-  // Cannibalization slice (2026-06-12): cross-page, runs once before
-  // the per-snapshot loop (the duplicate-title pattern). Soft-empty
-  // until SEMrush rows exist.
-  try {
-    const cannibalRows = await loadSemrushCannibalRowsForTenant(tenantId);
-    if (cannibalRows.length > 0) {
-      all.push(
-        ...semrushCannibalization({
-          tenantId,
-          cases: detectCannibalization(cannibalRows),
-          signalAt: new Date().toISOString(),
-        }),
-      );
-    }
-  } catch (err) {
-    console.error(
-      `[trigger-loader] semrush cannibalization load failed for ${tenantId} (predicate skips): ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  // Keyword-gap slice (2026-06-12): "Missing" keywords -> new-content
-  // briefs (operator-review). Soft-empty until the weekly gap sync
-  // has rows.
-  try {
-    const gaps = await loadSemrushKeywordGapsForTenant(tenantId);
-    const rootDomain = businessConfig.domain
-      ?.trim()
-      .replace(/^https?:\/\//, "")
-      .replace(/\/$/, "");
-    if (gaps.length > 0 && rootDomain) {
-      all.push(
-        ...semrushKeywordGap({
-          tenantId,
-          gaps,
-          siteRootUrl: "https://" + rootDomain + "/",
-          signalAt: new Date().toISOString(),
-          // Originality guard (audit #13): topical duplicates flip the
-          // play from create_page to expanding the matched page.
-          existingPages: snapshots.map((s) => ({
-            url: s.url,
-            title: s.title,
-            h1: s.h1,
-          })),
-        }),
-      );
-    }
-  } catch (err) {
-    console.error(
-      `[trigger-loader] semrush keyword-gap load failed for ${tenantId} (predicate skips): ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  // (SEMrush cannibalization + keyword-gap triggers removed Phase F.1 — SEMrush
+  // deleted caller-first. GSC-native cannibalization detection serves /opportunities;
+  // wiring it as a queue trigger is tracked as a follow-up.)
   // Profound AEO-gap (2026-06-14): the FIRST trigger to consume Profound —
   // the pivot's sole AEO source. Tenant-level (the gap topic is the unit),
   // so it runs ONCE before the per-snapshot loop. Anchored on the site root
@@ -589,16 +521,8 @@ export async function loadTriggerCandidatesForTenant(options: {
         ),
       }),
     );
-    // Insight Graph slice 2 (2026-06-12) — striking-distance keywords.
-    all.push(
-      ...semrushStrikingDistance({
-        tenantId,
-        snapshot,
-        signal: semrushSignals.get(
-          canonicalizeCitationUrl(snapshot.url) ?? snapshot.url,
-        ),
-      }),
-    );
+    // (SEMrush striking-distance removed Phase F.1 — superseded by the first-party
+    // gscStrikingDistance trigger already wired below/above. No signal lost.)
 
     // Slice 4.5.C.α₁ — Tier-1 indexability predicates. Each
     // receives the pre-resolved `OwnedUrlIndexability` as a pure

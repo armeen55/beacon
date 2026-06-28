@@ -74,10 +74,6 @@ import {
   type GscPageSignal,
 } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import {
-  loadSemrushPageSignalsForTenant,
-  type SemrushPageSignal,
-} from "@/domains/recommendation-intelligence/semrush-page-signals";
-import {
   loadClarityPageSignalsForTenant,
   type ClarityPageSignal,
 } from "@/domains/recommendation-intelligence/clarity-page-signals";
@@ -97,12 +93,6 @@ export type LiveRecQueueItem = PrioritizedRecommendation & {
    *  when the page has no GSC data. Lets the card lead with first-party search
    *  demand instead of AEO citations. */
   gscSignal?: GscPageSignal | null;
-  /** 2026-06-15 follow-up — per-page SEMrush keyword signal for this rec's
-   *  target URL (ranked keywords with VOLUME / DIFFICULTY (KD) / POSITION, plus
-   *  the striking-distance shortlist), or null when the page has no SEMrush
-   *  data. Lets the card quote the exact search volume + keyword difficulty +
-   *  current rank the owner asked for in the "why". */
-  semrushSignal?: SemrushPageSignal | null;
   /** 2026-06-15 — per-page Microsoft Clarity behavioral signal for this rec's
    *  target URL (28-day sessions + rage/dead/quickback/script-error counts and
    *  derived rates), or null when Clarity has no data for the page. Lets the
@@ -512,19 +502,7 @@ export async function loadLiveRecommendationQueue(
   if (gscRes.error) errors.push(gscRes.error);
   const gscByUrl = gscRes.value;
 
-  // 2026-06-15 follow-up — per-page SEMrush signals so each card can quote
-  // the exact search volume + keyword difficulty + current rank (the owner's
-  // requested "why"). Already-synced data only (no new API call); one bounded
-  // tenant-scoped Supabase read; soft-fail to empty so the queue still renders.
-  const semrushRes = await trace.time("loadSemrushPageSignals", () =>
-    safeCall(
-      () => loadSemrushPageSignalsForTenant(tenantId),
-      new Map<string, SemrushPageSignal>(),
-      "load SEMrush page signals",
-    ),
-  );
-  if (semrushRes.error) errors.push(semrushRes.error);
-  const semrushByUrl = semrushRes.value;
+  // (SEMrush per-page signals removed Phase F.1 — SEMrush deleted caller-first.)
 
   // 2026-06-15 — per-page Microsoft Clarity signals so each card can quote
   // the on-page FRICTION (rage-clicks / page errors) the search signals can't
@@ -582,11 +560,9 @@ export async function loadLiveRecommendationQueue(
         ? canonicalizeCitationUrl(targetUrl)
         : null;
     const gscSignal = canonical != null ? gscByUrl.get(canonical) ?? null : null;
-    const semrushSignal =
-      canonical != null ? semrushByUrl.get(canonical) ?? null : null;
     const claritySignal =
       canonical != null ? clarityByUrl.get(canonical) ?? null : null;
-    return { ...rec, engineConfidence, gscSignal, semrushSignal, claritySignal };
+    return { ...rec, engineConfidence, gscSignal, claritySignal };
   });
   trace.mark("decoration_loop_end");
   trace.data("queue_count", decoratedQueue.length);
@@ -1028,7 +1004,6 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
         promptsRes,
         changelogRes,
         gscRes,
-        semrushRes,
         clarityRes,
       ] = await Promise.all([
         safeCall(
@@ -1056,14 +1031,6 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
           new Map<string, GscPageSignal>(),
           "persisted: fetch gsc page signals",
         ),
-        // 2026-06-15 follow-up — SEMrush per-page signals so the v2 card can
-        // quote the exact search volume + keyword difficulty + current rank
-        // (the owner's "why"). Already-synced data only; soft-fail to empty.
-        safeCall(
-          () => loadSemrushPageSignalsForTenant(tenantId),
-          new Map<string, SemrushPageSignal>(),
-          "persisted: fetch semrush page signals",
-        ),
         // 2026-06-15 — Microsoft Clarity per-page signals so the v2 card can
         // quote the on-page FRICTION (rage-clicks / page errors) the search
         // signals can't see. Already-synced data only; soft-fail to empty.
@@ -1082,7 +1049,6 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       if (promptsRes.error) errors.push(promptsRes.error);
       if (changelogRes.error) errors.push(changelogRes.error);
       if (gscRes.error) errors.push(gscRes.error);
-      if (semrushRes.error) errors.push(semrushRes.error);
       if (clarityRes.error) errors.push(clarityRes.error);
 
       const recommendedEdits = editsRes.value;
@@ -1090,7 +1056,6 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
       const trackedPrompts = promptsRes.value;
       const changelogEntries = changelogRes.value;
       const gscByUrl = gscRes.value;
-      const semrushByUrl = semrushRes.value;
       const clarityByUrl = clarityRes.value;
 
       // Group edits by rec_id. Skip edits that have no rec_id (legacy
@@ -1143,12 +1108,10 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
             : null;
         const gscSignal =
           canonical != null ? gscByUrl.get(canonical) ?? null : null;
-        const semrushSignal =
-          canonical != null ? semrushByUrl.get(canonical) ?? null : null;
         const claritySignal =
           canonical != null ? clarityByUrl.get(canonical) ?? null : null;
         return {
-          rec: { ...rec, gscSignal, semrushSignal, claritySignal },
+          rec: { ...rec, gscSignal, claritySignal },
           response,
           edits,
         };

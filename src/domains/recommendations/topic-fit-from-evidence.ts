@@ -45,20 +45,17 @@ export function deriveRowTopicFit(
   opts: { brandTerms?: ReadonlyArray<string>; localeTerms?: ReadonlyArray<string> } = {},
 ): PageTopicFit | null {
   const gsc = row.detail.gscEvidenceLines ?? [];
-  const semrush = row.detail.semrushEvidenceLines ?? [];
 
   const gscQ = gsc[0] ? unquote(gsc[0].value) : null;
-  const semQ = semrush[0] ? unquote(semrush[0].value) : null;
   const promptQ = affectedPromptTexts[0] ?? null;
 
-  const primary = [gscQ, semQ, promptQ].find(
+  const primary = [gscQ, promptQ].find(
     (q): q is string => typeof q === "string" && q.trim().length > 1,
   );
   if (primary == null) return null;
 
   const supporting = [
     ...gsc.slice(1).map((l) => unquote(l.value)),
-    ...semrush.map((l) => unquote(l.value)),
     ...affectedPromptTexts,
   ]
     .map((q) => q.trim())

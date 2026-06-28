@@ -3,7 +3,6 @@ import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
-import { loadSemrushKeywordGapsForTenant } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
@@ -110,7 +109,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let ownDomain = "";
   const volumeByKeyword = new Map<string, number>();
   try {
-    const [graphRes, auditRes, draftRes, semrushGaps] = await Promise.all([
+    const [graphRes, auditRes, draftRes] = await Promise.all([
       withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
         loadDemandGraphForTenantCached(tenantId),
         8000,
@@ -119,19 +118,14 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       getCompetitorAuditsForTenant().catch(() => new Map()),
       // Persisted AI openings (degrade-safe: empty map if the table isn't migrated).
       withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
-      // Real SEMrush search volume by keyword (bounded, fail-soft []) — for EXACT
-      // topic→keyword grounding (no fuzzy matching → no wrong numbers).
-      withTimeout(loadSemrushKeywordGapsForTenant(tenantId), 4000, [] as Awaited<ReturnType<typeof loadSemrushKeywordGapsForTenant>>),
     ]);
+    // (SEMrush keyword-volume grounding removed Phase F.1 — searchVolume is null
+    // until DataForSEO keyword volume is wired. New-page candidates are unaffected.)
     if (!graphRes) return { opportunities: [], totalCandidates: 0, ownDomain: "" };
     moves = graphRes.graph.moves;
     ownDomain = deriveOwnDomain(graphRes.graph.pageNodes);
     audits = auditRes;
     savedDrafts = draftRes;
-    for (const g of semrushGaps) {
-      const k = g.keyword?.trim().toLowerCase().replace(/\s+/g, " ");
-      if (k && g.volume > 0 && !volumeByKeyword.has(k)) volumeByKeyword.set(k, g.volume);
-    }
   } catch {
     return { opportunities: [], totalCandidates: 0, ownDomain: "" };
   }

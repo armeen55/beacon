@@ -3,7 +3,6 @@ import { listTenants } from "@/domains/tenants/store";
 import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
-import { syncSemrushOrganicKeywordsForTenant } from "@/lib/connectors/semrush/sync-organic-keywords";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
@@ -13,7 +12,7 @@ import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
  *  /settings/connectors "Refresh my data" action, but parameterized per
  *  arbitrary tenant (no request context) so the cron can fan out. */
-type ReadProvider = "google_gsc" | "google_ga4" | "semrush" | "clarity" | "profound";
+type ReadProvider = "google_gsc" | "google_ga4" | "clarity" | "profound";
 
 const READ_SOURCES: ReadonlyArray<{
   provider: ReadProvider;
@@ -21,7 +20,6 @@ const READ_SOURCES: ReadonlyArray<{
 }> = [
   { provider: "google_gsc", run: (t) => syncGscSearchAnalyticsForTenant({ tenantId: t }) },
   { provider: "google_ga4", run: (t) => syncGa4UrlTrafficForTenant({ tenantId: t }) },
-  { provider: "semrush", run: (t) => syncSemrushOrganicKeywordsForTenant({ tenantId: t }) },
   { provider: "clarity", run: (t) => syncClarityDailyMetricsForTenant({ tenantId: t }) },
   { provider: "profound", run: (t) => syncProfoundNightlyForTenant({ tenantId: t }) },
 ];
@@ -89,9 +87,6 @@ async function stampFreshness(provider: ReadProvider, tenantId: string): Promise
       case "google_ga4":
         await updateConnectorToken("google_ga4", patch, tenantId);
         break;
-      case "semrush":
-        await updateConnectorToken("semrush", patch, tenantId);
-        break;
       case "clarity":
         await updateConnectorToken("clarity", patch, tenantId);
         break;
@@ -156,14 +151,13 @@ async function syncOneTenant(tenantId: string): Promise<CronSyncSourceResult[]> 
  *  never see stale free data. (Their underlying data only changes ~daily — GSC is
  *  3 days behind — so 1h is "always fresh" without re-pulling on every single
  *  navigation; the 2-min in-process throttle + durable last_synced_at prevent any
- *  hammering.) PAID sources stay daily: SEMrush spends API units and Profound runs
- *  once a day, so pulling them every login would burn quota for IDENTICAL numbers. */
+ *  hammering.) PAID sources stay daily: Profound runs once a day, so pulling it
+ *  every login would burn quota for IDENTICAL numbers. */
 const AUTO_REFRESH_STALE_HOURS: Record<ReadProvider, number> = {
   google_gsc: 1,
   google_ga4: 1,
   clarity: 1,
   profound: 12,
-  semrush: 24,
 };
 
 function isStale(

@@ -29,7 +29,6 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
 import { refreshTenantGa4Traffic } from "@/app/(shell)/diagnostics/outcome-attribution/actions";
-import { refreshSemrushMetrics } from "@/app/(shell)/diagnostics/semrush/actions";
 import { refreshCallRailMetrics } from "@/app/(shell)/diagnostics/callrail/actions";
 // 2026-06-15 — crons off: the GSC / Profound / Clarity sync engines (pure
 // HTTP→Supabase, Vercel-safe) are now part of the one-click on-demand refresh
@@ -41,7 +40,7 @@ import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-
 const ROUTE = "/diagnostics/connectors";
 
 export type ConnectorRefreshOutcome = {
-  provider: "gsc" | "ga4" | "callrail" | "semrush" | "profound" | "clarity";
+  provider: "gsc" | "ga4" | "callrail" | "profound" | "clarity";
   /** refreshed = data pulled · skipped = not connected · failed = pull errored */
   outcome: "refreshed" | "skipped" | "failed";
   detail: string;
@@ -180,21 +179,7 @@ export async function refreshAllDataSources(): Promise<RefreshAllDataSourcesResu
     );
   }
 
-  // Semrush domain metrics.
-  const semrush = await refreshSemrushMetrics();
-  results.push(
-    semrush.ok
-      ? {
-          provider: "semrush",
-          outcome: "refreshed",
-          detail: `${semrush.competitorCount} organic competitors`,
-        }
-      : {
-          provider: "semrush",
-          outcome: classify(semrush.reason),
-          detail: semrush.reason,
-        },
-  );
+  // (SEMrush domain metrics removed Phase F.1 — SEMrush deleted caller-first.)
 
   // Profound (AI-visibility, secondary signal). Dormant-honest until a key
   // is connected; pure HTTP→Supabase.

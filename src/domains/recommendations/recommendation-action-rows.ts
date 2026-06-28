@@ -47,7 +47,6 @@ import {
   buildAeoEvidenceLines,
   buildClarityEvidenceLines,
   buildGscEvidenceLines,
-  buildSemrushEvidenceLines,
   type EvidenceLine,
 } from "@/domains/recommendation-intelligence/evidence-summary";
 import {
@@ -214,17 +213,6 @@ export type ActionRowDetail = {
    * "why". Honest: only numbers actually present on the signal.
    */
   readonly gscEvidenceLines: ReadonlyArray<EvidenceLine>;
-  /**
-   * Customer-facing SEMrush evidence bullets (2026-06-15 follow-up) — the
-   * owner-requested "why": the exact keyword, its monthly search VOLUME,
-   * its keyword DIFFICULTY (KD) with a plain band ("difficulty 31
-   * (low/winnable)"), and the current rank. Built by
-   * `buildSemrushEvidenceLines` from the rec's attached `semrushSignal`
-   * (its striking-distance shortlist). Empty when the page has no SEMrush
-   * striking-distance keyword — the card/drawer then keep their GSC lines /
-   * prose "why". Honest: difficulty clause omitted when KD is absent.
-   */
-  readonly semrushEvidenceLines: ReadonlyArray<EvidenceLine>;
   /**
    * Customer-facing Microsoft Clarity evidence bullets (2026-06-15) — the
    * on-page FRICTION "why" the search signals can't see: visitors rage-
@@ -1612,10 +1600,7 @@ export function buildRecommendationActionRows(
     // Depends only on the rec's attached GSC signal, so it's the same for
     // every row this rec emits — compute once, share across push sites.
     const gscEvidenceLines = buildGscEvidenceLines(rec.gscSignal);
-    // Customer-facing SEMrush evidence (2026-06-15 follow-up): exact search
-    // volume + keyword difficulty + current rank. Same for every row this
-    // rec emits — compute once, share across the three push sites below.
-    const semrushEvidenceLines = buildSemrushEvidenceLines(rec.semrushSignal);
+    // (SEMrush evidence removed Phase F.1 — SEMrush deleted caller-first.)
     // Customer-facing Microsoft Clarity evidence (2026-06-15): on-page
     // friction (rage-clicks / page errors) from the rec's attached Clarity
     // signal. Same for every row this rec emits — compute once.
@@ -1780,7 +1765,6 @@ export function buildRecommendationActionRows(
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
             gscEvidenceLines,
-            semrushEvidenceLines,
             clarityEvidenceLines,
             aeoEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
@@ -1926,7 +1910,6 @@ export function buildRecommendationActionRows(
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
             gscEvidenceLines,
-            semrushEvidenceLines,
             clarityEvidenceLines,
             aeoEvidenceLines,
             // T4.2 — evidence depth + prioritizer threading.
@@ -2108,7 +2091,6 @@ export function buildRecommendationActionRows(
         affectedPromptCount: rec.evidence.promptCount,
         observationCount: rec.evidence.observationCount,
         gscEvidenceLines,
-        semrushEvidenceLines,
         clarityEvidenceLines,
         aeoEvidenceLines,
         // T4.2 — meta rows have no edit-level evidence; depth = 0.
@@ -2228,7 +2210,6 @@ export function buildRecommendationActionRows(
       // confident, publishable rec on search demand alone.
       gscDemand: (rec.gscSignal?.impressions90d ?? 0) >= 200,
       ga4Traffic: false, // GA4 page signal not threaded onto the rec yet
-      semrush: rec.semrushSignal != null,
       clarity: rec.claritySignal != null,
       aeo: false, // observationCount + aeo lines are read from row.detail in the QA
       competitor: false, // topCompetitor is read from row.detail in the QA

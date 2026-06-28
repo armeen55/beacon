@@ -54,7 +54,6 @@ export type WhyThisMattersInput = {
   /** Top REAL competitor + their primary share (already display-safe). */
   readonly competitor: { name: string; primaryPct: number } | null;
   readonly gscEvidenceLines: ReadonlyArray<EvidenceLine>;
-  readonly semrushEvidenceLines: ReadonlyArray<EvidenceLine>;
   readonly clarityEvidenceLines: ReadonlyArray<EvidenceLine>;
   readonly aeoEvidenceLines: ReadonlyArray<EvidenceLine>;
   readonly promptCount: number;
@@ -196,7 +195,6 @@ export function composeWhyThisMatters(input: WhyThisMattersInput): string[] {
   const out: string[] = [];
 
   const gsc = input.gscEvidenceLines[0] ?? null;
-  const semrush = input.semrushEvidenceLines[0] ?? null;
   const aeo = input.aeoEvidenceLines[0] ?? null;
   const clarity = input.clarityEvidenceLines[0] ?? null;
   const hasPrompts = input.affectedPromptTexts.length > 0;
@@ -205,7 +203,6 @@ export function composeWhyThisMatters(input: WhyThisMattersInput): string[] {
   // decision and (in the render layer) the hedge-suppression contract.
   const hasConcreteEvidence =
     gsc != null ||
-    semrush != null ||
     aeo != null ||
     clarity != null ||
     hasPrompts ||
@@ -226,8 +223,6 @@ export function composeWhyThisMatters(input: WhyThisMattersInput): string[] {
     // The GSC builder's `detail` is already a full "why now" sentence
     // (exact query + times shown + rank + click-through + recoverable).
     pushSentence(out, gsc.detail ?? `${unquote(gsc.value)} — ${gsc.label}.`);
-  } else if (semrush != null) {
-    pushSentence(out, semrush.detail ?? `${unquote(semrush.value)} — ${semrush.label}.`);
   } else if (aeo != null) {
     // White-label: the AEO builder's detail already says "AI assistants"
     // and never names the vendor.
@@ -282,7 +277,7 @@ export function composeWhyThisMatters(input: WhyThisMattersInput): string[] {
   // human consultant would draw. Leads the narrative (unshift) because the
   // connection is the most valuable sentence; specifics then elaborate.
   const connection = crossSourceConnection({
-    search: gsc != null || semrush != null,
+    search: gsc != null,
     behavior: clarity != null,
     aeo: aeo != null || input.competitor != null || hasPrompts,
   });
@@ -347,7 +342,6 @@ export function buildWhyInput(
     affectedPromptTexts,
     competitor: row.detail.topCompetitor,
     gscEvidenceLines: row.detail.gscEvidenceLines ?? [],
-    semrushEvidenceLines: row.detail.semrushEvidenceLines ?? [],
     clarityEvidenceLines: row.detail.clarityEvidenceLines ?? [],
     aeoEvidenceLines: row.detail.aeoEvidenceLines ?? [],
     promptCount: row.detail.affectedPromptCount,

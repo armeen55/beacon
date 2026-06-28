@@ -37,7 +37,6 @@ import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-searc
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import { syncSemrushOrganicKeywordsForTenant } from "@/lib/connectors/semrush/sync-organic-keywords";
 
 export async function getGoogleGscConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("google_gsc");
@@ -529,48 +528,7 @@ export async function disconnectGoogleGa4(): Promise<{
 // this server, the nightly syncs activate the moment it lands
 // (dormant-honest until then). Disconnect = soft (cached data kept).
 
-export async function saveSemrushConnection(input: {
-  apiKey: string;
-  database?: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const action = "saveSemrushConnection";
-  const t0 = Date.now();
-  const apiKey = input.apiKey.trim();
-  const database = (input.database ?? "us").trim() || "us";
-  if (!apiKey) return { success: false, error: "Enter your Semrush API key." };
-  log.info("Action started", { action });
-  try {
-    await saveConnectorToken({
-      provider: "semrush",
-      api_key: apiKey,
-      database,
-      connected_at: now(),
-    });
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
-  }
-}
-
-export async function disconnectSemrush(): Promise<{ success: boolean; error?: string }> {
-  const action = "disconnectSemrush";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    await deleteConnectorToken("semrush");
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
-  }
-}
+// (saveSemrushConnection / disconnectSemrush removed Phase F.1 — SEMrush deleted.)
 
 export async function saveProfoundConnection(input: {
   apiKey: string;
@@ -884,7 +842,6 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
 type FreshnessProvider =
   | "google_gsc"
   | "google_ga4"
-  | "semrush"
   | "profound"
   | "clarity";
 
@@ -902,9 +859,6 @@ async function writeLastSyncedAt(
     switch (provider) {
       case "google_gsc":
       case "google_ga4":
-        await updateConnectorToken(provider, patch, tenantId);
-        break;
-      case "semrush":
         await updateConnectorToken(provider, patch, tenantId);
         break;
       case "profound":
@@ -988,14 +942,7 @@ export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
   );
 }
 
-/** Pull SEMrush organic keywords (supporting evidence) for this tenant. */
-export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow(
-    "syncSemrushNow",
-    (tenantId) => syncSemrushOrganicKeywordsForTenant({ tenantId }),
-    "semrush",
-  );
-}
+// (syncSemrushNow removed Phase F.1 — SEMrush deleted caller-first.)
 
 // ─────────────────────────────────────────────────────────────────────
 // ONE-CLICK "Refresh my data" (2026-06-15), Today command-center surface.
@@ -1013,7 +960,7 @@ export async function syncSemrushNow(): Promise<ConnectorSyncNowResult> {
  *  publish-only and intentionally excluded. Each entry maps a connector-store
  *  provider → its sync engine + plain-English customer label. */
 const REFRESH_ALL_SOURCES: ReadonlyArray<{
-  provider: "google_gsc" | "google_ga4" | "semrush" | "clarity" | "profound";
+  provider: "google_gsc" | "google_ga4" | "clarity" | "profound";
   label: string;
   run: (tenantId: string) => Promise<unknown>;
   freshnessProvider: FreshnessProvider;
@@ -1029,12 +976,6 @@ const REFRESH_ALL_SOURCES: ReadonlyArray<{
     label: "Visitors (Google Analytics)",
     run: (tenantId) => syncGa4UrlTrafficForTenant({ tenantId }),
     freshnessProvider: "google_ga4",
-  },
-  {
-    provider: "semrush",
-    label: "Keywords (SEMrush)",
-    run: (tenantId) => syncSemrushOrganicKeywordsForTenant({ tenantId }),
-    freshnessProvider: "semrush",
   },
   {
     provider: "clarity",

@@ -7,10 +7,6 @@ import {
   type GscDecaySignal,
 } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import {
-  loadSemrushPageSignalsForTenant,
-  type SemrushPageSignal,
-} from "@/domains/recommendation-intelligence/semrush-page-signals";
-import {
   loadClarityPageSignalsForTenant,
   type ClarityPageSignal,
 } from "@/domains/recommendation-intelligence/clarity-page-signals";
@@ -56,15 +52,12 @@ export async function loadOpportunityMap(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<OpportunityItem[]> {
-  const [gsc, decay, semrush, clarity, ga4, summaries, cannibal] = await Promise.all([
+  const [gsc, decay, clarity, ga4, summaries, cannibal] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId, now).catch(
       () => new Map<string, GscPageSignal>(),
     ),
     loadGscDecaySignalsForTenant(tenantId, now).catch(
       () => new Map<string, GscDecaySignal>(),
-    ),
-    loadSemrushPageSignalsForTenant(tenantId).catch(
-      () => new Map<string, SemrushPageSignal>(),
     ),
     loadClarityPageSignalsForTenant(tenantId, now).catch(
       () => new Map<string, ClarityPageSignal>(),
@@ -118,7 +111,6 @@ export async function loadOpportunityMap(
   const urls = new Set<string>();
   for (const k of gsc.keys()) urls.add(k);
   for (const k of decay.keys()) urls.add(k);
-  for (const k of semrush.keys()) urls.add(k);
   for (const k of clarityByCanon.keys()) urls.add(k);
   for (const k of ga4.keys()) urls.add(k);
   for (const k of cannibalByLead.keys()) urls.add(k);
@@ -127,7 +119,6 @@ export async function loadOpportunityMap(
   for (const url of urls) {
     const g = gsc.get(url);
     const d = decay.get(url);
-    const s = semrush.get(url);
     const cl = clarityByCanon.get(url);
     const ga = ga4.get(url);
     const path = toPath(url);
@@ -145,14 +136,9 @@ export async function loadOpportunityMap(
           }
         : undefined,
       decay: d ? { clicksNow: d.clicksNow, clicksPrior: d.clicksPrior } : undefined,
-      striking:
-        s && s.strikingDistance.length > 0
-          ? s.strikingDistance.map((k) => ({
-              keyword: k.keyword,
-              position: k.position,
-              volume: k.volume,
-            }))
-          : undefined,
+      // SEMrush striking-distance removed Phase F.1 (the GSC striking-distance trigger
+      // serves the rec queue). The /opportunities striking kind is dormant until
+      // re-sourced from GSC.
       clarity: cl
         ? {
             sessions: cl.sessions,
