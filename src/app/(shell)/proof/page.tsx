@@ -7,6 +7,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
 import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { loadConnectionHealth } from "@/domains/insight/connection-health";
 import { ProofSummarySection } from "./proof-summary-section";
 import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
@@ -65,11 +66,26 @@ export default async function ProofPage({
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
-  const [rows, ledger] = await Promise.all([
+  const [rows, ledger, connHealth] = await Promise.all([
     loadProofPlan(tenantId).catch(() => []),
     loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
+    loadConnectionHealth(tenantId).catch(() => []),
   ]);
   const recordedPaths = new Set(ledger.map((l) => l.path));
+
+  // Proof compares each page to its Google Search Console history — so a stale or
+  // disconnected GSC makes the verdicts unreliable. Surface that honestly (operator
+  // brutal-audit: "if GSC/GA4 stale, say so") instead of showing confident-looking
+  // results over old data.
+  const gsc = connHealth.find((c) => c.key === "google_gsc") ?? null;
+  const gscFreshnessNote =
+    gsc == null || gsc.severity === "healthy"
+      ? null
+      : gsc.severity === "disconnected"
+        ? "Google Search Console isn't connected — proof verdicts can't update until it is."
+        : gsc.severity === "needs_setup"
+          ? "Google Search Console is connected but hasn't synced yet — verdicts will fill in after the first sync."
+          : `Search Console data is ${gsc.daysStale ?? "several"} days old — recent changes may not show a verdict yet. Refresh to update.`;
 
   // Recompute only does something once a measurement window has closed. Until
   // then, gate the button + tell the operator when the first check opens.
@@ -111,6 +127,12 @@ export default async function ProofPage({
           />
         ) : null}
       </div>
+
+      {gscFreshnessNote ? (
+        <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {gscFreshnessNote}
+        </div>
+      ) : null}
 
       {/* Premium "Proof at a glance" scoreboard (2026-06-25) — the Results act of
           the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
