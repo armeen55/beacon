@@ -8,6 +8,8 @@ import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeo
 import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
+import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
+import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
 import { ProofSummarySection } from "./proof-summary-section";
 import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
@@ -66,12 +68,22 @@ export default async function ProofPage({
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
-  const [rows, ledger, connHealth] = await Promise.all([
+  const [rows, ledger, connHealth, worklist] = await Promise.all([
     loadProofPlan(tenantId).catch(() => []),
     loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
     loadConnectionHealth(tenantId).catch(() => []),
+    loadActionPackWorklistForTenant(tenantId).catch(() => null),
   ]);
   const recordedPaths = new Set(ledger.map((l) => l.path));
+
+  // Phase 4 — deterministic ActionPack↔proof linker (pure, no migration). Each
+  // shipped change is traced back to the Move that recommended it (or honestly
+  // labelled manual/legacy). Measurement math is untouched.
+  const proofLinks = linkProofRowsToActionPacks({
+    proofRows: ledger.map((l) => ({ id: l.id, page: l.page, path: l.path, actionType: l.actionType, targetQueries: l.targetQueries })),
+    actionPacks: worklist?.packs ?? [],
+  });
+  const linkByRowId = new Map(proofLinks.map((lk) => [lk.proofRow.id, lk as ProofLink]));
 
   // Proof compares each page to its Google Search Console history — so a stale or
   // disconnected GSC makes the verdicts unreliable. Surface that honestly (operator
@@ -167,7 +179,7 @@ export default async function ProofPage({
           <WhatHappensNext />
           <div className="mt-3 space-y-2.5">
             {ledger.map((rec) => (
-              <LedgerCard key={rec.id} rec={rec} />
+              <LedgerCard key={rec.id} rec={rec} link={linkByRowId.get(rec.id) ?? null} />
             ))}
           </div>
         </div>
@@ -353,7 +365,19 @@ function metricsLine(rec: ShippedChangeRecord): string {
   return `${b.clicks.toLocaleString()} visits from Google, shown ${b.impressions.toLocaleString()} times, ${(b.ctr * 100).toFixed(2)}% click rate, ranked about #${b.position.toFixed(1)}`;
 }
 
-function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
+const LINK_LABEL: Record<string, string> = {
+  exact: "from your worklist",
+  strong: "from your worklist",
+  weak: "likely from your worklist",
+  none: "manual or legacy change",
+};
+const SOURCE_LABEL: Record<string, string> = {
+  gsc: "Google Search", ga4: "Analytics", clarity: "Clarity UX",
+  profound: "AI citations", dataforseo: "Live SERP",
+  competitor_teardown: "Competitor teardown", rank_revenue: "Demand graph",
+};
+
+function LedgerCard({ rec, link }: { rec: ShippedChangeRecord; link?: ProofLink | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -397,6 +421,24 @@ function LedgerCard({ rec }: { rec: ShippedChangeRecord }) {
           </span>
         ) : null}
       </div>
+
+      {/* Source move (Phase 4 — deterministic ActionPack↔proof linker, no migration).
+          Closes the loop visibly: this shipped change traces back to the Move that
+          recommended it, or is honestly labelled manual/legacy. */}
+      {link && link.actionPack ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 ring-1 ring-indigo-100">
+            ↩ {LINK_LABEL[link.confidence]}: {link.actionPack.label}
+          </span>
+          {link.actionPack.evidenceSources.map((s) => (
+            <span key={s} className="rounded bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-200">
+              {SOURCE_LABEL[s] ?? s}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1.5 text-[11px] text-gray-400">↩ Manual or legacy change — not traced to a ranked move.</p>
+      )}
 
       <p className="mt-1.5 text-[12px] text-foreground/80">
         <span className="font-medium text-foreground/60">Search:</span> {sentence}
