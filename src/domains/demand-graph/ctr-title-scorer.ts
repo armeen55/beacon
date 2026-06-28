@@ -3,12 +3,13 @@
  * for the EvidencePacket draft. NO LLM. Generates a few grounded title variants
  * from the target query + brand and scores them on click-driving signals SEO/CTR
  * practitioners rely on: the query tokens present (essential), a leading number /
- * list cue, a parenthetical qualifier, the current year, the length sweet spot
- * (~50–60 chars), and a generic power word. Returns the best-scoring variant.
+ * list cue, a parenthetical qualifier, the length sweet spot (~50–60 chars), and a
+ * generic power word. Returns the best-scoring variant. Year-stuffing is NOT a
+ * signal (boilerplate per Google title-link guidance).
  *
- * Deterministic + testable: the year is an explicit input (no Date dependency),
- * power/list cues are generic (not vertical/tenant hardcoding). The LLM can later
- * rewrite from here, but this stands on its own as an honest, grounded suggestion.
+ * Deterministic + testable: power/list cues are generic (not vertical/tenant
+ * hardcoding). The LLM can later rewrite from here, but this stands on its own as
+ * an honest, grounded suggestion.
  */
 
 const POWER_WORDS = new Set([
@@ -63,10 +64,9 @@ export function scoreTitle(title: string, query: string, brand: string): TitleVa
     score += 8;
     signals.push("parenthetical");
   }
-  if (/\b20\d\d\b/.test(title)) {
-    score += 8;
-    signals.push("year");
-  }
+  // NOTE: no "year" bonus. Year-stuffing ("… (2026 Guide)") is boilerplate that
+  // Google's title-link guidance warns against — it made one templated title win
+  // on every page. Titles earn their score from query coverage + page-specific cues.
   if (tokenize(title).some((t) => POWER_WORDS.has(t))) {
     score += 6;
     signals.push("power-word");
@@ -90,19 +90,27 @@ export function scoreTitle(title: string, query: string, brand: string): TitleVa
   return { title, score, signals };
 }
 
-/** Generate grounded title candidates for a query + brand + year. */
-export function titleCandidates(query: string, brand: string, year: number): string[] {
+/**
+ * Generate grounded, page-specific title candidates — three distinct framings, not
+ * six boilerplate templates dominated by "(YYYY Guide)". Per Google title-link
+ * guidance: concise, descriptive, unique, no boilerplate/repetition.
+ *   1. exact-query   — the plain descriptive title (Google's first recommendation)
+ *   2. editorial     — one "complete guide" framing
+ *   3. curiosity     — a benefit/explainer framing
+ * List-intent queries also get a "Top N" variant. The `year` param is kept for
+ * call-site compatibility but no longer stuffed into the title (it's boilerplate).
+ */
+export function titleCandidates(query: string, brand: string, _year?: number): string[] {
+  void _year;
   const q = titleCase(query.trim());
   const b = brand.trim();
   const suffix = b ? ` | ${b}` : "";
   const out = new Set<string>();
-  out.add(`${q}${suffix}`);
-  out.add(`${q}: The Complete Guide${suffix}`);
-  out.add(`${q} (${year} Guide)${suffix}`);
-  out.add(`${q} Explained${suffix}`);
+  out.add(`${q}${suffix}`); // exact-query
+  out.add(`${q}: A Complete Guide${suffix}`); // editorial
+  out.add(`${q}, Explained${suffix}`); // curiosity / benefit
   if (LIST_CUE.test(query)) {
     out.add(`Top 10 ${q}${suffix}`);
-    out.add(`${q}: The Complete List${suffix}`);
   }
   return [...out];
 }
