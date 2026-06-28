@@ -276,8 +276,16 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             }`}
             title="From Results — the last shipped change on this page"
           >
-            {m.alreadyMeasuring ? "Already measuring" : m.proofLabel}
+            {m.alreadyMeasuring ? "Already measuring" : m.pageMeasuring ? "Page measuring" : m.proofLabel}
           </span>
+        ) : null}
+        {m.proofStatus === "measuring" && m.targetUrl && m.targetUrl !== "needs_new_page" ? (
+          <Link
+            href={`/proof?page=${encodeURIComponent(m.targetUrl)}`}
+            className="text-[11px] font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900"
+          >
+            View in Results →
+          </Link>
         ) : null}
         {m.demand != null && m.demand > 0 ? (
           <span className="rounded-full bg-gray-50 px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-gray-200">
@@ -738,13 +746,19 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           onClick={ship}
           disabled={pending}
           className={
-            m.alreadyMeasuring
+            m.alreadyMeasuring || m.pageMeasuring
               ? "inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-60"
               : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 ${tone.btn}`
           }
-          title={m.alreadyMeasuring ? "This page+change is already measuring — shipping again would muddy the proof window" : undefined}
+          title={
+            m.alreadyMeasuring
+              ? "This page+change is already measuring — shipping again would muddy the proof window"
+              : m.pageMeasuring
+                ? "This page is mid-measurement on another change — a second change muddies the open proof window"
+                : undefined
+          }
         >
-          {m.alreadyMeasuring ? "Ship anyway" : "⚡ Ship it"}
+          {m.alreadyMeasuring || m.pageMeasuring ? "Ship anyway" : "⚡ Ship it"}
         </button>
         {hasDraft ? (
           <button

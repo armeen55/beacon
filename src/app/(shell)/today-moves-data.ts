@@ -143,6 +143,9 @@ export type TodayMove = {
   /** True when the SAME page+action family is already mid-measurement (avoid
    *  encouraging a duplicate ship that would contaminate the open window). */
   alreadyMeasuring?: boolean;
+  /** True when the page is measuring but for a DIFFERENT action family (a second
+   *  change here would still muddy the open window — warn, don't block). */
+  pageMeasuring?: boolean;
 };
 
 export type TodayMovesHeroData = {
@@ -379,11 +382,12 @@ export async function buildTodayMovesData(
       if (!(e.action_type in ACTION_META)) continue;
       const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? "";
       if (moveId && actioned.has(moveId)) continue;
-      // HOLD: don't recommend a new change to a page that's mid-measurement.
-      if (isHeldForMeasurement(e.target_url, heldPaths)) {
-        heldWhileMeasuring += 1;
-        continue;
-      }
+      // Proof-window guard (2026-06-28 — flipped hide→label): no longer SUPPRESS a
+      // page that's mid-measurement. Show it, labelled (proofStatus/alreadyMeasuring/
+      // pageMeasuring set in the enrichment pass below) with a softened "Ship anyway"
+      // — hiding made the loop feel disconnected; labelling reality is honest. Keep
+      // the counter for the stat.
+      if (isHeldForMeasurement(e.target_url, heldPaths)) heldWhileMeasuring += 1;
       const pk = canon(e.target_url);
       const arr = byPage.get(pk) ?? [];
       arr.push(e);
@@ -581,6 +585,7 @@ export async function buildTodayMovesData(
         if (pr.state === "measuring") {
           m.proofStatus = "measuring";
           m.alreadyMeasuring = sameFamily;
+          m.pageMeasuring = !sameFamily;
           m.proofLabel = `Measuring since ${pr.shippedAt.slice(0, 10)}`;
         } else if (pr.state === "win") {
           m.proofStatus = "won";
