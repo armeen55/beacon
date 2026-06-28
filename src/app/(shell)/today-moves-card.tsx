@@ -63,6 +63,18 @@ function fmtNum(n: number): string {
   return String(n);
 }
 
+/** Friendly labels for the ActionPack evidence-source provenance chips (the
+ *  "Ranked by …" transparency the customer card now shows, not just diagnostics). */
+const SOURCE_LABEL: Record<string, string> = {
+  gsc: "Google Search",
+  ga4: "Analytics",
+  clarity: "Clarity UX",
+  profound: "AI citations",
+  dataforseo: "Live SERP",
+  competitor_teardown: "Competitor teardown",
+  rank_revenue: "Demand graph",
+};
+
 export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   const tone = TONE[m.actionTone];
   const conf = CONF[m.confidence];
@@ -244,6 +256,36 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-indigo-100">
           🧠 {m.learnedTag}
         </p>
+      ) : null}
+
+      {/* Connectedness (2026-06-28) — the canonical ActionPack evidence provenance
+          + cached DataForSEO SERP verdict, threaded onto the card operators use
+          (was computed on the pack but never shown outside diagnostics). */}
+      {(m.sourceChips?.length || m.dataforseoVerdict) ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {m.dataforseoVerdict ? (
+            <span
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
+                m.dataforseoVerdict.verdict === "build"
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : m.dataforseoVerdict.verdict === "wait"
+                    ? "bg-amber-50 text-amber-700 ring-amber-200"
+                    : "bg-gray-100 text-gray-500 ring-gray-200"
+              }`}
+              title={m.dataforseoVerdict.topDomains.length ? `Google top results: ${m.dataforseoVerdict.topDomains.join(", ")}` : undefined}
+            >
+              Google: {m.dataforseoVerdict.verdict}
+              {m.dataforseoVerdict.overlap > 0 ? (
+                <span className="font-medium normal-case"> · {m.dataforseoVerdict.overlap} AI-cited rival{m.dataforseoVerdict.overlap === 1 ? "" : "s"} rank</span>
+              ) : null}
+            </span>
+          ) : null}
+          {(m.sourceChips ?? []).map((s) => (
+            <span key={s} className="inline-flex items-center rounded bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-200">
+              {SOURCE_LABEL[s] ?? s}
+            </span>
+          ))}
+        </div>
       ) : null}
 
       {m.preparedChecklist ? (

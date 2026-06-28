@@ -140,11 +140,17 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     const fam = actionFamily(p.actionType);
     if (fam === "new_page" || fam === "hub") continue;
 
+    const chips = p.evidenceSources;
+    const dfs = p.dataforseoValidation
+      ? { verdict: p.dataforseoValidation.verdict, topDomains: p.dataforseoValidation.topDomains.slice(0, 3), overlap: p.dataforseoValidation.profoundOverlapCount }
+      : null;
     const rich = p.targetUrl ? richByUrl.get(canon(p.targetUrl)) : undefined;
     if (rich) {
       if (usedRich.has(rich.id)) continue; // one rich card per page
       usedRich.add(rich.id);
-      moves.push(rich); // full card, but SELECTED + ORDERED by the ActionPack brain
+      // Thread the canonical ActionPack provenance + SERP verdict onto the rich
+      // card (they were computed on the pack but dropped at this projection).
+      moves.push({ ...rich, sourceChips: chips, dataforseoVerdict: dfs });
     } else {
       moves.push(actionPackToTodayMove(p)); // coverage-only AEO pack, surfaced inline
     }

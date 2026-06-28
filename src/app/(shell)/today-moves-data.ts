@@ -127,6 +127,14 @@ export type TodayMove = {
   /** Sprint 3 — "ranked higher because similar moves won before" (learned prior
    *  tag from past outcomes). Null when there's no settled evidence yet. */
   learnedTag: string | null;
+  /** Connectedness (2026-06-28) — the unified ActionPack source-provenance chips
+   *  ("Ranked by gsc + profound + clarity") threaded from the canonical brain so
+   *  the customer card shows what's behind the move, not just the diagnostic. */
+  sourceChips?: string[];
+  /** Connectedness — the cached DataForSEO SERP verdict for this move, threaded
+   *  from ActionPack.dataforseoValidation so the build/wait/skip call is visible
+   *  on the card operators use (was computed but dropped at the projection). */
+  dataforseoVerdict?: { verdict: "build" | "wait" | "skip"; topDomains: string[]; overlap: number } | null;
 };
 
 export type TodayMovesHeroData = {

@@ -6,6 +6,7 @@ import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/c
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
+import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 
 /**
  * today-newpages-data (2026-06-24) — the loader behind the "New Pages to Build"
@@ -109,18 +110,26 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let ownDomain = "";
   const volumeByKeyword = new Map<string, number>();
   try {
-    const [graphRes, auditRes, draftRes] = await Promise.all([
+    const [graphRes, auditRes, draftRes, kwDemand] = await Promise.all([
       withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
         loadDemandGraphForTenantCached(tenantId),
-        8000,
+        // Was 8s — too tight for a cold graph, which made the whole New Pages board
+        // silently vanish on first load. The graph is cached (the cockpit builds it
+        // first), so this only guards a genuine stall now. Don't disappear.
+        30000,
         null,
       ),
       getCompetitorAuditsForTenant().catch(() => new Map()),
       // Persisted AI openings (degrade-safe: empty map if the table isn't migrated).
       withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
+      // Connectedness (2026-06-28) — real DataForSEO search volume from the cached
+      // keyword-demand store (the same cache that powers /worklist). Replaces the
+      // permanently-null searchVolume left after SEMrush was removed. Degrade-safe.
+      withTimeout(readAllCachedKeywordDemand(), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
     ]);
-    // (SEMrush keyword-volume grounding removed Phase F.1 — searchVolume is null
-    // until DataForSEO keyword volume is wired. New-page candidates are unaffected.)
+    for (const k of kwDemand) {
+      if (k.searchVolume != null) volumeByKeyword.set(k.keyword.trim().toLowerCase().replace(/\s+/g, " "), k.searchVolume);
+    }
     if (!graphRes) return { opportunities: [], totalCandidates: 0, ownDomain: "" };
     moves = graphRes.graph.moves;
     ownDomain = deriveOwnDomain(graphRes.graph.pageNodes);

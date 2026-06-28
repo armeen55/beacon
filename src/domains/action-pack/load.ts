@@ -111,7 +111,10 @@ async function loadUncached(tenantId: string, mode: WorklistMode): Promise<Actio
   const warnings: string[] = [];
 
   const [graphRes, packsRes, coverage, drafts] = await Promise.all([
-    withTimebox("Demand graph", loadDemandGraphForTenantCached(tenantId), null, mode, warnings).catch((e): null => {
+    // The demand graph is the ESSENTIAL read — never time-box it into an empty
+    // (rank-revenue-0) worklist. A cold render is fine to wait on; a silently
+    // degraded one is not. Only a genuine error degrades it (the .catch).
+    loadDemandGraphForTenantCached(tenantId).catch((e): null => {
       log.warn("[action-pack] demand graph failed", { tenantId, error: String(e) });
       warnings.push("Demand graph read failed — rank-&-revenue moves are missing from this worklist.");
       return null;
