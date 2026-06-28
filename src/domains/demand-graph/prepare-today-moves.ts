@@ -19,6 +19,7 @@ import {
   type CompleteFn,
   type StructuredDraftResult,
 } from "@/domains/llm/structured-drafter";
+import { evaluatePreparedPackQuality } from "@/domains/drafts/draft-quality";
 import { ExperimentPlanSchema, type ExperimentPlan, type ImplementationStep } from "@/domains/llm/schemas";
 import type { EvidencePacket } from "./evidence-packet";
 import { log } from "@/lib/logger";
@@ -197,14 +198,25 @@ export async function prepareTodayMovesForTenant(
       const opinions = attachOpinions(packet, { nowIso });
       const decision = routeMove({ packet, opinions });
 
-      // Cache-first: a non-stale persisted pack that already has a draft → skip.
+      // Cache-first: serve a non-stale persisted pack that already has a draft —
+      // UNLESS that cached draft fails the quality gate (generic / too-thin / off-topic
+      // / meta non-answer). A quality-rejected draft is treated like a stale one and
+      // re-drafted with the hardened prompt, so "Prepare" upgrades bad output in place.
       const existing = parsePreparedPack(saved.get(`${moveId}::prepared_pack`)?.content);
       if (existing && existing.structuredDraft && !isPackStale(existing, packet.evidenceHash, nowIso)) {
-        summary.cached += 1;
-        if (existing.preparedStatus === "ready_to_review") summary.readyToReview += 1;
-        else if (existing.preparedStatus === "draft_ready") summary.draftReady += 1;
-        summary.outcomes.push(outcomeOf(existing, packet, opinions, "cached (unchanged)"));
-        continue;
+        const q = evaluatePreparedPackQuality({
+          structuredDraft: existing.structuredDraft as { kind?: string; value?: unknown },
+          preparedStatus: existing.preparedStatus,
+          moveType: existing.moveType,
+        });
+        if (q.copyAllowed) {
+          summary.cached += 1;
+          if (existing.preparedStatus === "ready_to_review") summary.readyToReview += 1;
+          else if (existing.preparedStatus === "draft_ready") summary.draftReady += 1;
+          summary.outcomes.push(outcomeOf(existing, packet, opinions, "cached (unchanged)"));
+          continue;
+        }
+        // else fall through → regenerate this low-quality cached draft.
       }
 
       const draftRes = await draftForPacket(packet, { complete: opts.complete });
