@@ -4,14 +4,9 @@ import {
   buildAeoEvidenceLines,
   buildClarityEvidenceLines,
   buildGscEvidenceLines,
-  buildSemrushEvidenceLines,
   pickHeadlineQuery,
 } from "./evidence-summary";
 import type { GscPageSignal, GscQuerySignal } from "./gsc-page-signals";
-import type {
-  SemrushKeywordSignal,
-  SemrushPageSignal,
-} from "./semrush-page-signals";
 import type { ClarityPageSignal } from "./clarity-page-signals";
 
 function q(partial: Partial<GscQuerySignal>): GscQuerySignal {
@@ -168,108 +163,6 @@ describe("buildGscEvidenceLines — specific, number-rich customer copy", () => 
     expect(picked).not.toBeNull();
     expect(picked!.kind).toBe("low_ctr");
     expect(picked!.query.query).toBe("loser");
-  });
-});
-
-// ── SEMrush evidence ──────────────────────────────────────────────────
-
-function kw(partial: Partial<SemrushKeywordSignal>): SemrushKeywordSignal {
-  return {
-    keyword: "persian rugs",
-    position: 12,
-    volume: 0,
-    difficulty: null,
-    intent: null,
-    ...partial,
-  };
-}
-
-function semrush(partial: Partial<SemrushPageSignal>): SemrushPageSignal {
-  return {
-    page: "https://example.test/rugs",
-    keywords: [],
-    strikingDistance: [],
-    ...partial,
-  };
-}
-
-describe("buildSemrushEvidenceLines — volume + difficulty + rank in the why", () => {
-  it("states exact volume, difficulty with a plain band, and current rank", () => {
-    // The owner's example: "‘persian rugs’ — search volume 2,400,
-    // difficulty 31 (low/winnable); you rank #12, one content pass from
-    // page one." KD 31 sits in 30–60 medium per the bands; pick KD 28 to
-    // exercise the "low/winnable" band the owner named.
-    const s = semrush({
-      strikingDistance: [
-        kw({ keyword: "persian rugs", position: 12, volume: 2400, difficulty: 28 }),
-      ],
-    });
-    const lines = buildSemrushEvidenceLines(s);
-    expect(lines).toHaveLength(1);
-    const line = lines[0]!;
-    expect(line.value).toBe("“persian rugs”");
-    // Compact stat strip: volume (toLocaleString) + difficulty band + rank.
-    expect(line.label).toBe(
-      "search volume 2,400 · difficulty 28 (low/winnable) · you rank #12",
-    );
-    // Full "why now" sentence carries the same real numbers.
-    expect(line.detail).toContain("about 2,400 searches a month");
-    expect(line.detail).toContain("you rank #12");
-    expect(line.detail).toContain("Keyword difficulty is 28 (low/winnable)");
-    expect(line.detail).toContain("page one");
-  });
-
-  it("medium / hard difficulty bands map honestly", () => {
-    const med = buildSemrushEvidenceLines(
-      semrush({
-        strikingDistance: [kw({ keyword: "luxury rugs", volume: 900, difficulty: 45 })],
-      }),
-    )[0]!;
-    expect(med.label).toContain("difficulty 45 (medium)");
-
-    const hard = buildSemrushEvidenceLines(
-      semrush({
-        strikingDistance: [kw({ keyword: "rugs", volume: 12000, difficulty: 78 })],
-      }),
-    )[0]!;
-    expect(hard.label).toContain("difficulty 78 (hard)");
-  });
-
-  it("OMITS the difficulty clause honestly when KD is absent (null)", () => {
-    // semrush-striking-distance's trigger evidence carries volume + position
-    // but no KD; the per-page signal can likewise return difficulty=null.
-    // Surface what IS available (volume + rank) and never invent a band.
-    const s = semrush({
-      strikingDistance: [
-        kw({ keyword: "antique rugs", position: 9, volume: 1500, difficulty: null }),
-      ],
-    });
-    const line = buildSemrushEvidenceLines(s)[0]!;
-    expect(line.label).toBe("search volume 1,500 · you rank #9");
-    expect(line.label).not.toMatch(/difficulty/i);
-    expect(line.detail).toContain("about 1,500 searches a month");
-    expect(line.detail).toContain("you rank #9");
-    expect(line.detail).not.toMatch(/difficulty/i);
-  });
-
-  it("quotes the highest-volume striking keyword (list is volume-desc)", () => {
-    const s = semrush({
-      strikingDistance: [
-        kw({ keyword: "big", position: 11, volume: 5000, difficulty: 40 }),
-        kw({ keyword: "small", position: 6, volume: 200, difficulty: 20 }),
-      ],
-    });
-    const line = buildSemrushEvidenceLines(s)[0]!;
-    expect(line.value).toBe("“big”");
-  });
-
-  it("returns [] when there is no striking-distance keyword", () => {
-    expect(buildSemrushEvidenceLines(semrush({ strikingDistance: [] }))).toEqual([]);
-  });
-
-  it("returns [] when the signal is null/undefined (no SEMrush connected)", () => {
-    expect(buildSemrushEvidenceLines(null)).toEqual([]);
-    expect(buildSemrushEvidenceLines(undefined)).toEqual([]);
   });
 });
 

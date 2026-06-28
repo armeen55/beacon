@@ -42,7 +42,6 @@ function row(o: {
     targetUrl: o.targetUrl ?? "https://iranopedia.com/persian-food/koobideh-kabob-recipe",
     detail: {
       gscEvidenceLines: o.gsc ?? [],
-      semrushEvidenceLines: [],
       clarityEvidenceLines: [],
       aeoEvidenceLines: [],
       topCompetitor: o.competitor ?? null,
@@ -135,7 +134,6 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
       evidence: {
         gscDemand: true, // but the page HAS Google Search demand
         ga4Traffic: false,
-        semrush: false,
         clarity: false,
         aeo: false,
         competitor: false,
@@ -157,7 +155,6 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
       evidence: {
         gscDemand: false,
         ga4Traffic: true,
-        semrush: false,
         clarity: false,
         aeo: false,
         competitor: false,
@@ -174,7 +171,6 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
       evidence: {
         gscDemand: false,
         ga4Traffic: true, // real core evidence …
-        semrush: false,
         clarity: false,
         aeo: false,
         competitor: false,
@@ -193,7 +189,6 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
       evidence: {
         gscDemand: false,
         ga4Traffic: false,
-        semrush: false,
         clarity: false,
         aeo: false,
         competitor: false,

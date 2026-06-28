@@ -71,7 +71,7 @@ function toPath(u: string): string {
  *  Surgeon context. Lets us reconstruct a page URL from a bare path when the
  *  page itself isn't in the context (uncrawled but with raw GSC demand). */
 function originFromContext(ctx: PageSurgeonContext): string | null {
-  const maps = [ctx.snapshotByCanon, ctx.gscByUrl, ctx.semrushByUrl, ctx.clarityByUrl];
+  const maps = [ctx.snapshotByCanon, ctx.gscByUrl, ctx.clarityByUrl];
   for (const m of maps) {
     for (const k of m.keys()) {
       const match = /^https?:\/\/[^/]+/.exec(k);
@@ -87,7 +87,6 @@ function originFromContext(ctx: PageSurgeonContext): string | null {
 export function resolveCanonFromPath(ctx: PageSurgeonContext, path: string): string | null {
   for (const k of ctx.snapshotByCanon.keys()) if (toPath(k) === path) return k;
   for (const k of ctx.gscByUrl.keys()) if (toPath(k) === path) return k;
-  for (const k of ctx.semrushByUrl.keys()) if (toPath(k) === path) return k;
   for (const k of ctx.clarityByUrl.keys()) if (toPath(k) === path) return k;
   return null;
 }

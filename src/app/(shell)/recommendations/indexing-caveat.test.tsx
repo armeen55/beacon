@@ -75,7 +75,6 @@ function makeRow(args: {
       affectedPromptCount: 0,
       observationCount: 5,
       gscEvidenceLines: [],
-      semrushEvidenceLines: [],
       clarityEvidenceLines: [],
       aeoEvidenceLines: [],
       evidenceDepth: 1,

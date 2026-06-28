@@ -21,7 +21,6 @@ import "server-only";
 import { cache } from "react";
 
 import { log } from "@/lib/logger";
-import { isLegacyQuarantined } from "@/lib/legacy-flags";
 
 import { loadActionPackWorklistForTenant } from "./load";
 import { loadActionPackParityForTenant, type ActionPackParityReport } from "./parity";
@@ -118,7 +117,6 @@ async function loadUncached(tenantId: string, now: string): Promise<CanonicalWor
   if (wl.summary.sourceCoverage.gsc === 0) {
     warnings.push("GSC backs zero packs — the demand spine looks degraded (no Search Console signal).");
   }
-  if (isLegacyQuarantined("semrush")) warnings.push("SEMrush is QUARANTINED (legacy kill-switch on) — its signals are excluded from this worklist.");
 
   const suppressedLegacyRows = parity?.legacyOnlySamples ?? [];
 

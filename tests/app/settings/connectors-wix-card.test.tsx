@@ -63,7 +63,6 @@ function clientWith(wix: ConnectorInfo): string {
       ga4={disconnectedInfo()}
       yelp={disconnectedInfo()}
       wix={wix}
-      semrush={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       profound={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       clarity={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       configYelpBusinessId=""

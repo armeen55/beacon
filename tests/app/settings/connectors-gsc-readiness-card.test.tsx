@@ -85,7 +85,6 @@ function renderClient(args: {
       ga4={disconnectedInfo()}
       wix={disconnectedInfo()}
       yelp={disconnectedInfo()}
-      semrush={disconnectedInfo()}
       profound={disconnectedInfo()}
       clarity={disconnectedInfo()}
       configYelpBusinessId=""

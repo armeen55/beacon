@@ -62,7 +62,6 @@ function makeWhy(overrides: Partial<WhyThisMattersInput> = {}): WhyThisMattersIn
     affectedPromptTexts: ["persian rug cleaning cost"],
     competitor: { name: "Rug Co", primaryPct: 0.42 },
     gscEvidenceLines: [GSC_LINE],
-    semrushEvidenceLines: [],
     clarityEvidenceLines: [],
     aeoEvidenceLines: [],
     promptCount: 3,

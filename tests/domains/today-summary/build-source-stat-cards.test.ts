@@ -17,7 +17,6 @@ import {
 import type { GscSiteTotals } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import type { Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import type { SemrushPageSignal } from "@/domains/recommendation-intelligence/semrush-page-signals";
 import type { TodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
 
 function gscTotals(p: Partial<GscSiteTotals>): GscSiteTotals {
@@ -61,16 +60,11 @@ function claritySignal(p: Partial<ClarityPageSignal>): ClarityPageSignal {
   };
 }
 
-function semrushSignal(p: Partial<SemrushPageSignal>): SemrushPageSignal {
-  return { page: "https://x.com/a", keywords: [], strikingDistance: [], ...p };
-}
-
 function emptyInputs(): AllSourceStatInputs {
   return {
     gscSiteTotals: null,
     ga4: new Map(),
     clarity: new Map(),
-    semrush: new Map(),
     aeo: null,
   };
 }
@@ -421,32 +415,7 @@ describe("buildSourceStatCards — Clarity honesty", () => {
   });
 });
 
-describe("buildSourceStatCards — SEMrush + AEO present", () => {
-  it("emits a SEMrush card with distinct keyword count + striking distance + volume", () => {
-    const inputs = emptyInputs();
-    inputs.semrush = new Map([
-      [
-        "a",
-        semrushSignal({
-          keywords: [
-            { keyword: "persian names", position: 6, volume: 5000, difficulty: null, intent: null },
-            { keyword: "iranian names", position: 3, volume: 2000, difficulty: null, intent: null },
-          ],
-          strikingDistance: [
-            { keyword: "persian names", position: 6, volume: 5000, difficulty: null, intent: null },
-          ],
-        }),
-      ],
-    ]);
-    const card = buildSourceStatCards(inputs).find((c) => c.key === "semrush");
-    expect(card).toBeDefined();
-    const labels = Object.fromEntries(card!.stats.map((s) => [s.label, s.value]));
-    expect(labels["Searches you rank for"]).toBe("2");
-    expect(labels["Almost on page 1"]).toBe("1");
-    // 7,000 is below the 10K compaction threshold → grouped integer.
-    expect(labels["Monthly searches"]).toBe("7,000");
-  });
-
+describe("buildSourceStatCards — AEO present", () => {
   it("emits the AEO card (vendor-name-free, plain English) when KPIs have data", () => {
     const inputs = emptyInputs();
     inputs.aeo = {
@@ -468,7 +437,7 @@ describe("buildSourceStatCards — SEMrush + AEO present", () => {
 });
 
 describe("buildSourceStatCards — ordering (search-first, AEO one-among-equals)", () => {
-  it("orders cards GSC → GA4 → SEMrush → Clarity → AEO", () => {
+  it("orders cards GSC → GA4 → Clarity → AEO", () => {
     const inputs = emptyInputs();
     inputs.gscSiteTotals = gscTotals({
       clicks90d: 1,
@@ -477,13 +446,10 @@ describe("buildSourceStatCards — ordering (search-first, AEO one-among-equals)
       ctr90d: 0.01,
     });
     inputs.ga4 = new Map([["a", ga4Value({ sessions28d: 100, engaged28d: 60 })]]);
-    inputs.semrush = new Map([
-      ["a", semrushSignal({ keywords: [{ keyword: "k", position: 5, volume: 100, difficulty: null, intent: null }] })],
-    ]);
     inputs.clarity = new Map([["a", claritySignal({ sessions: 100, rageClicks: 1, deadClicks: 1 })]]);
     inputs.aeo = { date: "2026-06-14", isFallback: false, totalCitations: 5, totalMentions: 2, platformRowCount: 2 };
     const keys = buildSourceStatCards(inputs).map((c) => c.key);
-    expect(keys).toEqual(["gsc", "ga4", "semrush", "clarity", "aeo"]);
+    expect(keys).toEqual(["gsc", "ga4", "clarity", "aeo"]);
   });
 });
 
@@ -500,8 +466,6 @@ describe("buildSourceStatCards — Iranopedia ground-truth shape", () => {
     });
     // GA4 connected-but-empty → empty Map
     inputs.ga4 = new Map();
-    // SEMrush not connected → empty Map
-    inputs.semrush = new Map();
     // Clarity one day deep
     inputs.clarity = new Map([
       ["a", claritySignal({ sessions: 214, rageClicks: 1, deadClicks: 63 })],

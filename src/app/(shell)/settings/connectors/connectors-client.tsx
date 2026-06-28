@@ -17,8 +17,6 @@ import {
   disconnectYelp,
   saveWixConnection,
   disconnectWix,
-  saveSemrushConnection,
-  disconnectSemrush,
   saveProfoundConnection,
   disconnectProfound,
   saveClarityConnection,
@@ -32,7 +30,6 @@ import {
   selectGa4Property,
   syncGscNow,
   syncGa4Now,
-  syncSemrushNow,
   syncProfoundNow,
   syncClarityNow,
 } from "./actions";
@@ -59,7 +56,6 @@ type Props = {
   yelp: ConnectorInfo;
   /** North-star onboarding (2026-06-11), self-serve Wix connection. */
   wix: ConnectorInfo;
-  semrush: ConnectorInfo;
   profound: ConnectorInfo;
   clarity: ConnectorInfo;
   /** From business config, for operator hint only (not a secret). */
@@ -162,7 +158,6 @@ export function ConnectorsClient({
   ga4: initialGa4,
   yelp: initialYelp,
   wix: initialWix,
-  semrush: initialSemrush,
   profound: initialProfound,
   clarity: initialClarity,
   configYelpBusinessId,
@@ -181,9 +176,6 @@ export function ConnectorsClient({
   const [wixKeyInput, setWixKeyInput] = useState("");
   const [wixSiteIdInput, setWixSiteIdInput] = useState("");
   // Connect-cards slice (2026-06-12)
-  const [semrush, setSemrush] = useState<ConnectorInfo>(initialSemrush);
-  const [semrushKeyInput, setSemrushKeyInput] = useState("");
-  const [semrushDbInput, setSemrushDbInput] = useState("");
   const [profound, setProfound] = useState<ConnectorInfo>(initialProfound);
   const [profoundKeyInput, setProfoundKeyInput] = useState("");
   const [clarity, setClarity] = useState<ConnectorInfo>(initialClarity);
@@ -203,8 +195,6 @@ export function ConnectorsClient({
   const [gscSyncResult, setGscSyncResult] = useState<SyncResultMsg>(null);
   const [ga4SyncPending, setGa4SyncPending] = useState(false);
   const [ga4SyncResult, setGa4SyncResult] = useState<SyncResultMsg>(null);
-  const [semrushSyncPending, setSemrushSyncPending] = useState(false);
-  const [semrushSyncResult, setSemrushSyncResult] = useState<SyncResultMsg>(null);
   const [profoundSyncPending, setProfoundSyncPending] = useState(false);
   const [profoundSyncResult, setProfoundSyncResult] = useState<SyncResultMsg>(null);
   const [claritySyncPending, setClaritySyncPending] = useState(false);
@@ -1283,126 +1273,6 @@ export function ConnectorsClient({
             stops all publishing instantly.
           </p>
         </div>
-      </div>
-
-      {/* ── SEMrush, Connect-cards slice (2026-06-12) ── */}
-      <div
-        id="connector-semrush"
-        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
-        data-connector-card="semrush"
-      >
-        <div className="px-5 py-4 flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h3 className="text-[13px] font-semibold text-foreground">Semrush</h3>
-            {semrush.status === "connected" ? (
-              <>
-                <p className="text-[12px] text-muted-foreground">
-                  Connected &middot; Authorized {formatDate(semrush.connected_at)}
-                </p>
-                {semrushSyncResult ? (
-                  <p
-                    className={`text-[12px] ${semrushSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
-                  >
-                    {semrushSyncResult.text}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-[12px] text-muted-foreground">
-                Connect your Semrush API key so Beacon can see which
-                searches you rank for, which rivals beat you, and where
-                the gaps are. Pulls fresh data on demand, using up to
-                ~1,500 Semrush API units per refresh.
-              </p>
-            )}
-          </div>
-          {semrush.status === "connected" ? (
-            <div className="flex shrink-0 flex-col items-end gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  handleConnectorSyncNow(syncSemrushNow, setSemrushSyncPending, setSemrushSyncResult)
-                }
-                disabled={semrushSyncPending || isPending}
-                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {semrushSyncPending ? "Syncing…" : "Pull my data now"}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSimpleDisconnect(disconnectSemrush, setSemrush)}
-                disabled={isPending}
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-              >
-                Disconnect
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="px-5 pb-3">
-          <ConnectorCapability {...CONNECTOR_CAPABILITY.semrush} />
-        </div>
-        {semrush.status !== "connected" ? (
-          <div className="border-t border-border/40 px-5 py-4 space-y-2">
-            <label htmlFor="semrush-api-key" className="sr-only">
-              Semrush API key
-            </label>
-            <input
-              id="semrush-api-key"
-              type="password"
-              value={semrushKeyInput}
-              onChange={(e) => setSemrushKeyInput(e.target.value)}
-              placeholder="Semrush API key"
-              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
-            />
-            <label htmlFor="semrush-database" className="sr-only">
-              Semrush regional database
-            </label>
-            <input
-              id="semrush-database"
-              type="text"
-              value={semrushDbInput}
-              onChange={(e) => setSemrushDbInput(e.target.value)}
-              placeholder="Regional database (default: us)"
-              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
-            />
-            <div>
-              <button
-                type="button"
-                onClick={() =>
-                  handleSaveSimpleConnection(
-                    () =>
-                      saveSemrushConnection({
-                        apiKey: semrushKeyInput,
-                        database: semrushDbInput,
-                      }),
-                    setSemrush,
-                    () => {
-                      setSemrushKeyInput("");
-                      setSemrushDbInput("");
-                    },
-                  )
-                }
-                disabled={isPending || !semrushKeyInput.trim()}
-                aria-describedby="semrush-connect-hint"
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
-              >
-                Connect Semrush
-              </button>
-              <p id="semrush-connect-hint" className="sr-only">
-                Enter your API key to enable this button.
-              </p>
-            </div>
-          </div>
-        ) : null}
-        {semrush.status === "connected" ? (
-          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Reconnecting and running Sync now pulls fresh data and uses API
-              units again.
-            </p>
-          </div>
-        ) : null}
       </div>
 
       {/* ── Profound, Connect-cards slice (2026-06-12) ── */}
