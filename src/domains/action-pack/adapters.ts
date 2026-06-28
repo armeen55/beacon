@@ -14,12 +14,29 @@
 import type { MoveCandidate, GapKind } from "@/domains/demand-graph/build-graph";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import type { AeoActionPack } from "@/domains/profound-coverage/types";
+import type { PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import type {
   ActionPack,
   ActionType,
   EvidenceSource,
   ActionPackConfidence,
+  ActionPackSerpValidation,
 } from "./types";
+
+/** Map a cached DataForSEO prepared verdict → ActionPack validation evidence.
+ *  Honest: only call this when a real cached verdict exists (never synthesize). */
+export function serpVerdictToValidation(v: PreparedSerpVerdict): ActionPackSerpValidation {
+  return {
+    verdict: v.verdict === "reject" ? "skip" : v.verdict,
+    confidence: v.confidence,
+    topDomains: v.topDomains.slice(0, 6),
+    contentDomainCount: v.contentDomainCount,
+    marketplaceUgcCount: v.marketplaceUgcCount,
+    profoundOverlapCount: v.profoundOverlapCount,
+    ownAlreadyRanks: v.ownAlreadyRanks,
+    costUsd: v.costUsd,
+  };
+}
 
 /** Tiny stable string hash (djb2) → hex; deterministic id without node:crypto. */
 function hashId(s: string): string {
@@ -66,6 +83,7 @@ export function moveCandidateToActionPack(
   tenantId: string,
   m: MoveCandidate,
   packet?: EvidencePacket | null,
+  serpVerdict?: PreparedSerpVerdict | null,
 ): ActionPack | null {
   const actionType = GAP_TO_ACTION[m.gap];
   if (!actionType) return null;
@@ -98,6 +116,9 @@ export function moveCandidateToActionPack(
   const competitors = (packet ? [packet.competitor.topUrl, ...packet.competitor.otherUrls].filter((u): u is string => !!u) : m.competitorUrls).slice(0, 5);
   if (competitors.length > 0 && packet?.competitor.facts) sources.push("competitor_teardown");
 
+  const dataforseoValidation = serpVerdict ? serpVerdictToValidation(serpVerdict) : null;
+  if (dataforseoValidation) sources.push("dataforseo");
+
   const draftStatus: ActionPack["draftStatus"] = packet?.draft && (packet.draft.titleSuggestion || packet.draft.answerBlockBrief || packet.draft.outline.length > 0) ? "ready" : "none";
 
   return {
@@ -114,10 +135,10 @@ export function moveCandidateToActionPack(
     ga4Value,
     clarityFriction,
     profoundReceipt,
-    dataforseoValidation: null, // attached separately from a serp_verdict when present
     competitorPagesToBeat: competitors,
     draftStatus,
     proofPlan: packet?.proofPlan ?? null,
+    dataforseoValidation,
     whyNotNoise: whyNotNoiseForMove(m, profoundReceipt, gscDemand, competitors),
     origin: "rank_revenue",
     evidenceHash: packet?.evidenceHash ?? hashId(`${m.demandKey}|${m.score}`),

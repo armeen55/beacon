@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pack/types";
+import { legacyQuarantineStatus } from "@/lib/legacy-flags";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -125,6 +126,20 @@ export default async function ActionPacksPage() {
           <Section title="Link / consolidation" blurb="Connect or consolidate competing pages so the strongest one wins." packs={fam("links", 10)} />
         </>
       )}
+
+      <section className="space-y-2 border-t border-gray-200 pt-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Legacy kill-switch status</h2>
+          <p className="text-xs text-gray-500">Quarantine flags (default OFF — customer surfaces unchanged). Flip an env var to turn a legacy path off and let ActionPack carry the load before deleting.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {legacyQuarantineStatus().map((q) => (
+            <span key={q.system} className={`rounded px-2 py-0.5 text-[11px] font-medium ${q.quarantined ? "bg-rose-100 text-rose-700" : "bg-gray-100 text-gray-500"}`}>
+              {q.system}: {q.quarantined ? "quarantined" : "live"}
+            </span>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

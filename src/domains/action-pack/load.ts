@@ -14,6 +14,8 @@ import { log } from "@/lib/logger";
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { loadCachedProfoundCoverageForTenant } from "@/domains/profound-coverage/load-cached";
+import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
+import { parsePreparedVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
 import { moveCandidateToActionPack, aeoActionPackToActionPack, dedupeActionPacks } from "./adapters";
@@ -53,7 +55,7 @@ const EMPTY: ActionPackWorklist = {
 };
 
 async function loadUncached(tenantId: string): Promise<ActionPackWorklist> {
-  const [graphRes, packsRes, coverage] = await Promise.all([
+  const [graphRes, packsRes, coverage, drafts] = await Promise.all([
     loadDemandGraphForTenant(tenantId).catch((e): null => {
       log.warn("[action-pack] demand graph failed", { tenantId, error: String(e) });
       return null;
@@ -63,13 +65,16 @@ async function loadUncached(tenantId: string): Promise<ActionPackWorklist> {
       log.warn("[action-pack] cached coverage failed", { tenantId, error: String(e) });
       return null;
     }),
+    // Cached DataForSEO verdicts live in move_drafts (kind serp_verdict). No live
+    // API — just the persisted "Prepare/validate" results from the New Pages work.
+    getLatestMoveDrafts(tenantId).catch((): Map<string, MoveDraftRow> => new Map()),
   ]);
 
   const packetByKey = new Map<string, EvidencePacket>((packsRes?.packets ?? []).map((p) => [p.move.key, p]));
 
   const moves = graphRes?.graph.moves ?? [];
   const fromMoves = moves
-    .map((m) => moveCandidateToActionPack(tenantId, m, packetByKey.get(m.demandKey) ?? null))
+    .map((m) => moveCandidateToActionPack(tenantId, m, packetByKey.get(m.demandKey) ?? null, parsePreparedVerdict(drafts.get(`${m.demandKey}::serp_verdict`)?.content)))
     .filter((p): p is ActionPack => p != null);
 
   const coveragePacks = coverage?.actionPacks ?? [];

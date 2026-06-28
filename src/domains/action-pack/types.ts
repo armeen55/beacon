@@ -64,6 +64,16 @@ export type ActionPackProfoundReceipt = {
 export type ActionPackSerpValidation = {
   verdict: "build" | "wait" | "skip";
   confidence: string;
+  /** Top organic domains on the live SERP (the field of play). */
+  topDomains: string[];
+  /** SERP composition: how many of the top-10 are content vs marketplace/UGC. */
+  contentDomainCount: number;
+  marketplaceUgcCount: number;
+  /** How many SERP winners overlap the Profound-cited competitors (Google∩AI). */
+  profoundOverlapCount: number;
+  ownAlreadyRanks: boolean;
+  /** Cache/spend metadata — cached verdict, $ already spent (never a fresh call). */
+  costUsd: number;
 };
 
 /**
