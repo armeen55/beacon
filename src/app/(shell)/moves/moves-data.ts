@@ -133,6 +133,19 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     if (m.targetUrl && m.targetUrl !== "needs_new_page") richByUrl.set(canon(m.targetUrl), m);
   }
 
+  // Cross-enrich (W6): a coverage-only (profound) pack and a demand-graph pack can
+  // describe the SAME owned URL. Union their evidence sources by canonical URL so a
+  // coverage card honestly shows the GSC/Clarity/etc. the brain already has for that
+  // page — not a misleadingly profound-only chip row. Honest: only real sources.
+  const sourcesByUrl = new Map<string, Set<string>>();
+  for (const p of wl.packs) {
+    if (!p.targetUrl) continue;
+    const key = canon(p.targetUrl);
+    const set = sourcesByUrl.get(key) ?? new Set<string>();
+    for (const s of p.evidenceSources) set.add(s);
+    sourcesByUrl.set(key, set);
+  }
+
   const usedRich = new Set<string>();
   const moves: TodayMove[] = [];
   for (const p of wl.packs) {
@@ -140,7 +153,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     const fam = actionFamily(p.actionType);
     if (fam === "new_page" || fam === "hub") continue;
 
-    const chips = p.evidenceSources;
+    const chips = p.targetUrl ? [...(sourcesByUrl.get(canon(p.targetUrl)) ?? p.evidenceSources)] : p.evidenceSources;
     const dfs = p.dataforseoValidation
       ? { verdict: p.dataforseoValidation.verdict, topDomains: p.dataforseoValidation.topDomains.slice(0, 3), overlap: p.dataforseoValidation.profoundOverlapCount }
       : null;
@@ -152,7 +165,8 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
       // card (they were computed on the pack but dropped at this projection).
       moves.push({ ...rich, sourceChips: chips, dataforseoVerdict: dfs });
     } else {
-      moves.push(actionPackToTodayMove(p)); // coverage-only AEO pack, surfaced inline
+      // coverage-only AEO pack, surfaced inline — with cross-enriched provenance.
+      moves.push({ ...actionPackToTodayMove(p), sourceChips: chips, dataforseoVerdict: dfs });
     }
   }
 
