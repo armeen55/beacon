@@ -112,6 +112,7 @@ function actionPackToTodayMove(p: ActionPack): TodayMove {
     preparedChecklist: null,
     preparedDraftKind: null,
     preparedDraftText: null,
+    preparedQuality: null,
     preparedExperiment: null,
     preparedStale: false,
     learnedTag: null,

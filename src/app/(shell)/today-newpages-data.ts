@@ -8,6 +8,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
 import type { CreatePageBrief } from "@/domains/llm/schemas";
+import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
@@ -53,6 +54,12 @@ export type NewPageOpportunity = {
     faqQuestions: string[];
     schemaTypes: string[];
   } | null;
+  /** Deterministic quality verdict for the prepared brief — drives honest readiness
+   *  (copy hidden + reason shown for generic/thin/off-topic briefs). null = no brief. */
+  briefQuality: DraftQualityResult | null;
+  /** Quality verdict for the saved "Draft the opening" answer block (the generic
+   *  "A gift is…" failure mode lives here). null when no opening drafted. */
+  openingQuality: DraftQualityResult | null;
   /** Profound AEO receipt — present ONLY when the underlying Move already carries
    *  strong cached `aeoEvidence` (confidence ≠ low AND ≥1 cited competitor). Lets
    *  the card say "AI is already asked this and cites competitors", not just "a
@@ -217,6 +224,32 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
             schemaTypes: Array.isArray(briefVal.schemaTypes) ? briefVal.schemaTypes.slice(0, 8) : [],
           }
         : null;
+    // Deterministic quality verdict (only when a brief exists). hasSerpVerdict is true
+    // when DataForSEO has been run for this topic (verdict persisted alongside).
+    const briefQuality = briefVal
+      ? evaluateCreatePageBriefQuality({
+          title: briefVal.proposedTitle,
+          meta: briefVal.metaDescription,
+          opening: briefVal.openingAnswer,
+          outline: briefVal.outline,
+          faqQuestions: briefVal.faqQuestions,
+          schemaTypes: briefVal.schemaTypes,
+          hasSerpVerdict: !!savedDrafts.get(`${m.demandKey}::serp_verdict`),
+        })
+      : null;
+    // Quality of the saved "Draft the opening" answer block (raw text or {answer}).
+    const savedOpening = savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null;
+    let openingQuality: DraftQualityResult | null = null;
+    if (savedOpening) {
+      let answerText = savedOpening;
+      try {
+        const p = JSON.parse(savedOpening) as { answer?: unknown };
+        if (p && typeof p.answer === "string") answerText = p.answer;
+      } catch {
+        /* raw text — use as-is */
+      }
+      openingQuality = evaluateDraftQuality({ answer: answerText, evidenceRefs: 0 });
+    }
     return {
       id: m.demandKey,
       topic: cleanTopicLabel(m.label),
@@ -227,10 +260,12 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       searchVolume: volumeByKeyword.get(m.label.trim().toLowerCase().replace(/\s+/g, " ")) ?? null,
       tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
       score: Math.round(m.score),
-      savedOpening: savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null,
+      savedOpening,
       competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
       preparedVerdict: parsePreparedVerdict(savedDrafts.get(`${m.demandKey}::serp_verdict`)?.content),
       preparedBrief,
+      briefQuality,
+      openingQuality,
       aeoReceipt,
     };
   });

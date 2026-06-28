@@ -241,11 +241,16 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   }
 
   // At-a-glance preparedness (operator Phase 4: show preparedStatus on every card).
-  // The prepared checklist below already carries the full "Ready to review" detail,
-  // so the header pill only adds the missing signals: "Ready to draft" (evidence is
-  // in place — click Prepare) and "Needs review" (a draft attempt failed).
-  const preparedPill: { label: string; cls: string } | null =
-    m.preparedStatus === "ready_to_review" || m.preparedStatus === "draft_ready" || m.preparedStatus === "proof_ready"
+  // HONESTY GATE: when a prepared draft exists, its deterministic quality verdict wins
+  // over the lifecycle status — a "ready_to_review" pack whose draft is generic/thin/
+  // off-topic must NOT show "Prepared". Only a quality-ready draft earns the green pill.
+  const q = m.preparedQuality;
+  const qualityHidesReady = q && q.status !== "ready";
+  const preparedPill: { label: string; cls: string } | null = qualityHidesReady
+    ? q!.status === "useful_but_needs_review"
+      ? { label: "Needs review", cls: "bg-amber-50 text-amber-700 ring-amber-200" }
+      : { label: q!.status === "generic_rejected" ? "Generic draft" : q!.status === "relevance_rejected" ? "Topic mismatch" : q!.status === "too_thin" ? "Too thin" : "Needs work", cls: "bg-gray-100 text-gray-500 ring-gray-200" }
+    : m.preparedStatus === "ready_to_review" || m.preparedStatus === "draft_ready" || m.preparedStatus === "proof_ready"
       ? { label: "Prepared", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" }
       : m.preparedStatus === "failed"
         ? { label: "Needs review", cls: "bg-amber-50 text-amber-700 ring-amber-200" }
@@ -363,21 +368,33 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             ))}
           </div>
           {m.preparedDraftText ? (
-            <div className="mt-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-indigo-500">
-                  {m.preparedDraftKind === "atomic_edit" ? "Prepared title" : "Prepared answer block"} — paste-ready
+            (() => {
+              const copyOk = q ? q.copyAllowed : true;
+              const label =
+                m.preparedDraftKind === "atomic_edit" ? "Prepared title" : "Prepared answer block";
+              return (
+                <div className="mt-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-indigo-500">
+                      {label}{copyOk ? " — paste-ready" : ""}
+                    </div>
+                    {copyOk ? (
+                      <button
+                        type="button"
+                        onClick={copyPrepared}
+                        className="rounded border border-indigo-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
+                      >
+                        {copiedPrepared ? "Copied ✓" : "Copy"}
+                      </button>
+                    ) : null}
+                  </div>
+                  {q && q.status !== "ready" && q.reasons[0] ? (
+                    <p className="mt-0.5 text-[10px] text-amber-700">{q.reasons[0]}</p>
+                  ) : null}
+                  <p className={`mt-0.5 rounded-lg p-2 text-[12px] leading-relaxed ring-1 ${copyOk ? "bg-white text-gray-800 ring-indigo-100" : "bg-gray-50 text-gray-500 ring-gray-200"}`}>{m.preparedDraftText}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={copyPrepared}
-                  className="rounded border border-indigo-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
-                >
-                  {copiedPrepared ? "Copied ✓" : "Copy"}
-                </button>
-              </div>
-              <p className="mt-0.5 rounded-lg bg-white p-2 text-[12px] leading-relaxed text-gray-800 ring-1 ring-indigo-100">{m.preparedDraftText}</p>
-            </div>
+              );
+            })()
           ) : null}
           {m.preparedExperiment ? (
             <p className="mt-1.5 text-[10px] text-gray-500">

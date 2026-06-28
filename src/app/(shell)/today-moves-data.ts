@@ -6,6 +6,7 @@ import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
+import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { loadGscCannibalizationForTenant, type GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
@@ -124,6 +125,9 @@ export type TodayMove = {
   preparedExperiment: string | null;
   /** True when the prepared pack is stale vs current evidence (re-prepare). */
   preparedStale: boolean;
+  /** Deterministic quality verdict for the prepared draft — gates the copy button
+   *  and honest readiness (generic/thin/off-topic drafts lose "Ready" + copy). */
+  preparedQuality: DraftQualityResult | null;
   /** Sprint 3 — "ranked higher because similar moves won before" (learned prior
    *  tag from past outcomes). Null when there's no settled evidence yet. */
   learnedTag: string | null;
@@ -438,6 +442,16 @@ export async function buildTodayMovesData(
         | null;
       const preparedDraftText = draftValue?.value?.answer ?? draftValue?.value?.after ?? null;
       const draftPrepared = persistedFresh && !!preparedDraftText;
+      // Deterministic quality verdict over the prepared draft (only when a fresh pack
+      // with a structured draft exists). Drives honest readiness + copy gating.
+      const preparedQuality =
+        persistedFresh && persistedPack!.structuredDraft
+          ? evaluatePreparedPackQuality({
+              structuredDraft: persistedPack!.structuredDraft as { kind?: string; value?: unknown },
+              preparedStatus: persistedPack!.preparedStatus,
+              moveType: persistedPack!.moveType,
+            })
+          : null;
       const preparedChecklist = effectivePack
         ? {
             googleChecked: specialistSet.has("gsc"),
@@ -445,7 +459,10 @@ export async function buildTodayMovesData(
             competitorsRead: !!packet?.competitor?.facts,
             draftPrepared,
             proofPlanReady: draftPrepared && (effectivePack.proofPlan?.metrics?.length ?? 0) > 0,
-            readyToReview: effectivePack.preparedStatus === "ready_to_review",
+            // HONESTY: only a quality-passing draft is truly ready to review/ship.
+            readyToReview:
+              effectivePack.preparedStatus === "ready_to_review" &&
+              (!preparedQuality || preparedQuality.status === "ready" || preparedQuality.status === "useful_but_needs_review"),
           }
         : null;
       const meta = ACTION_META[e.action_type] ?? { label: "Make this move", tone: "page" as const };
@@ -526,6 +543,7 @@ export async function buildTodayMovesData(
         preparedChecklist,
         preparedDraftKind: draftValue?.kind ?? null,
         preparedDraftText,
+        preparedQuality,
         preparedExperiment: persistedFresh ? persistedPack!.experiment?.hypothesis ?? null : null,
         preparedStale,
         learnedTag: (packet ? learnedByKey.get(packet.move.key)?.tag : null) ?? null,

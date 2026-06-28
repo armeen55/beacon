@@ -28,6 +28,8 @@ function opp(over: Partial<NewPageOpportunity>): NewPageOpportunity {
     competitorDomains: ["garsononline.com"],
     preparedVerdict: null,
     preparedBrief: null,
+    briefQuality: null,
+    openingQuality: null,
     aeoReceipt: null,
     ...over,
   };

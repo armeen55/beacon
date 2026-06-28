@@ -179,13 +179,33 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           </div>
         ) : null}
         {o.preparedBrief ? (
-          <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-2.5 py-2">
+          (() => {
+            const q = o.briefQuality;
+            const ready = !q || q.status === "ready";
+            const needsReview = q?.status === "useful_but_needs_review";
+            const copyOk = q ? q.copyAllowed : true;
+            const tone = ready ? "emerald" : needsReview ? "amber" : "gray";
+            const cls =
+              tone === "emerald"
+                ? "border-emerald-200 bg-emerald-50/60"
+                : tone === "amber"
+                  ? "border-amber-200 bg-amber-50/60"
+                  : "border-gray-200 bg-gray-50";
+            const heading = ready ? "✦ Page brief ready" : needsReview ? "Brief drafted — needs review" : "Brief needs work";
+            const headCls = tone === "emerald" ? "text-emerald-700" : tone === "amber" ? "text-amber-700" : "text-gray-500";
+            return (
+          <div className={`mt-2 rounded-lg border px-2.5 py-2 ${cls}`}>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">✦ Page brief ready</span>
-              <button onClick={copyBrief} className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-emerald-500">
-                {briefCopied ? "Copied ✓" : "Copy brief"}
-              </button>
+              <span className={`text-[10px] font-semibold uppercase tracking-wide ${headCls}`}>{heading}</span>
+              {copyOk ? (
+                <button onClick={copyBrief} className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-emerald-500">
+                  {briefCopied ? "Copied ✓" : "Copy brief"}
+                </button>
+              ) : null}
             </div>
+            {q && q.status !== "ready" && q.reasons[0] ? (
+              <p className={`mt-0.5 text-[10px] ${tone === "amber" ? "text-amber-700" : "text-gray-500"}`}>{q.reasons[0]}</p>
+            ) : null}
             <p className="mt-1 text-[11px] font-semibold leading-snug text-gray-900">{o.preparedBrief.title}</p>
             <p className="mt-0.5 text-[10px] leading-snug text-gray-500">{o.preparedBrief.meta}</p>
             <p className="mt-1 rounded bg-white p-1.5 text-[11px] leading-relaxed text-gray-800 ring-1 ring-emerald-100">{o.preparedBrief.opening}</p>
@@ -209,6 +229,8 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
               <p className="mt-0.5 text-[10px] text-gray-500">Schema: {o.preparedBrief.schemaTypes.join(", ")}</p>
             ) : null}
           </div>
+            );
+          })()
         ) : null}
         {o.whatWins ? (
           <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
@@ -249,15 +271,27 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           </p>
         ) : null}
         {aiStatus === "ok" ? (
-          <div className="mt-2">
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-[9px] font-semibold uppercase tracking-wide text-violet-500">✨ AI-drafted opening</span>
-              <button onClick={copy} className="rounded-md bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-violet-500">
-                {copied ? "Copied ✓" : "Copy"}
-              </button>
-            </div>
-            <p className="rounded-lg bg-white p-2 text-[11px] leading-relaxed text-gray-800 ring-1 ring-violet-100">{aiText}</p>
-          </div>
+          (() => {
+            const oq = o.openingQuality;
+            const copyOk = oq ? oq.copyAllowed : true;
+            const flagged = oq && oq.status !== "ready";
+            return (
+              <div className="mt-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${flagged ? "text-amber-600" : "text-violet-500"}`}>
+                    {flagged ? "Draft opening — needs review" : "Draft opening"}
+                  </span>
+                  {copyOk ? (
+                    <button onClick={copy} className="rounded-md bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-violet-500">
+                      {copied ? "Copied ✓" : "Copy"}
+                    </button>
+                  ) : null}
+                </div>
+                {flagged && oq!.reasons[0] ? <p className="mb-1 text-[10px] text-amber-700">{oq!.reasons[0]}</p> : null}
+                <p className={`rounded-lg p-2 text-[11px] leading-relaxed ring-1 ${copyOk ? "bg-white text-gray-800 ring-violet-100" : "bg-gray-50 text-gray-500 ring-gray-200"}`}>{aiText}</p>
+              </div>
+            );
+          })()
         ) : null}
       </div>
 
