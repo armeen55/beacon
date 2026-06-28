@@ -16,6 +16,8 @@ import type {
   PromptOpportunityCategory,
 } from "@/domains/prompts/opportunity-classify";
 import { PromptsV2Client } from "./prompts-v2-client";
+import { loadAiQuestions } from "./ai-questions-data";
+import { AiQuestionsView } from "./ai-questions-view";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -88,6 +90,17 @@ export default async function PromptsPage({
   const observationsSince = new Date(Date.now() - 14 * 86_400_000)
     .toISOString();
   const tenantId = await currentTenantId();
+
+  // AI Questions (2026-06-28 route consolidation): the REAL surface is the cached
+  // Profound prompt intelligence the ActionPack brain already consumes — not the
+  // tracked_prompts library, which is empty for Iranopedia (the page used to lie
+  // "no questions added" while Profound had hundreds). When the brain has Profound
+  // questions, that IS the page; fall through to the legacy view only when it doesn't.
+  const aiQuestions = await loadAiQuestions().catch(() => null);
+  if (aiQuestions && aiQuestions.questions.length > 0) {
+    trace.data("ai_questions_count", aiQuestions.questions.length);
+    return <AiQuestionsView data={aiQuestions} />;
+  }
   const tenantRepo = getRepository().forTenant(tenantId);
   const [trackedPrompts, promptAnswerObservations, trackedEntities] =
     await trace.time("prompts_3_parallel_reads", () =>
