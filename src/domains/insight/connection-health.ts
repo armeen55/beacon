@@ -5,6 +5,11 @@ import {
   type ConnectorProvider,
   type ConnectorInfo,
 } from "@/lib/connector-store";
+import { isDataForSeoConfigured } from "@/domains/serp/dataforseo-serp";
+
+/** Sources shown on the Data Health surface. DataForSEO is env-based (not a token
+ *  connector), so it's not a ConnectorProvider — widen the key here. */
+type HealthKey = ConnectorProvider | "dataforseo";
 
 export type ConnectionSeverity =
   | "healthy"
@@ -13,7 +18,7 @@ export type ConnectionSeverity =
   | "disconnected";
 
 export type ConnectionHealth = {
-  key: ConnectorProvider;
+  key: HealthKey;
   label: string;
   /** What this source TELLS us (the input). */
   role: string;
@@ -30,7 +35,7 @@ export type ConnectionHealth = {
 };
 
 type SourceMeta = {
-  key: ConnectorProvider;
+  key: HealthKey;
   label: string;
   role: string;
   unlocks: string;
@@ -42,7 +47,7 @@ type SourceMeta = {
 export const CONNECTION_SOURCES: readonly SourceMeta[] = [
   { key: "google_gsc", label: "Google Search", role: "what people search to find you, and where you rank on Google", unlocks: "pages losing clicks, pages slipping, and what to fix first", blockedWhenMissing: "almost everything Beacon does" },
   { key: "google_ga4", label: "Website visitors", role: "which pages get the most visitors and sign-ups", unlocks: "focusing on the pages that actually make you money", blockedWhenMissing: "knowing which pages matter most to your business" },
-  { key: "semrush", label: "Search market (SEMrush)", role: "what people search across the web, and what competitors rank for", unlocks: "searches where you are almost on Google's first page", blockedWhenMissing: "competitor and wider-search insights" },
+  { key: "dataforseo", label: "Search market (DataForSEO)", role: "live Google SERP results + search volume to validate which pages can win", unlocks: "BUILD/WAIT/SKIP verdicts on new pages, real search volume, and who actually ranks", blockedWhenMissing: "outside-market SERP validation" },
   { key: "clarity", label: "Visitor behavior (Clarity)", role: "where visitors get stuck or frustrated on your pages", unlocks: "spots where visitors get frustrated or click things that do nothing", blockedWhenMissing: "knowing where visitors get stuck" },
   { key: "wix", label: "Your website (Wix)", role: "your live website content and SEO settings (read only, not analytics)", unlocks: "reading your current pages and publishing changes you approve", blockedWhenMissing: "one-click publishing (you can still copy and paste changes yourself)" },
   { key: "profound", label: "AI answers", role: "whether AI assistants like ChatGPT recommend your business", unlocks: "tracking how often AI tools mention you", blockedWhenMissing: "knowing if AI recommends you" },
@@ -108,6 +113,23 @@ export async function loadConnectionHealth(
 ): Promise<ConnectionHealth[]> {
   return Promise.all(
     CONNECTION_SOURCES.map(async (meta) => {
+      // DataForSEO is env-based (DATAFORSEO_AUTH_B64 / LOGIN), not a token
+      // connector — derive its status from whether credentials are configured.
+      if (meta.key === "dataforseo") {
+        const configured = isDataForSeoConfigured();
+        return {
+          key: meta.key,
+          label: meta.label,
+          role: meta.role,
+          unlocks: meta.unlocks,
+          blockedWhenMissing: meta.blockedWhenMissing,
+          connected: configured,
+          lastSyncedAt: null,
+          daysStale: null,
+          severity: (configured ? "healthy" : "disconnected") as ConnectionSeverity,
+          note: configured ? "Connected — live SERP validation ready" : "Not connected",
+        };
+      }
       const info = await getConnectorInfo(meta.key, tenantId).catch(() => null);
       return deriveConnectionHealth(meta, info, now);
     }),

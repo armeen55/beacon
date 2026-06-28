@@ -3,8 +3,6 @@ import {
   Settings,
   ListChecks,
   Target,
-  Zap,
-  Compass,
   ListTodo,
   Network,
   LineChart,
@@ -47,9 +45,10 @@ export const navigationGroups: NavGroup[] = [
   {
     label: "Find & fix",
     items: [
+      // Route consolidation (2026-06-28): Worklist is THE canonical ActionPack
+      // worklist; /moves + /opportunities now redirect here (deleted the old
+      // 6-row worklist + the Moves/Opportunities split that contradicted it).
       { label: "Worklist", href: "/worklist", icon: ListTodo },
-      { label: "Moves", href: "/moves", icon: Zap },
-      { label: "Opportunities", href: "/opportunities", icon: Compass },
       { label: "Drafts", href: "/recommendations", icon: Target },
     ],
   },

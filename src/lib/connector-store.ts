@@ -630,7 +630,7 @@ export async function getConnectorHealth(
 const REAL_DATA_SOURCE_PROVIDERS: ConnectorProvider[] = [
   "google_gsc",
   "google_ga4",
-  "semrush",
+  // SEMrush removed (dead; DataForSEO is the env-based search-market source).
   "profound",
   "clarity",
   "wix",

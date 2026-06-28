@@ -171,7 +171,7 @@ async function Cockpit() {
         )}
         {opp.totalMoves > 3 ? (
           <Link
-            href="/moves"
+            href="/worklist"
             className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
           >
             See all {opp.totalMoves} moves →

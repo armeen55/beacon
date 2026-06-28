@@ -68,7 +68,8 @@ type DataSource = {
 const DATA_SOURCES: readonly DataSource[] = [
   { provider: "google_gsc", label: "Google Search Console", cardAnchor: "google-gsc" },
   { provider: "google_ga4", label: "Google Analytics 4", cardAnchor: "google-ga4" },
-  { provider: "semrush", label: "SEMrush", cardAnchor: "semrush" },
+  // SEMrush removed (dead, replaced by DataForSEO which is env-based / not a connect
+  // card). Search-market status now lives on Connections.
   { provider: "clarity", label: "Microsoft Clarity", cardAnchor: "clarity" },
   // White-label: never surface the vendor name "Profound" on a customer
   // surface (main-product-final-confidence-sweep guards src/components/today).
