@@ -2,15 +2,16 @@ export const dynamic = "force-dynamic";
 
 import { Suspense } from "react";
 import { PageHeader } from "@/components/data/page-header";
-import { loadTodayMovesHeroData } from "../today-moves-data";
+import { loadMovesWorklist } from "./moves-data";
 import { TodayNewPagesSection } from "../today-newpages-section";
 import { MovesWorklistClient } from "./moves-worklist-client";
 
 /**
- * /moves (2026-06-25) — the full Rank-&-Revenue worklist: the §2 "one ranked list
- * of Moves" the cockpit hero links to. Every engine Move (not just the top 6) with
- * filter lanes + the rich §7 card (ship / draft / title lab / AI draft) + the
- * New Pages to Build board below. Self-hides gracefully when the engine is off.
+ * /moves (2026-06-25; ActionPack-powered 2026-06-27) — the full Rank-&-Revenue
+ * worklist, now driven by the CANONICAL ActionPack brain (`loadMovesWorklist` →
+ * `loadActionPackWorklistForTenant`): the same deduped, cross-source-ranked set
+ * the unified diagnostic proves, joined to the rich §7 card (ship / draft / title
+ * lab / AI draft). Coverage-only AEO packs surface inline. New Pages board below.
  */
 
 function fmtNum(n: number): string {
@@ -30,7 +31,7 @@ function StatTile({ value, label, accent }: { value: string; label: string; acce
 async function MovesWorklist() {
   let data;
   try {
-    data = await loadTodayMovesHeroData({ limit: 60 });
+    data = await loadMovesWorklist();
   } catch {
     data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0, draftsReady: 0, strikingWins: 0, losingQueries: 0, selfCompeting: 0 } };
   }
