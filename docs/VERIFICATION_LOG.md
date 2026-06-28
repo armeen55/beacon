@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-26 — CONSOLIDATION Phase E.0: ActionPack Parity + Legacy Kill Switch · branch claude/v1-core-consolidation (commit 92e2da21; NOT merged)
+
+Prove the unified brain covers the legacy surfaces, expose a reversible quarantine switch, delete nothing blindly.
+
+- **Step 0 — branch reconciliation:** `origin/claude/remove-semrush` exists (2026-06-26) but was **NEVER merged** — SEMrush is fully present on `main` AND `claude/v1-core-consolidation` (connector ×11 + `semrush-page-signals.ts` + `/diagnostics/semrush`). Do not reintroduce; nothing was removed from main. Current branch is off main `f8c4d10a` (clean ancestry).
+- **Step 1 — DataForSEO fusion:** `serpVerdictToValidation` + `moveCandidateToActionPack(…, serpVerdict)` map a cached `PreparedSerpVerdict` (reject→skip) into `dataforseoValidation` (verdict, confidence, topDomains, content/marketplace split, profoundOverlap, ownAlreadyRanks, costUsd); `load.ts` reads `move_drafts` kind `serp_verdict` — **cached only, no live API.** **Verified:** 9 Iranopedia create-moves match a cached verdict (key-overlap proof) → DataForSEO coverage nonzero (was 0).
+- **Step 2 — parity:** `domains/action-pack/parity.ts` + `/diagnostics/action-packs/parity` — per-surface represented/missing/replaceable. Demand-graph surfaces (rank-revenue/moves/new-pages) represented by construction; coverage adapted; competing `recommended_edits` queue compared by URL (8s time-boxed read); visibility-score = metric-not-rows. Renders HTTP 200 (~29s).
+- **Step 3 — kill-switch:** `lib/legacy-flags.ts` — env-gated quarantine per legacy system (visibility_score / profound_brand_sov / legacy_rec_scorer / semrush / agent_analytics_writer), DEFAULT OFF (customer surfaces unchanged). Status readout on `/diagnostics/action-packs`.
+- **Step 4 — first deletion: NONE safe this turn (verification caught consumers).** The map's DELETE of the agent-analytics migration is WRONG — `profound-deep/{bot-coverage,referral-signals,load-profound-deep}` READ `profound_bot_rows`/`profound_referral_rows` (live). SEMrush is consumed by `semrush-page-signals` triggers → caller-removal required first. So no provably-dead-and-unconsumed path → deletion deferred (the correct "don't delete blindly" outcome).
+- **Verified:** `tsc` 0 · `npm run build` PASS (parity route compiled) · **7 action-pack tests** (adapters + DataForSEO honesty + legacy-flags) · `/diagnostics/action-packs` + `/parity` render HTTP 200. No legacy deleted · no customer flip · no Wix/cron · no live Profound/DataForSEO on render.
+- **Honest perf note:** `/diagnostics/action-packs` is heavy (~43-61s warm, near maxDuration 60 — loadChangePacksForTenant limit 60 + graph + coverage + drafts); needs a perf pass (cap packs / parallelize) before it's a daily surface. **Next deletion order (after caller-removal):** (1) SEMrush triggers → connector → diagnostic; (2) wire the kill-switch flags into each legacy surface, flip + observe, then delete.
+
+---
+
 ## 2026-06-26 — BEACON v1 CORE CONSOLIDATION: unified ActionPack (Phases A-D) · branch claude/v1-core-consolidation (commit 166d8af2; NOT merged)
 
 Goal: stop layering on legacy; one unified recommendation brain + a map to quarantine/kill the competing old paths.
