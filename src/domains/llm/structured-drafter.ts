@@ -9,6 +9,7 @@ import {
   type StructuredDraftKind,
   type AnswerBlockDraft,
   type AtomicEditDraft,
+  type CreatePageBrief,
   type AeoPromptBrief,
 } from "./schemas";
 
@@ -338,6 +339,66 @@ export async function draftAtomicEditStructured(
     user,
     grounded,
     projectedCostUsd: 0.02,
+    complete: opts.complete,
+    now: opts.now,
+  });
+}
+
+// ── concrete drafter: CreatePageBrief (a brand-new page) ──────────────────────
+
+export type CreatePageStructuredInput = {
+  /** The topic / demand cluster the new page targets. */
+  query: string;
+  /** Suggested slug or label for the page. */
+  pageLabel: string;
+  /** Competitor pages AI/Google cite for this topic (to study + beat). */
+  competitorPages: string[];
+  /** Fan-out sub-questions / grounded section seeds. */
+  fanoutQueries: string[];
+  /** Evidence the team established (GSC demand, profound prompt, etc.). */
+  evidenceHints?: string[];
+};
+
+const CREATE_PAGE_SYSTEM =
+  "You write the BRIEF for a brand-new encyclopedia / content page so an editor can build it. " +
+  'Return ONLY a JSON object: "proposedTitle" (<=70 chars, concise + descriptive, no boilerplate/year-stuffing), ' +
+  '"metaDescription" (120-160 chars, page-specific, no overpromising), "openingAnswer" (a 40-80 word direct, extractable answer), ' +
+  '"outline" (3-16 H2 section headings, specific to the topic), "faqQuestions" (real questions a reader asks, from the grounding), ' +
+  '"schemaTypes" (relevant schema.org types, e.g. Article, FAQPage — only if warranted), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete build steps), ' +
+  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
+
+/** Draft a schema-valid CreatePageBrief for one create_page / hub Move. */
+export async function draftCreatePageStructured(
+  input: CreatePageStructuredInput,
+  opts: { complete?: CompleteFn; now?: Date } = {},
+): Promise<StructuredDraftResult<CreatePageBrief>> {
+  const grounded = [
+    input.query,
+    input.competitorPages.join(" "),
+    input.fanoutQueries.join(" "),
+    (input.evidenceHints ?? []).join(" "),
+  ].join(" ");
+  const user = [
+    `New-page topic: "${input.query}"`,
+    `Working label/slug: ${input.pageLabel}`,
+    input.fanoutQueries.length ? `Sub-questions AI is asked: ${input.fanoutQueries.slice(0, 10).join("; ")}` : "",
+    input.competitorPages.length ? `Competitor pages cited now (study + beat): ${input.competitorPages.slice(0, 6).join("; ")}` : "",
+    (input.evidenceHints ?? []).length ? `Evidence the team established: ${input.evidenceHints!.join("; ")}` : "",
+    "",
+    "Return the JSON now.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return callStructuredLLM({
+    kind: "create_page_brief",
+    system: CREATE_PAGE_SYSTEM,
+    user,
+    grounded,
+    projectedCostUsd: 0.03,
     complete: opts.complete,
     now: opts.now,
   });

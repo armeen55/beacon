@@ -15,6 +15,7 @@ import { saveMoveDraft, getLatestMoveDrafts } from "./move-draft-store";
 import {
   draftAnswerBlockStructured,
   draftAtomicEditStructured,
+  draftCreatePageStructured,
   type CompleteFn,
   type StructuredDraftResult,
 } from "@/domains/llm/structured-drafter";
@@ -73,7 +74,14 @@ function buildExperimentPlan(
   draftValue: { evidenceRefs?: unknown; operatorSteps?: string[] },
 ): ExperimentPlan | null {
   const gap = packet.move.gapType;
-  const primaryMetric = gap === "answer_block" ? "profound_citations" : gap === "edit_page" ? "gsc_ctr" : "clarity_friction";
+  const primaryMetric =
+    gap === "answer_block"
+      ? "profound_citations"
+      : gap === "edit_page"
+        ? "gsc_ctr"
+        : gap === "create_page"
+          ? "gsc_impressions"
+          : "clarity_friction";
   const expectedDirection = gap === "fix_experience" ? "down" : "up";
   const candidate = {
     hypothesis: decision.rationale.slice(0, 300) || `Shipping this ${gap} move improves ${primaryMetric}.`,
@@ -112,6 +120,18 @@ async function draftForPacket(
   if (packet.move.gapType === "edit_page") {
     return draftAtomicEditStructured(
       { ...common, field: "title", currentValue: packet.yourPage.facts?.title ?? null },
+      opts,
+    ) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;
+  }
+  if (packet.move.gapType === "create_page") {
+    return draftCreatePageStructured(
+      {
+        query: packet.move.label,
+        pageLabel: packet.yourPage.url ?? packet.move.label,
+        competitorPages: [packet.competitor.topUrl, ...(packet.competitor.otherUrls ?? [])].filter((u): u is string => !!u),
+        fanoutQueries: packet.demand.fanoutSeeds ?? [],
+        evidenceHints,
+      },
       opts,
     ) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;
   }
@@ -158,7 +178,13 @@ export async function prepareTodayMovesForTenant(
 
   const { packets } = await loadChangePacksForTenant(tenantId, { limit: Math.max(max, 25) }).catch(() => ({ packets: [] as EvidencePacket[] }));
   const targets = packets
-    .filter((p) => p.move.gapType === "answer_block" || p.move.gapType === "edit_page" || p.move.gapType === "fix_experience")
+    .filter(
+      (p) =>
+        p.move.gapType === "answer_block" ||
+        p.move.gapType === "edit_page" ||
+        p.move.gapType === "fix_experience" ||
+        p.move.gapType === "create_page",
+    )
     .sort((a, b) => b.move.score - a.move.score)
     .slice(0, max);
   summary.considered = targets.length;

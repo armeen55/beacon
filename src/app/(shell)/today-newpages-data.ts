@@ -6,6 +6,8 @@ import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/c
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
+import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
+import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
@@ -40,6 +42,17 @@ export type NewPageOpportunity = {
   /** Precomputed DataForSEO verdict (from "Prepare top N"), so the card arrives
    *  "Google checked" with no operator click. null until prepared. */
   preparedVerdict: PreparedSerpVerdict | null;
+  /** Full structured page brief from "Prepare top 10" (create_page_brief) — title,
+   *  meta, opening answer, H2 outline, FAQ, schema. Present once the move is prepared,
+   *  so the card arrives with the page already written (no operator click). */
+  preparedBrief: {
+    title: string;
+    meta: string;
+    opening: string;
+    outline: string[];
+    faqQuestions: string[];
+    schemaTypes: string[];
+  } | null;
   /** Profound AEO receipt — present ONLY when the underlying Move already carries
    *  strong cached `aeoEvidence` (confidence ≠ low AND ≥1 cited competitor). Lets
    *  the card say "AI is already asked this and cites competitors", not just "a
@@ -177,6 +190,33 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
             ownCitedUrls: e.topCitedPages.filter((p) => p.isOwned).map((p) => p.url).slice(0, 10),
           }
         : null;
+    // Full structured page brief from "Prepare" (create_page_brief), if prepared.
+    // Primary: the standalone brief the New Pages prepare persists; fallback: the
+    // worklist prepare's prepared_pack (if a create_page move ever ranks top-N there).
+    let briefVal: CreatePageBrief | undefined;
+    const briefRaw = savedDrafts.get(`${m.demandKey}::create_page_brief`)?.content;
+    if (briefRaw) {
+      try {
+        briefVal = JSON.parse(briefRaw) as CreatePageBrief;
+      } catch {
+        /* ignore malformed */
+      }
+    }
+    if (!briefVal) {
+      const sd = parsePreparedPack(savedDrafts.get(`${m.demandKey}::prepared_pack`)?.content)?.structuredDraft;
+      if (sd && sd.kind === "create_page_brief") briefVal = sd.value as CreatePageBrief | undefined;
+    }
+    const preparedBrief =
+      briefVal && briefVal.proposedTitle
+        ? {
+            title: briefVal.proposedTitle,
+            meta: briefVal.metaDescription,
+            opening: briefVal.openingAnswer,
+            outline: Array.isArray(briefVal.outline) ? briefVal.outline.slice(0, 16) : [],
+            faqQuestions: Array.isArray(briefVal.faqQuestions) ? briefVal.faqQuestions.slice(0, 8) : [],
+            schemaTypes: Array.isArray(briefVal.schemaTypes) ? briefVal.schemaTypes.slice(0, 8) : [],
+          }
+        : null;
     return {
       id: m.demandKey,
       topic: cleanTopicLabel(m.label),
@@ -190,6 +230,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       savedOpening: savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null,
       competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
       preparedVerdict: parsePreparedVerdict(savedDrafts.get(`${m.demandKey}::serp_verdict`)?.content),
+      preparedBrief,
       aeoReceipt,
     };
   });

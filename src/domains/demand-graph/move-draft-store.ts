@@ -28,6 +28,8 @@ export type MoveDraftKind =
   | "serp_verdict"
   | "prepared_pack"
   | "structured_draft"
+  // Full structured CreatePageBrief for a New Pages create_page Move (free-text col → no migration).
+  | "create_page_brief"
   // Sprint 6: persisted image-alt scan findings (column is free-text → no migration).
   | "image_alt_findings"
   // Sprint 6: persisted product/collection on-page SEO gaps from the same scan.

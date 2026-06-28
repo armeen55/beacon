@@ -102,6 +102,27 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
     }).catch(() => {});
   };
 
+  const [briefCopied, setBriefCopied] = useState(false);
+  const copyBrief = () => {
+    const b = o.preparedBrief;
+    if (!b) return;
+    const text = [
+      `Title: ${b.title}`,
+      `Meta: ${b.meta}`,
+      "",
+      `Opening:\n${b.opening}`,
+      b.outline.length ? `\nOutline:\n${b.outline.map((s) => `- ${s}`).join("\n")}` : "",
+      b.faqQuestions.length ? `\nFAQ:\n${b.faqQuestions.map((q) => `- ${q}`).join("\n")}` : "",
+      b.schemaTypes.length ? `\nSchema: ${b.schemaTypes.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    navigator.clipboard?.writeText(text).then(() => {
+      setBriefCopied(true);
+      setTimeout(() => setBriefCopied(false), 1800);
+    }).catch(() => {});
+  };
+
   return (
     <div className="group flex flex-col justify-between rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
       <div>
@@ -154,6 +175,38 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
                   tags: [],
                 }}
               />
+            ) : null}
+          </div>
+        ) : null}
+        {o.preparedBrief ? (
+          <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-2.5 py-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">✦ Page brief ready</span>
+              <button onClick={copyBrief} className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-emerald-500">
+                {briefCopied ? "Copied ✓" : "Copy brief"}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] font-semibold leading-snug text-gray-900">{o.preparedBrief.title}</p>
+            <p className="mt-0.5 text-[10px] leading-snug text-gray-500">{o.preparedBrief.meta}</p>
+            <p className="mt-1 rounded bg-white p-1.5 text-[11px] leading-relaxed text-gray-800 ring-1 ring-emerald-100">{o.preparedBrief.opening}</p>
+            {o.preparedBrief.outline.length > 0 ? (
+              <div className="mt-1.5">
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">Outline</div>
+                <ul className="mt-0.5 space-y-0.5">
+                  {o.preparedBrief.outline.slice(0, 6).map((h, i) => (
+                    <li key={i} className="text-[10px] leading-snug text-gray-600">• {h}</li>
+                  ))}
+                  {o.preparedBrief.outline.length > 6 ? (
+                    <li className="text-[10px] text-gray-400">+{o.preparedBrief.outline.length - 6} more sections</li>
+                  ) : null}
+                </ul>
+              </div>
+            ) : null}
+            {o.preparedBrief.faqQuestions.length > 0 ? (
+              <p className="mt-1 text-[10px] text-gray-500">{o.preparedBrief.faqQuestions.length} FAQ question{o.preparedBrief.faqQuestions.length === 1 ? "" : "s"} drafted</p>
+            ) : null}
+            {o.preparedBrief.schemaTypes.length > 0 ? (
+              <p className="mt-0.5 text-[10px] text-gray-500">Schema: {o.preparedBrief.schemaTypes.join(", ")}</p>
             ) : null}
           </div>
         ) : null}

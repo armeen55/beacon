@@ -6,6 +6,7 @@ import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { runSerpQuery } from "./dataforseo-serp";
 import { validateCreatePage } from "./serp-validation";
 import { rootDomain } from "./serp-provider";
+import { draftCreatePageStructured } from "@/domains/llm/structured-drafter";
 
 /**
  * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) — the "prepared, not a
@@ -37,7 +38,11 @@ export type PrepareSummary = {
   validated: number;
   cached: number;
   skipped: number;
+  /** Structured page briefs (title/meta/opening/outline/FAQ/schema) drafted + persisted. */
+  briefs: number;
   costUsd: number;
+  /** LLM spend for the page briefs (separate from SERP costUsd). */
+  briefCostUsd: number;
   capped: boolean;
 };
 
@@ -56,7 +61,7 @@ export async function prepareCreatePageVerdicts(
 ): Promise<PrepareSummary> {
   const max = opts.maxValidations ?? 25;
   const now = opts.now ?? (() => new Date());
-  const summary: PrepareSummary = { validated: 0, cached: 0, skipped: 0, costUsd: 0, capped: false };
+  const summary: PrepareSummary = { validated: 0, cached: 0, skipped: 0, briefs: 0, costUsd: 0, briefCostUsd: 0, capped: false };
 
   let graph;
   try {
@@ -107,6 +112,34 @@ export async function prepareCreatePageVerdicts(
       costUsd: r.costUsd,
     };
     await saveMoveDraft(tenantId, m.demandKey, "serp_verdict", JSON.stringify(compact)).catch(() => false);
+
+    // Also draft the full structured page brief (title/meta/opening/outline/FAQ/
+    // schema) for BUILD/WAIT pages, so the New Pages card arrives WRITTEN, not just
+    // verdicted. SKIP pages get no brief (don't spend LLM on a page we advise
+    // against). Best-effort + budget-gated inside the drafter; fail-soft.
+    if (v.verdict !== "reject") {
+      try {
+        const brief = await draftCreatePageStructured({
+          query: m.label,
+          pageLabel: m.demandKey,
+          competitorPages: [...new Set(m.competitorUrls)].slice(0, 6),
+          fanoutQueries: m.aeoEvidence?.fanoutQueries ?? [],
+          evidenceHints: [
+            v.profoundOverlapCount > 0 ? "Google and AI cite the same competitors for this topic" : "",
+            `${v.contentDomainCount} of 10 SERP results are beatable content pages`,
+          ].filter(Boolean),
+        });
+        if (brief.status === "drafted") {
+          summary.briefs += 1;
+          summary.briefCostUsd += brief.costUsd;
+          await saveMoveDraft(tenantId, m.demandKey, "create_page_brief", JSON.stringify(brief.value)).catch(() => false);
+        } else if (brief.status === "validation_failed") {
+          summary.briefCostUsd += brief.costUsd;
+        }
+      } catch {
+        /* brief is best-effort; the verdict already persisted */
+      }
+    }
   }
 
   log.info("[prepare-verdicts] done", { tenantId, ...summary });
