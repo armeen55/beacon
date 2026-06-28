@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-27 — CONSOLIDATION Phase F.1: Fast canonical ActionPack + SEMrush caller-first removal · branch claude/v1-core-consolidation
+
+**Part 1 — ActionPack perf (DONE, committed 41942d4f, green):** `loadActionPackWorklistForTenant(tenantId, { mode: "fast" | "full" })`, default fast (time-boxes each heavy read so the canonical brain can't silently blow maxDuration; coverage identical across modes — honest). `?mode=full` escape + mode chip + degraded-warnings banner on `/diagnostics/action-packs`. **Measured truth (prod build): worklist 9.1s, page renders 7.9s cold / 8.5s warm (200) — already under the 10s target. The "43-61s" was DEV-MODE route compile, not the load.** Profiling: demand graph 7.6s is the floor, runs PARALLEL to coverage/change-packs/drafts → capping change-packs gives no wall-clock win and undercounts gsc coverage (measured + rejected). Sub-5s needs speeding the graph itself (separate work). tsc 0; fast vs full = 364 packs, top-20 identical, coverage identical.
+
+**Part 2 — SEMrush caller-first removal (WIP, NOT compiling; preserved on branch `claude/v1-semrush-removal-wip` @ 5b4e7ce7, NOT merged):** Larger than one session (`rg -i semrush src/` ≈ 831 mentions / ~60+ files). Done: 26 deletes (whole `lib/connectors/semrush`, `semrush-page-signals.ts`, 3 triggers, `/diagnostics/semrush`, 8 tests) + ~26 consumer edits (trigger-loader incl. PREDICATE_COUNT 17→14, cron-sync, settings, today-v2/newpages, load-queue, evidence-summary, recommendation-action-rows, recommendation-qa, why-this-matters, llm narratives, opportunity-map, rec cards). **Remaining fully documented in `docs/SEMRUSH_REMOVAL_WIP.md`** (on the WIP branch): Page-Surgeon wave (contract/assemble-packet/page-decision/**title-scorers weighted dimension**/title-candidates/llm-judge), scorer weight maps (priority-score/promotion-eligibility/rec-provenance/draft-enrichment), connector-store unions, legacy-flags, UI/copy, ~14 test fixtures. Replacements decided: striking-distance → already-wired `gsc_striking_distance` (no loss); cannibalization → GSC-native on /opportunities (queue-trigger = follow-up); keyword-gap → none until DataForSEO. **DB tables NOT dropped (operator-gated); `searchVolume` KEPT (provider-agnostic).** Finish: `tsc --noEmit` loop → build → truth dump → `rg -i semrush` docs-only → commit onto consolidation.
+
+---
+
 ## 2026-06-27 — CONSOLIDATION Phase F: canonical brain + SEMrush proven-inert · branch claude/v1-core-consolidation (NOT merged)
 
 Make ActionPack the canonical read model + prove SEMrush is safe to retire. One brain, one ranked list.
