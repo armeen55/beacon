@@ -355,8 +355,10 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                 ["Google checked", m.preparedChecklist.googleChecked],
                 ["AI checked", m.preparedChecklist.aiChecked],
                 ["Competitors read", m.preparedChecklist.competitorsRead],
-                ["Draft prepared", m.preparedChecklist.draftPrepared],
-                ["Proof plan ready", m.preparedChecklist.proofPlanReady],
+                // "Draft prepared" only counts a QUALITY-passing draft — a generic/thin
+                // draft must not show ✓ here while the pill says "Generic draft".
+                ["Draft prepared", m.preparedChecklist.draftPrepared && (!q || q.copyAllowed)],
+                ["Proof plan ready", m.preparedChecklist.proofPlanReady && (!q || q.copyAllowed)],
               ] as const
             ).map(([label, ok]) => (
               <span
