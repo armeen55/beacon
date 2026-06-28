@@ -82,7 +82,18 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   const [pending, startTransition] = useTransition();
   const [showDraft, setShowDraft] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedPrepared, setCopiedPrepared] = useState(false);
   const [copiedTitle, setCopiedTitle] = useState<number | null>(null);
+  const copyPrepared = () => {
+    if (!m.preparedDraftText) return;
+    navigator.clipboard
+      ?.writeText(m.preparedDraftText)
+      .then(() => {
+        setCopiedPrepared(true);
+        setTimeout(() => setCopiedPrepared(false), 1800);
+      })
+      .catch(() => {});
+  };
   const copyTitle = (i: number, text: string) => {
     navigator.clipboard
       ?.writeText(text)
@@ -315,8 +326,17 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           </div>
           {m.preparedDraftText ? (
             <div className="mt-2">
-              <div className="text-[9px] font-semibold uppercase tracking-wide text-indigo-500">
-                {m.preparedDraftKind === "atomic_edit" ? "Prepared title" : "Prepared answer block"} — paste-ready
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[9px] font-semibold uppercase tracking-wide text-indigo-500">
+                  {m.preparedDraftKind === "atomic_edit" ? "Prepared title" : "Prepared answer block"} — paste-ready
+                </div>
+                <button
+                  type="button"
+                  onClick={copyPrepared}
+                  className="rounded border border-indigo-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
+                >
+                  {copiedPrepared ? "Copied ✓" : "Copy"}
+                </button>
               </div>
               <p className="mt-0.5 rounded-lg bg-white p-2 text-[12px] leading-relaxed text-gray-800 ring-1 ring-indigo-100">{m.preparedDraftText}</p>
             </div>

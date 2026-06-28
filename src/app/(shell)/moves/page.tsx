@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { loadMovesWorklist } from "./moves-data";
 import { TodayNewPagesSection } from "../today-newpages-section";
 import { MovesWorklistClient } from "./moves-worklist-client";
+import { PrepareTopMovesButton } from "../today-moves-prepare";
 
 /**
  * /moves (2026-06-25; ActionPack-powered 2026-06-27) — the full Rank-&-Revenue
@@ -33,7 +34,7 @@ async function MovesWorklist() {
   try {
     data = await loadMovesWorklist();
   } catch {
-    data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0, draftsReady: 0, strikingWins: 0, losingQueries: 0, selfCompeting: 0 } };
+    data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0, draftsReady: 0, strikingWins: 0, losingQueries: 0, selfCompeting: 0, heldWhileMeasuring: 0, preparedReady: 0 } };
   }
   const { moves, stats } = data;
 
@@ -57,6 +58,12 @@ async function MovesWorklist() {
         ) : (
           <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />
         )}
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-gray-500">
+          Let Beacon prepare the top moves end-to-end — structured draft, experiment, and proof plan — so each arrives ready to review.
+        </p>
+        <PrepareTopMovesButton readyCount={stats.preparedReady ?? 0} total={moves.length} />
       </div>
       <MovesWorklistClient moves={moves} />
       {stats.movesReady > moves.length ? (

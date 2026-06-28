@@ -9,6 +9,7 @@ import { DataSourcesStrip } from "@/components/today/data-sources-strip";
 import { loadTodayV2GateData } from "./today-v2-data";
 import { loadTodayCockpit, type TodayCockpit } from "@/domains/action-pack/load-today-cockpit";
 import { MoveCard } from "./today-moves-card";
+import { PrepareTopMovesButton } from "./today-moves-prepare";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import {
   TodayV2ExperimentsMeasuringSection,
@@ -155,7 +156,10 @@ async function Cockpit() {
       ) : null}
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-900">Do these first</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-gray-900">Do these first</h2>
+          <PrepareTopMovesButton readyCount={c.preparedMovesCount} total={opp.totalMoves} />
+        </div>
         {c.topThree.length > 0 ? (
           <div className="grid gap-3">
             {c.topThree.map((m, i) => <MoveCard key={m.id} m={m} rank={i + 1} />)}
