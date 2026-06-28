@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-28 — ROUTE CONSOLIDATION (brutal product audit): stop the app contradicting Today/Moves · main (shipped, in progress)
+
+Operator: "half new ActionPack brain, half old Beacon museum" — the rest of the app lies (Worklist says 6 vs Moves 167, AI Questions empty, Competitors says "connect data" when connected, Connections shows dead SEMrush). North star: ONE product — Today → Worklist → Drafts → Results → Sources → AI Questions → Competitors. 11-agent route audit drove the plan.
+
+- **Chunk 1 (`158729a7`) — Worklist unification + SEMrush kill:** /worklist is now THE canonical ActionPack worklist (was the broken 6-row legacy `buildWorklist`); /moves + /opportunities redirect to it; nav dropped Moves + Opportunities. SEMrush removed from live UI: connection-health (→ DataForSEO, env-based via isDataForSeoConfigured), data-sources-strip + REAL_DATA_SOURCE_PROVIDERS (5 sources), New Pages volume attribution (→ DataForSEO). Deleted orphans opportunity-list + load-profound-deep. Verified: /worklist 200 (75 cards), redirects 200, Connections SEMrush=0/DataForSEO=5, Today strip SEMrush=0.
+- **Chunk 2 (`caa833b7`) — Competitors regate:** /competitors gated only on hasActiveExperiment() (CSV-import signal) → wrongly showed Iranopedia the demo "connect data" state. Now uses Today's gate (NOT hasActiveExperiment AND NOT hasAnyConnectedDataSource). SEMrush dropped from copy. Verified: demo state=0, SEMrush=0.
+- **REMAINING (next loop iterations):** AI Questions (/prompts) still empty — rebuild from cached Profound citations/fanouts; deeper Competitors population from Profound; Drafts (/recommendations) dual-truth → redirect or write-through; Proof provenance (actionPackId on ShippedChangeRecord) + freshness label; Connectors/Connections merge; New Pages quality gate (junk labels); Moves-card Profound relevance gate + title-boilerplate fix; remaining SEMrush copy in help/briefs/settings-connectors/diagnostics.
+- tsc 0 (×3); build PASS (×3); no Wix/migrations/destructive ops.
+
+---
+
 ## 2026-06-28 — PREPARED-FOR-YOU mode: "Beacon found it" → "Beacon prepared it" · main (shipped)
 
 Operator: make the top moves arrive prepared, not just diagnosed. Mapped the existing draft/prepare machinery with a 9-agent workflow FIRST (don't rebuild) — finding the whole stack was already built: PreparedMovePack + 16-state machine (prepared-move-pack.ts), prepare pipeline (prepare-today-moves.ts, cache-first, capped), structured drafters + zod schemas (llm/structured-drafter.ts, llm/schemas.ts), persisted `move_drafts` kind `prepared_pack`, and the card render. The real gap: my ActionPack rebuild had **orphaned the trigger button**, and there was no copy button on the prepared draft.
