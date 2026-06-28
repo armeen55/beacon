@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-28 — CONNECTEDNESS sprint: fuse every source into ActionPack + show evidence on the UI · main (shipped)
+
+Operator: "connect everything; call the safe read APIs; fuse every source into ActionPack; make the UI show the evidence; loading states fine; no flags; ship to main; repeat the loop until nothing remains." ActionPack is the brain; SPEED over polish; always main.
+
+- **Connectedness audit** (8 parallel Explore agents) mapped every surface × 12 source questions → 6 ranked wirings. Live coverage (Iranopedia, FULL mode): rank_revenue 190, profound 239, dataforseo 9, gsc 60, ga4 0, clarity 36, teardown 7.
+- **Live API refresh pass:** Clarity synced (+74 rows). GSC `gsc_client_misconfig`, GA4 `token_expired` (Google OAuth needs re-auth — operator action), Profound `visibility_upsert_failed` (cached citations usable). Logged, none block.
+- **Batch 1 (`85493cbf`):** MoveCard renders ActionPack source-provenance chips + cached DataForSEO SERP verdict (were diagnostics-only) — `TodayMove.sourceChips`+`dataforseoVerdict`, threaded in moves-data.ts, rendered in today-moves-card.tsx. New Pages `searchVolume` wired to `readAllCachedKeywordDemand` (exact-match, honest). **Anti-silent-disappear:** action-pack/load.ts no longer time-boxes the essential demand graph into rank_revenue=0; New Pages graph time-box 8s→30s.
+- **Batch 2 (`91a7c742`):** coverage-pack cross-enrich by URL — union evidence sources so coverage cards show the GSC/Clarity the brain has, not profound-only. Live: 75/75 cards carry chips, 66 multi-source (`rank_revenue+profound+gsc+clarity`).
+- **Verified:** tsc 0 (×3) · `npm run build` PASS (×2) · prod render `/` 200 (~9.4–13s warm), `/moves` 200 (chips live: 18 Google Search, 34 AI citations, 9 Clarity, 33 Demand graph, 3 teardown), `/diagnostics/action-packs` 200. No Wix writes, no migrations, no destructive ops.
+- **Remaining (next loop iterations):** structured-JSON LLM drafts + top-N "Prepare my top 10"; auto-measure → outcome-prior into R&R scorer; GA4 real sessions/conversions (blocked on GA4 data); Profound bots/referrals (dead tables). Plan = twinkly-balloon P0–P18.
+
+---
+
 ## 2026-06-27 — CONSOLIDATION Phase F: canonical brain + SEMrush proven-inert · branch claude/v1-core-consolidation (NOT merged)
 
 Make ActionPack the canonical read model + prove SEMrush is safe to retire. One brain, one ranked list.
