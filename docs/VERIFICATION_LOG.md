@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — NEAR-DUPE AUDIT, remaining ActionPack types → NO EXTENSION (evidence-first) · main `PENDING`
+## 2026-06-29 — NEAR-DUPE AUDIT, remaining ActionPack types → NO EXTENSION (evidence-first) · main `3832600f`
 
 Operator: don't blindly add action types to the collapse — ground-truth first, extend only where safe dupes are PROVEN.
 
