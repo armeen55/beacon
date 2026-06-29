@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-29 — SENIOR RECOMMENDATIONS sub-slice 1: evidence-based titles + lost-lever gating + data bugs · main `7b93ed61`
+
+**Context.** Operator flagged the recommendation layer as generic/incoherent: identical "Complete Guide" titles on every page despite "3 specialists weighed in"; a lost title/meta test still showing title options; "400% dead clicks"; "iran animals vs your iran animals". Phase-0 truth audit (7 parallel read-only agents) root-caused each to a templated OUTPUT layer that ignores the (real) evidence/debate. This is sub-slice 1 of the trust-first fix — **logic only**.
+
+**Changed (4 files).**
+- `src/domains/demand-graph/ctr-title-scorer.ts` — added `TitleExtras` + `buildTitleVariants()` (scored, with `strategy`+`reason`); `genCandidates()` is intent-aware (`detectIntent`: list/definitional/comparison/entity); `STRATEGY_BONUS` makes the exact-query title the senior default so a bare editorial framing never wins by default; "Complete Guide" generated ONLY for definitional intent; `trim-current` variant when a real over-length title is supplied. `titleCandidates` kept (back-compat, tolerates legacy numeric arg); `bestTitle` routes through the new path.
+- `src/app/(shell)/today-moves-data.ts` — capture `currentTitle`/`competitorTitle` from the packet onto the move; both title call-sites use `buildTitleVariants` with real extras; `titleLeverLost` gate (`outcomeCaution.kind==='no_lift'` + `edit_title`) clears title options, relabels "Try a different lever", and suppresses the "sharper title" why/proof; Clarity `deadPct`/`ragePct` clamped to 100.
+- `src/app/(shell)/today-moves-card.tsx` — render each title's `reason`; self-competition chip shows a distinct page (or "split across N of your pages") instead of "X vs your X".
+- `src/domains/demand-graph/ctr-title-scorer.test.ts` — rewritten: 14 tests incl. "Complete Guide is not the universal fallback", list-intent best is a list framing, reasons present, trim-current appears only when the live title is over the limit.
+
+**Verified.** `tsc` 0 source errors · `ctr-title-scorer` 14/14 · `proof-outcome-caution` 15/15 · `npm run build` exit 0 (`/worklist` compiled). Live ground-truth (dev server, operator mode, Iranopedia, `/worklist` DOM extraction): Complete-Guide-BEST **0** (was universal), Explained-BEST **0**, 13 title cards → 2 "Top 10 …" (Persian boy/girl names) + 11 clean exact titles; no_lift gate fired (`Try a different lever` present, "didn't move it" chip); max dead-clicks **100%** (Afsharid "400%" fixed); **0** "X vs your X" collisions (1 card uses the "split across N" fallback). Screenshot captured.
+
+**Scope held:** no card UI redesign, no proof-learning rule change, no competitor-storage migration, no Wix, no publish path, `$0` spend, no fabricated data.
+
+---
+
 ## 2026-06-29 — PROOF SETTLEMENT VISIBILITY + actionable loss follow-up (different-lever) · main `0231d478`
 
 Make the now-settled `lost` outcomes operationally useful. Verify-first: most of the surface already existed.
