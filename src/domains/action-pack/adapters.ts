@@ -248,7 +248,17 @@ export function dedupeActionPacks(packs: ActionPack[]): { packs: ActionPack[]; r
 
 /** The "create new content" action types whose near-duplicates collapse. Each type is
  *  grouped in its OWN bucket, so a hub never merges with a page (different opportunity
- *  shapes) — only hub↔hub and page↔page near-dupes collapse. */
+ *  shapes) — only hub↔hub and page↔page near-dupes collapse.
+ *
+ *  DELIBERATELY create-only (2026-06-29 near-dupe audit, all action types). Existing-page
+ *  actions (edit_existing_page, add_answer_block, add_internal_links, fix_*) are keyed by
+ *  targetUrl and already EXACT-deduped by (actionType + url) in dedupeActionPacks(). Their
+ *  apparent token clusters are all DIFFERENT pages that merely share a topic word — e.g.
+ *  12 distinct dynasty-flag pages ("/flags/umayyad…", "/flags/safavid…") share the token
+ *  "flag", and "persian male names" vs "persian female names" are two real pages. The
+ *  token grouper is built for null-URL create candidates; applying it to URL-keyed actions
+ *  would collapse distinct pages and DESTROY real per-page work. Live audit found ZERO
+ *  same-URL near-dupes in any existing-page type → do NOT add them here. */
 const CONTENT_DEDUP_TYPES: ReadonlyArray<ActionType> = ["create_new_page", "create_hub"];
 
 /**

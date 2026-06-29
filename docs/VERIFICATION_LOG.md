@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-29 — NEAR-DUPE AUDIT, remaining ActionPack types → NO EXTENSION (evidence-first) · main `PENDING`
+
+Operator: don't blindly add action types to the collapse — ground-truth first, extend only where safe dupes are PROVEN.
+
+**Audit (live Iranopedia worklist, all action types via the existing grouper signals + targetUrl annotation):** per-type counts edit_existing_page 96 · add_answer_block 64 · add_internal_links 13 · create_hub 31 · create_new_page 101. Near-dupe clusters found: edit 5 (would-absorb 22), answer_block 5 (14), internal_links 2 (2); create_hub/create_new_page 0 (already collapsed). **EVERY existing-page cluster is DIFF-URL — same-URL near-dupes = 0 across all types.** The clusters are distinct pages sharing a topic token: e.g. "Iran Flag +12" = 12 different dynasty-flag pages (`/flags/umayyad…`, `/flags/safavid…`, `/iran-flags`…); "Persian Boy Names + Girl Names" = `/persian-male-names` vs `/persian-female-first-names`.
+
+**Decision (Phase-1 gate): NO EXTENSION WARRANTED.** Existing-page actions are keyed by targetUrl and already EXACT-deduped by (actionType + url); their token clusters are legitimately distinct pages, so collapsing them would DESTROY real per-page work. The create-page/hub collapse was sufficient precisely because those have null URLs. The token grouper must NOT be applied to URL-keyed actions.
+
+**Shipped:** no collapse code — a guard comment on `CONTENT_DEDUP_TYPES` documenting the audit + why existing-page types are deliberately excluded (prevents a future naive extension). No behavior change. tsc 0 · build PASS. **$0 spend, no migration/Wix/SEMrush/flags.**
+
+---
+
 ## 2026-06-29 — CREATE-HUB PACK DEDUP (extend canonical collapse to hubs) · main `37a98202`
 
 Operator: the Profound coverage compiler also emits ~42 `create_hub` packs with near-duplicates; extend the same collapse machinery, hub↔hub only.
