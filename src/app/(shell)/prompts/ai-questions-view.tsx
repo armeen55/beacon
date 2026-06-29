@@ -33,6 +33,13 @@ export function AiQuestionsView({ data }: { data: AiQuestionsData }) {
         <Stat value={String(totals.citedDomains)} label="Rival domains cited" accent="text-violet-600" />
       </div>
 
+      {questions.length < totals.questions ? (
+        <p className="text-[12px] text-gray-500">
+          Showing {questions.length} topic{questions.length === 1 ? "" : "s"} clustered from {totals.questions} AI
+          questions — near-duplicates are grouped.
+        </p>
+      ) : null}
+
       <ul className="space-y-2">
         {questions.map((q) => (
           <li key={q.id}>
@@ -60,7 +67,8 @@ export function AiQuestionsView({ data }: { data: AiQuestionsData }) {
                   : "No competitor citations recorded"}
               </p>
               <p className="mt-1.5 text-[11px] font-medium text-accent-primary">
-                {q.actionLabel}: {q.moveLabel} →
+                {q.actionLabelShort}
+                {q.relatedCount > 0 ? ` · +${q.relatedCount} related` : ""} →
               </p>
             </Link>
           </li>

@@ -14,6 +14,13 @@ describe("isJunkTopic", () => {
     expect(isJunkTopic("Gifts")).toBe(true);
     expect(isJunkTopic("Tips")).toBe(true);
   });
+  it("suppresses topics that LEAD with a generic filler word", () => {
+    expect(isJunkTopic("Things Iran Highlights")).toBe(true);
+    expect(isJunkTopic("List Iranians")).toBe(true);
+    expect(isJunkTopic("Gifts for Nowruz")).toBe(true);
+    expect(isJunkTopic("Persian Wedding Traditions")).toBe(false);
+    expect(isJunkTopic("Famous Iranians")).toBe(false);
+  });
   it("keeps real multi-word topics", () => {
     expect(isJunkTopic("Persian Wedding Traditions")).toBe(false);
     expect(isJunkTopic("Culture Iran")).toBe(false);

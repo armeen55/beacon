@@ -50,6 +50,18 @@ export type CompetitorActionPack = {
   evidenceSources: string[];
 };
 
+/** A prioritized "read this competitor page next" item — turns the raw unread count
+ *  into an action queue (read the pages that back your strongest moves first). */
+export type CompetitorReadItem = {
+  url: string;
+  domain: string;
+  prompt: string | null;
+  moveLabel: string | null;
+  why: string;
+  teardownStatus: "read" | "blocked" | "not_read";
+  priority: number;
+};
+
 export type CompetitorIntel = {
   summary: {
     competitorDomains: number;
@@ -60,6 +72,8 @@ export type CompetitorIntel = {
   };
   domains: CompetitorDomain[];
   pages: CompetitorPage[];
+  /** Top-20 prioritized "read first" queue (unread pages that back the best moves). */
+  readQueue: CompetitorReadItem[];
   actionPacks: CompetitorActionPack[];
   gaps: {
     notTornDown: number;
@@ -71,6 +85,7 @@ const EMPTY: CompetitorIntel = {
   summary: { competitorDomains: 0, competitorPages: 0, aiCitedDomains: 0, pagesTornDown: 0, actionPacksToBeatCompetitors: 0 },
   domains: [],
   pages: [],
+  readQueue: [],
   actionPacks: [],
   gaps: { notTornDown: 0, needsSerpValidation: 0 },
 };
@@ -183,6 +198,41 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
     }))
     .sort((a, b) => b.competitorPagesToBeat.length - a.competitorPagesToBeat.length);
 
+  // ── Prioritized "read these first" queue ──
+  // Not the doom number: the 20 unread competitor pages that back the strongest moves.
+  // Priority tiers (operator spec): ready-to-ship move > high-demand worklist move >
+  // AI-cites-them-not-you > Google-buildable SERP > repeated citation domain.
+  const packById = new Map(packs.map((p) => [p.id, p]));
+  const readQueue: CompetitorReadItem[] = pages
+    .filter((pg) => pg.teardownStatus !== "read")
+    .map((pg) => {
+      const linked = pg.actionPackIds
+        .map((id) => packById.get(id))
+        .filter((p): p is ActionPack => !!p)
+        .sort((a, b) => b.priorityScore - a.priorityScore);
+      const best = linked[0] ?? null;
+      const domCit = domMap.get(pg.domain)?.citations ?? 0;
+      const why: string[] = [];
+      let priority = best?.priorityScore ?? 0;
+      if (best?.draftStatus === "ready") { priority += 1000; why.push("a ready-to-ship move targets it"); }
+      if (best?.gscDemand) { priority += 300; why.push("backs a high-demand worklist move"); }
+      if (best?.profoundReceipt?.ownAbsent) { priority += 200; why.push("AI cites it, not you"); }
+      if (best?.dataforseoValidation?.verdict === "build") { priority += 150; why.push("Google SERP says buildable"); }
+      if (domCit > 1) { priority += domCit * 10; why.push(`${pg.domain} cited ${domCit}×`); }
+      priority += pg.actionPackIds.length * 5;
+      return {
+        url: pg.url,
+        domain: pg.domain,
+        prompt: pg.prompts[0] ?? null,
+        moveLabel: pg.actionPackLabel,
+        why: why.slice(0, 2).join("; ") || `linked to ${pg.actionPackIds.length} move${pg.actionPackIds.length === 1 ? "" : "s"}`,
+        teardownStatus: pg.teardownStatus,
+        priority,
+      };
+    })
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, 20);
+
   const notTornDown = pages.filter((pg) => pg.teardownStatus === "not_read").length;
   const needsSerpValidation = packs.filter(
     (p) => p.competitorPagesToBeat.length > 0 && !p.dataforseoValidation,
@@ -198,6 +248,7 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
     },
     domains,
     pages,
+    readQueue,
     actionPacks,
     gaps: { notTornDown, needsSerpValidation },
   };

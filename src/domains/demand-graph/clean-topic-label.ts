@@ -45,6 +45,10 @@ export function isJunkTopic(raw: string): boolean {
   // De-duplicated word count: a single generic word is not a page topic.
   const distinct = dedupeWords(words(lower));
   if (distinct.length <= 1 && GENERIC_SINGLE_WORDS.has(distinct[0] ?? "")) return true;
+  // A topic that LEADS with a generic filler word is a scraped fragment, not a page
+  // concept: "Things Iran Highlights", "List Iranians", "Gifts for ...". A real page
+  // names its subject first ("Persian wedding guide"), not a filler ("List ...").
+  if (distinct.length > 1 && GENERIC_SINGLE_WORDS.has(distinct[0] ?? "")) return true;
   return false;
 }
 

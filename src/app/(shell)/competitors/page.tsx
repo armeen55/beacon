@@ -65,6 +65,39 @@ async function CompetitorsBody() {
         <StatTile value={String(s.actionPacksToBeatCompetitors)} label="Moves to beat them" accent="text-indigo-600" />
       </div>
 
+      {/* Read these first — the prioritized action queue (replaces the doom number). */}
+      {intel.readQueue.length > 0 ? (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Read these competitor pages first</h2>
+            <p className="mt-0.5 text-[12px] text-gray-500">
+              The {intel.readQueue.length} unread pages that back your strongest moves — read these before the rest.
+              {intel.gaps.notTornDown > 0 ? ` (${intel.gaps.notTornDown} competitor pages unread in total.)` : ""}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            {intel.readQueue.map((item, i) => (
+              <div key={item.url} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[11px] font-semibold text-gray-400">{i + 1}</span>
+                    <a href={item.url} target="_blank" rel="noreferrer" className="text-[13px] font-medium text-gray-900 underline-offset-2 hover:underline">
+                      {prettyUrl(item.url)}
+                    </a>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${TEARDOWN_BADGE[item.teardownStatus].cls}`}>
+                    {TEARDOWN_BADGE[item.teardownStatus].label}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-600"><span className="font-medium text-gray-700">Why first:</span> {item.why}</p>
+                {item.prompt ? <p className="mt-0.5 text-[11px] text-gray-500">Cited for “{item.prompt}”</p> : null}
+                {item.moveLabel ? <p className="mt-1 text-[11px] font-medium text-indigo-600">Beat it: {item.moveLabel} →</p> : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {/* Top competitor domains */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-gray-900">Who AI cites instead of you</h2>
@@ -144,13 +177,15 @@ async function CompetitorsBody() {
         </div>
       </section>
 
-      {/* Gaps */}
+      {/* Coverage — secondary, not a doom banner. The read queue above is the action. */}
       {intel.gaps.notTornDown > 0 || intel.gaps.needsSerpValidation > 0 ? (
-        <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-          <span className="font-semibold">Gaps:</span>{" "}
-          {intel.gaps.notTornDown > 0 ? `${intel.gaps.notTornDown} competitor page${intel.gaps.notTornDown === 1 ? "" : "s"} not read yet. ` : ""}
-          {intel.gaps.needsSerpValidation > 0 ? `${intel.gaps.needsSerpValidation} move${intel.gaps.needsSerpValidation === 1 ? "" : "s"} not SERP-validated yet.` : ""}
-        </section>
+        <p className="text-[11px] text-gray-400">
+          Coverage:{" "}
+          {intel.gaps.notTornDown > 0 ? `${intel.gaps.notTornDown} competitor page${intel.gaps.notTornDown === 1 ? "" : "s"} not read yet` : ""}
+          {intel.gaps.notTornDown > 0 && intel.gaps.needsSerpValidation > 0 ? " · " : ""}
+          {intel.gaps.needsSerpValidation > 0 ? `${intel.gaps.needsSerpValidation} move${intel.gaps.needsSerpValidation === 1 ? "" : "s"} not SERP-validated` : ""}
+          . Work the prioritized queue above first.
+        </p>
       ) : null}
     </div>
   );
