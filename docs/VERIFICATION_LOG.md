@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — RESULTS GSC-LAG CLARITY + READY SAFE-FIRST · main `ea6f7f01`
+
+Operator: Results says windows "opened" but still "waiting"; Ready-to-ship puts measuring cards on top.
+
+**Built:** pure `gscLagStatus()` in measure-lifecycle.ts (+4 tests) — explains why a calendar-open window has no verdict (GSC lag). /proof: banner + honest recompute-disabled reason ("needs Search Console data through {date}, Google has {latestGsc}") replacing "First check opens"; GA4 labelled "Early directional traffic (not the Search verdict yet)"; low-volume caution before scary %-change. /experiments: "Safe to ship now" first, "Already in a proof window (N)" demoted with muddy-measurement warning.
+
+**Truth dump (live Iranopedia):** GSC latest **2026-06-25**, today Jun 29 → **all 9 proof rows calendar-open but GSC-waiting, 0 ready, 0 settled** (nothing stalled — pure GSC lag). /cities (Jun 20) needs GSC through Jun 26; Google has Jun 25. **Verified:** tsc 0 · tests green · build PASS · `/ /worklist /recommendations /experiments /proof` 200. No schema/flags/env/Wix.
+
+---
+
 ## 2026-06-28 — EVIDENCE RELEVANCE GATE (trust phase): kill bad evidence joins · main `ecd5dac3`
 
 Operator brutal read: the app finds real opportunities then joins them to junk — Tehran → "Iranian Snacks", Safavid Flag → a TasteAtlas eggplant URL, Persian Numbers → baby-name pages, Persian food → "Persian Insults". Root cause: competitor/citation/cannibalization matched on generic brand terms ("iran"/"persian") or noise domains.
