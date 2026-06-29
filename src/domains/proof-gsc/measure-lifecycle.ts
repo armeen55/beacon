@@ -33,6 +33,74 @@ export function outcomeStateOf(record: ShippedChangeRecord, now: Date = new Date
   return "measuring";
 }
 
+/** Why a calendar-open proof window still shows no Search verdict: Google Search
+ *  Console data lags wall-clock by a few days, so a 7-day window whose calendar date
+ *  has passed often cannot be judged yet. PURE — explains the "waiting despite the
+ *  date" confusion honestly. */
+export type GscLagStatus = {
+  /** The next un-measured window's day (7/14/28), or null when all have run. */
+  nextWindowDay: ProofWindowDay | null;
+  /** Today is on/after that window's calendar check date. */
+  calendarWindowClosed: boolean;
+  /** GSC has finalized data through the date this window needs. */
+  gscWindowAvailable: boolean;
+  /** How many more days of GSC data are needed before this window is judgeable. */
+  daysBehind: number | null;
+  /** The finalized GSC watermark (latest day Google has data for). */
+  latestGscDate: string | null;
+  /** The GSC date this window needs (checkOn − 1). */
+  requiredGscDate: string | null;
+  /** One honest line for the UI. */
+  reasonCopy: string;
+};
+
+const dayStr = (now: Date): string => now.toISOString().slice(0, 10);
+const daysBetween = (from: string, to: string): number =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+
+/** Explain the GSC-lag state of the next un-measured window for one record. PURE. */
+export function gscLagStatus(
+  record: ShippedChangeRecord,
+  lastFinalizedDate: string | null,
+  now: Date = new Date(),
+): GscLagStatus {
+  const checks = proofCheckDates(record.shippedAt);
+  const ranByDay = new Map<number, boolean>((record.windows ?? []).map((w) => [w.day, w.ran]));
+  const today = dayStr(now);
+  const nextDay = (PROOF_WINDOW_DAYS.find((d) => !(ranByDay.get(d) ?? false)) ?? null) as ProofWindowDay | null;
+
+  if (nextDay == null) {
+    return {
+      nextWindowDay: null,
+      calendarWindowClosed: true,
+      gscWindowAvailable: true,
+      daysBehind: null,
+      latestGscDate: lastFinalizedDate,
+      requiredGscDate: null,
+      reasonCopy: "All proof windows have been measured.",
+    };
+  }
+
+  const checkOn = checks[nextDay];
+  const requiredGscDate = addDays(checkOn, -1);
+  const calendarWindowClosed = today >= checkOn;
+  const gscWindowAvailable = lastFinalizedDate != null && lastFinalizedDate >= requiredGscDate;
+  const daysBehind = lastFinalizedDate ? Math.max(0, daysBetween(lastFinalizedDate, requiredGscDate)) : null;
+
+  let reasonCopy: string;
+  if (gscWindowAvailable) {
+    reasonCopy = `Ready — recompute to read the ${nextDay}-day Search verdict.`;
+  } else if (!calendarWindowClosed) {
+    reasonCopy = `${nextDay}-day check opens ${checkOn}.`;
+  } else if (lastFinalizedDate) {
+    reasonCopy = `${nextDay}-day Search verdict needs Search Console data through ${requiredGscDate}. Google currently has data through ${lastFinalizedDate}.`;
+  } else {
+    reasonCopy = `${nextDay}-day Search verdict needs Search Console data through ${requiredGscDate}, but no Search Console data is available yet.`;
+  }
+
+  return { nextWindowDay: nextDay, calendarWindowClosed, gscWindowAvailable, daysBehind, latestGscDate: lastFinalizedDate, requiredGscDate, reasonCopy };
+}
+
 /**
  * Is this record worth re-measuring now? PURE. True when a proof window can
  * transition ran:false → true since the last measure (the GSC finalized

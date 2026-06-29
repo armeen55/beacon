@@ -8,6 +8,8 @@ import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeo
 import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
+import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
+import { gscLagStatus } from "@/domains/proof-gsc/measure-lifecycle";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
 import { ProofSummarySection } from "./proof-summary-section";
@@ -68,13 +70,24 @@ export default async function ProofPage({
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
-  const [rows, ledger, connHealth, worklist] = await Promise.all([
+  const [rows, ledger, connHealth, worklist, latestGscDate] = await Promise.all([
     loadProofPlan(tenantId).catch(() => []),
     loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
     loadConnectionHealth(tenantId).catch(() => []),
     loadActionPackWorklistForTenant(tenantId).catch(() => null),
+    readLastFinalizedDate(tenantId).catch(() => null),
   ]);
   const recordedPaths = new Set(ledger.map((l) => l.path));
+
+  // GSC-LAG CLARITY: Google Search Console data lags wall-clock, so a 7-day window
+  // whose calendar date has passed often can't be judged yet. Count the rows that are
+  // calendar-open but GSC-waiting, and surface the honest reason (not just "waiting").
+  const lagByRow = new Map(
+    ledger.map((l) => [l.id, gscLagStatus(l, latestGscDate)] as const),
+  );
+  const waitingOnGsc = [...lagByRow.values()].filter(
+    (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
+  );
 
   // Phase 4 — deterministic ActionPack↔proof linker (pure, no migration). Each
   // shipped change is traced back to the Move that recommended it (or honestly
@@ -99,12 +112,15 @@ export default async function ProofPage({
           ? "Google Search Console is connected but hasn't synced yet — verdicts will fill in after the first sync."
           : `Search Console data is ${gsc.daysStale ?? "several"} days old — recent changes may not show a verdict yet. Refresh to update.`;
 
-  // Recompute only does something once a measurement window has closed. Until
-  // then, gate the button + tell the operator when the first check opens.
+  // Recompute only does something once a measurement window has closed AND GSC has the
+  // data for it. Gate the button + give the honest reason (calendar vs GSC-lag).
   const anyWindowReady = ledger.some((l) => l.windows.some((w) => w.ran));
-  const earliestCheck = ledger
-    .flatMap((l) => l.windows.filter((w) => !w.ran).map((w) => w.checkOn))
-    .sort()[0];
+  // Prefer the soonest-actionable reason: a row whose calendar window is closed but is
+  // waiting on GSC explains the "date passed yet still waiting" confusion best.
+  const lagReason =
+    waitingOnGsc[0]?.reasonCopy ??
+    [...lagByRow.values()].find((s) => s.nextWindowDay != null && !s.gscWindowAvailable)?.reasonCopy ??
+    undefined;
 
   // Operator-only: which action types past results are nudging Beacon toward /
   // away from (the prior that steers ranking). Lets the operator SEE a skew and
@@ -129,13 +145,7 @@ export default async function ProofPage({
         {ledger.length > 0 ? (
           <RecomputeLedgerButton
             disabled={!anyWindowReady}
-            disabledReason={
-              anyWindowReady
-                ? undefined
-                : earliestCheck
-                  ? `First check opens ${earliestCheck}`
-                  : undefined
-            }
+            disabledReason={anyWindowReady ? undefined : lagReason}
           />
         ) : null}
       </div>
@@ -143,6 +153,15 @@ export default async function ProofPage({
       {gscFreshnessNote ? (
         <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           {gscFreshnessNote}
+        </div>
+      ) : null}
+
+      {/* GSC-lag clarity: when changes are calendar-due but Search Console hasn't caught
+          up, say so plainly instead of an unexplained "waiting". */}
+      {!gscFreshnessNote && waitingOnGsc.length > 0 ? (
+        <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+          {waitingOnGsc.length} change{waitingOnGsc.length === 1 ? " is" : "s are"} waiting on Search Console
+          data, not stalled. {waitingOnGsc[0]!.reasonCopy} Google Search data typically lags 2–3 days.
         </div>
       ) : null}
 
@@ -447,11 +466,28 @@ function LedgerCard({ rec, link }: { rec: ShippedChangeRecord; link?: ProofLink 
       {/* Dollar-ROI proof (gap #1): the GA4 traffic + conversion outcome next to
           the Search verdict. Revenue is honestly absent for this property, so the
           label never implies money (see the header note). */}
-      {rec.trafficOutcome ? (
-        <p className="mt-1 text-[12px] text-foreground/80">
-          {rec.trafficOutcome.label}
-        </p>
-      ) : null}
+      {rec.trafficOutcome ? (() => {
+        const t = rec.trafficOutcome!;
+        const searchSettled = rec.verdict === "won" || rec.verdict === "lost" || rec.verdict === "inconclusive";
+        // "−93% on 1 baseline visit" must not read like a verdict — caution on thin volume.
+        const lowVolume = t.ran && t.treated.sessionsPre > 0 && t.treated.sessionsPre < 5;
+        return (
+          <div className="mt-1 space-y-0.5">
+            <p className="text-[12px] text-foreground/80">
+              {!searchSettled ? (
+                <span className="font-medium text-sky-700">Early directional traffic (not the Search verdict yet): </span>
+              ) : null}
+              {t.label}
+            </p>
+            {lowVolume ? (
+              <p className="text-[11px] text-amber-700">
+                Low volume — only {t.treated.sessionsPre} prior visit{t.treated.sessionsPre === 1 ? "" : "s"}, so the
+                percent change is not reliable yet.
+              </p>
+            ) : null}
+          </div>
+        );
+      })() : null}
 
       {/* What actually changed (before → after). */}
       {rec.before || rec.after ? (

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { ProofWindowResult } from "./measure";
-import { isDueForMeasure, outcomeStateOf } from "./measure-lifecycle";
+import { isDueForMeasure, outcomeStateOf, gscLagStatus } from "./measure-lifecycle";
 
 const NOW = new Date("2026-06-25T12:00:00Z");
 
@@ -80,5 +80,38 @@ describe("outcomeStateOf", () => {
   it("is NOT stale if a window ran, even when old (a real reading exists)", () => {
     const r = record({ shippedAt: "2026-05-10", verdict: "measuring", windows: [win(28, true)] });
     expect(outcomeStateOf(r, NOW)).toBe("measuring");
+  });
+});
+
+describe("gscLagStatus — why a calendar-open window still has no verdict", () => {
+  // shipped 2026-06-20 → 7-day check ≈ 2026-06-27, needs GSC through 2026-06-26.
+  const r = () => record({ shippedAt: "2026-06-20", windows: [] });
+  const NOW_28 = new Date("2026-06-28T12:00:00Z");
+
+  it("calendar passed but GSC behind → not available, honest reason", () => {
+    const s = gscLagStatus(r(), "2026-06-25", NOW_28);
+    expect(s.calendarWindowClosed).toBe(true);
+    expect(s.gscWindowAvailable).toBe(false);
+    expect(s.latestGscDate).toBe("2026-06-25");
+    expect(s.reasonCopy).toContain("needs Search Console data through");
+    expect(s.reasonCopy).toContain("2026-06-25");
+  });
+
+  it("GSC caught up → window available", () => {
+    const s = gscLagStatus(r(), "2026-06-27", NOW_28);
+    expect(s.gscWindowAvailable).toBe(true);
+    expect(s.reasonCopy).toContain("Ready");
+  });
+
+  it("calendar not yet passed → 'check opens'", () => {
+    const s = gscLagStatus(record({ shippedAt: "2026-06-26", windows: [] }), "2026-06-25", new Date("2026-06-27T12:00:00Z"));
+    expect(s.calendarWindowClosed).toBe(false);
+    expect(s.reasonCopy).toContain("opens");
+  });
+
+  it("no GSC data at all → honest 'no data yet'", () => {
+    const s = gscLagStatus(r(), null, NOW_28);
+    expect(s.gscWindowAvailable).toBe(false);
+    expect(s.reasonCopy).toContain("no Search Console data");
   });
 });

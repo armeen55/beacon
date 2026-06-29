@@ -40,20 +40,53 @@ async function ReadyToShip() {
     );
   }
 
+  // Safe-first ordering: a page already in an open proof window should NOT sit at the
+  // top with a normal-looking "Ship it" — shipping again muddies its measurement. Split
+  // safe-to-ship from measuring and demote the latter into its own clearly-labelled band.
+  const safe = ready.filter((m) => !m.alreadyMeasuring && !m.pageMeasuring);
+  const measuring = ready.filter((m) => m.alreadyMeasuring || m.pageMeasuring);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-gray-500">
-          {ready.length} move{ready.length === 1 ? "" : "s"} prepared end-to-end. Make each change
-          yourself, then hit “Ship it” to start measuring the lift. Nothing here touches your site.
+          {safe.length} safe to ship now{measuring.length > 0 ? `, ${measuring.length} already measuring` : ""}.
+          Make each change yourself, then hit “Ship it” to start measuring the lift. Nothing here touches your site.
         </p>
         <PrepareTopMovesButton readyCount={preparedReady} total={all.length} />
       </div>
-      <div className="grid gap-3">
-        {ready.map((m, i) => (
-          <MoveCard key={m.id} m={m} rank={i + 1} />
-        ))}
-      </div>
+
+      {safe.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-gray-900">Safe to ship now</h2>
+          <div className="grid gap-3">
+            {safe.map((m, i) => (
+              <MoveCard key={m.id} m={m} rank={i + 1} />
+            ))}
+          </div>
+        </section>
+      ) : (
+        <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
+          Nothing is safe to ship right now — every prepared move below is already in an open proof window.
+        </p>
+      )}
+
+      {measuring.length > 0 ? (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-amber-800">Already in a proof window ({measuring.length})</h2>
+            <p className="mt-0.5 text-[12px] text-amber-700">
+              These pages are mid-measurement. Ship one only if you intentionally want to start a new change and
+              muddy the current measurement.
+            </p>
+          </div>
+          <div className="grid gap-3 opacity-90">
+            {measuring.map((m, i) => (
+              <MoveCard key={m.id} m={m} rank={safe.length + i + 1} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
