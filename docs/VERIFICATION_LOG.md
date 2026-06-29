@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — ✅ PROOF MIGRATION APPLIED → settlement persists → learning ACTIVE (loop closed) · main `PENDING`
+## 2026-06-29 — ✅ PROOF MIGRATION APPLIED → settlement persists → learning ACTIVE (loop closed) · main `fb840a80`
 
 Resolved the critical persistence bug from `6cf9061a`. The proof→ranking loop now works end-to-end on beacon-main.
 
