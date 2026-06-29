@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — PROFOUND BOT/REFERRAL TABLES → loader + honest empty state (GATE: rows empty) · main `aea9fda4`
+
+Operator: turn the dead `profound_bot_rows`/`profound_referral_rows` into AI-crawler + AI-referral product signals. **Phase-0 gate is decisive:** ground truth shows **0 rows for Iranopedia AND 0 across ALL tenants**. Structural cause — the borrowed Profound workspace tracks OpenAI's prompts, not iranopedia.com's own crawler/referral logs (Agent Analytics is the site-scoped feed that would populate them). Per the rule "if rows are empty, stop after honest empty-state wiring + report," I did NOT fabricate UI on phantom data.
+
+**Built (the durable, dormant substrate):** `load-bot-referral-signals.ts` — the I/O loader bridging the two tables → the EXISTING (built-but-unwired) pure modules (`bot-coverage.ts` / `referral-signals.ts`: aggregateBotCoverageByPage, findCrawlabilityGaps, aggregateReferralsByPage, referralOutcomeForPage, summarize*). Cached per-request, tenant-scoped, fail-soft (missing table / error / empty → `hasData:false`, NO fake signals), pure `assembleBotReferralSignals` extracted for testing. Wired into the **operator** /diagnostics/profound-coverage as an honest "AI crawler & referral coverage" panel: shows real per-page data when populated, else explains the absence + that the loader is "wired and dormant" (lights up when a site-scoped workspace connects). **No customer-card churn** (gate honored) — no new ActionPack family (Phase 4 skipped: no data to ground it).
+
+**Verified:** tsc 0 · 15 profound-deep tests green (loader empty/populated contract + existing aggregates) · build PASS · `/ /worklist /recommendations /proof /competitors /diagnostics/profound-coverage` all 200 · diagnostic shows the honest empty note · **0 fabricated AI-visit signals on customer surfaces**. No migration/paid-API/Wix/cron/flags; no live Profound call on render.
+
+---
+
 ## 2026-06-28 — OUTCOME → RANKING PRIOR: page-specific learning caution · main `5023fd8b`
 
 Operator: close the loop — tomorrow's Worklist should learn from shipped outcomes. **Recon finding:** the SETTLED-verdict half already shipped (#184, `learning/experiment-prior.ts` — pattern-level ±15%, decided-only, MIN_DECIDED=3, backoff, `🧠 learnedTag` chip, wired in load-graph). It deliberately IGNORES measuring rows — that's the gap, and the only rule with current effect (all 9 Iranopedia proof rows are `measuring`, 0 settled).

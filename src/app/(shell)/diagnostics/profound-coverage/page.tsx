@@ -19,6 +19,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadCachedProfoundCoverageForTenant } from "@/domains/profound-coverage/load-cached";
 import type { AeoActionPack } from "@/domains/profound-coverage/types";
+import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
 import { RefreshCoverageButton } from "./refresh-button";
 
 export const dynamic = "force-dynamic";
@@ -122,6 +123,9 @@ export default async function ProfoundCoveragePage() {
     total: actionable.filter((p) => g.actions.includes(p.action)).length,
   }));
 
+  // AI crawler + referral coverage (consumes the previously-dead bot/referral tables).
+  const aiVisits = await loadBotReferralSignals(tenantId);
+
   return (
     <div className="space-y-6 p-1">
       <PageHeader
@@ -182,6 +186,61 @@ export default async function ProfoundCoveragePage() {
           )}
         </>
       )}
+
+      {/* AI crawler & referral coverage — turns the previously-dead profound_bot_rows /
+          profound_referral_rows into honest per-page signals. Renders the real data
+          when populated; an honest readiness note (NOT a fabricated signal) when not. */}
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold text-gray-900">AI crawler &amp; referral coverage</h2>
+        {!aiVisits.hasData ? (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+            <p>
+              No AI-crawler or AI-referral rows for this tenant yet
+              {aiVisits.latestDate ? ` (latest ${aiVisits.latestDate})` : ""}. This feed
+              comes from a <span className="font-medium">site-scoped Profound workspace</span>{" "}
+              (Agent Analytics — which AI crawlers hit your pages + which AI assistants send
+              visits). The current workspace is topic/prompt-scoped, so these tables stay empty.
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              The loader + per-page aggregates are wired and dormant: connect a site-scoped
+              workspace and this panel + the proof/Worklist signals populate with zero further code.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400">
+              {aiVisits.botSummary.totalHits} AI-crawler hits · {aiVisits.referralSummary.totalVisits} AI-referral visits
+              {aiVisits.latestDate ? ` · latest ${aiVisits.latestDate}` : ""} (cached, no live API).
+            </p>
+            {aiVisits.referralByPath.length > 0 ? (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Top pages by AI-referral visits</div>
+                <ul className="mt-1 space-y-1">
+                  {aiVisits.referralByPath.slice(0, 8).map((p) => (
+                    <li key={p.path} className="text-xs text-gray-700">
+                      <span className="font-medium">{p.visits}</span> · {p.path}
+                      <span className="text-gray-400"> · {p.sources.slice(0, 3).map((s) => s.source).join(", ")}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {aiVisits.botByPath.length > 0 ? (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Top pages by AI-crawler hits</div>
+                <ul className="mt-1 space-y-1">
+                  {aiVisits.botByPath.slice(0, 8).map((p) => (
+                    <li key={p.path} className="text-xs text-gray-700">
+                      <span className="font-medium">{p.totalHits}</span> · {p.path}
+                      <span className="text-gray-400"> · {p.bots.slice(0, 3).map((b) => b.bot).join(", ")}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
