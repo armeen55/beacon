@@ -4,7 +4,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
+import { buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { competitorRelevance, internalLinkRelevance } from "@/domains/evidence/relevance-gate";
@@ -89,8 +89,15 @@ export type TodayMove = {
   draftMeta: string | null;
   faqs: string[];
   schema: string[];
-  /** CTR Title Lab: scored, deterministic title variants for "capture clicks" Moves. */
-  titleVariants: { title: string; score: number; signals: string[] }[];
+  /** CTR Title Lab: scored, deterministic title variants for "capture clicks" Moves.
+   *  Each carries a one-line `reason` (its generation strategy) so the operator sees
+   *  WHY each title — not three interchangeable templates. */
+  titleVariants: { title: string; score: number; signals: string[]; strategy?: string; reason?: string }[];
+  /** The page's current <title> + the cited competitor's title — real evidence fed to
+   *  the title generator so suggestions are page-specific (e.g. a "trim under 60 chars"
+   *  variant). Internal; not rendered directly. */
+  currentTitle?: string | null;
+  competitorTitle?: string | null;
   /** Plain-language transparency for WHY this Move ranks where it does (the "one number"). */
   rankWhy: string;
   score: number;
@@ -518,15 +525,17 @@ export async function buildTodayMovesData(
         (e as { topic_cluster_label?: string }).topic_cluster_label ??
         prettyPage(targetUrl);
 
-      // CTR Title Lab — deterministic scored title variants for "capture clicks" Moves.
+      // Real page evidence for the title generator: the page's own <title> (drives a
+      // "trim under 60 chars" suggestion) and the on-topic cited competitor's title.
+      const currentTitle = packet?.yourPage?.facts?.title ?? null;
+      const competitorTitle = compRelevant ? packet?.competitor?.facts?.title ?? null : null;
+
+      // CTR Title Lab — deterministic, page-specific scored title variants for
+      // "capture clicks" Moves (intent-aware framing + a reason per option).
       let titleVariants: TodayMove["titleVariants"] = [];
       if (e.action_type === "edit_title") {
         const brand = brandFromUrl(targetUrl);
-        const year = new Date().getFullYear();
-        titleVariants = titleCandidates(query, brand, year)
-          .map((t) => scoreTitle(t, query, brand))
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 3);
+        titleVariants = buildTitleVariants(query, brand, { currentTitle, competitorTitle }).slice(0, 3);
       }
 
       const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk;
@@ -560,6 +569,8 @@ export async function buildTodayMovesData(
         faqs: (packet?.draft?.faqQuestions ?? []).filter(Boolean).slice(0, 6),
         schema: (packet?.draft?.schemaRecommendations ?? []).filter(Boolean).slice(0, 6),
         titleVariants,
+        currentTitle,
+        competitorTitle,
         rankWhy: rankWhyFromComponents(packet?.move?.components),
         score: packet?.move?.score ?? 0,
         savedAnswerBlock: savedDrafts.get(`${moveId}::answer_block`)?.content ?? null,
@@ -678,29 +689,40 @@ export async function buildTodayMovesData(
         ? { sessions: g.sessions28d, conversions: g.conversions28d }
         : null;
       const cl = clarityByCanon.get(canon(m.targetUrl));
-      // Surface only meaningful friction (≥10% dead OR ≥5% rage per session).
+      // Surface only meaningful friction (≥10% dead OR ≥5% rage per session). Clamp
+      // the DISPLAY to 100% — deadRate is dead-clicks-per-session and can exceed 1
+      // (multiple dead clicks per visit), which rendered as nonsense like "400% dead
+      // clicks". The rate gate above still uses the raw value; only the % is bounded.
       m.friction = cl && (cl.deadRate >= 0.1 || cl.rageRate >= 0.05)
-        ? { deadPct: Math.round(cl.deadRate * 100), ragePct: Math.round(cl.rageRate * 100) }
+        ? { deadPct: Math.min(100, Math.round(cl.deadRate * 100)), ragePct: Math.min(100, Math.round(cl.rageRate * 100)) }
         : null;
+      // A title/meta change already measured FLAT on this page+family (no_lift): the
+      // lost lever must not be re-recommended. Suppress the title options + the
+      // "sharper title" copy below; the ↳ next-lever chip already names the better move.
+      const titleLeverLost = m.action === "edit_title" && m.outcomeCaution?.kind === "no_lift";
       // Re-seed the CTR Title Lab from the page's top GSC query (prefer a
       // striking-distance one) when we have it — so title variants target the
-      // EXACT phrasing the page measurably ranks for, not just the topic label.
+      // EXACT phrasing the page measurably ranks for, plus the page's real current
+      // title (a "trim under 60 chars" suggestion) and the cited competitor's title.
       // Lowest-priority grounded "why": a self-competing page, when nothing more
       // urgent applies. The striking / citation / decline overrides below win.
       if (m.cannibalization.length > 0) m.why = m.cannibalization[0]!.fix;
-      if (m.action === "edit_title" && m.topQueries.length > 0) {
+      if (m.action === "edit_title" && m.topQueries.length > 0 && !titleLeverLost) {
         const seed = m.topQueries.find((q) => q.strikingDistance) ?? m.topQueries[0]!;
         const brand = brandFromUrl(m.targetUrl);
-        const year = new Date().getFullYear();
-        m.titleVariants = titleCandidates(seed.query, brand, year)
-          .map((t) => scoreTitle(t, seed.query, brand))
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 3);
+        m.titleVariants = buildTitleVariants(seed.query, brand, {
+          currentTitle: m.currentTitle,
+          competitorTitle: m.competitorTitle,
+          position: seed.position,
+          impressions: seed.impressions,
+          secondaryQueries: m.topQueries.map((q) => q.query),
+        }).slice(0, 3);
       }
       // Sharpest, grounded "why" for a striking-distance clicks move: name the
       // exact query, current rank, and real demand — the most compelling framing.
+      // (Skipped when the title lever already lost — see the gate below.)
       const sd = m.topQueries.find((q) => q.strikingDistance);
-      if (sd && m.action === "edit_title") {
+      if (sd && m.action === "edit_title" && !titleLeverLost) {
         m.why = `You already rank position ${Math.round(sd.position)} for "${sd.query}" (${sd.impressions.toLocaleString()} monthly impressions). A sharper title can climb a few spots and capture far more of those clicks.`;
         // Grounded proof line, symmetric with the why — names the exact metric to watch.
         m.proof = `You'll know it worked when the click-through rate for "${sd.query}" rises over the next few weeks of Search Console data while the ranking holds.`;
@@ -718,6 +740,19 @@ export async function buildTodayMovesData(
         m.why = `You're losing "${topDecline.query}" — clicks dropped ${topDecline.dropPct}% (${topDecline.priorClicks.toLocaleString()} → ${topDecline.recentClicks.toLocaleString()}) over the last month${topDecline.positionSlip >= 1 ? ` as you slipped ${Math.round(topDecline.positionSlip)} positions` : ""}. Refreshing this page can win them back.`;
         // Symmetric grounded proof — name the exact recovery metric to watch.
         m.proof = `You'll know it worked when clicks for "${topDecline.query}" recover toward their prior level (~${topDecline.priorClicks.toLocaleString()}/month) over the next few weeks of Search Console data.`;
+      }
+      // Lost-lever gate (runs last): when a title/meta change on this page already
+      // measured FLAT, never re-recommend the same lever. Drop the title options,
+      // relabel the action, and lead with the measured-flat why unless a stronger
+      // (lever-agnostic) framing — an active decline or self-competition — already won.
+      if (titleLeverLost) {
+        m.titleVariants = [];
+        m.actionLabel = "Try a different lever";
+        const hasBetterWhy = (topDecline && topDecline.dropPct >= 40) || m.cannibalization.length > 0;
+        if (!hasBetterWhy) {
+          m.why = "A title and meta change here was already measured and didn't move clicks — a different lever (see the suggestion below) is more likely to help.";
+          m.proof = "You'll know the next change worked when clicks or AI citations rise over the following few weeks, versus comparable pages you leave unchanged.";
+        }
       }
     }
 

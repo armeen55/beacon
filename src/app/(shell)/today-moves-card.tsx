@@ -563,20 +563,27 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/50 px-3 py-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-500">Competing with yourself</span>
-            {m.cannibalization.map((c, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] text-orange-800 ring-1 ring-orange-100"
-                title={c.fix}
-              >
-                <span aria-hidden>⚔</span>
-                <span className="font-medium">{c.query}</span>
-                <span className="text-orange-500">
-                  vs your {c.otherPages[0]}
-                  {c.otherPages.length > 1 ? ` +${c.otherPages.length - 1}` : ""}
+            {m.cannibalization.map((c, i) => {
+              // Show a DISTINCT competing page, never "iran animals vs your iran
+              // animals" — that collision happens when the other page's label equals
+              // the query. Fall back to an honest count when every other page collides.
+              const distinct = c.otherPages.find((o) => o.toLowerCase() !== c.query.toLowerCase()) ?? null;
+              return (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] text-orange-800 ring-1 ring-orange-100"
+                  title={c.fix}
+                >
+                  <span aria-hidden>⚔</span>
+                  <span className="font-medium">{c.query}</span>
+                  <span className="text-orange-500">
+                    {distinct
+                      ? `vs your ${distinct}${c.otherPages.length > 1 ? ` +${c.otherPages.length - 1}` : ""}`
+                      : `· split across ${c.otherPages.length + 1} of your pages`}
+                  </span>
                 </span>
-              </span>
-            ))}
+              );
+            })}
           </div>
           {/* The consolidation ACTION for the top case, in plain language. */}
           <p className="mt-1.5 text-xs text-orange-700">{m.cannibalization[0]!.fix}</p>
@@ -626,18 +633,23 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             {m.titleVariants.map((v, i) => (
               <li
                 key={i}
-                className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-gray-200"
+                className="rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-gray-200"
               >
-                <span className="min-w-0 flex-1 truncate text-xs text-gray-800" title={v.title}>
-                  {i === 0 ? <span className="mr-1 text-[10px] font-bold text-sky-600">BEST</span> : null}
-                  {v.title}
-                </span>
-                <button
-                  onClick={() => copyTitle(i, v.title)}
-                  className="shrink-0 rounded-md bg-gray-900 px-2 py-0.5 text-[10px] font-semibold text-white transition-colors hover:bg-gray-700"
-                >
-                  {copiedTitle === i ? "Copied ✓" : "Copy"}
-                </button>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 flex-1 truncate text-xs text-gray-800" title={v.title}>
+                    {i === 0 ? <span className="mr-1 text-[10px] font-bold text-sky-600">BEST</span> : null}
+                    {v.title}
+                  </span>
+                  <button
+                    onClick={() => copyTitle(i, v.title)}
+                    className="shrink-0 rounded-md bg-gray-900 px-2 py-0.5 text-[10px] font-semibold text-white transition-colors hover:bg-gray-700"
+                  >
+                    {copiedTitle === i ? "Copied ✓" : "Copy"}
+                  </button>
+                </div>
+                {v.reason ? (
+                  <p className="mt-0.5 text-[10px] leading-snug text-gray-400">{v.reason}</p>
+                ) : null}
               </li>
             ))}
           </ul>
