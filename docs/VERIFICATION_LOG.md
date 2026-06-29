@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-28 — EVIDENCE RELEVANCE GATE (trust phase): kill bad evidence joins · main `ecd5dac3`
+
+Operator brutal read: the app finds real opportunities then joins them to junk — Tehran → "Iranian Snacks", Safavid Flag → a TasteAtlas eggplant URL, Persian Numbers → baby-name pages, Persian food → "Persian Insults". Root cause: competitor/citation/cannibalization matched on generic brand terms ("iran"/"persian") or noise domains.
+
+**Built:** `src/domains/evidence/relevance-gate.ts` (pure; 17 tests on the operator's exact cases) — two topics relate ONLY if they share a DISTINGUISHING token after stripping stopwords + generic brand terms + singularizing; social/forum/recipe/marketplace domains are noise unless the topic is about them. Wired into: today-moves-data (whatWins URL+text, whoCited, cannibalization/internal-link target), moves/moves-data coverage-pack builder (whatWins+whoCited), specialist-opinions profound (only names on-topic domains), load-competitor-intel (pages-to-beat / beat-it).
+
+**Verified:** `npm run typecheck` 0 · 38 tests (relevance-gate + specialist-opinions) · `npm run build` PASS · render `/ /worklist /recommendations /competitors /experiments /proof /prompts` all 200. Live Iranopedia: worklist noise URLs **6 → 0**; competitor "pages they win" **1084 → 738** (346 junk joins suppressed). Valid joins still pass (Persian wedding ↔ TheKnot, Persian girl names ↔ familyeducation, Nowruz ↔ activities). No migration, no flags.
+
+**Deferred (next slices of the trust prompt):** Results GSC-lag clarity (verdict "waiting" despite calendar date — GSC latest ≈ Jun 25); DataForSEO health label (code is correct — shows "Connected" when `isDataForSeoConfigured()`; hosted Vercel likely lacks `DATAFORSEO_AUTH_B64` so it reads "Not connected" while New Pages serves CACHED verdicts — an env change, operator's call); Ready-to-ship safe-first ordering; Competitors "0/1084 read" → action queue; AI Questions label clustering; New Pages weak labels ("Things Iran Highlights").
+
+---
+
 ## 2026-06-28 — ROUTE CONSOLIDATION (brutal product audit): stop the app contradicting Today/Moves · main (shipped, in progress)
 
 Operator: "half new ActionPack brain, half old Beacon museum" — the rest of the app lies (Worklist says 6 vs Moves 167, AI Questions empty, Competitors says "connect data" when connected, Connections shows dead SEMrush). North star: ONE product — Today → Worklist → Drafts → Results → Sources → AI Questions → Competitors. 11-agent route audit drove the plan.
