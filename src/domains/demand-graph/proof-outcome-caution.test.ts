@@ -36,6 +36,18 @@ describe("cautionForMove — conservative page-specific prior", () => {
     expect(c.kind).toBe("no_lift");
     expect(c.multiplier).toBeLessThan(0.95);
   });
+  it("a no-lift loss carries a deterministic DIFFERENT-lever next action (not 'repeat the same')", () => {
+    const c = cautionForMove(move, [row({ verdict: "lost", actionType: "title" })]);
+    expect(c.nextLever).toBeTruthy();
+    // a title/meta loss should steer AWAY from another title/meta tweak
+    expect(c.nextLever!.toLowerCase()).toMatch(/answer block|internal link|ux|intent/);
+    expect(c.nextLever!.toLowerCase()).not.toMatch(/another title.meta tweak instead|repeat the title/);
+  });
+  it("non-loss cautions carry no nextLever", () => {
+    const held = cautionForMove(move, [row({ verdict: "measuring", actionType: "title" })]);
+    expect(held.kind).toBe("held_measuring");
+    expect(held.nextLever ?? null).toBeNull();
+  });
   it("loss outranks measuring when both exist on the page", () => {
     const c = cautionForMove(move, [row({ id: "m", verdict: "measuring" }), row({ id: "l", verdict: "lost" })]);
     expect(c.kind).toBe("no_lift");

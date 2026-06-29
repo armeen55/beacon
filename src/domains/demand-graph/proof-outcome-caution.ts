@@ -59,6 +59,10 @@ export type OutcomeCaution = {
   confidence: "none" | "low" | "medium" | "high";
   /** Linked proof row ids (for "View in Results"). */
   evidence: string[];
+  /** After a no-lift loss, a deterministic "try a DIFFERENT lever" nudge (2026-06-29)
+   *  so a settled failure becomes a better next action, not just a demote. Null for
+   *  non-loss cautions. */
+  nextLever?: string | null;
 };
 
 export const NEUTRAL_CAUTION: OutcomeCaution = {
@@ -84,6 +88,24 @@ export function familyOfMoveGap(gap: GapKind | string): string {
 
 function rowConfidence(c: string): OutcomeCaution["confidence"] {
   return c === "high" || c === "medium" || c === "low" ? c : "low";
+}
+
+/** After a lever FAILED on a page (no lift), suggest a DIFFERENT complementary angle
+ *  instead of repeating the same kind of change. Deterministic, family-keyed — no LLM,
+ *  no fabricated numbers. (2026-06-29 — makes a settled loss actionable.) */
+function suggestNextLever(lostFamily: string): string {
+  switch (lostFamily) {
+    case "title_meta":
+      return "Title/meta didn't move it — try an answer block, internal links, or a UX/intent fix instead.";
+    case "aeo":
+      return "The answer-block/schema play didn't lift it — try a CTR title/meta, internal links, or deeper competitor-gap content.";
+    case "links":
+      return "Internal links didn't lift it — try a content-depth or answer-block angle instead.";
+    case "cro":
+      return "The UX fix didn't lift it — try a content or search-intent-match angle instead.";
+    default:
+      return "This edit didn't lift it — try a different lever (answer block, internal links, or UX) rather than repeating it.";
+  }
 }
 
 /**
@@ -124,6 +146,7 @@ export function cautionForMove(
       reason: `A ${loss.rowFam.replace(/_/g, " ")} change shipped on this page didn't beat its controls — deprioritized so you don't repeat it.`,
       confidence: rowConfidence(loss.r.confidence),
       evidence: [loss.r.id],
+      nextLever: suggestNextLever(loss.rowFam),
     };
   }
 

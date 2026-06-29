@@ -336,6 +336,11 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
               View in Results →
             </Link>
           ) : null}
+          {/* After a no-lift loss, the deterministic "try a different lever" next action
+              so the settled failure becomes a better next move, not just a demote. */}
+          {m.outcomeCaution.nextLever ? (
+            <span className="w-full text-[11px] leading-snug text-gray-500">↳ {m.outcomeCaution.nextLever}</span>
+          ) : null}
         </span>
       ) : null}
 

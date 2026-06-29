@@ -140,6 +140,8 @@ export type TodayMove = {
     label: string | null;
     reason: string | null;
     evidence: string[];
+    /** After a no-lift loss: a deterministic "try a different lever" next action. */
+    nextLever?: string | null;
   } | null;
   /** Connectedness (2026-06-28) — the unified ActionPack source-provenance chips
    *  ("Ranked by gsc + profound + clarity") threaded from the canonical brain so
@@ -578,7 +580,7 @@ export async function buildTodayMovesData(
         outcomeCaution: (() => {
           const c = packet ? cautionByKey.get(packet.move.key) : null;
           return c && c.kind !== "neutral" && c.label
-            ? { kind: c.kind, label: c.label, reason: c.reason, evidence: c.evidence }
+            ? { kind: c.kind, label: c.label, reason: c.reason, evidence: c.evidence, nextLever: c.nextLever ?? null }
             : null;
         })(),
         competitorInformed:

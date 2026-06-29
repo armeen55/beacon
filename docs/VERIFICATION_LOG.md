@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-29 — PROOF SETTLEMENT VISIBILITY + actionable loss follow-up (different-lever) · main `PENDING`
+
+Make the now-settled `lost` outcomes operationally useful. Verify-first: most of the surface already existed.
+
+**Phase 0/1/2 — ALREADY IMPLEMENTED (verified, not rebuilt):** `/worklist` renders via the SAME exported `MoveCard` (today-moves-card.tsx) as the `/` cockpit, and the `{...rich}` merge in moves-data threads the demand-graph move's `outcomeCaution` onto the worklist card. Live render confirms `/worklist` shows the `🧠 Learning: similar edit showed no lift` chip (funny-farsi) + `🧠 same edit still measuring` (3 pages), and `/proof` shows lost rows with the plain "Did not help" verdict + rose styling. Ranking already reflects the caution (no_lift ×0.9 demote in priorityScore). So Phases 1–2 needed NO code.
+
+**Phase 3 — NEW (the genuine gap): actionable different-lever follow-up.** The chip explained the demote but didn't say what to try INSTEAD. Added deterministic, family-keyed `suggestNextLever()` + `OutcomeCaution.nextLever` (proof-outcome-caution.ts): a `no_lift` loss now carries a "try a DIFFERENT lever" nudge — title/meta loss → "try an answer block, internal links, or a UX/intent fix"; answer-block loss → "try CTR title/meta, internal links, or deeper competitor-gap"; etc. Threaded through `TodayMove.outcomeCaution.nextLever` (today-moves-data projection) and rendered as a `↳ …` line on the shared `MoveCard` (so BOTH `/` and `/worklist` show it). No LLM, no new proof rows, no Wix.
+
+**Ground truth (live Iranopedia):** proof rows `{measuring:7, lost:2}` (unchanged — no new measurement this slice); `/worklist` moves with `nextLever` = 1 (`/funny-farsi-phrases` → "Title/meta didn't move it — try an answer block, internal links, or a UX fix"); `/cities` correctly has no same-family move to caution. No measuring row boosts.
+
+**Verified:** tsc 0 · 15 proof-outcome-caution tests (2 new: no_lift carries a different-lever nextLever; non-loss carries none) · build PASS · `/ /worklist /recommendations /experiments /proof` 200; `/worklist` renders the `🧠` chip + the `↳` next-lever line. **$0 spend, no migration/Wix/SEMrush/flags, no fabricated data.**
+
+---
+
 ## 2026-06-29 — ✅ PROOF MIGRATION APPLIED → settlement persists → learning ACTIVE (loop closed) · main `fb840a80`
 
 Resolved the critical persistence bug from `6cf9061a`. The proof→ranking loop now works end-to-end on beacon-main.
