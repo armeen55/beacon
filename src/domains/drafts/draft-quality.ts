@@ -298,6 +298,66 @@ export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): Draft
   return { status: "ready", reasons: ["Page-specific brief: contextual opening, real outline, FAQs, fitting schema."], copyAllowed: true, canRegenerate: false, confidence: "high" };
 }
 
+// ── internal-link quality ─────────────────────────────────────────────────────
+
+export type EvaluateInternalLinkInput = {
+  sourcePage?: string | null;
+  targetPage?: string | null;
+  anchorText?: string | null;
+  linkSentence?: string | null;
+};
+
+/** Evaluate an internal-link draft. Hard rules: no self-link, anchor present, anchor
+ *  must appear in the link sentence (so it reads in context). */
+export function evaluateInternalLinkQuality(input: EvaluateInternalLinkInput): DraftQualityResult {
+  const src = (input.sourcePage ?? "").trim();
+  const tgt = (input.targetPage ?? "").trim();
+  const anchor = (input.anchorText ?? "").trim();
+  const sentence = (input.linkSentence ?? "").trim();
+  if (!src || !tgt || !anchor) {
+    return { status: "malformed", reasons: ["Missing source, target, or anchor."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  // Self-link: same page linking to itself adds nothing and can look like a bug.
+  const a = src.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
+  const b = tgt.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
+  if (a === b) {
+    return { status: "relevance_rejected", reasons: ["Self-link — source and target are the same page."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  if (sentence && !sentence.toLowerCase().includes(anchor.toLowerCase())) {
+    return { status: "useful_but_needs_review", reasons: ["Anchor text does not appear in the link sentence — verify it reads in context."], copyAllowed: true, canRegenerate: false, confidence: "medium" };
+  }
+  if (STRONG_SUPERLATIVE.test(anchor)) {
+    return { status: "unsupported_claim", reasons: ["Anchor makes an unsupported superlative claim."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
+  }
+  return { status: "ready", reasons: ["Distinct source/target, descriptive anchor, reads in context."], copyAllowed: true, canRegenerate: false, confidence: "high" };
+}
+
+// ── CRO / experience-fix quality ──────────────────────────────────────────────
+
+export type EvaluateCROInput = {
+  frictionType?: string | null;
+  location?: string | null;
+  fix?: string | null;
+  evidenceRefs?: number;
+};
+
+/** Evaluate a CRO/fix_experience draft. Must name a real fix grounded in friction. */
+export function evaluateCROFixQuality(input: EvaluateCROInput): DraftQualityResult {
+  const fix = (input.fix ?? "").trim();
+  const location = (input.location ?? "").trim();
+  if (!fix || !location) {
+    return { status: "malformed", reasons: ["Missing fix or location."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  if (wordCount(fix) < 6) {
+    return { status: "too_thin", reasons: ["Fix is too vague to act on."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  // A CRO fix with zero grounding is a guess — flag for review (Clarity evidence needed).
+  if ((input.evidenceRefs ?? 0) === 0) {
+    return { status: "useful_but_needs_review", reasons: ["No Clarity/analytics evidence cited — confirm the friction before changing the page."], copyAllowed: true, canRegenerate: false, confidence: "medium" };
+  }
+  return { status: "ready", reasons: ["Concrete, located fix grounded in friction evidence."], copyAllowed: true, canRegenerate: false, confidence: "high" };
+}
+
 // ── prepared-pack dispatch (the critical adversarial fix) ──────────────────────
 
 export type EvaluatePackInput = {
@@ -342,6 +402,22 @@ export function evaluatePreparedPackQuality(input: EvaluatePackInput): DraftQual
       faqQuestions: Array.isArray(v.faqQuestions) ? (v.faqQuestions as string[]) : null,
       schemaTypes: Array.isArray(v.schemaTypes) ? (v.schemaTypes as string[]) : null,
       contextTokens: input.contextTokens,
+    });
+  }
+  if (sd.kind === "cro_fix") {
+    return evaluateCROFixQuality({
+      frictionType: typeof v.frictionType === "string" ? v.frictionType : null,
+      location: typeof v.location === "string" ? v.location : null,
+      fix: typeof v.fix === "string" ? v.fix : null,
+      evidenceRefs: Array.isArray(v.evidenceRefs) ? v.evidenceRefs.length : 0,
+    });
+  }
+  if (sd.kind === "internal_link") {
+    return evaluateInternalLinkQuality({
+      sourcePage: typeof v.sourcePage === "string" ? v.sourcePage : null,
+      targetPage: typeof v.targetPage === "string" ? v.targetPage : null,
+      anchorText: typeof v.anchorText === "string" ? v.anchorText : null,
+      linkSentence: typeof v.linkSentence === "string" ? v.linkSentence : null,
     });
   }
   // Unknown draft kind — don't pretend it's ready.

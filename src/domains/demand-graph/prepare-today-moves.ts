@@ -16,6 +16,7 @@ import {
   draftAnswerBlockStructured,
   draftAtomicEditStructured,
   draftCreatePageStructured,
+  draftCROFixStructured,
   type CompleteFn,
   type StructuredDraftResult,
 } from "@/domains/llm/structured-drafter";
@@ -136,8 +137,13 @@ async function draftForPacket(
       opts,
     ) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;
   }
-  // fix_experience has no structured drafter wired in Sprint 2 (CRO is later) —
-  // the pack still gets opinions + router + proof, just no draft.
+  if (packet.move.gapType === "fix_experience") {
+    const frictionGap = packet.gaps.find((g) => g.kind === "ux_friction");
+    return draftCROFixStructured({
+      pageLabel: packet.yourPage.url ?? packet.move.label,
+      frictionDetail: frictionGap?.detail ?? `Clarity friction score ${packet.yourPage.friction} on this page`,
+    }) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;
+  }
   return { status: "off" };
 }
 

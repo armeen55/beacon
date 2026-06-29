@@ -4,6 +4,8 @@ import {
   evaluateTitleMetaQuality,
   evaluateCreatePageBriefQuality,
   evaluatePreparedPackQuality,
+  evaluateInternalLinkQuality,
+  evaluateCROFixQuality,
 } from "./draft-quality";
 
 // Cases are pinned to the REAL Iranopedia draft audit (scripts/wf-draft-quality.js)
@@ -161,7 +163,87 @@ describe("evaluateCreatePageBriefQuality", () => {
   });
 });
 
+describe("evaluateInternalLinkQuality", () => {
+  it("rejects a self-link", () => {
+    const r = evaluateInternalLinkQuality({
+      sourcePage: "https://iranopedia.com/cities",
+      targetPage: "https://www.iranopedia.com/cities/",
+      anchorText: "Iranian cities",
+      linkSentence: "See our guide to Iranian cities for more.",
+    });
+    expect(r.status).toBe("relevance_rejected");
+    expect(r.copyAllowed).toBe(false);
+  });
+
+  it("passes a distinct, in-context link", () => {
+    const r = evaluateInternalLinkQuality({
+      sourcePage: "https://iranopedia.com/nowruz",
+      targetPage: "https://iranopedia.com/haft-seen",
+      anchorText: "Haft-Seen table",
+      linkSentence: "Families arrange a Haft-Seen table during Nowruz celebrations.",
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("flags when the anchor is not in the link sentence", () => {
+    const r = evaluateInternalLinkQuality({
+      sourcePage: "/a",
+      targetPage: "/b",
+      anchorText: "Persian calendar",
+      linkSentence: "Learn more about the Iranian new year here.",
+    });
+    expect(r.status).toBe("useful_but_needs_review");
+  });
+
+  it("malformed when missing fields", () => {
+    expect(evaluateInternalLinkQuality({ sourcePage: "/a", targetPage: "", anchorText: "x" }).status).toBe("malformed");
+  });
+});
+
+describe("evaluateCROFixQuality", () => {
+  it("ready with a concrete fix + Clarity evidence", () => {
+    const r = evaluateCROFixQuality({
+      frictionType: "dead_click",
+      location: "the hero image on the cities page",
+      fix: "Make the hero image non-clickable or link it to the cities index, since users dead-click expecting navigation.",
+      evidenceRefs: 1,
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("needs review when there's no evidence (no fake certainty)", () => {
+    const r = evaluateCROFixQuality({
+      frictionType: "rage_click",
+      location: "the top nav",
+      fix: "Increase the tap target size of the menu button for mobile users.",
+      evidenceRefs: 0,
+    });
+    expect(r.status).toBe("useful_but_needs_review");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("too_thin when the fix is vague", () => {
+    expect(evaluateCROFixQuality({ frictionType: "cta_clarity", location: "page", fix: "improve it", evidenceRefs: 1 }).status).toBe("too_thin");
+  });
+});
+
 describe("evaluatePreparedPackQuality — dispatch (adversarial #1 fix)", () => {
+  it("dispatches cro_fix to the CRO gate", () => {
+    const r = evaluatePreparedPackQuality({
+      structuredDraft: { kind: "cro_fix", value: { frictionType: "dead_click", location: "hero", fix: "Make the hero image link to the index since users dead-click it expecting navigation.", evidenceRefs: [{ source: "clarity", detail: "x" }] } },
+    });
+    expect(r.status).toBe("ready");
+  });
+
+  it("dispatches internal_link to the link gate (self-link rejected)", () => {
+    const r = evaluatePreparedPackQuality({
+      structuredDraft: { kind: "internal_link", value: { sourcePage: "/x", targetPage: "/x", anchorText: "x", linkSentence: "x x" } },
+    });
+    expect(r.status).toBe("relevance_rejected");
+  });
+
   it("a pack with NO draft is too_thin, never ready (rec-3/7/11)", () => {
     const r = evaluatePreparedPackQuality({ structuredDraft: null, preparedStatus: "demand_found", moveType: "edit_page" });
     expect(r.status).toBe("too_thin");

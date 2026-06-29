@@ -183,6 +183,21 @@ export const AeoPromptBriefSchema = z.object({
 });
 export type AeoPromptBrief = z.infer<typeof AeoPromptBriefSchema>;
 
+/** 9. InternalLinkDraft — a contextual internal link from a source page to a target
+ *  page. NOT a bare URL pair: the exact anchor + the sentence to drop the link into +
+ *  why it helps. Self-links and misleading anchors are rejected by the quality gate. */
+export const InternalLinkDraftSchema = z.object({
+  sourcePage: z.string().min(1).max(400),
+  targetPage: z.string().min(1).max(400),
+  anchorText: z.string().min(2).max(120),
+  linkSentence: z.string().min(10).max(400),
+  reason: z.string().min(4).max(400),
+  riskNotes: z.array(z.string().min(1).max(200)).max(6).default([]),
+  proofPlan: ProofPlanSchema,
+  ...base,
+});
+export type InternalLinkDraft = z.infer<typeof InternalLinkDraftSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -192,6 +207,7 @@ export type StructuredDraftKind =
   | "tool_asset"
   | "commerce_asset"
   | "cro_fix"
+  | "internal_link"
   | "experiment_plan"
   | "aeo_prompt_brief";
 
@@ -202,6 +218,7 @@ export const SCHEMA_BY_KIND = {
   tool_asset: ToolAssetSpecSchema,
   commerce_asset: CommerceAssetSpecSchema,
   cro_fix: CROFixSpecSchema,
+  internal_link: InternalLinkDraftSchema,
   experiment_plan: ExperimentPlanSchema,
   aeo_prompt_brief: AeoPromptBriefSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;

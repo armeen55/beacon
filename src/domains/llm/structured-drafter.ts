@@ -406,6 +406,99 @@ export async function draftCreatePageStructured(
   });
 }
 
+// ── concrete drafter: CROFixSpec (fix_experience / Clarity friction) ──────────
+
+export type CROFixStructuredInput = {
+  /** The page with friction. */
+  pageLabel: string;
+  /** Clarity friction score / detail the team established (grounding). */
+  frictionDetail: string;
+  /** Optional dominant friction signal hint (dead/rage/quickback) if known. */
+  frictionHint?: string;
+};
+
+const CRO_FIX_SYSTEM =
+  "You diagnose ONE on-page UX/conversion friction and prescribe a concrete fix for a content/encyclopedia site. " +
+  'Return ONLY a JSON object: "frictionType" (one of dead_click|rage_click|cta_clarity|form_friction|intent_mismatch), ' +
+  '"location" (where on the page — be specific), "fix" (a concrete, actionable change — what to inspect and change, not vague advice), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete steps to inspect + fix), ' +
+  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  "Ground ONLY in the friction evidence provided — do NOT assert a cause you cannot see in the data (no fake certainty). Prefer a checklist of elements to inspect over prose. No marketing language. No em-dashes. Do NOT invent statistics.";
+
+/** Draft a schema-valid CROFixSpec for one fix_experience Move from Clarity friction. */
+export async function draftCROFixStructured(
+  input: CROFixStructuredInput,
+  opts: { complete?: CompleteFn; now?: Date } = {},
+): Promise<StructuredDraftResult<import("./schemas").CROFixSpec>> {
+  const grounded = [input.pageLabel, input.frictionDetail, input.frictionHint ?? ""].join(" ");
+  const user = [
+    `Page: ${input.pageLabel}`,
+    `Friction the team measured: ${input.frictionDetail}`,
+    input.frictionHint ? `Dominant signal: ${input.frictionHint}` : "",
+    "",
+    "Return the JSON now.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return callStructuredLLM({
+    kind: "cro_fix",
+    system: CRO_FIX_SYSTEM,
+    user,
+    grounded,
+    projectedCostUsd: 0.02,
+    complete: opts.complete,
+    now: opts.now,
+  });
+}
+
+// ── concrete drafter: InternalLinkDraft (contextual internal link) ────────────
+
+export type InternalLinkStructuredInput = {
+  sourcePage: string;
+  targetPage: string;
+  /** What the target page is about (so the anchor describes it honestly). */
+  targetTopic: string;
+  /** Why these two pages relate (grounding — shared topic / cluster). */
+  relationDetail: string;
+};
+
+const INTERNAL_LINK_SYSTEM =
+  "You write ONE contextual internal link from a source page to a target page on the same site. " +
+  'Return ONLY a JSON object: "sourcePage" (the page the link is added to), "targetPage" (the page linked to), ' +
+  '"anchorText" (2-8 words that HONESTLY describe the target page — never misleading), ' +
+  '"linkSentence" (a natural sentence on the source page that contains the anchor and reads in context), ' +
+  '"reason" (why this link helps the reader / topic cluster), "riskNotes" (array of short strings), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"confidence" ("high"|"medium"|"low"), "risks" (array), "operatorSteps" (array), ' +
+  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  "The source and target MUST be different pages (never a self-link). The anchor must match what the target is actually about. Ground ONLY in what is provided. No marketing language. No em-dashes. No invented facts.";
+
+/** Draft a schema-valid InternalLinkDraft for one source→target pair. */
+export async function draftInternalLinkStructured(
+  input: InternalLinkStructuredInput,
+  opts: { complete?: CompleteFn; now?: Date } = {},
+): Promise<StructuredDraftResult<import("./schemas").InternalLinkDraft>> {
+  const grounded = [input.sourcePage, input.targetPage, input.targetTopic, input.relationDetail].join(" ");
+  const user = [
+    `Source page (link is added here): ${input.sourcePage}`,
+    `Target page (link points here): ${input.targetPage}`,
+    `Target page is about: ${input.targetTopic}`,
+    `Why they relate: ${input.relationDetail}`,
+    "",
+    "Return the JSON now.",
+  ].join("\n");
+  return callStructuredLLM({
+    kind: "internal_link",
+    system: INTERNAL_LINK_SYSTEM,
+    user,
+    grounded,
+    projectedCostUsd: 0.015,
+    complete: opts.complete,
+    now: opts.now,
+  });
+}
+
 // ── concrete drafter: AeoPromptBrief (Profound Question Intelligence) ──────────
 
 export type AeoPromptBriefInput = {
