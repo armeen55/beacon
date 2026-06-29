@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-29 — TOP-3 BUILD+VOLUME NEW PAGE BRIEFS (LLM-capped, quality-gated) · main `f66a3d2d`
+
+Operator Phase 4: generate structured page briefs for the top BUILD + strong/exact volume-backed New Pages, hard LLM cap, quality-gated, cache-first.
+
+**Built:** `prepareCreatePageVerdicts` gained `maxBriefs` (hard count cap on LLM briefs/run) + `skipExistingBrief` (cache-first — skip a candidate that already has a quality-PASSING `create_page_brief`). Defaults unchanged.
+
+**Dry-run ($0):** 16 BUILD+strong/exact candidates, 4 with a passing brief → 12 eligible; top-3 by volume = nowruz/persian art/culture-iran cluster; projection $0.09 but measured gpt-5-mini ~$0.003/brief. **Live run** (skipExistingBrief, maxBriefs:3, skipBriefs:false): SERP all 12 cache-hits (**$0 SERP**), **2 new briefs drafted + persisted, $0.0263 LLM** (under the $0.05 cap), 0 capped. After: passing `create_page_briefs` in the keyword-matched BUILD set **4 → 6**; store-wide **12 passing / 0 non-passing-persisted** — the create-page quality gate fail-closes (a failed draft is never saved, so no fake "Page brief ready"). New Pages board renders 4 "build page" brief-ready chips in the visible top-9 + 16 volume chips. tsc 0 · serp tests green · build PASS · `/ /worklist /recommendations /connections` 200. Cumulative DataForSEO spend across the chain: $0.075 (kw) + $0.030 (serp) + $0 (briefs SERP) = $0.105; + $0.0263 LLM (briefs). No migration/Wix/SEMrush/flags.
+
+---
+
 ## 2026-06-29 — DATAFORSEO SERP VERDICTS for volume-backed New Pages (+15% lift fires) · main `59cecfb0`
 
 Operator: keyword volume alone didn't lift the visible top-9 — the +15% sort lift needs a BUILD verdict. Run SERP verdicts for the strong/exact volume-backed create-page candidates.

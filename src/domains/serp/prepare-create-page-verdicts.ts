@@ -10,6 +10,7 @@ import { draftCreatePageStructured } from "@/domains/llm/structured-drafter";
 import { getLatestMoveDrafts } from "@/domains/demand-graph/move-draft-store";
 import { readAllCachedKeywordDemand } from "./dataforseo-keywords";
 import { matchKeywordDemand } from "@/domains/demand/keyword-match";
+import { evaluateCreatePageBriefQuality } from "@/domains/drafts/draft-quality";
 
 /**
  * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) — the "prepared, not a
@@ -70,6 +71,10 @@ export async function prepareCreatePageVerdicts(
     skipBriefs?: boolean;
     /** Skip candidates that already carry a fresh (<14d) serp_verdict. */
     skipFreshVerdict?: boolean;
+    /** Hard cap on how many LLM page briefs to generate this run (bounds spend). */
+    maxBriefs?: number;
+    /** Cache-first: don't regenerate a brief that already exists AND passes the gate. */
+    skipExistingBrief?: boolean;
   } = {},
 ): Promise<PrepareSummary> {
   const max = opts.maxValidations ?? 25;
@@ -120,6 +125,28 @@ export async function prepareCreatePageVerdicts(
   }
   const creates = createMoves.slice(0, max);
 
+  // For cache-first brief skipping: a map of existing drafts (only when requested).
+  const briefDrafts = opts.skipExistingBrief ? await getLatestMoveDrafts(tenantId).catch(() => new Map()) : null;
+  const hasPassingBrief = (demandKey: string, hasVerdict: boolean): boolean => {
+    const raw = briefDrafts?.get(`${demandKey}::create_page_brief`)?.content;
+    if (!raw) return false;
+    try {
+      const b = JSON.parse(raw);
+      return evaluateCreatePageBriefQuality({
+        title: b.proposedTitle,
+        meta: b.metaDescription,
+        opening: b.openingAnswer,
+        outline: b.outline,
+        faqQuestions: b.faqQuestions,
+        schemaTypes: b.schemaTypes,
+        hasSerpVerdict: hasVerdict,
+      }).copyAllowed;
+    } catch {
+      return false;
+    }
+  };
+  let briefedCount = 0;
+
   for (const m of creates) {
     const profoundDomains = [...new Set(m.competitorUrls.map((u) => rootDomain(u)).filter(Boolean))];
     let r;
@@ -160,7 +187,9 @@ export async function prepareCreatePageVerdicts(
     // schema) for BUILD/WAIT pages, so the New Pages card arrives WRITTEN, not just
     // verdicted. SKIP pages get no brief (don't spend LLM on a page we advise
     // against). Best-effort + budget-gated inside the drafter; fail-soft.
-    if (v.verdict !== "reject" && !opts.skipBriefs) {
+    const briefBudgetLeft = opts.maxBriefs == null || briefedCount < opts.maxBriefs;
+    const alreadyBriefed = opts.skipExistingBrief && hasPassingBrief(m.demandKey, true);
+    if (v.verdict !== "reject" && !opts.skipBriefs && briefBudgetLeft && !alreadyBriefed) {
       try {
         const brief = await draftCreatePageStructured({
           query: m.label,
@@ -174,6 +203,7 @@ export async function prepareCreatePageVerdicts(
         });
         if (brief.status === "drafted") {
           summary.briefs += 1;
+          briefedCount += 1;
           summary.briefCostUsd += brief.costUsd;
           await saveMoveDraft(tenantId, m.demandKey, "create_page_brief", JSON.stringify(brief.value)).catch(() => false);
         } else if (brief.status === "validation_failed") {
