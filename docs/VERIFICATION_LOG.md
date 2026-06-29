@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — COMPETITORS ACTION QUEUE + AI-QUESTIONS / NEW-PAGES LABEL CLEANUP · main `2715eb38`
+
+Operator: surfaces still expose raw/overwhelming intelligence (Competitors "0/1084 read" doom; AI-Questions "Create hub: <whole question> - Complete Guide"; New-Pages "Things Iran Highlights" / "List Iranians").
+
+**Built:** (1) `load-competitor-intel.readQueue` — top-20 unread pages prioritized (ready-to-ship move > high-demand worklist move > AI-cites-not-you > Google-buildable SERP > repeated citation domain); `/competitors` leads with "Read these competitor pages first" + why-first per row; doom amber banner → small grey "Coverage" line. (2) `prompts/ai-questions-data` helpers `promptToTopic`/`shortActionLabel`/`clusterKeyOf` + SHORT_VERB map — "Create page: Persian Wedding Customs" not the raw hub label; near-dupes clustered by lead topic token with "+N related"; raw prompt kept as title. (3) `clean-topic-label.isJunkTopic` now suppresses LEADING-generic multi-word topics.
+
+**Verified (live Iranopedia):** "Create hub" 0 → 190 "Create page:" + 30 "Edit page:" clean labels; competitor read-queue rendered (doom banner gone); "Things Iran"/"List Iranians" 0 on /recommendations. tsc 0 · tests (clean-topic leading-generic + AI-question helpers) green · build PASS · `/ /worklist /recommendations /competitors /prompts /experiments` 200. No migration/flags/Wix/env.
+
+---
+
 ## 2026-06-28 — RESULTS GSC-LAG CLARITY + READY SAFE-FIRST · main `ea6f7f01`
 
 Operator: Results says windows "opened" but still "waiting"; Ready-to-ship puts measuring cards on top.
