@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-29 — PASSIVE AUTO-MEASURE on /proof + 🔴 CRITICAL persistence bug found (proof settlement never durably persisted) · main `PENDING`
+
+Operator: passively settle due proof rows when Results opens (fire-and-forget, /proof-only, idempotent). While verifying it END-TO-END, found a critical pre-existing bug that BLOCKS the whole proof→learning loop.
+
+**🔴 ROOT-CAUSE BUG (pre-existing, prod-affecting):** proof-verdict settlement has NEVER durably persisted on beacon-main. `recordToRow` emits the `operator_verdict_override` column, but that column was never added to beacon-main's `shipped_change_proof` table (migration `migrations/2026-06-23_shipped_change_proof_operator_verdict_override.sql` authored but UNAPPLIED). So every verdict upsert → PostgREST **PGRST204** ("could not find the 'operator_verdict_override' column") → `isUndefinedTableError` (intentionally treats missing-column as missing-table for deploy-order independence) → silently routes the write to the `.data` FILE mirror (ephemeral on Vercel) while reads come from Supabase → split-brain, the write is lost. Reproduced exactly: `measureRecord(/funny-farsi-phrases)` → verdict `measuring→lost`, `upsertShippedChange` returns no error, direct Supabase re-read = still `measuring`; a raw-row upsert (no extra column) persists fine; column-diff = `["operator_verdict_override"]` missing; raw upsert of the recordToRow payload errors `PGRST204`. **This is why all 9 Iranopedia rows are stuck `measuring` — not a trigger gap; the verdict write silently falls to an ephemeral file.** Affects manual "Measure now" + auto-measure + the new passive trigger equally.
+
+**FIX (operator-gated — I lack the mgmt token + can't verify the MCP project = beacon-main):** apply the existing additive migration to beacon-main: `SUPABASE_ACCESS_TOKEN=sbp_… node scripts/apply-migrations-mgmt-api.mjs <beacon-main-ref>` (or via your Supabase tooling). It's `add column if not exists operator_verdict_override text` — additive, idempotent, reversible, non-destructive. After it lands, the passive trigger (and the manual button) settle due rows + the already-wired prior/caution activate.
+
+**Shipped this slice (code, $0):**
+- `proof-gsc/auto-measure-on-use.ts` (+3 tests) — `scheduleAutoMeasure(tenantId)`: fire-and-forget `autoMeasureDuePass` via `next/after` (zero render latency), per-warm-lambda throttle (10min) for idempotence, fail-soft. Mirrors the proven `scheduleBriefBackfill` pattern.
+- `/proof` page — operator-gated + only when due rows exist: schedules the pass + an honest banner "Measuring N due result(s) now — refresh in a moment." Never fires for anon/customer (verified: headless render → no banner, no mutation).
+- **Hardening:** `upsertShippedChange` now `console.warn`s when a durable write falls back to the file (PGRST204) — converts the silent multi-week data-loss into an observable signal so a pending migration can't silently rot again.
+
+**Verification:** tsc 0 · 16 proof tests green (3 new) · build PASS · `/proof /worklist /recommendations /experiments` 200; /proof GSC-lag copy renders; banner correctly operator-gated (absent headless). Engine proven: a measured row settles `measuring→lost` with **0 collateral row changes** — it just can't persist to Supabase until the column exists. **NOTE: the passive trigger + banner are necessary-not-sufficient — they only activate learning AFTER the migration is applied.** No fabricated settled data; no migration applied by me (operator-gated); no Wix/SEMrush/flags.
+
+---
+
 ## 2026-06-29 — PROOF→RANKING ACTIVATION AUDIT → loop fully wired, gated on settled outcomes (no rebuild) · main `dc7ed140`
 
 Operator: don't rebuild the outcome-prior — audit the proof→ranking loop end-to-end and find the exact missing activation piece, if any.

@@ -257,6 +257,17 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
     .upsert(recordToRow(tid, record), { onConflict: "tenant_id,id" });
   if (up.error != null) {
     if (isUndefinedTableError(up.error)) {
+      // Deploy-order safety net: a missing table/column routes the write to the file
+      // mirror so it works pre-migration. BUT on Vercel the file is ephemeral, so if a
+      // migration is never applied this silently loses durable writes (it stranded ALL
+      // proof-verdict settlement when 2026-06-23_…_operator_verdict_override.sql wasn't
+      // applied to beacon-main). WARN loudly so a pending migration is observable, not
+      // a silent multi-week data-loss.
+      console.warn(
+        `[shipped-change-store] DURABLE upsert fell back to file (apply the pending migration): ${
+          (up.error as { code?: string }).code ?? "?"
+        } ${(up.error as { message?: string }).message ?? String(up.error)}`,
+      );
       await upsertFile(record);
       return;
     }

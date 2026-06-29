@@ -9,7 +9,8 @@ import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-s
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
-import { gscLagStatus } from "@/domains/proof-gsc/measure-lifecycle";
+import { gscLagStatus, isDueForMeasure } from "@/domains/proof-gsc/measure-lifecycle";
+import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
 import { ProofSummarySection } from "./proof-summary-section";
@@ -89,6 +90,15 @@ export default async function ProofPage({
     (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
   );
 
+  // Passive auto-measure (2026-06-29): when the operator opens Results, fire-and-forget a
+  // due-row measurement pass AFTER the response (next/after → zero render latency) so
+  // settled verdicts + the learned re-ranking activate WITHOUT a manual "Measure now"
+  // click. Operator-only (it writes proof outcomes) + only when rows are actually due, so
+  // a customer/anon view never mutates proof data. The settled rows show on the next visit.
+  const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
+  const isOperator = await isOperatorModeServer();
+  if (isOperator && dueNow.length > 0) scheduleAutoMeasure(tenantId);
+
   // Phase 4 — deterministic ActionPack↔proof linker (pure, no migration). Each
   // shipped change is traced back to the Move that recommended it (or honestly
   // labelled manual/legacy). Measurement math is untouched.
@@ -162,6 +172,14 @@ export default async function ProofPage({
         <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
           {waitingOnGsc.length} change{waitingOnGsc.length === 1 ? " is" : "s are"} waiting on Search Console
           data, not stalled. {waitingOnGsc[0]!.reasonCopy} Google Search data typically lags 2–3 days.
+        </div>
+      ) : null}
+
+      {/* Passive auto-measure (2026-06-29): due rows are being re-measured in the
+          background (next/after) the moment Results opens — say so honestly. */}
+      {isOperator && dueNow.length > 0 ? (
+        <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now — refresh in a moment to see the verdict.
         </div>
       ) : null}
 
