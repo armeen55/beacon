@@ -79,6 +79,24 @@ export type PreparedMovePack = {
   generatedAt: string;
   staleAt: string;
   preparedStatus: PreparedStatus;
+  /** Set when this draft was regenerated USING competitor teardown facts (the trust
+   *  signal + recoverability of the prior draft). Absent on normal prepares. */
+  regenMeta?: RegenMeta;
+};
+
+/** Provenance for a teardown-informed regeneration — surfaces the "Competitor-informed"
+ *  chip + keeps the prior draft recoverable (move_drafts is insert-only, so the old row
+ *  still exists; this also stores a short excerpt + the before/after quality). */
+export type RegenMeta = {
+  regeneratedFromTeardown: boolean;
+  competitorUrl: string | null;
+  competitorDomain: string | null;
+  previousQuality: string | null;
+  newQuality: string | null;
+  costUsd: number;
+  source: string;
+  previousExcerpt: string | null;
+  regeneratedAt: string;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -129,6 +147,7 @@ export type BuildPreparedMovePackInput = {
   implementationChecklist?: ImplementationStep[];
   costSpent?: { llmUsd: number; serpUsd: number };
   ttlMs?: number;
+  regenMeta?: RegenMeta;
 };
 
 /** Assemble a PreparedMovePack from a Move's packet + the team's opinions + the
@@ -170,6 +189,7 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
     generatedAt: nowIso,
     staleAt: new Date(baseMs + (input.ttlMs ?? DEFAULT_TTL_MS)).toISOString(),
     preparedStatus,
+    ...(input.regenMeta ? { regenMeta: input.regenMeta } : {}),
   };
 }
 

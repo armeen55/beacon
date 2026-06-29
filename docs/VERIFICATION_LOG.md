@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — TEARDOWN FACTS → BOUNDED DRAFT REGENERATION (top 3, $0.10 cap) · main `bfe7cbf2`
+
+Operator: competitor facts are now trustworthy + aligned — use them to improve drafts, bounded + quality-gated.
+
+**Built:** (1) `competitorTeardownHints` threads the REAL teardown facts (title / sections / schema / word count / FAQ + a "beat it, don't copy it" instruction + grounding URL) through the existing `evidenceHints` drafter channel — gated on `hasUsableTeardown` (on-topic, fetched, relevant). (2) `prepareTodayMovesForTenant` gained `maxUsd` (hard per-run cap, early-break before a draft that would exceed it), `forceRegenerate` (bypass cache), `requireTeardown` (only teardown-backed Moves) + captures previousQuality/newQuality/excerpt into a new `regenMeta` on the PreparedMovePack (JSON envelope, NO migration). (3) `regenerateTopDraftsFromTeardownAction` (operator-gated, top 3, clamps maxUsd ≤ $0.10). (4) NO-CLOBBER guard: a failed/firewalled re-draft never overwrites an existing good draft. (5) "Competitor-informed" chip + "Improved using the page that currently wins: {domain}" line on the card; "✦ Improve top 3 with competitor facts" button on /worklist.
+
+**Ran live (Iranopedia, $0.10 cap):** considered 3, **regenerated 2** (persian boy names → grounded vs parentcalc.com; persian swear words → vs irannegintravel.com), **1 firewall rejection** (cities of iran answer_block — the no-invented-numbers firewall caught the LLM inventing "10,20" and refused to fake a "ready" draft), stoppedForBudget false, **total $0.0056** (vs $0.10 cap). regenMeta old→new quality captured. Rendered: 2 Competitor-informed chips + 2 "Improved using…" lines on /worklist AND / (home); button renders. tsc 0 · 45 tests green (teardown-regeneration 5 + draft-quality + serp-teardown) · build PASS · `/ /worklist /recommendations /experiments /competitors` all 200. No Wix, no migration, no flags.
+
+---
+
 ## 2026-06-28 — COMPETITORS QUEUE ↔ TEARDOWN TARGET ALIGNMENT · main `22a38542`
 
 Operator: queue badges still didn't populate — the queue URLs and audit target URLs are related-but-different sets. Fix the source, not the copy.

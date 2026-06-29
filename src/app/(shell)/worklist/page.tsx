@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { loadMovesWorklist } from "../moves/moves-data";
 import { TodayNewPagesSection } from "../today-newpages-section";
 import { MovesWorklistClient } from "../moves/moves-worklist-client";
-import { PrepareTopMovesButton } from "../today-moves-prepare";
+import { PrepareTopMovesButton, RegenerateFromTeardownButton } from "../today-moves-prepare";
 
 /**
  * /worklist (2026-06-28 — route consolidation) — THE canonical Rank-&-Revenue
@@ -64,7 +64,10 @@ async function Worklist() {
         <p className="text-sm text-gray-500">
           Let Beacon prepare the top moves end-to-end — structured draft, experiment, and proof plan — so each arrives ready to review.
         </p>
-        <PrepareTopMovesButton readyCount={stats.preparedReady ?? 0} total={moves.length} />
+        <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-start">
+          <RegenerateFromTeardownButton />
+          <PrepareTopMovesButton readyCount={stats.preparedReady ?? 0} total={moves.length} />
+        </div>
       </div>
       <MovesWorklistClient moves={moves} />
       {stats.movesReady > moves.length ? (

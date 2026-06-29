@@ -14,6 +14,7 @@ import {
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
 import { prepareTodayMovesForTenant, type PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
+export type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
 import { autoMeasureDuePass, type AutoMeasurePassResult } from "@/domains/proof-gsc/auto-measure-pass";
 
@@ -71,6 +72,41 @@ export async function sharpenMovesWithTeardownAction(
   revalidatePath("/competitors");
   revalidatePath("/worklist");
   return { status: "ok", audited: audited.length, targets, cached };
+}
+
+export type RegenerateFromTeardownResult =
+  | { ok: false; reason: string }
+  | { ok: true; summary: PrepareMovesSummary };
+
+/**
+ * regenerateTopDraftsFromTeardownAction (2026-06-28) — bounded "improve the top drafts
+ * using the pages that currently win." Re-runs the structured drafter for the top
+ * teardown-backed Moves with the competitor's real facts (title/sections/schema/word
+ * count/FAQ) threaded into the prompt as "beat it, don't copy it." HARD per-run $ cap
+ * (default $0.10, top 3); every regenerated draft must pass the existing quality gate
+ * (a failure surfaces "Needs review", never a fake "ready"). The prior draft stays
+ * recoverable (move_drafts is insert-only) + its quality/excerpt is captured in the
+ * pack's regenMeta. Operator-gated, on-demand only, cache-bypassing. NO publish, NO
+ * Wix, NO migration. Revalidates "/" + worklist + drafts so the chips render.
+ */
+export async function regenerateTopDraftsFromTeardownAction(
+  opts: { limit?: number; maxUsd?: number } = {},
+): Promise<RegenerateFromTeardownResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const summary = await prepareTodayMovesForTenant(await currentTenantId(), {
+      maxN: Math.min(opts.limit ?? 3, 5),
+      maxUsd: Math.min(opts.maxUsd ?? 0.1, 0.1),
+      forceRegenerate: true,
+      requireTeardown: true,
+    });
+    revalidatePath("/");
+    revalidatePath("/worklist");
+    revalidatePath("/drafts");
+    return { ok: true, summary };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "regeneration failed" };
+  }
 }
 
 export type MarkAppliedResult =

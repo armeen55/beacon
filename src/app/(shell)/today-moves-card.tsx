@@ -315,8 +315,16 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       {/* Connectedness (2026-06-28) — the canonical ActionPack evidence provenance
           + cached DataForSEO SERP verdict, threaded onto the card operators use
           (was computed on the pack but never shown outside diagnostics). */}
-      {(m.sourceChips?.length || m.dataforseoVerdict) ? (
+      {(m.sourceChips?.length || m.dataforseoVerdict || m.competitorInformed) ? (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {m.competitorInformed ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-200"
+              title={`This draft was rewritten using ${m.competitorInformed.domain} — the page that currently wins this topic.`}
+            >
+              ✦ Competitor-informed
+            </span>
+          ) : null}
           {m.dataforseoVerdict ? (
             <span
               className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
@@ -392,6 +400,9 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                   </div>
                   {q && q.status !== "ready" && q.reasons[0] ? (
                     <p className="mt-0.5 text-[10px] text-amber-700">{q.reasons[0]}</p>
+                  ) : null}
+                  {m.competitorInformed ? (
+                    <p className="mt-0.5 text-[10px] text-violet-700">Improved using the page that currently wins: {m.competitorInformed.domain}</p>
                   ) : null}
                   <p className={`mt-0.5 rounded-lg p-2 text-[12px] leading-relaxed ring-1 ${copyOk ? "bg-white text-gray-800 ring-indigo-100" : "bg-gray-50 text-gray-500 ring-gray-200"}`}>{m.preparedDraftText}</p>
                 </div>

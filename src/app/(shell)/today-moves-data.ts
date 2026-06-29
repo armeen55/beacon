@@ -144,6 +144,10 @@ export type TodayMove = {
    *  change on this move's page, so the card shows whether it's already measuring /
    *  won / no-lift without opening Results. Null when no proof row matches. */
   proofStatus?: "measuring" | "won" | "no_clear_lift" | "no_lift" | null;
+  /** Teardown-regeneration (2026-06-28) — set when this draft was regenerated using the
+   *  competitor page that currently wins. Drives the "Competitor-informed" trust chip +
+   *  the "Improved using {domain}" line. Null on normal prepares. */
+  competitorInformed?: { domain: string } | null;
   proofLabel?: string | null;
   /** True when the SAME page+action family is already mid-measurement (avoid
    *  encouraging a duplicate ship that would contaminate the open window). */
@@ -561,6 +565,10 @@ export async function buildTodayMovesData(
         preparedExperiment: persistedFresh ? persistedPack!.experiment?.hypothesis ?? null : null,
         preparedStale,
         learnedTag: (packet ? learnedByKey.get(packet.move.key)?.tag : null) ?? null,
+        competitorInformed:
+          persistedFresh && persistedPack!.regenMeta?.regeneratedFromTeardown && persistedPack!.regenMeta.competitorDomain
+            ? { domain: persistedPack!.regenMeta.competitorDomain }
+            : null,
       });
     }
 

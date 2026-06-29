@@ -10,6 +10,7 @@ import {
   type PreparedMovePack,
   type StructuredDraft,
   type PreparedStatus,
+  type RegenMeta,
 } from "./prepared-move-pack";
 import { saveMoveDraft, getLatestMoveDrafts } from "./move-draft-store";
 import {
@@ -64,6 +65,10 @@ export type PrepareMovesSummary = {
   draftReady: number;
   cached: number;
   failed: number;
+  /** Drafts regenerated FROM competitor teardown facts (subset of `prepared`). */
+  regenerated: number;
+  /** True if the per-run $ cap stopped the batch before all targets were processed. */
+  stoppedForBudget: boolean;
   llmCostUsd: number;
   outcomes: PrepareMoveOutcome[];
 };
@@ -99,11 +104,47 @@ function buildExperimentPlan(
   return res.success ? res.data : null;
 }
 
+/** True when this packet carries an ON-TOPIC competitor teardown we can ground a draft
+ *  in (relevance-gated — never a loosely-matched/eggplant join). */
+export function hasUsableTeardown(packet: EvidencePacket): boolean {
+  const c = packet.competitor;
+  return !!c.facts && !c.looselyMatched && c.fetchStatus === "ok";
+}
+
+/** Turn an on-topic competitor teardown into grounded, structured hints the drafter
+ *  uses to BEAT the winning page — never to copy it. Empty when no relevant teardown.
+ *  The drafter system prompts already forbid invented stats/dates/superlatives, so
+ *  these facts are framed as "what the winner has; do better, in your own words". */
+export function competitorTeardownHints(packet: EvidencePacket): string[] {
+  if (!hasUsableTeardown(packet)) return [];
+  const c = packet.competitor;
+  const f = c.facts!;
+  const out: string[] = [];
+  const struct: string[] = [];
+  if (f.wordCount) struct.push(`${f.wordCount} words`);
+  if (f.sectionCount) struct.push(`${f.sectionCount} sections`);
+  if (f.hasFaq) struct.push(`an FAQ (${f.faqQuestionCount} questions)`);
+  if (f.hasAnswerBlock) struct.push("a direct answer block up top");
+  if (f.schemaTypes.length) struct.push(`${f.schemaTypes.length} schema type(s)`);
+  if (f.hasToolOrCalculator) struct.push("an interactive tool");
+  if (f.imageCount) struct.push(`${f.imageCount} images`);
+  if (struct.length) out.push(`The page that currently wins this topic (${c.domain}) has: ${struct.join(", ")}.`);
+  if (f.title) out.push(`Its title reads: "${f.title.slice(0, 120)}".`);
+  const outline = (f.outline ?? []).filter(Boolean).slice(0, 6);
+  if (outline.length) out.push(`Its sections: ${outline.join("; ")}.`);
+  const faqs = (f.faqQuestions ?? []).filter(Boolean).slice(0, 4);
+  if (faqs.length) out.push(`Questions it answers: ${faqs.join("; ")}.`);
+  out.push(
+    `Beat ${c.domain}: be clearer and more useful — cover what it covers plus what it misses, in your OWN words. Do not copy its wording, title, or headings. Grounding source only: ${c.topUrl}.`,
+  );
+  return out;
+}
+
 function evidenceHintsFor(packet: EvidencePacket): string[] {
   return [
     packet.competitor.domain && !packet.competitor.looselyMatched ? `AI cites ${packet.competitor.domain} for this topic, not you` : "",
     packet.yourPage.gsc ? "the page already ranks on Google but isn't the cited source" : "",
-    packet.competitor.facts ? "a competitor teardown is available for what wins this topic" : "",
+    ...competitorTeardownHints(packet),
   ].filter(Boolean);
 }
 
@@ -166,11 +207,46 @@ function outcomeOf(pack: PreparedMovePack, packet: EvidencePacket, opinions: Ret
   };
 }
 
+/** Pure per-run cap predicate — start a draft only when its conservative projection
+ *  still fits under the ceiling. `maxUsd = Infinity` (the default) always affords. */
+export function canAffordDraft(spentUsd: number, projectedUsd: number, maxUsd: number): boolean {
+  return spentUsd + projectedUsd <= maxUsd;
+}
+
+/** Quality status of a pack's current draft (the gate's verdict), or null. */
+function packQualityStatus(pack: PreparedMovePack | null): string | null {
+  if (!pack?.structuredDraft) return null;
+  return evaluatePreparedPackQuality({
+    structuredDraft: pack.structuredDraft as { kind?: string; value?: unknown },
+    preparedStatus: pack.preparedStatus,
+    moveType: pack.moveType,
+  }).status;
+}
+
+/** A short excerpt of a draft's primary text, for recoverability metadata. */
+function draftExcerpt(pack: PreparedMovePack | null): string | null {
+  const v = (pack?.structuredDraft as { value?: Record<string, unknown> } | null)?.value;
+  if (!v) return null;
+  const text = (v.answer ?? v.after ?? v.openingAnswer ?? v.fix ?? "") as string;
+  return typeof text === "string" && text.trim() ? text.trim().slice(0, 200) : null;
+}
+
 export async function prepareTodayMovesForTenant(
   tenantId: string,
-  opts: { maxN?: number; now?: () => Date; complete?: CompleteFn } = {},
+  opts: {
+    maxN?: number;
+    now?: () => Date;
+    complete?: CompleteFn;
+    /** Hard per-run spend ceiling — stop before a draft that would exceed it. */
+    maxUsd?: number;
+    /** Always re-draft (skip the cache-first serve) — used by teardown regeneration. */
+    forceRegenerate?: boolean;
+    /** Only prepare Moves that carry an on-topic competitor teardown. */
+    requireTeardown?: boolean;
+  } = {},
 ): Promise<PrepareMovesSummary> {
   const max = opts.maxN ?? 10;
+  const maxUsd = opts.maxUsd ?? Infinity;
   const nowIso = (opts.now ?? (() => new Date()))().toISOString();
   const summary: PrepareMovesSummary = {
     considered: 0,
@@ -179,6 +255,8 @@ export async function prepareTodayMovesForTenant(
     draftReady: 0,
     cached: 0,
     failed: 0,
+    regenerated: 0,
+    stoppedForBudget: false,
     llmCostUsd: 0,
     outcomes: [],
   };
@@ -192,6 +270,7 @@ export async function prepareTodayMovesForTenant(
         p.move.gapType === "fix_experience" ||
         p.move.gapType === "create_page",
     )
+    .filter((p) => !opts.requireTeardown || hasUsableTeardown(p))
     .sort((a, b) => b.move.score - a.move.score)
     .slice(0, max);
   summary.considered = targets.length;
@@ -208,8 +287,9 @@ export async function prepareTodayMovesForTenant(
       // UNLESS that cached draft fails the quality gate (generic / too-thin / off-topic
       // / meta non-answer). A quality-rejected draft is treated like a stale one and
       // re-drafted with the hardened prompt, so "Prepare" upgrades bad output in place.
+      // forceRegenerate (teardown regeneration) ALWAYS re-drafts.
       const existing = parsePreparedPack(saved.get(`${moveId}::prepared_pack`)?.content);
-      if (existing && existing.structuredDraft && !isPackStale(existing, packet.evidenceHash, nowIso)) {
+      if (!opts.forceRegenerate && existing && existing.structuredDraft && !isPackStale(existing, packet.evidenceHash, nowIso)) {
         const q = evaluatePreparedPackQuality({
           structuredDraft: existing.structuredDraft as { kind?: string; value?: unknown },
           preparedStatus: existing.preparedStatus,
@@ -224,6 +304,19 @@ export async function prepareTodayMovesForTenant(
         }
         // else fall through → regenerate this low-quality cached draft.
       }
+
+      // Per-run spend ceiling (pre-check): only START a draft when its conservative
+      // projection still fits under the cap. Paired with the post-check below (on ACTUAL
+      // spent), this bounds overspend to a single in-flight draft.
+      const projectedNext = packet.move.gapType === "create_page" ? 0.03 : 0.02;
+      if (!canAffordDraft(summary.llmCostUsd, projectedNext, maxUsd)) {
+        summary.stoppedForBudget = true;
+        break;
+      }
+
+      // Capture the prior draft's quality + excerpt for regeneration provenance.
+      const previousQuality = packQualityStatus(existing);
+      const previousExcerpt = draftExcerpt(existing);
 
       const draftRes = await draftForPacket(packet, { complete: opts.complete });
       let structuredDraft: StructuredDraft = null;
@@ -243,6 +336,24 @@ export async function prepareTodayMovesForTenant(
       }
       summary.llmCostUsd += llmCost;
 
+      // Teardown-regeneration provenance: only when we actually re-drafted (forceRegenerate)
+      // AND the Move carries an on-topic teardown the draft was grounded in.
+      const regenMeta: RegenMeta | undefined =
+        opts.forceRegenerate && hasUsableTeardown(packet) && draftRes.status === "drafted"
+          ? {
+              regeneratedFromTeardown: true,
+              competitorUrl: packet.competitor.topUrl,
+              competitorDomain: packet.competitor.domain,
+              previousQuality,
+              newQuality: null, // filled below once the new pack's quality is evaluated
+              costUsd: llmCost,
+              source: "gpt-5-mini",
+              previousExcerpt,
+              regeneratedAt: nowIso,
+            }
+          : undefined;
+      if (regenMeta) summary.regenerated += 1;
+
       const pack = buildPreparedMovePack({
         tenantId,
         packet,
@@ -253,10 +364,19 @@ export async function prepareTodayMovesForTenant(
         experiment,
         implementationChecklist: checklist,
         costSpent: { llmUsd: llmCost, serpUsd: 0 },
+        regenMeta,
       });
+      if (regenMeta) regenMeta.newQuality = packQualityStatus(pack);
 
+      // NEVER clobber a good draft: if this (re)draft failed but a prior pack already
+      // carries a structured draft, keep the prior one (move_drafts is latest-wins, so
+      // persisting a draft-less pack here would destroy a working draft). Operator rule:
+      // "do not overwrite good drafts blindly."
+      const wouldClobberGoodDraft = draftRes.status !== "drafted" && !!existing?.structuredDraft;
       const serialized = toPersistedPack(pack);
-      if (serialized.length <= MAX_PERSIST_CHARS) {
+      if (wouldClobberGoodDraft) {
+        note += " (kept prior draft — regeneration didn't beat it)";
+      } else if (serialized.length <= MAX_PERSIST_CHARS) {
         await saveMoveDraft(tenantId, moveId, "prepared_pack", serialized).catch(() => false);
       } else {
         log.warn("[prepare-today-moves] pack too large to persist", { tenantId, moveId, size: serialized.length });
@@ -268,6 +388,15 @@ export async function prepareTodayMovesForTenant(
       else if (pack.preparedStatus === "draft_ready") summary.draftReady += 1;
       if (draftRes.status !== "drafted") summary.failed += 1;
       summary.outcomes.push(outcomeOf(pack, packet, opinions, note));
+
+      // Hard ceiling on ACTUAL spend (not just the pre-draft projection): once real
+      // cost — including a validation_failed/retry that ran hotter than projected —
+      // reaches the cap, stop before starting another draft. Bounds overspend to the
+      // one in-flight draft; the monthly adjudicator cap is the backstop beneath this.
+      if (summary.llmCostUsd >= maxUsd) {
+        summary.stoppedForBudget = true;
+        break;
+      }
     } catch (e) {
       summary.failed += 1;
       summary.outcomes.push({
