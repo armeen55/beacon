@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-29 — ✅ PROOF MIGRATION APPLIED → settlement persists → learning ACTIVE (loop closed) · main `PENDING`
+
+Resolved the critical persistence bug from `6cf9061a`. The proof→ranking loop now works end-to-end on beacon-main.
+
+**Migration applied (verified, operator-authorized by the slice rule):** confirmed I had a verified management path to the verified project — the Supabase MCP `list_projects` returned exactly ONE project `vlxwevsdvwxvopkjsewo` / "beacon-main" / ACTIVE_HEALTHY, matching the `NEXT_PUBLIC_SUPABASE_URL` ref in `.env.local`. Applied `alter table public.shipped_change_proof add column if not exists operator_verdict_override text` via MCP `apply_migration` (additive, idempotent, reversible, non-destructive) → `{success:true}`. (The repo script path was unavailable — no `SUPABASE_ACCESS_TOKEN` in `.env.local`.)
+
+**Persistence verified:** column now present (no PGRST204); an unchanged-row re-upsert keeps its verdict (clean write path, no file fallback).
+
+**Settlement (real engine, no fabricated data):** before = 9 `measuring`; `readLastFinalizedDate` = 2026-06-26; 2 rows DUE (`/cities`, `/funny-farsi-phrases`). Ran `autoMeasureDuePass` ONCE → due 2, measured 2, settled 2, failed 0 (`measuring→lost` both). **Fresh-process Supabase read AFTER = `{measuring:7, lost:2}`, total 9** — durably persisted (the exact check that failed pre-migration), 0 collateral changes, no dupes.
+
+**Learning activation (honest):** `loadProofOutcomeRows` now returns the 2 `lost` rows. `computeDimPriors` = **0 broad priors** (2 decided < MIN_DECIDED=3 → no pattern-level prior yet; won't overfit). Page-specific `cautionForMove` IS live: `/funny-farsi-phrases` move → `no_lift ×0.9` ("similar edit showed no lift"); still-measuring pages → `held_measuring ×0.92`; **0 measuring rows boost** anything.
+
+**Verified:** tsc 0 · 79 proof+learning+caution tests green · build PASS (unchanged — no app code this slice) · `/proof /worklist /recommendations /experiments` 200; passive "Measuring N due" banner correctly absent (0 due now) + operator-gated. **$0 spend, no fabricated verdicts, no Wix/SEMrush/flags.** The proof→ranking learning loop is now CLOSED + active on beacon-main.
+
+---
+
 ## 2026-06-29 — PASSIVE AUTO-MEASURE on /proof + 🔴 CRITICAL persistence bug found · main `6cf9061a`
 
 Operator: passively settle due proof rows when Results opens (fire-and-forget, /proof-only, idempotent). While verifying it END-TO-END, found a critical pre-existing bug that BLOCKS the whole proof→learning loop.
