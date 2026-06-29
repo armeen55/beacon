@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — NEW PAGES CANONICALIZATION + brief inheritance + broad-topic prompt tuning · main `022129f7`
+## 2026-06-29 — NEW PAGES CANONICALIZATION + brief inheritance + broad-topic prompt tuning · main `5f5de85c`
 
 Operator: the New Pages chain is real (volume → SERP → brief); the remaining issue is canonicalization + broad-topic brief pass-rate, NOT more API. No live spend this slice — pure grouping + prompt tuning.
 
