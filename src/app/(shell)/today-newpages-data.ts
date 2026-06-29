@@ -10,7 +10,8 @@ import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
 import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
-import { matchKeywordDemand } from "@/domains/demand/keyword-match";
+import { matchKeywordDemand, topicDistinguishingTokens } from "@/domains/demand/keyword-match";
+import { groupCreatePageCandidates } from "@/domains/demand/canonical-create-page";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
 /**
@@ -38,6 +39,12 @@ export type NewPageOpportunity = {
    *  deterministic matcher: exact/strong shown plainly, weak shown cautiously). Null
    *  when no DataForSEO keyword matched this topic. */
   keywordMatch?: { keyword: string; volume: number | null; confidence: "exact" | "strong" | "weak" } | null;
+  /** Canonicalization (2026-06-29) — sibling topics this canonical card absorbed (the
+   *  "Also covers: …" line), so the board shows ONE card per real opportunity. */
+  alsoCovers?: string[];
+  /** True when the displayed brief was inherited from a high-confidence sibling topic
+   *  (the canonical had no passing brief of its own). */
+  briefFromRelated?: boolean;
   tier: "hot" | "warm" | "emerging";
   score: number;
   /** Previously-generated + persisted AI opening (move_drafts), so it survives reload. */
@@ -192,9 +199,57 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     })
     .sort((a, b) => b.sortKey - a.sortKey);
 
+  // Canonicalize (2026-06-29): collapse near-duplicate create-page candidates (the 3
+  // nowruz labels, persian/iranian wedding) into ONE card per real opportunity so the
+  // board stops splitting demand — and a high-volume canonical inherits a sibling's
+  // passing brief. Pure + conservative (same matched keyword OR identical core tokens).
+  const briefPasses = (dk: string): boolean => {
+    const raw = savedDrafts.get(`${dk}::create_page_brief`)?.content;
+    if (!raw) return false;
+    try {
+      const b = JSON.parse(raw);
+      return evaluateCreatePageBriefQuality({
+        title: b.proposedTitle, meta: b.metaDescription, opening: b.openingAnswer,
+        outline: b.outline, faqQuestions: b.faqQuestions, schemaTypes: b.schemaTypes,
+        hasSerpVerdict: !!savedDrafts.get(`${dk}::serp_verdict`),
+      }).copyAllowed;
+    } catch {
+      return false;
+    }
+  };
+  const canonGroups = groupCreatePageCandidates(
+    enriched.map(({ m, kwMatch, verdict }) => ({
+      demandKey: m.demandKey,
+      label: cleanTopicLabel(m.label),
+      distinctTokens: topicDistinguishingTokens(m.label),
+      // Any matched keyword anchors grouping (the matcher already required a shared
+      // distinguishing token); strong/exact gates HIGH-confidence brief inheritance.
+      keyword: kwMatch.confidence !== "none" ? kwMatch.keyword : null,
+      strongKeyword: kwMatch.confidence === "exact" || kwMatch.confidence === "strong",
+      volume: kwMatch.searchVolume ?? 0,
+      verdict: verdict?.verdict ?? null,
+      hasPassingBrief: briefPasses(m.demandKey),
+    })),
+  );
+  const absorbed = new Set<string>();
+  const canonMeta = new Map<string, { alsoCovers: string[]; inheritBriefFrom: string | null }>();
+  for (const g of canonGroups) {
+    for (const s of g.siblings) absorbed.add(s.demandKey);
+    // Only inherit a brief from a HIGH-confidence (same-keyword) sibling group.
+    canonMeta.set(g.canonical.demandKey, {
+      alsoCovers: g.siblings.map((s) => s.label),
+      inheritBriefFrom: g.confidence === "high" ? g.inheritBriefFrom : null,
+    });
+  }
+
   // Tier by rank within this tenant's own create-page set (relative, honest —
   // the underlying number is a proxy, so we bucket rather than print it).
-  const opportunities: NewPageOpportunity[] = enriched.slice(0, 9).map(({ m, kwMatch, verdict }, i) => {
+  const opportunities: NewPageOpportunity[] = enriched
+    .filter(({ m }) => !absorbed.has(m.demandKey))
+    .slice(0, 9)
+    .map(({ m, kwMatch, verdict }, i) => {
+      const meta = canonMeta.get(m.demandKey);
+      const briefSourceKey = meta?.inheritBriefFrom ?? m.demandKey;
     const topUrl = m.competitorUrls[0] ?? null;
     const audit = topUrl ? findAudit(topUrl) : undefined;
     const ww = audit && audit.fetchStatus === "ok" && audit.facts ? whatWins(audit.facts) : null;
@@ -216,8 +271,10 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     // Full structured page brief from "Prepare" (create_page_brief), if prepared.
     // Primary: the standalone brief the New Pages prepare persists; fallback: the
     // worklist prepare's prepared_pack (if a create_page move ever ranks top-N there).
+    // Read the brief from the canonical's OWN key, or — when it has none — inherit a
+    // high-confidence sibling's passing brief (briefSourceKey).
     let briefVal: CreatePageBrief | undefined;
-    const briefRaw = savedDrafts.get(`${m.demandKey}::create_page_brief`)?.content;
+    const briefRaw = savedDrafts.get(`${briefSourceKey}::create_page_brief`)?.content;
     if (briefRaw) {
       try {
         briefVal = JSON.parse(briefRaw) as CreatePageBrief;
@@ -226,9 +283,10 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       }
     }
     if (!briefVal) {
-      const sd = parsePreparedPack(savedDrafts.get(`${m.demandKey}::prepared_pack`)?.content)?.structuredDraft;
+      const sd = parsePreparedPack(savedDrafts.get(`${briefSourceKey}::prepared_pack`)?.content)?.structuredDraft;
       if (sd && sd.kind === "create_page_brief") briefVal = sd.value as CreatePageBrief | undefined;
     }
+    const briefFromRelated = briefSourceKey !== m.demandKey && !!briefVal;
     const preparedBrief =
       briefVal && briefVal.proposedTitle
         ? {
@@ -250,7 +308,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
           outline: briefVal.outline,
           faqQuestions: briefVal.faqQuestions,
           schemaTypes: briefVal.schemaTypes,
-          hasSerpVerdict: !!savedDrafts.get(`${m.demandKey}::serp_verdict`),
+          hasSerpVerdict: !!savedDrafts.get(`${briefSourceKey}::serp_verdict`),
         })
       : null;
     // Quality of the saved "Draft the opening" answer block (raw text or {answer}).
@@ -287,6 +345,8 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       briefQuality,
       openingQuality,
       aeoReceipt,
+      alsoCovers: meta?.alsoCovers ?? [],
+      briefFromRelated,
     };
   });
 

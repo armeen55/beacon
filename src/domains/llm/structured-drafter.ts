@@ -370,7 +370,10 @@ const CREATE_PAGE_SYSTEM =
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete build steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
-  "The openingAnswer's first sentence must name THIS specific topic (not a generic category) — no context-free dictionary definitions. Title must avoid boilerplate like \"(YYYY Guide)\" or \"Complete/Ultimate Guide\". Use the provided sub-questions to shape the outline and FAQ.";
+  "The openingAnswer's first sentence must name THIS specific topic (not a generic category) — no context-free dictionary definitions. Title must avoid boilerplate like \"(YYYY Guide)\" or \"Complete/Ultimate Guide\". Use the provided sub-questions to shape the outline and FAQ. " +
+  // Broad culture/history/topic tuning (2026-06-29): the #1 reason these briefs were
+  // rejected is an INVENTED count the firewall can't verify. State scope qualitatively.
+  "CRITICAL for broad culture/history topics: do NOT state any numeric count or quantity — no \"N provinces / ethnic groups / dynasties\", no \"over X years\", no \"thousands of\" — unless that exact figure is in the grounding; instead describe the SCOPE and name the concrete sub-topics qualitatively (e.g. \"spans cuisine, music, poetry, and festivals\"). Open by naming the subject and what the page covers, never \"<X> is a …\" dictionary phrasing.";
 
 /** Draft a schema-valid CreatePageBrief for one create_page / hub Move. */
 export async function draftCreatePageStructured(

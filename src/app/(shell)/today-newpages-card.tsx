@@ -133,6 +133,12 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${tier.cls}`}>{tier.label}</span>
         </div>
         <h3 className="mt-2.5 text-[15px] font-semibold leading-snug tracking-tight text-gray-900">{o.topic}</h3>
+        {o.alsoCovers && o.alsoCovers.length > 0 ? (
+          <p className="mt-1 text-[11px] text-gray-400">
+            Also covers: {o.alsoCovers.slice(0, 3).join(", ")}
+            {o.alsoCovers.length > 3 ? ` +${o.alsoCovers.length - 3}` : ""}
+          </p>
+        ) : null}
         <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
           {o.competitorCount > 0 ? (
             <>
@@ -212,6 +218,9 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             </div>
             {q && q.status !== "ready" && q.reasons[0] ? (
               <p className={`mt-0.5 text-[10px] ${tone === "amber" ? "text-amber-700" : "text-gray-500"}`}>{q.reasons[0]}</p>
+            ) : null}
+            {o.briefFromRelated ? (
+              <p className="mt-0.5 text-[10px] text-gray-400">Brief from a related topic in this group — adapt the title/slug.</p>
             ) : null}
             <p className="mt-1 text-[11px] font-semibold leading-snug text-gray-900">{o.preparedBrief.title}</p>
             <p className="mt-0.5 text-[10px] leading-snug text-gray-500">{o.preparedBrief.meta}</p>

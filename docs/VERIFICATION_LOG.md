@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-06-29 — NEW PAGES CANONICALIZATION + brief inheritance + broad-topic prompt tuning · main `022129f7`
+
+Operator: the New Pages chain is real (volume → SERP → brief); the remaining issue is canonicalization + broad-topic brief pass-rate, NOT more API. No live spend this slice — pure grouping + prompt tuning.
+
+**Phase 0 (ground truth, $0):** 33 non-junk create-page candidates → clusters by shared keyword / token-set: nowruz trio (all anchor "nowruz persian new year", USA/Kids matched WEAK), persian/iranian wedding ({wedding}), culture-iran + etiquette + lifestyle, persian art + culture-art-gifts, holidays-iran, iran-travel variants.
+
+**Phase 1 — pure grouper** `src/domains/demand/canonical-create-page.ts` (+8 tests). CONSERVATIVE union-find: merge only on (a) same matched keyword — any confidence, since the matcher already requires a shared distinguishing token — or (b) identical distinguishing-token set. A keyword merge is HIGH-confidence only when BOTH sides matched strongly; a weak-keyword merge still collapses the card but is medium and WON'T inherit a brief. Never merges on a single shared token / subset, so etiquette ≠ culture and literature ≠ art stay separate. Canonical pick: build > has-keyword > volume > has-passing-brief > shorter label (so the brief-bearing sibling becomes the visible card).
+
+**Phase 2 — wired into `today-newpages-data.ts`:** group all enriched create candidates → drop absorbed siblings (one card per opportunity) → "Also covers: …" line + inherited brief (high-confidence groups only) on the canonical. Card shows "Also covers" + a "Brief from a related topic — adapt the title/slug" note.
+
+**Phase 3 — prompt tuning (no gate loosening):** `CREATE_PAGE_SYSTEM` now forbids any numeric count/quantity on broad culture/history topics unless the figure is in the grounding (describe scope qualitatively) — the #1 cause of the firewall rejecting broad-topic briefs.
+
+**Collapse truth-dump:** 33 candidates → **24 canonical groups (9 siblings collapsed)**, 6 multi-member clusters: nowruz [medium] +2, persian-art [high] +1 (inherits brief), culture-iran [high] +2, persian-wedding [medium] +1, holidays-iran [high] +1, iran-natural-attractions [medium] +2. The 14.8k nowruz card stays brief-ready because its brief-bearing sibling becomes the canonical. **Phase 4 (live regen) NOT needed** — canonical selection + inheritance make the headline topics brief-ready at $0.
+
+tsc 0 · 122 demand+serp+drafts tests green (8 new) · build PASS · `/ /worklist /recommendations /connections` 200; /worklist New Pages shows 5 "Also covers" + 4 brief-ready chips, volume chips intact. **$0 LLM, $0 DataForSEO.** No migration/Wix/SEMrush/flags.
+
+---
+
 ## 2026-06-29 — TOP-3 BUILD+VOLUME NEW PAGE BRIEFS (LLM-capped, quality-gated) · main `f66a3d2d`
 
 Operator Phase 4: generate structured page briefs for the top BUILD + strong/exact volume-backed New Pages, hard LLM cap, quality-gated, cache-first.
