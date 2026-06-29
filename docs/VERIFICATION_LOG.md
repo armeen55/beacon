@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — PASSIVE AUTO-MEASURE on /proof + 🔴 CRITICAL persistence bug found (proof settlement never durably persisted) · main `PENDING`
+## 2026-06-29 — PASSIVE AUTO-MEASURE on /proof + 🔴 CRITICAL persistence bug found · main `6cf9061a`
 
 Operator: passively settle due proof rows when Results opens (fire-and-forget, /proof-only, idempotent). While verifying it END-TO-END, found a critical pre-existing bug that BLOCKS the whole proof→learning loop.
 
