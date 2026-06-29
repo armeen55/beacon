@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-29 — DATAFORSEO SERP VERDICTS for volume-backed New Pages (+15% lift fires) · main `59cecfb0`
+
+Operator: keyword volume alone didn't lift the visible top-9 — the +15% sort lift needs a BUILD verdict. Run SERP verdicts for the strong/exact volume-backed create-page candidates.
+
+**Built:** `prepareCreatePageVerdicts` gained opt-in options (defaults unchanged, so the existing "Prepare all" button is unaffected): `onlyKeywordMatched` (restrict to strong/exact cached-keyword matches, volume-ranked), `skipBriefs` (SERP verdict only — defer the separately-budgeted LLM briefs), `skipFreshVerdict` (re-validate only missing/stale). Reuses the matcher + SERP cost gauntlet (cache→dry-run→cap→ledger).
+
+**Dry-run ($0):** 33 create-page candidates → 19 strong/exact matched → 10 lacked a fresh verdict → est **10 × $0.003 = $0.030** (under the $0.05 small bound + pre-authorized "SERP after dry-run"). **Live SERP-only run:** validated 10, cached 0, skipped 0, **$0.030 spent** (durable `llm_budget_ledger` platform=dataforseo-serp), 0 briefs (skipBriefs). **After:** serp_verdicts **16 → 26 (22 BUILD, 4 WAIT, 0 reject)**; BUILD+strong/exact candidates getting the +15% lift = **16**; **visible top-9 = 8/9 grounded-volume BUILD topics** (persian wedding 1.9k, culture iran 2.9k, nowruz 14.8k, persian art 3.6k, ethnicities iran 4.4k, persian literature, iran natural attractions, persian gardens 1.6k) — up from ~2 before. **Briefs deferred** (Phase 4) to keep spend SERP-only. tsc 0 · 85 serp+demand tests green · build PASS · `/ /worklist /recommendations /connections` 200. Total DataForSEO spend this+prior slice: $0.075 (kw) + $0.030 (serp) = $0.105. No migration/Wix/SEMrush/flags.
+
+---
+
 ## 2026-06-28 — DATAFORSEO KEYWORD REFRESH: candidate generator + dry-run (STOP: $0.075 > $0.05 cap) · main `0b162d16`
 
 Operator: grow the 8-keyword cache via a bounded live refresh (≤ $0.05). DataForSEO IS credentialed (LOGIN/PASSWORD/AUTH_B). **Cost conflict found:** the keyword-volume endpoint is **$0.075 FLAT per call** (one call prices up to 200 keywords); shrinking the batch can't lower it (it's per-call, not per-keyword). So the minimum spend ($0.075) **exceeds the $0.05 cap** → per the hard-cap rule, **stopped before the live call** (no spend).

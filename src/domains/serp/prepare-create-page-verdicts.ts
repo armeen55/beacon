@@ -7,6 +7,9 @@ import { runSerpQuery } from "./dataforseo-serp";
 import { validateCreatePage } from "./serp-validation";
 import { rootDomain } from "./serp-provider";
 import { draftCreatePageStructured } from "@/domains/llm/structured-drafter";
+import { getLatestMoveDrafts } from "@/domains/demand-graph/move-draft-store";
+import { readAllCachedKeywordDemand } from "./dataforseo-keywords";
+import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 
 /**
  * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) — the "prepared, not a
@@ -57,7 +60,17 @@ function deriveOwnDomain(pageNodes: ReadonlyArray<{ url: string }>): string {
 
 export async function prepareCreatePageVerdicts(
   tenantId: string,
-  opts: { maxValidations?: number; now?: () => Date } = {},
+  opts: {
+    maxValidations?: number;
+    now?: () => Date;
+    /** Only validate create-page candidates with a strong/exact cached keyword-volume
+     *  match, ranked by volume (the "spend SERP on volume-backed topics" path). */
+    onlyKeywordMatched?: boolean;
+    /** SERP verdict only — skip the (separately-budgeted) LLM brief generation. */
+    skipBriefs?: boolean;
+    /** Skip candidates that already carry a fresh (<14d) serp_verdict. */
+    skipFreshVerdict?: boolean;
+  } = {},
 ): Promise<PrepareSummary> {
   const max = opts.maxValidations ?? 25;
   const now = opts.now ?? (() => new Date());
@@ -72,10 +85,40 @@ export async function prepareCreatePageVerdicts(
   }
 
   const ownDomain = deriveOwnDomain(graph.pageNodes);
-  const creates = graph.moves
-    .filter((m) => m.gap === "create_page")
-    .sort((a, b) => b.components.demand - a.components.demand)
-    .slice(0, max);
+  let createMoves = graph.moves.filter((m) => m.gap === "create_page");
+
+  // Optional: skip candidates that already have a fresh serp_verdict (re-validate only
+  // missing/stale) and/or restrict to strong/exact keyword-volume matches, volume-first.
+  if (opts.onlyKeywordMatched || opts.skipFreshVerdict) {
+    const FRESH_MS = 14 * 24 * 60 * 60 * 1000;
+    const nowMs = now().getTime();
+    const drafts = await getLatestMoveDrafts(tenantId).catch(() => new Map());
+    const keywords = opts.onlyKeywordMatched ? await readAllCachedKeywordDemand().catch(() => []) : [];
+    const isFresh = (demandKey: string): boolean => {
+      const raw = drafts.get(`${demandKey}::serp_verdict`)?.content;
+      if (!raw) return false;
+      try {
+        const v = JSON.parse(raw) as PreparedSerpVerdict;
+        return !!v.generatedAt && nowMs - Date.parse(v.generatedAt) < FRESH_MS;
+      } catch {
+        return false;
+      }
+    };
+    const scored = createMoves
+      .map((m) => ({
+        m,
+        match: opts.onlyKeywordMatched
+          ? matchKeywordDemand(m.label, m.aeoEvidence?.prompts?.[0] ?? null, keywords)
+          : null,
+      }))
+      .filter(({ m }) => !(opts.skipFreshVerdict && isFresh(m.demandKey)))
+      .filter(({ match }) => !opts.onlyKeywordMatched || match!.confidence === "strong" || match!.confidence === "exact")
+      .sort((a, b) => (b.match?.searchVolume ?? 0) - (a.match?.searchVolume ?? 0) || b.m.components.demand - a.m.components.demand);
+    createMoves = scored.map((s) => s.m);
+  } else {
+    createMoves = createMoves.sort((a, b) => b.components.demand - a.components.demand);
+  }
+  const creates = createMoves.slice(0, max);
 
   for (const m of creates) {
     const profoundDomains = [...new Set(m.competitorUrls.map((u) => rootDomain(u)).filter(Boolean))];
@@ -117,7 +160,7 @@ export async function prepareCreatePageVerdicts(
     // schema) for BUILD/WAIT pages, so the New Pages card arrives WRITTEN, not just
     // verdicted. SKIP pages get no brief (don't spend LLM on a page we advise
     // against). Best-effort + budget-gated inside the drafter; fail-soft.
-    if (v.verdict !== "reject") {
+    if (v.verdict !== "reject" && !opts.skipBriefs) {
       try {
         const brief = await draftCreatePageStructured({
           query: m.label,
