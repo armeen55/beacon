@@ -33,6 +33,10 @@ export type CanonCandidate = {
   volume: number;
   verdict: "build" | "wait" | "reject" | null;
   hasPassingBrief: boolean;
+  /** Opportunity score (R&R move score / ActionPack priorityScore) — the canonical
+   *  tiebreaker so a much higher-opportunity sibling isn't dropped for one with a
+   *  marginally better verdict. Defaults to 0 when unknown. */
+  priority?: number;
 };
 
 export type CanonGroup = {
@@ -64,15 +68,17 @@ function mergeSignal(a: CanonCandidate, b: CanonCandidate): "keyword" | "keyword
   return null;
 }
 
-/** Rank a group's members to pick the canonical representative:
+/** Rank a group's members to pick the canonical representative (operator's order):
  *  BUILD verdict → has a strong/exact keyword (real volume) → higher volume →
- *  already-passing brief → shorter (cleaner) label. */
-function canonicalRank(c: CanonCandidate): [number, number, number, number, number] {
+ *  already-passing brief → higher OPPORTUNITY score (don't drop a high-value sibling
+ *  for a marginally-better verdict) → shorter (cleaner) label. */
+function canonicalRank(c: CanonCandidate): [number, number, number, number, number, number] {
   return [
     c.verdict === "build" ? 1 : 0,
     c.keyword ? 1 : 0,
     c.volume,
     c.hasPassingBrief ? 1 : 0,
+    c.priority ?? 0,
     -c.label.length,
   ];
 }

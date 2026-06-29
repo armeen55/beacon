@@ -10,8 +10,7 @@ import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
 import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
-import { matchKeywordDemand, topicDistinguishingTokens } from "@/domains/demand/keyword-match";
-import { groupCreatePageCandidates } from "@/domains/demand/canonical-create-page";
+import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
 /**
@@ -199,56 +198,19 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     })
     .sort((a, b) => b.sortKey - a.sortKey);
 
-  // Canonicalize (2026-06-29): collapse near-duplicate create-page candidates (the 3
-  // nowruz labels, persian/iranian wedding) into ONE card per real opportunity so the
-  // board stops splitting demand — and a high-volume canonical inherits a sibling's
-  // passing brief. Pure + conservative (same matched keyword OR identical core tokens).
-  const briefPasses = (dk: string): boolean => {
-    const raw = savedDrafts.get(`${dk}::create_page_brief`)?.content;
-    if (!raw) return false;
-    try {
-      const b = JSON.parse(raw);
-      return evaluateCreatePageBriefQuality({
-        title: b.proposedTitle, meta: b.metaDescription, opening: b.openingAnswer,
-        outline: b.outline, faqQuestions: b.faqQuestions, schemaTypes: b.schemaTypes,
-        hasSerpVerdict: !!savedDrafts.get(`${dk}::serp_verdict`),
-      }).copyAllowed;
-    } catch {
-      return false;
-    }
-  };
-  const canonGroups = groupCreatePageCandidates(
-    enriched.map(({ m, kwMatch, verdict }) => ({
-      demandKey: m.demandKey,
-      label: cleanTopicLabel(m.label),
-      distinctTokens: topicDistinguishingTokens(m.label),
-      // Any matched keyword anchors grouping (the matcher already required a shared
-      // distinguishing token); strong/exact gates HIGH-confidence brief inheritance.
-      keyword: kwMatch.confidence !== "none" ? kwMatch.keyword : null,
-      strongKeyword: kwMatch.confidence === "exact" || kwMatch.confidence === "strong",
-      volume: kwMatch.searchVolume ?? 0,
-      verdict: verdict?.verdict ?? null,
-      hasPassingBrief: briefPasses(m.demandKey),
-    })),
-  );
-  const absorbed = new Set<string>();
-  const canonMeta = new Map<string, { alsoCovers: string[]; inheritBriefFrom: string | null }>();
-  for (const g of canonGroups) {
-    for (const s of g.siblings) absorbed.add(s.demandKey);
-    // Only inherit a brief from a HIGH-confidence (same-keyword) sibling group.
-    canonMeta.set(g.canonical.demandKey, {
-      alsoCovers: g.siblings.map((s) => s.label),
-      inheritBriefFrom: g.confidence === "high" ? g.inheritBriefFrom : null,
-    });
-  }
+  // Canonicalization now happens UPSTREAM (2026-06-29): collapseCreatePageSiblings runs
+  // as a load-graph post-pass, so `createMoves` already arrive de-duplicated — ONE
+  // canonical move per opportunity, each carrying `canonicalGroup` (absorbed sibling
+  // labels + an inheritable sibling brief). The board just reads that metadata; no
+  // board-side grouping. (If the upstream pass fails-soft, siblings reappear as separate
+  // cards with empty alsoCovers — graceful degradation, never a crash.)
 
   // Tier by rank within this tenant's own create-page set (relative, honest —
   // the underlying number is a proxy, so we bucket rather than print it).
   const opportunities: NewPageOpportunity[] = enriched
-    .filter(({ m }) => !absorbed.has(m.demandKey))
     .slice(0, 9)
     .map(({ m, kwMatch, verdict }, i) => {
-      const meta = canonMeta.get(m.demandKey);
+      const meta = m.canonicalGroup;
       const briefSourceKey = meta?.inheritBriefFrom ?? m.demandKey;
     const topUrl = m.competitorUrls[0] ?? null;
     const audit = topUrl ? findAudit(topUrl) : undefined;

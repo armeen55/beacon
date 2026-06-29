@@ -48,6 +48,9 @@ import {
   type DemandGraphConfig,
 } from "./build-graph";
 import { attachProfoundEvidenceToMoves } from "./profound-evidence-fusion";
+import { collapseCreatePageSiblings } from "./collapse-create-page-siblings";
+import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { getLatestMoveDrafts } from "./move-draft-store";
 import { loadCachedPromptOpportunities } from "@/domains/profound-coverage/load-cached";
 
 export type DemandGraphCoverage = {
@@ -180,6 +183,12 @@ export async function loadDemandGraphForTenant(
   // adds ~0 wall-clock instead of a serial +2.4s that would trip downstream
   // timeouts (e.g. the New Pages board's 8s guard). Cached store only, no live API.
   const aeoEvidencePromise = loadCachedPromptOpportunities(tenantId).catch(() => null);
+  // Same trick for create_page canonicalization inputs (keyword-volume cache + move
+  // drafts) — kicked off NOW so collapseCreatePageSiblings adds ~0 wall-clock below.
+  const collapseInputsPromise = Promise.all([
+    readAllCachedKeywordDemand().catch((): KeywordDemand[] => []),
+    getLatestMoveDrafts(tenantId).catch(() => new Map<string, { content: string }>()),
+  ]).catch((): [KeywordDemand[], Map<string, { content: string }>] => [[], new Map()]);
 
   const [gsc, ga4, ga4Revenue, clarity, fanoutSeeds] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId, now).catch((e): Map<string, GscPageSignal> => {
@@ -428,6 +437,19 @@ export async function loadDemandGraphForTenant(
     }
   } catch {
     // evidence is additive — never let it affect the graph
+  }
+  // Canonicalize near-duplicate create_page moves (2026-06-29) — the 3 nowruz labels,
+  // persian/iranian wedding, etc. collapse to ONE canonical move per opportunity so
+  // EVERY consumer (New Pages board, ActionPack worklist, prepare-verdicts) sees one
+  // card. Reuses the cached keyword-volume + drafts read kicked off at the top, so it
+  // adds ~0 wall-clock. Conservative + fail-soft (any throw → siblings remain, no break).
+  try {
+    const [keywords, drafts] = await collapseInputsPromise;
+    moves = collapseCreatePageSiblings(moves, { keywords, drafts });
+  } catch (e) {
+    // additive dedup — never break the graph, but don't degrade SILENTLY (the New
+    // Pages board would then show un-collapsed siblings with no "Also covers" line).
+    log.warn("[load-graph] create_page canonicalization skipped", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
   const reweightedGraph: DemandGraph = moves === graph.moves ? graph : { ...graph, moves };
 

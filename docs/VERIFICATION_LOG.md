@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-29 — GRAPH + ACTIONPACK CREATE-PAGE DEDUP (upstream canonicalization) · main `PENDING`
+
+Operator: land the board-side canonicalization to main (done — clean FF `a9f2435d..ef2d3a67`), then move the dedup UPSTREAM so the product stops EMITTING sibling create-page opportunities.
+
+**Recon (5-agent workflow):** create_page candidates are seeded in `load-graph.ts` (unmatched competitors grouped by `gap:<token-slice>`) → one MoveCandidate each → siblings = distinct demandKeys. TWO consumers emit create-page surfaces: the demand graph (New Pages board) AND the Profound coverage compiler (ActionPack worklist `fromCoverage`). Both read `graph.moves`/merge into ActionPacks.
+
+**Built (both reuse the SAME conservative grouper `canonical-create-page.ts` — no new grouping logic):**
+- **Graph level** — `collapse-create-page-siblings.ts` (pure, +5 tests) as a `load-graph` post-pass (beside applyExperimentPrior/attachProfoundEvidence; never mutates `buildDemandGraph`). Groups create_page moves, keeps the canonical (merging sibling competitorUrls + fanoutSeeds — teardown coverage preserved), drops siblings, attaches `MoveCandidate.canonicalGroup` (alsoCovers + inheritBriefFrom). Keyword cache + drafts read concurrently (kicked off at top, ~0 added latency), fail-soft.
+- **Pack level** — `collapseCreatePagePacks` (adapters.ts, +4 tests) in `action-pack/load.ts` after `dedupeActionPacks`: collapses near-duplicate `create_new_page` packs ACROSS sources (graph + coverage) that exact-slug dedup misses. `ActionPack.canonicalGroup` added.
+- **Board simplified** — `today-newpages-data.ts` removed its board-side grouper (~50 lines); now reads `m.canonicalGroup` directly. Graceful degradation if the upstream pass fails-soft.
+
+**Ground truth (live Iranopedia):** demand graph create_page **40 → 31** (9 siblings absorbed, 6 clusters: nowruz/wedding/culture/holidays/persian-art/iran-travel). ActionPack worklist `create_new_page` **140 → 101** (39 cross-source near-dupes absorbed), total packs 354 → 315. The 14.8k nowruz card stays brief-ready (brief-bearing sibling chosen as canonical).
+
+**Adversarial review (12-agent workflow: 4 lenses → verify):** 8 findings confirmed, 7 fixed before landing — (1) `dedupeActionPacks` in-place mutation → object spread; (2) canonical selection ignored opportunity score → added `priority` tiebreaker (operator's criterion #4, after verdict) fed from move.score / pack.priorityScore; (3) pack `competitorPagesToBeat` cap 5→8 + sibling-unique top-up (parity with the graph collapse); (4) verdict-merge now prefers a real BUILD over wait/skip; (5) silent fail-soft → `log.warn`; (6) `profoundReceipt` merge now keeps the richest (max fanoutCount); (7/CRITICAL) pack keyword-match now passes the AEO `topPrompt` (parity with graph side) so two distinct topics sharing one generic token don't over-merge. Skipped 1 (fanoutSeeds cap 12 — bounded by the system-wide downstream cap). The fail-soft/perf/cross-tenant/circular-import lens found ZERO issues.
+
+tsc 0 · 161 demand+action-pack+demand-graph tests green (17 new) · build PASS · `/ /worklist /recommendations /competitors /connections` 200; /worklist shows 5 "Also covers" + 4 brief-ready. Post-fix ground-truth unchanged (40→31, 140→101 — the safeguards didn't drop legitimate merges). **$0 spend, no migration/Wix/SEMrush/flags.**
+
+---
+
 ## 2026-06-29 — NEW PAGES CANONICALIZATION + brief inheritance + broad-topic prompt tuning · main `5f5de85c`
 
 Operator: the New Pages chain is real (volume → SERP → brief); the remaining issue is canonicalization + broad-topic brief pass-rate, NOT more API. No live spend this slice — pure grouping + prompt tuning.

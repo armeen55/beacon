@@ -223,6 +223,13 @@ export type MoveCandidate = {
    *  applyProofOutcomeCautionToMoves(). Complements learnedPrior (pattern-level).
    *  Type-only import keeps build-graph dependency-free of the learning layer. */
   outcomeCaution?: import("./proof-outcome-caution").OutcomeCaution;
+  /** Canonicalization (2026-06-29) — when this create_page move is the canonical
+   *  representative of a near-duplicate cluster (e.g. the 3 nowruz labels), the
+   *  absorbed siblings' labels ("Also covers …"), the sibling whose passing brief it
+   *  may inherit, and the merge reason/confidence. Attached OUTSIDE the pure scorer
+   *  (in load-graph) by collapseCreatePageSiblings(); the siblings are removed from
+   *  graph.moves so every consumer sees ONE card per opportunity. */
+  canonicalGroup?: import("./collapse-create-page-siblings").CanonicalGroupMeta;
 };
 
 export type DemandGraph = {

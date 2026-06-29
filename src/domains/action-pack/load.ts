@@ -35,7 +35,8 @@ import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/m
 import { parsePreparedVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
-import { moveCandidateToActionPack, aeoActionPackToActionPack, dedupeActionPacks } from "./adapters";
+import { moveCandidateToActionPack, aeoActionPackToActionPack, dedupeActionPacks, collapseCreatePagePacks } from "./adapters";
+import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { actionFamily, type ActionPack, type EvidenceSource } from "./types";
 
 export type WorklistMode = "fast" | "full";
@@ -110,7 +111,7 @@ const EMPTY: ActionPackWorklist = { packs: [], summary: emptySummary("fast") };
 async function loadUncached(tenantId: string, mode: WorklistMode): Promise<ActionPackWorklist> {
   const warnings: string[] = [];
 
-  const [graphRes, packsRes, coverage, drafts] = await Promise.all([
+  const [graphRes, packsRes, coverage, drafts, keywords] = await Promise.all([
     // The demand graph is the ESSENTIAL read — never time-box it into an empty
     // (rank-revenue-0) worklist. A cold render is fine to wait on; a silently
     // degraded one is not. Only a genuine error degrades it (the .catch).
@@ -131,6 +132,9 @@ async function loadUncached(tenantId: string, mode: WorklistMode): Promise<Actio
     // Cached DataForSEO verdicts live in move_drafts (kind serp_verdict). No live
     // API — just the persisted "Prepare/validate" results from the New Pages work.
     getLatestMoveDrafts(tenantId).catch((): Map<string, MoveDraftRow> => new Map()),
+    // Cached keyword-volume rows — the topic anchor for canonicalizing near-duplicate
+    // create_new_page packs across sources (no live DataForSEO call).
+    readAllCachedKeywordDemand().catch((): KeywordDemand[] => []),
   ]);
 
   const packetByKey = new Map<string, EvidencePacket>((packsRes?.packets ?? []).map((p) => [p.move.key, p]));
@@ -145,7 +149,13 @@ async function loadUncached(tenantId: string, mode: WorklistMode): Promise<Actio
     .map((p) => aeoActionPackToActionPack(tenantId, p))
     .filter((p): p is ActionPack => p != null);
 
-  const { packs, removed } = dedupeActionPacks([...fromMoves, ...fromCoverage]);
+  const deduped = dedupeActionPacks([...fromMoves, ...fromCoverage]);
+  // Canonicalize near-duplicate create_new_page packs ACROSS sources (demand-graph +
+  // Profound coverage) — exact-slug dedup above misses "Nowruz Activities USA" vs
+  // "Nowruz Persian New Year" (same opportunity, different slug). Conservative grouper.
+  const collapsed = collapseCreatePagePacks(deduped.packs, keywords);
+  const packs = collapsed.packs;
+  const removed = deduped.removed + collapsed.removed;
 
   const byFamily = { existing_page: 0, new_page: 0, hub: 0, links: 0, cro: 0 };
   const sourceCoverage: Record<EvidenceSource, number> = { rank_revenue: 0, profound: 0, dataforseo: 0, gsc: 0, ga4: 0, clarity: 0, competitor_teardown: 0 };

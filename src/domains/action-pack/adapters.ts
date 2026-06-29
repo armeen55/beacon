@@ -15,6 +15,10 @@ import type { MoveCandidate, GapKind } from "@/domains/demand-graph/build-graph"
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import type { AeoActionPack } from "@/domains/profound-coverage/types";
 import type { PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
+import { groupCreatePageCandidates, type CanonCandidate } from "@/domains/demand/canonical-create-page";
+import { matchKeywordDemand, topicDistinguishingTokens } from "@/domains/demand/keyword-match";
+import { cleanTopicLabel } from "@/domains/demand-graph/clean-topic-label";
+import type { KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import type {
   ActionPack,
   ActionType,
@@ -226,14 +230,105 @@ export function dedupeActionPacks(packs: ActionPack[]): { packs: ActionPack[]; r
       continue;
     }
     removed++;
-    // Merge the weaker into the stronger (prev has higher/equal score).
-    prev.evidenceSources = [...new Set([...prev.evidenceSources, ...p.evidenceSources])];
-    prev.competitorPagesToBeat = [...new Set([...prev.competitorPagesToBeat, ...p.competitorPagesToBeat])].slice(0, 5);
-    prev.profoundReceipt = prev.profoundReceipt ?? p.profoundReceipt;
-    prev.gscDemand = prev.gscDemand ?? p.gscDemand;
-    prev.ga4Value = prev.ga4Value ?? p.ga4Value;
-    prev.clarityFriction = prev.clarityFriction ?? p.clarityFriction;
-    prev.dataforseoValidation = prev.dataforseoValidation ?? p.dataforseoValidation;
+    // Merge the weaker into the stronger (prev has higher/equal score). Write a NEW
+    // object (no in-place mutation of an input pack — keeps this pure for callers).
+    byKey.set(key, {
+      ...prev,
+      evidenceSources: [...new Set([...prev.evidenceSources, ...p.evidenceSources])],
+      competitorPagesToBeat: [...new Set([...prev.competitorPagesToBeat, ...p.competitorPagesToBeat])].slice(0, 5),
+      profoundReceipt: prev.profoundReceipt ?? p.profoundReceipt,
+      gscDemand: prev.gscDemand ?? p.gscDemand,
+      ga4Value: prev.ga4Value ?? p.ga4Value,
+      clarityFriction: prev.clarityFriction ?? p.clarityFriction,
+      dataforseoValidation: prev.dataforseoValidation ?? p.dataforseoValidation,
+    });
   }
   return { packs: [...byKey.values()].sort((a, b) => b.priorityScore - a.priorityScore), removed };
+}
+
+/**
+ * Canonicalize near-duplicate create_new_page packs ACROSS sources (2026-06-29).
+ * dedupeActionPacks above only collapses EXACT slug collisions; this collapses
+ * near-duplicates — the demand-graph "Nowruz Activities USA" pack and the Profound-
+ * coverage "Nowruz Persian New Year" pack are the same opportunity but have different
+ * slugs, so they survive exact dedup. Reuses the SAME conservative grouper as the
+ * demand graph (same matched keyword OR identical distinguishing-token set; nothing
+ * weaker). The canonical (best verdict → keyword volume → ready brief → cleaner label)
+ * absorbs its siblings' evidence + competitors and carries `canonicalGroup.alsoCovers`.
+ * Only create_new_page packs are grouped; everything else passes through. PURE.
+ */
+export function collapseCreatePagePacks(
+  packs: ActionPack[],
+  keywords: readonly KeywordDemand[],
+): { packs: ActionPack[]; removed: number } {
+  const creates = packs.filter((p) => p.actionType === "create_new_page");
+  if (creates.length < 2) return { packs, removed: 0 };
+
+  const cands: CanonCandidate[] = creates.map((p) => {
+    // Pass the AEO prompt context (parity with the graph-side collapse) so the matcher
+    // sees the real intent — without it, two distinct topics sharing one generic token
+    // can wrongly merge on the token-set signal.
+    const mt = matchKeywordDemand(p.label, p.profoundReceipt?.topPrompt ?? null, keywords);
+    return {
+      demandKey: p.id,
+      label: cleanTopicLabel(p.label),
+      distinctTokens: topicDistinguishingTokens(p.label),
+      keyword: mt.confidence !== "none" ? mt.keyword : null,
+      strongKeyword: mt.confidence === "exact" || mt.confidence === "strong",
+      volume: mt.searchVolume ?? 0,
+      verdict: p.dataforseoValidation?.verdict === "build" ? "build" : null,
+      hasPassingBrief: p.draftStatus === "ready",
+      priority: p.priorityScore,
+    };
+  });
+
+  const groups = groupCreatePageCandidates(cands);
+  const byId = new Map(creates.map((p) => [p.id, p]));
+  const absorbed = new Set<string>();
+  const metaById = new Map<string, { alsoCovers: string[]; reason: string; confidence: "high" | "medium"; siblingIds: string[] }>();
+  for (const g of groups) {
+    if (g.siblings.length === 0) continue;
+    for (const s of g.siblings) absorbed.add(s.demandKey);
+    metaById.set(g.canonical.demandKey, {
+      alsoCovers: g.siblings.map((s) => s.label),
+      reason: g.reason,
+      confidence: g.confidence,
+      siblingIds: g.siblings.map((s) => s.demandKey),
+    });
+  }
+  if (absorbed.size === 0) return { packs, removed: 0 };
+
+  const merged = packs
+    .filter((p) => !absorbed.has(p.id))
+    .map((p) => {
+      const meta = metaById.get(p.id);
+      if (!meta) return p;
+      const sibs = meta.siblingIds.map((id) => byId.get(id)).filter((x): x is ActionPack => !!x);
+      const all = [p, ...sibs];
+      // The surviving canonical is strictly richer — merge sibling evidence + targets.
+      // Keep ALL of the canonical's competitor pages, then top up with sibling-UNIQUE
+      // ones (cap 8, matching the graph collapse) so 3+ siblings don't silently drop
+      // teardown targets.
+      const competitorPagesToBeat = [...new Set([...p.competitorPagesToBeat, ...sibs.flatMap((s) => s.competitorPagesToBeat)])].slice(0, 8);
+      // The richest Profound receipt across the cluster (most fan-outs = strongest AI
+      // demand signal), not just the canonical's.
+      const profoundReceipt = all
+        .map((x) => x.profoundReceipt)
+        .filter((r): r is NonNullable<ActionPack["profoundReceipt"]> => !!r)
+        .sort((a, b) => (b.fanoutCount ?? 0) - (a.fanoutCount ?? 0))[0] ?? null;
+      // Prefer a real BUILD verdict over a wait/skip, over none — never let a sibling's
+      // "skip" mask another's "build" just because it sorted first.
+      const validations = all.map((x) => x.dataforseoValidation).filter((v): v is NonNullable<ActionPack["dataforseoValidation"]> => !!v);
+      const dataforseoValidation = validations.find((v) => v.verdict === "build") ?? p.dataforseoValidation ?? validations[0] ?? null;
+      return {
+        ...p,
+        evidenceSources: [...new Set([...p.evidenceSources, ...sibs.flatMap((s) => s.evidenceSources)])],
+        competitorPagesToBeat,
+        profoundReceipt,
+        gscDemand: p.gscDemand ?? sibs.find((s) => s.gscDemand)?.gscDemand ?? null,
+        dataforseoValidation,
+        canonicalGroup: { alsoCovers: meta.alsoCovers, reason: meta.reason, confidence: meta.confidence },
+      };
+    });
+  return { packs: merged.sort((a, b) => b.priorityScore - a.priorityScore), removed: absorbed.size };
 }

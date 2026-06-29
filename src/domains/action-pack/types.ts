@@ -113,6 +113,11 @@ export type ActionPack = {
   origin: ActionPackOrigin;
   /** Cache/staleness key carried from the source. */
   evidenceHash: string;
+  /** Canonicalization (2026-06-29) — when this create_new_page pack is the canonical
+   *  representative of a near-duplicate cluster (collapsed across the demand-graph AND
+   *  Profound-coverage sources), the absorbed sibling labels + merge reason/confidence.
+   *  Set by collapseCreatePagePacks(); absent for singletons. */
+  canonicalGroup?: { alsoCovers: string[]; reason: string; confidence: "high" | "medium" };
 };
 
 export const ACTION_LABEL: Record<ActionType, string> = {
