@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — COMPETITOR READ QUEUE → TEARDOWN → FACTS ON CARDS · main `7f445bac`
+
+Operator: the readQueue says which competitor pages to read, but "Pages read" was 0 — execute it. The teardown executor (`auditTopCompetitorsForTenant`, polite-fetch + extract, cached) already existed; this wires it to the product.
+
+**Built:** "✦ Read top N now" button on /competitors → existing `sharpenMovesWithTeardownAction` (operator-gated, limit 20, cache-first, revalidates /competitors+/worklist+/). readQueue keeps read items (unread-first) + carries distilled whatWins. today-moves-data: "Competitors read ✓" checklist + "what wins" share ONE hoisted relevance verdict (flips only on an on-topic teardown).
+
+**Ran live (limit 10):** 7 new pages read (wikipedia History/National-symbols, history.com persian-empire, surfiran cities, parentcalc/peanut-app names, irannegintravel), 3 cached, 2 http_error (parents.com, a sports headline). Result: pages read **18 → 21**, cards "Competitors read ✓" **4 → 8**, what-wins now real facts ("412 words · interactive tool · 9 images · 1 schema type"). Polite HTTP only — no Wix/paid-API/migration/flags. tsc 0 · relevance tests green · build PASS · `/ /worklist /recommendations /competitors /experiments` 200. **Follow-up:** /competitors queue "Read" badge is partial (audit per-move targets ≠ queue competitorPagesToBeat set); payoff lands on cards.
+
+---
+
 ## 2026-06-28 — COMPETITORS ACTION QUEUE + AI-QUESTIONS / NEW-PAGES LABEL CLEANUP · main `2715eb38`
 
 Operator: surfaces still expose raw/overwhelming intelligence (Competitors "0/1084 read" doom; AI-Questions "Create hub: <whole question> - Complete Guide"; New-Pages "Things Iran Highlights" / "List Iranians").
