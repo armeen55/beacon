@@ -5,6 +5,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { summarizeSpecialistDebate } from "@/domains/demand-graph/debate-summary";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
+import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pack/types";
 
 import { loadTodayMovesHeroData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
@@ -82,8 +83,18 @@ function actionPackToTodayMove(p: ActionPack): TodayMove {
     confidence: p.confidence,
     demand: p.gscDemand?.impressions ?? null,
     demandBasis: p.gscDemand && p.gscDemand.impressions > 0 ? "gsc" : p.profoundReceipt ? "ai_attention" : null,
-    whoCited: p.profoundReceipt?.citedDomains?.[0] ?? null,
-    whatWins: p.competitorPagesToBeat?.[0] ?? null,
+    whoCited:
+      p.profoundReceipt?.citedDomains?.[0] &&
+      competitorRelevance(p.label, { url: p.profoundReceipt.citedDomains[0], title: p.profoundReceipt.citedDomains[0] }).relevant
+        ? p.profoundReceipt.citedDomains[0]
+        : null,
+    // Evidence relevance gate: suppress an off-topic / noise competitor page (a
+    // facebook.com/TasteAtlas eggplant URL on a flag page) from "what wins".
+    whatWins:
+      p.competitorPagesToBeat?.[0] &&
+      competitorRelevance(p.label, { url: p.competitorPagesToBeat[0], title: p.competitorPagesToBeat[0] }).relevant
+        ? p.competitorPagesToBeat[0]
+        : null,
     yourGap: "",
     topQueries: [],
     declines: [],

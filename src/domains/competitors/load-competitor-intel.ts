@@ -5,7 +5,13 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 import type { ActionPack } from "@/domains/action-pack/types";
+
+/** Evidence relevance gate: a competitor "page to beat" must actually be on-topic for the
+ *  ActionPack's subject — never map a Persian-food page to a "Persian Insults" move. */
+const pagesToBeatFor = (p: ActionPack): string[] =>
+  p.competitorPagesToBeat.filter((url) => competitorRelevance(p.label, { url }).relevant);
 
 /**
  * load-competitor-intel (2026-06-28 — ActionPack execution loop, Phase 6) — the
@@ -117,7 +123,7 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
         e.packs.add(p.id);
       }
     }
-    for (const url of p.competitorPagesToBeat) {
+    for (const url of pagesToBeatFor(p)) {
       const dom = domainOf(url);
       const e = bump(dom);
       e.pages.add(url);
@@ -139,7 +145,7 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
   // ── Pages to beat — from competitorPagesToBeat, with teardown status ──
   const pageMap = new Map<string, CompetitorPage>();
   for (const p of packs) {
-    for (const url of p.competitorPagesToBeat) {
+    for (const url of pagesToBeatFor(p)) {
       const key = canon(url);
       const existing = pageMap.get(key);
       if (existing) {
@@ -165,13 +171,14 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
 
   // ── ActionPacks tied to competitors ──
   const actionPacks: CompetitorActionPack[] = packs
-    .filter((p) => p.competitorPagesToBeat.length > 0)
-    .map((p: ActionPack) => ({
+    .map((p: ActionPack) => ({ p, beat: pagesToBeatFor(p) }))
+    .filter(({ beat }) => beat.length > 0)
+    .map(({ p, beat }) => ({
       actionPackId: p.id,
       title: p.label,
       targetUrl: p.targetUrl,
       action: ACTION_LABEL_FALLBACK(p.actionType),
-      competitorPagesToBeat: p.competitorPagesToBeat.slice(0, 5),
+      competitorPagesToBeat: beat.slice(0, 5),
       evidenceSources: p.evidenceSources,
     }))
     .sort((a, b) => b.competitorPagesToBeat.length - a.competitorPagesToBeat.length);

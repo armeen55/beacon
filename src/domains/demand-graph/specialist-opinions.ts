@@ -18,6 +18,7 @@
 
 import type { EvidencePacket } from "./evidence-packet";
 import type { SerpValidation } from "@/domains/serp/serp-validation";
+import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 
 /** The teammates. Each maps to a connector (or, for the last two, a synthesis
  *  role). `commerce_asset` is the Opportunity/Asset/Commerce Strategist — it
@@ -307,12 +308,20 @@ export function emitProfoundOpinion(p: EvidencePacket, extras: SpecialistExtras 
   const cited = citedCompetitorCount(p);
   if (cited === 0) return null; // no competitor-citation evidence → abstain
 
-  const onTopic = !p.competitor.looselyMatched;
-  const domain = p.competitor.domain;
+  // Evidence relevance gate: only NAME the cited domain when it's actually on-topic for
+  // the Move (not a facebook.com/TasteAtlas eggplant page on "Safavid Flag"). An
+  // off-topic/noise citation still counts as "a competitor cited" but is never named.
+  const compRelevant =
+    !!p.competitor.topUrl &&
+    competitorRelevance(p.move.label, { url: p.competitor.topUrl, title: p.competitor.domain }).relevant;
+  const onTopic = !p.competitor.looselyMatched && compRelevant;
+  const domain = compRelevant ? p.competitor.domain : null;
   const isCreate = p.move.gapType === "create_page";
   const claim = isCreate
     ? `AI cites ${cited} competitor page(s)${domain ? ` (e.g. ${domain})` : ""} for this topic — you have no page.`
-    : `AI cites ${domain ?? `${cited} competitor(s)`}, not you — you rank but aren't the cited source.`;
+    : domain
+      ? `AI cites ${domain}, not you — you rank but aren't the cited source.`
+      : `AI cites ${cited} competitor page(s) for this topic, not you — you rank but aren't the cited source.`;
 
   const refs: EvidenceRef[] = [
     {

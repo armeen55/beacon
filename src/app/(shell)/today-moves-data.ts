@@ -7,6 +7,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { titleCandidates, scoreTitle } from "@/domains/demand-graph/ctr-title-scorer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
+import { competitorRelevance, internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import { loadGscCannibalizationForTenant, type GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
@@ -476,10 +477,23 @@ export async function buildTodayMovesData(
       ];
       const { why, proof } = splitWhyProof(e.why ?? "");
       const looselyMatched = packet?.competitor?.looselyMatched ?? false;
+      // Evidence relevance gate (stricter than the packet's token-overlap): suppress a
+      // cited competitor / teardown that isn't on-topic for THIS Move — a TasteAtlas
+      // eggplant URL on "Safavid Flag", a ResearchGate leopard page on "Central Asian
+      // Cobra". Keep the Move; drop the junk join so it can't pose as evidence.
+      const moveTopicForEvidence = packet?.move?.label ?? prettyPage(targetUrl);
+      const compUrl = packet?.competitor?.topUrl ?? "";
+      const compRelevant =
+        !!compUrl &&
+        competitorRelevance(moveTopicForEvidence, { url: compUrl, title: packet?.competitor?.domain ?? null }).relevant;
       const wwRaw = packet?.competitor?.whatWins?.trim() ?? "";
-      const whatWins = wwRaw && wwRaw !== "—" && !looselyMatched ? wwRaw : null;
+      // Gate the "what wins" TEXT too — it sometimes carries a junk URL distinct from
+      // topUrl (a facebook.com/TasteAtlas eggplant page on "Safavid Flag"). Suppress a
+      // noise-domain or off-topic teardown so it can't pose as evidence.
+      const wwRelevant = wwRaw ? competitorRelevance(moveTopicForEvidence, { url: wwRaw, title: wwRaw }).relevant : false;
+      const whatWins = wwRaw && wwRaw !== "—" && !looselyMatched && compRelevant && wwRelevant ? wwRaw : null;
       const whoCited =
-        packet?.competitor?.domain && packet.competitor.fetchStatus === "ok" && !looselyMatched
+        packet?.competitor?.domain && packet.competitor.fetchStatus === "ok" && !looselyMatched && compRelevant
           ? packet.competitor.domain
           : null;
 
@@ -592,7 +606,12 @@ export async function buildTodayMovesData(
     for (const m of pool) {
       m.topQueries = queryMap.get(m.targetUrl) ?? [];
       m.declines = declineMap.get(m.targetUrl) ?? [];
-      m.cannibalization = (cannibalByUrl.get(canon(m.targetUrl)) ?? []).slice(0, 2);
+      // Evidence relevance gate: an internal-link / consolidation target must be
+      // topically related to THIS page — never suggest Tehran → "Iranian Snacks" just
+      // because both incidentally rank for "capital of iran". Drop off-topic joins.
+      m.cannibalization = (cannibalByUrl.get(canon(m.targetUrl)) ?? [])
+        .filter((c) => internalLinkRelevance(m.query || m.pageLabel, c.leadPage || c.otherPages[0] || "").relevant)
+        .slice(0, 2);
       // Outcome-threading: surface the page's most recent shipped-change outcome on
       // the card (display only). Conservative URL+family basis, mirroring Results.
       const pr = proofByPage.get(canon(m.targetUrl));

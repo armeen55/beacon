@@ -148,7 +148,7 @@ describe("emitProfoundOpinion", () => {
     const o = emitProfoundOpinion(
       packet({
         move: { gapType: "answer_block", components: baseComponents({ visibilityGap: 0.9 }) },
-        competitor: { topUrl: "https://theknot.com/x", domain: "theknot.com", fetchStatus: "ok", relevance: 0.8, otherUrls: ["https://b.com/y"] },
+        competitor: { topUrl: "https://theknot.com/content/persian-wedding-traditions", domain: "theknot.com", fetchStatus: "ok", relevance: 0.8, otherUrls: ["https://b.com/y"] },
       }),
       { nowIso: NOW },
     );
