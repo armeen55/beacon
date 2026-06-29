@@ -36,6 +36,12 @@ function isDistinguishing(t: string): boolean {
   return !GENERIC.has(t) && !FILLER.has(t) && !COMMERCE.has(t);
 }
 
+/** The distinguishing (non-generic/filler/commerce) tokens of a topic string — a topic
+ *  with none is too generic to be worth a keyword query ("Gifts", "List Iranians"). */
+export function topicDistinguishingTokens(s: string): string[] {
+  return [...new Set(tokens(s).filter(isDistinguishing))];
+}
+
 export type KeywordMatchConfidence = "exact" | "strong" | "weak" | "none";
 
 export type KeywordMatch = {

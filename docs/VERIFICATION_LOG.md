@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — DATAFORSEO KEYWORD REFRESH: candidate generator + dry-run (STOP: $0.075 > $0.05 cap) · main `0b162d16`
+
+Operator: grow the 8-keyword cache via a bounded live refresh (≤ $0.05). DataForSEO IS credentialed (LOGIN/PASSWORD/AUTH_B). **Cost conflict found:** the keyword-volume endpoint is **$0.075 FLAT per call** (one call prices up to 200 keywords); shrinking the batch can't lower it (it's per-call, not per-keyword). So the minimum spend ($0.075) **exceeds the $0.05 cap** → per the hard-cap rule, **stopped before the live call** (no spend).
+
+**Built (durable, ready for an approved run):** `keyword-refresh-candidates.ts` (pure) — turns New-Page candidates into a deduped set of short keyword queries: suppresses generic/junk (no distinguishing token → "Gifts", "List Iranians", "Things Iran Highlights" dropped), preserves specifics (persian wedding, iranian diaspora, iran natural attractions, nowruz activities kids…), rejects raw questions + first-person sentence fragments, caps length. `topicDistinguishingTokens` exported from keyword-match for reuse.
+
+**Dry-run (pure planKeywordsCall, $0 spend):** 33 create-page candidates → 34 generated queries (0 already cached) → top 30 to fetch → estimate **$0.075 → EXCEEDS $0.05 cap**. One $0.075 call would price ALL 30 (persian wedding, iranian diaspora, iran natural attractions, nowruz activities kids, persian literature, persian gardens, persian astronomy…), growing the cache 8 → ~38 and turning today's weak matches strong. tsc 0 · demand suite green (8 refresh-candidate + 15 keyword-match) · build PASS · `/ /worklist /recommendations /connections` 200. **Operator decision needed:** raise the DataForSEO cap to ≥$0.075 for this one-time refresh (covers everything in a single call), or hold.
+
+---
+
 ## 2026-06-28 — DATAFORSEO KEYWORD-VOLUME MATCHER → New Pages demand · main `776e772a`
 
 Operator: the prior exact-match keyword→New-Pages wiring (#187) had ~0 overlap; build a better deterministic matcher before spending API. **Gate:** 10 cached DataForSEO keywords (8 with volume — iran flag 135k, persian food recipes 8.1k, persian numbers, iranian movies, famous iranian people, iran world cup jersey, nowruz gifts, best cities to visit in iran). Non-empty → continue.
