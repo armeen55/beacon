@@ -270,7 +270,11 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             {serp.status === "dry_run" ? "Dry-run — set DATAFORSEO_DRY_RUN=false to validate live." : serp.status === "capped" ? "SERP budget cap reached." : serp.status === "disabled" ? "DataForSEO not connected." : "No SERP result."}
           </p>
         ) : null}
-        {aiStatus === "ok" ? (
+        {/* Prefer the full create_page_brief over a standalone saved opening: when a
+            quality-ready brief exists, its opening is canonical — don't also show the
+            older savedOpening (avoids a redundant or worse second opening). */}
+        {aiStatus === "ok" &&
+        !(o.preparedBrief && (o.briefQuality?.status === "ready" || o.briefQuality?.status === "useful_but_needs_review")) ? (
           (() => {
             const oq = o.openingQuality;
             const copyOk = oq ? oq.copyAllowed : true;
