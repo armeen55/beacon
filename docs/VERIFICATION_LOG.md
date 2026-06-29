@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — CREATE-HUB PACK DEDUP (extend canonical collapse to hubs) · main `PENDING`
+## 2026-06-29 — CREATE-HUB PACK DEDUP (extend canonical collapse to hubs) · main `37a98202`
 
 Operator: the Profound coverage compiler also emits ~42 `create_hub` packs with near-duplicates; extend the same collapse machinery, hub↔hub only.
 
