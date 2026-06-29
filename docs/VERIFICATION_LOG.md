@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — PROOF SETTLEMENT VISIBILITY + actionable loss follow-up (different-lever) · main `PENDING`
+## 2026-06-29 — PROOF SETTLEMENT VISIBILITY + actionable loss follow-up (different-lever) · main `0231d478`
 
 Make the now-settled `lost` outcomes operationally useful. Verify-first: most of the surface already existed.
 
