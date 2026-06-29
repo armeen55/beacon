@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-28 — COMPETITORS QUEUE ↔ TEARDOWN TARGET ALIGNMENT · main `22a38542`
+
+Operator: queue badges still didn't populate — the queue URLs and audit target URLs are related-but-different sets. Fix the source, not the copy.
+
+**Root cause (truth dump):** the queue picked targets from ActionPacks (merged `competitorPagesToBeat` union) while the crawler picked from `graph.moves` (`competitorUrls`) — different populations. Queue↔audit overlap was **1/20**, so "Read top N" read URLs the queue never showed → badges never flipped.
+
+**Built:** `selectTeardownTarget` (serp-teardown-fusion — relevance-gate the candidate window, then overlap/first pick) + `planTeardownTargetsForTenant` (competitor-page-audit — THE single source of truth: graph.moves → serp overlap → relevance → dedupe). `auditTopCompetitorsForTenant` now executes the plan; `load-competitor-intel.readQueue` is built from the same planner, enriched per-target by the matching pack.
+
+**Verified (Iranopedia):** overlap **1/20 → 11/11**, audit-targets-not-in-queue **11 → 0**; queue read badges **0 → 11**, what-wins **0 → 11**. Rendered /competitors: 11 Read badges + 22 What-wins. Crawler also now skips off-topic competitors. $0 (graph + cached serp_verdict + teardown cache); no Wix/paid-API/migration/flags. tsc 0 · 28 tests green (serp-teardown + relevance) · build PASS · 5 routes 200.
+
+---
+
 ## 2026-06-28 — COMPETITOR READ QUEUE → TEARDOWN → FACTS ON CARDS · main `7f445bac`
 
 Operator: the readQueue says which competitor pages to read, but "Pages read" was 0 — execute it. The teardown executor (`auditTopCompetitorsForTenant`, polite-fetch + extract, cached) already existed; this wires it to the product.
