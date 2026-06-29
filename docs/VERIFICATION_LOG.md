@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-29 — PROOF→RANKING ACTIVATION AUDIT → loop fully wired, gated on settled outcomes (no rebuild) · main `PENDING`
+
+Operator: don't rebuild the outcome-prior — audit the proof→ranking loop end-to-end and find the exact missing activation piece, if any.
+
+**Loop traced end-to-end, all stages VERIFIED wired + tenant-correct:**
+1. `shipped_change_proof` → `loadShippedChanges()` — tenant-scoped (`.eq("tenant_id", currentTenantId())`, ambient, matches render path; no cross-tenant leak). The `_tenantId` param on the bridge is unused only because the store is ambient-scoped.
+2. → `loadExperimentOutcomes` + `loadProofOutcomeRows` (`learning/load-experiment-outcomes.ts`) — map ledger → dimension-keyed outcomes + page-keyed rows, fail-soft → [].
+3. → `computeDimPriors` (SETTLED-ONLY: ignores measuring/inconclusive; needs MIN_DECIDED=3 decided; cap [0.85,1.15]) + `cautionForMove` (measuring→slight-demote-no-boost, no-lift/lost→demote, loss>measuring, cap [0.90,1.10], page+family match).
+4. → `applyExperimentPriorToMoves` + `applyProofOutcomeCautionToMoves` as load-graph POST-passes (never mutate the pure scorer) → `MoveCandidate.learnedPrior`/`outcomeCaution` → ActionPack `priorityScore`.
+5. → card chip: `today-moves-card.tsx:317` renders `🧠 {outcomeCaution.label}` + reason tooltip + lifted/no-lift styling.
+Pure-logic proven by **39 passing tests** (experiment-prior + proof-outcome-caution + measure-lifecycle), incl. "measuring never creates a prior", MIN_DECIDED gating, cap, "HOLDS a still-measuring move (no boost)", "loss outranks measuring", family mapping.
+
+**Live proof state (Iranopedia):** 9 rows, **all `measuring`/low-confidence, 0 settled** → `computeDimPriors` correctly yields 0 buckets (no fake learning). GSC data fresh through **2026-06-26**. `isDueForMeasure` → **2/9 rows DUE now** (the 06-20 ships: /cities, /funny-farsi-phrases); the rest still inside their post-window given GSC lag.
+
+**Decision (Phase-1/3 gate): NO missing CODE piece — the loop is fully wired + tested.** Ranking isn't adjusted only because 0 outcomes have settled. The 2 due rows haven't settled because `autoMeasureDuePass` is invoked ONLY from the operator-gated `measureAppliedMovesAction` (today-moves-actions.ts) — NOT fire-and-forget on `/proof` render. With crons off (golden-path), measurement is on-demand by design; the operator settles due rows via "Measure now". The lone master-plan/runtime mismatch (plan wanted fire-and-forget auto-measure on `/`+`/proof`) is a CADENCE choice, not a loop bug — left as the recommended operator-gated next step (passive proof-data mutation on render shouldn't be added unilaterally).
+
+**Shipped:** no loop code (correctly wired already). Per Phase-2, the "fixture tests" ask is already satisfied by the 39 existing tests; NEXT_PHASE reworded to mark outcome-prior SATISFIED. tsc 0 · 39 loop tests green. **$0 spend, no migration/Wix/SEMrush/flags, no fabricated settled data.**
+
+---
+
 ## 2026-06-29 — NEAR-DUPE AUDIT, remaining ActionPack types → NO EXTENSION (evidence-first) · main `3832600f`
 
 Operator: don't blindly add action types to the collapse — ground-truth first, extend only where safe dupes are PROVEN.
