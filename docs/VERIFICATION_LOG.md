@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — PROOF→RANKING ACTIVATION AUDIT → loop fully wired, gated on settled outcomes (no rebuild) · main `PENDING`
+## 2026-06-29 — PROOF→RANKING ACTIVATION AUDIT → loop fully wired, gated on settled outcomes (no rebuild) · main `dc7ed140`
 
 Operator: don't rebuild the outcome-prior — audit the proof→ranking loop end-to-end and find the exact missing activation piece, if any.
 
