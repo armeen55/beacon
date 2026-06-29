@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-06-29 — GRAPH + ACTIONPACK CREATE-PAGE DEDUP (upstream canonicalization) · main `PENDING`
+## 2026-06-29 — GRAPH + ACTIONPACK CREATE-PAGE DEDUP (upstream canonicalization) · main `21b43a60`
 
 Operator: land the board-side canonicalization to main (done — clean FF `a9f2435d..ef2d3a67`), then move the dedup UPSTREAM so the product stops EMITTING sibling create-page opportunities.
 
