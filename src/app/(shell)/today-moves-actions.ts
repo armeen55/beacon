@@ -68,6 +68,8 @@ export async function sharpenMovesWithTeardownAction(
     limit: opts.limit ?? 12,
   });
   revalidatePath("/");
+  revalidatePath("/competitors");
+  revalidatePath("/worklist");
   return { status: "ok", audited: audited.length, targets, cached };
 }
 

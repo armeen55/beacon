@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { loadCompetitorIntel, type CompetitorIntel } from "@/domains/competitors/load-competitor-intel";
+import { ReadQueueButton } from "./read-queue-button";
 
 /**
  * /competitors (2026-06-28 — ActionPack execution loop, Phase 6) — the real enemy
@@ -68,12 +69,22 @@ async function CompetitorsBody() {
       {/* Read these first — the prioritized action queue (replaces the doom number). */}
       {intel.readQueue.length > 0 ? (
         <section className="space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">Read these competitor pages first</h2>
-            <p className="mt-0.5 text-[12px] text-gray-500">
-              The {intel.readQueue.length} unread pages that back your strongest moves — read these before the rest.
-              {intel.gaps.notTornDown > 0 ? ` (${intel.gaps.notTornDown} competitor pages unread in total.)` : ""}
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            {(() => {
+              const unread = intel.readQueue.filter((r) => r.teardownStatus === "not_read").length;
+              return (
+                <>
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-900">Read these competitor pages first</h2>
+                    <p className="mt-0.5 text-[12px] text-gray-500">
+                      Your highest-priority competitor pages — read the unread ones first; read ones show what wins.
+                      {intel.gaps.notTornDown > 0 ? ` (${intel.gaps.notTornDown} unread in total.)` : ""}
+                    </p>
+                  </div>
+                  {unread > 0 ? <ReadQueueButton unread={unread} /> : null}
+                </>
+              );
+            })()}
           </div>
           <div className="grid gap-2">
             {intel.readQueue.map((item, i) => (
@@ -91,6 +102,9 @@ async function CompetitorsBody() {
                 </div>
                 <p className="mt-1 text-[11px] text-gray-600"><span className="font-medium text-gray-700">Why first:</span> {item.why}</p>
                 {item.prompt ? <p className="mt-0.5 text-[11px] text-gray-500">Cited for “{item.prompt}”</p> : null}
+                {item.whatWins ? (
+                  <p className="mt-0.5 text-[11px] text-emerald-700"><span className="font-medium">What wins:</span> {item.whatWins}</p>
+                ) : null}
                 {item.moveLabel ? <p className="mt-1 text-[11px] font-medium text-indigo-600">Beat it: {item.moveLabel} →</p> : null}
               </div>
             ))}

@@ -453,11 +453,18 @@ export async function buildTodayMovesData(
               moveType: persistedPack!.moveType,
             })
           : null;
+      // Evidence relevance gate (hoisted): a competitor teardown only counts as
+      // "Competitors read ✓" / feeds "what wins" when it's ON-TOPIC for this Move.
+      const moveTopicForEvidence = packet?.move?.label ?? prettyPage(targetUrl);
+      const compUrl = packet?.competitor?.topUrl ?? "";
+      const compRelevant =
+        !!compUrl &&
+        competitorRelevance(moveTopicForEvidence, { url: compUrl, title: packet?.competitor?.domain ?? null }).relevant;
       const preparedChecklist = effectivePack
         ? {
             googleChecked: specialistSet.has("gsc"),
             aiChecked: specialistSet.has("profound"),
-            competitorsRead: !!packet?.competitor?.facts,
+            competitorsRead: !!packet?.competitor?.facts && compRelevant,
             draftPrepared,
             proofPlanReady: draftPrepared && (effectivePack.proofPlan?.metrics?.length ?? 0) > 0,
             // HONESTY: only a quality-passing draft is truly ready to review/ship.
@@ -477,15 +484,8 @@ export async function buildTodayMovesData(
       ];
       const { why, proof } = splitWhyProof(e.why ?? "");
       const looselyMatched = packet?.competitor?.looselyMatched ?? false;
-      // Evidence relevance gate (stricter than the packet's token-overlap): suppress a
-      // cited competitor / teardown that isn't on-topic for THIS Move — a TasteAtlas
-      // eggplant URL on "Safavid Flag", a ResearchGate leopard page on "Central Asian
-      // Cobra". Keep the Move; drop the junk join so it can't pose as evidence.
-      const moveTopicForEvidence = packet?.move?.label ?? prettyPage(targetUrl);
-      const compUrl = packet?.competitor?.topUrl ?? "";
-      const compRelevant =
-        !!compUrl &&
-        competitorRelevance(moveTopicForEvidence, { url: compUrl, title: packet?.competitor?.domain ?? null }).relevant;
+      // (moveTopicForEvidence / compUrl / compRelevant are hoisted above the prepared
+      // checklist so "Competitors read ✓" + "what wins" share one relevance verdict.)
       const wwRaw = packet?.competitor?.whatWins?.trim() ?? "";
       // Gate the "what wins" TEXT too — it sometimes carries a junk URL distinct from
       // topUrl (a facebook.com/TasteAtlas eggplant page on "Safavid Flag"). Suppress a

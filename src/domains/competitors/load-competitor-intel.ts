@@ -59,6 +59,8 @@ export type CompetitorReadItem = {
   moveLabel: string | null;
   why: string;
   teardownStatus: "read" | "blocked" | "not_read";
+  /** Distilled "what wins" from the teardown — present once the page is read. */
+  whatWins: string | null;
   priority: number;
 };
 
@@ -204,7 +206,6 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
   // AI-cites-them-not-you > Google-buildable SERP > repeated citation domain.
   const packById = new Map(packs.map((p) => [p.id, p]));
   const readQueue: CompetitorReadItem[] = pages
-    .filter((pg) => pg.teardownStatus !== "read")
     .map((pg) => {
       const linked = pg.actionPackIds
         .map((id) => packById.get(id))
@@ -227,10 +228,17 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
         moveLabel: pg.actionPackLabel,
         why: why.slice(0, 2).join("; ") || `linked to ${pg.actionPackIds.length} move${pg.actionPackIds.length === 1 ? "" : "s"}`,
         teardownStatus: pg.teardownStatus,
+        whatWins: pg.whatWins,
         priority,
       };
     })
-    .sort((a, b) => b.priority - a.priority)
+    // Unread first (the to-do), then by priority — read items keep their what-wins as
+    // the payoff so the queue shows progress, not just an endless backlog.
+    .sort((a, b) => {
+      const ua = a.teardownStatus === "read" ? 1 : 0;
+      const ub = b.teardownStatus === "read" ? 1 : 0;
+      return ua - ub || b.priority - a.priority;
+    })
     .slice(0, 20);
 
   const notTornDown = pages.filter((pg) => pg.teardownStatus === "not_read").length;
