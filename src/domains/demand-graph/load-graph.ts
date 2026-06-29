@@ -36,8 +36,9 @@ import { log } from "@/lib/logger";
 
 import { loadCompetitorCitedPagesForTenant, type CompetitorCitationsResult } from "./competitor-citations-loader";
 import { loadFanoutSeedsForTenant, fanoutSeedsForNode, type FanoutSeed } from "./load-fanout-seeds";
-import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
+import { loadExperimentOutcomes, loadProofOutcomeRows } from "@/domains/learning/load-experiment-outcomes";
 import { applyExperimentPriorToMoves, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
+import { applyProofOutcomeCautionToMoves } from "@/domains/demand-graph/proof-outcome-caution";
 import {
   buildDemandGraph,
   type DemandInput,
@@ -395,6 +396,17 @@ export async function loadDemandGraphForTenant(
     }
   } catch {
     moves = graph.moves; // never let the learning layer break the graph
+  }
+  // PAGE-SPECIFIC outcome caution (2026-06-28) — complements the pattern-level prior
+  // above with THIS page's own shipped changes: hold a Move while its page is mid-
+  // measurement, demote a no-lift repeat, modestly boost a follow-up on a page that
+  // lifted. Bounded ±10%, OUTSIDE the pure scorer, fail-soft. Reuses the Results-linker
+  // page+family matching. No shipped changes → neutral (byte-identical order).
+  try {
+    const proofRows = await loadProofOutcomeRows(tenantId);
+    if (proofRows.length > 0) moves = applyProofOutcomeCautionToMoves(moves, proofRows);
+  } catch {
+    /* additive — never let it break the graph */
   }
   // Profound AEO EVIDENCE fusion (evidence-only; no score change, no new actions).
   // Reads the DURABLE cached store (loadCachedPromptOpportunities — NO live

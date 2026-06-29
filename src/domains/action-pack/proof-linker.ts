@@ -32,7 +32,7 @@ export type ProofLink<R extends ProofRowLike = ProofRowLike> = {
 
 /** Normalize any URL/path to a comparable path: strip protocol+host, query/hash,
  *  trailing slash; lowercase. Pure (no canonicalize-store dependency). */
-function normPath(u: string): string {
+export function normPath(u: string): string {
   if (!u) return "";
   let s = u.trim().toLowerCase();
   s = s.replace(/^https?:\/\/[^/]+/, "");
@@ -42,7 +42,7 @@ function normPath(u: string): string {
 }
 
 /** Coarse change family from a free-text ledger action string. */
-function familyOfLedgerAction(a: string): string {
+export function familyOfLedgerAction(a: string): string {
   const s = (a ?? "").toLowerCase();
   if (/title|meta|ctr/.test(s)) return "title_meta";
   if (/answer|aeo|faq|schema/.test(s)) return "aeo";
@@ -74,7 +74,7 @@ function familyOfPackAction(a: ActionType): string {
 
 /** Families are compatible when equal, or when one side is the generic existing-page
  *  "edit" (which can carry a title/answer/etc. change) — but never across new_page. */
-function familyCompatible(led: string, pack: string): boolean {
+export function familyCompatible(led: string, pack: string): boolean {
   if (led === pack) return true;
   if (led === "new_page" || pack === "new_page") return false;
   return led === "edit" || pack === "edit";

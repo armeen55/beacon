@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — OUTCOME → RANKING PRIOR: page-specific learning caution · main `5023fd8b`
+
+Operator: close the loop — tomorrow's Worklist should learn from shipped outcomes. **Recon finding:** the SETTLED-verdict half already shipped (#184, `learning/experiment-prior.ts` — pattern-level ±15%, decided-only, MIN_DECIDED=3, backoff, `🧠 learnedTag` chip, wired in load-graph). It deliberately IGNORES measuring rows — that's the gap, and the only rule with current effect (all 9 Iranopedia proof rows are `measuring`, 0 settled).
+
+**Built (the missing page-specific half):** `proof-outcome-caution.ts` (pure) — for a Move whose OWN page + compatible action family has a shipped change: still measuring → slight HOLD (×0.92, "same edit still measuring", don't muddy the experiment); settled no-lift/lost → DEMOTE (×0.90, "similar edit showed no lift"); settled won (verdict-ready + confidence≠low + baseline≥200) → modest BOOST (×1.08, "similar edit lifted", follow-up). Bounded ±10%, EXACT family beats the 'edit' bridge, loss>measuring>win priority, reuses the Results-linker (proof-linker) page+family matching. Wired in load-graph AFTER experiment-prior (shared order across Today/Worklist), fail-soft, pure scorer untouched, no rows → byte-identical. `🧠 Learning:` chip + "View in Results" link on the card.
+
+**Truth dump (live Iranopedia):** 9 measuring rows → **8 moves held_measuring ×0.92**, 229 neutral; 6 moves changed rank, **max delta −3** (bounded); **measuring rows boosted = 0** (hard invariant); 0 boosts/no-lifts (no settled outcomes exist — honestly neutral, as expected). Chip rendered: 4 home / 8 worklist. tsc 0 · 26 tests (caution 13 + experiment-prior 13) green · build PASS · `/ /worklist /recommendations /experiments /proof` 200. No migration/paid-API/Wix/flags. Adversarially verified (no-double-count / invariants / shared-order-tenant).
+
+---
+
 ## 2026-06-28 — TEARDOWN FACTS → BOUNDED DRAFT REGENERATION (top 3, $0.10 cap) · main `bfe7cbf2`
 
 Operator: competitor facts are now trustworthy + aligned — use them to improve drafts, bounded + quality-gated.

@@ -14,6 +14,7 @@ import {
   queryClusterKey,
   type SettledOutcome,
 } from "./experiment-prior";
+import type { ProofOutcomeRow } from "@/domains/demand-graph/proof-outcome-caution";
 
 /** Map the tenant's proof ledger into dimension-keyed outcomes. Fail-soft → []. */
 export async function loadExperimentOutcomes(_tenantId: string): Promise<SettledOutcome[]> {
@@ -31,5 +32,27 @@ export async function loadExperimentOutcomes(_tenantId: string): Promise<Settled
       pageType: pageTypeFromUrl(r.page),
       queryCluster: queryClusterKey(r.targetQueries?.[0]),
     },
+  }));
+}
+
+/** Map the tenant's proof ledger into PAGE-keyed rows for the page-specific outcome
+ *  caution (held-while-measuring / no-lift / lifted on THIS exact page). Keeps the
+ *  page URL + verdict + baseline so the caution can match by page+family. Fail-soft → [].
+ */
+export async function loadProofOutcomeRows(_tenantId: string): Promise<ProofOutcomeRow[]> {
+  let records;
+  try {
+    records = await loadShippedChanges();
+  } catch {
+    return [];
+  }
+  return records.map((r) => ({
+    id: r.id,
+    page: r.page,
+    actionType: r.actionType,
+    verdict: r.verdict,
+    confidence: r.confidence,
+    operatorVerdictOverride: r.operatorVerdictOverride,
+    baselineImpressions: r.baseline?.impressions ?? 0,
   }));
 }

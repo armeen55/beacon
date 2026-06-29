@@ -217,6 +217,12 @@ export type MoveCandidate = {
    *  attachProfoundEvidenceToMoves(). Evidence/context only — never a score or
    *  action input. Type-only import keeps build-graph runtime-dependency-free. */
   aeoEvidence?: import("./profound-evidence-fusion").AeoEvidence;
+  /** PAGE-SPECIFIC outcome caution (2026-06-28) — a bounded ±10% multiplier on the
+   *  final score from THIS page's own shipped changes (held-while-measuring /
+   *  no-lift / lifted), attached OUTSIDE the pure scorer (in load-graph) by
+   *  applyProofOutcomeCautionToMoves(). Complements learnedPrior (pattern-level).
+   *  Type-only import keeps build-graph dependency-free of the learning layer. */
+  outcomeCaution?: import("./proof-outcome-caution").OutcomeCaution;
 };
 
 export type DemandGraph = {

@@ -132,6 +132,15 @@ export type TodayMove = {
   /** Sprint 3 — "ranked higher because similar moves won before" (learned prior
    *  tag from past outcomes). Null when there's no settled evidence yet. */
   learnedTag: string | null;
+  /** Page-specific outcome caution (2026-06-28) — this page's OWN shipped change
+   *  held-while-measuring / no-lift / lifted, with a small "Learning:" chip + a
+   *  link to Results. Null when the page has no relevant shipped change. */
+  outcomeCaution?: {
+    kind: "held_measuring" | "no_lift" | "lifted" | "neutral";
+    label: string | null;
+    reason: string | null;
+    evidence: string[];
+  } | null;
   /** Connectedness (2026-06-28) — the unified ActionPack source-provenance chips
    *  ("Ranked by gsc + profound + clarity") threaded from the canonical brain so
    *  the customer card shows what's behind the move, not just the diagnostic. */
@@ -332,6 +341,7 @@ export async function buildTodayMovesData(
     ]);
     // Learned-prior tag per demand key (from the outcome re-weight on the graph).
     const learnedByKey = new Map(graphMoves.map((m) => [m.demandKey, m.learnedPrior ?? null]));
+    const cautionByKey = new Map(graphMoves.map((m) => [m.demandKey, m.outcomeCaution ?? null]));
     // Outcome lifecycle state per page (from the proof ledger) — for the hero's
     // learning summary + the "Beacon learned" headline. Honest: derived from
     // settled verdicts only.
@@ -565,6 +575,12 @@ export async function buildTodayMovesData(
         preparedExperiment: persistedFresh ? persistedPack!.experiment?.hypothesis ?? null : null,
         preparedStale,
         learnedTag: (packet ? learnedByKey.get(packet.move.key)?.tag : null) ?? null,
+        outcomeCaution: (() => {
+          const c = packet ? cautionByKey.get(packet.move.key) : null;
+          return c && c.kind !== "neutral" && c.label
+            ? { kind: c.kind, label: c.label, reason: c.reason, evidence: c.evidence }
+            : null;
+        })(),
         competitorInformed:
           persistedFresh && persistedPack!.regenMeta?.regeneratedFromTeardown && persistedPack!.regenMeta.competitorDomain
             ? { domain: persistedPack!.regenMeta.competitorDomain }

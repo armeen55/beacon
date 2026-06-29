@@ -312,6 +312,33 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </p>
       ) : null}
 
+      {/* Page-specific learning caution (2026-06-28) — this page's own shipped change
+          held-while-measuring / no-lift / lifted. Links to Results when evidence-backed. */}
+      {m.outcomeCaution?.label ? (
+        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ${
+              m.outcomeCaution.kind === "lifted"
+                ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                : m.outcomeCaution.kind === "no_lift"
+                  ? "bg-gray-100 text-gray-600 ring-gray-200"
+                  : "bg-sky-50 text-sky-700 ring-sky-100"
+            }`}
+            title={m.outcomeCaution.reason ?? undefined}
+          >
+            🧠 {m.outcomeCaution.label}
+          </span>
+          {m.outcomeCaution.evidence.length && m.targetUrl && m.targetUrl !== "needs_new_page" ? (
+            <Link
+              href={`/proof?page=${encodeURIComponent(m.targetUrl)}`}
+              className="text-[11px] font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900"
+            >
+              View in Results →
+            </Link>
+          ) : null}
+        </span>
+      ) : null}
+
       {/* Connectedness (2026-06-28) — the canonical ActionPack evidence provenance
           + cached DataForSEO SERP verdict, threaded onto the card operators use
           (was computed on the pack but never shown outside diagnostics). */}
