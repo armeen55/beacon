@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-29 — CREATE-HUB PACK DEDUP (extend canonical collapse to hubs) · main `PENDING`
+
+Operator: the Profound coverage compiler also emits ~42 `create_hub` packs with near-duplicates; extend the same collapse machinery, hub↔hub only.
+
+**Recon (live worklist):** 42 create_hub packs, all Profound-coverage-sourced (question-style labels like "What is the difference between X and Y", priority-scored, carrying profoundReceipt + competitors + draftStatus). **0 hubs share a token-set with any page** → hub↔page cross-merge genuinely isn't needed; per-type buckets are safe + sufficient.
+
+**Built:** `collapseCreatePagePacks` → renamed `collapseCreateContentPacks`; now groups EACH create-content actionType (`create_new_page` + `create_hub`) in its OWN bucket via the same conservative grouper, so the union-find never crosses types (hub↔page never merge). Evidence-merge logic unchanged (competitor cap 8 + sibling-unique, richest profoundReceipt, best BUILD verdict, priority tiebreaker, `canonicalGroup.alsoCovers`). +4 hub tests (same-comparison collapse w/ priority winner + richest receipt; hub↔page NOT merged even on shared token-set; distinct comparisons stay separate; pages+hubs collapse independently in one call). Existing create_new_page tests unchanged.
+
+**Ground truth (live Iranopedia):** create_hub **42 → 31** (11 near-dupes absorbed), total packs 315 → 305, `duplicatesRemoved` 53 → 64. create_new_page **unchanged at 101** (no cross-type interference); hub↔page token-set overlap still 0. Remaining hub clusters (difference ×4, most ×4, common ×3) are DISTINCT comparisons correctly kept separate (different token sets).
+
+tsc 0 · 165 action-pack+demand-graph+demand tests green (4 new) · build PASS · `/ /worklist /recommendations /experiments /competitors` 200. **$0 spend, no migration/Wix/SEMrush/flags.**
+
+---
+
 ## 2026-06-29 — GRAPH + ACTIONPACK CREATE-PAGE DEDUP (upstream canonicalization) · main `21b43a60`
 
 Operator: land the board-side canonicalization to main (done — clean FF `a9f2435d..ef2d3a67`), then move the dedup UPSTREAM so the product stops EMITTING sibling create-page opportunities.

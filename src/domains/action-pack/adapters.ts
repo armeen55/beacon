@@ -246,25 +246,29 @@ export function dedupeActionPacks(packs: ActionPack[]): { packs: ActionPack[]; r
   return { packs: [...byKey.values()].sort((a, b) => b.priorityScore - a.priorityScore), removed };
 }
 
+/** The "create new content" action types whose near-duplicates collapse. Each type is
+ *  grouped in its OWN bucket, so a hub never merges with a page (different opportunity
+ *  shapes) — only hub↔hub and page↔page near-dupes collapse. */
+const CONTENT_DEDUP_TYPES: ReadonlyArray<ActionType> = ["create_new_page", "create_hub"];
+
 /**
- * Canonicalize near-duplicate create_new_page packs ACROSS sources (2026-06-29).
- * dedupeActionPacks above only collapses EXACT slug collisions; this collapses
- * near-duplicates — the demand-graph "Nowruz Activities USA" pack and the Profound-
- * coverage "Nowruz Persian New Year" pack are the same opportunity but have different
- * slugs, so they survive exact dedup. Reuses the SAME conservative grouper as the
- * demand graph (same matched keyword OR identical distinguishing-token set; nothing
- * weaker). The canonical (best verdict → keyword volume → ready brief → cleaner label)
- * absorbs its siblings' evidence + competitors and carries `canonicalGroup.alsoCovers`.
- * Only create_new_page packs are grouped; everything else passes through. PURE.
+ * Canonicalize near-duplicate "create new content" packs (create_new_page + create_hub)
+ * ACROSS sources (2026-06-29). dedupeActionPacks above only collapses EXACT slug
+ * collisions; this collapses near-duplicates — the demand-graph "Nowruz Activities USA"
+ * pack and the Profound-coverage "Nowruz Persian New Year" pack are the same opportunity
+ * but have different slugs, so they survive exact dedup. Likewise the coverage compiler
+ * emits several "What's the difference between X and Y" HUB packs, some of which are the
+ * same comparison phrased differently. Reuses the SAME conservative grouper as the demand
+ * graph (same matched keyword OR identical distinguishing-token set; nothing weaker), per
+ * actionType bucket so hub↔page NEVER merge. The canonical (best verdict → keyword volume
+ * → ready brief → priority → cleaner label) absorbs its siblings' evidence + competitors
+ * and carries `canonicalGroup.alsoCovers`. Non-content packs pass through. PURE.
  */
-export function collapseCreatePagePacks(
+export function collapseCreateContentPacks(
   packs: ActionPack[],
   keywords: readonly KeywordDemand[],
 ): { packs: ActionPack[]; removed: number } {
-  const creates = packs.filter((p) => p.actionType === "create_new_page");
-  if (creates.length < 2) return { packs, removed: 0 };
-
-  const cands: CanonCandidate[] = creates.map((p) => {
+  const toCandidate = (p: ActionPack): CanonCandidate => {
     // Pass the AEO prompt context (parity with the graph-side collapse) so the matcher
     // sees the real intent — without it, two distinct topics sharing one generic token
     // can wrongly merge on the token-set signal.
@@ -280,21 +284,27 @@ export function collapseCreatePagePacks(
       hasPassingBrief: p.draftStatus === "ready",
       priority: p.priorityScore,
     };
-  });
+  };
 
-  const groups = groupCreatePageCandidates(cands);
-  const byId = new Map(creates.map((p) => [p.id, p]));
+  const byId = new Map(packs.map((p) => [p.id, p]));
   const absorbed = new Set<string>();
   const metaById = new Map<string, { alsoCovers: string[]; reason: string; confidence: "high" | "medium"; siblingIds: string[] }>();
-  for (const g of groups) {
-    if (g.siblings.length === 0) continue;
-    for (const s of g.siblings) absorbed.add(s.demandKey);
-    metaById.set(g.canonical.demandKey, {
-      alsoCovers: g.siblings.map((s) => s.label),
-      reason: g.reason,
-      confidence: g.confidence,
-      siblingIds: g.siblings.map((s) => s.demandKey),
-    });
+  // Group each create-content actionType INDEPENDENTLY — the union-find never crosses
+  // types, so a hub is only ever a sibling of another hub.
+  for (const type of CONTENT_DEDUP_TYPES) {
+    const bucket = packs.filter((p) => p.actionType === type);
+    if (bucket.length < 2) continue;
+    const groups = groupCreatePageCandidates(bucket.map(toCandidate));
+    for (const g of groups) {
+      if (g.siblings.length === 0) continue;
+      for (const s of g.siblings) absorbed.add(s.demandKey);
+      metaById.set(g.canonical.demandKey, {
+        alsoCovers: g.siblings.map((s) => s.label),
+        reason: g.reason,
+        confidence: g.confidence,
+        siblingIds: g.siblings.map((s) => s.demandKey),
+      });
+    }
   }
   if (absorbed.size === 0) return { packs, removed: 0 };
 

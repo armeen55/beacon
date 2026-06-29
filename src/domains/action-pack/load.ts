@@ -35,7 +35,7 @@ import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/m
 import { parsePreparedVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 
-import { moveCandidateToActionPack, aeoActionPackToActionPack, dedupeActionPacks, collapseCreatePagePacks } from "./adapters";
+import { moveCandidateToActionPack, aeoActionPackToActionPack, dedupeActionPacks, collapseCreateContentPacks } from "./adapters";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { actionFamily, type ActionPack, type EvidenceSource } from "./types";
 
@@ -150,10 +150,11 @@ async function loadUncached(tenantId: string, mode: WorklistMode): Promise<Actio
     .filter((p): p is ActionPack => p != null);
 
   const deduped = dedupeActionPacks([...fromMoves, ...fromCoverage]);
-  // Canonicalize near-duplicate create_new_page packs ACROSS sources (demand-graph +
-  // Profound coverage) — exact-slug dedup above misses "Nowruz Activities USA" vs
-  // "Nowruz Persian New Year" (same opportunity, different slug). Conservative grouper.
-  const collapsed = collapseCreatePagePacks(deduped.packs, keywords);
+  // Canonicalize near-duplicate create-content packs (create_new_page + create_hub)
+  // ACROSS sources (demand-graph + Profound coverage) — exact-slug dedup above misses
+  // "Nowruz Activities USA" vs "Nowruz Persian New Year" + same-comparison hub dupes.
+  // Conservative grouper, per actionType bucket (hub↔page never merge).
+  const collapsed = collapseCreateContentPacks(deduped.packs, keywords);
   const packs = collapsed.packs;
   const removed = deduped.removed + collapsed.removed;
 
