@@ -143,9 +143,16 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             <>There&apos;s demand for this and none of your pages covers it yet.</>
           )}
         </p>
-        {o.searchVolume && o.searchVolume > 0 ? (
-          <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-800 ring-1 ring-sky-100">
-            {o.searchVolume.toLocaleString()} monthly searches (DataForSEO)
+        {o.keywordMatch && o.searchVolume && o.searchVolume > 0 ? (
+          <p
+            className={`mt-1.5 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ${
+              o.keywordMatch.confidence === "weak"
+                ? "bg-gray-50 text-gray-600 ring-gray-200"
+                : "bg-sky-50 text-sky-800 ring-sky-100"
+            }`}
+            title={`DataForSEO cached search volume, matched ${o.keywordMatch.confidence}`}
+          >
+            {o.searchVolume.toLocaleString()}/mo {o.keywordMatch.confidence === "weak" ? "≈ via" : "via"} “{o.keywordMatch.keyword}”
           </p>
         ) : null}
         {o.topCompetitor ? <p className="mt-1 text-[11px] text-gray-400">e.g. {o.topCompetitor}</p> : null}

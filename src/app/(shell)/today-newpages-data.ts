@@ -9,7 +9,8 @@ import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/p
 import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
 import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
-import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
 /**
@@ -30,9 +31,13 @@ export type NewPageOpportunity = {
   topCompetitor: string | null;
   /** What the cited competitor page has (deterministic teardown), when audited. */
   whatWins: string | null;
-  /** Real SEMrush monthly search volume, ONLY on an exact keyword match (else null —
-   *  never a fuzzy guess). Grounds the demand beyond the AI-attention proxy. */
+  /** Real DataForSEO monthly search volume from the best cached keyword match (else
+   *  null — never a fuzzy guess). Grounds the demand beyond the AI-attention proxy. */
   searchVolume: number | null;
+  /** The matched cached keyword + how confident the topic↔keyword map is (2026-06-28
+   *  deterministic matcher: exact/strong shown plainly, weak shown cautiously). Null
+   *  when no DataForSEO keyword matched this topic. */
+  keywordMatch?: { keyword: string; volume: number | null; confidence: "exact" | "strong" | "weak" } | null;
   tier: "hot" | "warm" | "emerging";
   score: number;
   /** Previously-generated + persisted AI opening (move_drafts), so it survives reload. */
@@ -129,7 +134,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
   let ownDomain = "";
-  const volumeByKeyword = new Map<string, number>();
+  let kwDemandRows: KeywordDemand[] = [];
   try {
     const [graphRes, auditRes, draftRes, kwDemand] = await Promise.all([
       withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
@@ -148,9 +153,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       // permanently-null searchVolume left after SEMrush was removed. Degrade-safe.
       withTimeout(readAllCachedKeywordDemand(), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
     ]);
-    for (const k of kwDemand) {
-      if (k.searchVolume != null) volumeByKeyword.set(k.keyword.trim().toLowerCase().replace(/\s+/g, " "), k.searchVolume);
-    }
+    kwDemandRows = kwDemand;
     if (!graphRes) return { opportunities: [], totalCandidates: 0, ownDomain: "" };
     moves = graphRes.graph.moves;
     ownDomain = deriveOwnDomain(graphRes.graph.pageNodes);
@@ -173,12 +176,25 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     .filter((m) => m.gap === "create_page")
     // New Pages quality gate (2026-06-28): drop scraped news/security fragments,
     // slug garbage, and too-generic one-word topics before they reach the board.
-    .filter((m) => !isJunkTopic(m.label))
-    .sort((a, b) => b.components.demand - a.components.demand);
+    .filter((m) => !isJunkTopic(m.label));
+
+  // Match each candidate to cached DataForSEO keyword volume (deterministic, $0) +
+  // read its SERP verdict, then RANK by demand with a bounded +15% lift when the page
+  // is BUILD-validated AND has a strong/exact keyword match (operator: BUILD + strong
+  // demand rises; WAIT/SKIP + weak are NOT boosted — mirrors the ±15% learned prior).
+  const enriched = createMoves
+    .map((m) => {
+      const kwMatch = matchKeywordDemand(m.label, m.aeoEvidence?.prompts?.[0] ?? null, kwDemandRows);
+      const verdict = parsePreparedVerdict(savedDrafts.get(`${m.demandKey}::serp_verdict`)?.content);
+      const strong = kwMatch.confidence === "exact" || kwMatch.confidence === "strong";
+      const boost = verdict?.verdict === "build" && strong ? 1.15 : 1;
+      return { m, kwMatch, verdict, sortKey: m.components.demand * boost };
+    })
+    .sort((a, b) => b.sortKey - a.sortKey);
 
   // Tier by rank within this tenant's own create-page set (relative, honest —
   // the underlying number is a proxy, so we bucket rather than print it).
-  const opportunities: NewPageOpportunity[] = createMoves.slice(0, 9).map((m, i) => {
+  const opportunities: NewPageOpportunity[] = enriched.slice(0, 9).map(({ m, kwMatch, verdict }, i) => {
     const topUrl = m.competitorUrls[0] ?? null;
     const audit = topUrl ? findAudit(topUrl) : undefined;
     const ww = audit && audit.fetchStatus === "ok" && audit.facts ? whatWins(audit.facts) : null;
@@ -256,13 +272,17 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       competitorCount: m.competitorUrls.length,
       topCompetitor: topUrl ? domainOf(topUrl) : null,
       whatWins: ww && ww !== "—" ? ww : null,
-      // Real volume ONLY on an exact normalized keyword match (else null — honest).
-      searchVolume: volumeByKeyword.get(m.label.trim().toLowerCase().replace(/\s+/g, " ")) ?? null,
+      // Real DataForSEO volume via the deterministic matcher (null when no match — honest).
+      searchVolume: kwMatch.confidence === "none" ? null : kwMatch.searchVolume,
+      keywordMatch:
+        kwMatch.confidence === "none" || !kwMatch.keyword
+          ? null
+          : { keyword: kwMatch.keyword, volume: kwMatch.searchVolume, confidence: kwMatch.confidence },
       tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
       score: Math.round(m.score),
       savedOpening,
       competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
-      preparedVerdict: parsePreparedVerdict(savedDrafts.get(`${m.demandKey}::serp_verdict`)?.content),
+      preparedVerdict: verdict,
       preparedBrief,
       briefQuality,
       openingQuality,

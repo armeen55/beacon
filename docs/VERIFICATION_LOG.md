@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-28 — DATAFORSEO KEYWORD-VOLUME MATCHER → New Pages demand · main `776e772a`
+
+Operator: the prior exact-match keyword→New-Pages wiring (#187) had ~0 overlap; build a better deterministic matcher before spending API. **Gate:** 10 cached DataForSEO keywords (8 with volume — iran flag 135k, persian food recipes 8.1k, persian numbers, iranian movies, famous iranian people, iran world cup jersey, nowruz gifts, best cities to visit in iran). Non-empty → continue.
+
+**Built:** `keyword-match.ts` (pure) — normalizes label+prompt via the shared `tokens()` (depluralize/stop), strips filler (guide/complete/list/things/highlights/usa/best…), treats brand/locale (iran/persian/farsi) + commerce (gift…) as non-distinguishing; **exact phrase wins even if all-generic** ("things to do in iran"), but **generic-only overlap is rejected** ("Things Iran Highlights" → none, "Gifts" → none, "List Iranians" → none). A keyword only goes **strong** when ALL its content tokens (incl. commerce) are on-topic — so "nowruz gifts" is only WEAK for a "nowruz activities" page, never strong (the operator's "never match gifts generically" rule). Wired into `today-newpages-data`: per-candidate `keywordMatch{keyword,volume,confidence}` + `searchVolume`, BUILD+strong gets a bounded +15% rank lift (WAIT/SKIP/weak not boosted), card chip "{vol}/mo via {keyword}" (weak → "≈ via", cautious).
+
+**Truth dump (live):** OLD exact-match **0/40** create-page candidates matched → NEW matcher **5/40** (0 exact, 3→ now weak after the gifts-overmatch fix, all previously MISSED): nowruz topics ↔ nowruz gifts (weak), places-to-visit ↔ best cities to visit in iran (weak), persian foods ↔ persian food recipes (weak). Honest: the 8-keyword cache barely overlaps the 40 topics, and overlaps are weak — shown cautiously, no fabrication. **No live API spend** (cache-only; Phase 4 refresh skipped — cache small but present, operator rule "prefer existing cache"). tsc 0 · 53 demand tests green (15 keyword-match incl. all operator cases + reject + gifts-overmatch) · build PASS · `/ /worklist /recommendations /competitors /connections` 200. No migration/Wix/flags/SEMrush.
+
+---
+
 ## 2026-06-28 — PROFOUND BOT/REFERRAL TABLES → loader + honest empty state (GATE: rows empty) · main `aea9fda4`
 
 Operator: turn the dead `profound_bot_rows`/`profound_referral_rows` into AI-crawler + AI-referral product signals. **Phase-0 gate is decisive:** ground truth shows **0 rows for Iranopedia AND 0 across ALL tenants**. Structural cause — the borrowed Profound workspace tracks OpenAI's prompts, not iranopedia.com's own crawler/referral logs (Agent Analytics is the site-scoped feed that would populate them). Per the rule "if rows are empty, stop after honest empty-state wiring + report," I did NOT fabricate UI on phantom data.
