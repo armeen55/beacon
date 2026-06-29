@@ -24,7 +24,8 @@ import { loadDemandGraphForTenant } from "./load-graph";
 import { getLatestMoveDrafts } from "./move-draft-store";
 import { parsePreparedVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import { extractWinnerSignals, type WinnerSignals } from "@/domains/competitor-intel/winner-patterns";
-import { pickOverlapTeardownUrl, rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
+import { selectTeardownTarget, rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
+import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 
 const STORE = "competitor-page-audit";
 const DEFAULT_TOP_N = 20;
@@ -426,36 +427,41 @@ async function saveAudits(audits: CompetitorPageAudit[]): Promise<void> {
  * top cited competitor), so the teardown aligns 1:1 with the EvidencePackets.
  * Cache-aware (skips a URL already audited "ok" unless `force`). Fail-soft per URL.
  */
-export async function auditTopCompetitorsForTenant(
-  args: { tenantId: string; limit?: number; force?: boolean },
-  deps: CompetitorAuditDeps = {},
-): Promise<{ audited: CompetitorPageAudit[]; targets: number; cached: number }> {
-  const limit = args.limit ?? DEFAULT_TOP_N;
-  const { graph } = await loadDemandGraphForTenant(args.tenantId);
+/** One planned teardown target = the single best competitor page for a move. */
+export type PlannedTeardownTarget = {
+  demandKey: string;
+  label: string;
+  url: string;
+  overlap: boolean;
+};
+
+/**
+ * THE single source of truth for "which competitor pages should we read" — shared by
+ * the crawler (`auditTopCompetitorsForTenant`) AND the /competitors read queue
+ * (`loadCompetitorIntel`). Both call this, so the queue shows EXACTLY the URLs the
+ * crawler reads (clicking "Read top N" flips those queue rows' badges). $0 — reads
+ * the demand graph + cached serp_verdict + the teardown cache only.
+ */
+export async function planTeardownTargetsForTenant(
+  tenantId: string,
+  opts: { limit?: number } = {},
+): Promise<{ targets: PlannedTeardownTarget[]; cache: Map<string, CompetitorPageAudit> }> {
+  const limit = opts.limit ?? DEFAULT_TOP_N;
+  const { graph } = await loadDemandGraphForTenant(tenantId);
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
 
   const cache = await getCompetitorAuditsForTenant();
   const cacheKey = (u: string) => canonicalizeCitationUrl(u) || u;
-  // Resolve "now" from deps (testable) for the teardown freshness check.
-  const nowMs = (() => {
-    const t = Date.parse((deps.now ?? (() => new Date().toISOString()))());
-    return Number.isFinite(t) ? t : Date.now();
-  })();
-  // A cached "ok" audit is fresh only within the TTL — past it we re-fetch so a
-  // competitor's content change is seen (closes the "teardown never refreshes" gap).
-  const isFresh = (a: CompetitorPageAudit): boolean => isTeardownFresh(a.auditedAt, nowMs);
-  // A competitor we've already fetched and FAILED on (blocks crawlers / 404 / non-
-  // HTML) — don't keep picking it as the move's teardown target when a fetchable
-  // rival sits one slot down in the citation list.
+  // A competitor we've already fetched and FAILED on (blocks crawlers / 404 / non-HTML)
+  // — don't keep picking it when a fetchable rival sits one slot down.
   const knownBad = (u: string) => {
     const a = cache.get(cacheKey(u));
     return Boolean(a && a.fetchStatus !== "ok");
   };
 
-  // Sprint 6: prefer Google+AI OVERLAP teardown targets. A competitor that BOTH
-  // ranks on Google (DataForSEO serp_verdict topDomains) AND is AI-cited is the
-  // single best page to reverse-engineer. $0 — reads the cached serp_verdict drafts.
-  const verdictDrafts = await getLatestMoveDrafts(args.tenantId).catch(() => new Map());
+  // Sprint 6: prefer Google+AI OVERLAP teardown targets — a competitor that BOTH ranks
+  // on Google (serp_verdict topDomains) AND is AI-cited is the single best page to read.
+  const verdictDrafts = await getLatestMoveDrafts(tenantId).catch(() => new Map());
   const serpDomainsByKey = new Map<string, string[]>();
   for (const m of actionable) {
     const d = verdictDrafts.get(`${m.demandKey}::serp_verdict`);
@@ -471,39 +477,54 @@ export async function auditTopCompetitorsForTenant(
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   })();
 
-  // Per move, pick the OVERLAP competitor when SERP data confirms it ranks on
-  // Google; else the first cited competitor that isn't a known failure (so a blocked
-  // top competitor falls through). Dedupe globally. Behavior is unchanged when no
-  // serp_verdict exists (falls back to the prior first-usable pick).
-  const urls: string[] = [];
+  const targets: PlannedTeardownTarget[] = [];
   const seen = new Set<string>();
   for (const m of actionable.slice(0, limit)) {
-    const overlapPick = pickOverlapTeardownUrl(
-      m.competitorUrls,
-      serpDomainsByKey.get(m.demandKey) ?? [],
+    const sel = selectTeardownTarget({
+      competitorUrls: m.competitorUrls,
+      serpTopDomains: serpDomainsByKey.get(m.demandKey) ?? [],
       ownDomain,
-      knownBad,
-    );
-    const pick = overlapPick?.url ?? m.competitorUrls.find((u) => u && !knownBad(u)) ?? m.competitorUrls[0];
-    if (!pick) continue;
-    const key = cacheKey(pick);
+      topic: m.label,
+      isRelevant: (topic, url) => competitorRelevance(topic, { url }).relevant,
+      isBad: knownBad,
+    });
+    if (!sel?.url) continue;
+    const key = cacheKey(sel.url);
     if (seen.has(key)) continue;
     seen.add(key);
-    urls.push(pick);
+    targets.push({ demandKey: m.demandKey, label: m.label, url: sel.url, overlap: sel.overlap });
   }
+  return { targets, cache };
+}
+
+export async function auditTopCompetitorsForTenant(
+  args: { tenantId: string; limit?: number; force?: boolean },
+  deps: CompetitorAuditDeps = {},
+): Promise<{ audited: CompetitorPageAudit[]; targets: number; cached: number }> {
+  const limit = args.limit ?? DEFAULT_TOP_N;
+  const { targets, cache } = await planTeardownTargetsForTenant(args.tenantId, { limit });
+
+  // Resolve "now" from deps (testable) for the teardown freshness check.
+  const nowMs = (() => {
+    const t = Date.parse((deps.now ?? (() => new Date().toISOString()))());
+    return Number.isFinite(t) ? t : Date.now();
+  })();
+  // A cached "ok" audit is fresh only within the TTL — past it we re-fetch so a
+  // competitor's content change is seen (closes the "teardown never refreshes" gap).
+  const isFresh = (a: CompetitorPageAudit): boolean => isTeardownFresh(a.auditedAt, nowMs);
 
   const out: CompetitorPageAudit[] = [];
   let cached = 0;
-  for (const url of urls) {
-    const key = canonicalizeCitationUrl(url) || url;
+  for (const t of targets) {
+    const key = canonicalizeCitationUrl(t.url) || t.url;
     const prior = cache.get(key);
     if (!args.force && prior && prior.fetchStatus === "ok" && isFresh(prior)) {
       cached += 1;
       out.push(prior);
       continue;
     }
-    out.push(await auditCompetitorPage(url, deps));
+    out.push(await auditCompetitorPage(t.url, deps));
   }
   await saveAudits(out);
-  return { audited: out, targets: urls.length, cached };
+  return { audited: out, targets: targets.length, cached };
 }

@@ -3,7 +3,11 @@ import { cache } from "react";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
-import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import {
+  getCompetitorAuditsForTenant,
+  planTeardownTargetsForTenant,
+  whatWins,
+} from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 import type { ActionPack } from "@/domains/action-pack/types";
@@ -201,45 +205,58 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
     .sort((a, b) => b.competitorPagesToBeat.length - a.competitorPagesToBeat.length);
 
   // ── Prioritized "read these first" queue ──
-  // Not the doom number: the 20 unread competitor pages that back the strongest moves.
-  // Priority tiers (operator spec): ready-to-ship move > high-demand worklist move >
-  // AI-cites-them-not-you > Google-buildable SERP > repeated citation domain.
-  const packById = new Map(packs.map((p) => [p.id, p]));
-  const readQueue: CompetitorReadItem[] = pages
-    .map((pg) => {
-      const linked = pg.actionPackIds
-        .map((id) => packById.get(id))
-        .filter((p): p is ActionPack => !!p)
-        .sort((a, b) => b.priorityScore - a.priorityScore);
-      const best = linked[0] ?? null;
-      const domCit = domMap.get(pg.domain)?.citations ?? 0;
-      const why: string[] = [];
-      let priority = best?.priorityScore ?? 0;
-      if (best?.draftStatus === "ready") { priority += 1000; why.push("a ready-to-ship move targets it"); }
-      if (best?.gscDemand) { priority += 300; why.push("backs a high-demand worklist move"); }
-      if (best?.profoundReceipt?.ownAbsent) { priority += 200; why.push("AI cites it, not you"); }
-      if (best?.dataforseoValidation?.verdict === "build") { priority += 150; why.push("Google SERP says buildable"); }
-      if (domCit > 1) { priority += domCit * 10; why.push(`${pg.domain} cited ${domCit}×`); }
-      priority += pg.actionPackIds.length * 5;
-      return {
-        url: pg.url,
-        domain: pg.domain,
-        prompt: pg.prompts[0] ?? null,
-        moveLabel: pg.actionPackLabel,
-        why: why.slice(0, 2).join("; ") || `linked to ${pg.actionPackIds.length} move${pg.actionPackIds.length === 1 ? "" : "s"}`,
-        teardownStatus: pg.teardownStatus,
-        whatWins: pg.whatWins,
-        priority,
-      };
-    })
-    // Unread first (the to-do), then by priority — read items keep their what-wins as
-    // the payoff so the queue shows progress, not just an endless backlog.
-    .sort((a, b) => {
-      const ua = a.teardownStatus === "read" ? 1 : 0;
-      const ub = b.teardownStatus === "read" ? 1 : 0;
-      return ua - ub || b.priority - a.priority;
-    })
-    .slice(0, 20);
+  // CRITICAL: planTeardownTargetsForTenant is the SAME function the crawler runs, over
+  // the SAME population (graph.moves), so the queue shows EXACTLY the URLs the crawler
+  // reads — clicking "Read top N" flips THESE rows' badges, not a hidden set of URLs.
+  const { targets: planned } = await planTeardownTargetsForTenant(tenantId, { limit: 20 }).catch(
+    () => ({ targets: [] as Awaited<ReturnType<typeof planTeardownTargetsForTenant>>["targets"] }),
+  );
+  // Recover a pack per target (for prompt / draft / demand "why") by URL membership.
+  const packByCompUrl = new Map<string, ActionPack>();
+  for (const p of packs) {
+    for (const u of p.competitorPagesToBeat) {
+      const k = canon(u);
+      if (!packByCompUrl.has(k)) packByCompUrl.set(k, p);
+    }
+  }
+  const readQueue: CompetitorReadItem[] = planned.map((t) => {
+    const key = canon(t.url);
+    const audit = auditByUrl.get(key);
+    const teardownStatus: CompetitorReadItem["teardownStatus"] = audit
+      ? audit.fetchStatus === "ok"
+        ? "read"
+        : "blocked"
+      : "not_read";
+    const wins = audit && audit.fetchStatus === "ok" ? whatWins(audit.facts as never) || null : null;
+    const dom = domainOf(t.url);
+    const domCit = domMap.get(dom)?.citations ?? 0;
+    const pk = packByCompUrl.get(key);
+    const why: string[] = [];
+    let priority = pk?.priorityScore ?? 0;
+    if (pk?.draftStatus === "ready") { priority += 1000; why.push("a ready-to-ship move targets it"); }
+    if (pk?.gscDemand) { priority += 300; why.push("backs a high-demand worklist move"); }
+    if (pk?.profoundReceipt?.ownAbsent) { priority += 200; why.push("AI cites it, not you"); }
+    if (t.overlap) { priority += 150; why.push("Google + AI both cite it"); }
+    if (domCit > 1) { priority += domCit * 10; why.push(`${dom} cited ${domCit}×`); }
+    return {
+      url: t.url,
+      domain: dom,
+      prompt: pk?.profoundReceipt?.topPrompt?.trim() || null,
+      moveLabel: pk?.label ?? t.label,
+      why: why.slice(0, 2).join("; ") || "backs a worklist move",
+      teardownStatus,
+      whatWins: wins,
+      priority,
+    };
+  });
+  // Unread first (the to-do), then by priority — read items keep their what-wins as the
+  // payoff so the queue shows progress, not just an endless backlog.
+  readQueue.sort((a, b) => {
+    const ua = a.teardownStatus === "read" ? 1 : 0;
+    const ub = b.teardownStatus === "read" ? 1 : 0;
+    return ua - ub || b.priority - a.priority;
+  });
+  const readQueueTop = readQueue.slice(0, 20);
 
   const notTornDown = pages.filter((pg) => pg.teardownStatus === "not_read").length;
   const needsSerpValidation = packs.filter(
@@ -256,7 +273,7 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
     },
     domains,
     pages,
-    readQueue,
+    readQueue: readQueueTop,
     actionPacks,
     gaps: { notTornDown, needsSerpValidation },
   };

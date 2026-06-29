@@ -97,3 +97,28 @@ export function pickOverlapTeardownUrl(
   if (overlap) return { url: overlap, overlap: true };
   return { url: usable[0], overlap: false };
 }
+
+/** How many competitor URLs both the audit crawler and the /competitors queue consider
+ *  per move — they MUST use the same window so they pick the same teardown target. */
+export const TEARDOWN_CANDIDATE_WINDOW = 5;
+
+/**
+ * THE shared teardown-target selector — used by BOTH the /competitors read queue and
+ * `auditTopCompetitorsForTenant`, so they never pick different URLs for the same move.
+ * Relevance-gates the candidates first (drops off-topic/noise like a sports headline on
+ * a names move), then picks the Google+AI overlap, else the first usable. PURE — the
+ * relevance check is injected to keep this module dependency-light + testable.
+ */
+export function selectTeardownTarget(input: {
+  competitorUrls: string[];
+  serpTopDomains: string[];
+  ownDomain: string;
+  topic: string;
+  isRelevant: (topic: string, url: string) => boolean;
+  isBad?: (u: string) => boolean;
+}): { url: string; overlap: boolean } | null {
+  const candidates = input.competitorUrls
+    .slice(0, TEARDOWN_CANDIDATE_WINDOW)
+    .filter((u) => u && input.isRelevant(input.topic, u));
+  return pickOverlapTeardownUrl(candidates, input.serpTopDomains, input.ownDomain, input.isBad);
+}

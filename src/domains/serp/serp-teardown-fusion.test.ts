@@ -67,3 +67,32 @@ describe("pickOverlapTeardownUrl", () => {
     expect(r).toBeNull();
   });
 });
+
+import { selectTeardownTarget, TEARDOWN_CANDIDATE_WINDOW } from "./serp-teardown-fusion";
+
+describe("selectTeardownTarget — shared queue/audit selector", () => {
+  const rel = (topic: string, url: string) => /name/.test(topic) ? /name/.test(url) : true;
+  it("relevance-filters before picking (drops off-topic candidates)", () => {
+    const r = selectTeardownTarget({
+      competitorUrls: ["https://news8000.com/sports/who-are-we-cheering", "https://parentcalc.com/baby-names/persian"],
+      serpTopDomains: [], ownDomain: "iranopedia.com", topic: "persian names", isRelevant: rel,
+    });
+    expect(r?.url).toBe("https://parentcalc.com/baby-names/persian");
+  });
+  it("prefers the Google+AI overlap among relevant candidates", () => {
+    const r = selectTeardownTarget({
+      competitorUrls: ["https://a.com/persian-names", "https://theknot.com/persian-names"],
+      serpTopDomains: ["theknot.com"], ownDomain: "x.com", topic: "persian names", isRelevant: () => true,
+    });
+    expect(r).toEqual({ url: "https://theknot.com/persian-names", overlap: true });
+  });
+  it("only considers the shared candidate window (queue == audit)", () => {
+    const many = Array.from({ length: 8 }, (_, i) => `https://c${i}.com/x`);
+    const r = selectTeardownTarget({ competitorUrls: many, serpTopDomains: [`c${TEARDOWN_CANDIDATE_WINDOW + 1}.com`], ownDomain: "o.com", topic: "t", isRelevant: () => true });
+    // the overlap URL is OUTSIDE the window → not picked; falls back to first in window
+    expect(r?.url).toBe("https://c0.com/x");
+  });
+  it("returns null when nothing relevant/usable", () => {
+    expect(selectTeardownTarget({ competitorUrls: ["https://x.com/sports"], serpTopDomains: [], ownDomain: "", topic: "persian names", isRelevant: rel })).toBeNull();
+  });
+});
