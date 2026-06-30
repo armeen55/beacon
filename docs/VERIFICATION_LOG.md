@@ -7,6 +7,48 @@
 
 ---
 
+## 2026-06-30 — Control Reservation lifecycle: contracts + atomic accept (PROVEN, MIGRATION GATE)
+
+**Persistence/atomicity decision (Phase 1):** the json-store is read-modify-write → it CANNOT give
+durable, cross-instance, all-or-none reservations on Vercel. Postgres can: a plpgsql function body is
+one transaction (all-or-none), the deterministic reservation id is the PK (idempotent re-accept), and
+the app calls it via the service-role client with an explicit `p_tenant` (the gsc_* RPC pattern). →
+**a migration is required; written, NOT applied (operator approval gate).**
+
+**Built this slice (all PURE / $0, no DB writes, no UI yet):**
+- `daily-plan-types.ts` — DailyExperimentPlanRecord + ControlReservationRecord + statuses +
+  failure-reason union + deterministic `stableHash`/`normalizePath`/`reservationId`.
+- `build-daily-plan-record.ts` — freezes a planner output into a reproducible, content-addressed
+  plan with frozen hashes; **assignCleanControls** drops any control that is a TREATED page in the
+  plan (a changed page is not a clean baseline) — shared baselines across experiments are allowed
+  (a control is a diff-in-diff baseline, not exclusive; reservation id is keyed by experiment).
+- `validate-plan-acceptance.ts` — re-validates a preview vs the CURRENT topology; all-or-none with
+  explicit reasons (tenant_mismatch / plan_expired / input_hash_changed / candidate_no_longer_eligible
+  / current_text_changed / control_unavailable / insufficient_controls / influenced_page_conflict).
+- `daily-experiment-dashboard.ts` — pure read model: active animal batch (10 measuring + 17 controls,
+  7-day checkpoint, reliable-data date) + protected-control warning + protected counts.
+- `migrations/2026-06-30_daily_experiment_plans_and_reservations.sql` — **NOT APPLIED**: two tables
+  (RLS-mirrored) + `accept_daily_experiment_plan(...)` plpgsql RPC (lock plan → re-assert invariants
+  → insert all reservations or abort → flip to accepted + write receipt into columns + jsonb;
+  idempotent re-accept returns existing reservations).
+- `scripts/daily-plan-dry-run.ts` — real Iranopedia acceptance dry-run.
+
+**Real dry-run (Phase 14, $0, zero writes):** plan `tenant-iranopedia::2026-06-30::a618fc59`, 8
+selected = 4 meta + 1 internal link + 3 answer blocks + 2 backups; active animal batch frozen in the
+snapshot (17 treated + 24 control paths + 17 proofIds); **would reserve 34 controls** (≥3 per
+experiment after dropping treated-page controls; shared flag-family baselines); acceptance validation
+**✓ would accept cleanly**; plan 2ms · validate 0ms. **A bug was caught + fixed in the dry-run:**
+selected treatments were appearing as controls for other experiments (contamination) → `assignCleanControls`
+now excludes them.
+
+Verified: tsc 0 · **149 tests** (experiments + proof; plan-build content-addressing + frozen hashes +
+treated-page-control exclusion, acceptance all-or-none + tenant/expiry/hash/control/influence
+rejections, dashboard active-batch + protected counts) · build PASS · 0 routes import the new modules
+(Today/Worklist perf unchanged). **No DB writes, no reservations, no proof rows, no Wix, no LLM, no
+paid calls. Migration NOT applied.**
+
+---
+
 ## 2026-06-30 — Safe Lever Library, slice 3: the Safe ANSWER-BLOCK lever → first DIVERSIFIED 8-item batch
 
 **The hardest lever (factual risk), so V1 is strictly EXTRACTIVE: MOVE an existing exact sentence.**
