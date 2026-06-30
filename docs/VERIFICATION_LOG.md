@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-06-30 — Daily Experiment Cycle: scientific core LANDED ON MAIN + native candidate builder/preview
+
+**Phase 0 — landed the scientific core to main.** The eligibility/control-contamination model +
+deterministic planner were on `claude/keyword-universe-producer` (atop the unmerged keyword-universe
+work). Per "land only the intended commits, don't merge the stale branch," cherry-picked the **2
+self-contained code commits** onto a fresh branch off `origin/main` (`9ca97edc` eligibility+guard,
+`76474353` planner) — clean (no conflict; they touch new files + run-measurement/load-ledger which
+keyword-universe never touched), tsc 0 · 79 tests · build PASS — and **fast-forward pushed to main**
+(`ed139287..76474353`, deployed). The docs commit was NOT cherry-picked (keyword-universe doc
+context conflict); fresh docs here instead.
+
+**Native candidate builder + preview (Phases 3/5/11)** on `claude/daily-experiments-native`
+(`6da58d03`→`d299d353`): `build-daily-candidates.ts` (PURE) turns cached GSC + page facts + proof
+ledger into eligible, exact, one-variable candidates with same-family control selection;
+`scripts/daily-experiments-preview.ts` runs the engine end-to-end (read-only, $0, no proof rows).
+**The first preview exposed degenerate proposals** ("Mongol Empire Flag (1219–1335)" → "Genghis Khan
+Flag", "Top 20 Most Famous Iranian Directors" → "Iranian Directors", "Safavid Lion and Sun Flag" →
+"Lion And Sun Flag") — fixed: the only safe DETERMINISTIC change is dropping a filler lead
+("Meet the X" → "X") or filling a MISSING meta; a regression test blocks synonym-replacement.
+
+**Honest finding:** the native preview RUNS and **correctly protects the 10 active animal treatments
++ 17 controls** (none appear), but with conservative deterministic levers the **non-animal next-batch
+is THIN** (~0–1 candidates) — those pages are already well-titled; the easy "Meet the" template wins
+were the animals (now the active batch). A real daily-8 from optimized pages needs **deeper levers**:
+synonym-capture title parentheticals (ADD "(Genghis Khan Flag)", never replace), answer blocks for
+question-ranking pages, SERP-informed meta. tsc 0 · **29 experiments tests** (incl. degenerate-
+proposal regression) · build PASS. **DEFERRED:** control reservation model (Phase 2), read model (6),
+UI + accept-plan (7–10), deeper levers. No Wix, no proof rows, no paid calls.
+
+---
+
 ## 2026-06-30 — Today `/` made fast by DEDUP (no Today cache needed)
 
 **Measure-first (Phase 0/1).** Mapped `/`: `Cockpit` awaits `loadTodayV2GateData` (gate) +
