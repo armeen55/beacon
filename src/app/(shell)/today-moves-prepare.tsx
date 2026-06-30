@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { prepareTopMovesAction, regenerateTopDraftsFromTeardownAction } from "./today-moves-actions";
+import { prepareTopMovesAction, regenerateTopDraftsFromTeardownAction, enrichTopResearchPacksAction } from "./today-moves-actions";
 
 /**
  * PrepareTopMovesButton (2026-06-25, P5) — "prepared, not chores" for Today Moves.
@@ -55,6 +55,70 @@ export function PrepareTopMovesButton({ readyCount, total }: { readyCount: numbe
         )}
       </button>
       {msg ? <span className="text-[11px] text-gray-500">{msg}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * EnrichResearchButton (2026-06-29) — the operator-triggered DataForSEO PRODUCER for the
+ * top-5 PageResearchPack cards. DRY-RUN by default: shows the exact spend estimate +
+ * missing terms, makes NO paid call. Live (DATAFORSEO_DRY_RUN=false) fetches the missing
+ * keyword volume + SERP winner-title patterns through the shared capped/cached gauntlet.
+ * Never runs on render. No env flip from the UI.
+ */
+export function EnrichResearchButton() {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<string | null>(null);
+
+  function run() {
+    setMsg(null);
+    start(async () => {
+      try {
+        const r = await enrichTopResearchPacksAction({ topN: 5 });
+        if (r.status === "off") {
+          setMsg("Operator only.");
+          return;
+        }
+        if (r.status === "error") {
+          setMsg(`Failed: ${r.reason}`);
+          return;
+        }
+        const { result } = r;
+        const p = result.plan;
+        if (result.mode === "dry_run") {
+          setMsg(
+            `Dry-run: ~$${p.estUsd.toFixed(3)} to enrich — ${p.volumeMissing.length} keyword(s) → ${p.volumeCalls} volume call, ${p.serpMissing.length} SERP. ${p.volumeCached.length} kw + ${p.serpCached.length} SERP already cached.${result.configured ? " Set DATAFORSEO_DRY_RUN=false to fetch." : " (DataForSEO not configured.)"}`,
+          );
+        } else {
+          setMsg(`Enriched: ${result.patternsWritten} SERP pattern(s) · volume ${result.volumeStatus ?? "—"} · spent $${result.spentUsd.toFixed(3)}.`);
+          router.refresh();
+        }
+      } catch {
+        setMsg("Enrich failed — try again.");
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={run}
+        disabled={pending}
+        title="Fetch the missing DataForSEO keyword volume + SERP winner-title/format patterns for the top 5 research packs. DRY-RUN by default (shows the spend estimate, makes no call); live only when DATAFORSEO_DRY_RUN=false. Cached + capped; never runs on page load."
+        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-60"
+      >
+        {pending ? (
+          <>
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-600" />
+            Enriching…
+          </>
+        ) : (
+          <>✦ Enrich research packs</>
+        )}
+      </button>
+      {msg ? <span className="max-w-xs text-right text-[11px] text-gray-500">{msg}</span> : null}
     </div>
   );
 }

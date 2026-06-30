@@ -46,6 +46,43 @@ export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promi
   }
 }
 
+export type EnrichResearchResult =
+  | { status: "off" }
+  | { status: "error"; reason: string }
+  | { status: "ok"; result: import("@/domains/serp/research-enrichment-producer").EnrichmentRunResult };
+
+/**
+ * enrichTopResearchPacksAction (2026-06-29) — the operator-triggered DataForSEO PRODUCER
+ * for the top-N PageResearchPack cards. DRY-RUN DEFAULT: reports the plan + exact spend
+ * estimate and makes ZERO paid calls. Live (only when DATAFORSEO_DRY_RUN=false) fetches
+ * the MISSING keyword volume + SERP winner-title/format patterns through the shared
+ * capped + 14d-cached + ledgered gauntlet and caches them for the research module to read.
+ * NEVER runs on the render path. NO Wix, NO proof mutation, NO env flip by me.
+ */
+export async function enrichTopResearchPacksAction(opts: { topN?: number } = {}): Promise<EnrichResearchResult> {
+  if (!(await isOperatorModeServer())) return { status: "off" };
+  const topN = opts.topN ?? 5;
+  try {
+    const { buildTodayMovesData } = await import("./today-moves-data");
+    const { enrichResearchPacks } = await import("@/domains/serp/research-enrichment-producer");
+    const data = await buildTodayMovesData(await currentTenantId(), { limit: topN });
+    const packs = data.moves
+      .filter((m) => m.researchPack)
+      .slice(0, topN)
+      .map((m) => ({
+        url: m.targetUrl,
+        primaryIntent: m.researchPack!.primaryIntent,
+        own: m.researchPack!.own,
+        sibling: m.researchPack!.sibling,
+      }));
+    const result = await enrichResearchPacks(packs);
+    if (result.mode === "live" && result.patternsWritten > 0) revalidatePath("/worklist");
+    return { status: "ok", result };
+  } catch (e) {
+    return { status: "error", reason: e instanceof Error ? e.message.slice(0, 140) : "enrich failed" };
+  }
+}
+
 /**
  * sharpenMovesWithTeardownAction (2026-06-25) — bring the core "reverse-engineer
  * the winner" IP into the cockpit. Runs the deterministic competitor teardown

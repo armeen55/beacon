@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { loadMovesWorklist } from "../moves/moves-data";
 import { TodayNewPagesSection } from "../today-newpages-section";
 import { MovesWorklistClient } from "../moves/moves-worklist-client";
-import { PrepareTopMovesButton, RegenerateFromTeardownButton } from "../today-moves-prepare";
+import { PrepareTopMovesButton, RegenerateFromTeardownButton, EnrichResearchButton } from "../today-moves-prepare";
 
 /**
  * /worklist (2026-06-28 — route consolidation) — THE canonical Rank-&-Revenue
@@ -66,6 +66,7 @@ async function Worklist() {
         </p>
         <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-start">
           <RegenerateFromTeardownButton />
+          <EnrichResearchButton />
           <PrepareTopMovesButton readyCount={stats.preparedReady ?? 0} total={moves.length} />
         </div>
       </div>

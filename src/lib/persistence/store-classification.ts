@@ -88,6 +88,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // 2026-06-24 Rank-&-Revenue Step 3 — deterministic teardown of the competitor
   // pages AI cites instead of the tenant (structure/schema/links/word-count/etc.).
   "competitor-page-audit",
+  // 2026-06-29 PageResearchPack DataForSEO producer — per-tenant cache of the SERP
+  // "what wins" pattern (format/title/winning-domains) per query, populated by the
+  // operator-triggered enrichResearchPacks; read by the research module on the card.
+  "research-serp-patterns",
   // 2026-06-09 §competitor-intel — structural changes detected when a
   // fresh competitor-page fetch differs from the stored snapshot
   // (FAQ added, new sections, retitle, meta added). Written by

@@ -368,6 +368,12 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                 ~{rp.addressableVolume >= 1000 ? `${(rp.addressableVolume / 1000).toFixed(1).replace(/\.0$/, "")}k` : rp.addressableVolume} searches/mo <span className="text-violet-500">(DataForSEO)</span>
               </p>
             ) : null}
+            {rp.serpPattern ? (
+              <p className="mt-1 text-[11px] text-violet-800">
+                <span className="font-semibold">SERP rewards:</span> {rp.serpPattern.format} — {rp.serpPattern.elementImplication}
+                {rp.serpPattern.winningDomains.length ? <span className="text-violet-500"> · winners: {rp.serpPattern.winningDomains.join(", ")}</span> : null}
+              </p>
+            ) : null}
             {rp.own.length ? (
               <p className="mt-1 text-xs text-violet-900"><span className="font-semibold">Own:</span> {rp.own.join(", ")}</p>
             ) : null}

@@ -7,6 +7,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
 import { buildPageResearchPack, addressableVolume } from "@/domains/demand-graph/page-research-pack";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { competitorRelevance, internalLinkRelevance } from "@/domains/evidence/relevance-gate";
@@ -185,6 +186,8 @@ export type TodayMove = {
     primaryIntent: string | null;
     /** Cached DataForSEO/keyword volume summed over the owned keywords (null if uncached). */
     addressableVolume: number | null;
+    /** Cached SERP "what wins" pattern for the primary intent (null until enriched). */
+    serpPattern: { format: string; titlePattern: string; elementImplication: string; winningDomains: string[] } | null;
     own: string[];
     sibling: string[];
     primaryLever: { lever: string; reason: string } | null;
@@ -635,7 +638,7 @@ export async function buildTodayMovesData(
     const limit = opts.limit ?? 6;
     const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
     const poolUrls = pool.map((m) => m.targetUrl);
-    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues, cachedKeywords] = await Promise.all([
+    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues, cachedKeywords, cachedSerpPatterns] = await Promise.all([
       withTimeout(loadTopQueriesForPages(tenantId, poolUrls), 5000, new Map<string, PageQuery[]>()),
       withTimeout(loadQueryDeclinesForPages(tenantId, poolUrls), 6000, new Map<string, QueryDecline[]>()),
       withTimeout(loadGscCannibalizationForTenant(tenantId), 6000, [] as GscCannibalizationCase[]),
@@ -644,6 +647,8 @@ export async function buildTodayMovesData(
       // Cached DataForSEO keyword volume ONLY — a $0 cache read, no live call (the paid
       // population is the operator-gated producer behind DATAFORSEO_DRY_RUN). Fail-soft.
       withTimeout(readAllCachedKeywordDemand().catch(() => []), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
+      // Cached SERP "what wins" patterns (also $0, producer-populated) → query → pattern.
+      withTimeout(readCachedSerpPatterns().catch(() => new Map()), 4000, new Map() as Awaited<ReturnType<typeof readCachedSerpPatterns>>),
     ]);
     // keyword (lowercased) → cached search volume, for the research pack's addressable demand.
     const volumeByKeyword = new Map<string, number | null>();
@@ -827,6 +832,12 @@ export async function buildTodayMovesData(
           // Real (cached) DataForSEO/keyword volume this page should own — null when none
           // of the owned keywords are in the cache yet (the paid producer populates it).
           addressableVolume: addressableVolume(pack.clusters.own, volumeByKeyword),
+          // Cached SERP "what wins" pattern for the primary intent (producer-populated, $0
+          // to read) — null until enriched. A compact projection (format + element + winners).
+          serpPattern: (() => {
+            const sp = pack.primaryIntent ? cachedSerpPatterns.get(pack.primaryIntent.toLowerCase()) : null;
+            return sp ? { format: sp.format, titlePattern: sp.titlePattern, elementImplication: sp.elementImplication, winningDomains: sp.winningDomains.slice(0, 3) } : null;
+          })(),
           own: pack.clusters.own.filter((k) => !siblingLc.has(k.toLowerCase())).slice(0, 6),
           sibling: sibling.slice(0, 4),
           primaryLever: primaryLever ? { lever: primaryLever.lever, reason: primaryLever.reason } : null,
