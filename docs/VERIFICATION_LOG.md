@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-29 — P7: competitor persistence + junk-gating (VERIFY-FIRST → already built)
+
+Traced both P7 concerns; neither needs new code (no migration, no pause):
+- **Persistence is durable, NOT ephemeral.** `competitor-page-audit` is a tenant-scoped
+  store WITH an applied Supabase migration (`migrations/2026-06-24_competitor_page_audit.sql`).
+  The local `.data/.../competitor-page-audit.json` (69KB, 45 rows) is the dual-write copy.
+  The Competitors "0 read" is a DATA state (`pagesTornDown` counts only `fetchStatus:"ok"`
+  rows; the teardown crawl hasn't been run for this tenant state), not a lost cache.
+- **Off-topic competitor pages are already gated.** `competitorRelevance` filters the
+  "pages to beat" (`load-competitor-intel.ts:18`) AND `selectTeardownTarget`
+  (`serp-teardown-fusion.ts`) filters candidate URLs by `isRelevant` before selection — so
+  an off-topic URL never enters the read-queue or the crawler plan; if none are relevant,
+  the target is skipped. `teardownStatus`: `read` (fetch ok) / `blocked` (fetch failed —
+  labeled correctly, not "not read") / `not_read` (un-attempted). Relevance-gate: 17 tests
+  green. (A sports/jersey page only appears for a move whose topic IS jerseys — correct,
+  not junk.) NO code shipped for P7 — verify-first confirms it's already correct.
+
+---
+
 ## 2026-06-29 — P6: compounding-edit warning + next-checkpoint date
 
 Most of P6 was already built (verified in code): the measuring-hold suppresses moves on a
