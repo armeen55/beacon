@@ -797,10 +797,23 @@ export async function buildTodayMovesData(
           proof: { measuringFamilies, lostFamilies },
         });
         const primaryLever = pack.levers.find((l) => l.primary) ?? null;
+        // The cannibalization detector ALREADY proved these queries compete with another
+        // OWNED page — they are cross-link siblings by definition (token overlap can miss
+        // it: "girl" vs a "persian female first names" page). Merge them into the sibling
+        // cluster so the card shows "cross-link, don't merge" AND the old "fold" copy is
+        // suppressed (the boy↔girl-names contradiction). Drop them from `own` to avoid
+        // double-listing.
+        // ...EXCEPT this page's own primary intent: if the cannibalized query IS what this
+        // page should own (its top query), it stays in `own` (advice = reclaim/differentiate,
+        // NOT cross-link away). Only queries a SIBLING rightfully owns become cross-link.
+        const primaryLc = (pack.primaryIntent ?? "").toLowerCase();
+        const cannibalQueries = m.cannibalization.map((c) => c.query).filter((q) => q.toLowerCase() !== primaryLc);
+        const sibling = [...new Set([...pack.clusters.internal_link, ...cannibalQueries])];
+        const siblingLc = new Set(sibling.map((s) => s.toLowerCase()));
         m.researchPack = {
           primaryIntent: pack.primaryIntent,
-          own: pack.clusters.own.slice(0, 6),
-          sibling: pack.clusters.internal_link.slice(0, 4),
+          own: pack.clusters.own.filter((k) => !siblingLc.has(k.toLowerCase())).slice(0, 6),
+          sibling: sibling.slice(0, 4),
           primaryLever: primaryLever ? { lever: primaryLever.lever, reason: primaryLever.reason } : null,
           blockedLevers: pack.levers.filter((l) => l.blocked).map((l) => ({ lever: l.lever, reason: l.reason })),
           elements: pack.keywords
