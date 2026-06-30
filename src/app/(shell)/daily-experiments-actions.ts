@@ -15,8 +15,19 @@ import { buildTodayExperimentPreview } from "@/domains/experiments/build-today-p
 import { validatePlanAcceptance, type AcceptanceContext } from "@/domains/experiments/validate-plan-acceptance";
 import { reservationId, normalizePath, type DailyExperimentPlanRecord } from "@/domains/experiments/daily-plan-types";
 import {
-  createPreviewPlan, getPlan, expirePlans, abandonPreviewPlan, acceptPlanViaRpc, listActiveReservations, type AcceptResult,
+  createPreviewPlan, getPlan, expirePlans, abandonPreviewPlan, acceptPlanViaRpc, listActiveReservations,
+  activateItemViaRpc, skipItemViaRpc, updateItemExecution, completePlan, listReservationsForPlan, type AcceptResult,
 } from "@/domains/experiments/daily-experiment-plan-store";
+import { recordShippedChange } from "@/domains/proof-gsc/run-measurement";
+import { recordToRow, markRecrawlRequestedById } from "@/domains/proof-gsc/shipped-change-store";
+import { verifyExperimentLive } from "@/domains/experiments/live-verification";
+import { buildExecutionChecklist } from "@/domains/experiments/execution-checklist";
+import {
+  itemStatus, isActiveStatus, transitionReceipt, LEVER_TO_ACTION_TYPE, type LiveVerificationResult,
+} from "@/domains/experiments/execution-state";
+
+/** The proof engine's diff-in-diff floor (a control set below this can't be measured honestly). */
+const PROOF_MIN_CONTROLS = 2;
 
 const RESERVE_DAYS = 28 + GSC_LAG_DAYS;
 
@@ -125,5 +136,233 @@ export async function abandonPreviewPlanAction(input: { planId: string }): Promi
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "abandon failed" };
+  }
+}
+
+// ── Post-acceptance execution (apply → verify live → atomic activation → GSC) ──────────────────────
+
+export type AppliedActionResult =
+  | { ok: false; reason: string; verification?: LiveVerificationResult; detail?: string }
+  | { ok: true; idempotent: boolean; status: "active"; proofId: string; reservationCount: number; verification?: LiveVerificationResult };
+
+/**
+ * Operator clicked "Applied in Wix" for ONE accepted item. Beacon: marks verification_pending →
+ * DETERMINISTICALLY verifies the change is LIVE (lever-specific) → on success re-checks controls vs
+ * the current topology, builds the proof record (GSC baseline + windows), and atomically activates
+ * (proof row + reservations active + item status) via the RPC. No proof / no reservation activation
+ * before live verification. Idempotent. Tenant from server context.
+ */
+export async function markDailyExperimentAppliedAction(input: { planId: string; experimentId: string; idempotencyKey: string }): Promise<AppliedActionResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const tenantId = await currentTenantId();
+    const now = new Date();
+    const plan = await getPlan(tenantId, input.planId);
+    if (!plan) return { ok: false, reason: "plan_not_found" };
+    if (plan.status !== "accepted") return { ok: false, reason: `plan_${plan.status}` };
+    const exp = plan.selected.find((e) => e.id === input.experimentId);
+    if (!exp) return { ok: false, reason: "item_not_found" };
+
+    const current = itemStatus(plan.execution, input.experimentId);
+    if (isActiveStatus(current)) {
+      return { ok: true, idempotent: true, status: "active", proofId: plan.execution?.items?.[input.experimentId]?.proofId ?? "", reservationCount: 0 };
+    }
+    if (current === "skipped") return { ok: false, reason: "item_skipped" };
+
+    // Crash-recovery marker (the UI shows the spinner via useTransition). Never downgrade an item the
+    // DB already shows as active (a stale RMW must not clobber a live activation).
+    await updateItemExecution(tenantId, input.planId, input.experimentId, (prev) => {
+      if (prev && isActiveStatus(prev.status)) return prev;
+      return {
+        experimentId: input.experimentId,
+        status: "verification_pending",
+        receipts: [...(prev?.receipts ?? []), transitionReceipt(prev?.status ?? "ready_to_apply", "verification_pending", now.toISOString(), "operator", { idempotencyKey: input.idempotencyKey })],
+        proofId: prev?.proofId,
+      };
+    });
+
+    // DETERMINISTIC live verification (no LLM).
+    const verification = await verifyExperimentLive(exp);
+    if (!verification.verified) {
+      await markFailed(tenantId, input.planId, input.experimentId, verification, verification.reason);
+      return { ok: false, reason: "verification_failed", verification };
+    }
+
+    // Re-check controls vs the CURRENT topology — FAIL-CLOSED on a ledger read error (a scientific
+    // gate must not silently degrade to "no active experiments"). Exclude any control now treated /
+    // controlled elsewhere, in the ledger OR in live reservations (treated pages of other experiments).
+    let ledger;
+    try {
+      ledger = await loadProofLedger(tenantId);
+    } catch {
+      await markFailed(tenantId, input.planId, input.experimentId, verification, "topology_unavailable");
+      return { ok: false, reason: "topology_unavailable", detail: "couldn't read the experiment ledger — retry", verification };
+    }
+    const states = deriveExperimentStates(ledger, now);
+    const activeTreated = new Set<string>();
+    const activeControl = new Set<string>();
+    for (const [p, st] of states) {
+      if (st.activeTreatments.length) activeTreated.add(normalizePath(p));
+      if (st.activeControlAssignments.length) activeControl.add(normalizePath(p));
+    }
+    for (const r of await listActiveReservations(tenantId)) {
+      activeTreated.add(normalizePath(r.treatedUrl)); // a treated page of any active experiment is never a clean control
+    }
+    const cleanControls = exp.controls
+      .filter((c) => { const p = normalizePath(c.controlPath || c.controlUrl); return !activeTreated.has(p) && !activeControl.has(p); })
+      .map((c) => c.controlUrl);
+    if (cleanControls.length < PROOF_MIN_CONTROLS) {
+      await markFailed(tenantId, input.planId, input.experimentId, verification, "insufficient_controls");
+      return { ok: false, reason: "insufficient_controls", detail: `${cleanControls.length} clean control(s), need ${PROOF_MIN_CONTROLS}`, verification };
+    }
+
+    // Build the proof record (GSC baseline + windows). Does NOT persist — the RPC inserts it atomically.
+    const measured = await recordShippedChange({
+      tenantId,
+      page: exp.canonicalUrl || exp.url,
+      path: normalizePath(exp.url),
+      actionType: LEVER_TO_ACTION_TYPE[exp.lever],
+      before: exp.currentText || null,
+      after: exp.proposedText || null,
+      targetQueries: exp.targetQuery ? [exp.targetQuery] : [],
+      controlPages: cleanControls,
+      shippedAt: now.toISOString(),
+      verifiedLive: true,
+      liveSourceUrl: exp.canonicalUrl || exp.url,
+      notes: `Daily experiment (${exp.lever}) — verified live: ${verification.receipt.method}`,
+      now,
+    });
+    // Disambiguate the proof id per lever so a daily-experiment proof can NEVER collide with the
+    // manual/auto recorders or another lever on the same page+day (id = `${path}::${date}::${lever}`).
+    const record = { ...measured, id: `${measured.id}::${exp.lever}` };
+    const proofRow = recordToRow(tenantId, record) as unknown as Record<string, unknown>;
+
+    const res = await activateItemViaRpc({
+      tenantId, planId: input.planId, experimentId: input.experimentId,
+      verificationReceipt: verification.receipt as unknown as Record<string, unknown>,
+      proofRow, idempotencyKey: input.idempotencyKey,
+    });
+    if (!res.ok) {
+      await markFailed(tenantId, input.planId, input.experimentId, verification, res.reason);
+      return { ok: false, reason: res.reason, verification };
+    }
+    revalidatePath("/worklist");
+    revalidatePath("/");
+    revalidatePath("/proof");
+    return { ok: true, idempotent: res.idempotent, status: "active", proofId: res.proofId, reservationCount: res.reservationIds.length, verification };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 200) : "apply failed" };
+  }
+}
+
+/** Persist a verification_failed marker (no proof, no reservation activation). */
+async function markFailed(tenantId: string, planId: string, experimentId: string, verification: LiveVerificationResult, reason: string): Promise<void> {
+  await updateItemExecution(tenantId, planId, experimentId, (prev) => {
+    // NEVER downgrade an already-active/terminal item — a live, measuring proof must not be shown failed.
+    if (prev && (isActiveStatus(prev.status) || prev.status === "skipped" || prev.status === "rolled_back")) return prev;
+    return {
+      experimentId,
+      status: "verification_failed",
+      receipts: [...(prev?.receipts ?? []), transitionReceipt(prev?.status ?? "verification_pending", "verification_failed", new Date().toISOString(), "beacon", { reason })],
+      verification,
+      proofId: prev?.proofId,
+    };
+  }).catch((e) => {
+    // The failure reason is already returned to the operator; surface the marker-write failure so a
+    // stranded verification_pending is observable rather than silent.
+    console.error("[daily-experiments] markFailed marker write failed (item may be stuck verification_pending)", { planId, experimentId, reason, error: e instanceof Error ? e.message : String(e) });
+  });
+}
+
+/** Auto-close an accepted plan once every non-skipped item is submitted to Google (or all skipped). */
+async function maybeCompletePlan(tenantId: string, planId: string): Promise<void> {
+  try {
+    const plan = await getPlan(tenantId, planId);
+    if (!plan || plan.status !== "accepted") return;
+    const reservations = await listReservationsForPlan(tenantId, planId).catch(() => []);
+    const { summary } = buildExecutionChecklist(plan, reservations);
+    const actionable = summary.accepted - summary.skipped;
+    if (summary.left === 0 && (actionable === 0 || summary.submitted >= actionable)) {
+      await completePlan(tenantId, planId, new Date());
+    }
+  } catch {
+    /* completion is best-effort; it must never block or fail the primary action */
+  }
+}
+
+export type GscSubmitResult = { ok: boolean; reason?: string };
+
+/**
+ * Operator confirms they submitted the URL in Google Search Console. Stamps the canonical
+ * recrawl-requested marker on the proof row + advances the item to gsc_submitted. No automatic GSC
+ * call is claimed — this records operator-confirmed submission only. Item must be active.
+ */
+export async function confirmGscSubmissionAction(input: { planId: string; experimentId: string; submittedAt?: string }): Promise<GscSubmitResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const tenantId = await currentTenantId();
+    const plan = await getPlan(tenantId, input.planId);
+    if (!plan) return { ok: false, reason: "plan_not_found" };
+    const item = plan.execution?.items?.[input.experimentId];
+    if (!item || !isActiveStatus(item.status)) return { ok: false, reason: "item_not_active" };
+    const submittedAt = input.submittedAt ?? new Date().toISOString();
+
+    // Canonical recrawl-requested marker on the proof row, targeted + tenant-explicit (no Google call).
+    if (item.proofId) await markRecrawlRequestedById(tenantId, item.proofId, submittedAt);
+    await updateItemExecution(tenantId, input.planId, input.experimentId, (prev) => {
+      if (!prev || !isActiveStatus(prev.status)) return prev ?? { experimentId: input.experimentId, status: "active", receipts: [] };
+      return {
+        ...prev,
+        experimentId: input.experimentId,
+        status: "gsc_submitted",
+        receipts: [...(prev.receipts ?? []), transitionReceipt(prev.status, "gsc_submitted", submittedAt, "operator")],
+        gscSubmittedAt: submittedAt,
+      };
+    });
+    await maybeCompletePlan(tenantId, input.planId);
+    revalidatePath("/worklist");
+    revalidatePath("/proof");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "gsc submit failed" };
+  }
+}
+
+export type SkipItemActionResult = { ok: boolean; reason?: string; releasedCount?: number };
+
+/** Operator skips ONE accepted item before applying it — atomically releases only its controls. */
+export async function skipDailyExperimentItemAction(input: { planId: string; experimentId: string; reason?: string; idempotencyKey: string }): Promise<SkipItemActionResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const tenantId = await currentTenantId();
+    const plan = await getPlan(tenantId, input.planId);
+    if (!plan) return { ok: false, reason: "plan_not_found" };
+    if (plan.status !== "accepted") return { ok: false, reason: `plan_${plan.status}` };
+    const res = await skipItemViaRpc({ tenantId, planId: input.planId, experimentId: input.experimentId, reason: input.reason ?? "operator_skip", idempotencyKey: input.idempotencyKey });
+    if (!res.ok) return { ok: false, reason: res.reason };
+    await maybeCompletePlan(tenantId, input.planId);
+    revalidatePath("/worklist");
+    revalidatePath("/proof");
+    revalidatePath("/");
+    return { ok: true, releasedCount: res.releasedIds.length };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "skip failed" };
+  }
+}
+
+export type CompletePlanResult = { ok: boolean; reason?: string };
+
+/** Operator explicitly closes today's accepted batch (frees tomorrow's plan surface). */
+export async function completeDailyPlanAction(input: { planId: string }): Promise<CompletePlanResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  try {
+    const tenantId = await currentTenantId();
+    const done = await completePlan(tenantId, input.planId, new Date());
+    revalidatePath("/worklist");
+    revalidatePath("/");
+    return done ? { ok: true } : { ok: false, reason: "not_accepted_or_not_found" };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "complete failed" };
   }
 }

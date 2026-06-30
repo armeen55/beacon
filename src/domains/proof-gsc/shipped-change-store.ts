@@ -285,6 +285,31 @@ async function upsertFile(record: ShippedChangeRecord): Promise<void> {
   await writeFile(next);
 }
 
+/**
+ * Stamp recrawl_requested_at on ONE proof row via a targeted, tenant-EXPLICIT update (no
+ * load-all/upsert-all, no ambient-tenant double-source). Operator-attested GSC submission marker —
+ * does NOT call Google. Fail-soft on a missing table (pre-migration); throws on a real DB error.
+ */
+export async function markRecrawlRequestedById(tenantId: string, id: string, atIso: string): Promise<void> {
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    const rows = await readFile();
+    const rec = rows.find((r) => r.id === id);
+    if (rec) await upsertFile({ ...rec, recrawlRequestedAt: atIso, updatedAt: new Date().toISOString() });
+    return;
+  }
+  const { error } = await admin
+    .from(TABLE)
+    .update({ recrawl_requested_at: atIso, updated_at: new Date().toISOString() })
+    .eq("tenant_id", tenantId)
+    .eq("id", id);
+  if (error != null && !isUndefinedTableError(error)) {
+    throw new Error(`shipped-change-store: markRecrawlRequestedById failed for ${id}: ${error.message ?? String(error)}`);
+  }
+}
+
 async function mirrorFile(record: ShippedChangeRecord): Promise<void> {
   try {
     await upsertFile(record);

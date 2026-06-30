@@ -15,6 +15,7 @@ import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supaba
 import {
   type DailyExperimentPlanRecord, type ControlReservationRecord, type PlanAcceptanceFailureReason,
 } from "./daily-plan-types";
+import type { ItemExecutionRecord, PlanExecutionState } from "./execution-state";
 
 const PLANS = "daily_experiment_plans";
 const RESERVATIONS = "control_reservations";
@@ -82,6 +83,26 @@ export async function expirePlans(tenantId: string, now: Date): Promise<number> 
   return data?.length ?? 0;
 }
 
+/**
+ * Close an ACCEPTED plan (operator finished applying today's batch) so the next day's plan surface
+ * frees up. Guarded accepted→completed; proof rows keep measuring independently. Single atomic UPDATE.
+ */
+export async function completePlan(tenantId: string, planId: string, now: Date): Promise<boolean> {
+  if (!isSupabaseConfigured()) throw new Error("daily-plan-store: Supabase not configured — cannot complete plan.");
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin.from(PLANS).select("plan").eq("tenant_id", tenantId).eq("id", planId).maybeSingle();
+  if (error) throw new Error(`daily-plan-store: completePlan read failed for ${planId}: ${error.message}`);
+  const plan = parsePlanRow(data);
+  if (!plan || plan.status !== "accepted") return false;
+  const completedAt = now.toISOString();
+  const updated: DailyExperimentPlanRecord = { ...plan, status: "completed", completedAt };
+  const { data: rows, error: wErr } = await admin.from(PLANS)
+    .update({ status: "completed", completed_at: completedAt, plan: updated })
+    .eq("tenant_id", tenantId).eq("id", planId).eq("status", "accepted").select("id");
+  if (wErr) throw new Error(`daily-plan-store: completePlan failed for ${planId}: ${wErr.message}`);
+  return (rows?.length ?? 0) > 0;
+}
+
 /** Abandon a PREVIEW plan (single atomic UPDATE; no reservations exist for a preview). */
 export async function abandonPreviewPlan(tenantId: string, planId: string, now: Date): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error("daily-plan-store: Supabase not configured.");
@@ -136,4 +157,84 @@ export async function listActiveReservations(tenantId: string, planId?: string):
   const { data, error } = await q;
   if (error) { console.warn(`[daily-plan-store] listActiveReservations: ${error.message}`); return []; }
   return (data ?? []).map((r) => parseReservationRow(r as Record<string, unknown>));
+}
+
+/** ALL reservations (any status) for one plan — for the execution read model. Fail-soft. */
+export async function listReservationsForPlan(tenantId: string, planId: string): Promise<ControlReservationRecord[]> {
+  if (!isSupabaseConfigured()) return [];
+  const { data, error } = await getSupabaseAdmin().from(RESERVATIONS).select("*").eq("tenant_id", tenantId).eq("plan_id", planId);
+  if (error) { console.warn(`[daily-plan-store] listReservationsForPlan: ${error.message}`); return []; }
+  return (data ?? []).map((r) => parseReservationRow(r as Record<string, unknown>));
+}
+
+export type ActivateResult =
+  | { ok: true; idempotent: boolean; proofId: string; reservationIds: string[] }
+  | { ok: false; reason: string };
+
+/**
+ * ATOMIC item activation via the Postgres RPC — creates the proof row, flips THIS item's reservations
+ * reserved→active, and marks the plan item active, all-or-none. Idempotent. Fail-closed (throws on
+ * transport error; returns {ok:false} on a business-rule rejection). The proof row is built in-app
+ * (recordShippedChange reads GSC + measures) and passed as a row-shaped jsonb (snake_case columns).
+ */
+export async function activateItemViaRpc(input: {
+  tenantId: string; planId: string; experimentId: string;
+  verificationReceipt: Record<string, unknown>; proofRow: Record<string, unknown>; idempotencyKey: string;
+}): Promise<ActivateResult> {
+  if (!isSupabaseConfigured()) throw new Error("daily-plan-store: Supabase not configured — cannot activate (no file fallback).");
+  const { data, error } = await getSupabaseAdmin().rpc("activate_daily_experiment_item", {
+    p_tenant: input.tenantId, p_plan_id: input.planId, p_experiment_id: input.experimentId,
+    p_verification_receipt: input.verificationReceipt, p_proof_row: input.proofRow, p_idempotency_key: input.idempotencyKey,
+  });
+  if (error) throw new Error(`daily-plan-store: activate RPC transport error for ${input.experimentId}: ${error.message}`);
+  const res = data as { ok: boolean; idempotent?: boolean; proof_id?: string; reservation_ids?: string[]; reason?: string } | null;
+  if (!res || res.ok !== true) return { ok: false, reason: res?.reason ?? "unknown" };
+  return { ok: true, idempotent: !!res.idempotent, proofId: res.proof_id ?? (input.proofRow.id as string), reservationIds: res.reservation_ids ?? [] };
+}
+
+export type SkipItemResult = { ok: true; idempotent: boolean; releasedIds: string[] } | { ok: false; reason: string };
+
+/** ATOMIC item skip via the Postgres RPC — releases THIS item's reserved controls + marks it skipped. */
+export async function skipItemViaRpc(input: {
+  tenantId: string; planId: string; experimentId: string; reason: string; idempotencyKey: string;
+}): Promise<SkipItemResult> {
+  if (!isSupabaseConfigured()) throw new Error("daily-plan-store: Supabase not configured — cannot skip item (no file fallback).");
+  const { data, error } = await getSupabaseAdmin().rpc("skip_daily_experiment_item", {
+    p_tenant: input.tenantId, p_plan_id: input.planId, p_experiment_id: input.experimentId,
+    p_reason: input.reason, p_idempotency_key: input.idempotencyKey,
+  });
+  if (error) throw new Error(`daily-plan-store: skip RPC transport error for ${input.experimentId}: ${error.message}`);
+  const res = data as { ok: boolean; idempotent?: boolean; released_ids?: string[]; reason?: string } | null;
+  if (!res || res.ok !== true) return { ok: false, reason: res?.reason ?? "unknown" };
+  return { ok: true, idempotent: !!res.idempotent, releasedIds: res.released_ids ?? [] };
+}
+
+/**
+ * Write a NON-CRITICAL item execution marker (verification_pending / verification_failed /
+ * gsc_submission). These have NO proof/reservation side effects, so a read-modify-write of the plan
+ * jsonb is acceptable (single operator). The CRITICAL active/skipped transitions go through the atomic
+ * RPCs above, never here. Fail-closed (throws). Returns the updated plan.
+ */
+export async function updateItemExecution(
+  tenantId: string,
+  planId: string,
+  experimentId: string,
+  mutate: (prev: ItemExecutionRecord | undefined) => ItemExecutionRecord,
+): Promise<DailyExperimentPlanRecord> {
+  if (!isSupabaseConfigured()) throw new Error("daily-plan-store: Supabase not configured — cannot update execution.");
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin.from(PLANS).select("plan").eq("tenant_id", tenantId).eq("id", planId).maybeSingle();
+  if (error) throw new Error(`daily-plan-store: updateItemExecution read failed for ${planId}: ${error.message}`);
+  const plan = parsePlanRow(data);
+  if (!plan) throw new Error(`daily-plan-store: updateItemExecution: plan ${planId} not found`);
+  const nowIso = new Date().toISOString();
+  const execution: PlanExecutionState = plan.execution ?? { items: {}, updatedAt: nowIso };
+  const next = mutate(execution.items[experimentId]);
+  const updated: DailyExperimentPlanRecord = {
+    ...plan,
+    execution: { items: { ...execution.items, [experimentId]: next }, updatedAt: nowIso },
+  };
+  const { error: wErr } = await admin.from(PLANS).update({ plan: updated }).eq("tenant_id", tenantId).eq("id", planId);
+  if (wErr) throw new Error(`daily-plan-store: updateItemExecution write failed for ${planId}: ${wErr.message}`);
+  return updated;
 }

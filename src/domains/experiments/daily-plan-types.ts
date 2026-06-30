@@ -98,6 +98,13 @@ export type DailyExperimentPlanRecord = {
     acceptedBy: "operator";
     validatedAt: string;
   };
+
+  /**
+   * Post-acceptance execution state (item-by-item apply→verify→activate→GSC). Optional + additive:
+   * absent on a fresh preview/accepted plan; written by the activation/skip RPCs + execution actions.
+   * Type lives in ./execution-state (type-only import — no runtime cycle).
+   */
+  execution?: import("./execution-state").PlanExecutionState;
 };
 
 export type ControlReservationRecord = {

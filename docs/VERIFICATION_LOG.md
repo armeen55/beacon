@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-07-01 — Daily Experiment EXECUTION workflow (apply → verify live → atomic activation → GSC)
+
+**Built (post-acceptance loop):** `execution-state.ts` (item/plan state machine; forbidden shortcuts to `active`), `live-verification.ts` (deterministic per-lever live proof via cheerio over a fresh fetch), `execution-checklist.ts` (pure read model + Wix instructions), `daily-experiment-plan-store.ts` (+`activateItemViaRpc`/`skipItemViaRpc`/`updateItemExecution`/`completePlan`/`listReservationsForPlan`), `daily-experiments-actions.ts` (+`markDailyExperimentAppliedAction`/`confirmGscSubmissionAction`/`skipDailyExperimentItemAction`/`completeDailyPlanAction`), `daily-experiments-{data,section}.ts(x)` (checklist UI), `shipped-change-store.ts` (+`markRecrawlRequestedById`).
+
+**Migration applied to prod (`vlxwevsdvwxvopkjsewo`):** `2026-07-01_daily_experiment_activation.sql` → `activate_daily_experiment_item` + `skip_daily_experiment_item` (SECURITY INVOKER, service-role-only EXECUTE, anon denied). **Rolled-back atomicity proof:** valid activation (proof row + reservations active + item status, all-or-none), idempotent re-activation (consistent proof id, no dup), **proof-id-collision fail-closed** (foreign row at `${path}::${date}::${lever}` → `proof_id_collision`, nothing flipped), forced `verified_live=true`, skip release + idempotency, wrong-tenant, can't-skip-active, insufficient-controls → no stray proof. Post-rollback: **0 synthetic rows; the 19 Iranopedia proof rows untouched.**
+
+**Adversarial review (17-agent workflow):** 31 findings (4 crit/9 high/11 med/7 low). Confirmed reals all fixed: internal-link cross-domain + nav-link false-positives (same-origin + source-paragraph-scoped), answer-block hidden/chrome/substring false-positives (visibility filter + chrome strip + near-whole-paragraph), proof-id collision (×2 — id disambiguation + RPC fail-closed), missing accepted→completed edge (completePlan + auto-complete + "Finish today's batch"), markFailed downgrading an active item (status guard + observable error), ledger fail-closed on the contamination gate, reservation-aware control re-check, GSC self-reported labeling.
+
+**Gates:** `tsc` 0 · experiments+proof tests **192 passed (15 files)** · `npm run build` PASS. No proof before live verification · deterministic verification (no LLM) · tenant from server context · real Iranopedia plan never auto-accepted.
+
+---
+
 ## 2026-06-30 — Daily Experiments Preview/Accept: migration applied + atomic RPC proven + real preview live
 
 **Supabase recovery (Management API query endpoint via `SUPABASE_MGMT_TOKEN`; MCP transport was down from this runtime, shell `SUPABASE_ACCESS_TOKEN` 401):**
