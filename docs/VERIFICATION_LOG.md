@@ -7,6 +7,55 @@
 
 ---
 
+## 2026-06-30 — Safe Lever Library, slice 2: the Safe INTERNAL-LINK lever + a mixed daily batch
+
+**Phase 1 data-quality audit (page_snapshots, N=217):** canonical_url 215, internal_links 215
+(16,748 links, ALL with href + anchor_text, all RELATIVE → normalized to canonical paths),
+body_paragraph_sample 204, extraction_certainty "confirmed" 217. `page_type` is empty (family
+derived from URL path). Freshness `fetched_at` = 2026-06-11 (~19d) — acceptable for a PREVIEW
+(operator verifies exact placement in Wix before applying). Data sufficient to build (no STOP).
+Wix SSR HTML can't source links (nav-menu `<p>` + templated `og:description`) → use the snapshot.
+
+**New `safe-internal-link.ts` (PURE, $0, no LLM, no fabrication):** `toLinkPath` (canonical
+normalization: host/www/trailing-slash/query/case), `distinctiveAlias` (2–4 words, ≥1 distinctive
+token, no CTA lead — "Persian Wolf" ok, "Iran Flag"/"click here" rejected), `buildLinkDestinations`
+(registry; caller marks protected pages ineligible), `proposeSafeInternalLink` (scans the source's
+real body for the first eligible destination whose distinctive alias appears as a whole phrase and
+isn't already linked → wraps THAT exact phrase in its exact sentence; `exactReplacementText` =
+`exactSourceText` + only an `<a>` wrapper; emits nothing otherwise). Wix operator instructions
+included (highlight phrase → Link → paste URL). Influence model in the planner: `influencedUrls` on
+the candidate + `maxLinksPerDestination` (1) + guards (never treat a page another selected link
+feeds; never link to a selected source; cap links per destination → `influenced_conflict`).
+Ownership fix: the source-query ownership gate (`ownershipUncertain`) applies only to TEXT edits —
+an internal link's ownership is the destination owning the anchor (proven by the proposer).
+
+**Live Iranopedia mixed preview (read-only, $0, no proof rows, no Wix):** 164 destinations (127
+eligible, 37 protected = animal family + active experiments). True link ceiling (meta-independent) =
+6 clean opportunities. Mixed batch: **6 selected = 4 meta + 2 internal links**, + 2 backups, 5
+controls each. Links: doodool-tala product → jewelry category (anchor "Persian jewelry"), and
+northern-california-persian-food → San Francisco city page (anchor "San Francisco") — both wrap an
+existing exact sentence, influence recorded, dest-cap blocked the duplicate jewelry link
+(`influenced_conflict:1`). **Zero animal treatments/controls selected or linked** (double guard:
+animal family excluded from inputs + destinations + the eligibility model).
+
+**Adversarial verification (8-guarantee skeptic workflow + Opus completeness critic, read-only code
+audit):** the 5 SAFETY-CRITICAL guarantees all HOLD + are tested — no-link-to/from-protected,
+no-self-link, influence-cap/conflict, min-controls + one-variable, tenant-isolation. Three
+`holds=false` were raised; the critic adjudicated: (a) exact-text "drops trailing char" = FALSE
+POSITIVE (attacker botched the slice arithmetic; round-trip equality verified for `!`/`,`/`.`);
+(b) duplicate-link = snapshot-staleness, not a lever defect (reversible, operator-reviewed, $0);
+(c) generic-anchor = REAL low-severity → FIXED (expanded `GENERIC_TOKEN` with chrome/connector words
+so "Related Articles"/"Featured Items"/"Main Content" are rejected). Verdict: **SHIP.** Added the 5
+coverage tests the critic flagged (generic-chrome reject, trailing-punct exactness, first-occurrence-
+only, canonical-equivalent duplicate, dest-cap>1).
+
+Verified: tsc 0 · **118 tests** (experiments + proof; incl. exact-text/no-fabrication, canonical
+duplicate, same-page, generic-anchor/chrome, ineligible-destination, dest-cap, influence-conflict,
+mixed-diversity) · build PASS · 0 routes import the new module (Today/Worklist perf unchanged).
+**No paid API, no live fetch, no Wix, no proof rows, no migration, no control reservation.**
+
+---
+
 ## 2026-06-30 — Safe Lever Library, slice 1: the Safe META lever (real non-animal daily batch) — main `94f57c26`
 
 **Phase 0:** landed the conservative candidate builder + preview to main (FF `2694c50c`; tsc 0 · 86 tests · build PASS) — the 3 branch commits were exactly the intended builder work, no stale-branch merge.
