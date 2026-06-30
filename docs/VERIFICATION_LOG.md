@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-29 — PageResearchPack v1 LIVE WIRING (research module on top cards + dry-run planner) · main `0d90afa1`
+
+**Shipped.** Made the research brain visible/useful on the live top existing-page cards.
+- `today-moves-data.ts`: in the pool loop, for each existing-page move with GSC queries, assemble `PageResearchInput` from already-loaded signals (topQueries→gscRanking, declines→gscLosing, faqs→aiFanouts, whatWins/whoCited→competitorTitles, cannibalization leadPage+otherPages→ownedSiblings, outcomeCaution→proof families) → `buildPageResearchPack` → attach compact `TodayMove.researchPack` (own / sibling / primaryLever / blockedLevers / elements).
+- `today-moves-card.tsx`: render a compact violet "Research — what this page should own" module (Own / Cross-link don't merge / ▸ Do first / ✕ Skip-proof). Reconciled the old cannibalization fix line: when `researchPack.sibling` is non-empty, show "keep separate + cross-link" instead of "fold X into it" — removes the boy↔girl-names contradiction.
+- `page-research-pack.ts`: `planResearchSpend` (pure) — Phase-2 dry-run estimate (batched volume + 1 SERP/page); top-5 ≈ sub-$0.20 vs the $50 cap.
+
+**Verified.** tsc 0 source errors · `page-research-pack` 12/12 + `ctr-title-scorer` 14/14 = **26** · `npm run build` exit 0 (compiled `/worklist` + all routes) · zero console errors · `/worklist` SSR HTTP 200.
+
+**Live-render caveat (honest).** The live browser DOM render of `/worklist` did NOT complete within this session: the dev cockpit `/` hydration is pathologically slow (~100s+ heavy uncached demand-graph load against beacon-main — a pre-existing fragility, NOT introduced here: build passed, zero console errors, SSR 200) and the MoveCards are client-rendered (curl sees only the 43KB shell). Visual confirmation deferred to Vercel prod (cached + faster). Correctness rests on tsc + 26 unit tests (the exact clustering/lever/spend behavior) + build + the deterministic render path; sub-slice-1's live extraction already confirmed these top pages carry the `topQueries` that populate `researchPack`.
+
+**DataForSEO:** dry-run default; NO live spend; volume/SERP study populates on `DATAFORSEO_DRY_RUN=false` (operator env call). $0 this slice, no migration, no Wix, no proof mutation.
+
+---
+
 ## 2026-06-29 — PageResearchPack v1, Phase 1 (pure research brain) + Phase-0 DataForSEO audit · main `a7e62c69`
 
 **Phase 0 audit (DataForSEO reality).** SERP endpoint wired (`dataforseo-serp.ts`, `/v3/serp/google/organic/live/regular`, $0.003/q, 14d cache) but verdict is create-page-only; keyword search-volume wired (`dataforseo-keywords.ts`, Google Ads, ~$0.05–0.08/batched call) but New-Pages-only; keyword expansion (related/suggestions/questions/Labs) NOT built; **dry-run is the DEFAULT** (`DATAFORSEO_DRY_RUN!=="false"`). The "validation badge → research analyst" gaps: no expansion; volume + SERP-study never applied to existing-page moves; no intent-owner map; no keyword→element mapping. **Dry-run estimate (top-5 packs, existing endpoints):** 1 batched search-volume (~$0.08) + 5–15 SERP calls (~$0.015–0.05, cached) ≈ $0.10–0.15/run, ~$0 repeats — ~0.3% of the $50/mo fail-closed cap. Operator chose **v1 on the existing surface** (no new endpoints).
