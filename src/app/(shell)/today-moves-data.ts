@@ -5,6 +5,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
+import { buildPageResearchPack } from "@/domains/demand-graph/page-research-pack";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { competitorRelevance, internalLinkRelevance } from "@/domains/evidence/relevance-gate";
@@ -173,6 +174,20 @@ export type TodayMove = {
   /** True when the page is measuring but for a DIFFERENT action family (a second
    *  change here would still muddy the open window — warn, don't block). */
   pageMeasuring?: boolean;
+  /** PageResearchPack v1 (2026-06-29) — the per-page "what should this page OWN"
+   *  research summary: intent clustering (own vs cross-link sibling) + the proof-aware
+   *  primary lever + blocked levers + the top element opportunities. Computed from the
+   *  page's free signals (GSC + fan-outs + cannibalization + proof). DataForSEO keyword
+   *  VOLUME + SERP winner-title study attach later (dry-run-gated). Null for
+   *  create-page / no-GSC moves. */
+  researchPack?: {
+    primaryIntent: string | null;
+    own: string[];
+    sibling: string[];
+    primaryLever: { lever: string; reason: string } | null;
+    blockedLevers: { lever: string; reason: string }[];
+    elements: { keyword: string; element: string; why: string }[];
+  } | null;
 };
 
 export type TodayMovesHeroData = {
@@ -753,6 +768,46 @@ export async function buildTodayMovesData(
           m.why = "A title and meta change here was already measured and didn't move clicks — a different lever (see the suggestion below) is more likely to help.";
           m.proof = "You'll know the next change worked when clicks or AI citations rise over the following few weeks, versus comparable pages you leave unchanged.";
         }
+      }
+
+      // PageResearchPack v1 — the per-page "what should this page own" research summary,
+      // assembled from the free signals already on the move (GSC ranking/losing queries +
+      // fan-out questions + competitor titles + self-competition siblings + proof family).
+      // Existing-page moves only; create-page has its own New Pages flow.
+      if (m.action !== "create_page" && m.topQueries.length > 0) {
+        const fam = (a: string): string =>
+          /title|meta|ctr/.test(a) ? "title_meta" : /answer|aeo|faq|schema/.test(a) ? "aeo" : /internal|link|consolidat/.test(a) ? "links" : /friction|experience|cro|ux/.test(a) ? "cro" : "content";
+        const lostFamilies = m.outcomeCaution?.kind === "no_lift" ? [fam(m.action)] : [];
+        const measuringFamilies = m.outcomeCaution?.kind === "held_measuring" ? [fam(m.action)] : [];
+        // Competing OWN pages (from cannibalization) are the candidate sibling owners.
+        const ownedSiblings = [
+          ...new Set(m.cannibalization.flatMap((c) => [c.leadPage, ...c.otherPages])),
+        ]
+          .filter((label) => label && label.toLowerCase() !== m.pageLabel.toLowerCase())
+          .map((label) => ({ slug: label, label }));
+        const pack = buildPageResearchPack({
+          url: m.targetUrl,
+          pageLabel: m.pageLabel,
+          pageFacts: { title: m.currentTitle ?? null },
+          gscRanking: m.topQueries.map((q) => ({ query: q.query, position: q.position, impressions: q.impressions })),
+          gscLosing: m.declines.map((d) => ({ query: d.query, dropPct: d.dropPct })),
+          aiFanouts: m.faqs,
+          competitorTitles: [m.whatWins, m.whoCited].filter((x): x is string => Boolean(x)),
+          ownedSiblings,
+          proof: { measuringFamilies, lostFamilies },
+        });
+        const primaryLever = pack.levers.find((l) => l.primary) ?? null;
+        m.researchPack = {
+          primaryIntent: pack.primaryIntent,
+          own: pack.clusters.own.slice(0, 6),
+          sibling: pack.clusters.internal_link.slice(0, 4),
+          primaryLever: primaryLever ? { lever: primaryLever.lever, reason: primaryLever.reason } : null,
+          blockedLevers: pack.levers.filter((l) => l.blocked).map((l) => ({ lever: l.lever, reason: l.reason })),
+          elements: pack.keywords
+            .filter((k) => k.bucket === "own" && k.element)
+            .slice(0, 5)
+            .map((k) => ({ keyword: k.keyword, element: k.element as string, why: k.why })),
+        };
       }
     }
 

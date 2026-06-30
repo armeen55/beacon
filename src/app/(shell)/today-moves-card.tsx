@@ -344,6 +344,40 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </span>
       ) : null}
 
+      {/* PageResearchPack v1 (2026-06-29) — the per-page "what should this page own"
+          research summary: intent ownership (own vs cross-link sibling) + the proof-aware
+          primary lever + proof-blocked levers. The senior-strategist read, up top. */}
+      {m.researchPack && (m.researchPack.own.length || m.researchPack.sibling.length || m.researchPack.primaryLever) ? (() => {
+        const LL: Record<string, string> = {
+          title_meta: "sharpen title & meta",
+          answer_block: "add an answer block",
+          internal_links: "add internal links",
+          content_depth: "deepen the content",
+          ux_fix: "fix the page UX",
+          schema: "add schema",
+          wait: "wait for measurement",
+        };
+        const lab = (l: string) => LL[l] ?? l;
+        const rp = m.researchPack;
+        return (
+          <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Research — what this page should own</div>
+            {rp.own.length ? (
+              <p className="mt-1 text-xs text-violet-900"><span className="font-semibold">Own:</span> {rp.own.join(", ")}</p>
+            ) : null}
+            {rp.sibling.length ? (
+              <p className="mt-0.5 text-xs text-violet-700"><span className="font-semibold">Cross-link, don&apos;t merge:</span> {rp.sibling.join(", ")}</p>
+            ) : null}
+            {rp.primaryLever ? (
+              <p className="mt-1 text-[11px] text-violet-800">▸ Do first: <span className="font-medium">{lab(rp.primaryLever.lever)}</span></p>
+            ) : null}
+            {rp.blockedLevers.length ? (
+              <p className="mt-0.5 text-[11px] text-gray-500">✕ Skip (proof says flat): {rp.blockedLevers.map((b) => lab(b.lever)).join(", ")}</p>
+            ) : null}
+          </div>
+        );
+      })() : null}
+
       {/* Connectedness (2026-06-28) — the canonical ActionPack evidence provenance
           + cached DataForSEO SERP verdict, threaded onto the card operators use
           (was computed on the pack but never shown outside diagnostics). */}
@@ -585,8 +619,15 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
               );
             })}
           </div>
-          {/* The consolidation ACTION for the top case, in plain language. */}
-          <p className="mt-1.5 text-xs text-orange-700">{m.cannibalization[0]!.fix}</p>
+          {/* The consolidation ACTION for the top case, in plain language. When the
+              Research Pack above already classified these as cross-link SIBLINGS, defer
+              to it — never show "fold X into it" while the research module says
+              "cross-link, don't merge" (that contradiction is the boy/girl-names bug). */}
+          {m.researchPack?.sibling?.length ? (
+            <p className="mt-1.5 text-xs text-orange-700">Keep these as separate pages and cross-link them (below) — don&apos;t merge. See &ldquo;what this page should own&rdquo; above.</p>
+          ) : (
+            <p className="mt-1.5 text-xs text-orange-700">{m.cannibalization[0]!.fix}</p>
+          )}
           {m.cannibalization[0]!.linkSnippet ? (
             <div className="mt-1.5 flex items-center gap-2">
               <code className="truncate rounded bg-white px-2 py-1 text-[10px] text-orange-900 ring-1 ring-orange-100">

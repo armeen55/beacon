@@ -66,6 +66,46 @@ export type PageResearchPack = {
 
 export type OwnedSibling = { slug: string; label: string };
 
+/** Phase-2 dry-run: the planned DataForSEO research spend for a set of packs, with
+ *  NO live call. SERP study (1 per page primary) + a batched keyword-volume call. */
+export type ResearchSpendPlan = {
+  uniqueTerms: number;
+  volumeCalls: number;
+  serpCalls: number;
+  estUsd: number;
+};
+
+// DataForSEO Google Ads search-volume ≈ $0.05–0.08 per BATCHED call (≤~700 kw/task);
+// SERP "live" ≈ $0.003/query. Conservative so the cap trips early. Kept local so this
+// pure module never imports the paid client.
+const VOLUME_BATCH = 700;
+const VOLUME_CALL_USD = 0.08;
+const SERP_CALL_USD = 0.003;
+
+/**
+ * Estimate the DataForSEO spend to enrich these packs with real keyword VOLUME + a
+ * SERP winner-title/format study — the dry-run gate before any live call. PURE.
+ */
+export function planResearchSpend(
+  packs: { primaryIntent: string | null; keywords: { keyword: string; bucket: ResearchBucket }[] }[],
+): ResearchSpendPlan {
+  const terms = new Set<string>();
+  let serpCalls = 0;
+  for (const p of packs) {
+    for (const k of p.keywords) {
+      if (k.bucket === "own" || k.bucket === "sibling" || k.bucket === "new_page") terms.add(k.keyword.toLowerCase());
+    }
+    if (p.primaryIntent) {
+      terms.add(p.primaryIntent.toLowerCase());
+      serpCalls += 1;
+    }
+  }
+  const uniqueTerms = terms.size;
+  const volumeCalls = uniqueTerms > 0 ? Math.ceil(uniqueTerms / VOLUME_BATCH) : 0;
+  const estUsd = Number((volumeCalls * VOLUME_CALL_USD + serpCalls * SERP_CALL_USD).toFixed(3));
+  return { uniqueTerms, volumeCalls, serpCalls, estUsd };
+}
+
 export type PageResearchInput = {
   url: string;
   pageLabel: string;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPageResearchPack, type PageResearchInput } from "./page-research-pack";
+import { buildPageResearchPack, planResearchSpend, type PageResearchInput } from "./page-research-pack";
 
 const base = (over: Partial<PageResearchInput>): PageResearchInput => ({
   url: "https://iranopedia.com/persian-male-names",
@@ -121,5 +121,28 @@ describe("buildPageResearchPack — proof-aware lever selection", () => {
     }));
     const primary = pack.levers.find((l) => l.primary);
     expect(primary?.lever).toBe("title_meta");
+  });
+});
+
+describe("planResearchSpend — dry-run estimate before any live call", () => {
+  it("counts unique own/sibling terms + one SERP per page, and stays tiny for top-5", () => {
+    const packs = [
+      { primaryIntent: "persian boy names", keywords: [
+        { keyword: "persian boy names", bucket: "own" as const },
+        { keyword: "persian male names", bucket: "own" as const },
+        { keyword: "persian girl names", bucket: "sibling" as const },
+        { keyword: "off topic thing", bucket: "noise" as const },
+      ] },
+      { primaryIntent: "iran flag", keywords: [{ keyword: "iran flag", bucket: "own" as const }] },
+    ];
+    const plan = planResearchSpend(packs);
+    expect(plan.serpCalls).toBe(2); // one per page with a primary intent
+    expect(plan.uniqueTerms).toBe(4); // 3 own/sibling + iran flag; noise excluded
+    expect(plan.volumeCalls).toBe(1); // well under the 700-kw batch
+    expect(plan.estUsd).toBeLessThan(0.2); // top-5 research is sub-$0.20
+  });
+  it("zero packs → zero spend", () => {
+    const plan = planResearchSpend([]);
+    expect(plan).toEqual({ uniqueTerms: 0, volumeCalls: 0, serpCalls: 0, estUsd: 0 });
   });
 });
