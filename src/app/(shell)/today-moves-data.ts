@@ -5,7 +5,8 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
-import { buildPageResearchPack } from "@/domains/demand-graph/page-research-pack";
+import { buildPageResearchPack, addressableVolume } from "@/domains/demand-graph/page-research-pack";
+import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { competitorRelevance, internalLinkRelevance } from "@/domains/evidence/relevance-gate";
@@ -182,6 +183,8 @@ export type TodayMove = {
    *  create-page / no-GSC moves. */
   researchPack?: {
     primaryIntent: string | null;
+    /** Cached DataForSEO/keyword volume summed over the owned keywords (null if uncached). */
+    addressableVolume: number | null;
     own: string[];
     sibling: string[];
     primaryLever: { lever: string; reason: string } | null;
@@ -632,13 +635,22 @@ export async function buildTodayMovesData(
     const limit = opts.limit ?? 6;
     const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
     const poolUrls = pool.map((m) => m.targetUrl);
-    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues] = await Promise.all([
+    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues, cachedKeywords] = await Promise.all([
       withTimeout(loadTopQueriesForPages(tenantId, poolUrls), 5000, new Map<string, PageQuery[]>()),
       withTimeout(loadQueryDeclinesForPages(tenantId, poolUrls), 6000, new Map<string, QueryDecline[]>()),
       withTimeout(loadGscCannibalizationForTenant(tenantId), 6000, [] as GscCannibalizationCase[]),
       withTimeout(loadGa4PageValuesForTenant(tenantId), 5000, new Map<string, Ga4PageValue>()),
       withTimeout(loadClarityPageSignalsForTenant(tenantId), 5000, new Map<string, ClarityPageSignal>()),
+      // Cached DataForSEO keyword volume ONLY — a $0 cache read, no live call (the paid
+      // population is the operator-gated producer behind DATAFORSEO_DRY_RUN). Fail-soft.
+      withTimeout(readAllCachedKeywordDemand().catch(() => []), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
     ]);
+    // keyword (lowercased) → cached search volume, for the research pack's addressable demand.
+    const volumeByKeyword = new Map<string, number | null>();
+    for (const k of cachedKeywords) {
+      const key = k.keyword.trim().toLowerCase();
+      if (key && !volumeByKeyword.has(key)) volumeByKeyword.set(key, k.searchVolume);
+    }
     // Canon-key the GA4 + Clarity values so a Move's targetUrl matches regardless of trailing-slash/case.
     const ga4ByCanon = new Map<string, Ga4PageValue>();
     for (const [url, v] of ga4Values) {
@@ -812,6 +824,9 @@ export async function buildTodayMovesData(
         const siblingLc = new Set(sibling.map((s) => s.toLowerCase()));
         m.researchPack = {
           primaryIntent: pack.primaryIntent,
+          // Real (cached) DataForSEO/keyword volume this page should own — null when none
+          // of the owned keywords are in the cache yet (the paid producer populates it).
+          addressableVolume: addressableVolume(pack.clusters.own, volumeByKeyword),
           own: pack.clusters.own.filter((k) => !siblingLc.has(k.toLowerCase())).slice(0, 6),
           sibling: sibling.slice(0, 4),
           primaryLever: primaryLever ? { lever: primaryLever.lever, reason: primaryLever.reason } : null,

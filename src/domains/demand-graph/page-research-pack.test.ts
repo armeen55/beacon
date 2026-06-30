@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPageResearchPack, planResearchSpend, type PageResearchInput } from "./page-research-pack";
+import { buildPageResearchPack, planResearchSpend, addressableVolume, type PageResearchInput } from "./page-research-pack";
 
 const base = (over: Partial<PageResearchInput>): PageResearchInput => ({
   url: "https://iranopedia.com/persian-male-names",
@@ -144,5 +144,20 @@ describe("planResearchSpend — dry-run estimate before any live call", () => {
   it("zero packs → zero spend", () => {
     const plan = planResearchSpend([]);
     expect(plan).toEqual({ uniqueTerms: 0, volumeCalls: 0, serpCalls: 0, estUsd: 0 });
+  });
+});
+
+describe("addressableVolume — cached volume only, never guesses", () => {
+  it("sums cached volume for owned keywords (case-insensitive)", () => {
+    const vol = new Map<string, number | null>([["persian boy names", 5300], ["persian male names", 1900]]);
+    expect(addressableVolume(["Persian Boy Names", "persian male names"], vol)).toBe(7200);
+  });
+  it("returns null when NO owned keyword is cached (no fabricated number)", () => {
+    const vol = new Map<string, number | null>([["unrelated", 999]]);
+    expect(addressableVolume(["persian boy names"], vol)).toBeNull();
+  });
+  it("ignores null/zero cached volumes", () => {
+    const vol = { "a": null as number | null, "b": 0, "c": 400 };
+    expect(addressableVolume(["a", "b", "c"], vol)).toBe(400);
   });
 });

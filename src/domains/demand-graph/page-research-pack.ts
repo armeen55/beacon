@@ -156,6 +156,29 @@ function distinguishing(keyword: string, head: Set<string>): string[] {
 }
 
 /**
+ * Sum the (cached, real) keyword search-volume for the keywords this page should OWN —
+ * the "addressable demand" this page is going after. PURE. Returns null when none of the
+ * owned keywords have a cached volume (never guesses a number).
+ */
+export function addressableVolume(
+  ownKeywords: string[],
+  volumeByKeyword: Map<string, number | null> | Record<string, number | null>,
+): number | null {
+  const get = (k: string): number | null | undefined =>
+    volumeByKeyword instanceof Map ? volumeByKeyword.get(k) : volumeByKeyword[k];
+  let sum = 0;
+  let any = false;
+  for (const kw of ownKeywords) {
+    const v = get(kw.trim().toLowerCase());
+    if (typeof v === "number" && v > 0) {
+      sum += v;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+/**
  * Build the deterministic research pack for one existing page. Pure.
  */
 export function buildPageResearchPack(input: PageResearchInput): PageResearchPack {

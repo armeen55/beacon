@@ -362,6 +362,12 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         return (
           <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Research — what this page should own</div>
+            {typeof rp.addressableVolume === "number" && rp.addressableVolume > 0 ? (
+              <p className="mt-1 text-xs text-violet-900">
+                <span className="font-semibold">Addressable demand:</span>{" "}
+                ~{rp.addressableVolume >= 1000 ? `${(rp.addressableVolume / 1000).toFixed(1).replace(/\.0$/, "")}k` : rp.addressableVolume} searches/mo <span className="text-violet-500">(DataForSEO)</span>
+              </p>
+            ) : null}
             {rp.own.length ? (
               <p className="mt-1 text-xs text-violet-900"><span className="font-semibold">Own:</span> {rp.own.join(", ")}</p>
             ) : null}
