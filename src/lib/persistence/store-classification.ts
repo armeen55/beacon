@@ -92,6 +92,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // "what wins" pattern (format/title/winning-domains) per query, populated by the
   // operator-triggered enrichResearchPacks; read by the research module on the card.
   "research-serp-patterns",
+  // 2026-06-29 /worklist stale-while-revalidate surface cache — the fully-computed
+  // TodayMovesHeroData snapshot per tenant. Cold render serves this instantly + refreshes
+  // in the background, so the ~32s demand-graph rebuild no longer floors every visit.
+  "worklist-surface",
   // 2026-06-09 §competitor-intel — structural changes detected when a
   // fresh competitor-page fetch differs from the stored snapshot
   // (FAQ added, new sections, retitle, meta added). Written by

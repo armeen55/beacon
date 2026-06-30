@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { invalidateWorklistSurface } from "./worklist-surface-store";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -39,7 +40,9 @@ export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promi
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
     const summary = await prepareTodayMovesForTenant(await currentTenantId(), { maxN: opts.maxN ?? 10 });
+    await invalidateWorklistSurface().catch(() => {}); // prepared state changed → recompute next /worklist load
     revalidatePath("/");
+    revalidatePath("/worklist");
     return { ok: true, summary };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "prepare failed" };
@@ -174,7 +177,9 @@ export async function markMoveAppliedAction(args: {
       verifiedLive: true,
       notes: "Operator marked applied",
     });
+    await invalidateWorklistSurface().catch(() => {}); // shipped → page goes mid-measurement; recompute next /worklist
     revalidatePath("/");
+    revalidatePath("/worklist");
     return { ok: true, recorded: res.recorded, reason: res.reason };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "mark-applied failed" };

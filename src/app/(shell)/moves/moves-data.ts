@@ -8,7 +8,9 @@ import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pack/types";
 
+import { after } from "next/server";
 import { loadTodayMovesHeroData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
+import { readWorklistSurface, writeWorklistSurface, isSurfaceStale } from "../worklist-surface-store";
 
 /**
  * /moves data (2026-06-27) — the worklist is now driven by the CANONICAL ActionPack
@@ -203,7 +205,37 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
   return { moves: shown, stats, learning: hero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null } };
 }
 
-/** Request-memoized /moves worklist, ActionPack-powered. */
+/**
+ * Stale-while-revalidate surface cache. The cold compute (`loadUncached`) rebuilds the
+ * demand graph from Supabase (~32s) and floors /worklist at ~50s — only `react.cache`
+ * (per-request), no cross-request persistence. So: serve the last persisted snapshot
+ * INSTANTLY (with its `computedAt` for an honest "updated N ago"), and when it's stale
+ * refresh in the background via `after()` (best-effort; if the lambda freezes mid-refresh
+ * the next visit retries). Only the first-ever load (cold cache) pays the full compute.
+ * Mutating actions invalidate the surface so operator changes show on the next load.
+ */
+async function loadSurfaceWithSwr(tenantId: string): Promise<TodayMovesHeroData> {
+  const cached = await readWorklistSurface().catch(() => null);
+  if (cached) {
+    if (isSurfaceStale(cached.computedAt, Date.now())) {
+      after(async () => {
+        try {
+          const fresh = await loadUncached(tenantId);
+          await writeWorklistSurface(fresh, new Date().toISOString());
+        } catch {
+          /* best-effort background refresh; the next visit retries */
+        }
+      });
+    }
+    return { ...cached.data, surfaceComputedAt: cached.computedAt };
+  }
+  // First-ever / invalidated → compute synchronously, then persist for next time.
+  const fresh = await loadUncached(tenantId);
+  await writeWorklistSurface(fresh, new Date().toISOString());
+  return fresh;
+}
+
+/** Request-memoized /moves worklist, ActionPack-powered, SWR-cached cross-request. */
 export const loadMovesWorklist = cache(
-  async (): Promise<TodayMovesHeroData> => loadUncached(await currentTenantId()),
+  async (): Promise<TodayMovesHeroData> => loadSurfaceWithSwr(await currentTenantId()),
 );

@@ -37,7 +37,13 @@ async function Worklist() {
   } catch {
     data = { moves: [], stats: { movesReady: 0, demandAtStake: 0, citationsContested: 0, pagesCovered: 0, draftsReady: 0, strikingWins: 0, losingQueries: 0, selfCompeting: 0, heldWhileMeasuring: 0, preparedReady: 0 } };
   }
-  const { moves, stats } = data;
+  const { moves, stats, surfaceComputedAt } = data;
+  const updated = (() => {
+    if (!surfaceComputedAt) return null;
+    const min = Math.max(0, Math.round((Date.now() - Date.parse(surfaceComputedAt)) / 60000));
+    const ago = min < 1 ? "just now" : min < 60 ? `${min} min ago` : `${Math.round(min / 60)}h ago`;
+    return { ago, stale: min >= 15 }; // >15 min → this visit kicks off a background refresh
+  })();
 
   if (!moves.length) {
     return (
@@ -60,6 +66,11 @@ async function Worklist() {
           <StatTile value={String(stats.pagesCovered)} label="Pages" accent="text-emerald-600" />
         )}
       </div>
+      {updated ? (
+        <p className="text-[11px] text-gray-400">
+          Updated {updated.ago}{updated.stale ? " · refreshing in the background" : ""}
+        </p>
+      ) : null}
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-gray-500">
           Let Beacon prepare the top moves end-to-end — structured draft, experiment, and proof plan — so each arrives ready to review.

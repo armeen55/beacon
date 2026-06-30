@@ -224,6 +224,10 @@ export type TodayMovesHeroData = {
     /** "Beacon learned: …" headline from the strongest learned prior, or null. */
     headline: string | null;
   };
+  /** SWR surface cache (2026-06-29): when this render was served from the persisted
+   *  snapshot, the ISO time it was computed (drives an honest "updated N ago" line).
+   *  Undefined on a freshly-computed surface. */
+  surfaceComputedAt?: string;
 };
 
 const ACTION_META: Record<

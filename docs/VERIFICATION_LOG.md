@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-06-29 — /worklist perf: stale-while-revalidate surface cache + timing table
+
+**Problem (operator: "worklist too slow for a real product").** Traced the `/worklist` cold render path and produced a measured timing table BEFORE writing any fix code:
+
+| Stage | Time | Notes |
+|---|---|---|
+| `loadActionPackWorklistForTenant` | ~50–59s | the ceiling (slowest of 2 parallel branches) |
+| `loadTodayMovesHeroData` (`buildTodayMovesData`) | ~31–39s | parallel → masked |
+| ↳ demand-graph build (`loadDemandGraphForTenantCached`) | ~31–33s | the shared floor, rebuilt every cold render (only `react.cache` per-request) |
+| ↳ per-page pool reads (GSC/GA4/Clarity/keyword/SERP) | ~0.3–6s | negligible — producer/consumer additions did NOT slow render |
+
+**Key finding:** the earlier "~50–56s" was inflated by **Next dev compile** (dev-only). The real *data* compute is ~16s cold; the graph rebuilt on every cold render is the addressable cost.
+
+**Fix (operator chose: SWR persisted surface).** `worklist-surface-store.ts` (NEW, tenant-scoped) caches the fully-computed `TodayMovesHeroData`; `loadMovesWorklist` now serves the last snapshot INSTANTLY and, when >15 min stale, refreshes in the background via `after()` (best-effort, fail-soft). First-ever load computes sync + persists. Mutating actions (prepare, mark-shipped) call `invalidateWorklistSurface()` so operator changes reflect next load. `/worklist` shows an honest "Updated N ago" line (+ "refreshing in the background" only when actually stale). `surfaceComputedAt` added to `TodayMovesHeroData`; `"worklist-surface"` registered tenant-scoped.
+
+**Verified (local dev, Iranopedia, port 3142):**
+- cold (cache miss → compute + populate): **16.4s**; warm #1 (cache hit): **7.4s**; warm #2: **6.6s** → ~2.3× faster warm, ~8× vs the dev-compile cold.
+- `/worklist` screenshot: StatTiles + rich research cards + 3 action buttons + **"Updated 7 min ago"** line all render from the cached surface; `/` (Today) unaffected.
+- `npm run typecheck` 0 source errors · `npm run build` exit 0 (full route table).
+
+**Residual (honest):** warm ~7s = the rest of the `/worklist` route, notably the New Pages board — a *separate* loader that independently rebuilds the graph and is NOT covered by the worklist-surface cache. Next-best follow-on: a cross-request demand-graph cache (covers both surfaces) OR SWR the New Pages surface too.
+
+---
+
 ## 2026-06-29 — PageResearchPack DataForSEO PRODUCER (operator-triggered, dry-run-default) · main `fbb0075e`
 
 Built the producer (operator-approved): fetches the MISSING keyword volume + SERP winner-title/format patterns the consumer reads, off the render path, dry-run by default.
