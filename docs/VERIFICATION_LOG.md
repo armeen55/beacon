@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-06-29 — P4: page-element plan ("put X here") on PageResearchPack
+
+Turned "this page should own X" into "put X HERE." New PURE module `page-element-plan.ts`:
+`buildOnPagePlan(pack, { serpPattern, friction, currentTitle, volumeByKeyword })` →
+`PageElementPlan` = `doFirst` (the one element to change first) + `title` / `meta` / `h1` /
+`sections` (H2s) / `faqs` (the AI fan-out questions, from the P3 `answer` bucket) /
+`internalLinks` (sibling cross-links) / `schema` (mapped from the SERP format) / `uxFix`
+(Clarity friction) / `newSiblings` / `warnings`.
+
+**Senior rules enforced (+ tested):** every element carries `evidence` citing a real
+signal (GSC query/rank, DataForSEO volume "~Nk/mo", SERP format/title pattern, AI fan-out,
+proof outcome, Clarity %); a proof-FLAT lever can NEVER be `doFirst` (surfaced as a
+"try a different lever" warning); a mid-measurement page gets a compounding warning;
+fan-out questions are FAQ/answer targets, never title/H2; siblings cross-link, don't merge;
+schema maps to the winning SERP format (faq→FAQPage, table→Table+HowTo, list→ItemList,
+ugc→QAPage). Wired: `today-moves-data` projects a slim `researchPack.onPagePlan`; the
+shared `MoveCard` renders "▸ Do first: <concrete rec> · <evidence>", "Add sections", "FAQ
+targets", and a ⚠ compounding/lost-lever warning.
+
+tsc 0 · **24 tests** (9 new element-plan incl. the 5 operator page examples + proof-flat/
+measuring/evidence-present assertions; 15 research-pack) · build PASS. NO LLM, NO paid call
+(pure; the SERP/volume come from the already-cached producer data).
+
+---
+
 ## 2026-06-29 — DataForSEO research producer LIVE smoke + term-plan quality fix (answer bucket)
 
 **P3 — producer smoke (LIVE, env-authorized).** `.env.local` has `DATAFORSEO_DRY_RUN=false` explicitly set (operator), auth present, $50 cap. Ran `enrichTopResearchPacksAction({topN:5})` via the `/worklist` button → **LIVE** result: **3 SERP patterns written · volume ok · spent $0.084** (~0.17% of the $50 cap). Cache write verified — `research-serp-patterns` store: persian boy names→**ugc** (web.mit.edu/reddit/sites.google), persian girl names→**guide** (babynama/reddit), persian swear words→**ugc** (reddit/youswear). Cards now render "SERP rewards: ugc — win with a first-person, opinionated angle the forums lack · winners: …". Ledger is Supabase-backed (the action's $0.084 is the gauntlet's authoritative report).

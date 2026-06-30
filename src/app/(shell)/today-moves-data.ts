@@ -6,6 +6,7 @@ import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
 import { buildPageResearchPack, addressableVolume } from "@/domains/demand-graph/page-research-pack";
+import { buildOnPagePlan } from "@/domains/demand-graph/page-element-plan";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
@@ -193,6 +194,15 @@ export type TodayMove = {
     primaryLever: { lever: string; reason: string } | null;
     blockedLevers: { lever: string; reason: string }[];
     elements: { keyword: string; element: string; why: string }[];
+    /** P4 — concrete "put X here" element plan: the one to do first + sections / FAQ
+     *  targets / cross-links to add, each citing a real signal; + proof warnings. */
+    onPagePlan: {
+      doFirst: { slot: string; recommendation: string; evidence: string } | null;
+      sections: { slot: string; recommendation: string; evidence: string }[];
+      faqs: { slot: string; recommendation: string; evidence: string }[];
+      internalLinks: { slot: string; recommendation: string; evidence: string }[];
+      warnings: string[];
+    } | null;
   } | null;
 };
 
@@ -852,6 +862,28 @@ export async function buildTodayMovesData(
             .filter((k) => (k.bucket === "own" || k.bucket === "answer") && k.element)
             .slice(0, 5)
             .map((k) => ({ keyword: k.keyword, element: k.element as string, why: k.why })),
+          // P4 — "put X here": compose the pack with the live SERP pattern + Clarity
+          // friction + current title + cached volume into a concrete, evidence-cited plan.
+          onPagePlan: (() => {
+            const sp = pack.primaryIntent ? cachedSerpPatterns.get(pack.primaryIntent.toLowerCase()) : null;
+            const plan = buildOnPagePlan(pack, {
+              serpPattern: sp
+                ? { format: sp.format, titlePattern: sp.titlePattern, elementImplication: sp.elementImplication, winningDomains: sp.winningDomains }
+                : null,
+              friction: m.friction,
+              currentTitle: m.currentTitle ?? null,
+              volumeByKeyword,
+            });
+            const slim = (e: { slot: string; recommendation: string; evidence: string } | null) =>
+              e ? { slot: e.slot, recommendation: e.recommendation, evidence: e.evidence } : null;
+            return {
+              doFirst: slim(plan.doFirst),
+              sections: plan.sections.slice(0, 3).map((e) => slim(e)!),
+              faqs: plan.faqs.slice(0, 3).map((e) => slim(e)!),
+              internalLinks: plan.internalLinks.slice(0, 3).map((e) => slim(e)!),
+              warnings: plan.warnings.slice(0, 2),
+            };
+          })(),
         };
       }
     }

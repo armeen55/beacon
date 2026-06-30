@@ -380,7 +380,21 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             {rp.sibling.length ? (
               <p className="mt-0.5 text-xs text-violet-700"><span className="font-semibold">Cross-link, don&apos;t merge:</span> {rp.sibling.join(", ")}</p>
             ) : null}
-            {rp.primaryLever ? (
+            {rp.onPagePlan?.doFirst ? (
+              <div className="mt-1.5 border-t border-violet-100 pt-1.5">
+                <p className="text-[11px] text-violet-900">▸ <span className="font-semibold">Do first:</span> {rp.onPagePlan.doFirst.recommendation}</p>
+                <p className="text-[10px] text-violet-500">{rp.onPagePlan.doFirst.evidence}</p>
+                {rp.onPagePlan.sections.length ? (
+                  <p className="mt-1 text-[11px] text-violet-800"><span className="font-medium">Add sections:</span> {rp.onPagePlan.sections.map((s) => s.recommendation).join(" ")}</p>
+                ) : null}
+                {rp.onPagePlan.faqs.length ? (
+                  <p className="mt-0.5 text-[11px] text-violet-800"><span className="font-medium">FAQ targets:</span> {rp.onPagePlan.faqs.map((f) => f.recommendation).join(" ")}</p>
+                ) : null}
+                {rp.onPagePlan.warnings.length ? (
+                  <p className="mt-1 text-[11px] text-amber-700">⚠ {rp.onPagePlan.warnings[0]}</p>
+                ) : null}
+              </div>
+            ) : rp.primaryLever ? (
               <p className="mt-1 text-[11px] text-violet-800">▸ Do first: <span className="font-medium">{lab(rp.primaryLever.lever)}</span></p>
             ) : null}
             {rp.blockedLevers.length ? (
