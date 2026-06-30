@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-29 — PageResearchPack DataForSEO enrichment: $0 cached-volume consumer · main `63b55e33`
+
+Operator approved building the enrichment (after the prod-visual gate passed + the ~$0.10 top-5 dry-run estimate). Split into a safe **$0 consumer** (now) + the **paid producer** (next, gated on `DATAFORSEO_DRY_RUN=false`).
+
+**Consumer shipped:** `addressableVolume()` (pure, `page-research-pack.ts`) sums the *cached* keyword search-volume of the owned keywords (null when none cached — never guesses). `today-moves-data` reads `readAllCachedKeywordDemand()` ($0 cache read, fail-soft, in the existing Promise.all) → `volumeByKeyword` → `researchPack.addressableVolume`. The card renders "Addressable demand: ~Nk searches/mo (DataForSEO)" on the research module when cached volume exists (hidden otherwise). **No live DataForSEO call; nothing flipped; $0.**
+
+**Verified:** tsc 0 · `page-research-pack` **15/15** (3 new addressableVolume tests: sum case-insensitive, null when uncached, ignores null/zero) + `ctr-title-scorer` 14 = 29 · `npm run build` exit 0. Display is cache-dependent (renders for owned terms already in the keyword cache; the producer populates the rest) — both outcomes correct.
+
+**NEXT (gated):** the paid producer — an on-demand step that fetches volume + SERP winner-title study for the top-5 seed terms through the dry-run-default gauntlet (off the hot render path), populating the cache the consumer reads. Live data needs the operator to set `DATAFORSEO_DRY_RUN=false` (~$0.10/run, $50 cap).
+
+---
+
 ## 2026-06-29 — PageResearchPack PROD-VISUAL VERIFICATION + cross-link/fold fix · main `3b91a780`
 
 Operator asked for visual confirmation before DataForSEO enrichment (don't trust unit tests + SSR 200 alone). Prod `/worklist` is auth-gated (307→login) and I can't authenticate, so I verified on the **local dev server** (auth-disabled, identical code now on prod, Iranopedia). Cold `/` render is ~130s (pre-existing heavy-load fragility); once settled it renders fine.
