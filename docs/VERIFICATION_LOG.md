@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-30 — Daily Experiments Preview/Accept: migration applied + atomic RPC proven + real preview live
+
+**Supabase recovery (Management API query endpoint via `SUPABASE_MGMT_TOKEN`; MCP transport was down from this runtime, shell `SUPABASE_ACCESS_TOKEN` 401):**
+- Project verified: `beacon-main` / `vlxwevsdvwxvopkjsewo` / ACTIVE_HEALTHY / us-east-1.
+- Applied `migrations/2026-06-30_daily_experiment_plans_and_reservations.sql` idempotently → schema verify: `daily_experiment_plans` + `control_reservations` present, RLS on both, **4 policies**, `accept_daily_experiment_plan` RPC present (`prosecdef=false` → SECURITY INVOKER), `service_role` EXECUTE = true / `anon` EXECUTE = false. `NOTIFY pgrst,'reload schema'` → PostgREST exposes tables + RPC (no-write `plan_not_found` probe LIVE).
+- **Rolled-back atomicity test** (DO-block, `RAISE` to roll back): 12/12 contract cases green — valid accept (plan→accepted, 2 reservations, idempotency key + receipt written), idempotent re-accept (same key, no dup), different-key re-accept (no dup), expired→`plan_expired`, tenant-mismatch→`plan_not_found`, hash-mismatch→`input_hash_changed`, nonexistent→`plan_not_found`, abandoned→`plan_abandoned`. Post-rollback row counts **0/0/0/0** (no synthetic rows persisted).
+
+**Real preview (live, `BEACON_TENANT_ID=tenant-iranopedia`):** `tenant-iranopedia::2026-06-30::a618fc59` — 8 selected (4 meta + 1 internal link + 3 answer blocks) + 2 backups + 34 controls, 50 candidates evaluated, est 16 min; animal batch frozen as protected snapshot (17 treated / 24 control). Persisted via `createPreviewPlan` → readback id matches, status=preview; **`listActiveReservations`=0**; acceptance validation-only `ok=true / 0 failures / wouldReserve=34`. Accept NOT executed (operator-gated). No proof rows, no Wix, $0.
+
+**App layer:** `daily-experiment-plan-store.ts`, `build-today-preview.ts`, `daily-experiments-actions.ts` (plan/accept/abandon), `daily-experiments-data.ts`, `daily-experiments-section.tsx` on `/worklist`. **Ownership:** standing Supabase rule in `CLAUDE.md` + `npm run supabase:management-check` preflight + `scripts/daily-plan-live-preview.ts` ground-truth.
+
+**Gates:** `tsc` 0 errors · experiments+proof tests **149 passed (12 files)** · `npm run build` PASS.
+
+---
+
 ## 2026-06-30 — Control Reservation lifecycle: contracts + atomic accept (PROVEN, MIGRATION GATE)
 
 **Persistence/atomicity decision (Phase 1):** the json-store is read-modify-write → it CANNOT give
