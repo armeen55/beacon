@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import { buildDailyCandidates, MIN_CONTROLS, type GscPageInput, type PageFacts } from "./build-daily-candidates";
+import { planDailyExperiments } from "./daily-experiment-planner";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 
 const NOW = new Date("2026-07-01T00:00:00Z");
@@ -50,12 +51,45 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     expect(buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW })).toHaveLength(0);
   });
 
-  it("fills a MISSING meta (factual, from the on-page H1) — never rewrites an existing meta", () => {
+  it("proposes a safe meta from the page's OWN opening paragraph when the meta is templated", () => {
     const pages = [gsc({ url: "/y", topQuery: "kerman rug" })];
-    const f = facts({ "/y": { title: "Kerman Rug Guide", meta: null, h1: "Kerman Rugs" } });
+    const f = facts({ "/y": {
+      title: "Kerman Rug Guide", meta: "Learn about kerman rug and discover everything here.", h1: "Kerman Rugs",
+      openingParagraph: "The Kerman rug is a hand-knotted Persian carpet from Kerman province in southeast Iran, prized for its floral medallion designs and exceptionally fine wool.",
+    } });
     const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW });
     expect(c.leverField).toBe("meta");
     expect(c.proposedText.toLowerCase()).toContain("kerman");
+    expect(c.proposedText.startsWith("Learn about")).toBe(false); // not the template
+    expect(c.proposedText.length).toBeLessThanOrEqual(160);
+  });
+
+  it("filler-drop consumes 'verb + the' together and never strips a bare leading article", () => {
+    // "Discover the Most Popular…" → "Most Popular…" (clean), NOT the broken "the Most Popular…".
+    const a = facts({ "/x": { title: "Persian Names List", meta: "A bespoke meta about persian surnames and their meanings on this page.", h1: "Discover the Most Popular Persian Surnames" } });
+    const [c] = buildDailyCandidates({ tenantId: "t", pages: [gsc({ url: "/x", topQuery: "persian surnames" })], facts: a, proofLedger: [], now: NOW });
+    expect(c.leverField).toBe("h1");
+    expect(c.proposedText).toBe("Most Popular Persian Surnames");
+    expect(/^the /i.test(c.proposedText)).toBe(false);
+    // A bare leading article is NOT filler — "The Best Persian Restaurants" yields no title/H1 change.
+    const b = facts({ "/y": { title: "The Best Persian Restaurants in Florida", meta: "A bespoke meta about persian food in florida written for this page.", h1: "The Best Persian Restaurants in Florida" } });
+    expect(buildDailyCandidates({ tenantId: "t", pages: [gsc({ url: "/y", topQuery: "persian food" })], facts: b, proofLedger: [], now: NOW })).toHaveLength(0);
+  });
+
+  it("REGRESSION: a candidate with too few controls is ineligible (insufficient_controls), never selected", () => {
+    // One lonely page with no same-family siblings → 0 controls → cannot be measured → excluded.
+    const pages = [gsc({ url: "/iran-flags/lonely-flag", topQuery: "lonely flag", impressions: 2000 })];
+    const f = facts({ "/iran-flags/lonely-flag": {
+      title: "Lonely Flag", meta: "Learn all about the Lonely Flag here on our site.", h1: "Lonely Flag",
+      openingParagraph: "The lonely flag was a historical banner used by a small regional power, notable for its simple single-color field and minimal heraldry.",
+    } });
+    const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW });
+    expect(c.enoughControls).toBe(false);
+    expect(c.eligibility.eligible).toBe(false);
+    if (!c.eligibility.eligible) expect(c.eligibility.reason).toBe("insufficient_controls");
+    const plan = planDailyExperiments({ tenantId: "t", date: "2026-07-01", candidates: [c], proofLedger: [], config: { now: NOW } });
+    expect(plan.selected).toHaveLength(0);
+    expect(plan.excluded.some((e) => e.reason === "insufficient_controls")).toBe(true);
   });
 
   it("attaches eligibility — an active control page comes back ineligible (active_control)", () => {

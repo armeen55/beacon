@@ -20,8 +20,15 @@ import {
   type ExperimentEligibility,
 } from "./experiment-eligibility";
 import { pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
+import { proposeSafeMeta } from "./safe-meta";
 
-export type PageFacts = { title: string | null; meta: string | null; h1: string | null };
+export type PageFacts = {
+  title: string | null;
+  meta: string | null;
+  h1: string | null;
+  /** The page's first substantive paragraph — the factual source for a safe meta. */
+  openingParagraph?: string | null;
+};
 
 export type GscPageInput = {
   url: string;
@@ -68,44 +75,41 @@ function expectedCtr(pos: number): number {
   return 0.006;
 }
 
-const FILLER_LEAD = /^(meet the|the|a|an|discover|explore|learn about|all about|guide to)\s+/i;
+// "verb + the" is consumed TOGETHER ("Discover the Most Popular X" → "Most Popular X", never the
+// broken "the Most Popular X"). A BARE leading article ("The Best Restaurants in Florida") is NOT
+// filler — stripping it isn't materially better and risks grammar — so it's deliberately absent.
+const FILLER_LEAD = /^(meet the|meet|discover the|discover|explore the|explore|learn all about the|learn all about|learn about the|learn about|all about the|all about|guide to the|guide to|complete guide to|your guide to)\s+/i;
 
-/** The ONLY safe deterministic title change: drop a filler lead ("Meet the X" → "X"). This is
- *  unambiguously materially-better (query-first, no info loss, reversible). We deliberately do
- *  NOT prepend a synonym query (would change the page's subject — "Mongol Empire Flag" must not
- *  become "Genghis Khan Flag") nor replace a good bespoke title (would destroy "Top 20 Most
- *  Famous Iranian Directors"). A filler-free title → no deterministic change (a synonym-capture
- *  parenthetical needs deeper analysis, a later slice). Returns null unless filler was dropped. */
+/** Drop a filler lead only when the remainder is a clean, capitalized, query-first phrase. This is
+ *  unambiguously materially-better (query-first, no info loss, reversible). We deliberately do NOT
+ *  prepend a synonym query (would change the page's subject — "Mongol Empire Flag" must not become
+ *  "Genghis Khan Flag") nor replace a good bespoke title (would destroy "Top 20 Most Famous Iranian
+ *  Directors"), nor strip a bare article. Returns null unless a clean filler-drop applies. */
+function dropFillerLead(current: string | null): string | null {
+  if (!current) return null;
+  const stripped = current.replace(FILLER_LEAD, "").trim();
+  if (stripped === current.trim() || stripped.length < 4) return null; // nothing dropped / too short
+  if (!/^[A-Z0-9"'(]/.test(stripped)) return null; // must start clean (no lowercase remainder like "the Most…")
+  return stripped;
+}
 function proposeTitle(currentTitle: string | null, _query: string): string | null {
-  if (!currentTitle) return null;
-  const stripped = currentTitle.replace(FILLER_LEAD, "").trim();
-  return stripped !== currentTitle.trim() && stripped.length >= 3 ? stripped : null;
+  return dropFillerLead(currentTitle);
 }
-
-/** Same conservative rule for H1: only drop a filler lead. Never rewrite a clean H1 to chase a
- *  synonym query (that changes the page's stated subject). */
 function proposeH1(currentH1: string | null, _query: string): string | null {
-  if (!currentH1) return null;
-  const stripped = currentH1.replace(FILLER_LEAD, "").trim();
-  return stripped !== currentH1.trim() && stripped.length >= 3 ? stripped : null;
+  return dropFillerLead(currentH1);
 }
 
-function proposeMeta(currentMeta: string | null, facts: PageFacts, query: string): string | null {
-  if (currentMeta && currentMeta.trim().length > 0) return null; // only fill a MISSING meta
-  const base = (facts.h1 || facts.title || query).replace(/\s*\|.*$/, "").trim();
-  // Factual, derived from on-page H1 + the query it ranks for. ≤155 chars.
-  const meta = `${base} — guide to ${query}.`.slice(0, 155);
-  return meta;
-}
 
-type Proposal = { leverField: "title" | "meta" | "h1"; actionType: string; proposed: string; current: string };
+type Proposal = { leverField: "title" | "meta" | "h1"; actionType: string; proposed: string; current: string; source?: string };
 function chooseProposal(facts: PageFacts, query: string): Proposal | null {
+  // Meta is the highest-yield safe lever (good titles, templated metas); title/H1 are filler-drop
+  // last resorts. Try the safe meta FIRST, then a filler-drop on title/H1.
+  const m = proposeSafeMeta({ currentMeta: facts.meta, openingParagraph: facts.openingParagraph, query });
+  if (m) return { leverField: "meta", actionType: "edit_meta", proposed: m.proposed, current: facts.meta ?? "(none)", source: m.source };
   const t = proposeTitle(facts.title, query);
   if (t) return { leverField: "title", actionType: "edit_title", proposed: t, current: facts.title ?? "" };
   const h = proposeH1(facts.h1, query);
   if (h) return { leverField: "h1", actionType: "edit_h1", proposed: h, current: facts.h1 ?? "" };
-  const m = proposeMeta(facts.meta, facts, query);
-  if (m) return { leverField: "meta", actionType: "edit_meta", proposed: m, current: facts.meta ?? "(none)" };
   return null;
 }
 
@@ -149,23 +153,25 @@ export function buildDailyCandidates(input: {
     if (!proposal) continue; // nothing materially better → no candidate (honest)
 
     const actionFamily = actionFamilyOf(proposal.actionType);
-    const external = { ownershipUncertain: p.ownership < 0.12, highRisk: false };
-    const elig = assessEligibility({ url: p.url, family: actionFamily, states, external });
-    if (!elig.eligible) {
-      out.push(buildCandidate(p, proposal, actionFamily, elig, []));
+    const baseExternal = { ownershipUncertain: p.ownership < 0.12, highRisk: false };
+    const baseElig = assessEligibility({ url: p.url, family: actionFamily, states, external: baseExternal });
+    if (!baseElig.eligible) {
+      out.push(buildCandidate(p, proposal, actionFamily, baseElig, [], baseExternal));
       continue; // kept for the planner to report as excluded
     }
 
     // controls: same family first, untreated, not this page, similar scale/position.
-    const pf = pageFamilyOf(p.url);
     const controls = cleanPool
       .filter((c) => c.url !== p.url)
       .map((c) => scoreControl(p, c))
       .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
       .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
       .slice(0, 5);
-    void pf;
-    out.push(buildCandidate(p, proposal, actionFamily, elig, controls));
+    // A measurable experiment NEEDS a control anchor — re-assess so <MIN_CONTROLS excludes from
+    // selection (insufficient_controls) rather than silently shipping an unmeasurable change.
+    const external = { ...baseExternal, insufficientControls: controls.length < MIN_CONTROLS };
+    const elig = assessEligibility({ url: p.url, family: actionFamily, states, external });
+    out.push(buildCandidate(p, proposal, actionFamily, elig, controls, external));
   }
   return out;
 }
@@ -176,6 +182,7 @@ function buildCandidate(
   actionFamily: ReturnType<typeof actionFamilyOf>,
   elig: ExperimentEligibility,
   controls: SuggestedControl[],
+  external: { ownershipUncertain?: boolean; highRisk?: boolean; insufficientControls?: boolean },
 ): BuiltCandidate {
   const ctrOpportunityClicks = Math.max(0, expectedCtr(p.topQueryPosition) - p.topQueryCtr) * p.topQueryImpressions;
   return {
@@ -190,7 +197,7 @@ function buildCandidate(
     ownership: p.ownership,
     ctrOpportunityClicks,
     effortMinutes: 1,
-    external: { ownershipUncertain: p.ownership < 0.12 },
+    external,
     leverField: proposal.leverField,
     currentText: proposal.current,
     proposedText: proposal.proposed,

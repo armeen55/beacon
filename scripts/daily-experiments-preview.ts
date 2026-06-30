@@ -1,85 +1,92 @@
 /**
  * Native Daily-Experiments preview (Phase 11) — runs the in-app engine end-to-end. Read-only,
- * $0, NO proof rows, NO Wix. Excludes the active animal batch + its 17 controls via the
- * eligibility model; selects a diversified next batch from unrelated families.
+ * $0, NO live fetch, NO proof rows, NO Wix. Facts come from Beacon's OWN cached crawl
+ * (page_snapshots: title/meta/h1/body_paragraph_sample) — the factual, no-fabrication source for
+ * the safe-meta lever. Excludes the active animal batch + its 17 controls via the eligibility
+ * model; selects a diversified next batch from unrelated families.
  *   set -a; . ./.env.local; set +a
- *   npx tsx --require ./scripts/mock-server-only.cjs scripts/daily-experiments-preview.ts
+ *   BEACON_TENANT_ID=tenant-iranopedia npx tsx --require ./scripts/mock-server-only.cjs scripts/daily-experiments-preview.ts
  */
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { buildDailyCandidates, type GscPageInput, type PageFacts } from "@/domains/experiments/build-daily-candidates";
 import { planDailyExperiments } from "@/domains/experiments/daily-experiment-planner";
 
 const TENANT = process.env.BEACON_TENANT_ID ?? "tenant-iranopedia";
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
-const slug = (u: string) => u.replace(/^https?:\/\/[^/]+/, "") || "/";
-const labelOf = (u: string) => (slug(u).split("/").filter(Boolean).at(-1) ?? "").replace(/[-_]+/g, " ");
-const decode = (s: string) => s.replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
-
-async function liveFacts(url: string): Promise<PageFacts> {
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": "BeaconBot/1.0" }, signal: AbortSignal.timeout(15000) });
-    if (!res.ok) return { title: null, meta: null, h1: null };
-    const html = await res.text();
-    const title = decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "") || null;
-    const metaM = html.match(/<meta[^>]+name=["']description["'][^>]*content=["']([\s\S]*?)["']/i) || html.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]*name=["']description["']/i);
-    const meta = decode(metaM?.[1] ?? "") || null;
-    const h1 = decode((html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "").replace(/<[^>]+>/g, " ")) || null;
-    return { title, meta, h1 };
-  } catch { return { title: null, meta: null, h1: null }; }
-}
+const path = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
+const labelOf = (u: string) => (path(u).split("/").filter(Boolean).at(-1) ?? "").replace(/[-_]+/g, " ");
 
 async function main() {
   const signals = await loadGscPageSignalsForTenant(TENANT);
   const ledger = await loadProofLedger(TENANT).catch(() => []);
+  const snaps = await getPageSnapshots();
+
+  // Index Beacon's cached crawl by PATH (GSC may be non-www; snapshots www) — $0 factual source.
+  const factsByPath = new Map<string, PageFacts>();
+  for (const s of snaps as Array<{ url?: string; page?: string; title: string | null; meta_description: string | null; h1: string | null; body_paragraph_sample?: string[] }>) {
+    const u = s.url ?? s.page;
+    if (!u) continue;
+    factsByPath.set(path(u), {
+      title: s.title, meta: s.meta_description, h1: s.h1,
+      openingParagraph: (s.body_paragraph_sample ?? []).find((p) => p && p.trim().length >= 80) ?? null,
+    });
+  }
 
   // Build GSC inputs for NON-animal pages (the 27 animals are all treated/control → busy).
   const inputs: GscPageInput[] = [];
   for (const s of signals.values()) {
-    if (/\/iran-animals\//.test(s.page)) continue; // active batch family — skip the fetch
+    if (/\/iran-animals(\/|$)/.test(s.page)) continue; // active batch family (incl. hub) — skip; eligibility model is the second-line guard
     const tq = [...s.topQueries].sort((a, b) => b.impressions - a.impressions)[0];
     if (!tq) continue;
-    if (s.impressions90d < 400 || s.impressions90d > 9000) continue;
-    if (s.position90d < 4 || s.position90d > 20) continue;
+    if (s.impressions90d < 200) continue; // need real demand
+    if (s.position90d < 4 || s.position90d > 30) continue; // not already #1-3; not hopeless
     inputs.push({
       url: s.page, pageLabel: labelOf(s.page), impressions: s.impressions90d, clicks: s.clicks90d, ctr: s.ctr90d, position: s.position90d,
       topQuery: tq.query, topQueryImpressions: tq.impressions, topQueryPosition: tq.position, topQueryCtr: tq.ctr,
       ownership: s.impressions90d > 0 ? tq.impressions / s.impressions90d : 0,
     });
   }
-  // Pre-rank by CTR opportunity; fetch live facts only for the top 30 (bounds the fetch).
   inputs.sort((a, b) => (b.topQueryImpressions * (1 / Math.max(1, b.topQueryPosition))) - (a.topQueryImpressions * (1 / Math.max(1, a.topQueryPosition))));
-  const top = inputs.slice(0, 30);
-  console.log(`\n=== Native Daily-Experiments preview · ${TENANT} ===`);
-  console.log(`non-animal candidate pages (pos 4-20, impr 400-9000): ${inputs.length}; fetching live facts for top ${top.length}…\n`);
 
   const facts = new Map<string, PageFacts>();
-  for (const p of top) facts.set(p.url, await liveFacts(p.url));
+  let withSnapshot = 0;
+  for (const p of inputs) {
+    const f = factsByPath.get(path(p.url));
+    if (f) { facts.set(p.url, f); withSnapshot++; }
+  }
 
-  const built = buildDailyCandidates({ tenantId: TENANT, pages: top, facts, proofLedger: ledger });
-  // Feed only candidates that have a materially-better proposal into the planner.
+  console.log(`\n=== Native Daily-Experiments preview · ${TENANT} ===`);
+  console.log(`non-animal candidate pages (pos 4-30, impr ≥200): ${inputs.length} | with cached snapshot facts: ${withSnapshot}\n`);
+
+  const built = buildDailyCandidates({ tenantId: TENANT, pages: inputs, facts, proofLedger: ledger });
   const plan = planDailyExperiments({
     tenantId: TENANT, date: new Date().toISOString().slice(0, 10),
-    candidates: built,
-    proofLedger: ledger,
-    config: { maxExperiments: 8, maxPerPageFamily: 3, maxPerActionFamily: 3, maxHighTraffic: 1, effortBudgetMinutes: 45, backups: 2 },
+    candidates: built, proofLedger: ledger,
+    // Force FAMILY diversity (≤2 per page family); allow the meta lever to fill until more levers
+    // exist. One variable per page; each page independently controlled.
+    config: { maxExperiments: 8, maxPerPageFamily: 4, maxPerActionFamily: 8, maxHighTraffic: 2, effortBudgetMinutes: 45, backups: 2 },
   });
 
-  console.log(`candidates evaluated: ${plan.candidatesEvaluated} | active animal treatments+controls excluded by eligibility`);
+  const famCount = new Map<string, number>();
+  for (const b of built) { const fam = b.pageFamily ?? "other"; famCount.set(fam, (famCount.get(fam) ?? 0) + 1); }
+  console.log(`candidates with a materially-better proposal: ${built.length} | by family: ${JSON.stringify(Object.fromEntries([...famCount.entries()].sort((a, b) => b[1] - a[1])))}`);
   console.log(`lever distribution: ${JSON.stringify(plan.leverDistribution)} | family distribution: ${JSON.stringify(plan.familyDistribution)}`);
   console.log(`estimated minutes: ${plan.estimatedMinutes} | controls available (clean pool): ${plan.controlAvailability.cleanPages}\n`);
+
   console.log(`--- SELECTED ${plan.selected.length} ---`);
-  for (const s of plan.selected as (typeof plan.selected[number] & Partial<(typeof built)[number]>)[]) {
+  for (const s of plan.selected) {
     const b = built.find((x) => x.url === s.url)!;
-    console.log(`[${b.leverField}] ${labelOf(s.url).padEnd(26)} "${b.targetQuery}" pos ${b.position.toFixed(1)} ctr ${pct(b.ctr)} own ${pct(b.ownership)} controls=${b.suggestedControls.length}${b.enoughControls ? "" : " ⚠FEW"}`);
-    console.log(`     current : ${b.currentText.slice(0, 80)}`);
-    console.log(`     proposed: ${b.proposedText.slice(0, 80)}`);
+    console.log(`\n[${b.leverField}] ${labelOf(s.url)}  ·  query "${b.targetQuery}"  ·  pos ${b.position.toFixed(1)} · ctr ${pct(b.ctr)} · impr ${b.impressions} · own ${pct(b.ownership)} · controls=${b.suggestedControls.length}${b.enoughControls ? "" : " ⚠FEW"}`);
+    console.log(`     current : ${(b.currentText || "(none)").slice(0, 150)}`);
+    console.log(`     proposed: ${b.proposedText.slice(0, 150)}`);
   }
   console.log(`\n--- BACKUPS ${plan.backups.length} ---`);
   for (const s of plan.backups) { const b = built.find((x) => x.url === s.url)!; console.log(`[${b.leverField}] ${labelOf(s.url)} "${b.targetQuery}"`); }
   console.log(`\n--- EXCLUDED (by reason) ---`);
   const byReason = new Map<string, number>();
   for (const e of plan.excluded) byReason.set(e.reason, (byReason.get(e.reason) ?? 0) + 1);
-  for (const [r, n] of byReason) console.log(`  ${r}: ${n}`);
+  for (const [r, n] of [...byReason.entries()].sort((a, b) => b[1] - a[1])) console.log(`  ${r}: ${n}`);
 }
 main().catch((e) => { console.error("preview failed:", e); process.exit(1); });
