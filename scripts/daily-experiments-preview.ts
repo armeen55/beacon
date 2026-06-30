@@ -27,7 +27,7 @@ async function main() {
 
   // Index Beacon's cached crawl by PATH (GSC may be non-www; snapshots www) — $0 factual source.
   const factsByPath = new Map<string, PageFacts>();
-  for (const s of snaps as Array<{ url?: string; page?: string; title: string | null; meta_description: string | null; h1: string | null; body_paragraph_sample?: string[]; internal_links?: Array<{ href: string }> }>) {
+  for (const s of snaps as Array<{ url?: string; page?: string; title: string | null; meta_description: string | null; h1: string | null; body_paragraph_sample?: string[]; internal_links?: Array<{ href: string }>; fetched_at?: string }>) {
     const u = s.url ?? s.page;
     if (!u) continue;
     factsByPath.set(path(u), {
@@ -35,6 +35,7 @@ async function main() {
       openingParagraph: (s.body_paragraph_sample ?? []).find((p) => p && p.trim().length >= 80) ?? null,
       bodyParagraphs: s.body_paragraph_sample ?? [],
       internalLinkPaths: (s.internal_links ?? []).map((l) => toLinkPath(l.href)),
+      snapshotFetchedAt: s.fetched_at,
     });
   }
 
@@ -102,6 +103,12 @@ async function main() {
       console.log(`     own why : ${l.ownershipReason}`);
       console.log(`     influences: ${(b.influencedUrls ?? []).join(", ")}`);
       console.log(`     ${l.wixInstructions}`);
+    } else if (b.answerDetail) {
+      const a = b.answerDetail;
+      console.log(`     Q: ${a.question}  (${a.operation}, ${a.supportMode})`);
+      console.log(`     answer (exact, buried @p${a.paragraphIndex + 1}): "${a.answerText}"`);
+      console.log(`     firewall: passed=${a.factualSafety.passed}${a.factualSafety.reasons.length ? " — " + a.factualSafety.reasons.join("; ") : ""}`);
+      console.log(`     ${a.exactInstruction}`);
     } else {
       console.log(`     current : ${(b.currentText || "(none)").slice(0, 150)}`);
       console.log(`     proposed: ${b.proposedText.slice(0, 150)}`);
