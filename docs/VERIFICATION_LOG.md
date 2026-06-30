@@ -7,6 +7,45 @@
 
 ---
 
+## 2026-06-30 — Safe Lever Library, slice 3: the Safe ANSWER-BLOCK lever → first DIVERSIFIED 8-item batch
+
+**The hardest lever (factual risk), so V1 is strictly EXTRACTIVE: MOVE an existing exact sentence.**
+Phase-0 probe: of 110 non-animal GSC pages with body, 58 have a direct definitional sentence — **24
+already prominent (lead sentence), 34 BURIED**. The buried ones are the opportunity: surface the
+page's OWN exact sentence to the top. Zero fabrication by construction (`answerText` is a verbatim
+slice of `body_paragraph_sample`, which the extractor stores in DOCUMENT ORDER —
+`contentRoot.find("p").each`).
+
+**New `safe-answer-block.ts` (PURE, $0, no LLM, no live fetch):** `entityHead`,
+`checkAnswerFactualSafety` (the firewall: rejects VOLATILE — population/`currently`/`as of 20XX`/big
+current numbers — and unsupported SUPERLATIVE/STATUS — `largest`/`oldest`/`only`/`first`/`national`/
+`endangered` — and any answer atom (number/proper-noun) not present in the source),
+`proposeSafeAnswerBlock` (scans body in document order for the first direct-answer sentence: entity
+head in the opening + early copula + not dangling + complete sentence + 6–45 words; **rejects if
+already prominent (p0s0)**; MOVE when it's a paragraph's lead sentence, else COPY; exact Wix
+placement + rollback). Wired into the builder as lever #3 (META → INTERNAL LINK → ANSWER BLOCK →
+filler title/H1). actionFamily `answer`; eligibility/controls/one-variable inherited from the
+existing model.
+
+**Live Iranopedia mixed preview (read-only, $0, no proof rows, no Wix):** 52 candidates → a
+**diversified 8-item batch = 4 meta + 1 internal link + 3 answer blocks** + 2 backups, 5 controls
+each. Answer blocks: `finglish` → *"Finglish is Persian written using the English alphabet."* (buried
+p2 → move below H1), `chaharshanbe-suri` → *"Chaharshanbe Suri, also known as the Festival of Fire, is
+a traditional Persian celebration rooted in Zoroastrian traditions."*, `shiraz` → a factual landmarks
+sentence — all firewall-passed. The `/ahvaz` population sentence was correctly **rejected** (volatile).
+**Zero animal treatments/controls selected/linked** (eligibility model caught 2 active-controls as
+the second-line guard).
+
+**Adversarial verification:** a 9-guarantee skeptic workflow + completeness critic (read-only code
+audit) — see the dated HANDOFF entry for the verdict.
+
+Verified: tsc 0 · **130 tests** (experiments + proof; incl. firewall volatile/superlative/atom-
+subset, dangling-pronoun reject, already-prominent reject, buried-answer accept, move-vs-copy,
+builder integration) · build PASS · 0 routes import the new module (Today/Worklist perf unchanged).
+**No paid API, no live fetch, no Wix, no proof rows, no migration, no control reservation, no LLM.**
+
+---
+
 ## 2026-06-30 — Safe Lever Library, slice 2: the Safe INTERNAL-LINK lever + a mixed daily batch
 
 **Phase 1 data-quality audit (page_snapshots, N=217):** canonical_url 215, internal_links 215
