@@ -1,0 +1,149 @@
+/**
+ * build-daily-plan-record (2026-06-30) — PURE. Freezes a planner output (selected + backup
+ * BuiltCandidates) + the active-experiment topology into a reproducible DailyExperimentPlanRecord.
+ * No I/O, no side effects, no reservations (preview only). The frozen hashes let acceptance detect a
+ * candidate whose page text / evidence / eligibility changed since planning.
+ */
+
+import type { BuiltCandidate } from "./build-daily-candidates";
+import {
+  stableHash, normalizePath, type DailyExperimentPlanRecord, type PlannedExperimentRecord,
+  type ProposedControlRecord, type ExperimentLever,
+} from "./daily-plan-types";
+
+export const PLANNER_VERSION = "safe-levers-v3"; // meta + internal-link + answer-block
+const DEFAULT_EXPIRY_MIN = 30;
+
+function controlRecord(c: BuiltCandidate["suggestedControls"][number]): ProposedControlRecord {
+  return {
+    controlUrl: c.url, controlPath: normalizePath(c.url), score: c.score,
+    pageFamilyMatch: c.pageFamilyMatch, impressionsRatio: c.impressionsRatio,
+    positionDifference: c.positionDifference, why: c.why,
+  };
+}
+
+function detailOf(c: BuiltCandidate): PlannedExperimentRecord["detail"] {
+  if (c.leverField === "internal_link" && c.linkDetail) {
+    return { kind: "internal_link", destinationUrl: c.linkDetail.destinationUrl, anchorText: c.linkDetail.anchorText, wixInstructions: c.linkDetail.wixInstructions, relationship: c.linkDetail.relationship };
+  }
+  if (c.leverField === "answer_block" && c.answerDetail) {
+    return { kind: "answer_block", question: c.answerDetail.question, operation: c.answerDetail.operation, exactInstruction: c.answerDetail.exactInstruction, paragraphIndex: c.answerDetail.paragraphIndex };
+  }
+  if (c.leverField === "meta") return { kind: "meta", source: "page_opening_paragraph" };
+  return { kind: "edit_field", field: c.leverField === "h1" ? "h1" : "title" };
+}
+
+function placementOf(c: BuiltCandidate): string {
+  if (c.leverField === "answer_block" && c.answerDetail) return c.answerDetail.proposedLocation;
+  if (c.leverField === "internal_link" && c.linkDetail) return `paragraph ${c.linkDetail.paragraphIndex + 1}`;
+  return c.leverField;
+}
+
+function leaveUnchangedFor(lever: ExperimentLever): string[] {
+  const all = ["title", "meta", "H1", "other body text", "internal links", "schema"];
+  const touched: Record<ExperimentLever, string> = { meta: "meta", title: "title", h1: "H1", internal_link: "internal links", answer_block: "other body text" };
+  return all.filter((x) => x.toLowerCase() !== touched[lever].toLowerCase());
+}
+
+function toExperimentRecord(planId: string, c: BuiltCandidate, controls: ProposedControlRecord[]): PlannedExperimentRecord {
+  const path = normalizePath(c.url);
+  const lever = c.leverField as ExperimentLever;
+  const currentTextHash = stableHash(c.currentText ?? "");
+  const evidenceHash = stableHash([c.targetQuery, c.proposedText, c.ownership.toFixed(3), c.position.toFixed(2)].join("|"));
+  const eligibilityHash = stableHash([JSON.stringify(c.eligibility), controls.map((s) => s.controlPath).sort().join(",")].join("|"));
+  return {
+    id: `${planId}::${path}`,
+    candidateId: path,
+    url: c.url,
+    canonicalUrl: c.url,
+    pageLabel: c.pageLabel,
+    pageFamily: c.pageFamily ?? "",
+    lever,
+    targetQuery: c.targetQuery,
+    currentText: c.currentText,
+    proposedText: c.proposedText,
+    placement: placementOf(c),
+    leaveUnchanged: leaveUnchangedFor(lever),
+    rollbackText: c.rollbackText,
+    effortMinutes: c.effortMinutes,
+    risk: "low",
+    controls,
+    influencedUrls: (c.influencedUrls ?? []).map(normalizePath),
+    evidenceHash,
+    currentTextHash,
+    eligibilityHash,
+    detail: detailOf(c),
+  };
+}
+
+/**
+ * Assign clean controls per experiment. A control is a diff-in-diff BASELINE, so the same untreated
+ * page may baseline multiple experiments (shared controls are compatible — none of them changes it).
+ * The one hard rule: a control must NOT be a page that is itself TREATED in this plan (a changed
+ * page is not a clean baseline). So we exclude in-plan treated paths and keep up to 5 per experiment.
+ * (The reservation id is keyed by experiment, so shared controls are distinct rows; acceptance
+ * blocks only a control that is or becomes a TREATMENT, never a shared baseline.)
+ */
+function assignCleanControls(planId: string, selected: BuiltCandidate[]): PlannedExperimentRecord[] {
+  const treatedPaths = new Set(selected.map((c) => normalizePath(c.url)));
+  return selected.map((c) => {
+    const clean: ProposedControlRecord[] = [];
+    for (const ctrl of c.suggestedControls) {
+      if (treatedPaths.has(normalizePath(ctrl.url))) continue; // never a treated page
+      clean.push(controlRecord(ctrl));
+      if (clean.length >= 5) break;
+    }
+    return toExperimentRecord(planId, c, clean);
+  });
+}
+
+export function buildDailyPlanRecord(input: {
+  tenantId: string;
+  date: string;
+  now: Date;
+  selected: BuiltCandidate[];
+  backups: BuiltCandidate[];
+  activeSnapshot: { proofIds: string[]; treatedUrls: string[]; controlUrls: string[]; influencedUrls: string[] };
+  expiresInMinutes?: number;
+}): DailyExperimentPlanRecord {
+  const nowIso = input.now.toISOString();
+  const expiresAt = new Date(input.now.getTime() + (input.expiresInMinutes ?? DEFAULT_EXPIRY_MIN) * 60_000).toISOString();
+
+  // inputHash is content-addressed over the selected set + the active topology, so re-planning with
+  // identical inputs yields the same plan id (idempotent preview), and any change → a new plan.
+  const selectedKey = input.selected
+    .map((c) => `${normalizePath(c.url)}:${c.leverField}:${stableHash(c.proposedText)}`)
+    .sort()
+    .join("|");
+  const snapKey = [...input.activeSnapshot.treatedUrls, ...input.activeSnapshot.controlUrls].map(normalizePath).sort().join(",");
+  const inputHash = stableHash(`${input.tenantId}|${input.date}|${selectedKey}|${snapKey}`);
+  const id = `${input.tenantId}::${input.date}::${inputHash.slice(0, 12)}`;
+
+  const selected = assignCleanControls(id, input.selected);
+  const backups = assignCleanControls(id, input.backups);
+
+  const byLever: Record<string, number> = {};
+  const byPageFamily: Record<string, number> = {};
+  for (const e of selected) {
+    byLever[e.lever] = (byLever[e.lever] ?? 0) + 1;
+    byPageFamily[e.pageFamily] = (byPageFamily[e.pageFamily] ?? 0) + 1;
+  }
+  const estimatedMinutes = selected.reduce((s, e) => s + e.effortMinutes, 0);
+
+  return {
+    version: 1,
+    id,
+    tenantId: input.tenantId,
+    date: input.date,
+    status: "preview",
+    createdAt: nowIso,
+    expiresAt,
+    inputHash,
+    plannerVersion: PLANNER_VERSION,
+    activeExperimentSnapshot: { ...input.activeSnapshot, capturedAt: nowIso },
+    selected,
+    backups,
+    distribution: { byLever, byPageFamily },
+    estimatedMinutes,
+  };
+}
