@@ -12,6 +12,8 @@ import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { buildDailyCandidates, type GscPageInput, type PageFacts } from "@/domains/experiments/build-daily-candidates";
 import { planDailyExperiments } from "@/domains/experiments/daily-experiment-planner";
+import { deriveExperimentStates } from "@/domains/experiments/experiment-eligibility";
+import { buildLinkDestinations, toLinkPath } from "@/domains/experiments/safe-internal-link";
 
 const TENANT = process.env.BEACON_TENANT_ID ?? "tenant-iranopedia";
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
@@ -25,14 +27,26 @@ async function main() {
 
   // Index Beacon's cached crawl by PATH (GSC may be non-www; snapshots www) — $0 factual source.
   const factsByPath = new Map<string, PageFacts>();
-  for (const s of snaps as Array<{ url?: string; page?: string; title: string | null; meta_description: string | null; h1: string | null; body_paragraph_sample?: string[] }>) {
+  for (const s of snaps as Array<{ url?: string; page?: string; title: string | null; meta_description: string | null; h1: string | null; body_paragraph_sample?: string[]; internal_links?: Array<{ href: string }> }>) {
     const u = s.url ?? s.page;
     if (!u) continue;
     factsByPath.set(path(u), {
       title: s.title, meta: s.meta_description, h1: s.h1,
       openingParagraph: (s.body_paragraph_sample ?? []).find((p) => p && p.trim().length >= 80) ?? null,
+      bodyParagraphs: s.body_paragraph_sample ?? [],
+      internalLinkPaths: (s.internal_links ?? []).map((l) => toLinkPath(l.href)),
     });
   }
+
+  // Internal-link DESTINATION registry — protected pages (animal family + any active treatment/
+  // control) are marked ineligible so the lever NEVER links to/from a protected page.
+  const states = deriveExperimentStates(ledger, new Date());
+  const activePaths = new Set<string>();
+  for (const [p, st] of states) if (st.activeTreatments.length || st.activeControlAssignments.length) activePaths.add(toLinkPath(p));
+  const isProtected = (p: string): string | null =>
+    /\/iran-animals(\/|$)/.test(p) ? "animal_family" : activePaths.has(p) ? "active_experiment" : null;
+  const linkDestinations = buildLinkDestinations(snaps as Parameters<typeof buildLinkDestinations>[0], isProtected);
+  const eligibleDests = linkDestinations.filter((d) => d.eligible).length;
 
   // Build GSC inputs for NON-animal pages (the 27 animals are all treated/control → busy).
   const inputs: GscPageInput[] = [];
@@ -40,8 +54,8 @@ async function main() {
     if (/\/iran-animals(\/|$)/.test(s.page)) continue; // active batch family (incl. hub) — skip; eligibility model is the second-line guard
     const tq = [...s.topQueries].sort((a, b) => b.impressions - a.impressions)[0];
     if (!tq) continue;
-    if (s.impressions90d < 200) continue; // need real demand
-    if (s.position90d < 4 || s.position90d > 30) continue; // not already #1-3; not hopeless
+    if (s.impressions90d < 200) continue; // need real demand (measurable source)
+    if (s.position90d < 3 || s.position90d > 50) continue; // measurable band (meta scores by CTR-gap; links need only a measurable source)
     inputs.push({
       url: s.page, pageLabel: labelOf(s.page), impressions: s.impressions90d, clicks: s.clicks90d, ctr: s.ctr90d, position: s.position90d,
       topQuery: tq.query, topQueryImpressions: tq.impressions, topQueryPosition: tq.position, topQueryCtr: tq.ctr,
@@ -57,16 +71,17 @@ async function main() {
     if (f) { facts.set(p.url, f); withSnapshot++; }
   }
 
-  console.log(`\n=== Native Daily-Experiments preview · ${TENANT} ===`);
-  console.log(`non-animal candidate pages (pos 4-30, impr ≥200): ${inputs.length} | with cached snapshot facts: ${withSnapshot}\n`);
+  console.log(`\n=== Native Daily-Experiments preview (Safe Meta + Safe Internal Link) · ${TENANT} ===`);
+  console.log(`non-animal candidate pages (pos 3-50, impr ≥200): ${inputs.length} | with cached snapshot facts: ${withSnapshot}`);
+  console.log(`link destinations: ${linkDestinations.length} total, ${eligibleDests} eligible, ${linkDestinations.length - eligibleDests} protected (animal family + active experiments)\n`);
 
-  const built = buildDailyCandidates({ tenantId: TENANT, pages: inputs, facts, proofLedger: ledger });
+  const built = buildDailyCandidates({ tenantId: TENANT, pages: inputs, facts, proofLedger: ledger, linkDestinations });
   const plan = planDailyExperiments({
     tenantId: TENANT, date: new Date().toISOString().slice(0, 10),
     candidates: built, proofLedger: ledger,
-    // Force FAMILY diversity (≤2 per page family); allow the meta lever to fill until more levers
-    // exist. One variable per page; each page independently controlled.
-    config: { maxExperiments: 8, maxPerPageFamily: 4, maxPerActionFamily: 8, maxHighTraffic: 2, effortBudgetMinutes: 45, backups: 2 },
+    // Mixed batch: per-action-family cap 4 (so meta + internal_link each fill up to 4), per-page-
+    // family 4, max 1 link per destination. One variable per page; each page independently controlled.
+    config: { maxExperiments: 8, maxPerPageFamily: 4, maxPerActionFamily: 4, maxHighTraffic: 2, effortBudgetMinutes: 45, maxLinksPerDestination: 1, backups: 2 },
   });
 
   const famCount = new Map<string, number>();
@@ -79,8 +94,18 @@ async function main() {
   for (const s of plan.selected) {
     const b = built.find((x) => x.url === s.url)!;
     console.log(`\n[${b.leverField}] ${labelOf(s.url)}  ·  query "${b.targetQuery}"  ·  pos ${b.position.toFixed(1)} · ctr ${pct(b.ctr)} · impr ${b.impressions} · own ${pct(b.ownership)} · controls=${b.suggestedControls.length}${b.enoughControls ? "" : " ⚠FEW"}`);
-    console.log(`     current : ${(b.currentText || "(none)").slice(0, 150)}`);
-    console.log(`     proposed: ${b.proposedText.slice(0, 150)}`);
+    if (b.linkDetail) {
+      const l = b.linkDetail;
+      console.log(`     → links to: ${l.destinationUrl}  (anchor "${l.anchorText}", ${l.relationship})`);
+      console.log(`     current : ${l.exactSourceText.slice(0, 160)}`);
+      console.log(`     linked  : ${l.exactReplacementText.slice(0, 200)}`);
+      console.log(`     own why : ${l.ownershipReason}`);
+      console.log(`     influences: ${(b.influencedUrls ?? []).join(", ")}`);
+      console.log(`     ${l.wixInstructions}`);
+    } else {
+      console.log(`     current : ${(b.currentText || "(none)").slice(0, 150)}`);
+      console.log(`     proposed: ${b.proposedText.slice(0, 150)}`);
+    }
   }
   console.log(`\n--- BACKUPS ${plan.backups.length} ---`);
   for (const s of plan.backups) { const b = built.find((x) => x.url === s.url)!; console.log(`[${b.leverField}] ${labelOf(s.url)} "${b.targetQuery}"`); }
