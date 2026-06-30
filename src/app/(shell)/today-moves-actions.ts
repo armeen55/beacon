@@ -79,7 +79,10 @@ export async function enrichTopResearchPacksAction(opts: { topN?: number } = {})
         sibling: m.researchPack!.sibling,
       }));
     const result = await enrichResearchPacks(packs);
-    if (result.mode === "live" && result.patternsWritten > 0) revalidatePath("/worklist");
+    if (result.mode === "live" && result.patternsWritten > 0) {
+      await invalidateWorklistSurface().catch(() => {}); // new SERP patterns → cards change → recompute
+      revalidatePath("/worklist");
+    }
     return { status: "ok", result };
   } catch (e) {
     return { status: "error", reason: e instanceof Error ? e.message.slice(0, 140) : "enrich failed" };
@@ -108,6 +111,7 @@ export async function sharpenMovesWithTeardownAction(
     tenantId,
     limit: opts.limit ?? 12,
   });
+  await invalidateWorklistSurface().catch(() => {}); // fresh teardown → "what wins" changes → recompute
   revalidatePath("/");
   revalidatePath("/competitors");
   revalidatePath("/worklist");
@@ -140,6 +144,7 @@ export async function regenerateTopDraftsFromTeardownAction(
       forceRegenerate: true,
       requireTeardown: true,
     });
+    await invalidateWorklistSurface().catch(() => {}); // regenerated drafts → readiness changes → recompute
     revalidatePath("/");
     revalidatePath("/worklist");
     revalidatePath("/drafts");
@@ -200,7 +205,9 @@ export async function measureAppliedMovesAction(opts: { maxRecords?: number } = 
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
     const result = await autoMeasureDuePass(await currentTenantId(), { maxRecords: opts.maxRecords ?? 15 });
+    await invalidateWorklistSurface().catch(() => {}); // settled outcomes change holds/priors → recompute worklist
     revalidatePath("/");
+    revalidatePath("/worklist");
     revalidatePath("/proof");
     return { ok: true, result };
   } catch (e) {

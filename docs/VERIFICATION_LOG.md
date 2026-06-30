@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-06-29 — /worklist crash hotfix (transient) + SWR verified + invalidation completeness
+
+**P1 — crash `updatedAgo is not defined`.** Verify-first: `grep updatedAgo src/` = **0 matches**; HEAD==origin/main==`cb376370`; the render uses `updated.ago` ([worklist/page.tsx:41,69-73](src/app/(shell)/worklist/page.tsx)). The committed tree has no dangling reference — the crash was a **transient**: HMR / a mid-flight deploy caught the file in the split second between my two honesty-fix edits (declaration renamed `updatedAgo`→`updated` before the JSX reference was updated). Proof on the exact committed tree: full `npm run build` exit 0 (`/worklist` in route table); `/worklist` SSR 200, 421KB body, **0** hits for `updatedAgo`/`is not defined`/`Something went wrong`; screenshot shows "Updated just now" with the staleness clause correctly hidden (fresh snapshot). Forced a clean Vercel redeploy of the verified tree via empty commit `a7f98b1b`.
+
+**P2 — SWR perf truth table (Iranopedia, dev, compiled).**
+
+| Render | Time | Behavior |
+|---|---|---|
+| Cold (cache miss) | ~16.4s | computes full surface + writes snapshot (244KB file `.data/tenants/iranopedia/worklist-surface.json` confirmed) |
+| Warm ×4 | 5.9–7.4s | serves cached snapshot; worklist branch does NOT rebuild the graph |
+| Snapshot | written+served | "Updated N ago" renders + advances on recompute |
+| Stale >15min | background `after()` refresh | code-verified (serves stale instantly, fail-soft) |
+
+**Residual proven (not guessed):** warm ~6-7s = the **New Pages board** — `loadNewPagesData` calls `loadDemandGraphForTenantCached` directly ([today-newpages-data.ts:147](src/app/(shell)/today-newpages-data.ts:147)), a SEPARATE Suspense loader on `/worklist` that rebuilds the ~32s graph independently and is NOT covered by the surface cache. The operator's "don't build a 2nd cache until timing proves the target" is now satisfied: a **cross-request demand-graph cache** would cover both `/worklist`'s cold path AND the New Pages board AND `/` — the justified next perf move (deferred to honor the priority order).
+
+**Invalidation completeness:** wired `invalidateWorklistSurface()` into ALL worklist-mutating actions so operator changes reflect on the next load (not just at the 15-min TTL): prepare, mark-shipped, enrich-live, sharpen-teardown, regenerate-drafts, measure-due, and the four curation actions (dismiss/undismiss/pin/unpin in `opportunity-actions.ts`). tsc 0.
+
+---
+
 ## 2026-06-29 — /worklist perf: stale-while-revalidate surface cache + timing table
 
 **Problem (operator: "worklist too slow for a real product").** Traced the `/worklist` cold render path and produced a measured timing table BEFORE writing any fix code:

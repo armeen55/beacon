@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { currentTenantId } from "@/lib/tenant-context";
+import { invalidateWorklistSurface } from "./worklist-surface-store";
 import {
   dismissOpportunity,
   undismissOpportunity,
@@ -23,27 +24,43 @@ export async function dismissOpportunityAction(
 ): Promise<{ ok: boolean }> {
   const tenantId = await currentTenantId();
   const ok = await dismissOpportunity(tenantId, oppKey, status);
-  if (ok) revalidatePath("/");
+  if (ok) {
+    await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    revalidatePath("/");
+    revalidatePath("/worklist");
+  }
   return { ok };
 }
 
 export async function undismissOpportunityAction(oppKey: string): Promise<{ ok: boolean }> {
   const tenantId = await currentTenantId();
   const ok = await undismissOpportunity(tenantId, oppKey);
-  if (ok) revalidatePath("/");
+  if (ok) {
+    await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    revalidatePath("/");
+    revalidatePath("/worklist");
+  }
   return { ok };
 }
 
 export async function pinOpportunityAction(oppKey: string): Promise<{ ok: boolean }> {
   const tenantId = await currentTenantId();
   const ok = await pinOpportunity(tenantId, oppKey);
-  if (ok) revalidatePath("/");
+  if (ok) {
+    await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    revalidatePath("/");
+    revalidatePath("/worklist");
+  }
   return { ok };
 }
 
 export async function unpinOpportunityAction(oppKey: string): Promise<{ ok: boolean }> {
   const tenantId = await currentTenantId();
   const ok = await unpinOpportunity(tenantId, oppKey);
-  if (ok) revalidatePath("/");
+  if (ok) {
+    await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    revalidatePath("/");
+    revalidatePath("/worklist");
+  }
   return { ok };
 }
