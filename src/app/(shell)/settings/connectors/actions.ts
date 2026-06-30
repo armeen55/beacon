@@ -1,6 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
+import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
 import {
   getConnectorInfo,
   deleteConnectorToken,
@@ -893,6 +894,12 @@ async function runConnectorSyncNow(
     // connector card + freshness label stop saying "never refreshed".
     if (summary.ok && freshnessProvider != null) {
       await writeLastSyncedAt(freshnessProvider, tenantId);
+    }
+    // A successful connector pull changes a Demand Graph INPUT (GSC/GA4/Clarity/Profound)
+    // → invalidate the cross-request graph snapshot + derived worklist surface so the next
+    // render rebuilds on fresh data instead of serving a stale graph.
+    if (summary.ok) {
+      await invalidateDemandGraph(`connector sync: ${action}`).catch(() => {});
     }
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0, ok: summary.ok });

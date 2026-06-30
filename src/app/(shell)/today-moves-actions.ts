@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { invalidateWorklistSurface } from "./worklist-surface-store";
+import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -182,7 +183,10 @@ export async function markMoveAppliedAction(args: {
       verifiedLive: true,
       notes: "Operator marked applied",
     });
-    await invalidateWorklistSurface().catch(() => {}); // shipped → page goes mid-measurement; recompute next /worklist
+    // A new shipped change is a GRAPH input (the page enters measurement →
+    // applyProofOutcomeCautionToMoves holds/demotes it) → invalidate the graph (clears
+    // the derived worklist surface too).
+    await invalidateDemandGraph("change shipped → page enters measurement").catch(() => {});
     revalidatePath("/");
     revalidatePath("/worklist");
     return { ok: true, recorded: res.recorded, reason: res.reason };
@@ -205,7 +209,10 @@ export async function measureAppliedMovesAction(opts: { maxRecords?: number } = 
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
     const result = await autoMeasureDuePass(await currentTenantId(), { maxRecords: opts.maxRecords ?? 15 });
-    await invalidateWorklistSurface().catch(() => {}); // settled outcomes change holds/priors → recompute worklist
+    // Settled proof outcomes change the graph's learning priors + page cautions
+    // (applyExperimentPriorToMoves / applyProofOutcomeCautionToMoves) → invalidate the
+    // graph (clears the derived worklist surface too).
+    await invalidateDemandGraph("proof settled → outcome priors changed").catch(() => {});
     revalidatePath("/");
     revalidatePath("/worklist");
     revalidatePath("/proof");

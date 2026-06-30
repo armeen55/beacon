@@ -52,6 +52,13 @@ import { collapseCreatePageSiblings } from "./collapse-create-page-siblings";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { getLatestMoveDrafts } from "./move-draft-store";
 import { loadCachedPromptOpportunities } from "@/domains/profound-coverage/load-cached";
+import {
+  readGraphSnapshot,
+  writeGraphSnapshot,
+  isGraphStale,
+  isGraphSnapshotValid,
+  GRAPH_SCHEMA_VERSION,
+} from "./graph-snapshot-store";
 
 export type DemandGraphCoverage = {
   gscPages: number;
@@ -160,17 +167,103 @@ export function cleanTopicLabel(label: string): string {
   return tokens.length ? tokens.join(" ") : label.trim();
 }
 
+/** Per-process lock: tenants with an in-flight background graph refresh. Prevents
+ *  concurrent stale visits from each launching a duplicate ~6s rebuild. */
+const graphRefreshing = new Set<string>();
+
+/** Per-process SINGLE-FLIGHT for the synchronous miss build: concurrent cold/post-
+ *  invalidation requests (different request scopes, so `react.cache` can't dedupe them)
+ *  share ONE build instead of each launching a duplicate ~6s graph compute (a thundering
+ *  herd that quadruples wall-clock under contention). */
+const graphBuilding = new Map<string, Promise<LoadGraphResult>>();
+
+/** Build the graph once + persist; subsequent concurrent callers await the same promise. */
+function buildAndPersistOnce(tenantId: string): Promise<LoadGraphResult> {
+  const existing = graphBuilding.get(tenantId);
+  if (existing) return existing;
+  const t0 = Date.now();
+  const p = (async () => {
+    const fresh = await loadDemandGraphForTenant(tenantId);
+    await writeGraphSnapshot(fresh, new Date().toISOString());
+    log.info("[graph-snapshot] built + persisted", { tenantId, buildMs: Date.now() - t0, version: GRAPH_SCHEMA_VERSION });
+    return fresh;
+  })().finally(() => graphBuilding.delete(tenantId));
+  graphBuilding.set(tenantId, p);
+  return p;
+}
+
+/** Schedule ONE background graph recompute for a stale tenant (throttled by the lock).
+ *  Uses `after()` when in a request scope (so it survives the response on serverless);
+ *  falls back to a detached promise otherwise. Fail-soft — a refresh failure leaves the
+ *  stale snapshot in place; the next visit retries. */
+function scheduleGraphRefresh(tenantId: string): void {
+  if (graphRefreshing.has(tenantId)) return;
+  graphRefreshing.add(tenantId);
+  const run = async (): Promise<void> => {
+    try {
+      // Reuse the single-flight builder so a stale-serve refresh + a concurrent sync miss
+      // share ONE build (never two concurrent ~6s computes for the same tenant).
+      await buildAndPersistOnce(tenantId);
+    } catch (e) {
+      log.warn("[graph-snapshot] background refresh failed (stale snapshot kept)", {
+        tenantId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      graphRefreshing.delete(tenantId);
+    }
+  };
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { after } = require("next/server") as { after: (cb: () => Promise<void>) => void };
+    after(run);
+  } catch {
+    void run(); // not a request scope (or next/server unavailable) → detached, fail-soft
+  }
+}
+
 /**
- * Request-cached, single-arg entry point. The heavy graph compute (a paginated
- * ~22k-row competitor-citation read + GSC/GA4/Clarity reads + in-memory assembly)
- * is triggered by MULTIPLE in-request callers on one `/` render (Today's Moves via
- * the change-pack loader + the New Pages board directly). `react.cache` keys on the
- * args, so this single-arg wrapper shares ONE compute per tenant per request —
- * halving the Supabase egress on the most-loaded page. Use this on render paths;
- * the raw function stays for callers that pass an explicit `now`/`config`.
+ * Cross-request stale-while-revalidate Demand Graph cache. The ~6s graph build is
+ * INDEPENDENTLY rebuilt by every surface that needs it (Worklist/ActionPack, New Pages,
+ * Today, Recommendations/Drafts, page-factory, enrichment) — `react.cache` only dedupes
+ * within ONE request. This serves the last persisted snapshot across requests and refreshes
+ * in the background when stale, so warm consumers read it in ~ms instead of rebuilding.
+ *
+ * - First-ever / invalid / version-mismatch → compute synchronously + persist.
+ * - Fresh snapshot → serve it, no rebuild.
+ * - Stale snapshot → serve immediately + schedule ONE background refresh (throttled).
+ * Tenant-scoped; fail-soft (a read error → synchronous build, never a crash).
+ */
+async function loadDemandGraphForTenantSWR(tenantId: string): Promise<LoadGraphResult> {
+  const snap = await readGraphSnapshot().catch(() => null);
+  if (isGraphSnapshotValid(snap)) {
+    const stale = isGraphStale(snap.computedAt, Date.now());
+    if (stale) scheduleGraphRefresh(tenantId);
+    // Phase-6 operator diagnostics: graph cache hit + freshness + whether a refresh fired.
+    log.info("[graph-snapshot] hit", {
+      tenantId,
+      computedAt: snap.computedAt,
+      ageMin: Math.round((Date.now() - Date.parse(snap.computedAt)) / 60000),
+      state: stale ? "stale" : "fresh",
+      refreshScheduled: stale,
+      version: GRAPH_SCHEMA_VERSION,
+    });
+    return snap.data;
+  }
+  // miss / corrupt / stale-version → compute synchronously (single-flight so concurrent
+  // cold requests share ONE build), then persist for next time.
+  return buildAndPersistOnce(tenantId);
+}
+
+/**
+ * Request-cached, single-arg entry point — now backed by the cross-request SWR snapshot.
+ * `react.cache` still dedupes the (possibly snapshot-read) call WITHIN one request, so the
+ * multiple in-request callers on a `/` render share one read; the SWR shares the underlying
+ * graph COMPUTE across requests. Use this on render paths; the raw `loadDemandGraphForTenant`
+ * stays for callers that pass an explicit `now`/`config` or must bypass the cache.
  */
 export const loadDemandGraphForTenantCached = cache(
-  (tenantId: string): Promise<LoadGraphResult> => loadDemandGraphForTenant(tenantId),
+  (tenantId: string): Promise<LoadGraphResult> => loadDemandGraphForTenantSWR(tenantId),
 );
 
 export async function loadDemandGraphForTenant(

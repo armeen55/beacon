@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-29 — Cross-request Demand Graph SWR cache (kills the New Pages graph-rebuild residual)
+
+**Phase 0/1 (measure-first).** The ~6s graph build (`loadDemandGraphForTenant`: GSC/GA4/Clarity/Profound reads + assembly + learning/proof/AEO/canonical post-passes) is INDEPENDENTLY rebuilt by every surface (`react.cache` only dedupes within one request): Worklist/ActionPack, **New Pages** (`today-newpages-data.ts:147`), Today, Recs/Drafts, page-factory, enrichment. Ground-truth (tsx): build **6.2s**, serialized **1.5MB** (228 moves / 237 demand / 2258 page nodes / 2258 edges), JSON round-trip **lossless** (order + scores + learnedPrior 228 / outcomeCaution 228 / aeoEvidence 61 / canonicalGroup 6 all survive). pageNodes read by 6 consumers → cache the full graph.
+
+**Build.** `graph-snapshot-store.ts` (tenant-scoped, versioned `GRAPH_SCHEMA_VERSION`, 15-min TTL, 16MB bound, shape-validated) + `loadDemandGraphForTenantSWR` wired behind `loadDemandGraphForTenantCached` (every render consumer auto-covered). Miss/corrupt/version-mismatch → sync build; fresh → serve; stale → serve + `after()` background refresh. **Single-flight** (`buildAndPersistOnce` Map) so concurrent cold/stale requests share ONE build (not a herd); per-process refresh lock. Fail-soft (read error → sync build). Phase-6 diagnostics logged (hit/miss, computedAt, ageMin, fresh/stale, refreshScheduled, version, buildMs).
+
+**Invalidation (`invalidateDemandGraph(reason)` — the boundary; clears graph + derived worklist surface).** Wired where graph INPUTS change: connector syncs (one place: `runConnectorSyncNow` on success — GSC/GA4/Profound/Clarity), proof settlement (`measureAppliedMovesAction`), new shipped change (`markMoveAppliedAction`). Move-drafts/keyword-volume (minor canonicalization only) rely on the TTL (class-B). Dismiss/pin don't touch the graph (worklist-surface only).
+
+**Tests:** `graph-snapshot-store.test.ts` (13) — tenant-isolation (store classified per-tenant, never global), 15-min staleness, version/shape validity gate, and serialization parity (order/scores + all attached fields + coverage survive). 54 focused tests green · tsc 0 · build PASS.
+
+**Before/after (Iranopedia, dev, measured via diagnostic logs):**
+| Surface | Before warm | After miss (1-time) | After warm/hit |
+|---|---|---|---|
+| `/worklist` | 5.9–7.4s | ~30s (compile+build+persist) | **1.2–1.8s** |
+| graph builds / warm request | 1 (New Pages rebuild) | — | **0 (snapshot read)** |
+
+Single-flight verified: 3 concurrent cold `/worklist` → **ONE** "built + persisted" (buildMs 10745) + 3 "hit/fresh" (not 4 concurrent builds). Invalidation verified: clear → next load "built + persisted" → subsequent "hit". Resilient: the cached graph is served even while GSC/GA4 OAuth 401s (token-expired), so a transient connector failure no longer empties the cockpit. Research/element-plan/proof chain intact through the cache (screenshot: Persian Boy Names Own=boy/male, FAQ targets carry the fan-out question, onPagePlan + compounding warning render). NO paid calls · NO Wix · NO proof mutation · NO migration (json-store snapshot is sufficient).
+
+---
+
 ## 2026-06-29 — P7: competitor persistence + junk-gating (VERIFY-FIRST → already built)
 
 Traced both P7 concerns; neither needs new code (no migration, no pause):

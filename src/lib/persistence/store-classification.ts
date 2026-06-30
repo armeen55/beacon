@@ -96,6 +96,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // TodayMovesHeroData snapshot per tenant. Cold render serves this instantly + refreshes
   // in the background, so the ~32s demand-graph rebuild no longer floors every visit.
   "worklist-surface",
+  // 2026-06-29 cross-request Demand Graph SWR snapshot — the computed LoadGraphResult per
+  // tenant. The ~6s graph build is shared across requests (New Pages, Today, Recs, Drafts,
+  // page-factory, enrichment) instead of each surface rebuilding it. Versioned + bounded.
+  "demand-graph-snapshot",
   // 2026-06-09 §competitor-intel — structural changes detected when a
   // fresh competitor-page fetch differs from the stored snapshot
   // (FAQ added, new sections, retitle, meta added). Written by
