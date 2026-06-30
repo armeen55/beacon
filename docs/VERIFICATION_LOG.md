@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-29 — PageResearchPack DataForSEO PRODUCER (operator-triggered, dry-run-default) · main `fbb0075e`
+
+Built the producer (operator-approved): fetches the MISSING keyword volume + SERP winner-title/format patterns the consumer reads, off the render path, dry-run by default.
+
+**Shipped:**
+- `research-enrichment.ts` (PURE): `extractSerpPattern(snapshot)` → `{format (list/guide/faq/table/product/ugc/mixed), titlePattern, modifiers, winningDomains, elementImplication}` deterministically from top organic titles + SERP features + domains; `planResearchEnrichment(packs, caches)` → volume + SERP terms, cached vs missing, call counts, estUsd.
+- `research-enrichment-producer.ts` (server): `enrichResearchPacks` — DRY-RUN DEFAULT (`isDryRun()`) returns `{mode:"dry_run", plan}` with NO call; live (`DATAFORSEO_DRY_RUN=false`) calls `runKeywordVolume` (1 batch) + `runSerpQuery` per missing primary through the shared capped/14d-cached/ledgered gauntlet, fail-soft per call, persists patterns to `research-serp-patterns`. `readCachedSerpPatterns` is the $0 consumer reader.
+- `enrichTopResearchPacksAction` (operator-gated, `today-moves-actions`): builds the top-5 packs (`buildTodayMovesData`), runs the producer, revalidates `/worklist` only on live writes; never on render.
+- consumer (`today-moves-data`): read cached patterns ($0) → `researchPack.serpPattern`; card renders "SERP rewards: <format> — <element implication> · winners". UI: "✦ Enrich research packs" button on `/worklist`.
+- `store-classification`: tenant-scoped `research-serp-patterns` registered.
+
+**Verified:** tsc 0 source errors · `research-enrichment` 8/8 (list/product/ugc/faq/guide format classification, winners, plan cached-vs-missing + zero-spend-when-cached) + `page-research-pack` 15/15 = **23** · `npm run build` exit 0. The button IS the dry-run runner (compiles + planner-tested); clicking it in dry-run reports the live cache-hit counts + the ~$0.10 estimate. **No paid call this slice, dry-run default untouched, no env flip, no Wix, no proof mutation, $0.**
+
+---
+
 ## 2026-06-29 — PageResearchPack DataForSEO enrichment: $0 cached-volume consumer · main `63b55e33`
 
 Operator approved building the enrichment (after the prod-visual gate passed + the ~$0.10 top-5 dry-run estimate). Split into a safe **$0 consumer** (now) + the **paid producer** (next, gated on `DATAFORSEO_DRY_RUN=false`).
