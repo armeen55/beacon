@@ -12,6 +12,7 @@ import { cache } from "react";
 import { loadShippedChanges, type ShippedChangeRecord } from "./shipped-change-store";
 import { measureRecord } from "./run-measurement";
 import { readLastFinalizedDate } from "./gsc-window";
+import { activeTreatmentPaths } from "@/domains/experiments/experiment-eligibility";
 
 export async function loadProofLedger(
   tenantId: string,
@@ -23,8 +24,14 @@ export async function loadProofLedger(
   // windows are judgeable) and pass it to every record, instead of each
   // measureRecord re-reading it.
   const lastFinal = await readLastFinalizedDate(tenantId).catch(() => null);
+  // Control-contamination guard: a control page that is ITSELF an active (measuring)
+  // treatment can't anchor another experiment's diff-in-diff (its CTR moved for a
+  // non-natural reason). Compute the active-treatment set ONCE and exclude those controls
+  // from every record's diff. Empty until a control gets treated (e.g. a meta-vs-title
+  // batch on the same animal pages), so today's 10 measurements stay byte-identical.
+  const activeTreatments = activeTreatmentPaths(records, now);
   const measured = await Promise.all(
-    records.map((r) => measureRecord(tenantId, r, now, lastFinal).catch(() => r)),
+    records.map((r) => measureRecord(tenantId, r, now, lastFinal, activeTreatments).catch(() => r)),
   );
   return measured;
 }

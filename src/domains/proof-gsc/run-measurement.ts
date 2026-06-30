@@ -52,11 +52,17 @@ const GA4_ZERO = { sessions: 0, engagedSessions: 0, conversions: 0 };
  * (the GA4 connector returns none), so the outcome flags hasRevenue:false and
  * the UI shows conversion + traffic proof only, never money.
  */
+/** Host-strip a URL/path for control-contamination comparison. */
+const stripToPath = (u: string): string => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "");
+
 async function computeGa4TrafficOutcome(
   tenantId: string,
   record: ShippedChangeRecord,
   shipDate: string,
   latestGa4: string | null,
+  /** Control paths that are THEMSELVES active treatments (contaminated) — excluded so the
+   *  diff-in-diff only subtracts natural drift, never another experiment's effect. */
+  excludeControlPaths: Set<string> = new Set(),
 ): Promise<TrafficOutcome | null> {
   // Elapsed post window = ship..latestGa4 inclusive (GA4 settles in ~1-2 days),
   // capped at the largest proof window. windowDays = the ACTUAL elapsed days so
@@ -91,6 +97,7 @@ async function computeGa4TrafficOutcome(
   const controls = record.controlPages
     .filter(
       (cp) =>
+        !excludeControlPaths.has(stripToPath(cp)) &&
         (pre.get(cp)?.sessions ?? 0) > 0 &&
         (!ran || (post.get(cp)?.sessions ?? 0) > 0),
     )
@@ -197,6 +204,9 @@ export async function measureRecord(
   /** Pre-read finalized-data watermark (loadProofLedger reads it once for the
    *  whole ledger). Pass `undefined` to have measureRecord read it itself. */
   lastFinalizedDate?: string | null,
+  /** Control paths that are THEMSELVES active treatments (contaminated) — excluded from
+   *  the diff-in-diff so it only subtracts natural drift. Empty = current behavior. */
+  excludeControlPaths: Set<string> = new Set(),
 ): Promise<ShippedChangeRecord> {
   const shipDate = dateOnly(record.shippedAt);
   const lastFinal =
@@ -234,6 +244,7 @@ export async function measureRecord(
     const controls = record.controlPages
       .filter(
         (cp) =>
+          !excludeControlPaths.has(stripToPath(cp)) &&
           (pre.get(cp)?.impressions ?? 0) > 0 &&
           (!ran || (post?.get(cp)?.impressions ?? 0) > 0),
       )
@@ -286,7 +297,7 @@ export async function measureRecord(
   let trafficOutcome: TrafficOutcome | null = null;
   try {
     const latestGa4 = await readLatestGa4Date(tenantId);
-    trafficOutcome = await computeGa4TrafficOutcome(tenantId, record, shipDate, latestGa4);
+    trafficOutcome = await computeGa4TrafficOutcome(tenantId, record, shipDate, latestGa4, excludeControlPaths);
   } catch {
     trafficOutcome = null;
   }
