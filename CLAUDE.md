@@ -52,6 +52,25 @@ when it's not.
 
 ---
 
+## Supabase ownership (agent responsibility)
+
+Beacon agents OWN all Supabase work — migrations, tables, indexes, functions/RPCs, RLS,
+schema-cache reloads, verification, transactional tests, repairs, migration bookkeeping — through
+the configured Supabase MCP / management connection (project ref `vlxwevsdvwxvopkjsewo`).
+
+- **Do NOT delegate routine SQL Editor work to the operator.** Pause for a human only when Supabase
+  itself requires a login/authorization the agent genuinely cannot perform.
+- A temporary MCP transport failure (`net::ERR_FAILED`) is **not** a reason to hand SQL to the
+  operator: retry with backoff, use the foreground MCP context (never a background subagent that
+  lacks it), check `npm run supabase:management-check`, and wait for recovery.
+- The shell `SUPABASE_ACCESS_TOKEN` may be stale (401) — never treat it as authoritative; prefer the
+  MCP, then a write-scoped `SUPABASE_MGMT_TOKEN`. Never print secrets.
+- If every management path is down after reasonable retries: pause, report "Supabase management
+  connector unavailable", preserve work, and retry when it recovers — do not improvise unsafe DDL or
+  delegate it.
+
+---
+
 ## Documentation sync (mandatory)
 
 After **any** task that changes behavior or plans, update if impacted:

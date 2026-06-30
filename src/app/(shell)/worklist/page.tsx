@@ -6,6 +6,8 @@ import { loadMovesWorklist } from "../moves/moves-data";
 import { TodayNewPagesSection } from "../today-newpages-section";
 import { MovesWorklistClient } from "../moves/moves-worklist-client";
 import { PrepareTopMovesButton, RegenerateFromTeardownButton, EnrichResearchButton } from "../today-moves-prepare";
+import { loadDailyExperimentsView } from "../daily-experiments-data";
+import { DailyExperimentsSection } from "../daily-experiments-section";
 
 /**
  * /worklist (2026-06-28 — route consolidation) — THE canonical Rank-&-Revenue
@@ -91,6 +93,15 @@ async function Worklist() {
   );
 }
 
+async function DailyExperiments() {
+  try {
+    const view = await loadDailyExperimentsView();
+    return <DailyExperimentsSection view={view} />;
+  } catch {
+    return null; // fail-soft: never block the worklist on the experiments section
+  }
+}
+
 export default function WorklistPage() {
   return (
     <div className="max-w-5xl space-y-6">
@@ -98,6 +109,9 @@ export default function WorklistPage() {
         title="Worklist"
         description="Your ranked Rank-&-Revenue worklist — every move Beacon found across your Google + AI demand, strongest first. Review, draft, ship."
       />
+      <Suspense fallback={null}>
+        <DailyExperiments />
+      </Suspense>
       <Suspense
         fallback={<div className="h-40 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}
       >
