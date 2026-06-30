@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-07-01 — Canonical Changes List (Finalization Program, Move 1)
+
+**What changed — one object, one lifecycle, one list.** Replaced the fragmented worklist/experiments/drafts/results mental model with a single `CanonicalChange` rendered as one compact list on `/worklist`.
+
+- **Domain core (PURE, no migration):** `src/domains/changes/canonical-change.ts` — `CanonicalChange` type (`id = tenant::pagePath::changeFamily`), `deriveStatus` (most-settled-wins resolver: skipped → settled/active proof → execution stage → page-measuring-blocked → selected/prepared-ready → suggested; **preview/accept ≠ measuring**), `changeTypeFamily`, `statusView`, evidence strength (`strong`/`directional`/`tracking`). `strategy.ts` — `rankChanges` (Balanced = upside + evidence + ready − effort − risk; Growth = pure upside; Clean = strong-comparison only, filters new/blocked/high-risk; blocked always last), `goalMatches`, `statusCounts`. `build-canonical-changes.ts` — the adapter: plan items seeded first (own their page+lever), worklist moves collapse onto the same id by most-advanced `STATUS_RANK`, reserved controls → `blocked`+`protected`.
+- **App layer:** `src/app/(shell)/changes-data.ts` (`loadChangesView` — read-only fan-in of `loadMovesWorklist` + accepted/preview plan + active reservations → `buildCanonicalChanges`; returns a `sourceId→TodayMove` map for expand). `changes-list-client.tsx` (strategy control + 4 status tabs with live counts + goal `<select>` + search + compact rows; expand reuses the existing `MoveCard` — no action rewrite). `worklist/page.tsx` now renders the Changes list; PageHeader → "Changes"; Daily panel kept above as the today slice.
+
+**Tested:**
+- `npx tsc --noEmit` → **0 errors**.
+- `npx vitest run src/domains/changes/` → **16/16 pass** (changeTypeFamily families; deriveStatus precedence incl. preview≠measuring, accept≠measuring, verify≠measuring, active=measuring, mature=result, page-measuring=blocked; dedup: plan page not duplicated, different levers separate, reserved control blocked+protected, same-lever collapse to most-advanced; strategy clean/growth filtering + blocked-last; goal filters; statusCounts).
+- `npm run build` → **Compiled successfully**.
+- **Live render (dev server `beacon-iranopedia`, real Iranopedia, operator mode):** `/worklist` shows header "Changes", strategy control [Balanced·Growth first·Clean tests], status tabs **To do 68 · Ready 6 · Measuring 5 · Results 2**, goal filter + search; today's 6 changes appear ONCE in Ready as "Today · Apply in Wix · Strong comparison · [Apply]" — no duplication, no research dump. **0 console errors.**
+- **Data integrity (prod Supabase, post-change):** `shipped_change_proof` = **19** · active `control_reservations` = **0** · latest `daily_experiment_plans` status = **preview** (unaccepted). No writes to proof/reservations/plans/Wix/GSC — additive read-model + UI only.
+
+---
+
 ## 2026-07-01 — Consolidation + recommendation-quality sprint
 
 **Recommendation fixes (the levers now respect query/topic intent):**
