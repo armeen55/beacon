@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { ProofWindowResult } from "./measure";
-import { isDueForMeasure, outcomeStateOf, gscLagStatus } from "./measure-lifecycle";
+import { isDueForMeasure, outcomeStateOf, gscLagStatus, proofMaturityLabel } from "./measure-lifecycle";
 
 const NOW = new Date("2026-06-25T12:00:00Z");
 
@@ -113,5 +113,26 @@ describe("gscLagStatus — why a calendar-open window still has no verdict", () 
     const s = gscLagStatus(r(), null, NOW_28);
     expect(s.gscWindowAvailable).toBe(false);
     expect(s.reasonCopy).toContain("no Search Console data");
+  });
+});
+
+describe("proofMaturityLabel — 7d early / 14d strengthening / 28d final (UI only)", () => {
+  it("positive verdict reads as a signal at 7d/14d, only 'Helped' at 28d", () => {
+    expect(proofMaturityLabel("won", 7)).toBe("Early positive signal");
+    expect(proofMaturityLabel("won", 14)).toBe("Positive signal strengthening");
+    expect(proofMaturityLabel("won", 28)).toBe("Helped");
+  });
+  it("negative verdict reads as a signal at 7d/14d, only 'Did not help' at 28d", () => {
+    expect(proofMaturityLabel("lost", 7)).toBe("Early negative signal");
+    expect(proofMaturityLabel("lost", 14)).toBe("Negative signal strengthening");
+    expect(proofMaturityLabel("lost", 28)).toBe("Did not help");
+  });
+  it("a fresh 7-day win never reads as final", () => {
+    expect(proofMaturityLabel("won", 7)).not.toMatch(/helped/i);
+  });
+  it("non-settled verdicts pass through to calm words; null basis → final read", () => {
+    expect(proofMaturityLabel("measuring", null)).toBe("Still measuring");
+    expect(proofMaturityLabel("inconclusive", 14)).toBe("No clear change");
+    expect(proofMaturityLabel("won", null)).toBe("Helped");
   });
 });

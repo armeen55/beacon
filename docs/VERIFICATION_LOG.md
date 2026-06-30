@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-29 — P5: proof maturity labels (7d early / 14d strengthening / 28d final)
+
+UI-ONLY (no learning-math, no verdict-value, no proof-gate change). New PURE
+`proofMaturityLabel(verdict, basisDay)` in `measure-lifecycle.ts`: a settled verdict's
+DISPLAYED label now reflects which window settled it — `won` → "Early positive signal"
+(7d) / "Positive signal strengthening" (14d) / "Helped" (28d); `lost` → "Early negative
+signal" / "Negative signal strengthening" / "Did not help". So a fresh 7-day read never
+reads as final. Non-settled verdicts pass through to the calm words (Still measuring / No
+clear change / Not enough data yet); null basis → the final read. Wired into the `/proof`
+LedgerCard (the "Your changes" timeline) using `basis.day` (latest ran window). The outcome
+SENTENCE already used soft, window-cited language ("Likely helping … over the 7-day window,
+observational") so badge + sentence stay consistent. tsc 0 · **17 tests** (4 new, asserting
+the exact operator labels + "7d win never says helped") · build PASS.
+
+---
+
 ## 2026-06-29 — P4: page-element plan ("put X here") on PageResearchPack
 
 Turned "this page should own X" into "put X HERE." New PURE module `page-element-plan.ts`:

@@ -102,6 +102,29 @@ export function gscLagStatus(
 }
 
 /**
+ * Maturity-aware label for a settled verdict — UI ONLY (does NOT change the verdict
+ * value, the learning math, or the proof gate). A 7-day read is an EARLY signal, not a
+ * final call; 14-day is "strengthening"; only the 28-day read earns the plain
+ * "Helped" / "Did not help". So a fresh 7d win never reads as final. PURE.
+ *
+ * `basisDay` = the day of the latest window that actually ran (7 | 14 | 28), or null.
+ */
+export function proofMaturityLabel(verdict: string, basisDay: number | null): string {
+  const positive = verdict === "won";
+  const negative = verdict === "lost";
+  if (!positive && !negative) {
+    return (
+      ({ inconclusive: "No clear change", measuring: "Still measuring", insufficient_data: "Not enough data yet", stale: "Measurement expired" } as Record<string, string>)[verdict] ??
+      verdict.replace(/_/g, " ")
+    );
+  }
+  const d = basisDay ?? 28; // no ran-window info → treat as the final read
+  if (d <= 7) return positive ? "Early positive signal" : "Early negative signal";
+  if (d <= 14) return positive ? "Positive signal strengthening" : "Negative signal strengthening";
+  return positive ? "Helped" : "Did not help"; // 28-day = the main verdict
+}
+
+/**
  * Is this record worth re-measuring now? PURE. True when a proof window can
  * transition ran:false → true since the last measure (the GSC finalized
  * watermark has advanced past a window's last day). Settled records still

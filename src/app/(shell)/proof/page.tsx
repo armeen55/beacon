@@ -9,7 +9,7 @@ import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-s
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
-import { gscLagStatus, isDueForMeasure } from "@/domains/proof-gsc/measure-lifecycle";
+import { gscLagStatus, isDueForMeasure, proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
 import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
@@ -438,16 +438,9 @@ function LedgerCard({ rec, link }: { rec: ShippedChangeRecord; link?: ProofLink 
             OUTCOME_STYLE[rec.verdict]
           }
         >
-          {/* Calm, plain verdict words instead of a loud WON/LOST (audit #111). */}
-          {(
-            {
-              won: "Helped",
-              lost: "Did not help",
-              inconclusive: "No clear change",
-              measuring: "Still measuring",
-              insufficient_data: "Not enough data yet",
-            } as Record<string, string>
-          )[rec.verdict] ?? rec.verdict.replace(/_/g, " ")}
+          {/* Maturity-aware verdict (audit #111 + P5): a 7d read is an EARLY signal, 14d
+              is "strengthening", only 28d earns the plain Helped / Did not help. */}
+          {proofMaturityLabel(rec.verdict, basis?.day ?? null)}
         </span>
         <span className="text-[11px] text-muted-foreground">
           {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}
