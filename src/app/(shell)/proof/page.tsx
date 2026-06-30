@@ -210,7 +210,7 @@ export default async function ProofPage({
       {!gscFreshnessNote && waitingOnGsc.length > 0 ? (
         <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
           {waitingOnGsc.length} change{waitingOnGsc.length === 1 ? " is" : "s are"} waiting on Search Console
-          data, not stalled. {waitingOnGsc[0]!.reasonCopy} Google Search data typically lags 2–3 days.
+          data, not stalled. {waitingOnGsc[0]?.reasonCopy ?? ""} Google Search data typically lags 2–3 days.
         </div>
       ) : null}
 
@@ -367,8 +367,8 @@ export default async function ProofPage({
               {/* Baseline metrics to re-check */}
               {r.metricsToCheck.length > 0 ? (
                 <ul className="mt-2 space-y-0.5">
-                  {r.metricsToCheck.map((m, i) => (
-                    <li key={i} className="text-[12px] text-muted-foreground">
+                  {r.metricsToCheck.map((m) => (
+                    <li key={m.label} className="text-[12px] text-muted-foreground">
                       <span className="text-foreground/80">{m.label}</span>, baseline{" "}
                       <span className="tabular-nums">{m.baseline}</span>
                     </li>
@@ -434,11 +434,17 @@ function WhatHappensNext() {
 }
 
 function metricsLine(rec: ShippedChangeRecord): string {
-  const b = rec.baseline ?? { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
+  // Per-field guards: a legacy record could carry an undefined metric, which would
+  // render NaN/NaN% — coalesce each to 0 so the line is always well-formed.
+  const raw = rec.baseline;
+  const clicks = Number(raw?.clicks) || 0;
+  const impressions = Number(raw?.impressions) || 0;
+  const ctr = Number(raw?.ctr) || 0;
+  const position = Number(raw?.position) || 0;
   // No impressions = no Search data in the baseline window; "pos 0.0" is an
   // impossible rank, so say so honestly instead of rendering zeros.
-  if (b.impressions <= 0) return "No Google data yet for the period before this change.";
-  return `${b.clicks.toLocaleString()} visits from Google, shown ${b.impressions.toLocaleString()} times, ${(b.ctr * 100).toFixed(2)}% click rate, ranked about #${b.position.toFixed(1)}`;
+  if (impressions <= 0) return "No Google data yet for the period before this change.";
+  return `${clicks.toLocaleString()} visits from Google, shown ${impressions.toLocaleString()} times, ${(ctr * 100).toFixed(2)}% click rate, ranked about #${position.toFixed(1)}`;
 }
 
 const LINK_LABEL: Record<string, string> = {

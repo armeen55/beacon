@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-07-01 — Failure / Empty / Loading / Mobile / A11y Hardening (Finalization Program, Move 3)
+
+**What changed — a bounded resilience + usability pass; no new architecture.**
+
+- **New PURE** `src/domains/diagnostics/operator-failure.ts`: `toOperatorFailure`/`failureForReason`/`isKnownReason` — one small taxonomy (9 kinds) mapping internal reason codes/thrown errors → friendly copy, raw code preserved only in `technicalCode` for logging.
+- **Partial failure**: `changes-data.ts` per-loader `.catch()` on the plan-store reads (a plan/reservation outage no longer blanks the whole Changes list).
+- **Raw codes removed**: `error.tsx` (no raw `error.message`; friendly + digest + console log); `daily-experiments-section.tsx` routes every `r.reason` (apply/submit/skip/finish/plan/accept/abandon) through the translator (removed `APPLY_FAILURE_COPY`/`ACCEPT_FAILURE_COPY`).
+- **Loading**: `worklist/loading.tsx` + `proof/loading.tsx` route skeletons sized to the layout.
+- **Empty states**: Changes distinguishes filtered vs clean-tests-eligibility ("Switch to Balanced") vs no-mature-results vs genuinely-empty, each with a next action + `role="status"`.
+- **Mobile**: Changes control cluster responsive (strategy wraps, tabs scroll, search full-width); Results tiles 2×2.
+- **A11y**: strategy/status = `role=group` + `aria-pressed` + focus rings; rows `aria-expanded`/`aria-controls`; state by text + border not color alone; daily `aria-busy`/`aria-live`; nested `<a><button>` removed; StatusBadge `aria-label`.
+- **Crash guards**: `m.ga4?.sessions`, `m.friction?.deadPct/ragePct`, `TONE/CONF/EVIDENCE` fallbacks, `metricsLine` NaN guards, `key={i}` → stable keys (today-moves-card ×6 + proof ×1), dropped a non-null `!`.
+
+**Tested:**
+- `npx tsc --noEmit` → **0 errors**; `npm run build` → **Compiled successfully**.
+- `npx vitest run src/domains/changes/ src/domains/proof-gsc/ src/domains/learning/ src/domains/diagnostics/` → **125/125 pass** (15 new: error translation, raw-code suppression — PGRST/RPC/Error.message never reach the user-facing string, thrown-error handling, isKnownReason).
+- **Live render (dev server, real Iranopedia, operator mode):** /worklist desktop renders clean (**0 console errors**); strategy `role=group` + **7 `aria-pressed`** (3 strategy + 4 tabs) + **7 `aria-expanded`** present. /worklist @ 375px → **0 horizontal overflow** (scrollW = clientW = 375; strategy 250px, tabs 309px scrollable, search 351px full-width all fit). /proof @ 375px → **0 horizontal overflow**; the maturity tiles render a clean 2×2 grid + the GSC-lag banner wraps (screenshot). Today MoveCard wraps cleanly at 375px.
+- **Data integrity (prod Supabase, before == after):** proof rows **19** · active reservations **0** · plan **preview**. No proof/reservation/plan/Wix/GSC writes; no migration.
+
+---
+
 ## 2026-07-01 — Measurement Truth + Maturity (Finalization Program, Move 2)
 
 **What changed — one shared maturity model; an early read can never read as a final verdict.**

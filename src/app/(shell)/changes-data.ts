@@ -25,11 +25,14 @@ export type ChangesView = {
 
 export async function loadChangesView(): Promise<ChangesView> {
   const tenantId = await currentTenantId();
+  // Move 3 — every source is fail-soft so one failing store can never blank the whole
+  // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
+  // a worklist outage keeps any selected plan items. The page renders with what loaded.
   const [wl, accepted, preview, reservations] = await Promise.all([
     loadMovesWorklist().catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
-    getAcceptedPlan(tenantId),
-    getLatestPreviewPlan(tenantId),
-    listActiveReservations(tenantId),
+    getAcceptedPlan(tenantId).catch(() => null),
+    getLatestPreviewPlan(tenantId).catch(() => null),
+    listActiveReservations(tenantId).catch(() => []),
   ]);
   const plan = accepted ?? preview;
   const moves = (wl.moves ?? []) as TodayMove[];

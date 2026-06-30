@@ -76,8 +76,9 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
-  const tone = TONE[m.actionTone];
-  const conf = CONF[m.confidence];
+  // Defensive: an unexpected actionTone/confidence must never crash the card.
+  const tone = TONE[m.actionTone] ?? TONE.clicks;
+  const conf = CONF[m.confidence] ?? CONF.medium;
   const [state, setState] = useState<"idle" | "shipped" | "snoozed">("idle");
   const [pending, startTransition] = useTransition();
   const [showDraft, setShowDraft] = useState(false);
@@ -571,16 +572,16 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {m.ga4 ? (
             <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100">
-              {m.ga4.sessions.toLocaleString()} visits / 28d
-              {m.ga4.conversions > 0 ? ` · ${m.ga4.conversions.toLocaleString()} conversions` : ""} (GA4)
+              {(m.ga4.sessions ?? 0).toLocaleString()} visits / 28d
+              {(m.ga4.conversions ?? 0) > 0 ? ` · ${(m.ga4.conversions ?? 0).toLocaleString()} conversions` : ""} (GA4)
             </span>
           ) : null}
           {m.friction ? (
             <span
               className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-100"
-              title={`Microsoft Clarity: ${m.friction.deadPct}% of sessions had dead clicks, ${m.friction.ragePct}% rage clicks — visitors are hitting friction on this page.`}
+              title={`Microsoft Clarity: ${m.friction.deadPct ?? 0}% of sessions had dead clicks, ${m.friction.ragePct ?? 0}% rage clicks — visitors are hitting friction on this page.`}
             >
-              ⚠ {m.friction.deadPct}% dead clicks{m.friction.ragePct > 0 ? ` · ${m.friction.ragePct}% rage` : ""} (Clarity)
+              ⚠ {m.friction.deadPct ?? 0}% dead clicks{(m.friction.ragePct ?? 0) > 0 ? ` · ${m.friction.ragePct ?? 0}% rage` : ""} (Clarity)
             </span>
           ) : null}
         </div>
@@ -589,9 +590,9 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       {m.topQueries.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-500">Ranks for</span>
-          {m.topQueries.map((q, i) => (
+          {m.topQueries.map((q) => (
             <span
-              key={i}
+              key={q.query}
               className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] ring-1 ${
                 q.strikingDistance
                   ? "bg-amber-50 text-amber-800 ring-amber-200"
@@ -616,9 +617,9 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       {m.declines.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">Losing ground</span>
-          {m.declines.map((d, i) => (
+          {m.declines.map((d) => (
             <span
-              key={i}
+              key={d.query}
               className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800 ring-1 ring-rose-100"
               title={`Clicks fell ${d.dropPct}% (${d.priorClicks.toLocaleString()} → ${d.recentClicks.toLocaleString()}) vs the prior 28 days${d.positionSlip >= 1 ? `; slipped ${d.positionSlip.toFixed(1)} positions` : ""}.`}
             >
@@ -634,14 +635,14 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/50 px-3 py-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-500">Competing with yourself</span>
-            {m.cannibalization.map((c, i) => {
+            {m.cannibalization.map((c) => {
               // Show a DISTINCT competing page, never "iran animals vs your iran
               // animals" — that collision happens when the other page's label equals
               // the query. Fall back to an honest count when every other page collides.
               const distinct = c.otherPages.find((o) => o.toLowerCase() !== c.query.toLowerCase()) ?? null;
               return (
                 <span
-                  key={i}
+                  key={c.query}
                   className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] text-orange-800 ring-1 ring-orange-100"
                   title={c.fix}
                 >
@@ -696,8 +697,8 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       {m.outline.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Cover</span>
-          {m.outline.map((o, i) => (
-            <span key={i} className="rounded-md bg-white px-2 py-0.5 text-[11px] text-gray-600 ring-1 ring-gray-200">{o}</span>
+          {m.outline.map((o) => (
+            <span key={o} className="rounded-md bg-white px-2 py-0.5 text-[11px] text-gray-600 ring-1 ring-gray-200">{o}</span>
           ))}
         </div>
       ) : null}
@@ -710,7 +711,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           <ul className="mt-2 space-y-1.5">
             {m.titleVariants.map((v, i) => (
               <li
-                key={i}
+                key={v.title}
                 className="rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-gray-200"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -779,8 +780,8 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                 <dt className="font-semibold text-gray-500">FAQ to answer</dt>
                 <dd>
                   <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-gray-700">
-                    {m.faqs.map((q, i) => (
-                      <li key={i}>{q}</li>
+                    {m.faqs.map((q) => (
+                      <li key={q}>{q}</li>
                     ))}
                   </ul>
                 </dd>
