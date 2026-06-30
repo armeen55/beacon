@@ -73,7 +73,7 @@ function projectReservations(plan: DailyExperimentPlanRecord, reservedUntilIso: 
 }
 
 export type AcceptActionResult =
-  | { ok: false; reason: string; failures?: Array<{ url: string; reason: string }> }
+  | { ok: false; reason: string; failures?: Array<{ url: string; reason: string }>; refreshedPlanId?: string; refreshedCount?: number }
   | { ok: true; idempotent: boolean; planId: string; reservationCount: number };
 
 /**
@@ -104,6 +104,22 @@ export async function acceptDailyExperimentPlanAction(input: { planId: string; i
     const ctx: AcceptanceContext = { tenantId, now, expectedInputHash: input.inputHash, activeTreatedPaths, activeControlPaths, reservedControlPaths };
     const validation = validatePlanAcceptance(plan, ctx);
     if (!validation.ok) {
+      // Stale-plan auto-recovery: a PURE expiry failure (no per-item failures) is not a dead-end —
+      // rebuild today's preview (fresh controls + backups) so the operator just reviews + re-Accepts,
+      // instead of seeing a raw "plan_expired". Never auto-accepts; the fresh plan stays preview.
+      if (validation.planLevelReason === "plan_expired" && (validation.failures?.length ?? 0) === 0) {
+        try {
+          await expirePlans(tenantId, now).catch(() => 0);
+          const { record } = await buildTodayExperimentPreview(tenantId, now);
+          if (record.selected.length === 0) return { ok: false, reason: "plan_refreshed_empty" };
+          await createPreviewPlan(record);
+          revalidatePath("/worklist");
+          revalidatePath("/");
+          return { ok: false, reason: "plan_refreshed", refreshedPlanId: record.id, refreshedCount: record.selected.length };
+        } catch {
+          return { ok: false, reason: "refresh_failed" };
+        }
+      }
       return { ok: false, reason: validation.planLevelReason ?? "validation_failed", failures: validation.failures?.map((f) => ({ url: f.url, reason: f.reason })) };
     }
 

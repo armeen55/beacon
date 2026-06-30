@@ -80,6 +80,28 @@ export function buildLinkDestinations(
   return out;
 }
 
+/** Distinctive (non-generic, >2-char) tokens of a phrase — the relevance vocabulary. */
+function distinctiveTokens(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !GENERIC_TOKEN.has(w)),
+  );
+}
+/**
+ * Intent-fit gate: a link is contextually valid only when the destination genuinely relates to the
+ * SOURCE page. Same-family links (hub/child/sibling) are inherently contextual. A cross-family link
+ * must share at least one distinctive token between the destination (its anchor/label) and the
+ * source's target query OR page label — otherwise it's an off-topic link (e.g. a "Persian jewelry"
+ * link on a t-shirt product page) and is rejected so the planner falls back to a relevant lever.
+ */
+function destinationIsRelevant(srcFamily: string, srcQuery: string, srcLabel: string, dest: LinkDestination): boolean {
+  if (dest.family && dest.family === srcFamily) return true;
+  const srcToks = distinctiveTokens(`${srcQuery} ${srcLabel}`);
+  if (srcToks.size === 0) return true; // no source context supplied → don't enforce (backward-compatible)
+  const destToks = distinctiveTokens(`${dest.alias} ${dest.label}`);
+  for (const t of destToks) if (srcToks.has(t)) return true;
+  return false;
+}
+
 /** Whole-phrase, word-bounded, case-insensitive, Unicode-aware match. */
 function phraseRegex(anchor: string): RegExp {
   const esc = anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -125,12 +147,17 @@ export function proposeSafeInternalLink(input: {
   sourceParagraphs: string[];
   sourceLinkedPaths: Set<string>; // normalized paths the source already links to
   destinations: LinkDestination[];
+  sourceQuery?: string; // the source page's target query (intent-fit gate)
+  sourceLabel?: string; // the source page's label (intent-fit gate)
 }): InternalLinkProposal | null {
   const src = toLinkPath(input.sourcePath);
+  const srcFamily = familyOf(src);
   const paras = input.sourceParagraphs.filter((p) => p && p.trim().length >= 40);
-  // Score destinations: prefer same-family hub/child, then by alias length (more specific = safer).
+  // Eligible, non-self, not-already-linked, AND contextually relevant to this page (intent-fit gate);
+  // then prefer same-family hub/child, then by alias length (more specific = safer).
   const candidates = input.destinations
     .filter((d) => d.eligible && d.path !== src && !input.sourceLinkedPaths.has(d.path))
+    .filter((d) => destinationIsRelevant(srcFamily, input.sourceQuery ?? "", input.sourceLabel ?? "", d))
     .sort((a, b) => b.alias.length - a.alias.length);
 
   for (const d of candidates) {

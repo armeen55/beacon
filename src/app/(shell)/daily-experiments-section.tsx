@@ -213,8 +213,18 @@ function ExecutionChecklistView({ checklist }: { checklist: ExecutionChecklist }
   );
 }
 
+const ACCEPT_FAILURE_COPY: Record<string, string> = {
+  plan_not_found: "That plan is no longer available — click “Plan today’s experiments” to start a fresh one.",
+  plan_already_accepted: "This plan is already accepted — scroll down to the checklist.",
+  plan_already_abandoned: "This plan was discarded — plan a new one.",
+  input_hash_changed: "The plan changed since you opened it — Beacon refreshed it; review and Accept again.",
+  refresh_failed: "Couldn’t refresh the plan just now — try “Re-plan”.",
+  plan_refreshed_empty: "No clean experiments are available right now — try again later.",
+};
+
 export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }) {
   const { dashboard, checklist } = view;
+  const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [preview, setPreview] = useState<DailyExperimentPlanRecord | undefined>(dashboard.previewPlan);
@@ -228,7 +238,17 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
   const accept = (p: DailyExperimentPlanRecord) => start(async () => {
     setMsg("Reserving controls…");
     const r = await acceptDailyExperimentPlanAction({ planId: p.id, inputHash: p.inputHash, idempotencyKey: `${p.id}::accept` });
-    setMsg(r.ok ? `Plan accepted — ${r.reservationCount} controls reserved. Apply each change in Wix below.` : `Accept failed: ${r.reason}${r.failures?.length ? ` (${r.failures.map((f) => `${f.url}:${f.reason}`).join("; ")})` : ""}`);
+    if (r.ok) {
+      setMsg(`Plan accepted — ${r.reservationCount} controls reserved. Apply each change in Wix below.`);
+      router.refresh();
+    } else if (r.reason === "plan_refreshed") {
+      setMsg(`This plan had timed out — Beacon refreshed today’s batch (${r.refreshedCount ?? ""} changes) with fresh comparison pages. Review the updated list and click Accept.`);
+      router.refresh();
+    } else if (r.failures?.length) {
+      setMsg(`Couldn’t accept: ${r.failures.map((f) => `${f.url} (${f.reason})`).join("; ")}.`);
+    } else {
+      setMsg(ACCEPT_FAILURE_COPY[r.reason] ?? `Couldn’t accept: ${r.reason}.`);
+    }
   });
   const abandon = (p: DailyExperimentPlanRecord) => start(async () => {
     const r = await abandonPreviewPlanAction({ planId: p.id });

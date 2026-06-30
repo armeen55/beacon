@@ -13,6 +13,13 @@
 const COPULA = /\b(is|are|was|were|refers to|describes|denotes|means|consists of)\b/i;
 const DANGLE = /^(it|its|they|their|them|this|these|those|he|she|his|her|however|therefore|also|moreover|thus|then|in addition|such|furthermore|additionally|instead|meanwhile)\b/i;
 const SENTENCE_END = /[.!?]$/;
+// A "weak lead" answers WHERE/WHAT-IS-NEAR rather than WHAT-IS — and is a factual-accuracy hazard for
+// an extractive lever (e.g. "Shiraz is home to Persepolis…" — Persepolis is NEAR, not IN, Shiraz). We
+// never surface a containment/proximity/enumeration sentence as the page's lead answer.
+const WEAK_ANSWER_LEAD = /\b(?:is|are|was|were)\s+(?:home to|located (?:in|near|within|on|at|close)|situated (?:in|near|on|at)|near|next to|close to|adjacent to|surrounded by|famous for|known for|renowned for|noted for|best known for|part of)\b/i;
+// A DEFINITIONAL lead actually answers "what is X" — "X is a/an/the …", or a copula directly followed
+// by a defining category noun. Preferred over any non-definitional (but still firewall-clean) sentence.
+const DEFINITIONAL = /\b(?:is|are|was|were|refers to|means|denotes|describes)\s+(?:a|an|the|one of|the name|written|spoken|used|celebrated|observed|practiced)\b/i;
 
 // Factual-safety patterns — surfacing these to the lead answer needs editorial/freshness checks the
 // lever can't do, so V1 rejects them outright (airtight over comprehensive).
@@ -112,41 +119,49 @@ export function proposeSafeAnswerBlock(input: {
   const paras = input.bodyParagraphs.map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p.length >= 40);
   if (paras.length === 0) return null;
 
-  // Scan in document order for the FIRST direct-answer sentence: entity head appears in the opening,
-  // a copula appears early, it doesn't start with a dangling pronoun, and it's a complete sentence.
+  // Scan in document order, COLLECTING every direct-answer sentence (entity head in the opening, a
+  // copula early, not dangling, complete, standalone, firewall-clean, and NOT a weak where/near lead).
+  // Then prefer a DEFINITIONAL sentence ("X is a/an/the …") over any other — a definition answers the
+  // page's primary intent, an enumeration/proximity sentence does not (and risks a geography error).
+  const headRe = new RegExp(`\\b${head.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  type Cand = { sent: string; pi: number; si: number };
+  const cands: Cand[] = [];
   for (let pi = 0; pi < paras.length; pi++) {
     const ss = sentences(paras[pi]);
     for (let si = 0; si < ss.length; si++) {
       const sent = ss[si];
       const opening = sent.split(/\s+/).slice(0, 8).join(" ").toLowerCase();
-      // whole-word head match (don't let "art" match "Bharat"/"particle")
-      if (!new RegExp(`\\b${head.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(opening)) continue;
+      if (!headRe.test(opening)) continue; // whole-word head match (don't let "art" match "Bharat")
       if (!COPULA.test(sent.split(/\s+/).slice(0, 10).join(" "))) continue;
       if (DANGLE.test(sent)) continue;
       if (!SENTENCE_END.test(sent)) continue; // complete sentence only
       const words = sent.split(/\s+/).length;
       if (words < 6 || words > 45) continue; // standalone, not a fragment, not a paragraph
-      // Already prominent? The page's lead sentence already answers → no gap.
-      if (pi === 0 && si === 0) return null;
-      const factualSafety = checkAnswerFactualSafety(sent, [sent]);
-      if (!factualSafety.passed) return null; // volatile/superlative → emit nothing (airtight)
-      const operation = si === 0 ? "move_existing_text" : "copy_existing_text"; // clean move only when it's a whole paragraph's lead
-      // Clean the entity for the question: drop separator + "by <Brand>" suffixes ("Finglish by
-      // Iranopedia" → "Finglish") but keep legitimate "X by the Y" (lowercase next word) titles.
-      const entity = (input.h1 || input.label).replace(/\s*(?:[|·•\-–—].*|\bby\b\s+[A-Z].*)$/, "").trim() || input.label;
-      const question = `What is ${entity}?`;
-      const exactInstruction = operation === "move_existing_text"
-        ? `Wix CMS → page body → find this exact sentence: "${sent}" → MOVE it directly below the H1 (above the first descriptive paragraph). Do not change the title, meta, H1, remaining body, links, or schema.`
-        : `Wix CMS → page body → copy this exact sentence to a short answer line directly below the H1: "${sent}" — leave the original in place. Do not change the title, meta, H1, other body, links, or schema.`;
-      const rollbackInstruction = operation === "move_existing_text"
-        ? `Move the sentence back to paragraph ${pi + 1} where it was.`
-        : `Delete the answer line below the H1 (the original sentence stays untouched).`;
-      return {
-        question, answerText: sent, sourceSentence: sent, paragraphIndex: pi, sentenceIndex: si,
-        operation, supportMode: "exact_sentence", proposedLocation: "below_h1",
-        exactInstruction, rollbackInstruction, factualSafety, fetchedAt: input.fetchedAt,
-      };
+      if (pi === 0 && si === 0) return null; // page already leads with this answer → no gap
+      if (WEAK_ANSWER_LEAD.test(sent)) continue; // "is home to / located near / famous for …" — not a definition
+      if (!checkAnswerFactualSafety(sent, [sent]).passed) continue; // volatile/superlative → skip this one
+      cands.push({ sent, pi, si });
     }
   }
-  return null;
+  if (cands.length === 0) return null; // no airtight, definitional-grade buried answer → emit nothing
+  // Prefer the first DEFINITIONAL candidate; else the first qualifying one (document order).
+  const chosen = cands.find((c) => DEFINITIONAL.test(c.sent)) ?? cands[0];
+  const { sent, pi, si } = chosen;
+  const factualSafety = checkAnswerFactualSafety(sent, [sent]);
+  const operation = si === 0 ? "move_existing_text" : "copy_existing_text"; // clean move only when it's a whole paragraph's lead
+  // Clean the entity for the question: drop separator + "by <Brand>" suffixes ("Finglish by
+  // Iranopedia" → "Finglish") but keep legitimate "X by the Y" (lowercase next word) titles.
+  const entity = (input.h1 || input.label).replace(/\s*(?:[|·•\-–—].*|\bby\b\s+[A-Z].*)$/, "").trim() || input.label;
+  const question = `What is ${entity}?`;
+  const exactInstruction = operation === "move_existing_text"
+    ? `Wix CMS → page body → find this exact sentence: "${sent}" → MOVE it directly below the H1 (above the first descriptive paragraph). Do not change the title, meta, H1, remaining body, links, or schema.`
+    : `Wix CMS → page body → copy this exact sentence to a short answer line directly below the H1: "${sent}" — leave the original in place. Do not change the title, meta, H1, other body, links, or schema.`;
+  const rollbackInstruction = operation === "move_existing_text"
+    ? `Move the sentence back to paragraph ${pi + 1} where it was.`
+    : `Delete the answer line below the H1 (the original sentence stays untouched).`;
+  return {
+    question, answerText: sent, sourceSentence: sent, paragraphIndex: pi, sentenceIndex: si,
+    operation, supportMode: "exact_sentence", proposedLocation: "below_h1",
+    exactInstruction, rollbackInstruction, factualSafety, fetchedAt: input.fetchedAt,
+  };
 }

@@ -38,6 +38,34 @@ import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { moveCandidateToActionPack, aeoActionPackToActionPack, dedupeActionPacks, collapseCreateContentPacks } from "./adapters";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { actionFamily, type ActionPack, type EvidenceSource } from "./types";
+import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@/domains/experiments/daily-experiment-plan-store";
+import { normalizePath } from "@/domains/experiments/daily-plan-types";
+
+/**
+ * Pages already owned by the Daily Experiments surface (in today's plan, or reserved as an active
+ * control) must NOT also appear in the main worklist as a conflicting primary recommendation — that
+ * was the "same page, two cards, different advice" duplication. Fail-soft: any read error → empty set
+ * (the worklist renders exactly as before). Single-row reads; runs in parallel with the heavy loads.
+ */
+async function loadDailyExperimentBlockedPaths(tenantId: string): Promise<Set<string>> {
+  try {
+    const [preview, accepted, reservations] = await Promise.all([
+      getLatestPreviewPlan(tenantId), getAcceptedPlan(tenantId), listActiveReservations(tenantId),
+    ]);
+    const blocked = new Set<string>();
+    for (const plan of [preview, accepted]) {
+      if (!plan) continue;
+      for (const e of plan.selected) {
+        blocked.add(normalizePath(e.url));
+        if (e.canonicalUrl) blocked.add(normalizePath(e.canonicalUrl));
+      }
+    }
+    for (const r of reservations) blocked.add(normalizePath(r.controlPath));
+    return blocked;
+  } catch {
+    return new Set();
+  }
+}
 
 export type WorklistMode = "fast" | "full";
 
@@ -111,7 +139,7 @@ const EMPTY: ActionPackWorklist = { packs: [], summary: emptySummary("fast") };
 async function loadUncached(tenantId: string, mode: WorklistMode): Promise<ActionPackWorklist> {
   const warnings: string[] = [];
 
-  const [graphRes, packsRes, coverage, drafts, keywords] = await Promise.all([
+  const [graphRes, packsRes, coverage, drafts, keywords, dailyBlocked] = await Promise.all([
     // The demand graph is the ESSENTIAL read — never time-box it into an empty
     // (rank-revenue-0) worklist. A cold render is fine to wait on; a silently
     // degraded one is not. Only a genuine error degrades it (the .catch).
@@ -135,6 +163,8 @@ async function loadUncached(tenantId: string, mode: WorklistMode): Promise<Actio
     // Cached keyword-volume rows — the topic anchor for canonicalizing near-duplicate
     // create_new_page packs across sources (no live DataForSEO call).
     readAllCachedKeywordDemand().catch((): KeywordDemand[] => []),
+    // Pages owned by the Daily Experiments surface (today's plan + active controls) — deduped out below.
+    loadDailyExperimentBlockedPaths(tenantId),
   ]);
 
   const packetByKey = new Map<string, EvidencePacket>((packsRes?.packets ?? []).map((p) => [p.move.key, p]));
@@ -155,8 +185,19 @@ async function loadUncached(tenantId: string, mode: WorklistMode): Promise<Actio
   // "Nowruz Activities USA" vs "Nowruz Persian New Year" + same-comparison hub dupes.
   // Conservative grouper, per actionType bucket (hub↔page never merge).
   const collapsed = collapseCreateContentPacks(deduped.packs, keywords);
-  const packs = collapsed.packs;
-  const removed = deduped.removed + collapsed.removed;
+  // Dedup vs the Daily Experiments surface: drop existing-page packs whose page is already in today's
+  // plan or reserved as a control, so one page never shows conflicting advice in two places. Create
+  // (new_page/hub) packs have no live URL and are never blocked.
+  const beforeBlock = collapsed.packs.length;
+  const packs = dailyBlocked.size === 0
+    ? collapsed.packs
+    : collapsed.packs.filter((p) => {
+        const fam = actionFamily(p.actionType);
+        if (fam === "new_page" || fam === "hub") return true;
+        const path = p.targetUrl ? normalizePath(p.targetUrl) : "";
+        return !path || !dailyBlocked.has(path);
+      });
+  const removed = deduped.removed + collapsed.removed + (beforeBlock - packs.length);
 
   const byFamily = { existing_page: 0, new_page: 0, hub: 0, links: 0, cro: 0 };
   const sourceCoverage: Record<EvidenceSource, number> = { rank_revenue: 0, profound: 0, dataforseo: 0, gsc: 0, ga4: 0, clarity: 0, competitor_teardown: 0 };

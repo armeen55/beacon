@@ -122,6 +122,9 @@ type Proposal = {
   source?: string;
   link?: InternalLinkProposal;
   answer?: SafeAnswerBlockProposal;
+  /** The query the change actually serves (may differ from the GSC top query — e.g. an evergreen
+   *  answer block targeting "chaharshanbe suri" when GSC's top query was "chaharshanbe suri 2026"). */
+  displayQuery?: string;
 };
 function chooseProposal(facts: PageFacts, query: string, sourcePath: string, label: string, destinations: LinkDestination[]): Proposal | null {
   // Lever priority: META (highest-yield) → INTERNAL LINK (exact, reversible) → ANSWER BLOCK
@@ -133,12 +136,19 @@ function chooseProposal(facts: PageFacts, query: string, sourcePath: string, lab
     const link = proposeSafeInternalLink({
       sourcePath, sourceParagraphs: facts.bodyParagraphs ?? [],
       sourceLinkedPaths: new Set(facts.internalLinkPaths ?? []), destinations,
+      sourceQuery: query, sourceLabel: label, // intent-fit gate: reject off-topic links
     });
     if (link) return { leverField: "internal_link", actionType: "add_internal_link", proposed: link.exactReplacementText, current: link.exactSourceText, link };
   }
   if ((facts.bodyParagraphs?.length ?? 0) > 0) {
     const a = proposeSafeAnswerBlock({ label, h1: facts.h1, topQuery: query, bodyParagraphs: facts.bodyParagraphs ?? [], fetchedAt: facts.snapshotFetchedAt });
-    if (a) return { leverField: "answer_block", actionType: "add_answer_block", proposed: a.answerText, current: `(buried in paragraph ${a.paragraphIndex + 1})`, answer: a };
+    if (a) {
+      // Year-intent fallback: an extractive evergreen answer can't carry a date the page lacks, so
+      // when the GSC query has a year the answer doesn't contain, serve (+ measure) the evergreen intent.
+      const yr = query.match(/\b20\d{2}\b/)?.[0];
+      const displayQuery = yr && !a.answerText.includes(yr) ? query.replace(/\s*\b20\d{2}\b\s*/g, " ").replace(/\s+/g, " ").trim() : query;
+      return { leverField: "answer_block", actionType: "add_answer_block", proposed: a.answerText, current: `(buried in paragraph ${a.paragraphIndex + 1})`, answer: a, displayQuery };
+    }
   }
   const t = proposeTitle(facts.title, query);
   if (t) return { leverField: "title", actionType: "edit_title", proposed: t, current: facts.title ?? "" };
@@ -240,7 +250,7 @@ function buildCandidate(
     pageLabel: p.pageLabel,
     pageFamily: pageFamilyOf(p.url),
     actionFamily,
-    targetQuery: p.topQuery,
+    targetQuery: proposal.displayQuery ?? p.topQuery,
     impressions: p.impressions,
     position: p.topQueryPosition,
     ctr: p.topQueryCtr,

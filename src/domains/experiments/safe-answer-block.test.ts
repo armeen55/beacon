@@ -90,6 +90,34 @@ describe("proposeSafeAnswerBlock — extractive, surfaces a BURIED exact answer"
     expect(r).toBeNull();
   });
 
+  it("REJECTS a 'is home to …' enumeration lead and prefers the real definition (Shiraz geography)", () => {
+    const r = proposeSafeAnswerBlock({ label: "shiraz", h1: "Shiraz", topQuery: "shiraz iran", bodyParagraphs: [
+      "Travelers are drawn to the city's poetry, gardens, and historic bazaars throughout the year.",
+      "Shiraz is home to Persepolis, the Tomb of Hafez, and the Vakil Complex among its sights.", // proximity/geography hazard — must be skipped
+      "Shiraz is a city in the Fars province of south-central Iran, known for poetry and gardens.",
+    ] });
+    expect(r).toBeTruthy();
+    expect(r!.answerText).toBe("Shiraz is a city in the Fars province of south-central Iran, known for poetry and gardens.");
+  });
+
+  it("returns null when the ONLY buried answer is a proximity/enumeration lead (no false geography)", () => {
+    const r = proposeSafeAnswerBlock({ label: "shiraz", h1: "Shiraz", topQuery: "shiraz iran", bodyParagraphs: [
+      "Visitors love the gardens, the bazaars, and the relaxed pace of the city.",
+      "Shiraz is home to Persepolis and the Tomb of Hafez, two of Iran's most famous sites.",
+    ] });
+    expect(r).toBeNull();
+  });
+
+  it("prefers a definitional sentence over an earlier non-definitional one", () => {
+    const r = proposeSafeAnswerBlock({ label: "chaharshanbe suri", h1: "Chaharshanbe Suri", topQuery: "chaharshanbe suri 2026", bodyParagraphs: [
+      "Families across Iran prepare for the evening with snacks, music, and gatherings.",
+      "Chaharshanbe Suri is enjoyed by people of all ages across the country each spring.", // qualifies, but not a definition
+      "Chaharshanbe Suri is a traditional Persian festival of fire rooted in ancient custom.", // the definition
+    ] });
+    expect(r).toBeTruthy();
+    expect(r!.answerText).toContain("traditional Persian festival of fire");
+  });
+
   it("copies (not moves) when the buried answer is mid-paragraph", () => {
     const r = proposeSafeAnswerBlock({ label: "kerman rug", h1: "Kerman Rug", topQuery: "kerman rug", bodyParagraphs: [
       "Welcome to our guide on Persian weaving traditions and regional carpet styles.",

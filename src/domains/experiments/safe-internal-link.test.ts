@@ -139,6 +139,40 @@ describe("proposeSafeInternalLink — exact, safe, non-duplicative", () => {
     })).toBeNull();
   });
 
+  it("intent-fit gate: REJECTS an off-topic cross-family link (doodool t-shirt → Persian jewelry)", () => {
+    const r = proposeSafeInternalLink({
+      sourcePath: "/product-page/persian-farsi-iranian-jokes-doodool-tala-t-shirt",
+      sourceParagraphs: ["Our Persian jewelry is made from hypoallergenic stainless steel that's waterproof and tarnish-resistant."],
+      sourceLinkedPaths: new Set(),
+      destinations: [dest({ path: "/category/persian-jewelry-iran-necklaces-and-chains", alias: "Persian Jewelry", family: "category" })],
+      sourceQuery: "doodool tala", sourceLabel: "doodool tala t shirt",
+    });
+    expect(r).toBeNull();
+  });
+
+  it("intent-fit gate: ALLOWS a cross-family link that shares a distinctive token with the page", () => {
+    const r = proposeSafeInternalLink({
+      sourcePath: "/jewelry-care-guide",
+      sourceParagraphs: ["Caring for your Persian Jewelry keeps the stainless steel bright for years of daily wear."],
+      sourceLinkedPaths: new Set(),
+      destinations: [dest({ path: "/category/persian-jewelry-iran-necklaces-and-chains", alias: "Persian Jewelry", family: "category" })],
+      sourceQuery: "persian jewelry care", sourceLabel: "jewelry care guide",
+    });
+    expect(r).toBeTruthy();
+    expect(r!.destinationPath).toBe("/category/persian-jewelry-iran-necklaces-and-chains");
+  });
+
+  it("intent-fit gate: ALLOWS a same-family link even without token overlap", () => {
+    const r = proposeSafeInternalLink({
+      sourcePath: "/iran-flags/umayyad-caliphate-flag",
+      sourceParagraphs: ["The era is often compared with the later Abbasid Caliphate Flag in design and symbolism."],
+      sourceLinkedPaths: new Set(),
+      destinations: [dest({ path: "/iran-flags/abbasid-caliphate-flag", alias: "Abbasid Caliphate Flag", family: "iran-flags" })],
+      sourceQuery: "umayyad caliphate flag", sourceLabel: "umayyad caliphate flag",
+    });
+    expect(r).toBeTruthy();
+  });
+
   it("classifies same-family hub→child and child→hub relationships", () => {
     const d = [dest({ path: "/persian-rugs/kerman-rug", alias: "Kerman Rug", family: "persian-rugs" })];
     const hubToChild = proposeSafeInternalLink({ sourcePath: "/persian-rugs", sourceParagraphs: ["Regional styles include the famous Kerman Rug among many other beautiful weaves."], sourceLinkedPaths: new Set(), destinations: d });

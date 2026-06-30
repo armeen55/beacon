@@ -39,8 +39,8 @@ describe("buildDailyPlanRecord", () => {
     expect(plan.selected[0].currentTextHash).toBe(stableHash("old meta"));
     expect(plan.selected[1].detail.kind).toBe("answer_block");
     expect(plan.activeExperimentSnapshot.treatedUrls).toContain("https://iranopedia.com/iran-animals/persian-wolf");
-    // expires 30 min after now by default
-    expect(new Date(plan.expiresAt).getTime() - NOW.getTime()).toBe(30 * 60_000);
+    // expires a full operating day after now by default (survives plan-in-morning / apply-in-evening)
+    expect(new Date(plan.expiresAt).getTime() - NOW.getTime()).toBe(24 * 60 * 60_000);
   });
 
   it("is content-addressed: same inputs → same id; changed proposal → different id", () => {
@@ -94,7 +94,7 @@ describe("validatePlanAcceptance — all-or-none, explicit reasons", () => {
     if (!r.ok) expect(r.planLevelReason).toBe("tenant_mismatch");
   });
   it("rejects an expired plan", () => {
-    const r = validatePlanAcceptance(plan, { ...baseCtx(), now: new Date("2026-07-01T13:00:00Z") });
+    const r = validatePlanAcceptance(plan, { ...baseCtx(), now: new Date("2026-07-03T00:00:00Z") }); // > 24h after NOW
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.planLevelReason).toBe("plan_expired");
   });

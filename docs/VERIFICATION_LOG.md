@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-07-01 — Consolidation + recommendation-quality sprint
+
+**Recommendation fixes (the levers now respect query/topic intent):**
+- `safe-internal-link.ts`: added an intent-fit gate (`destinationIsRelevant`) — a cross-family link must share a distinctive token with the page's target query/label; same-family links allowed; no source context → no-op (backward-compatible). Fixes the Doodool t-shirt → "Persian jewelry" off-topic link. `proposeSafeInternalLink` now takes `sourceQuery`/`sourceLabel`; wired from `build-daily-candidates`.
+- `safe-answer-block.ts`: rejects `WEAK_ANSWER_LEAD` ("is home to / located near / famous for …") and collects candidates then prefers a `DEFINITIONAL` sentence. Fixes Shiraz's "is home to Persepolis" geography error (Persepolis is near, not in, Shiraz) — now picks a definition or emits nothing.
+- `build-daily-candidates.ts`: year-intent fallback — when the GSC query carries a year the extractive (evergreen) answer can't contain, the displayed/measured query drops the year (Chaharshanbe "chaharshanbe suri 2026" → "chaharshanbe suri"). The answer itself was already a correct definition.
+- Reviewed the 4 flag metas + Finglish — factual, query-relevant, distinct, good length → kept.
+- **Live ground-truth (read-only, real Iranopedia):** the batch is now **6 clean items** (4 meta + 2 answer) instead of 8 — Doodool + Shiraz correctly dropped; Chaharshanbe retargeted; Finglish + 4 flags kept.
+
+**Expiry dead-end:** `DEFAULT_EXPIRY_MIN` 30 → 1440 (`build-daily-plan-record.ts`); `acceptDailyExperimentPlanAction` auto-refreshes a pure-expiry failure (re-plan + persist + `plan_refreshed` typed result) instead of returning raw `plan_expired`; friendly copy + `router.refresh()` in `daily-experiments-section.tsx`.
+
+**Dedup:** `action-pack/load.ts` reads (fail-soft) the daily plan + active reservations and drops existing-page packs whose page is already in today's plan or reserved as a control — one page no longer shows conflicting advice in two places. Single chokepoint; create packs never blocked.
+
+**Nav:** sidebar → Today · Changes (was Worklist) · Results · Research (AI questions + Competitors) · Settings. Drafts (/recommendations) + Ready-to-ship (/experiments) dropped as separate nav products; routes preserved.
+
+**Tests:** +3 answer-block (weak-lead/definitional), +3 internal-link (intent-fit), expiry assertions updated. **Gates:** tsc 0 · experiments **141** + proof/action-pack **70** = 211 passed · build PASS.
+
+**Data integrity:** fresh preview `tenant-iranopedia::2026-06-30::1d4fa003` (6 items) persisted, status preview, **unaccepted**; 19 proof rows + 0 reservations + 0 accepted plans unchanged. No Wix / no GSC / no proof writes.
+
+---
+
 ## 2026-07-01 — Daily Experiment EXECUTION workflow (apply → verify live → atomic activation → GSC)
 
 **Built (post-acceptance loop):** `execution-state.ts` (item/plan state machine; forbidden shortcuts to `active`), `live-verification.ts` (deterministic per-lever live proof via cheerio over a fresh fetch), `execution-checklist.ts` (pure read model + Wix instructions), `daily-experiment-plan-store.ts` (+`activateItemViaRpc`/`skipItemViaRpc`/`updateItemExecution`/`completePlan`/`listReservationsForPlan`), `daily-experiments-actions.ts` (+`markDailyExperimentAppliedAction`/`confirmGscSubmissionAction`/`skipDailyExperimentItemAction`/`completeDailyPlanAction`), `daily-experiments-{data,section}.ts(x)` (checklist UI), `shipped-change-store.ts` (+`markRecrawlRequestedById`).

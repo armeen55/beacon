@@ -12,7 +12,11 @@ import {
 } from "./daily-plan-types";
 
 export const PLANNER_VERSION = "safe-levers-v3"; // meta + internal-link + answer-block
-const DEFAULT_EXPIRY_MIN = 30;
+// A preview must survive a normal operating day (plan in the morning, apply through the evening) —
+// 30 min meant a plan was dead before the operator returned to it. Acceptance ALSO re-validates the
+// control topology fresh at accept time, so a longer window doesn't weaken measurement; and a stale
+// plan auto-refreshes on Accept (see acceptDailyExperimentPlanAction) rather than dead-ending.
+const DEFAULT_EXPIRY_MIN = 24 * 60;
 
 function controlRecord(c: BuiltCandidate["suggestedControls"][number]): ProposedControlRecord {
   return {
