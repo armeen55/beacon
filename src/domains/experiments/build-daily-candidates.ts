@@ -69,52 +69,25 @@ function expectedCtr(pos: number): number {
 }
 
 const FILLER_LEAD = /^(meet the|the|a|an|discover|explore|learn about|all about|guide to)\s+/i;
-const STOP = new Set(["the", "a", "an", "of", "in", "on", "for", "to", "and", "or", "with", "is", "are", "what", "how", "why", "vs"]);
-function contentTokens(s: string): string[] {
-  return s.toLowerCase().replace(/[^a-z0-9؀-ۿ\s]/g, " ").split(/\s+/).filter((t) => t.length >= 2 && !STOP.has(t));
-}
-/** Light singularization so "rug" matches "rugs" (avoid false "missing token"). */
-const stem = (t: string): string => (t.length > 3 ? t.replace(/s$/, "") : t);
-const stemSet = (s: string): Set<string> => new Set(contentTokens(s).map(stem));
-/** The query's tokens that are NOT a broad geo/brand token (persian/iran/iranian) — the
- *  DISTINGUISHING terms a title/H1 must carry. */
-const BROAD = new Set(["persian", "iran", "iranian", "irans", "farsi", "persia"]);
-function distinguishingTokens(query: string): string[] {
-  const d = contentTokens(query).filter((t) => !BROAD.has(t));
-  return d.length > 0 ? d : contentTokens(query);
-}
 
-function titleLeadsWithQuery(title: string, query: string): boolean {
-  const t = new Set(contentTokens(title).slice(0, 3).map(stem));
-  const q = contentTokens(query).map(stem);
-  return q.length > 0 && q.every((tok) => t.has(tok));
-}
-
-/** Query-first reorder of the page's OWN title: drop a filler lead; if the query isn't already
- *  led-with, prepend the query label and keep the existing brand/category tail. No invented
- *  copy. Returns null when the current title is already query-first + filler-free. */
-function proposeTitle(currentTitle: string | null, query: string): string | null {
+/** The ONLY safe deterministic title change: drop a filler lead ("Meet the X" → "X"). This is
+ *  unambiguously materially-better (query-first, no info loss, reversible). We deliberately do
+ *  NOT prepend a synonym query (would change the page's subject — "Mongol Empire Flag" must not
+ *  become "Genghis Khan Flag") nor replace a good bespoke title (would destroy "Top 20 Most
+ *  Famous Iranian Directors"). A filler-free title → no deterministic change (a synonym-capture
+ *  parenthetical needs deeper analysis, a later slice). Returns null unless filler was dropped. */
+function proposeTitle(currentTitle: string | null, _query: string): string | null {
   if (!currentTitle) return null;
   const stripped = currentTitle.replace(FILLER_LEAD, "").trim();
-  const hadFiller = stripped !== currentTitle.trim();
-  if (!hadFiller && titleLeadsWithQuery(currentTitle, query)) return null; // already good
-  // Title-case the query for the lead.
-  const lead = query.replace(/\b\w/g, (c) => c.toUpperCase());
-  if (titleLeadsWithQuery(stripped, query)) return stripped; // filler-drop alone fixes it
-  // Prepend the query, keep any existing " | brand/category" tail from the stripped title.
-  const tail = stripped.includes("|") ? " |" + stripped.split("|").slice(1).join("|") : "";
-  const candidate = `${lead}${tail}`.trim();
-  return candidate !== currentTitle.trim() ? candidate : null;
+  return stripped !== currentTitle.trim() && stripped.length >= 3 ? stripped : null;
 }
 
-function proposeH1(currentH1: string | null, query: string): string | null {
+/** Same conservative rule for H1: only drop a filler lead. Never rewrite a clean H1 to chase a
+ *  synonym query (that changes the page's stated subject). */
+function proposeH1(currentH1: string | null, _query: string): string | null {
   if (!currentH1) return null;
-  const dist = distinguishingTokens(query);
-  const h1Tokens = stemSet(currentH1);
-  const missing = dist.filter((t) => !h1Tokens.has(stem(t)));
-  if (missing.length === 0) return null; // H1 already carries the query
-  // Conservative: lead the H1 with the query label (keep nothing invented).
-  return query.replace(/\b\w/g, (c) => c.toUpperCase());
+  const stripped = currentH1.replace(FILLER_LEAD, "").trim();
+  return stripped !== currentH1.trim() && stripped.length >= 3 ? stripped : null;
 }
 
 function proposeMeta(currentMeta: string | null, facts: PageFacts, query: string): string | null {

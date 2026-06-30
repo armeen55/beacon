@@ -27,11 +27,27 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     expect(buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW })).toHaveLength(0);
   });
 
-  it("falls to H1 lever when the title already leads with the query but the H1 misses a distinguishing token", () => {
-    const pages = [gsc({ url: "/x", topQuery: "biggest cities in iran" })];
-    const f = facts({ "/x": { title: "Biggest Cities in Iran: Population & Map", meta: "present", h1: "Cities of Iran" } });
+  it("H1 lever only drops a filler lead (never chases a synonym/rewrites a clean H1)", () => {
+    const pages = [gsc({ url: "/x", topQuery: "kerman rug" })];
+    const f = facts({ "/x": { title: "Kerman Rug Buying Guide", meta: "present", h1: "Discover Kerman Rugs" } });
     const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW });
     expect(c.leverField).toBe("h1");
+    expect(c.proposedText).toBe("Kerman Rugs");
+  });
+
+  it("REGRESSION: never replaces a good bespoke title with a synonym query (no degenerate proposals)", () => {
+    const pages = [
+      gsc({ url: "/iran-flags/mongol-empire-flag", topQuery: "genghis khan flag" }),
+      gsc({ url: "/famous-iranian-directors", topQuery: "iranian directors" }),
+      gsc({ url: "/iran-flags/safavid-lion-sun", topQuery: "lion and sun flag" }),
+    ];
+    const f = facts({
+      "/iran-flags/mongol-empire-flag": { title: "Mongol Empire Flag (1219–1335) - Persian Flags History", meta: "present", h1: "Mongol Empire Flag" },
+      "/famous-iranian-directors": { title: "Top 20 Most Famous Iranian Filmmakers and Directors Ever", meta: "present", h1: "Famous Iranian Directors" },
+      "/iran-flags/safavid-lion-sun": { title: "Safavid Lion and Sun Flag (1576–1732) - Persian Flags History", meta: "present", h1: "Safavid Lion and Sun Flag" },
+    });
+    // None have a filler lead or a missing meta → NO candidates (honest: don't force weak work).
+    expect(buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW })).toHaveLength(0);
   });
 
   it("fills a MISSING meta (factual, from the on-page H1) — never rewrites an existing meta", () => {
