@@ -107,6 +107,39 @@ describe("buildCanonicalChanges — one identity per page+lever, no duplicates",
   });
 });
 
+describe("Move 2 — proof maturity threads into Changes (early ≠ result)", () => {
+  it("a 7-day (early) proof shows as MEASURING with directional evidence, not a final result", () => {
+    const moves = [
+      mv({ id: "m1", targetUrl: "https://s.com/cities", actionType: "edit_meta", proofStatus: "measuring", proofMaturity: "early_checkpoint", proofDirection: "negative", proofLabel: "Early negative signal", proofNextCheckpoint: "2026-07-04" }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].status).toBe("measuring");
+    expect(statusView(out[0].status)).toBe("measuring");
+    expect(out[0].evidenceStrength).toBe("directional");
+    expect(out[0].measurementHeadline).toBe("Early negative signal");
+    expect(out[0].nextCheckpoint).toBe("2026-07-04");
+  });
+  it("a MATURE proof shows as a RESULT with strong evidence + the mature headline", () => {
+    const moves = [
+      mv({ id: "m1", targetUrl: "https://s.com/cities", actionType: "edit_meta", proofStatus: "won", proofMaturity: "mature_result", proofDirection: "positive", proofLabel: "Helped" }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].status).toBe("result");
+    expect(statusView(out[0].status)).toBe("results");
+    expect(out[0].evidenceStrength).toBe("strong");
+    expect(out[0].result).toBe("Helped");
+  });
+  it("an overlapping (attribution-limited) measuring proof is flagged + directional", () => {
+    const moves = [
+      mv({ id: "m1", targetUrl: "https://s.com/cities", actionType: "edit_meta", proofStatus: "measuring", proofMaturity: "attribution_limited", proofLabel: "Directional only" }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].status).toBe("measuring");
+    expect(out[0].attributionLimited).toBe(true);
+    expect(out[0].evidenceStrength).toBe("directional");
+  });
+});
+
 describe("strategy ranking + goal filters", () => {
   const changes = buildCanonicalChanges({
     tenantId: "t", plan: null, reservations: [],

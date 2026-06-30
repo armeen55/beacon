@@ -33,7 +33,11 @@ import {
   type PreparedStatus,
 } from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
-import { outcomeStateOf, type OutcomeState } from "@/domains/proof-gsc/measure-lifecycle";
+import {
+  buildMeasurementPresentation,
+  detectMeasurementOverlaps,
+  type MeasurementPresentation,
+} from "@/domains/proof-gsc/measurement-maturity";
 import { proofCheckDates } from "@/domains/proof-gsc/measure";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
@@ -182,6 +186,14 @@ export type TodayMove = {
    *  read still ahead), so the card can say "next read ~<date>" instead of a bare
    *  "measuring". Set only while measuring. */
   proofNextCheckpoint?: string | null;
+  /** Move 2 — the shared measurement maturity of this move's proof (collecting →
+   *  early → interim → mature/inconclusive/blocked/attribution_limited). The
+   *  canonical Changes adapter uses this so an EARLY read shows as "Measuring",
+   *  never a final "Result". Null when no proof row matches. */
+  proofMaturity?: import("@/domains/proof-gsc/measurement-maturity").MeasurementMaturity | null;
+  /** Move 2 — which way the basis window moved (positive/negative/neutral/unknown),
+   *  independent of maturity. */
+  proofDirection?: import("@/domains/proof-gsc/measurement-maturity").MeasurementDirection | null;
   /** PageResearchPack v1 (2026-06-29) — the per-page "what should this page OWN"
    *  research summary: intent clustering (own vs cross-link sibling) + the proof-aware
    *  primary lever + blocked levers + the top element opportunities. Computed from the
@@ -404,22 +416,45 @@ export async function buildTodayMovesData(
     // Outcome lifecycle state per page (from the proof ledger) — for the hero's
     // learning summary + the "Beacon learned" headline. Honest: derived from
     // settled verdicts only.
-    const ledgerStates = ledger.map((r) => outcomeStateOf(r));
-    const learningSummary = {
-      measuring: ledgerStates.filter((s) => s === "measuring").length,
-      won: ledgerStates.filter((s) => s === "win").length,
-      lost: ledgerStates.filter((s) => s === "loss").length,
+    // Move 2 — interpret every ledger record through the shared maturity model so an
+    // EARLY (7/14-day) read is never threaded onto a card as a final win/loss. A
+    // settled outcome is surfaced ONLY at mature_result; everything else stays
+    // "measuring" with honest maturity language.
+    const proofNow = new Date();
+    const overlapById = detectMeasurementOverlaps(
+      ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })),
+    );
+    const presentationOf = (r: (typeof ledger)[number]): MeasurementPresentation => {
+      const basisWin = (r.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
+      return buildMeasurementPresentation({
+        shippedAt: r.shippedAt,
+        now: proofNow,
+        latestGscDate: null, // card needs mature-vs-not, not the blocked/collecting split
+        windows: (r.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
+        verdict: r.verdict,
+        controlsUsed: basisWin?.controlsUsed ?? 0,
+        baselineImpressions: r.baseline?.impressions ?? 0,
+        overlap: overlapById.get(r.id) ?? null,
+        live: true,
+      });
     };
-    // Outcome-threading (2026-06-28): the most recent shipped change per page, so a
-    // card can show "Measuring / Won / No lift" without opening Results. Keyed by
-    // canonical page URL; same conservative URL+action-family basis as the Results
-    // linker. Display only — measurement math is untouched.
-    const proofByPage = new Map<string, { state: OutcomeState; shippedAt: string; actionType: string }>();
+    // Learning summary (hero) — count MATURE outcomes only; everything else is still
+    // measuring. Honest: a 7-day "lost" is not a loss.
+    const ledgerPres = ledger.map((r) => presentationOf(r));
+    const learningSummary = {
+      measuring: ledgerPres.filter((p) => p.maturity !== "mature_result").length,
+      won: ledgerPres.filter((p) => p.verdict === "helped").length,
+      lost: ledgerPres.filter((p) => p.verdict === "did_not_help").length,
+    };
+    // Outcome-threading (2026-06-28; Move 2): the most recent shipped change per page,
+    // carrying its maturity presentation so a card shows honest measurement language
+    // without opening Results. Keyed by canonical page URL. Display only.
+    const proofByPage = new Map<string, { pres: MeasurementPresentation; shippedAt: string; actionType: string }>();
     for (const r of ledger) {
       const key = canon(r.page) || canon(r.path);
       const prev = proofByPage.get(key);
       if (!prev || Date.parse(r.shippedAt) > Date.parse(prev.shippedAt)) {
-        proofByPage.set(key, { state: outcomeStateOf(r), shippedAt: r.shippedAt, actionType: r.actionType });
+        proofByPage.set(key, { pres: presentationOf(r), shippedAt: r.shippedAt, actionType: r.actionType });
       }
     }
     // Owned-page paths currently on measurement-hold (verdict still measuring,
@@ -717,25 +752,28 @@ export async function buildTodayMovesData(
         const fam = (a: string): string =>
           /title|meta|ctr/.test(a) ? "tm" : /answer|aeo|faq|schema/.test(a) ? "aeo" : /internal|link|consolidat/.test(a) ? "lk" : /friction|experience|cro|ux|conversion/.test(a) ? "cro" : "edit";
         const sameFamily = fam(m.action) === fam(pr.actionType) || fam(m.action) === "edit" || fam(pr.actionType) === "edit";
-        if (pr.state === "measuring") {
+        const p = pr.pres;
+        m.proofMaturity = p.maturity;
+        m.proofDirection = p.direction;
+        if (p.maturity !== "mature_result") {
+          // Still in flight (collecting / early / interim / blocked / overlapping):
+          // never a final verdict. Use the honest maturity headline, not "won/lost".
           m.proofStatus = "measuring";
           m.alreadyMeasuring = sameFamily;
           m.pageMeasuring = !sameFamily;
-          m.proofLabel = `Measuring since ${pr.shippedAt.slice(0, 10)}`;
-          // P6 — the soonest 7/14/28-day read still ahead, so the card can name the
-          // checkpoint the operator would muddy by shipping again now.
-          const checks = proofCheckDates(pr.shippedAt);
-          const todayStr = nowIso.slice(0, 10);
-          m.proofNextCheckpoint = [checks[7], checks[14], checks[28]].find((d) => d > todayStr) ?? checks[28];
-        } else if (pr.state === "win") {
+          m.proofLabel = p.headline;
+          // The soonest future checkpoint — the read the operator would muddy by
+          // shipping again now.
+          m.proofNextCheckpoint = p.nextCheckpoint ?? proofCheckDates(pr.shippedAt)[28];
+        } else if (p.verdict === "helped") {
           m.proofStatus = "won";
-          m.proofLabel = "Won in Results";
-        } else if (pr.state === "loss") {
+          m.proofLabel = p.headline; // "Helped" / "Likely helped"
+        } else if (p.verdict === "did_not_help") {
           m.proofStatus = "no_lift";
-          m.proofLabel = "No lift";
-        } else if (pr.state === "inconclusive" || pr.state === "stale") {
+          m.proofLabel = p.headline; // "Did not help" / "Likely hurt"
+        } else {
           m.proofStatus = "no_clear_lift";
-          m.proofLabel = "No clear lift yet";
+          m.proofLabel = p.headline; // "No clear lift"
         }
       }
       // Always-actionable answer blocks: when the engine found no competitor FAQ

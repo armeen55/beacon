@@ -59,7 +59,17 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
             <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${chip.cls}`}>{chip.label}</span>
             {c.selectedForToday && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">Today</span>}
           </div>
-          <div className="truncate text-xs text-gray-500">{c.recommendation}</div>
+          <div className="truncate text-xs text-gray-500">
+            {c.measurementHeadline ? (
+              <>
+                <span className="font-medium text-gray-700">{c.measurementHeadline}</span>
+                {c.status === "measuring" && c.nextCheckpoint ? <span className="text-gray-400"> · next read {c.nextCheckpoint}</span> : null}
+                {c.attributionLimited ? <span className="text-amber-600"> · overlapping edit</span> : null}
+              </>
+            ) : (
+              c.recommendation
+            )}
+          </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
             <span>{c.opportunityType}</span>
             <span>~{c.estimatedEffortMinutes} min</span>

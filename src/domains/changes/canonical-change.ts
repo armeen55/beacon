@@ -63,6 +63,13 @@ export type CanonicalChange = {
   protectedControl: boolean;
   blockedReason: string | null;
   result: string | null; // mature outcome label only (never "won/lost" before maturity)
+  /** Move 2 — maturity-aware measurement language (shared with MoveCard + Results).
+   *  For measuring/result rows this is the honest headline ("Early negative signal",
+   *  "Collecting data", "Helped", "Waiting for Google data"). Null when not measured. */
+  measurementHeadline: string | null;
+  measurementDetail: string | null; // next-checkpoint / waiting-for-data / overlap note
+  nextCheckpoint: string | null; // ISO date of the soonest future read
+  attributionLimited: boolean; // an overlapping edit weakens this measurement
   sourceIds: string[];
   alternateOpportunities: string[]; // other levers available on this page (kept under the primary)
 };

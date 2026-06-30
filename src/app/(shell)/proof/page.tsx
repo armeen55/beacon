@@ -10,6 +10,12 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { gscLagStatus, isDueForMeasure, proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
+import {
+  buildMeasurementPresentation,
+  detectMeasurementOverlaps,
+  isMatureOutcome,
+  type MeasurementPresentation,
+} from "@/domains/proof-gsc/measurement-maturity";
 import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
@@ -53,6 +59,16 @@ const OUTCOME_STYLE: Record<GscProofVerdict, string> = {
   insufficient_data: "border-border bg-muted/40 text-muted-foreground",
 };
 
+/** Move 2 — color by MATURITY tone, never by the raw verdict. Red/green appear only
+ *  at a mature result; an early signal is blue "progress", waiting-for-data is amber. */
+const TONE_STYLE: Record<MeasurementPresentation["tone"], string> = {
+  positive: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  negative: "border-rose-300 bg-rose-50 text-rose-700",
+  neutral: "border-border bg-muted/40 text-muted-foreground",
+  progress: "border-blue-300 bg-blue-50 text-blue-700",
+  waiting: "border-amber-300 bg-amber-50 text-amber-700",
+};
+
 function toPath(url: string): string {
   try {
     return new URL(url).pathname || "/";
@@ -88,6 +104,29 @@ export default async function ProofPage({
   );
   const waitingOnGsc = [...lagByRow.values()].filter(
     (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
+  );
+
+  // Move 2 — the shared maturity presentation per row, so every card reads the same
+  // honest measurement language (an early read is never a final verdict, never red/green).
+  const overlapById = detectMeasurementOverlaps(ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt })));
+  const presById = new Map<string, MeasurementPresentation>(
+    ledger.map((l) => {
+      const basisWin = (l.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
+      return [
+        l.id,
+        buildMeasurementPresentation({
+          shippedAt: l.shippedAt,
+          now: new Date(),
+          latestGscDate,
+          windows: (l.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
+          verdict: l.verdict,
+          controlsUsed: basisWin?.controlsUsed ?? 0,
+          baselineImpressions: l.baseline?.impressions ?? 0,
+          overlap: overlapById.get(l.id) ?? null,
+          live: true,
+        }),
+      ] as const;
+    }),
   );
 
   // Passive auto-measure (2026-06-29): when the operator opens Results, fire-and-forget a
@@ -216,7 +255,7 @@ export default async function ProofPage({
           <WhatHappensNext />
           <div className="mt-3 space-y-2.5">
             {ledger.map((rec) => (
-              <LedgerCard key={rec.id} rec={rec} link={linkByRowId.get(rec.id) ?? null} />
+              <LedgerCard key={rec.id} rec={rec} link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} />
             ))}
           </div>
         </div>
@@ -414,17 +453,19 @@ const SOURCE_LABEL: Record<string, string> = {
   competitor_teardown: "Competitor teardown", rank_revenue: "Demand graph",
 };
 
-function LedgerCard({ rec, link }: { rec: ShippedChangeRecord; link?: ProofLink | null }) {
+function LedgerCard({ rec, link, pres }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
   const basis = rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
-  const sentence = proofOutcomeSentence({
-    verdict: rec.verdict,
-    confidence: rec.confidence,
-    basis,
-    metric,
-  });
+  const mature = pres ? isMatureOutcome(pres.maturity) : false;
+  // Move 2 — the headline Search line: at a MATURE result, the lift-bearing sentence;
+  // before that, the honest maturity language (no "Likely hurting (high confidence)"
+  // off a 7-day read). Falls back to the legacy sentence when no presentation.
+  const sentence =
+    pres && !mature
+      ? `${pres.headline}. ${pres.explanation}`
+      : proofOutcomeSentence({ verdict: rec.verdict, confidence: pres?.confidence ?? rec.confidence, basis, metric });
   // Report the controls actually used in the basis window; fall back to assigned
   // count only before any window has run (measuring state).
   const controlsCount = basis?.controlsUsed ?? rec.controlPages.length;
@@ -435,12 +476,13 @@ function LedgerCard({ rec, link }: { rec: ShippedChangeRecord; link?: ProofLink 
         <span
           className={
             "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase " +
-            OUTCOME_STYLE[rec.verdict]
+            (pres ? TONE_STYLE[pres.tone] : OUTCOME_STYLE[rec.verdict])
           }
         >
-          {/* Maturity-aware verdict (audit #111 + P5): a 7d read is an EARLY signal, 14d
-              is "strengthening", only 28d earns the plain Helped / Did not help. */}
-          {proofMaturityLabel(rec.verdict, basis?.day ?? null)}
+          {/* Move 2 — one shared maturity headline + maturity-toned color: a 7d read is an
+              EARLY signal (blue), 14d is "strengthening", only the 28d window earns the
+              plain Helped / Did not help (green/red). */}
+          {pres ? pres.headline : proofMaturityLabel(rec.verdict, basis?.day ?? null)}
         </span>
         <span className="text-[11px] text-muted-foreground">
           {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}
@@ -479,7 +521,7 @@ function LedgerCard({ rec, link }: { rec: ShippedChangeRecord; link?: ProofLink 
           label never implies money (see the header note). */}
       {rec.trafficOutcome ? (() => {
         const t = rec.trafficOutcome!;
-        const searchSettled = rec.verdict === "won" || rec.verdict === "lost" || rec.verdict === "inconclusive";
+        const searchSettled = mature; // only a 28-day mature result is "settled"
         // "−93% on 1 baseline visit" must not read like a verdict — caution on thin volume.
         const lowVolume = t.ran && t.treated.sessionsPre > 0 && t.treated.sessionsPre < 5;
         return (
@@ -588,11 +630,10 @@ function LedgerCard({ rec, link }: { rec: ShippedChangeRecord; link?: ProofLink 
         <RecrawlButton recordId={rec.id} requestedAt={rec.recrawlRequestedAt} />
       </div>
 
-      {/* Operator: exclude a settled (or already-excluded) result from learning so a
-          mis-attributed win/loss stops skewing future ranking. */}
-      {rec.verdict === "won" ||
-      rec.verdict === "lost" ||
-      rec.operatorVerdictOverride === "inconclusive" ? (
+      {/* Operator: exclude a MATURE (settled) result from learning so a mis-attributed
+          win/loss stops skewing future ranking. Early/interim reads don't train, so the
+          control only appears once a result is mature (or already excluded). */}
+      {mature || rec.operatorVerdictOverride === "inconclusive" ? (
         <div className="mt-1.5">
           <ExcludeFromLearningButton
             recordId={rec.id}

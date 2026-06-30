@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-07-01 — Measurement Truth + Maturity (Finalization Program, Move 2)
+
+**What changed — one shared maturity model; an early read can never read as a final verdict.**
+
+- **New PURE core** `src/domains/proof-gsc/measurement-maturity.ts`: `deriveMeasurementMaturity` (8 states; maturity is from the CLOSED window, not the stored verdict), `buildMeasurementPresentation` (maturity / direction / verdict-only-at-mature / maturity-capped confidence / honest headline+explanation / nextCheckpoint / evidenceStrength / attributionQuality / learningEligibility / tone), `detectMeasurementOverlaps` (same-page-within-28d → attribution_limited from ship timestamps; no new table), `isMatureOutcome`/`isInFlight`.
+- **Learning gate** `src/domains/learning/load-experiment-outcomes.ts`: a non-mature verdict is neutralized to "measuring" before it reaches `computeDimPriors`/`proof-outcome-caution`, so 7/14-day signals never permanently train ranking or block a lever; only 28-day mature + clean attribution trains. Pure prior modules unchanged.
+- **Today/Changes** `today-moves-data.ts` (+ `TodayMove.proofMaturity/proofDirection`), `build-canonical-changes.ts` + `canonical-change.ts` (+ `measurementHeadline/measurementDetail/nextCheckpoint/attributionLimited`), `changes-data.ts`, `changes-list-client.tsx`: a proof shows as a "Result" only when mature; otherwise "Measuring" with the honest headline + next checkpoint + overlap flag; evidence strength follows maturity.
+- **Results** `proof/proof-summary-section.tsx` (maturity-stratified counts), `proof/page.tsx` (per-row color by maturity tone, sentence drops premature "Likely hurting (high confidence)", settled/exclude gates by maturity).
+
+**Tested:**
+- `npx tsc --noEmit` → **0 errors**; `npm run build` → **Compiled successfully**.
+- `npx vitest run src/domains/proof-gsc/ src/domains/changes/ src/domains/learning/` → **116/116 pass** (40 new: maturity boundaries 7/14/28; the live `/cities` 7-day case → early_checkpoint/no-verdict/low-confidence/not-learning-eligible; blocked_data/collecting language; attribution overlap; mature helped/did-not-help/no-lift; adapter threading early≠result; overlap detector).
+- **Live render (dev server, real Iranopedia, operator mode):** `/proof` → "Proof at a glance" = **19 Measuring · 0 Helped · 0 No clear lift · 0 Did not help · No mature results yet** (was Winning 0 / Measuring 17 / No clear lift 2); `/cities` + `/funny-farsi-phrases` rows = **"Early negative signal"** (not "Did not help / high confidence"); GSC-lag banner = "2 changes are waiting on Search Console data, not stalled." `/` MoveCard top move = "Page measuring · same edit still measuring". **0 console errors** (only fail-soft GSC token-refresh warnings in this dev env).
+- **Data integrity (prod Supabase, before == after):** proof rows **19** · active reservations **0** · plan **preview** · the two `verdict=lost, confidence=high` rows **still lost/high in the DB** (history preserved — the presentation reinterprets them, the row is never rewritten) · 17 measuring. No proof/reservation/plan/Wix/GSC writes.
+
+---
+
 ## 2026-07-01 — Canonical Changes List (Finalization Program, Move 1)
 
 **What changed — one object, one lifecycle, one list.** Replaced the fragmented worklist/experiments/drafts/results mental model with a single `CanonicalChange` rendered as one compact list on `/worklist`.

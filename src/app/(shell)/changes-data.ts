@@ -51,6 +51,10 @@ export async function loadChangesView(): Promise<ChangesView> {
     preparedReady: m.preparedChecklist?.readyToReview,
     preparedDraftText: m.preparedDraftText ?? null,
     alternateOpportunities: (m.also ?? []).slice(0, 4),
+    proofMaturity: m.proofMaturity ?? null,
+    proofDirection: m.proofDirection ?? null,
+    proofLabel: m.proofLabel ?? null,
+    proofNextCheckpoint: m.proofNextCheckpoint ?? null,
   }));
 
   const changes = buildCanonicalChanges({ tenantId, moves: moveInputs, plan: plan ?? null, reservations });
