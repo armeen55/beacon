@@ -34,6 +34,7 @@ import {
 } from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { outcomeStateOf, type OutcomeState } from "@/domains/proof-gsc/measure-lifecycle";
+import { proofCheckDates } from "@/domains/proof-gsc/measure";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 
@@ -177,6 +178,10 @@ export type TodayMove = {
   /** True when the page is measuring but for a DIFFERENT action family (a second
    *  change here would still muddy the open window — warn, don't block). */
   pageMeasuring?: boolean;
+  /** P6 — the next proof checkpoint date for a measuring page (the soonest 7/14/28-day
+   *  read still ahead), so the card can say "next read ~<date>" instead of a bare
+   *  "measuring". Set only while measuring. */
+  proofNextCheckpoint?: string | null;
   /** PageResearchPack v1 (2026-06-29) — the per-page "what should this page OWN"
    *  research summary: intent clustering (own vs cross-link sibling) + the proof-aware
    *  primary lever + blocked levers + the top element opportunities. Computed from the
@@ -707,6 +712,11 @@ export async function buildTodayMovesData(
           m.alreadyMeasuring = sameFamily;
           m.pageMeasuring = !sameFamily;
           m.proofLabel = `Measuring since ${pr.shippedAt.slice(0, 10)}`;
+          // P6 — the soonest 7/14/28-day read still ahead, so the card can name the
+          // checkpoint the operator would muddy by shipping again now.
+          const checks = proofCheckDates(pr.shippedAt);
+          const todayStr = nowIso.slice(0, 10);
+          m.proofNextCheckpoint = [checks[7], checks[14], checks[28]].find((d) => d > todayStr) ?? checks[28];
         } else if (pr.state === "win") {
           m.proofStatus = "won";
           m.proofLabel = "Won in Results";

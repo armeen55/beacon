@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-29 — P6: compounding-edit warning + next-checkpoint date
+
+Most of P6 was already built (verified in code): the measuring-hold suppresses moves on a
+page mid-measurement; the Ship button is DEMOTED to a gray "Ship anyway" with a muddy-the-
+window tooltip; the "Page measuring / Already measuring" pill + "View in Results →" link
+show the open experiment; P4's `onPagePlan.warnings` already surfaces a mid-measurement
+caution. Added the missing pieces: (1) `proofNextCheckpoint` on the move — the soonest
+7/14/28-day read still ahead, computed from the measuring record's `shippedAt` via
+`proofCheckDates`; (2) a VISIBLE amber compounding-warning strip on every measuring card:
+"This page is mid-measurement (next read ~YYYY-MM-DD) — shipping another change now muddies
+the proof. Wait for the read, or use 'Ship anyway' below." tsc 0 · build PASS.
+
+---
+
 ## 2026-06-29 — P5: proof maturity labels (7d early / 14d strengthening / 28d final)
 
 UI-ONLY (no learning-math, no verdict-value, no proof-gate change). New PURE

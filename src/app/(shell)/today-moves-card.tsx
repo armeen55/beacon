@@ -299,6 +299,17 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         ) : null}
       </div>
 
+      {/* P6 — compounding-edit guard: a page mid-measurement loses proof clarity if you
+          ship again now. Name the checkpoint; "Ship anyway" below is already demoted. */}
+      {(m.alreadyMeasuring || m.pageMeasuring) ? (
+        <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-100">
+          <span>⚠</span>
+          <span>
+            This page is mid-measurement{m.proofNextCheckpoint ? ` (next read ~${m.proofNextCheckpoint})` : ""} — shipping another change now muddies the proof. Wait for the read, or use “Ship anyway” below.
+          </span>
+        </p>
+      ) : null}
+
       <h3 className="mt-3 text-lg font-semibold leading-snug tracking-tight text-gray-900">{titleCase(m.query)}</h3>
       <p className="mt-0.5 text-xs text-gray-400">
         on {m.pageLabel}
