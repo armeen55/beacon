@@ -97,3 +97,59 @@ describe("planDailyExperiments — eligibility + diversification", () => {
     expect(plan.excluded.find((e) => e.url === "/x")?.reason).toBe("high_risk_page");
   });
 });
+
+describe("planDailyExperiments — internal-link influence model", () => {
+  it("caps internal links to ONE per destination (no simultaneous authority burst)", () => {
+    const candidates = [
+      cand({ url: "https://i.com/src-a", actionFamily: "link", influencedUrls: ["/persian-kabobs/joojeh-kabob"], ctrOpportunityClicks: 500 }),
+      cand({ url: "https://i.com/src-b", actionFamily: "link", influencedUrls: ["/persian-kabobs/joojeh-kabob"], ctrOpportunityClicks: 400 }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, maxLinksPerDestination: 1, backups: 0 } });
+    expect(plan.selected).toHaveLength(1);
+    expect(plan.excluded.find((e) => e.url === "https://i.com/src-b")?.reason).toBe("influenced_conflict");
+  });
+
+  it("honors maxLinksPerDestination > 1 exactly (no off-by-one)", () => {
+    const candidates = [
+      cand({ url: "https://i.com/a", actionFamily: "link", influencedUrls: ["/d"], ctrOpportunityClicks: 900 }),
+      cand({ url: "https://i.com/b", actionFamily: "link", influencedUrls: ["/d"], ctrOpportunityClicks: 800 }),
+      cand({ url: "https://i.com/c", actionFamily: "link", influencedUrls: ["/d"], ctrOpportunityClicks: 700 }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, maxLinksPerDestination: 2, maxPerActionFamily: 9, backups: 0 } });
+    expect(plan.selected).toHaveLength(2); // exactly 2 links to /d allowed, 3rd blocked
+    expect(plan.excluded.find((e) => e.url === "https://i.com/c")?.reason).toBe("influenced_conflict");
+  });
+
+  it("never treats a page that another selected link feeds (influenced page is off-limits as a source)", () => {
+    const candidates = [
+      cand({ url: "https://i.com/hub", actionFamily: "link", influencedUrls: ["/cities/tehran"], ctrOpportunityClicks: 500 }),
+      cand({ url: "https://i.com/cities/tehran", actionFamily: "meta", ctrOpportunityClicks: 400 }), // would be treated, but it's influenced
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, backups: 0 } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://i.com/hub"]);
+    expect(plan.excluded.find((e) => e.url === "https://i.com/cities/tehran")?.reason).toBe("influenced_conflict");
+  });
+
+  it("never links to a page already selected as a treated source", () => {
+    const candidates = [
+      cand({ url: "https://i.com/cities/tehran", actionFamily: "meta", ctrOpportunityClicks: 500 }), // treated first
+      cand({ url: "https://i.com/hub", actionFamily: "link", influencedUrls: ["/cities/tehran"], ctrOpportunityClicks: 400 }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, backups: 0 } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://i.com/cities/tehran"]);
+    expect(plan.excluded.find((e) => e.url === "https://i.com/hub")?.reason).toBe("influenced_conflict");
+  });
+
+  it("produces a MIXED batch when both levers and distinct destinations are available", () => {
+    const candidates = [
+      cand({ url: "https://i.com/iran-flags/a", actionFamily: "meta", ctrOpportunityClicks: 900 }),
+      cand({ url: "https://i.com/iran-flags/b", actionFamily: "meta", ctrOpportunityClicks: 800 }),
+      cand({ url: "https://i.com/restaurants", actionFamily: "link", influencedUrls: ["/cities/san-diego"], ctrOpportunityClicks: 700 }),
+      cand({ url: "https://i.com/food", actionFamily: "link", influencedUrls: ["/kabobs/joojeh"], ctrOpportunityClicks: 600 }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, maxLinksPerDestination: 1, backups: 0 } });
+    expect(plan.selected).toHaveLength(4);
+    expect(plan.leverDistribution.meta).toBe(2);
+    expect(plan.leverDistribution.link).toBe(2);
+  });
+});

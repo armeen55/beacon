@@ -43,6 +43,9 @@ export type DailyCandidate = {
   external?: ExternalFlags;
   /** Optional explicit page family (else derived from the URL). */
   pageFamily?: string;
+  /** Pages this experiment INFLUENCES (internal-link destinations that receive authority). The
+   *  planner caps links per destination and never lets an influenced page be a treated page too. */
+  influencedUrls?: string[];
 };
 
 export type PlannerConfig = {
@@ -52,6 +55,8 @@ export type PlannerConfig = {
   maxPerActionFamily?: number;
   maxHighTraffic?: number;
   highTrafficImpressions?: number;
+  /** Cap on internal links pointing at the SAME destination in one batch (avoid an authority burst). */
+  maxLinksPerDestination?: number;
   backups?: number;
   now?: Date;
 };
@@ -63,11 +68,12 @@ const DEFAULTS = {
   maxPerActionFamily: 4,
   maxHighTraffic: 2,
   highTrafficImpressions: 9000,
+  maxLinksPerDestination: 1,
   backups: 2,
 };
 
 export type PlannedExperiment = DailyCandidate & { pageFamily: string; score: number };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max";
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
@@ -151,12 +157,17 @@ export function planDailyExperiments(input: {
   let minutes = 0;
   let highTraffic = 0;
   const usedUrls = new Set<string>();
+  const normPath = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+  const selectedPaths = new Set<string>(); // treated page paths
+  const influencedCount = new Map<string, number>(); // destination path → links pointing at it
 
   for (const e of eligible) {
     if (usedUrls.has(e.url)) continue; // one experiment per page per batch
     const pf = perPageFamily.get(e.pageFamily) ?? 0;
     const af = perActionFamily.get(e.actionFamily) ?? 0;
     const isHigh = e.impressions >= cfg.highTrafficImpressions;
+    const ePath = normPath(e.url);
+    const influenced = (e.influencedUrls ?? []).map(normPath);
 
     let blockReason: ExcludedReason | null = null;
     if (selected.length >= cfg.maxExperiments) blockReason = "over_max";
@@ -164,6 +175,11 @@ export function planDailyExperiments(input: {
     else if (pf >= cfg.maxPerPageFamily) blockReason = "page_family_cap";
     else if (af >= cfg.maxPerActionFamily) blockReason = "action_family_cap";
     else if (isHigh && highTraffic >= cfg.maxHighTraffic) blockReason = "high_traffic_cap";
+    // INFLUENCE guards: don't treat a page another selected link feeds; don't link to a page we're
+    // already treating; cap links per destination (avoid a simultaneous authority burst).
+    else if (influencedCount.has(ePath)) blockReason = "influenced_conflict";
+    else if (influenced.some((d) => selectedPaths.has(d))) blockReason = "influenced_conflict";
+    else if (influenced.some((d) => (influencedCount.get(d) ?? 0) >= cfg.maxLinksPerDestination)) blockReason = "influenced_conflict";
 
     if (blockReason) {
       if (backups.length < cfg.backups && blockReason !== "over_max") backups.push(e);
@@ -172,6 +188,8 @@ export function planDailyExperiments(input: {
     }
     selected.push(e);
     usedUrls.add(e.url);
+    selectedPaths.add(ePath);
+    for (const d of influenced) influencedCount.set(d, (influencedCount.get(d) ?? 0) + 1);
     perPageFamily.set(e.pageFamily, pf + 1);
     perActionFamily.set(e.actionFamily, af + 1);
     minutes += e.effortMinutes;
