@@ -139,7 +139,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
   ]);
 
   // No canonical worklist → fall back to the rich hero set (never a blank page).
-  if (!wl) return hero ?? { moves: [], stats: EMPTY_STATS, learning: { measuring: 0, won: 0, lost: 0, headline: null } };
+  if (!wl) return hero ?? { moves: [], stats: EMPTY_STATS, learning: { measuring: 0, won: 0, lost: 0, headline: null }, cockpit: null };
 
   // Index rich demand-graph moves by canonical page URL for the join (one per page).
   const richByUrl = new Map<string, TodayMove>();
@@ -202,7 +202,19 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     preparedReady: moves.filter((m) => m.preparedChecklist?.readyToReview).length,
   };
 
-  return { moves: shown, stats, learning: hero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null } };
+  // Today-cockpit projection — the few pack-derived counts the `/` cockpit needs, computed
+  // here (from the SAME `wl` this surface is built from) so Today reads them off this cached
+  // snapshot instead of rebuilding the ~20s ActionPack worklist on its critical path.
+  const cockpit: TodayMovesHeroData["cockpit"] = {
+    newPagesCount: wl.packs.filter((p) => {
+      const fam = actionFamily(p.actionType);
+      return fam === "new_page" || fam === "hub";
+    }).length,
+    aiValidatedCount: wl.packs.filter((p) => p.dataforseoValidation?.verdict === "build").length,
+    sourceCoverage: wl.summary.sourceCoverage,
+  };
+
+  return { moves: shown, stats, learning: hero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null }, cockpit };
 }
 
 /**

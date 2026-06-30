@@ -1,9 +1,7 @@
 import "server-only";
 import { cache } from "react";
 
-import { currentTenantId } from "@/lib/tenant-context";
-import { loadActionPackWorklistForTenant } from "./load";
-import { actionFamily, type EvidenceSource } from "./types";
+import { type EvidenceSource } from "./types";
 import { loadMovesWorklist } from "@/app/(shell)/moves/moves-data";
 import type { TodayMove } from "@/app/(shell)/today-moves-data";
 
@@ -36,29 +34,23 @@ export type TodayCockpit = {
   warnings: string[];
 };
 
-async function loadUncached(tenantId: string): Promise<TodayCockpit> {
-  const [wl, worklist] = await Promise.all([
-    loadActionPackWorklistForTenant(tenantId).catch(() => null),
-    loadMovesWorklist().catch(() => null),
-  ]);
+async function loadUncached(): Promise<TodayCockpit> {
+  // The Today cockpit reads ONLY the cross-request worklist surface snapshot (cached,
+  // ~3ms warm). That snapshot is built FROM the ActionPack worklist + carries the few
+  // pack-derived counts the cockpit needs (`cockpit`), so Today no longer rebuilds the
+  // ~20s ActionPack worklist on its critical path. Fail-soft: no surface → loud warning.
+  const worklist = await loadMovesWorklist().catch(() => null);
 
   const warnings: string[] = [];
-  if (!wl) warnings.push("Canonical worklist unavailable — connect/refresh your sources.");
+  if (!worklist) warnings.push("Canonical worklist unavailable — connect/refresh your sources.");
 
-  const packs = wl?.packs ?? [];
-  const newPagesCount = packs.filter((p) => {
-    const fam = actionFamily(p.actionType);
-    return fam === "new_page" || fam === "hub";
-  }).length;
-  // "Drafts ready" = moves with an actual PERSISTED prepared draft (ready-to-review),
-  // the same number /worklist shows — NOT packs.draftStatus==="ready", which only
-  // means "has a deterministic skeleton" (~every pack) and inflated the tile to the
-  // hundreds, contradicting Worklist. Honest, consistent count.
+  const cockpit = worklist?.cockpit ?? null;
   const preparedMovesCount = worklist?.stats.preparedReady ?? 0;
-  const aiValidatedCount = packs.filter((p) => p.dataforseoValidation?.verdict === "build").length;
+  const aiValidatedCount = cockpit?.aiValidatedCount ?? 0;
+  const newPagesCount = cockpit?.newPagesCount ?? 0;
 
   const topThree = (worklist?.moves ?? []).slice(0, 3);
-  if (worklist && worklist.moves.length === 0 && (wl?.packs.length ?? 0) === 0) {
+  if (worklist && worklist.moves.length === 0 && newPagesCount === 0) {
     warnings.push("No moves yet — once your Search + AI demand data syncs, Beacon's ranked moves appear here.");
   }
 
@@ -72,13 +64,13 @@ async function loadUncached(tenantId: string): Promise<TodayCockpit> {
     newPagesCount,
     preparedMovesCount,
     aiValidatedCount,
-    sourceCoverage: wl?.summary.sourceCoverage ?? {
+    sourceCoverage: (cockpit?.sourceCoverage ?? {
       rank_revenue: 0, profound: 0, dataforseo: 0, gsc: 0, ga4: 0, clarity: 0, competitor_teardown: 0,
-    },
+    }) as Record<EvidenceSource, number>,
     proofStatus: worklist?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null },
     warnings,
   };
 }
 
-/** Request-memoized Today cockpit, ActionPack-powered. */
-export const loadTodayCockpit = cache(async (): Promise<TodayCockpit> => loadUncached(await currentTenantId()));
+/** Request-memoized Today cockpit — reads the cached worklist surface only (no rebuild). */
+export const loadTodayCockpit = cache(async (): Promise<TodayCockpit> => loadUncached());

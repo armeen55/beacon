@@ -7,6 +7,45 @@
 
 ---
 
+## 2026-06-30 — Today `/` made fast by DEDUP (no Today cache needed)
+
+**Measure-first (Phase 0/1).** Mapped `/`: `Cockpit` awaits `loadTodayV2GateData` (gate) +
+`loadTodayCockpit`, then New Pages / Experiments / Results stream in their own Suspense
+boundaries. Instrumented `[perf:today]` and measured warm `/` = **18–27s** despite the graph
+being a cache HIT. The split was unambiguous: inside `loadTodayCockpit`, `loadMovesWorklist`
+(the cached worklist surface) = **3ms**, but `loadActionPackWorklistForTenant` (called
+DIRECTLY) = **16–24s**. Today was REBUILDING the full ActionPack worklist on its critical
+path — purely to compute 3 numbers (newPagesCount, aiValidatedCount, sourceCoverage) — even
+though the surface it already reads was BUILT FROM that same ActionPack worklist. A
+**duplicate read**, not composition. (`/worklist` avoids this by serving the surface snapshot.)
+
+**Fix (dedup, Phase 3 — NOT a new cache).** Compute the 3 cockpit counts at worklist-surface
+build time (from the SAME `wl`, ~0 extra cost) and carry them on the cached `TodayMovesHeroData.cockpit`.
+`loadTodayCockpit` now reads ONLY the cached surface (`loadMovesWorklist`) — no direct
+`loadActionPackWorklistForTenant`. 3 files: `moves/moves-data.ts` (projection),
+`today-moves-data.ts` (type), `load-today-cockpit.ts` (rewrite). Values are identical (same
+source); freshness inherits the surface SWR + its invalidation. Tenant isolation unchanged
+(reads the tenant-scoped surface; no new store).
+
+**GATE → no Today SWR built.** After dedup, warm `/` meets the contract, so per the STOP
+condition ("don't add a composed Today cache if dedup/streaming solves it") no Today surface
+cache was created.
+
+**Before/after (Iranopedia, dev):**
+| Metric | Before warm | After warm |
+|---|---|---|
+| `loadTodayCockpit` | 16–24s | **0–17ms** (cached surface) |
+| gate (`loadTodayV2GateData`) | ~0.4–1.5s | ~0.3–0.5s |
+| full `/` page | 18–27s | **1.5–1.9s** |
+
+Verified: graph all HITs (fresh, v1); `/` screenshot shows stats (151/431k/54) + top-3 cards
+with the full research module + onPagePlan + the ⚠ mid-measurement compounding warning — all
+intelligence intact through the cached surface; graph served even while GSC/GA4 OAuth 401.
+tsc 0 · 54 tests · build PASS · `/ /worklist /recommendations /proof /competitors /connections`
+all 200. Temp `[perf:today]` instrumentation removed. NO paid/Wix/proof-mutation/migration.
+
+---
+
 ## 2026-06-29 — Cross-request Demand Graph SWR cache (kills the New Pages graph-rebuild residual)
 
 **Phase 0/1 (measure-first).** The ~6s graph build (`loadDemandGraphForTenant`: GSC/GA4/Clarity/Profound reads + assembly + learning/proof/AEO/canonical post-passes) is INDEPENDENTLY rebuilt by every surface (`react.cache` only dedupes within one request): Worklist/ActionPack, **New Pages** (`today-newpages-data.ts:147`), Today, Recs/Drafts, page-factory, enrichment. Ground-truth (tsx): build **6.2s**, serialized **1.5MB** (228 moves / 237 demand / 2258 page nodes / 2258 edges), JSON round-trip **lossless** (order + scores + learnedPrior 228 / outcomeCaution 228 / aeoEvidence 61 / canonicalGroup 6 all survive). pageNodes read by 6 consumers → cache the full graph.

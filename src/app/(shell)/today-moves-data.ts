@@ -243,6 +243,16 @@ export type TodayMovesHeroData = {
    *  snapshot, the ISO time it was computed (drives an honest "updated N ago" line).
    *  Undefined on a freshly-computed surface. */
   surfaceComputedAt?: string;
+  /** Today-cockpit projection (2026-06-30): the few ActionPack-pack-derived counts the
+   *  Today `/` cockpit needs (new-pages tile, AI-validated tile, source-coverage strip),
+   *  computed at surface-build time from the SAME ActionPack worklist this surface is built
+   *  from — so Today reads them from this CACHED snapshot instead of rebuilding the ~20s
+   *  ActionPack worklist on its critical path. Null on the no-worklist fallback. */
+  cockpit?: {
+    newPagesCount: number;
+    aiValidatedCount: number;
+    sourceCoverage: { rank_revenue: number; profound: number; dataforseo: number; gsc: number; ga4: number; clarity: number; competitor_teardown: number };
+  } | null;
 };
 
 const ACTION_META: Record<
