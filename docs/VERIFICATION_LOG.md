@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-29 — DataForSEO research producer LIVE smoke + term-plan quality fix (answer bucket)
+
+**P3 — producer smoke (LIVE, env-authorized).** `.env.local` has `DATAFORSEO_DRY_RUN=false` explicitly set (operator), auth present, $50 cap. Ran `enrichTopResearchPacksAction({topN:5})` via the `/worklist` button → **LIVE** result: **3 SERP patterns written · volume ok · spent $0.084** (~0.17% of the $50 cap). Cache write verified — `research-serp-patterns` store: persian boy names→**ugc** (web.mit.edu/reddit/sites.google), persian girl names→**guide** (babynama/reddit), persian swear words→**ugc** (reddit/youswear). Cards now render "SERP rewards: ugc — win with a first-person, opinionated angle the forums lack · winners: …". Ledger is Supabase-backed (the action's $0.084 is the gauntlet's authoritative report).
+
+**Term-quality audit (the operator's key ask) — mostly senior-level:**
+- Persian Girl Names: own = girl/female only, cross-link = persian names (correctly NOT chasing boy terms) ✓
+- Persian Swear Words: own = swear/farsi swear; "Do first: deepen content", "✕ Skip (proof says flat): sharpen title & meta" — proof-aware ✓
+- Iran Flag: broad (iran flag, historical flags overview); dynasties not chased; ~135k/mo cached ✓
+- Onager / Tehran: clean entity ownership ✓
+- **One real bug:** Persian Boy Names' `own` included a fan-out QUESTION ("Want a Name That Honors Both Parents?") — not a keyword; wasted a volume lookup + misled the "Own" display.
+
+**Fix (root cause).** Fan-out questions now get a dedicated `"answer"` bucket in `buildPageResearchPack` (page-research-pack.ts) — answer-block/FAQ targets, NOT owned keywords. They're excluded from `clusters.own` (so out of the keyword-VOLUME lookup AND the "Own:" display) but kept (with `element: answer_block`) for the on-page element plan; the element projection (today-moves-data.ts) now includes `bucket==="answer"`. tsc 0 · **23 tests pass** incl. a new regression assertion (`clusters.answer` contains the question, `clusters.own` does not). Live dev re-render of the cleaned Own-list is gated by the Supabase surface snapshot (pre-fix) + dev-server compile caching; the fix is unit-proven and renders on a cold/invalidated cache (prod starts cold). NO additional spend from the fix.
+
+---
+
 ## 2026-06-29 — /worklist crash hotfix (transient) + SWR verified + invalidation completeness
 
 **P1 — crash `updatedAgo is not defined`.** Verify-first: `grep updatedAgo src/` = **0 matches**; HEAD==origin/main==`cb376370`; the render uses `updated.ago` ([worklist/page.tsx:41,69-73](src/app/(shell)/worklist/page.tsx)). The committed tree has no dangling reference — the crash was a **transient**: HMR / a mid-flight deploy caught the file in the split second between my two honesty-fix edits (declaration renamed `updatedAgo`→`updated` before the JSX reference was updated). Proof on the exact committed tree: full `npm run build` exit 0 (`/worklist` in route table); `/worklist` SSR 200, 421KB body, **0** hits for `updatedAgo`/`is not defined`/`Something went wrong`; screenshot shows "Updated just now" with the staleness clause correctly hidden (fresh snapshot). Forced a clean Vercel redeploy of the verified tree via empty commit `a7f98b1b`.

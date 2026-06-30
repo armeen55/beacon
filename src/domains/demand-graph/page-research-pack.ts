@@ -17,7 +17,11 @@
 
 import { topicTokens, scoreTopicMatch } from "@/domains/evidence/relevance-gate";
 
-export type ResearchBucket = "own" | "sibling" | "new_page" | "internal_link" | "noise";
+// "answer" = a question this page should ANSWER (answer-block / FAQ target), NOT a
+// keyword it ranks for. Kept distinct from "own" so questions never pollute the owned-
+// keyword list or the DataForSEO keyword-VOLUME lookup (a full question has ~0 search
+// volume) — they feed the on-page element plan (FAQ/answer block) instead.
+export type ResearchBucket = "own" | "sibling" | "new_page" | "internal_link" | "noise" | "answer";
 export type PageElement = "title" | "h1" | "h2_section" | "faq" | "answer_block" | "internal_link" | "schema";
 export type ResearchLever =
   | "title_meta"
@@ -237,7 +241,9 @@ export function buildPageResearchPack(input: PageResearchInput): PageResearchPac
       continue;
     }
     if (isQuestion) {
-      kw.bucket = "own";
+      // A question is an answer-block/FAQ TARGET, not an owned keyword — bucket it as
+      // "answer" so it never enters the owned-keyword list or the keyword-volume lookup.
+      kw.bucket = "answer";
       kw.element = "answer_block";
       kw.why = "A question this page should answer up top (answer block + FAQ).";
       continue;
@@ -261,7 +267,7 @@ export function buildPageResearchPack(input: PageResearchInput): PageResearchPac
   }
 
   const all = [...candidates.values()];
-  const clusters: PageResearchPack["clusters"] = { own: [], sibling: [], new_page: [], internal_link: [], noise: [] };
+  const clusters: PageResearchPack["clusters"] = { own: [], sibling: [], new_page: [], internal_link: [], noise: [], answer: [] };
   for (const kw of all) clusters[kw.bucket].push(kw.keyword);
 
   const proof = { measuringFamilies: input.proof?.measuringFamilies ?? [], lostFamilies: input.proof?.lostFamilies ?? [] };

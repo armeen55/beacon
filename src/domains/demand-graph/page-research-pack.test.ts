@@ -41,11 +41,15 @@ describe("buildPageResearchPack — intent clustering (own vs sibling vs noise)"
     expect(pack.clusters.own.map((s) => s.toLowerCase())).not.toContain("persian girl names");
   });
 
-  it("an AI fan-out question maps to an answer-block element under 'own'", () => {
+  it("an AI fan-out question is an 'answer' target (answer-block element), NOT an owned keyword", () => {
     const pack = buildPageResearchPack(boyNames);
     const q = pack.keywords.find((k) => k.source === "ai_fanout");
-    expect(q?.bucket).toBe("own");
+    expect(q?.bucket).toBe("answer");
     expect(q?.element).toBe("answer_block");
+    // regression: a question must NOT pollute the owned-keyword list (it has ~0 search
+    // volume and isn't a keyword the page "owns") — it feeds the FAQ/answer plan instead.
+    expect(pack.clusters.answer).toContain(q?.keyword);
+    expect(pack.clusters.own).not.toContain(q?.keyword);
   });
 
   it("an off-topic candidate is NOISE, not owned", () => {

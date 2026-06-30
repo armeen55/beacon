@@ -847,7 +847,9 @@ export async function buildTodayMovesData(
           primaryLever: primaryLever ? { lever: primaryLever.lever, reason: primaryLever.reason } : null,
           blockedLevers: pack.levers.filter((l) => l.blocked).map((l) => ({ lever: l.lever, reason: l.reason })),
           elements: pack.keywords
-            .filter((k) => k.bucket === "own" && k.element)
+            // owned keywords (title/H2) + answer-block question targets — both are
+            // on-page element opportunities; siblings/noise are not.
+            .filter((k) => (k.bucket === "own" || k.bucket === "answer") && k.element)
             .slice(0, 5)
             .map((k) => ({ keyword: k.keyword, element: k.element as string, why: k.why })),
         };
