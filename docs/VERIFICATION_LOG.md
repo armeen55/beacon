@@ -7,6 +7,39 @@
 
 ---
 
+## 2026-06-30 — Safe Lever Library, slice 1: the Safe META lever (real non-animal daily batch) — main `94f57c26`
+
+**Phase 0:** landed the conservative candidate builder + preview to main (FF `2694c50c`; tsc 0 · 86 tests · build PASS) — the 3 branch commits were exactly the intended builder work, no stale-branch merge.
+
+**The unlock — meta is the highest-yield safe lever.** Non-animal Iranopedia pages have good
+query-aligned TITLES but TEMPLATED metas ("Learn (all) about… The complete guide…"). A safe,
+factual, non-fabricated meta comes from the page's **own crawled opening paragraph**
+(`page_snapshots.body_paragraph_sample`, populated **204/217**) — NOT a live fetch (Wix SSR exposes
+only the nav menu + the templated `og:description`, so a fetch can't source one). New `safe-meta.ts`
+(PURE, $0, no LLM): `metaIsWeak` (filler-led / missing / no-query) + `proposeSafeMeta` (derive from
+opening paragraph; named-filler firewall; query-presence + 80–160 length + material-difference gates;
+emits nothing when the text can't support it).
+
+**Integrity fixes:** meta is now the FIRST-tried lever; the filler-drop title/H1 is a clean last
+resort — consumes "verb + the" together ("Discover the Most Popular X" → "Most Popular X", never the
+broken "the Most Popular X"), never strips a bare article, result must start clean. Control safety:
+re-assess eligibility with `insufficientControls` after control selection → a <MIN_CONTROLS candidate
+is excluded (`insufficient_controls`), never selected unmeasurable.
+
+**Live Iranopedia native preview (read-only, $0):** 28 candidates with a materially-better proposal
+(flags 13, rugs 12, + singletons) → a diversified **8-item batch (4 flags + 4 rugs)** of factual
+metas, **5 controls each**, + 2 backups. Examples — Khorasan: *"A Khorasan rug is a luxurious Persian
+carpet originating from Khorasan, a historically significant weaving region in northeastern Iran."*;
+Umayyad: *"The white banner of the Umayyad Caliphate, symbolizing early Islamic governance
+(661–750)."* **Zero animal treatments/controls selected** (10 + 17 protected by the eligibility
+model — a stray was caught as `active_control`, the second-line guard). No degenerate titles, no
+generic templates, no fabrication.
+
+Verified: tsc 0 · **98 tests** (experiments + proof) · build PASS. **$0, no live fetch on render, no
+paid call, no Wix, no proof rows, no migration.** Honest limitation: this is ONE lever (meta) — the
+templated-meta opportunity concentrates in 2 families (flags + rugs). Multi-lever family breadth needs
+the next levers (answer-block, FAQ, internal-link), each with its own fabrication firewall.
+
 ## 2026-06-30 — Daily Experiment Cycle: scientific core LANDED ON MAIN + native candidate builder/preview
 
 **Phase 0 — landed the scientific core to main.** The eligibility/control-contamination model +
