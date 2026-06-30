@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-29 — PageResearchPack PROD-VISUAL VERIFICATION + cross-link/fold fix · main `3b91a780`
+
+Operator asked for visual confirmation before DataForSEO enrichment (don't trust unit tests + SSR 200 alone). Prod `/worklist` is auth-gated (307→login) and I can't authenticate, so I verified on the **local dev server** (auth-disabled, identical code now on prod, Iranopedia). Cold `/` render is ~130s (pre-existing heavy-load fragility); once settled it renders fine.
+
+**Live render exposed two real gaps the unit tests missed** (now fixed in `today-moves-data.ts`):
+1. The cannibalization→sibling linkage is token-mismatched ("girl" vs a "persian female first names" page), so `rp.sibling` was EMPTY → no "Cross-link, don't merge" line AND the old "fold X into it" copy still showed. Fix: merge the cannibalization queries (already proven to compete with another OWNED page) into the `sibling` cluster directly.
+2. That over-moved the follower page's OWN primary intent to cross-link. Fix: exclude the page's `primaryIntent` from the sibling merge (it stays in `own` = reclaim/differentiate, not cross-link away).
+
+**Live-verified (DOM extraction + screenshot):** Boy Names → Own: boy/male/iranian variants · **Cross-link, don't merge: persian girl names** · "Keep these as separate pages" (NO "fold"). Girl Names → Own keeps **persian girl names** + female variants · Cross-link: persian names. `fold ... into it` = **0** occurrences anywhere; "Keep these as separate pages" fires on both. Intent titles + reasons render. tsc 0. **The operator's boy↔girl critical example is now satisfied visibly, not just in tests.**
+
+---
+
 ## 2026-06-29 — PageResearchPack v1 LIVE WIRING (research module on top cards + dry-run planner) · main `0d90afa1`
 
 **Shipped.** Made the research brain visible/useful on the live top existing-page cards.
