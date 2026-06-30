@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-29 — PageResearchPack v1, Phase 1 (pure research brain) + Phase-0 DataForSEO audit · main `a7e62c69`
+
+**Phase 0 audit (DataForSEO reality).** SERP endpoint wired (`dataforseo-serp.ts`, `/v3/serp/google/organic/live/regular`, $0.003/q, 14d cache) but verdict is create-page-only; keyword search-volume wired (`dataforseo-keywords.ts`, Google Ads, ~$0.05–0.08/batched call) but New-Pages-only; keyword expansion (related/suggestions/questions/Labs) NOT built; **dry-run is the DEFAULT** (`DATAFORSEO_DRY_RUN!=="false"`). The "validation badge → research analyst" gaps: no expansion; volume + SERP-study never applied to existing-page moves; no intent-owner map; no keyword→element mapping. **Dry-run estimate (top-5 packs, existing endpoints):** 1 batched search-volume (~$0.08) + 5–15 SERP calls (~$0.015–0.05, cached) ≈ $0.10–0.15/run, ~$0 repeats — ~0.3% of the $50/mo fail-closed cap. Operator chose **v1 on the existing surface** (no new endpoints).
+
+**Phase 1 shipped (the pure brain).** `src/domains/demand-graph/page-research-pack.ts` — `buildPageResearchPack(input)`, pure/deterministic/tenant-agnostic/$0:
+- intent clustering own/sibling/new_page/internal_link/noise; "head" tokens corpus-relative from the page's own ranking queries (reuses `relevance-gate` `topicTokens`/`scoreTopicMatch`; no hardcoded stopwords);
+- keyword→element mapping (title/h1/h2_section/faq/answer_block/internal_link/schema);
+- proof-aware lever selection: a family in `lostFamilies` is BLOCKED, one in `measuringFamilies` is HELD, exactly one `primary` (else `wait`).
+
+**Verified.** tsc 0 source errors · `page-research-pack` **10/10** (boy≡male=own; boy↔girl=internal_link not own; off-topic question=noise; AI fan-out=answer_block; Pahlavi flag + Tehran NOT owned by the broad page; lost-title→primary≠title_meta; mid-measure title held; clean striking-distance→title primary). **Not wired into the live surface yet** (next increment: apply the existing volume + SERP study through the dry-run gauntlet + surface on the card). No paid call, no env change, $0 spend.
+
+---
+
 ## 2026-06-29 — SENIOR RECOMMENDATIONS sub-slice 1: evidence-based titles + lost-lever gating + data bugs · main `7b93ed61`
 
 **Context.** Operator flagged the recommendation layer as generic/incoherent: identical "Complete Guide" titles on every page despite "3 specialists weighed in"; a lost title/meta test still showing title options; "400% dead clicks"; "iran animals vs your iran animals". Phase-0 truth audit (7 parallel read-only agents) root-caused each to a templated OUTPUT layer that ignores the (real) evidence/debate. This is sub-slice 1 of the trust-first fix — **logic only**.
