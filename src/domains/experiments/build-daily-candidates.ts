@@ -22,6 +22,7 @@ import {
 import { pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
 import { proposeSafeMeta } from "./safe-meta";
 import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
+import { proposeSafeAnswerBlock, type SafeAnswerBlockProposal } from "./safe-answer-block";
 
 export type PageFacts = {
   title: string | null;
@@ -29,10 +30,12 @@ export type PageFacts = {
   h1: string | null;
   /** The page's first substantive paragraph — the factual source for a safe meta. */
   openingParagraph?: string | null;
-  /** Full body_paragraph_sample — the exact-text source for the safe internal-link lever. */
+  /** Full body_paragraph_sample (document order) — source for internal-link + answer-block levers. */
   bodyParagraphs?: string[];
   /** Normalized paths this page ALREADY links to (the internal-link duplicate guard). */
   internalLinkPaths?: string[];
+  /** Snapshot crawl timestamp — recorded on the answer-block receipt for freshness traceability. */
+  snapshotFetchedAt?: string;
 };
 
 export type GscPageInput = {
@@ -60,7 +63,7 @@ export type SuggestedControl = {
 
 export type BuiltCandidate = DailyCandidate & {
   pageLabel: string;
-  leverField: "title" | "meta" | "h1" | "internal_link";
+  leverField: "title" | "meta" | "h1" | "internal_link" | "answer_block";
   currentText: string;
   proposedText: string;
   whyNow: string;
@@ -72,6 +75,8 @@ export type BuiltCandidate = DailyCandidate & {
   influencedUrls?: string[];
   /** Internal-link only: the exact anchor/destination/placement receipt. */
   linkDetail?: InternalLinkProposal;
+  /** Answer-block only: the exact source sentence, placement, operation + factual-safety receipt. */
+  answerDetail?: SafeAnswerBlockProposal;
 };
 
 const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };
@@ -110,16 +115,18 @@ function proposeH1(currentH1: string | null, _query: string): string | null {
 
 
 type Proposal = {
-  leverField: "title" | "meta" | "h1" | "internal_link";
+  leverField: "title" | "meta" | "h1" | "internal_link" | "answer_block";
   actionType: string;
   proposed: string;
   current: string;
   source?: string;
   link?: InternalLinkProposal;
+  answer?: SafeAnswerBlockProposal;
 };
-function chooseProposal(facts: PageFacts, query: string, sourcePath: string, destinations: LinkDestination[]): Proposal | null {
-  // Lever priority: META (highest-yield, factual) → INTERNAL LINK (exact, reversible) → filler-drop
-  // title/H1 (clean last resort). Different pages naturally take different levers → a real mix.
+function chooseProposal(facts: PageFacts, query: string, sourcePath: string, label: string, destinations: LinkDestination[]): Proposal | null {
+  // Lever priority: META (highest-yield) → INTERNAL LINK (exact, reversible) → ANSWER BLOCK
+  // (extractive, surfaces a buried answer) → filler-drop title/H1. Different pages naturally take
+  // different levers → a real mix; answer-block is last among the safe levers (highest factual risk).
   const m = proposeSafeMeta({ currentMeta: facts.meta, openingParagraph: facts.openingParagraph, query });
   if (m) return { leverField: "meta", actionType: "edit_meta", proposed: m.proposed, current: facts.meta ?? "(none)", source: m.source };
   if (destinations.length > 0 && (facts.bodyParagraphs?.length ?? 0) > 0) {
@@ -128,6 +135,10 @@ function chooseProposal(facts: PageFacts, query: string, sourcePath: string, des
       sourceLinkedPaths: new Set(facts.internalLinkPaths ?? []), destinations,
     });
     if (link) return { leverField: "internal_link", actionType: "add_internal_link", proposed: link.exactReplacementText, current: link.exactSourceText, link };
+  }
+  if ((facts.bodyParagraphs?.length ?? 0) > 0) {
+    const a = proposeSafeAnswerBlock({ label, h1: facts.h1, topQuery: query, bodyParagraphs: facts.bodyParagraphs ?? [], fetchedAt: facts.snapshotFetchedAt });
+    if (a) return { leverField: "answer_block", actionType: "add_answer_block", proposed: a.answerText, current: `(buried in paragraph ${a.paragraphIndex + 1})`, answer: a };
   }
   const t = proposeTitle(facts.title, query);
   if (t) return { leverField: "title", actionType: "edit_title", proposed: t, current: facts.title ?? "" };
@@ -177,7 +188,7 @@ export function buildDailyCandidates(input: {
   for (const p of input.pages) {
     const facts = input.facts.get(p.url) ?? { title: null, meta: null, h1: null };
     const sourcePath = p.url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/";
-    const proposal = chooseProposal(facts, p.topQuery, sourcePath, linkDestinations);
+    const proposal = chooseProposal(facts, p.topQuery, sourcePath, p.pageLabel, linkDestinations);
     if (!proposal) continue; // nothing materially better → no candidate (honest)
 
     const actionFamily = actionFamilyOf(proposal.actionType);
@@ -218,9 +229,12 @@ function buildCandidate(
 ): BuiltCandidate {
   const ctrOpportunityClicks = Math.max(0, expectedCtr(p.topQueryPosition) - p.topQueryCtr) * p.topQueryImpressions;
   const link = proposal.link;
+  const answer = proposal.answer;
   const whyNow = link
     ? `Body mentions "${link.anchorText}" (owned by ${link.destinationLabel}) without linking it — a ${link.relationship.replace(/_/g, " ")} internal link. Source ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
-    : `Ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} impr) at ${(p.topQueryCtr * 100).toFixed(1)}% CTR — ${proposal.leverField} is the weak link.`;
+    : answer
+      ? `Page already answers "${answer.question}" but the answer is buried in paragraph ${answer.paragraphIndex + 1}; surface that exact sentence below the H1. Ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
+      : `Ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} impr) at ${(p.topQueryCtr * 100).toFixed(1)}% CTR — ${proposal.leverField} is the weak link.`;
   return {
     url: p.url,
     pageLabel: p.pageLabel,
@@ -232,17 +246,18 @@ function buildCandidate(
     ctr: p.topQueryCtr,
     ownership: p.ownership,
     ctrOpportunityClicks,
-    effortMinutes: link ? 3 : 1,
+    effortMinutes: link || answer ? 3 : 1,
     external,
     leverField: proposal.leverField,
     currentText: proposal.current,
     proposedText: proposal.proposed,
     whyNow,
-    rollbackText: proposal.current,
+    rollbackText: answer ? answer.rollbackInstruction : proposal.current,
     eligibility: elig,
     suggestedControls: controls,
     enoughControls: controls.length >= MIN_CONTROLS,
     influencedUrls: link ? [link.destinationPath] : undefined,
     linkDetail: link,
+    answerDetail: answer,
   };
 }

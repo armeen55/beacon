@@ -92,6 +92,23 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     expect(plan.excluded.some((e) => e.reason === "insufficient_controls")).toBe(true);
   });
 
+  it("fires the ANSWER-BLOCK lever (good meta + good title, but a buried direct answer)", () => {
+    const pages = [gsc({ url: "/finglish", topQuery: "finglish", impressions: 1200 })];
+    const f = facts({ "/finglish": {
+      title: "Finglish", meta: "Finglish is Persian written in the Latin alphabet — a quick guide for texting.", h1: "Finglish",
+      bodyParagraphs: [
+        "People all over the world type Persian on phones and keyboards every single day now.",
+        "Finglish is Persian written using the English alphabet, common in texting and chats.",
+      ],
+    } });
+    const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW });
+    expect(c.leverField).toBe("answer_block");
+    expect(c.answerDetail?.answerText).toBe("Finglish is Persian written using the English alphabet, common in texting and chats.");
+    expect(c.answerDetail?.operation).toBe("move_existing_text");
+    expect(c.answerDetail?.factualSafety.passed).toBe(true);
+    expect(c.actionFamily).toBe("answer");
+  });
+
   it("attaches eligibility — an active control page comes back ineligible (active_control)", () => {
     const ctrl = "https://iranopedia.com/iran-animals/persian-cat";
     const ledger: ShippedChangeRecord[] = [{
