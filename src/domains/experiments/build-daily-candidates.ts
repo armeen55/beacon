@@ -21,6 +21,7 @@ import {
 } from "./experiment-eligibility";
 import { pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
 import { proposeSafeMeta } from "./safe-meta";
+import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
 
 export type PageFacts = {
   title: string | null;
@@ -28,6 +29,10 @@ export type PageFacts = {
   h1: string | null;
   /** The page's first substantive paragraph — the factual source for a safe meta. */
   openingParagraph?: string | null;
+  /** Full body_paragraph_sample — the exact-text source for the safe internal-link lever. */
+  bodyParagraphs?: string[];
+  /** Normalized paths this page ALREADY links to (the internal-link duplicate guard). */
+  internalLinkPaths?: string[];
 };
 
 export type GscPageInput = {
@@ -55,7 +60,7 @@ export type SuggestedControl = {
 
 export type BuiltCandidate = DailyCandidate & {
   pageLabel: string;
-  leverField: "title" | "meta" | "h1";
+  leverField: "title" | "meta" | "h1" | "internal_link";
   currentText: string;
   proposedText: string;
   whyNow: string;
@@ -63,6 +68,10 @@ export type BuiltCandidate = DailyCandidate & {
   eligibility: ExperimentEligibility;
   suggestedControls: SuggestedControl[];
   enoughControls: boolean;
+  /** Internal-link only: pages this experiment INFLUENCES (the destination receives authority). */
+  influencedUrls?: string[];
+  /** Internal-link only: the exact anchor/destination/placement receipt. */
+  linkDetail?: InternalLinkProposal;
 };
 
 const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };
@@ -100,12 +109,26 @@ function proposeH1(currentH1: string | null, _query: string): string | null {
 }
 
 
-type Proposal = { leverField: "title" | "meta" | "h1"; actionType: string; proposed: string; current: string; source?: string };
-function chooseProposal(facts: PageFacts, query: string): Proposal | null {
-  // Meta is the highest-yield safe lever (good titles, templated metas); title/H1 are filler-drop
-  // last resorts. Try the safe meta FIRST, then a filler-drop on title/H1.
+type Proposal = {
+  leverField: "title" | "meta" | "h1" | "internal_link";
+  actionType: string;
+  proposed: string;
+  current: string;
+  source?: string;
+  link?: InternalLinkProposal;
+};
+function chooseProposal(facts: PageFacts, query: string, sourcePath: string, destinations: LinkDestination[]): Proposal | null {
+  // Lever priority: META (highest-yield, factual) → INTERNAL LINK (exact, reversible) → filler-drop
+  // title/H1 (clean last resort). Different pages naturally take different levers → a real mix.
   const m = proposeSafeMeta({ currentMeta: facts.meta, openingParagraph: facts.openingParagraph, query });
   if (m) return { leverField: "meta", actionType: "edit_meta", proposed: m.proposed, current: facts.meta ?? "(none)", source: m.source };
+  if (destinations.length > 0 && (facts.bodyParagraphs?.length ?? 0) > 0) {
+    const link = proposeSafeInternalLink({
+      sourcePath, sourceParagraphs: facts.bodyParagraphs ?? [],
+      sourceLinkedPaths: new Set(facts.internalLinkPaths ?? []), destinations,
+    });
+    if (link) return { leverField: "internal_link", actionType: "add_internal_link", proposed: link.exactReplacementText, current: link.exactSourceText, link };
+  }
   const t = proposeTitle(facts.title, query);
   if (t) return { leverField: "title", actionType: "edit_title", proposed: t, current: facts.title ?? "" };
   const h = proposeH1(facts.h1, query);
@@ -135,10 +158,14 @@ export function buildDailyCandidates(input: {
   pages: GscPageInput[];
   facts: Map<string, PageFacts>;
   proofLedger: ShippedChangeRecord[];
+  /** Eligible link destinations (caller marks protected/active pages ineligible). Omit to disable
+   *  the internal-link lever (meta-only). */
+  linkDestinations?: LinkDestination[];
   now?: Date;
 }): BuiltCandidate[] {
   const now = input.now ?? new Date();
   const states = deriveExperimentStates(input.proofLedger, now);
+  const linkDestinations = input.linkDestinations ?? [];
 
   // The untreated/uncontrolled pool that controls can be drawn from.
   const cleanPool = input.pages.filter((p) => {
@@ -149,11 +176,16 @@ export function buildDailyCandidates(input: {
   const out: BuiltCandidate[] = [];
   for (const p of input.pages) {
     const facts = input.facts.get(p.url) ?? { title: null, meta: null, h1: null };
-    const proposal = chooseProposal(facts, p.topQuery);
+    const sourcePath = p.url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/";
+    const proposal = chooseProposal(facts, p.topQuery, sourcePath, linkDestinations);
     if (!proposal) continue; // nothing materially better → no candidate (honest)
 
     const actionFamily = actionFamilyOf(proposal.actionType);
-    const baseExternal = { ownershipUncertain: p.ownership < 0.12, highRisk: false };
+    // Source-query ownership only gates TEXT edits (meta/title/H1 must own the query they target).
+    // An internal link's ownership is the DESTINATION owning the ANCHOR — already proven by the
+    // proposer — so the source's query share is irrelevant; don't suppress valid links with it.
+    const isLink = proposal.leverField === "internal_link";
+    const baseExternal = { ownershipUncertain: !isLink && p.ownership < 0.12, highRisk: false };
     const baseElig = assessEligibility({ url: p.url, family: actionFamily, states, external: baseExternal });
     if (!baseElig.eligible) {
       out.push(buildCandidate(p, proposal, actionFamily, baseElig, [], baseExternal));
@@ -185,6 +217,10 @@ function buildCandidate(
   external: { ownershipUncertain?: boolean; highRisk?: boolean; insufficientControls?: boolean },
 ): BuiltCandidate {
   const ctrOpportunityClicks = Math.max(0, expectedCtr(p.topQueryPosition) - p.topQueryCtr) * p.topQueryImpressions;
+  const link = proposal.link;
+  const whyNow = link
+    ? `Body mentions "${link.anchorText}" (owned by ${link.destinationLabel}) without linking it — a ${link.relationship.replace(/_/g, " ")} internal link. Source ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
+    : `Ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} impr) at ${(p.topQueryCtr * 100).toFixed(1)}% CTR — ${proposal.leverField} is the weak link.`;
   return {
     url: p.url,
     pageLabel: p.pageLabel,
@@ -196,15 +232,17 @@ function buildCandidate(
     ctr: p.topQueryCtr,
     ownership: p.ownership,
     ctrOpportunityClicks,
-    effortMinutes: 1,
+    effortMinutes: link ? 3 : 1,
     external,
     leverField: proposal.leverField,
     currentText: proposal.current,
     proposedText: proposal.proposed,
-    whyNow: `Ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} impr) at ${(p.topQueryCtr * 100).toFixed(1)}% CTR — ${proposal.leverField} is the weak link.`,
+    whyNow,
     rollbackText: proposal.current,
     eligibility: elig,
     suggestedControls: controls,
     enoughControls: controls.length >= MIN_CONTROLS,
+    influencedUrls: link ? [link.destinationPath] : undefined,
+    linkDetail: link,
   };
 }
