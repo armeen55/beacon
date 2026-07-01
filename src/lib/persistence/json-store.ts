@@ -46,6 +46,73 @@ import {
 
 import { resolveDataPath } from "./resolve-data-path";
 
+/**
+ * Supabase-mirrored stores (2026-07-01, "make the evidence real in prod").
+ *
+ * The research caches below hold the team's paid/crawled knowledge (DataForSEO keyword
+ * demand, live-SERP patterns, competitor teardowns). As plain json-stores they were
+ * FILE-ONLY: writes skip disk on Vercel, so hosted prod rendered from empty caches and
+ * the 14-day cost-discipline cache was a local-only guarantee. Stores named here are
+ * mirrored to the `json_store_blobs` table (one jsonb blob per resolved scope key -
+ * the same whole-array read/write semantics as the file store):
+ *   - read: Supabase row wins when present; missing row/table/env falls through to file
+ *   - write: file (or cache on Vercel) THEN best-effort upsert to Supabase
+ * Fail-soft everywhere: any Supabase error degrades to exactly the old file behavior.
+ * Migration: migrations/2026-07-01_json_store_blobs.sql (additive).
+ */
+const SUPABASE_MIRRORED_STORES = new Set<string>([
+  "dataforseo-keywords-cache",
+  "dataforseo-serp-cache",
+  "research-serp-patterns",
+  "competitor-page-audit",
+]);
+
+const BLOBS_TABLE = "json_store_blobs";
+
+/** PostgREST "table missing" (42P01) or "schema cache" (PGRST205) - treat as not-migrated-yet. */
+function isMissingBlobsTable(error: { code?: string } | null | undefined): boolean {
+  const code = error?.code ?? "";
+  return code === "42P01" || code === "PGRST205";
+}
+
+async function readMirroredBlob(scopeKey: string): Promise<unknown[] | null> {
+  try {
+    const { getSupabaseAdmin } = await import("./supabase");
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin
+      .from(BLOBS_TABLE)
+      .select("content")
+      .eq("scope_key", scopeKey)
+      .maybeSingle();
+    if (error != null) {
+      if (!isMissingBlobsTable(error)) {
+        console.error(`[json-store] blob read failed for ${scopeKey}: ${error.message ?? String(error)}`);
+      }
+      return null;
+    }
+    const content = (data as { content?: unknown } | null)?.content;
+    return Array.isArray(content) ? content : null;
+  } catch {
+    return null; // no env / client init failed -> file behavior
+  }
+}
+
+async function writeMirroredBlob(scopeKey: string, storeName: string, data: unknown[]): Promise<void> {
+  try {
+    const { getSupabaseAdmin } = await import("./supabase");
+    const admin = getSupabaseAdmin();
+    const { error } = await admin.from(BLOBS_TABLE).upsert(
+      { scope_key: scopeKey, store_name: storeName, content: data, updated_at: new Date().toISOString() },
+      { onConflict: "scope_key" },
+    );
+    if (error != null && !isMissingBlobsTable(error)) {
+      console.error(`[json-store] blob write failed for ${scopeKey}: ${error.message ?? String(error)}`);
+    }
+  } catch {
+    // no env -> file-only behavior (local file mode keeps working untouched)
+  }
+}
+
 /** Computed at call time (not module load) so tests can
  *  `process.chdir()` into a tmpdir and have ensureDataDir follow. */
 function ensureDataDir(dir: string): void {
@@ -95,6 +162,16 @@ export async function readStore<T>(name: string, fallback?: T[]): Promise<T[]> {
     return cache.get(resolved.cacheKey) as T[];
   }
 
+  // Mirrored stores: the durable Supabase blob wins when present (this is what makes
+  // the research caches exist on hosted prod). Missing row/table/env -> file as before.
+  if (SUPABASE_MIRRORED_STORES.has(name)) {
+    const blob = await readMirroredBlob(resolved.cacheKey);
+    if (blob != null) {
+      cache.set(resolved.cacheKey, blob);
+      return blob as T[];
+    }
+  }
+
   ensureDataDir(resolved.routedDir);
 
   if (existsSync(resolved.routedPath)) {
@@ -132,7 +209,14 @@ export async function writeStore<T>(name: string, data: T[]): Promise<void> {
     );
   }
   const prev = writeLocks.get(resolved.cacheKey) ?? Promise.resolve();
-  const next = prev.then(() => atomicWrite(resolved, data));
+  const next = prev.then(async () => {
+    await atomicWrite(resolved, data);
+    // Mirrored stores: best-effort durable copy AFTER the local write, inside the same
+    // per-key lock so blob upserts for one scope never race each other.
+    if (SUPABASE_MIRRORED_STORES.has(name)) {
+      await writeMirroredBlob(resolved.cacheKey, name, data as unknown[]);
+    }
+  });
   writeLocks.set(resolved.cacheKey, next.catch(() => {}));
   await next;
 }

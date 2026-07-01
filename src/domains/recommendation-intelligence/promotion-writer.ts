@@ -266,22 +266,52 @@ export async function promoteEligibleCandidates(
   // experiments (and away from ones that lost). Fail-soft to neutral (no priors
   // ⇒ exact pre-learning ordering). Priority-only; QA/pushability unaffected.
   let outcomePriorByActionType = new Map<string, number>();
+  let proofLedgerForGate: import("@/domains/proof-gsc/shipped-change-store").ShippedChangeRecord[] = [];
   try {
     const { loadProofLedger } = await import("@/domains/proof-gsc/load-ledger");
     const { computeOutcomePriors } = await import(
       "@/domains/recommendation-intelligence/outcome-prior"
     );
-    outcomePriorByActionType = computeOutcomePriors(
-      await loadProofLedger(input.tenantId),
-    );
+    proofLedgerForGate = await loadProofLedger(input.tenantId);
+    outcomePriorByActionType = computeOutcomePriors(proofLedgerForGate);
   } catch {
     // neutral priors
   }
 
-  const triggerCandidates = [
+  let triggerCandidates = [
     ...triggerResult.candidates,
     ...triggerResult.diagnostic_only,
   ];
+
+  // Shared experiment gate (2026-07-01): never PROMOTE a candidate for a page that is
+  // mid-measurement (active treatment) or serving as an active control - the same pure
+  // gate the daily planner uses. Before this, the legacy generation was the only rec
+  // system with ZERO proof-ledger awareness, so a measuring page could quietly re-enter
+  // the queue as a fresh recommendation. Fail-soft: a gate error never blocks promotion.
+  try {
+    const { deriveExperimentStates } = await import("@/domains/experiments/experiment-eligibility");
+    const states = deriveExperimentStates(proofLedgerForGate, input.now ?? new Date());
+    const activePaths = new Set<string>();
+    for (const [path, st] of states) {
+      if (st.activeTreatments.length > 0 || st.activeControlAssignments.length > 0) activePaths.add(path);
+    }
+    if (activePaths.size > 0) {
+      const pathOf = (u: string): string =>
+        ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+      const before = triggerCandidates.length;
+      triggerCandidates = triggerCandidates.filter(
+        (c) => !c.target_url || !activePaths.has(pathOf(c.target_url)),
+      );
+      if (before - triggerCandidates.length > 0) {
+        log.warn("[promoteEligibleCandidates] experiment gate skipped mid-measurement pages", {
+          tenantId: input.tenantId,
+          skipped: before - triggerCandidates.length,
+        });
+      }
+    }
+  } catch {
+    // gate unavailable -> promote as before (the guard must never fail the pipeline)
+  }
 
   // Build pageTypeByUrl from candidate target_urls — same inline
   // pattern as the α₀b diagnostic page.

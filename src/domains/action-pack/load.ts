@@ -40,17 +40,25 @@ import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/d
 import { actionFamily, type ActionPack, type EvidenceSource } from "./types";
 import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@/domains/experiments/daily-experiment-plan-store";
 import { normalizePath } from "@/domains/experiments/daily-plan-types";
+import { deriveExperimentStates } from "@/domains/experiments/experiment-eligibility";
+import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 
 /**
- * Pages already owned by the Daily Experiments surface (in today's plan, or reserved as an active
- * control) must NOT also appear in the main worklist as a conflicting primary recommendation — that
- * was the "same page, two cards, different advice" duplication. Fail-soft: any read error → empty set
- * (the worklist renders exactly as before). Single-row reads; runs in parallel with the heavy loads.
+ * Pages already owned by an active experiment must NOT also appear in the main worklist as a
+ * conflicting primary recommendation - that was the "same page, two cards, different advice"
+ * duplication. Three sources, ONE gate (the same pure gate the daily planner uses):
+ *  - pages selected in today's plan (preview or accepted)
+ *  - pages reserved as active controls (a change there muddies a running comparison)
+ *  - pages with a MEASURING treatment (or active control assignment) in the proof ledger - the
+ *    shared-eligibility fix (2026-07-01): before it, a mid-measurement page was suppressed on the
+ *    daily surface but could quietly resurface here as a competing demand-graph pack.
+ * Fail-soft: any read error → empty set (the worklist renders exactly as before).
  */
 async function loadDailyExperimentBlockedPaths(tenantId: string): Promise<Set<string>> {
   try {
-    const [preview, accepted, reservations] = await Promise.all([
+    const [preview, accepted, reservations, ledger] = await Promise.all([
       getLatestPreviewPlan(tenantId), getAcceptedPlan(tenantId), listActiveReservations(tenantId),
+      loadShippedChanges().catch(() => []),
     ]);
     const blocked = new Set<string>();
     for (const plan of [preview, accepted]) {
@@ -61,6 +69,13 @@ async function loadDailyExperimentBlockedPaths(tenantId: string): Promise<Set<st
       }
     }
     for (const r of reservations) blocked.add(normalizePath(r.controlPath));
+    // The proof-ledger gate: active treatments AND their controls, windowed by the same
+    // outcome-state logic the planner uses (a stale "measuring" row past its window frees up).
+    for (const [path, st] of deriveExperimentStates(ledger, new Date())) {
+      if (st.activeTreatments.length > 0 || st.activeControlAssignments.length > 0) {
+        blocked.add(normalizePath(path));
+      }
+    }
     return blocked;
   } catch {
     return new Set();
