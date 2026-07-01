@@ -110,10 +110,10 @@ export function validateCreatePage(input: ValidateInput): SerpValidation {
     const corroborated = (volume != null && volume > 0 ? 1 : 0) + (profoundOverlapCount > 0 ? 1 : 0);
     verdict = "build";
     confidence = corroborated >= 2 ? "high" : corroborated === 1 ? "medium" : "low";
-    reasons.push(`Content-page SERP (${contentDomainCount}/10 editorial) — out-buildable.`);
+    reasons.push(`Content-page SERP (${contentDomainCount}/10 editorial), out-buildable.`);
     if (volume != null && volume > 0) reasons.push(`Real search volume: ${volume.toLocaleString()}/mo.`);
-    if (profoundOverlapCount > 0) reasons.push(`${profoundOverlapCount} of the ranking pages are competitors AI already cites — double-confirmed demand.`);
-    if (corroborated === 0) reasons.push("No measured volume + no AI-citation overlap yet — buildable but unproven, keep confidence low.");
+    if (profoundOverlapCount > 0) reasons.push(`${profoundOverlapCount} of the ranking pages are competitors AI already cites, double-confirmed demand.`);
+    if (corroborated === 0) reasons.push("No measured volume and no AI-citation overlap yet, so it's buildable but unproven; keep confidence low.");
   } else {
     verdict = "wait";
     confidence = "low";
