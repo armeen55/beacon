@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-30 — Move 7: hermetic test suite (env-proof) + pre-edit launch drill (read-only)
+
+**Part 1 — tests are now identical with or without `.env.local`.** `vitest.config.ts` `env` block now blanks the full set of ambient paid/SERP/OAuth/auth creds UNCONDITIONALLY (kept blank even under `BEACON_LIVE_DB_TESTS=1`, so a live-DB run still can NEVER fire a paid DataForSEO/OpenAI call or a real OAuth exchange): `DATAFORSEO_AUTH_B64/LOGIN/PASSWORD/DRY_RUN/MONTHLY_CAP_USD`, `BEACON_SERP_PROVIDER`, `OPENAI_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_CLIENT_ID/SECRET`, `BEACON_OAUTH_STATE_SECRET`, `SUPABASE_MGMT_TOKEN`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BEACON_AUTH_DISABLED`, `BEACON_OPERATOR_MODE`, `BEACON_LLM_WHY`, `NEXT_PUBLIC_APP_URL`. vitest `env` overrides `process.env` at setup; tests that exercise these paths still stub via `vi.stubEnv`/args (overrides per-test). No integration/auth/tenant/SERP/connector assertion weakened.
+- **Verified 0 failed BOTH ways:** CONTAMINATED shell (`set -a; . ./.env.local`, ambient DATAFORSEO=SET / GOOGLE=SET / AUTH_DISABLED=1 / OPERATOR=true) → **15,632 passed / 71 skipped / 0 failed**; CLEAN shell → **15,632 / 71 / 0** — byte-identical summary. `npx tsc --noEmit` 0; `npm run build` `✓ Compiled successfully` OFFLINE. Commit `c0182699`.
+
+**Part 2 — pre-edit launch drill (READ-ONLY; nothing accepted/published/submitted).**
+- **Vercel prod LIVE:** `beacon-bice.vercel.app/login` → HTTP 200 (renders Beacon + Sign in, `x-vercel-id` present, `age:0` fresh); `/` → 200 auth-redirect to `/login?next=%2F`. (Exact deployed SHA not verifiable from here — no Vercel CLI; main was pushed so the deploy is triggered.)
+- **Preview plan `tenant-iranopedia::2026-06-30::1d4fa003`** — 6 selected (4 meta + 2 answer_block, all low-risk, ~10 min) + 2 backups (early-safavid answer_block, rashidun meta); distribution byFamily = iran-flags 4 / chaharshanbe 1 / finglish 1; `expiresAt` 2026-07-01T21:23Z. Quality: all 6 passed the daily gate; **1 caution** on `chaharshanbe suri` (origin-definitiveness: "rooted in Zoroastrian traditions" is scholarly-disputed — review phrasing before applying). Full before/after captured in the Tonight Runbook (HANDOFF).
+- **Production state clean:** proof rows **19**, `control_reservations` **0** (tenant + global), accepted plans **0**.
+- **Accept → Apply → live-verify → GSC → finish workflow verified via fixtures/rolled-back only:** app-layer = 46 passing tests (execution-state machine, live-verification, execution-checklist); the 3 Postgres RPCs (`accept_daily_experiment_plan`, `activate_daily_experiment_item`, `skip_daily_experiment_item`) probed on prod with a NONEXISTENT plan → all returned clean `{ok:false, reason:"plan_not_found"}` (deployed + fail-closed, **zero writes**). Post-probe safety net: proof **19** · reservations **0** · accepted **0** · stray rows **0**. **Real plan NOT accepted; no Wix publish; no GSC submit.**
+- **Blockers preventing tonight's batch: NONE found.** Nothing fixed (nothing broken).
+
+---
+
 ## 2026-06-30 — Move 6: full test suite + offline build GENUINELY GREEN (from a 53/57-failure baseline to 0)
 
 **What changed — a bounded trust-cleanup that takes the full suite to 0 failures and makes `npm run build` work with no network. No features, no redesign.**
