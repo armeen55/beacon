@@ -60,12 +60,9 @@ const LOADER_PATH = join(
   REPO_ROOT,
   "src/domains/outcome-attribution/load-outcomes-summary-for-tenant.ts",
 );
-const SECTIONS_PATH = join(REPO_ROOT, "src/app/(shell)/today-v2-sections.tsx");
 
 const LOADER_RAW = readFileSync(LOADER_PATH, "utf-8");
 const LOADER_CODE = stripComments(LOADER_RAW);
-const SECTIONS_RAW = readFileSync(SECTIONS_PATH, "utf-8");
-const SECTIONS_CODE = stripComments(SECTIONS_RAW);
 
 const FORBIDDEN_GA4_IDENTIFIERS: ReadonlyArray<string> = [
   "runGa4UrlTrafficReport",
@@ -164,31 +161,8 @@ describe("load-outcomes-summary-for-tenant — no GA4 API surface", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Section component (today-v2-sections.tsx) — only allowed consumer
-// ─────────────────────────────────────────────────────────────────────
-
-describe("today-v2-sections — outcomes loader consumer", () => {
-  it("imports loadOutcomesSummaryForTenant (positive sanity)", () => {
-    expect(/loadOutcomesSummaryForTenant/.test(SECTIONS_CODE)).toBe(true);
-  });
-
-  it("imports EditOutcomesTile (positive sanity)", () => {
-    expect(/EditOutcomesTile/.test(SECTIONS_CODE)).toBe(true);
-  });
-
-  it("does NOT runtime-import @/lib/connectors/ga4/*", () => {
-    const runtimeLines = runtimeImportLines(SECTIONS_CODE);
-    const offenders = runtimeLines.filter((l) =>
-      /from\s+["']@\/lib\/connectors\/ga4\//.test(l),
-    );
-    expect(offenders).toEqual([]);
-  });
-
-  for (const id of FORBIDDEN_GA4_IDENTIFIERS) {
-    it(`does NOT reference identifier \`${id}\``, () => {
-      const pattern = new RegExp(`\\b${id}\\b`);
-      expect(pattern.test(SECTIONS_CODE)).toBe(false);
-    });
-  }
-});
+// Move 5 (2026-07-01): the `today-v2-sections.tsx` consumer + its
+// `EditOutcomesTile` were removed when the homepage was folded into the
+// CanonicalChange read model. The loader itself survives (used elsewhere) and
+// its no-GA4-API invariant above still guards the real code; the deleted
+// consumer's pins are dropped as an obsolete contract.

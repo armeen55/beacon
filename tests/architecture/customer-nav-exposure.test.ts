@@ -67,15 +67,17 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   // folded into ONE nav so the app reads as a single product. The contract is
   // now "exactly this unified set" — adding a route still requires updating
   // this test so the decision is visible in review.
+  // 2026-07-01 one-workflow consolidation: the sidebar is now Today (/) +
+  // Changes (/worklist) + Results (/proof) + Research (/prompts, /competitors) +
+  // Settings (/connections, /settings/connectors, /settings). "Drafts"
+  // (/recommendations), "Ready to ship" (/experiments), /opportunities and
+  // /moves are STAGES of a change reachable from the Changes list + direct URL
+  // (their routes still exist as redirects), so they were removed from the
+  // sidebar. Adding a route still requires updating this set so the decision is
+  // visible in review.
   const EXPECTED_HREFS = new Set([
     "/",
-    "/opportunities",
-    "/moves", // 2026-06-25: the full Rank-&-Revenue worklist (§7) — the engine's
-    //            promoted Moves as one ranked, filterable list. Customer route.
-    "/worklist", // 2026-06-25 (Sprint 6): unified ranked worklist + filtered views
-    //            (Today/This-week/Big-bets/New-pages/Store/Tools/Trends/Fix-ups/All).
-    "/recommendations",
-    "/experiments",
+    "/worklist",
     "/proof",
     "/prompts",
     "/competitors",

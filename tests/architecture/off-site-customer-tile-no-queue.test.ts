@@ -25,7 +25,9 @@ import { resolve } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const TILE = "src/components/today/off-site-authority-tile.tsx";
-const SECTION = "src/app/(shell)/today-v2-sections.tsx";
+// Move 5 (2026-07-01): the `today-v2-sections.tsx` host was removed with the
+// homepage fold; the C7d tile's own no-queue contract below still guards the
+// surviving component.
 const OFFSITE_CONTRACT =
   "tests/architecture/recommendation-intelligence-offsite-contract.test.ts";
 
@@ -39,7 +41,6 @@ function stripComments(src: string): string {
 }
 
 const TILE_ACTIVE = stripComments(read(TILE));
-const SECTION_ACTIVE = stripComments(read(SECTION));
 
 // Queue / promotion / persistence module substrings forbidden in the
 // C7d read surfaces.
@@ -67,23 +68,10 @@ describe("Architecture — Section 7 C7d off-site tile no-queue", () => {
     }
   });
 
-  describe("Today section does not import queue / promotion / persistence modules", () => {
-    for (const sub of FORBIDDEN_IMPORT_SUBSTRINGS) {
-      it(`${SECTION} does not reference '${sub}'`, () => {
-        expect(SECTION_ACTIVE.includes(sub)).toBe(false);
-      });
-    }
-  });
-
   it("tile exposes no Accept / Defer / Dismiss action affordance", () => {
     expect(TILE_ACTIVE.includes('"use server"')).toBe(false);
     expect(TILE_ACTIVE.includes("<form")).toBe(false);
     expect(/action=\{/.test(TILE_ACTIVE)).toBe(false);
     expect(/<button/i.test(TILE_ACTIVE)).toBe(false);
-  });
-
-  it("the off-site Today section reads ONLY the cached snapshot path (positive)", () => {
-    expect(SECTION_ACTIVE).toContain("loadOffSitePresenceSnapshot");
-    expect(SECTION_ACTIVE).toContain("computeOffSiteRecommendationCandidates");
   });
 });

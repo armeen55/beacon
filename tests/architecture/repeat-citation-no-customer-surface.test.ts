@@ -110,9 +110,9 @@ function walk(rootRel: string): string[] {
  * customer-facing surface. Adding it here ensures the allowlist
  * + forbidden-token scan apply to it.
  */
-const ADDITIONAL_SCAN_FILES: ReadonlyArray<string> = [
-  "src/app/(shell)/today-v2-sections.tsx",
-] as const;
+// Move 5 (2026-07-01): today-v2-sections.tsx was removed with the homepage fold;
+// no extra scan files remain beyond the customer-surface roots below.
+const ADDITIONAL_SCAN_FILES: ReadonlyArray<string> = [] as const;
 
 const ALL_FILES: string[] = [];
 for (const root of CUSTOMER_SURFACE_ROOTS) ALL_FILES.push(...walk(root));
@@ -145,7 +145,6 @@ const ALLOWED_FILES: ReadonlySet<string> = new Set([
   "src/app/(shell)/changes/[id]/change-detail-v2-client.tsx",
   // 5.B Slice 2 — Today edit-lifecycle tile band counter
   "src/components/today/edit-lifecycle-tile.tsx",
-  "src/app/(shell)/today-v2-sections.tsx",
 ]);
 
 describe("Architecture — no customer-surface references to repeat-citation symbols (with Section 5.B allowlist)", () => {

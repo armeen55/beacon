@@ -89,7 +89,10 @@ describe("Emergency P0 v3: shell nav Link prefetch disabled", () => {
   it("Navigation registry still ships the core top-level routes", () => {
     const src = read("src/lib/navigation.ts");
     expect(src).toMatch(/href:\s*["']\/["']/);
-    expect(src).toMatch(/href:\s*["']\/recommendations["']/);
+    // 2026-07-01 one-workflow consolidation: "Changes" (/worklist) is the core
+    // ranked-list route; "Drafts" (/recommendations) is now a redirect stage,
+    // no longer a top-level nav item.
+    expect(src).toMatch(/href:\s*["']\/worklist["']/);
     expect(src).toMatch(/href:\s*["']\/prompts["']/);
     // IA consolidation (2026-06-23): Changes merged into Results (/proof) and is
     // no longer a primary nav item; Results is the one "did it work" route.

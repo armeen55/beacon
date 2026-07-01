@@ -217,18 +217,13 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
   });
 
   describe("render-path structural invariants", () => {
-    it("/recommendations delegates canonical-store reads via the persisted queue loader", () => {
-      // Surface collapse (2026-06-15): /recommendations is V2-only — the
-      // page calls `loadPersistedRecommendationQueueForPage` (the fast
-      // loader) instead of the legacy `loadLiveRecommendationQueue` 30 s
-      // pipeline. The Sprint 4 freshness contract is still preserved one
-      // layer down: `load-queue.ts` calls `loadFreshCanonicalData`.
-      expect(SRC.recommendations).toMatch(
-        /\bloadPersistedRecommendationQueueForPage\b/,
-      );
-      expect(SRC.recommendations).not.toMatch(
-        /\b(?:trackedPrompts|promptAnswerObservations|trackedEntities|dailyMetricSnapshots)\b\s*=/,
-      );
+    it("/recommendations index redirects; the persisted loader still delegates to loadFreshCanonicalData", () => {
+      // Move 5 (2026-07-01): the /recommendations index is now a redirect to
+      // /worklist?status=ready (a duplicate of the canonical Changes list). The
+      // Sprint 4 freshness contract is preserved one layer down where the loader
+      // is still used (/recommendations/[id], /worklist): `load-queue.ts` calls
+      // `loadFreshCanonicalData`.
+      expect(SRC.recommendations).toMatch(/\bredirect\(/);
       const loadQueueSrc = readFileSync(
         resolve(
           __dirname,
@@ -347,11 +342,11 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       // from empty-parens to any call form.
       // EGRESS-P0 (2026-05-07): load-queue now passes
       // `{ observationsSince, snapshotsSince }` to bound the read.
-      // Surface collapse (2026-06-15): the V2-only page calls
-      // `loadPersistedRecommendationQueueForPage`. It delegates into
-      // load-queue.ts, which calls `loadFreshCanonicalData` (asserted
-      // below), so the render-time freshness contract is preserved.
-      expect(SRC.recommendations).toMatch(/loadPersistedRecommendationQueueForPage\(/);
+      // Move 5 (2026-07-01): the /recommendations index redirects to /worklist;
+      // load-queue.ts still calls `loadFreshCanonicalData` (asserted below) for
+      // the surviving /recommendations/[id] + /worklist surfaces, so the
+      // render-time freshness contract is preserved.
+      expect(SRC.recommendations).toMatch(/\bredirect\(/);
       const loadQueueSrc = readFileSync(
         resolve(
           __dirname,

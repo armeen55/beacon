@@ -102,22 +102,22 @@ describe("Emergency P0 v5: loadPersistedRecommendationQueueForPage", () => {
   });
 });
 
-describe("Emergency P0 v5: /recommendations uses the persisted fast loader", () => {
+describe("Emergency P0 v5: /recommendations index is now a redirect (fastest cold render)", () => {
   const src = read("src/app/(shell)/recommendations/page.tsx");
   const stripped = stripComments(src);
 
-  it("calls loadPersistedRecommendationQueueForPage (the fast loader)", () => {
-    // Surface collapse (2026-06-15): /recommendations is V2-only — the
-    // `if (useV2)` switcher + the legacy `loadLiveRecommendationQueueForPage`
-    // 30 s cold-path were removed. The persisted fast loader is now the
-    // only data path.
-    expect(stripped).toMatch(
-      /loadPersistedRecommendationQueueForPage\(\s*\{\s*tenantId\s*\}\s*\)/,
-    );
+  it("redirects to the canonical Changes surface (no loader on the index)", () => {
+    // Move 5 (2026-07-01): the /recommendations index was a duplicate of the
+    // canonical Changes list, so it now redirects to /worklist?status=ready —
+    // the fastest possible cold render. The persisted fast loader still powers
+    // the /recommendations/[id] detail brief (pinned below).
+    expect(stripped).toMatch(/\bredirect\(/);
+    expect(stripped).toMatch(/\/worklist\?status=ready/);
   });
 
-  it("no longer imports or calls the legacy live pipeline loader", () => {
-    expect(stripped).not.toMatch(/loadLiveRecommendationQueueForPage/);
+  it("runs no recommendation queue loader on the index (nothing to load)", () => {
+    expect(stripped).not.toMatch(/loadPersistedRecommendationQueueForPage\(/);
+    expect(stripped).not.toMatch(/loadLiveRecommendationQueueForPage\(/);
   });
 });
 

@@ -92,8 +92,12 @@ describe("Phase 6A.1.12 — repository getRecommendedEdits", () => {
 // ── 2. /recommendations page wiring ───────────────────────────────────────
 
 describe("Phase 6A.1.12 — /recommendations page wiring", () => {
-  it("imports RecommendedEditRow type", () => {
-    expect(PAGE_SOURCE).toMatch(/RecommendedEditRow/);
+  it("index redirects to Changes; the RecommendedEditRow type lives in the loader", () => {
+    // Move 5 (2026-07-01): the /recommendations index is now a redirect to
+    // /worklist?status=ready. The RecommendedEditRow-typed queue rows moved to
+    // the load-queue loader, which still powers /recommendations/[id] + /worklist.
+    expect(PAGE_SOURCE).toMatch(/\bredirect\(/);
+    expect(LOAD_QUEUE_SOURCE).toMatch(/RecommendedEditRow/);
   });
 
   it("calls getRecommendedEdits via the repository, NOT a module-level array", () => {
@@ -133,7 +137,8 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
   });
 
   it("RecommendationQueueRow + RecommendationWatchRow expose the edits slice", () => {
-    expect(PAGE_SOURCE).toMatch(/edits:\s*RecommendedEditRow\[\]/);
+    // Move 5 (2026-07-01): these row types moved to the loader with the index redirect.
+    expect(LOAD_QUEUE_SOURCE).toMatch(/edits:\s*RecommendedEditRow\[\]/);
   });
 });
 

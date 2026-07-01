@@ -95,14 +95,15 @@ describe("Emergency P0 v4/v5: page callers use a cached loader (full OR persiste
   // moved to loadPersistedRecommendationQueueForPage (persisted-only,
   // also cached, much faster cold-path). Either is acceptable here —
   // both are tag-invalidated by mutations via the same buildRecQueueCacheTag.
-  it("/recommendations/page.tsx imports + calls SOME cached loader at its v2 loader callsite", () => {
+  it("/recommendations/page.tsx is a redirect (index consolidated into Changes)", () => {
+    // Move 5 (2026-07-01): the /recommendations index redirects to
+    // /worklist?status=ready; the cached loader now powers the surviving
+    // /recommendations/[id] detail (pinned below) + the /worklist surface.
     const src = read("src/app/(shell)/recommendations/page.tsx");
     const stripped = stripComments(src);
-    expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\b(loadLiveRecommendationQueueForPage|loadPersistedRecommendationQueueForPage)\b[\s\S]*?\}\s+from\s+["']@\/domains\/recommendations\/load-queue["']/,
-    );
-    expect(stripped).toMatch(
-      /(loadLiveRecommendationQueueForPage|loadPersistedRecommendationQueueForPage)\(\s*\{\s*tenantId\s*\}\s*\)/,
+    expect(stripped).toMatch(/\bredirect\(/);
+    expect(stripped).not.toMatch(
+      /(loadLiveRecommendationQueueForPage|loadPersistedRecommendationQueueForPage)\(/,
     );
   });
 

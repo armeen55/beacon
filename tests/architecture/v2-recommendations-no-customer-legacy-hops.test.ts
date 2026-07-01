@@ -32,9 +32,10 @@ function stripComments(src: string): string {
     .replace(/^\s*\/\/.*$/gm, "");
 }
 
-const V2_CLIENT_SRC = stripComments(
-  read("src/app/(shell)/recommendations/recommendations-v2-client.tsx"),
-);
+// Move 5 (2026-07-01): recommendations-v2-client.tsx was removed when
+// /recommendations became a redirect to /worklist. The surviving v2 card,
+// working rail, and detail surfaces still carry the "no legacy hops" invariant
+// below; the deleted client's four pins are dropped as an obsolete contract.
 const V2_CARD_SRC = stripComments(
   read("src/components/recommendations/v2/recommendation-v2-card.tsx"),
 );
@@ -91,64 +92,4 @@ describe("v2 /recommendations — no customer-facing legacy hops", () => {
     );
   });
 
-  it("the See full list CTA is a button, not a legacy link", () => {
-    // The data-attribute lives on a <button>, the inline toggle that
-    // expands the Suggested stack.
-    expect(V2_CLIENT_SRC).toMatch(
-      /<button[\s\S]*?data-recommendations-v2-cta="see-all"/,
-    );
-    // No anchor in the v2 client carries that data-attribute.
-    expect(V2_CLIENT_SRC).not.toMatch(
-      /<Link[\s\S]{0,200}data-recommendations-v2-cta="see-all"/,
-    );
-    expect(V2_CLIENT_SRC).not.toMatch(
-      /<a[\s\S]{0,200}data-recommendations-v2-cta="see-all"/,
-    );
-  });
-
-  it("the See full list CTA path string is no longer present", () => {
-    // The previous link target was the bare literal "/recommendations?legacy=1".
-    // The current Suggested-stack body must not contain that string at all.
-    // The only allowed `?legacy=1` reference in the v2 client is the
-    // explicit watchlist footer fallback (carved out below).
-    const suggestedStackBlock = (() => {
-      const start = V2_CLIENT_SRC.indexOf(
-        'data-recommendations-v2-section="suggested"',
-      );
-      // `RecommendationsV2WorkingRail` appears in both the IMPORT and
-      // the JSX usage; we want the JSX usage, which is the closing
-      // sibling of the Suggested section.
-      const end = V2_CLIENT_SRC.indexOf(
-        "<RecommendationsV2WorkingRail",
-      );
-      if (start < 0 || end < 0 || end <= start) {
-        throw new Error(
-          "suggested-stack slice failed — file shape changed; update the markers in this test",
-        );
-      }
-      return V2_CLIENT_SRC.slice(start, end);
-    })();
-    expect(suggestedStackBlock).not.toContain("?legacy=1");
-  });
-
-  it("the v2 client source contains ZERO ?legacy=1 references after comment stripping", () => {
-    // No carve-outs. The customer-facing v2 surface advertises no
-    // path into the legacy table. The legacy route itself
-    // (/recommendations?legacy=1) still works for direct operator
-    // access — this invariant is about what v2 LINKS to, not whether
-    // the legacy route exists.
-    const occurrences = (V2_CLIENT_SRC.match(/\?legacy=1/g) ?? []).length;
-    expect(occurrences).toBe(0);
-  });
-
-  it("the v2 client no longer renders a watchlist footer CTA", () => {
-    // Defense-in-depth: even if a future regression re-introduces the
-    // string under a different shape, the data-attribute must not
-    // come back without a matching v2 surface and a refactor of this
-    // test.
-    expect(V2_CLIENT_SRC).not.toMatch(
-      /data-recommendations-v2-cta="watchlist"/,
-    );
-    expect(V2_CLIENT_SRC).not.toMatch(/#watchlist/);
-  });
 });
