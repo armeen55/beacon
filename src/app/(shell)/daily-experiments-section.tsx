@@ -20,6 +20,7 @@ import {
 import { failureForReason } from "@/domains/diagnostics/operator-failure";
 import { LEVER_LABEL, STATUS_LABEL, moveHeadline, trackingLine } from "./daily-experiments-copy";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { teammateOf } from "@/domains/team/identity";
 
 /** every action reason renders through the shared translator so a raw code can never reach the operator. */
 const reasonCopy = (reason: string | null | undefined): string => failureForReason(reason).message;
@@ -109,11 +110,18 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
         ) : null}
       </div>
       <div style={{ display: "grid", gap: 3 }}>
-        {t.voices.map((v) => (
-          <div key={v.specialist} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
-            <span style={{ fontWeight: 600 }}>{v.label}:</span> {stripBannedDashes(v.claim)}
-          </div>
-        ))}
+        {t.voices.map((v) => {
+          const id = teammateOf(v.specialist);
+          return (
+            <div key={v.specialist} style={{ fontSize: 12.5, lineHeight: 1.45, display: "flex", gap: 6, alignItems: "baseline" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: id.color, display: "inline-block" }} />
+                <span style={{ fontWeight: 600, color: id.text }}>{v.label}:</span>
+              </span>
+              <span>{stripBannedDashes(v.claim)}</span>
+            </div>
+          );
+        })}
         {t.objections.map((o, i) => (
           <div key={`ob-${i}`} style={{ fontSize: 12.5, lineHeight: 1.45, color: "#b45309" }}>
             <span style={{ fontWeight: 600 }}>{o.label} pushed back:</span> {stripBannedDashes(o.reason)}

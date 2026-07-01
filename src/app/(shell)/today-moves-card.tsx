@@ -5,6 +5,7 @@ import Link from "next/link";
 import { respondToRecommendation } from "./recommendation-actions";
 import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-actions";
 import type { TodayMove } from "./today-moves-data";
+import { teammateOf } from "@/domains/team/identity";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 /**
@@ -531,7 +532,10 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           <div className="mt-2 space-y-1.5">
             {m.debate.voices.map((v) => (
               <div key={v.specialist} className="flex items-baseline gap-2 text-[12px]">
-                <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{v.label}</span>
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{ background: teammateOf(v.specialist).bg, color: teammateOf(v.specialist).text }}
+                >{v.label}</span>
                 <span className="text-gray-700">{v.claim}</span>
                 <span className="ml-auto shrink-0 text-[10px] text-gray-400">{v.confidencePct}%</span>
               </div>

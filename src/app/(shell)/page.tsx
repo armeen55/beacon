@@ -13,6 +13,7 @@ import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { currentTenantId } from "@/lib/tenant-context";
 import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection } from "./war-room-sections";
 import { ScoreboardSection } from "./scoreboard-section";
+import { TeamStandup } from "./team-standup";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
@@ -131,6 +132,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   return (
     <div className="space-y-6">
       <PageHeader title={greeting} description={brief} />
+      {/* Item 43: the team, at a glance - each teammate's one-line daily report. */}
+      <Suspense fallback={null}><TeamStandup tenantId={tenantId} picksTonight={picks} /></Suspense>
       <TodayCounts counts={today.counts} />
 
       {/* Item 1-3: THE SCOREBOARD - the line you are trying to move, with your changes on it. */}

@@ -13,7 +13,7 @@
 - [ ]  10 [W1][P0/S] Kill every number that appears without a trend or comparison. A bare "26,569
 - [ ]  11 [W1][P0/L] One card system. Kill the inline-style objects in `daily-experiments-section.tsx`
 - [ ]  12 [W1][P0/M] A real typography scale. Today almost everything is 11 to 13px gray. Define and apply:
-- [ ]  13 [W1][P0/M] Teammate identity system. Each specialist gets a fixed color + small glyph + short
+- [x]  13 [W1][P0/M] Teammate identity system. Each specialist gets a fixed color + small glyph + short
 - [ ]  14 [W3][P1/M] Design the roundtable like a real conversation: avatar chip on the left, claim as a
 - [ ]  15 [W3][P1/M] Motion pass: streamed sections fade+rise in (Suspense boundaries already exist),
 - [ ]  16 [W3][P1/S] Celebrate wins. When a verdict flips to won, the Results row and the Today recap get
@@ -43,7 +43,7 @@
 - [ ]  40 [W3][P2/M] The Strategist voice gets a memory: reference the operator's own history ("You
 - [x]  41 [W1][P0/M] Reorder Today into a story: 1 Scoreboard chart, 2 "Tonight" (the team's batch),
 - [x]  42 [W1][P0/S] Personal greeting + daily brief line: "Tuesday, Jul 1. The team reviewed 42 pages
-- [ ]  43 [W1][P0/M] Team standup strip: a horizontal row of the 7 teammate identity chips, each with its
+- [x]  43 [W1][P0/M] Team standup strip: a horizontal row of the 7 teammate identity chips, each with its
 - [ ]  44 [W3][P1/S] Batch progress bar: "Tonight: 2 of 6 applied" with a segmented bar on the daily
 - [ ]  45 [W1][P0/S] Rewrite the hero copy jargon: "These 35 pages are controls for active experiments"
 - [ ]  46 [W2][P1/S] War-room band headers get counts + freshness: "Visitor behavior found friction (4
