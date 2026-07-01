@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-07-01 — Phase 2 slice E-1 (keyword-research evidence on the daily card) + DataForSEO flipped LIVE
+
+**What changed (commit `2b3c675d`, branch `claude/daily-experiments-native`):** the daily move card's "How we know" expander now shows the KEYWORD RESEARCH behind the move — the page's top searches with real DataForSEO monthly volume + paid-**competition** level (labeled "competition", never "difficulty"/"KD", because DataForSEO exposes competition, not a difficulty score).
+- New pure `src/domains/experiments/daily-evidence-brief.ts` (`buildKeywordBrief`): builds up to 6 keyword rows (term / volume / competition) from a page's queries + a cached-demand map; returns null when NO query has cached demand (card degrades to exactly what it showed before); `addressableVolume` sums only known volumes.
+- Carried `evidenceBrief?` through `BuiltCandidate` → `PlannedExperimentRecord` → `build-daily-plan-record` (type-only import, no runtime cycle).
+- `build-today-preview.ts` reads `readAllCachedKeywordDemand()` ($0 cache read, no spend), indexes by lowercased term, and attaches a brief per selected move from the page's top-8 GSC queries.
+- `daily-experiments-section.tsx`: guarded `KeywordResearch` block rendered inside the existing "How we know" details. No em dashes.
+
+**DataForSEO flipped LIVE (operator funded + authorized "go live within the $50/mo cap"):** `.env.local` already had `DATAFORSEO_DRY_RUN=false`, cap `$50` fail-closed. Ran ONE capped keyword-volume call over Iranopedia's 180 highest-impression real GSC queries → **status=ok, cost $0.0750, 167/180 terms with real volume** (tehran 246k/mo, iran flag 135k/mo low; world-cup product page HIGH competition). The keyword cache is a global json-store persisted to Supabase (40 → 214 terms), so the deployed app reads the same real demand. (Ledger attributed the $0.075 to `tenant-ritz-founder` — a cosmetic artifact of the headless run having no request tenant context; it is the operator's own single account either way.)
+
+**Verified:** `npm run typecheck` 0 · `daily-evidence-brief.test.ts` 6 new + `build-daily-candidates` + `daily-llm-enrich` = 24 green · end-to-end on real Iranopedia data (readAllCachedKeywordDemand → buildKeywordBrief over real top queries) = **12/12 top pages produce a correct brief**. The JSX render is a guarded conditional inside the already-shipped `<details>` expander (typecheck + data-path verified); no live Iranopedia browser screenshot this turn (dev default tenant is Ritz, which has no cached demand, so a screenshot needs a manual `BEACON_TENANT_ID=tenant-iranopedia` spin-up + an LLM plan generation). No proof rows or measuring experiments mutated. **Remaining E:** live top-10 SERP reaction + competitor teardown ("what to steal") in the same brief (E-2). Then Phase 1d (/worklist brief), Phase 3 (friction fixes), app-wide dash sweep.
+
+---
+
 ## 2026-07-01 — Phase 2 slices D-2 (writes missing answers) + D-3 (inline edit, approve-before-live) + honesty verification
 
 **Full honesty gate (operator asked to double-check everything):** clean-shell `npm run typecheck` 0 + `npm run test` = **936 files, 15,666 passed / 71 skipped / 0 failed**. Git truth: all Assistant-First commits are on branch `claude/daily-experiments-native`, pushed, NONE merged to main (nothing on prod yet). Live data unchanged: 25 proof rows, the 6 edits still MEASURING, 25 controls active (zero production writes this session). Browsed `/worklist` on the `beacon-iranopedia` dev server: the friendly card renders correctly on real data. Fixed 3 browse findings (card paste normalized to hyphens, empty "Why it wins" guarded, page-intro em dashes) + the SERP-verdict em dashes; flagged ~511 files of app-wide visible dashes as a separate tracked sweep (not overclaimed as done).
