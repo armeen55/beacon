@@ -43,6 +43,10 @@ export type PlannedExperimentRecord = {
   draftSource?: "deterministic" | "llm";
   /** LLM-only: one plain-English line on why this wording, shown under the paste box. */
   llmRationale?: string;
+  /** Slice E: keyword-research evidence for the "how we know" expander (the page's top searches +
+   *  their cached DataForSEO volume + paid-competition level). Absent when no cached demand exists.
+   *  Type lives in ./daily-evidence-brief (type-only import — no runtime cycle). */
+  evidenceBrief?: import("./daily-evidence-brief").DailyEvidenceBrief;
 
   currentText: string;
   proposedText: string;

@@ -23,6 +23,7 @@ import { pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
 import { proposeSafeMeta } from "./safe-meta";
 import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
 import { proposeSafeAnswerBlock, buildWrittenAnswerProposal, type SafeAnswerBlockProposal } from "./safe-answer-block";
+import type { DailyEvidenceBrief } from "./daily-evidence-brief";
 
 export type PageFacts = {
   title: string | null;
@@ -81,6 +82,10 @@ export type BuiltCandidate = DailyCandidate & {
   draftSource?: "deterministic" | "llm";
   /** LLM-only: one plain-English line on why this wording (shown as "Beacon wrote this" context). */
   llmRationale?: string;
+  /** Slice E: the keyword-research evidence ("how we know") — the page's top searches + their cached
+   *  DataForSEO demand. Attached by the caller (build-today-preview) from a $0 cached read; absent when
+   *  no cached demand exists for the page. */
+  evidenceBrief?: DailyEvidenceBrief;
 };
 
 const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };

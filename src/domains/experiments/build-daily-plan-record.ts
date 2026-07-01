@@ -67,6 +67,7 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
     whyNow: c.whyNow,
     draftSource: c.draftSource ?? "deterministic",
     llmRationale: c.llmRationale,
+    evidenceBrief: c.evidenceBrief,
     currentText: c.currentText,
     proposedText: c.proposedText,
     placement: placementOf(c),

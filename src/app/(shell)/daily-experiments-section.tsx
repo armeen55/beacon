@@ -60,6 +60,32 @@ function WrittenByBeacon({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
+/** The keyword-research evidence: the page's top searches + how much real demand each has. Shown only
+ *  when Beacon has cached DataForSEO demand for the page (label "competition", never "difficulty"). */
+function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
+  const brief = e.evidenceBrief;
+  if (!brief || brief.keywords.length === 0) return null;
+  const withData = brief.keywords.filter((k) => k.volume != null || k.competition != null);
+  if (withData.length === 0) return null;
+  return (
+    <div>
+      <span style={{ opacity: 0.6 }}>Keyword research: </span>
+      {brief.addressableVolume != null
+        ? `about ${brief.addressableVolume.toLocaleString()} searches a month across these`
+        : "real search demand behind this"}
+      <div style={{ marginTop: 4, display: "grid", gap: 2 }}>
+        {withData.map((k) => (
+          <div key={k.term} style={{ fontSize: 12.5, opacity: 0.9 }}>
+            <span style={{ fontWeight: 600 }}>{k.term}</span>
+            {k.volume != null ? ` — ${k.volume.toLocaleString()}/mo` : " — no volume on record"}
+            {k.competition ? `, ${k.competition} competition` : ""}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** The optional depth: the search, the current state, the comparison pages, the measurement plan. */
 function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string }) {
   const detailLine =
@@ -71,6 +97,7 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
       <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.65 }}>How we know</summary>
       <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85, display: "grid", gap: 4 }}>
         <div><span style={{ opacity: 0.6 }}>The search people use: </span>“{e.targetQuery}”</div>
+        <KeywordResearch e={e} />
         <div><span style={{ opacity: 0.6 }}>On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
         {detailLine && <div>{detailLine}</div>}
         {e.controls.length > 0 && (

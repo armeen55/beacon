@@ -21,6 +21,8 @@ import { classifyQueryIntent } from "./answer-intent";
 import { proposeAnswerGap } from "./safe-answer-block";
 import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
 import { draftAtomicEditStructured, draftAnswerBlockStructured } from "@/domains/llm/structured-drafter";
+import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { buildKeywordBrief, type CachedDemand } from "./daily-evidence-brief";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -38,11 +40,20 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
+    // Slice E: $0 cached DataForSEO keyword demand (volume + paid-competition) for the "how we know"
+    // brief. Cache-only read (no call, no spend); empty until a live keyword run populates it.
+    readAllCachedKeywordDemand().catch(() => []),
   ]);
+
+  // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence.
+  const demandByTerm = new Map<string, CachedDemand>();
+  for (const k of keywordDemand) {
+    demandByTerm.set(k.keyword.toLowerCase(), { volume: k.searchVolume, competition: k.competitionLevel });
+  }
 
   // Facts from Beacon's own cached crawl ($0, no live fetch).
   const factsByPath = new Map<string, PageFacts>();
@@ -75,16 +86,20 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // (the searcher's dominant question) so the LLM "write it" pass can draft the RIGHT answer type.
   const inputs: GscPageInput[] = [];
   const intentByUrl = new Map<string, string | undefined>();
+  // Each page's top searches (impression-sorted) — the query set the keyword-research brief looks up.
+  const queriesByUrl = new Map<string, string[]>();
   for (const s of signals.values()) {
     if (ANIMAL.test(s.page)) continue;
-    const tq = [...s.topQueries].sort((a, b) => b.impressions - a.impressions)[0];
+    const sortedQueries = [...s.topQueries].sort((a, b) => b.impressions - a.impressions);
+    const tq = sortedQueries[0];
     if (!tq || s.impressions90d < 200 || s.position90d < 3 || s.position90d > 50) continue;
     inputs.push({
       url: s.page, pageLabel: labelOf(s.page), impressions: s.impressions90d, clicks: s.clicks90d, ctr: s.ctr90d, position: s.position90d,
       topQuery: tq.query, topQueryImpressions: tq.impressions, topQueryPosition: tq.position, topQueryCtr: tq.ctr,
       ownership: s.impressions90d > 0 ? tq.impressions / s.impressions90d : 0,
     });
-    intentByUrl.set(s.page, classifyQueryIntent([...s.topQueries].map((q) => ({ query: q.query, impressions: q.impressions })))?.dominant);
+    intentByUrl.set(s.page, classifyQueryIntent(sortedQueries.map((q) => ({ query: q.query, impressions: q.impressions })))?.dominant);
+    queriesByUrl.set(s.page, sortedQueries.slice(0, 8).map((q) => q.query));
   }
   inputs.sort((a, b) => (b.topQueryImpressions / Math.max(1, b.topQueryPosition)) - (a.topQueryImpressions / Math.max(1, a.topQueryPosition)));
 
@@ -158,6 +173,14 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     return r.status === "drafted" ? { text: r.value.after, rationale: r.value.rationale } : null;
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
+
+  // Slice E: attach the keyword-research evidence (the page's top searches + cached DataForSEO demand)
+  // to each selected move for the card's "how we know" expander. $0 (cached lookup only); the brief is
+  // null (omitted) when no cached demand exists for the page, so the card degrades gracefully.
+  for (const c of selected) {
+    const brief = buildKeywordBrief(queriesByUrl.get(c.url) ?? [c.targetQuery], demandByTerm);
+    if (brief) c.evidenceBrief = brief;
+  }
 
   const record = buildDailyPlanRecord({
     tenantId, date: now.toISOString().slice(0, 10), now, selected, backups,
