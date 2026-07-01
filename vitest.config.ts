@@ -56,6 +56,42 @@ export default defineConfig({
       // Tests that exercise the enabled paths stub the env themselves.
       BEACON_LLM_PROVIDER: "deterministic",
       BEACON_CROSS_TENANT_BRAIN: "",
+      // 2026-06-30 hermetic-test fix (Move 7). `npm run test` must give the
+      // SAME result whether or not the operator sourced `.env.local` first.
+      // vitest does NOT auto-load `.env.local`, but if a shell sourced it the
+      // ambient DATAFORSEO_* / GOOGLE_* / auth creds leak into process.env and
+      // flip ~5 "off-by-default"/auth tests (serp-provider returns a live SERP,
+      // the Google OAuth callback takes a configured path, tenant-switch
+      // short-circuits to "/" under BEACON_AUTH_DISABLED). Blanking them here
+      // (vitest `env` overrides process.env at setup) pins the CI-clean baseline
+      // regardless of the shell. UNCONDITIONAL — kept blank even under
+      // BEACON_LIVE_DB_TESTS=1 so a live-DB integration run still can NEVER fire
+      // a paid DataForSEO/OpenAI call or hit a real OAuth exchange. Tests that
+      // exercise these paths pass the env explicitly (function args) or
+      // `vi.stubEnv(...)`, which overrides these blanks for that test only.
+      // Paid / SERP credentials:
+      DATAFORSEO_AUTH_B64: "",
+      DATAFORSEO_LOGIN: "",
+      DATAFORSEO_PASSWORD: "",
+      DATAFORSEO_DRY_RUN: "",
+      DATAFORSEO_MONTHLY_CAP_USD: "",
+      BEACON_SERP_PROVIDER: "",
+      OPENAI_API_KEY: "",
+      PERPLEXITY_API_KEY: "",
+      // Google OAuth / connector credentials:
+      GOOGLE_CLIENT_ID: "",
+      GOOGLE_CLIENT_SECRET: "",
+      BEACON_OAUTH_STATE_SECRET: "",
+      // Supabase management + anon creds (data-plane URL/service-role already
+      // blanked above under the live-DB guard):
+      SUPABASE_MGMT_TOKEN: "",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
+      // Auth / operator flags that alter redirect + gating behavior:
+      BEACON_AUTH_DISABLED: "",
+      BEACON_OPERATOR_MODE: "",
+      // Misc local-dev flags that must not leak into deterministic tests:
+      BEACON_LLM_WHY: "",
+      NEXT_PUBLIC_APP_URL: "",
     },
   },
 });
