@@ -223,7 +223,7 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
       break;
     case "early_checkpoint":
       headline = direction === "positive" ? "Early positive signal" : direction === "negative" ? "Early negative signal" : "Too early to call";
-      explanation = `7-day signal — directional only.${finalCheckpoint ? ` Final checkpoint opens ${finalCheckpoint}.` : ""}`;
+      explanation = `7-day signal, directional only.${finalCheckpoint ? ` Final checkpoint opens ${finalCheckpoint}.` : ""}`;
       tone = direction === "positive" ? "progress" : direction === "negative" ? "progress" : "neutral";
       break;
     case "interim_checkpoint":
@@ -249,7 +249,7 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
       break;
     case "attribution_limited":
       headline = direction === "positive" ? "Directional (overlapping edit)" : direction === "negative" ? "Directional (overlapping edit)" : "Directional only";
-      explanation = "Another change on this page overlaps this measurement, so attribution is weakened — read as directional.";
+      explanation = "Another change on this page overlaps this measurement, so attribution is weakened; read as directional.";
       tone = "neutral";
       break;
   }

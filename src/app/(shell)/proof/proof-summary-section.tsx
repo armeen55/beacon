@@ -81,7 +81,7 @@ export async function ProofSummarySection() {
       <div>
         <h2 className="text-xl font-bold tracking-tight text-gray-900">Proof at a glance</h2>
         <p className="mt-1 max-w-xl text-sm text-gray-500">
-          What your shipped changes actually drove — re-measured against Search Console vs control pages.
+          What your shipped changes actually drove, re-measured against Search Console vs control pages.
           Only changes that reach the full 28-day window count as final results; the rest are still measuring.
         </p>
       </div>
@@ -94,14 +94,14 @@ export async function ProofSummarySection() {
       </div>
       {counts.attributionLimited > 0 ? (
         <p className="mt-3 text-xs text-amber-700">
-          {counts.attributionLimited} measurement{counts.attributionLimited === 1 ? "" : "s"} are directional only —
-          another edit overlapped the same page, so attribution is weakened.
+          {counts.attributionLimited} measurement{counts.attributionLimited === 1 ? "" : "s"} are directional only,
+          because another edit overlapped the same page, so attribution is weakened.
         </p>
       ) : null}
 
       {matureTotal === 0 ? (
         <p className="mt-4 text-sm text-gray-500">
-          No mature results yet — your active changes are still collecting data. Search Console needs the full
+          No mature results yet. Your active changes are still collecting data. Search Console needs the full
           28-day window before a final verdict lands.
         </p>
       ) : wins.length > 0 ? (
@@ -128,7 +128,7 @@ export async function ProofSummarySection() {
         </div>
       ) : (
         <p className="mt-4 text-sm text-gray-500">
-          {matureTotal} mature {matureTotal === 1 ? "result" : "results"} so far — none cleared the win bar.
+          {matureTotal} mature {matureTotal === 1 ? "result" : "results"} so far. None cleared the win bar.
         </p>
       )}
     </section>

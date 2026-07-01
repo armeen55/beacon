@@ -33,8 +33,10 @@ const DISPLAY_SURFACES = [
   "src/app/(shell)/workbench/copy-button.tsx",
   "src/app/(shell)/today-v2-data.ts",
   "src/app/(shell)/changes/page.tsx",
+  "src/app/(shell)/changes/changes-v2-client.tsx",
   "src/app/(shell)/changes/proof-ledger-strip.tsx",
   "src/app/(shell)/proof/page.tsx",
+  "src/app/(shell)/proof/proof-summary-section.tsx",
   "src/app/(shell)/proof/proof-ledger-client.tsx",
   "src/app/(shell)/opportunities/page.tsx",
   "src/components/recommendations/v2/recommendation-v2-card.tsx",
@@ -47,6 +49,7 @@ const DISPLAY_SURFACES = [
   "src/domains/insight/connection-health.ts",
   "src/domains/insight/page-primary.ts",
   "src/domains/proof-gsc/measure.ts",
+  "src/domains/proof-gsc/measurement-maturity.ts",
   // 2026-06-20 trust-fix 3: the customer/operator prose surfaces the product
   // audit found leaking ~120 em/en dashes (settings/connectors, today/home,
   // connections, recs feeders). Swept + locked here against regression.

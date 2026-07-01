@@ -378,7 +378,7 @@ function ChangesV2EmptyState({ proofLedgerCount }: { proofLedgerCount: number })
     >
       <p className="text-[14px] font-semibold text-foreground">
         {hasTracked
-          ? `${proofLedgerCount} change${proofLedgerCount === 1 ? "" : "s"} tracked above — measuring now.`
+          ? `${proofLedgerCount} change${proofLedgerCount === 1 ? "" : "s"} tracked above, measuring now.`
           : "No changes yet."}
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
