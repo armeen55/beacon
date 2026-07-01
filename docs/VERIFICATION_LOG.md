@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-30 — Move 6: full test suite + offline build GENUINELY GREEN (from a 53/57-failure baseline to 0)
+
+**What changed — a bounded trust-cleanup that takes the full suite to 0 failures and makes `npm run build` work with no network. No features, no redesign.**
+
+- **Establish truth (clean-env is CI-equivalent).** The prior "53–58 failing" number depended on how the suite ran: sourcing `.env.local` before `npm run test` leaked `DATAFORSEO_*`/`GOOGLE_*` into `process.env` and flipped 5 "off-by-default"/auth tests (serp-provider, google callback, tenant-switch). vitest does NOT auto-load `.env.local`, so a plain `npm run test` (the CI path) is the real target: **53 failures across 31 files.** Classified every one (real bug / stale pin / deleted-surface contract / count drift / SEMrush-removal fallout / offline-font) via a 7-agent parallel investigation + direct verification.
+- **Offline build (§3).** `src/app/layout.tsx` fetched Geist + Geist Mono from `fonts.gstatic.com` via `next/font/google` → build failed with no network. Switched to the bundled **`geist` package** (ships woff2 locally, resolves via `next/font/local`); `globals.css` aliases `--font-geist-sans/-mono` → `--font-sans/-mono`. Identical typeface, zero visual change. **`npm run build` now passes offline (`✓ Compiled successfully`), zero `next/font/google` imports remain.**
+- **Real product-code fixes (not tests):** restored `createPerfTrace` on the Move-5 homepage loader (the perf-observability invariant); killed banned em/en dashes in production copy — `proof/page.tsx` (7), `insight/connection-health.ts` (1), `settings/connectors/connectors-client.tsx` (2), `proof-summary-section.tsx` (3), `measurement-maturity.ts` (2), `changes/changes-v2-client.tsx` (1); removed a **"Profound" vendor-name leak** on the customer page-opportunity brief (say "AI answers"). Added `proof-summary-section` + `measurement-maturity` + `changes-v2-client` to the no-banned-dash guard so they can't regress.
+- **Stale/obsolete test fixes (code verified correct first, never a weakened assertion):** updated the pins that assert the OLD Today (single-Cockpit streaming shell, `max-w-3xl`, inline skeleton) + the OLD `/recommendations` render path (now a redirect — the freshness/loader invariants stay pinned one layer down at `load-queue.ts` for `/recommendations/[id]` + `/worklist`); synced nav-exposure + nav-prefetch to the consolidated 8-route sidebar; retired 4 obsolete-contract test files that only `readFileSync` deleted surfaces (edit-outcomes-tile-vocab, off-site-recommendations-section ×2, recs-resolver-debug-panel); edited 3 mixed pins to keep their live half + drop only the deleted-file reads; SEMrush-connector fallout (5 files: connector genuinely deleted, no prod importers) → drop the semrush card/refresh-source/sync-case/keyword-fallback; count/registry drift → schema registry `internal_link` added, trigger `predicates_run` is 14 post-SEMrush (was pinned 17), build-graph GA4 test moved off deprecated `ga4Value` to the current `revenueValue`+`revenueMultiplier` API (scoring code unchanged); competitors/page.tsx reads no business-config → removed from the tenant-aware allowlist; synced `ARCHITECTURE_INVARIANTS_CATALOG.md` (222 rows == 222 on-disk).
+
+**Tested (final gates):**
+- `npx tsc --noEmit` → **0 errors**.
+- Full `npm run test` (clean env) → **15,632 passed / 71 skipped / 0 FAILED** (933 files). Baseline was 53 failing.
+- `npm run build` → **`✓ Compiled successfully` OFFLINE** (no gstatic/font fetch).
+- **Focused visual smoke** (dev server, real Iranopedia, operator mode): `/` (Today), `/worklist` (Changes), `/proof` (Results) all render `200` with **zero console errors** and **zero static-copy banned dashes** (data-driven dashes — year ranges, operator notes — left intact as tenant content).
+- **Data integrity (before + after): 19 proof rows · 0 reservations · plans preview/expired.** Move 6 wrote no data (test/config/copy/font only).
+
+**Tests changed vs product bugs fixed:** ~24 test files updated/retired (stale pins, deleted-surface contracts, count/registry drift, SEMrush fallout) + 4 deleted; product-code fixes = 1 perf-trace restore + 16 banned-dash copy fixes across 6 files + 1 Profound leak + the offline-font swap. **No meaningful auth / tenant-isolation / connector / SERP / GA4 / proof assertion was weakened** — SERP/auth "failures" were env-contamination artifacts (already CI-green); every removal corresponds to a genuinely deleted surface.
+
+---
+
 ## 2026-06-30 — Today "/" folded into CanonicalChange + FULL-SUITE HONESTY BASELINE (Finalization Program, Move 5 + Moves 1–5 close)
 
 **What changed — the homepage is now a pure read model over the same CanonicalChange the /worklist uses; the last duplicate "what should I do?" surfaces collapse.**
