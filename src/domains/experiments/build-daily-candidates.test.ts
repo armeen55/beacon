@@ -139,4 +139,39 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     expect(c.suggestedControls.every((s) => s.pageFamilyMatch)).toBe(true);
     expect(c.enoughControls).toBe(true);
   });
+
+  it("D-2: emits an LLM-WRITTEN answer_block candidate for an answer GAP (add_new_text, draftSource llm)", () => {
+    // Good meta + good title (no meta/title lever) + a WHEN query the body does not answer (only a
+    // definition) = an answer gap. With an LLM-written answer supplied, emit an add-a-new-line candidate.
+    const pages = [gsc({ url: "/chaharshanbe-suri", topQuery: "chaharshanbe suri 2026", impressions: 1200, topQueryPosition: 6 })];
+    const f = facts({ "/chaharshanbe-suri": {
+      title: "Chaharshanbe Suri", meta: "Chaharshanbe Suri is the Persian festival of fire celebrated before Nowruz each spring.", h1: "Chaharshanbe Suri",
+      bodyParagraphs: [
+        "Families across Iran prepare for the evening with snacks, music, and gatherings.",
+        "Chaharshanbe Suri is a traditional Persian festival of fire rooted in ancient custom.", // definition, no date
+      ],
+    } });
+    const written = new Map([["/chaharshanbe-suri", { text: "Chaharshanbe Suri 2026 falls on Tuesday, March 17, the last Tuesday eve before Nowruz.", question: "When is Chaharshanbe Suri?" }]]);
+    const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], writtenAnswersByUrl: written, now: NOW });
+    expect(c.leverField).toBe("answer_block");
+    expect(c.answerDetail?.operation).toBe("add_new_text");
+    expect(c.proposedText).toContain("March 17");
+    expect(c.draftSource).toBe("llm");
+  });
+
+  it("D-2: does NOT emit a written answer when the page has no gap (extractive answer exists)", () => {
+    const pages = [gsc({ url: "/finglish", topQuery: "finglish", impressions: 1200 })];
+    const f = facts({ "/finglish": {
+      title: "Finglish", meta: "Finglish is Persian written in the Latin alphabet, a quick guide for texting.", h1: "Finglish",
+      bodyParagraphs: [
+        "People all over the world type Persian on phones and keyboards every single day now.",
+        "Finglish is Persian written using the English alphabet, common in texting and chats.", // extractive answer exists
+      ],
+    } });
+    // A written answer is offered, but the extractive answer wins (move), so no add_new_text.
+    const written = new Map([["/finglish", { text: "Finglish is texting Persian in Latin letters.", question: "What is Finglish?" }]]);
+    const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], writtenAnswersByUrl: written, now: NOW });
+    expect(c.answerDetail?.operation).toBe("move_existing_text");
+    expect(c.draftSource).toBeUndefined();
+  });
 });

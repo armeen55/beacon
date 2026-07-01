@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { proposeSafeAnswerBlock, checkAnswerFactualSafety, entityHead } from "./safe-answer-block";
+import { proposeSafeAnswerBlock, proposeAnswerGap, buildWrittenAnswerProposal, checkAnswerFactualSafety, entityHead } from "./safe-answer-block";
 
 describe("checkAnswerFactualSafety — the no-fabrication / no-volatile firewall", () => {
   it("passes a clean historical/definitional sentence", () => {
@@ -149,5 +149,45 @@ describe("proposeSafeAnswerBlock — extractive, surfaces a BURIED exact answer"
     expect(r).toBeTruthy();
     expect(r!.sentenceIndex).toBeGreaterThan(0);
     expect(r!.operation).toBe("copy_existing_text");
+  });
+});
+
+describe("proposeAnswerGap (D-2) — detect a page that needs a WRITTEN answer", () => {
+  it("flags a WHEN gap when the page has only a definition (no date), with the right question + intent", () => {
+    const gap = proposeAnswerGap({ label: "chaharshanbe suri", h1: "Chaharshanbe Suri", topQuery: "chaharshanbe suri 2026", bodyParagraphs: [
+      "Families across Iran prepare for the evening with snacks, music, and gatherings.",
+      "Chaharshanbe Suri is a traditional Persian festival of fire rooted in ancient custom.", // definition, not a date
+    ] });
+    expect(gap).not.toBeNull();
+    expect(gap!.intent).toBe("when");
+    expect(gap!.question).toBe("When is Chaharshanbe Suri?");
+  });
+
+  it("returns null when an extractive answer already exists (the extractive lever handles it)", () => {
+    const gap = proposeAnswerGap({ label: "finglish", h1: "Finglish", topQuery: "finglish", bodyParagraphs: [
+      "Persian speakers around the world use many writing systems online.",
+      "Finglish is Persian written using the English alphabet, common in texting.", // a buried definition (extractive)
+    ] });
+    expect(gap).toBeNull();
+  });
+
+  it("returns null when the page already LEADS with an intent-matching answer", () => {
+    const gap = proposeAnswerGap({ label: "chaharshanbe suri", h1: "Chaharshanbe Suri", topQuery: "chaharshanbe suri 2026", bodyParagraphs: [
+      "Chaharshanbe Suri is celebrated on the evening of Tuesday, March 17, 2026.", // already answers WHEN at the top
+      "Families gather for the fire festival.",
+    ] });
+    expect(gap).toBeNull();
+  });
+});
+
+describe("buildWrittenAnswerProposal (D-2) — an LLM-written answer to ADD (not move)", () => {
+  it("uses the add_new_text operation with an ADD instruction and passes factual safety", () => {
+    const wa = buildWrittenAnswerProposal({ question: "When is Chaharshanbe Suri?", writtenText: "Chaharshanbe Suri 2026 falls on Tuesday, March 17." });
+    expect(wa.operation).toBe("add_new_text");
+    expect(wa.supportMode).toBe("written_answer");
+    expect(wa.proposedLocation).toBe("below_h1");
+    expect(wa.answerText).toContain("March 17");
+    expect(wa.exactInstruction).toContain("ADD");
+    expect(wa.factualSafety.passed).toBe(true);
   });
 });

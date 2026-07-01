@@ -9,7 +9,7 @@
  * emit nothing. PURE, $0, no live fetch.
  */
 
-import { classifyOneQuery, scoreAnswerForIntent } from "./answer-intent";
+import { classifyOneQuery, scoreAnswerForIntent, type QueryIntent } from "./answer-intent";
 
 // Body-paragraph source is in DOCUMENT ORDER (extractor.ts: contentRoot.find("p").each).
 const COPULA = /\b(is|are|was|were|refers to|describes|denotes|means|consists of)\b/i;
@@ -97,8 +97,8 @@ export type SafeAnswerBlockProposal = {
   sourceSentence: string;
   paragraphIndex: number;
   sentenceIndex: number;
-  operation: "move_existing_text" | "copy_existing_text";
-  supportMode: "exact_sentence";
+  operation: "move_existing_text" | "copy_existing_text" | "add_new_text";
+  supportMode: "exact_sentence" | "written_answer";
   proposedLocation: "below_h1";
   exactInstruction: string;
   rollbackInstruction: string;
@@ -178,5 +178,84 @@ export function proposeSafeAnswerBlock(input: {
     question, answerText: sent, sourceSentence: sent, paragraphIndex: pi, sentenceIndex: si,
     operation, supportMode: "exact_sentence", proposedLocation: "below_h1",
     exactInstruction, rollbackInstruction, factualSafety, fetchedAt: input.fetchedAt,
+  };
+}
+
+/** A page that LACKS an on-page answer to what people actually search — the LLM should WRITE one. */
+export type AnswerGap = {
+  /** The plain question the page should answer first (e.g. "When is Chaharshanbe Suri?"). */
+  question: string;
+  /** The dominant intent (when/cost/how/…) the written answer must satisfy. */
+  intent: QueryIntent;
+  /** The clean entity label (for grounding + display). */
+  entity: string;
+};
+
+const INTENT_QUESTION: Record<QueryIntent, (e: string) => string> = {
+  when: (e) => `When is ${e}?`,
+  cost: (e) => `How much does ${e} cost?`,
+  how: (e) => `How do you do ${e}?`,
+  where: (e) => `Where is ${e}?`,
+  who: (e) => `Who is ${e}?`,
+  list: (e) => `What are the best ${e}?`,
+  compare: (e) => `${e}: what is the difference?`,
+  what: (e) => `What is ${e}?`,
+};
+
+/**
+ * Detect an ANSWER GAP: the page has a clear entity + demand, but no firewall-clean on-page sentence
+ * answers the top query's intent AND it does not already lead with such an answer. Returns the
+ * question + intent the LLM should WRITE (grounded in the page body), which the operator approves
+ * before it goes live. Returns null when the page already answers well (the extractive lever handles
+ * it) or there is no usable entity/body. PURE, $0 — the LLM write happens in the async caller.
+ */
+export function proposeAnswerGap(input: {
+  label: string;
+  h1: string | null;
+  topQuery: string;
+  bodyParagraphs: string[];
+}): AnswerGap | null {
+  const entity = (input.h1 || input.label).replace(/\s*(?:[|·•\-–—].*|\bby\b\s+[A-Z].*)$/, "").trim() || input.label;
+  const head = entityHead(input.h1 && entityHead(input.h1) ? input.h1 : input.label) ?? entityHead(input.label);
+  if (!head || !entity) return null;
+  const paras = input.bodyParagraphs.map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p.length >= 40);
+  if (paras.length === 0) return null;
+
+  const intent = classifyOneQuery(input.topQuery);
+  // Already leads with an intent-matching answer? no gap (the top of the page is fine).
+  const firstSent = sentences(paras[0])[0] ?? "";
+  if (firstSent && scoreAnswerForIntent(firstSent, intent) >= INTENT_MIN_FIT) return null;
+  // A buried extractive answer exists? the extractive lever handles it — not a write gap.
+  if (proposeSafeAnswerBlock(input)) return null;
+
+  return { question: INTENT_QUESTION[intent](entity), intent, entity };
+}
+
+/**
+ * Build an "add a written answer" proposal from an LLM-written sentence (the daily batch's D-2 path).
+ * The operation is add_new_text: the operator ADDS this new short answer line below the H1 (there is
+ * no source sentence to move). Verification is identical to the extractive case (the text must appear
+ * as a near-top content paragraph), so no verifier change is needed. The written text was already
+ * numeric-fidelity + safety firewalled by the structured drafter at write time.
+ */
+export function buildWrittenAnswerProposal(args: {
+  question: string;
+  writtenText: string;
+  fetchedAt?: string;
+}): SafeAnswerBlockProposal {
+  const t = args.writtenText.trim();
+  return {
+    question: args.question,
+    answerText: t,
+    sourceSentence: t,
+    paragraphIndex: -1,
+    sentenceIndex: -1,
+    operation: "add_new_text",
+    supportMode: "written_answer",
+    proposedLocation: "below_h1",
+    exactInstruction: `Wix CMS → page body → ADD this new short answer line directly below the H1 (above the first paragraph): "${t}". Do not change the title, meta, H1, other body, links, or schema.`,
+    rollbackInstruction: `Delete the answer line you added below the H1.`,
+    factualSafety: { passed: true, reasons: ["written by the LLM under the numeric-fidelity and safety firewall at draft time"], volatileClaims: [], superlatives: [], unsupportedNumbers: [], unsupportedNames: [] },
+    fetchedAt: args.fetchedAt,
   };
 }

@@ -18,8 +18,9 @@ import { buildLinkDestinations, toLinkPath } from "./safe-internal-link";
 import { buildDailyPlanRecord } from "./build-daily-plan-record";
 import type { DailyExperimentPlanRecord } from "./daily-plan-types";
 import { classifyQueryIntent } from "./answer-intent";
+import { proposeAnswerGap } from "./safe-answer-block";
 import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
-import { draftAtomicEditStructured } from "@/domains/llm/structured-drafter";
+import { draftAtomicEditStructured, draftAnswerBlockStructured } from "@/domains/llm/structured-drafter";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -90,7 +91,40 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const facts = new Map<string, PageFacts>();
   for (const p of inputs) { const f = factsByPath.get(pathOf(p.url)); if (f) facts.set(p.url, f); }
 
-  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations });
+  // D-2: LLM-WRITTEN answers for pages with an answer GAP (no on-page answer for the real intent, e.g.
+  // the chaharshanbe date). Grounded in the page body + the searcher's intent; the drafter's
+  // numeric-fidelity firewall blocks any fabricated date/number, and the operator approves before it
+  // goes live. Capped to the top pages by demand (inputs is demand-sorted) so cost stays bounded;
+  // OpenAI only, off unless BEACON_LLM_PROVIDER=openai. Fails soft (no write -> honest gap remains).
+  const ANSWER_WRITE_CAP = 6;
+  const writtenAnswersByUrl = new Map<string, { text: string; question: string }>();
+  const gapPages = inputs
+    .map((p) => ({ p, f: facts.get(p.url) }))
+    .filter((x): x is { p: GscPageInput; f: PageFacts } => !!x.f)
+    .map((x) => ({ ...x, gap: proposeAnswerGap({ label: x.p.pageLabel, h1: x.f.h1, topQuery: x.p.topQuery, bodyParagraphs: x.f.bodyParagraphs ?? [] }) }))
+    .filter((x) => x.gap != null)
+    .slice(0, ANSWER_WRITE_CAP);
+  await Promise.all(
+    gapPages.map(async ({ p, f, gap }) => {
+      try {
+        const res = await draftAnswerBlockStructured({
+          query: p.topQuery,
+          pageLabel: p.pageLabel,
+          brief: gap!.question,
+          outline: (f.bodyParagraphs ?? []).slice(0, 8),
+          faqs: [],
+          intent: gap!.intent,
+        });
+        if (res.status === "drafted" && res.value.answer?.trim()) {
+          writtenAnswersByUrl.set(p.url, { text: res.value.answer.trim(), question: gap!.question });
+        }
+      } catch {
+        /* fail soft: no written answer for this page -> the honest gap remains */
+      }
+    }),
+  );
+
+  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl });
 
   // Move 4 — RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
   // the deterministic review (page-query intent fit, action↔goal incl. year-intent, copy

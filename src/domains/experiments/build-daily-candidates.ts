@@ -22,7 +22,7 @@ import {
 import { pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
 import { proposeSafeMeta } from "./safe-meta";
 import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
-import { proposeSafeAnswerBlock, type SafeAnswerBlockProposal } from "./safe-answer-block";
+import { proposeSafeAnswerBlock, buildWrittenAnswerProposal, type SafeAnswerBlockProposal } from "./safe-answer-block";
 
 export type PageFacts = {
   title: string | null;
@@ -129,8 +129,17 @@ type Proposal = {
   /** The query the change actually serves (may differ from the GSC top query — e.g. an evergreen
    *  answer block targeting "chaharshanbe suri" when GSC's top query was "chaharshanbe suri 2026"). */
   displayQuery?: string;
+  /** "llm" when the proposed text was WRITTEN by the LLM (D-2 answer gaps), so the card flags it. */
+  draftSource?: "deterministic" | "llm";
 };
-function chooseProposal(facts: PageFacts, query: string, sourcePath: string, label: string, destinations: LinkDestination[]): Proposal | null {
+function chooseProposal(
+  facts: PageFacts,
+  query: string,
+  sourcePath: string,
+  label: string,
+  destinations: LinkDestination[],
+  writtenAnswer?: { text: string; question: string },
+): Proposal | null {
   // Lever priority: META (highest-yield) → INTERNAL LINK (exact, reversible) → ANSWER BLOCK
   // (extractive, surfaces a buried answer) → filler-drop title/H1. Different pages naturally take
   // different levers → a real mix; answer-block is last among the safe levers (highest factual risk).
@@ -152,6 +161,12 @@ function chooseProposal(facts: PageFacts, query: string, sourcePath: string, lab
       const yr = query.match(/\b20\d{2}\b/)?.[0];
       const displayQuery = yr && !a.answerText.includes(yr) ? query.replace(/\s*\b20\d{2}\b\s*/g, " ").replace(/\s+/g, " ").trim() : query;
       return { leverField: "answer_block", actionType: "add_answer_block", proposed: a.answerText, current: `(buried in paragraph ${a.paragraphIndex + 1})`, answer: a, displayQuery };
+    }
+    // D-2: no extractive answer, but the LLM WROTE one for this gap (grounded + firewalled upstream).
+    // Emit an add-a-new-answer-line candidate the operator approves before it goes live.
+    if (writtenAnswer) {
+      const wa = buildWrittenAnswerProposal({ question: writtenAnswer.question, writtenText: writtenAnswer.text, fetchedAt: facts.snapshotFetchedAt });
+      return { leverField: "answer_block", actionType: "add_answer_block", proposed: wa.answerText, current: "(no answer at the top of the page yet)", answer: wa, draftSource: "llm" };
     }
   }
   const t = proposeTitle(facts.title, query);
@@ -186,6 +201,10 @@ export function buildDailyCandidates(input: {
   /** Eligible link destinations (caller marks protected/active pages ineligible). Omit to disable
    *  the internal-link lever (meta-only). */
   linkDestinations?: LinkDestination[];
+  /** D-2: per-page LLM-written answers for pages with an answer GAP (keyed by page url). The caller
+   *  (build-today-preview) computes these async; a page here emits an add-a-written-answer candidate
+   *  when no extractive answer exists. Omit to disable LLM answer-writing (extractive-only). */
+  writtenAnswersByUrl?: Map<string, { text: string; question: string }>;
   now?: Date;
 }): BuiltCandidate[] {
   const now = input.now ?? new Date();
@@ -202,7 +221,7 @@ export function buildDailyCandidates(input: {
   for (const p of input.pages) {
     const facts = input.facts.get(p.url) ?? { title: null, meta: null, h1: null };
     const sourcePath = p.url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/";
-    const proposal = chooseProposal(facts, p.topQuery, sourcePath, p.pageLabel, linkDestinations);
+    const proposal = chooseProposal(facts, p.topQuery, sourcePath, p.pageLabel, linkDestinations, input.writtenAnswersByUrl?.get(p.url));
     if (!proposal) continue; // nothing materially better → no candidate (honest)
 
     const actionFamily = actionFamilyOf(proposal.actionType);
@@ -247,7 +266,9 @@ function buildCandidate(
   const whyNow = link
     ? `This page mentions "${link.anchorText}" (a page owned by ${link.destinationLabel}) without linking to it, a ${link.relationship.replace(/_/g, " ")} link that helps both pages. This page already ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
     : answer
-      ? `People search "${answer.question}" and this page already answers it, but the answer is buried in paragraph ${answer.paragraphIndex + 1}. Moving that exact sentence to the top is what earns the click. It ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
+      ? answer.operation === "add_new_text"
+        ? `People search "${p.topQuery}" (${p.topQueryImpressions} searches) but this page has no direct answer at the top. Beacon wrote one for you to review before it goes live. The page ranks #${p.topQueryPosition.toFixed(1)}, so leading with the answer should win more of those clicks.`
+        : `People search "${answer.question}" and this page already answers it, but the answer is buried in paragraph ${answer.paragraphIndex + 1}. Moving that exact sentence to the top is what earns the click. It ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
       : `This page ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} searches) but only ${(p.topQueryCtr * 100).toFixed(1)}% click. The ${proposal.leverField === "meta" ? "description" : proposal.leverField} is the weak link, so a sharper one should win more of those clicks.`;
   return {
     url: p.url,
@@ -273,5 +294,6 @@ function buildCandidate(
     influencedUrls: link ? [link.destinationPath] : undefined,
     linkDetail: link,
     answerDetail: answer,
+    draftSource: proposal.draftSource,
   };
 }
