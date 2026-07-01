@@ -14,6 +14,8 @@ import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-produ
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
+import { currentTenantSlug } from "@/lib/tenant-context";
 
 type StandupLine = { key: string; line: string; active: boolean };
 
@@ -26,7 +28,7 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 async function buildLines(tenantId: string, picksTonight: number): Promise<StandupLine[]> {
-  const [daily, clarity, ga4, serp, keywords, aeo, ledger] = await Promise.all([
+  const [daily, clarity, ga4, serp, keywords, aeo, ledger, llmMentions, slug] = await Promise.all([
     safe(() => loadDailyTotalsForTenant(tenantId, 21), []),
     safe(() => loadClarityPageSignalsForTenant(tenantId), new Map()),
     safe(() => loadGa4PageValuesForTenant(tenantId), new Map()),
@@ -34,6 +36,8 @@ async function buildLines(tenantId: string, picksTonight: number): Promise<Stand
     safe(() => readAllCachedKeywordDemand(), []),
     safe(() => loadBotReferralSignals(tenantId), null),
     safe(() => loadShippedChanges(), []),
+    safe(() => readAllCachedLlmMentions(), []),
+    safe(() => currentTenantSlug(), ""),
   ]);
 
   const lines: StandupLine[] = [];
@@ -73,6 +77,16 @@ async function buildLines(tenantId: string, picksTonight: number): Promise<Stand
       key: "profound",
       line: `AI sent ${aeo.referralSummary.totalVisits.toLocaleString()} visits, crawled ${aeo.botSummary.pages} pages`,
       active: true,
+    });
+  } else if (llmMentions.length > 0) {
+    // Owned AI-visibility (DataForSEO LLM answers): are WE cited for the topics we checked?
+    const citedUs = slug
+      ? llmMentions.filter((r) => r.mentions.some((m) => m.domain.includes(slug))).length
+      : 0;
+    lines.push({
+      key: "profound",
+      line: `AI answers cite you on ${citedUs} of ${llmMentions.length} topic${llmMentions.length === 1 ? "" : "s"} checked`,
+      active: citedUs > 0,
     });
   } else {
     lines.push({ key: "profound", line: "watching who AI cites for your topics", active: false });

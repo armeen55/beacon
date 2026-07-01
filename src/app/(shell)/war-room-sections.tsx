@@ -8,7 +8,11 @@
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { routeClarityFriction, type ClarityMoveType } from "@/domains/recommendation-intelligence/clarity-move-router";
 import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
+import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
+import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
+import Link from "next/link";
+import { WarRoomCopyButton } from "./war-room-copy-button";
 
 const CARD = "rounded-2xl border border-gray-200 bg-white p-4";
 const HEAD = "text-[11px] font-semibold uppercase tracking-wide text-gray-400";
@@ -53,6 +57,7 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
                 </span>
                 <span className="text-[12px] font-medium text-gray-700">{prettyPath(s.url)}</span>
                 <span className="text-[11px] text-gray-400">{d.evidence}</span>
+                <WarRoomCopyButton text={`${CLARITY_MOVE_LABEL[d.moveType]} on ${s.url}\nEvidence: ${d.evidence}\nWhy: ${d.reason}`} />
               </div>
               <p className="mt-0.5 text-[12px] text-gray-600">{d.reason}</p>
             </div>
@@ -69,8 +74,12 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
  *  Self-hides when neither feed has data. */
 export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
   try {
-    const sig = await loadBotReferralSignals(tenantId);
-    if (!sig.hasData) return null;
+    const [sig, llmMentions, slug] = await Promise.all([
+      loadBotReferralSignals(tenantId),
+      readAllCachedLlmMentions().catch(() => []),
+      currentTenantSlug().catch(() => ""),
+    ]);
+    if (!sig.hasData && llmMentions.length === 0) return null;
     const topBots = sig.botSummary.topBots.slice(0, 3);
     const topSources = sig.referralSummary.topSources.slice(0, 3);
     const trendWord =
@@ -106,6 +115,24 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
               ) : null}
             </div>
           ) : null}
+          {llmMentions.length > 0 ? (
+            <div className="rounded-xl bg-gray-50 px-3 py-2 sm:col-span-2">
+              <div className="text-[12px] font-medium text-gray-700">What AI answers cite for your topics (live check)</div>
+              <div className="mt-1 space-y-0.5">
+                {llmMentions.slice(0, 4).map((r) => {
+                  const us = slug ? r.mentions.some((m) => m.domain.includes(slug)) : false;
+                  const rivals = r.mentions.filter((m) => !slug || !m.domain.includes(slug)).slice(0, 3);
+                  return (
+                    <p key={r.topic} className="text-[12px] text-gray-600">
+                      <span className="font-semibold text-gray-800">{r.topic}:</span>{" "}
+                      {us ? <span className="font-medium text-emerald-700">cites you</span> : <span className="font-medium text-amber-700">does not cite you</span>}
+                      {rivals.length > 0 ? <span className="text-gray-500"> · also {rivals.map((m) => m.domain).join(", ")}</span> : null}
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
     );
@@ -134,7 +161,9 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
               {o.estDemand > 0 ? (
                 <span className="text-[11px] text-gray-500">{o.estDemand.toLocaleString()} searches/mo</span>
               ) : null}
-              <span className="ml-auto text-[11px] text-violet-600">{String(o.action).replace(/_/g, " ")}</span>
+              <Link href="#new-pages" className="ml-auto text-[11px] font-medium text-violet-600 underline-offset-2 hover:underline">
+                {String(o.action).replace(/_/g, " ")} below
+              </Link>
             </div>
           ))}
           {res.trends.slice(0, 2).map((t) => (

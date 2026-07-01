@@ -25,7 +25,7 @@ export async function TodayNewPagesSection({ enableAeoBrief = false }: { enableA
   const preparedCount = data.opportunities.filter((o) => o.preparedVerdict).length;
 
   return (
-    <section className="rounded-3xl border border-gray-200 bg-gradient-to-br from-emerald-50/40 via-white to-gray-50 p-6 shadow-sm">
+    <section id="new-pages" className="rounded-3xl border border-gray-200 bg-gradient-to-br from-emerald-50/40 via-white to-gray-50 p-6 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-gray-900">New pages to build</h2>

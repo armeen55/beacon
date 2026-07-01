@@ -47,8 +47,8 @@
 - [ ]  44 [W3][P1/S] Batch progress bar: "Tonight: 2 of 6 applied" with a segmented bar on the daily
 - [x]  45 [W1][P0/S] Rewrite the hero copy jargon: "These 35 pages are controls for active experiments"
 - [x]  46 [W2][P1/S] War-room band headers get counts + freshness: "Visitor behavior found friction (4
-- [ ]  47 [W2][P1/M] Friction fixes become actionable cards: each row gets "Add to tonight" (creates a
-- [ ]  48 [W2][P1/M] Demand band links to action: each unowned-demand row gets "Draft this page" (routes
+- [x]  47 [W2][P1/M] Friction fixes become actionable cards: each row gets "Add to tonight" (creates a
+- [x]  48 [W2][P1/M] Demand band links to action: each unowned-demand row gets "Draft this page" (routes
 - [ ]  49 [W3][P2/S] War room self-summarizes when quiet: "The team found nothing urgent beyond tonight's
 - [ ]  50 [W3][P1/M] "While you were away" block when the operator has not opened Beacon for 48h+: what
 - [ ]  51 [W3][P2/M] Make DataSourcesStrip the "team health" strip: same teammate identities, green dot
@@ -82,7 +82,7 @@
 - [x]  79 [W1][P0/M] Auto-measure: a due-window measure pass (light cron + on-render fallback) so
 - [x]  80 [W1][P0/M] Feed verdicts back as the proof-history voice (C27) AND into the R&R ranking via the
 - [ ]  81 [NOTE: rescan attempted twice; spawned scan CLI ignores hydrated Supabase config and crawls a placeholder URL (sync getBusinessConfig gap). Fix the config threading in orchestrate-scan/scan-owned-pages, then rescan.] [W1][P0/M] Weekly snapshot rescan (crawl own site, $0): page_snapshots are 20 days stale, so
-- [ ]  82 [W1][P0/M] R4: DataForSEO LLM-mentions as the owned AEO signal, fused with Profound into ONE
+- [x]  82 [W1][P0/M] R4: DataForSEO LLM-mentions as the owned AEO signal, fused with Profound into ONE
 - [ ]  83 [W3][P1/M] Weekly keyword-universe refresh (one $0.075 batch per week per tenant, budget-gated)
 - [ ]  84 [W3][P1/M] Nightly precompute at ~5am local: the daily plan preview, LLM drafts, debates, and
 - [ ]  85 [W3][P1/M] LLM adjudicator on the nightly batch (the reasoning-gap fix, standing): after the

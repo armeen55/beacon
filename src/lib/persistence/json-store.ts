@@ -65,6 +65,7 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   "dataforseo-serp-cache",
   "research-serp-patterns",
   "competitor-page-audit",
+  "dataforseo-llm-mentions",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

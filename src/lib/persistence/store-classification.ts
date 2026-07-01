@@ -92,6 +92,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // "what wins" pattern (format/title/winning-domains) per query, populated by the
   // operator-triggered enrichResearchPacks; read by the research module on the card.
   "research-serp-patterns",
+  // 2026-07-01 R4 - per-tenant cache of "which domains do LLM answers cite for a
+  // topic" (domains/serp/dataforseo-llm-mentions.ts), the owned AI-visibility feed.
+  "dataforseo-llm-mentions",
   // 2026-06-29 /worklist stale-while-revalidate surface cache — the fully-computed
   // TodayMovesHeroData snapshot per tenant. Cold render serves this instantly + refreshes
   // in the background, so the ~32s demand-graph rebuild no longer floors every visit.
