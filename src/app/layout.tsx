@@ -1,16 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+// Geist via the bundled `geist` package (fonts ship in node_modules as local
+// woff2) instead of next/font/google — so `npm run build` needs NO network
+// (the Google Fonts fetch was the only offline-build blocker). Same typeface,
+// identical rendering; it just sets --font-geist-sans / --font-geist-mono,
+// which globals.css aliases to --font-sans / --font-mono.
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Beacon",
@@ -28,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body className="min-h-screen bg-background text-foreground antialiased">
         {children}
       </body>
