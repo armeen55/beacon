@@ -39,7 +39,10 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
     if (rows.length === 0) return null;
     return (
       <section aria-label="Visitor friction fixes" className={CARD}>
-        <div className={HEAD}>Visitor behavior found friction</div>
+        <div className="flex items-baseline justify-between gap-2">
+          <div className={HEAD}>Visitor behavior found friction</div>
+          <span className="text-[11px] tabular-nums text-gray-400">{rows.length} page{rows.length === 1 ? "" : "s"} · sessions from the last 28 days</span>
+        </div>
         <p className="mt-1 text-xs text-gray-500">Real visitor sessions on these pages hit problems. Fixing them protects every click the other changes win.</p>
         <div className="mt-2 space-y-2">
           {rows.map(({ s, d }) => (
@@ -74,7 +77,10 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
       sig.referralTrend.direction === "rising" ? "rising" : sig.referralTrend.direction === "declining" ? "falling" : "steady";
     return (
       <section aria-label="AI crawlers and referrals" className={CARD}>
-        <div className={HEAD}>AI is reading your site</div>
+        <div className="flex items-baseline justify-between gap-2">
+          <div className={HEAD}>AI is reading your site</div>
+          {sig.latestDate ? <span className="text-[11px] tabular-nums text-gray-400">through {sig.latestDate}</span> : null}
+        </div>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           {sig.hasBotData ? (
             <div className="rounded-xl bg-gray-50 px-3 py-2">
@@ -116,7 +122,10 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
     if (res.opportunities.length === 0 && res.trends.length === 0) return null;
     return (
       <section aria-label="Demand opportunities" className={CARD}>
-        <div className={HEAD}>Demand you do not own yet</div>
+        <div className="flex items-baseline justify-between gap-2">
+          <div className={HEAD}>Demand you do not own yet</div>
+          <span className="text-[11px] tabular-nums text-gray-400">{res.keywordsConsidered.toLocaleString()} keywords researched</span>
+        </div>
         <p className="mt-1 text-xs text-gray-500">Real monthly searches (DataForSEO) where no page of yours is the answer today.</p>
         <div className="mt-2 space-y-1.5">
           {res.opportunities.slice(0, 5).map((o) => (

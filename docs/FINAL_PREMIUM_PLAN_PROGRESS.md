@@ -46,7 +46,7 @@
 - [x]  43 [W1][P0/M] Team standup strip: a horizontal row of the 7 teammate identity chips, each with its
 - [ ]  44 [W3][P1/S] Batch progress bar: "Tonight: 2 of 6 applied" with a segmented bar on the daily
 - [x]  45 [W1][P0/S] Rewrite the hero copy jargon: "These 35 pages are controls for active experiments"
-- [ ]  46 [W2][P1/S] War-room band headers get counts + freshness: "Visitor behavior found friction (4
+- [x]  46 [W2][P1/S] War-room band headers get counts + freshness: "Visitor behavior found friction (4
 - [ ]  47 [W2][P1/M] Friction fixes become actionable cards: each row gets "Add to tonight" (creates a
 - [ ]  48 [W2][P1/M] Demand band links to action: each unowned-demand row gets "Draft this page" (routes
 - [ ]  49 [W3][P2/S] War room self-summarizes when quiet: "The team found nothing urgent beyond tonight's
