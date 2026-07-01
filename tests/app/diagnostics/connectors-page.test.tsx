@@ -59,14 +59,13 @@ describe("/diagnostics/connectors — gate", () => {
 });
 
 describe("/diagnostics/connectors — rows", () => {
-  it("lists all six cache-backed connectors + the proof recompute", async () => {
+  it("lists all five cache-backed connectors + the proof recompute", async () => {
     const html = await render();
     expect(html).toContain("Google Search Console");
     expect(html).toContain("Google Analytics 4");
     expect(html).toContain("Microsoft Clarity");
     expect(html).toContain("Profound");
     expect(html).toContain("CallRail");
-    expect(html).toContain("Semrush");
     expect(html).toContain("Refresh all connected sources");
     // 2026-06-15 PIVOT — in-house native AEO poll removed; Profound is the
     // sole AEO source. The "Run today's AI reading" buttons are gone.
