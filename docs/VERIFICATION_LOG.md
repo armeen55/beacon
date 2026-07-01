@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-07-01 — Phase 1d (competitor "steal this" on the /worklist MoveCard) + card dash-clean
+
+**What changed (commit `05298d8a`):** brought the daily card's reasoning to the demand-graph MoveCard on /worklist. A read-only map first confirmed the MoveCard ALREADY surfaces keyword volume + SERP winners (via the Research Pack), so the only missing layer was the actionable competitor **"steal this"** breakdown (it showed raw "what wins" text, not what STRUCTURE to take).
+- `today-moves-data.ts`: new `TodayMove.competitorSteal`, computed via the pure `whatToSteal()` builder (reused from `daily-evidence-brief`) from the on-topic competitor's page facts, gated by the same relevance/whoCited checks.
+- `today-moves-card.tsx`: renders a "Steal this: ..." line under "What wins"; wraps the SERP `elementImplication` + `whatWins` + steal strings in `stripBannedDashes` (handles cached em-dash data); replaced the literal em-dash SERP separator with a colon; **stripped ALL ~17 pre-existing literal em/en dashes** from this primary /worklist surface (the file was not covered by the display-dash guard).
+- Reuse-not-duplicate: no new builders; the MoveCard's existing keyword + SERP rendering was left as-is.
+
+**Verified live on Iranopedia (`buildTodayMovesData`, real data):** 12 moves, **5 show "steal this"** (persian boy names -> steal parentcalc's answer+FAQ(4)+tool; cities -> FAQ(8)+tool; achaemenid -> FAQ(2)+tool+schema), 3 show a SERP reaction. tsc 0 · dash-guard + evidence-brief tests green (65). No proof/reservation/Wix/GSC writes.
+
+---
+
 ## 2026-07-01 — Phase 2 slice E-2 (live SERP reaction + competitor teardown on the daily card)
 
 **What changed (commit `247ef279`, branch `claude/daily-experiments-native`):** the daily card's "How we know" expander now shows the full battlefield alongside the keyword research: (1) **What wins on Google now** - the winning page shape (list/guide/faq/table/product) + the top domains Google rewards + the exact on-page move that shape implies; (2) **Who is beating you** - the top competitor page's domain + a "steal this" line (highest-leverage stealable elements: direct answer, FAQ, tool, schema, depth).
