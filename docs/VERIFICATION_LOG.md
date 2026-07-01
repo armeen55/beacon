@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-07-01 — Recommendation-Quality Adversarial Harness (Finalization Program, Move 4)
+
+**What changed — a deterministic quality gate + adversarial audit around existing recommendations (not a new engine).**
+
+- **New PURE** `src/domains/recommendations/recommendation-quality.ts`: `reviewRecommendation` → decision (approved / approved_with_caution / needs_revision / rejected / needs_evidence) + hardFailures/cautions + stable reason codes → friendly copy (`passesDailyGate`, `qualityLabel`). Composes relevance-gate (intent fit), draft-quality (copy), safe-answer-block (factual firewall); adds year-intent, sibling-ownership, lever-eligibility, link-alignment, origin-definitiveness.
+- **Gate wired** `build-today-preview.ts`: candidates run the review before `planDailyExperiments`; rejected/needs_evidence dropped (`quality_rejected` in `excludedByReason`).
+- **UI** `daily-experiments-data.ts` `qualitySummary` + `daily-experiments-section.tsx` compact "✓ All N passed today's quality checks (+ caution)" line.
+- **False-positive fix**: the copy gate now checks the page's OWN label tokens (not only draft-quality's fixed vocabulary), so a meta naming "Umayyad Caliphate" isn't falsely read as "dropped the entity" (tenant-agnostic).
+
+**Tested:**
+- `npx tsc --noEmit` → **0 errors**; `npm run build` → **Compiled successfully**.
+- `npx vitest run src/domains/recommendations/ src/domains/experiments/ src/domains/changes/` → **178/178 pass** (18 new adversarial corpus: Doodool→jewelry reject, self-link, anchor mismatch, sibling ownership, proof-blocked, protected control, active conflict, Clean-insufficient-controls, year-intent, generic template, origin caution, valid approvals, determinism, no-raw-codes).
+- **LIVE-DATA QA audit** (tsx against real prod Supabase, latest preview `1d4fa003`): 6 selected + 2 backups → **7 approved · 1 approved_with_caution** (Chaharshanbe origin), **0 rejected** → preview unchanged, unaccepted. Web fact-check confirmed the Chaharshanbe Zoroastrian-origin claim is scholarly-disputed (Encyclopaedia Iranica / Wikipedia). Umayyad white banner, Abbasid Black Standard, Pahlavi tricolor+Lion-Sun, Finglish=Latin-script — well-established, approved.
+- **Data integrity (before == after):** proof rows **19** · reservations **0** · plan **preview** (`1d4fa003`). No proof/reservation/plan/Wix/GSC writes; no migration; no paid API.
+- **Verification honesty:** the dev-server visual smoke was blocked this run by a Node/undici `transformAlgorithm` streaming error + GSC-401 churn destabilizing the render; the gate is proven by the live-data QA audit + tsc/build/tests rather than a screenshot.
+
+---
+
 ## 2026-07-01 — Failure / Empty / Loading / Mobile / A11y Hardening (Finalization Program, Move 3)
 
 **What changed — a bounded resilience + usability pass; no new architecture.**

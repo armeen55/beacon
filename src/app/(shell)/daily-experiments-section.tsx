@@ -210,8 +210,17 @@ function ExecutionChecklistView({ checklist }: { checklist: ExecutionChecklist }
   );
 }
 
+/** Move 4 — one honest line: all selected items passed the quality gate (+ any caution). */
+function QualityLine({ summary }: { summary: DailyExperimentsView["qualitySummary"] }) {
+  if (!summary || summary.total === 0) return null;
+  const parts: string[] = [`✓ All ${summary.passed} passed today’s quality checks`];
+  if (summary.cautioned > 0) parts.push(`${summary.cautioned} with a caution`);
+  if (summary.flagged > 0) parts.push(`${summary.flagged} held for review`);
+  return <div style={{ marginTop: 4, fontSize: 12, color: "#059669" }}>{parts.join(" · ")}</div>;
+}
+
 export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }) {
-  const { dashboard, checklist } = view;
+  const { dashboard, checklist, qualitySummary } = view;
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -268,6 +277,7 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
             <strong>Today’s proposed batch</strong> — {preview.selected.length} low-risk changes · ~{preview.estimatedMinutes} min ·{" "}
             {Object.entries(preview.distribution.byLever).map(([k, v]) => `${v} ${LEVER_LABEL[k] ?? k}`).join(", ")}
             <div style={{ opacity: 0.7 }}>{dashboard.protectedCounts.treatments} active experiments protected · {dashboard.protectedCounts.controls} controls excluded</div>
+            <QualityLine summary={qualitySummary} />
           </div>
           {preview.selected.map((e) => <PreviewCard key={e.id} e={e} />)}
           {preview.backups.length > 0 && <div style={{ fontSize: 12, opacity: 0.6 }}>Backups: {preview.backups.map((e) => e.pageLabel).join(", ")}</div>}

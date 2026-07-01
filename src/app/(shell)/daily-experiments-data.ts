@@ -11,12 +11,35 @@ import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { buildDailyExperimentDashboard, protectedControlWarning, type DailyExperimentDashboard } from "@/domains/experiments/daily-experiment-dashboard";
 import { buildExecutionChecklist, type ExecutionChecklist } from "@/domains/experiments/execution-checklist";
 import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations, listReservationsForPlan } from "@/domains/experiments/daily-experiment-plan-store";
+import { normalizePath, type PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
+import { reviewRecommendation } from "@/domains/recommendations/recommendation-quality";
+
+export type QualitySummary = { total: number; passed: number; cautioned: number; flagged: number };
 
 export type DailyExperimentsView = {
   dashboard: DailyExperimentDashboard;
   protectedWarning: string | null;
   checklist: ExecutionChecklist | null;
+  /** Move 4 — the deterministic quality review of the active plan's selected items. */
+  qualitySummary: QualitySummary | null;
 };
+
+/** Re-run the quality gate over the active plan's items so the panel can honestly say
+ *  "all passed quality checks" (and surface any caution). PURE over the plan record. */
+function summarizeQuality(items: PlannedExperimentRecord[]): QualitySummary {
+  let passed = 0, cautioned = 0, flagged = 0;
+  for (const e of items) {
+    const r = reviewRecommendation({
+      lever: e.lever, pagePath: normalizePath(e.url), pageLabel: e.pageLabel, targetQuery: e.targetQuery,
+      currentText: e.currentText, proposedText: e.proposedText, controlsAvailable: e.controls.length,
+      sourceSentences: e.lever === "answer_block" ? [e.proposedText] : undefined,
+    });
+    if (r.decision === "approved") passed += 1;
+    else if (r.decision === "approved_with_caution") { passed += 1; cautioned += 1; }
+    else flagged += 1;
+  }
+  return { total: items.length, passed, cautioned, flagged };
+}
 
 export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> {
   const tenantId = await currentTenantId();
@@ -40,5 +63,8 @@ export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> 
     checklist = buildExecutionChecklist(acceptedPlan, planReservations);
   }
 
-  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist };
+  const activePlan = acceptedPlan ?? previewPlan;
+  const qualitySummary = activePlan ? summarizeQuality(activePlan.selected) : null;
+
+  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary };
 }

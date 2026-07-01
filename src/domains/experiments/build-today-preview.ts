@@ -11,6 +11,7 @@ import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligen
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { buildDailyCandidates, type GscPageInput, type PageFacts, type BuiltCandidate } from "./build-daily-candidates";
+import { reviewRecommendation, passesDailyGate } from "@/domains/recommendations/recommendation-quality";
 import { planDailyExperiments } from "./daily-experiment-planner";
 import { deriveExperimentStates } from "./experiment-eligibility";
 import { buildLinkDestinations, toLinkPath } from "./safe-internal-link";
@@ -84,7 +85,25 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   for (const p of inputs) { const f = factsByPath.get(pathOf(p.url)); if (f) facts.set(p.url, f); }
 
   const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations });
-  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: built, proofLedger: ledger, config: { ...PLANNER_CONFIG, now } });
+
+  // Move 4 — RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
+  // the deterministic review (page-query intent fit, action↔goal incl. year-intent, copy
+  // quality, factual firewall, origin-definitiveness). Lever eligibility (proof-block /
+  // control / contamination / insufficient-controls) is enforced downstream by the planner;
+  // this gate adds the CONTENT-quality vetoes the planner can't see. Pure, no I/O.
+  const qaByUrl = new Map(built.map((b) => [b.url, reviewRecommendation({
+    lever: b.leverField,
+    pagePath: pathOf(b.url),
+    pageLabel: b.pageLabel ?? labelOf(b.url),
+    targetQuery: b.targetQuery,
+    currentText: b.currentText,
+    proposedText: b.proposedText,
+    controlsAvailable: b.suggestedControls.length,
+  })]));
+  const gatedBuilt = built.filter((b) => { const r = qaByUrl.get(b.url); return r ? passesDailyGate(r) : true; });
+  const qaRejected = built.length - gatedBuilt.length;
+
+  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: gatedBuilt, proofLedger: ledger, config: { ...PLANNER_CONFIG, now } });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
@@ -98,5 +117,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const excludedByReason: Record<string, number> = {};
   for (const e of plan.excluded) excludedByReason[e.reason] = (excludedByReason[e.reason] ?? 0) + 1;
 
+  if (qaRejected > 0) excludedByReason.quality_rejected = qaRejected;
   return { record, candidatesEvaluated: built.length, excludedByReason };
 }
