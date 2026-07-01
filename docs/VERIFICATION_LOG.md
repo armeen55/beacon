@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-07-01 — Assistant-First Phase 0 (audit + vision) + Phase 1a-1c (friendly reasoned /today card)
+
+**Phase 0 (Assistant-First mission):** confirmed live state (prod 200; the 6 Iranopedia edits all MEASURING with baseline + 7/14/28 windows + 25 controls; umayyad/pahlavi GSC-submitted). Ran a 14-agent adversarially-verified code audit of the recommendation flow (answer-intent mismatch, lab-console wording, reasoning-brief gap, verifier false-negatives, wrong-field, GSC quota, is-LLM-wired-into-daily) + a 5-angle/10-source cited research pass on the verifier visual-vs-DOM problem. Key findings: the DAILY card is a thin deterministic lab-console while the maximum-reasoning lives on the separate /worklist Prepare flow; the structured-LLM layer is already built (do not rebuild). Verifier research conclusion (cited): Google/AI render the page, so Wix hero placement is fine for SEO/AEO and only our Cheerio verifier is wrong; most efficient fix is a $0 inline-CSS-order + near-H1 heuristic (Browserless only as documented escalation). Operator approved all sections A-F, brief on both surfaces, GSC manual+friendly-queue, build order card -> engine -> friction.
+
+**Phase 1a-1c (committed `101e17ee`, branch `claude/daily-experiments-native`):**
+- `daily-plan-types.ts` + `build-daily-plan-record.ts`: carry `whyNow` through `PlannedExperimentRecord` (it was computed in `build-daily-candidates.ts` then dropped, so the card never got the reason). Updated 3 test fixtures for the new required field.
+- `build-daily-candidates.ts`: de-jargoned the `whyNow` copy, removed em dashes.
+- `daily-experiments-section.tsx`: rewrote the card to lead with "The move / Why it wins / Paste this / How we track it" + a "How we know" expander holding the search/current-state/comparison-pages/measurement detail. Friendly assistant voice, lab jargon and em dashes gone. All server actions + the plan->approve->apply->confirm->tell-Google state machine unchanged.
+- `daily-experiments-copy.ts` (new pure module) + `daily-experiments-copy.test.ts` (new): friendly language layer, unit-tested so it can never drift back to jargon.
+
+**Verified:** `npm run typecheck` 0; `npx vitest run src/domains/experiments src/domains/changes/build-canonical-changes.test.ts` = 176 passed; new copy test 5 passed; `no-banned-dash-display-surfaces` 51 passed; zero em/en dashes in the rewritten files. No proof rows or measuring experiments touched. Live browser render of the heavy cockpit deferred to Vercel prod (known local dev fragility). **Remaining Phase 1:** the same brief on the /worklist MoveCard (1d). Then Phase 2 (engine C+D+E), Phase 3 (friction F).
+
+---
+
 ## 2026-06-30 — Reasoning Engine S1 WIRED (chaharshanbe intent bug fixed) + structured-layer ground-truth
 
 **What changed (branch `claude/profound-iranopedia-intel`):**
