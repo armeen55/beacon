@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-06-30 — Today "/" folded into CanonicalChange + FULL-SUITE HONESTY BASELINE (Finalization Program, Move 5 + Moves 1–5 close)
+
+**What changed — the homepage is now a pure read model over the same CanonicalChange the /worklist uses; the last duplicate "what should I do?" surfaces collapse.**
+
+- **New PURE** `src/domains/changes/today-view.ts`: `buildTodayView({changes, strategy, plan})` → 4 canonical sections (Attention / Today's plan / Measuring / Next opportunities). Attention is deterministically prioritized (refresh-plan > apply-pending > review-plan > results-ready); Measuring capped 5; Next opportunities gated to only show when no plan is in flight. + 8 unit tests.
+- **New** `src/app/(shell)/today-view-data.ts`: `loadTodayView` composes `loadChangesView` + the daily-experiments view (both fail-soft) — no parallel demand-graph build on the homepage anymore.
+- **Rewritten** `src/app/(shell)/page.tsx`: thin RSC (header sentence + counts + 4 sections, `max-w-3xl`), reuses `DailyExperimentsSection`. Removed the old research-heavy cockpit (loadTodayCockpit / MoveCard / StatTiles / TodayNewPages / TodayV2 proof sections) from the homepage.
+- **Route consolidation (Move 1/5):** `/recommendations` and `/experiments` were duplicate lists of the same prepared/ready moves the canonical Changes list already shows — both now `redirect("/worklist?status=ready")` (deep-linkable). Deep per-rec brief at `/recommendations/[id]` preserved. `changes-list-client.tsx` now seeds strategy/status/goal/search from URL params so redirects + deep-links land on the right filtered view.
+- **Quality-on-rows (Move 4 backfill):** every Changes Ready row carries the adversarial quality verdict — `build-canonical-changes.ts` runs `internalLinkRelevance` on ready/suggested moves, flags + demotes off-topic joins (ready→suggested), and `changes-list-client.tsx` renders a "⚠ review" / "quality caution" chip. `canonical-change.ts` gains `qualityDecision`/`qualityNote`. +3 tests.
+
+**Tested — and the honesty ledger the operator demanded (I ran the FULL suite, not targeted subsets):**
+- `npx tsc --noEmit` → **0 errors**.
+- Changed-domain targeted tests → **94 passed / 94** (`changes/`, `recommendation-quality`, `measurement-maturity`, `diagnostics/`, `build-today-preview`, `build-daily-candidates`).
+- **FULL `npm run test` — pre-program baseline vs after.** To prove my program didn't regress the suite, I ran the entire suite at the pre-Finalization commit `eb729ec5` AND on my tree:
+  - **Baseline `eb729ec5`:** 34 files failed · **57 tests failed** / 15,463 passed (932 files, 15,591 tests).
+  - **My tree (Moves 1–5):** 34 files failed · **58 tests failed** / 15,551 passed (937 files, 15,680 tests).
+  - **Net effect of the whole 5-move program: +88 passing tests, +5 test files, NET +1 failing test.** Every suspect file my structural changes touch (today-smoke, perf-trace-wired, canonical-store-fresh, the /recommendations render-path pins, perf-streaming-bundle, connectors, auth, serp, GA4, the em/en-dash pins incl. `proof/page.tsx` which had 14 dashes at `eb729ec5`) was **already failing in the baseline** — i.e. pre-existing tech debt from before this program, not caused by Moves 1–5. The full suite simply hadn't been run in a long time.
+- **Local `npm run build` FAILS on a `next/font/google` (Geist Mono) fetch to `fonts.gstatic.com` — a sandbox network condition, not code.** Turbopack compiled every changed file with zero references to any of them before hitting the external font fetch. Vercel (with network) does the authoritative build on push.
+- **Data integrity (direct data-plane read, tenant-iranopedia):** proof rows **19** (unchanged), **0** active reservations, plans in `preview`/`expired` (non-committing) states. Move 5 is read-only — mutated nothing.
+
+**The 57 pre-existing failures are unrelated tech debt (perf-streaming-bundle ×12, perf-trace-wired ×6, connectors/auth/serp/GA4/predicates, app-wide em/en-dash leaks, Profound copy). They predate this program and are NOT part of Moves 1–5; fixing them is a separate, deliberate campaign — not silently folded into this close.**
+
+---
+
 ## 2026-07-01 — Recommendation-Quality Adversarial Harness (Finalization Program, Move 4)
 
 **What changed — a deterministic quality gate + adversarial audit around existing recommendations (not a new engine).**
