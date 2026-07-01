@@ -1,5 +1,5 @@
 /**
- * clarity-move-router (2026-06-25, Sprint 6) — turn a Clarity friction signal into a
+ * clarity-move-router (2026-06-25, Sprint 6) - turn a Clarity friction signal into a
  * SPECIFIC fix Move (not just a friction score). PURE / deterministic / no I/O.
  *
  * The friction trigger today emits one generic "fix experience" rec. But the
@@ -75,7 +75,7 @@ export function routeClarityFriction(
     return {
       moveType: "fix_dead_click",
       severity: "medium",
-      reason: "Dead clicks mean people click something that looks interactive but isn't — often a broken CTA.",
+      reason: "Dead clicks mean people click something that looks interactive but isn't - often a broken CTA.",
       evidence: `${(signal.deadRate * 100).toFixed(1)}% dead-click rate`,
     };
   }
@@ -91,7 +91,7 @@ export function routeClarityFriction(
     return {
       moveType: "fix_intent_mismatch",
       severity: "medium",
-      reason: "High quick-backs mean visitors bounce straight back — the page likely doesn't match the query intent.",
+      reason: "High quick-backs mean visitors bounce straight back - the page likely doesn't match the query intent.",
       evidence: `${(signal.quickbackRate * 100).toFixed(0)}% quick-back rate`,
     };
   }
@@ -99,7 +99,7 @@ export function routeClarityFriction(
     return {
       moveType: "raise_answer",
       severity: "medium",
-      reason: "Visitors barely scroll — the key answer is likely buried; move it above the fold.",
+      reason: "Visitors barely scroll - the key answer is likely buried; move it above the fold.",
       evidence: `avg scroll depth ${(signal.scrollDepthPct * 100).toFixed(0)}%`,
     };
   }

@@ -10,6 +10,9 @@ import { loadTodayV2GateData } from "./today-v2-data";
 import { loadTodayView } from "./today-view-data";
 import { DailyExperimentsSection } from "./daily-experiments-section";
 import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
+import { currentTenantId } from "@/lib/tenant-context";
+import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection } from "./war-room-sections";
+import { TodayNewPagesSection } from "./today-newpages-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 
@@ -109,6 +112,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     );
   }
   const { today, daily } = composite;
+  const tenantId = await currentTenantId();
 
   return (
     <div className="space-y-6">
@@ -121,6 +125,18 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
       {today.measuring.length > 0 ? <MeasuringSection today={today} /> : null}
       {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
+
+      {/* THE WAR ROOM (R3, 2026-07-01) - what the team found today, beyond tonight's picks.
+          Each band is a live teammate's intelligence: visitor behavior (Clarity), AI crawlers +
+          referrals (Profound), market demand you don't own (DataForSEO), and the new-pages board
+          (competitor teardowns). All stream in under Suspense, self-hide when empty, fail soft. */}
+      <section aria-label="What the team found" className="space-y-3">
+        <h2 className="text-sm font-semibold text-gray-700">What the team found today</h2>
+        <Suspense fallback={null}><FrictionFixesSection tenantId={tenantId} /></Suspense>
+        <Suspense fallback={null}><AiCrawlerSection tenantId={tenantId} /></Suspense>
+        <Suspense fallback={null}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
+        <Suspense fallback={null}><TodayNewPagesSection /></Suspense>
+      </section>
 
       <Suspense fallback={null}><DataSourcesStrip /></Suspense>
     </div>
