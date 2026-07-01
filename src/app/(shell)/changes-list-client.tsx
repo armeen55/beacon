@@ -9,6 +9,7 @@
  * by text + border (not color alone), and cause-specific empty states.
  */
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { ChangesView } from "./changes-data";
 import type { CanonicalChange, Strategy, Goal, StatusView } from "@/domains/changes/canonical-change";
@@ -82,6 +83,7 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
             {fmt(c.upside) ? <span className="text-sky-600">{fmt(c.upside)}/mo at stake</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
             {c.blockedReason ? <span className="text-gray-400" title={c.blockedReason}>⏳ wait</span> : null}
+            {c.qualityDecision === "flagged" ? <span className="text-amber-600" title={c.qualityNote ?? "Review before shipping"}>⚠ review</span> : c.qualityDecision === "caution" ? <span className="text-amber-500" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -112,12 +114,23 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
   );
 }
 
+const STRATEGY_IDS = new Set<string>(STRATEGIES.map((s) => s.id));
+const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
+const GOAL_IDS = new Set<string>(GOALS.map((g) => g.id));
+
 export function ChangesListClient({ view }: { view: ChangesView }) {
-  const [strategy, setStrategy] = useState<Strategy>("balanced");
-  const initialTab: StatusView = view.summary.ready > 0 ? "ready" : "todo";
+  // Move 5 backfill — deep-link support: legacy routes (/recommendations, /experiments)
+  // and Today links land here with ?status=/?strategy=/?goal=/?search=, so the list opens
+  // on the right slice. Falls back to sensible defaults when a param is absent/invalid.
+  const params = useSearchParams();
+  const pStrategy = params.get("strategy");
+  const pStatus = params.get("status");
+  const pGoal = params.get("goal");
+  const [strategy, setStrategy] = useState<Strategy>(pStrategy && STRATEGY_IDS.has(pStrategy) ? (pStrategy as Strategy) : "balanced");
+  const initialTab: StatusView = pStatus && TAB_IDS.has(pStatus) ? (pStatus as StatusView) : view.summary.ready > 0 ? "ready" : "todo";
   const [tab, setTab] = useState<StatusView>(initialTab);
-  const [goal, setGoal] = useState<Goal>("recommended");
-  const [q, setQ] = useState("");
+  const [goal, setGoal] = useState<Goal>(pGoal && GOAL_IDS.has(pGoal) ? (pGoal as Goal) : "recommended");
+  const [q, setQ] = useState(params.get("search") ?? "");
 
   const ranked = useMemo(() => rankChanges(view.changes, strategy), [view.changes, strategy]);
   const visible = useMemo(() => {

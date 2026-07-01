@@ -140,6 +140,27 @@ describe("Move 2 — proof maturity threads into Changes (early ≠ result)", ()
   });
 });
 
+describe("Move 4 backfill — quality signal on every actionable Changes row", () => {
+  it("an off-topic ready rec is FLAGGED and demoted out of high-confidence Ready", () => {
+    const moves = [mv({ id: "m1", targetUrl: "https://s.com/doodool-tala", pageLabel: "Doodool Tala", query: "persian jewelry", actionType: "edit_meta", preparedReady: true })];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("flagged");
+    expect(out[0].qualityNote).toBeTruthy();
+    expect(out[0].status).toBe("suggested"); // demoted from ready — not shown as ready-to-ship
+  });
+  it("an on-topic ready rec passes quality and stays Ready", () => {
+    const moves = [mv({ id: "m1", targetUrl: "https://s.com/persian-boy-names", pageLabel: "Persian Boy Names", query: "persian boy names", actionType: "edit_meta", preparedReady: true })];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("approved");
+    expect(out[0].status).toBe("ready");
+  });
+  it("plan items carry an approved quality decision (already gated in Move 4)", () => {
+    const p = plan([planItem("t::2026-07-01::abc::/finglish", "https://s.com/finglish", "meta")]);
+    const out = buildCanonicalChanges({ tenantId: "t", moves: [], plan: p, reservations: [] });
+    expect(out[0].qualityDecision).toBe("approved");
+  });
+});
+
 describe("strategy ranking + goal filters", () => {
   const changes = buildCanonicalChanges({
     tenantId: "t", plan: null, reservations: [],

@@ -70,6 +70,11 @@ export type CanonicalChange = {
   measurementDetail: string | null; // next-checkpoint / waiting-for-data / overlap note
   nextCheckpoint: string | null; // ISO date of the soonest future read
   attributionLimited: boolean; // an overlapping edit weakens this measurement
+  /** Move 4 backfill — the recommendation-quality signal surfaced on every actionable row.
+   *  "approved" = passed; "caution" = passed with a caveat; "flagged" = failed a content
+   *  check (e.g. off-topic for this page) → never presented as high-confidence Ready. */
+  qualityDecision?: "approved" | "caution" | "flagged";
+  qualityNote?: string | null;
   sourceIds: string[];
   alternateOpportunities: string[]; // other levers available on this page (kept under the primary)
 };

@@ -8,6 +8,7 @@
 import { normalizePath, type DailyExperimentPlanRecord, type ControlReservationRecord } from "@/domains/experiments/daily-plan-types";
 import { itemStatus, LEVER_TO_ACTION_TYPE } from "@/domains/experiments/execution-state";
 import { wixInstructions } from "@/domains/experiments/execution-checklist";
+import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import {
   changeTypeFamily, effortForFamily, expectedEvidenceStrength, deriveStatus,
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
@@ -102,6 +103,8 @@ function fromPlanItem(
     measurementDetail: null,
     nextCheckpoint: null,
     attributionLimited: false,
+    qualityDecision: "approved", // plan items already passed the Move-4 quality gate
+    qualityNote: null,
     sourceIds: [e.id],
     alternateOpportunities: [],
   };
@@ -112,12 +115,26 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
   const pagePath = normalizePath(m.targetUrl);
   const family = changeTypeFamily(m.actionType);
   const isControl = controlPaths.has(pagePath);
-  const status = deriveStatus({
+  let status = deriveStatus({
     proofStatus: m.proofStatus,
     alreadyMeasuring: m.alreadyMeasuring,
     pageMeasuring: m.pageMeasuring || isControl,
     preparedReady: m.preparedReady,
   });
+  // Move 4 backfill — surface a recommendation-quality signal on every actionable row.
+  // Without the exact draft copy on a worklist move, assess the highest-value check we
+  // have: does the target query fit this page? An off-topic rec is FLAGGED and demoted
+  // out of high-confidence Ready (never presented as ready-to-ship).
+  let qualityDecision: "approved" | "caution" | "flagged" = "approved";
+  let qualityNote: string | null = null;
+  if ((status === "ready" || status === "suggested") && m.query) {
+    const fit = internalLinkRelevance(m.query, m.pageLabel);
+    if (!fit.relevant) {
+      qualityDecision = "flagged";
+      qualityNote = "May be off-topic for this page — review before shipping.";
+      if (status === "ready") status = "suggested";
+    }
+  }
   const proofResultLabel =
     m.proofStatus === "won" ? "Mature result" : m.proofStatus === "no_lift" || m.proofStatus === "no_clear_lift" ? "Mature result" : null;
   return {
@@ -158,6 +175,8 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     measurementDetail: (status === "measuring" || status === "result") && m.proofNextCheckpoint ? `Next read ${m.proofNextCheckpoint}` : null,
     nextCheckpoint: m.proofNextCheckpoint ?? null,
     attributionLimited: m.proofMaturity === "attribution_limited",
+    qualityDecision,
+    qualityNote,
     sourceIds: [m.id],
     alternateOpportunities: m.alternateOpportunities ?? [],
   };
