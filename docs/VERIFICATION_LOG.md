@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-07-01 — Phase 2 slices D-2 (writes missing answers) + D-3 (inline edit, approve-before-live) + honesty verification
+
+**Full honesty gate (operator asked to double-check everything):** clean-shell `npm run typecheck` 0 + `npm run test` = **936 files, 15,666 passed / 71 skipped / 0 failed**. Git truth: all Assistant-First commits are on branch `claude/daily-experiments-native`, pushed, NONE merged to main (nothing on prod yet). Live data unchanged: 25 proof rows, the 6 edits still MEASURING, 25 controls active (zero production writes this session). Browsed `/worklist` on the `beacon-iranopedia` dev server: the friendly card renders correctly on real data. Fixed 3 browse findings (card paste normalized to hyphens, empty "Why it wins" guarded, page-intro em dashes) + the SERP-verdict em dashes; flagged ~511 files of app-wide visible dashes as a separate tracked sweep (not overclaimed as done).
+
+**Slice D-2 (commit `41d58dfe`):** the daily batch WRITES a missing answer. `safe-answer-block.ts` gained `proposeAnswerGap` (entity + demand, no extractive answer, not already leading) + `buildWrittenAnswerProposal` (an `add_new_text` op). `build-today-preview.ts` LLM-writes for the top gap pages (cap 6), grounded in the page body + intent; the numeric-fidelity firewall blocks a fabricated date, so a page truly lacking the date yields no write (honest gap). `build-daily-candidates.ts` emits the add-a-written-answer candidate (`draftSource=llm`). Verification is UNCHANGED (the existing "answer near the top" check confirms an added line like a moved one).
+
+**Slice D-3 (commit `f84a7fba`):** inline-editable proposed text. The card's "Paste this" is a textarea (text levers); `markDailyExperimentAppliedAction` accepts `editedText` and verifies + records the EDITED text via a shallow proposedText override (link levers key on anchor/dest, so excluded). The frozen plan proposal is unchanged; nothing publishes until the operator applies + Beacon confirms live.
+
+**Verified:** tsc 0 · experiments + llm + copy + dash-guard suites green (222 in the D-3 run; 195 in the D-2 run; 6 new D-2 tests + reuse). OpenAI only, capped, off unless BEACON_LLM_PROVIDER=openai, fail-soft. No DataForSEO (funded by operator 2026-07-01; slice E now unblocked). No proof rows mutated. **Remaining:** E (keyword universe + live top-10 teardown), Phase 1d (/worklist brief), Phase 3 (friction fixes), app-wide dash sweep (spawned task).
+
+---
+
 ## 2026-07-01 — Phase 2 slices C + D-1 (intent-aware LLM writer) + PROOF counts impressions
 
 **Slice C (commit `d2e7b762`):** the LLM drafter is now intent-aware. New pure `intentDirective(intent)` in `structured-drafter.ts` + optional `intent` on the answer-block and title/description drafters, injected into the prompt so the model writes the right answer TYPE (a date for "when", a price for "cost", not a definition). Wired into `prepare-today-moves.ts` (classifies intent from topic + fan-outs). Back-compat: no intent = no directive.
