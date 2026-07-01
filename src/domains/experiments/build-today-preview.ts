@@ -22,7 +22,13 @@ import { proposeAnswerGap } from "./safe-answer-block";
 import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
 import { draftAtomicEditStructured, draftAnswerBlockStructured } from "@/domains/llm/structured-drafter";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
-import { buildKeywordBrief, type CachedDemand } from "./daily-evidence-brief";
+import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
+import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
+import {
+  buildKeywordBrief, buildSerpEvidence, buildCompetitorEvidence,
+  type CachedDemand, type SerpPatternLite, type EvidenceCompetitor, type DailyEvidenceBrief,
+} from "./daily-evidence-brief";
+import { normalizePath } from "./daily-plan-types";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -40,19 +46,42 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, serpPatterns, changePacks] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
     // Slice E: $0 cached DataForSEO keyword demand (volume + paid-competition) for the "how we know"
     // brief. Cache-only read (no call, no spend); empty until a live keyword run populates it.
     readAllCachedKeywordDemand().catch(() => []),
+    // Slice E-2: $0 cached live-SERP reaction (winning shape + domains) per query. Populated by the
+    // operator-gated SERP producer; empty (brief section absent) until then.
+    readCachedSerpPatterns().catch(() => new Map()),
+    // Slice E-2: competitor teardown per owned page (top competitor + what to steal), from the cached
+    // demand graph + cached page audits (compute, NO paid call, NO live fetch). Fail-soft to none.
+    loadChangePacksForTenant(tenantId, { limit: 50 }).then((r) => r.packets).catch(() => []),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence.
   const demandByTerm = new Map<string, CachedDemand>();
   for (const k of keywordDemand) {
     demandByTerm.set(k.keyword.toLowerCase(), { volume: k.searchVolume, competition: k.competitionLevel });
+  }
+
+  // SERP patterns indexed by lowercased query (the shape build-today-preview's brief looks up).
+  const serpByTerm = new Map<string, SerpPatternLite>();
+  for (const [q, p] of serpPatterns as Map<string, { format: string; winningDomains: string[]; elementImplication: string }>) {
+    serpByTerm.set(q.toLowerCase(), { format: p.format, winningDomains: p.winningDomains ?? [], elementImplication: p.elementImplication ?? "" });
+  }
+
+  // Competitor teardown indexed by normalized owned-page path. Only keep a RELEVANT, on-topic
+  // competitor (relevance gate + not loosely-matched) so a page never shows an off-topic rival.
+  const competitorByPath = new Map<string, EvidenceCompetitor>();
+  for (const p of changePacks) {
+    const ownedUrl = p.yourPage?.url;
+    const c = p.competitor;
+    if (!ownedUrl || !c || !c.domain || c.looselyMatched || (c.relevance ?? 0) < 0.3) continue;
+    const ev = buildCompetitorEvidence({ domain: c.domain, url: c.topUrl, facts: c.facts });
+    if (ev) competitorByPath.set(normalizePath(ownedUrl), ev);
   }
 
   // Facts from Beacon's own cached crawl ($0, no live fetch).
@@ -86,7 +115,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // (the searcher's dominant question) so the LLM "write it" pass can draft the RIGHT answer type.
   const inputs: GscPageInput[] = [];
   const intentByUrl = new Map<string, string | undefined>();
-  // Each page's top searches (impression-sorted) — the query set the keyword-research brief looks up.
+  // Each page's top searches (impression-sorted): the query set the keyword-research brief looks up.
   const queriesByUrl = new Map<string, string[]>();
   for (const s of signals.values()) {
     if (ANIMAL.test(s.page)) continue;
@@ -174,12 +203,23 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
 
-  // Slice E: attach the keyword-research evidence (the page's top searches + cached DataForSEO demand)
-  // to each selected move for the card's "how we know" expander. $0 (cached lookup only); the brief is
-  // null (omitted) when no cached demand exists for the page, so the card degrades gracefully.
+  // Slice E: attach the "how we know" evidence to each selected move: keyword research (volume +
+  // competition), the live Google SERP reaction (winning shape + domains + what to do), and the top
+  // competitor teardown (what to steal). All $0 cached reads; each section is omitted when absent, so
+  // the card degrades gracefully (an all-empty brief is not attached).
   for (const c of selected) {
-    const brief = buildKeywordBrief(queriesByUrl.get(c.url) ?? [c.targetQuery], demandByTerm);
-    if (brief) c.evidenceBrief = brief;
+    const queries = queriesByUrl.get(c.url) ?? [c.targetQuery];
+    const kw = buildKeywordBrief(queries, demandByTerm);
+    const serp = buildSerpEvidence(queries, serpByTerm);
+    const competitor = competitorByPath.get(normalizePath(c.url));
+    if (!kw && !serp && !competitor) continue;
+    const brief: DailyEvidenceBrief = {
+      keywords: kw?.keywords ?? [],
+      addressableVolume: kw?.addressableVolume ?? null,
+      ...(serp ? { serp } : {}),
+      ...(competitor ? { competitor } : {}),
+    };
+    c.evidenceBrief = brief;
   }
 
   const record = buildDailyPlanRecord({

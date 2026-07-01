@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DailyExperimentsSection (2026-07-01, assistant-first redesign A+B) — the friendly strategist card.
+ * DailyExperimentsSection (2026-07-01, assistant-first redesign A+B): the friendly strategist card.
  * The SCIENCE is unchanged (plan -> approve -> apply in Wix -> Beacon confirms live -> proof starts ->
  * tell Google). Only the surface changed: every card leads with "The move / Why it wins / Paste this /
  * How we track it", and the experiment/control/proof machinery lives behind a "How we know" expander.
@@ -77,11 +77,36 @@ function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
         {withData.map((k) => (
           <div key={k.term} style={{ fontSize: 12.5, opacity: 0.9 }}>
             <span style={{ fontWeight: 600 }}>{k.term}</span>
-            {k.volume != null ? ` — ${k.volume.toLocaleString()}/mo` : " — no volume on record"}
+            {k.volume != null ? `: ${k.volume.toLocaleString()}/mo` : ": no volume on record"}
             {k.competition ? `, ${k.competition} competition` : ""}
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** The live Google reaction: what shape of page wins for this search + who holds the top spots. */
+function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
+  const serp = e.evidenceBrief?.serp;
+  if (!serp || serp.winningDomains.length === 0) return null;
+  return (
+    <div>
+      <span style={{ opacity: 0.6 }}>What wins on Google now: </span>
+      {serp.format} pages, led by {serp.winningDomains.join(", ")}.
+      {serp.whatToDo ? <> {stripBannedDashes(serp.whatToDo)}</> : null}
+    </div>
+  );
+}
+
+/** The top competitor page beating this one, and the exact thing to take from it. */
+function CompetitorSteal({ e }: { e: PlannedExperimentRecord }) {
+  const c = e.evidenceBrief?.competitor;
+  if (!c || !c.whatToSteal) return null;
+  return (
+    <div>
+      <span style={{ opacity: 0.6 }}>Who is beating you: </span>
+      {c.domain}. Steal this: {stripBannedDashes(c.whatToSteal)}.
     </div>
   );
 }
@@ -98,6 +123,8 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
       <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85, display: "grid", gap: 4 }}>
         <div><span style={{ opacity: 0.6 }}>The search people use: </span>“{e.targetQuery}”</div>
         <KeywordResearch e={e} />
+        <SerpReaction e={e} />
+        <CompetitorSteal e={e} />
         <div><span style={{ opacity: 0.6 }}>On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
         {detailLine && <div>{detailLine}</div>}
         {e.controls.length > 0 && (

@@ -1,9 +1,9 @@
 /**
- * daily-evidence-brief (2026-07-01, assistant-first phase 2 slice E) — the "how we know" battlefield
+ * daily-evidence-brief (2026-07-01, assistant-first phase 2 slice E) - the "how we know" battlefield
  * for the daily card. PURE: assembles the keyword-research evidence (the page's top searches + their
- * cached DataForSEO demand) into a compact, render-ready brief. No I/O — the caller passes the cached
- * demand map (readAllCachedKeywordDemand, a $0 reader). Live SERP + competitor teardown attach in a
- * later slice; this is the keyword layer.
+ * cached DataForSEO demand), the live SERP reaction, and the competitor teardown into a compact,
+ * render-ready brief. No I/O: the caller passes the cached demand map (readAllCachedKeywordDemand, a $0
+ * reader), the cached SERP patterns, and the competitor teardown facts.
  *
  * HONESTY: DataForSEO exposes paid COMPETITION (low/medium/high), NOT a true keyword-difficulty score.
  * We surface competitionLevel and label it "competition", never "difficulty".
@@ -18,14 +18,110 @@ export type EvidenceKeyword = {
   competition: "low" | "medium" | "high" | null;
 };
 
+/** The live Google top-10 reaction for the page's search: what shape of page wins + who holds it. */
+export type EvidenceSerp = {
+  /** The query this SERP read is for. */
+  query: string;
+  /** The winning content shape (list / guide / faq / table / product / ugc / mixed). */
+  format: string;
+  /** The top domains Google is rewarding (best-first, capped). */
+  winningDomains: string[];
+  /** The on-page move the winning shape implies (e.g. "lead with a direct answer"). */
+  whatToDo: string;
+};
+
+/** The top competitor page beating this page, and the specific thing to steal from it. */
+export type EvidenceCompetitor = {
+  domain: string;
+  url: string;
+  /** Friendly, actionable "steal this" line derived from the competitor's page structure. */
+  whatToSteal: string;
+};
+
 export type DailyEvidenceBrief = {
   /** The page's top searches with whatever cached demand we have (best-first). */
   keywords: EvidenceKeyword[];
   /** Sum of known volumes across the shown keywords, or null when none are cached. */
   addressableVolume: number | null;
+  /** Live Google SERP reaction for the page's top search (absent until a SERP read is cached). */
+  serp?: EvidenceSerp;
+  /** The top competitor page + what to steal (absent until a competitor teardown exists). */
+  competitor?: EvidenceCompetitor;
 };
 
 export type CachedDemand = { volume: number | null; competition: "low" | "medium" | "high" | null };
+
+/** The subset of a cached SERP pattern the daily card needs (keeps this module dependency-free). */
+export type SerpPatternLite = { format: string; winningDomains: string[]; elementImplication: string };
+
+/** The subset of a competitor page teardown the daily card needs to compute "what to steal". Pure. */
+export type CompetitorFactsLite = {
+  hasAnswerBlock?: boolean;
+  hasFaq?: boolean;
+  faqQuestionCount?: number;
+  schemaTypes?: string[];
+  hasToolOrCalculator?: boolean;
+  wordCount?: number;
+  sectionCount?: number;
+  hasReviewSchema?: boolean;
+};
+
+/**
+ * Pick the best cached SERP reaction for a page from its queries + the cached-pattern map. Returns the
+ * first query (best-first order) that has a cached pattern with real winning domains. Pure, null when
+ * none cached. Never triggers a live call (that is the operator-gated producer's job).
+ */
+export function buildSerpEvidence(
+  queries: string[],
+  serpByTerm: Map<string, SerpPatternLite>,
+  opts?: { maxDomains?: number },
+): EvidenceSerp | null {
+  const maxDomains = opts?.maxDomains ?? 3;
+  for (const raw of queries) {
+    const q = (raw ?? "").trim();
+    if (!q) continue;
+    const p = serpByTerm.get(q.toLowerCase());
+    if (p && p.winningDomains.length > 0 && p.elementImplication.trim()) {
+      return { query: q, format: p.format, winningDomains: p.winningDomains.slice(0, maxDomains), whatToDo: p.elementImplication.trim() };
+    }
+  }
+  return null;
+}
+
+/**
+ * Turn a competitor page's structure into a friendly, actionable "steal this" line (top 3 highest-
+ * leverage stealable elements). Pure. Returns null when the page has no stealable structure (so a thin
+ * competitor never produces a hollow "steal nothing" line).
+ */
+export function whatToSteal(facts: CompetitorFactsLite | null | undefined): string | null {
+  if (!facts) return null;
+  const wins: string[] = [];
+  if (facts.hasAnswerBlock) wins.push("a direct answer at the top");
+  if (facts.hasFaq) wins.push(`an FAQ section${facts.faqQuestionCount ? ` (${facts.faqQuestionCount} questions)` : ""}`);
+  if (facts.hasToolOrCalculator) wins.push("an interactive tool");
+  if ((facts.schemaTypes?.length ?? 0) > 0) wins.push("structured data (schema)");
+  if ((facts.wordCount ?? 0) >= 1500) wins.push(`more depth (about ${Math.round((facts.wordCount ?? 0) / 100) * 100} words)`);
+  if ((facts.sectionCount ?? 0) >= 5) wins.push(`${facts.sectionCount} clear sections`);
+  if (facts.hasReviewSchema) wins.push("review markup");
+  if (wins.length === 0) return null;
+  return wins.slice(0, 3).join(", ");
+}
+
+/**
+ * Build the competitor-teardown evidence for a page: the top competitor's domain + the specific thing
+ * to steal. Pure. Returns null unless there is a real domain AND something stealable (so the card never
+ * shows a competitor with no takeaway).
+ */
+export function buildCompetitorEvidence(input: {
+  domain: string | null | undefined;
+  url: string | null | undefined;
+  facts?: CompetitorFactsLite | null;
+}): EvidenceCompetitor | null {
+  const domain = (input.domain ?? "").trim().replace(/^www\./, "");
+  const steal = whatToSteal(input.facts);
+  if (!domain || !steal) return null;
+  return { domain, url: (input.url ?? "").trim(), whatToSteal: steal };
+}
 
 /**
  * Build the keyword-research brief for a page from its top queries + the cached demand map. Returns
