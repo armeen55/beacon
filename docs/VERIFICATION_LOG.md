@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-07-01 — Phase 2 slice E-2 (live SERP reaction + competitor teardown on the daily card)
+
+**What changed (commit `247ef279`, branch `claude/daily-experiments-native`):** the daily card's "How we know" expander now shows the full battlefield alongside the keyword research: (1) **What wins on Google now** - the winning page shape (list/guide/faq/table/product) + the top domains Google rewards + the exact on-page move that shape implies; (2) **Who is beating you** - the top competitor page's domain + a "steal this" line (highest-leverage stealable elements: direct answer, FAQ, tool, schema, depth).
+- `daily-evidence-brief.ts`: extended `DailyEvidenceBrief` with optional `serp` + `competitor`; new PURE builders `buildSerpEvidence`, `whatToSteal`, `buildCompetitorEvidence` (dependency-free, tenant-agnostic) + 8 new unit tests.
+- `build-today-preview.ts`: $0 cached reads of `readCachedSerpPatterns` (per-tenant) + `loadChangePacksForTenant` (owned->competitor teardown), relevance-gated (drops loosely-matched / <0.3 relevance so no off-topic rival, per the evidence-relevance discipline). Combines keyword + serp + competitor into one brief; each section omitted when absent (graceful degrade).
+- `daily-experiments-section.tsx`: guarded `SerpReaction` + `CompetitorSteal` blocks in the expander; all dynamic strings run through `stripBannedDashes`. Also fixed an em dash I introduced in E-1's rendered keyword row (`- N/mo` -> `: N/mo`) + the file header + my E-1/E-2 comments.
+
+**DataForSEO live populate (operator-authorized $50/mo cap):** ran ONE populate under the **Iranopedia tenant** (`research-serp-patterns` + `competitor-page-audit` are TENANT_SCOPED, unlike the GLOBAL keyword cache) -> 6 fresh SERP patterns (**$0.0930**) + 11 competitor audits (**$0** own-crawl), both to the tenant-scoped stores so prod reads them. Verified end-to-end on real data: **9/12 top pages show a SERP reaction, 4/12 a competitor teardown** (e.g. "persian boy names" -> ugc pages led by web.mit.edu/reddit -> "win with a first-person angle"; steal parentcalc's answer+FAQ+tool; world-cup jersey correctly flagged a product SERP).
+
+**Verified:** typecheck 0 · 14 evidence-brief tests (8 new) + 51 dash-guard tests green · live end-to-end populate+verify on Iranopedia. No proof rows or measuring experiments mutated. **Remaining:** Phase 1d (/worklist MoveCard brief), Phase 3 friction fixes, app-wide dash sweep (spawned task).
+
+---
+
 ## 2026-07-01 — Phase 2 slice E-1 (keyword-research evidence on the daily card) + DataForSEO flipped LIVE
 
 **What changed (commit `2b3c675d`, branch `claude/daily-experiments-native`):** the daily move card's "How we know" expander now shows the KEYWORD RESEARCH behind the move — the page's top searches with real DataForSEO monthly volume + paid-**competition** level (labeled "competition", never "difficulty"/"KD", because DataForSEO exposes competition, not a difficulty score).
