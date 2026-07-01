@@ -103,6 +103,7 @@ describe("SCHEMA_BY_KIND registry", () => {
       "create_page_brief",
       "cro_fix",
       "experiment_plan",
+      "internal_link",
       "tool_asset",
     ];
     expect(kinds).toEqual(expected.sort());

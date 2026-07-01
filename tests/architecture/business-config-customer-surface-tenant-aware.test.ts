@@ -47,7 +47,6 @@ const MIGRATED_ENTRY_FILES = [
   "src/app/(shell)/changes/[id]/page.tsx",
   "src/app/(shell)/today-data.ts",
   "src/app/(shell)/today-v2-data.ts",
-  "src/app/(shell)/competitors/page.tsx",
   "src/app/(shell)/local/page.tsx",
   "src/lib/local-presence.ts",
 ];

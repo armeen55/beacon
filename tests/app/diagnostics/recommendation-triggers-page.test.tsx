@@ -446,14 +446,14 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 17 (post-profound_aeo_gap loader)", async () => {
+  it("predicates_run counter reads 14 (post-SEMrush-removal loader)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
     // The font-mono span renders the active predicate count; ratchets with
     // each new trigger (profound_aeo_gap added 2026-06-14 → 17).
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>17<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>14<\/span>/,
     );
   });
 
@@ -509,9 +509,9 @@ describe("/diagnostics/recommendation-triggers", () => {
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta.
     // Post-profound_aeo_gap (2026-06-14): 17.
-    expect(html).toContain('data-description-predicates-run="17"');
+    expect(html).toContain('data-description-predicates-run="14"');
     // And the prose body contains the same integer.
-    expect(html).toContain("17</span> active");
+    expect(html).toContain("14</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────
