@@ -108,14 +108,37 @@ describe("proposeSafeAnswerBlock — extractive, surfaces a BURIED exact answer"
     expect(r).toBeNull();
   });
 
-  it("prefers a definitional sentence over an earlier non-definitional one", () => {
-    const r = proposeSafeAnswerBlock({ label: "chaharshanbe suri", h1: "Chaharshanbe Suri", topQuery: "chaharshanbe suri 2026", bodyParagraphs: [
+  it("prefers a definitional sentence for a WHAT-intent query (bare entity)", () => {
+    const r = proposeSafeAnswerBlock({ label: "chaharshanbe suri", h1: "Chaharshanbe Suri", topQuery: "chaharshanbe suri", bodyParagraphs: [
       "Families across Iran prepare for the evening with snacks, music, and gatherings.",
       "Chaharshanbe Suri is enjoyed by people of all ages across the country each spring.", // qualifies, but not a definition
       "Chaharshanbe Suri is a traditional Persian festival of fire rooted in ancient custom.", // the definition
     ] });
     expect(r).toBeTruthy();
     expect(r!.answerText).toContain("traditional Persian festival of fire");
+  });
+
+  // REASONING (2026-06-30) — the operator's flagged bug: a WHEN/date query must NOT be answered with a
+  // definition. When the top query is date-intent ("chaharshanbe suri 2026") and the page has no date
+  // sentence, emit an honest GAP (null) instead of promoting the definition. See answer-intent.ts.
+  it("returns null (honest gap) for a WHEN-intent query when the page only has a definition", () => {
+    const r = proposeSafeAnswerBlock({ label: "chaharshanbe suri", h1: "Chaharshanbe Suri", topQuery: "chaharshanbe suri 2026", bodyParagraphs: [
+      "Families across Iran prepare for the evening with snacks, music, and gatherings.",
+      "Chaharshanbe Suri is enjoyed by people of all ages across the country each spring.", // not a date
+      "Chaharshanbe Suri is a traditional Persian festival of fire rooted in ancient custom.", // a definition, not a date
+    ] });
+    expect(r).toBeNull();
+  });
+
+  it("surfaces the DATE sentence (not the definition) for a WHEN-intent query when the page has one", () => {
+    const r = proposeSafeAnswerBlock({ label: "chaharshanbe suri", h1: "Chaharshanbe Suri", topQuery: "chaharshanbe suri 2026", bodyParagraphs: [
+      "Families across Iran prepare for the evening with snacks, music, and gatherings.",
+      "Chaharshanbe Suri is celebrated on the evening of Tuesday, March 17, 2026.", // the date — answers WHEN
+      "Chaharshanbe Suri is a traditional Persian festival of fire rooted in ancient custom.", // a definition — wrong intent
+    ] });
+    expect(r).toBeTruthy();
+    expect(r!.answerText).toContain("March 17, 2026");
+    expect(r!.answerText).not.toContain("festival of fire");
   });
 
   it("copies (not moves) when the buried answer is mid-paragraph", () => {

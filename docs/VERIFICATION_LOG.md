@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-30 — Reasoning Engine S1 WIRED (chaharshanbe intent bug fixed) + structured-layer ground-truth
+
+**What changed (branch `claude/profound-iranopedia-intel`):**
+- **`src/domains/experiments/safe-answer-block.ts`** — `proposeSafeAnswerBlock` now consumes `topQuery` (it was ignored). Imports S1's `classifyOneQuery` + `scoreAnswerForIntent`; after the firewall/entity/copula filters, it ranks candidates by how well they ANSWER the query's intent and picks the best (was: blindly the first DEFINITIONAL sentence). For a non-"what" intent, if the best fit `< INTENT_MIN_FIT (0.5)` it returns `null` (honest gap) rather than promoting a definition. Removed the now-subsumed `DEFINITIONAL` regex.
+- **`src/domains/experiments/safe-answer-block.test.ts`** — corrected the bug-enshrining test (WHEN query "chaharshanbe suri 2026" had asserted the *definition* wins) and added 3 tests: WHAT→definition kept, WHEN→date surfaced, WHEN-with-no-date→null gap.
+
+**Verified:** `npx vitest run safe-answer-block.test.ts answer-intent.test.ts` → **28 passed / 0 failed** (17 + 11). `npm run typecheck` → **0 errors**. Deterministic, $0, no LLM call, no network, no publish; only future daily-batch GENERATION is affected (proposals the operator reviews before applying) — the accepted/measuring plan is untouched.
+
+**Ground-truth correction (design-vs-code):** a 6-agent design pass proposed BUILDING a new LLM adjudicator + zod schemas + drafter for "S2". Code verification shows this is **already built + wired in prod**: `llm/schemas.ts` (9 zod draft schemas w/ evidenceRefs/confidence/proofPlan) + `llm/structured-drafter.ts` (gate→budget→zod→firewalls→retry→fail-closed), called from `demand-graph/prepare-today-moves.ts`, `serp/prepare-create-page-verdicts.ts`, `prepared-move-pack.ts`. Remaining Reasoning-Engine work is WIRING (route S1's gap → the existing `draftAnswerBlockStructured` in the DAILY batch, approve-before-live) + the S4 re-skin + S5 friction fixes — NOT rebuilding. Full design specs persisted at `tasks/wawc5907i.output`.
+
+---
+
 ## 2026-06-30 — Move 7: hermetic test suite (env-proof) + pre-edit launch drill (read-only)
 
 **Part 1 — tests are now identical with or without `.env.local`.** `vitest.config.ts` `env` block now blanks the full set of ambient paid/SERP/OAuth/auth creds UNCONDITIONALLY (kept blank even under `BEACON_LIVE_DB_TESTS=1`, so a live-DB run still can NEVER fire a paid DataForSEO/OpenAI call or a real OAuth exchange): `DATAFORSEO_AUTH_B64/LOGIN/PASSWORD/DRY_RUN/MONTHLY_CAP_USD`, `BEACON_SERP_PROVIDER`, `OPENAI_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_CLIENT_ID/SECRET`, `BEACON_OAUTH_STATE_SECRET`, `SUPABASE_MGMT_TOKEN`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BEACON_AUTH_DISABLED`, `BEACON_OPERATOR_MODE`, `BEACON_LLM_WHY`, `NEXT_PUBLIC_APP_URL`. vitest `env` overrides `process.env` at setup; tests that exercise these paths still stub via `vi.stubEnv`/args (overrides per-test). No integration/auth/tenant/SERP/connector assertion weakened.

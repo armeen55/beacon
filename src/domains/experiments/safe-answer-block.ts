@@ -9,6 +9,8 @@
  * emit nothing. PURE, $0, no live fetch.
  */
 
+import { classifyOneQuery, scoreAnswerForIntent } from "./answer-intent";
+
 // Body-paragraph source is in DOCUMENT ORDER (extractor.ts: contentRoot.find("p").each).
 const COPULA = /\b(is|are|was|were|refers to|describes|denotes|means|consists of)\b/i;
 const DANGLE = /^(it|its|they|their|them|this|these|those|he|she|his|her|however|therefore|also|moreover|thus|then|in addition|such|furthermore|additionally|instead|meanwhile)\b/i;
@@ -17,9 +19,10 @@ const SENTENCE_END = /[.!?]$/;
 // an extractive lever (e.g. "Shiraz is home to Persepolis…" — Persepolis is NEAR, not IN, Shiraz). We
 // never surface a containment/proximity/enumeration sentence as the page's lead answer.
 const WEAK_ANSWER_LEAD = /\b(?:is|are|was|were)\s+(?:home to|located (?:in|near|within|on|at|close)|situated (?:in|near|on|at)|near|next to|close to|adjacent to|surrounded by|famous for|known for|renowned for|noted for|best known for|part of)\b/i;
-// A DEFINITIONAL lead actually answers "what is X" — "X is a/an/the …", or a copula directly followed
-// by a defining category noun. Preferred over any non-definitional (but still firewall-clean) sentence.
-const DEFINITIONAL = /\b(?:is|are|was|were|refers to|means|denotes|describes)\s+(?:a|an|the|one of|the name|written|spoken|used|celebrated|observed|practiced)\b/i;
+// The intent-fit floor for a NON-definitional query (when/cost/how/where/who/list/compare): if no
+// on-page sentence clears it, emit an honest GAP instead of moving a definition to the top for a
+// question it does not answer. (A "what" query keeps the lenient definitional-then-topical fallback.)
+const INTENT_MIN_FIT = 0.5;
 
 // Factual-safety patterns — surfacing these to the lead answer needs editorial/freshness checks the
 // lever can't do, so V1 rejects them outright (airtight over comprehensive).
@@ -144,9 +147,21 @@ export function proposeSafeAnswerBlock(input: {
     }
   }
   if (cands.length === 0) return null; // no airtight, definitional-grade buried answer → emit nothing
-  // Prefer the first DEFINITIONAL candidate; else the first qualifying one (document order).
-  const chosen = cands.find((c) => DEFINITIONAL.test(c.sent)) ?? cands[0];
-  const { sent, pi, si } = chosen;
+  // REASONING (2026-06-30) — match the answer to what people ACTUALLY search, not just "is it a
+  // definition". The old code blindly preferred the first DEFINITIONAL sentence and ignored topQuery,
+  // so "chaharshanbe suri 2026" (a WHEN/date query) surfaced the festival's *definition* instead of a
+  // date. We now classify the top query's intent (answer-intent.ts) and pick the firewall-clean
+  // candidate that best ANSWERS it (a date for "when", a definition for "what", …). For a
+  // non-definitional intent, if nothing on the page answers the real question we emit an honest GAP
+  // (null) rather than promoting a definition — the LLM writer / operator fills that gap. "what"
+  // keeps the prior lenient behavior (a topical sentence is an acceptable fallback).
+  const intent = classifyOneQuery(input.topQuery);
+  const ranked = cands
+    .map((c) => ({ c, fit: scoreAnswerForIntent(c.sent, intent) }))
+    .sort((a, b) => b.fit - a.fit || a.c.pi - b.c.pi || a.c.si - b.c.si);
+  const top = ranked[0]!;
+  if (intent !== "what" && top.fit < INTENT_MIN_FIT) return null; // page answers the wrong question → gap
+  const { sent, pi, si } = top.c;
   const factualSafety = checkAnswerFactualSafety(sent, [sent]);
   const operation = si === 0 ? "move_existing_text" : "copy_existing_text"; // clean move only when it's a whole paragraph's lead
   // Clean the entity for the question: drop separator + "by <Brand>" suffixes ("Finglish by
