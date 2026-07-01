@@ -46,6 +46,9 @@ export type DailyCandidate = {
   /** Pages this experiment INFLUENCES (internal-link destinations that receive authority). The
    *  planner caps links per destination and never lets an influenced page be a treated page too. */
   influencedUrls?: string[];
+  /** R1 (2026-07-01): bounded 0.5..1.5 multiplier from the specialist-team debate (move-router
+   *  adjustedScore/baseScore). Absent/1 = team silent or neutral - identical pre-team score. */
+  teamScoreMultiplier?: number;
 };
 
 export type PlannerConfig = {
@@ -121,7 +124,9 @@ export function scoreCandidate(c: DailyCandidate): number {
   const mediumFactor = c.impressions >= 500 && c.impressions <= 6000 ? 1 : 0.6;
   const weakCtr = exp > 0 ? Math.min(1.5, Math.max(0.3, exp / Math.max(c.ctr, exp * 0.05))) : 1;
   const ownershipFactor = 0.5 + Math.min(0.5, c.ownership);
-  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor;
+  // The team's bounded, visible adjustment (R1). Neutral when the team abstained.
+  const teamFactor = Math.max(0.5, Math.min(1.5, c.teamScoreMultiplier ?? 1));
+  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor;
 }
 
 /** Plan today's safe, diversified, effort-bounded batch. PURE. */

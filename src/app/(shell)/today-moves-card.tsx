@@ -523,10 +523,10 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       ) : null}
 
       {m.debate && m.debate.voices.length > 0 ? (
-        <details className="mt-3 rounded-xl border border-gray-200 bg-white px-3 py-2">
+        <details open className="mt-3 rounded-xl border border-gray-200 bg-white px-3 py-2">
           <summary className="cursor-pointer list-none text-[12px] font-semibold text-gray-700">
-            <span className="text-gray-400">▸ </span>Why Beacon recommends this
-            <span className="ml-1.5 font-normal text-gray-400">- {m.debate.headline}</span>
+            <span className="text-gray-400">▾ </span>Your team on this move
+            <span className="ml-1.5 font-normal text-gray-400">{m.debate.headline}</span>
           </summary>
           <div className="mt-2 space-y-1.5">
             {m.debate.voices.map((v) => (

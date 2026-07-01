@@ -86,6 +86,9 @@ export type BuiltCandidate = DailyCandidate & {
    *  DataForSEO demand. Attached by the caller (build-today-preview) from a $0 cached read; absent when
    *  no cached demand exists for the page. */
   evidenceBrief?: DailyEvidenceBrief;
+  /** R1: the specialist team's debate for this pick (named voices, objections, verdict). Attached by
+   *  the caller from the page's EvidencePacket; absent when the team abstained (no packet). */
+  teamReview?: import("./team-review").TeamReview;
 };
 
 const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };

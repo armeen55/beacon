@@ -1,15 +1,15 @@
 /**
- * specialist-opinions (2026-06-25, P1 — the Beacon Team Contract) — model every
+ * specialist-opinions (2026-06-25, P1 - the Beacon Team Contract) - model every
  * connector as a SPECIALIST teammate that emits a falsifiable, attributable
  * opinion about a Move: a claim, the evidence rows behind it, a confidence, the
  * Move types it would support, the objections it raises against other Moves, the
  * way it should tilt the Rank-&-Revenue score, and when its evidence goes stale.
  *
  * PURE / deterministic / no I/O / no LLM. Each emitter consumes the canonical
- * fused `EvidencePacket` (the object the demand graph already builds — we reuse
+ * fused `EvidencePacket` (the object the demand graph already builds - we reuse
  * it, never re-load) plus a small `SpecialistExtras` for the few facts the packet
  * doesn't carry yet (live SERP verdict, CMS pushability). An emitter returns
- * `null` to ABSTAIN when it has no evidence — it never fabricates data. The
+ * `null` to ABSTAIN when it has no evidence - it never fabricates data. The
  * MoveRouter (P2) debates these opinions into one decision; the PreparedMovePack
  * (P3) carries them so every surface can show the team's reasoning.
  *
@@ -21,7 +21,7 @@ import type { SerpValidation } from "@/domains/serp/serp-validation";
 import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 
 /** The teammates. Each maps to a connector (or, for the last two, a synthesis
- *  role). `commerce_asset` is the Opportunity/Asset/Commerce Strategist — it
+ *  role). `commerce_asset` is the Opportunity/Asset/Commerce Strategist - it
  *  decides what an opportunity should BECOME (article / tool / product / …). */
 export type Specialist =
   | "gsc"
@@ -107,7 +107,7 @@ export type ScoreContribution = {
   visibilityGapDelta?: number;
   dollarValue?: number;
   friction?: number;
-  /** 0.5..1.5 — a flat multiplier on the final score (overlap boost, not-pushable cut). */
+  /** 0.5..1.5 - a flat multiplier on the final score (overlap boost, not-pushable cut). */
   scoreMultiplier?: number;
 };
 
@@ -126,7 +126,7 @@ export type SpecialistOpinion = {
   staleAt: string;
 };
 
-/** The few facts the EvidencePacket doesn't carry yet — threaded by the loader
+/** The few facts the EvidencePacket doesn't carry yet - threaded by the loader
  *  when available, otherwise omitted (the relevant specialist then abstains). */
 export type SpecialistExtras = {
   nowIso?: string;
@@ -170,7 +170,7 @@ function citedCompetitorCount(p: EvidencePacket): number {
 
 // ── the 8 emitters. Each is pure and abstains (null) without real evidence. ──
 
-/** GSC — realized search demand, ranking, and CTR. The spine. */
+/** GSC - realized search demand, ranking, and CTR. The spine. */
 export function emitGscOpinion(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion | null {
   const nowIso = extras.nowIso ?? new Date().toISOString();
   const gsc = p.yourPage.gsc;
@@ -224,7 +224,7 @@ export function emitGscOpinion(p: EvidencePacket, extras: SpecialistExtras = {})
       kind: "no_measured_demand",
       against: ["create_page"],
       severity: "downgrade",
-      detail: "Demand here is an AI-attention proxy — no measured Google search volume yet.",
+      detail: "Demand here is an AI-attention proxy - no measured Google search volume yet.",
       evidenceRefs: [{ specialist: "gsc", source: "computed", key: p.move.key, detail: "basis=ai_attention" }],
     });
   }
@@ -241,7 +241,7 @@ export function emitGscOpinion(p: EvidencePacket, extras: SpecialistExtras = {})
   };
 }
 
-/** GA4 — money. An AMPLIFIER: it never picks the Move, it weights it. */
+/** GA4 - money. An AMPLIFIER: it never picks the Move, it weights it. */
 export function emitGa4Opinion(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion | null {
   const nowIso = extras.nowIso ?? new Date().toISOString();
   const dollar = p.yourPage.dollarValue;
@@ -249,7 +249,7 @@ export function emitGa4Opinion(p: EvidencePacket, extras: SpecialistExtras = {})
 
   return {
     specialist: "ga4",
-    claim: `This page already drives measurable conversions/value (${Math.round(dollar)}) — a money page.`,
+    claim: `This page already drives measurable conversions/value (${Math.round(dollar)}) - a money page.`,
     evidenceRefs: [
       {
         specialist: "ga4",
@@ -259,17 +259,17 @@ export function emitGa4Opinion(p: EvidencePacket, extras: SpecialistExtras = {})
       },
     ],
     confidence: clamp01(0.5 + Math.log10(1 + dollar) / 4),
-    suggestedMoveTypes: [], // amplifier — money weights, never decides
+    suggestedMoveTypes: [], // amplifier - money weights, never decides
     objections: [],
     scoreContribution: { dollarValue: dollar },
     staleAt: staleAtFor("ga4", nowIso),
   };
 }
 
-/** Clarity — on-page friction. In Sprint 1 it fires on the AGGREGATED friction
+/** Clarity - on-page friction. In Sprint 1 it fires on the AGGREGATED friction
  *  the packet carries (rage + dead + 2×script-errors) and raises a DOWNGRADE
  *  ("fix UX first") against content Moves. The script-error-specific hard VETO
- *  (JS errors block AI crawlers) needs the raw Clarity breakdown — that arrives
+ *  (JS errors block AI crawlers) needs the raw Clarity breakdown - that arrives
  *  with P13 (Clarity-as-router); until then we never over-claim a veto. */
 export function emitClarityOpinion(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion | null {
   const nowIso = extras.nowIso ?? new Date().toISOString();
@@ -284,7 +284,7 @@ export function emitClarityOpinion(p: EvidencePacket, extras: SpecialistExtras =
   };
   return {
     specialist: "clarity",
-    claim: `Visitors hit friction here (score ${friction}: dead/rage clicks) — the page frustrates before it converts.`,
+    claim: `Visitors hit friction here (score ${friction}: dead/rage clicks) - the page frustrates before it converts.`,
     evidenceRefs: [ref],
     confidence: 0.6,
     suggestedMoveTypes: ["fix_ux"],
@@ -293,7 +293,7 @@ export function emitClarityOpinion(p: EvidencePacket, extras: SpecialistExtras =
         kind: "fix_ux_first",
         against: ["add_answer_block", "edit_existing_page", "change_title_meta"],
         severity: "downgrade",
-        detail: "High on-page friction — fixing the experience first protects any traffic a content move would win.",
+        detail: "High on-page friction - fixing the experience first protects any traffic a content move would win.",
         evidenceRefs: [ref],
       },
     ],
@@ -302,7 +302,7 @@ export function emitClarityOpinion(p: EvidencePacket, extras: SpecialistExtras =
   };
 }
 
-/** Profound — answer-engine (AEO) visibility: who AI cites for this topic. */
+/** Profound - answer-engine (AEO) visibility: who AI cites for this topic. */
 export function emitProfoundOpinion(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion | null {
   const nowIso = extras.nowIso ?? new Date().toISOString();
   const cited = citedCompetitorCount(p);
@@ -318,10 +318,10 @@ export function emitProfoundOpinion(p: EvidencePacket, extras: SpecialistExtras 
   const domain = compRelevant ? p.competitor.domain : null;
   const isCreate = p.move.gapType === "create_page";
   const claim = isCreate
-    ? `AI cites ${cited} competitor page(s)${domain ? ` (e.g. ${domain})` : ""} for this topic — you have no page.`
+    ? `AI cites ${cited} competitor page(s)${domain ? ` (e.g. ${domain})` : ""} for this topic - you have no page.`
     : domain
-      ? `AI cites ${domain}, not you — you rank but aren't the cited source.`
-      : `AI cites ${cited} competitor page(s) for this topic, not you — you rank but aren't the cited source.`;
+      ? `AI cites ${domain}, not you - you rank but aren't the cited source.`
+      : `AI cites ${cited} competitor page(s) for this topic, not you - you rank but aren't the cited source.`;
 
   const refs: EvidenceRef[] = [
     {
@@ -337,7 +337,7 @@ export function emitProfoundOpinion(p: EvidencePacket, extras: SpecialistExtras 
       kind: "off_topic_competitor",
       against: [],
       severity: "downgrade",
-      detail: "The AI-cited page is loosely matched to the query — confirm the real winner before committing.",
+      detail: "The AI-cited page is loosely matched to the query - confirm the real winner before committing.",
       evidenceRefs: refs,
     });
   }
@@ -354,9 +354,9 @@ export function emitProfoundOpinion(p: EvidencePacket, extras: SpecialistExtras 
   };
 }
 
-/** DataForSEO — live-SERP ground truth. Abstains until a verdict is prepared
+/** DataForSEO - live-SERP ground truth. Abstains until a verdict is prepared
  *  (no broad paid runs in Sprint 1, so this is usually silent on existing-page
- *  Moves — honest). When a verdict exists it gatekeeps create_page. */
+ *  Moves - honest). When a verdict exists it gatekeeps create_page. */
 export function emitDataforseoOpinion(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion | null {
   const nowIso = extras.nowIso ?? new Date().toISOString();
   const v = extras.serpVerdict;
@@ -377,7 +377,7 @@ export function emitDataforseoOpinion(p: EvidencePacket, extras: SpecialistExtra
       kind: "already_ranks",
       against: ["create_page"],
       severity: "veto",
-      detail: "You already rank in the top 10 — this is an EDIT, not a new page.",
+      detail: "You already rank in the top 10 - this is an EDIT, not a new page.",
       evidenceRefs: [ref],
     });
     suggested.push("edit_existing_page");
@@ -386,7 +386,7 @@ export function emitDataforseoOpinion(p: EvidencePacket, extras: SpecialistExtra
       kind: "cant_outrank_serp",
       against: ["create_page"],
       severity: "veto",
-      detail: `SERP is marketplace/UGC-dominated (${v.marketplaceUgcCount}/10) — a content page can't win it.`,
+      detail: `SERP is marketplace/UGC-dominated (${v.marketplaceUgcCount}/10) - a content page can't win it.`,
       evidenceRefs: [ref],
     });
   } else if (v.verdict === "build") {
@@ -407,7 +407,7 @@ export function emitDataforseoOpinion(p: EvidencePacket, extras: SpecialistExtra
   };
 }
 
-/** Wix/CMS — feasibility. Abstains unless the loader threads pushability. Never
+/** Wix/CMS - feasibility. Abstains unless the loader threads pushability. Never
  *  vetoes (a non-pushable Move is still valid as a paste-ready directive). */
 export function emitWixOpinion(p: EvidencePacket, extras: SpecialistExtras = {}): SpecialistOpinion | null {
   const nowIso = extras.nowIso ?? new Date().toISOString();
@@ -422,7 +422,7 @@ export function emitWixOpinion(p: EvidencePacket, extras: SpecialistExtras = {})
   if (extras.pushable) {
     return {
       specialist: "wix",
-      claim: "This change is field-publishable on your CMS — one-click ship when approved.",
+      claim: "This change is field-publishable on your CMS - one-click ship when approved.",
       evidenceRefs: [ref],
       confidence: 1,
       suggestedMoveTypes: [],
@@ -433,7 +433,7 @@ export function emitWixOpinion(p: EvidencePacket, extras: SpecialistExtras = {})
   }
   return {
     specialist: "wix",
-    claim: "This isn't field-publishable on your CMS — prepare it as a paste-ready directive for manual apply.",
+    claim: "This isn't field-publishable on your CMS - prepare it as a paste-ready directive for manual apply.",
     evidenceRefs: [ref],
     confidence: 1,
     suggestedMoveTypes: [],
@@ -442,7 +442,7 @@ export function emitWixOpinion(p: EvidencePacket, extras: SpecialistExtras = {})
         kind: "not_pushable",
         against: [],
         severity: "downgrade",
-        detail: "Not field-publishable on this CMS — higher operator effort to ship.",
+        detail: "Not field-publishable on this CMS - higher operator effort to ship.",
         evidenceRefs: [ref],
       },
     ],
@@ -451,14 +451,14 @@ export function emitWixOpinion(p: EvidencePacket, extras: SpecialistExtras = {})
   };
 }
 
-/** LLM strategist — synthesis only; must cite other specialists and never invent
+/** LLM strategist - synthesis only; must cite other specialists and never invent
  *  numbers. In deterministic mode (Sprint 1, no LLM in the product) it ABSTAINS;
  *  the structured strategist arrives with P4. */
 export function emitLlmOpinion(_p: EvidencePacket, _extras: SpecialistExtras = {}): SpecialistOpinion | null {
   return null;
 }
 
-/** Opportunity / Asset / Commerce Strategist — decides what an opportunity should
+/** Opportunity / Asset / Commerce Strategist - decides what an opportunity should
  *  BECOME. Sprint 1 emits only the deterministic tool/asset seed (the packet found
  *  a competitor tool you lack); full dynamic routing (article vs product vs
  *  collection vs sales-artifact) is P8. */
@@ -470,7 +470,7 @@ export function emitCommerceAssetOpinion(p: EvidencePacket, extras: SpecialistEx
   const kindLabel = p.draft.asset?.kind ?? "interactive tool";
   return {
     specialist: "commerce_asset",
-    claim: `Better served as a ${kindLabel} than an article — a competitor offers one and it earns links + citations.`,
+    claim: `Better served as a ${kindLabel} than an article - a competitor offers one and it earns links + citations.`,
     evidenceRefs: [
       {
         specialist: "commerce_asset",

@@ -29,6 +29,7 @@ import {
   type CachedDemand, type SerpPatternLite, type EvidenceCompetitor, type DailyEvidenceBrief,
 } from "./daily-evidence-brief";
 import { normalizePath } from "./daily-plan-types";
+import { reviewCandidateWithTeam } from "./team-review";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -58,7 +59,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     readCachedSerpPatterns().catch(() => new Map()),
     // Slice E-2: competitor teardown per owned page (top competitor + what to steal), from the cached
     // demand graph + cached page audits (compute, NO paid call, NO live fetch). Fail-soft to none.
-    loadChangePacksForTenant(tenantId, { limit: 50 }).then((r) => r.packets).catch(() => []),
+    loadChangePacksForTenant(tenantId, { limit: 120 }).then((r) => r.packets).catch(() => []),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence.
@@ -75,9 +76,13 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
 
   // Competitor teardown indexed by normalized owned-page path. Only keep a RELEVANT, on-topic
   // competitor (relevance gate + not loosely-matched) so a page never shows an off-topic rival.
+  // Also index the FULL packet per page (first = the page's highest-ranked move) - the input the
+  // specialist team debates in the R1 review below.
   const competitorByPath = new Map<string, EvidenceCompetitor>();
+  const packetByPath = new Map<string, (typeof changePacks)[number]>();
   for (const p of changePacks) {
     const ownedUrl = p.yourPage?.url;
+    if (ownedUrl && !packetByPath.has(normalizePath(ownedUrl))) packetByPath.set(normalizePath(ownedUrl), p);
     const c = p.competitor;
     if (!ownedUrl || !c || !c.domain || c.looselyMatched || (c.relevance ?? 0) < 0.3) continue;
     const ev = buildCompetitorEvidence({ domain: c.domain, url: c.topUrl, facts: c.facts });
@@ -187,7 +192,24 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const gatedBuilt = built.filter((b) => { const r = qaByUrl.get(b.url); return r ? passesDailyGate(r) : true; });
   const qaRejected = built.length - gatedBuilt.length;
 
-  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: gatedBuilt, proofLedger: ledger, config: { ...PLANNER_CONFIG, now } });
+  // R1 (2026-07-01) - THE TEAM DECIDES: every surviving candidate is debated by the full specialist
+  // team (GSC, GA4, Clarity, DataForSEO, Profound, Wix, strategist) over the page's fused evidence
+  // packet. The debate (a) VETOES candidates the team routes off content work (fix the experience
+  // first / hold until winnable), (b) tilts the planner's deterministic score with the router's
+  // bounded multiplier, and (c) freezes the named-voices debate on the candidate so the card shows
+  // the REAL argument that chose tonight's batch. Pages without a packet keep pre-team behavior
+  // exactly (the team abstains - it never fabricates).
+  const nowIso = now.toISOString();
+  let teamVetoed = 0;
+  const teamReviewed = gatedBuilt.filter((b) => {
+    const result = reviewCandidateWithTeam(packetByPath.get(normalizePath(b.url)), nowIso);
+    if (result.review) b.teamReview = result.review;
+    b.teamScoreMultiplier = result.scoreMultiplier;
+    if (result.vetoed) { teamVetoed += 1; return false; }
+    return true;
+  });
+
+  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now } });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
@@ -231,5 +253,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   for (const e of plan.excluded) excludedByReason[e.reason] = (excludedByReason[e.reason] ?? 0) + 1;
 
   if (qaRejected > 0) excludedByReason.quality_rejected = qaRejected;
+  if (teamVetoed > 0) excludedByReason.team_vetoed = teamVetoed;
   return { record, candidatesEvaluated: built.length, excludedByReason };
 }

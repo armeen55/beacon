@@ -47,6 +47,10 @@ export type PlannedExperimentRecord = {
    *  their cached DataForSEO volume + paid-competition level). Absent when no cached demand exists.
    *  Type lives in ./daily-evidence-brief (type-only import - no runtime cycle). */
   evidenceBrief?: import("./daily-evidence-brief").DailyEvidenceBrief;
+  /** R1: the specialist team's debate that backed this pick (named voices + objections + verdict),
+   *  frozen at planning time so the card shows the REAL argument, not a re-derivation. Absent when
+   *  the team abstained. Type lives in ./team-review (type-only import - no runtime cycle). */
+  teamReview?: import("./team-review").TeamReview;
 
   currentText: string;
   proposedText: string;

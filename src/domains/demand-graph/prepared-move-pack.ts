@@ -1,11 +1,11 @@
 /**
- * prepared-move-pack (2026-06-25, P3 — the Prepared Move Pack) — the envelope that
+ * prepared-move-pack (2026-06-25, P3 - the Prepared Move Pack) - the envelope that
  * carries a Move from "the engine found it" to "ready for you to review and ship":
  * the specialist opinions (P1), the router decision (P2), the proof plan, a
  * deterministic readiness STATE MACHINE, and (later) the structured draft. It
  * COMPOSES the existing EvidencePacket (it stores the evidenceHash + scalars, not
  * a second copy of the packet) so it stays compact and never forks a parallel
- * system. A projected pack persists via `move_drafts` (kind="prepared_pack") — the
+ * system. A projected pack persists via `move_drafts` (kind="prepared_pack") - the
  * `kind` column is free text, so NO migration is needed.
  *
  * Sprint 1 packs reach `competitors_read` at most: there is no structured draft
@@ -59,17 +59,17 @@ export type PreparedMovePack = {
   proposedSlug: string | null;
   primaryQuery: string;
   secondaryQueries: string[];
-  /** The team's opinions (P1) — what each specialist found / objected to. */
+  /** The team's opinions (P1) - what each specialist found / objected to. */
   specialistOpinions: SpecialistOpinion[];
   /** The debate outcome (P2). */
   routerDecision: MoveRouterDecision;
   /** Reuse the packet's proof plan directly. */
   proofPlan: EvidencePacket["proofPlan"];
-  /** Structured draft (P4) — null until the structured drafter runs. */
+  /** Structured draft (P4) - null until the structured drafter runs. */
   structuredDraft: StructuredDraft;
-  /** First-class experiment for this Move (P4 schema) — null until prepared. */
+  /** First-class experiment for this Move (P4 schema) - null until prepared. */
   experiment: ExperimentPlan | null;
-  /** Implementation checklist — derived from the draft's operatorSteps (P5). */
+  /** Implementation checklist - derived from the draft's operatorSteps (P5). */
   implementationChecklist: ImplementationStep[];
   /** Cost rolled up across the prepare steps (placeholder zeros in Sprint 1). */
   costSpent: { llmUsd: number; serpUsd: number };
@@ -84,7 +84,7 @@ export type PreparedMovePack = {
   regenMeta?: RegenMeta;
 };
 
-/** Provenance for a teardown-informed regeneration — surfaces the "Competitor-informed"
+/** Provenance for a teardown-informed regeneration - surfaces the "Competitor-informed"
  *  chip + keeps the prior draft recoverable (move_drafts is insert-only, so the old row
  *  still exists; this also stores a short excerpt + the before/after quality). */
 export type RegenMeta = {
@@ -112,7 +112,7 @@ function slugify(s: string): string {
 
 /** Derive the TRUE readiness state from what's actually attached. Honest by
  *  construction: it can only claim a stage whose evidence exists. The chain is
- *  monotonic — reaching `proof_ready` requires a draft, so Sprint 1 (no draft)
+ *  monotonic - reaching `proof_ready` requires a draft, so Sprint 1 (no draft)
  *  caps at `competitors_read`. */
 export function derivePreparedStatus(args: {
   packet: EvidencePacket;
@@ -193,7 +193,7 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
   };
 }
 
-/** A pack is stale when its evidence drifted or its TTL passed — the read-time
+/** A pack is stale when its evidence drifted or its TTL passed - the read-time
  *  signal to re-prepare. */
 export function isPackStale(pack: PreparedMovePack, currentEvidenceHash: string, nowIso?: string): boolean {
   if (pack.evidenceHash !== currentEvidenceHash) return true;
@@ -202,7 +202,7 @@ export function isPackStale(pack: PreparedMovePack, currentEvidenceHash: string,
 }
 
 /** Projection for durable storage. The pack is already compact (it references the
- *  packet by hash, never embeds it), so this is near-identity — it exists as the
+ *  packet by hash, never embeds it), so this is near-identity - it exists as the
  *  single choke point for any future size trimming, and pairs with parse below. */
 export function toPersistedPack(pack: PreparedMovePack): string {
   return JSON.stringify(pack);

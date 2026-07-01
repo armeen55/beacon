@@ -1,18 +1,18 @@
 /**
- * debate-summary (2026-06-25, Sprint 6 · plan P1/P15 transparency) — PURE.
+ * debate-summary (2026-06-25, Sprint 6 · plan P1/P15 transparency) - PURE.
  *
  * The plan's trust principle: "it must feel like a TEAM argued the decision, not
  * 'good keyword, do it.'" The specialists already emit SpecialistOpinions and the
  * router already debates them; this turns those opinions into a render-ready,
  * plain-language debate summary any surface can drop in (read-only). No I/O, no
- * score logic — it only *describes* what the specialists said.
+ * score logic - it only *describes* what the specialists said.
  *
  * Pinned by debate-summary.test.ts.
  */
 
 import type { Specialist, SpecialistOpinion, ObjectionKind } from "./specialist-opinions";
 
-/** Operator-language names — never raw connector keys in the UI. */
+/** Operator-language names - never raw connector keys in the UI. */
 export const SPECIALIST_LABELS: Record<Specialist, string> = {
   gsc: "Search demand",
   ga4: "Revenue",
@@ -27,7 +27,7 @@ export const SPECIALIST_LABELS: Record<Specialist, string> = {
 const OBJECTION_LABELS: Record<ObjectionKind, string> = {
   fix_ux_first: "Fix the page experience first",
   cant_outrank_serp: "This search looks hard to win right now",
-  already_ranks: "You already rank — improve the page, don't make a new one",
+  already_ranks: "You already rank - improve the page, don't make a new one",
   not_pushable: "Can't be published automatically on this site",
   off_topic_competitor: "The competitor match is weak",
   no_measured_demand: "No proven search demand yet",
@@ -53,7 +53,7 @@ export type DebateSummary = {
 export function summarizeSpecialistDebate(opinions: SpecialistOpinion[]): DebateSummary {
   const valid = (opinions ?? []).filter((o) => o && o.claim);
 
-  // Fallbacks are operator-friendly strings, not the raw enum key — a typo'd
+  // Fallbacks are operator-friendly strings, not the raw enum key - a typo'd
   // specialist/objection key never leaks a machine token into the UI.
   const voices: DebateVoice[] = valid
     .map((o) => ({

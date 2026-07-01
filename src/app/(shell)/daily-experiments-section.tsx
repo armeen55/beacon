@@ -86,6 +86,39 @@ function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
+/** The roundtable (R1): the named teammates who argued this pick, their one-line takes, any
+ *  pushback, and the team's verdict. This is the REAL debate frozen at planning time - the same
+ *  specialists (search demand, revenue, visitor behavior, live Google results, AI citations)
+ *  whose evidence chose tonight's batch. */
+function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
+  const t = e.teamReview;
+  if (!t || t.voices.length === 0) return null;
+  return (
+    <div style={{ marginTop: 10, border: "1px solid var(--border, #e5e7eb)", borderRadius: 10, padding: "8px 10px", background: "var(--code-bg, #fafbfc)" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55, marginBottom: 4 }}>
+        Your team on this move{t.consensusPct > 0 ? `, ${t.consensusPct}% conviction` : ""}
+      </div>
+      <div style={{ display: "grid", gap: 3 }}>
+        {t.voices.map((v) => (
+          <div key={v.specialist} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+            <span style={{ fontWeight: 600 }}>{v.label}:</span> {stripBannedDashes(v.claim)}
+          </div>
+        ))}
+        {t.objections.map((o, i) => (
+          <div key={`ob-${i}`} style={{ fontSize: 12.5, lineHeight: 1.45, color: "#b45309" }}>
+            <span style={{ fontWeight: 600 }}>{o.label} pushed back:</span> {stripBannedDashes(o.reason)}
+          </div>
+        ))}
+      </div>
+      {t.verdict ? (
+        <div style={{ marginTop: 5, fontSize: 12.5, opacity: 0.8 }}>
+          <span style={{ fontWeight: 600 }}>Verdict:</span> {stripBannedDashes(t.verdict)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** The live Google reaction: what shape of page wins for this search + who holds the top spots. */
 function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
   const serp = e.evidenceBrief?.serp;
@@ -158,6 +191,7 @@ function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
           <div style={{ fontSize: 13, lineHeight: 1.5 }}>{why}</div>
         </>
       ) : null}
+      <TeamRoundtable e={e} />
 
       <div style={LABEL}>Paste this</div>
       <div style={PASTE}>{paste}</div>
@@ -235,6 +269,7 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
           <div style={{ fontSize: 13, lineHeight: 1.5 }}>{why}</div>
         </>
       ) : null}
+      <TeamRoundtable e={e} />
 
       <div style={LABEL}>Paste this{editable && !isActive && status !== "skipped" ? " (edit it first if you want)" : ""}</div>
       {editable && !isActive && status !== "skipped" ? (

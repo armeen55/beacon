@@ -1,5 +1,5 @@
 /**
- * move-router (2026-06-25, P2 — the debate engine) — take a Move's evidence and
+ * move-router (2026-06-25, P2 - the debate engine) - take a Move's evidence and
  * the team's SpecialistOpinions and DECIDE one action, transparently. The router
  * is deterministic (no LLM, no magic): it seeds from the demand graph's own gap
  * classification, tallies the specialists' weighted votes, applies vetoes
@@ -7,10 +7,10 @@
  * Google+AI overlap boost, applies downgrades (friction, not-pushable, off-topic,
  * unproven demand), and adjusts the score with a bounded, visible multiplier.
  *
- * It NEVER mutates the pure scorer — `baseScore` comes straight from the demand
+ * It NEVER mutates the pure scorer - `baseScore` comes straight from the demand
  * graph and `adjustedScore` is a transparent post-multiplier (the same discipline
  * the learning loop will use later). The output records who supported the winner,
- * which objections fired, and why the alternatives lost — so a card can show the
+ * which objections fired, and why the alternatives lost - so a card can show the
  * whole debate, not a black box.
  *
  * PURE / deterministic / no I/O. Pinned by move-router.test.ts.
@@ -53,7 +53,7 @@ export type MoveRouterDecision = {
   supporting: SpecialistOpinion[];
   /** Vetoes/downgrades that actually changed the outcome or score. */
   appliedObjections: Objection[];
-  /** Opinions for OTHER actions + objections that didn't win — surfaced for honesty. */
+  /** Opinions for OTHER actions + objections that didn't win - surfaced for honesty. */
   dissenting: SpecialistOpinion[];
   /** One-liners on why the runner-up actions lost (when meaningful). */
   whyNotAlternatives: string[];
@@ -136,14 +136,14 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
   const appliedObjections: Objection[] = [];
   const whyNot: string[] = [];
 
-  // 3) Apply VETOes — they override the action.
+  // 3) Apply VETOes - they override the action.
   const vetoes = opinions.flatMap((o) => o.objections).filter((ob) => ob.severity === "veto");
   for (const v of vetoes) {
     const hitsCurrent = v.against.length === 0 || v.against.includes(action);
     if (!hitsCurrent) continue;
     if (v.kind === "already_ranks") {
       action = "edit_existing_page";
-      rationale = `DataForSEO: you already rank — routed to an edit, not a new page. ${v.detail}`;
+      rationale = `DataForSEO: you already rank - routed to an edit, not a new page. ${v.detail}`;
       appliedObjections.push(v);
       whyNot.push("create_page vetoed: you already rank for this.");
     } else if (v.kind === "cant_outrank_serp") {
@@ -175,7 +175,7 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
     rationale += " Google + AI both confirm this demand (double-confirmed).";
   }
 
-  // 5) Apply DOWNGRADES — they cut confidence + score but don't change the action.
+  // 5) Apply DOWNGRADES - they cut confidence + score but don't change the action.
   const downgrades = opinions.flatMap((o) => o.objections).filter((ob) => ob.severity === "downgrade");
   for (const d of downgrades) {
     const hitsCurrent = d.against.length === 0 || d.against.includes(action);
@@ -184,7 +184,7 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
     scoreMult *= 0.85;
     appliedObjections.push(d);
   }
-  // Any specialist asking for a flat score cut (e.g. Wix not-pushable) applies too —
+  // Any specialist asking for a flat score cut (e.g. Wix not-pushable) applies too -
   // but never to a "wait" decision, where a CMS/pushability penalty is meaningless.
   if (action !== "wait") {
     for (const o of opinions) {
@@ -211,7 +211,7 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
   // Note other strongly-voted actions we didn't take (transparency).
   for (const [a, w] of [...votes.entries()].sort((x, y) => y[1] - x[1])) {
     if (a !== action && w >= 1 && whyNot.length < 4) {
-      whyNot.push(`Considered ${a.replace(/_/g, " ")} (support ${w.toFixed(1)}) — ${action.replace(/_/g, " ")} ranked higher.`);
+      whyNot.push(`Considered ${a.replace(/_/g, " ")} (support ${w.toFixed(1)}) - ${action.replace(/_/g, " ")} ranked higher.`);
     }
   }
 
