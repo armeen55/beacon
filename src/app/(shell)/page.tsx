@@ -12,6 +12,7 @@ import { DailyExperimentsSection } from "./daily-experiments-section";
 import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { currentTenantId } from "@/lib/tenant-context";
 import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection } from "./war-room-sections";
+import { ScoreboardSection } from "./scoreboard-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
@@ -114,17 +115,35 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const { today, daily } = composite;
   const tenantId = await currentTenantId();
 
+  // Item 42: the assistant sets the scene like a person would.
+  const nowPacific = new Date();
+  const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
+  const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const activePlan = daily?.dashboard.acceptedPlan ?? daily?.dashboard.previewPlan;
+  const picks = activePlan?.selected.length ?? 0;
+  const minutes = activePlan?.estimatedMinutes ?? 0;
+  const brief =
+    picks > 0
+      ? `${dayLine}. The team picked ${picks} change${picks === 1 ? "" : "s"} worth about ${Math.max(minutes, picks)} minutes tonight.`
+      : `${dayLine}. ${today.headerSentence}`;
+
   return (
     <div className="space-y-6">
-      <PageHeader title="Today" description={today.headerSentence} />
+      <PageHeader title={greeting} description={brief} />
       <TodayCounts counts={today.counts} />
+
+      {/* Item 1-3: THE SCOREBOARD - the line you are trying to move, with your changes on it. */}
+      <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
+        <ScoreboardSection tenantId={tenantId} />
+      </Suspense>
+
       {today.attention.length > 0 ? <AttentionSection items={today.attention} /> : null}
 
-      {/* Today's Changes — the daily plan (reuses the existing gated + quality-checked panel). */}
+      {/* Tonight: the team's picks (the daily plan panel). */}
       {daily ? <DailyExperimentsSection view={daily} /> : null}
 
       {today.measuring.length > 0 ? <MeasuringSection today={today} /> : null}
-      {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
 
       {/* THE WAR ROOM (R3, 2026-07-01) - what the team found today, beyond tonight's picks.
           Each band is a live teammate's intelligence: visitor behavior (Clarity), AI crawlers +
@@ -137,6 +156,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <Suspense fallback={null}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={null}><TodayNewPagesSection /></Suspense>
       </section>
+
+      {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
 
       <Suspense fallback={null}><DataSourcesStrip /></Suspense>
     </div>

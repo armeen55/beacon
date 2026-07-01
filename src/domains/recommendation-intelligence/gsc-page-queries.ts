@@ -448,6 +448,36 @@ export async function loadDailyClicksForTenant(
     return [];
   }
 }
+
+export type DailyTotals = { date: string; clicks: number; impressions: number };
+
+/**
+ * Property-level per-day clicks AND impressions from `gsc_daily_totals`, ascending by
+ * date over the trailing `days`. Powers the Today scoreboard chart. Fail-soft -> [].
+ */
+export async function loadDailyTotalsForTenant(
+  tenantId: string,
+  days = 84,
+): Promise<DailyTotals[]> {
+  if (!tenantId) return [];
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(days);
+    const { data, error } = await sb
+      .from("gsc_daily_totals")
+      .select("date, clicks, impressions")
+      .eq("tenant_id", tenantId)
+      .gte("date", since)
+      .order("date", { ascending: true });
+    if (error || !data) return [];
+    return (data as Array<{ date: string; clicks: number | string | null; impressions: number | string | null }>)
+      .map((r) => ({ date: r.date, clicks: Number(r.clicks) || 0, impressions: Number(r.impressions) || 0 }))
+      .filter((r) => Boolean(r.date));
+  } catch {
+    return [];
+  }
+}
+
 export type PageWithQueries = { page: string; queries: PageQuery[] };
 
 /**
