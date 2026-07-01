@@ -6,6 +6,8 @@
  * tell Google). Only the surface changed: every card leads with "The move / Why it wins / Paste this /
  * How we track it", and the experiment/control/proof machinery lives behind a "How we know" expander.
  * Plain language, no lab jargon, no em dashes. Planning/verification run as server actions, never on render.
+ * Styling (FINAL_PREMIUM_PLAN items 11+12): the app's Tailwind design language (rounded-2xl cards,
+ * a 15/13/11/10 type scale, tabular-nums metrics); identity/meter colors stay inline because they are data.
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -27,19 +29,32 @@ const reasonCopy = (reason: string | null | undefined): string => failureForReas
 
 const SEARCH_CONSOLE_URL = "https://search.google.com/search-console";
 
-const STATUS_COLOR: Record<DailyExperimentItemStatus, string> = {
-  ready_to_apply: "#6b7280", verification_pending: "#2563eb", verification_failed: "#dc2626",
-  verified_live: "#059669", activation_pending: "#2563eb", active: "#059669",
-  gsc_submission_pending: "#2563eb", gsc_submitted: "#0d9488", skipped: "#9ca3af", rolled_back: "#9ca3af",
+const STATUS_BADGE: Record<DailyExperimentItemStatus, string> = {
+  ready_to_apply: "bg-gray-50 text-gray-600 ring-gray-200",
+  verification_pending: "bg-blue-50 text-blue-700 ring-blue-200",
+  verification_failed: "bg-red-50 text-red-700 ring-red-200",
+  verified_live: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  activation_pending: "bg-blue-50 text-blue-700 ring-blue-200",
+  active: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  gsc_submission_pending: "bg-blue-50 text-blue-700 ring-blue-200",
+  gsc_submitted: "bg-teal-50 text-teal-700 ring-teal-200",
+  skipped: "bg-gray-50 text-gray-400 ring-gray-200",
+  rolled_back: "bg-gray-50 text-gray-400 ring-gray-200",
 };
 
-const CARD = { border: "1px solid var(--border, #e5e7eb)", borderRadius: 12, padding: 14, marginBottom: 10 } as const;
-const LABEL = { fontSize: 11, opacity: 0.5, marginTop: 10, marginBottom: 2 } as const;
-const PASTE = { fontSize: 13, background: "var(--code-bg, #f9fafb)", border: "1px solid var(--border, #eee)", borderRadius: 8, padding: "8px 10px", lineHeight: 1.5, whiteSpace: "pre-wrap" as const, marginTop: 2 };
+/** Shared design tokens (Tailwind class strings, same language as today-moves-card). */
+const CARD_CLS = "mb-3 rounded-2xl border border-gray-200 bg-white p-4";
+const LABEL_CLS = "text-[10px] font-semibold uppercase tracking-wide text-gray-400";
+const PASTE_CLS = "whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5 text-[13px] font-medium leading-relaxed text-gray-800";
+const BTN_PRIMARY = "rounded-lg bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-60";
+const BTN_SECONDARY = "rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-60";
+const BTN_GHOST = "text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-60";
+const BTN_SMALL = "mt-2 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-60";
+const LINK_CLS = "text-[13px] font-medium text-gray-600 underline underline-offset-2 transition-colors hover:text-gray-900";
 
 function StatusBadge({ status }: { status: DailyExperimentItemStatus }) {
   return (
-    <span role="status" aria-label={`Status: ${STATUS_LABEL[status]}`} style={{ fontSize: 11, fontWeight: 600, color: STATUS_COLOR[status], border: `1px solid ${STATUS_COLOR[status]}33`, background: `${STATUS_COLOR[status]}11`, borderRadius: 999, padding: "1px 8px" }}>
+    <span role="status" aria-label={`Status: ${STATUS_LABEL[status]}`} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${STATUS_BADGE[status]}`}>
       {STATUS_LABEL[status]}
     </span>
   );
@@ -55,7 +70,7 @@ function copyText(text: string, onDone: (m: string) => void) {
 function WrittenByBeacon({ e }: { e: PlannedExperimentRecord }) {
   if (e.draftSource !== "llm") return null;
   return (
-    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+    <div className="mt-1 text-[11px] text-gray-400">
       Beacon wrote this{e.llmRationale ? `: ${e.llmRationale}` : ""}. Copy it and tweak as you like before you publish.
     </div>
   );
@@ -69,15 +84,15 @@ function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
   const withData = brief.keywords.filter((k) => k.volume != null || k.competition != null);
   if (withData.length === 0) return null;
   return (
-    <div>
-      <span style={{ opacity: 0.6 }}>Keyword research: </span>
+    <div className="tabular-nums">
+      <span className="text-gray-400">Keyword research: </span>
       {brief.addressableVolume != null
         ? `about ${brief.addressableVolume.toLocaleString()} searches a month across these`
         : "real search demand behind this"}
-      <div style={{ marginTop: 4, display: "grid", gap: 2 }}>
+      <div className="mt-1 grid gap-0.5">
         {withData.map((k) => (
-          <div key={k.term} style={{ fontSize: 12.5, opacity: 0.9 }}>
-            <span style={{ fontWeight: 600 }}>{k.term}</span>
+          <div key={k.term} className="text-gray-600">
+            <span className="font-semibold text-gray-700">{k.term}</span>
             {k.volume != null ? `: ${k.volume.toLocaleString()}/mo` : ": no volume on record"}
             {k.competition ? `, ${k.competition} competition` : ""}
           </div>
@@ -95,46 +110,46 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
   const t = e.teamReview;
   if (!t || t.voices.length === 0) return null;
   return (
-    <div style={{ marginTop: 10, border: "1px solid var(--border, #e5e7eb)", borderRadius: 10, padding: "8px 10px", background: "var(--code-bg, #fafbfc)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Your team on this move</span>
+    <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className={LABEL_CLS}>Your team on this move</span>
         {t.consensusPct > 0 ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }} aria-label={`Team conviction ${t.consensusPct} percent`}>
-            <span style={{ width: 56, height: 4, borderRadius: 999, background: "var(--border, #e5e7eb)", overflow: "hidden", display: "inline-block" }}>
-              <span style={{ display: "block", height: "100%", width: `${t.consensusPct}%`, borderRadius: 999, background: t.consensusPct >= 75 ? "#059669" : t.consensusPct >= 50 ? "#4f46e5" : "#f59e0b" }} />
+          <span className="inline-flex items-center gap-1.5" aria-label={`Team conviction ${t.consensusPct} percent`}>
+            <span className="inline-block h-1 w-14 overflow-hidden rounded-full bg-gray-200">
+              <span className="block h-full rounded-full" style={{ width: `${t.consensusPct}%`, background: t.consensusPct >= 75 ? "#059669" : t.consensusPct >= 50 ? "#4f46e5" : "#f59e0b" }} />
             </span>
-            <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.6 }}>
+            <span className="text-[10px] font-semibold text-gray-400">
               {t.consensusPct >= 75 ? "high" : t.consensusPct >= 50 ? "medium" : "cautious"} conviction
             </span>
           </span>
         ) : null}
       </div>
-      <div style={{ display: "grid", gap: 3 }}>
+      <div className="grid gap-1">
         {t.voices.map((v) => {
           const id = teammateOf(v.specialist);
           return (
-            <div key={v.specialist} style={{ fontSize: 12.5, lineHeight: 1.45, display: "flex", gap: 6, alignItems: "baseline" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <span style={{ width: 7, height: 7, borderRadius: 999, background: id.color, display: "inline-block" }} />
-                <span style={{ fontWeight: 600, color: id.text }}>{v.label}:</span>
+            <div key={v.specialist} className="flex items-baseline gap-1.5 text-[13px] leading-relaxed text-gray-700">
+              <span className="inline-flex shrink-0 items-center gap-1">
+                <span className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: id.color }} />
+                <span className="font-semibold" style={{ color: id.text }}>{v.label}:</span>
               </span>
               <span>{stripBannedDashes(v.claim)}</span>
             </div>
           );
         })}
         {t.objections.map((o, i) => (
-          <div key={`ob-${i}`} style={{ fontSize: 12.5, lineHeight: 1.45, color: "#b45309" }}>
-            <span style={{ fontWeight: 600 }}>{o.label} pushed back:</span> {stripBannedDashes(o.reason)}
+          <div key={`ob-${i}`} className="text-[13px] leading-relaxed text-amber-700">
+            <span className="font-semibold">{o.label} pushed back:</span> {stripBannedDashes(o.reason)}
           </div>
         ))}
       </div>
       {t.verdict ? (
-        <div style={{ marginTop: 5, fontSize: 12.5, opacity: 0.8 }}>
-          <span style={{ fontWeight: 600 }}>Verdict:</span> {stripBannedDashes(t.verdict)}
+        <div className="mt-1.5 text-[13px] leading-relaxed text-gray-700">
+          <span className="font-semibold">Verdict:</span> {stripBannedDashes(t.verdict)}
         </div>
       ) : null}
       {t.whyNot ? (
-        <div style={{ marginTop: 3, fontSize: 12, opacity: 0.6 }}>
+        <div className="mt-1 text-[11px] text-gray-400">
           Also weighed: {stripBannedDashes(t.whyNot)}
         </div>
       ) : null}
@@ -148,7 +163,7 @@ function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
   if (!serp || serp.winningDomains.length === 0) return null;
   return (
     <div>
-      <span style={{ opacity: 0.6 }}>What wins on Google now: </span>
+      <span className="text-gray-400">What wins on Google now: </span>
       {serp.format} pages, led by {serp.winningDomains.join(", ")}.
       {serp.whatToDo ? <> {stripBannedDashes(serp.whatToDo)}</> : null}
     </div>
@@ -161,7 +176,7 @@ function CompetitorSteal({ e }: { e: PlannedExperimentRecord }) {
   if (!c || !c.whatToSteal) return null;
   return (
     <div>
-      <span style={{ opacity: 0.6 }}>Who is beating you: </span>
+      <span className="text-gray-400">Who is beating you: </span>
       {c.domain}. Steal this: {stripBannedDashes(c.whatToSteal)}.
     </div>
   );
@@ -174,21 +189,21 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
     : e.detail.kind === "answer_block" ? `The question people ask: ${e.detail.question}`
     : null;
   return (
-    <details style={{ marginTop: 10 }}>
-      <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.65 }}>How we know</summary>
-      <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85, display: "grid", gap: 4 }}>
-        <div><span style={{ opacity: 0.6 }}>The search people use: </span>“{e.targetQuery}”</div>
+    <details className="mt-3">
+      <summary className="cursor-pointer text-[11px] font-medium text-gray-400 transition-colors hover:text-gray-600">How we know</summary>
+      <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-700 tabular-nums">
+        <div><span className="text-gray-400">The search people use: </span>“{e.targetQuery}”</div>
         <KeywordResearch e={e} />
         <SerpReaction e={e} />
         <CompetitorSteal e={e} />
-        <div><span style={{ opacity: 0.6 }}>On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
+        <div><span className="text-gray-400">On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
         {detailLine && <div>{detailLine}</div>}
         {e.controls.length > 0 && (
-          <div><span style={{ opacity: 0.6 }}>Compared against {e.controls.length} similar page{e.controls.length === 1 ? "" : "s"}: </span>{e.controls.map((c) => c.controlPath).join(", ")}</div>
+          <div><span className="text-gray-400">Compared against {e.controls.length} similar page{e.controls.length === 1 ? "" : "s"}: </span>{e.controls.map((c) => c.controlPath).join(", ")}</div>
         )}
-        <div><span style={{ opacity: 0.6 }}>Left untouched: </span>{e.leaveUnchanged.join(", ")}</div>
-        <div><span style={{ opacity: 0.6 }}>How I measure: </span>a first read about a week after it is live, confirmed again at two and four weeks.</div>
-        {steps && <div><span style={{ opacity: 0.6 }}>Exact steps: </span>{steps}</div>}
+        <div><span className="text-gray-400">Left untouched: </span>{e.leaveUnchanged.join(", ")}</div>
+        <div><span className="text-gray-400">How I measure: </span>a first read about a week after it is live, confirmed again at two and four weeks.</div>
+        {steps && <div><span className="text-gray-400">Exact steps: </span>{steps}</div>}
       </div>
     </details>
   );
@@ -200,30 +215,30 @@ function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
   const paste = stripBannedDashes(e.proposedText);
   const why = stripBannedDashes(e.whyNow);
   return (
-    <div style={CARD}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-        <span style={{ fontSize: 11, opacity: 0.5 }}>The move</span>
-        <span style={{ fontSize: 11, opacity: 0.6 }}>{LEVER_LABEL[e.lever] ?? e.lever}</span>
+    <div className={CARD_CLS}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={LABEL_CLS}>The move</span>
+        <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}</span>
       </div>
-      <strong style={{ fontSize: 15 }}>{moveHeadline(e)}</strong>
-      <div style={{ fontSize: 12, opacity: 0.55, marginTop: 2 }}>{e.url}</div>
+      <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900">{moveHeadline(e)}</strong>
+      <div className="mt-0.5 text-[11px] text-gray-400">{e.url}</div>
 
       {why ? (
         <>
-          <div style={LABEL}>Why it wins</div>
-          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{why}</div>
+          <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Why it wins</div>
+          <div className="text-[13px] leading-relaxed text-gray-700">{why}</div>
         </>
       ) : null}
       <TeamRoundtable e={e} />
 
-      <div style={LABEL}>Paste this</div>
-      <div style={PASTE}>{paste}</div>
+      <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Paste this</div>
+      <div className={PASTE_CLS}>{paste}</div>
       <WrittenByBeacon e={e} />
-      <button type="button" style={{ marginTop: 6, fontSize: 12 }} onClick={() => copyText(paste, setMsg)}>Copy</button>
+      <button type="button" className={BTN_SMALL} onClick={() => copyText(paste, setMsg)}>Copy</button>
 
-      <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>{trackingLine(e.controls.length)}</div>
+      <div className="mt-3 text-[13px] leading-relaxed text-gray-600 tabular-nums">{trackingLine(e.controls.length)}</div>
       <HowWeKnow e={e} />
-      {msg && <div role="status" aria-live="polite" style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-2 text-[11px] text-gray-500">{msg}</div>}
     </div>
   );
 }
@@ -275,41 +290,41 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
   });
 
   return (
-    <div style={{ ...CARD, opacity: status === "skipped" ? 0.6 : 1 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 11, opacity: 0.5 }}>The move</span>
-        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 11, opacity: 0.6 }}>{LEVER_LABEL[e.lever] ?? e.lever}</span>
+    <div className={`${CARD_CLS}${status === "skipped" ? " opacity-60" : ""}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={LABEL_CLS}>The move</span>
+        <span className="flex items-center gap-2">
+          <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}</span>
           <StatusBadge status={status} />
         </span>
       </div>
-      <strong style={{ fontSize: 15 }}>{moveHeadline(e)}</strong>
-      <div style={{ fontSize: 12, opacity: 0.55, marginTop: 2 }}>{e.url}</div>
+      <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900">{moveHeadline(e)}</strong>
+      <div className="mt-0.5 text-[11px] text-gray-400">{e.url}</div>
 
       {why ? (
         <>
-          <div style={LABEL}>Why it wins</div>
-          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{why}</div>
+          <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Why it wins</div>
+          <div className="text-[13px] leading-relaxed text-gray-700">{why}</div>
         </>
       ) : null}
       <TeamRoundtable e={e} />
 
-      <div style={LABEL}>Paste this{editable && !isActive && status !== "skipped" ? " (edit it first if you want)" : ""}</div>
+      <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Paste this{editable && !isActive && status !== "skipped" ? " (edit it first if you want)" : ""}</div>
       {editable && !isActive && status !== "skipped" ? (
         <textarea
           value={text}
           onChange={(ev) => setText(ev.target.value)}
           aria-label="Proposed text, edit before you apply"
           rows={Math.min(6, Math.max(2, Math.ceil((text.length || 1) / 60)))}
-          style={{ ...PASTE, width: "100%", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
+          className={`${PASTE_CLS} w-full resize-y`}
         />
       ) : (
-        <div style={PASTE}>{text}</div>
+        <div className={PASTE_CLS}>{text}</div>
       )}
       <WrittenByBeacon e={e} />
 
       {failure && (
-        <div style={{ marginTop: 8, padding: 8, background: "var(--err-bg, #fef2f2)", borderRadius: 8, fontSize: 13 }}>
+        <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[13px] leading-relaxed text-red-800">
           <strong>I couldn’t confirm this change on the live page.</strong> ({failure.reason})<br />
           {failure.expected && <>Expected: {failure.expected}<br /></>}
           {failure.observed && <>Found instead: {failure.observed}<br /></>}
@@ -319,30 +334,30 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
 
       {isActive ? (
         status === "gsc_submitted" ? (
-          <div style={{ marginTop: 10, fontSize: 13, color: "#0d9488" }}>✓ Live and tracking. You told Google to re-check, so results should come in faster.</div>
+          <div className="mt-3 text-[13px] text-teal-600">✓ Live and tracking. You told Google to re-check, so results should come in faster.</div>
         ) : (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 13, color: "#059669", marginBottom: 6 }}>{trackingLine(item.activeControls > 0 ? item.activeControls : item.reservedControls)}</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(e.url, setMsg)}>Copy URL</button>
-              <a href={SEARCH_CONSOLE_URL} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>Open Search Console</a>
-              <button type="button" disabled={pending} aria-busy={pending} onClick={submit}>I asked Google to re-check</button>
+          <div className="mt-3">
+            <div className="mb-1.5 text-[13px] text-emerald-600 tabular-nums">{trackingLine(item.activeControls > 0 ? item.activeControls : item.reservedControls)}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(e.url, setMsg)} className={BTN_SECONDARY}>Copy URL</button>
+              <a href={SEARCH_CONSOLE_URL} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>Open Search Console</a>
+              <button type="button" disabled={pending} aria-busy={pending} onClick={submit} className={BTN_SECONDARY}>I asked Google to re-check</button>
             </div>
           </div>
         )
       ) : status === "skipped" ? (
-        <div style={{ marginTop: 10, fontSize: 13, opacity: 0.7 }}>Set aside. Its comparison pages were freed up and nothing changed.</div>
+        <div className="mt-3 text-[13px] text-gray-500">Set aside. Its comparison pages were freed up and nothing changed.</div>
       ) : (
-        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(text, setMsg)}>Copy</button>
-          <a href={e.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>Open page</a>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={apply} style={{ minWidth: 130 }}>{pending ? "Checking the page..." : status === "verification_failed" ? "Try again" : "I did it in Wix"}</button>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={skip} style={{ opacity: 0.7 }}>Not now</button>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(text, setMsg)} className={BTN_SECONDARY}>Copy</button>
+          <a href={e.url} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>Open page</a>
+          <button type="button" disabled={pending} aria-busy={pending} onClick={apply} className={`${BTN_PRIMARY} min-w-[130px]`}>{pending ? "Checking the page..." : status === "verification_failed" ? "Try again" : "I did it in Wix"}</button>
+          <button type="button" disabled={pending} aria-busy={pending} onClick={skip} className={BTN_GHOST}>Not now</button>
         </div>
       )}
 
       <HowWeKnow e={e} steps={item.instructions} />
-      {msg && <div role="status" aria-live="polite" style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-2 text-[11px] text-gray-500">{msg}</div>}
     </div>
   );
 }
@@ -359,18 +374,18 @@ function ExecutionChecklistView({ checklist }: { checklist: ExecutionChecklist }
   });
   return (
     <div>
-      <div style={{ padding: 10, background: "var(--ok-bg, #ecfdf5)", borderRadius: 8, fontSize: 14, marginBottom: 10 }}>
+      <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 tabular-nums">
         <strong>Today’s changes.</strong> {s.active} live and tracking, {s.submitted} sent to Google, {s.left} left to apply.<br />
         Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped.
       </div>
       {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} />)}
       {s.left === 0 && s.accepted > 0 && (
-        <div style={{ marginTop: 10 }}>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={finish}>{pending ? "Wrapping up..." : "Finish for today"}</button>
-          <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>Closes today’s set so you can start fresh tomorrow. Tracking keeps running.</span>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" disabled={pending} aria-busy={pending} onClick={finish} className={BTN_PRIMARY}>{pending ? "Wrapping up..." : "Finish for today"}</button>
+          <span className="text-[11px] text-gray-400">Closes today’s set so you can start fresh tomorrow. Tracking keeps running.</span>
         </div>
       )}
-      {msg && <div role="status" aria-live="polite" style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-3 text-[13px] text-gray-500">{msg}</div>}
     </div>
   );
 }
@@ -381,7 +396,7 @@ function QualityLine({ summary }: { summary: DailyExperimentsView["qualitySummar
   const parts: string[] = [`✓ All ${summary.passed} passed today’s quality checks`];
   if (summary.cautioned > 0) parts.push(`${summary.cautioned} with a note`);
   if (summary.flagged > 0) parts.push(`${summary.flagged} held back`);
-  return <div style={{ marginTop: 4, fontSize: 12, color: "#059669" }}>{parts.join(" · ")}</div>;
+  return <div className="mt-1 text-[11px] font-medium text-emerald-600 tabular-nums">{parts.join(" · ")}</div>;
 }
 
 export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }) {
@@ -420,15 +435,15 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
 
   const b = dashboard.activeProofBatch;
   return (
-    <section style={{ margin: "16px 0", padding: 16, border: "1px solid var(--border, #e5e7eb)", borderRadius: 12 }}>
-      <h2 style={{ margin: "0 0 8px" }}>Today’s changes</h2>
+    <section className="my-4 rounded-2xl border border-gray-200 bg-white p-4">
+      <h2 className="mb-2 text-[15px] font-semibold text-gray-900">Today’s changes</h2>
 
       {b && (
-        <div style={{ marginBottom: 12, fontSize: 14 }}>
+        <div className="mb-3 text-sm leading-relaxed text-gray-700 tabular-nums">
           <div><strong>{b.label}</strong> is live. I’m tracking {b.experimentCount} change{b.experimentCount === 1 ? "" : "s"} against {b.controlCount} similar page{b.controlCount === 1 ? "" : "s"}.</div>
-          <div style={{ opacity: 0.7 }}>First results around {b.nextCheckpoint}. Reliable Google data around {b.reliableDataDate}.</div>
+          <div className="text-gray-500">First results around {b.nextCheckpoint}. Reliable Google data around {b.reliableDataDate}.</div>
           {view.protectedWarning && (
-            <div style={{ marginTop: 6, padding: 8, background: "var(--warn-bg, #fff7ed)", borderRadius: 8, fontSize: 13 }}>⚠ {view.protectedWarning}</div>
+            <div className="mt-1.5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">⚠ {view.protectedWarning}</div>
           )}
         </div>
       )}
@@ -437,23 +452,23 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
         <ExecutionChecklistView checklist={checklist} />
       ) : preview ? (
         <div>
-          <div style={{ fontSize: 14, marginBottom: 8 }}>
+          <div className="mb-2 text-sm leading-relaxed text-gray-700 tabular-nums">
             <strong>Here’s what I’d do today.</strong> {preview.selected.length} change{preview.selected.length === 1 ? "" : "s"}, about {preview.estimatedMinutes} min. Review and approve the ones you like.
             <QualityLine summary={qualitySummary} />
           </div>
           {preview.selected.map((e) => <PreviewCard key={e.id} e={e} />)}
-          {preview.backups.length > 0 && <div style={{ fontSize: 12, opacity: 0.6 }}>A few more in reserve: {preview.backups.map((e) => e.pageLabel).join(", ")}</div>}
-          <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" disabled={pending} aria-busy={pending} onClick={() => accept(preview)} style={{ minWidth: 130 }}>{pending ? "Working..." : "Approve these"}</button>
-            <button type="button" disabled={pending} aria-busy={pending} onClick={() => plan()}>Suggest different ones</button>
-            <button type="button" disabled={pending} aria-busy={pending} onClick={() => abandon(preview)}>Clear</button>
+          {preview.backups.length > 0 && <div className="text-[11px] text-gray-400">A few more in reserve: {preview.backups.map((e) => e.pageLabel).join(", ")}</div>}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" disabled={pending} aria-busy={pending} onClick={() => accept(preview)} className={`${BTN_PRIMARY} min-w-[130px]`}>{pending ? "Working..." : "Approve these"}</button>
+            <button type="button" disabled={pending} aria-busy={pending} onClick={() => plan()} className={BTN_SECONDARY}>Suggest different ones</button>
+            <button type="button" disabled={pending} aria-busy={pending} onClick={() => abandon(preview)} className={BTN_GHOST}>Clear</button>
           </div>
         </div>
       ) : (
-        <button type="button" disabled={pending} aria-busy={pending} onClick={plan}>{pending ? "Thinking..." : "Show me today’s changes"}</button>
+        <button type="button" disabled={pending} aria-busy={pending} onClick={plan} className={BTN_PRIMARY}>{pending ? "Thinking..." : "Show me today’s changes"}</button>
       )}
 
-      {msg && <div role="status" aria-live="polite" style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-3 text-[13px] text-gray-500">{msg}</div>}
     </section>
   );
 }

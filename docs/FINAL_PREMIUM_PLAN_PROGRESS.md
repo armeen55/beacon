@@ -11,8 +11,8 @@
 - [ ]   8 [W3][P1/S] Streak + totals in the header area: "22 changes shipped in 14 days" with a small flame
 - [ ]   9 [W3][P2/S] AI-visibility mini-scoreboard: citations-over-time sparkline (profound_citation_rows
 - [x]  10 [W1][P0/S] Kill every number that appears without a trend or comparison. A bare "26,569
-- [ ]  11 [W1][P0/L] One card system. Kill the inline-style objects in `daily-experiments-section.tsx`
-- [ ]  12 [W1][P0/M] A real typography scale. Today almost everything is 11 to 13px gray. Define and apply:
+- [x]  11 [W1][P0/L] One card system. Kill the inline-style objects in `daily-experiments-section.tsx`
+- [x]  12 [W1][P0/M] A real typography scale. Today almost everything is 11 to 13px gray. Define and apply:
 - [x]  13 [W1][P0/M] Teammate identity system. Each specialist gets a fixed color + small glyph + short
 - [ ]  14 [W3][P1/M] Design the roundtable like a real conversation: avatar chip on the left, claim as a
 - [ ]  15 [W3][P1/M] Motion pass: streamed sections fade+rise in (Suspense boundaries already exist),
