@@ -28,6 +28,8 @@ export type TeamReview = {
   consensusPct: number;
   voices: Array<{ specialist: string; label: string; claim: string; confidencePct: number }>;
   objections: Array<{ label: string; reason: string; severity: "veto" | "downgrade"; detail: string }>;
+  /** The strongest road NOT taken, in plain words ("Considered a new page: you already rank"). */
+  whyNot?: string;
 };
 
 export type TeamReviewResult = {
@@ -83,8 +85,12 @@ export function reviewCandidateWithTeam(
     ? decision.rationale
     : `Biggest opportunity the team sees on this page: ${ACTION_PLAIN[decision.action] ?? decision.action.replace(/_/g, " ")}.${doubleConfirmed ? " Google and AI results both confirm this demand." : ""}`;
 
+  const whyNotRaw = decision.whyNotAlternatives[0] ?? null;
+  const whyNot = whyNotRaw ? whyNotRaw.replace(/_/g, " ").replace(/\s+/g, " ").trim() : undefined;
+
   const review: TeamReview = {
     verdict,
+    whyNot,
     headline: summary.headline,
     consensusPct: summary.consensusPct,
     voices: summary.voices.map((v) => ({

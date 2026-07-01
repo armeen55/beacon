@@ -229,6 +229,34 @@ export async function recordSpendSupabase(
       metadata: input.metadata ?? null,
     });
     if (insErr) {
+      // Duplicate key = a PARALLEL writer created the day-row between our SELECT and INSERT
+      // (e.g. the nightly team verdicts fire concurrently). The loser must fold its spend into
+      // the existing row, not drop it - dropped spend under-counts the fail-closed cap.
+      if ((insErr as { code?: string }).code === "23505") {
+        const { data: row } = await supabase
+          .from("llm_budget_ledger")
+          .select("spent_usd, call_count, prompt_count, chunk_count")
+          .eq("tenant_id", input.tenantId)
+          .eq("date_utc", date)
+          .eq("platform", input.platform)
+          .maybeSingle();
+        if (row) {
+          const { error: retryErr } = await supabase
+            .from("llm_budget_ledger")
+            .update({
+              spent_usd: Number(row.spent_usd) + input.costUsd,
+              call_count: Number(row.call_count) + 1,
+              prompt_count: Number(row.prompt_count) + promptCount,
+              chunk_count: Number(row.chunk_count) + chunkCount,
+              last_run_id: input.runId ?? null,
+              updated_at: nowIso,
+            })
+            .eq("tenant_id", input.tenantId)
+            .eq("date_utc", date)
+            .eq("platform", input.platform);
+          if (!retryErr) return;
+        }
+      }
       console.warn(
         `[budget-ledger] insert failed (non-fatal) tenantId=${input.tenantId} ` +
           `platform=${input.platform}: ${insErr.message}`,

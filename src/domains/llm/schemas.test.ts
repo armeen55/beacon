@@ -93,7 +93,7 @@ describe("ExperimentPlanSchema", () => {
 });
 
 describe("SCHEMA_BY_KIND registry", () => {
-  it("covers exactly the Sprint 2 draft kinds", () => {
+  it("covers exactly the registered draft kinds", () => {
     const kinds = Object.keys(SCHEMA_BY_KIND).sort();
     const expected: StructuredDraftKind[] = [
       "aeo_prompt_brief",
@@ -104,6 +104,7 @@ describe("SCHEMA_BY_KIND registry", () => {
       "cro_fix",
       "experiment_plan",
       "internal_link",
+      "team_verdict", // FINAL PREMIUM PLAN item 25: the strategist's grounded verdict per nightly pick
       "tool_asset",
     ];
     expect(kinds).toEqual(expected.sort());

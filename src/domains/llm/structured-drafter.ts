@@ -641,3 +641,60 @@ export async function saveStructuredDraft(
   }
   return saveMoveDraft(tenantId, moveId, "structured_draft", content);
 }
+
+// ── team verdict (FINAL PREMIUM PLAN item 25) ─────────────────────────────────
+
+export type TeamVerdictInput = {
+  pageLabel: string;
+  targetQuery: string;
+  /** Tonight's change in plain words ("a sharper description"). */
+  leverPlain: string;
+  proposedText: string;
+  voices: Array<{ label: string; claim: string }>;
+  objections: Array<{ label: string; reason: string }>;
+  whyNot?: string;
+};
+
+/**
+ * The strategist writes the team's verdict: a 1-3 sentence synthesis of the REAL specialist
+ * claims for one nightly pick. Grounded in the voices verbatim (the numeric firewall rejects
+ * any number not present in them). Budget-gated + fail-closed like every structured draft;
+ * the caller keeps the deterministic verdict on any non-"drafted" result.
+ */
+export async function draftTeamVerdictStructured(
+  input: TeamVerdictInput,
+  opts: { complete?: CompleteFn; now?: Date } = {},
+): Promise<StructuredDraftResult<import("./schemas").TeamVerdict>> {
+  const voiceLines = input.voices.map((v) => `${v.label}: ${v.claim}`).join("\n");
+  const objectionLines = input.objections.map((o) => `${o.label} pushed back: ${o.reason}`).join("\n");
+  const grounded = [input.pageLabel, input.targetQuery, input.proposedText, voiceLines, objectionLines, input.whyNot ?? ""].join("\n");
+  return callStructuredLLM({
+    kind: "team_verdict",
+    system: [
+      "You are the strategist on an SEO team, synthesizing your specialists' findings for the site owner.",
+      'Return ONLY JSON: {"verdict": string, "evidenceRefs": [{"source": string, "detail": string}]}.',
+      "The verdict is 1-3 sentences, plain business English, first person plural (we).",
+      "Rules: use ONLY facts and numbers from the specialists' lines below, never invent a figure;",
+      "name the single weakest link the change fixes; if AI citations are mentioned, name that prize;",
+      "no hedging filler, no jargon (experiment, control, SERP), no em dashes, no exclamation marks.",
+      "Write like a sharp human strategist: specific, confident, brief.",
+    ].join(" "),
+    user: [
+      `Page: ${input.pageLabel}`,
+      `The search: "${input.targetQuery}"`,
+      `Tonight's change: ${input.leverPlain}`,
+      `New text: ${input.proposedText}`,
+      "",
+      "The specialists said:",
+      voiceLines || "(no voices)",
+      objectionLines ? `\nPushback:\n${objectionLines}` : "",
+      input.whyNot ? `\nRoad not taken: ${input.whyNot}` : "",
+    ].join("\n"),
+    grounded,
+    projectedCostUsd: 0.01,
+    maxTokens: 1200,
+    timeoutMs: 45_000,
+    now: opts.now,
+    complete: opts.complete,
+  });
+}

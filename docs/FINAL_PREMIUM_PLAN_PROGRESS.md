@@ -25,14 +25,14 @@
 - [ ]  22 [W3][P2/S] Consistent skeletons sized to real content for every Suspense boundary (worklist and
 - [ ]  23 [W3][P1/S] Focus + hover states on every interactive element (several buttons have none).
 - [ ]  24 [W3][P2/M] Mobile pass on Today + war room: cards stack cleanly at 375px, chart resizes, no
-- [ ]  25 [W1][P0/L] LLM-written verdicts (grounded): replace the templated "Biggest opportunity the team
-- [ ]  26 [W1][P0/M] Give every voice a number. Audit all 8 emitters in specialist-opinions.ts: no claim
+- [x]  25 [W1][P0/L] LLM-written verdicts (grounded): replace the templated "Biggest opportunity the team
+- [x]  26 [W1][P0/M] Give every voice a number. Audit all 8 emitters in specialist-opinions.ts: no claim
 - [ ]  27 [W2][P0/M] Add the PROOF-HISTORY voice to the debate: a ninth deterministic emitter reading the
 - [ ]  28 [W2][P0/M] Add the KEYWORD-RESEARCH voice: volume + competition from the cached universe as its
 - [ ]  29 [W2][P1/M] SERP voice on existing-page picks: run the gauntlet-gated live SERP for the target
-- [ ]  30 [W1][P0/S] Render "why not the alternatives": the router already computes whyNotAlternatives;
+- [x]  30 [W1][P0/S] Render "why not the alternatives": the router already computes whyNotAlternatives;
 - [ ]  31 [W2][P1/S] Render "what would change our mind": one falsifiability line per pick, deterministic
-- [ ]  32 [W1][P0/S] Conviction as a visual meter on the card face (thin bar + "Team conviction: high"),
+- [x]  32 [W1][P0/S] Conviction as a visual meter on the card face (thin bar + "Team conviction: high"),
 - [ ]  33 [W2][P1/S] Disagreement is a feature: when voices conflict, render the tension explicitly
 - [ ]  34 [W2][P1/M] Expected outcome ranges per pick: honest forecast from CTR-curve math already in
 - [ ]  35 [W2][P1/S] Name the operator's cost: every card face shows "2 minutes in Wix". Effort clarity

@@ -198,6 +198,18 @@ export const InternalLinkDraftSchema = z.object({
 });
 export type InternalLinkDraft = z.infer<typeof InternalLinkDraftSchema>;
 
+// ── team verdict (FINAL PREMIUM PLAN item 25) ─────────────────────────────────
+// The strategist's one-paragraph synthesis of the specialist debate for a nightly pick.
+// Grounded in the REAL voices (claims carry the numbers); the numeric firewall blocks any
+// figure that is not in the grounding. Short, opinionated, operator language.
+
+export const TeamVerdictSchema = z.object({
+  /** 1-3 sentences: what the evidence says, why THIS change, what the bigger prize is. */
+  verdict: z.string().min(60).max(520),
+  evidenceRefs: z.array(EvidenceRefSchema).min(1),
+});
+export type TeamVerdict = z.infer<typeof TeamVerdictSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -209,7 +221,8 @@ export type StructuredDraftKind =
   | "cro_fix"
   | "internal_link"
   | "experiment_plan"
-  | "aeo_prompt_brief";
+  | "aeo_prompt_brief"
+  | "team_verdict";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -221,6 +234,7 @@ export const SCHEMA_BY_KIND = {
   internal_link: InternalLinkDraftSchema,
   experiment_plan: ExperimentPlanSchema,
   aeo_prompt_brief: AeoPromptBriefSchema,
+  team_verdict: TeamVerdictSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 /** Every string field in a parsed draft, flattened — fed to the content firewalls

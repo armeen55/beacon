@@ -249,7 +249,7 @@ export function emitGa4Opinion(p: EvidencePacket, extras: SpecialistExtras = {})
 
   return {
     specialist: "ga4",
-    claim: `This page already drives measurable conversions/value (${Math.round(dollar)}) - a money page.`,
+    claim: `This page makes money: conversion value score ${Math.round(dollar)} over the last 28 days. Protect and grow it.`,
     evidenceRefs: [
       {
         specialist: "ga4",
@@ -284,7 +284,7 @@ export function emitClarityOpinion(p: EvidencePacket, extras: SpecialistExtras =
   };
   return {
     specialist: "clarity",
-    claim: `Visitors hit friction here (score ${friction}: dead/rage clicks) - the page frustrates before it converts.`,
+    claim: `Real visitors struggle here: dead and rage clicks put friction at ${friction} of 100. The page frustrates before it converts.`,
     evidenceRefs: [ref],
     confidence: 0.6,
     suggestedMoveTypes: ["fix_ux"],
@@ -318,10 +318,10 @@ export function emitProfoundOpinion(p: EvidencePacket, extras: SpecialistExtras 
   const domain = compRelevant ? p.competitor.domain : null;
   const isCreate = p.move.gapType === "create_page";
   const claim = isCreate
-    ? `AI cites ${cited} competitor page(s)${domain ? ` (e.g. ${domain})` : ""} for this topic - you have no page.`
+    ? `AI cites ${cited} competitor ${cited === 1 ? "page" : "pages"}${domain ? ` (like ${domain})` : ""} for this topic and you have no page at all.`
     : domain
       ? `AI cites ${domain}, not you - you rank but aren't the cited source.`
-      : `AI cites ${cited} competitor page(s) for this topic, not you - you rank but aren't the cited source.`;
+      : `AI cites ${cited} competitor ${cited === 1 ? "page" : "pages"} for this topic, never you. You rank on Google but AI answers skip you.`;
 
   const refs: EvidenceRef[] = [
     {

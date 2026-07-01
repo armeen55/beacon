@@ -95,8 +95,18 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
   if (!t || t.voices.length === 0) return null;
   return (
     <div style={{ marginTop: 10, border: "1px solid var(--border, #e5e7eb)", borderRadius: 10, padding: "8px 10px", background: "var(--code-bg, #fafbfc)" }}>
-      <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55, marginBottom: 4 }}>
-        Your team on this move{t.consensusPct > 0 ? `, ${t.consensusPct}% conviction` : ""}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Your team on this move</span>
+        {t.consensusPct > 0 ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }} aria-label={`Team conviction ${t.consensusPct} percent`}>
+            <span style={{ width: 56, height: 4, borderRadius: 999, background: "var(--border, #e5e7eb)", overflow: "hidden", display: "inline-block" }}>
+              <span style={{ display: "block", height: "100%", width: `${t.consensusPct}%`, borderRadius: 999, background: t.consensusPct >= 75 ? "#059669" : t.consensusPct >= 50 ? "#4f46e5" : "#f59e0b" }} />
+            </span>
+            <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.6 }}>
+              {t.consensusPct >= 75 ? "high" : t.consensusPct >= 50 ? "medium" : "cautious"} conviction
+            </span>
+          </span>
+        ) : null}
       </div>
       <div style={{ display: "grid", gap: 3 }}>
         {t.voices.map((v) => (
@@ -113,6 +123,11 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
       {t.verdict ? (
         <div style={{ marginTop: 5, fontSize: 12.5, opacity: 0.8 }}>
           <span style={{ fontWeight: 600 }}>Verdict:</span> {stripBannedDashes(t.verdict)}
+        </div>
+      ) : null}
+      {t.whyNot ? (
+        <div style={{ marginTop: 3, fontSize: 12, opacity: 0.6 }}>
+          Also weighed: {stripBannedDashes(t.whyNot)}
         </div>
       ) : null}
     </div>

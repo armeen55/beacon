@@ -20,7 +20,7 @@ import type { DailyExperimentPlanRecord } from "./daily-plan-types";
 import { classifyQueryIntent } from "./answer-intent";
 import { proposeAnswerGap } from "./safe-answer-block";
 import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
-import { draftAtomicEditStructured, draftAnswerBlockStructured } from "@/domains/llm/structured-drafter";
+import { draftAtomicEditStructured, draftAnswerBlockStructured, draftTeamVerdictStructured } from "@/domains/llm/structured-drafter";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
@@ -224,6 +224,36 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     return r.status === "drafted" ? { text: r.value.after, rationale: r.value.rationale } : null;
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
+
+  // Item 25 - the strategist WRITES the team verdict for each pick: a grounded 1-3 sentence
+  // synthesis of the real specialist claims (budget-gated, numeric-fidelity firewalled, fail-soft
+  // to the deterministic verdict). Selected picks only (max 8/night, ~$0.08 worst case).
+  const LEVER_PLAIN: Record<string, string> = {
+    meta: "a sharper description", title: "a sharper title", h1: "a clearer headline",
+    internal_link: "an internal link", answer_block: "a direct answer at the top",
+  };
+  await Promise.all(
+    selected.map(async (c) => {
+      const t = c.teamReview;
+      if (!t || t.voices.length === 0) return;
+      try {
+        const r = await draftTeamVerdictStructured({
+          pageLabel: c.pageLabel,
+          targetQuery: c.targetQuery,
+          leverPlain: LEVER_PLAIN[c.leverField] ?? c.leverField,
+          proposedText: c.proposedText,
+          voices: t.voices.map((v) => ({ label: v.label, claim: v.claim })),
+          objections: t.objections.map((o) => ({ label: o.label, reason: o.reason })),
+          whyNot: t.whyNot,
+        });
+        if (r.status === "drafted" && r.value.verdict.trim()) {
+          t.verdict = r.value.verdict.trim();
+        }
+      } catch {
+        /* keep the deterministic verdict */
+      }
+    }),
+  );
 
   // Slice E: attach the "how we know" evidence to each selected move: keyword research (volume +
   // competition), the live Google SERP reaction (winning shape + domains + what to do), and the top
