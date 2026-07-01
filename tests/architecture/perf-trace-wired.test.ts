@@ -4,13 +4,13 @@
  *
  * The trace is gated by `BEACON_PERF_TRACE=true` — disabled by default,
  * with zero runtime cost. This guard ensures every signed-in entry
- * point (middleware + shell layout + 8 page loaders) imports the
+ * point (middleware + shell layout + 7 page loaders) imports the
  * utility and calls `createPerfTrace(...)`, so when the operator
  * flips the env flag in production, EVERY request emits the
  * correlated trace lines that let us correlate middleware → layout →
  * loader latency.
  *
- * If a future edit removes the trace from any of these 10 surfaces,
+ * If a future edit removes the trace from any of these 9 surfaces,
  * this pin catches it before deploy.
  */
 import { describe, expect, it } from "vitest";
@@ -27,7 +27,10 @@ const TRACED_FILES = [
   { rel: "src/lib/auth/supabase-middleware.ts", phase: "middleware" },
   { rel: "src/app/(shell)/layout.tsx", phase: "shell-layout" },
   { rel: "src/app/(shell)/page.tsx", phase: "loader:/" },
-  { rel: "src/app/(shell)/recommendations/page.tsx", phase: "loader:/recommendations" },
+  // Move 5 (2026-07-01): /recommendations index is now a thin redirect to
+  // /worklist?status=ready (a duplicate list of the same moves the canonical
+  // Changes list already shows). A redirect has no loader latency to trace, so
+  // it drops off this list. The deep per-rec brief still traces below.
   {
     rel: "src/app/(shell)/recommendations/[id]/page.tsx",
     phase: "loader:/recommendations/[id]",

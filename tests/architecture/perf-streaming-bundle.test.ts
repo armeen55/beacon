@@ -49,23 +49,18 @@ describe("Streaming bundle: /page.tsx is Suspense-shelled", () => {
     );
   });
 
-  it("imports the per-section v2 skeletons from today-v2-skeleton", () => {
-    // Surface collapse (2026-06-15): /today is V2-only. The page imports
-    // per-section skeletons (TodayV2VisibilityGroupSkeleton +
-    // TodayV2ActionCardsSkeleton + TodayV2DescriptorsSkeleton) for its
-    // Suspense fallbacks — the legacy `TodayLegacySkeleton` import was
-    // dropped with the legacy client.
-    expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\}\s+from\s+["']\.\/today-v2-skeleton["']/,
-    );
-    expect(stripped).toMatch(
-      /(TodayV2Skeleton|TodayV2VisibilityGroupSkeleton|TodayV2ActionCardsSkeleton|TodayV2DescriptorsSkeleton)/,
-    );
+  it("defines an inline CockpitSkeleton loading fallback", () => {
+    // Move 5 (2026-07-01): Today is a thin CanonicalChange read model, so its
+    // loading fallback is an inline `CockpitSkeleton` component rather than the
+    // deleted `today-v2-skeleton` module. The streaming invariant is unchanged —
+    // the shell still returns instantly with an accessible skeleton.
+    expect(stripped).toMatch(/function\s+CockpitSkeleton\b/);
+    expect(stripped).toMatch(/aria-busy="true"/);
   });
 
-  it("renders a <Suspense> with one of the skeletons as fallback", () => {
+  it("renders a <Suspense> with the skeleton as fallback", () => {
     expect(stripped).toMatch(
-      /<Suspense[\s\S]*?fallback\s*=\s*\{[\s\S]*?(TodayV2Skeleton|TodayV2VisibilityGroupSkeleton|TodayV2ActionCardsSkeleton|TodayV2DescriptorsSkeleton|TodayLegacySkeleton)[\s\S]*?\}[\s\S]*?>/,
+      /<Suspense[\s\S]*?fallback\s*=\s*\{[\s\S]*?CockpitSkeleton[\s\S]*?\}[\s\S]*?>/,
     );
   });
 
@@ -95,95 +90,24 @@ describe("Streaming bundle: /page.tsx is Suspense-shelled", () => {
   });
 });
 
-describe("Streaming bundle: /recommendations/page.tsx is Suspense-shelled", () => {
+// Move 5 (2026-07-01) consolidation: /recommendations + /experiments were
+// duplicate lists of the same prepared/ready moves the canonical Changes list
+// (/worklist) already shows, so /recommendations/page.tsx is now a thin
+// redirect to /worklist?status=ready. A redirect has no loader + no skeleton to
+// stream, so the old streaming/skeleton pins for it are obsolete. The canonical
+// worklist surface owns the streamed queue now; we pin the redirect instead.
+describe("Streaming bundle: /recommendations/page.tsx is a redirect (consolidated)", () => {
   const src = read("src/app/(shell)/recommendations/page.tsx");
   const stripped = stripComments(src);
 
-  it("imports Suspense from react", () => {
-    expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\bSuspense\b[\s\S]*?\}\s+from\s+["']react["']/,
-    );
+  it("redirects to the canonical Changes surface", () => {
+    expect(stripped).toMatch(/import\s+\{[\s\S]*?\bredirect\b[\s\S]*?\}\s+from\s+["']next\/navigation["']/);
+    expect(stripped).toMatch(/\bredirect\(/);
+    expect(stripped).toMatch(/\/worklist\?status=ready/);
   });
 
-  it("imports the RecommendationsV2 skeleton", () => {
-    // Surface collapse (2026-06-15): /recommendations is V2-only; the
-    // legacy `RecommendationsLegacySkeleton` import was dropped with the
-    // legacy client.
-    expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\bRecommendationsV2Skeleton\b[\s\S]*?\}\s+from\s+["']\.\/recommendations-v2-skeleton["']/,
-    );
-  });
-
-  it("renders a <Suspense> with one of the skeletons as fallback", () => {
-    expect(stripped).toMatch(
-      /<Suspense[\s\S]*?fallback\s*=\s*\{[\s\S]*?(RecommendationsV2Skeleton|RecommendationsLegacySkeleton)[\s\S]*?\}[\s\S]*?>/,
-    );
-  });
-
-  it("the top-level page function does NOT await either loader", () => {
-    const pageFnIdx = stripped.indexOf(
-      "export default async function RecommendationsPage",
-    );
-    expect(pageFnIdx).toBeGreaterThan(-1);
-    const tail = stripped.slice(pageFnIdx);
-    const closingBraceIdx = tail.indexOf("\n}\n");
-    expect(closingBraceIdx).toBeGreaterThan(0);
-    const pageFnBody = tail.slice(0, closingBraceIdx);
-    expect(pageFnBody).not.toMatch(/\bawait\s+loadPersistedRecommendationQueueForPage\(/);
-    expect(pageFnBody).not.toMatch(/\bawait\s+loadLiveRecommendationQueueForPage\(/);
-  });
-
-  it("a nested async server component DOES await one of the loaders", () => {
-    expect(stripped).toMatch(
-      /async\s+function\s+\w+[\s\S]*?await[\s\S]{0,400}(loadPersistedRecommendationQueueForPage|loadLiveRecommendationQueueForPage)\(/,
-    );
-  });
-
-  // Surface collapse (2026-06-15): the v2/legacy switching contract
-  // (`shouldUseRecommendationsV2`) was removed — /recommendations is now
-  // V2-only, so there is no longer a switcher to pin here.
-});
-
-describe("Streaming bundle: skeleton components exist + sketch the layout", () => {
-  it("today-v2-skeleton.tsx exports TodayV2Skeleton + TodayLegacySkeleton", () => {
-    const src = read("src/app/(shell)/today-v2-skeleton.tsx");
-    expect(src).toMatch(/export\s+function\s+TodayV2Skeleton\b/);
-    expect(src).toMatch(/export\s+function\s+TodayLegacySkeleton\b/);
-  });
-
-  it("TodayV2Skeleton sketches hero / trend / leaderboard / 3 cards / descriptors", () => {
-    const src = read("src/app/(shell)/today-v2-skeleton.tsx");
-    expect(src).toMatch(/data-today-v2-skeleton-section="hero"/);
-    expect(src).toMatch(/data-today-v2-skeleton-section="trend"/);
-    expect(src).toMatch(/data-today-v2-skeleton-section="leaderboard"/);
-    // Three placeholder cards rendered via `[0, 1, 2].map(...)`. We pin
-    // the data attribute + the 3-element iteration so a future edit
-    // that drops to 1 or 2 cards trips this check.
-    expect(src).toMatch(/data-today-v2-skeleton-card/);
-    expect(src).toMatch(/\[0,\s*1,\s*2\]\.map/);
-    expect(src).toMatch(/data-today-v2-skeleton-section="descriptors"/);
-  });
-
-  it("recommendations-v2-skeleton.tsx exports both skeletons", () => {
-    const src = read("src/app/(shell)/recommendations/recommendations-v2-skeleton.tsx");
-    expect(src).toMatch(/export\s+function\s+RecommendationsV2Skeleton\b/);
-    expect(src).toMatch(/export\s+function\s+RecommendationsLegacySkeleton\b/);
-  });
-
-  it("RecommendationsV2Skeleton sketches header / suggested stack / working rail", () => {
-    const src = read("src/app/(shell)/recommendations/recommendations-v2-skeleton.tsx");
-    expect(src).toMatch(/data-recommendations-v2-skeleton="true"/);
-    expect(src).toMatch(/data-recommendations-v2-skeleton-section="suggested"/);
-    expect(src).toMatch(/data-recommendations-v2-skeleton-section="working"/);
-    // 5 placeholder cards (rendered via `[0, 1, 2, 3, 4].map(...)`).
-    expect(src).toMatch(/data-recommendations-v2-skeleton-card/);
-    expect(src).toMatch(/\[0,\s*1,\s*2,\s*3,\s*4\]\.map/);
-  });
-
-  it("skeletons render the aria-busy hint so screen readers know it's loading", () => {
-    const today = read("src/app/(shell)/today-v2-skeleton.tsx");
-    const recs = read("src/app/(shell)/recommendations/recommendations-v2-skeleton.tsx");
-    expect(today).toMatch(/aria-busy="true"/);
-    expect(recs).toMatch(/aria-busy="true"/);
+  it("does not await a recommendations queue loader (nothing to stream)", () => {
+    expect(stripped).not.toMatch(/await\s+loadPersistedRecommendationQueueForPage\(/);
+    expect(stripped).not.toMatch(/await\s+loadLiveRecommendationQueueForPage\(/);
   });
 });

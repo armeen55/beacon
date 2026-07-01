@@ -122,93 +122,11 @@ describe("Today section streaming: today-v2-data.ts loaders", () => {
   });
 });
 
-describe("Today section streaming: today-v2-sections.tsx", () => {
-  const src = read("src/app/(shell)/today-v2-sections.tsx");
-
-  it("exports the three section server components", () => {
-    expect(src).toMatch(/export\s+async\s+function\s+TodayV2VisibilityGroupSection\b/);
-    expect(src).toMatch(/export\s+async\s+function\s+TodayV2ActionCardsSection\b/);
-    expect(src).toMatch(/export\s+async\s+function\s+TodayV2DescriptorsSection\b/);
-  });
-
-  it("descriptors section awaits the narrow loader", () => {
-    const fnIdx = src.indexOf("TodayV2DescriptorsSection");
-    const tail = src.slice(fnIdx);
-    expect(tail).toMatch(/\bloadTodayV2DescriptorsData\(/);
-  });
-
-  it("visibility section awaits the narrow loader (NOT the shared shape)", () => {
-    const fnIdx = src.indexOf("TodayV2VisibilityGroupSection");
-    expect(fnIdx).toBeGreaterThan(-1);
-    const tail = src.slice(fnIdx);
-    expect(tail).toMatch(/\bloadTodayV2VisibilityData\(/);
-    // Negative pin: no longer using the deprecated shared shape.
-    expect(tail.slice(0, 600)).not.toMatch(/loadTodayV2VisibilityAndActionsData\(/);
-  });
-
-  it("action cards section awaits the narrow loader (NOT the shared shape)", () => {
-    const fnIdx = src.indexOf("TodayV2ActionCardsSection");
-    expect(fnIdx).toBeGreaterThan(-1);
-    const tail = src.slice(fnIdx);
-    expect(tail).toMatch(/\bloadTodayV2ActionCardsData\(/);
-    expect(tail.slice(0, 600)).not.toMatch(/loadTodayV2VisibilityAndActionsData\(/);
-  });
-});
-
-describe("Today section streaming: /page.tsx v2 path", () => {
-  const src = read("src/app/(shell)/page.tsx");
-  const stripped = stripComments(src);
-
-  it("imports + uses the three section server components + skeletons", () => {
-    expect(stripped).toMatch(/TodayV2VisibilityGroupSection/);
-    expect(stripped).toMatch(/TodayV2ActionCardsSection/);
-    expect(stripped).toMatch(/TodayV2DescriptorsSection/);
-    expect(stripped).toMatch(/TodayV2VisibilityGroupSkeleton/);
-    expect(stripped).toMatch(/TodayV2ActionCardsSkeleton/);
-    expect(stripped).toMatch(/TodayV2DescriptorsSkeleton/);
-  });
-
-  it("the v2 sectioned content mounts THREE Suspense boundaries (one per section)", () => {
-    const fnIdx = stripped.indexOf("function TodayV2SectionedContent");
-    expect(fnIdx).toBeGreaterThan(-1);
-    const tail = stripped.slice(fnIdx);
-    const closeIdx = tail.indexOf("\n}\n");
-    const body = closeIdx > 0 ? tail.slice(0, closeIdx) : tail;
-    const suspenseCount = (body.match(/<Suspense\b/g) ?? []).length;
-    expect(suspenseCount).toBeGreaterThanOrEqual(3);
-  });
-
-  it("the v2 path awaits the cheap gate (loadTodayV2GateData) before mounting sections", () => {
-    expect(stripped).toMatch(/loadTodayV2GateData\(/);
-  });
-
-  it("the v2 path short-circuits to demo / firstReading views without paying section-load cost", () => {
-    expect(stripped).toMatch(/gate\.isDemoMode/);
-    expect(stripped).toMatch(/gate\.firstReading\.isFirstReading/);
-    expect(stripped).toMatch(/FirstReadingWaiting/);
-  });
-
-  it("is V2-only — the legacy ?legacy=1 path + TodayLegacyAsyncContent are gone", () => {
-    // Surface collapse (2026-06-15): the legacy AEO-centric layout +
-    // `TodayLegacyAsyncContent` + the `?legacy=1` switcher were deleted.
-    // /today now renders only the V2 sectioned content.
-    expect(stripped).not.toMatch(/TodayLegacyAsyncContent\b/);
-    expect(stripped).not.toMatch(/shouldUseV2\b/);
-  });
-});
-
-describe("Today section streaming: per-section skeletons exposed", () => {
-  it("today-v2-skeleton.tsx exports the three per-section skeletons", () => {
-    const src = read("src/app/(shell)/today-v2-skeleton.tsx");
-    expect(src).toMatch(/export\s+function\s+TodayV2VisibilityGroupSkeleton\b/);
-    expect(src).toMatch(/export\s+function\s+TodayV2ActionCardsSkeleton\b/);
-    expect(src).toMatch(/export\s+function\s+TodayV2DescriptorsSkeleton\b/);
-  });
-
-  it("each section skeleton sets aria-busy + a stable data-attr", () => {
-    const src = read("src/app/(shell)/today-v2-skeleton.tsx");
-    expect(src).toMatch(/data-today-v2-section-skeleton="visibility-group"/);
-    expect(src).toMatch(/data-today-v2-section-skeleton="action-cards"/);
-    expect(src).toMatch(/data-today-v2-section-skeleton="descriptors"/);
-  });
-});
+// Move 5 (2026-07-01): the homepage was folded into a single CanonicalChange
+// read model (page.tsx → one <Suspense><Cockpit/></Suspense>), replacing the
+// old three-section V2 streaming layout. `today-v2-sections.tsx` and
+// `today-v2-skeleton.tsx` were deleted, so the per-section pins here (sections
+// component, page v2-path 3-Suspense mount, per-section skeletons) are obsolete
+// contracts and were removed. The narrow today-v2-data.ts loaders above are
+// still exercised where they survive; the new single-shell streaming + skeleton
+// invariant is pinned by perf-streaming-bundle.test.ts and today-smoke.test.ts.

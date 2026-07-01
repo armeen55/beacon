@@ -11,6 +11,7 @@ import { loadTodayView } from "./today-view-data";
 import { DailyExperimentsSection } from "./daily-experiments-section";
 import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import type { TodayView } from "@/domains/changes/today-view";
+import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 
 /**
  * Today `/` — the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
@@ -64,7 +65,23 @@ function CockpitSkeleton() {
 }
 
 async function Cockpit() {
-  const gate = await loadTodayV2GateData();
+  // Perf trace (disabled by default via BEACON_PERF_TRACE) — the trace lives in
+  // this nested async component, not the top-level page export, so the Suspense
+  // shell still streams instantly. Times the two real loaders + flushes on every
+  // exit path (demo / first-reading / error / success) via finally.
+  const trace = createPerfTrace("loader:/", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/",
+  });
+  try {
+    return await renderCockpit(trace);
+  } finally {
+    trace.flush();
+  }
+}
+
+async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
+  const gate = await trace.time("loadTodayV2GateData", () => loadTodayV2GateData());
 
   if (gate.isDemoMode) {
     return (
@@ -82,7 +99,7 @@ async function Cockpit() {
 
   let composite: Awaited<ReturnType<typeof loadTodayView>>;
   try {
-    composite = await loadTodayView();
+    composite = await trace.time("loadTodayView", () => loadTodayView());
   } catch {
     return (
       <div role="alert" className="rounded-lg border border-border/60 bg-surface-inset/30 p-6 text-center">

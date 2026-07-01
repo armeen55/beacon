@@ -9,26 +9,25 @@ vi.mock("next/cache", () => ({
 /**
  * Today route smoke.
  *
- * Surface collapse (2026-06-15): /today is V2-only. The page returns a
- * <Suspense> wrapper instantly; renderToStaticMarkup does not resolve
- * Suspense, so the smoke asserts the shell wrapper + the V2 sectioned
- * skeleton fallback render (proving the route wires through to the V2
- * surface without throwing at the frame level). The legacy
- * `TodayLegacyAsyncContent` + `TodayClient` render path was deleted.
+ * Move 5 (2026-07-01): /today is a thin CanonicalChange read model. The page
+ * returns a <Suspense> wrapper instantly; renderToStaticMarkup does not resolve
+ * Suspense, so the smoke asserts the shell wrapper + the inline CockpitSkeleton
+ * fallback render (proving the route wires through without throwing at the frame
+ * level). The old V2 sectioned-skeleton render path was removed with the fold.
  */
 describe("Today route smoke", () => {
   it(
-    "TodayPage RSC renders the shell wrapper + V2 sectioned skeleton fallback",
+    "TodayPage RSC renders the shell wrapper + Cockpit skeleton fallback",
     async () => {
       const { default: TodayPage } = await import("@/app/(shell)/page");
       const tree = await TodayPage({ searchParams: Promise.resolve({}) });
       const html = renderToStaticMarkup(tree as ReactElement);
 
-      // Route wrapper class from page.tsx.
-      expect(html).toContain("max-w-6xl");
-      // The V2 sectioned skeleton (Suspense fallback) renders while the
-      // gate loader resolves — pin one of its per-section markers.
-      expect(html).toContain('data-today-v2-section-skeleton');
+      // Route wrapper class from page.tsx (Move 5 focused-slice width).
+      expect(html).toContain("max-w-3xl");
+      // The inline CockpitSkeleton (Suspense fallback) renders while the loader
+      // resolves — pin its accessible loading marker.
+      expect(html).toContain('aria-label="Loading today"');
     },
     15_000,
   );
