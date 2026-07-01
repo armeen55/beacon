@@ -24,6 +24,7 @@ import {
 import { evaluatePreparedPackQuality } from "@/domains/drafts/draft-quality";
 import { ExperimentPlanSchema, type ExperimentPlan, type ImplementationStep } from "@/domains/llm/schemas";
 import type { EvidencePacket } from "./evidence-packet";
+import { classifyQueryIntent } from "@/domains/experiments/answer-intent";
 import { log } from "@/lib/logger";
 
 /**
@@ -153,7 +154,15 @@ async function draftForPacket(
   opts: { complete?: CompleteFn },
 ): Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>> {
   const evidenceHints = evidenceHintsFor(packet);
-  const common = { query: packet.move.label, pageLabel: packet.yourPage.url ?? packet.move.label, outline: packet.draft.outline, evidenceHints };
+  // Intent-aware drafting (C): classify the dominant intent from the topic + its fan-out sub-questions
+  // (the demand-graph packet carries no raw GSC queries), so the LLM writes the RIGHT answer type
+  // (a date for "when", a price for "cost") instead of a generic definition. The daily batch passes a
+  // stronger impression-weighted intent; here the fan-outs are the best available signal.
+  const intent = classifyQueryIntent([
+    { query: packet.move.label, impressions: 2 },
+    ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
+  ])?.dominant;
+  const common = { query: packet.move.label, pageLabel: packet.yourPage.url ?? packet.move.label, outline: packet.draft.outline, evidenceHints, intent };
   if (packet.move.gapType === "answer_block") {
     return draftAnswerBlockStructured(
       { ...common, brief: packet.draft.answerBlockBrief, faqs: packet.draft.faqQuestions.length ? packet.draft.faqQuestions : packet.demand.fanoutSeeds },

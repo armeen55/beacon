@@ -233,6 +233,25 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   return { status: "validation_failed", reason: errors[0] ?? "unknown", errors, costUsd: totalCost, retried: true };
 }
 
+// ── intent-aware drafting (C) ─────────────────────────────────────────────────
+// The searcher's dominant intent decides the ANSWER TYPE. A "when" query must be answered with a
+// date, not a definition (the chaharshanbe failure). This directive is injected into the prompt so
+// the LLM writes the right kind of answer. Intent strings mirror answer-intent.ts (kept as a loose
+// string to avoid an llm -> experiments domain import). Empty string when unknown = no constraint.
+export function intentDirective(intent?: string): string {
+  switch (intent) {
+    case "when": return "The searcher wants a DATE or timeline. Lead with the specific date or schedule, never a definition.";
+    case "cost": return "The searcher wants a PRICE or number. Lead with the concrete cost or range, never a definition.";
+    case "how": return "The searcher wants STEPS or a method. Lead with the concrete how-to, not background.";
+    case "where": return "The searcher wants a PLACE or location. Lead with where it is, not a definition.";
+    case "who": return "The searcher wants a PERSON or people. Lead with who, not a definition.";
+    case "list": return "The searcher wants a LIST or examples. Lead with the concrete items.";
+    case "compare": return "The searcher wants a COMPARISON. Lead with the key difference.";
+    case "what": return "The searcher wants to know what this is. Open by clearly stating what this specific topic is.";
+    default: return "";
+  }
+}
+
 // ── concrete drafter: AnswerBlockDraft (the Sprint 2A debug/manual path) ──────
 
 export type AnswerBlockStructuredInput = {
@@ -243,6 +262,8 @@ export type AnswerBlockStructuredInput = {
   faqs: string[];
   /** Plain-language evidence the team already established (for the LLM to cite). */
   evidenceHints?: string[];
+  /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — decides answer type. */
+  intent?: string;
 };
 
 const ANSWER_BLOCK_SYSTEM =
@@ -267,8 +288,10 @@ export async function draftAnswerBlockStructured(
     input.faqs.join(" "),
     (input.evidenceHints ?? []).join(" "),
   ].join(" ");
+  const dir = intentDirective(input.intent);
   const user = [
     `Search/topic: "${input.query}"`,
+    dir ? `What the searcher wants: ${dir}` : "",
     `Page: ${input.pageLabel}`,
     input.brief ? `Brief: ${input.brief}` : "",
     input.outline.length ? `Grounded sections: ${input.outline.join("; ")}` : "",
@@ -300,6 +323,8 @@ export type AtomicEditStructuredInput = {
   currentValue: string | null;
   outline: string[];
   evidenceHints?: string[];
+  /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — shapes the copy. */
+  intent?: string;
 };
 
 const ATOMIC_EDIT_SYSTEM =
@@ -321,8 +346,10 @@ export async function draftAtomicEditStructured(
     input.outline.join(" "),
     (input.evidenceHints ?? []).join(" "),
   ].join(" ");
+  const dir = intentDirective(input.intent);
   const user = [
     `Search/topic: "${input.query}"`,
+    dir ? `What the searcher wants: ${dir}` : "",
     `Page: ${input.pageLabel}`,
     `Field to edit: ${input.field}`,
     input.currentValue ? `Current ${input.field}: ${input.currentValue}` : `Current ${input.field}: (none/empty)`,

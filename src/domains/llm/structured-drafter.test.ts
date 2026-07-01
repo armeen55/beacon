@@ -15,6 +15,7 @@ import {
   callStructuredLLM,
   draftAnswerBlockStructured,
   draftAeoPromptBrief,
+  intentDirective,
   serializeStructuredDraft,
   deserializeStructuredDraft,
   type CompleteFn,
@@ -130,6 +131,39 @@ describe("draftAnswerBlockStructured (concrete wrapper)", () => {
       { complete: fakeComplete([{ text: JSON.stringify(validAnswer) }]) },
     );
     expect(r.status).toBe("drafted");
+  });
+});
+
+describe("intent-aware drafting (C) — the answer type follows the searcher's intent", () => {
+  it("intentDirective steers a WHEN query to a date, not a definition", () => {
+    expect(intentDirective("when")).toMatch(/date|timeline/i);
+    expect(intentDirective("when")).toMatch(/never a definition/i);
+    expect(intentDirective("cost")).toMatch(/price|number/i);
+    expect(intentDirective("what")).toMatch(/what this .* is/i);
+    expect(intentDirective(undefined)).toBe("");
+    expect(intentDirective("nonsense")).toBe("");
+  });
+
+  it("injects the intent directive into the answer-block prompt when intent is set", async () => {
+    let capturedUser = "";
+    const capture: CompleteFn = async ({ user }) => { capturedUser = user; return { text: JSON.stringify(validAnswer) }; };
+    const r = await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri 2026", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], intent: "when" },
+      { complete: capture },
+    );
+    expect(r.status).toBe("drafted");
+    expect(capturedUser).toContain("What the searcher wants:");
+    expect(capturedUser).toMatch(/date or timeline/i);
+  });
+
+  it("omits the directive when no intent is given (back-compat)", async () => {
+    let capturedUser = "";
+    const capture: CompleteFn = async ({ user }) => { capturedUser = user; return { text: JSON.stringify(validAnswer) }; };
+    await draftAnswerBlockStructured(
+      { query: "persian wedding traditions", pageLabel: "Persian Wedding", brief: "sofreh aghd", outline: [], faqs: [] },
+      { complete: capture },
+    );
+    expect(capturedUser).not.toContain("What the searcher wants:");
   });
 });
 
