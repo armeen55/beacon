@@ -5,9 +5,10 @@ import Link from "next/link";
 import { respondToRecommendation } from "./recommendation-actions";
 import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-actions";
 import type { TodayMove } from "./today-moves-data";
+import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 /**
- * today-moves-card (2026-06-24) — the interactive §7 Move card. One-tap "Ship it"
+ * today-moves-card (2026-06-24) - the interactive §7 Move card. One-tap "Ship it"
  * records an accepted response (the same server action /recommendations uses) with
  * optimistic UI: the card flips to a celebratory "shipping → measuring" state
  * instantly, the action persists + revalidates "/", and the loader then drops the
@@ -176,7 +177,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
     const lines: string[] = [`# ${titleCase(m.query)}  (${m.pageLabel})`];
     if (m.draftTitle) lines.push(`\nTitle: ${m.draftTitle}`);
     if (m.draftMeta) lines.push(`Meta: ${m.draftMeta}`);
-    if (m.answerBrief) lines.push(`\nAnswer block (write a 40–60 word direct answer):\n${m.answerBrief}`);
+    if (m.answerBrief) lines.push(`\nAnswer block (write a 40-60 word direct answer):\n${m.answerBrief}`);
     if (m.outline.length) lines.push(`\nSections to cover:\n${m.outline.map((o) => `- ${o}`).join("\n")}`);
     if (m.faqs.length) lines.push(`\nFAQ to answer:\n${m.faqs.map((q) => `- ${q}`).join("\n")}`);
     if (m.schema.length) lines.push(`\nSchema to add: ${m.schema.join(", ")}`);
@@ -218,7 +219,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-sm text-emerald-800 transition-all">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-white">✓</span>
         <div className="flex-1">
-          <div className="font-semibold">Shipped — {titleCase(m.query)}</div>
+          <div className="font-semibold">Shipped - {titleCase(m.query)}</div>
           <div className="text-xs text-emerald-700">
             Once it&apos;s live on the page,{" "}
             <Link href={`/proof?page=${encodeURIComponent(m.targetUrl)}`} className="font-semibold underline hover:text-emerald-900">
@@ -243,7 +244,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
 
   // At-a-glance preparedness (operator Phase 4: show preparedStatus on every card).
   // HONESTY GATE: when a prepared draft exists, its deterministic quality verdict wins
-  // over the lifecycle status — a "ready_to_review" pack whose draft is generic/thin/
+  // over the lifecycle status - a "ready_to_review" pack whose draft is generic/thin/
   // off-topic must NOT show "Prepared". Only a quality-ready draft earns the green pill.
   const q = m.preparedQuality;
   const qualityHidesReady = q && q.status !== "ready";
@@ -280,7 +281,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                   ? "bg-sky-50 text-sky-700 ring-sky-200"
                   : "bg-gray-100 text-gray-500 ring-gray-200"
             }`}
-            title="From Results — the last shipped change on this page"
+            title="From Results - the last shipped change on this page"
           >
             {m.alreadyMeasuring ? "Already measuring" : m.pageMeasuring ? "Page measuring" : m.proofLabel}
           </span>
@@ -300,13 +301,13 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         ) : null}
       </div>
 
-      {/* P6 — compounding-edit guard: a page mid-measurement loses proof clarity if you
+      {/* P6 - compounding-edit guard: a page mid-measurement loses proof clarity if you
           ship again now. Name the checkpoint; "Ship anyway" below is already demoted. */}
       {(m.alreadyMeasuring || m.pageMeasuring) ? (
         <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-100">
           <span>⚠</span>
           <span>
-            This page is mid-measurement{m.proofNextCheckpoint ? ` (next read ~${m.proofNextCheckpoint})` : ""} — shipping another change now muddies the proof. Wait for the read, or use “Ship anyway” below.
+            This page is mid-measurement{m.proofNextCheckpoint ? ` (next read ~${m.proofNextCheckpoint})` : ""} - shipping another change now muddies the proof. Wait for the read, or use “Ship anyway” below.
           </span>
         </p>
       ) : null}
@@ -324,7 +325,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </p>
       ) : null}
 
-      {/* Page-specific learning caution (2026-06-28) — this page's own shipped change
+      {/* Page-specific learning caution (2026-06-28) - this page's own shipped change
           held-while-measuring / no-lift / lifted. Links to Results when evidence-backed. */}
       {m.outcomeCaution?.label ? (
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -356,7 +357,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         </span>
       ) : null}
 
-      {/* PageResearchPack v1 (2026-06-29) — the per-page "what should this page own"
+      {/* PageResearchPack v1 (2026-06-29) - the per-page "what should this page own"
           research summary: intent ownership (own vs cross-link sibling) + the proof-aware
           primary lever + proof-blocked levers. The senior-strategist read, up top. */}
       {m.researchPack && (m.researchPack.own.length || m.researchPack.sibling.length || m.researchPack.primaryLever) ? (() => {
@@ -373,7 +374,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         const rp = m.researchPack;
         return (
           <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Research — what this page should own</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Research - what this page should own</div>
             {typeof rp.addressableVolume === "number" && rp.addressableVolume > 0 ? (
               <p className="mt-1 text-xs text-violet-900">
                 <span className="font-semibold">Addressable demand:</span>{" "}
@@ -382,7 +383,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             ) : null}
             {rp.serpPattern ? (
               <p className="mt-1 text-[11px] text-violet-800">
-                <span className="font-semibold">SERP rewards:</span> {rp.serpPattern.format} — {rp.serpPattern.elementImplication}
+                <span className="font-semibold">SERP rewards:</span> {rp.serpPattern.format}: {stripBannedDashes(rp.serpPattern.elementImplication)}
                 {rp.serpPattern.winningDomains.length ? <span className="text-violet-500"> · winners: {rp.serpPattern.winningDomains.join(", ")}</span> : null}
               </p>
             ) : null}
@@ -416,7 +417,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         );
       })() : null}
 
-      {/* Connectedness (2026-06-28) — the canonical ActionPack evidence provenance
+      {/* Connectedness (2026-06-28) - the canonical ActionPack evidence provenance
           + cached DataForSEO SERP verdict, threaded onto the card operators use
           (was computed on the pack but never shown outside diagnostics). */}
       {(m.sourceChips?.length || m.dataforseoVerdict || m.competitorInformed) ? (
@@ -424,7 +425,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           {m.competitorInformed ? (
             <span
               className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-200"
-              title={`This draft was rewritten using ${m.competitorInformed.domain} — the page that currently wins this topic.`}
+              title={`This draft was rewritten using ${m.competitorInformed.domain} - the page that currently wins this topic.`}
             >
               ✦ Competitor-informed
             </span>
@@ -467,7 +468,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                 ["Google checked", m.preparedChecklist.googleChecked],
                 ["AI checked", m.preparedChecklist.aiChecked],
                 ["Competitors read", m.preparedChecklist.competitorsRead],
-                // "Draft prepared" only counts a QUALITY-passing draft — a generic/thin
+                // "Draft prepared" only counts a QUALITY-passing draft - a generic/thin
                 // draft must not show ✓ here while the pill says "Generic draft".
                 ["Draft prepared", m.preparedChecklist.draftPrepared && (!q || q.copyAllowed)],
                 ["Proof plan ready", m.preparedChecklist.proofPlanReady && (!q || q.copyAllowed)],
@@ -490,7 +491,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                 <div className="mt-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-[9px] font-semibold uppercase tracking-wide text-indigo-500">
-                      {label}{copyOk ? " — paste-ready" : ""}
+                      {label}{copyOk ? " - paste-ready" : ""}
                     </div>
                     {copyOk ? (
                       <button
@@ -525,7 +526,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <details className="mt-3 rounded-xl border border-gray-200 bg-white px-3 py-2">
           <summary className="cursor-pointer list-none text-[12px] font-semibold text-gray-700">
             <span className="text-gray-400">▸ </span>Why Beacon recommends this
-            <span className="ml-1.5 font-normal text-gray-400">— {m.debate.headline}</span>
+            <span className="ml-1.5 font-normal text-gray-400">- {m.debate.headline}</span>
           </summary>
           <div className="mt-2 space-y-1.5">
             {m.debate.voices.map((v) => (
@@ -554,17 +555,22 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             {m.whoCited ? (
               m.whoCited
             ) : m.looselyMatched ? (
-              <span className="text-gray-500">AI cites a tangential page — confirm with a quick search</span>
+              <span className="text-gray-500">AI cites a tangential page - confirm with a quick search</span>
             ) : (
-              <span className="text-emerald-600">Open — no one owns this yet</span>
+              <span className="text-emerald-600">Open - no one owns this yet</span>
             )}
           </div>
         </div>
         <div className="rounded-xl bg-gray-50 px-3 py-2.5">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">What wins</div>
           <div className="mt-0.5 text-sm font-medium text-gray-700">
-            {m.whatWins ? m.whatWins : <span className="text-gray-400">Add a clear, quotable answer up top</span>}
+            {m.whatWins ? stripBannedDashes(m.whatWins) : <span className="text-gray-400">Add a clear, quotable answer up top</span>}
           </div>
+          {m.competitorSteal ? (
+            <div className="mt-1 text-[11px] text-gray-500">
+              <span className="font-semibold text-gray-600">Steal this:</span> {stripBannedDashes(m.competitorSteal)}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -579,7 +585,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           {m.friction ? (
             <span
               className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-100"
-              title={`Microsoft Clarity: ${m.friction.deadPct ?? 0}% of sessions had dead clicks, ${m.friction.ragePct ?? 0}% rage clicks — visitors are hitting friction on this page.`}
+              title={`Microsoft Clarity: ${m.friction.deadPct ?? 0}% of sessions had dead clicks, ${m.friction.ragePct ?? 0}% rage clicks - visitors are hitting friction on this page.`}
             >
               ⚠ {m.friction.deadPct ?? 0}% dead clicks{(m.friction.ragePct ?? 0) > 0 ? ` · ${m.friction.ragePct ?? 0}% rage` : ""} (Clarity)
             </span>
@@ -600,7 +606,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
               }`}
               title={
                 q.strikingDistance
-                  ? `Striking distance — ranks position ${q.position.toFixed(1)} for ${q.impressions.toLocaleString()} monthly impressions; climbing a few spots captures outsized clicks.`
+                  ? `Striking distance - ranks position ${q.position.toFixed(1)} for ${q.impressions.toLocaleString()} monthly impressions; climbing a few spots captures outsized clicks.`
                   : `${q.impressions.toLocaleString()} impressions · ${q.clicks.toLocaleString()} clicks · avg position ${q.position.toFixed(1)}`
               }
             >
@@ -637,7 +643,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-500">Competing with yourself</span>
             {m.cannibalization.map((c) => {
               // Show a DISTINCT competing page, never "iran animals vs your iran
-              // animals" — that collision happens when the other page's label equals
+              // animals" - that collision happens when the other page's label equals
               // the query. Fall back to an honest count when every other page collides.
               const distinct = c.otherPages.find((o) => o.toLowerCase() !== c.query.toLowerCase()) ?? null;
               return (
@@ -659,10 +665,10 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           </div>
           {/* The consolidation ACTION for the top case, in plain language. When the
               Research Pack above already classified these as cross-link SIBLINGS, defer
-              to it — never show "fold X into it" while the research module says
+              to it - never show "fold X into it" while the research module says
               "cross-link, don't merge" (that contradiction is the boy/girl-names bug). */}
           {m.researchPack?.sibling?.length ? (
-            <p className="mt-1.5 text-xs text-orange-700">Keep these as separate pages and cross-link them (below) — don&apos;t merge. See &ldquo;what this page should own&rdquo; above.</p>
+            <p className="mt-1.5 text-xs text-orange-700">Keep these as separate pages and cross-link them (below) - don&apos;t merge. See &ldquo;what this page should own&rdquo; above.</p>
           ) : (
             <p className="mt-1.5 text-xs text-orange-700">{m.cannibalization[0]!.fix}</p>
           )}
@@ -834,13 +840,13 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                     {aiStatus === "pending" ? "Writing…" : "✨ Draft with AI"}
                   </button>
                   {aiStatus === "off" ? (
-                    <span className="text-[11px] text-gray-400">AI drafting is off — using the outline above.</span>
+                    <span className="text-[11px] text-gray-400">AI drafting is off - using the outline above.</span>
                   ) : aiStatus === "blocked" ? (
                     <span className="text-[11px] text-amber-600">Monthly AI budget reached.</span>
                   ) : aiStatus === "rejected" ? (
-                    <span className="text-[11px] text-amber-600">Draft failed the fact-safety check — use the outline.</span>
+                    <span className="text-[11px] text-amber-600">Draft failed the fact-safety check - use the outline.</span>
                   ) : aiStatus === "error" ? (
-                    <span className="text-[11px] text-gray-400">Couldn&apos;t draft right now — use the outline.</span>
+                    <span className="text-[11px] text-gray-400">Couldn&apos;t draft right now - use the outline.</span>
                   ) : null}
                 </div>
               )}
@@ -881,7 +887,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
                       ) : faqStatus === "blocked" ? (
                         <span className="text-[11px] text-amber-600">Monthly AI budget reached.</span>
                       ) : faqStatus === "rejected" || faqStatus === "error" ? (
-                        <span className="text-[11px] text-gray-400">Couldn&apos;t generate — try later.</span>
+                        <span className="text-[11px] text-gray-400">Couldn&apos;t generate - try later.</span>
                       ) : null}
                     </div>
                   )}
@@ -894,7 +900,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
 
       <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3">
         {/* Already mid-measurement on this exact page+action: a second ship would
-            contaminate the open proof window — demote Ship, don't block it. */}
+            contaminate the open proof window - demote Ship, don't block it. */}
         <button
           onClick={ship}
           disabled={pending}
@@ -905,9 +911,9 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           }
           title={
             m.alreadyMeasuring
-              ? "This page+change is already measuring — shipping again would muddy the proof window"
+              ? "This page+change is already measuring - shipping again would muddy the proof window"
               : m.pageMeasuring
-                ? "This page is mid-measurement on another change — a second change muddies the open proof window"
+                ? "This page is mid-measurement on another change - a second change muddies the open proof window"
                 : undefined
           }
         >

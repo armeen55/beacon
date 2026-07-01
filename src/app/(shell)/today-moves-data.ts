@@ -9,6 +9,7 @@ import { buildPageResearchPack, addressableVolume } from "@/domains/demand-graph
 import { buildOnPagePlan } from "@/domains/demand-graph/page-element-plan";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
+import { whatToSteal } from "@/domains/experiments/daily-evidence-brief";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { competitorRelevance, internalLinkRelevance } from "@/domains/evidence/relevance-gate";
@@ -76,6 +77,9 @@ export type TodayMove = {
   demandBasis: "gsc" | "ai_attention" | "mixed" | null;
   whoCited: string | null;
   whatWins: string | null;
+  /** Phase 1d: the actionable "steal this" line from the top competitor's page structure
+   *  (direct answer / FAQ / tool / schema / depth), reusing the daily card's whatToSteal builder. */
+  competitorSteal?: string | null;
   /** §1 "Your gap" — what the cited competitor has that your page lacks (plain language). */
   yourGap: string;
   /** The exact GSC queries this page already ranks for (light per-query path). */
@@ -604,6 +608,22 @@ export async function buildTodayMovesData(
         packet?.competitor?.domain && packet.competitor.fetchStatus === "ok" && !looselyMatched && compRelevant
           ? packet.competitor.domain
           : null;
+      // Phase 1d: the actionable "steal this" line from the on-topic competitor's page structure
+      // (reuses the daily card's pure whatToSteal builder). Only when we have a real, relevant teardown.
+      const cf = packet?.competitor?.facts;
+      const competitorSteal =
+        whoCited && cf
+          ? whatToSteal({
+              hasAnswerBlock: cf.hasAnswerBlock,
+              hasFaq: cf.hasFaq,
+              faqQuestionCount: cf.faqQuestionCount,
+              schemaTypes: cf.schemaTypes,
+              hasToolOrCalculator: cf.hasToolOrCalculator,
+              wordCount: cf.wordCount,
+              sectionCount: cf.sectionCount,
+              hasReviewSchema: cf.eeat?.hasReviewSchema,
+            })
+          : null;
 
       const query =
         packet?.move?.label ??
@@ -639,6 +659,7 @@ export async function buildTodayMovesData(
         demandBasis: packet?.demand?.basis ?? null,
         whoCited,
         whatWins,
+        competitorSteal,
         yourGap: whatWins ? yourGapLine(packet?.gaps ?? []) : "", // only when we have a real teardown to compare against
         topQueries: [], // filled below for the shown top moves (one bounded GSC read)
         declines: [], // filled below (recent vs prior window)
