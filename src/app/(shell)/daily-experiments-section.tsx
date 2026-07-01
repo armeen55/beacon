@@ -122,6 +122,8 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
   const e = item.experiment;
   const paste = stripBannedDashes(e.proposedText);
   const why = stripBannedDashes(e.whyNow);
+  const editable = e.lever !== "internal_link"; // a link's text is an anchor, not free copy
+  const [text, setText] = useState(paste); // D-3: the operator can tweak before applying
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [status, setStatus] = useState<DailyExperimentItemStatus>(item.status);
@@ -135,7 +137,7 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
 
   const apply = () => start(async () => {
     setMsg("Checking the change is live...");
-    const r = await markDailyExperimentAppliedAction({ planId, experimentId: e.id, idempotencyKey: `${idem}::apply` });
+    const r = await markDailyExperimentAppliedAction({ planId, experimentId: e.id, idempotencyKey: `${idem}::apply`, editedText: text });
     if (r.ok) {
       setStatus("active"); setFailure(null);
       setMsg(r.idempotent || r.reservationCount === 0 ? "Already confirmed live, tracking now." : `Confirmed live. I'm now tracking it against ${r.reservationCount} similar pages.`);
@@ -180,8 +182,18 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
         </>
       ) : null}
 
-      <div style={LABEL}>Paste this</div>
-      <div style={PASTE}>{paste}</div>
+      <div style={LABEL}>Paste this{editable && !isActive && status !== "skipped" ? " (edit it first if you want)" : ""}</div>
+      {editable && !isActive && status !== "skipped" ? (
+        <textarea
+          value={text}
+          onChange={(ev) => setText(ev.target.value)}
+          aria-label="Proposed text, edit before you apply"
+          rows={Math.min(6, Math.max(2, Math.ceil((text.length || 1) / 60)))}
+          style={{ ...PASTE, width: "100%", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
+        />
+      ) : (
+        <div style={PASTE}>{text}</div>
+      )}
       <WrittenByBeacon e={e} />
 
       {failure && (
@@ -210,7 +222,7 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
         <div style={{ marginTop: 10, fontSize: 13, opacity: 0.7 }}>Set aside. Its comparison pages were freed up and nothing changed.</div>
       ) : (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(paste, setMsg)}>Copy</button>
+          <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(text, setMsg)}>Copy</button>
           <a href={e.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>Open page</a>
           <button type="button" disabled={pending} aria-busy={pending} onClick={apply} style={{ minWidth: 130 }}>{pending ? "Checking the page..." : status === "verification_failed" ? "Try again" : "I did it in Wix"}</button>
           <button type="button" disabled={pending} aria-busy={pending} onClick={skip} style={{ opacity: 0.7 }}>Not now</button>

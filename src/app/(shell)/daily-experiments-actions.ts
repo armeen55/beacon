@@ -168,7 +168,7 @@ export type AppliedActionResult =
  * (proof row + reservations active + item status) via the RPC. No proof / no reservation activation
  * before live verification. Idempotent. Tenant from server context.
  */
-export async function markDailyExperimentAppliedAction(input: { planId: string; experimentId: string; idempotencyKey: string }): Promise<AppliedActionResult> {
+export async function markDailyExperimentAppliedAction(input: { planId: string; experimentId: string; idempotencyKey: string; editedText?: string }): Promise<AppliedActionResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
     const tenantId = await currentTenantId();
@@ -178,6 +178,17 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
     if (plan.status !== "accepted") return { ok: false, reason: `plan_${plan.status}` };
     const exp = plan.selected.find((e) => e.id === input.experimentId);
     if (!exp) return { ok: false, reason: "item_not_found" };
+
+    // D-3: the operator can tweak the proposed text inline before applying. Verify + record what they
+    // ACTUALLY shipped (the edited text), not the original proposal. Only for text levers (a link's
+    // verification keys on anchor/destination, not proposedText). The edit is an apply-time override;
+    // the frozen plan proposal is unchanged.
+    const editedText = (input.editedText ?? "").trim();
+    const effectiveExp =
+      editedText && editedText !== exp.proposedText && exp.lever !== "internal_link"
+        ? { ...exp, proposedText: editedText }
+        : exp;
+    const wasEdited = effectiveExp !== exp;
 
     const current = itemStatus(plan.execution, input.experimentId);
     if (isActiveStatus(current)) {
