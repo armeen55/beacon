@@ -3,7 +3,7 @@ import {
   Settings,
   ListChecks,
   ListTodo,
-  Network,
+  
   LineChart,
   Plug,
   Users,
@@ -59,8 +59,7 @@ export const navigationGroups: NavGroup[] = [
   {
     label: "Settings",
     items: [
-      { label: "Connections", href: "/connections", icon: Network },
-      { label: "Connectors", href: "/settings/connectors", icon: Plug },
+      { label: "Connections", href: "/settings/connectors", icon: Plug },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },

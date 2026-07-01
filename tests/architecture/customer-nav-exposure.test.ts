@@ -81,8 +81,7 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
     "/proof",
     "/prompts",
     "/competitors",
-    "/connections",
-    "/settings/connectors",
+        "/settings/connectors",
     "/settings",
   ]);
 

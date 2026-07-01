@@ -99,8 +99,8 @@
 - [ ]  96 [W3][P2/S] Prefetch on hover for row expansion data and the dossier route.
 - [ ]  97 [W3][P1/S] Never block the shell on data: every band already streams; ensure the header +
 - [ ]  98 [W3][P2/S] Measure and pin: a perf budget test that fails CI if / or /worklist server render
-- [ ]  99 [W1][P0/S] Merge Connections vs Connectors: /connections folds into /settings/connectors, one
-- [ ] 100 [W1][P0/S] Fix nav label/route mismatches: Results points at /proof, AI questions at /prompts;
+- [x]  99 [W1][P0/S] Merge Connections vs Connectors: /connections folds into /settings/connectors, one
+- [x] 100 [W1][P0/S] Fix nav label/route mismatches: Results points at /proof, AI questions at /prompts;
 - [ ] 101 [W3][P1/M] Delete today-data.ts (3,131 LOC dormant) after confirming the one type-only import
 - [ ] 102 [W3][P1/S] Delete the Wix blog/media handlers (wixCreateDraftPost/wixPublishDraftPost/
 - [ ] 103 [W3][P1/S] Decide the backlink stub: delete link-authority/backlink-provider.ts (no callers)
@@ -120,4 +120,4 @@
 - [ ] 117 [W3][P1/S] Name the product's own limits: pages with thin evidence say "The team does not have
 - [ ] 118 [W3][P2/S] Session memory of the operator's taste: when the operator edits a paste text before
 - [ ] 119 [W3][P2/M] Weekly email digest (operator-triggered opt-in): the Monday recap band as an email.
-- [ ] 120 [W1][P0/S] The final acceptance ritual: after every future change, the agent must answer in the
+- [x] 120 [W1][P0/S] The final acceptance ritual: after every future change, the agent must answer in the
