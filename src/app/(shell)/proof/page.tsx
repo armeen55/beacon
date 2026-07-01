@@ -156,10 +156,10 @@ export default async function ProofPage({
     gsc == null || gsc.severity === "healthy"
       ? null
       : gsc.severity === "disconnected"
-        ? "Google Search Console isn't connected — proof verdicts can't update until it is."
+        ? "Google Search Console isn't connected. Proof verdicts can't update until it is."
         : gsc.severity === "needs_setup"
-          ? "Google Search Console is connected but hasn't synced yet — verdicts will fill in after the first sync."
-          : `Search Console data is ${gsc.daysStale ?? "several"} days old — recent changes may not show a verdict yet. Refresh to update.`;
+          ? "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync."
+          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Refresh to update.`;
 
   // Recompute only does something once a measurement window has closed AND GSC has the
   // data for it. Gate the button + give the honest reason (calendar vs GSC-lag).
@@ -210,7 +210,7 @@ export default async function ProofPage({
       {!gscFreshnessNote && waitingOnGsc.length > 0 ? (
         <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
           {waitingOnGsc.length} change{waitingOnGsc.length === 1 ? " is" : "s are"} waiting on Search Console
-          data, not stalled. {waitingOnGsc[0]?.reasonCopy ?? ""} Google Search data typically lags 2–3 days.
+          data, not stalled. {waitingOnGsc[0]?.reasonCopy ?? ""} Google Search data typically lags 2-3 days.
         </div>
       ) : null}
 
@@ -218,7 +218,7 @@ export default async function ProofPage({
           background (next/after) the moment Results opens — say so honestly. */}
       {isOperator && dueNow.length > 0 ? (
         <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now — refresh in a moment to see the verdict.
+          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now. Refresh in a moment to see the verdict.
         </div>
       ) : null}
 
@@ -515,7 +515,7 @@ function LedgerCard({ rec, link, pres }: { rec: ShippedChangeRecord; link?: Proo
           ))}
         </div>
       ) : (
-        <p className="mt-1.5 text-[11px] text-gray-400">↩ Manual or legacy change — not traced to a ranked move.</p>
+        <p className="mt-1.5 text-[11px] text-gray-400">↩ Manual or legacy change, not traced to a ranked move.</p>
       )}
 
       <p className="mt-1.5 text-[12px] text-foreground/80">
@@ -540,7 +540,7 @@ function LedgerCard({ rec, link, pres }: { rec: ShippedChangeRecord; link?: Proo
             </p>
             {lowVolume ? (
               <p className="text-[11px] text-amber-700">
-                Low volume — only {t.treated.sessionsPre} prior visit{t.treated.sessionsPre === 1 ? "" : "s"}, so the
+                Low volume, only {t.treated.sessionsPre} prior visit{t.treated.sessionsPre === 1 ? "" : "s"}, so the
                 percent change is not reliable yet.
               </p>
             ) : null}

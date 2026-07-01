@@ -127,7 +127,7 @@ export async function loadConnectionHealth(
           lastSyncedAt: null,
           daysStale: null,
           severity: (configured ? "healthy" : "disconnected") as ConnectionSeverity,
-          note: configured ? "Connected — live SERP validation ready" : "Not connected",
+          note: configured ? "Connected. Live SERP validation ready" : "Not connected",
         };
       }
       const info = await getConnectorInfo(meta.key, tenantId).catch(() => null);

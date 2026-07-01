@@ -694,7 +694,7 @@ export function ConnectorsClient({
             <span>
               When you refresh, Beacon spots where the AI assistants recommend a
               competitor on a topic real people are already searching for, and
-              drafts the answer for you to add first — so your effort lands where
+              drafts the answer for you to add first, so your effort lands where
               customers are actually looking.
             </span>
           </li>
@@ -709,7 +709,7 @@ export function ConnectorsClient({
             <span aria-hidden="true" className="text-accent-primary">•</span>
             <span>
               After you approve a change, Beacon records it and re-measures your
-              rankings, traffic, and AI mentions each time you open Beacon — so
+              rankings, traffic, and AI mentions each time you open Beacon, so
               you can see whether the fix actually worked.
             </span>
           </li>

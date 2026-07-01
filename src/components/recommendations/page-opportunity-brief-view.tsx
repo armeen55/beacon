@@ -79,8 +79,8 @@ function EvidenceReceipt({ e }: { e: BriefEvidenceReceipt }) {
         className="text-[12px] text-muted-foreground"
         data-brief-evidence-empty="true"
       >
-        No connected-source data for this page yet — connect Google / Clarity /
-        Profound or refresh to deepen the evidence.
+        No connected-source data for this page yet. Connect Google Search,
+        visitor behavior, or AI answers, then refresh to deepen the evidence.
       </p>
     );
   }
