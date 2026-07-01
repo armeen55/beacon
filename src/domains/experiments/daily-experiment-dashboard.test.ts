@@ -28,7 +28,7 @@ describe("buildDailyExperimentDashboard — active batch protection", () => {
     expect(dash.protectedCounts.treatments).toBe(2);
     expect(dash.protectedCounts.controls).toBe(3);
     expect(dash.availableCandidates).toBe(52);
-    expect(protectedControlWarning(dash)).toContain("3 pages are controls");
+    expect(protectedControlWarning(dash)).toContain("3 similar pages are being used as before/after comparisons");
   });
 
   it("no active batch → no warning", () => {
