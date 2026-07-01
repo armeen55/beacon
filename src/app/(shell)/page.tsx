@@ -7,23 +7,19 @@ import { PageHeader } from "@/components/data/page-header";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import { DataSourcesStrip } from "@/components/today/data-sources-strip";
 import { loadTodayV2GateData } from "./today-v2-data";
-import { loadTodayCockpit, type TodayCockpit } from "@/domains/action-pack/load-today-cockpit";
-import { MoveCard } from "./today-moves-card";
-import { PrepareTopMovesButton } from "./today-moves-prepare";
-import { TodayNewPagesSection } from "./today-newpages-section";
-import {
-  TodayV2ExperimentsMeasuringSection,
-  TodayV2ProvenResultsSection,
-} from "./today-proof-sections";
+import { loadTodayView } from "./today-view-data";
+import { DailyExperimentsSection } from "./daily-experiments-section";
+import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
+import type { TodayView } from "@/domains/changes/today-view";
 
 /**
- * Today `/` — the ActionPack cockpit (2026-06-27 rebuild).
+ * Today `/` — the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
  *
- * Collapsed from the 20+-section "research museum" into one simple surface driven
- * by the canonical ActionPack brain: the 3 things to do now (rich cards), the
- * bigger-list headline (→ /moves), the New Pages board, source + proof status.
- * No visibility-score hero, no brand-SoV, no per-lens dashboard sprawl, no flags.
- * Read-only; ActionPack reads cached/durable data (no live Profound/DataForSEO).
+ * Today is no longer a second "what should I do?" surface: it derives from the same
+ * CanonicalChange[] that powers /worklist (Changes). Four operational sections — what
+ * needs attention, today's changes (the daily plan), what's measuring, what's next if
+ * today is empty. No research-heavy MoveCards, no giant New Pages board, no duplicate
+ * recommendation engine. Changes is the complete backlog; Today is the operational slice.
  */
 export default async function TodayPage({
   searchParams,
@@ -32,7 +28,7 @@ export default async function TodayPage({
 }) {
   const notice = (await searchParams).notice;
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       <AlreadyLaunchedNotice notice={notice} />
       <Suspense fallback={<CockpitSkeleton />}>
         <Cockpit />
@@ -48,10 +44,7 @@ function AlreadyLaunchedNotice({ notice }: { notice: string | string[] | undefin
       <p className="font-medium text-foreground">You&apos;ve already finished setup — here&apos;s your workspace.</p>
       <p className="mt-1 text-muted-foreground">
         Setup is a one-time step. To change your business details, service area, or competitors, head to{" "}
-        <Link href="/settings/config" className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
-          Settings
-        </Link>
-        .
+        <Link href="/settings/config" className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Settings</Link>.
       </p>
     </div>
   );
@@ -59,29 +52,15 @@ function AlreadyLaunchedNotice({ notice }: { notice: string | string[] | undefin
 
 function CockpitSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="h-20 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />
-      <div className="grid gap-3">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-32 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />
-        ))}
+    <div className="space-y-6 animate-pulse" aria-busy="true" aria-label="Loading today">
+      <div className="space-y-2">
+        <div className="h-7 w-28 rounded-md bg-muted/40" />
+        <div className="h-4 w-2/3 max-w-md rounded-md bg-muted/25" />
       </div>
+      <div className="h-28 rounded-2xl border border-gray-100 bg-gray-50" />
+      <div className="grid gap-1.5">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border border-gray-100 bg-gray-50" />)}</div>
     </div>
   );
-}
-
-function StatTile({ value, label, accent }: { value: string; label: string; accent: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
-      <span className={`text-2xl font-semibold tracking-tight ${accent}`}>{value}</span>
-      <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">{label}</span>
-    </div>
-  );
-}
-
-function fmtNum(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
 }
 
 async function Cockpit() {
@@ -90,113 +69,130 @@ async function Cockpit() {
   if (gate.isDemoMode) {
     return (
       <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
-        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">
-          Connect your data sources to see your command center
-        </h2>
+        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">Connect your data sources to see your command center</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-          Connect Google Search Console (plus GA4, Profound, or Clarity) and refresh to see your ranked moves.
-          Three steps: 1. Connect your sources → 2. Refresh → 3. Review your moves.
+          Connect Google Search Console (plus GA4, Profound, or Clarity) and refresh to see your ranked changes.
+          Three steps: 1. Connect your sources → 2. Refresh → 3. Review your changes.
         </p>
-        <Link
-          href="/settings/connectors"
-          className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
-        >
-          Connect data sources →
-        </Link>
+        <Link href="/settings/connectors" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Connect data sources →</Link>
       </div>
     );
   }
+  if (gate.firstReading.isFirstReading) return <FirstReadingWaiting context={gate.firstReading.context} />;
 
-  if (gate.firstReading.isFirstReading) {
-    return <FirstReadingWaiting context={gate.firstReading.context} />;
-  }
-
-  let c: TodayCockpit;
+  let composite: Awaited<ReturnType<typeof loadTodayView>>;
   try {
-    c = await loadTodayCockpit();
+    composite = await loadTodayView();
   } catch {
-    c = {
-      topThree: [], biggestOpportunities: { totalMoves: 0, demandAtStake: 0, citationsContested: 0 },
-      newPagesCount: 0, preparedMovesCount: 0, aiValidatedCount: 0,
-      sourceCoverage: { rank_revenue: 0, profound: 0, dataforseo: 0, gsc: 0, ga4: 0, clarity: 0, competitor_teardown: 0 },
-      proofStatus: { measuring: 0, won: 0, lost: 0, headline: null }, warnings: ["Cockpit failed to load — retry or check connectors."],
-    };
+    return (
+      <div role="alert" className="rounded-lg border border-border/60 bg-surface-inset/30 p-6 text-center">
+        <p className="text-sm font-medium text-foreground">Couldn’t load Today just now.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Your data is safe. Refresh in a moment, or open <Link href="/worklist" className="underline">Changes</Link>.</p>
+      </div>
+    );
   }
-
-  const opp = c.biggestOpportunities;
+  const { today, daily } = composite;
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Today"
-        description="The 3 things to do now — ranked across your Google + AI demand by the one ranked brain. The full list lives on Moves."
-      />
+      <PageHeader title="Today" description={today.headerSentence} />
+      <TodayCounts counts={today.counts} />
+      {today.attention.length > 0 ? <AttentionSection items={today.attention} /> : null}
 
-      {c.warnings.length > 0 ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <ul className="ml-4 list-disc">{c.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
-        </div>
-      ) : null}
+      {/* Today's Changes — the daily plan (reuses the existing gated + quality-checked panel). */}
+      {daily ? <DailyExperimentsSection view={daily} /> : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile value={String(opp.totalMoves)} label="Moves ranked" accent="text-gray-900" />
-        <StatTile value={fmtNum(opp.demandAtStake)} label="Monthly demand at stake" accent="text-sky-600" />
-        <StatTile value={String(opp.citationsContested)} label="AI citations to win" accent="text-violet-600" />
-        {c.preparedMovesCount > 0 ? (
-          <StatTile value={String(c.preparedMovesCount)} label="Drafts ready" accent="text-emerald-600" />
-        ) : (
-          <StatTile value={String(c.aiValidatedCount)} label="AI-validated" accent="text-emerald-600" />
-        )}
-      </div>
+      {today.measuring.length > 0 ? <MeasuringSection today={today} /> : null}
+      {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
 
-      {c.proofStatus.headline ? (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-          {c.proofStatus.headline}
-        </div>
-      ) : null}
-
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-gray-900">Do these first</h2>
-          <PrepareTopMovesButton readyCount={c.preparedMovesCount} total={opp.totalMoves} />
-        </div>
-        {c.topThree.length > 0 ? (
-          <div className="grid gap-3">
-            {c.topThree.map((m, i) => <MoveCard key={m.id} m={m} rank={i + 1} />)}
-          </div>
-        ) : (
-          <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
-            No ranked moves yet. Connect + refresh your sources and they&apos;ll appear here.
-          </p>
-        )}
-        {opp.totalMoves > 3 ? (
-          <Link
-            href="/worklist"
-            className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
-          >
-            See all {opp.totalMoves} moves →
-          </Link>
-        ) : null}
-      </section>
-
-      {/* New Pages to build (create/coverage half of the brain) — AI-validated badges
-          + Draft AEO brief live here. */}
-      <Suspense fallback={null}>
-        <TodayNewPagesSection enableAeoBrief />
-      </Suspense>
-
-      {/* Proof status — what's measuring + what's proven. */}
-      <Suspense fallback={null}>
-        <TodayV2ExperimentsMeasuringSection />
-      </Suspense>
-      <Suspense fallback={null}>
-        <TodayV2ProvenResultsSection />
-      </Suspense>
-
-      {/* Data source / connect status (self-hides when all sources connect). */}
-      <Suspense fallback={null}>
-        <DataSourcesStrip />
-      </Suspense>
+      <Suspense fallback={null}><DataSourcesStrip /></Suspense>
     </div>
+  );
+}
+
+function TodayCounts({ counts }: { counts: TodayView["counts"] }) {
+  const tiles: { label: string; value: number; cls: string; show: boolean }[] = [
+    { label: "Ready today", value: counts.readyToday, cls: "text-sky-700", show: counts.readyToday > 0 },
+    { label: "Needs attention", value: counts.needsAttention, cls: "text-amber-700", show: counts.needsAttention > 0 },
+    { label: "Measuring", value: counts.measuring, cls: "text-emerald-700", show: counts.measuring > 0 },
+    { label: "Results", value: counts.resultsAvailable, cls: "text-violet-700", show: counts.resultsAvailable > 0 },
+  ].filter((t) => t.show);
+  if (tiles.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500">
+      {tiles.map((t) => (
+        <span key={t.label}><span className={`font-semibold ${t.cls}`}>{t.value}</span> {t.label}</span>
+      ))}
+    </div>
+  );
+}
+
+function AttentionSection({ items }: { items: TodayView["attention"] }) {
+  return (
+    <section className="space-y-1.5" aria-label="Needs attention">
+      <h2 className="text-sm font-semibold text-gray-900">Needs your attention</h2>
+      {items.map((a) => (
+        <Link key={a.id} href={a.href} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+          <span className="min-w-0">
+            <span className="block break-words text-sm font-medium text-amber-900">{a.title}</span>
+            <span className="block break-words text-xs text-amber-800/80">{a.message}</span>
+          </span>
+          <span aria-hidden className="shrink-0 text-amber-700">→</span>
+        </Link>
+      ))}
+    </section>
+  );
+}
+
+function MeasuringSection({ today }: { today: TodayView }) {
+  return (
+    <section className="space-y-1.5" aria-label="Measuring">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-900">Measuring</h2>
+        <Link href="/proof" className="text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Results →</Link>
+      </div>
+      <div className="space-y-1.5">
+        {today.measuring.map((m) => (
+          <div key={m.changeId} className="rounded-lg border border-gray-100 bg-white px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 break-words text-sm font-medium text-gray-800">{m.pageLabel}</span>
+              <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Measuring</span>
+            </div>
+            <div className="mt-0.5 break-words text-xs text-gray-500">
+              {m.headline}
+              {m.nextCheckpoint ? <span className="text-gray-400"> · next read {m.nextCheckpoint}</span> : null}
+              {m.attributionLimited ? <span className="text-amber-600"> · overlapping edit</span> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+      {today.counts.measuring > today.measuring.length ? (
+        <p className="text-[11px] text-gray-400">Showing {today.measuring.length} of {today.counts.measuring} measuring.</p>
+      ) : null}
+    </section>
+  );
+}
+
+function OpportunitiesSection({ today }: { today: TodayView }) {
+  return (
+    <section className="space-y-1.5" aria-label="Next opportunities">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-900">What to do next</h2>
+        <Link href="/worklist" className="text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Changes →</Link>
+      </div>
+      <div className="space-y-1.5">
+        {today.nextOpportunities.map((o) => (
+          <Link key={o.changeId} href="/worklist" className="block rounded-lg border border-gray-100 bg-white px-3 py-2 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+            <span className="block break-words text-sm font-semibold text-gray-900">{o.pageLabel}</span>
+            <span className="block break-words text-xs text-gray-500">{o.recommendation}</span>
+            <span className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400">
+              <span>{o.opportunityType}</span>
+              <span>~{o.estimatedEffortMinutes} min</span>
+              <span className={o.evidenceStrength === "strong" ? "text-emerald-600" : o.evidenceStrength === "directional" ? "text-amber-600" : "text-gray-500"}>{EVIDENCE_LABEL[o.evidenceStrength]}</span>
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
