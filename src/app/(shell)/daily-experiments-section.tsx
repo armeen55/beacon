@@ -251,7 +251,7 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
     const r = await markDailyExperimentAppliedAction({ planId, experimentId: e.id, idempotencyKey: `${idem}::apply`, editedText: text });
     if (r.ok) {
       setStatus("active"); setFailure(null);
-      setMsg(r.idempotent || r.reservationCount === 0 ? "Already confirmed live, tracking now." : `Confirmed live. I'm now tracking it against ${r.reservationCount} similar pages.`);
+      setMsg(r.idempotent || r.reservationCount === 0 ? "Already confirmed live, tracking now." : `Confirmed live on your site. I am now comparing it against ${r.reservationCount} similar pages and will report the first read in about a week.`);
     } else if (r.reason === "verification_failed" && r.verification && !r.verification.verified) {
       setStatus("verification_failed");
       setFailure({ reason: r.verification.reason, expected: r.verification.expected, observed: r.verification.observed });

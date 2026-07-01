@@ -80,6 +80,12 @@ After **any** task that changes behavior or plans, update if impacted:
 3. `docs/VERIFICATION_LOG.md` — dated entry: what changed, what verified (`npm run typecheck` / `npm run test` / `npm run build` as applicable)  
 4. `docs/master_execution_plan.md` — new ideas or decisions only when relevant  
 
+**The Beacon voice (apply to every operator-facing string):** first person ("I checked", "we
+think"); always a concrete number when one exists; always a next step; never a raw code or lab
+word (experiment, control, baseline, treatment, reservation, SERP) on a primary surface; wins
+celebrated in one sentence; misses owned plainly ("That one did not work. Here is what we
+learned."); no hedging filler; no em or en dashes ever.
+
 **The $250 ritual (mandatory before calling any UI change done):** answer in the report:
 does this screen convince a stranger to pay $250/mo? What number does it show? What decision
 does it enable? What would you cut? A weak answer means the change is not done.

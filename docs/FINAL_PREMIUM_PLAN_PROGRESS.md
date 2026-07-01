@@ -45,7 +45,7 @@
 - [x]  42 [W1][P0/S] Personal greeting + daily brief line: "Tuesday, Jul 1. The team reviewed 42 pages
 - [x]  43 [W1][P0/M] Team standup strip: a horizontal row of the 7 teammate identity chips, each with its
 - [ ]  44 [W3][P1/S] Batch progress bar: "Tonight: 2 of 6 applied" with a segmented bar on the daily
-- [ ]  45 [W1][P0/S] Rewrite the hero copy jargon: "These 35 pages are controls for active experiments"
+- [x]  45 [W1][P0/S] Rewrite the hero copy jargon: "These 35 pages are controls for active experiments"
 - [ ]  46 [W2][P1/S] War-room band headers get counts + freshness: "Visitor behavior found friction (4
 - [ ]  47 [W2][P1/M] Friction fixes become actionable cards: each row gets "Add to tonight" (creates a
 - [ ]  48 [W2][P1/M] Demand band links to action: each unowned-demand row gets "Draft this page" (routes
@@ -111,7 +111,7 @@
 - [ ] 108 [W3][P2/S] Unify dismiss/skip stores (opportunity_dismissals vs recommendation_response) behind
 - [ ] 109 [W3][P1/S] App-wide banned-dash + jargon guard: extend the existing test to cover EVERY file
 - [ ] 110 [W3][P2/S] Delete dead nav shortcuts ("G T"/"G C" hints) unless keyboard nav (D64) ships; half
-- [ ] 111 [W1][P0/M] Write the Beacon voice guide and apply it: first person ("I checked...", "We
+- [x] 111 [W1][P0/M] Write the Beacon voice guide and apply it: first person ("I checked...", "We
 - [ ] 112 [W3][P1/S] Every evidence line carries its source + age: "GSC, read 2h ago" / "live Google
 - [ ] 113 [W3][P1/S] Every claim clickable: query names link to the GSC UI filtered view (or dossier),
 - [ ] 114 [W3][P2/S] A "why should I trust this" page (one static, beautiful explainer of the method:

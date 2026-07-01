@@ -91,5 +91,5 @@ export function buildDailyExperimentDashboard(input: {
 export function protectedControlWarning(dash: DailyExperimentDashboard): string | null {
   const n = dash.protectedCounts.controls;
   if (n <= 0) return null;
-  return `These ${n} pages are controls for active experiments. Changing them now would weaken the current measurement.`;
+  return `${n} similar pages are being used as before/after comparisons this month. Leave them unchanged so the results stay trustworthy.`;
 }
