@@ -12,8 +12,8 @@ import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { buildDailyCandidates, type GscPageInput, type PageFacts, type BuiltCandidate } from "./build-daily-candidates";
 import { reviewRecommendation, passesDailyGate } from "@/domains/recommendations/recommendation-quality";
-import { planDailyExperiments } from "./daily-experiment-planner";
-import { deriveExperimentStates } from "./experiment-eligibility";
+import { planDailyExperiments, pageFamilyOf as pageFamilyOfPath } from "./daily-experiment-planner";
+import { deriveExperimentStates, actionFamilyOf } from "./experiment-eligibility";
 import { buildLinkDestinations, toLinkPath } from "./safe-internal-link";
 import { buildDailyPlanRecord } from "./build-daily-plan-record";
 import type { DailyExperimentPlanRecord } from "./daily-plan-types";
@@ -200,10 +200,39 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // the REAL argument that chose tonight's batch. Pages without a packet keep pre-team behavior
   // exactly (the team abstains - it never fabricates).
   const nowIso = now.toISOString();
+  // Item 80 - the PROOF-HISTORY voice: what the measured ledger already says about this page
+  // family + lever family. The team's own past results speak in the debate ("a description
+  // change on a flags page showed no lift last month"), so learning is visible, not implied.
+  const settledByKey = new Map<string, { won: number; lost: number; flat: number }>();
+  for (const r of ledger) {
+    if (r.verdict === "measuring") continue;
+    const fam = `${pageFamilyOfPath(r.path)}::${actionFamilyOf(r.actionType)}`;
+    const agg = settledByKey.get(fam) ?? { won: 0, lost: 0, flat: 0 };
+    if (r.verdict === "won") agg.won += 1;
+    else if (r.verdict === "lost") agg.lost += 1;
+    else agg.flat += 1;
+    settledByKey.set(fam, agg);
+  }
+  const historyLine = (pageFamily: string, actionFamily: string): string | null => {
+    const agg = settledByKey.get(`${pageFamily}::${actionFamily}`);
+    if (!agg) return null;
+    const parts: string[] = [];
+    if (agg.won > 0) parts.push(`won ${agg.won}`);
+    if (agg.flat > 0) parts.push(`no clear lift ${agg.flat}`);
+    if (agg.lost > 0) parts.push(`hurt ${agg.lost}`);
+    return `We already tried this kind of change on similar pages: ${parts.join(", ")}.`;
+  };
+
   let teamVetoed = 0;
   const teamReviewed = gatedBuilt.filter((b) => {
     const result = reviewCandidateWithTeam(packetByPath.get(normalizePath(b.url)), nowIso);
-    if (result.review) b.teamReview = result.review;
+    if (result.review) {
+      b.teamReview = result.review;
+      const hist = historyLine(b.pageFamily ?? "", b.actionFamily);
+      if (hist) {
+        b.teamReview.voices.push({ specialist: "proof", label: "Results so far", claim: hist, confidencePct: 65 });
+      }
+    }
     b.teamScoreMultiplier = result.scoreMultiplier;
     if (result.vetoed) { teamVetoed += 1; return false; }
     return true;

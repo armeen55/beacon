@@ -1,6 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/sync-connectors", "schedule": "0 9 * * *" }
+    {
+      "path": "/api/cron/sync-connectors",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/measure-due",
+      "schedule": "30 9 * * *"
+    }
   ]
 }

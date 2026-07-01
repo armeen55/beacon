@@ -13,7 +13,8 @@ export type TeammateKey =
   | "dataforseo"
   | "wix"
   | "llm"
-  | "commerce_asset";
+  | "commerce_asset"
+  | "proof";
 
 export type TeammateIdentity = {
   key: TeammateKey;
@@ -38,6 +39,7 @@ export const TEAMMATES: Record<TeammateKey, TeammateIdentity> = {
   wix: { key: "wix", name: "Publishing", color: "#475569", bg: "#f8fafc", text: "#334155", short: "Publish" },
   llm: { key: "llm", name: "Strategist", color: "#4f46e5", bg: "#eef2ff", text: "#4338ca", short: "Strategist" },
   commerce_asset: { key: "commerce_asset", name: "Commerce", color: "#0d9488", bg: "#f0fdfa", text: "#0f766e", short: "Commerce" },
+  proof: { key: "proof", name: "Results so far", color: "#0891b2", bg: "#ecfeff", text: "#0e7490", short: "Results" },
 };
 
 /** Lookup that tolerates unknown keys (a typo'd specialist gets a neutral identity, never a crash). */

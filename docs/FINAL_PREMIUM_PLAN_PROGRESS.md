@@ -79,8 +79,8 @@
 - [ ]  76 [W3][P2/M] Manual mark-done flow polish: the record-any-page form gets the same premium card
 - [ ]  77 [W3][P2/S] Export/share a win: one click renders a clean image/PDF card of a win (chart +
 - [ ]  78 [W3][P1/S] Kill the "Approved & ready to ship" stray band on /proof (it duplicates /worklist
-- [ ]  79 [W1][P0/M] Auto-measure: a due-window measure pass (light cron + on-render fallback) so
-- [ ]  80 [W1][P0/M] Feed verdicts back as the proof-history voice (C27) AND into the R&R ranking via the
+- [x]  79 [W1][P0/M] Auto-measure: a due-window measure pass (light cron + on-render fallback) so
+- [x]  80 [W1][P0/M] Feed verdicts back as the proof-history voice (C27) AND into the R&R ranking via the
 - [ ]  81 [W1][P0/M] Weekly snapshot rescan (crawl own site, $0): page_snapshots are 20 days stale, so
 - [ ]  82 [W1][P0/M] R4: DataForSEO LLM-mentions as the owned AEO signal, fused with Profound into ONE
 - [ ]  83 [W3][P1/M] Weekly keyword-universe refresh (one $0.075 batch per week per tenant, budget-gated)
