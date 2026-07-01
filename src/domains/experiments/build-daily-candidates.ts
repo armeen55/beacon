@@ -241,10 +241,10 @@ function buildCandidate(
   const link = proposal.link;
   const answer = proposal.answer;
   const whyNow = link
-    ? `Body mentions "${link.anchorText}" (owned by ${link.destinationLabel}) without linking it — a ${link.relationship.replace(/_/g, " ")} internal link. Source ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
+    ? `This page mentions "${link.anchorText}" (a page owned by ${link.destinationLabel}) without linking to it, a ${link.relationship.replace(/_/g, " ")} link that helps both pages. This page already ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
     : answer
-      ? `Page already answers "${answer.question}" but the answer is buried in paragraph ${answer.paragraphIndex + 1}; surface that exact sentence below the H1. Ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
-      : `Ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} impr) at ${(p.topQueryCtr * 100).toFixed(1)}% CTR — ${proposal.leverField} is the weak link.`;
+      ? `People search "${answer.question}" and this page already answers it, but the answer is buried in paragraph ${answer.paragraphIndex + 1}. Moving that exact sentence to the top is what earns the click. It ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
+      : `This page ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} searches) but only ${(p.topQueryCtr * 100).toFixed(1)}% click. The ${proposal.leverField === "meta" ? "description" : proposal.leverField} is the weak link, so a sharper one should win more of those clicks.`;
   return {
     url: p.url,
     pageLabel: p.pageLabel,

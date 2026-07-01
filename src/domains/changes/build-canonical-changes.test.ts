@@ -12,7 +12,7 @@ function mv(over: Partial<CanonicalMoveInput> & { id: string; targetUrl: string 
 function planItem(id: string, url: string, lever: ExperimentLever): PlannedExperimentRecord {
   return {
     id, candidateId: id, url, canonicalUrl: url, pageLabel: url.split("/").pop()!, pageFamily: "f", lever,
-    targetQuery: "q", currentText: "old", proposedText: "new", placement: "head", leaveUnchanged: [], rollbackText: "old",
+    targetQuery: "q", whyNow: "why", currentText: "old", proposedText: "new", placement: "head", leaveUnchanged: [], rollbackText: "old",
     effortMinutes: lever === "meta" ? 1 : 3, risk: "low",
     controls: [{ controlUrl: "https://s.com/c1", controlPath: "/c1", score: 0.6, pageFamilyMatch: true, why: "x" }, { controlUrl: "https://s.com/c2", controlPath: "/c2", score: 0.6, pageFamilyMatch: true, why: "x" }, { controlUrl: "https://s.com/c3", controlPath: "/c3", score: 0.6, pageFamilyMatch: true, why: "x" }],
     influencedUrls: [], evidenceHash: "e", currentTextHash: "h", eligibilityHash: "g",

@@ -35,6 +35,9 @@ export type PlannedExperimentRecord = {
   pageFamily: string;
   lever: ExperimentLever;
   targetQuery: string;
+  /** Plain-English reason this move is worth doing now (carried from the candidate). Shown on the
+   *  card as the "Why it wins" line so the assistant surface never has to re-derive it. */
+  whyNow: string;
 
   currentText: string;
   proposedText: string;

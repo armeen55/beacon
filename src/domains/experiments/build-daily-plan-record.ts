@@ -64,6 +64,7 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
     pageFamily: c.pageFamily ?? "",
     lever,
     targetQuery: c.targetQuery,
+    whyNow: c.whyNow,
     currentText: c.currentText,
     proposedText: c.proposedText,
     placement: placementOf(c),

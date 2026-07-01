@@ -6,7 +6,7 @@ import type { PlanExecutionState } from "./execution-state";
 function exp(id: string, lever: ExperimentLever, detail: PlannedExperimentRecord["detail"]): PlannedExperimentRecord {
   return {
     id, candidateId: id, url: `https://s.com${id}`, canonicalUrl: `https://s.com${id}`, pageLabel: id, pageFamily: "f",
-    lever, targetQuery: "q", currentText: "old", proposedText: "new", placement: "head", leaveUnchanged: [], rollbackText: "old",
+    lever, targetQuery: "q", whyNow: "why", currentText: "old", proposedText: "new", placement: "head", leaveUnchanged: [], rollbackText: "old",
     effortMinutes: 5, risk: "low", controls: [], influencedUrls: [], evidenceHash: "e", currentTextHash: "h", eligibilityHash: "g", detail,
   };
 }

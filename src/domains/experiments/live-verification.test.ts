@@ -7,7 +7,7 @@ const PAGE = "https://site.com/source-page";
 function mkExp(over: Partial<PlannedExperimentRecord> & { lever: ExperimentLever; detail: PlannedExperimentRecord["detail"] }): PlannedExperimentRecord {
   return {
     id: "p::/source-page", candidateId: "c", url: PAGE, canonicalUrl: PAGE, pageLabel: "source page",
-    pageFamily: "source-page", targetQuery: "q", currentText: "", proposedText: "", placement: "",
+    pageFamily: "source-page", targetQuery: "q", whyNow: "why", currentText: "", proposedText: "", placement: "",
     leaveUnchanged: [], rollbackText: "", effortMinutes: 5, risk: "low", controls: [], influencedUrls: [],
     evidenceHash: "e", currentTextHash: "h", eligibilityHash: "g", ...over,
   };
