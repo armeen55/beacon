@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-07-01 — Phase 2 slices C + D-1 (intent-aware LLM writer) + PROOF counts impressions
+
+**Slice C (commit `d2e7b762`):** the LLM drafter is now intent-aware. New pure `intentDirective(intent)` in `structured-drafter.ts` + optional `intent` on the answer-block and title/description drafters, injected into the prompt so the model writes the right answer TYPE (a date for "when", a price for "cost", not a definition). Wired into `prepare-today-moves.ts` (classifies intent from topic + fan-outs). Back-compat: no intent = no directive.
+
+**Slice D-1 (commit `21b26653`):** the LLM now writes sharper descriptions/titles in the DAILY batch at plan time, so cards arrive already written. New injectable `daily-llm-enrich.ts` (unit-tested) runs over selected candidates; the draft replaces the deterministic `proposedText` flagged `draftSource="llm"` and the card shows "Beacon wrote this, edit before you use it" (`WrittenByBeacon`). Falls back to deterministic on LLM off / over-budget / error / empty / no-change. Wired in `build-today-preview.ts` (captures impression-weighted intent per page, drafter backed by the budgeted structured-drafter). OpenAI only, capped; no DataForSEO. `draftSource`/`llmRationale` carried BuiltCandidate → PlannedExperimentRecord → card.
+
+**PROOF now counts impressions as a result (operator ask):** `measure.ts` gained an impressions diff-in-diff (`treatedImpressionsDelta`/`controlImpressionsDelta`/`adjustedImpressionsLift`, pro-rated like clicks). `summarizeVerdict` returns `impressionsLift` + `wonOnImpressions`, and UPGRADES an otherwise-"inconclusive" verdict to "won" when impressions rose meaningfully vs controls AND the treated page genuinely gained impressions (conservative floor = max(50, 20% of window-scaled baseline)). A real click/CTR/rank LOSS stays lost (visibility does not redeem a regression). `proofOutcomeSentence` now credits visibility ("the page is showing for more searches, +N impressions"). Flows to the stored verdict, the /proof sentence, and the learning prior automatically.
+
+**Verified:** `typecheck` 0 · proof-gsc suite 40 (6 new) + full proof dir 84 · experiments+llm+copy 194 · structured-drafter 18 · no em dashes. All test LLM calls use injected completions (zero real spend). No proof rows or measuring experiments mutated. **Remaining:** D-2 (answer-block WRITING = add-operation + verifier change), D-3 (inline edit), E (keyword universe + live teardown, DataForSEO held for operator funding), Phase 1d (/worklist card), Phase 3 (friction fixes).
+
+---
+
 ## 2026-07-01 — Assistant-First Phase 0 (audit + vision) + Phase 1a-1c (friendly reasoned /today card)
 
 **Phase 0 (Assistant-First mission):** confirmed live state (prod 200; the 6 Iranopedia edits all MEASURING with baseline + 7/14/28 windows + 25 controls; umayyad/pahlavi GSC-submitted). Ran a 14-agent adversarially-verified code audit of the recommendation flow (answer-intent mismatch, lab-console wording, reasoning-brief gap, verifier false-negatives, wrong-field, GSC quota, is-LLM-wired-into-daily) + a 5-angle/10-source cited research pass on the verifier visual-vs-DOM problem. Key findings: the DAILY card is a thin deterministic lab-console while the maximum-reasoning lives on the separate /worklist Prepare flow; the structured-LLM layer is already built (do not rebuild). Verifier research conclusion (cited): Google/AI render the page, so Wix hero placement is fine for SEO/AEO and only our Cheerio verifier is wrong; most efficient fix is a $0 inline-CSS-order + near-H1 heuristic (Browserless only as documented escalation). Operator approved all sections A-F, brief on both surfaces, GSC manual+friendly-queue, build order card -> engine -> friction.

@@ -69,6 +69,13 @@ export type ProofWindowResult = {
    *  rate is "no data", not "the rate fell"). Optional for back-compat with
    *  records written before this field existed. */
   treatedPostImpressions?: number;
+  /** Treated impressions delta (post − pre, pre pro-rated to the window). A count
+   *  metric like clicks. Impressions = visibility (the page showing for more
+   *  searches); a real result even when clicks/CTR are flat. Optional (legacy). */
+  treatedImpressionsDelta?: number;
+  controlImpressionsDelta?: number;
+  /** treated − control impressions lift (observational visibility lift). */
+  adjustedImpressionsLift?: number;
 };
 
 /** Map a shipped change's action type to the Search metric that actually
@@ -126,6 +133,10 @@ const MIN_CONTROLS_FOR_HIGH = 3;
 const MIN_LIFT_CTR = 0.003;
 /** Position lift floor: moving up half a rank more than controls clears it. */
 const MIN_LIFT_POSITION = 0.5;
+/** Impressions lift floors (a COUNT metric): the larger of an absolute floor and a
+ *  fraction of the window-scaled baseline, so a visibility gain must be real, not noise. */
+const MIN_LIFT_IMPRESSIONS_ABS = 50;
+const MIN_LIFT_IMPRESSIONS_FRACTION = 0.2;
 
 function pad(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
@@ -204,6 +215,9 @@ export function computeWindowLift(args: {
       adjustedPosLift: 0,
       controlsUsed: 0,
       treatedPostImpressions: 0,
+      treatedImpressionsDelta: 0,
+      controlImpressionsDelta: 0,
+      adjustedImpressionsLift: 0,
     };
   }
 
@@ -217,10 +231,15 @@ export function computeWindowLift(args: {
   const treatedDelta = treatedPost.clicks - scaledPreClicks(treatedPre);
   const treatedCtrDelta = ctrDelta(treatedPre, treatedPost);
   const treatedPosDelta = posImprove(treatedPre, treatedPost);
+  // Impressions is a COUNT metric like clicks (pro-rate the pre window to the post
+  // window length), and a real result: the page showing for MORE searches even if
+  // clicks/CTR are flat. Diff-in-diff vs controls so natural drift is removed.
+  const treatedImpressionsDelta = treatedPost.impressions - treatedPre.impressions * clicksScale;
 
   const controlDelta = mean(controls.map((c) => c.post.clicks - scaledPreClicks(c.pre)));
   const controlCtrDelta = mean(controls.map((c) => ctrDelta(c.pre, c.post)));
   const controlPosDelta = mean(controls.map((c) => posImprove(c.pre, c.post)));
+  const controlImpressionsDelta = mean(controls.map((c) => c.post.impressions - c.pre.impressions * clicksScale));
 
   return {
     day: args.day,
@@ -237,6 +256,9 @@ export function computeWindowLift(args: {
     adjustedPosLift: round2(treatedPosDelta - controlPosDelta),
     controlsUsed: controls.length,
     treatedPostImpressions: treatedPost.impressions,
+    treatedImpressionsDelta: round2(treatedImpressionsDelta),
+    controlImpressionsDelta: round2(controlImpressionsDelta),
+    adjustedImpressionsLift: round2(treatedImpressionsDelta - controlImpressionsDelta),
   };
 }
 
@@ -260,6 +282,10 @@ export function summarizeVerdict(args: {
   metric: ProofMetric;
   /** The basis window's adjusted lift on the chosen metric. */
   lift: number;
+  /** The basis window's adjusted IMPRESSIONS lift (visibility), reported alongside every verdict. */
+  impressionsLift: number;
+  /** True when the win came from IMPRESSIONS (visibility up) while the primary metric was flat. */
+  wonOnImpressions: boolean;
 } {
   const metric = args.metric ?? "clicks";
   const ran = args.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day);
@@ -268,21 +294,22 @@ export function summarizeVerdict(args: {
   const liftOf = (w: ProofWindowResult): number =>
     metric === "ctr" ? w.adjustedCtrLift : metric === "position" ? w.adjustedPosLift : w.adjustedLift;
   const lift = basis ? liftOf(basis) : 0;
+  const impressionsLift = basis ? basis.adjustedImpressionsLift ?? 0 : 0;
 
   // audit-wave5 #7: a change with no CLOSED window yet is still MEASURING,
   // regardless of how thin the baseline is — order this above the baseline gate
   // so a freshly-shipped change on a low-traffic page reads "measuring" (wait
   // for the window) instead of "insufficient_data" (looks like a dead end).
   if (!basis) {
-    return { verdict: "measuring", confidence: "low", basis: null, metric, lift: 0 };
+    return { verdict: "measuring", confidence: "low", basis: null, metric, lift: 0, impressionsLift: 0, wonOnImpressions: false };
   }
   if (args.baselineImpressions < MIN_BASELINE_IMPRESSIONS) {
-    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
+    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift, impressionsLift, wonOnImpressions: false };
   }
   // A single comparator is "treated minus one arbitrary page", not a diff-in-diff.
   // Require the same floor the recorder enforces (>=2) before naming a won/lost.
   if (basis.controlsUsed < MIN_CONTROLS_FOR_COMPUTED) {
-    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
+    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift, impressionsLift, wonOnImpressions: false };
   }
   // CTR/position are RATES: with zero treated post-window impressions there is no
   // rate to compare, so the treated delta is a guarded 0. Surviving controls that
@@ -295,7 +322,7 @@ export function summarizeVerdict(args: {
     (metric === "ctr" || metric === "position") &&
     basis.treatedPostImpressions === 0
   ) {
-    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift };
+    return { verdict: "insufficient_data", confidence: "low", basis, metric, lift, impressionsLift, wonOnImpressions: false };
   }
 
   // Clicks lift is now in the basis WINDOW's units (pre pro-rated to that
@@ -328,6 +355,27 @@ export function summarizeVerdict(args: {
     verdict = "inconclusive";
   }
 
+  // IMPRESSIONS as a result (operator ask): a change that lifts the page's impressions (showing for
+  // MORE searches) is a real visibility win even when clicks/CTR are flat. When the primary metric
+  // shows no clear effect but impressions rose meaningfully vs controls AND the treated page
+  // genuinely GAINED impressions (not just controls falling), count it as a win on visibility.
+  // Conservative floor so noise never fakes it. A primary LOSS stays a loss (a real click/CTR/rank
+  // regression is not redeemed by more impressions).
+  let wonOnImpressions = false;
+  const impressionsFloor = Math.max(
+    MIN_LIFT_IMPRESSIONS_ABS,
+    args.baselineImpressions * (basis.day / PROOF_BASELINE_WINDOW_DAYS) * MIN_LIFT_IMPRESSIONS_FRACTION,
+  );
+  if (
+    verdict === "inconclusive" &&
+    impressionsLift >= impressionsFloor &&
+    (basis.treatedImpressionsDelta ?? 0) > 0 &&
+    basis.controlsUsed >= MIN_CONTROLS_FOR_COMPUTED
+  ) {
+    verdict = "won";
+    wonOnImpressions = true;
+  }
+
   let confidence: GscProofConfidence = "low";
   if (basis.controlsUsed >= MIN_CONTROLS_FOR_HIGH && args.baselineImpressions >= 3000) {
     confidence = "high";
@@ -337,7 +385,7 @@ export function summarizeVerdict(args: {
   ) {
     confidence = "medium";
   }
-  return { verdict, confidence, basis, metric, lift };
+  return { verdict, confidence, basis, metric, lift, impressionsLift, wonOnImpressions };
 }
 
 /** Format the metric-specific lift as a plain-English magnitude (no dashes). */
@@ -378,12 +426,21 @@ export function formatWindowLift(
 
 /** Plain-English, honesty-gated outcome line for the UI. Pure. Metric-aware:
  *  a meta/title test reads in CTR, a content test in position, else clicks. */
+/** Plain "+N impressions" magnitude (no dashes). Input is already positive here. */
+function formatImpressions(lift: number): string {
+  return `+${Math.round(Math.abs(lift))} impressions`;
+}
+
 export function proofOutcomeSentence(args: {
   verdict: GscProofVerdict;
   confidence: GscProofConfidence;
   basis: ProofWindowResult | null;
   metric?: ProofMetric;
   lift?: number;
+  /** The basis window's adjusted impressions lift (visibility). Falls back to the basis field. */
+  impressionsLift?: number;
+  /** True when the win is on impressions (visibility) while clicks/CTR were flat. */
+  wonOnImpressions?: boolean;
 }): string {
   const { verdict, confidence, basis } = args;
   const metric = args.metric ?? "clicks";
@@ -403,13 +460,23 @@ export function proofOutcomeSentence(args: {
           ? basis.adjustedPosLift
           : basis.adjustedLift
       : 0);
+  const impressionsLift = args.impressionsLift ?? (basis ? basis.adjustedImpressionsLift ?? 0 : 0);
+  // A "won" with a non-positive primary lift can only have come from the impressions upgrade.
+  const wonOnImpressions = args.wonOnImpressions ?? (verdict === "won" && lift <= 0 && impressionsLift > 0);
   if (verdict === "won") {
+    if (wonOnImpressions) {
+      return `Likely helping visibility: the page is showing for more searches (${formatImpressions(impressionsLift)} vs comparable pages) over the ${win} window. Clicks have not moved yet (${confidence} confidence, observational).`;
+    }
     const dir = metric === "position" ? " (moved up)" : "";
-    return `Likely helping: ${formatLift(metric, lift)}${dir} vs comparable pages over the ${win} window (${confidence} confidence, observational).`;
+    const alsoImpr = impressionsLift > 0 ? ` Impressions also up (${formatImpressions(impressionsLift)}).` : "";
+    return `Likely helping: ${formatLift(metric, lift)}${dir} vs comparable pages over the ${win} window (${confidence} confidence, observational).${alsoImpr}`;
   }
   if (verdict === "lost") {
     const dir = metric === "position" ? " (slipped)" : "";
     return `Likely hurting: ${formatLift(metric, lift)}${dir} vs comparable pages over the ${win} window (${confidence} confidence, observational).`;
+  }
+  if (impressionsLift > 0) {
+    return `No clear click change yet, but the page is showing for more searches (${formatImpressions(impressionsLift)} vs comparable pages) over the ${win} window (${confidence} confidence).`;
   }
   return `No clear effect yet: movement is within the range of comparable pages (${win}, ${confidence} confidence).`;
 }

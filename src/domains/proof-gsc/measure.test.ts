@@ -441,3 +441,74 @@ describe("proofOutcomeSentence — honest, observational, metric-aware copy", ()
     ).toContain("Not enough");
   });
 });
+
+describe("impressions as a result (operator ask): visibility counts even when clicks/CTR are flat", () => {
+  it("computeWindowLift computes an impressions diff-in-diff (visibility lift)", () => {
+    const w = computeWindowLift({
+      day: 28,
+      checkOn: "2026-06-29",
+      ran: true,
+      treatedPre: m(100, 5000, 0.02, 5),
+      treatedPost: m(100, 6200, 0.016, 5), // +1200 impressions, clicks flat
+      controls: [{ pre: m(100, 5000, 0.02, 5), post: m(100, 5100, 0.02, 5) }], // controls barely moved (+100)
+      preWindowDays: 28,
+    });
+    expect(w.treatedImpressionsDelta).toBe(1200);
+    expect(w.adjustedImpressionsLift).toBe(1100); // 1200 treated − 100 control
+  });
+
+  it("a flat-clicks change with a real impressions gain is a WIN on visibility", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedLift: 5, adjustedImpressionsLift: 2000, treatedImpressionsDelta: 2000, controlsUsed: 3 })],
+      baselineImpressions: 5000, // floor = max(50, 5000*1*0.2) = 1000
+      baselineClicks: 200,
+    });
+    expect(r.verdict).toBe("won");
+    expect(r.wonOnImpressions).toBe(true);
+    expect(r.impressionsLift).toBe(2000);
+  });
+
+  it("does NOT upgrade when the treated page did not actually gain impressions (controls just fell)", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedLift: 5, adjustedImpressionsLift: 2000, treatedImpressionsDelta: 0, controlsUsed: 3 })],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+    });
+    expect(r.verdict).toBe("inconclusive");
+    expect(r.wonOnImpressions).toBe(false);
+  });
+
+  it("does NOT upgrade when the impressions gain is below the noise floor", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedLift: 5, adjustedImpressionsLift: 200, treatedImpressionsDelta: 200, controlsUsed: 3 })],
+      baselineImpressions: 5000, // floor 1000 > 200
+      baselineClicks: 200,
+    });
+    expect(r.verdict).toBe("inconclusive");
+  });
+
+  it("a real click LOSS stays lost even if impressions rose (a regression is not redeemed by visibility)", () => {
+    const r = summarizeVerdict({
+      windows: [win({ adjustedLift: -60, adjustedImpressionsLift: 3000, treatedImpressionsDelta: 3000, controlsUsed: 3 })],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+    });
+    expect(r.verdict).toBe("lost");
+    expect(r.wonOnImpressions).toBe(false);
+  });
+
+  it("the outcome sentence credits visibility on a win-on-impressions and on an inconclusive-with-impressions", () => {
+    const wonVis = proofOutcomeSentence({
+      verdict: "won", confidence: "medium", metric: "clicks", lift: 0,
+      basis: win({ adjustedLift: 0, adjustedImpressionsLift: 2000 }),
+    });
+    expect(wonVis).toContain("showing for more searches");
+    expect(wonVis).toContain("2000 impressions");
+
+    const inconcVis = proofOutcomeSentence({
+      verdict: "inconclusive", confidence: "low", metric: "clicks", lift: 5,
+      basis: win({ adjustedLift: 5, adjustedImpressionsLift: 800 }),
+    });
+    expect(inconcVis).toContain("showing for more searches");
+  });
+});
