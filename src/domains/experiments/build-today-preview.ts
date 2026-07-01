@@ -1,5 +1,5 @@
 /**
- * build-today-preview (2026-06-30) — server-side assembly of a Daily Experiment PREVIEW plan from
+ * build-today-preview (2026-06-30) - server-side assembly of a Daily Experiment PREVIEW plan from
  * cached signals only ($0, no live fetch, no paid calls, no reservations, no proof rows). This is
  * the canonical pipeline the preview server action calls; it mirrors the proven dry-run script.
  *   GSC signals + page_snapshots facts + proof topology → candidates (Safe Meta/Link/Answer) →
@@ -170,7 +170,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
 
   const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl });
 
-  // Move 4 — RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
+  // Move 4 - RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
   // the deterministic review (page-query intent fit, action↔goal incl. year-intent, copy
   // quality, factual firewall, origin-definitiveness). Lever eligibility (proof-block /
   // control / contamination / insufficient-controls) is enforced downstream by the planner;
@@ -193,7 +193,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
   const backups = plan.backups.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
 
-  // Slice D-1: LLM "write it" pass — sharpen the description/title copy at plan time so cards arrive
+  // Slice D-1: LLM "write it" pass - sharpen the description/title copy at plan time so cards arrive
   // full. Budgeted + fail-closed inside the structured drafter (off when BEACON_LLM_PROVIDER != openai
   // or the cap is hit); on any miss it keeps the deterministic text. Only drop-in field levers here;
   // answer-block writing (a new add-operation) is a later slice.

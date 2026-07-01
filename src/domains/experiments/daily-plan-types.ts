@@ -1,5 +1,5 @@
 /**
- * daily-plan-types (2026-06-30) — the durable Plan + Control Reservation contracts for the native
+ * daily-plan-types (2026-06-30) - the durable Plan + Control Reservation contracts for the native
  * "Plan today's experiments → Accept" workflow. PURE types + deterministic id/hash helpers only.
  *
  * Scientific invariants this contract exists to protect:
@@ -45,7 +45,7 @@ export type PlannedExperimentRecord = {
   llmRationale?: string;
   /** Slice E: keyword-research evidence for the "how we know" expander (the page's top searches +
    *  their cached DataForSEO volume + paid-competition level). Absent when no cached demand exists.
-   *  Type lives in ./daily-evidence-brief (type-only import — no runtime cycle). */
+   *  Type lives in ./daily-evidence-brief (type-only import - no runtime cycle). */
   evidenceBrief?: import("./daily-evidence-brief").DailyEvidenceBrief;
 
   currentText: string;
@@ -114,7 +114,7 @@ export type DailyExperimentPlanRecord = {
   /**
    * Post-acceptance execution state (item-by-item apply→verify→activate→GSC). Optional + additive:
    * absent on a fresh preview/accepted plan; written by the activation/skip RPCs + execution actions.
-   * Type lives in ./execution-state (type-only import — no runtime cycle).
+   * Type lives in ./execution-state (type-only import - no runtime cycle).
    */
   execution?: import("./execution-state").PlanExecutionState;
 };

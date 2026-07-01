@@ -1,5 +1,5 @@
 /**
- * build-daily-plan-record (2026-06-30) — PURE. Freezes a planner output (selected + backup
+ * build-daily-plan-record (2026-06-30) - PURE. Freezes a planner output (selected + backup
  * BuiltCandidates) + the active-experiment topology into a reproducible DailyExperimentPlanRecord.
  * No I/O, no side effects, no reservations (preview only). The frozen hashes let acceptance detect a
  * candidate whose page text / evidence / eligibility changed since planning.
@@ -12,7 +12,7 @@ import {
 } from "./daily-plan-types";
 
 export const PLANNER_VERSION = "safe-levers-v3"; // meta + internal-link + answer-block
-// A preview must survive a normal operating day (plan in the morning, apply through the evening) —
+// A preview must survive a normal operating day (plan in the morning, apply through the evening) -
 // 30 min meant a plan was dead before the operator returned to it. Acceptance ALSO re-validates the
 // control topology fresh at accept time, so a longer window doesn't weaken measurement; and a stale
 // plan auto-refreshes on Accept (see acceptDailyExperimentPlanAction) rather than dead-ending.
@@ -86,7 +86,7 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
 
 /**
  * Assign clean controls per experiment. A control is a diff-in-diff BASELINE, so the same untreated
- * page may baseline multiple experiments (shared controls are compatible — none of them changes it).
+ * page may baseline multiple experiments (shared controls are compatible - none of them changes it).
  * The one hard rule: a control must NOT be a page that is itself TREATED in this plan (a changed
  * page is not a clean baseline). So we exclude in-plan treated paths and keep up to 5 per experiment.
  * (The reservation id is keyed by experiment, so shared controls are distinct rows; acceptance

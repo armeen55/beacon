@@ -1,11 +1,11 @@
 /**
- * build-daily-candidates (2026-06-30) — turns Beacon's cached signals into eligible, exact,
+ * build-daily-candidates (2026-06-30) - turns Beacon's cached signals into eligible, exact,
  * one-variable daily-experiment candidates. PURE core (the live-page-facts fetch is the
- * caller's job, passed in as `facts`). Deterministic proposers only — NO LLM, NO generic
+ * caller's job, passed in as `facts`). Deterministic proposers only - NO LLM, NO generic
  * title templates, NO invented value props: a title proposal is a query-first REORDER of the
  * page's OWN title (drop filler), an H1 proposal aligns the H1 to the query it ranks for, a
  * meta proposal fires only when meta is genuinely MISSING (built from the on-page H1). If
- * nothing is materially better, the page yields no candidate (honest — never forces weak work).
+ * nothing is materially better, the page yields no candidate (honest - never forces weak work).
  *
  * Eligibility (active treatments / controls / no-lift / compound) comes from the proof ledger
  * via the experiment model, so the active animal batch + its 17 controls are excluded by
@@ -29,13 +29,13 @@ export type PageFacts = {
   title: string | null;
   meta: string | null;
   h1: string | null;
-  /** The page's first substantive paragraph — the factual source for a safe meta. */
+  /** The page's first substantive paragraph - the factual source for a safe meta. */
   openingParagraph?: string | null;
-  /** Full body_paragraph_sample (document order) — source for internal-link + answer-block levers. */
+  /** Full body_paragraph_sample (document order) - source for internal-link + answer-block levers. */
   bodyParagraphs?: string[];
   /** Normalized paths this page ALREADY links to (the internal-link duplicate guard). */
   internalLinkPaths?: string[];
-  /** Snapshot crawl timestamp — recorded on the answer-block receipt for freshness traceability. */
+  /** Snapshot crawl timestamp - recorded on the answer-block receipt for freshness traceability. */
   snapshotFetchedAt?: string;
 };
 
@@ -82,7 +82,7 @@ export type BuiltCandidate = DailyCandidate & {
   draftSource?: "deterministic" | "llm";
   /** LLM-only: one plain-English line on why this wording (shown as "Beacon wrote this" context). */
   llmRationale?: string;
-  /** Slice E: the keyword-research evidence ("how we know") — the page's top searches + their cached
+  /** Slice E: the keyword-research evidence ("how we know") - the page's top searches + their cached
    *  DataForSEO demand. Attached by the caller (build-today-preview) from a $0 cached read; absent when
    *  no cached demand exists for the page. */
   evidenceBrief?: DailyEvidenceBrief;
@@ -100,12 +100,12 @@ function expectedCtr(pos: number): number {
 
 // "verb + the" is consumed TOGETHER ("Discover the Most Popular X" → "Most Popular X", never the
 // broken "the Most Popular X"). A BARE leading article ("The Best Restaurants in Florida") is NOT
-// filler — stripping it isn't materially better and risks grammar — so it's deliberately absent.
+// filler - stripping it isn't materially better and risks grammar - so it's deliberately absent.
 const FILLER_LEAD = /^(meet the|meet|discover the|discover|explore the|explore|learn all about the|learn all about|learn about the|learn about|all about the|all about|guide to the|guide to|complete guide to|your guide to)\s+/i;
 
 /** Drop a filler lead only when the remainder is a clean, capitalized, query-first phrase. This is
  *  unambiguously materially-better (query-first, no info loss, reversible). We deliberately do NOT
- *  prepend a synonym query (would change the page's subject — "Mongol Empire Flag" must not become
+ *  prepend a synonym query (would change the page's subject - "Mongol Empire Flag" must not become
  *  "Genghis Khan Flag") nor replace a good bespoke title (would destroy "Top 20 Most Famous Iranian
  *  Directors"), nor strip a bare article. Returns null unless a clean filler-drop applies. */
 function dropFillerLead(current: string | null): string | null {
@@ -131,7 +131,7 @@ type Proposal = {
   source?: string;
   link?: InternalLinkProposal;
   answer?: SafeAnswerBlockProposal;
-  /** The query the change actually serves (may differ from the GSC top query — e.g. an evergreen
+  /** The query the change actually serves (may differ from the GSC top query - e.g. an evergreen
    *  answer block targeting "chaharshanbe suri" when GSC's top query was "chaharshanbe suri 2026"). */
   displayQuery?: string;
   /** "llm" when the proposed text was WRITTEN by the LLM (D-2 answer gaps), so the card flags it. */
@@ -231,8 +231,8 @@ export function buildDailyCandidates(input: {
 
     const actionFamily = actionFamilyOf(proposal.actionType);
     // Source-query ownership only gates TEXT edits (meta/title/H1 must own the query they target).
-    // An internal link's ownership is the DESTINATION owning the ANCHOR — already proven by the
-    // proposer — so the source's query share is irrelevant; don't suppress valid links with it.
+    // An internal link's ownership is the DESTINATION owning the ANCHOR - already proven by the
+    // proposer - so the source's query share is irrelevant; don't suppress valid links with it.
     const isLink = proposal.leverField === "internal_link";
     const baseExternal = { ownershipUncertain: !isLink && p.ownership < 0.12, highRisk: false };
     const baseElig = assessEligibility({ url: p.url, family: actionFamily, states, external: baseExternal });
@@ -248,7 +248,7 @@ export function buildDailyCandidates(input: {
       .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
       .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
       .slice(0, 5);
-    // A measurable experiment NEEDS a control anchor — re-assess so <MIN_CONTROLS excludes from
+    // A measurable experiment NEEDS a control anchor - re-assess so <MIN_CONTROLS excludes from
     // selection (insufficient_controls) rather than silently shipping an unmeasurable change.
     const external = { ...baseExternal, insufficientControls: controls.length < MIN_CONTROLS };
     const elig = assessEligibility({ url: p.url, family: actionFamily, states, external });

@@ -1,11 +1,11 @@
 /**
- * research-enrichment (2026-06-29) — PURE helpers for the PageResearchPack DataForSEO
+ * research-enrichment (2026-06-29) - PURE helpers for the PageResearchPack DataForSEO
  * producer: (1) extract a compact SERP "what wins" pattern from a SERP snapshot
  * (format + title pattern + winning domains + the on-page element it implies), and
  * (2) plan the enrichment spend for a set of research packs (volume + SERP terms,
  * cached vs missing, call counts, estimated USD) BEFORE any live call.
  *
- * No I/O, no server-only — the producer (research-enrichment-producer.ts) does the
+ * No I/O, no server-only - the producer (research-enrichment-producer.ts) does the
  * gauntlet calls + persistence. Deterministic so it's unit-testable.
  */
 
@@ -42,7 +42,7 @@ const ELEMENT_IMPLICATION: Record<SerpFormat, string> = {
   guide: "open with a direct answer, then sectioned H2s (a proper guide)",
   faq: "add an answer block up top + an FAQ (FAQPage schema)",
   table: "add a comparison table near the top",
-  product: "this is a product/collection SERP — optimize the product/category page (schema + images)",
+  product: "this is a product/collection SERP - optimize the product/category page (schema + images)",
   ugc: "win with a first-person, opinionated angle the forums lack",
   mixed: "add a clear answer up top + structured sections",
 };
@@ -62,7 +62,7 @@ function hasLeadingNumber(title: string): boolean {
 }
 
 /**
- * Derive the SERP "what wins" pattern from a snapshot — deterministically, from the
+ * Derive the SERP "what wins" pattern from a snapshot - deterministically, from the
  * top organic titles + SERP features + winning domains. PURE.
  */
 export function extractSerpPattern(snapshot: SerpSnapshot): SerpPattern {
@@ -124,7 +124,7 @@ const lc = (s: string) => s.trim().toLowerCase();
 const uniq = (xs: string[]) => [...new Set(xs.map(lc).filter((x) => x.length >= 2))];
 
 /**
- * Plan the DataForSEO enrichment for these packs against the current caches — cached
+ * Plan the DataForSEO enrichment for these packs against the current caches - cached
  * vs missing terms, call counts, estimated spend. PURE (caches passed as sets). The
  * cost is dominated by 1 volume batch + 1 SERP per page, so it stays tiny for top-N.
  */
