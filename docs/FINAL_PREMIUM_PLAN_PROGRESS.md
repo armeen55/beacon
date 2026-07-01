@@ -10,7 +10,7 @@
 - [ ]   7 [W3][P2/M] A weekly recap band on Today (Mondays): "Last week: 6 shipped, 1 win (+31 clicks/mo on
 - [ ]   8 [W3][P1/S] Streak + totals in the header area: "22 changes shipped in 14 days" with a small flame
 - [ ]   9 [W3][P2/S] AI-visibility mini-scoreboard: citations-over-time sparkline (profound_citation_rows
-- [ ]  10 [W1][P0/S] Kill every number that appears without a trend or comparison. A bare "26,569
+- [x]  10 [W1][P0/S] Kill every number that appears without a trend or comparison. A bare "26,569
 - [ ]  11 [W1][P0/L] One card system. Kill the inline-style objects in `daily-experiments-section.tsx`
 - [ ]  12 [W1][P0/M] A real typography scale. Today almost everything is 11 to 13px gray. Define and apply:
 - [x]  13 [W1][P0/M] Teammate identity system. Each specialist gets a fixed color + small glyph + short
@@ -81,7 +81,7 @@
 - [ ]  78 [W3][P1/S] Kill the "Approved & ready to ship" stray band on /proof (it duplicates /worklist
 - [x]  79 [W1][P0/M] Auto-measure: a due-window measure pass (light cron + on-render fallback) so
 - [x]  80 [W1][P0/M] Feed verdicts back as the proof-history voice (C27) AND into the R&R ranking via the
-- [ ]  81 [W1][P0/M] Weekly snapshot rescan (crawl own site, $0): page_snapshots are 20 days stale, so
+- [ ]  81 [NOTE: rescan attempted twice; spawned scan CLI ignores hydrated Supabase config and crawls a placeholder URL (sync getBusinessConfig gap). Fix the config threading in orchestrate-scan/scan-owned-pages, then rescan.] [W1][P0/M] Weekly snapshot rescan (crawl own site, $0): page_snapshots are 20 days stale, so
 - [ ]  82 [W1][P0/M] R4: DataForSEO LLM-mentions as the owned AEO signal, fused with Profound into ONE
 - [ ]  83 [W3][P1/M] Weekly keyword-universe refresh (one $0.075 batch per week per tenant, budget-gated)
 - [ ]  84 [W3][P1/M] Nightly precompute at ~5am local: the daily plan preview, LLM drafts, debates, and
