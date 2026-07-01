@@ -19,6 +19,7 @@ import {
 } from "./daily-experiments-actions";
 import { failureForReason } from "@/domains/diagnostics/operator-failure";
 import { LEVER_LABEL, STATUS_LABEL, moveHeadline, trackingLine } from "./daily-experiments-copy";
+import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 /** every action reason renders through the shared translator so a raw code can never reach the operator. */
 const reasonCopy = (reason: string | null | undefined): string => failureForReason(reason).message;
@@ -70,7 +71,7 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
       <summary style={{ cursor: "pointer", fontSize: 12, opacity: 0.65 }}>How we know</summary>
       <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85, display: "grid", gap: 4 }}>
         <div><span style={{ opacity: 0.6 }}>The search people use: </span>“{e.targetQuery}”</div>
-        <div><span style={{ opacity: 0.6 }}>On the page now: </span>{e.currentText || "no answer at the top"}</div>
+        <div><span style={{ opacity: 0.6 }}>On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
         {detailLine && <div>{detailLine}</div>}
         {e.controls.length > 0 && (
           <div><span style={{ opacity: 0.6 }}>Compared against {e.controls.length} similar page{e.controls.length === 1 ? "" : "s"}: </span>{e.controls.map((c) => c.controlPath).join(", ")}</div>
@@ -86,6 +87,8 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
 /** Preview card (before you approve). */
 function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
   const [msg, setMsg] = useState<string | null>(null);
+  const paste = stripBannedDashes(e.proposedText);
+  const why = stripBannedDashes(e.whyNow);
   return (
     <div style={CARD}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
@@ -95,13 +98,17 @@ function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
       <strong style={{ fontSize: 15 }}>{moveHeadline(e)}</strong>
       <div style={{ fontSize: 12, opacity: 0.55, marginTop: 2 }}>{e.url}</div>
 
-      <div style={LABEL}>Why it wins</div>
-      <div style={{ fontSize: 13, lineHeight: 1.5 }}>{e.whyNow}</div>
+      {why ? (
+        <>
+          <div style={LABEL}>Why it wins</div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{why}</div>
+        </>
+      ) : null}
 
       <div style={LABEL}>Paste this</div>
-      <div style={PASTE}>{e.proposedText}</div>
+      <div style={PASTE}>{paste}</div>
       <WrittenByBeacon e={e} />
-      <button type="button" style={{ marginTop: 6, fontSize: 12 }} onClick={() => copyText(e.proposedText, setMsg)}>Copy</button>
+      <button type="button" style={{ marginTop: 6, fontSize: 12 }} onClick={() => copyText(paste, setMsg)}>Copy</button>
 
       <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>{trackingLine(e.controls.length)}</div>
       <HowWeKnow e={e} />
@@ -113,6 +120,8 @@ function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
 /** One approved item, with the apply -> confirm -> tell-Google flow (science unchanged). */
 function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemView }) {
   const e = item.experiment;
+  const paste = stripBannedDashes(e.proposedText);
+  const why = stripBannedDashes(e.whyNow);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [status, setStatus] = useState<DailyExperimentItemStatus>(item.status);
@@ -164,11 +173,15 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
       <strong style={{ fontSize: 15 }}>{moveHeadline(e)}</strong>
       <div style={{ fontSize: 12, opacity: 0.55, marginTop: 2 }}>{e.url}</div>
 
-      <div style={LABEL}>Why it wins</div>
-      <div style={{ fontSize: 13, lineHeight: 1.5 }}>{e.whyNow}</div>
+      {why ? (
+        <>
+          <div style={LABEL}>Why it wins</div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{why}</div>
+        </>
+      ) : null}
 
       <div style={LABEL}>Paste this</div>
-      <div style={PASTE}>{e.proposedText}</div>
+      <div style={PASTE}>{paste}</div>
       <WrittenByBeacon e={e} />
 
       {failure && (
@@ -197,7 +210,7 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
         <div style={{ marginTop: 10, fontSize: 13, opacity: 0.7 }}>Set aside. Its comparison pages were freed up and nothing changed.</div>
       ) : (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(e.proposedText, setMsg)}>Copy</button>
+          <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(paste, setMsg)}>Copy</button>
           <a href={e.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>Open page</a>
           <button type="button" disabled={pending} aria-busy={pending} onClick={apply} style={{ minWidth: 130 }}>{pending ? "Checking the page..." : status === "verification_failed" ? "Try again" : "I did it in Wix"}</button>
           <button type="button" disabled={pending} aria-busy={pending} onClick={skip} style={{ opacity: 0.7 }}>Not now</button>

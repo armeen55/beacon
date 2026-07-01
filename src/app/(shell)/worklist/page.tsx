@@ -24,7 +24,7 @@ async function ChangesSection() {
   } catch {
     return (
       <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-        Couldn&apos;t load your changes just now — refresh in a moment.
+        Couldn&apos;t load your changes just now. Refresh in a moment.
       </p>
     );
   }
@@ -38,7 +38,7 @@ async function ChangesSection() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-gray-500">Everything to do, ranked. Pick a strategy and work top-down — Beacon measures each change after you ship it.</p>
+        <p className="text-sm text-gray-500">Everything to do, ranked. Pick a strategy and work top-down, and Beacon measures each change after you ship it.</p>
         <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-start">
           <RegenerateFromTeardownButton />
           <EnrichResearchButton />
@@ -64,7 +64,7 @@ export default function WorklistPage() {
     <div className="max-w-5xl space-y-6">
       <PageHeader
         title="Changes"
-        description="One list of every change Beacon recommends — across your Google + AI demand — from suggested to measured. Pick a strategy, do the top few, ship."
+        description="One list of every change Beacon recommends, across your Google and AI demand, from suggested to measured. Pick a strategy, do the top few, ship."
       />
       <Suspense fallback={null}>
         <DailyExperiments />

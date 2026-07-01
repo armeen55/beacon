@@ -42,7 +42,7 @@ function AlreadyLaunchedNotice({ notice }: { notice: string | string[] | undefin
   if (notice !== "already_launched") return null;
   return (
     <div className="mb-6 rounded-md border border-border/60 bg-surface-inset/40 px-4 py-3 text-[13px]">
-      <p className="font-medium text-foreground">You&apos;ve already finished setup — here&apos;s your workspace.</p>
+      <p className="font-medium text-foreground">You&apos;ve already finished setup. Here&apos;s your workspace.</p>
       <p className="mt-1 text-muted-foreground">
         Setup is a one-time step. To change your business details, service area, or competitors, head to{" "}
         <Link href="/settings/config" className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Settings</Link>.
