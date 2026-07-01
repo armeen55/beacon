@@ -17,6 +17,9 @@ import { deriveExperimentStates } from "./experiment-eligibility";
 import { buildLinkDestinations, toLinkPath } from "./safe-internal-link";
 import { buildDailyPlanRecord } from "./build-daily-plan-record";
 import type { DailyExperimentPlanRecord } from "./daily-plan-types";
+import { classifyQueryIntent } from "./answer-intent";
+import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
+import { draftAtomicEditStructured } from "@/domains/llm/structured-drafter";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -67,8 +70,10 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     ANIMAL.test(p) ? "animal_family" : activeControl.has(p) || activeTreated.has(p) ? "active_experiment" : null;
   const linkDestinations = buildLinkDestinations(snaps as Parameters<typeof buildLinkDestinations>[0], isProtected);
 
-  // GSC candidate pool (non-animal, measurable band).
+  // GSC candidate pool (non-animal, measurable band). Capture each page's impression-weighted intent
+  // (the searcher's dominant question) so the LLM "write it" pass can draft the RIGHT answer type.
   const inputs: GscPageInput[] = [];
+  const intentByUrl = new Map<string, string | undefined>();
   for (const s of signals.values()) {
     if (ANIMAL.test(s.page)) continue;
     const tq = [...s.topQueries].sort((a, b) => b.impressions - a.impressions)[0];
@@ -78,6 +83,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       topQuery: tq.query, topQueryImpressions: tq.impressions, topQueryPosition: tq.position, topQueryCtr: tq.ctr,
       ownership: s.impressions90d > 0 ? tq.impressions / s.impressions90d : 0,
     });
+    intentByUrl.set(s.page, classifyQueryIntent([...s.topQueries].map((q) => ({ query: q.query, impressions: q.impressions })))?.dominant);
   }
   inputs.sort((a, b) => (b.topQueryImpressions / Math.max(1, b.topQueryPosition)) - (a.topQueryImpressions / Math.max(1, a.topQueryPosition)));
 
@@ -108,6 +114,16 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
   const backups = plan.backups.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
+
+  // Slice D-1: LLM "write it" pass — sharpen the description/title copy at plan time so cards arrive
+  // full. Budgeted + fail-closed inside the structured drafter (off when BEACON_LLM_PROVIDER != openai
+  // or the cap is hit); on any miss it keeps the deterministic text. Only drop-in field levers here;
+  // answer-block writing (a new add-operation) is a later slice.
+  const llmDrafter: MetaTitleDrafter = async ({ query, pageLabel, field, currentValue, intent }) => {
+    const r = await draftAtomicEditStructured({ query, pageLabel, field, currentValue, outline: [], intent });
+    return r.status === "drafted" ? { text: r.value.after, rationale: r.value.rationale } : null;
+  };
+  await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
 
   const record = buildDailyPlanRecord({
     tenantId, date: now.toISOString().slice(0, 10), now, selected, backups,

@@ -77,6 +77,10 @@ export type BuiltCandidate = DailyCandidate & {
   linkDetail?: InternalLinkProposal;
   /** Answer-block only: the exact source sentence, placement, operation + factual-safety receipt. */
   answerDetail?: SafeAnswerBlockProposal;
+  /** Who wrote proposedText: the deterministic proposer, or the LLM (slice D). Defaults deterministic. */
+  draftSource?: "deterministic" | "llm";
+  /** LLM-only: one plain-English line on why this wording (shown as "Beacon wrote this" context). */
+  llmRationale?: string;
 };
 
 const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };

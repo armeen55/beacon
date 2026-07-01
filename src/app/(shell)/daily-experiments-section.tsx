@@ -49,6 +49,16 @@ function copyText(text: string, onDone: (m: string) => void) {
   } else onDone("Clipboard unavailable, select the text manually.");
 }
 
+/** Shown under the paste box when the LLM wrote the text, so the operator knows to review it. */
+function WrittenByBeacon({ e }: { e: PlannedExperimentRecord }) {
+  if (e.draftSource !== "llm") return null;
+  return (
+    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+      Beacon wrote this{e.llmRationale ? `: ${e.llmRationale}` : ""}. Copy it and tweak as you like before you publish.
+    </div>
+  );
+}
+
 /** The optional depth: the search, the current state, the comparison pages, the measurement plan. */
 function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string }) {
   const detailLine =
@@ -90,6 +100,7 @@ function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
 
       <div style={LABEL}>Paste this</div>
       <div style={PASTE}>{e.proposedText}</div>
+      <WrittenByBeacon e={e} />
       <button type="button" style={{ marginTop: 6, fontSize: 12 }} onClick={() => copyText(e.proposedText, setMsg)}>Copy</button>
 
       <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>{trackingLine(e.controls.length)}</div>
@@ -158,6 +169,7 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
 
       <div style={LABEL}>Paste this</div>
       <div style={PASTE}>{e.proposedText}</div>
+      <WrittenByBeacon e={e} />
 
       {failure && (
         <div style={{ marginTop: 8, padding: 8, background: "var(--err-bg, #fef2f2)", borderRadius: 8, fontSize: 13 }}>

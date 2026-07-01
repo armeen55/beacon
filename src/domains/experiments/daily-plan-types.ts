@@ -38,6 +38,11 @@ export type PlannedExperimentRecord = {
   /** Plain-English reason this move is worth doing now (carried from the candidate). Shown on the
    *  card as the "Why it wins" line so the assistant surface never has to re-derive it. */
   whyNow: string;
+  /** Who wrote proposedText: the deterministic proposer, or the LLM (slice D). The card shows a
+   *  "Beacon wrote this, edit before you use it" note when this is "llm". Defaults deterministic. */
+  draftSource?: "deterministic" | "llm";
+  /** LLM-only: one plain-English line on why this wording, shown under the paste box. */
+  llmRationale?: string;
 
   currentText: string;
   proposedText: string;
