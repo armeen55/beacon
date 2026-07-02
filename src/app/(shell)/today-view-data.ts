@@ -60,3 +60,15 @@ export async function loadTodayView(): Promise<TodayComposite> {
   await writeTodaySurface(fresh, new Date().toISOString());
   return fresh;
 }
+
+/**
+ * Nightly warm pass entry (BEACON 500 item 13): rebuild the Today composite NOW and
+ * persist the SWR snapshot - the same `loadTodayViewUncached` + write the background
+ * refresh runs, exposed so the 5am precompute cron can front-run the morning open.
+ * Tenant comes from the ambient context (same as every caller of this module).
+ * Build-then-write: a failed rebuild throws and the previous snapshot stays in place.
+ */
+export async function refreshTodaySurface(): Promise<void> {
+  const fresh = await loadTodayViewUncached();
+  await writeTodaySurface(fresh, new Date().toISOString());
+}

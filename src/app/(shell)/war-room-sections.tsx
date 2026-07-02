@@ -11,6 +11,8 @@ import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referra
 import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
 import { loadEngineGapTodayLine } from "@/domains/ai-visibility/gap-store";
 import { loadAiReferralSummary, aiReferralTodayLine } from "@/domains/ai-visibility/ai-referrals";
+import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
+import { funnelSummaryLine } from "@/domains/ai-visibility/crawl-citation-funnel";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
 import Link from "next/link";
@@ -107,17 +109,21 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
  *  Self-hides when neither feed has data. */
 export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
   try {
-    const [sig, llmMentions, slug, engineGapLine, referralSummary] = await Promise.all([
+    const slug = await currentTenantSlug().catch(() => "");
+    const [sig, llmMentions, engineGapLine, referralSummary, funnel] = await Promise.all([
       loadBotReferralSignals(tenantId),
       readAllCachedLlmMentions().catch(() => []),
-      currentTenantSlug().catch(() => ""),
       // Item 4: one honest line from last night's 4-engine question check ($0 store read).
       loadEngineGapTodayLine(tenantId).catch(() => null),
       // Item 6: real GA4 sessions that arrived FROM an AI assistant ($0 table read).
       loadAiReferralSummary(tenantId).catch(() => null),
+      // Item 7: the per-page crawl to citation to visitors funnel ($0 joins of synced rows).
+      slug ? loadCrawlCitationFunnel(tenantId, slug).catch(() => null) : Promise.resolve(null),
     ]);
     const referralLine = referralSummary ? aiReferralTodayLine(referralSummary) : null;
-    if (!sig.hasData && llmMentions.length === 0 && !engineGapLine && !referralLine) return null;
+    const funnelLine = funnel && funnel.hasData ? funnelSummaryLine(funnel) : null;
+    const funnelRows = funnel && funnel.hasData ? funnel.stalled.slice(0, 3) : [];
+    if (!sig.hasData && llmMentions.length === 0 && !engineGapLine && !referralLine && !funnelLine && funnelRows.length === 0) return null;
     const topBots = sig.botSummary.topBots.slice(0, 3);
     const topSources = sig.referralSummary.topSources.slice(0, 3);
     const trendWord =
@@ -138,6 +144,21 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
             <p className="rounded-xl bg-amber-50/70 px-3 py-2 text-[12px] font-medium text-amber-800 sm:col-span-2 dark:bg-amber-950/30 dark:text-amber-200">
               {engineGapLine}
             </p>
+          ) : null}
+          {funnelLine || funnelRows.length > 0 ? (
+            <div className="rounded-xl bg-gray-50 px-3 py-2 sm:col-span-2 dark:bg-neutral-800/60">
+              <div className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">Where pages stall on the way to AI visitors</div>
+              {funnelLine ? <p className="mt-0.5 text-[12px] text-gray-500 dark:text-neutral-400">{funnelLine}</p> : null}
+              {funnelRows.length > 0 ? (
+                <div className="mt-1 space-y-0.5">
+                  {funnelRows.map((f) => (
+                    <p key={f.pagePath} className="text-[12px] text-gray-600 dark:text-neutral-300">
+                      <span className="font-semibold text-gray-800 dark:text-neutral-200">{prettyPath(f.pagePath)}:</span> {f.bottleneckSentence}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
           {sig.hasBotData ? (
             <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
@@ -266,16 +287,20 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
     loadClarityPageSignalsForTenant(tenantId)
       .then((signals) => signals.size === 0)
       .catch(() => true),
-    // AI band renders when any of its four feeds has data.
+    // AI band renders when any of its five feeds has data.
     Promise.all([
       loadBotReferralSignals(tenantId),
       readAllCachedLlmMentions().catch(() => []),
       loadEngineGapTodayLine(tenantId).catch(() => null),
       loadAiReferralSummary(tenantId).catch(() => null),
+      // Item 7: react cache shares this read with the AI band above, so it is free here.
+      currentTenantSlug()
+        .then((slug) => (slug ? loadCrawlCitationFunnel(tenantId, slug) : null))
+        .catch(() => null),
     ])
       .then(
-        ([sig, mentions, gapLine, referrals]) =>
-          !sig.hasData && mentions.length === 0 && !gapLine && !(referrals && referrals.hasData),
+        ([sig, mentions, gapLine, referrals, funnel]) =>
+          !sig.hasData && mentions.length === 0 && !gapLine && !(referrals && referrals.hasData) && !(funnel && funnel.hasData),
       )
       .catch(() => true),
     // Demand band renders whenever keyword research has run (gaps or the item-21 empty

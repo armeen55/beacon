@@ -44,6 +44,8 @@ import {
   markAutopilotRunDay,
   type AutopilotState,
 } from "./autopilot-store";
+import type { AutopilotConfig } from "./autopilot-policy";
+import type { RevertPassSummary } from "./run-revert";
 
 export type AutopilotPassResult = {
   tenantId: string;
@@ -57,6 +59,10 @@ export type AutopilotPassResult = {
   failed: number;
   /** The operator-visible receipt lines written this run. */
   receiptLines: string[];
+  /** Item 11 (optional, additive): the revert pass that runs after ships. */
+  revertsConsidered?: number;
+  reverted?: number;
+  revertsFailed?: number;
 };
 
 export type AutopilotRunDeps = {
@@ -75,6 +81,12 @@ export type AutopilotRunDeps = {
     tenantId: string,
     pick: AutopilotPick,
   ) => Promise<{ ok: boolean; detail: string }>;
+  /** Item 11: evaluate + apply pre-approved reverts after the ship pass (bounded). */
+  runRevertPass: (
+    tenantId: string,
+    config: AutopilotConfig,
+    now: Date,
+  ) => Promise<RevertPassSummary>;
   /** Pacific date for the daily marker. */
   today: (now: Date) => string;
 };
@@ -272,6 +284,15 @@ async function defaultShipPick(
   return { ok: true, detail: result.detail };
 }
 
+async function defaultRunRevertPass(
+  tenantId: string,
+  config: AutopilotConfig,
+  now: Date,
+): Promise<RevertPassSummary> {
+  const { runNightlyRevertPass } = await import("./run-revert");
+  return runNightlyRevertPass(tenantId, config, now);
+}
+
 function defaultToday(now: Date): string {
   return now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 }
@@ -286,6 +307,7 @@ const defaultDeps: AutopilotRunDeps = {
   loadLeverHistory: defaultLoadLeverHistory,
   loadCandidates: defaultLoadCandidates,
   shipPick: defaultShipPick,
+  runRevertPass: defaultRunRevertPass,
   today: defaultToday,
 };
 
@@ -412,6 +434,23 @@ export async function runAutopilotPass(
       url: pick.candidate.url,
       ok: outcome.ok,
       detail: outcome.detail.slice(0, 200),
+    });
+  }
+
+  // Item 11: after the ship pass, put losing changes back - bounded (max 2
+  // per night), pre-approved only (settled negative at >= 14 days, clean
+  // comparison pages, lever within the armed policy, snapshot on file).
+  // Fail-soft: a broken revert pass never fails the ship pass it follows.
+  try {
+    const revert = await deps.runRevertPass(tenantId, state.config, now);
+    result.revertsConsidered = revert.considered;
+    result.reverted = revert.reverted;
+    result.revertsFailed = revert.failed;
+    result.receiptLines.push(...revert.receiptLines);
+  } catch (e) {
+    log.warn("[autopilot] revert pass failed (non-blocking)", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
     });
   }
 

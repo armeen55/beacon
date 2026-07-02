@@ -82,6 +82,15 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   "ai-engine-answers",
   "ai-engine-poll-runs",
   "ai-engine-gap-summary",
+  // 2026-07-02 item 10 - nightly pipeline invariant check results. Written by the
+  // cron (Vercel lambda: no disk), read by the Today Ops card; without the mirror
+  // the watchdog's own output would be silent-empty on hosted prod.
+  "pipeline-violations",
+  // 2026-07-02 item 13 - nightly precompute warm pass. The per-day run marker
+  // (double-fire idempotency) and the "last warmed" receipt /diagnostics shows
+  // must survive lambda recycling; losing the marker only costs a harmless
+  // re-warm, but the mirror keeps the receipt line truthful on hosted prod.
+  "precompute-warm-receipts",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

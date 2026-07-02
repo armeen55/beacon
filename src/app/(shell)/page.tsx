@@ -18,6 +18,7 @@ import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "@/doma
 import { TeamStandup } from "./team-standup";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { CoverageMapSection } from "./coverage-map-section";
+import { OpsPipelineSection } from "./ops-pipeline-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 
@@ -159,6 +160,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
         <ScoreboardSection tenantId={tenantId} />
       </Suspense>
+
+      {/* Item 10 - the Ops pipeline watchdog: red items naming the exact broken data-pipe
+          stage from last night's invariant check. $0 persisted read, self-hides when clean. */}
+      <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
 
       {today.attention.length > 0 ? <AttentionSection items={today.attention} /> : null}
 

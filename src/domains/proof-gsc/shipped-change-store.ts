@@ -317,6 +317,25 @@ export async function markRecrawlRequestedById(tenantId: string, id: string, atI
   }
 }
 
+/**
+ * Item 11 (2026-07-02): append ONE additive note line to a proof row. NEVER
+ * touches windows, verdict, confidence, or any measurement field - the record
+ * is re-persisted as-is with only `notes` extended and `updatedAt` stamped.
+ * Used by the revert executor to mark "I put the old version back" on the
+ * original row without mutating its measurement history. Fail-soft on a
+ * missing row (no-op); ambient-tenant routing like the other helpers here.
+ */
+export async function appendShippedChangeNote(id: string, note: string): Promise<void> {
+  const line = (note ?? "").trim();
+  if (line === "") return;
+  const records = await loadShippedChanges();
+  const rec = records.find((r) => r.id === id);
+  if (rec == null) return;
+  const notes =
+    rec.notes != null && rec.notes.trim() !== "" ? `${rec.notes}\n${line}` : line;
+  await upsertShippedChange({ ...rec, notes, updatedAt: new Date().toISOString() });
+}
+
 async function mirrorFile(record: ShippedChangeRecord): Promise<void> {
   try {
     await upsertFile(record);

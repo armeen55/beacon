@@ -122,4 +122,23 @@ describe("autopilot-store", () => {
     };
     expect(countAutoShippedInLastDays(state, NOW)).toBe(1);
   });
+
+  it("item 11: revert receipts never consume the weekly SHIP budget", () => {
+    const twoDaysAgo = new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const state = {
+      receipts: [
+        receipt({ id: "ship", shippedAt: twoDaysAgo, result: "pushed" as const }),
+        receipt({ id: "legacy-no-kind", shippedAt: twoDaysAgo, result: "pushed" as const }),
+        receipt({
+          id: "revert",
+          shippedAt: twoDaysAgo,
+          result: "pushed" as const,
+          kind: "revert" as const,
+          actionType: "revert_edit_title",
+        }),
+      ],
+    };
+    // Legacy receipts (no kind) still count as ships; reverts never do.
+    expect(countAutoShippedInLastDays(state, NOW)).toBe(2);
+  });
 });

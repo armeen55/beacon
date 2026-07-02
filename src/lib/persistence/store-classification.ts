@@ -245,6 +245,13 @@ export const GLOBAL_STORES = new Set<string>([
   "ai-engine-answers", // 20h DataForSEO llm_responses answer cache (cost discipline)
   "ai-engine-poll-runs", // per-night already-ran guard (idempotency)
   "ai-engine-gap-summary", // latest per-tenant engine-gap summary ($0 Today + candidate reads)
+  // Pipeline invariant watchdog (2026-07-02, master plan item 10). Same cron
+  // fan-out rationale as the ai-engine stores: rows carry tenant_id.
+  "pipeline-violations", // latest per-tenant pipeline invariant check (Ops card on Today)
+  // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
+  // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
+  // idempotency) + the "last warmed" receipts /diagnostics shows.
+  "precompute-warm-receipts",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

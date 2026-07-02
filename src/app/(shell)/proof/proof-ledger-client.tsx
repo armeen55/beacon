@@ -9,6 +9,7 @@ import {
   recomputeProofLedgerAction,
   markRecrawlRequestedAction,
   markVerdictInconclusiveAction,
+  restoreOldVersionAction,
 } from "./actions";
 
 /**
@@ -347,8 +348,57 @@ export function RecordShippedButton({
 }
 
 /**
+ * Item 11 (2026-07-02): one-click restore for a change that is measuring
+ * negative. Calls the operator-gated server action; the restore ships through
+ * the same publish path as every push (never a raw CMS write). The server
+ * re-derives eligibility, so this button can never force an ineligible revert.
+ */
+export function RestoreOldVersionButton({ recordId }: { recordId: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<{ message: string; isError: boolean } | null>(null);
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            setFeedback(null);
+            const res = await restoreOldVersionAction({ id: recordId });
+            if (res.success) {
+              setFeedback({
+                message: "Done. The old version is going back live now.",
+                isError: false,
+              });
+              router.refresh();
+            } else {
+              setFeedback({ message: res.error ?? "Failed.", isError: true });
+            }
+          })
+        }
+        className={`rounded-md border border-foreground bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90 disabled:opacity-50 ${FOCUS}`}
+        title="Publish the saved old version back to this page. It goes through the same safety checks as every publish."
+      >
+        {pending ? "Restoring…" : "Put the old version back"}
+      </button>
+      {feedback ? (
+        <span
+          aria-live="polite"
+          className={feedback.isError ? "text-[11px] text-rose-600" : "text-[11px] text-emerald-700"}
+        >
+          {feedback.message}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * Manual rollback helper: copies the BEFORE copy to the clipboard so the operator
- * can paste it back into the CMS to revert. Beacon never auto-reverts a live page.
+ * can paste it back into the CMS to revert (the fallback when no saved snapshot
+ * exists for a one-click restore).
  */
 export function RollbackCopyButton({ before }: { before: string }) {
   const [copied, setCopied] = useState(false);
@@ -365,7 +415,7 @@ export function RollbackCopyButton({ before }: { before: string }) {
         }
       }}
       className={`inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground ${FOCUS}`}
-      title="Copy the original (before) copy so you can paste it back into your CMS to roll back. Beacon never auto-reverts."
+      title="Copy the original (before) copy so you can paste it back into your CMS to roll back by hand."
     >
       {copied ? (
         <>

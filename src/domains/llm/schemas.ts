@@ -210,6 +210,30 @@ export const TeamVerdictSchema = z.object({
 });
 export type TeamVerdict = z.infer<typeof TeamVerdictSchema>;
 
+// ── batch adjudication (BEACON 500 item 12 - the final review) ────────────────
+// The nightly FINAL REVIEW over the whole plan preview: one bounded call
+// sanity-checks EVERY pick against its own evidence ("does the proposed text
+// match what the top search actually asks for?"). Output is per-pick verdicts
+// ONLY - the review can flag a pick with a one-line caution, it can never drop
+// or reorder picks. The concern line is operator copy: plain language, <= 140
+// chars, and it passes the same numeric-fidelity firewall as every draft.
+
+export const BatchAdjudicationSchema = z.object({
+  picks: z
+    .array(
+      z.object({
+        /** Echoed EXACTLY from the input - a mangled id is dropped by the caller. */
+        pickId: z.string().min(1).max(240),
+        verdict: z.enum(["looks_right", "concern"]),
+        /** Present only when verdict is "concern": one plain sentence, <= 140 chars. */
+        concern: z.string().max(140).optional(),
+      }),
+    )
+    .min(1)
+    .max(24),
+});
+export type BatchAdjudication = z.infer<typeof BatchAdjudicationSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -222,7 +246,8 @@ export type StructuredDraftKind =
   | "internal_link"
   | "experiment_plan"
   | "aeo_prompt_brief"
-  | "team_verdict";
+  | "team_verdict"
+  | "batch_adjudication";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -235,6 +260,7 @@ export const SCHEMA_BY_KIND = {
   experiment_plan: ExperimentPlanSchema,
   aeo_prompt_brief: AeoPromptBriefSchema,
   team_verdict: TeamVerdictSchema,
+  batch_adjudication: BatchAdjudicationSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 /** Every string field in a parsed draft, flattened — fed to the content firewalls

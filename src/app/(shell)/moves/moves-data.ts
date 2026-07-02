@@ -251,3 +251,14 @@ async function loadSurfaceWithSwr(tenantId: string): Promise<TodayMovesHeroData>
 export const loadMovesWorklist = cache(
   async (): Promise<TodayMovesHeroData> => loadSurfaceWithSwr(await currentTenantId()),
 );
+
+/**
+ * Nightly warm pass entry (BEACON 500 item 13): rebuild the worklist surface NOW and
+ * persist it - the same `loadUncached` + write the SWR path runs in the background,
+ * exposed so the 5am precompute cron can front-run the morning open. Build-then-write:
+ * a failed rebuild throws and the previous snapshot stays in place.
+ */
+export async function refreshWorklistSurface(tenantId: string): Promise<void> {
+  const fresh = await loadUncached(tenantId);
+  await writeWorklistSurface(fresh, new Date().toISOString());
+}

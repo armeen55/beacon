@@ -21,6 +21,7 @@ import { classifyQueryIntent } from "./answer-intent";
 import { proposeAnswerGap } from "./safe-answer-block";
 import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
 import { draftAtomicEditStructured, draftAnswerBlockStructured, draftTeamVerdictStructured } from "@/domains/llm/structured-drafter";
+import { applyFinalReviewToPicks } from "@/domains/llm/batch-adjudicator";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { readCachedSerpPatterns, enrichPickSerpPatterns } from "@/domains/serp/research-enrichment-producer";
 import type { SerpPattern } from "@/domains/serp/research-enrichment";
@@ -341,6 +342,13 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     tenantId, date: now.toISOString().slice(0, 10), now, selected, backups,
     activeSnapshot: { proofIds: activeProofIds, treatedUrls: [...activeTreated], controlUrls: [...activeControl], influencedUrls: [] },
   });
+
+  // Item 12 - the FINAL REVIEW: after picks are FINAL, one bounded LLM read checks each pick
+  // against its own evidence ("does the proposed text match what the top search asks?") and
+  // attaches an optional one-line caution (teamCheck). Attach-only: it never drops, reorders,
+  // or blocks a pick; budget-gated + fail-open-loud inside the adjudicator; persisted with the
+  // preview so the morning render is $0.
+  await applyFinalReviewToPicks(record.selected, { now }).catch(() => 0);
 
   const excludedByReason: Record<string, number> = {};
   for (const e of plan.excluded) excludedByReason[e.reason] = (excludedByReason[e.reason] ?? 0) + 1;

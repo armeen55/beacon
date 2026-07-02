@@ -51,6 +51,11 @@ export type PlannedExperimentRecord = {
    *  frozen at planning time so the card shows the REAL argument, not a re-derivation. Absent when
    *  the team abstained. Type lives in ./team-review (type-only import - no runtime cycle). */
   teamReview?: import("./team-review").TeamReview;
+  /** Item 12: the FINAL REVIEW's sanity check of this pick against its own evidence (one bounded
+   *  LLM read per batch, frozen at planning time so the morning render is $0). Attach-only: it can
+   *  flag a one-line caution, it can never drop or reorder a pick. Absent when the review is off,
+   *  abstained, or failed (the batch always ships). */
+  teamCheck?: { verdict: "looks_right" | "concern"; concern?: string };
 
   currentText: string;
   proposedText: string;

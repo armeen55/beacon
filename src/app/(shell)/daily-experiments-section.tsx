@@ -192,6 +192,18 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
+/** Item 12 - the final review's one-line caution. Renders ONLY when the review flagged a real
+ *  concern (silence otherwise); it never blocks or hides the move, the operator still decides. */
+function FinalReviewCaution({ e }: { e: PlannedExperimentRecord }) {
+  const c = e.teamCheck;
+  if (!c || c.verdict !== "concern" || !c.concern) return null;
+  return (
+    <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[13px] leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      One caution from the final review: {stripBannedDashes(c.concern)}
+    </div>
+  );
+}
+
 /** Items 31 + 34: what to expect if it works, and what would change our mind (the exit plan).
  *  Both deterministic, persisted on the plan record; self-hides for pre-field plans. */
 function ExpectationLines({ e }: { e: PlannedExperimentRecord }) {
@@ -282,6 +294,7 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
       ) : null}
       <TeamRoundtable e={e} />
       <ExpectationLines e={e} />
+      <FinalReviewCaution e={e} />
 
       <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Paste this</div>
       <div className={PASTE_CLS}>{paste}</div>
@@ -364,6 +377,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       ) : null}
       <TeamRoundtable e={e} />
       <ExpectationLines e={e} />
+      <FinalReviewCaution e={e} />
 
       <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Paste this{editable && !isActive && status !== "skipped" ? " (edit it first if you want)" : ""}</div>
       {editable && !isActive && status !== "skipped" ? (

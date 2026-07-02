@@ -99,6 +99,7 @@ describe("SCHEMA_BY_KIND registry", () => {
       "aeo_prompt_brief",
       "answer_block",
       "atomic_edit",
+      "batch_adjudication", // BEACON 500 item 12: the nightly final review's per-pick verdicts
       "commerce_asset",
       "create_page_brief",
       "cro_fix",

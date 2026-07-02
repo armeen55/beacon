@@ -90,6 +90,18 @@ const GLOBAL_PATH = join(REPO_ROOT, ".data", "global", "business-config.json");
 
 const FOUNDER_ID = "tenant-ritz-founder";
 const CUSTOMER_ID = "tenant-iranopedia";
+// The customer's OWN per-tenant file is a legitimate config source; a local
+// dev worktree can have one on disk (the operator really configured
+// Iranopedia). This suite pins the FOUNDER-leak invariant, so it must control
+// this path too - snapshot + clear it like the other two, else the customer
+// correctly resolves its own file and the placeholder expectations misfire.
+const CUSTOMER_TENANT_PATH = join(
+  REPO_ROOT,
+  ".data",
+  "tenants",
+  CUSTOMER_ID,
+  "business-config.json",
+);
 
 // A founder-flavored global config — the exact shape of the live leak source.
 const FOUNDER_GLOBAL = {
@@ -102,6 +114,7 @@ const FOUNDER_GLOBAL = {
 
 let savedTopLevel: string | null = null;
 let savedGlobal: string | null = null;
+let savedCustomerTenant: string | null = null;
 let savedTenantId: string | undefined;
 let savedEnvBlob: string | undefined;
 let savedByTenant: string | undefined;
@@ -116,6 +129,10 @@ beforeEach(() => {
     ? readFileSync(GLOBAL_PATH, "utf-8")
     : null;
   if (existsSync(TOP_LEVEL_PATH)) unlinkSync(TOP_LEVEL_PATH);
+  savedCustomerTenant = existsSync(CUSTOMER_TENANT_PATH)
+    ? readFileSync(CUSTOMER_TENANT_PATH, "utf-8")
+    : null;
+  if (existsSync(CUSTOMER_TENANT_PATH)) unlinkSync(CUSTOMER_TENANT_PATH);
 
   // Snapshot + clear the env vars this suite drives.
   savedTenantId = process.env.BEACON_TENANT_ID;
@@ -147,6 +164,12 @@ afterEach(() => {
   } else {
     mkdirSync(join(REPO_ROOT, ".data", "global"), { recursive: true });
     writeFileSync(GLOBAL_PATH, savedGlobal);
+  }
+  if (savedCustomerTenant === null) {
+    if (existsSync(CUSTOMER_TENANT_PATH)) unlinkSync(CUSTOMER_TENANT_PATH);
+  } else {
+    mkdirSync(join(REPO_ROOT, ".data", "tenants", CUSTOMER_ID), { recursive: true });
+    writeFileSync(CUSTOMER_TENANT_PATH, savedCustomerTenant);
   }
   // Restore env.
   const restore = (k: string, v: string | undefined) => {

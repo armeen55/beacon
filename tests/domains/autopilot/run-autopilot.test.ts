@@ -37,7 +37,11 @@ function makeDeps(overrides: Partial<AutopilotRunDeps> = {}): {
   deps: Partial<AutopilotRunDeps>;
   receipts: AutopilotReceipt[];
   markedDays: string[];
-  spies: { loadCandidates: ReturnType<typeof vi.fn>; shipPick: ReturnType<typeof vi.fn> };
+  spies: {
+    loadCandidates: ReturnType<typeof vi.fn>;
+    shipPick: ReturnType<typeof vi.fn>;
+    runRevertPass: ReturnType<typeof vi.fn>;
+  };
 } {
   const receipts: AutopilotReceipt[] = [];
   const markedDays: string[] = [];
@@ -51,6 +55,13 @@ function makeDeps(overrides: Partial<AutopilotRunDeps> = {}): {
     },
   ]);
   const shipPick = vi.fn(async () => ({ ok: true, detail: "updated field title" }));
+  const runRevertPass = vi.fn(async () => ({
+    considered: 0,
+    autoEligible: 0,
+    reverted: 0,
+    failed: 0,
+    receiptLines: [] as string[],
+  }));
   const deps: Partial<AutopilotRunDeps> = {
     ambientTenantId: async () => TENANT,
     getState: async () => enabledState(),
@@ -70,10 +81,11 @@ function makeDeps(overrides: Partial<AutopilotRunDeps> = {}): {
       })),
     loadCandidates,
     shipPick,
+    runRevertPass,
     today: () => "2026-07-01",
     ...overrides,
   };
-  return { deps, receipts, markedDays, spies: { loadCandidates, shipPick } };
+  return { deps, receipts, markedDays, spies: { loadCandidates, shipPick, runRevertPass } };
 }
 
 describe("runAutopilotPass", () => {
@@ -205,5 +217,61 @@ describe("runAutopilotPass", () => {
     expect(res.considered).toBe(1);
     expect(res.picked).toBe(0);
     expect(spies.shipPick).not.toHaveBeenCalled();
+  });
+
+  // ── Item 11: the revert pass rides the nightly pass, after ships ──
+
+  it("item 11: runs the revert pass AFTER the ship pass with the armed config", async () => {
+    const order: string[] = [];
+    const { deps } = makeDeps({
+      shipPick: vi.fn(async () => {
+        order.push("ship");
+        return { ok: true, detail: "ok" };
+      }),
+      runRevertPass: vi.fn(async (tenantId: string, config: { enabled: boolean }) => {
+        order.push("revert");
+        expect(tenantId).toBe(TENANT);
+        expect(config.enabled).toBe(true);
+        return {
+          considered: 3,
+          autoEligible: 1,
+          reverted: 1,
+          failed: 0,
+          receiptLines: ["That title change hurt the click rate, so I put the old title back on July 2. Lesson: this style of title is not working on pages like this."],
+        };
+      }),
+    });
+    const res = await runAutopilotPass(TENANT, NOW, deps);
+    expect(order).toEqual(["ship", "revert"]);
+    expect(res.revertsConsidered).toBe(3);
+    expect(res.reverted).toBe(1);
+    expect(res.revertsFailed).toBe(0);
+    // Revert lesson lines join the visible receipt trail.
+    expect(res.receiptLines.some((l) => l.includes("put the old title back"))).toBe(true);
+  });
+
+  it("item 11: a broken revert pass never fails the ship pass it follows", async () => {
+    const { deps } = makeDeps({
+      runRevertPass: vi.fn(async () => {
+        throw new Error("revert pass exploded");
+      }),
+    });
+    const res = await runAutopilotPass(TENANT, NOW, deps);
+    expect(res.ran).toBe(true);
+    expect(res.reason).toBe("completed");
+    expect(res.shipped).toBe(1);
+    expect(res.reverted).toBeUndefined();
+  });
+
+  it("item 11: the revert pass never runs when publishing is not armed", async () => {
+    const { deps, spies } = makeDeps({ getPublishingModeName: async () => "staged" });
+    await runAutopilotPass(TENANT, NOW, deps);
+    expect(spies.runRevertPass).not.toHaveBeenCalled();
+  });
+
+  it("item 11: the revert pass never runs for Ritz", async () => {
+    const { deps, spies } = makeDeps();
+    await runAutopilotPass("tenant-ritz-founder", NOW, deps);
+    expect(spies.runRevertPass).not.toHaveBeenCalled();
   });
 });

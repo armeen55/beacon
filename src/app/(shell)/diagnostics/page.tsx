@@ -98,6 +98,7 @@ import { getAnswerSnapshots } from "@/domains/answer-snapshots/store";
 import { computePulse } from "@/domains/product/pulse";
 import { generateVisibilityReport, serializeReport } from "@/domains/product/report-generator";
 import { computeOutcomeSummary } from "@/domains/product/outcome-store";
+import { readLastWarmReceipt } from "@/domains/ops/warm-receipt-store";
 import { MiniBarChart } from "@/components/viz/mini-bar-chart";
 import { DonutRing } from "@/components/viz/donut-ring";
 import { ScoreRail } from "@/components/viz/score-rail";
@@ -327,6 +328,10 @@ export default async function DiagnosticsPage() {
   const businessConfig = getBusinessConfig(tenantId);
   const isOnPlaceholderConfig = isPlaceholderConfig(businessConfig);
 
+  // Item 13 (2026-07-02) - the nightly precompute receipt: one honest line so
+  // the operator can see the 5am warm pass actually ran. Fail-soft to nothing.
+  const warmReceipt = await readLastWarmReceipt(tenantId).catch(() => null);
+
   return (
     <div className="max-w-4xl space-y-8">
       <PageHeader
@@ -363,6 +368,21 @@ export default async function DiagnosticsPage() {
       <div className="-mt-2 mb-6">
         <LocalOperatorPanel surface={localDiagSurface} variant="health" />
       </div>
+
+      {warmReceipt && (
+        <p className="-mt-4 text-xs text-muted-foreground" data-diagnostic="nightly-warm">
+          Overnight prep: we warmed the morning views at{" "}
+          {new Date(warmReceipt.ran_at).toLocaleTimeString("en-US", {
+            timeZone: "America/Los_Angeles",
+            hour: "numeric",
+            minute: "2-digit",
+          })}{" "}
+          Pacific on {warmReceipt.date} in {Math.max(1, Math.round(warmReceipt.totalMs / 1000))}s.{" "}
+          {warmReceipt.ok
+            ? `All ${warmReceipt.steps.length} steps ok.`
+            : `${warmReceipt.steps.filter((s) => s.ok).length} of ${warmReceipt.steps.length} steps ok; the miss retries tomorrow at 5am.`}
+        </p>
+      )}
 
       <p className="-mt-4 text-sm text-muted-foreground leading-relaxed">
         Day-to-day decisions live on{" "}

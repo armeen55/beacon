@@ -40,6 +40,13 @@ export type AutopilotReceipt = {
   receiptLine: string;
   /** Push-path detail (adapter detail or the refusal reason). */
   detail: string;
+  /**
+   * Item 11 (additive): "ship" = a proven-lever auto-ship, "revert" = an
+   * automatic restore of a prior value. Absent on legacy receipts = ship.
+   * Reverts never consume the weekly SHIP budget (they are corrective and
+   * bounded per night by the revert pass itself).
+   */
+  kind?: "ship" | "revert";
 };
 
 export type AutopilotState = {
@@ -117,7 +124,8 @@ export async function appendAutopilotReceipt(receipt: AutopilotReceipt): Promise
   });
 }
 
-/** How many changes autopilot successfully shipped in the trailing window. */
+/** How many changes autopilot successfully shipped in the trailing window.
+ *  Reverts are corrective, not new ships - they never eat the weekly budget. */
 export function countAutoShippedInLastDays(
   state: Pick<AutopilotState, "receipts">,
   now: Date,
@@ -126,6 +134,7 @@ export function countAutoShippedInLastDays(
   const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000;
   return state.receipts.filter((r) => {
     if (r.result !== "pushed") return false;
+    if (r.kind === "revert") return false;
     const t = Date.parse(r.shippedAt);
     return Number.isFinite(t) && t >= cutoff;
   }).length;

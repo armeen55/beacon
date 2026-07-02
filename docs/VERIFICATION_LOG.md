@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 items 7, 10-13 (wave boundary at 13 of 610)
+
+**What changed:** item 7 crawl-to-citation-to-revenue funnel (real finding: 43 Iranopedia pages
+cited by AI, all stalled at cited-no-clicks; war-room band names the top 3); item 10 pipeline
+volume invariants after nightly sync (caught a true live violation: Profound stamping fresh syncs
+but 0 citation rows for 3 days; red Ops card on Today); item 11 rollback on negative verdicts
+(propose on /proof + bounded auto-revert under the armed autopilot policy; push_snapshots
+migration APPLIED to prod so snapshots survive lambda recycles); item 12 LLM final review on the
+nightly batch (one budgeted call through the existing structured-drafter egress, flags but never
+drops, live run 6/6 looks_right at ~$0.01); item 13 5am Pacific precompute cron (real warm pass
+21.8s, receipts persisted, /diagnostics line). vercel.json: precompute cron 12:03 UTC daily.
+
+**Verified:** typecheck 0; 300 targeted tests green across the slice; full suite in a clean shell
+plus build at this wave boundary (results in the commit message); prod smoke after push.
+
+---
+
 ## 2026-07-02 - BEACON 500 item 6: AI-referral sessions attributed to pages (ga4_ai_referral_daily)
 
 **What changed:** New `ga4_ai_referral_daily` Supabase table (PK tenant/page/day/source_domain,

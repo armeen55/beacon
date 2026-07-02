@@ -9,6 +9,9 @@ import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nig
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
 import { runRevenueFactsPass } from "@/domains/revenue/compute-unit-economics";
+import { checkPipelineInvariants } from "@/domains/ops/pipeline-invariants";
+import { gatherPipelineReadings } from "@/domains/ops/pipeline-readings";
+import { buildPipelineHealthRow, writePipelineHealth } from "@/domains/ops/pipeline-health-store";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -361,6 +364,32 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       });
     }
   }
+  // PHASE 3 - pipeline volume invariants (master plan item 10). AFTER every sync
+  // and enrichment step, assert each stage actually produced rows (GSC/GA4/Profound
+  // volume + 48h freshness, daily-plan candidates, demand-graph moves) and persist
+  // the result for the Today Ops card. This is the watchdog against the silent-empty
+  // failure class (/today once rendered blank for weeks), so it runs even past the
+  // enrichment deadline: ~12 tiny reads per tenant, $0, deterministic. Isolated
+  // try/catch per tenant - a watchdog failure never affects the sync result.
+  for (const t of tenants) {
+    try {
+      const readings = await gatherPipelineReadings(t.id);
+      const violations = checkPipelineInvariants(readings);
+      await writePipelineHealth(buildPipelineHealthRow(readings, violations));
+      if (violations.length > 0) {
+        log.warn("[cron-sync] pipeline invariants violated", {
+          tenantId: t.id,
+          stages: violations.map((v) => v.stage),
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] pipeline invariant check failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
   const ok = results.filter((r) => r.ok).length;
   const failed = results.length - ok;
   log.info("[cron-sync] complete", {

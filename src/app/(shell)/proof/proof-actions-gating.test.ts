@@ -18,6 +18,9 @@ const { operatorFlag, mocks } = vi.hoisted(() => ({
     upsertShippedChange: vi.fn(),
     loadPageSurgeonContext: vi.fn(),
     topPagesByDemand: vi.fn(),
+    evaluateRevertDecisionForRecord: vi.fn(),
+    runRevertForProofRecord: vi.fn(),
+    getAutopilotConfig: vi.fn(),
   },
 }));
 
@@ -42,11 +45,19 @@ vi.mock("@/domains/proof-gsc/shipped-change-store", () => ({
   loadShippedChanges: mocks.loadShippedChanges,
   upsertShippedChange: mocks.upsertShippedChange,
 }));
+vi.mock("@/domains/autopilot/run-revert", () => ({
+  evaluateRevertDecisionForRecord: mocks.evaluateRevertDecisionForRecord,
+  runRevertForProofRecord: mocks.runRevertForProofRecord,
+}));
+vi.mock("@/domains/autopilot/autopilot-store", () => ({
+  getAutopilotConfig: mocks.getAutopilotConfig,
+}));
 
 import {
   recordShippedChangeAction,
   recomputeProofLedgerAction,
   markRecrawlRequestedAction,
+  restoreOldVersionAction,
 } from "./actions";
 
 beforeEach(() => {
@@ -189,6 +200,87 @@ describe("recomputeProofLedgerAction — operator gating", () => {
     const res = await recomputeProofLedgerAction();
     expect(res.success).toBe(false);
     expect(mocks.loadShippedChanges).not.toHaveBeenCalled();
+  });
+});
+
+describe("restoreOldVersionAction - operator gating + server-derived eligibility (item 11)", () => {
+  const RECORD_ID = "/cities::2026-06-15";
+  const LESSON =
+    "That title change hurt the click rate, so I put the old title back on July 2. Lesson: this style of title is not working on pages like this.";
+
+  it("non-operator ⇒ refused, nothing evaluated or pushed", async () => {
+    operatorFlag.value = false;
+    const res = await restoreOldVersionAction({ id: RECORD_ID });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/operator/i);
+    expect(mocks.evaluateRevertDecisionForRecord).not.toHaveBeenCalled();
+    expect(mocks.runRevertForProofRecord).not.toHaveBeenCalled();
+  });
+
+  it("missing id ⇒ refused", async () => {
+    const res = await restoreOldVersionAction({ id: "  " });
+    expect(res.success).toBe(false);
+    expect(mocks.runRevertForProofRecord).not.toHaveBeenCalled();
+  });
+
+  it("eligibility is RE-DERIVED server side: a 'none' decision never pushes", async () => {
+    mocks.getAutopilotConfig.mockResolvedValue({ enabled: false });
+    mocks.evaluateRevertDecisionForRecord.mockResolvedValue({
+      record: { id: RECORD_ID },
+      decision: {
+        action: "none",
+        reason: "This change is not measuring negative, so there is nothing to put back.",
+        lessonLine: "",
+      },
+    });
+    const res = await restoreOldVersionAction({ id: RECORD_ID });
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("not measuring negative");
+    expect(mocks.runRevertForProofRecord).not.toHaveBeenCalled();
+  });
+
+  it("a proposable row executes through the revert executor with the lesson line", async () => {
+    mocks.getAutopilotConfig.mockResolvedValue({ enabled: false });
+    mocks.evaluateRevertDecisionForRecord.mockResolvedValue({
+      record: { id: RECORD_ID },
+      decision: { action: "propose", reason: "negative at 14", lessonLine: LESSON },
+    });
+    mocks.runRevertForProofRecord.mockResolvedValue({
+      ok: true,
+      code: "reverted",
+      detail: "updated field title",
+    });
+    const res = await restoreOldVersionAction({ id: RECORD_ID });
+    expect(res.success).toBe(true);
+    expect(mocks.runRevertForProofRecord).toHaveBeenCalledOnce();
+    const arg = mocks.runRevertForProofRecord.mock.calls[0][0];
+    expect(arg.recordId).toBe(RECORD_ID);
+    expect(arg.lessonLine).toBe(LESSON);
+    expect(arg.source).toBe("operator");
+  });
+
+  it("an executor refusal surfaces its plain detail", async () => {
+    mocks.getAutopilotConfig.mockResolvedValue({ enabled: false });
+    mocks.evaluateRevertDecisionForRecord.mockResolvedValue({
+      record: { id: RECORD_ID },
+      decision: { action: "propose", reason: "negative at 14", lessonLine: LESSON },
+    });
+    mocks.runRevertForProofRecord.mockResolvedValue({
+      ok: false,
+      code: "refused",
+      detail: "daily cap reached",
+    });
+    const res = await restoreOldVersionAction({ id: RECORD_ID });
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("daily cap reached");
+  });
+
+  it("unknown record ⇒ refused", async () => {
+    mocks.getAutopilotConfig.mockResolvedValue({ enabled: false });
+    mocks.evaluateRevertDecisionForRecord.mockResolvedValue(null);
+    const res = await restoreOldVersionAction({ id: RECORD_ID });
+    expect(res.success).toBe(false);
+    expect(mocks.runRevertForProofRecord).not.toHaveBeenCalled();
   });
 });
 

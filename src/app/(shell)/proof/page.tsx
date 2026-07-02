@@ -33,11 +33,21 @@ import {
 import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
+  findExistingRevertRecord,
+  hasRevertNote,
+  isRevertRecord,
+  liftLabelFor,
+  resolveRevertSource,
+} from "@/domains/autopilot/run-revert";
+import { decideRevert, type RevertDecision } from "@/domains/autopilot/revert-policy";
+import { getAutopilotConfig } from "@/domains/autopilot/autopilot-store";
+import {
   RecomputeLedgerButton,
   RecordAnyPageForm,
   RollbackCopyButton,
   RecrawlButton,
   ExcludeFromLearningButton,
+  RestoreOldVersionButton,
 } from "./proof-ledger-client";
 
 /**
@@ -158,6 +168,48 @@ export default async function ProofPage({
   const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
   const isOperator = await isOperatorModeServer();
   if (isOperator && dueNow.length > 0) scheduleAutoMeasure(tenantId);
+
+  // Item 11 - one-click restore offers for rows that are measuring negative
+  // (7/14/28 day reads). The shared revert policy decides propose vs auto;
+  // the snapshot lookup is bounded to the first few negatives. Rows already
+  // restored are badged instead. Operator-only (the action re-gates anyway).
+  const revertById = new Map<string, RevertDecision>();
+  const restoredIds = new Set(ledger.filter((l) => hasRevertNote(l)).map((l) => l.id));
+  if (isOperator) {
+    const negativeRows = ledger
+      .filter((l) => {
+        const p = presById.get(l.id);
+        return (
+          !!p &&
+          p.direction === "negative" &&
+          (p.basisDay ?? 0) >= 7 &&
+          !isRevertRecord(l) &&
+          !hasRevertNote(l) &&
+          findExistingRevertRecord(ledger, l) == null
+        );
+      })
+      .slice(0, 6);
+    if (negativeRows.length > 0) {
+      const autopilotConfig = await getAutopilotConfig().catch(() => null);
+      for (const rec of negativeRows) {
+        const p = presById.get(rec.id)!;
+        const source = await resolveRevertSource(tenantId, rec).catch(() => null);
+        const decision = decideRevert({
+          tenantId,
+          direction: p.direction,
+          windowDay: p.basisDay,
+          attributionQuality: p.attributionQuality,
+          lever: rec.actionType,
+          config: autopilotConfig,
+          snapshotAvailable: source != null,
+          alreadyReverted: false,
+          now: new Date(),
+          liftLabel: liftLabelFor(rec),
+        });
+        if (decision.action !== "none") revertById.set(rec.id, decision);
+      }
+    }
+  }
 
   // Phase 4 - deterministic ActionPack↔proof linker (pure, no migration). Each
   // shipped change is traced back to the Move that recommended it (or honestly
@@ -286,7 +338,7 @@ export default async function ProofPage({
               </p>
               <div className="mt-2 space-y-2.5">
                 {winRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="win" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
+                  <LedgerCard key={rec.id} rec={rec} band="win" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} />
                 ))}
               </div>
             </div>
@@ -303,7 +355,7 @@ export default async function ProofPage({
               </p>
               <div className="mt-2 space-y-2.5">
                 {learningRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="learning" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
+                  <LedgerCard key={rec.id} rec={rec} band="learning" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} />
                 ))}
               </div>
             </div>
@@ -320,7 +372,7 @@ export default async function ProofPage({
               </p>
               <div className="mt-2 space-y-2.5">
                 {inFlightRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="inflight" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
+                  <LedgerCard key={rec.id} rec={rec} band="inflight" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} />
                 ))}
               </div>
             </div>
@@ -463,7 +515,7 @@ const PLAIN_METRIC: Record<ProofMetric, string> = {
 
 type LedgerBand = "win" | "learning" | "inflight";
 
-function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[]; band?: LedgerBand }) {
+function LedgerCard({ rec, link, pres, spark, band, revert, restored }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[]; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -722,12 +774,30 @@ function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord
         </div>
       ) : null}
 
-      {/* Manual rollback: copy the before text back into the CMS. */}
-      {rec.before ? (
+      {/* Put the old version back (item 11): a restored row says so; a row that
+          is measuring negative with a saved snapshot gets the one-click restore
+          plus the lesson sentence; everything else keeps the manual copy fallback. */}
+      {restored ? (
+        <p className="mt-3 border-t border-border/40 pt-2.5 text-[11px] text-emerald-700">
+          The old version is back on this page. I recorded the restore as its own change and I am measuring it.
+        </p>
+      ) : revert ? (
+        <div className="mt-3 border-t border-border/40 pt-2.5">
+          <p className="text-[11px] text-foreground/75">{revert.reason}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <RestoreOldVersionButton recordId={rec.id} />
+            {revert.action === "auto_revert" ? (
+              <span className="text-[10px] text-muted-foreground">
+                Covered by your autopilot budget: I will put the old version back tonight if you do not.
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : rec.before ? (
         <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-2.5">
           <RollbackCopyButton before={rec.before} />
           <span className="text-[10px] text-muted-foreground">
-            Beacon never auto-reverts a live page.
+            To roll back by hand, paste this into your CMS.
           </span>
         </div>
       ) : null}
