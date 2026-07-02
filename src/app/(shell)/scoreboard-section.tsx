@@ -80,7 +80,7 @@ function Chart({ s }: { s: Scoreboard }) {
         return (
           <g key={m.date}>
             <line x1={xAt(i, n)} x2={xAt(i, n)} y1={y + 6} y2={H - PAD_B} stroke={MARKER_FILL[m.tone]} strokeOpacity="0.35" strokeDasharray="2 3" />
-            <circle cx={xAt(i, n)} cy={y} r={m.count > 1 ? 5 : 4} fill={MARKER_FILL[m.tone]} stroke="white" strokeWidth="1.5">
+            <circle cx={xAt(i, n)} cy={y} r={m.count > 1 ? 5 : 4} fill={MARKER_FILL[m.tone]} stroke="var(--background)" strokeWidth="1.5">
               <title>{`${monthDay(m.date)}: ${m.label}`}</title>
             </circle>
           </g>
@@ -113,34 +113,34 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
       ledger.map((r) => ({ path: r.path, shippedAt: r.shippedAt, actionType: r.actionType, verdict: r.verdict })),
     );
     if (!s) return null;
-    const deltaTone = s.deltaPct == null ? "text-gray-500" : s.deltaPct > 2 ? "text-emerald-600" : s.deltaPct < -2 ? "text-amber-600" : "text-gray-500";
+    const deltaTone = s.deltaPct == null ? "text-gray-500 dark:text-neutral-400" : s.deltaPct > 2 ? "text-emerald-600 dark:text-emerald-400" : s.deltaPct < -2 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400";
     return (
-      <section aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in">
+      <section aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div className="flex items-baseline gap-3">
             <span className="text-2xl font-semibold tabular-nums tracking-tight">{s.last7Clicks.toLocaleString()}</span>
-            <span className="text-xs text-gray-500">clicks, last 7 reported days</span>
+            <span className="text-xs text-gray-500 dark:text-neutral-400">clicks, last 7 reported days</span>
             {s.deltaPct != null ? (
               <span className={`text-sm font-semibold tabular-nums ${deltaTone}`}>
                 {s.deltaPct > 0 ? "+" : ""}{s.deltaPct}%
               </span>
             ) : null}
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-gray-400">
+          <div className="flex items-center gap-3 text-[11px] text-gray-400 dark:text-neutral-500">
             <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-4 rounded bg-indigo-600" /> 7 day average</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> change that won</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> measuring</span>
           </div>
         </div>
-        <div className="mt-2 text-gray-800">
+        <div className="mt-2 text-gray-800 dark:text-neutral-200">
           <Chart s={s} />
         </div>
-        <p className="mt-1 text-[13px] text-gray-600">{s.verdictLine}</p>
+        <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
         {citations.total > 0 ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 tabular-nums">
-            <span className="font-semibold text-pink-700">AI recommended you {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} in the last 30 days.</span>
+          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 dark:border-neutral-800 dark:text-neutral-300 tabular-nums">
+            <span className="font-semibold text-pink-700 dark:text-pink-300">AI recommended you {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} in the last 30 days.</span>
             {citations.daily.length >= 5 ? <Sparkline points={citations.daily} width={96} height={18} className="inline-block opacity-80" /> : null}
-            <span className="text-[11px] text-gray-400">citations of your pages in AI answers, per day</span>
+            <span className="text-[11px] text-gray-400 dark:text-neutral-500">citations of your pages in AI answers, per day</span>
           </div>
         ) : null}
       </section>

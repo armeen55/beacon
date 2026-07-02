@@ -17,10 +17,10 @@
 - [x]  14 [W3][P1/M] Design the roundtable like a real conversation: avatar chip on the left, claim as a
 - [x]  15 [W3][P1/M] Motion pass: streamed sections fade+rise in (Suspense boundaries already exist),
 - [x]  16 [W3][P1/S] Celebrate wins. When a verdict flips to won, the Results row and the Today recap get
-- [ ]  17 [W3][P1/M] Dark mode done properly across the new surfaces (the daily card's inline styles
+- [x]  17 [W3][P1/M] Dark mode done properly across the new surfaces (the daily card's inline styles
 - [x]  18 [W3][P0/S] Number formatting discipline: tabular-nums everywhere, thousands separators, "26.5k"
 - [ ]  19 [W3][P1/S] Iconography: one icon set (lucide), 16px, consistent stroke. Kill the mixed unicode
-- [ ]  20 [W3][P1/M] The header becomes a cockpit bar: business name, the scoreboard number (7-day clicks
+- [x]  20 [W3][P1/M] The header becomes a cockpit bar: business name, the scoreboard number (7-day clicks
 - [ ]  21 [W3][P2/M] Empty states designed: every self-hiding section gets a designed empty state when it
 - [ ]  22 [W3][P2/S] Consistent skeletons sized to real content for every Suspense boundary (worklist and
 - [ ]  23 [W3][P1/S] Focus + hover states on every interactive element (several buttons have none).
@@ -51,10 +51,10 @@
 - [x]  48 [W2][P1/M] Demand band links to action: each unowned-demand row gets "Draft this page" (routes
 - [ ]  49 [W3][P2/S] War room self-summarizes when quiet: "The team found nothing urgent beyond tonight's
 - [ ]  50 [W3][P1/M] "While you were away" block when the operator has not opened Beacon for 48h+: what
-- [ ]  51 [W3][P2/M] Make DataSourcesStrip the "team health" strip: same teammate identities, green dot
+- [x]  51 [W3][P2/M] Make DataSourcesStrip the "team health" strip: same teammate identities, green dot
 - [x]  52 [W3][P1/S] Remove the "Switch to Ritz Builders" pill from the header for daily use (move tenant
-- [ ]  53 [W3][P2/M] New Pages board on Today shows its 3 best only with "See all 9" into /worklist, so
-- [ ]  54 [W3][P1/S] Chart + hero must be dash-clean and jargon-clean (23 em/en dashes currently visible
+- [x]  53 [W3][P2/M] New Pages board on Today shows its 3 best only with "See all 9" into /worklist, so
+- [x]  54 [W3][P1/S] Chart + hero must be dash-clean and jargon-clean (23 em/en dashes currently visible
 - [x]  55 [W2][P0/M] Face-lift the row density: each row = identity chip of the lever, page name with
 - [x]  56 [W2][P1/S] "Tonight's 30 minutes" mode: a toggle that filters to the accepted plan + top ready
 - [x]  57 [W2][P1/S] Group by goal, not status, as the default view ("Win more clicks" / "Get cited by

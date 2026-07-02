@@ -32,27 +32,27 @@ const reasonCopy = (reason: string | null | undefined): string => failureForReas
 const SEARCH_CONSOLE_URL = "https://search.google.com/search-console";
 
 const STATUS_BADGE: Record<DailyExperimentItemStatus, string> = {
-  ready_to_apply: "bg-gray-50 text-gray-600 ring-gray-200",
-  verification_pending: "bg-blue-50 text-blue-700 ring-blue-200",
-  verification_failed: "bg-red-50 text-red-700 ring-red-200",
-  verified_live: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  activation_pending: "bg-blue-50 text-blue-700 ring-blue-200",
-  active: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  gsc_submission_pending: "bg-blue-50 text-blue-700 ring-blue-200",
-  gsc_submitted: "bg-teal-50 text-teal-700 ring-teal-200",
-  skipped: "bg-gray-50 text-gray-400 ring-gray-200",
-  rolled_back: "bg-gray-50 text-gray-400 ring-gray-200",
+  ready_to_apply: "bg-gray-50 text-gray-600 ring-gray-200 dark:bg-neutral-800/60 dark:text-neutral-300 dark:ring-neutral-700",
+  verification_pending: "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900",
+  verification_failed: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900",
+  verified_live: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900",
+  activation_pending: "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900",
+  active: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900",
+  gsc_submission_pending: "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900",
+  gsc_submitted: "bg-teal-50 text-teal-700 ring-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:ring-teal-900",
+  skipped: "bg-gray-50 text-gray-400 ring-gray-200 dark:bg-neutral-800/60 dark:text-neutral-500 dark:ring-neutral-700",
+  rolled_back: "bg-gray-50 text-gray-400 ring-gray-200 dark:bg-neutral-800/60 dark:text-neutral-500 dark:ring-neutral-700",
 };
 
 /** Shared design tokens (Tailwind class strings, same language as today-moves-card). */
-const CARD_CLS = "mb-3 rounded-2xl border border-gray-200 bg-white p-4";
-const LABEL_CLS = "text-[10px] font-semibold uppercase tracking-wide text-gray-400";
-const PASTE_CLS = "whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5 text-[13px] font-medium leading-relaxed text-gray-800";
-const BTN_PRIMARY = "rounded-lg bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-60";
-const BTN_SECONDARY = "rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-60";
-const BTN_GHOST = "text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-60";
-const BTN_SMALL = "mt-2 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-60";
-const LINK_CLS = "text-[13px] font-medium text-gray-600 underline underline-offset-2 transition-colors hover:text-gray-900";
+const CARD_CLS = "mb-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900";
+const LABEL_CLS = "text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500";
+const PASTE_CLS = "whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5 text-[13px] font-medium leading-relaxed text-gray-800 dark:border-neutral-800 dark:bg-neutral-800/60 dark:text-neutral-200";
+const BTN_PRIMARY = "rounded-lg bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300";
+const BTN_SECONDARY = "rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800";
+const BTN_GHOST = "text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-60 dark:text-neutral-500 dark:hover:text-neutral-300";
+const BTN_SMALL = "mt-2 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800";
+const LINK_CLS = "text-[13px] font-medium text-gray-600 underline underline-offset-2 transition-colors hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100";
 
 function StatusBadge({ status }: { status: DailyExperimentItemStatus }) {
   return (
@@ -72,7 +72,7 @@ function copyText(text: string, onDone: (m: string) => void) {
 function WrittenByBeacon({ e }: { e: PlannedExperimentRecord }) {
   if (e.draftSource !== "llm") return null;
   return (
-    <div className="mt-1 text-[11px] text-gray-400">
+    <div className="mt-1 text-[11px] text-gray-400 dark:text-neutral-500">
       Beacon wrote this{e.llmRationale ? `: ${e.llmRationale}` : ""}. Copy it and tweak as you like before you publish.
     </div>
   );
@@ -87,14 +87,14 @@ function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
   if (withData.length === 0) return null;
   return (
     <div className="tabular-nums">
-      <span className="text-gray-400">Keyword research: </span>
+      <span className="text-gray-400 dark:text-neutral-500">Keyword research: </span>
       {brief.addressableVolume != null
         ? `about ${brief.addressableVolume.toLocaleString()} searches a month across these`
         : "real search demand behind this"}
       <div className="mt-1 grid gap-0.5">
         {withData.map((k) => (
-          <div key={k.term} className="text-gray-600">
-            <span className="font-semibold text-gray-700">{k.term}</span>
+          <div key={k.term} className="text-gray-600 dark:text-neutral-300">
+            <span className="font-semibold text-gray-700 dark:text-neutral-300">{k.term}</span>
             {k.volume != null ? `: ${k.volume.toLocaleString()}/mo` : ": no volume on record"}
             {k.competition ? `, ${k.competition} competition` : ""}
           </div>
@@ -116,15 +116,15 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
   const clean = (s: string) => stripBannedDashes(humanizeDebateLine(s));
   const strategist = teammateOf("llm");
   return (
-    <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5">
+    <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5 dark:border-neutral-800 dark:bg-neutral-800/40">
       <div className="mb-1.5 flex items-center gap-2">
         <span className={LABEL_CLS}>Your team on this move</span>
         {t.consensusPct > 0 ? (
           <span className="inline-flex items-center gap-1.5" aria-label={`Team conviction ${t.consensusPct} percent`}>
-            <span className="inline-block h-1 w-14 overflow-hidden rounded-full bg-gray-200">
+            <span className="inline-block h-1 w-14 overflow-hidden rounded-full bg-gray-200 dark:bg-neutral-700">
               <span className="block h-full rounded-full" style={{ width: `${t.consensusPct}%`, background: t.consensusPct >= 75 ? "#059669" : t.consensusPct >= 50 ? "#4f46e5" : "#f59e0b" }} />
             </span>
-            <span className="text-[10px] font-semibold text-gray-400">
+            <span className="text-[10px] font-semibold text-gray-400 dark:text-neutral-500">
               {t.consensusPct >= 75 ? "high" : t.consensusPct >= 50 ? "medium" : "cautious"} conviction
             </span>
           </span>
@@ -135,7 +135,7 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
           const id = teammateOf(v.specialist);
           const initial = id.short.length <= 2 ? id.short : id.short.slice(0, 1);
           return (
-            <div key={`${v.specialist}-${i}`} className="flex items-start gap-2 text-[13px] leading-relaxed text-gray-700">
+            <div key={`${v.specialist}-${i}`} className="flex items-start gap-2 text-[13px] leading-relaxed text-gray-700 dark:text-neutral-300">
               <span
                 aria-hidden="true"
                 className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold"
@@ -149,7 +149,7 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
                   {v.confidencePct > 0 ? (
                     <span
                       aria-label={`${v.label} conviction ${v.confidencePct} percent`}
-                      className="inline-block h-[2px] w-14 max-w-[56px] overflow-hidden rounded-full bg-gray-200"
+                      className="inline-block h-[2px] w-14 max-w-[56px] overflow-hidden rounded-full bg-gray-200 dark:bg-neutral-700"
                     >
                       <span className="block h-full rounded-full" style={{ width: `${v.confidencePct}%`, background: id.color }} />
                     </span>
@@ -161,26 +161,26 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
           );
         })}
         {t.objections.map((o, i) => (
-          <div key={`ob-${i}`} className="ml-7 border-l-2 border-amber-200 pl-2 text-[13px] leading-relaxed text-amber-700">
+          <div key={`ob-${i}`} className="ml-7 border-l-2 border-amber-200 pl-2 text-[13px] leading-relaxed text-amber-700 dark:border-amber-800 dark:text-amber-300">
             <span className="font-semibold">{o.label} pushed back:</span> {clean(o.reason)}
           </div>
         ))}
         {/* Item 33 - disagreement is a feature: when voices conflicted, say how it resolved.
             Styled as the quiet footer of the reply thread. */}
         {t.objections.length > 0 && t.voices.length > 0 ? (
-          <div className="ml-7 border-l-2 border-gray-100 pl-2 text-[12px] leading-relaxed text-gray-500">
+          <div className="ml-7 border-l-2 border-gray-100 pl-2 text-[12px] leading-relaxed text-gray-500 dark:border-neutral-800 dark:text-neutral-400">
             {clean(t.voices[0]!.label)} says go, {clean(t.objections[0]!.label)} raised a concern.
             The team went ahead because the concern stayed below the veto line, it lowered this pick&apos;s priority instead of blocking it.
           </div>
         ) : null}
       </div>
       {t.verdict ? (
-        <div className="mt-2 border-t border-gray-200 pt-1.5 text-[13px] leading-relaxed text-gray-700">
+        <div className="mt-2 border-t border-gray-200 pt-1.5 text-[13px] leading-relaxed text-gray-700 dark:border-neutral-700 dark:text-neutral-300">
           <span className="font-semibold" style={{ color: strategist.text }}>Verdict:</span> {clean(t.verdict)}
         </div>
       ) : null}
       {t.whyNot ? (
-        <div className="mt-1 text-[11px] text-gray-400">
+        <div className="mt-1 text-[11px] text-gray-400 dark:text-neutral-500">
           Also weighed: {clean(t.whyNot)}
         </div>
       ) : null}
@@ -194,9 +194,9 @@ function ExpectationLines({ e }: { e: PlannedExperimentRecord }) {
   const x = e.expectations;
   if (!x) return null;
   return (
-    <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-600 tabular-nums">
-      {x.forecast ? <div><span className="font-semibold text-gray-500">If it works: </span>{stripBannedDashes(x.forecast).replace(/^If this works: /, "")}</div> : null}
-      <div><span className="font-semibold text-gray-500">What would change our mind: </span>{stripBannedDashes(x.changeOurMind)}</div>
+    <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-600 tabular-nums dark:text-neutral-300">
+      {x.forecast ? <div><span className="font-semibold text-gray-500 dark:text-neutral-400">If it works: </span>{stripBannedDashes(x.forecast).replace(/^If this works: /, "")}</div> : null}
+      <div><span className="font-semibold text-gray-500 dark:text-neutral-400">What would change our mind: </span>{stripBannedDashes(x.changeOurMind)}</div>
     </div>
   );
 }
@@ -207,7 +207,7 @@ function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
   if (!serp || serp.winningDomains.length === 0) return null;
   return (
     <div>
-      <span className="text-gray-400">What wins on Google now: </span>
+      <span className="text-gray-400 dark:text-neutral-500">What wins on Google now: </span>
       {serp.format} pages, led by {serp.winningDomains.join(", ")}.
       {serp.whatToDo ? <> {stripBannedDashes(serp.whatToDo)}</> : null}
     </div>
@@ -220,7 +220,7 @@ function CompetitorSteal({ e }: { e: PlannedExperimentRecord }) {
   if (!c || !c.whatToSteal) return null;
   return (
     <div>
-      <span className="text-gray-400">Who is beating you: </span>
+      <span className="text-gray-400 dark:text-neutral-500">Who is beating you: </span>
       {c.domain}. Steal this: {stripBannedDashes(c.whatToSteal)}.
     </div>
   );
@@ -234,20 +234,20 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
     : null;
   return (
     <details className="mt-3">
-      <summary className="cursor-pointer text-[11px] font-medium text-gray-400 transition-colors hover:text-gray-600">How we know</summary>
-      <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-700 tabular-nums">
-        <div><span className="text-gray-400">The search people use: </span>“{e.targetQuery}”</div>
+      <summary className="cursor-pointer text-[11px] font-medium text-gray-400 transition-colors hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300">How we know</summary>
+      <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-700 tabular-nums dark:text-neutral-300">
+        <div><span className="text-gray-400 dark:text-neutral-500">The search people use: </span>“{e.targetQuery}”</div>
         <KeywordResearch e={e} />
         <SerpReaction e={e} />
         <CompetitorSteal e={e} />
-        <div><span className="text-gray-400">On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
+        <div><span className="text-gray-400 dark:text-neutral-500">On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
         {detailLine && <div>{detailLine}</div>}
         {e.controls.length > 0 && (
-          <div><span className="text-gray-400">Compared against {e.controls.length} similar page{e.controls.length === 1 ? "" : "s"}: </span>{e.controls.map((c) => c.controlPath).join(", ")}</div>
+          <div><span className="text-gray-400 dark:text-neutral-500">Compared against {e.controls.length} similar page{e.controls.length === 1 ? "" : "s"}: </span>{e.controls.map((c) => c.controlPath).join(", ")}</div>
         )}
-        <div><span className="text-gray-400">Left untouched: </span>{e.leaveUnchanged.join(", ")}</div>
-        <div><span className="text-gray-400">How I measure: </span>a first read about a week after it is live, confirmed again at two and four weeks.</div>
-        {steps && <div><span className="text-gray-400">Exact steps: </span>{steps}</div>}
+        <div><span className="text-gray-400 dark:text-neutral-500">Left untouched: </span>{e.leaveUnchanged.join(", ")}</div>
+        <div><span className="text-gray-400 dark:text-neutral-500">How I measure: </span>a first read about a week after it is live, confirmed again at two and four weeks.</div>
+        {steps && <div><span className="text-gray-400 dark:text-neutral-500">Exact steps: </span>{steps}</div>}
       </div>
     </details>
   );
@@ -262,10 +262,10 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
     <div className={CARD_CLS}>
       <div className="flex items-baseline justify-between gap-2">
         <span className={LABEL_CLS}>The move</span>
-        <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}{e.expectations ? ` · ${e.expectations.effort}` : ""}</span>
+        <span className="text-[11px] text-gray-400 dark:text-neutral-500">{LEVER_LABEL[e.lever] ?? e.lever}{e.expectations ? ` · ${e.expectations.effort}` : ""}</span>
       </div>
-      <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900">{moveHeadline(e)}</strong>
-      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+      <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900 dark:text-neutral-100">{moveHeadline(e)}</strong>
+      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400 dark:text-neutral-500">
         <span>{e.url}</span>
         {spark && spark.length >= 5 ? <Sparkline points={spark} width={64} height={16} className="inline-block opacity-75" /> : null}
       </div>
@@ -273,7 +273,7 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
       {why ? (
         <>
           <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Why it wins</div>
-          <div className="text-[13px] leading-relaxed text-gray-700">{why}</div>
+          <div className="text-[13px] leading-relaxed text-gray-700 dark:text-neutral-300">{why}</div>
         </>
       ) : null}
       <TeamRoundtable e={e} />
@@ -284,9 +284,9 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
       <WrittenByBeacon e={e} />
       <button type="button" className={BTN_SMALL} onClick={() => copyText(paste, setMsg)}>Copy</button>
 
-      <div className="mt-3 text-[13px] leading-relaxed text-gray-600 tabular-nums">{trackingLine(e.controls.length)}</div>
+      <div className="mt-3 text-[13px] leading-relaxed text-gray-600 tabular-nums dark:text-neutral-300">{trackingLine(e.controls.length)}</div>
       <HowWeKnow e={e} />
-      {msg && <div role="status" aria-live="polite" className="mt-2 text-[11px] text-gray-500">{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-2 text-[11px] text-gray-500 dark:text-neutral-400">{msg}</div>}
     </div>
   );
 }
@@ -342,12 +342,12 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       <div className="flex items-center justify-between gap-2">
         <span className={LABEL_CLS}>The move</span>
         <span className="flex items-center gap-2">
-          <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}{e.expectations ? ` · ${e.expectations.effort}` : ""}</span>
+          <span className="text-[11px] text-gray-400 dark:text-neutral-500">{LEVER_LABEL[e.lever] ?? e.lever}{e.expectations ? ` · ${e.expectations.effort}` : ""}</span>
           <StatusBadge status={status} />
         </span>
       </div>
-      <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900">{moveHeadline(e)}</strong>
-      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+      <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900 dark:text-neutral-100">{moveHeadline(e)}</strong>
+      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400 dark:text-neutral-500">
         <span>{e.url}</span>
         {spark && spark.length >= 5 ? <Sparkline points={spark} width={64} height={16} className="inline-block opacity-75" /> : null}
       </div>
@@ -355,7 +355,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       {why ? (
         <>
           <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Why it wins</div>
-          <div className="text-[13px] leading-relaxed text-gray-700">{why}</div>
+          <div className="text-[13px] leading-relaxed text-gray-700 dark:text-neutral-300">{why}</div>
         </>
       ) : null}
       <TeamRoundtable e={e} />
@@ -376,7 +376,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       <WrittenByBeacon e={e} />
 
       {failure && (
-        <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[13px] leading-relaxed text-red-800">
+        <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[13px] leading-relaxed text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           <strong>I couldn’t confirm this change on the live page.</strong> ({failure.reason})<br />
           {failure.expected && <>Expected: {failure.expected}<br /></>}
           {failure.observed && <>Found instead: {failure.observed}<br /></>}
@@ -386,10 +386,10 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
 
       {isActive ? (
         status === "gsc_submitted" ? (
-          <div className="mt-3 text-[13px] text-teal-600">✓ Live and tracking. You told Google to re-check, so results should come in faster.</div>
+          <div className="mt-3 text-[13px] text-teal-600 dark:text-teal-400">✓ Live and tracking. You told Google to re-check, so results should come in faster.</div>
         ) : (
           <div className="mt-3">
-            <div className="mb-1.5 text-[13px] text-emerald-600 tabular-nums">{trackingLine(item.activeControls > 0 ? item.activeControls : item.reservedControls)}</div>
+            <div className="mb-1.5 text-[13px] text-emerald-600 tabular-nums dark:text-emerald-400">{trackingLine(item.activeControls > 0 ? item.activeControls : item.reservedControls)}</div>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(e.url, setMsg)} className={BTN_SECONDARY}>Copy URL</button>
               <a href={SEARCH_CONSOLE_URL} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>Open Search Console</a>
@@ -398,7 +398,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
           </div>
         )
       ) : status === "skipped" ? (
-        <div className="mt-3 text-[13px] text-gray-500">Set aside. Its comparison pages were freed up and nothing changed.</div>
+        <div className="mt-3 text-[13px] text-gray-500 dark:text-neutral-400">Set aside. Its comparison pages were freed up and nothing changed.</div>
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(text, setMsg)} className={BTN_SECONDARY}>Copy</button>
@@ -409,7 +409,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       )}
 
       <HowWeKnow e={e} steps={item.instructions} />
-      {msg && <div role="status" aria-live="polite" className="mt-2 text-[11px] text-gray-500">{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-2 text-[11px] text-gray-500 dark:text-neutral-400">{msg}</div>}
     </div>
   );
 }
@@ -431,15 +431,15 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
     <div>
       {total > 0 ? (
         <div className="mb-3 tabular-nums">
-          <div className="mb-1 text-[11px] font-semibold text-gray-500">Tonight: {applied} of {total} applied</div>
+          <div className="mb-1 text-[11px] font-semibold text-gray-500 dark:text-neutral-400">Tonight: {applied} of {total} applied</div>
           <div className="flex gap-[2px]" role="img" aria-label={`Tonight: ${applied} of ${total} applied`}>
             {Array.from({ length: total }, (_, i) => (
-              <span key={i} className={`h-[6px] flex-1 rounded-full ${i < applied ? "bg-emerald-500" : "bg-gray-200"}`} />
+              <span key={i} className={`h-[6px] flex-1 rounded-full ${i < applied ? "bg-emerald-500" : "bg-gray-200 dark:bg-neutral-700"}`} />
             ))}
           </div>
         </div>
       ) : null}
-      <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 tabular-nums">
+      <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 tabular-nums dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
         <strong>Today’s changes.</strong> {s.active} live and tracking, {s.submitted} sent to Google, {s.left} left to apply.<br />
         Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped.
         {s.left > 0 ? (
@@ -468,10 +468,10 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
       {s.left === 0 && s.accepted > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={pending} aria-busy={pending} onClick={finish} className={BTN_PRIMARY}>{pending ? "Wrapping up..." : "Finish for today"}</button>
-          <span className="text-[11px] text-gray-400">Closes today’s set so you can start fresh tomorrow. Tracking keeps running.</span>
+          <span className="text-[11px] text-gray-400 dark:text-neutral-500">Closes today’s set so you can start fresh tomorrow. Tracking keeps running.</span>
         </div>
       )}
-      {msg && <div role="status" aria-live="polite" className="mt-3 text-[13px] text-gray-500">{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-3 text-[13px] text-gray-500 dark:text-neutral-400">{msg}</div>}
     </div>
   );
 }
@@ -482,7 +482,7 @@ function QualityLine({ summary }: { summary: DailyExperimentsView["qualitySummar
   const parts: string[] = [`✓ All ${summary.passed} passed today’s quality checks`];
   if (summary.cautioned > 0) parts.push(`${summary.cautioned} with a note`);
   if (summary.flagged > 0) parts.push(`${summary.flagged} held back`);
-  return <div className="mt-1 text-[11px] font-medium text-emerald-600 tabular-nums">{parts.join(" · ")}</div>;
+  return <div className="mt-1 text-[11px] font-medium text-emerald-600 tabular-nums dark:text-emerald-400">{parts.join(" · ")}</div>;
 }
 
 export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }) {
@@ -521,15 +521,15 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
 
   const b = dashboard.activeProofBatch;
   return (
-    <section className="my-4 rounded-2xl border border-gray-200 bg-white p-4">
-      <h2 className="mb-2 text-[15px] font-semibold text-gray-900">Today’s changes</h2>
+    <section className="my-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="mb-2 text-[15px] font-semibold text-gray-900 dark:text-neutral-100">Today’s changes</h2>
 
       {b && (
-        <div className="mb-3 text-sm leading-relaxed text-gray-700 tabular-nums">
+        <div className="mb-3 text-sm leading-relaxed text-gray-700 tabular-nums dark:text-neutral-300">
           <div><strong>{b.label}</strong> is live. I’m tracking {b.experimentCount} change{b.experimentCount === 1 ? "" : "s"} against {b.controlCount} similar page{b.controlCount === 1 ? "" : "s"}.</div>
-          <div className="text-gray-500">First results around {b.nextCheckpoint}. Reliable Google data around {b.reliableDataDate}.</div>
+          <div className="text-gray-500 dark:text-neutral-400">First results around {b.nextCheckpoint}. Reliable Google data around {b.reliableDataDate}.</div>
           {view.protectedWarning && (
-            <div className="mt-1.5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">⚠ {view.protectedWarning}</div>
+            <div className="mt-1.5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">⚠ {view.protectedWarning}</div>
           )}
         </div>
       )}
@@ -538,12 +538,12 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
         <ExecutionChecklistView checklist={checklist} sparklineByUrl={view.sparklineByUrl} />
       ) : preview ? (
         <div>
-          <div className="mb-2 text-sm leading-relaxed text-gray-700 tabular-nums">
+          <div className="mb-2 text-sm leading-relaxed text-gray-700 tabular-nums dark:text-neutral-300">
             <strong>Here’s what I’d do today.</strong> {preview.selected.length} change{preview.selected.length === 1 ? "" : "s"}, about {preview.estimatedMinutes} min. Review and approve the ones you like.
             <QualityLine summary={qualitySummary} />
           </div>
           {preview.selected.map((e) => <PreviewCard key={e.id} e={e} spark={view.sparklineByUrl[e.url]} />)}
-          {preview.backups.length > 0 && <div className="text-[11px] text-gray-400">A few more in reserve: {preview.backups.map((e) => e.pageLabel).join(", ")}</div>}
+          {preview.backups.length > 0 && <div className="text-[11px] text-gray-400 dark:text-neutral-500">A few more in reserve: {preview.backups.map((e) => e.pageLabel).join(", ")}</div>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" disabled={pending} aria-busy={pending} onClick={() => accept(preview)} className={`${BTN_PRIMARY} min-w-[130px]`}>{pending ? "Working..." : "Approve these"}</button>
             <button type="button" disabled={pending} aria-busy={pending} onClick={() => plan()} className={BTN_SECONDARY}>Suggest different ones</button>
@@ -554,7 +554,7 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
         <button type="button" disabled={pending} aria-busy={pending} onClick={plan} className={BTN_PRIMARY}>{pending ? "Thinking..." : "Show me today’s changes"}</button>
       )}
 
-      {msg && <div role="status" aria-live="polite" className="mt-3 text-[13px] text-gray-500">{msg}</div>}
+      {msg && <div role="status" aria-live="polite" className="mt-3 text-[13px] text-gray-500 dark:text-neutral-400">{msg}</div>}
     </section>
   );
 }

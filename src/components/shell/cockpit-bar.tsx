@@ -1,0 +1,61 @@
+import "server-only";
+
+/**
+ * CockpitBar (FINAL PREMIUM PLAN item 20) - the header becomes a cockpit: business name,
+ * the scoreboard number (7-day clicks + delta), an honest data-freshness dot, and the one
+ * primary action. Server component composed into the client AppHeader via rightSlot.
+ * Fail-soft: any load error renders nothing (the header never breaks).
+ */
+
+import Link from "next/link";
+import { currentTenantId } from "@/lib/tenant-context";
+import { getTenant } from "@/domains/tenants/store";
+import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { formatMetric, formatMetricCompact, formatDeltaPct } from "@/lib/format-metric";
+
+const DAY_MS = 86_400_000;
+
+export async function CockpitBar() {
+  try {
+    const tenantId = await currentTenantId();
+    const [tenant, daily] = await Promise.all([
+      getTenant(tenantId).catch(() => null),
+      loadDailyTotalsForTenant(tenantId, 21).catch(() => []),
+    ]);
+    const rows = [...daily].sort((a, b) => a.date.localeCompare(b.date));
+    if (rows.length < 8) return null;
+    const last7 = rows.slice(-7).reduce((s, r) => s + (r.clicks || 0), 0);
+    const prior7 = rows.slice(-14, -7).reduce((s, r) => s + (r.clicks || 0), 0);
+    const deltaPct = prior7 > 0 ? ((last7 - prior7) / prior7) * 100 : null;
+    const lastDate = rows[rows.length - 1]!.date;
+    const lagDays = Math.round((Date.now() - Date.parse(lastDate + "T00:00:00Z")) / DAY_MS);
+    // Honest freshness: Google reports 2-3 days behind by design, so <= 4 days is healthy.
+    const dot = lagDays <= 4 ? "bg-emerald-500" : lagDays <= 7 ? "bg-amber-500" : "bg-red-500";
+    const dotTitle =
+      lagDays <= 4
+        ? `Search data current through ${lastDate} (Google reports a few days behind - this is healthy)`
+        : `Search data stops at ${lastDate} (${lagDays} days ago) - the connection may need attention`;
+    const deltaTone = deltaPct == null ? "text-gray-400" : deltaPct > 2 ? "text-emerald-600" : deltaPct < -2 ? "text-amber-600" : "text-gray-400";
+    return (
+      <div className="flex items-center gap-3 text-[12px] tabular-nums">
+        {tenant?.business_name ? (
+          <span className="hidden font-semibold text-foreground sm:inline">{tenant.business_name}</span>
+        ) : null}
+        <span className="inline-flex items-center gap-1.5" title={`${formatMetric(last7)} clicks in the last 7 reported days`}>
+          <span className={`inline-block h-2 w-2 rounded-full ${dot}`} title={dotTitle} />
+          <span className="font-semibold text-foreground">{formatMetricCompact(last7)}</span>
+          <span className="text-muted-foreground">clicks/7d</span>
+          {deltaPct != null ? <span className={`font-semibold ${deltaTone}`}>{formatDeltaPct(deltaPct)}</span> : null}
+        </span>
+        <Link
+          href="/worklist"
+          className="rounded-md bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+        >
+          Tonight&apos;s changes
+        </Link>
+      </div>
+    );
+  } catch {
+    return null;
+  }
+}

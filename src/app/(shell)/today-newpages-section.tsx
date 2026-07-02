@@ -12,7 +12,7 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
  * Read-only, tenant-agnostic; self-hides when there are none.
  */
 
-export async function TodayNewPagesSection({ enableAeoBrief = false }: { enableAeoBrief?: boolean } = {}) {
+export async function TodayNewPagesSection({ enableAeoBrief = false, limit }: { enableAeoBrief?: boolean; limit?: number } = {}) {
   let data;
   try {
     data = await loadNewPagesData();
@@ -23,6 +23,8 @@ export async function TodayNewPagesSection({ enableAeoBrief = false }: { enableA
 
   const operator = await isOperatorModeServer();
   const preparedCount = data.opportunities.filter((o) => o.preparedVerdict).length;
+  // Item 53 - Today shows only the 3 best; the full board lives on /worklist.
+  const shown = limit ? data.opportunities.slice(0, limit) : data.opportunities;
 
   return (
     <section id="new-pages" className="rounded-3xl border border-gray-200 bg-gradient-to-br from-emerald-50/40 via-white to-gray-50 p-6 shadow-sm">
@@ -35,8 +37,16 @@ export async function TodayNewPagesSection({ enableAeoBrief = false }: { enableA
           </p>
         </div>
         <div className="flex items-start gap-2">
-          {operator ? <NewPagesPrepareButton alreadyPrepared={preparedCount} total={data.opportunities.length} /> : null}
-          {data.totalCandidates > data.opportunities.length ? (
+          {operator && !limit ? <NewPagesPrepareButton alreadyPrepared={preparedCount} total={data.opportunities.length} /> : null}
+          {limit && data.opportunities.length > limit ? (
+            <Link
+              href="/worklist#new-pages"
+              className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
+            >
+              See all {data.opportunities.length} →
+            </Link>
+          ) : null}
+          {!limit && data.totalCandidates > data.opportunities.length ? (
             <Link
               href="/diagnostics/rank-revenue"
               className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
@@ -48,7 +58,7 @@ export async function TodayNewPagesSection({ enableAeoBrief = false }: { enableA
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {data.opportunities.map((o) => (
+        {shown.map((o) => (
           <NewPageCard key={o.id} o={o} ownDomain={data.ownDomain} enableAeoBrief={enableAeoBrief} />
         ))}
       </div>

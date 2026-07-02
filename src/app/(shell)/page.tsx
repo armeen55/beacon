@@ -175,7 +175,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <Suspense fallback={null}><FrictionFixesSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={null}><AiCrawlerSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={null}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
-        <Suspense fallback={null}><TodayNewPagesSection /></Suspense>
+        <Suspense fallback={null}><TodayNewPagesSection limit={3} /></Suspense>
       </section>
 
       {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}

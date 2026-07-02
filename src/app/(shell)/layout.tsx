@@ -3,6 +3,8 @@ export const dynamic = "force-dynamic"; // shell layout reads tenant context (Su
 import { ShellProvider, type NavBadges } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { Suspense } from "react";
+import { CockpitBar } from "@/components/shell/cockpit-bar";
 import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
 import { DemoBannerGate } from "@/components/shell/demo-banner";
@@ -226,7 +228,7 @@ export default async function ShellLayout({
         <AppSidebar isOperator={isOperator} />
         <MobileSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <AppHeader />
+          <AppHeader rightSlot={<Suspense fallback={null}><CockpitBar /></Suspense>} />
           <main
             id="main-content"
             aria-label="Main content"

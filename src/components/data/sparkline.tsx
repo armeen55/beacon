@@ -42,7 +42,7 @@ export function Sparkline({
         <rect x={x(mi)} y={1} width={Math.max(0, width - 1 - x(mi))} height={height - 2} fill="#6366f1" opacity="0.07" rx="2" />
       ) : null}
       <path d={d} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
-      {mi >= 0 ? <circle cx={x(mi)} cy={y(pts[mi]!.clicks)} r="2.5" fill="#4f46e5" stroke="white" strokeWidth="1" /> : null}
+      {mi >= 0 ? <circle cx={x(mi)} cy={y(pts[mi]!.clicks)} r="2.5" fill="#4f46e5" stroke="var(--background)" strokeWidth="1" /> : null}
     </svg>
   );
 }

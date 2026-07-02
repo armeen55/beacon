@@ -124,7 +124,7 @@ describe("DataSourcesStripView — connected state", () => {
 });
 
 describe("DataSourcesStripView — needs_attention state", () => {
-  it("renders a ⚠ treatment (not the success ✓) with the reason for a connected-but-not-delivering source", () => {
+  it("renders an amber-dot treatment (not the success state) with the reason for a connected-but-not-delivering source", () => {
     const html = render({
       google_ga4: {
         health: "needs_attention",
@@ -137,7 +137,8 @@ describe("DataSourcesStripView — needs_attention state", () => {
       "Connected — pick your Analytics property to start pulling data.",
     );
     // Warning glyph present; the success glyph must NOT be used for this source.
-    expect(html).toContain("⚠");
+    // Item 51 redesign: the warning is a colored status DOT (amber), not a unicode glyph.
+    expect(html).toContain("bg-status-warning");
     // Accessible name says "needs attention" + the reason — never "connected".
     expect(html).toContain('aria-label="Google Analytics 4: needs attention.');
     expect(html).not.toContain('aria-label="Google Analytics 4: connected"');

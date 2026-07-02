@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { teammateOf } from "@/domains/team/identity";
 
 import {
   getConnectorHealth,
@@ -77,6 +78,23 @@ const DATA_SOURCES: readonly DataSource[] = [
   { provider: "profound", label: "AI Answers", cardAnchor: "profound" },
   { provider: "wix", label: "Wix", cardAnchor: "wix" },
 ] as const;
+
+// Item 51 - the strip speaks in TEAMMATE identities: each source renders its teammate's
+// color dot, so the team health strip and the roundtable share one visual language.
+const TEAMMATE_KEY: Partial<Record<ConnectorProvider, string>> = {
+  google_gsc: "gsc",
+  google_ga4: "ga4",
+  clarity: "clarity",
+  profound: "profound",
+  wix: "wix",
+};
+
+/** Auth-dead detection: a needs_attention reason that means the connection itself is broken
+ *  (expired/revoked/invalid) renders RED with a one-click reconnect, not a soft amber. */
+function isAuthDead(reason: string | null): boolean {
+  if (!reason) return false;
+  return /expired|revoked|invalid|reconnect|unauthorized|sign in again/i.test(reason);
+}
 
 const CONNECTORS_PATH = "/settings/connectors";
 
@@ -238,8 +256,9 @@ export function DataSourcesStripView({
                 title={automated}
                 aria-label={`${source.label}: connected${lastSynced ? `, ${lastSynced}` : ""}`}
               >
-                <span aria-hidden="true" className="text-status-success">
-                  ✓
+                <span aria-hidden="true" className="inline-flex items-center gap-1">
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: teammateOf(TEAMMATE_KEY[source.provider] ?? "llm").color }} />
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-success" />
                 </span>
                 <span className="font-medium">{source.label}</span>
                 {lastSynced ? (
@@ -258,12 +277,16 @@ export function DataSourcesStripView({
                 aria-label={`${source.label}: needs attention. ${healthReason ?? ""}`.trim()}
                 className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-status-warning/50 bg-status-warning/[0.08] px-3 py-2 text-[12px] text-foreground transition-colors hover:border-status-warning/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-warning/40"
               >
-                <span aria-hidden="true" className="text-status-warning">
-                  ⚠
+                <span aria-hidden="true" className="inline-flex items-center gap-1">
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: teammateOf(TEAMMATE_KEY[source.provider] ?? "llm").color }} />
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${isAuthDead(healthReason) ? "bg-status-danger" : "bg-status-warning"}`} />
                 </span>
                 <span className="font-medium">{source.label}</span>
                 {healthReason ? (
                   <span className="text-muted-foreground">· {healthReason}</span>
+                ) : null}
+                {isAuthDead(healthReason) ? (
+                  <span className="font-semibold text-status-danger">Reconnect →</span>
                 ) : null}
               </Link>
             ) : (

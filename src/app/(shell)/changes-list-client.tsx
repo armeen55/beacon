@@ -21,7 +21,7 @@ import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 
 const STRATEGIES: { id: Strategy; label: string; hint: string }[] = [
   { id: "balanced", label: "Balanced", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
-  { id: "growth", label: "Growth first", hint: "Prioritize impact, even when proof will be less controlled." },
+  { id: "growth", label: "Growth first", hint: "Prioritize impact, even when the proof will be less exact." },
   { id: "clean", label: "Clean tests", hint: "Only changes Beacon can measure most confidently." },
 ];
 const TABS: { id: StatusView; label: string }[] = [
@@ -34,29 +34,29 @@ const GOALS: { id: Goal; label: string }[] = [
 
 // State is communicated by TEXT (the chip label) + BORDER, never color alone (WCAG).
 const STATUS_CHIP: Record<CanonicalChange["status"], { label: string; cls: string }> = {
-  suggested: { label: "To do", cls: "border border-gray-200 bg-gray-100 text-gray-600" },
-  ready: { label: "Ready", cls: "border border-sky-200 bg-sky-100 text-sky-700" },
-  apply: { label: "Apply in Wix", cls: "border border-amber-200 bg-amber-100 text-amber-700" },
-  verify: { label: "Verifying", cls: "border border-blue-200 bg-blue-100 text-blue-700" },
-  measuring: { label: "Measuring", cls: "border border-emerald-200 bg-emerald-100 text-emerald-700" },
-  result: { label: "Result", cls: "border border-violet-200 bg-violet-100 text-violet-700" },
-  blocked: { label: "Wait", cls: "border border-gray-200 bg-gray-100 text-gray-500" },
-  skipped: { label: "Skipped", cls: "border border-gray-200 bg-gray-100 text-gray-400" },
+  suggested: { label: "To do", cls: "border border-gray-200 bg-gray-100 text-gray-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300" },
+  ready: { label: "Ready", cls: "border border-sky-200 bg-sky-100 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300" },
+  apply: { label: "Apply in Wix", cls: "border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" },
+  verify: { label: "Verifying", cls: "border border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300" },
+  measuring: { label: "Measuring", cls: "border border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" },
+  result: { label: "Result", cls: "border border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300" },
+  blocked: { label: "Wait", cls: "border border-gray-200 bg-gray-100 text-gray-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400" },
+  skipped: { label: "Skipped", cls: "border border-gray-200 bg-gray-100 text-gray-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500" },
 };
-const EVIDENCE_CLS: Record<string, string> = { strong: "text-emerald-600", directional: "text-amber-600", tracking: "text-gray-500" };
+const EVIDENCE_CLS: Record<string, string> = { strong: "text-emerald-600 dark:text-emerald-400", directional: "text-amber-600 dark:text-amber-400", tracking: "text-gray-500 dark:text-neutral-400" };
 
 // Item 55 - one identity chip per lever family so rows scan by shape, not by reading.
 const FAMILY_CHIP: Record<string, { label: string; cls: string }> = {
-  meta: { label: "Description", cls: "bg-sky-50 text-sky-700 ring-sky-200" },
-  title: { label: "Title", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200" },
-  title_meta: { label: "Title + description", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200" },
-  h1: { label: "Headline", cls: "bg-violet-50 text-violet-700 ring-violet-200" },
-  answer: { label: "Direct answer", cls: "bg-pink-50 text-pink-700 ring-pink-200" },
-  link: { label: "Internal link", cls: "bg-teal-50 text-teal-700 ring-teal-200" },
-  schema: { label: "Structured data", cls: "bg-slate-50 text-slate-600 ring-slate-200" },
-  new_page: { label: "New page", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-  cro: { label: "Experience", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
-  other: { label: "Page edit", cls: "bg-gray-50 text-gray-600 ring-gray-200" },
+  meta: { label: "Description", cls: "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900" },
+  title: { label: "Title", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:ring-indigo-900" },
+  title_meta: { label: "Title + description", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:ring-indigo-900" },
+  h1: { label: "Headline", cls: "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:ring-violet-900" },
+  answer: { label: "Direct answer", cls: "bg-pink-50 text-pink-700 ring-pink-200 dark:bg-pink-950/40 dark:text-pink-300 dark:ring-pink-900" },
+  link: { label: "Internal link", cls: "bg-teal-50 text-teal-700 ring-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:ring-teal-900" },
+  schema: { label: "Structured data", cls: "bg-slate-50 text-slate-600 ring-slate-200 dark:bg-slate-900/60 dark:text-slate-300 dark:ring-slate-700" },
+  new_page: { label: "New page", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900" },
+  cro: { label: "Experience", cls: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900" },
+  other: { label: "Page edit", cls: "bg-gray-50 text-gray-600 ring-gray-200 dark:bg-neutral-800/60 dark:text-neutral-300 dark:ring-neutral-700" },
 };
 
 // Item 57 - the goal groups the default view reads in (business language first).
@@ -83,7 +83,7 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
   const panelId = `change-detail-${c.id}`;
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
   return (
-    <div className={`rounded-lg border border-gray-100 bg-white ${c.status === "blocked" ? "opacity-70" : ""}`}>
+    <div className={`rounded-lg border border-gray-100 bg-white dark:border-neutral-800 dark:bg-neutral-900 ${c.status === "blocked" ? "opacity-70" : ""}`}>
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -91,52 +91,52 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
               const fam = FAMILY_CHIP[c.changeFamily] ?? FAMILY_CHIP.other!;
               return <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${fam.cls}`}>{fam.label}</span>;
             })()}
-            <span className="min-w-0 break-words text-sm font-semibold text-gray-900">{c.pageLabel}</span>
+            <span className="min-w-0 break-words text-sm font-semibold text-gray-900 dark:text-neutral-100">{c.pageLabel}</span>
             {move?.sparkline && move.sparkline.length >= 5 ? <Sparkline points={move.sparkline} width={56} height={14} className="inline-block opacity-70" /> : null}
             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${chip.cls}`}>{chip.label}</span>
-            {c.selectedForToday && <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">Today</span>}
+            {c.selectedForToday && <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300">Today</span>}
           </div>
-          <div className="mt-0.5 break-words text-xs text-gray-500">
+          <div className="mt-0.5 break-words text-xs text-gray-500 dark:text-neutral-400">
             {c.measurementHeadline ? (
               <>
-                <span className="font-medium text-gray-700">{c.measurementHeadline}</span>
-                {c.status === "measuring" && c.nextCheckpoint ? <span className="text-gray-400"> · next read {c.nextCheckpoint}</span> : null}
-                {c.attributionLimited ? <span className="text-amber-600"> · overlapping edit</span> : null}
+                <span className="font-medium text-gray-700 dark:text-neutral-300">{c.measurementHeadline}</span>
+                {c.status === "measuring" && c.nextCheckpoint ? <span className="text-gray-400 dark:text-neutral-500"> · next read {c.nextCheckpoint}</span> : null}
+                {c.attributionLimited ? <span className="text-amber-600 dark:text-amber-400"> · overlapping edit</span> : null}
               </>
             ) : (
               c.recommendation
             )}
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400 dark:text-neutral-500">
             <span>{c.opportunityType}</span>
             {effort != null ? <span>~{effort} min</span> : null}
-            {fmt(c.upside) ? <span className="text-sky-600" title={`${formatMetric(c.upside)} searches a month at stake`}>{fmt(c.upside)}/mo at stake</span> : null}
-            {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600">{c.expectedOutcome}</span> : null}
-            <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
-            {c.blockedReason ? <span className="text-gray-400" title={c.blockedReason}>⏳ wait</span> : null}
-            {c.qualityDecision === "flagged" ? <span className="text-amber-600" title={c.qualityNote ?? "Review before shipping"}>⚠ review</span> : c.qualityDecision === "caution" ? <span className="text-amber-500" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
+            {fmt(c.upside) ? <span className="text-sky-600 dark:text-sky-400" title={`${formatMetric(c.upside)} searches a month at stake`}>{fmt(c.upside)}/mo at stake</span> : null}
+            {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600 dark:text-emerald-400">{c.expectedOutcome}</span> : null}
+            <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500 dark:text-neutral-400"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
+            {c.blockedReason ? <span className="text-gray-400 dark:text-neutral-500" title={c.blockedReason}>⏳ wait</span> : null}
+            {c.qualityDecision === "flagged" ? <span className="text-amber-600 dark:text-amber-400" title={c.qualityNote ?? "Review before shipping"}>⚠ review</span> : c.qualityDecision === "caution" ? <span className="text-amber-500 dark:text-amber-400" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isMeasure ? (
-            <Link href={`/proof?page=${encodeURIComponent(c.pageUrl)}`} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 ${FOCUS}`}>{cta} →</Link>
+            <Link href={`/proof?page=${encodeURIComponent(c.pageUrl)}`} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}>{cta} →</Link>
           ) : c.status === "blocked" ? (
-            <span className="text-[11px] text-gray-400" title={c.blockedReason ?? "Not actionable right now"}>Not now</span>
+            <span className="text-[11px] text-gray-400 dark:text-neutral-500" title={c.blockedReason ?? "Not actionable right now"}>Not now</span>
           ) : (
-            <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={panelId} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 ${FOCUS}`}>{open ? "Hide" : cta}</button>
+            <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={panelId} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}>{open ? "Hide" : cta}</button>
           )}
         </div>
       </div>
       {open && (
-        <div id={panelId} className="border-t border-gray-100 px-1 py-1">
+        <div id={panelId} className="border-t border-gray-100 px-1 py-1 dark:border-neutral-800">
           {move ? (
             <MoveCard m={move} rank={rank} />
           ) : (
             <div className="px-3 py-2 text-sm">
-              {c.before != null && <div className="break-words text-xs"><span className="text-gray-500">Current: </span>{c.before || "(none)"}</div>}
-              {c.after != null && <div className="break-words text-xs"><span className="text-gray-500">Proposed: </span><strong>{c.after}</strong></div>}
-              {c.exactInstructions && <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-gray-50 p-2 text-[11px] font-mono text-gray-700">{c.exactInstructions}</pre>}
-              <div className="mt-2 text-[11px] text-gray-400">{c.measurementMethod}{c.selectedForToday ? " · selected for today - apply it in the “Daily experiments” panel above" : ""}</div>
+              {c.before != null && <div className="break-words text-xs"><span className="text-gray-500 dark:text-neutral-400">Current: </span>{c.before || "(none)"}</div>}
+              {c.after != null && <div className="break-words text-xs"><span className="text-gray-500 dark:text-neutral-400">Proposed: </span><strong>{c.after}</strong></div>}
+              {c.exactInstructions && <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-gray-50 p-2 text-[11px] font-mono text-gray-700 dark:bg-neutral-800/60 dark:text-neutral-300">{c.exactInstructions}</pre>}
+              <div className="mt-2 text-[11px] text-gray-400 dark:text-neutral-500">{c.measurementMethod}{c.selectedForToday ? " · selected for today - apply it in the “Today’s changes” panel above" : ""}</div>
             </div>
           )}
         </div>
@@ -218,13 +218,13 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     <div className="space-y-3">
       {/* Strategy */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span id="strategy-label" className="text-xs font-medium text-gray-500">How should Beacon prioritize?</span>
-        <div role="group" aria-labelledby="strategy-label" className="flex flex-wrap rounded-lg border border-gray-200 p-0.5">
+        <span id="strategy-label" className="text-xs font-medium text-gray-500 dark:text-neutral-400">How should Beacon prioritize?</span>
+        <div role="group" aria-labelledby="strategy-label" className="flex flex-wrap rounded-lg border border-gray-200 p-0.5 dark:border-neutral-700">
           {STRATEGIES.map((st) => {
             const active = strategy === st.id;
             return (
               <button key={st.id} type="button" onClick={() => setStrategy(st.id)} title={st.hint} aria-pressed={active}
-                className={`min-h-[32px] rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-50"}`}>{st.label}</button>
+                className={`min-h-[32px] rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-gray-900 text-white dark:bg-neutral-100 dark:text-neutral-900" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>{st.label}</button>
             );
           })}
         </div>
@@ -232,17 +232,17 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       {/* Status tabs (scrollable on mobile) + goal + search */}
       <div className="flex flex-wrap items-center gap-2">
         <div role="group" aria-label="Filter by status" className="-mx-1 max-w-full overflow-x-auto px-1">
-          <div className="inline-flex rounded-lg border border-gray-200 p-0.5">
+          <div className="inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-neutral-700">
             <button type="button" onClick={() => setGrouped(true)} aria-pressed={grouped}
-              className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${grouped ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-50"}`}>
+              className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${grouped ? "bg-gray-900 text-white dark:bg-neutral-100 dark:text-neutral-900" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
               By goal
             </button>
             {TABS.map((t) => {
               const active = !grouped && tab === t.id;
               return (
                 <button key={t.id} type="button" onClick={() => { setTab(t.id); setGrouped(false); }} aria-pressed={active} aria-label={`${t.label}, ${s[t.id]} ${s[t.id] === 1 ? "change" : "changes"}`}
-                  className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-sky-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}>
-                  {t.label} <span aria-hidden className={active ? "text-sky-100" : "text-gray-400"}>{s[t.id]}</span>
+                  className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-sky-600 text-white" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
+                  {t.label} <span aria-hidden className={active ? "text-sky-100" : "text-gray-400 dark:text-neutral-500"}>{s[t.id]}</span>
                 </button>
               );
             })}
@@ -250,21 +250,21 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </div>
         <button type="button" onClick={() => setTonight((v) => !v)} aria-pressed={tonight}
           title="Just the accepted plan plus the top ready items that fit 30 minutes."
-          className={`min-h-[32px] rounded-md border px-2.5 py-1 text-xs font-medium ${FOCUS} ${tonight ? "border-indigo-300 bg-indigo-600 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+          className={`min-h-[32px] rounded-md border px-2.5 py-1 text-xs font-medium ${FOCUS} ${tonight ? "border-indigo-300 bg-indigo-600 text-white dark:border-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
           Tonight&apos;s 30 minutes
         </button>
-        <select aria-label="Filter by goal" value={goal} onChange={(e) => setGoal(e.target.value as Goal)} className={`min-h-[32px] rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 ${FOCUS}`}>
+        <select aria-label="Filter by goal" value={goal} onChange={(e) => setGoal(e.target.value as Goal)} className={`min-h-[32px] rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 ${FOCUS}`}>
           {GOALS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
         </select>
-        <input aria-label="Search pages" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search pages…" className={`min-h-[32px] w-full rounded-md border border-gray-200 px-2 py-1 text-xs sm:ml-auto sm:w-44 ${FOCUS}`} />
+        <input aria-label="Search pages" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search pages…" className={`min-h-[32px] w-full rounded-md border border-gray-200 px-2 py-1 text-xs sm:ml-auto sm:w-44 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:placeholder:text-neutral-500 ${FOCUS}`} />
       </div>
       {/* List */}
       {visible.length === 0 ? (
-        <div role="status" className="rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center">
-          <p className="text-sm font-medium text-gray-600">{em.title}</p>
-          {em.hint ? <p className="mt-1 text-xs text-gray-500">{em.hint}</p> : null}
+        <div role="status" className="rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center dark:border-neutral-700 dark:bg-neutral-900">
+          <p className="text-sm font-medium text-gray-600 dark:text-neutral-300">{em.title}</p>
+          {em.hint ? <p className="mt-1 text-xs text-gray-500 dark:text-neutral-400">{em.hint}</p> : null}
           {em.action ? (
-            <button type="button" onClick={em.action.onClick} className={`mt-3 inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 ${FOCUS}`}>{em.action.label}</button>
+            <button type="button" onClick={em.action.onClick} className={`mt-3 inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}>{em.action.label}</button>
           ) : null}
         </div>
       ) : grouped && !tonight ? (
@@ -275,7 +275,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             if (rows.length === 0) return null;
             return (
               <section key={g.id} aria-label={g.title}>
-                <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400">
+                <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500">
                   {g.title} <span className="font-normal normal-case">· {rows.length}</span>
                 </h3>
                 <div className="space-y-1.5">
@@ -289,7 +289,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             if (other.length === 0) return null;
             return (
               <section aria-label="Other improvements">
-                <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400">Other improvements · {other.length}</h3>
+                <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500">Other improvements · {other.length}</h3>
                 <div className="space-y-1.5">
                   {other.map((c, i) => <Row key={c.id} c={c} move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined} rank={i + 1} />)}
                 </div>
@@ -300,7 +300,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       ) : (
         <div className="space-y-1.5">
           {tonight ? (
-            <p className="text-[11px] text-gray-400 tabular-nums">
+            <p className="text-[11px] text-gray-400 tabular-nums dark:text-neutral-500">
               Tonight&apos;s set: {visible.length} change{visible.length === 1 ? "" : "s"}, about {visible.reduce((t, c) => t + (Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5), 0)} minutes.
             </p>
           ) : null}
