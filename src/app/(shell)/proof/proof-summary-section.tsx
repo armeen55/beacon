@@ -9,6 +9,8 @@ import {
 } from "@/domains/proof-gsc/measurement-maturity";
 import { readAaCalibration, type AaCalibrationRow } from "@/domains/proof-gsc/aa-calibration-store";
 import { TARGET_FALSE_POSITIVE_RATE } from "@/domains/proof-gsc/aa-calibration";
+import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
+import { buildForecastHitRateLine } from "@/domains/experiments/forecast-receipts";
 
 /**
  * proof-summary-section (2026-06-25; Move 2) — "Proof at a glance" for /proof. Counts
@@ -80,11 +82,17 @@ export async function ProofSummarySection() {
   let records;
   let latestGsc: string | null = null;
   let aaCalibration: AaCalibrationRow | null = null;
+  let forecastHitRateLine: string | null = null;
   try {
     const tenantId = await currentTenantId();
     records = await loadProofLedgerCached(tenantId);
     latestGsc = await readLastFinalizedDate(tenantId).catch(() => null);
     aaCalibration = await readAaCalibration(tenantId).catch(() => null);
+    // Item 42 - the running forecast hit-rate line, sibling to the honesty sentence below.
+    // Same store + same MIN_SETTLED_FOR_CALIBRATION threshold as the /proof aggregate card
+    // (forecast-calibration-section.tsx), so the two surfaces self-hide and reappear together.
+    const calibrationRecords = await loadCalibrationRecords(tenantId).catch(() => []);
+    forecastHitRateLine = buildForecastHitRateLine(calibrationRecords);
   } catch {
     return null;
   }
@@ -202,6 +210,15 @@ export async function ProofSummarySection() {
       {/* Item 31 - Beacon's own measured false-positive rate (silent without data). */}
       {aaSentence ? (
         <p className="mt-2 text-[12px] text-gray-500 tabular-nums dark:text-neutral-400">{aaSentence}</p>
+      ) : null}
+
+      {/* Item 42 - the running forecast hit-rate line, next to the honesty sentence above.
+          Self-hides below MIN_SETTLED_FOR_CALIBRATION settled calibration records, the same
+          threshold the /proof aggregate card uses, so the two never contradict each other. */}
+      {forecastHitRateLine ? (
+        <p className="mt-2 text-[12px] font-medium text-gray-600 tabular-nums dark:text-neutral-300">
+          {forecastHitRateLine}
+        </p>
       ) : null}
 
       {/* Item 73 - the verdict calendar: the next 14 days, a dot per scheduled read, so the

@@ -343,6 +343,73 @@ describe("body-section push - fail-closed rails", () => {
   });
 });
 
+describe("body-section push - idempotent re-push (no duplicate on re-click)", () => {
+  it("pushing the same answer block twice writes once; the second push is an honest no-op", async () => {
+    const original = edit();
+    const first = await executePush({ tenantId: "tenant-iranopedia", edit: original });
+    expect(first.kind).toBe("pushed");
+    expect(_updateCalls).toHaveLength(1);
+    const snapsAfterFirst = (_stores.get("push-snapshots") ?? []) as unknown[];
+    expect(snapsAfterFirst).toHaveLength(1);
+
+    // Re-push the identical card (e.g. a double click, or the operator
+    // approves it again from a stale queue view).
+    const second = await executePush({ tenantId: "tenant-iranopedia", edit: original });
+    expect(second.kind).toBe("pushed");
+    if (second.kind === "pushed") {
+      expect(second.detail).toContain("already there");
+      expect(second.detail).toContain("no change");
+      expect(hasBannedDash(second.detail)).toBe(false);
+    }
+
+    // NO second Wix write and NO second snapshot: nothing changed, so
+    // there is nothing to write and nothing new to be able to undo.
+    expect(_updateCalls).toHaveLength(1);
+    expect((_stores.get("push-snapshots") ?? []) as unknown[]).toHaveLength(1);
+
+    // The body was not duplicated on the live item.
+    const occurrences = String(_itemData.content).split(ANSWER_DRAFT).length - 1;
+    expect(occurrences).toBe(1);
+
+    // The no-op does not count as a "pushed" ledger row (does not eat a
+    // daily-cap slot for a push that changed nothing).
+    const ledger = (_stores.get("push-ledger") ?? []) as Array<{ result: string; detail: string | null }>;
+    const noopRow = ledger.find((e) => (e.detail ?? "").includes("body_noop_already_applied"));
+    expect(noopRow).toBeDefined();
+    expect(noopRow!.result).toBe("push_failed");
+  });
+
+  it("a dry-run re-push of an already-applied section reports the no-op with zero side effects", async () => {
+    const original = edit();
+    const first = await executePush({ tenantId: "tenant-iranopedia", edit: original });
+    expect(first.kind).toBe("pushed");
+    const ledgerAfterFirst = ((_stores.get("push-ledger") ?? []) as unknown[]).length;
+    const snapsAfterFirst = ((_stores.get("push-snapshots") ?? []) as unknown[]).length;
+
+    const dry = await executePush({ tenantId: "tenant-iranopedia", edit: original, dryRun: true });
+    expect(dry.kind).toBe("dry_run");
+    if (dry.kind === "dry_run") {
+      expect(dry.detail).toContain("would make no change");
+      expect(hasBannedDash(dry.detail)).toBe(false);
+    }
+    expect(_updateCalls).toHaveLength(1); // still just the one real write
+    expect(((_stores.get("push-ledger") ?? []) as unknown[]).length).toBe(ledgerAfterFirst); // no new row
+    expect(((_stores.get("push-snapshots") ?? []) as unknown[]).length).toBe(snapsAfterFirst);
+  });
+
+  it("add_faq re-push does not stack a second FAQ section either", async () => {
+    const faqDraft = "Frequently asked questions\nHow long does koobideh take? About 20 minutes on the grill.";
+    const faqEdit = edit({ action_type: "add_faq" as RecommendedEditRow["action_type"], proposed_text: faqDraft });
+    const first = await executePush({ tenantId: "tenant-iranopedia", edit: faqEdit });
+    expect(first.kind).toBe("pushed");
+    const second = await executePush({ tenantId: "tenant-iranopedia", edit: faqEdit });
+    expect(second.kind).toBe("pushed");
+    expect(_updateCalls).toHaveLength(1);
+    const occurrences = String(_itemData.content).split("How long does koobideh take?").length - 1;
+    expect(occurrences).toBe(1);
+  });
+});
+
 describe("body-section push - rollback restores the prior body", () => {
   it("buildRevertEdit targets the snapshot field and executePush restores the exact prior value", async () => {
     // 1. Push the body change.

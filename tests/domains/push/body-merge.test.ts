@@ -15,6 +15,7 @@ import {
   buildRicosParagraphNodes,
   unrecognizedKindReason,
   draftToHtml,
+  sectionAlreadyPresent,
   MIN_ORIGINAL_KEEP_RATIO,
 } from "@/domains/push/body-merge";
 import { hasBannedDash } from "@/lib/copy/strip-dashes";
@@ -339,6 +340,107 @@ describe("body-merge - fail-closed rails", () => {
     ];
     for (const c of cases) outputs.push(c.ok ? c.summary : c.reason);
     for (const o of outputs) expectNoBannedDashes(o);
+  });
+});
+
+describe("body-merge - idempotent re-push guard", () => {
+  it("re-pushing the exact same answer block onto its own result is a no-op (plain)", () => {
+    const first = mergeBodyContent({ existing: BODY_PLAIN, draft: ANSWER_DRAFT, kind: "plain", mode: "prepend_answer" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = mergeBodyContent({ existing: first.merged, draft: ANSWER_DRAFT, kind: "plain", mode: "prepend_answer" });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.alreadyApplied).toBe(true);
+    expect(second.merged).toBe(first.merged); // byte-identical, no duplicate
+    expect(second.summary).toContain("already on the page");
+    expectNoBannedDashes(second.summary);
+  });
+
+  it("re-pushing the exact same FAQ section is a no-op and does not stack a second copy", () => {
+    const first = mergeBodyContent({ existing: BODY_PLAIN, draft: FAQ_DRAFT, kind: "plain", mode: "append_faq" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = mergeBodyContent({ existing: first.merged, draft: FAQ_DRAFT, kind: "plain", mode: "append_faq" });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.alreadyApplied).toBe(true);
+    // Only ONE copy of the FAQ text lives in the body, not two.
+    const occurrences = second.merged.split("How long do Persian cats live?").length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it("re-pushing the same answer as HTML is a no-op even though the draft is escaped/wrapped differently", () => {
+    const html = "<p>Ghormeh sabzi is a herb stew.</p>";
+    const first = mergeBodyContent({ existing: html, draft: "Ghormeh sabzi is a herb stew.", kind: "html", mode: "prepend_answer" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    // First push actually changed nothing new visible (already matches after
+    // wrap) -> still exercise a genuinely new addition, then re-push it.
+    const draft2 = "Serves four to six people.";
+    const afterAdd = mergeBodyContent({ existing: first.merged, draft: draft2, kind: "html", mode: "prepend_answer" });
+    expect(afterAdd.ok).toBe(true);
+    if (!afterAdd.ok) return;
+    const rePush = mergeBodyContent({ existing: afterAdd.merged, draft: draft2, kind: "html", mode: "prepend_answer" });
+    expect(rePush.ok).toBe(true);
+    if (!rePush.ok) return;
+    expect(rePush.alreadyApplied).toBe(true);
+    expect(rePush.merged).toBe(afterAdd.merged);
+  });
+
+  it("re-pushing the same RICOS paragraph lines is a no-op (text-run comparison)", () => {
+    const ricosDoc = JSON.stringify({ nodes: [] });
+    const draft = "First answer line.\nSecond answer line.";
+    const first = mergeBodyContent({ existing: ricosDoc, draft, kind: "ricos", mode: "append_faq" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = mergeBodyContent({ existing: first.merged, draft, kind: "ricos", mode: "append_faq" });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.alreadyApplied).toBe(true);
+    const doc = JSON.parse(second.merged) as { nodes: unknown[] };
+    expect(doc.nodes).toHaveLength(2); // still just the one push's worth of nodes
+  });
+
+  it("a DIFFERENT section is not treated as already applied (no false positive)", () => {
+    const first = mergeBodyContent({ existing: BODY_PLAIN, draft: ANSWER_DRAFT, kind: "plain", mode: "prepend_answer" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const different = mergeBodyContent({
+      existing: first.merged,
+      draft: "Persian cats need weekly nail trims and daily eye cleaning.",
+      kind: "plain",
+      mode: "prepend_answer",
+    });
+    expect(different.ok).toBe(true);
+    if (!different.ok) return;
+    expect(different.alreadyApplied).toBeUndefined();
+    expect(different.merged).not.toBe(first.merged);
+  });
+
+  it("replace_section is unaffected by the guard (always re-checked, never short-circuited)", () => {
+    // HTML replace_section round-trips cleanly (tag-delimited, unlike the
+    // plain-text heading-line heuristic), so it is the clean case to prove
+    // the guard never touches replace: re-running it is a full re-match
+    // and re-swap every time, not a short-circuited no-op.
+    const html = "<p>Intro.</p><h2>History</h2><p>Old history text.</p><h2>Care</h2><p>Brush daily.</p>";
+    const draft = "<h2>History</h2><p>Traders brought the breed to Europe in the 1600s.</p>";
+    const first = mergeBodyContent({ existing: html, draft, kind: "html", mode: "replace_section", opts: { sectionHeading: "History" } });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.alreadyApplied).toBeUndefined();
+    const second = mergeBodyContent({ existing: first.merged, draft, kind: "html", mode: "replace_section", opts: { sectionHeading: "History" } });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.alreadyApplied).toBeUndefined(); // never set for replace_section
+    expect(second.merged).toBe(first.merged); // byte-identical: a clean re-match, not a guard short-circuit
+    expect(second.merged).toContain("<h2>Care</h2><p>Brush daily.</p>"); // untouched sibling section survives both passes
+  });
+
+  it("sectionAlreadyPresent is exported and matches normalized substrings directly", () => {
+    expect(sectionAlreadyPresent({ existing: "Hello WORLD.  Extra.", draft: "hello world.", kind: "plain" })).toBe(true);
+    expect(sectionAlreadyPresent({ existing: "Hello world.", draft: "goodbye world.", kind: "plain" })).toBe(false);
+    expect(sectionAlreadyPresent({ existing: "", draft: "anything", kind: "plain" })).toBe(false);
   });
 });
 

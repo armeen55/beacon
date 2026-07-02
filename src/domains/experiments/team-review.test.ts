@@ -98,6 +98,45 @@ describe("reviewCandidateWithTeam", () => {
   });
 });
 
+describe("reviewCandidateWithTeam extras (item 39 re-review wiring)", () => {
+  it("stays silent on the live-Google voice with no serpVerdict (the original abstain)", () => {
+    const r = reviewCandidateWithTeam(
+      packet({ move: { gapType: "create_page" }, yourPage: { gsc: null } }),
+      NOW,
+    );
+    const spoke = new Set((r.review?.voices ?? []).map((v) => v.specialist));
+    expect(spoke.has("dataforseo")).toBe(false);
+  });
+
+  it("threading a freshly bought serpVerdict makes the live-Google teammate speak", async () => {
+    const { validateCreatePage } = await import("@/domains/serp/serp-validation");
+    const verdict = validateCreatePage({
+      snapshot: {
+        query: "persian wedding traditions",
+        results: [
+          { rank: 1, url: "https://a.com/x", title: "x", domain: "a.com" },
+          { rank: 2, url: "https://b.com/x", title: "x", domain: "b.com" },
+          { rank: 3, url: "https://c.com/x", title: "x", domain: "c.com" },
+          { rank: 4, url: "https://d.com/x", title: "x", domain: "d.com" },
+          { rank: 5, url: "https://e.com/x", title: "x", domain: "e.com" },
+        ],
+        features: [],
+        source: "dataforseo",
+        fetchedAt: NOW,
+      },
+      ownDomain: "iranopedia.com",
+    });
+    const p = packet({ move: { gapType: "create_page" }, yourPage: { gsc: null } });
+    const withoutExtras = reviewCandidateWithTeam(p, NOW);
+    const withExtras = reviewCandidateWithTeam(p, NOW, { serpVerdict: verdict });
+
+    const spokeBefore = new Set((withoutExtras.review?.voices ?? []).map((v) => v.specialist));
+    const spokeAfter = new Set((withExtras.review?.voices ?? []).map((v) => v.specialist));
+    expect(spokeBefore.has("dataforseo")).toBe(false);
+    expect(spokeAfter.has("dataforseo")).toBe(true);
+  });
+});
+
 describe("silentTeammatesLine (item 37)", () => {
   it("names the silent teammates when fewer than 3 voices spoke", async () => {
     const { silentTeammatesLine } = await import("./team-review");

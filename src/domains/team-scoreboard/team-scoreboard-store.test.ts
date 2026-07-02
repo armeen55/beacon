@@ -94,3 +94,46 @@ describe("round-trip", () => {
     expect(back).toEqual(snapshot());
   });
 });
+
+describe("item 43 - accountability fields are additive", () => {
+  it("a snapshot written WITHOUT calibration_bands/objections (an old row) still parses cleanly", async () => {
+    // Simulates a row persisted before item 43 shipped: no calibration_bands on the specialist, no
+    // top-level objections key at all.
+    stored = [
+      {
+        tenant_id: "tenant-old",
+        computed_at: NOW,
+        total_settled: 3,
+        settled_joined: 3,
+        specialists: [{ specialist: "gsc", overall: { won: 2, flat: 1, lost: 0, n: 3, brier: 0.1, calibrationNote: null }, by_family: {} }],
+      },
+    ];
+    const back = await loadTeamScoreboard("tenant-old");
+    expect(back).not.toBeNull();
+    expect(back?.specialists[0]!.calibration_bands).toBeUndefined();
+    expect(back?.objections).toBeUndefined();
+  });
+
+  it("round-trips calibration_bands and objections when a fresh recompute writes them", async () => {
+    const withAccountability = snapshot({
+      specialists: [
+        {
+          specialist: "gsc",
+          overall: { won: 5, flat: 1, lost: 0, n: 6, brier: 0.1, calibrationNote: null },
+          by_family: {},
+          calibration_bands: [
+            { band: "60-70", n: 0, won: 0, winRatePct: null },
+            { band: "70-80", n: 0, won: 0, winRatePct: null },
+            { band: "80-90", n: 6, won: 5, winRatePct: 83 },
+            { band: "90+", n: 0, won: 0, winRatePct: null },
+          ],
+        },
+      ],
+      objections: [{ objectorLabel: "Visitor behavior", objected: 4, right: 2, wrong: 2 }],
+    });
+    await writeTeamScoreboard(withAccountability);
+    const back = await loadTeamScoreboard("tenant-a");
+    expect(back?.specialists[0]!.calibration_bands).toHaveLength(4);
+    expect(back?.objections).toEqual([{ objectorLabel: "Visitor behavior", objected: 4, right: 2, wrong: 2 }]);
+  });
+});

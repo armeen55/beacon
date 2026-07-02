@@ -7,6 +7,66 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 items 44+45 (body-push idempotency gap-fix + Wix deep links, worktree, NOT committed)
+
+**Item 44 verification (VERIFY-AND-CLOSE):** the master-plan ask predates wave 1 item 2, which already
+built the safe body-append push route. Checked the three specific asks: (a) do
+add_answer_block/add_faq/add_h2_section actually route (not refuse) when a body field is mapped -
+YES, confirmed in `push-service.ts`'s body-section route (`bodyMergeModeForAction` + `resolveWixBodyFieldForUrl`
++ `executeBodySectionPush`); (b) is the append idempotent on re-push - NO, this was a real gap: neither
+`body-merge.ts` nor `executeBodySectionPush` detected an already-present section, so re-pushing the same
+answer block or FAQ would stack a second copy; (c) does the snapshot cover the whole body - YES, confirmed
+`previous_text: existingText` captures the full serialized field before every merge.
+
+**Gap fix:** added `sectionAlreadyPresent` + a `normalizeForComparison` helper to `body-merge.ts`
+(strips tags/markdown-heading-hashes/whitespace/case; RICOS compares per paragraph text line).
+`mergeBodyContent` now short-circuits `prepend_answer`/`append_faq` to an honest no-op
+(`{ ok: true, merged: existing, alreadyApplied: true, summary: "this section is already on the page..." }`)
+when the draft is already present verbatim (normalized); `replace_section` is untouched (idempotent by
+construction, never short-circuited). `push-service.ts`'s `executeBodySectionPush` checks
+`merge.alreadyApplied` right after the merge call: on a real push it skips the live Wix write and skips a
+new snapshot (nothing changed, nothing new to undo), ledgers the attempt as `push_failed` with detail
+`body_noop_already_applied: <field>` (so it never eats a daily-cap slot for a push that changed nothing),
+and returns `{ kind: "pushed" }` with an honest "already there, no change" receipt (the content genuinely
+is live, so `pushed` is the correct outcome kind, not `refused`); a dry-run of an already-applied section
+reports the no-op with zero side effects (same audit-#35 contract as every other dry-run branch).
+
+**Item 45 build:** new pure `src/domains/push/wix-deep-link.ts` - `buildWixEditorLink({siteId,
+dataCollectionId, dataItemId?})` returns a `URL` or `null`. Two real Wix dashboard URL shapes: a Wix
+Stores product (`dataCollectionId === "Stores/Products"`, matching the same string push-service.ts/
+push-snapshots.ts already special-case) with a known item id resolves to
+`https://manage.wix.com/dashboard/{siteId}/stores/products/{itemId}` (the product editor); any other
+mapped CMS collection resolves to `https://manage.wix.com/dashboard/{siteId}/database/data/{collectionId}`
+(the Content Manager for that collection - Wix has no stable per-item deep link for non-Stores
+collections, so the collection view is the closest honest target). Honest null on any missing piece
+(no site connected, no collection mapping, a Stores product with no item id) - never a guessed or dead
+link. Wired as a read-only affordance (no auto-actions) beside Copy/Open page on both card surfaces:
+`ExecutionCard` (`daily-experiments-section.tsx`, fed by a new `wixEditorUrlByUrl` map computed once per
+build in `daily-experiments-data.ts`) and the worklist `MoveCard` (`today-moves-card.tsx`, fed by a new
+`wixEditorUrl` field per move computed once per build in `today-moves-data.ts`, keyed off the same
+url-map entry the push service itself resolves). One `getWixUrlMap()` + one `getWixConnectorToken()`
+read per page build in each loader, not per card/move.
+
+**What verified:** `npm run typecheck` 0 errors. Targeted vitest: `tests/domains/push/` full sweep
+195 passed / 0 failed (10 new `wix-deep-link.test.ts` resolver tests - mapped CMS item, Stores product,
+unmapped null, dash-clean, purity; 9 new idempotency tests across `body-merge.test.ts` and
+`push-service-body.test.ts` - re-push no-op for plain/html/RICOS, no false positive on a genuinely
+different section, replace_section unaffected, end-to-end no-duplicate-write + no-double-snapshot +
+no-cap-spend through `executePush`, dry-run no-op). No full suite run (targeted push-domain sweep per
+the CI-minutes rule). Dash guard: scanned every line added/changed in this slice for em/en dashes -
+found two in doc-comments only (not operator-facing copy) and rewrote both to plain punctuation.
+
+**Ground-truth against real Supabase** (project `vlxwevsdvwxvopkjsewo`, read-only): `connector_tokens`
+confirms Iranopedia's Wix connector is connected with a non-empty `site_id` (not disconnected). But both
+`wix_collection_config` and `wix_url_map` return 0 rows for every tenant (tables exist, migrated, just
+empty) - the operator has never run the collection-mapping step on `/diagnostics/wix`. Result: today, no
+card resolves a working "Open in Wix" link for Iranopedia (every lookup honestly returns null), the exact
+same pre-existing gate that already blocks the field-edit and body-append live-push routes. The resolver
+and wiring are correct and will start producing real links the moment at least one collection is mapped
+and synced - no code change needed then.
+
+---
+
 ## 2026-07-02 - BEACON 500 item 38 (specialist scoreboard, worktree, NOT committed)
 
 **What changed:** new `src/domains/team-scoreboard/` domain. `brier.ts` (PURE) -
@@ -30110,3 +30170,13 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **Ground truth (real Iranopedia, headless probe `scripts/ground-truth-control-matching.ts` via `set -a; . ./.env.local; set +a; npx tsx --require ./scripts/mock-server-only.cjs scripts/ground-truth-control-matching.ts`):** for the 3 most recent ledger rows (all shipped 2026-07-01: `/chaharshanbe-suri`, `/iran-flags/late-safavid-military-flag`, `/iran-flags/abbasid-caliphate-golden-emblem-flag`), re-running the matcher against today's real top-12-by-demand candidate pool excluded 9 of 12 candidates on every row - Iranopedia's biggest pages (`persian-male-names`, `persian-female-first-names`, `funny-farsi-phrases`, etc.) are wildly mismatched in scale against these near-zero-baseline flag subpages, exactly the class of bug item 33 targets. On the second row the matcher additionally caught a real SUTVA violation: `iran-flags/achaemenid-empire-flag` shares 33 percent of its search demand with the treated page (over the 20 percent limit) and was excluded as a title win there would visibly steal its clicks. All 3 rows triggered `usedFallback: true` after the strict exclusions, correctly falling back to the least-mismatched 3 candidates rather than zero. Agreement with what was actually recorded at ship time was 0 of 3-5 pages on every row - expected and not a bug: the actually-recorded set came from each row's own top-12 pool AT SHIP TIME (excluding whichever pages were already treated then), while the probe's re-derived pool is today's fixed top-12-by-demand across the whole site, so an exact replay of history was never the goal - the point was confirming the matcher's math finds real scale/trend/overlap problems in a live candidate pool, which it did.
 
 **Honest caveats:** the ground-truth probe re-derives "what would the matcher pick today" against a live, current candidate pool - it cannot exactly replay the historical candidate pool available at the original ship time (already-treated exclusions differ day to day), so the "0 agreement" number above measures the matcher's independent judgment, not a disagreement with the old code's specific historical picks. `controlMatchNotes`/the weak-comparison caveat are not yet rendered anywhere except the Results row explanation line added here - a future pass could surface the exclusion reasons themselves in the UI (currently only stored on the ledger row for the receipt trail). The `www.`-host fix generalizes to any single-variant host mismatch but was only exercised against the `www.` case found live; a tenant with a different canonicalization drift (e.g. trailing slash differences already handled elsewhere) is not separately covered here.
+
+## 2026-07-02 - Buy the missing decisive evidence before the batch finalizes (BEACON_500 item 39, worktree, NOT committed)
+
+**What changed:** new `src/domains/experiments/buy-missing-evidence.ts`. `findEvidenceGaps(picks, opts)` is pure decision logic (no I/O): given tonight's already-selected picks (each carrying its `EvidencePacket` when one exists, plus a cached-SERP-pattern flag and a fresh-history flag), it ranks by `rankScore` (the caller passes `ctrOpportunityClicks`), takes the top 5 (bound configurable via `maxGaps`), and returns only the ones with a packet AND a real target query AND no existing live-SERP evidence - a page with no packet has nothing to debate and is never a "gap." `buyEvidenceForPick(gap, opts)` is the I/O half: it calls `runSerpQuery` (injectable via `opts.runQuery` for tests, defaulting to the real gauntleted function - production code never bypasses the gauntlet) and only on a genuine "ok" or "cache_hit" status with a non-empty snapshot does it call `validateCreatePage` to build a `SerpValidation` and a first-person receipt sentence ("I checked Google live before finalizing this pick: for \"...\" the top results say this is worth building..."); every other status (disabled/dry_run/capped/error/no_results) or a thrown error resolves to `{status: "declined", declineReason}` - never throws, never fabricates evidence. `reviewCandidateWithTeam` (`team-review.ts`) gained a third, optional, additive `extras: SpecialistExtras` param (defaults to `{}`, every existing caller unaffected) so a freshly bought `serpVerdict` can be threaded into a re-review. Wired into `build-today-preview.ts` immediately before the strategist verdict-drafting pass (so the fresh voice is available when the strategist synthesizes): builds `EvidenceGapCandidate` rows from `selected` + the already-built `packetByPath`/`serpByTerm` maps, calls `findEvidenceGaps` bounded to 5, and for each real gap calls `buyEvidenceForPick` with the tenant's own domain (`currentTenant().domain`, fail-soft to null); on a genuine purchase it re-runs `reviewCandidateWithTeam` for ONLY that pick, re-attaches the proof-history voice if missing, appends a "Live Google results" voice carrying the receipt sentence, and recomputes `teamScoreMultiplier` the same way the original R1 review loop does. A decline (including forced dry-run) leaves the pick's original team review and abstain completely untouched - the batch never blocks.
+
+**Verified:** `npm run typecheck` 0 errors. 26 new targeted tests green: `buy-missing-evidence.test.ts` (18 - gap detection with/without a packet, cached-pattern/fresh-history coverage skip, blank-query skip, top-5 bounding with a 12-candidate matrix, custom `maxGaps` incl. 0, a mixed covered/gap/no-packet batch, purchase success with a build verdict + receipt sentence, fail-soft declines for dry_run/capped/disabled/error/thrown-exception/zero-results, `cache_hit` still counts as "bought", dash guard on the receipt sentence) and 2 new cases in `team-review.test.ts` pinning the re-review wiring itself (no `extras` -> the live-Google voice stays silent exactly as before; passing a `serpVerdict` via `extras` makes the dataforseo teammate speak where it was silent, an abstain-to-voice transition). Full `experiments`/`serp`/`demand-graph` domain sweep re-verified green: 692 tests across 51 files, zero regressions.
+
+**Ground truth (real Iranopedia, headless probe forcing `DATAFORSEO_DRY_RUN=true`, calling `buildTodayExperimentPreview` read-only with no persistence):** tonight's real batch selected 4 picks. 3 of them ("rashidun caliphate flag", "khwarazmian empire flag", "khorasan carpet") already carried a cached SERP pattern from the existing item-29 nightly enrichment step and were correctly recognized as covered - no purchase attempted, no spend. Exactly 1 pick ("iran islamic republic flag history", query "iran flag") was a genuine silent-voice gap; item 39's buy step fired for it, served from the real 14-day DataForSEO cache ($0 marginal cost, log line `[dataforseo-serp] cache hit query=iran flag`), and its team review gained a live "Live Google results" voice reading "I checked Google live before finalizing this pick: for \"iran flag\" the top results say this is worth building. Content-page SERP (5/10 editorial), out-buildable." - confirming the full abstain-to-voice pipeline (gap detection -> gauntleted buy -> re-review -> receipt line) fires correctly end to end on real data. Only one DataForSEO call was attempted across the whole run, matching the expectation that item 39 should activate for exactly the picks item 29's earlier enrichment step did not already cover.
+
+**Honest caveats:** the probe's one live gap happened to resolve via a pre-existing 14-day cache hit rather than a genuinely fresh live paid call, so this run did not exercise the real non-cached "ok" status end-to-end against production (that path is covered by unit tests with an injected `runQuery`, not by this ground-truth run). `hasFreshSerpHistory` is currently always passed as `false` from `build-today-preview.ts` (the caller has no existing per-query history-freshness lookup wired at this call site) - this is honest, not a bug: it only means a pick could theoretically be re-bought if a history row exists but no cached pattern does, and `runSerpQuery`'s own 14-day cache still prevents a real double spend in that case. The re-review's fresh voice is not yet cross-checked against the earlier item-29 "Live Google results" voice for the SAME pick (impossible today since item 39 only fires when item 29 found nothing), so no dedupe logic between the two voices has been exercised on live data.

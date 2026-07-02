@@ -16,6 +16,10 @@ import { normalizePath, type PlannedExperimentRecord } from "@/domains/experimen
 import { reviewRecommendation } from "@/domains/recommendations/recommendation-quality";
 import { getStagingAvailability } from "@/domains/push/stage-change";
 import { STAGING_OFF, type StagingAvailability } from "@/domains/push/stage-route";
+import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
+import { getWixConnectorToken } from "@/lib/connector-store";
+import { buildWixEditorLink } from "@/domains/push/wix-deep-link";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
 export type QualitySummary = { total: number; passed: number; cautioned: number; flagged: number };
 
@@ -31,6 +35,9 @@ export type DailyExperimentsView = {
    *  target)? Fails to OFF on any uncertainty; the card then keeps today's paste-only
    *  behavior exactly. */
   staging: StagingAvailability;
+  /** Item 45 - "Open in Wix" deep link per plan-item URL (canonical url -> dashboard
+   *  URL, or absent when the page is not resolvable to a live Wix item yet). */
+  wixEditorUrlByUrl: Record<string, string>;
 };
 
 /** Re-run the quality gate over the active plan's items so the panel can honestly say
@@ -53,13 +60,22 @@ function summarizeQuality(items: PlannedExperimentRecord[]): QualitySummary {
 export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> {
   const tenantId = await currentTenantId();
   const now = new Date();
-  const [ledger, previewPlan, acceptedPlan, reservations, staging] = await Promise.all([
+  const [ledger, previewPlan, acceptedPlan, reservations, staging, wixUrlMap, wixToken] = await Promise.all([
     loadProofLedger(tenantId).catch(() => []),
     getLatestPreviewPlan(tenantId),
     getAcceptedPlan(tenantId),
     listActiveReservations(tenantId),
     getStagingAvailability(tenantId).catch(() => STAGING_OFF),
+    getWixUrlMap().catch(() => []),
+    getWixConnectorToken(tenantId).catch(() => null),
   ]);
+  // Item 45 - "Open in Wix": one url-map read (already fetched above) resolved
+  // to a dashboard link per canonical URL. Missing/unmapped pages are simply
+  // absent from the map, which the card reads as "no link" (never a dead one).
+  const wixEntryByCanonUrl = new Map(
+    wixUrlMap.map((e) => [(canonicalizeCitationUrl(e.url) ?? e.url).toLowerCase(), e]),
+  );
+  const wixEditorUrlByUrl: DailyExperimentsView["wixEditorUrlByUrl"] = {};
   const dashboard = buildDailyExperimentDashboard({
     ledger, now,
     previewPlan: previewPlan ?? undefined,
@@ -85,5 +101,21 @@ export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> 
   const sparklineByUrl: DailyExperimentsView["sparklineByUrl"] = {};
   for (const [url, series] of sparkMap) sparklineByUrl[url] = series;
 
-  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary, sparklineByUrl, staging };
+  // Item 45 - resolve "Open in Wix" for every item actually on the active plan
+  // (not the whole url-map). A pure resolve; honest null (absent key) when the
+  // page has no site connected or no collection mapping yet.
+  for (const exp of activePlan?.selected ?? []) {
+    const rawUrl = exp.canonicalUrl || exp.url;
+    const key = (canonicalizeCitationUrl(rawUrl) ?? rawUrl).toLowerCase();
+    const entry = wixEntryByCanonUrl.get(key);
+    if (!entry) continue;
+    const link = buildWixEditorLink({
+      siteId: wixToken?.site_id ?? null,
+      dataCollectionId: entry.dataCollectionId,
+      dataItemId: entry.dataItemId,
+    });
+    if (link) wixEditorUrlByUrl[exp.url] = link.toString();
+  }
+
+  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary, sparklineByUrl, staging, wixEditorUrlByUrl };
 }

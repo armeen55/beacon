@@ -1016,6 +1016,14 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
         <a href={m.targetUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 rounded-sm text-xs font-medium text-gray-400 hover:text-gray-700 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}>
           View page<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
         </a>
+        {/* Item 45 - deep link straight into the Wix editor for this page's mapped
+            CMS item (or its Stores product editor). Null renders nothing: never a
+            dead link. Read-only affordance, no auto-action. */}
+        {m.wixEditorUrl ? (
+          <a href={m.wixEditorUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 rounded-sm text-xs font-medium text-gray-400 hover:text-gray-700 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}>
+            Open in Wix<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+          </a>
+        ) : null}
         <button onClick={snooze} disabled={pending} className={`ml-auto rounded-sm text-xs font-medium text-gray-400 hover:text-gray-700 disabled:opacity-60 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}>
           Not now
         </button>

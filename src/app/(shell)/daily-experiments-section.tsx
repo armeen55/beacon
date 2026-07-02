@@ -341,7 +341,7 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
  *  Item 15: when the site is armed and the change has a one-click path, "Stage in Wix"
  *  puts it into Wix through the existing publish rails; the paste flow stays the
  *  visible fallback and the confirm-live science is untouched. */
-function ExecutionCard({ planId, item, spark, staging }: { planId: string; item: ExecutionItemView; spark?: SparkPoint[]; staging?: StagingAvailability }) {
+function ExecutionCard({ planId, item, spark, staging, wixEditorUrl }: { planId: string; item: ExecutionItemView; spark?: SparkPoint[]; staging?: StagingAvailability; wixEditorUrl?: string | null }) {
   const e = item.experiment;
   const paste = stripBannedDashes(e.proposedText);
   const why = stripBannedDashes(e.whyNow);
@@ -487,6 +487,11 @@ function ExecutionCard({ planId, item, spark, staging }: { planId: string; item:
             ) : null}
             <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(text, setMsg)} className={BTN_SECONDARY}>Copy</button>
             <a href={e.url} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>Open page</a>
+            {/* Item 45 - deep link into the Wix editor for this page's mapped CMS
+                item (or its Stores product editor). Null renders nothing. */}
+            {wixEditorUrl ? (
+              <a href={wixEditorUrl} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>Open in Wix</a>
+            ) : null}
             <button type="button" disabled={pending} aria-busy={pending} onClick={apply} className={canStage ? BTN_SECONDARY : `${BTN_PRIMARY} min-w-[130px]`}>{pending ? "Checking the page..." : status === "verification_failed" ? "Try again" : stagedReceipt ? "Check it is live" : "I did it in Wix"}</button>
             <button type="button" disabled={pending} aria-busy={pending} onClick={skip} className={BTN_GHOST}>Not now</button>
           </div>
@@ -502,7 +507,7 @@ function ExecutionCard({ planId, item, spark, staging }: { planId: string; item:
   );
 }
 
-function ExecutionChecklistView({ checklist, sparklineByUrl, staging }: { checklist: ExecutionChecklist; sparklineByUrl: Record<string, SparkPoint[]>; staging?: StagingAvailability }) {
+function ExecutionChecklistView({ checklist, sparklineByUrl, staging, wixEditorUrlByUrl }: { checklist: ExecutionChecklist; sparklineByUrl: Record<string, SparkPoint[]>; staging?: StagingAvailability; wixEditorUrlByUrl?: Record<string, string> }) {
   const s = checklist.summary;
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -560,7 +565,7 @@ function ExecutionChecklistView({ checklist, sparklineByUrl, staging }: { checkl
           </div>
         ) : null}
       </div>
-      {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} staging={staging} />)}
+      {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} staging={staging} wixEditorUrl={wixEditorUrlByUrl?.[item.experiment.url]} />)}
       {/* Item 62 - the sticky batch bar: while tonight's items are pending, the count
           follows the operator down the page so finishing never falls off-screen. */}
       {s.left > 0 ? (
@@ -646,7 +651,7 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
       )}
 
       {accepted && checklist ? (
-        <ExecutionChecklistView checklist={checklist} sparklineByUrl={view.sparklineByUrl} staging={view.staging} />
+        <ExecutionChecklistView checklist={checklist} sparklineByUrl={view.sparklineByUrl} staging={view.staging} wixEditorUrlByUrl={view.wixEditorUrlByUrl} />
       ) : preview ? (
         <div>
           <div className="mb-2 text-sm leading-relaxed text-gray-700 tabular-nums dark:text-neutral-300">

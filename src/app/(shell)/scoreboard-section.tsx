@@ -6,12 +6,32 @@
  * fail-soft (self-hides without enough history so it never renders an empty box).
  */
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/scoreboard/scoreboard";
 import { loadRevenueByDayForTenant } from "@/domains/revenue/load-revenue";
 import { loadOwnCitationsByDay } from "@/domains/recommendation-intelligence/citations-daily";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { Sparkline } from "@/components/data/sparkline";
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import {
+  deriveMeasurementMaturity,
+  detectMeasurementOverlaps,
+  measurementWindowOf,
+  isMatureOutcome,
+  type OverlapContext,
+} from "@/domains/proof-gsc/measurement-maturity";
+import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
+import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
+import { extraSessionsFromTrafficOutcome } from "@/domains/proof-gsc/change-dollar-value";
+import { PROOF_BASELINE_WINDOW_DAYS, type ProofWindowResult } from "@/domains/proof-gsc/measure";
+import {
+  computeLifetimeEarnings,
+  type LifetimeEarningsRow,
+} from "@/domains/proof-gsc/lifetime-earnings";
+import {
+  computePortfolioCounterfactual,
+  type CounterfactualRow,
+} from "@/domains/proof-gsc/portfolio-counterfactual";
 
 const W = 720;
 const H = 170;
@@ -99,11 +119,135 @@ function Chart({ s }: { s: Scoreboard }) {
   );
 }
 
+/**
+ * Items 40 + 41 (2026-07-02) - the shared eligibility gate for both the
+ * lifetime-earnings odometer and the portfolio counterfactual. Mirrors
+ * src/domains/learning/load-experiment-outcomes.ts's maturityGatedVerdict
+ * EXACTLY (mature_result only, weather-quarantine and weak-comparison-
+ * fallback excluded) - duplicated rather than imported because that
+ * function is internal to load-experiment-outcomes.ts, the same posture
+ * compute-scoreboard.ts already takes on this identical gate. Returns the
+ * basis window (the longest-run window, matching summarizeVerdict) only for
+ * records that clear every gate; everything else is filtered out entirely
+ * rather than degraded, since both odometers need a real mature result.
+ */
+async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[]> {
+  try {
+    const changepoints = await loadDetectedChangepoints(tenantId);
+    return buildShockWindows({ dailySeries: [], priorChangepoints: changepoints });
+  } catch {
+    return [];
+  }
+}
+
+function basisWindowOf(record: ShippedChangeRecord): ProofWindowResult | null {
+  const ran = (record.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day);
+  return ran[0] ?? null;
+}
+
+function isMatureAndClean(
+  record: ShippedChangeRecord,
+  overlap: OverlapContext | null,
+  now: Date,
+  shockWindows: ReadonlyArray<ShockWindow>,
+): boolean {
+  const basis = basisWindowOf(record);
+  const maturity = deriveMeasurementMaturity({
+    shippedAt: record.shippedAt,
+    now,
+    latestGscDate: null,
+    windows: (record.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
+    verdict: record.verdict,
+    controlsUsed: basis?.controlsUsed ?? 0,
+    baselineImpressions: record.baseline?.impressions ?? 0,
+    overlap,
+    live: true,
+  });
+  if (!isMatureOutcome(maturity)) return false;
+  const window = measurementWindowOf(record.shippedAt, record.windows ?? []);
+  if (window && shockWindows.length > 0 && overlappingShock(window.start, window.end, shockWindows)) {
+    return false;
+  }
+  if (record.controlMatchWeak === true) return false;
+  return true;
+}
+
+/** Days between ship and now, floored at 0 (a backdated/clock-skewed ship
+ *  never contributes a negative lifetime span). */
+function daysLiveOf(shippedAt: string, now: Date): number {
+  const shipped = Date.parse(shippedAt);
+  if (!Number.isFinite(shipped)) return 0;
+  return Math.max(0, Math.floor((now.getTime() - shipped) / 86_400_000));
+}
+
+/**
+ * Item 40 - build the odometer's input rows from the measured ledger: every
+ * MATURE, CLEAN, WON record contributes its current monthly rate (the SAME
+ * control-adjusted extra-sessions number change-dollar-value.ts already put
+ * on the row as dollarValue/trafficOutcome at measure time - never
+ * re-derived here) plus its days-live for the honest proration.
+ */
+export function buildLifetimeEarningsRows(ledger: ShippedChangeRecord[], now: Date, shockWindows: ShockWindow[]): LifetimeEarningsRow[] {
+  const overlaps = detectMeasurementOverlaps(ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
+  const rows: LifetimeEarningsRow[] = [];
+  for (const r of ledger) {
+    if (r.verdict !== "won") continue;
+    if (!isMatureAndClean(r, overlaps.get(r.id) ?? null, now, shockWindows)) continue;
+    if (!r.trafficOutcome?.ran) continue;
+    const extraSessionsPerMonth = extraSessionsFromTrafficOutcome(r.trafficOutcome) / (r.trafficOutcome.windowDays || 1) * 30;
+    if (!Number.isFinite(extraSessionsPerMonth) || extraSessionsPerMonth <= 0) continue;
+    rows.push({
+      id: r.id,
+      extraSessionsPerMonth,
+      usdPerMonth: r.dollarValue?.usdPerMonth ?? null,
+      daysLive: daysLiveOf(r.shippedAt, now),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Item 41 - build the counterfactual's input rows from the measured ledger:
+ * every record that reaches deriveMeasurementMaturity's "mature_result"
+ * contributes its basis window's treated/control click deltas and its own
+ * pre-ship baseline, pro-rated to the basis window length (the same
+ * scaledBaseline pooled-verdict-runner.ts's percentLiftOf uses). This is
+ * WON and LOST rows both (the portfolio claim is about the whole settled
+ * cohort, not only the wins) - an "inconclusive" 28-day read never reaches
+ * mature_result at all (deriveMeasurementMaturity requires a real won/lost
+ * call for sufficiency), so it is correctly excluded rather than diluting
+ * the average with a null result.
+ */
+export function buildCounterfactualRows(ledger: ShippedChangeRecord[], now: Date, shockWindows: ShockWindow[]): CounterfactualRow[] {
+  const overlaps = detectMeasurementOverlaps(ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
+  const rows: CounterfactualRow[] = [];
+  for (const r of ledger) {
+    if (!isMatureAndClean(r, overlaps.get(r.id) ?? null, now, shockWindows)) continue;
+    const basis = basisWindowOf(r);
+    if (!basis) continue;
+    const baselineClicks = r.baseline?.clicks ?? 0;
+    const scaledBaseline = baselineClicks * (basis.day / PROOF_BASELINE_WINDOW_DAYS);
+    rows.push({
+      id: r.id,
+      treatedDelta: basis.treatedDelta,
+      controlDelta: basis.controlDelta,
+      scaledBaseline,
+      controlsUsed: basis.controlsUsed,
+    });
+  }
+  return rows;
+}
+
 export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
   try {
-    const [daily, ledger, slug, revenueDays] = await Promise.all([
+    const [daily, ledger, measuredLedger, slug, revenueDays] = await Promise.all([
       loadDailyTotalsForTenant(tenantId, 84),
       loadShippedChanges().catch(() => []),
+      // Items 40 + 41 need dollarValue/trafficOutcome, which only exist on the
+      // RE-MEASURED ledger (loadShippedChanges alone never populates them).
+      // react.cache-shared with the /today page's own loadProofLedgerCached
+      // call in the same request, so this is not a second heavy re-measure.
+      loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
       currentTenantSlug().catch(() => ""),
       // Item 3 - honest dollars from revenue_facts; fail-soft -> the line self-hides.
       loadRevenueByDayForTenant(tenantId).catch(() => []),
@@ -119,6 +263,19 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
     // Item 3 - one honest money sentence. Null when no revenue_facts exist, so
     // this section renders exactly as before for tenants without dollars.
     const moneyLine = buildMoneyLine(revenueDays);
+
+    // Items 40 + 41 - the lifetime earnings odometer and the portfolio
+    // counterfactual, both computed from the SAME re-measured ledger, both
+    // independently self-hiding (null when the honest minimum isn't met).
+    const now = new Date();
+    const shockWindows = await loadShockWindowsForGate(tenantId);
+    const lifetimeEarnings = computeLifetimeEarnings(
+      buildLifetimeEarningsRows(measuredLedger, now, shockWindows),
+    );
+    const portfolioCounterfactual = computePortfolioCounterfactual(
+      buildCounterfactualRows(measuredLedger, now, shockWindows),
+    );
+
     const deltaTone = s.deltaPct == null ? "text-gray-500 dark:text-neutral-400" : s.deltaPct > 2 ? "text-emerald-600 dark:text-emerald-400" : s.deltaPct < -2 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400";
     return (
       <section aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900">
@@ -144,6 +301,16 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
         <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
         {moneyLine ? (
           <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
+        ) : null}
+        {lifetimeEarnings || portfolioCounterfactual ? (
+          <div className="mt-2 space-y-1 border-t border-gray-100 pt-2 dark:border-neutral-800">
+            {lifetimeEarnings ? (
+              <p className="text-[13px] font-medium text-indigo-700 dark:text-indigo-300">{lifetimeEarnings.sentence}</p>
+            ) : null}
+            {portfolioCounterfactual ? (
+              <p className="text-[13px] text-gray-600 dark:text-neutral-300">{portfolioCounterfactual.sentence}</p>
+            ) : null}
+          </div>
         ) : null}
         {citations.total > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 dark:border-neutral-800 dark:text-neutral-300 tabular-nums">

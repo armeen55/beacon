@@ -17,7 +17,13 @@ import { resolve } from "node:path";
  * checks because member accesses and statements are filtered out.
  */
 
-const FILES = ["page.tsx", "proof-ledger-client.tsx", "proof-summary-section.tsx", "forecast-calibration-section.tsx"] as const;
+const FILES = [
+  "page.tsx",
+  "proof-ledger-client.tsx",
+  "proof-summary-section.tsx",
+  "forecast-calibration-section.tsx",
+  "../../../domains/experiments/forecast-receipts.ts",
+] as const;
 
 /** Never allowed in visible text (word boundary, case-insensitive). */
 const BANNED_WORDS = [

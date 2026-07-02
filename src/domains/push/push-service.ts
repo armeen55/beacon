@@ -781,6 +781,26 @@ async function executeBodySectionPush(args: {
     return { kind: "refused", reason: merge.reason };
   }
 
+  // Idempotent re-push: the section is already on the page (verbatim,
+  // normalized). No live write, no new snapshot (nothing to undo), and no
+  // daily-cap slot spent for a push that changed nothing. The reservation
+  // is released as push_failed (it did not count as a push) but the
+  // operator sees an honest "pushed" outcome because the content really
+  // is live. Prevents the classic re-push bug: clicking Approve & Push
+  // twice on the same answer block or FAQ must not stack a duplicate copy.
+  // A dry-run stays a dry-run: zero side effects (audit #35 contract), so
+  // it reports the no-op honestly without touching the ledger.
+  if (merge.alreadyApplied === true) {
+    const detail =
+      `I checked the "${bodyField.key}" field on ${edit.target_url} and this section is already there, so I made no change. ` +
+      `Nothing was overwritten and no new undo snapshot was needed.`;
+    if (dryRun) {
+      return { kind: "dry_run", adapter: "wix_cms", detail: `would make no change: ${detail}` };
+    }
+    await recordLedger(tenantId, edit, "push_failed", `body_noop_already_applied: ${bodyField.key}`, now, reservationId);
+    return { kind: "pushed", adapter: "wix_cms", detail };
+  }
+
   // Same 1MB full-item ceiling as every CMS write.
   const mergedPreview = { ...item.data, [bodyField.key]: merge.merged };
   if (JSON.stringify(mergedPreview).length > MAX_CMS_ITEM_BYTES) {

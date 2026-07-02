@@ -36,6 +36,7 @@ import { buildFeatureStealHintNotes } from "@/domains/serp/feature-steal";
 import { normalizePath } from "./daily-plan-types";
 import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
 import { reviewCandidateWithTeam } from "./team-review";
+import { findEvidenceGaps, buyEvidenceForPick, type EvidenceGapCandidate } from "./buy-missing-evidence";
 import { loadEngineGapNotes } from "@/domains/ai-visibility/gap-store";
 import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
 import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
@@ -44,7 +45,7 @@ import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import { buildSeasonalHintNotes } from "@/domains/seasonal/seasonal-hints";
 import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import { buildLanguageGapHintNotes } from "@/domains/language-gap/language-gap-hints";
-import { currentTenantSlug } from "@/lib/tenant-context";
+import { currentTenantSlug, currentTenant } from "@/lib/tenant-context";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { buildCitabilityHintNotes } from "@/domains/citability/citability-hints";
 import { loadCalibrationRecords } from "./forecast-calibration-store";
@@ -540,6 +541,60 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         });
       }
     }
+  }
+
+  // Item 39 - BUY THE MISSING DECISIVE EVIDENCE before the batch finalizes. A top pick's
+  // live-Google teammate (emitDataforseoOpinion) abstains whenever no SERP evidence exists for
+  // its query - honest, but on tonight's TOP picks that silence is worth closing with one
+  // targeted, gauntleted lookup rather than shipping the pick with a silent voice. Bounded to
+  // the top 5 picks by opportunity; only when the evidence is genuinely absent (no cached
+  // pattern, no fresh history); one attempt per pick (runSerpQuery's own 14d cache makes a
+  // second attempt the same night or the same fortnight a free cache hit, never a second spend);
+  // fail-soft throughout - a decline (dry-run/disabled/capped/error/no-results) just keeps the
+  // pick's original abstain and the batch keeps moving.
+  const gapCandidates: EvidenceGapCandidate[] = selected.map((c) => {
+    const q = c.targetQuery.trim().toLowerCase();
+    return {
+      url: c.url,
+      targetQuery: c.targetQuery,
+      packet: packetByPath.get(normalizePath(c.url)) ?? null,
+      rankScore: c.ctrOpportunityClicks,
+      hasCachedSerpPattern: serpByTerm.has(q),
+      hasFreshSerpHistory: false,
+    };
+  });
+  const evidenceGaps = findEvidenceGaps(gapCandidates, { maxGaps: 5 });
+  if (evidenceGaps.length > 0) {
+    const ownDomain = await currentTenant().then((t) => t.domain).catch(() => null);
+    await Promise.all(
+      evidenceGaps.map(async (gap) => {
+        const c = selected.find((s) => normalizePath(s.url) === normalizePath(gap.candidate.url));
+        if (!c) return;
+        const purchase = await buyEvidenceForPick(gap, { ownDomain }).catch(() => null);
+        if (!purchase || purchase.status !== "bought" || !purchase.serpVerdict) return; // fail-soft: keep original abstain
+        // Re-run THIS pick's team review with the fresh live-Google verdict threaded in, so the
+        // debate the card shows reflects the teammate that just spoke instead of the stale one
+        // that abstained. Every other pick is untouched.
+        const packet = packetByPath.get(normalizePath(c.url));
+        const result = reviewCandidateWithTeam(packet, nowIso, { serpVerdict: purchase.serpVerdict });
+        if (result.review) {
+          c.teamReview = result.review;
+          const hist = historyLine(c.pageFamily ?? "", c.actionFamily);
+          if (hist && !c.teamReview.voices.some((v) => v.label === "Results so far")) {
+            c.teamReview.voices.push({ specialist: "proof", label: "Results so far", claim: hist, confidencePct: 65 });
+          }
+          if (purchase.receiptSentence) {
+            c.teamReview.voices.push({
+              specialist: "dataforseo",
+              label: "Live Google results",
+              claim: purchase.receiptSentence,
+              confidencePct: 80,
+            });
+          }
+        }
+        c.teamScoreMultiplier = (c.familyWin ? c.familyWin.boost : 1) * result.scoreMultiplier;
+      }),
+    );
   }
 
   // Item 25 - the strategist WRITES the team verdict for each pick: a grounded 1-3 sentence

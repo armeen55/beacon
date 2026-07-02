@@ -34,6 +34,8 @@ import {
   buildTeamScoreboardSummary,
   findPlanPickForProofId,
   votesFromTeamReview,
+  convictionObservationsFromTeamReview,
+  objectionObservationsFromTeamReview,
 } from "./compute-scoreboard";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { DailyExperimentPlanRecord, PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
@@ -207,6 +209,45 @@ describe("votesFromTeamReview", () => {
   });
 });
 
+describe("convictionObservationsFromTeamReview (item 43)", () => {
+  it("emits one observation per supporting voice, carrying the RAW conviction (not a probability)", () => {
+    const observations = convictionObservationsFromTeamReview(REVIEW, 1);
+    expect(observations).toHaveLength(2);
+    expect(observations.find((o) => o.specialist === "gsc")?.conviction).toBe(90);
+    expect(observations.find((o) => o.specialist === "dataforseo")?.conviction).toBe(70);
+    expect(observations.every((o) => o.outcome === 1)).toBe(true);
+  });
+
+  it("dissenting-only voices are never included (an objection carries no stated conviction)", () => {
+    const review: TeamReview = {
+      ...REVIEW,
+      voices: [],
+      objections: [{ label: "Visitor behavior", reason: "concern", severity: "veto", detail: "x" }],
+    };
+    expect(convictionObservationsFromTeamReview(review, 0)).toEqual([]);
+  });
+});
+
+describe("objectionObservationsFromTeamReview (item 43)", () => {
+  it("emits one observation per objector, keyed by the plain label", () => {
+    const review: TeamReview = {
+      ...REVIEW,
+      objections: [
+        { label: "Visitor behavior", reason: "high bounce", severity: "veto", detail: "x" },
+        { label: "Revenue", reason: "no conversion signal", severity: "downgrade", detail: "y" },
+      ],
+    };
+    const observations = objectionObservationsFromTeamReview(review, 0);
+    expect(observations).toHaveLength(2);
+    expect(observations.find((o) => o.objectorLabel === "Visitor behavior")?.severity).toBe("veto");
+    expect(observations.every((o) => o.outcome === 0)).toBe(true);
+  });
+
+  it("no objections on the review yields no observations", () => {
+    expect(objectionObservationsFromTeamReview(REVIEW, 1)).toEqual([]);
+  });
+});
+
 describe("buildTeamScoreboardSummary - eligibility gate (mirrors load-experiment-outcomes.ts)", () => {
   it("a mature won record joins and produces votes", async () => {
     ledger = [record()];
@@ -258,6 +299,56 @@ describe("buildTeamScoreboardSummary - eligibility gate (mirrors load-experiment
     const summary = await buildTeamScoreboardSummary("iranopedia", NOW);
     const gsc = summary.rows.find((r) => r.specialist === "gsc");
     expect(Object.keys(gsc?.byFamily ?? {})).toEqual(["title"]);
+  });
+});
+
+describe("buildTeamScoreboardSummary - accountability layer wiring (item 43)", () => {
+  it("persists per-specialist calibration bands from settled supporting votes", async () => {
+    ledger = [record()];
+    plans = [plan()];
+    await buildTeamScoreboardSummary("iranopedia", NOW);
+    const gsc = (writes[0]!.specialists as Array<Record<string, unknown>>).find((s) => s.specialist === "gsc")!;
+    expect(gsc.calibration_bands).toBeDefined();
+    const bands = gsc.calibration_bands as Array<{ band: string; n: number; won: number }>;
+    expect(bands.map((b) => b.band)).toEqual(["60-70", "70-80", "80-90", "90+"]);
+    // REVIEW's gsc voice argues at 90 confidencePct on a won record -> lands in the 90+ band.
+    const band90 = bands.find((b) => b.band === "90+")!;
+    expect(band90.n).toBe(1);
+    expect(band90.won).toBe(1);
+  });
+
+  it("persists the tenant-wide objection track record when a pick ships over an objection", async () => {
+    const objectingReview: TeamReview = {
+      ...REVIEW,
+      voices: [{ specialist: "gsc", label: "Search demand", claim: "demand exists", confidencePct: 90 }],
+      objections: [{ label: "Visitor behavior", reason: "high bounce risk", severity: "downgrade", detail: "x" }],
+    };
+    ledger = [record({ verdict: "lost" })]; // the objector's concern held up: pick shipped and lost
+    plans = [plan({ selected: [pick({ teamReview: objectingReview })] })];
+    await buildTeamScoreboardSummary("iranopedia", NOW);
+    const objections = writes[0]!.objections as Array<{ objectorLabel: string; objected: number; right: number; wrong: number }>;
+    expect(objections).toHaveLength(1);
+    expect(objections[0]).toEqual({ objectorLabel: "Visitor behavior", objected: 1, right: 1, wrong: 0 });
+  });
+
+  it("an objection on a pick that WON anyway is scored wrong", async () => {
+    const objectingReview: TeamReview = {
+      ...REVIEW,
+      voices: [{ specialist: "gsc", label: "Search demand", claim: "demand exists", confidencePct: 90 }],
+      objections: [{ label: "Visitor behavior", reason: "high bounce risk", severity: "downgrade", detail: "x" }],
+    };
+    ledger = [record({ verdict: "won" })]; // shipped over the objection and won -> the objection was wrong
+    plans = [plan({ selected: [pick({ teamReview: objectingReview })] })];
+    await buildTeamScoreboardSummary("iranopedia", NOW);
+    const objections = writes[0]!.objections as Array<{ objectorLabel: string; objected: number; right: number; wrong: number }>;
+    expect(objections[0]).toEqual({ objectorLabel: "Visitor behavior", objected: 1, right: 0, wrong: 1 });
+  });
+
+  it("no objections anywhere in history persists an empty (not undefined) objections array", async () => {
+    ledger = [record()];
+    plans = [plan()];
+    await buildTeamScoreboardSummary("iranopedia", NOW);
+    expect(writes[0]!.objections).toEqual([]);
   });
 });
 

@@ -17,9 +17,10 @@ import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
 import { loadTeamScoreboardView } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { recordLine } from "@/domains/team-scoreboard/brier";
+import { buildCalibrationLine } from "@/domains/team-scoreboard/calibration";
 import { currentTenantSlug } from "@/lib/tenant-context";
 
-type StandupLine = { key: string; line: string; active: boolean };
+type StandupLine = { key: string; line: string; active: boolean; title?: string };
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
@@ -42,6 +43,7 @@ async function buildLines(
   tenantId: string,
   picksTonight: number,
   records: Map<string, string>,
+  calibrations: Map<string, string>,
 ): Promise<StandupLine[]> {
   const [daily, clarity, ga4, serp, keywords, aeo, ledger, llmMentions, slug] = await Promise.all([
     safe(() => loadDailyTotalsForTenant(tenantId, 21), []),
@@ -129,34 +131,61 @@ async function buildLines(
     active: picksTonight > 0 || measuring > 0,
   });
 
+  // Item 43 - each chip gains its own calibration line as a hover title when that specialist has
+  // enough banded observations (calibration.ts's own 5-observation minimum already gates the map).
+  for (const l of lines) {
+    const calibration = calibrations.get(l.key);
+    if (calibration) l.title = calibration;
+  }
+
   return lines;
 }
 
 /** Item 38 (2026-07-02) - the scoreboard view for this render: the honest one-line footer (which
  *  specialist has called the most winners right so far, with its real won/n number - silent below
  *  5 settled-and-joined picks or when no specialist clears its own sample bar) plus a per-specialist
- *  "5 of 6" record map for the chips. Reads the last-computed scoreboard only (no recompute on
- *  render - that runs from the measure-pass tail). Fail-soft -> no footer, empty record map. */
-async function loadScoreboardForStandup(tenantId: string): Promise<{ footer: string | null; records: Map<string, string> }> {
+ *  "5 of 6" record map for the chips. Item 43 (2026-07-02) adds the accountability reads: the
+ *  tenant's conviction-calibration line, its objection-track-record line (each independently silent
+ *  below its own 5-observation minimum - see calibration.ts), and a per-specialist calibration-line
+ *  map for the chips' hover titles. Reads the last-computed scoreboard only (no recompute on render -
+ *  that runs from the measure-pass tail). Fail-soft -> everything silent/empty. */
+async function loadScoreboardForStandup(tenantId: string): Promise<{
+  footer: string | null;
+  calibrationLine: string | null;
+  objectionLine: string | null;
+  records: Map<string, string>;
+  calibrations: Map<string, string>;
+}> {
+  const empty = { footer: null, calibrationLine: null, objectionLine: null, records: new Map<string, string>(), calibrations: new Map<string, string>() };
   try {
     const view = await loadTeamScoreboardView(tenantId);
-    if (!view) return { footer: null, records: new Map() };
+    if (!view) return empty;
     const records = new Map<string, string>();
+    const calibrations = new Map<string, string>();
     for (const row of view.rows) {
       const line = recordLine(row.overall);
       if (line) records.set(row.specialist, line);
+      const bands = view.snapshot.specialists.find((s) => s.specialist === row.specialist)?.calibration_bands;
+      if (bands) {
+        const calibrationLine = buildCalibrationLine(teammateOf(row.specialist).name, bands);
+        if (calibrationLine) calibrations.set(row.specialist, calibrationLine);
+      }
     }
-    return { footer: view.footerLine, records };
+    return { footer: view.footerLine, calibrationLine: view.calibrationLine, objectionLine: view.objectionLine, records, calibrations };
   } catch {
-    return { footer: null, records: new Map() };
+    return empty;
   }
 }
 
 export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string; picksTonight: number }) {
   try {
-    const { footer, records } = await loadScoreboardForStandup(tenantId);
-    const lines = await buildLines(tenantId, picksTonight, records);
+    const { footer, calibrationLine, objectionLine, records, calibrations } = await loadScoreboardForStandup(tenantId);
+    const lines = await buildLines(tenantId, picksTonight, records, calibrations);
     if (lines.length === 0) return null;
+    // Item 43 - stack the calibration and objection lines under the item-38 footer whenever each
+    // clears its own 5-observation minimum (both loaders already return null below that bar, so this
+    // is a plain filter, never an extra gate). Either, both, or neither can render independently.
+    const footerLines = [footer, calibrationLine, objectionLine].filter((l): l is string => Boolean(l));
     return (
       <div className="flex flex-col gap-1.5 beacon-rise-in">
         <section aria-label="Team standup" className="flex flex-wrap gap-2">
@@ -165,6 +194,7 @@ export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string
             return (
               <span
                 key={l.key}
+                title={l.title}
                 className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px]"
                 style={{ background: t.bg, borderColor: `${t.color}33`, color: t.text }}
               >
@@ -175,7 +205,11 @@ export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string
             );
           })}
         </section>
-        {footer ? <p className="px-1 text-[11.5px] text-slate-500">{footer}</p> : null}
+        {footerLines.map((line, i) => (
+          <p key={i} className="px-1 text-[11.5px] text-slate-500">
+            {line}
+          </p>
+        ))}
       </div>
     );
   } catch {

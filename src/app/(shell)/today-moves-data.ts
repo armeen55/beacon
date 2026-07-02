@@ -45,6 +45,9 @@ import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-grap
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 import { getStagingAvailability } from "@/domains/push/stage-change";
 import { stageRouteForActionType, STAGING_OFF } from "@/domains/push/stage-route";
+import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
+import { getWixConnectorToken } from "@/lib/connector-store";
+import { buildWixEditorLink } from "@/domains/push/wix-deep-link";
 
 /**
  * today-moves-data (2026-06-24) - the loader behind the premium "Today's Moves"
@@ -235,6 +238,11 @@ export type TodayMove = {
    *  the quiet publishing-settings pointer (Wix target, pushable, but not armed).
    *  Optional + additive: precomputed snapshots without it keep paste behavior. */
   staging?: { enabled: boolean; nudge: boolean };
+  /** Item 45 - deep link straight into the Wix dashboard editor for this page's
+   *  mapped CMS item (or its Stores product editor). Null/absent when the page
+   *  is not resolvable to a live Wix item yet (no site connected, or no
+   *  collection mapping) - the card then shows only "View page" as before. */
+  wixEditorUrl?: string | null;
 };
 
 export type TodayMovesHeroData = {
@@ -428,6 +436,15 @@ export async function buildTodayMovesData(
     // now? One read per build; fails to OFF (paste behavior) on any uncertainty,
     // including the nightly precompute path which has no request context.
     const stagingAvail = await getStagingAvailability(tenantId).catch(() => STAGING_OFF);
+    // Item 45 - "Open in Wix" deep links. ONE url-map read + ONE token read per
+    // build (not per move), matching the staging read above. Fails to an empty
+    // map / null site id on any uncertainty, which resolves every link to
+    // honest null (the card then shows only "View page", today's behavior).
+    const [wixUrlMap, wixToken] = await Promise.all([
+      getWixUrlMap().catch(() => []),
+      getWixConnectorToken(tenantId).catch(() => null),
+    ]);
+    const wixEntryByUrl = new Map(wixUrlMap.map((e) => [canon(e.url), e]));
 
     // Learned-prior tag per demand key (from the outcome re-weight on the graph).
     const learnedByKey = new Map(graphMoves.map((m) => [m.demandKey, m.learnedPrior ?? null]));
@@ -673,10 +690,22 @@ export async function buildTodayMovesData(
         enabled: stagingAvail.enabled && stageRoute != null && hasStageText,
         nudge: stagingAvail.wixTarget && !stagingAvail.armed && stageRoute != null && hasStageText,
       };
+      // Item 45 - "Open in Wix": a pure resolve from the same url-map entry the
+      // push service uses, so the link only ever appears for a page Beacon
+      // could actually publish to. Honest null renders no link.
+      const wixEntry = wixEntryByUrl.get(pk);
+      const wixEditorUrl = wixEntry
+        ? buildWixEditorLink({
+            siteId: wixToken?.site_id ?? null,
+            dataCollectionId: wixEntry.dataCollectionId,
+            dataItemId: wixEntry.dataItemId,
+          })?.toString() ?? null
+        : null;
       moves.push({
         id: moveId,
         action: e.action_type,
         staging,
+        wixEditorUrl,
         actionLabel: meta.label,
         actionTone: meta.tone,
         query: packet?.move?.label ?? (e as { topic_cluster_label?: string }).topic_cluster_label ?? prettyPage(targetUrl),

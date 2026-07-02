@@ -25,6 +25,8 @@ import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pac
 import { ProofSummarySection } from "./proof-summary-section";
 import { ForecastCalibrationSection } from "./forecast-calibration-section";
 import { PooledVerdictSection } from "./pooled-verdict-section";
+import { loadCalibrationRecords, type CalibrationRecord } from "@/domains/experiments/forecast-calibration-store";
+import { buildForecastReceiptLine, shouldShowForecastReceipt } from "@/domains/experiments/forecast-receipts";
 import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
   pickProofMetric,
@@ -101,13 +103,18 @@ export default async function ProofPage({
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
-  const [ledger, connHealth, worklist, latestGscDate] = await Promise.all([
+  const [ledger, connHealth, worklist, latestGscDate, calibrationRecords] = await Promise.all([
     loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
     loadConnectionHealth(tenantId).catch(() => []),
     loadActionPackWorklistForTenant(tenantId).catch(() => null),
     readLastFinalizedDate(tenantId).catch(() => null),
+    loadCalibrationRecords(tenantId).catch(() => [] as CalibrationRecord[]),
   ]);
   const recordedPaths = new Set(ledger.map((l) => l.path));
+  // Item 42 - per-row forecast receipts: a settled calibration record (item 28's day-28 writer)
+  // is keyed by proofId, which IS the shipped-change ledger row's own id (see
+  // run-measurement.ts's writeCalibrationIfDue). One record per pick, so a plain map is exact.
+  const calibrationByProofId = new Map(calibrationRecords.map((r) => [r.proofId, r] as const));
 
   // Item 5 - a before/after daily-clicks line on every measured row (ship date marked),
   // so "won/lost" is never a naked label. Bounded to the first 16 rows; fail-soft.
@@ -370,7 +377,7 @@ export default async function ProofPage({
               </p>
               <div className="mt-2 space-y-2.5">
                 {winRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="win" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} />
+                  <LedgerCard key={rec.id} rec={rec} band="win" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} calibration={calibrationByProofId.get(rec.id) ?? null} />
                 ))}
               </div>
             </div>
@@ -387,7 +394,7 @@ export default async function ProofPage({
               </p>
               <div className="mt-2 space-y-2.5">
                 {learningRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="learning" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} />
+                  <LedgerCard key={rec.id} rec={rec} band="learning" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} calibration={calibrationByProofId.get(rec.id) ?? null} />
                 ))}
               </div>
             </div>
@@ -547,7 +554,7 @@ const PLAIN_METRIC: Record<ProofMetric, string> = {
 
 type LedgerBand = "win" | "learning" | "inflight";
 
-function LedgerCard({ rec, link, pres, spark, band, revert, restored }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[]; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean }) {
+function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[]; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -668,6 +675,17 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored }: { rec: S
       <p className="mt-1.5 text-[12px] text-foreground/80">
         <span className="font-medium text-foreground/60">Search:</span> {sentence}
       </p>
+
+      {/* Forecast receipt (master plan item 42): grade the numeric forecast this pick carried
+          against what actually happened, straight from the persisted calibration record (item
+          28's day-28 writer) - never recomputed here. Only a MATURE (settled) row can carry a
+          receipt; a measuring row is never graded. Silent when this pick had no numeric forecast
+          or hasn't reached its calibration write yet. */}
+      {shouldShowForecastReceipt({ mature, calibration }) ? (
+        <p className="mt-1 text-[12px] font-medium text-foreground/80">
+          {buildForecastReceiptLine(calibration!)}
+        </p>
+      ) : null}
 
       {/* Permutation-null read (master plan item 37): the plain-English "how many
           untouched pages moved this much" line. Additive - only renders when

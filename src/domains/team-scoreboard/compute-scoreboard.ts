@@ -43,6 +43,12 @@ import {
   type ScoredVote,
   type SpecialistScoreboardRow,
 } from "./brier";
+import {
+  buildCalibrationBands,
+  buildObjectionTrackRecord,
+  type ConvictionObservation,
+  type ObjectionObservation,
+} from "./calibration";
 import { writeTeamScoreboard } from "./team-scoreboard-store";
 
 /** Same generous history window run-measurement.ts already uses for the calibration join (items
@@ -148,6 +154,25 @@ export function votesFromTeamReview(
   return votes;
 }
 
+/** Item 43 - one conviction observation per SUPPORTING voice on this settled pick (dissenting voices
+ *  carry no stated conviction, only a severity, so they never feed the calibration bands - see
+ *  calibration.ts's module doc). Raw `confidencePct` is kept (not the derived win probability) since
+ *  banding reads "how sure it sounded", the same number the operator sees on the card. Keyed by the
+ *  voice's raw specialist id, same identity convention as votesFromTeamReview's supporting branch. */
+export function convictionObservationsFromTeamReview(review: TeamReview, outcome: 0 | 1): ConvictionObservation[] {
+  return review.voices.map((v) => ({ specialist: v.specialist, conviction: v.confidencePct, outcome }));
+}
+
+/** Item 43 - one objection observation per objector on this settled pick. A pick only reaches
+ *  plan.selected (and so only ever settles) when the team review did NOT veto it off content work
+ *  (team-review.ts: a content-routing veto removes the candidate from the batch entirely) - so every
+ *  objection joined here already shipped over the objector's concern, exactly the "ships over an
+ *  objection" case item 43 asks for. Keyed by the objector's plain label (objections carry no raw
+ *  specialist key - see votesFromTeamReview's doc). */
+export function objectionObservationsFromTeamReview(review: TeamReview, outcome: 0 | 1): ObjectionObservation[] {
+  return review.objections.map((o) => ({ objectorLabel: o.label, severity: o.severity, outcome }));
+}
+
 export type TeamScoreboardSummary = {
   rows: SpecialistScoreboardRow[];
   settledJoined: number;
@@ -177,6 +202,10 @@ export async function buildTeamScoreboardSummary(tenantId: string, now: Date = n
   let totalSettled = 0;
   let settledJoined = 0;
   const votes: ScoredVote[] = [];
+  // Item 43 - the same settled-and-joined picks, additionally read for conviction bands (keyed by
+  // specialist) and the objection track record (keyed by objector label, tenant-wide).
+  const convictionsBySpecialist = new Map<string, ConvictionObservation[]>();
+  const objectionObservations: ObjectionObservation[] = [];
 
   for (const r of records) {
     const verdict = settledVerdictOf(r, overlaps.get(r.id) ?? null, now, shockWindows);
@@ -191,9 +220,17 @@ export async function buildTeamScoreboardSummary(tenantId: string, now: Date = n
     const outcome: 0 | 1 = verdict === "won" ? 1 : 0;
     const actionFamily = actionFamilyOf(r.actionType);
     votes.push(...votesFromTeamReview(review, actionFamily, outcome));
+
+    for (const obs of convictionObservationsFromTeamReview(review, outcome)) {
+      const arr = convictionsBySpecialist.get(obs.specialist) ?? [];
+      arr.push(obs);
+      convictionsBySpecialist.set(obs.specialist, arr);
+    }
+    objectionObservations.push(...objectionObservationsFromTeamReview(review, outcome));
   }
 
   const rows = buildSpecialistScoreboard(votes);
+  const objectionTrackRecord = buildObjectionTrackRecord(objectionObservations);
   const computedAt = now.toISOString();
 
   await writeTeamScoreboard({
@@ -201,7 +238,13 @@ export async function buildTeamScoreboardSummary(tenantId: string, now: Date = n
     computed_at: computedAt,
     total_settled: totalSettled,
     settled_joined: settledJoined,
-    specialists: rows.map((row) => ({ specialist: row.specialist, overall: row.overall, by_family: row.byFamily })),
+    specialists: rows.map((row) => ({
+      specialist: row.specialist,
+      overall: row.overall,
+      by_family: row.byFamily,
+      calibration_bands: buildCalibrationBands(convictionsBySpecialist.get(row.specialist) ?? []),
+    })),
+    objections: objectionTrackRecord,
   });
 
   return { rows, settledJoined, totalSettled, computedAt };

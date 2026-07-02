@@ -40,7 +40,7 @@ export type BodyMergeOptions = {
 };
 
 export type BodyMergeResult =
-  | { ok: true; merged: string; summary: string }
+  | { ok: true; merged: string; summary: string; alreadyApplied?: boolean }
   | { ok: false; reason: string };
 
 /** prepend/append keep the original verbatim by construction; this floor
@@ -111,6 +111,54 @@ export function originalContentRetained(args: {
 
 const NEVER_WIPE_REASON =
   "The merged result would lose part of the existing page body, so I stopped and left this change for you to paste.";
+
+// ─── idempotent re-push guard ───────────────────────────────────────────
+
+/** Collapse whitespace/case/tags/markdown-heading-hashes so the same
+ *  section written as plain text, HTML, or a heading line still compares
+ *  equal. Deliberately loose: a false "already there" only skips a
+ *  no-op write, and a false negative just re-runs the ordinary merge, so
+ *  bias this toward catching the common exact re-push case. */
+function normalizeForComparison(s: string): string {
+  return s
+    .replace(/<[^>]+>/g, " ")
+    .replace(/^#+\s*/gm, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * True when the draft section is already present verbatim (normalized)
+ * in the existing body. Exported for direct testing. Only meaningful for
+ * the two ADDITIVE modes (prepend_answer / append_faq): a re-push of an
+ * identical section must be a no-op, not a second copy stacked onto the
+ * page. replace_section is naturally idempotent (it swaps the named
+ * section either way) so it is never checked here.
+ */
+export function sectionAlreadyPresent(args: {
+  existing: string;
+  draft: string;
+  kind: string;
+}): boolean {
+  const existingNorm = normalizeForComparison(args.existing);
+  if (existingNorm === "") return false; // nothing to be a duplicate of
+  if (args.kind === "ricos") {
+    const lines = args.draft
+      .split(/\r?\n+/)
+      .map((l) => normalizeForComparison(l))
+      .filter((l) => l !== "");
+    if (lines.length === 0) return false;
+    return lines.every((l) => existingNorm.includes(l));
+  }
+  const draftNorm =
+    args.kind === "html" ? normalizeForComparison(draftToHtml(args.draft)) : normalizeForComparison(args.draft);
+  if (draftNorm === "") return false;
+  return existingNorm.includes(draftNorm);
+}
 
 // ─── plain text ───────────────────────────────────────────────────────
 
@@ -398,6 +446,20 @@ export function mergeBodyContent(args: {
   }
   if (!isWixBodyFieldKind(args.kind)) {
     return { ok: false, reason: unrecognizedKindReason(args.kind) };
+  }
+  // Idempotent re-push guard: a re-push of a section already on the page
+  // must not stack a second copy. Additive modes only (prepend/append);
+  // replace_section is naturally idempotent by construction.
+  if (
+    (args.mode === "prepend_answer" || args.mode === "append_faq") &&
+    sectionAlreadyPresent({ existing: args.existing, draft, kind: args.kind })
+  ) {
+    return {
+      ok: true,
+      merged: args.existing,
+      summary: "this section is already on the page, so I made no change",
+      alreadyApplied: true,
+    };
   }
   const opts = args.opts ?? {};
   switch (args.kind) {

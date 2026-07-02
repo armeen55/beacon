@@ -14,7 +14,7 @@
  */
 
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
-import { attachOpinions } from "@/domains/demand-graph/specialist-opinions";
+import { attachOpinions, type SpecialistExtras } from "@/domains/demand-graph/specialist-opinions";
 import { routeMove } from "@/domains/demand-graph/move-router";
 import { summarizeSpecialistDebate } from "@/domains/demand-graph/debate-summary";
 
@@ -86,14 +86,18 @@ export function silentTeammatesLine(spoke: ReadonlySet<string>): string | null {
   return `Quiet this time: ${parts.join("; ")}. They abstain rather than guess.`;
 }
 
-/** Run the full team over one candidate page. PURE. Null packet -> honest abstain. */
+/** Run the full team over one candidate page. PURE. Null packet -> honest abstain.
+ *  `extras` (item 39) threads the few facts the packet itself doesn't carry - most notably a
+ *  freshly-bought live-SERP verdict for a re-review after buy-missing-evidence.ts closes a
+ *  gap. Optional and additive: every existing caller omits it and behaves exactly as before. */
 export function reviewCandidateWithTeam(
   packet: EvidencePacket | null | undefined,
   nowIso: string,
+  extras: SpecialistExtras = {},
 ): TeamReviewResult {
   if (!packet) return { review: null, scoreMultiplier: 1, vetoed: false, vetoReason: null };
 
-  const opinions = attachOpinions(packet, { nowIso });
+  const opinions = attachOpinions(packet, { ...extras, nowIso });
   if (opinions.length === 0) return { review: null, scoreMultiplier: 1, vetoed: false, vetoReason: null };
 
   const decision = routeMove({ packet, opinions });
