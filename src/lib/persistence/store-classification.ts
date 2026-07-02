@@ -99,6 +99,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // TodayMovesHeroData snapshot per tenant. Cold render serves this instantly + refreshes
   // in the background, so the ~32s demand-graph rebuild no longer floors every visit.
   "worklist-surface",
+  // 2026-07-01 item 93 - Today stale-while-revalidate surface (the composed TodayComposite
+  // snapshot per tenant), same discipline as worklist-surface.
+  "today-surface",
   // 2026-06-29 cross-request Demand Graph SWR snapshot — the computed LoadGraphResult per
   // tenant. The ~6s graph build is shared across requests (New Pages, Today, Recs, Drafts,
   // page-factory, enrichment) instead of each surface rebuilding it. Versioned + bounded.

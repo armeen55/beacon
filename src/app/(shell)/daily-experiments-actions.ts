@@ -7,6 +7,7 @@
  * ATOMIC Postgres RPC after a fresh re-validation (all-or-none). No proof rows, no Wix, no paid calls.
  */
 import { revalidatePath } from "next/cache";
+import { invalidateTodaySurface } from "./today-surface-store";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
@@ -47,6 +48,7 @@ export async function planTodayExperimentsAction(): Promise<PlanPreviewResult> {
     await createPreviewPlan(record); // fail-closed (throws if Supabase can't persist)
     revalidatePath("/worklist");
     revalidatePath("/");
+    await invalidateTodaySurface().catch(() => {});
     return {
       ok: true, planId: record.id, inputHash: record.inputHash, selected: record.selected.length, backups: record.backups.length,
       distribution: record.distribution.byLever, estimatedMinutes: record.estimatedMinutes, expiresAt: record.expiresAt,
@@ -115,6 +117,7 @@ export async function acceptDailyExperimentPlanAction(input: { planId: string; i
           await createPreviewPlan(record);
           revalidatePath("/worklist");
           revalidatePath("/");
+    await invalidateTodaySurface().catch(() => {});
           return { ok: false, reason: "plan_refreshed", refreshedPlanId: record.id, refreshedCount: record.selected.length };
         } catch {
           return { ok: false, reason: "refresh_failed" };
@@ -131,6 +134,7 @@ export async function acceptDailyExperimentPlanAction(input: { planId: string; i
     if (!res.ok) return { ok: false, reason: res.reason };
     revalidatePath("/worklist");
     revalidatePath("/");
+    await invalidateTodaySurface().catch(() => {});
     return { ok: true, idempotent: res.idempotent, planId: res.planId, reservationCount: res.reservationIds.length };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 200) : "accept failed" };
@@ -275,6 +279,7 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
     }
     revalidatePath("/worklist");
     revalidatePath("/");
+    await invalidateTodaySurface().catch(() => {});
     revalidatePath("/proof");
     return { ok: true, idempotent: res.idempotent, status: "active", proofId: res.proofId, reservationCount: res.reservationIds.length, verification };
   } catch (e) {
@@ -350,6 +355,7 @@ export async function confirmGscSubmissionAction(input: { planId: string; experi
     revalidatePath("/worklist");
     revalidatePath("/proof");
     revalidatePath("/");
+    await invalidateTodaySurface().catch(() => {});
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "gsc submit failed" };
@@ -372,6 +378,7 @@ export async function skipDailyExperimentItemAction(input: { planId: string; exp
     revalidatePath("/worklist");
     revalidatePath("/proof");
     revalidatePath("/");
+    await invalidateTodaySurface().catch(() => {});
     return { ok: true, releasedCount: res.releasedIds.length };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "skip failed" };
@@ -388,6 +395,7 @@ export async function completeDailyPlanAction(input: { planId: string }): Promis
     const done = await completePlan(tenantId, input.planId, new Date());
     revalidatePath("/worklist");
     revalidatePath("/");
+    await invalidateTodaySurface().catch(() => {});
     return done ? { ok: true } : { ok: false, reason: "not_accepted_or_not_found" };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "complete failed" };

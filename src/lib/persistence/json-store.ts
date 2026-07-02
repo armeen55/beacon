@@ -66,6 +66,10 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   "research-serp-patterns",
   "competitor-page-audit",
   "dataforseo-llm-mentions",
+  // 2026-07-01 items 93/94 - the SWR surface snapshots. Without the mirror, Vercel lambdas
+  // only keep them in-process (warm-lambda-only); the blob makes warm true across instances.
+  "worklist-surface",
+  "today-surface",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";
