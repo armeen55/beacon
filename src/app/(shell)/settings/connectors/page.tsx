@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
 import { AutopilotCard } from "./autopilot-card";
+import { CronHealthPanel } from "./cron-health-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -136,6 +137,11 @@ export default async function ConnectorsPage() {
           budget of auto-shipped changes from proven change types. Default OFF. */}
       <div className="mt-6">
         <AutopilotCard />
+      </div>
+      {/* Cron health panel (2026-07-03, item 85) - "I showed up every night this
+          week" for every scheduled job, plus any 3+ night failure streaks. */}
+      <div className="mt-6">
+        <CronHealthPanel />
       </div>
     </div>
   );

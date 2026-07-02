@@ -11,12 +11,20 @@ import "server-only";
  * loader/builder (zero business logic lives here; composition only).
  *
  * Step order matters and is pinned by tests:
- *   1. demand-graph      - the shared graph snapshot every surface reads
- *   2. worklist-surface  - built FROM the fresh graph
- *   3. plan-preview      - ensure tonight's plan exists (skip when it does)
- *   4. today-surface     - built AFTER the preview so Today shows the plan
- *   5. coverage-map      - no persistent store today; recorded as skipped
- *                          (it reads the demand-graph snapshot warmed in 1)
+ *   1. demand-graph        - the shared graph snapshot every surface reads
+ *   2. worklist-surface    - built FROM the fresh graph
+ *   3. plan-preview        - ensure tonight's plan exists (skip when it does)
+ *   4. today-surface       - built AFTER the preview so Today shows the plan
+ *   5. coverage-map        - no persistent store today; recorded as skipped
+ *                            (it reads the demand-graph snapshot warmed in 1)
+ *   6. displacement-check  - BEACON 500 item 82 (2026-07-02): a LOSS reflex,
+ *                            not a cache warm. Finds money queries that fell
+ *                            3+ Google positions vs a week ago and spends AT
+ *                            MOST 3 capped live checks per tenant per night
+ *                            through the existing runSerpQuery gauntlet
+ *                            (untouched here). Isolated step: a failure or a
+ *                            capped/dry-run outcome never affects the 5 warm
+ *                            steps above it. See displacement-check.ts.
  *
  * Money posture (verified in the callees, none edited here):
  *   - graph/worklist/today loaders are cached/durable reads only ($0).
@@ -27,6 +35,11 @@ import "server-only";
  *     This pass front-runs the exact same bounded spend the operator's own
  *     morning "plan today" click would trigger - it adds NO new spend path,
  *     and the skip-when-fresh guard means at most one build per day.
+ *   - displacement-check spends through runSerpQuery's own unmodified
+ *     gauntlet (configured -> cache -> dry-run -> fail-closed monthly cap ->
+ *     ledger) - capped at 3 checks/tenant/night on top of that, and an
+ *     explicit 14-day per-query re-check guard so the same drop is never
+ *     paid for twice inside two weeks.
  *
  * Safety posture (mirrors run-autopilot):
  *   - ambient-vs-requested tenant guard: the surface stores resolve through
@@ -40,6 +53,7 @@ import "server-only";
 
 import type { DailyExperimentPlanRecord } from "@/domains/experiments/daily-plan-types";
 import type { TodayPreviewResult } from "@/domains/experiments/build-today-preview";
+import type { DisplacementCheckSummary } from "@/domains/serp/displacement-check";
 import type { WarmRunReceipt, WarmStepReceipt } from "./warm-receipt-store";
 
 export type WarmCachesDeps = {
@@ -63,6 +77,10 @@ export type WarmCachesDeps = {
   persistPreview: (record: DailyExperimentPlanRecord) => Promise<void>;
   /** Pacific date key for "tonight". */
   today: (now: Date) => string;
+  /** BEACON 500 item 82: the capped nightly money-query displacement check
+   *  (find real position drops -> at most 3 live Google checks -> persist
+   *  verdicts). Returns a short summary for the step's receipt note. */
+  runDisplacementChecks: (tenantId: string, now: Date) => Promise<DisplacementCheckSummary>;
 };
 
 /** YYYY-MM-DD in America/Los_Angeles (same helper family as run-autopilot). */
@@ -122,6 +140,14 @@ async function defaultPersistPreview(record: DailyExperimentPlanRecord): Promise
   await createPreviewPlan(record);
 }
 
+/** BEACON 500 item 82: at most 3 capped live checks per tenant per night. */
+const MAX_DISPLACEMENT_CHECKS_PER_NIGHT = 3;
+
+async function defaultRunDisplacementChecks(tenantId: string, now: Date): Promise<DisplacementCheckSummary> {
+  const { runDisplacementCheckForTenant } = await import("@/domains/serp/displacement-check");
+  return await runDisplacementCheckForTenant(tenantId, { maxChecks: MAX_DISPLACEMENT_CHECKS_PER_NIGHT, now: () => now });
+}
+
 const defaultDeps: WarmCachesDeps = {
   ambientTenantId: defaultAmbientTenantId,
   refreshDemandGraph: defaultRefreshDemandGraph,
@@ -133,6 +159,7 @@ const defaultDeps: WarmCachesDeps = {
   buildPreview: defaultBuildPreview,
   persistPreview: defaultPersistPreview,
   today: pacificDay,
+  runDisplacementChecks: defaultRunDisplacementChecks,
 };
 
 /** Hard per-step ceiling - a hung step is recorded as failed and the pass moves on. */
@@ -260,6 +287,22 @@ export async function warmTenantCaches(
     skipped: true,
     note: "no stored snapshot of its own; it reads the graph we just warmed",
   });
+  // Displacement check (BEACON 500 item 82) - isolated on purpose: this is a
+  // LOSS reflex, not a cache warm, and it is the one step in this pass that
+  // can spend real money (through runSerpQuery's own unmodified gauntlet,
+  // capped at MAX_DISPLACEMENT_CHECKS_PER_NIGHT). A failure here must never
+  // affect the 5 warm steps above it - runStep already isolates it the same
+  // way every other step is isolated.
+  steps.push(
+    await runStep("displacement-check", async () => {
+      const summary = await deps.runDisplacementChecks(tenantId, now);
+      const note =
+        summary.verdicts.length > 0
+          ? `checked ${summary.checked + summary.cached} money query drop(s), found ${summary.verdicts.length} still displaced, skipped ${summary.skippedNoBudget} past the nightly cap`
+          : `no qualifying money query drops to check tonight (skipped ${summary.skippedRecent} already checked recently, ${summary.skippedNoBudget} past the nightly cap)`;
+      return { note };
+    }),
+  );
 
   return {
     tenant_id: tenantId,

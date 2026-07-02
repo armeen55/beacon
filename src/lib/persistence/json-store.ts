@@ -229,6 +229,12 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // ("I told Bing X minutes after this went live") would always read empty on hosted prod.
   "indexnow-config",
   "indexnow-receipts",
+  // 2026-07-02 master plan item 86 - the nightly publish-path canary (Wix token
+  // probe + dry-run per tenant). Written by the cron (Vercel lambda: no disk),
+  // read by the publishing-mode card; without the mirror a dead token or stale
+  // url-map would only ever be visible for one warm-lambda instance, not the
+  // durable "I checked your connection last night" the operator relies on.
+  "publish-health",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

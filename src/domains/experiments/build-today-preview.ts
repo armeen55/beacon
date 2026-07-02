@@ -35,6 +35,7 @@ import { rankDelta, loadFeatureStealCandidates } from "@/domains/serp/serp-histo
 import { buildFeatureStealHintNotes } from "@/domains/serp/feature-steal";
 import { normalizePath } from "./daily-plan-types";
 import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
+import { retirementLine } from "./lever-retirement";
 import { reviewCandidateWithTeam } from "./team-review";
 import { loadSpecialistWeightTable } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { findEvidenceGaps, buyEvidenceForPick, type EvidenceGapCandidate } from "./buy-missing-evidence";
@@ -124,6 +125,10 @@ export type TodayPreviewResult = {
   record: DailyExperimentPlanRecord;
   candidatesEvaluated: number;
   excludedByReason: Record<string, number>;
+  /** Item 81 - plain "I stopped..." sentences for every (pageFamily, lever) cell retired or
+   *  due a retest tonight, even one with no surviving pick to attach a card voice to. Empty on
+   *  a ledger with no qualifying losses. */
+  leverRetirementLines: string[];
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
@@ -498,6 +503,22 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
   const backups = plan.backups.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
 
+  // Item 81 - AUTO-RETIRE, SAID PLAINLY: tonight's ONE scheduled retest of a previously-retired
+  // (pageFamily, lever) cell says so on its own card, the same "Results so far" voice slot item
+  // 80's proof-history line already uses. A cell that stayed fully suppressed tonight (every
+  // candidate blocked, none reached selection) has no pick to attach a voice to - its plain
+  // sentence still exists on plan.leverRetirements for the caller's own "why tonight" summary,
+  // it is simply not forced onto an unrelated card.
+  for (const s of plan.selected) {
+    if (!s.retest) continue;
+    const b = byUrl.get(s.url);
+    if (!b || !b.teamReview) continue;
+    const line = retirementLine(s.retest.decision);
+    if (line && !b.teamReview.voices.some((v) => v.label === "Results so far")) {
+      b.teamReview.voices.push({ specialist: "proof", label: "Results so far", claim: line, confidencePct: 65 });
+    }
+  }
+
   // Slice D-1: LLM "write it" pass - sharpen the description/title copy at plan time so cards arrive
   // full. Budgeted + fail-closed inside the structured drafter (off when BEACON_LLM_PROVIDER != openai
   // or the cap is hit); on any miss it keeps the deterministic text. Only drop-in field levers here;
@@ -829,5 +850,12 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
 
   if (qaRejected > 0) excludedByReason.quality_rejected = qaRejected;
   if (teamVetoed > 0) excludedByReason.team_vetoed = teamVetoed;
-  return { record, candidatesEvaluated: built.length, excludedByReason };
+
+  // Item 81 - the plan-level retirement narrative: one plain sentence per retired/retest_due
+  // cell, regardless of whether tonight's batch had room for a candidate in it.
+  const leverRetirementLines = plan.leverRetirements
+    .map((d) => retirementLine(d))
+    .filter((line): line is string => line != null);
+
+  return { record, candidatesEvaluated: built.length, excludedByReason, leverRetirementLines };
 }

@@ -2,6 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
+      "path": "/api/cron/publish-canary",
+      "schedule": "51 8 * * *"
+    },
+    {
       "path": "/api/cron/sync-connectors",
       "schedule": "0 9 * * *"
     },

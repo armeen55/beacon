@@ -343,3 +343,139 @@ describe("planDailyExperiments — item 47 identity-when-empty pin", () => {
     }
   });
 });
+
+// ── Item 81: auto-retire repeatedly-losing (pageFamily, lever) cells, with a scheduled retest ──
+
+const lostRec = (slug: string, settledAt: string, verdict: "lost" | "won" = "lost"): ShippedChangeRecord => ({
+  id: `/cities/${slug}::${settledAt}`, page: `https://iranopedia.com/cities/${slug}`, path: `/cities/${slug}`,
+  actionType: "edit_title", before: null, after: null, shippedAt: settledAt,
+  baseline: { clicks: 0, impressions: 100, ctr: 0, position: 5, windowDays: 28 }, targetQueries: ["q"],
+  controlPages: [], windows: [], verdict, confidence: "low", measuredAt: settledAt,
+  notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null,
+  createdAt: settledAt, updatedAt: settledAt,
+});
+
+describe("planDailyExperiments — item 81 lever retirement wiring", () => {
+  it("suppresses every candidate in a retired (pageFamily, lever) cell (3+ losses, 0 wins)", () => {
+    const retiredLedger = [
+      lostRec("tehran", "2026-01-01T00:00:00Z"),
+      lostRec("shiraz", "2026-01-10T00:00:00Z"),
+      lostRec("isfahan", "2026-01-20T00:00:00Z"),
+    ];
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities", actionFamily: "title" }),
+      cand({ url: "https://iranopedia.com/cities/qom", pageFamily: "cities", actionFamily: "title" }),
+    ];
+    // "now" well inside the 90 day wait - still fully retired, no retest yet.
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: retiredLedger, config: { now: new Date("2026-01-25T00:00:00Z") } });
+    expect(plan.selected).toHaveLength(0);
+    expect(plan.excluded.filter((e) => e.reason === "lever_retired")).toHaveLength(2);
+    expect(plan.leverRetirements.find((r) => r.pageFamily === "cities" && r.lever === "title")?.status).toBe("retired");
+  });
+
+  it("does NOT suppress a different lever on the same page family (retirement is per-cell)", () => {
+    const retiredLedger = [
+      lostRec("tehran", "2026-01-01T00:00:00Z"),
+      lostRec("shiraz", "2026-01-10T00:00:00Z"),
+      lostRec("isfahan", "2026-01-20T00:00:00Z"),
+    ];
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities", actionFamily: "meta" })];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: retiredLedger, config: { now: new Date("2026-01-25T00:00:00Z") } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+  });
+
+  it("does NOT suppress the same lever on a different page family (retirement never crosses families)", () => {
+    const retiredLedger = [
+      lostRec("tehran", "2026-01-01T00:00:00Z"),
+      lostRec("shiraz", "2026-01-10T00:00:00Z"),
+      lostRec("isfahan", "2026-01-20T00:00:00Z"),
+    ];
+    const candidates = [cand({ url: "https://iranopedia.com/iran-flags/umayyad", pageFamily: "iran-flags", actionFamily: "title" })];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: retiredLedger, config: { now: new Date("2026-01-25T00:00:00Z") } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/iran-flags/umayyad"]);
+  });
+
+  it("passes EXACTLY ONE candidate through as a flagged retest once 90 days have passed", () => {
+    const retiredLedger = [
+      lostRec("tehran", "2026-01-01T00:00:00Z"),
+      lostRec("shiraz", "2026-01-10T00:00:00Z"),
+      lostRec("isfahan", "2026-01-20T00:00:00Z"),
+    ];
+    const due = new Date(Date.parse("2026-01-20T00:00:00Z") + 90 * 86_400_000);
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities", actionFamily: "title", ctrOpportunityClicks: 500 }),
+      cand({ url: "https://iranopedia.com/cities/qom", pageFamily: "cities", actionFamily: "title", ctrOpportunityClicks: 400 }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: retiredLedger, config: { now: due } });
+    // Only the BEST-scoring candidate (yazd, higher ctrOpportunityClicks) gets the one retest slot.
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+    expect(plan.selected[0].retest).toBeDefined();
+    expect(plan.selected[0].retest?.decision.status).toBe("retest_due");
+    expect(plan.excluded.find((e) => e.url === "https://iranopedia.com/cities/qom")?.reason).toBe("lever_retired");
+  });
+
+  it("fully unsuppresses a cell once its retest wins (permanently active from then on)", () => {
+    const wonRetestLedger = [
+      lostRec("tehran", "2026-01-01T00:00:00Z"),
+      lostRec("shiraz", "2026-01-10T00:00:00Z"),
+      lostRec("isfahan", "2026-01-20T00:00:00Z"),
+      lostRec("yazd", "2026-04-25T00:00:00Z", "won"), // the granted retest, settled as a win
+    ];
+    const candidates = [cand({ url: "https://iranopedia.com/cities/qom", pageFamily: "cities", actionFamily: "title" })];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: wonRetestLedger, config: { now: new Date("2026-05-01T00:00:00Z") } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/qom"]);
+    expect(plan.leverRetirements.find((r) => r.pageFamily === "cities" && r.lever === "title")?.status).toBe("active");
+  });
+
+  it("re-retires (fresh 90 day clock) when the granted retest loses again", () => {
+    const lostRetestLedger = [
+      lostRec("tehran", "2026-01-01T00:00:00Z"),
+      lostRec("shiraz", "2026-01-10T00:00:00Z"),
+      lostRec("isfahan", "2026-01-20T00:00:00Z"),
+      lostRec("yazd", "2026-04-25T00:00:00Z"), // the granted retest, settled as ANOTHER loss
+    ];
+    const candidates = [cand({ url: "https://iranopedia.com/cities/qom", pageFamily: "cities", actionFamily: "title" })];
+    const soonAfter = new Date("2026-05-01T00:00:00Z");
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: lostRetestLedger, config: { now: soonAfter } });
+    expect(plan.selected).toHaveLength(0);
+    expect(plan.excluded.find((e) => e.url === "https://iranopedia.com/cities/qom")?.reason).toBe("lever_retired");
+    const decision = plan.leverRetirements.find((r) => r.pageFamily === "cities" && r.lever === "title");
+    expect(decision?.status).toBe("retired");
+    expect(decision?.retiredAtIso).toBe(new Date("2026-04-25T00:00:00Z").toISOString());
+  });
+
+  it("byte-identical when no cell qualifies: an empty/thin ledger produces the exact pre-item-81 plan", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/iran-flags/a", pageFamily: "iran-flags", ctrOpportunityClicks: 900 }),
+      cand({ url: "https://iranopedia.com/iran-flags/b", pageFamily: "iran-flags", ctrOpportunityClicks: 800 }),
+      cand({ url: "https://iranopedia.com/people/c", pageFamily: "people", actionFamily: "meta", ctrOpportunityClicks: 700 }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/iran-flags/a", "https://iranopedia.com/iran-flags/b", "https://iranopedia.com/people/c"]);
+    expect(plan.excluded).toHaveLength(0);
+    expect(plan.leverRetirements).toEqual([]);
+    // Never present when no cell qualifies - the exact absent-field shape every pre-item-81 pick had.
+    for (const s of plan.selected) expect(s.retest).toBeUndefined();
+  });
+
+  it("byte-identical when no cell qualifies, even with an UNRELATED settled ledger present (< threshold losses)", () => {
+    const thinLedger = [lostRec("tehran", "2026-01-01T00:00:00Z"), lostRec("shiraz", "2026-01-10T00:00:00Z")]; // only 2 losses
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities", actionFamily: "title", ctrOpportunityClicks: 300 })];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: thinLedger, config: { now: NOW } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+    expect(plan.selected[0].retest).toBeUndefined();
+  });
+
+  it("retirement lines contain no banned dash and read plainly", () => {
+    const retiredLedger = [
+      lostRec("tehran", "2026-01-01T00:00:00Z"),
+      lostRec("shiraz", "2026-01-10T00:00:00Z"),
+      lostRec("isfahan", "2026-01-20T00:00:00Z"),
+    ];
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities", actionFamily: "title" })];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: retiredLedger, config: { now: new Date("2026-01-25T00:00:00Z") } });
+    const decision = plan.leverRetirements[0];
+    expect(decision.leverPlain).toBe("a title change");
+    expect(hasBannedDash(decision.leverPlain)).toBe(false);
+  });
+});

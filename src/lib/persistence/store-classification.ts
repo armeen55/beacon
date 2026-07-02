@@ -279,6 +279,16 @@ export const GLOBAL_STORES = new Set<string>([
   // Pipeline invariant watchdog (2026-07-02, master plan item 10). Same cron
   // fan-out rationale as the ai-engine stores: rows carry tenant_id.
   "pipeline-violations", // latest per-tenant pipeline invariant check (Ops card on Today)
+  // Cron health ledger (2026-07-03, BEACON_500 item 85). File-fallback mirror of
+  // the `cron_runs` table for pre-migration / no-Supabase-env windows. Fleet-level
+  // rows (tenant_id nullable) with no ambient request context - same rationale as
+  // the peers above.
+  "cron-runs",
+  // Token-expiry warning dedupe (2026-07-03, BEACON_500 item 84). One row per
+  // Google connection recording the last expiry-warning email sent, so the T-2-day
+  // nightly check never double-sends inside the same 7-day cycle. Global: the
+  // cron has no ambient tenant context when it fans out.
+  "token-expiry-warnings",
   // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
   // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
   // idempotency) + the "last warmed" receipts /diagnostics shows.
@@ -419,6 +429,14 @@ export const GLOBAL_STORES = new Set<string>([
   // append-only so the drift measurement pass can compare many nights' worth
   // of "skipped" pages against the pages Beacon actually shipped.
   "shadow-portfolio-candidates",
+  // Publish-path canary (2026-07-02, master plan item 86). Rows carry
+  // tenant_id; written by the nightly cron (no ambient request context, same
+  // fan-out rationale as the stores above). One row per tenant per night:
+  // whether the Wix token still authenticates, whether the url-map still
+  // resolves a real page, and whether a dry-run push still passes. Read by
+  // the publishing-mode card so a dead token or stale url-map surfaces
+  // before an operator-accepted change actually fails to push.
+  "publish-health",
 ]);
 
 /**

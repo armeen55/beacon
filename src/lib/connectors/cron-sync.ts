@@ -36,6 +36,8 @@ import { detectChangepoints } from "@/domains/proof-gsc/changepoint";
 import { writeAlgorithmWeatherSummary } from "@/domains/proof-gsc/algorithm-weather-store";
 import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
 import { runInvestigationForTenant } from "@/domains/investigation/run-investigation";
+import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
+import { checkTokenExpiryForTenants } from "@/domains/ops/token-expiry-notify";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -766,6 +768,33 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     }
   }
 
+  // PHASE 5 - Google token-expiry forecast + warning email (BEACON_500 item 84,
+  // 2026-07-03). AFTER everything else, so a slow/failed check here can never
+  // delay or break the actual data sync above. Computes days-until-Testing-
+  // mode-refresh-token-death per tenant's Google connections and sends ONE
+  // deduped email to the configured operator inbox at T-2 days (see
+  // token-expiry-notify.ts for the full safety contract: operator-only, skip-
+  // and-log when unconfigured, never a second email inside the same expiry
+  // cycle). Isolated try/catch across the whole fleet - a failure here never
+  // affects the sync result.
+  let tokenExpiryChecked = 0;
+  let tokenExpiryWarningsSent = 0;
+  try {
+    const checks = await checkTokenExpiryForTenants(tenants.map((t) => t.id));
+    tokenExpiryChecked = checks.length;
+    tokenExpiryWarningsSent = checks.filter((c) => c.action === "sent").length;
+    if (tokenExpiryWarningsSent > 0) {
+      log.info("[cron-sync] token-expiry warning emails sent", {
+        sent: tokenExpiryWarningsSent,
+        checked: tokenExpiryChecked,
+      });
+    }
+  } catch (e) {
+    log.warn("[cron-sync] token-expiry check failed", {
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+  }
+
   const ok = results.filter((r) => r.ok).length;
   const failed = results.length - ok;
   log.info("[cron-sync] complete", {
@@ -774,5 +803,38 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     ok,
     failed,
   });
+
+  // Cron health ledger (BEACON_500 item 85, 2026-07-03): record this run so the
+  // /settings/connectors health panel and item 84's failure-streak trigger have
+  // a durable, queryable history instead of log lines that vanish. FAIL-SOFT BY
+  // CONTRACT - recordCronRun never throws, but it is still called from inside
+  // this try so a synchronous bug in the mapping below can never mask the real
+  // sync result computed above.
+  try {
+    await recordCronRun({
+      job: "sync-connectors",
+      startedAt: ranAt,
+      finishedAt: new Date().toISOString(),
+      ok: failed === 0,
+      perSource: results.map(
+        (r): LedgerSourceResult => ({
+          tenantId: r.tenantId,
+          provider: r.provider,
+          ok: r.ok,
+          detail: r.detail,
+        }),
+      ),
+      notes: {
+        tenants: tenants.length,
+        tokenExpiryChecked,
+        tokenExpiryWarningsSent,
+      },
+    });
+  } catch (e) {
+    log.warn("[cron-sync] ledger write threw unexpectedly (sync result unaffected)", {
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+  }
+
   return { ranAt, tenants: tenants.length, connectedSources: results.length, ok, failed, results };
 }

@@ -148,6 +148,34 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["Perplexity", "date questions", 3, 5, ["When is Nowruz 2026", "What date is Chaharshanbe Suri"]],
     ["ChatGPT", "x", 1, 1, []],
   ],
+  // Displacement check (BEACON 500 item 82, 2026-07-02). Args: (query,
+  // priorPosition, recentPosition, clicksAtRiskPerWeek, displacerDomain,
+  // whatTheyHave). Probe a normal case, a fell-off-page case (no displacer),
+  // and a known-teardown case (whatTheyHave populated).
+  displacementCheckCopy: [
+    ["persian rugs", 4.2, 8.9, 40, "example.com", null],
+    ["nowruz gifts", 3.0, 15.0, 0, null, null],
+    ["chaharshanbe suri", 2.1, 6.4, 120, "rival.com", "FAQ schema, answer block, 5 sections"],
+  ],
+  // Citation loss (BEACON 500 item 83, 2026-07-02). Args: (engineName,
+  // prompt, displacerDomain, headlineFact, priorCitationCount). Probe a full
+  // case + a no-competitor-domain edge case.
+  citationLossCopy: [
+    ["ChatGPT", "What is Chaharshanbe Suri", "en.wikipedia.org", "Chaharshanbe Suri is Iran's fire festival", 6],
+    ["Perplexity", "x", null, null, 0],
+  ],
+  // Coverage loss (BEACON 500 item 83, 2026-07-02). Args: (prompt,
+  // lastSeenDate). Probe a full case + a null last-seen date.
+  coverageLossCopy: [
+    ["What is Chaharshanbe Suri", "2026-06-20"],
+    ["x", null],
+  ],
+  // Connector failure streak (BEACON 500 item 84, 2026-07-02). Args:
+  // (providerLabel, nights, realError). Probe a normal streak + a one-night edge.
+  connectorFailureStreakCopy: [
+    ["Search Console", 3, "the sign-in expired"],
+    ["Analytics", 1, "x"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

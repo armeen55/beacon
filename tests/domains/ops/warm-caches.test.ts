@@ -1,11 +1,14 @@
 /**
- * Nightly precompute warm pass (2026-07-02, BEACON 500 item 13).
+ * Nightly precompute warm pass (2026-07-02, BEACON 500 item 13; displacement
+ * step added by BEACON 500 item 82).
  *
  * Pins the composition contract with injected deps (no Supabase, no graph
  * build, no filesystem):
  *   - step ORDER: demand-graph -> worklist-surface -> plan-preview ->
- *     today-surface -> coverage-map (Today is warmed AFTER the plan so the
- *     morning open shows tonight's picks),
+ *     today-surface -> coverage-map -> displacement-check (Today is warmed
+ *     AFTER the plan so the morning open shows tonight's picks; the
+ *     displacement check runs LAST since it is the one step that can spend
+ *     real money and must never block the free cache warms above it),
  *   - fail-soft isolation: one failed step never stops the next,
  *   - skip-when-fresh: an existing preview for the Pacific day (or an open
  *     accepted batch) means the builder is NEVER invoked (no double spend),
@@ -52,25 +55,37 @@ function makeDeps(overrides: Partial<WarmCachesDeps> = {}) {
       record: { ...plan({}), selected: [{ id: "e1" }] } as unknown as DailyExperimentPlanRecord,
       candidatesEvaluated: 1,
       excludedByReason: {},
+      leverRetirementLines: [],
     })),
     persistPreview: vi.fn(async () => {}),
     today: pacificDay,
+    runDisplacementChecks: vi.fn(async () => {
+      calls.push("displacement-check");
+      return { checked: 0, cached: 0, skippedRecent: 0, skippedNoBudget: 0, costUsd: 0, verdicts: [] };
+    }),
     ...overrides,
   };
   return { deps, calls };
 }
 
 describe("warmTenantCaches", () => {
-  it("runs the steps in the pinned order (plan BEFORE today-surface)", async () => {
+  it("runs the steps in the pinned order (plan BEFORE today-surface, displacement-check LAST)", async () => {
     const { deps, calls } = makeDeps();
     const receipt = await warmTenantCaches(TENANT, NOW, deps);
-    expect(calls).toEqual(["demand-graph", "worklist-surface", "plan-preview", "today-surface"]);
+    expect(calls).toEqual([
+      "demand-graph",
+      "worklist-surface",
+      "plan-preview",
+      "today-surface",
+      "displacement-check",
+    ]);
     expect(receipt.steps.map((s) => s.name)).toEqual([
       "demand-graph",
       "worklist-surface",
       "plan-preview",
       "today-surface",
       "coverage-map",
+      "displacement-check",
     ]);
     expect(receipt.ok).toBe(true);
     expect(receipt.date).toBe(TODAY);
@@ -85,9 +100,55 @@ describe("warmTenantCaches", () => {
     expect(graph?.ok).toBe(false);
     expect(graph?.note).toContain("graph build blew up");
     // Every later step still ran.
-    expect(calls).toEqual(["worklist-surface", "plan-preview", "today-surface"]);
+    expect(calls).toEqual(["worklist-surface", "plan-preview", "today-surface", "displacement-check"]);
     expect(receipt.ok).toBe(false);
-    expect(receipt.steps.filter((s) => s.ok)).toHaveLength(4);
+    expect(receipt.steps.filter((s) => s.ok)).toHaveLength(5);
+  });
+
+  it("displacement-check failure is isolated and never affects the warm steps above it", async () => {
+    const { deps, calls } = makeDeps({
+      runDisplacementChecks: vi.fn(async () => { throw new Error("dataforseo blew up"); }),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    // The 4 free warm steps + coverage-map all ran and succeeded.
+    expect(calls).toEqual(["demand-graph", "worklist-surface", "plan-preview", "today-surface"]);
+    const warmSteps = receipt.steps.filter((s) => s.name !== "displacement-check");
+    expect(warmSteps.every((s) => s.ok)).toBe(true);
+    const displacement = receipt.steps.find((s) => s.name === "displacement-check");
+    expect(displacement?.ok).toBe(false);
+    expect(displacement?.note).toContain("dataforseo blew up");
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("displacement-check reports an honest note summarizing checks/skips", async () => {
+    const { deps } = makeDeps({
+      runDisplacementChecks: vi.fn(async () => ({
+        checked: 1,
+        cached: 0,
+        skippedRecent: 2,
+        skippedNoBudget: 1,
+        costUsd: 0.003,
+        verdicts: [
+          {
+            query: "persian rugs",
+            page: "https://example.com/rugs",
+            recentPosition: 8.9,
+            priorPosition: 4.2,
+            positionDrop: 4.7,
+            clicksAtRiskPerWeek: 40,
+            displacers: [],
+            fellOffPage: false,
+            checkedAt: NOW.toISOString(),
+            costUsd: 0.003,
+          },
+        ],
+      })),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    const step = receipt.steps.find((s) => s.name === "displacement-check");
+    expect(step?.ok).toBe(true);
+    expect(step?.note).toContain("1 still displaced");
+    expect(step?.note).toContain("skipped 1 past the nightly cap");
   });
 
   it("skip-when-fresh: a preview for today's Pacific day means NO build call", async () => {
@@ -133,6 +194,7 @@ describe("warmTenantCaches", () => {
         record: plan({}),
         candidatesEvaluated: 0,
         excludedByReason: {},
+        leverRetirementLines: [],
       })),
     });
     const receipt = await warmTenantCaches(TENANT, NOW, deps);

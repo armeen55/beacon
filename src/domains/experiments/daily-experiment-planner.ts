@@ -14,12 +14,16 @@ import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-sto
 import {
   deriveExperimentStates,
   assessEligibility,
+  actionFamilyOf,
   type ExperimentFamily,
   type EligibilityReason,
   type ExternalFlags,
 } from "./experiment-eligibility";
 import { EXTREME_SHORTFALL_RATIO, type PowerAssessment } from "./power-analysis";
 import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
+import {
+  computeLeverRetirementDecisions, RetirementIndex, type LeverRetirementDecision, type SettledLeverRow,
+} from "./lever-retirement";
 
 /** First path segment groups a family (iran-animals/*, iran-flags/*); top-level slugs are
  *  their own family. Generic — no hardcoded vocabulary. */
@@ -67,6 +71,12 @@ export type DailyCandidate = {
   learnedPrior?: LearnedPrior;
 };
 
+/** Item 81 (2026-07-02): a candidate admitted through a (pageFamily, lever) cell's ONE scheduled
+ *  retest after 90 days of retirement carries this flag, frozen at selection time, so the card
+ *  can say plainly "I am retesting this after it lost 3 times before." Absent on every ordinary
+ *  candidate - never a re-derivation downstream. */
+export type RetestFlag = { pageFamily: string; lever: string; decision: LeverRetirementDecision };
+
 export type PlannerConfig = {
   maxExperiments?: number;
   effortBudgetMinutes?: number;
@@ -91,8 +101,14 @@ const DEFAULTS = {
   backups: 2,
 };
 
-export type PlannedExperiment = DailyCandidate & { pageFamily: string; score: number };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered";
+export type PlannedExperiment = DailyCandidate & {
+  pageFamily: string;
+  score: number;
+  /** Item 81: present exactly when this pick is tonight's ONE scheduled retest of a
+   *  previously-retired (pageFamily, lever) cell. Absent on every ordinary pick. */
+  retest?: RetestFlag;
+};
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
@@ -120,6 +136,11 @@ export type DailyExperimentPlan = {
   leverDistribution: Record<string, number>;
   estimatedMinutes: number;
   controlAvailability: ControlAvailabilitySummary;
+  /** Item 81: every (pageFamily, lever) cell with settled-loss history tonight - retired,
+   *  retest_due, or active-again-after-a-win. Empty on a ledger with no qualifying losses
+   *  (byte-identical to pre-item-81 behavior downstream). The caller (build-today-preview.ts)
+   *  turns a retired/retest_due entry into the plain "I stopped..." sentence. */
+  leverRetirements: LeverRetirementDecision[];
 };
 
 const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };
@@ -211,6 +232,28 @@ export function planDailyExperiments(input: {
   }
   eligible.sort((a, b) => b.score - a.score);
 
+  // Item 81 - AUTO-RETIRE repeatedly-losing (pageFamily, lever) cells, with one scheduled
+  // retest after 90 days. Computed fresh from the settled ledger every call (see
+  // lever-retirement.ts) - nothing persisted, nothing to go stale. Applied AFTER scoring/sort
+  // so the retest cell's single slot goes to tonight's BEST-scoring candidate in that cell, not
+  // an arbitrary one. A ledger with no cell at >= RETIRE_LOSS_THRESHOLD settled losses and zero
+  // wins yields an empty decision list and every candidate passes through untouched - the exact
+  // pre-item-81 eligible/excluded shape (pinned by lever-retirement-wiring.test.ts).
+  const settledRows: SettledLeverRow[] = input.proofLedger
+    .filter((r) => r.verdict === "won" || r.verdict === "lost" || r.verdict === "inconclusive")
+    .map((r) => ({ path: r.path, actionType: r.actionType, verdict: r.verdict, settledAt: r.measuredAt ?? r.shippedAt }));
+  const leverRetirements = computeLeverRetirementDecisions(settledRows, now, pageFamilyOf, actionFamilyOf);
+  const retirementIndex = new RetirementIndex(leverRetirements);
+  const afterRetirement: PlannedExperiment[] = [];
+  for (const e of eligible) {
+    const admission = retirementIndex.admit(e.pageFamily, e.actionFamily);
+    if (admission.blocked) {
+      excluded.push({ url: e.url, actionFamily: e.actionFamily, reason: "lever_retired" });
+      continue;
+    }
+    afterRetirement.push(admission.retest && admission.decision ? { ...e, retest: { pageFamily: e.pageFamily, lever: e.actionFamily, decision: admission.decision } } : e);
+  }
+
   // Greedy diversified selection.
   const selected: PlannedExperiment[] = [];
   const backups: PlannedExperiment[] = [];
@@ -223,7 +266,7 @@ export function planDailyExperiments(input: {
   const selectedPaths = new Set<string>(); // treated page paths
   const influencedCount = new Map<string, number>(); // destination path → links pointing at it
 
-  for (const e of eligible) {
+  for (const e of afterRetirement) {
     if (usedUrls.has(e.url)) continue; // one experiment per page per batch
     const pf = perPageFamily.get(e.pageFamily) ?? 0;
     const af = perActionFamily.get(e.actionFamily) ?? 0;
@@ -290,5 +333,6 @@ export function planDailyExperiments(input: {
     leverDistribution,
     estimatedMinutes: minutes,
     controlAvailability: { cleanPages, byPageFamily, sufficient: cleanPages >= Math.max(2, selected.length) },
+    leverRetirements,
   };
 }

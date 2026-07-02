@@ -53,7 +53,13 @@ export type MoveDraftKind =
   // our own page_snapshots body) — "the passage that beat you" / "AI quoted this
   // line". Column is free-text → no migration. Cached by content hash inside the
   // persisted JSON so a re-render with unchanged inputs skips recompute.
-  | "answer_alignment";
+  | "answer_alignment"
+  // BEACON 500 item 82: a persisted DisplacementVerdict — the loss-side mirror
+  // of "serp_verdict". Keyed by a synthetic `displacement:<query>` id (never a
+  // real rec id — the query is the unit, not a queued recommendation), so a
+  // re-check on the same query lands on the same row (latest wins, same read
+  // contract as every other kind). Column is free-text → no migration.
+  | "displacement_check";
 
 export type MoveDraftRow = {
   recId: string;

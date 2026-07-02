@@ -104,12 +104,22 @@ import { loadClarityPageSignalsForTenant } from "./clarity-page-signals";
 import { gscDecay } from "./triggers/gsc-decay";
 import { profoundAeoGap } from "./triggers/profound-aeo-gap";
 import { sovDropAlert } from "./triggers/sov-drop-alert";
+import { displacementCheckAlert } from "./triggers/displacement-check-alert";
+import { citationLossAlert } from "./triggers/citation-loss-alert";
+import { connectorFailureStreak } from "./triggers/connector-failure-streak";
 import {
   buildOwnAliasSet,
   loadProfoundTopicSignalsForTenant,
   type ProfoundTopicSignal,
 } from "./profound-topic-signals";
 import { loadSovWeeklyForTenant, type SovDropAlert } from "@/domains/ai-visibility/sov-weekly";
+import {
+  loadDisplacementVerdictsForTenant,
+  type DisplacementVerdict,
+} from "@/domains/serp/displacement-check";
+import { loadCitationLossesForTenant, type CitationLossFinding } from "@/domains/ai-visibility/citation-loss";
+import { listRecentCronRuns } from "@/domains/ops/cron-runs-store";
+import { deriveProviderStreaks, streaksAtOrAboveThreshold, type ProviderStreak } from "@/domains/ops/cron-streak";
 import {
   loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant,
@@ -157,7 +167,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 15;
+const PREDICATE_COUNT = 18;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -371,6 +381,68 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
+  // Displacement check (BEACON 500 item 82, 2026-07-02): pre-load the
+  // ALREADY-PERSISTED displacement verdicts (move_drafts, kind
+  // displacement_check) the nightly precompute step writes — this NEVER
+  // spends a paid SERP call itself, it only reads what the runner already
+  // checked. Soft-empty when nothing has been checked yet.
+  let displacementVerdicts: DisplacementVerdict[] = [];
+  try {
+    displacementVerdicts = await loadDisplacementVerdictsForTenant(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] displacement-check load failed for ${tenantId} (displacement_check skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // Citation loss (BEACON 500 item 83, 2026-07-02): pre-load the diffed
+  // Profound citation stream (profound_answer_rows) — week-over-week, per
+  // prompt, "used to be cited, now is not" findings. Reads ALREADY-SYNCED
+  // rows only; never calls the Profound API. Coverage losses (the prompt
+  // simply stopped being polled) are filtered out HERE, at the loader
+  // boundary, so the trigger predicate never has a chance to misfire one as
+  // a real loss. Soft-empty when Profound prompt intelligence hasn't synced
+  // for this tenant yet.
+  let citationLossFindings: CitationLossFinding[] = [];
+  try {
+    const result = await loadCitationLossesForTenant(tenantId, {
+      ownedDomain: businessConfig.domain,
+    });
+    citationLossFindings = result.findings.filter(
+      (f): f is CitationLossFinding => f.kind === "citation_loss",
+    );
+    if (result.syncStale) {
+      // Honesty over silence (item 83): a stale Profound sync compares two
+      // sub-windows of one old batch, not a real week over week. Findings
+      // still emit (they may still be true), but this is logged plainly so
+      // an operator reading the trigger loader's logs isn't misled into
+      // thinking the data is current.
+      console.warn(
+        `[trigger-loader] citation-loss sync looks stale for ${tenantId} (latestRowDate=${result.latestRowDate}) - findings are as of the last sync, not necessarily this week`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] citation-loss load failed for ${tenantId} (citation_loss_alert skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // Connector failure streak (BEACON_500 item 84, 2026-07-03): pre-load the
+  // cron_runs ledger's sync-connectors run history and derive consecutive
+  // failure streaks per (tenant, provider). Reads ALREADY-PERSISTED nightly
+  // run results only, never touches a connector API itself. Soft-empty when
+  // the ledger has no history yet (pre-migration window, or a brand-new
+  // tenant), the predicate then never fires.
+  let connectorStreaks: ProviderStreak[] = [];
+  try {
+    const runs = await listRecentCronRuns("sync-connectors", 14);
+    connectorStreaks = streaksAtOrAboveThreshold(deriveProviderStreaks(runs));
+  } catch (err) {
+    console.error(
+      `[trigger-loader] cron-runs ledger load failed for ${tenantId} (connector_failure_streak skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Night-shift #44 (2026-06-11): pre-load the per-tenant sitemap
   // lastmod map for the stale-content predicate. Soft-fail to an
   // empty map — unknown age is never evidence of staleness.
@@ -458,7 +530,44 @@ export async function loadTriggerCandidatesForTenant(options: {
         signalAt: new Date().toISOString(),
       }),
     );
+    // Citation loss (BEACON 500 item 83): same site-root anchoring — a
+    // Profound-citation diff is topic-level, not page-level. Passes this
+    // week's sovDropAlerts alongside the findings so the predicate can skip
+    // any topic sov_drop_alert already covers this week (dedupe, not a
+    // second math pass). Pure predicate over pre-loaded inputs.
+    all.push(
+      ...citationLossAlert({
+        tenantId,
+        findings: citationLossFindings,
+        sovDropAlertsThisWeek: sovDropAlerts,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    // Connector failure streak (BEACON_500 item 84): same site-root anchoring,
+    // a sync failure streak is tenant-level, not page-level. Pure predicate
+    // over the pre-loaded, already-derived streaks (cron-streak.ts).
+    all.push(
+      ...connectorFailureStreak({
+        tenantId,
+        streaks: connectorStreaks,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
   }
+  // Displacement check (BEACON 500 item 82): anchored on the affected page
+  // itself (the verdict already carries the owned URL GSC attributes the
+  // money query to) — no site-root fallback needed. Pure predicate over the
+  // pre-loaded, already-persisted verdicts; the paid SERP check already ran
+  // in the nightly precompute step, never here.
+  all.push(
+    ...displacementCheckAlert({
+      tenantId,
+      verdicts: displacementVerdicts,
+      signalAt: new Date().toISOString(),
+    }),
+  );
   for (const snapshot of snapshots) {
     all.push(...missingTitle({ tenantId, snapshot }));
     all.push(...missingMeta({ tenantId, snapshot, chromeDetector }));

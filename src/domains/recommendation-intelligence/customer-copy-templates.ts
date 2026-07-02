@@ -304,3 +304,93 @@ export function sovDropAlertCopy(
     `${exampleText}. Add a clear, quotable answer on this topic so ${engineName} has something current to cite.`
   );
 }
+
+/**
+ * Displacement check (BEACON 500 item 82, 2026-07-02): a money query that
+ * already earned real clicks fell 3+ Google positions in a week, and a
+ * checked competitor page now sits above the tenant's own page. Names the
+ * query, the exact before/after position, the weekly clicks at risk, and the
+ * page that took the spot. When a cached teardown exists for that page, adds
+ * what it has that the tenant's page does not; otherwise offers reading it
+ * next as the follow-up (never fetching more without being asked). NO em or
+ * en dashes (hard rule) - commas and periods only.
+ */
+export function displacementCheckCopy(
+  query: string,
+  priorPosition: number,
+  recentPosition: number,
+  clicksAtRiskPerWeek: number,
+  displacerDomain: string | null,
+  whatTheyHave: string | null,
+): string {
+  const positions = `${priorPosition.toFixed(1)} to ${recentPosition.toFixed(1)}`;
+  const clicksPhrase =
+    clicksAtRiskPerWeek > 0
+      ? `, worth about ${clicksAtRiskPerWeek} clicks a week`
+      : "";
+  const base = `You fell from ${positions} on "${query}"${clicksPhrase}.`;
+  if (!displacerDomain) {
+    return `${base} A new result is now ahead of you. I can look at what changed next.`;
+  }
+  const whoText = ` ${displacerDomain} is now ahead of you.`;
+  const whatText = whatTheyHave
+    ? ` Their page has ${whatTheyHave}, and yours is missing it.`
+    : " I can read their page next to see what changed.";
+  return `${base}${whoText}${whatText}`;
+}
+
+/**
+ * Citation loss (BEACON 500 item 83, 2026-07-02): an AI answer that used to
+ * cite the tenant's own page for a prompt stopped doing so this week, and a
+ * competitor domain now takes the slot. Names the engine, the prompt, the
+ * competitor, and (when available) the headline fact their answer leads
+ * with, plus how many times the prompt was cited before, so the operator can
+ * judge whether it's worth winning back. NO em or en dashes (hard rule) -
+ * commas and periods only.
+ */
+export function citationLossCopy(
+  engineName: string,
+  prompt: string,
+  displacerDomain: string | null,
+  headlineFact: string | null,
+  priorCitationCount: number,
+): string {
+  const timesPhrase =
+    priorCitationCount > 0
+      ? ` This prompt was cited ${priorCitationCount} time${priorCitationCount === 1 ? "" : "s"} recently, so it is worth winning back.`
+      : "";
+  if (!displacerDomain) {
+    return `${engineName} used to cite you for "${prompt}" and does not anymore.${timesPhrase}`;
+  }
+  const switched = `${engineName} used to cite you for "${prompt}" and switched to ${displacerDomain} this week.`;
+  const factText = headlineFact ? ` Their page leads with: ${headlineFact}` : "";
+  return `${switched}${factText}${timesPhrase}`;
+}
+
+/**
+ * Coverage loss (BEACON 500 item 83, 2026-07-02): a prompt that used to cite
+ * the tenant simply stopped being polled by Profound (a data-collection gap,
+ * not a lost citation). Deliberately worded differently from citationLossCopy
+ * so the two are never confused. NO em or en dashes (hard rule).
+ */
+export function coverageLossCopy(prompt: string, lastSeenDate: string | null): string {
+  const seenPhrase = lastSeenDate ? ` I last saw it checked on ${lastSeenDate}.` : "";
+  return `I am not seeing fresh data for "${prompt}" this week, so I cannot tell if you are still cited.${seenPhrase} This is a data gap, not a confirmed loss.`;
+}
+
+/**
+ * Connector failure streak (BEACON_500 item 84, 2026-07-03): a data source
+ * failed to sync three or more nights in a row. Names the provider, the
+ * streak length, and the real error, with the one-click reconnect path. NO
+ * em or en dashes (hard rule).
+ */
+export function connectorFailureStreakCopy(
+  providerLabel: string,
+  nights: number,
+  realError: string,
+): string {
+  return (
+    `${providerLabel} did not sync for ${nights} nights in a row. The error was: ${realError}. ` +
+    `Reconnect it on your connections page and I will pick data back up the next time it runs.`
+  );
+}
