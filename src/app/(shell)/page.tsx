@@ -13,6 +13,8 @@ import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { currentTenantId } from "@/lib/tenant-context";
 import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection } from "./war-room-sections";
 import { ScoreboardSection } from "./scoreboard-section";
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
 import { TeamStandup } from "./team-standup";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import type { TodayView } from "@/domains/changes/today-view";
@@ -116,6 +118,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const { today, daily } = composite;
   const tenantId = await currentTenantId();
 
+  // Items 7 + 8 - the ledger speaks in the header: the 14-day shipping streak, and on Mondays
+  // a one-line recap of last week's outcomes. One cached ledger read; fail-soft to silence.
+  const ledgerRows = await loadProofLedgerCached(tenantId).catch(() => []);
+  const streak = shippedInLastDays(ledgerRows, Date.now());
+
   // Item 42: the assistant sets the scene like a person would.
   const nowPacific = new Date();
   const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
@@ -124,14 +131,25 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const activePlan = daily?.dashboard.acceptedPlan ?? daily?.dashboard.previewPlan;
   const picks = activePlan?.selected.length ?? 0;
   const minutes = activePlan?.estimatedMinutes ?? 0;
+  const streakLine = streak > 0 ? ` ${streak} change${streak === 1 ? "" : "s"} shipped in the last 14 days${streak >= 10 ? ", you are on a roll" : ""}.` : "";
   const brief =
-    picks > 0
+    (picks > 0
       ? `${dayLine}. The team picked ${picks} change${picks === 1 ? "" : "s"} worth about ${Math.max(minutes, picks)} minutes tonight.`
-      : `${dayLine}. ${today.headerSentence}`;
+      : `${dayLine}. ${today.headerSentence}`) + streakLine;
+  // Item 7 - Monday recap band: last week's outcomes in one sentence, from the ledger.
+  const isMonday = nowPacific.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Los_Angeles" }) === "Monday";
+  const recapSentence = isMonday
+    ? weeklyRecapSentence(buildWeeklyRecap(ledgerRows.map((r) => ({ shippedAt: r.shippedAt, verdict: r.verdict, path: r.path })), Date.now()))
+    : null;
 
   return (
     <div className="space-y-6">
       <PageHeader title={greeting} description={brief} />
+      {recapSentence ? (
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-emerald-900 tabular-nums">
+          {recapSentence}
+        </div>
+      ) : null}
       {/* Item 43: the team, at a glance - each teammate's one-line daily report. */}
       <Suspense fallback={null}><TeamStandup tenantId={tenantId} picksTonight={picks} /></Suspense>
       <TodayCounts counts={today.counts} />
