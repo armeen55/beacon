@@ -29,6 +29,7 @@ import {
   type CachedDemand, type SerpPatternLite, type EvidenceCompetitor, type DailyEvidenceBrief,
 } from "./daily-evidence-brief";
 import { normalizePath } from "./daily-plan-types";
+import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
 import { reviewCandidateWithTeam } from "./team-review";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
@@ -203,25 +204,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // Item 80 - the PROOF-HISTORY voice: what the measured ledger already says about this page
   // family + lever family. The team's own past results speak in the debate ("a description
   // change on a flags page showed no lift last month"), so learning is visible, not implied.
-  const settledByKey = new Map<string, { won: number; lost: number; flat: number }>();
-  for (const r of ledger) {
-    if (r.verdict === "measuring") continue;
-    const fam = `${pageFamilyOfPath(r.path)}::${actionFamilyOf(r.actionType)}`;
-    const agg = settledByKey.get(fam) ?? { won: 0, lost: 0, flat: 0 };
-    if (r.verdict === "won") agg.won += 1;
-    else if (r.verdict === "lost") agg.lost += 1;
-    else agg.flat += 1;
-    settledByKey.set(fam, agg);
-  }
-  const historyLine = (pageFamily: string, actionFamily: string): string | null => {
-    const agg = settledByKey.get(`${pageFamily}::${actionFamily}`);
-    if (!agg) return null;
-    const parts: string[] = [];
-    if (agg.won > 0) parts.push(`won ${agg.won}`);
-    if (agg.flat > 0) parts.push(`no clear lift ${agg.flat}`);
-    if (agg.lost > 0) parts.push(`hurt ${agg.lost}`);
-    return `We already tried this kind of change on similar pages: ${parts.join(", ")}.`;
-  };
+  const settledByKey = aggregateSettled(ledger, pageFamilyOfPath, actionFamilyOf);
+  const historyLine = (pageFamily: string, actionFamily: string): string | null =>
+    proofHistoryLine(settledByKey, pageFamily, actionFamily);
 
   let teamVetoed = 0;
   const teamReviewed = gatedBuilt.filter((b) => {
@@ -254,6 +239,41 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
 
+  // Slice E: attach the "how we know" evidence to each selected move: keyword research (volume +
+  // competition), the live Google SERP reaction (winning shape + domains + what to do), and the top
+  // competitor teardown (what to steal). All $0 cached reads; each section is omitted when absent, so
+  // the card degrades gracefully (an all-empty brief is not attached). Runs BEFORE the strategist
+  // verdict pass so the keyword voice is part of what the strategist synthesizes.
+  for (const c of selected) {
+    const queries = queriesByUrl.get(c.url) ?? [c.targetQuery];
+    const kw = buildKeywordBrief(queries, demandByTerm);
+    const serp = buildSerpEvidence(queries, serpByTerm);
+    const competitor = competitorByPath.get(normalizePath(c.url));
+    if (kw || serp || competitor) {
+      c.evidenceBrief = {
+        keywords: kw?.keywords ?? [],
+        addressableVolume: kw?.addressableVolume ?? null,
+        ...(serp ? { serp } : {}),
+        ...(competitor ? { competitor } : {}),
+      };
+    }
+    // Item 28 - the KEYWORD-RESEARCH voice: real monthly demand speaks in the roundtable as its
+    // own teammate line, not buried in the expander. Deterministic, from the cached universe.
+    const best = (kw?.keywords ?? []).filter((k) => typeof k.volume === "number" && k.volume > 0).sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0))[0];
+    if (best && c.teamReview) {
+      const comp = best.competition != null ? `, ${best.competition} competition` : "";
+      const more = kw?.addressableVolume && kw.addressableVolume > (best.volume ?? 0)
+        ? ` (${kw.addressableVolume.toLocaleString()} across the page's queries)`
+        : "";
+      c.teamReview.voices.push({
+        specialist: "dataforseo",
+        label: "Keyword research",
+        claim: `${(best.volume ?? 0).toLocaleString()} searches a month for "${best.term}"${comp}${more}.`,
+        confidencePct: 80,
+      });
+    }
+  }
+
   // Item 25 - the strategist WRITES the team verdict for each pick: a grounded 1-3 sentence
   // synthesis of the real specialist claims (budget-gated, numeric-fidelity firewalled, fail-soft
   // to the deterministic verdict). Selected picks only (max 8/night, ~$0.08 worst case).
@@ -283,25 +303,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       }
     }),
   );
-
-  // Slice E: attach the "how we know" evidence to each selected move: keyword research (volume +
-  // competition), the live Google SERP reaction (winning shape + domains + what to do), and the top
-  // competitor teardown (what to steal). All $0 cached reads; each section is omitted when absent, so
-  // the card degrades gracefully (an all-empty brief is not attached).
-  for (const c of selected) {
-    const queries = queriesByUrl.get(c.url) ?? [c.targetQuery];
-    const kw = buildKeywordBrief(queries, demandByTerm);
-    const serp = buildSerpEvidence(queries, serpByTerm);
-    const competitor = competitorByPath.get(normalizePath(c.url));
-    if (!kw && !serp && !competitor) continue;
-    const brief: DailyEvidenceBrief = {
-      keywords: kw?.keywords ?? [],
-      addressableVolume: kw?.addressableVolume ?? null,
-      ...(serp ? { serp } : {}),
-      ...(competitor ? { competitor } : {}),
-    };
-    c.evidenceBrief = brief;
-  }
 
   const record = buildDailyPlanRecord({
     tenantId, date: now.toISOString().slice(0, 10), now, selected, backups,

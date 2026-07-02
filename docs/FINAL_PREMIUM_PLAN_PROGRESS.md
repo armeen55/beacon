@@ -27,8 +27,8 @@
 - [ ]  24 [W3][P2/M] Mobile pass on Today + war room: cards stack cleanly at 375px, chart resizes, no
 - [x]  25 [W1][P0/L] LLM-written verdicts (grounded): replace the templated "Biggest opportunity the team
 - [x]  26 [W1][P0/M] Give every voice a number. Audit all 8 emitters in specialist-opinions.ts: no claim
-- [ ]  27 [W2][P0/M] Add the PROOF-HISTORY voice to the debate: a ninth deterministic emitter reading the
-- [ ]  28 [W2][P0/M] Add the KEYWORD-RESEARCH voice: volume + competition from the cached universe as its
+- [x]  27 [W2][P0/M] Add the PROOF-HISTORY voice to the debate: a ninth deterministic emitter reading the
+- [x]  28 [W2][P0/M] Add the KEYWORD-RESEARCH voice: volume + competition from the cached universe as its
 - [ ]  29 [W2][P1/M] SERP voice on existing-page picks: run the gauntlet-gated live SERP for the target
 - [x]  30 [W1][P0/S] Render "why not the alternatives": the router already computes whyNotAlternatives;
 - [ ]  31 [W2][P1/S] Render "what would change our mind": one falsifiability line per pick, deterministic
