@@ -33,7 +33,7 @@ describe("findContentLanguageGap", () => {
     expect(gap!.gapKind).toBe("farsi_demand_no_farsi_content");
     expect(gap!.impressions).toBe(900);
     expect(gap!.sentence).toContain("900");
-    expect(gap!.sentence).toContain("Farsi");
+    expect(gap!.sentence).toContain("typed in another script");
   });
 
   it("still finds a gap on Farsi-script impressions alone, without a known-roots hint", () => {

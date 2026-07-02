@@ -96,7 +96,11 @@ export function findContentLanguageGap(
   const topVariants = matches.slice(0, 3).map((q) => q.query);
   const shown = impressions.toLocaleString();
   const example = topVariants[0] ? ` (for example "${topVariants[0]}")` : "";
-  const sentence = `This page gets ${shown} Farsi search impressions${example} but I found no Farsi text on it yet.`;
+  // English-first product rule (operator directive 2026-07-02): we never
+  // suggest writing translated content. The move is an ENGLISH one - make
+  // sure the page names the topic with the spellings and terms people
+  // actually type, so this demand still lands here.
+  const sentence = `This page draws ${shown} searches typed in another script${example}. The English move: name the topic with the spellings people actually type, so those searches still land here.`;
 
   return { page, gapKind: "farsi_demand_no_farsi_content", impressions, topVariants, sentence };
 }
