@@ -33,9 +33,10 @@ describe("Demand band spike rows (war-room-sections)", () => {
   });
 
   it("stays silent when research never ran AND nothing is spiking", () => {
-    // Master plan item 21 additively extended this guard with a seasonal check
-    // (composes beside the spike gate, does not remove it).
-    expect(WAR_ROOM).toContain("res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow) return null");
+    // Master plan item 21 additively extended this guard with a seasonal check,
+    // and item 24 further extended it with a language-gap check (each composes
+    // beside the prior gate, none removes an earlier one).
+    expect(WAR_ROOM).toContain("res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow) return null");
   });
 
   it("the quiet line only claims a clean day when spikes are also quiet", () => {

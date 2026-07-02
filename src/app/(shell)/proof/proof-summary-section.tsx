@@ -21,6 +21,36 @@ function prettyPath(path: string): string {
   return slug.replace(/[-_]+/g, " ").trim() || path;
 }
 
+/**
+ * Item 75's one honest sentence, extended by item 22: append the dollar sum
+ * ONLY when at least one mature win actually has a dollar value (a revenue
+ * model is configured and that win's lift is positive). Pulled out as a pure
+ * function (no JSX, no data reads) so the append rule is unit-testable
+ * without rendering the async server component.
+ */
+export function buildProofHonestySentence(args: {
+  counts: { measuring: number; helped: number; noLift: number; didNotHelp: number };
+  winsDollarUsdPerMonth: number;
+  winsWithDollarCount: number;
+  soonestLabel: string | null;
+}): string | null {
+  const { counts, winsDollarUsdPerMonth, winsWithDollarCount, soonestLabel } = args;
+  const sentenceParts: string[] = [];
+  if (counts.measuring > 0) sentenceParts.push(`${counts.measuring} measuring`);
+  if (counts.helped > 0) sentenceParts.push(`${counts.helped} win${counts.helped === 1 ? "" : "s"}`);
+  if (counts.noLift > 0) sentenceParts.push(`${counts.noLift} with no clear lift`);
+  if (counts.didNotHelp > 0) sentenceParts.push(`${counts.didNotHelp} that did not help`);
+  if (sentenceParts.length === 0) return null;
+  // A negative sum should never append here: this clause only ever reads as
+  // encouragement ("worth about $X a month"), so it appears only when the
+  // real total across dollar-bearing wins is actually positive.
+  const dollarClause =
+    winsWithDollarCount > 0 && winsDollarUsdPerMonth > 0
+      ? `, worth about $${Math.round(winsDollarUsdPerMonth).toLocaleString("en-US")} a month at your rates`
+      : "";
+  return `${sentenceParts.join(", ")}${dollarClause}${soonestLabel ? `, next verdicts ${soonestLabel}` : ""}.`;
+}
+
 
 export async function ProofSummarySection() {
   let records;
@@ -53,6 +83,11 @@ export async function ProofSummarySection() {
 
   const counts = { measuring: 0, helped: 0, noLift: 0, didNotHelp: 0, attributionLimited: 0 };
   const wins: { path: string; actionType: string; confidence: string }[] = [];
+  // Item 22: sum the dollar value of every mature win that has one (positive
+  // lift + the operator has a revenue model set), so the honesty sentence can
+  // append one plain money line without ever projecting off a measuring row.
+  let winsDollarUsdPerMonth = 0;
+  let winsWithDollarCount = 0;
   for (const r of records) {
     const p = presOf(r);
     if (p.attributionQuality === "limited") counts.attributionLimited += 1;
@@ -63,6 +98,11 @@ export async function ProofSummarySection() {
     if (p.verdict === "helped") {
       counts.helped += 1;
       wins.push({ path: r.path, actionType: r.actionType, confidence: p.confidence });
+      const usd = r.dollarValue?.usdPerMonth;
+      if (usd != null && usd > 0) {
+        winsDollarUsdPerMonth += usd;
+        winsWithDollarCount += 1;
+      }
     } else if (p.verdict === "did_not_help") counts.didNotHelp += 1;
     else counts.noLift += 1;
   }
@@ -101,16 +141,14 @@ export async function ProofSummarySection() {
       reads: readsByDay.get(d.toISOString().slice(0, 10)) ?? 0,
     };
   });
-  // Item 75 - one honest sentence instead of four stat tiles.
-  const sentenceParts: string[] = [];
-  if (counts.measuring > 0) sentenceParts.push(`${counts.measuring} measuring`);
-  if (counts.helped > 0) sentenceParts.push(`${counts.helped} win${counts.helped === 1 ? "" : "s"}`);
-  if (counts.noLift > 0) sentenceParts.push(`${counts.noLift} with no clear lift`);
-  if (counts.didNotHelp > 0) sentenceParts.push(`${counts.didNotHelp} that did not help`);
-  const honestySentence =
-    sentenceParts.length > 0
-      ? `${sentenceParts.join(", ")}${soonestLabel ? `, next verdicts ${soonestLabel}` : ""}.`
-      : null;
+  // Item 75 - one honest sentence instead of four stat tiles. Item 22 extends
+  // it with the dollar sum, ONLY when at least one mature win has one.
+  const honestySentence = buildProofHonestySentence({
+    counts,
+    winsDollarUsdPerMonth,
+    winsWithDollarCount,
+    soonestLabel,
+  });
 
   return (
     <section className="rounded-3xl border border-gray-200 bg-gradient-to-br from-emerald-50/40 via-white to-sky-50/40 p-6 shadow-sm">

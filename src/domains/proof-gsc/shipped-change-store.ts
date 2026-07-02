@@ -28,6 +28,7 @@ import type {
 import type { TrafficOutcome } from "./traffic-outcome";
 import type { CitationOutcome } from "./citation-outcome";
 import type { RankRecheckResult } from "./rank-recheck";
+import type { ChangeDollarValue } from "./change-dollar-value";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -70,6 +71,14 @@ export type ShippedChangeRecord = {
    *  measure pass from serp-history + a bounded, idempotent live re-check. Null
    *  when no target query is known, no window is due, or the live read failed. */
   rankOutcome?: RankRecheckResult | null;
+  /** Dollar attribution for this specific shipped change (BEACON_500 item 22):
+   *  the operator's own unit-economics rate (item 3) x the extra sessions or
+   *  key events THIS change earned, from trafficOutcome. Same computed-only
+   *  posture as trafficOutcome/citationOutcome/rankOutcome: NOT persisted
+   *  (recordToRow omits it), recomputed on every measure. Null when there is
+   *  no traffic outcome yet, or when no revenue model is configured (in which
+   *  case the sentence still names the extra visits, in clicks only). */
+  dollarValue?: ChangeDollarValue | null;
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */

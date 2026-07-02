@@ -11,6 +11,7 @@ import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { readKeywordGapResults, type StoredKeywordGaps } from "@/domains/serp/keyword-gap-store";
+import { readWikiGapResults, type StoredWikiGaps } from "@/domains/wiki-gap/wiki-gap-store";
 import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
@@ -91,6 +92,10 @@ export type NewPageOpportunity = {
    *  cards sourced from the persisted gap engine ("X ranks 3 on Google for this,
    *  about 1,900 searches a month"). Undefined on graph-sourced cards. */
   gapEvidence?: string | null;
+  /** Beat-Wikipedia evidence (2026-07-02, item 23) - present only on cards sourced
+   *  from the persisted wiki-gap engine ("Wikipedia's article on this is 180 words
+   *  and was last touched in 2019..."). Undefined on other cards. */
+  wikiGapEvidence?: string | null;
 };
 
 export type NewPagesData = {
@@ -147,8 +152,9 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let ownDomain = "";
   let kwDemandRows: KeywordDemand[] = [];
   let storedGaps: StoredKeywordGaps | null = null;
+  let storedWikiGaps: StoredWikiGaps | null = null;
   try {
-    const [graphRes, auditRes, draftRes, kwDemand, gapRes] = await Promise.all([
+    const [graphRes, auditRes, draftRes, kwDemand, gapRes, wikiGapRes] = await Promise.all([
       withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
         loadDemandGraphForTenantCached(tenantId),
         // Was 8s — too tight for a cold graph, which made the whole New Pages board
@@ -167,9 +173,14 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       // Competitor keyword gap engine (2026-07-02, item 16) — the persisted gap
       // run ("what else the winners rank for"), read at $0. Degrade-safe.
       withTimeout(readKeywordGapResults(tenantId), 4000, null as StoredKeywordGaps | null),
+      // Beat-Wikipedia finder (2026-07-02, item 23) — the persisted wiki-gap run
+      // ("Wikipedia's article on this is thin/stale, you can be the better source"),
+      // read at $0. Degrade-safe.
+      withTimeout(readWikiGapResults(tenantId), 4000, null as StoredWikiGaps | null),
     ]);
     kwDemandRows = kwDemand;
     storedGaps = gapRes;
+    storedWikiGaps = wikiGapRes;
     if (!graphRes) return { opportunities: [], totalCandidates: 0, ownDomain: "" };
     moves = graphRes.graph.moves;
     ownDomain = deriveOwnDomain(graphRes.graph.pageNodes);
@@ -331,7 +342,21 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     ...createMoves.map((m) => m.label),
   ]);
 
-  return { opportunities: [...opportunities, ...gapCards], totalCandidates: createMoves.length, ownDomain };
+  // Beat-Wikipedia cards (2026-07-02, item 23) — ADDITIVE: Wikipedia articles AI
+  // cites in this tenant's space that the finder scored thin/stale/generic enough
+  // to beat. Persisted-store read only ($0 render); capped at 3 so the board
+  // stays a board, not a Wikipedia dump. Non-overlapping with existing cards.
+  const wikiGapCards = buildWikiGapOpportunities(storedWikiGaps, [
+    ...opportunities.map((o) => o.topic),
+    ...createMoves.map((m) => m.label),
+    ...gapCards.map((c) => c.topic),
+  ]);
+
+  return {
+    opportunities: [...opportunities, ...gapCards, ...wikiGapCards],
+    totalCandidates: createMoves.length,
+    ownDomain,
+  };
 }
 
 const MAX_GAP_CARDS = 3;
@@ -371,6 +396,48 @@ function buildGapOpportunities(
       alsoCovers: [],
       briefFromRelated: false,
       gapEvidence: g.evidence,
+    });
+  }
+  return out;
+}
+
+export const MAX_WIKI_GAP_CARDS = 3;
+
+/** Map the persisted wiki-gap run to New Page cards, skipping topics an existing
+ *  card/move already covers (simple containment on normalized labels) and any
+ *  article the finder scored "low" beatability (not worth a card yet). Exported
+ *  for the feed-bounding unit test (today-newpages-wiki-gap.test.ts). */
+export function buildWikiGapOpportunities(stored: StoredWikiGaps | null, existingLabels: string[]): NewPageOpportunity[] {
+  if (!stored || stored.gaps.length === 0) return [];
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const existing = existingLabels.map(norm).filter(Boolean);
+  const out: NewPageOpportunity[] = [];
+  for (const g of stored.gaps) {
+    if (out.length >= MAX_WIKI_GAP_CARDS) break;
+    if (g.band === "low") continue;
+    const topic = norm(g.displayTitle);
+    if (!topic || isJunkTopic(topic)) continue;
+    if (existing.some((e) => e.includes(topic) || topic.includes(e))) continue;
+    out.push({
+      id: `wikigap::${topic.replace(/\s+/g, "-")}`,
+      topic: cleanTopicLabel(titleCase(topic)),
+      competitorCount: 0, // Wikipedia citation evidence, not AI-attention counts — stay honest
+      topCompetitor: "wikipedia.org",
+      whatWins: null,
+      searchVolume: g.demand,
+      keywordMatch: g.demand != null ? { keyword: topic, volume: g.demand, confidence: "exact" } : null,
+      tier: g.band === "high" ? "hot" : "warm",
+      score: g.score,
+      savedOpening: null,
+      competitorDomains: ["wikipedia.org"],
+      preparedVerdict: null,
+      preparedBrief: null,
+      briefQuality: null,
+      openingQuality: null,
+      aeoReceipt: null,
+      alsoCovers: [],
+      briefFromRelated: false,
+      wikiGapEvidence: g.evidenceSentence,
     });
   }
   return out;

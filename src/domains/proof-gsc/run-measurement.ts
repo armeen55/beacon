@@ -26,6 +26,17 @@ import { isCitationRelevantAction, type CitationOutcome } from "./citation-outco
 import { rankSeriesFor } from "@/domains/serp/serp-history";
 import { runRankRecheck, nextRecheckableWindow, resolveTargetQuery, type RankRecheckResult } from "./rank-recheck";
 import {
+  computeChangeDollarValue,
+  extraSessionsFromTrafficOutcome,
+  type ChangeDollarValue,
+  type ChangeRevenueModel,
+} from "./change-dollar-value";
+import { isUsableRevenueModel } from "@/domains/revenue/compute-unit-economics";
+import {
+  getBusinessConfig,
+  hydrateBusinessConfigFromSupabase,
+} from "@/lib/business-config";
+import {
   addDays,
   computeWindowLift,
   pickProofMetric,
@@ -119,6 +130,21 @@ async function computeGa4TrafficOutcome(
 
 function dateOnly(iso: string): string {
   return iso.length > 10 ? iso.slice(0, 10) : iso;
+}
+
+/**
+ * Read the operator's own unit-economics rate (item 3) and shape it for
+ * computeChangeDollarValue. Prefers the freshest Supabase-hydrated config
+ * (same lookup as the nightly revenue pass) and falls back to the in-memory
+ * default; returns null when no usable rate is configured, which keeps the
+ * dollar line clicks-only rather than throwing or fabricating a rate.
+ */
+async function resolveChangeRevenueModel(tenantId: string): Promise<ChangeRevenueModel | null> {
+  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+  const model = cfg.revenueModel;
+  if (!isUsableRevenueModel(model)) return null;
+  if (model.kind === "rpm") return { kind: "rpm", rpmUsd: model.rpmUsd! };
+  return { kind: "per_lead", dollarsPerLead: model.dollarsPerLead! };
 }
 
 /**
@@ -312,6 +338,31 @@ export async function measureRecord(
     trafficOutcome = null;
   }
 
+  // Change-level dollar attribution (item 22): the operator's own unit-economics
+  // rate (item 3) x the extra sessions/key events THIS change earned. Pure math
+  // lives in change-dollar-value.ts; this only supplies the two numbers that
+  // already exist (trafficOutcome's delta) and the operator's rate. Same
+  // computed-only, fail-soft posture as trafficOutcome above.
+  let dollarValue: ChangeDollarValue | null = null;
+  if (trafficOutcome != null && trafficOutcome.ran) {
+    try {
+      const revenueModel = await resolveChangeRevenueModel(tenantId);
+      // Control-adjusted extra sessions (matches the traffic-outcome label's
+      // own math), NOT the raw sessionsPost-minus-sessionsPre delta - see
+      // extraSessionsFromTrafficOutcome's doc comment for why those can
+      // disagree.
+      const sessionsDelta = extraSessionsFromTrafficOutcome(trafficOutcome);
+      dollarValue = computeChangeDollarValue({
+        trafficDelta: sessionsDelta,
+        windowDays: trafficOutcome.windowDays,
+        keyEventDelta: trafficOutcome.conversionsDelta,
+        revenueModel,
+      });
+    } catch {
+      dollarValue = null;
+    }
+  }
+
   // AI-citation lane (master plan item 5): did AI answers start citing this
   // page after the ship? Same computed-only, fail-soft posture as
   // trafficOutcome (never persisted; recordToRow omits it). Only for action
@@ -355,6 +406,7 @@ export async function measureRecord(
     trafficOutcome,
     citationOutcome,
     rankOutcome,
+    dollarValue,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

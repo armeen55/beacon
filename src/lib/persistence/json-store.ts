@@ -100,12 +100,30 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // the Today Demand band + the daily plan builder; without the mirror the
   // detected seasonal windows would be silent-empty on hosted prod.
   "seasonal-windows",
+  // 2026-07-02 item 24 - nightly Farsi/Finglish language-gap matrix pass.
+  // Written by the cron (Vercel lambda: no disk), read by the Today Demand
+  // band + the daily plan builder; without the mirror the detected gaps
+  // would be silent-empty on hosted prod.
+  "language-gap-matrix",
+  // 2026-07-02 item 26 - the mined citability pattern profile (what AI
+  // actually quotes in this tenant's space). Written by the mining pass
+  // (no disk on Vercel lambdas), read by the daily card's evidence brief
+  // and the citability hint feed; without the mirror the profile would be
+  // silent-empty on hosted prod.
+  "citability-pattern-profile",
   // 2026-07-02 item 16 - competitor keyword gap engine. The Labs cache is a COST
   // guarantee (a re-run within 30 days must not re-spend, which only holds on
   // Vercel with the mirror); the results store is what the New Pages board reads
   // at $0. File-only, both would be silent-empty on hosted prod.
   "dataforseo-labs-cache",
   "keyword-gap-results",
+  // 2026-07-02 item 23 - beat-Wikipedia finder. The article-facts cache is a
+  // COST/POLITENESS guarantee (a re-run within 30 days must not re-hit the free
+  // Wikipedia API, which only holds on Vercel with the mirror); the results
+  // store is what the New Pages board reads at $0. File-only, both would be
+  // silent-empty on hosted prod.
+  "wiki-gap-article-cache",
+  "wiki-gap-results",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

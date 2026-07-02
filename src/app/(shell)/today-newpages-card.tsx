@@ -170,6 +170,14 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             {o.gapEvidence}
           </p>
         ) : null}
+        {o.wikiGapEvidence ? (
+          <p
+            className="mt-1.5 rounded-md bg-amber-50/70 px-2 py-1 text-[11px] leading-snug text-amber-900 ring-1 ring-amber-100"
+            title="From the beat-Wikipedia check (Wikipedia's free API, cached 30 days)"
+          >
+            {o.wikiGapEvidence}
+          </p>
+        ) : null}
         {o.aeoReceipt ? (
           <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-2">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700">✦ AI-validated</div>

@@ -230,6 +230,9 @@ function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
       {serp.format} pages, led by {serp.winningDomains.join(", ")}.
       {serp.whatToDo ? <> {stripBannedDashes(serp.whatToDo)}</> : null}
       {serp.rankMovement ? <> {stripBannedDashes(serp.rankMovement)}</> : null}
+      {/* Item 25: the featured-snippet/PAA steal fact, only when a real weak-owner
+          candidate exists for this pick's search. Honest silence otherwise. */}
+      {serp.featureSteal ? <> {stripBannedDashes(serp.featureSteal.sentence)}</> : null}
     </div>
   );
 }
@@ -242,6 +245,18 @@ function CompetitorSteal({ e }: { e: PlannedExperimentRecord }) {
     <div>
       <span className="text-gray-400 dark:text-neutral-500">Who is beating you: </span>
       {c.domain}. Steal this: {stripBannedDashes(c.whatToSteal)}.
+    </div>
+  );
+}
+
+/** Item 26: AI reaches this page but never quotes it, and the exact patterns it is missing. */
+function CitabilityEvidence({ e }: { e: PlannedExperimentRecord }) {
+  const c = e.evidenceBrief?.citability;
+  if (!c || !c.evidenceLine) return null;
+  return (
+    <div>
+      <span className="text-gray-400 dark:text-neutral-500">AI citability: </span>
+      {stripBannedDashes(c.evidenceLine)}
     </div>
   );
 }
@@ -260,6 +275,7 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
         <KeywordResearch e={e} />
         <SerpReaction e={e} />
         <CompetitorSteal e={e} />
+        <CitabilityEvidence e={e} />
         <div><span className="text-gray-400 dark:text-neutral-500">On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
         {detailLine && <div>{detailLine}</div>}
         {e.controls.length > 0 && (

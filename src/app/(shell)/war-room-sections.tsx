@@ -21,6 +21,8 @@ import { matchSpikeToMove, type MatchableMove } from "@/domains/trend-radar/spik
 import type { QuerySpike } from "@/domains/trend-radar/query-spikes";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
+import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
+import type { LanguageGap } from "@/domains/language-gap/language-gaps";
 import { readWorklistSurface } from "./worklist-surface-store";
 import { deriveStatus, statusView } from "@/domains/changes/canonical-change";
 import Link from "next/link";
@@ -264,20 +266,31 @@ async function loadTopSeasonalRow(tenantId: string): Promise<SeasonalQuery | nul
   return seasonal[0] ?? null;
 }
 
+/** Master plan item 24 - the single biggest Farsi/Finglish language gap ($0 store read
+ *  from last night's language-gap matrix pass). Gaps arrive ranked biggest-impressions-
+ *  first, so the first row is the one this slot shows; null when nothing is found (the
+ *  row stays silent, never a placeholder). */
+async function loadTopLanguageGapRow(tenantId: string): Promise<LanguageGap | null> {
+  const gaps = await loadLanguageGaps(tenantId).catch(() => [] as LanguageGap[]);
+  return gaps[0] ?? null;
+}
+
 /** Market demand (DataForSEO teammate): real search demand you don't own yet, from the cached
  *  keyword universe, PLUS this week's query spikes from your own Google data (item 14).
  *  Self-hides until keyword research has run AND nothing is spiking; once research HAS run and
  *  found no gap, that is a finding worth one quiet card (item 21), never a blank space. */
 export async function DemandOpportunitiesSection({ tenantId }: { tenantId: string }) {
   try {
-    const [res, spikeRows, seasonalRow] = await Promise.all([
+    const [res, spikeRows, seasonalRow, languageGapRow] = await Promise.all([
       loadDemandOpportunities(tenantId, { limit: 5 }),
       loadSpikeRows(tenantId),
       loadTopSeasonalRow(tenantId),
+      loadTopLanguageGapRow(tenantId),
     ]);
-    // Research never ran and nothing is spiking or seasonal: nothing honest to say yet, stay silent.
-    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow) return null;
-    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow) {
+    // Research never ran and nothing is spiking, seasonal, or a language gap: nothing
+    // honest to say yet, stay silent.
+    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow) return null;
+    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow) {
       // Item 21 - designed empty state: keyword research DID run and found no new gap.
       return (
         <section aria-label="Demand opportunities" className={CARD}>
@@ -332,6 +345,14 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
               {seasonalRow.topPage ? (
                 <p className="mt-0.5 text-[12px] text-sky-800/90 dark:text-sky-300/90">Your best matching page: {prettyPath(seasonalRow.topPage)}.</p>
               ) : null}
+            </div>
+          ) : null}
+          {/* Master plan item 24 - the single biggest Farsi/Finglish language gap, from last
+              night's language-gap matrix pass. Below the seasonal row; silent when none found. */}
+          {languageGapRow ? (
+            <div key={`lang-${languageGapRow.page}`} className="rounded-xl bg-violet-50/70 px-3 py-2 dark:bg-violet-950/30">
+              <p className="text-[13px] font-medium text-violet-900 dark:text-violet-200">{languageGapRow.sentence}</p>
+              <p className="mt-0.5 text-[12px] text-violet-800/90 dark:text-violet-300/90">Page: {prettyPath(languageGapRow.page)}.</p>
             </div>
           ) : null}
           {res.opportunities.slice(0, 5).map((o) => (
@@ -405,16 +426,23 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
       .catch(() => true),
     // Demand band renders whenever keyword research has run (gaps or the item-21 empty
     // state) OR a query spike exists (item 14, a $0 store read) OR a seasonal window is
-    // due (master plan item 21, a $0 store read), so quiet = research never ran, nothing
-    // surfaced, nothing is spiking, and nothing seasonal is due.
+    // due (master plan item 21, a $0 store read) OR a language gap is found (master plan
+    // item 24, a $0 store read), so quiet = research never ran, nothing surfaced, nothing
+    // is spiking, nothing seasonal is due, and no language gap was found.
     Promise.all([
       loadDemandOpportunities(tenantId, { limit: 5 }),
       loadQuerySpikes(tenantId).catch(() => []),
       loadTopSeasonalRow(tenantId).catch(() => null),
+      loadTopLanguageGapRow(tenantId).catch(() => null),
     ])
       .then(
-        ([res, spikes, seasonalRow]) =>
-          res.keywordsConsidered === 0 && res.opportunities.length === 0 && res.trends.length === 0 && spikes.length === 0 && !seasonalRow,
+        ([res, spikes, seasonalRow, languageGapRow]) =>
+          res.keywordsConsidered === 0 &&
+          res.opportunities.length === 0 &&
+          res.trends.length === 0 &&
+          spikes.length === 0 &&
+          !seasonalRow &&
+          !languageGapRow,
       )
       .catch(() => true),
   ]);

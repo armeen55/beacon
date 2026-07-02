@@ -17,8 +17,9 @@ import { cache } from "react";
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { currentTenant } from "@/lib/tenant-context";
-import type { AiOverviewCitedDomain } from "./dataforseo-serp";
+import type { AiOverviewCitedDomain, ParsedFeaturedSnippet, ParsedPaaQuestion } from "./dataforseo-serp";
 import { computeAiOverviewGaps, aiOverviewGapHeadline, type AiOverviewHistoryRow } from "./ai-overview-gaps";
+import { computeFeatureSteals, type FeatureStealCandidate, type FeatureStealHistoryRow } from "./feature-steal";
 
 /** One observed point: when we looked, and where the tenant's own domain sat. */
 export type SerpRankPoint = {
@@ -174,5 +175,68 @@ export const loadAiOverviewGapTodayLine = cache(async (tenantId: string, now: Da
     return aiOverviewGapHeadline(computeAiOverviewGaps(rows, domain));
   } catch {
     return null;
+  }
+});
+
+// ─── Featured snippet + PAA steal reads (item 25) ───────────────────────────
+
+/** Bound how far back the tenant-wide snippet/PAA scan looks and how many rows
+ *  it can return - a diagnostic read, not an unbounded table scan. Mirrors the
+ *  AI Overview reader's bounds. */
+const FEATURE_STEAL_LOOKBACK_DAYS = 90;
+const FEATURE_STEAL_ROW_LIMIT = 500;
+
+/**
+ * Every history row for this tenant across all tracked queries, in the fields
+ * feature-steal.ts needs to compute per-query steal candidates. Empty when
+ * history has nothing yet, the columns are missing (pre-migration), or Supabase
+ * is unreachable - never throws.
+ */
+export const featureStealHistoryRows = cache(async (tenantId: string, now: Date = new Date()): Promise<FeatureStealHistoryRow[]> => {
+  if (!tenantId || !isSupabaseConfigured()) return [];
+  try {
+    const cutoffIso = new Date(now.getTime() - FEATURE_STEAL_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await getSupabaseAdmin()
+      .from("dataforseo_serp_history")
+      .select("query, captured_at, own_rank, snippet_owner, paa_questions")
+      .eq("tenant_id", tenantId)
+      .gte("captured_at", cutoffIso)
+      .order("captured_at", { ascending: true })
+      .limit(FEATURE_STEAL_ROW_LIMIT);
+    if (error || !Array.isArray(data)) return [];
+    return (
+      data as Array<{
+        query: string;
+        captured_at: string;
+        own_rank: number | null;
+        snippet_owner: ParsedFeaturedSnippet | null;
+        paa_questions: ParsedPaaQuestion[] | null;
+      }>
+    ).map((r) => ({
+      query: r.query,
+      capturedAt: r.captured_at,
+      ownRank: typeof r.own_rank === "number" ? r.own_rank : null,
+      snippetOwner: r.snippet_owner ?? null,
+      paaQuestions: Array.isArray(r.paa_questions) ? r.paa_questions : [],
+    }));
+  } catch {
+    return [];
+  }
+});
+
+/** $0 read: every real feature-steal candidate (snippet or PAA) for this tenant
+ *  across its tracked queries, [] when there is no history yet, the tenant
+ *  domain is unknown, or nothing qualifies. Fails soft on any error. */
+export const loadFeatureStealCandidates = cache(async (tenantId: string, now: Date = new Date()): Promise<FeatureStealCandidate[]> => {
+  try {
+    const rows = await featureStealHistoryRows(tenantId, now);
+    if (rows.length === 0) return [];
+    const domain = await currentTenant()
+      .then((t) => t.domain ?? null)
+      .catch(() => null);
+    if (!domain) return [];
+    return computeFeatureSteals(rows, domain);
+  } catch {
+    return [];
   }
 });

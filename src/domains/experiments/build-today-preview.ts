@@ -31,7 +31,8 @@ import {
   buildKeywordBrief, buildSerpEvidence, buildCompetitorEvidence, buildRankMovementSentence,
   type CachedDemand, type SerpPatternLite, type EvidenceCompetitor, type DailyEvidenceBrief,
 } from "./daily-evidence-brief";
-import { rankDelta } from "@/domains/serp/serp-history";
+import { rankDelta, loadFeatureStealCandidates } from "@/domains/serp/serp-history";
+import { buildFeatureStealHintNotes } from "@/domains/serp/feature-steal";
 import { normalizePath } from "./daily-plan-types";
 import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
 import { reviewCandidateWithTeam } from "./team-review";
@@ -41,6 +42,11 @@ import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
 import { buildSpikeHintNotes } from "@/domains/trend-radar/spike-hints";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import { buildSeasonalHintNotes } from "@/domains/seasonal/seasonal-hints";
+import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
+import { buildLanguageGapHintNotes } from "@/domains/language-gap/language-gap-hints";
+import { currentTenantSlug } from "@/lib/tenant-context";
+import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
+import { buildCitabilityHintNotes } from "@/domains/citability/citability-hints";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -58,7 +64,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -84,6 +90,22 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     // archive (peak windows + prep deadlines). Empty until the nightly pass has run.
     // Fail-soft to none.
     loadSeasonalQueries(tenantId, now).catch(() => []),
+    // Item 25: $0 read of the append-only SERP history's featured-snippet + PAA owners,
+    // reduced to per-query steal candidates (rank 2-8, someone else holds the box).
+    // Empty until live SERP history has captured a snippet/PAA at a qualifying rank.
+    // Fail-soft to none.
+    loadFeatureStealCandidates(tenantId, now).catch(() => []),
+    // Item 24: $0 read of last night's Farsi/Finglish language-gap matrix pass
+    // (script/language demand vs each page's crawled content language). Empty
+    // until the nightly pass has run. Fail-soft to none.
+    loadLanguageGaps(tenantId, now).catch(() => []),
+    // Item 26: $0 read of the item-7 crawl-to-citation funnel (which pages AI
+    // reaches but never quotes). Empty until the tenant's own-domain slug or
+    // the funnel's feeds are unavailable. Fail-soft to an empty report.
+    currentTenantSlug()
+      .catch(() => "")
+      .then((slug) => (slug ? loadCrawlCitationFunnel(tenantId, slug) : null))
+      .catch(() => null),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence. Item 18:
@@ -144,6 +166,34 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // Bounded to 2/night; composes beside the spike hints without disturbing them.
   const seasonalHintsByPath = buildSeasonalHintNotes(seasonalQueries, now);
 
+  // Item 25 - the feature-steal hint feed: a query where the tenant ranks 2-8 AND a
+  // weak (non-major-authority) domain owns the featured snippet or a PAA answer only
+  // becomes a hint here - strong owners (Wikipedia, major news) stay informational,
+  // never queued as an easy win. Bounded to 2/night; keyed by query (not page path),
+  // matched against each candidate's targetQuery below.
+  const featureStealHintsByQuery = buildFeatureStealHintNotes(featureSteals);
+
+  // Item 24 - the language-gap hint feed: a page carrying real Farsi-script or
+  // Finglish demand with no matching-script content (or a missing transliteration
+  // spelling family) becomes a hint here. Bounded to 2/night; composes beside the
+  // spike/seasonal hints without disturbing them.
+  const languageGapHintsByPath = buildLanguageGapHintNotes(languageGaps);
+
+  // Item 26 - the citability hint feed: a page the item-7 funnel says AI already
+  // reaches but never quotes (crawled_not_cited or cited_no_clicks), whose own
+  // cached crawl text scores below the citability threshold, becomes a hint here
+  // carrying the exact patterns (stat-first, definition, list lead, etc.) the
+  // answer-block drafter should apply. Bounded to 2/night; text comes from the
+  // same cached page_snapshots facts every other lever already reads ($0).
+  const citabilityPageTextByPath = new Map<string, string>();
+  for (const [path, f] of factsByPath) {
+    const text = [f.title, f.h1, ...(f.bodyParagraphs ?? [])].filter(Boolean).join(". ");
+    if (text.trim()) citabilityPageTextByPath.set(path, text);
+  }
+  const citabilityHintsByPath = citationFunnel
+    ? buildCitabilityHintNotes(citationFunnel, citabilityPageTextByPath)
+    : new Map();
+
   // Active topology (treated/control paths) + protected-destination predicate.
   const states = deriveExperimentStates(ledger, now);
   const activeTreated = new Set<string>();
@@ -197,12 +247,17 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   await Promise.all(
     gapPages.map(async ({ p, f, gap }) => {
       try {
+        // Item 26: when this page is also a citability target (AI reaches it but never
+        // quotes it), the drafter's guidance carries the exact patterns to apply so the
+        // written answer is quotable from the start, not just factually grounded.
+        const citability = citabilityHintsByPath.get(normalizePath(p.url));
         const res = await draftAnswerBlockStructured({
           query: p.topQuery,
           pageLabel: p.pageLabel,
           brief: gap!.question,
           outline: (f.bodyParagraphs ?? []).slice(0, 8),
           faqs: [],
+          evidenceHints: citability?.topFixes,
           intent: gap!.intent,
         });
         if (res.status === "drafted" && res.value.answer?.trim()) {
@@ -306,6 +361,12 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       const delta = await rankDelta(tenantId, serp.query, 45, now).catch(() => null);
       const movement = buildRankMovementSentence(delta);
       if (movement) serp.rankMovement = movement;
+      // Item 25 - the STEAL fact: when this pick's search has a weak-owner featured-snippet
+      // or PAA candidate, the evidence sentence names it (format-matched so the answer-block
+      // drafter can match paragraph vs list vs table). Honest silence otherwise - a
+      // strong-owner (Wikipedia, major news) query never gets this line.
+      const steal = featureStealHintsByQuery.get(serp.query.trim().toLowerCase());
+      if (steal) serp.featureSteal = { ownerDomain: steal.ownerDomain, format: steal.format, sentence: steal.sentence };
     }
     const competitor = competitorByPath.get(normalizePath(c.url));
     if (kw || serp || competitor) {
@@ -372,6 +433,49 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         claim: seasonalHint.sentence,
         confidencePct: 75,
       });
+    }
+    // Item 25 - the FEATURE-STEAL voice: when this pick's search has a weak-owner featured-
+    // snippet or PAA answer, a beatable box argues for shipping a format-matched answer this
+    // week. Deterministic, from the append-only SERP history ($0). Bounded to 2/night at the
+    // hint-map level, so this never floods the roundtable.
+    const stealHint = featureStealHintsByQuery.get(c.targetQuery.trim().toLowerCase());
+    if (stealHint && c.teamReview && !c.teamReview.voices.some((v) => v.label === "Answer box to steal")) {
+      c.teamReview.voices.push({
+        specialist: "dataforseo",
+        label: "Answer box to steal",
+        claim: stealHint.sentence,
+        confidencePct: 70,
+      });
+    }
+    // Item 24 - the LANGUAGE-GAP voice: when this pick's page carries real Farsi-script
+    // or Finglish demand it does not visibly answer (no matching-script content, or a
+    // transliteration spelling family it never mentions), that gap argues for shipping
+    // this week. Deterministic, from last night's persisted language-gap pass ($0).
+    const languageGapHint = languageGapHintsByPath.get(normalizePath(c.url));
+    if (languageGapHint && c.teamReview && !c.teamReview.voices.some((v) => v.label === "Language gap")) {
+      c.teamReview.voices.push({
+        specialist: "gsc",
+        label: "Language gap",
+        claim: languageGapHint.sentence,
+        confidencePct: 75,
+      });
+    }
+    // Item 26 - the CITABILITY voice + evidence-brief line: when this pick's page is a
+    // "make it quotable" target (the item-7 funnel says AI reaches it but never quotes
+    // it, and the deterministic rubric found it missing the patterns AI lifts), the
+    // brief gains one honest line and the roundtable gains the argument. Deterministic,
+    // from the funnel + rubric ($0).
+    const citabilityHint = citabilityHintsByPath.get(normalizePath(c.url));
+    if (citabilityHint) {
+      c.evidenceBrief = { ...(c.evidenceBrief ?? { keywords: [], addressableVolume: null }), citability: { score: citabilityHint.score, evidenceLine: citabilityHint.evidenceLine, topFixes: citabilityHint.topFixes } };
+      if (c.teamReview && !c.teamReview.voices.some((v) => v.label === "AI citability")) {
+        c.teamReview.voices.push({
+          specialist: "profound",
+          label: "AI citability",
+          claim: citabilityHint.sentence,
+          confidencePct: 70,
+        });
+      }
     }
   }
 

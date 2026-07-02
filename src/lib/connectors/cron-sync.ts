@@ -19,6 +19,8 @@ import { runMonthlyArchiveRollup } from "@/domains/seasonal/archive-rollup";
 import { loadMonthlyArchiveRows } from "@/domains/seasonal/load-monthly-archive";
 import { detectSeasonalQueries } from "@/domains/seasonal/seasonality";
 import { writeSeasonalSummary } from "@/domains/seasonal/seasonal-store";
+import { runLanguageGapPass } from "@/domains/language-gap/run-language-gap-pass";
+import { writeLanguageGapSummary } from "@/domains/language-gap/language-gap-store";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -384,6 +386,43 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] seasonal archive failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1e - Farsi/Finglish language-gap matrix (master plan item 24): classify
+  // tonight's cached GSC query demand by script and language, join against each
+  // owned page's crawled content language, persist any gaps found so the Today
+  // Demand band + the daily plan builder read them at $0. Deterministic, FREE
+  // (reads only the already-cached GSC page signals + page_snapshots, no LLM, no
+  // paid API), latest-wins upsert; an empty list is written too so "checked,
+  // no gap" stays distinguishable from "never checked". Isolated try/catch per
+  // tenant, does not touch PHASE 1c/1d above.
+  for (const t of tenants) {
+    try {
+      const pass = await runLanguageGapPass(t.id);
+      if (pass.ran) {
+        await writeLanguageGapSummary({
+          tenant_id: t.id,
+          computed_at: new Date().toISOString(),
+          queriesClassified: pass.queriesClassified,
+          farsiScriptCount: pass.farsiScriptCount,
+          finglishCount: pass.finglishCount,
+          englishCount: pass.englishCount,
+          gaps: pass.gaps,
+        });
+        if (pass.gaps.length > 0) {
+          log.info("[cron-sync] language gaps found", {
+            tenantId: t.id,
+            gaps: pass.gaps.length,
+            top: pass.gaps[0]?.page,
+          });
+        }
+      }
+    } catch (e) {
+      log.warn("[cron-sync] language gap pass failed", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

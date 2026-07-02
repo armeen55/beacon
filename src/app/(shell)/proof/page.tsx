@@ -31,6 +31,7 @@ import {
   type ProofMetric,
 } from "@/domains/proof-gsc/measure";
 import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
+import { shouldShowChangeDollarLine } from "@/domains/proof-gsc/change-dollar-value";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
   findExistingRevertRecord,
@@ -662,6 +663,16 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored }: { rec: S
           </div>
         );
       })() : null}
+
+      {/* Dollar attribution for THIS change (item 22): only on a mature Win, only
+          when the operator has a revenue model set and the lift is positive - a
+          measuring row never shows a projected dollar figure, and a rate-less
+          tenant never sees a number it can't back with real settings. The
+          sentence itself always names the basis (your rate x the extra visitors
+          this change earned), never "measured". */}
+      {shouldShowChangeDollarLine({ band, dollarValue: rec.dollarValue }) ? (
+        <p className="mt-1 text-[13px] font-semibold text-emerald-700">{rec.dollarValue!.basisSentence}</p>
+      ) : null}
 
       {/* AI-citation lane (item 5): one line when AI answers moved on a change
           built to win them, silence when there is nothing solid to say. */}

@@ -269,6 +269,24 @@ export const GLOBAL_STORES = new Set<string>([
   // windows over the permanent GSC monthly archive ($0 Today Demand band +
   // daily plan hint reads).
   "seasonal-windows",
+  // Beat-Wikipedia finder (2026-07-02, master plan item 23). The article-facts
+  // cache is public Wikipedia data (keyed by article title, no tenant secrets) -
+  // global like the DataForSEO caches so its 30-day TTL prevents re-fetching the
+  // same free API. The results store carries tenant_id rows (keyword-gap-results
+  // precedent: New Pages reads it with no ambient request context).
+  "wiki-gap-article-cache", // Wikipedia action-API 30d cache (domains/wiki-gap/wikipedia-client.ts)
+  "wiki-gap-results", // latest per-tenant beat-Wikipedia run (domains/wiki-gap/wiki-gap-store.ts)
+  // Language-gap matrix (2026-07-02, master plan item 24). Same cron fan-out
+  // rationale: rows carry tenant_id. Latest per-tenant Farsi/Finglish demand
+  // vs page-content-language gap findings ($0 Today Demand band + daily plan
+  // hint reads).
+  "language-gap-matrix",
+  // Citability rewriter (2026-07-02, master plan item 26). Rows carry
+  // tenant_id; a future nightly mining pass would fan out across tenants
+  // with no ambient request context, same rationale as the stores above.
+  // The mined "what AI actually quotes" pattern profile the daily card +
+  // citability hint feed read at $0.
+  "citability-pattern-profile",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

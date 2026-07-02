@@ -7,6 +7,126 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 item 23 (beat-Wikipedia finder, worktree, NOT committed)
+
+**What changed:** new `src/domains/wiki-gap/`:
+`wikipedia-client.ts` - `fetchArticleFacts(title)` on the FREE Wikipedia action API only
+(`action=query&prop=extracts|revisions&explaintext=1&redirects=1` for real full-article word
+count + last revision, `action=parse&prop=sections&redirects=1` for section count), identified
+`BeaconBot` User-Agent, ~1 req/sec module-level throttle, 30-day json-store cache mirrored to
+Supabase. `find-wiki-citations.ts` - mines wikipedia.org sightings tenant-agnostically from
+`prompt_answer_observations.citation_urls`, `profound_citation_rows`, and item 20's
+`dataforseo_serp_history.ai_overview_domains`, maps each to an article title + best-known query
+text, dedupes by article. `beatability.ts` (pure) - scores thinness/staleness/generic-coverage/
+demand into `{score, band, evidenceSentence}`. `produce-wiki-gaps.ts` - bounded to 20 lookups per
+run, persists to `wiki-gap-results`. New Pages board (`today-newpages-data.ts`) gains up to 3
+additive wiki-gap cards; `/competitors` gets a "Check the Wikipedia pages AI prefers" trigger
+beside the item-16 keyword-gap button.
+
+**Two real bugs caught and fixed via live ground-truth before shipping** (not caught by unit
+tests, since the fixtures were self-consistent):
+1. The REST summary endpoint's `extract` field is the LEAD PARAGRAPH ONLY, not the full article -
+   a first live run read "Ancient Persia" as 103 words when its real redirect target ("History of
+   Iran") has 18,425. Switched to the action API's `explaintext=1&redirects=1` combined
+   extracts+revisions call, verified against manual `curl` calls before and after.
+2. Profound's `category_id` (used as a fallback "query text" for `profound_citation_rows`
+   sightings, which carry no real prompt text) is a raw UUID, not a human label - a first live run
+   displayed a UUID as query text. Added a `looksLikeUuid` guard so that field stays honestly null
+   instead of showing garbage.
+
+**Tests:** 72 new tests green (wikipedia-client: parsing incl. the extracts/redirects regression
+case, throttle, 30-day cache staleness/hit/miss; find-wiki-citations: domain/title extraction,
+dedupe, UUID guard, fail-soft per source; beatability: thinness/staleness/generic/demand matrix +
+a wide dash-guard matrix; produce-wiki-gaps: bounding, sorting, persist-failure fail-soft, dash
+guard; today-newpages feed bounding/non-overlap; the /competitors action gate). `npm run
+typecheck`: 0 errors.
+
+**Ground-truthed live on Iranopedia** (`tenant-iranopedia`, real Wikipedia network calls, real
+Supabase reads): found 274 wikipedia.org citations (all sourced from imported
+`profound_citation_rows` - native poll observations and AI-Overview history are currently empty/
+silent for this tenant), checked the bounded 20 in score order. After the word-count fix, only 1
+scores genuinely beatable ("Ahmadi (surname)", 133 words, medium band, last touched today); the
+rest are correctly recognized as long, well-maintained articles (Anthropic 2,788 words, the real
+Ancient-Persia target 18,425 words) - the honest, expected outcome against a real encyclopedia-
+grade competitor. Verified against manual `curl` calls to the same Wikipedia endpoints that the
+reported word counts and revision dates match exactly.
+
+---
+
+## 2026-07-02 - BEACON 500 item 26 (citability rewriter: mine what AI actually quotes, worktree, NOT committed)
+
+**What changed:** new `src/domains/citability/`:
+`pattern-classifier.ts` (pure, no I/O) - regex/token classifier for 6 quotable-pattern buckets
+(stat_first, definition, attributed_claim, list_lead, date_anchored, other) plus a shared sentence
+splitter and a cited-sentence locator (finds the sentence containing or nearest to any citation
+marker in raw answer text). `mine-answer-patterns.ts` (server-only) - bounded-paged miner: reads
+`prompt_answer_observations` (tenant-scoped, `citation_count > 0`, projected to citation columns
+only) and `answer_texts` (joined by `observation_id`, no tenant_id column on that table so it is
+only ever queried by ids that already passed the tenant-scoped read), both in exactly 1000-row
+`.range()` chunks per the repo's PostgREST-cap convention; aggregates classified cited sentences
+into a `PatternProfile` (bucket counts, shares, dominant patterns), fail-soft to an empty profile on
+any read error. `citability-score.ts` (pure) - `scorePageCitability(pageText)` -> 0-100 score
+(20 points per bucket present in the opening 6 sentences, half credit if present later in the page),
+missing/present pattern lists, and up to 3 one-line topFixes; imports the same classifier the miner
+uses so scoring and mining always agree. `citability-hints.ts` (pure) - joins the item-7
+crawl-citation-funnel's `crawled_not_cited`/`cited_no_clicks` stalled pages with the rubric over
+cached page text into a bounded (max 2/night) "make it quotable" hint carrying the exact topFixes
+and the deliverable-4 evidence sentence. `citability-store.ts` (server-only) - Supabase-mirrored
+json-store for the mined profile (30-day freshness), following the seasonal-store/spike-store
+sibling pattern; registered in `store-classification.ts` (GLOBAL_STORES) + `json-store.ts`
+(SUPABASE_MIRRORED_STORES).
+
+**Wiring (additive, composes beside items 14/21/24/25's hint feeds):** `build-today-preview.ts`
+reads the item-7 funnel (`loadCrawlCitationFunnel`) + builds page text from the same cached
+`page_snapshots` facts every other lever already reads, computes `citabilityHintsByPath`
+(bounded 2/night), attaches a `citability` field to the selected pick's `evidenceBrief`, adds an
+"AI citability" roundtable voice (profound/"AI citations" teammate), and threads `topFixes` into
+`draftAnswerBlockStructured`'s `evidenceHints` for pages that are both an answer-gap AND a
+citability target. `daily-evidence-brief.ts` gained `EvidenceCitability` on `DailyEvidenceBrief`.
+`daily-experiments-section.tsx` gained a `CitabilityEvidence` component rendering the exact
+deliverable-4 line ("AI reads this page but never quotes it. The pages AI does quote lead with
+numbers and plain definitions; this one does neither.") inside the "How we know" expander, beside
+`KeywordResearch`/`SerpReaction`/`CompetitorSteal`.
+
+**Tests:** 70 new tests across `pattern-classifier.test.ts` (bucket classification fixtures + cited-
+sentence location), `mine-answer-patterns.test.ts` (paging discipline pin: exact `.range()` call
+sequence at PAGE_SIZE=1000, answer_texts `.in()` chunking, tenant scoping, fail-soft), `citability-
+score.test.ts` (score matrix: empty text, all-5-patterns-present near 100, plain narrative low,
+half-credit-outside-opening-window, bounded topFixes, determinism), `citability-hints.test.ts`
+(funnel-stage gating, demand gate, threshold gate, bounding, ordering, dedup, path normalization,
+exact evidence-line string), `citability-surface-pins.test.ts` (wiring pins + dash guard over every
+touched file, seasonal-surface-pins.test.ts pattern). All green; `npm run typecheck` 0 errors on
+every file this item touches (pre-existing errors in `wiki-gap`/`language-gap` from other agents'
+concurrent in-flight work on this shared worktree, not touched here, not fixed here per instruction).
+
+**Ground-truth on real Iranopedia data (`set -a; . ./.env.local; set +a; BEACON_TENANT_ID=tenant-
+iranopedia npx tsx --require ./scripts/mock-server-only.cjs scripts/_citability-probe.ts`):**
+`prompt_answer_observations` and `answer_texts` are BOTH EMPTY (0 rows) on the current beacon-main
+Supabase project (`vlxwevsdvwxvopkjsewo`) - confirmed globally, not a tenant-scoping bug (`pages`
+and `daily_metric_snapshots` are also 0; `page_snapshots` correctly shows 217, matching prior
+verified state). The 22.8k citation rows referenced in the item live in `profound_citation_rows`
+(20,712 rows for tenant-iranopedia), which is an aggregated import table with NO answer-text column
+by design (verified against the baseline schema) - so the miner cannot mine phrasing patterns from
+it, and correctly returns an honest empty `PatternProfile` rather than fabricating one. This is a
+real upstream data gap (the native-poll pipeline that would populate `prompt_answer_observations`
+with real answer text has not run for Iranopedia since the beacon-main cutover), not a defect in the
+miner. The funnel+rubric JOIN half of the lever, which does not depend on answer text, works fully
+end to end on real data: 43 pages are `cited_no_clicks` (AI cites them, GA4/crawler feeds dark);
+top 2 by demand both score 0/100 (missing all 5 quotable patterns) and would be tonight's "make it
+quotable" hints: `/persian-male-names` (51,999 impressions, 7 citations) and
+`/persian-female-first-names` (43,810 impressions, 11 citations).
+
+**Honest caveats:** the miner is real and tested but currently has nothing to mine (recommend re-
+running `scripts/_citability-probe.ts` once the native-poll pipeline backfills real answer text for
+Iranopedia); `DEFINITION_RE` is a conservative heuristic that can still classify grammatically-
+definitional-but-content-free sentences ("X is a wonderful time") as `definition` - acceptable per
+the task's "pure regex/token heuristics" instruction but worth tightening if false positives show up
+in a real mined profile. The lever's funnel+rubric half does not need a nightly cron step (computed
+at request time like the funnel itself, $0); only the mining pass would benefit from a scheduled
+re-run once real answer text exists.
+
+---
+
 ## 2026-07-02 - BEACON 500 item 21 (permanent GSC seasonal archive + 6-week prep-now moves, worktree, NOT committed)
 
 **What changed:** new `migrations/2026-07-02_gsc_monthly_archive.sql` (table `gsc_monthly_archive`:
@@ -29768,3 +29888,25 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **Verified:** npm run typecheck 0 errors; 41 targeted vitest green (build-hubs 17, coverage-map 15, section contract 9). Headless Iranopedia ground truth (~2.7s warm graph): 12 gap-ranked hubs from 1540 search + 250 AI + 217 keyword terms; top rows: Iranian Wedding 0/3 answered (AI 0/1), Nowruz 7/12 (58 percent, AI 1/4, missing "nowruz gifts" matched to the create_page move), culture prompts 1/3. Mega-hub bug found by ground truth (one hub swallowed 95 percent of terms) and fixed with the anchor split; em dashes leaking from raw prompt texts folded to hyphens at ingestion.
 
 **Follow-up:** wire coverageCandidateSeeds() into the daily candidate builder (one line in its caller) once a create-page lever exists there; fanout seeds are honestly 0 until a Profound fanout sync lands rows.
+
+## 2026-07-02 - Change-level dollar attribution (BEACON_500 item 22, worktree, NOT committed)
+
+**What changed:** new `src/domains/proof-gsc/change-dollar-value.ts` (pure) - `computeChangeDollarValue({trafficDelta, windowDays, keyEventDelta, revenueModel})` rolls a change's already-measured delta up to a monthly rate and multiplies by the operator's own unit-economics rate (item 3: rpm or per_lead) into `{usdPerMonth, basisSentence, confidence}`. Honest degradation: no revenue model -> `usdPerMonth` is null and the sentence names only the extra visits, in clicks; negative lift states a plain cost ("costing you about $X a month"), never floored at zero; deterministic, no I/O. A second pure helper, `extraSessionsFromTrafficOutcome`, derives the CONTROL-ADJUSTED extra-sessions figure from `trafficOutcome.adjustedSessionsPct x treated.sessionsPre` instead of the raw `sessionsPost - sessionsPre` delta - this mirrors (does not duplicate) the diff-in-diff `traffic-outcome.ts` already computes, and matters because the raw delta can carry the OPPOSITE sign from the adjusted lift whenever comparison pages moved together. Wired into `measureRecord` (`run-measurement.ts`): after `trafficOutcome` computes, a new `resolveChangeRevenueModel` reads the operator's config the same way the item-3 nightly pass does (`hydrateBusinessConfigFromSupabase` falling back to `getBusinessConfig`), and `dollarValue` attaches to the record with the exact same computed-only, fail-soft, never-persisted posture as `trafficOutcome`/`citationOutcome`/`rankOutcome` (`shipped-change-store.ts` `recordToRow` does not touch it). Presentation: a pure `shouldShowChangeDollarLine` gate wired into the `/proof` Wins band row (`page.tsx`) shows the dollar line only on a mature win with a positive `usdPerMonth` - never on a measuring/in-flight row, never on a learning (non-win) row, never with no revenue model. `proof-summary-section.tsx` gained a pure `buildProofHonestySentence` helper so the item-75 honesty sentence appends ", worth about $X a month at your rates" only when at least one mature win actually has a positive dollar value.
+
+**Verified:** `npm run typecheck` 0 errors in every file this item owns (two pre-existing errors remain in other agents' concurrent in-flight `wiki-gap`/`citability` modules this cycle, confirmed unrelated - untracked files, not touched by this change). 40 new targeted tests green: `tests/domains/proof-gsc/change-dollar-value.test.ts` (34 - pure-math matrix across rpm/per_lead/none/negative/sparse-confidence, the `extraSessionsFromTrafficOutcome` sign-correctness cases, the `shouldShowChangeDollarLine` won-only/measuring-never gate, and a dash-guard sweep), `src/domains/proof-gsc/run-measurement-dollar-value.test.ts` (7 - loader-join wiring with mocked GA4/business-config, incl. a regression test reproducing the real Iranopedia sign-flip shape), `src/app/(shell)/proof/proof-summary-dollar-sentence.test.ts` (7 - the honesty-sentence append rule). Full targeted proof/revenue/dash-guard sweep: 338 tests green across 21 files, zero regressions in the existing `run-measurement.test.ts` (item 19 rank-recheck suite) or the `proof-jargon-guard` dash/jargon scan (which now also covers the new copy for free).
+
+**Ground truth (real Iranopedia, headless probe via `set -a; . ./.env.local; set +a; BEACON_TENANT_ID=tenant-iranopedia npx tsx --require ./scripts/mock-server-only.cjs <probe>`):** no revenue model is configured for this tenant today (`revenueModel: null`), so every one of the 9 ledger rows with a `trafficOutcome` that has run reads clicks-only, as designed. Iranopedia's one real `verdict: "won"` row (`/famous-iranian-singers`, shipped 2026-06-21) shows `trafficOutcome.label: "Visitor traffic (11 days): +15% visits vs similar pages"` and `dollarValue.basisSentence: "This change is earning you about 35 extra visits a month. Set your rate per visitor or lead in settings to see this in dollars."` - consistent with each other because of the control-adjusted fix (the probe first caught the bug: before the fix, this exact row said "costing you about 30 extra visits a month" because the raw sessions dipped 87 to 76 even though the page won relative to its comparison page, which fell further). The Wins band itself currently renders no extra dollar line for this row (by design: `shouldShowChangeDollarLine` requires a positive `usdPerMonth`, which is null with no revenue model) - the moment the operator sets a rate in settings, this exact row turns into a real "worth about $X a month" line with no further code changes.
+
+**Honest caveats:** the dollar figure is always an estimate ("your rate x the extra visitors this change earned"), never presented as a measured payout; it inherits every limitation of `trafficOutcome` itself (thin GA4 volume, no controls yet, a 7-11 day early read). Confidence bands (low/medium/high) are new and based on the magnitude of the monthly extra-sessions/events figure, not on the underlying GSC/GA4 sample size directly - a reasonable first cut, worth revisiting if it ever disagrees with the operator's gut on a live row.
+
+## 2026-07-02 - Farsi/Finglish language-gap matrix (BEACON_500 item 24, worktree, NOT committed)
+
+**What changed:** new `src/domains/language-gap/` domain, tenant-agnostic by design (script-vs-romanization detection, Persian folding as the first shipped data table, not hardcoded logic). `classify-query.ts` (pure) - `classifyQuery(q)` returns `{script: 'arabic_fa'|'latin'|'mixed'|'other', language: 'fa'|'finglish'|'en'|'unknown', confidence}` using Unicode Arabic-block ranges for script plus a word-initial-onset-anchored Finglish detector (`kh-`/`gh-`/`ch-` at a word start count as full signals, mid-word double-vowels count as half signals, a digit-for-word tell like "4shanbe" and a `knownLatinRoots` hit each count as near-certain). `variant-folding.ts` (pure) - `foldVariant`/`clusterVariants` canonicalize transliteration spelling families (kh/gh, double-vowel collapse, char/chahar elision, digit-for-letter) via `PERSIAN_FOLDING_TABLE`, an ordered rewrite-rule list shipped as DATA; `PERSIAN_KNOWN_LATIN_ROOTS` is a short companion list of real Persian-culture romanizations that lets the classifier confidently tag short, otherwise-ambiguous words. `page-language.ts` (pure) - classifies an owned page's crawled `page_snapshots` text (title/meta/h1/h2/body/FAQ) into `{hasFarsiContent, farsiRatio, lettersSampled}` via the same script test. `language-gaps.ts` (pure) - the matrix join: `findContentLanguageGap` (real Farsi-script/Finglish demand on a page with no matching-script content; skips pages never crawled rather than fabricating a claim) and `findVariantSpellingGap` (a Farsi-content page missing high-impression spelling variants), combined in `buildLanguageGaps` (one finding per page, ranked by impressions). `language-gap-hints.ts` (pure, bounded 2/night) + `language-gap-store.ts` (Supabase-mirrored json-store, registered in `store-classification.ts` + `json-store.ts`, 14-day freshness) + `run-language-gap-pass.ts` (the only I/O file - reads the already-cached `loadGscPageSignalsForTenant` + `getPageSnapshots()`, joins on NORMALIZED PATH since GSC and snapshot URLs can disagree on host). Wired additively: `cron-sync.ts` PHASE 1e (isolated try/catch per tenant, does not touch PHASE 1c/1d), `build-today-preview.ts` hint feed + "Language gap" team-review voice beside the existing spike/seasonal/feature-steal hints, one violet Demand-band row in `war-room-sections.tsx` below the seasonal row (silent when none, quiet-line extended).
+
+**A real precision bug found and fixed mid-build:** the first classifier cut counted ANY digraph substring match (kh/gh/ch/double-vowel) anywhere in the query, which correctly caught "chaharshanbe soori" but also false-positived on ordinary English/loanword queries from real Iranopedia GSC data - "genghis khan flag" (gh+kh) and "persian cheetah"/"iranian cheetah" (ch+ee) all scored as Finglish. Fixed by anchoring the strong consonant-cluster signals to word-initial position (rare in English outside loanwords like "khan"/"ghost", common as a Finglish word onset) and weighting mid-word double-vowels as only half-signals, then re-verified against the same real data with zero false positives remaining.
+
+**Verified:** `npm run typecheck` 0 errors. 87 targeted tests green across 6 files (`classify-query.test.ts` 22, `variant-folding.test.ts` 17, `page-language.test.ts` 9, `language-gaps.test.ts` 20, `language-gap-hints.test.ts` 8, `language-gap-surface-pins.test.ts` 11) plus the sibling `trend-radar`/`seasonal`/`serp` surface-pin suites (112 tests) re-verified green after the additive Demand-band guard extension (two pre-existing sibling assertions updated to match the new `&& !languageGapRow` guard, following the exact precedent item 21 set when it extended item 14's assertion). Verified live in the browser: fetched the real running dev server (`localhost:3142`, `DATA_SOURCE=supabase`, real tenant-iranopedia data) and confirmed the rendered RSC payload contains the exact expected copy in the correct DOM position (violet row after the sky seasonal row, inside "Demand you do not own yet").
+
+**Ground truth (real Iranopedia, headless probe `scripts/_language-gap-probe.ts` via `set -a; . ./.env.local; set +a; BEACON_TENANT_ID=tenant-iranopedia npx tsx --require ./scripts/mock-server-only.cjs scripts/_language-gap-probe.ts --persist`):** 1281 total query rows across 197 pages with GSC signal, 1124 distinct queries classified - 1 Farsi-script, 27 Finglish, 1095 English. Real transliteration families clustered correctly, e.g. "chaharshanbe soori" (4 spellings: chaharshanbe suri/charshanbe soori/chaharshanbe soori/chahar shanbeh soori, 141 impressions), "shabe yalda" (3 spellings, 119 impressions), "doodool tala" (2 spellings, 598 impressions). 4 real gaps found and persisted to the `language-gap-matrix` store: `/nowruz` (424 impressions), `/chaharshanbe-suri` (404), `/sizdah-bedar` (220), `/shabe-yalda` (167) - all `farsi_demand_no_farsi_content`. Spot-checked `/nowruz` directly: the real crawled page (title "When is Nowruz 2026? Learn about the Persian New Year", h1/meta/h2s/body all sampled) uses zero actual Farsi-alphabet characters anywhere - every word is Latin-script romanization ("Nowruz", "Haft-Seen", "Chaharshanbe Suri") - confirming the finding is genuinely correct, not a page-language false negative.
+
+**Honest caveats:** the digraph/onset heuristic remains inherently approximate (no formal Finglish transliteration standard exists); short, ambiguous romanizations ("norooz", "tahdig", "nowruz" itself) only classify confidently when they hit the `PERSIAN_KNOWN_LATIN_ROOTS` list, so an unseen short romanization with no digraph corroboration could under-classify as English (fails toward silence, not toward a fabricated claim). `missing_variant_spellings` gaps did not fire on this Iranopedia data pull (every page with a real transliteration family either had zero Farsi content, caught by the other gap kind, or already mentioned every spelling); the code path is unit-tested but awaits a live example. The mentions-checker is a simple case-insensitive substring test against sampled crawl text, not a fuzzy match.

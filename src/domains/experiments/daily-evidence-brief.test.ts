@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildKeywordBrief, buildSerpEvidence, whatToSteal, buildCompetitorEvidence, buildRankMovementSentence,
-  type CachedDemand, type SerpPatternLite,
+  type CachedDemand, type SerpPatternLite, type EvidenceSerp,
 } from "./daily-evidence-brief";
 
 function demand(entries: Array<[string, CachedDemand]>): Map<string, CachedDemand> {
@@ -199,5 +199,32 @@ describe("buildRankMovementSentence (item 17)", () => {
       expect(s).toBeTruthy();
       expect(s).not.toMatch(/[–—]/);
     }
+  });
+});
+
+describe("EvidenceSerp.featureSteal (item 25)", () => {
+  it("is absent by default - honest silence when no steal candidate exists", () => {
+    const ev = buildSerpEvidence(
+      ["iran flag"],
+      serp([["iran flag", { format: "guide", winningDomains: ["wikipedia.org"], elementImplication: "lead with facts" }]]),
+    );
+    expect(ev).not.toBeNull();
+    expect(ev!.featureSteal).toBeUndefined();
+  });
+
+  it("carries the steal fact (owner domain, format, dash-clean sentence) when attached", () => {
+    const withSteal: EvidenceSerp = {
+      query: "iran flag",
+      format: "guide",
+      winningDomains: ["wikipedia.org"],
+      whatToDo: "lead with facts",
+      featureSteal: {
+        ownerDomain: "personal-blog.com",
+        format: "paragraph",
+        sentence: 'The answer box here belongs to personal-blog.com, beatable.',
+      },
+    };
+    expect(withSteal.featureSteal?.ownerDomain).toBe("personal-blog.com");
+    expect(withSteal.featureSteal?.sentence).not.toMatch(/[–—]/);
   });
 });

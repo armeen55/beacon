@@ -7,6 +7,7 @@ import { loadCompetitorIntel, type CompetitorIntel } from "@/domains/competitors
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ReadQueueButton } from "./read-queue-button";
 import { KeywordGapButton } from "./keyword-gap-button";
+import { WikiGapButton } from "./wiki-gap-button";
 
 /**
  * /competitors (2026-06-28 — ActionPack execution loop, Phase 6) — the real enemy
@@ -215,8 +216,14 @@ export default async function CompetitorsPage() {
         title="Competitors"
         description="Who AI and Google cite instead of you, the pages they win with, and the moves to beat them."
       >
-        {/* Item 16: keyword gap engine trigger — bounded, cached, dry-run safe. */}
-        {operator ? <KeywordGapButton /> : null}
+        {operator ? (
+          <div className="flex flex-col items-end gap-2">
+            {/* Item 16: keyword gap engine trigger — bounded, cached, dry-run safe. */}
+            <KeywordGapButton />
+            {/* Item 23: beat-Wikipedia finder trigger — bounded, free API, cached. */}
+            <WikiGapButton />
+          </div>
+        ) : null}
       </PageHeader>
       <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
         <CompetitorsBody />

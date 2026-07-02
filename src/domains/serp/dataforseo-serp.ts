@@ -130,9 +130,15 @@ const cacheKey = (plan: SerpPlan): string => `${plan.locationCode}|${plan.langua
 export type SerpOrganicItem = { rank: number; domain: string; url: string };
 
 /** parseDataForSeoSerp's return: the existing SerpSnapshot PLUS the ranked organic
- *  triples (item 17) PLUS the parsed AI Overview (item 20). Additive - every
- *  existing consumer keeps treating it as a SerpSnapshot. */
-export type ParsedSerp = SerpSnapshot & { organicItems: SerpOrganicItem[]; aiOverview: ParsedAiOverview };
+ *  triples (item 17) PLUS the parsed AI Overview (item 20) PLUS the featured-snippet
+ *  owner + PAA questions (item 25). Additive - every existing consumer keeps
+ *  treating it as a SerpSnapshot. */
+export type ParsedSerp = SerpSnapshot & {
+  organicItems: SerpOrganicItem[];
+  aiOverview: ParsedAiOverview;
+  snippetOwner: ParsedFeaturedSnippet | null;
+  paaQuestions: ParsedPaaQuestion[];
+};
 
 /** The ranked { rank, domain, url } triples of a snapshot's organic results. Pure. */
 export function organicItemsOf(snapshot: SerpSnapshot): SerpOrganicItem[] {
@@ -221,13 +227,111 @@ export function parseAiOverview(item: unknown): ParsedAiOverview {
   return { present: true, citedDomains, overviewTextExcerpt };
 }
 
+// ─── Featured snippet + PAA parsing (item 25) ───────────────────────────────
+//
+// The same live/advanced response body already carries the featured_snippet and
+// people_also_ask items whenever they render; parseDataForSeoSerp previously only
+// flagged their presence as a boolean SerpFeature and discarded who owns them and
+// what they say. These two parsers pull that out at $0 added spend (no new call,
+// no new parameter - just reading fields already in the paid-for body).
+
+/** Who owns the featured snippet, in what format, and a short excerpt of its text. */
+export type ParsedFeaturedSnippet = {
+  ownerDomain: string;
+  ownerUrl: string;
+  /** Up to 300 chars of the snippet's own text (never the whole page). */
+  textExcerpt: string;
+  format: "paragraph" | "list" | "table";
+};
+
+/** One People Also Ask question, with the domain that answers it when the
+ *  response includes an expanded answer (absent -> undefined, never guessed). */
+export type ParsedPaaQuestion = {
+  question: string;
+  answerDomain?: string;
+};
+
+const SNIPPET_EXCERPT_MAX = 300;
+
+/** Parse ONE SERP response's `featured_snippet` item (when present) into its owner
+ *  domain/url, a short text excerpt, and the answer format. Pure, never throws -
+ *  malformed/absent input answers null (no snippet observed). */
+export function parseFeaturedSnippet(item: unknown): ParsedFeaturedSnippet | null {
+  if (!item || typeof item !== "object") return null;
+  const it = item as Record<string, unknown>;
+  if (String(it.type ?? "") !== "featured_snippet") return null;
+
+  const url = typeof it.url === "string" ? it.url : "";
+  if (!url) return null;
+  const ownerDomain = rootDomain(typeof it.domain === "string" && it.domain ? it.domain : url);
+  if (!ownerDomain) return null;
+
+  const rawText =
+    typeof it.description === "string" && it.description
+      ? it.description
+      : typeof it.text === "string" && it.text
+        ? it.text
+        : typeof it.title === "string"
+          ? it.title
+          : "";
+  const flat = rawText.replace(/\s+/g, " ").trim();
+  const textExcerpt = flat.length > SNIPPET_EXCERPT_MAX ? `${flat.slice(0, SNIPPET_EXCERPT_MAX - 3)}...` : flat;
+
+  // DataForSEO's featured_snippet item carries a `featured_snippet_type` of
+  // "paragraph" | "list" | "table"; some responses instead signal a list/table via
+  // a populated `table` array or bullet-style `items`. Default to paragraph, the
+  // most common shape, when nothing else indicates otherwise.
+  const rawFormat = String(it.featured_snippet_type ?? "").toLowerCase();
+  let format: ParsedFeaturedSnippet["format"] = "paragraph";
+  if (rawFormat === "list" || rawFormat === "table") {
+    format = rawFormat;
+  } else if (Array.isArray(it.table) && it.table.length > 0) {
+    format = "table";
+  } else if (Array.isArray(it.items) && it.items.length > 0) {
+    format = "list";
+  }
+
+  return { ownerDomain, ownerUrl: url, textExcerpt, format };
+}
+
+/** Parse a DataForSEO `people_also_ask` item's nested question list into our lean
+ *  shape. Pure, never throws - malformed/absent input answers []. Accepts the raw
+ *  `people_also_ask_element` array so the caller does not need to know DataForSEO's
+ *  nested item-of-items shape. */
+export function parsePaaQuestions(items: unknown): ParsedPaaQuestion[] {
+  if (!Array.isArray(items)) return [];
+  const out: ParsedPaaQuestion[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const el = raw as Record<string, unknown>;
+    const question = typeof el.title === "string" && el.title ? el.title : typeof el.question === "string" ? el.question : "";
+    if (!question.trim()) continue;
+    // The expanded answer (when DataForSEO returns one) nests one level under
+    // `expanded_element[0]`, carrying its own url/domain - the site Google chose
+    // to answer that specific PAA question with.
+    const expanded = Array.isArray(el.expanded_element) ? el.expanded_element[0] : null;
+    let answerDomain: string | undefined;
+    if (expanded && typeof expanded === "object") {
+      const exp = expanded as Record<string, unknown>;
+      const url = typeof exp.url === "string" ? exp.url : "";
+      const domain = rootDomain(typeof exp.domain === "string" && exp.domain ? exp.domain : url);
+      if (domain) answerDomain = domain;
+    }
+    out.push(answerDomain ? { question: question.trim(), answerDomain } : { question: question.trim() });
+  }
+  return out;
+}
+
 /** Parse a DataForSEO organic-live response body into our SerpSnapshot (+ ranked
- *  organic triples, item 17; + the parsed AI Overview, item 20 - both additive;
- *  consumers of SerpSnapshot are unchanged). */
+ *  organic triples, item 17; + the parsed AI Overview, item 20; + the featured-snippet
+ *  owner + PAA questions, item 25 - all additive; consumers of SerpSnapshot are
+ *  unchanged). */
 export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string): ParsedSerp {
   const results: SerpResult[] = [];
   const features = new Set<SerpFeature>();
   let aiOverview: ParsedAiOverview = NO_AI_OVERVIEW;
+  let snippetOwner: ParsedFeaturedSnippet | null = null;
+  let paaQuestions: ParsedPaaQuestion[] = [];
   const FEATURE_MAP: Record<string, SerpFeature> = {
     ai_overview: "ai_overview",
     featured_snippet: "featured_snippet",
@@ -253,12 +357,14 @@ export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string
         });
       }
       if (type === "ai_overview") aiOverview = parseAiOverview(it);
+      if (type === "featured_snippet") snippetOwner = parseFeaturedSnippet(it);
+      if (type === "people_also_ask") paaQuestions = parsePaaQuestions(it.items);
     }
   } catch {
     /* malformed body → empty results (honest, never throws) */
   }
   const snapshot: SerpSnapshot = { query, results, features: [...features], source: "dataforseo", fetchedAt: nowIso };
-  return { ...snapshot, organicItems: organicItemsOf(snapshot), aiOverview };
+  return { ...snapshot, organicItems: organicItemsOf(snapshot), aiOverview, snippetOwner, paaQuestions };
 }
 
 // ─── Append-only SERP history (item 17) ─────────────────────────────────────
@@ -286,13 +392,20 @@ export type SerpHistoryRow = {
   /** Item 20: the overview's cited domains in order, [] when absent or references
    *  were withheld. Never null - absence is expressed as an empty array. */
   ai_overview_domains: AiOverviewCitedDomain[];
+  /** Item 25: who owns the featured snippet at capture time (owner domain/url,
+   *  a short text excerpt, and its format), or null when no snippet rendered. */
+  snippet_owner: ParsedFeaturedSnippet | null;
+  /** Item 25: the People Also Ask questions rendered at capture time, [] when
+   *  none rendered. Never null - absence is an empty array. */
+  paa_questions: ParsedPaaQuestion[];
 };
 
 /** Build the history row for one captured snapshot. Pure - shared by the live
  *  writer and the backfill script so both produce byte-identical rows.
- *  `aiOverview` is optional (item 20) so the existing backfill script, which has
- *  no overview data to replay, keeps building valid rows with the honest
- *  "no overview" default rather than fabricating one. */
+ *  `aiOverview` is optional (item 20), `snippetOwner`/`paaQuestions` are optional
+ *  (item 25) so the existing backfill script, which has no overview/snippet/PAA
+ *  data to replay, keeps building valid rows with the honest "nothing observed"
+ *  default rather than fabricating one. */
 export function buildSerpHistoryRow(input: {
   tenantId: string;
   query: string;
@@ -302,6 +415,8 @@ export function buildSerpHistoryRow(input: {
   capturedAt: string;
   costUsd: number;
   aiOverview?: ParsedAiOverview;
+  snippetOwner?: ParsedFeaturedSnippet | null;
+  paaQuestions?: ParsedPaaQuestion[];
 }): SerpHistoryRow {
   const normQuery = input.query.trim().toLowerCase();
   const items = organicItemsOf(input.snapshot);
@@ -320,6 +435,8 @@ export function buildSerpHistoryRow(input: {
     raw_cost_usd: input.costUsd,
     ai_overview_present: overview.present,
     ai_overview_domains: overview.citedDomains,
+    snippet_owner: input.snippetOwner ?? null,
+    paa_questions: input.paaQuestions ?? [],
   };
 }
 
@@ -482,6 +599,8 @@ export async function runSerpQuery(
           capturedAt: now.toISOString(),
           costUsd: plan.estCostUsd,
           aiOverview: snapshot.aiOverview,
+          snippetOwner: snapshot.snippetOwner,
+          paaQuestions: snapshot.paaQuestions,
         }),
       );
     } catch (err) {

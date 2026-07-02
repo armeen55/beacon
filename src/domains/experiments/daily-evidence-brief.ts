@@ -43,6 +43,13 @@ export type EvidenceSerp = {
    * silence, never inferred.
    */
   rankMovement?: string;
+  /**
+   * Item 25: a beatable featured-snippet or PAA owner for this pick's search (rank
+   * 2-8, weak/non-authority owner only). Absent unless a real weak-owner steal
+   * candidate exists for this exact query - honest silence otherwise, never a
+   * fabricated "beatable" claim against Wikipedia or major news.
+   */
+  featureSteal?: { ownerDomain: string; format: "paragraph" | "list" | "table" | null; sentence: string };
 };
 
 /** The top competitor page beating this page, and the specific thing to steal from it. */
@@ -51,6 +58,17 @@ export type EvidenceCompetitor = {
   url: string;
   /** Friendly, actionable "steal this" line derived from the competitor's page structure. */
   whatToSteal: string;
+};
+
+/** Item 26: the citability rewriter's evidence - AI reaches this page but never quotes it,
+ *  and the deterministic rubric's honest read of what its text is missing. */
+export type EvidenceCitability = {
+  /** 0-100 rubric score for the page's own cached text. */
+  score: number;
+  /** The one-line evidence sentence for the daily card (honest to the actual missing patterns). */
+  evidenceLine: string;
+  /** Up to 3 concrete fixes, highest-value first (fed to the answer-block drafter's guidance). */
+  topFixes: string[];
 };
 
 export type DailyEvidenceBrief = {
@@ -62,6 +80,9 @@ export type DailyEvidenceBrief = {
   serp?: EvidenceSerp;
   /** The top competitor page + what to steal (absent until a competitor teardown exists). */
   competitor?: EvidenceCompetitor;
+  /** AI reaches this page but never quotes it, and what to fix (absent unless the item-7 funnel
+   *  + citability rubric both flagged this page). */
+  citability?: EvidenceCitability;
 };
 
 export type CachedDemand = {
