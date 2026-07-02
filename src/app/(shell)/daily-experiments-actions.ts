@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * daily-experiments-actions (2026-06-30) — operator-gated server actions for the native
+ * daily-experiments-actions (2026-06-30) - operator-gated server actions for the native
  * "Plan today's experiments → Accept" workflow. Tenant ALWAYS from trusted server context
  * (currentTenantId), never client input. Preview persists a plan (NO reservations). Accept calls the
  * ATOMIC Postgres RPC after a fresh re-validation (all-or-none). No proof rows, no Wix, no paid calls.
@@ -104,7 +104,7 @@ export async function acceptDailyExperimentPlanAction(input: { planId: string; i
     const ctx: AcceptanceContext = { tenantId, now, expectedInputHash: input.inputHash, activeTreatedPaths, activeControlPaths, reservedControlPaths };
     const validation = validatePlanAcceptance(plan, ctx);
     if (!validation.ok) {
-      // Stale-plan auto-recovery: a PURE expiry failure (no per-item failures) is not a dead-end —
+      // Stale-plan auto-recovery: a PURE expiry failure (no per-item failures) is not a dead-end -
       // rebuild today's preview (fresh controls + backups) so the operator just reviews + re-Accepts,
       // instead of seeing a raw "plan_expired". Never auto-accepts; the fresh plan stays preview.
       if (validation.planLevelReason === "plan_expired" && (validation.failures?.length ?? 0) === 0) {
@@ -146,7 +146,7 @@ export async function abandonPreviewPlanAction(input: { planId: string }): Promi
     const tenantId = await currentTenantId();
     const plan = await getPlan(tenantId, input.planId);
     if (!plan) return { ok: false, reason: "plan_not_found" };
-    if (plan.status !== "preview") return { ok: false, reason: `cannot abandon a ${plan.status} plan here (accepted-plan release needs the release RPC — deferred)` };
+    if (plan.status !== "preview") return { ok: false, reason: `cannot abandon a ${plan.status} plan here (accepted-plan release needs the release RPC - deferred)` };
     await abandonPreviewPlan(tenantId, input.planId, new Date());
     revalidatePath("/worklist");
     return { ok: true };
@@ -215,7 +215,7 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
       return { ok: false, reason: "verification_failed", verification };
     }
 
-    // Re-check controls vs the CURRENT topology — FAIL-CLOSED on a ledger read error (a scientific
+    // Re-check controls vs the CURRENT topology - FAIL-CLOSED on a ledger read error (a scientific
     // gate must not silently degrade to "no active experiments"). Exclude any control now treated /
     // controlled elsewhere, in the ledger OR in live reservations (treated pages of other experiments).
     let ledger;
@@ -223,7 +223,7 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
       ledger = await loadProofLedger(tenantId);
     } catch {
       await markFailed(tenantId, input.planId, input.experimentId, verification, "topology_unavailable");
-      return { ok: false, reason: "topology_unavailable", detail: "couldn't read the experiment ledger — retry", verification };
+      return { ok: false, reason: "topology_unavailable", detail: "couldn't read the experiment ledger - retry", verification };
     }
     const states = deriveExperimentStates(ledger, now);
     const activeTreated = new Set<string>();
@@ -243,7 +243,7 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
       return { ok: false, reason: "insufficient_controls", detail: `${cleanControls.length} clean control(s), need ${PROOF_MIN_CONTROLS}`, verification };
     }
 
-    // Build the proof record (GSC baseline + windows). Does NOT persist — the RPC inserts it atomically.
+    // Build the proof record (GSC baseline + windows). Does NOT persist - the RPC inserts it atomically.
     const measured = await recordShippedChange({
       tenantId,
       page: exp.canonicalUrl || exp.url,
@@ -256,7 +256,7 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
       shippedAt: now.toISOString(),
       verifiedLive: true,
       liveSourceUrl: exp.canonicalUrl || exp.url,
-      notes: `Daily experiment (${exp.lever}) — verified live: ${verification.receipt.method}`,
+      notes: `Daily experiment (${exp.lever}) - verified live: ${verification.receipt.method}`,
       now,
     });
     // Disambiguate the proof id per lever so a daily-experiment proof can NEVER collide with the
@@ -285,7 +285,7 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
 /** Persist a verification_failed marker (no proof, no reservation activation). */
 async function markFailed(tenantId: string, planId: string, experimentId: string, verification: LiveVerificationResult, reason: string): Promise<void> {
   await updateItemExecution(tenantId, planId, experimentId, (prev) => {
-    // NEVER downgrade an already-active/terminal item — a live, measuring proof must not be shown failed.
+    // NEVER downgrade an already-active/terminal item - a live, measuring proof must not be shown failed.
     if (prev && (isActiveStatus(prev.status) || prev.status === "skipped" || prev.status === "rolled_back")) return prev;
     return {
       experimentId,
@@ -322,7 +322,7 @@ export type GscSubmitResult = { ok: boolean; reason?: string };
 /**
  * Operator confirms they submitted the URL in Google Search Console. Stamps the canonical
  * recrawl-requested marker on the proof row + advances the item to gsc_submitted. No automatic GSC
- * call is claimed — this records operator-confirmed submission only. Item must be active.
+ * call is claimed - this records operator-confirmed submission only. Item must be active.
  */
 export async function confirmGscSubmissionAction(input: { planId: string; experimentId: string; submittedAt?: string }): Promise<GscSubmitResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
@@ -358,7 +358,7 @@ export async function confirmGscSubmissionAction(input: { planId: string; experi
 
 export type SkipItemActionResult = { ok: boolean; reason?: string; releasedCount?: number };
 
-/** Operator skips ONE accepted item before applying it — atomically releases only its controls. */
+/** Operator skips ONE accepted item before applying it - atomically releases only its controls. */
 export async function skipDailyExperimentItemAction(input: { planId: string; experimentId: string; reason?: string; idempotencyKey: string }): Promise<SkipItemActionResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {

@@ -4,8 +4,8 @@
 - [x]   1 [W1][P0/L] Build the hero progress chart on Today: weekly clicks + impressions for the whole site
 - [x]   2 [W1][P0/M] Annotate shipped changes on the chart: a marker dot per shipped change (from
 - [x]   3 [W1][P0/S] One-line verdict under the chart: "Last 7 days: 412 clicks, up 9% vs the week before.
-- [ ]   4 [W2][P1/M] Per-page mini-charts: every card that names a page (daily card, MoveCard, Results row)
-- [ ]   5 [W2][P1/M] Before/after chart on every Results row: treated page line vs control-average line,
+- [x]   4 [W2][P1/M] Per-page mini-charts: every card that names a page (daily card, MoveCard, Results row)
+- [x]   5 [W2][P1/M] Before/after chart on every Results row: treated page line vs control-average line,
 - [ ]   6 [W2][P1/S] Countdown chips: "first read in 3 days" on every measuring item, computed from the
 - [ ]   7 [W3][P2/M] A weekly recap band on Today (Mondays): "Last week: 6 shipped, 1 win (+31 clicks/mo on
 - [ ]   8 [W3][P1/S] Streak + totals in the header area: "22 changes shipped in 14 days" with a small flame

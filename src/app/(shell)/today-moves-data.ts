@@ -4,6 +4,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
 import { buildPageResearchPack, addressableVolume } from "@/domains/demand-graph/page-research-pack";
 import { buildOnPagePlan } from "@/domains/demand-graph/page-element-plan";
@@ -44,14 +45,14 @@ import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-grap
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 
 /**
- * today-moves-data (2026-06-24) — the loader behind the premium "Today's Moves"
+ * today-moves-data (2026-06-24) - the loader behind the premium "Today's Moves"
  * ritual hero. Fuses the LIVE recommendation queue (persisted `recommended_edits`,
  * the demand-graph engine's promoted Moves) with the engine's EvidencePackets
  * (competitor teardown + grounded outline + demand + proof plan), joined by URL.
  *
  * Tenant-agnostic + read-only: when the engine is off for a tenant there are no
  * packets, so the hero is silent (empty → the section renders nothing). No
- * generation, no LLM, no writes — just the same persisted data the queue shows,
+ * generation, no LLM, no writes - just the same persisted data the queue shows,
  * made beautiful.
  */
 
@@ -80,33 +81,35 @@ export type TodayMove = {
   /** Phase 1d: the actionable "steal this" line from the top competitor's page structure
    *  (direct answer / FAQ / tool / schema / depth), reusing the daily card's whatToSteal builder. */
   competitorSteal?: string | null;
-  /** §1 "Your gap" — what the cited competitor has that your page lacks (plain language). */
+  /** §1 "Your gap" - what the cited competitor has that your page lacks (plain language). */
   yourGap: string;
   /** The exact GSC queries this page already ranks for (light per-query path). */
   topQueries: PageQuery[];
-  /** Queries this page is LOSING (recent 28d vs prior 28d) — the honest decay signal. */
+  /** Queries this page is LOSING (recent 28d vs prior 28d) - the honest decay signal. */
   declines: QueryDecline[];
+  /** Item 4: 70-day daily clicks for the page (sparkline next to the page name). */
+  sparkline?: Array<{ date: string; clicks: number }>;
   /** Queries where this page competes with the tenant's OWN other pages (+ a consolidation fix). */
   cannibalization: CannibalEntry[];
-  /** GA4 engagement/value (28d) for this page when available — the "is it worth it" signal. */
+  /** GA4 engagement/value (28d) for this page when available - the "is it worth it" signal. */
   ga4: { sessions: number; conversions: number } | null;
-  /** Clarity UX friction (dead/rage click rates) when meaningful — the Friction component. */
+  /** Clarity UX friction (dead/rage click rates) when meaningful - the Friction component. */
   friction: { deadPct: number; ragePct: number } | null;
   looselyMatched: boolean;
   /** Other engine actions queued on the SAME page (so a page is one card, not many). */
   also: string[];
   outline: string[];
   answerBrief: string | null;
-  /** Deterministic, grounded draft skeleton (NO LLM) — what the operator pastes. */
+  /** Deterministic, grounded draft skeleton (NO LLM) - what the operator pastes. */
   draftTitle: string | null;
   draftMeta: string | null;
   faqs: string[];
   schema: string[];
   /** CTR Title Lab: scored, deterministic title variants for "capture clicks" Moves.
    *  Each carries a one-line `reason` (its generation strategy) so the operator sees
-   *  WHY each title — not three interchangeable templates. */
+   *  WHY each title - not three interchangeable templates. */
   titleVariants: { title: string; score: number; signals: string[]; strategy?: string; reason?: string }[];
-  /** The page's current <title> + the cited competitor's title — real evidence fed to
+  /** The page's current <title> + the cited competitor's title - real evidence fed to
    *  the title generator so suggestions are page-specific (e.g. a "trim under 60 chars"
    *  variant). Internal; not rendered directly. */
   currentTitle?: string | null;
@@ -117,12 +120,12 @@ export type TodayMove = {
   /** Previously-generated + persisted AI drafts, so they survive reload (no re-spend). */
   savedAnswerBlock: string | null;
   savedFaqJsonLd: string | null;
-  /** P1–P3 (read-only): the specialist team's read on this Move — which teammates
+  /** P1-P3 (read-only): the specialist team's read on this Move - which teammates
    *  weighed in, the debated action + its rationale/confidence, and how prepared
    *  the Move is. Computed in-memory from the EvidencePacket; no writes, no publish,
    *  no paid calls. Null when there's no packet to reason over. */
   specialists: string[];
-  /** Read-only specialist debate (who weighed in, conviction, objections) — $0,
+  /** Read-only specialist debate (who weighed in, conviction, objections) - $0,
    *  computed from this Move's already-built opinions. */
   debate: DebateSummary;
   routerAction: string | null;
@@ -146,13 +149,13 @@ export type TodayMove = {
   preparedExperiment: string | null;
   /** True when the prepared pack is stale vs current evidence (re-prepare). */
   preparedStale: boolean;
-  /** Deterministic quality verdict for the prepared draft — gates the copy button
+  /** Deterministic quality verdict for the prepared draft - gates the copy button
    *  and honest readiness (generic/thin/off-topic drafts lose "Ready" + copy). */
   preparedQuality: DraftQualityResult | null;
-  /** Sprint 3 — "ranked higher because similar moves won before" (learned prior
+  /** Sprint 3 - "ranked higher because similar moves won before" (learned prior
    *  tag from past outcomes). Null when there's no settled evidence yet. */
   learnedTag: string | null;
-  /** Page-specific outcome caution (2026-06-28) — this page's OWN shipped change
+  /** Page-specific outcome caution (2026-06-28) - this page's OWN shipped change
    *  held-while-measuring / no-lift / lifted, with a small "Learning:" chip + a
    *  link to Results. Null when the page has no relevant shipped change. */
   outcomeCaution?: {
@@ -163,19 +166,19 @@ export type TodayMove = {
     /** After a no-lift loss: a deterministic "try a different lever" next action. */
     nextLever?: string | null;
   } | null;
-  /** Connectedness (2026-06-28) — the unified ActionPack source-provenance chips
+  /** Connectedness (2026-06-28) - the unified ActionPack source-provenance chips
    *  ("Ranked by gsc + profound + clarity") threaded from the canonical brain so
    *  the customer card shows what's behind the move, not just the diagnostic. */
   sourceChips?: string[];
-  /** Connectedness — the cached DataForSEO SERP verdict for this move, threaded
+  /** Connectedness - the cached DataForSEO SERP verdict for this move, threaded
    *  from ActionPack.dataforseoValidation so the build/wait/skip call is visible
    *  on the card operators use (was computed but dropped at the projection). */
   dataforseoVerdict?: { verdict: "build" | "wait" | "skip"; topDomains: string[]; overlap: number } | null;
-  /** Outcome-threading (2026-06-28) — the proof status of the most recent shipped
+  /** Outcome-threading (2026-06-28) - the proof status of the most recent shipped
    *  change on this move's page, so the card shows whether it's already measuring /
    *  won / no-lift without opening Results. Null when no proof row matches. */
   proofStatus?: "measuring" | "won" | "no_clear_lift" | "no_lift" | null;
-  /** Teardown-regeneration (2026-06-28) — set when this draft was regenerated using the
+  /** Teardown-regeneration (2026-06-28) - set when this draft was regenerated using the
    *  competitor page that currently wins. Drives the "Competitor-informed" trust chip +
    *  the "Improved using {domain}" line. Null on normal prepares. */
   competitorInformed?: { domain: string } | null;
@@ -184,21 +187,21 @@ export type TodayMove = {
    *  encouraging a duplicate ship that would contaminate the open window). */
   alreadyMeasuring?: boolean;
   /** True when the page is measuring but for a DIFFERENT action family (a second
-   *  change here would still muddy the open window — warn, don't block). */
+   *  change here would still muddy the open window - warn, don't block). */
   pageMeasuring?: boolean;
-  /** P6 — the next proof checkpoint date for a measuring page (the soonest 7/14/28-day
+  /** P6 - the next proof checkpoint date for a measuring page (the soonest 7/14/28-day
    *  read still ahead), so the card can say "next read ~<date>" instead of a bare
    *  "measuring". Set only while measuring. */
   proofNextCheckpoint?: string | null;
-  /** Move 2 — the shared measurement maturity of this move's proof (collecting →
+  /** Move 2 - the shared measurement maturity of this move's proof (collecting →
    *  early → interim → mature/inconclusive/blocked/attribution_limited). The
    *  canonical Changes adapter uses this so an EARLY read shows as "Measuring",
    *  never a final "Result". Null when no proof row matches. */
   proofMaturity?: import("@/domains/proof-gsc/measurement-maturity").MeasurementMaturity | null;
-  /** Move 2 — which way the basis window moved (positive/negative/neutral/unknown),
+  /** Move 2 - which way the basis window moved (positive/negative/neutral/unknown),
    *  independent of maturity. */
   proofDirection?: import("@/domains/proof-gsc/measurement-maturity").MeasurementDirection | null;
-  /** PageResearchPack v1 (2026-06-29) — the per-page "what should this page OWN"
+  /** PageResearchPack v1 (2026-06-29) - the per-page "what should this page OWN"
    *  research summary: intent clustering (own vs cross-link sibling) + the proof-aware
    *  primary lever + blocked levers + the top element opportunities. Computed from the
    *  page's free signals (GSC + fan-outs + cannibalization + proof). DataForSEO keyword
@@ -215,7 +218,7 @@ export type TodayMove = {
     primaryLever: { lever: string; reason: string } | null;
     blockedLevers: { lever: string; reason: string }[];
     elements: { keyword: string; element: string; why: string }[];
-    /** P4 — concrete "put X here" element plan: the one to do first + sections / FAQ
+    /** P4 - concrete "put X here" element plan: the one to do first + sections / FAQ
      *  targets / cross-links to add, each citing a real signal; + proof warnings. */
     onPagePlan: {
       doFirst: { slot: string; recommendation: string; evidence: string } | null;
@@ -247,7 +250,7 @@ export type TodayMovesHeroData = {
     /** Shown Moves that are fully prepared (ready to review) after "Prepare my top 10". */
     preparedReady: number;
   };
-  /** Sprint 3 — the learning loop's state from the proof ledger + priors. */
+  /** Sprint 3 - the learning loop's state from the proof ledger + priors. */
   learning: {
     measuring: number;
     won: number;
@@ -262,7 +265,7 @@ export type TodayMovesHeroData = {
   /** Today-cockpit projection (2026-06-30): the few ActionPack-pack-derived counts the
    *  Today `/` cockpit needs (new-pages tile, AI-validated tile, source-coverage strip),
    *  computed at surface-build time from the SAME ActionPack worklist this surface is built
-   *  from — so Today reads them from this CACHED snapshot instead of rebuilding the ~20s
+   *  from - so Today reads them from this CACHED snapshot instead of rebuilding the ~20s
    *  ActionPack worklist on its critical path. Null on the no-worklist fallback. */
   cockpit?: {
     newPagesCount: number;
@@ -333,7 +336,7 @@ function canon(url: string | null | undefined): string {
 }
 
 /** Plain-language "Your gap" from the deterministic owned-vs-competitor gaps
- *  (§1 Move card) — what the cited competitor has that your page is missing. */
+ *  (§1 Move card) - what the cited competitor has that your page is missing. */
 const GAP_LABEL: Record<string, string> = {
   missing_page: "No page yet",
   missing_answer_block: "No answer block",
@@ -347,7 +350,7 @@ function yourGapLine(gaps: ReadonlyArray<{ kind: string }>): string {
 }
 
 /** Plain-language "why it ranks here" from the Rank-&-Revenue score components
- *  (Demand × Winnability × $Value × Visibility-Gap − Friction) — transparency, no jargon. */
+ *  (Demand × Winnability × $Value × Visibility-Gap − Friction) - transparency, no jargon. */
 function rankWhyFromComponents(
   c: { demand: number; winnability: number; dollarValue: number; visibilityGap: number; friction: number } | undefined,
 ): string {
@@ -359,7 +362,7 @@ function rankWhyFromComponents(
   else if (c.winnability >= 0.6) bits.push("winnable");
   if (c.visibilityGap >= 0.7) bits.push("you're not cited yet");
   // dollarValue is now REAL GA4 revenue (2026-06-26), not a conversion count, so
-  // this bit only fires on pages with PROVEN money — honest "money page" framing.
+  // this bit only fires on pages with PROVEN money - honest "money page" framing.
   if (c.dollarValue > 0) bits.push("proven revenue");
   if (c.friction >= 15) bits.push("frustrating to visitors");
   return bits.slice(0, 3).join(" · ");
@@ -376,7 +379,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 }
 
 /**
- * Tenant-explicit builder — the core join used by the request-cached loader AND
+ * Tenant-explicit builder - the core join used by the request-cached loader AND
  * by the nightly precompute (which has no request context, so it can't derive
  * the tenant from currentTenantId()). Keep them sharing one implementation.
  */
@@ -389,7 +392,7 @@ export async function buildTodayMovesData(
     const [edits, packets, responses, savedDrafts, ledger, graphMoves] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
       // Enrichment (teardown/outline/proof + the prepared-pack join) rides the heavy
-      // graph compute. Was 8s — too tight for a cold render, which silently dropped
+      // graph compute. Was 8s - too tight for a cold render, which silently dropped
       // every move's preparedStatus (the "Prepared/Ready to draft" pill + the rich
       // checklist). The graph is cached (the cockpit warms it first), so 30s only
       // guards a genuine stall. Don't disappear.
@@ -417,10 +420,10 @@ export async function buildTodayMovesData(
     // Learned-prior tag per demand key (from the outcome re-weight on the graph).
     const learnedByKey = new Map(graphMoves.map((m) => [m.demandKey, m.learnedPrior ?? null]));
     const cautionByKey = new Map(graphMoves.map((m) => [m.demandKey, m.outcomeCaution ?? null]));
-    // Outcome lifecycle state per page (from the proof ledger) — for the hero's
+    // Outcome lifecycle state per page (from the proof ledger) - for the hero's
     // learning summary + the "Beacon learned" headline. Honest: derived from
     // settled verdicts only.
-    // Move 2 — interpret every ledger record through the shared maturity model so an
+    // Move 2 - interpret every ledger record through the shared maturity model so an
     // EARLY (7/14-day) read is never threaded onto a card as a final win/loss. A
     // settled outcome is surfaced ONLY at mature_result; everything else stays
     // "measuring" with honest maturity language.
@@ -442,7 +445,7 @@ export async function buildTodayMovesData(
         live: true,
       });
     };
-    // Learning summary (hero) — count MATURE outcomes only; everything else is still
+    // Learning summary (hero) - count MATURE outcomes only; everything else is still
     // measuring. Honest: a 7-day "lost" is not a loss.
     const ledgerPres = ledger.map((r) => presentationOf(r));
     const learningSummary = {
@@ -469,7 +472,7 @@ export async function buildTodayMovesData(
     );
     let heldWhileMeasuring = 0;
 
-    // Skip Moves the operator already shipped/dismissed — so a one-tap "Ship it"
+    // Skip Moves the operator already shipped/dismissed - so a one-tap "Ship it"
     // removes the card on the next render (the action revalidates "/").
     const actioned = new Set<string>();
     const nowMs = Date.now();
@@ -486,7 +489,7 @@ export async function buildTodayMovesData(
       if (u && !packetByUrl.has(u)) packetByUrl.set(u, p);
     }
 
-    // Collect engine-action, live, not-actioned edits grouped by PAGE — so a page
+    // Collect engine-action, live, not-actioned edits grouped by PAGE - so a page
     // is ONE premium card (primary action + "also on this page"), never several
     // near-duplicate cards. Non-engine queue rows (schema fixes etc.) are excluded;
     // they live in the full queue, not the §7 ritual hero.
@@ -499,10 +502,10 @@ export async function buildTodayMovesData(
       if (!(e.action_type in ACTION_META)) continue;
       const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? "";
       if (moveId && actioned.has(moveId)) continue;
-      // Proof-window guard (2026-06-28 — flipped hide→label): no longer SUPPRESS a
+      // Proof-window guard (2026-06-28 - flipped hide→label): no longer SUPPRESS a
       // page that's mid-measurement. Show it, labelled (proofStatus/alreadyMeasuring/
       // pageMeasuring set in the enrichment pass below) with a softened "Ship anyway"
-      // — hiding made the loop feel disconnected; labelling reality is honest. Keep
+      // - hiding made the loop feel disconnected; labelling reality is honest. Keep
       // the counter for the stat.
       if (isHeldForMeasurement(e.target_url, heldPaths)) heldWhileMeasuring += 1;
       const pk = canon(e.target_url);
@@ -522,9 +525,9 @@ export async function buildTodayMovesData(
       const e = pageEdits[0]!;
       const targetUrl = e.target_url!;
       const packet = packetByUrl.get(pk);
-      // P1–P3 (read-only): run the specialist team over this Move's packet, debate
+      // P1-P3 (read-only): run the specialist team over this Move's packet, debate
       // it into one routed decision, and derive its prepared status. Pure +
-      // in-memory — no writes, no publish, no paid calls. Extras (live SERP verdict,
+      // in-memory - no writes, no publish, no paid calls. Extras (live SERP verdict,
       // CMS pushability) aren't threaded here yet, so DataForSEO/Wix abstain
       // honestly (broad SERP runs are P5/P6). Null-safe when there's no packet.
       const opinions = packet ? attachOpinions(packet, { nowIso }) : [];
@@ -534,7 +537,7 @@ export async function buildTodayMovesData(
           ? buildPreparedMovePack({ tenantId, packet, opinions, decision, nowIso })
           : null;
       // Prefer a PERSISTED prepared pack (from "Prepare my top 10") when it's not
-      // stale — it carries the structured draft + experiment that lift the Move to
+      // stale - it carries the structured draft + experiment that lift the Move to
       // ready_to_review. Otherwise fall back to the in-memory (un-drafted) pack.
       const persistedPack = packet
         ? parsePreparedPack(savedDrafts.get(`${packet.move.key}::prepared_pack`)?.content)
@@ -546,10 +549,10 @@ export async function buildTodayMovesData(
       const specialistSet = new Set(opinions.map((o) => o.specialist));
       // The paste-ready structured artifact text (answer block / proposed title).
       // Computed BEFORE the checklist so "Draft prepared" reflects real paste-ready
-      // CONTENT — not merely the existence of a structuredDraft object. Otherwise a
+      // CONTENT - not merely the existence of a structuredDraft object. Otherwise a
       // pack whose structuredDraft has empty answer/after shows "Draft prepared" on
       // the card while the Implement panel correctly says "No prepared paste-ready
-      // content yet" (the two surfaces contradicted each other — the reported bug).
+      // content yet" (the two surfaces contradicted each other - the reported bug).
       const draftValue = (persistedFresh ? persistedPack!.structuredDraft : null) as
         | { kind?: string; value?: { answer?: string; after?: string } }
         | null;
@@ -599,11 +602,11 @@ export async function buildTodayMovesData(
       // (moveTopicForEvidence / compUrl / compRelevant are hoisted above the prepared
       // checklist so "Competitors read ✓" + "what wins" share one relevance verdict.)
       const wwRaw = packet?.competitor?.whatWins?.trim() ?? "";
-      // Gate the "what wins" TEXT too — it sometimes carries a junk URL distinct from
+      // Gate the "what wins" TEXT too - it sometimes carries a junk URL distinct from
       // topUrl (a facebook.com/TasteAtlas eggplant page on "Safavid Flag"). Suppress a
       // noise-domain or off-topic teardown so it can't pose as evidence.
       const wwRelevant = wwRaw ? competitorRelevance(moveTopicForEvidence, { url: wwRaw, title: wwRaw }).relevant : false;
-      const whatWins = wwRaw && wwRaw !== "—" && !looselyMatched && compRelevant && wwRelevant ? wwRaw : null;
+      const whatWins = wwRaw && wwRaw !== "-" && !looselyMatched && compRelevant && wwRelevant ? wwRaw : null;
       const whoCited =
         packet?.competitor?.domain && packet.competitor.fetchStatus === "ok" && !looselyMatched && compRelevant
           ? packet.competitor.domain
@@ -635,7 +638,7 @@ export async function buildTodayMovesData(
       const currentTitle = packet?.yourPage?.facts?.title ?? null;
       const competitorTitle = compRelevant ? packet?.competitor?.facts?.title ?? null : null;
 
-      // CTR Title Lab — deterministic, page-specific scored title variants for
+      // CTR Title Lab - deterministic, page-specific scored title variants for
       // "capture clicks" Moves (intent-aware framing + a reason per option).
       let titleVariants: TodayMove["titleVariants"] = [];
       if (e.action_type === "edit_title") {
@@ -716,24 +719,26 @@ export async function buildTodayMovesData(
     );
 
     // Light per-query GSC grounding: ONE bounded `page IN (...)` read for a small
-    // CANDIDATE POOL (indexed, capped — never the timeout-prone full RPC). Names the
+    // CANDIDATE POOL (indexed, capped - never the timeout-prone full RPC). Names the
     // exact queries each page ranks for AND lets striking-distance (the fastest,
     // highest-certainty CTR wins) influence which moves surface. Fail-soft → no
     // queries attached (then the pool order is just the engine score).
     const limit = opts.limit ?? 6;
     const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
     const poolUrls = pool.map((m) => m.targetUrl);
-    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues, cachedKeywords, cachedSerpPatterns] = await Promise.all([
+    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues, cachedKeywords, cachedSerpPatterns, sparkMap] = await Promise.all([
       withTimeout(loadTopQueriesForPages(tenantId, poolUrls), 5000, new Map<string, PageQuery[]>()),
       withTimeout(loadQueryDeclinesForPages(tenantId, poolUrls), 6000, new Map<string, QueryDecline[]>()),
       withTimeout(loadGscCannibalizationForTenant(tenantId), 6000, [] as GscCannibalizationCase[]),
       withTimeout(loadGa4PageValuesForTenant(tenantId), 5000, new Map<string, Ga4PageValue>()),
       withTimeout(loadClarityPageSignalsForTenant(tenantId), 5000, new Map<string, ClarityPageSignal>()),
-      // Cached DataForSEO keyword volume ONLY — a $0 cache read, no live call (the paid
+      // Cached DataForSEO keyword volume ONLY - a $0 cache read, no live call (the paid
       // population is the operator-gated producer behind DATAFORSEO_DRY_RUN). Fail-soft.
       withTimeout(readAllCachedKeywordDemand().catch(() => []), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
       // Cached SERP "what wins" patterns (also $0, producer-populated) → query → pattern.
       withTimeout(readCachedSerpPatterns().catch(() => new Map()), 4000, new Map() as Awaited<ReturnType<typeof readCachedSerpPatterns>>),
+      // Item 4: 70d daily clicks per pooled page (one bounded IN(<=16) read) for sparklines.
+      withTimeout(loadDailyClicksByPagesForTenant(tenantId, poolUrls), 5000, new Map<string, { date: string; clicks: number }[]>()),
     ]);
     // keyword (lowercased) → cached search volume, for the research pack's addressable demand.
     const volumeByKeyword = new Map<string, number | null>();
@@ -757,12 +762,20 @@ export async function buildTodayMovesData(
     // (with the OTHER competing pages), so a Move whose page self-competes shows it.
     const cannibalByUrl = indexCannibalizationByUrl(cannibalCases, canon, prettyPage);
 
+    // Canon-key the sparklines so trailing-slash/case never drops a match.
+    const sparkByCanon = new Map<string, { date: string; clicks: number }[]>();
+    for (const [url, series] of sparkMap) {
+      const k = canon(url);
+      if (k && !sparkByCanon.has(k)) sparkByCanon.set(k, series);
+    }
+
     for (const m of pool) {
       m.topQueries = queryMap.get(m.targetUrl) ?? [];
       m.declines = declineMap.get(m.targetUrl) ?? [];
       // Evidence relevance gate: an internal-link / consolidation target must be
-      // topically related to THIS page — never suggest Tehran → "Iranian Snacks" just
+      // topically related to THIS page - never suggest Tehran → "Iranian Snacks" just
       // because both incidentally rank for "capital of iran". Drop off-topic joins.
+      m.sparkline = sparkByCanon.get(canon(m.targetUrl));
       m.cannibalization = (cannibalByUrl.get(canon(m.targetUrl)) ?? [])
         .filter((c) => internalLinkRelevance(m.query || m.pageLabel, c.leadPage || c.otherPages[0] || "").relevant)
         .slice(0, 2);
@@ -783,7 +796,7 @@ export async function buildTodayMovesData(
           m.alreadyMeasuring = sameFamily;
           m.pageMeasuring = !sameFamily;
           m.proofLabel = p.headline;
-          // The soonest future checkpoint — the read the operator would muddy by
+          // The soonest future checkpoint - the read the operator would muddy by
           // shipping again now.
           m.proofNextCheckpoint = p.nextCheckpoint ?? proofCheckDates(pr.shippedAt)[28];
         } else if (p.verdict === "helped") {
@@ -800,7 +813,7 @@ export async function buildTodayMovesData(
       // Always-actionable answer blocks: when the engine found no competitor FAQ
       // and no Profound fanout to seed the answer targets (competitor blocks
       // crawlers, or the topic isn't in the fanout account), fall back to the
-      // EXACT GSC queries this page already ranks for — real, grounded demand, not
+      // EXACT GSC queries this page already ranks for - real, grounded demand, not
       // invented. If even the per-page query read missed, use the demand-cluster
       // label itself (also real GSC demand). So the top move never reads as a bare
       // "add an answer block" with no concrete target.
@@ -815,7 +828,7 @@ export async function buildTodayMovesData(
         : null;
       const cl = clarityByCanon.get(canon(m.targetUrl));
       // Surface only meaningful friction (≥10% dead OR ≥5% rage per session). Clamp
-      // the DISPLAY to 100% — deadRate is dead-clicks-per-session and can exceed 1
+      // the DISPLAY to 100% - deadRate is dead-clicks-per-session and can exceed 1
       // (multiple dead clicks per visit), which rendered as nonsense like "400% dead
       // clicks". The rate gate above still uses the raw value; only the % is bounded.
       m.friction = cl && (cl.deadRate >= 0.1 || cl.rageRate >= 0.05)
@@ -826,7 +839,7 @@ export async function buildTodayMovesData(
       // "sharper title" copy below; the ↳ next-lever chip already names the better move.
       const titleLeverLost = m.action === "edit_title" && m.outcomeCaution?.kind === "no_lift";
       // Re-seed the CTR Title Lab from the page's top GSC query (prefer a
-      // striking-distance one) when we have it — so title variants target the
+      // striking-distance one) when we have it - so title variants target the
       // EXACT phrasing the page measurably ranks for, plus the page's real current
       // title (a "trim under 60 chars" suggestion) and the cited competitor's title.
       // Lowest-priority grounded "why": a self-competing page, when nothing more
@@ -844,43 +857,43 @@ export async function buildTodayMovesData(
         }).slice(0, 3);
       }
       // Sharpest, grounded "why" for a striking-distance clicks move: name the
-      // exact query, current rank, and real demand — the most compelling framing.
-      // (Skipped when the title lever already lost — see the gate below.)
+      // exact query, current rank, and real demand - the most compelling framing.
+      // (Skipped when the title lever already lost - see the gate below.)
       const sd = m.topQueries.find((q) => q.strikingDistance);
       if (sd && m.action === "edit_title" && !titleLeverLost) {
         m.why = `You already rank position ${Math.round(sd.position)} for "${sd.query}" (${sd.impressions.toLocaleString()} monthly impressions). A sharper title can climb a few spots and capture far more of those clicks.`;
-        // Grounded proof line, symmetric with the why — names the exact metric to watch.
+        // Grounded proof line, symmetric with the why - names the exact metric to watch.
         m.proof = `You'll know it worked when the click-through rate for "${sd.query}" rises over the next few weeks of Search Console data while the ranking holds.`;
       }
       // Grounded "why" for an AI-citation move that ALSO ranks on Google: fuse the
-      // citation gap with the real search position — you're visible, just not cited.
+      // citation gap with the real search position - you're visible, just not cited.
       const tq = m.topQueries[0];
       if (m.action === "add_answer_block" && tq && m.whoCited) {
-        m.why = `AI cites ${m.whoCited} for this. You already rank position ${Math.round(tq.position)} for "${tq.query}" (${tq.impressions.toLocaleString()} monthly impressions) but aren't the cited source — a quotable answer block can win the citation.`;
+        m.why = `AI cites ${m.whoCited} for this. You already rank position ${Math.round(tq.position)} for "${tq.query}" (${tq.impressions.toLocaleString()} monthly impressions) but aren't the cited source - a quotable answer block can win the citation.`;
       }
       // Highest-priority "why": an ACTIVE loss is more urgent than an opportunity.
       // If the page is shedding clicks on a real query, lead with that.
       const topDecline = m.declines[0];
       if (topDecline && topDecline.dropPct >= 40) {
-        m.why = `You're losing "${topDecline.query}" — clicks dropped ${topDecline.dropPct}% (${topDecline.priorClicks.toLocaleString()} → ${topDecline.recentClicks.toLocaleString()}) over the last month${topDecline.positionSlip >= 1 ? ` as you slipped ${Math.round(topDecline.positionSlip)} positions` : ""}. Refreshing this page can win them back.`;
-        // Symmetric grounded proof — name the exact recovery metric to watch.
+        m.why = `You're losing "${topDecline.query}" - clicks dropped ${topDecline.dropPct}% (${topDecline.priorClicks.toLocaleString()} → ${topDecline.recentClicks.toLocaleString()}) over the last month${topDecline.positionSlip >= 1 ? ` as you slipped ${Math.round(topDecline.positionSlip)} positions` : ""}. Refreshing this page can win them back.`;
+        // Symmetric grounded proof - name the exact recovery metric to watch.
         m.proof = `You'll know it worked when clicks for "${topDecline.query}" recover toward their prior level (~${topDecline.priorClicks.toLocaleString()}/month) over the next few weeks of Search Console data.`;
       }
       // Lost-lever gate (runs last): when a title/meta change on this page already
       // measured FLAT, never re-recommend the same lever. Drop the title options,
       // relabel the action, and lead with the measured-flat why unless a stronger
-      // (lever-agnostic) framing — an active decline or self-competition — already won.
+      // (lever-agnostic) framing - an active decline or self-competition - already won.
       if (titleLeverLost) {
         m.titleVariants = [];
         m.actionLabel = "Try a different lever";
         const hasBetterWhy = (topDecline && topDecline.dropPct >= 40) || m.cannibalization.length > 0;
         if (!hasBetterWhy) {
-          m.why = "A title and meta change here was already measured and didn't move clicks — a different lever (see the suggestion below) is more likely to help.";
+          m.why = "A title and meta change here was already measured and didn't move clicks - a different lever (see the suggestion below) is more likely to help.";
           m.proof = "You'll know the next change worked when clicks or AI citations rise over the following few weeks, versus comparable pages you leave unchanged.";
         }
       }
 
-      // PageResearchPack v1 — the per-page "what should this page own" research summary,
+      // PageResearchPack v1 - the per-page "what should this page own" research summary,
       // assembled from the free signals already on the move (GSC ranking/losing queries +
       // fan-out questions + competitor titles + self-competition siblings + proof family).
       // Existing-page moves only; create-page has its own New Pages flow.
@@ -908,7 +921,7 @@ export async function buildTodayMovesData(
         });
         const primaryLever = pack.levers.find((l) => l.primary) ?? null;
         // The cannibalization detector ALREADY proved these queries compete with another
-        // OWNED page — they are cross-link siblings by definition (token overlap can miss
+        // OWNED page - they are cross-link siblings by definition (token overlap can miss
         // it: "girl" vs a "persian female first names" page). Merge them into the sibling
         // cluster so the card shows "cross-link, don't merge" AND the old "fold" copy is
         // suppressed (the boy↔girl-names contradiction). Drop them from `own` to avoid
@@ -922,11 +935,11 @@ export async function buildTodayMovesData(
         const siblingLc = new Set(sibling.map((s) => s.toLowerCase()));
         m.researchPack = {
           primaryIntent: pack.primaryIntent,
-          // Real (cached) DataForSEO/keyword volume this page should own — null when none
+          // Real (cached) DataForSEO/keyword volume this page should own - null when none
           // of the owned keywords are in the cache yet (the paid producer populates it).
           addressableVolume: addressableVolume(pack.clusters.own, volumeByKeyword),
           // Cached SERP "what wins" pattern for the primary intent (producer-populated, $0
-          // to read) — null until enriched. A compact projection (format + element + winners).
+          // to read) - null until enriched. A compact projection (format + element + winners).
           serpPattern: (() => {
             const sp = pack.primaryIntent ? cachedSerpPatterns.get(pack.primaryIntent.toLowerCase()) : null;
             return sp ? { format: sp.format, titlePattern: sp.titlePattern, elementImplication: sp.elementImplication, winningDomains: sp.winningDomains.slice(0, 3) } : null;
@@ -936,12 +949,12 @@ export async function buildTodayMovesData(
           primaryLever: primaryLever ? { lever: primaryLever.lever, reason: primaryLever.reason } : null,
           blockedLevers: pack.levers.filter((l) => l.blocked).map((l) => ({ lever: l.lever, reason: l.reason })),
           elements: pack.keywords
-            // owned keywords (title/H2) + answer-block question targets — both are
+            // owned keywords (title/H2) + answer-block question targets - both are
             // on-page element opportunities; siblings/noise are not.
             .filter((k) => (k.bucket === "own" || k.bucket === "answer") && k.element)
             .slice(0, 5)
             .map((k) => ({ keyword: k.keyword, element: k.element as string, why: k.why })),
-          // P4 — "put X here": compose the pack with the live SERP pattern + Clarity
+          // P4 - "put X here": compose the pack with the live SERP pattern + Clarity
           // friction + current title + cached volume into a concrete, evidence-cited plan.
           onPagePlan: (() => {
             const sp = pack.primaryIntent ? cachedSerpPatterns.get(pack.primaryIntent.toLowerCase()) : null;
@@ -967,12 +980,12 @@ export async function buildTodayMovesData(
       }
     }
 
-    // Quick-win boost: a page already ranking in striking distance (pos 4–15, real
-    // demand) is the highest-CERTAINTY win — surface those above equal-score moves.
+    // Quick-win boost: a page already ranking in striking distance (pos 4-15, real
+    // demand) is the highest-CERTAINTY win - surface those above equal-score moves.
     // Score stays primary (trust); striking distance is the next key, before
     // confidence/demand. Re-sort only the bounded pool, then take the shown set.
     const hasStriking = (m: TodayMove) => m.topQueries.some((q) => q.strikingDistance);
-    // An active loss (≥40% click drop on a real query) is urgent — surface those
+    // An active loss (≥40% click drop on a real query) is urgent - surface those
     // above equal-score moves, just behind striking distance. Score stays primary.
     const hasDecline = (m: TodayMove) => m.declines.some((d) => d.dropPct >= 40);
     pool.sort(
@@ -989,7 +1002,7 @@ export async function buildTodayMovesData(
     const citationsContested = top.filter((m) => m.action === "add_answer_block").length;
     const pagesCovered = new Set(top.map((m) => canon(m.targetUrl))).size;
     // "Ready" = any paste-ready artifact: a saved AI answer/FAQ, OR (for clicks
-    // moves) the deterministic scored title variants — both are ship-ready on open.
+    // moves) the deterministic scored title variants - both are ship-ready on open.
     const draftsReady = top.filter(
       (m) =>
         m.savedAnswerBlock ||

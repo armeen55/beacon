@@ -23,6 +23,7 @@ import { failureForReason } from "@/domains/diagnostics/operator-failure";
 import { LEVER_LABEL, STATUS_LABEL, moveHeadline, trackingLine } from "./daily-experiments-copy";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import { teammateOf } from "@/domains/team/identity";
+import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 
 /** every action reason renders through the shared translator so a raw code can never reach the operator. */
 const reasonCopy = (reason: string | null | undefined): string => failureForReason(reason).message;
@@ -210,7 +211,7 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
 }
 
 /** Preview card (before you approve). */
-function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
+function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPoint[] }) {
   const [msg, setMsg] = useState<string | null>(null);
   const paste = stripBannedDashes(e.proposedText);
   const why = stripBannedDashes(e.whyNow);
@@ -221,7 +222,10 @@ function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
         <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}</span>
       </div>
       <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900">{moveHeadline(e)}</strong>
-      <div className="mt-0.5 text-[11px] text-gray-400">{e.url}</div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+        <span>{e.url}</span>
+        {spark && spark.length >= 5 ? <Sparkline points={spark} width={64} height={16} className="inline-block opacity-75" /> : null}
+      </div>
 
       {why ? (
         <>
@@ -244,7 +248,7 @@ function PreviewCard({ e }: { e: PlannedExperimentRecord }) {
 }
 
 /** One approved item, with the apply -> confirm -> tell-Google flow (science unchanged). */
-function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemView }) {
+function ExecutionCard({ planId, item, spark }: { planId: string; item: ExecutionItemView; spark?: SparkPoint[] }) {
   const e = item.experiment;
   const paste = stripBannedDashes(e.proposedText);
   const why = stripBannedDashes(e.whyNow);
@@ -299,7 +303,10 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
         </span>
       </div>
       <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900">{moveHeadline(e)}</strong>
-      <div className="mt-0.5 text-[11px] text-gray-400">{e.url}</div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+        <span>{e.url}</span>
+        {spark && spark.length >= 5 ? <Sparkline points={spark} width={64} height={16} className="inline-block opacity-75" /> : null}
+      </div>
 
       {why ? (
         <>
@@ -362,7 +369,7 @@ function ExecutionCard({ planId, item }: { planId: string; item: ExecutionItemVi
   );
 }
 
-function ExecutionChecklistView({ checklist }: { checklist: ExecutionChecklist }) {
+function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: ExecutionChecklist; sparklineByUrl: Record<string, SparkPoint[]> }) {
   const s = checklist.summary;
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -378,7 +385,7 @@ function ExecutionChecklistView({ checklist }: { checklist: ExecutionChecklist }
         <strong>Today’s changes.</strong> {s.active} live and tracking, {s.submitted} sent to Google, {s.left} left to apply.<br />
         Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped.
       </div>
-      {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} />)}
+      {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} />)}
       {s.left === 0 && s.accepted > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={pending} aria-busy={pending} onClick={finish} className={BTN_PRIMARY}>{pending ? "Wrapping up..." : "Finish for today"}</button>
@@ -449,14 +456,14 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
       )}
 
       {accepted && checklist ? (
-        <ExecutionChecklistView checklist={checklist} />
+        <ExecutionChecklistView checklist={checklist} sparklineByUrl={view.sparklineByUrl} />
       ) : preview ? (
         <div>
           <div className="mb-2 text-sm leading-relaxed text-gray-700 tabular-nums">
             <strong>Here’s what I’d do today.</strong> {preview.selected.length} change{preview.selected.length === 1 ? "" : "s"}, about {preview.estimatedMinutes} min. Review and approve the ones you like.
             <QualityLine summary={qualitySummary} />
           </div>
-          {preview.selected.map((e) => <PreviewCard key={e.id} e={e} />)}
+          {preview.selected.map((e) => <PreviewCard key={e.id} e={e} spark={view.sparklineByUrl[e.url]} />)}
           {preview.backups.length > 0 && <div className="text-[11px] text-gray-400">A few more in reserve: {preview.backups.map((e) => e.pageLabel).join(", ")}</div>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" disabled={pending} aria-busy={pending} onClick={() => accept(preview)} className={`${BTN_PRIMARY} min-w-[130px]`}>{pending ? "Working..." : "Approve these"}</button>

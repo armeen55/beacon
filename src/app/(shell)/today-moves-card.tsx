@@ -6,6 +6,7 @@ import { respondToRecommendation } from "./recommendation-actions";
 import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-actions";
 import type { TodayMove } from "./today-moves-data";
 import { teammateOf } from "@/domains/team/identity";
+import { Sparkline } from "@/components/data/sparkline";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 /**
@@ -314,9 +315,12 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       ) : null}
 
       <h3 className="mt-3 text-lg font-semibold leading-snug tracking-tight text-gray-900">{titleCase(m.query)}</h3>
-      <p className="mt-0.5 text-xs text-gray-400">
-        on {m.pageLabel}
-        {m.rankWhy ? <span className="text-gray-300"> · ranked here: {m.rankWhy}</span> : null}
+      <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+        <span>on {m.pageLabel}</span>
+        {m.sparkline && m.sparkline.length >= 5 ? (
+          <Sparkline points={m.sparkline} width={72} height={18} className="inline-block align-middle opacity-80" />
+        ) : null}
+        {m.rankWhy ? <span className="text-gray-300">· ranked here: {m.rankWhy}</span> : null}
       </p>
       <p className="mt-2 text-sm leading-relaxed text-gray-600">{m.why}</p>
 

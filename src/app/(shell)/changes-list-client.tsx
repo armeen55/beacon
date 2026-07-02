@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ChangesListClient (2026-07-01; Move 3 hardening) — the canonical Changes list. ONE compact,
+ * ChangesListClient (2026-07-01; Move 3 hardening) - the canonical Changes list. ONE compact,
  * action-first row per change; strategy control + status views + goal filter + search, pure client
  * filtering over the server-built CanonicalChange[]. Advanced detail reuses the existing MoveCard
  * behind progressive disclosure. Move 3: responsive control cluster (no clip/overflow on mobile),
@@ -105,7 +105,7 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
               {c.before != null && <div className="break-words text-xs"><span className="text-gray-500">Current: </span>{c.before || "(none)"}</div>}
               {c.after != null && <div className="break-words text-xs"><span className="text-gray-500">Proposed: </span><strong>{c.after}</strong></div>}
               {c.exactInstructions && <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-gray-50 p-2 text-[11px] font-mono text-gray-700">{c.exactInstructions}</pre>}
-              <div className="mt-2 text-[11px] text-gray-400">{c.measurementMethod}{c.selectedForToday ? " · selected for today — apply it in the “Daily experiments” panel above" : ""}</div>
+              <div className="mt-2 text-[11px] text-gray-400">{c.measurementMethod}{c.selectedForToday ? " · selected for today - apply it in the “Daily experiments” panel above" : ""}</div>
             </div>
           )}
         </div>
@@ -119,7 +119,7 @@ const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
 const GOAL_IDS = new Set<string>(GOALS.map((g) => g.id));
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
-  // Move 5 backfill — deep-link support: legacy routes (/recommendations, /experiments)
+  // Move 5 backfill - deep-link support: legacy routes (/recommendations, /experiments)
   // and Today links land here with ?status=/?strategy=/?goal=/?search=, so the list opens
   // on the right slice. Falls back to sensible defaults when a param is absent/invalid.
   const params = useSearchParams();

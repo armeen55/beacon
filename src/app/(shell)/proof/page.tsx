@@ -17,6 +17,8 @@ import {
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
 import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
+import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
+import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
 import { ProofSummarySection } from "./proof-summary-section";
@@ -38,7 +40,7 @@ import {
 } from "./proof-ledger-client";
 
 /**
- * Proof / Learning — operator-OS rebuild, surface (6). Every REVIEWED change
+ * Proof / Learning - operator-OS rebuild, surface (6). Every REVIEWED change
  * with its 7/14/28-day measurement windows, the GSC metrics to re-check (with
  * today's baseline), and the control pages for a diff-in-diff. Read-only; this
  * promotes loadProofPlan out of /diagnostics into the product nav.
@@ -59,7 +61,7 @@ const OUTCOME_STYLE: Record<GscProofVerdict, string> = {
   insufficient_data: "border-border bg-muted/40 text-muted-foreground",
 };
 
-/** Move 2 — color by MATURITY tone, never by the raw verdict. Red/green appear only
+/** Move 2 - color by MATURITY tone, never by the raw verdict. Red/green appear only
  *  at a mature result; an early signal is blue "progress", waiting-for-data is amber. */
 const TONE_STYLE: Record<MeasurementPresentation["tone"], string> = {
   positive: "border-emerald-300 bg-emerald-50 text-emerald-700",
@@ -96,6 +98,13 @@ export default async function ProofPage({
   ]);
   const recordedPaths = new Set(ledger.map((l) => l.path));
 
+  // Item 5 - a before/after daily-clicks line on every measured row (ship date marked),
+  // so "won/lost" is never a naked label. Bounded to the first 16 rows; fail-soft.
+  const sparkByPath = await loadDailyClicksByPathsForTenant(
+    tenantId,
+    ledger.slice(0, 16).map((l) => l.path),
+  ).catch(() => new Map<string, SparkPoint[]>());
+
   // GSC-LAG CLARITY: Google Search Console data lags wall-clock, so a 7-day window
   // whose calendar date has passed often can't be judged yet. Count the rows that are
   // calendar-open but GSC-waiting, and surface the honest reason (not just "waiting").
@@ -106,7 +115,7 @@ export default async function ProofPage({
     (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
   );
 
-  // Move 2 — the shared maturity presentation per row, so every card reads the same
+  // Move 2 - the shared maturity presentation per row, so every card reads the same
   // honest measurement language (an early read is never a final verdict, never red/green).
   const overlapById = detectMeasurementOverlaps(ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt })));
   const presById = new Map<string, MeasurementPresentation>(
@@ -138,7 +147,7 @@ export default async function ProofPage({
   const isOperator = await isOperatorModeServer();
   if (isOperator && dueNow.length > 0) scheduleAutoMeasure(tenantId);
 
-  // Phase 4 — deterministic ActionPack↔proof linker (pure, no migration). Each
+  // Phase 4 - deterministic ActionPack↔proof linker (pure, no migration). Each
   // shipped change is traced back to the Move that recommended it (or honestly
   // labelled manual/legacy). Measurement math is untouched.
   const proofLinks = linkProofRowsToActionPacks({
@@ -147,7 +156,7 @@ export default async function ProofPage({
   });
   const linkByRowId = new Map(proofLinks.map((lk) => [lk.proofRow.id, lk as ProofLink]));
 
-  // Proof compares each page to its Google Search Console history — so a stale or
+  // Proof compares each page to its Google Search Console history - so a stale or
   // disconnected GSC makes the verdicts unreliable. Surface that honestly (operator
   // brutal-audit: "if GSC/GA4 stale, say so") instead of showing confident-looking
   // results over old data.
@@ -215,14 +224,14 @@ export default async function ProofPage({
       ) : null}
 
       {/* Passive auto-measure (2026-06-29): due rows are being re-measured in the
-          background (next/after) the moment Results opens — say so honestly. */}
+          background (next/after) the moment Results opens - say so honestly. */}
       {isOperator && dueNow.length > 0 ? (
         <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
           Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now. Refresh in a moment to see the verdict.
         </div>
       ) : null}
 
-      {/* Premium "Proof at a glance" scoreboard (2026-06-25) — the Results act of
+      {/* Premium "Proof at a glance" scoreboard (2026-06-25) - the Results act of
           the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
           shipped; reads the request-cached re-measured ledger. */}
       <Suspense fallback={null}>
@@ -255,7 +264,7 @@ export default async function ProofPage({
           <WhatHappensNext />
           <div className="mt-3 space-y-2.5">
             {ledger.map((rec) => (
-              <LedgerCard key={rec.id} rec={rec} link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} />
+              <LedgerCard key={rec.id} rec={rec} link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
             ))}
           </div>
         </div>
@@ -435,7 +444,7 @@ function WhatHappensNext() {
 
 function metricsLine(rec: ShippedChangeRecord): string {
   // Per-field guards: a legacy record could carry an undefined metric, which would
-  // render NaN/NaN% — coalesce each to 0 so the line is always well-formed.
+  // render NaN/NaN% - coalesce each to 0 so the line is always well-formed.
   const raw = rec.baseline;
   const clicks = Number(raw?.clicks) || 0;
   const impressions = Number(raw?.impressions) || 0;
@@ -459,13 +468,13 @@ const SOURCE_LABEL: Record<string, string> = {
   competitor_teardown: "Competitor teardown", rank_revenue: "Demand graph",
 };
 
-function LedgerCard({ rec, link, pres }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null }) {
+function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[] }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
   const basis = rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
   const mature = pres ? isMatureOutcome(pres.maturity) : false;
-  // Move 2 — the headline Search line: at a MATURE result, the lift-bearing sentence;
+  // Move 2 - the headline Search line: at a MATURE result, the lift-bearing sentence;
   // before that, the honest maturity language (no "Likely hurting (high confidence)"
   // off a 7-day read). Falls back to the legacy sentence when no presentation.
   const sentence =
@@ -485,7 +494,7 @@ function LedgerCard({ rec, link, pres }: { rec: ShippedChangeRecord; link?: Proo
             (pres ? TONE_STYLE[pres.tone] : OUTCOME_STYLE[rec.verdict])
           }
         >
-          {/* Move 2 — one shared maturity headline + maturity-toned color: a 7d read is an
+          {/* Move 2 - one shared maturity headline + maturity-toned color: a 7d read is an
               EARLY signal (blue), 14d is "strengthening", only the 28d window earns the
               plain Helped / Did not help (green/red). */}
           {pres ? pres.headline : proofMaturityLabel(rec.verdict, basis?.day ?? null)}
@@ -500,7 +509,26 @@ function LedgerCard({ rec, link, pres }: { rec: ShippedChangeRecord; link?: Proo
         ) : null}
       </div>
 
-      {/* Source move (Phase 4 — deterministic ActionPack↔proof linker, no migration).
+      {/* Item 5 - the before/after evidence itself: daily clicks with the ship date
+          marked (dot) and the after-period tinted. A verdict you can SEE. When the change
+          is newer than the last finalized Search day, say so instead of promising a dot. */}
+      {spark && spark.length >= 5 ? (() => {
+        const shipDay = rec.shippedAt.slice(0, 10);
+        const lastDataDay = spark[spark.length - 1]!.date;
+        const markerVisible = lastDataDay >= shipDay;
+        return (
+          <div className="mt-1.5 flex items-center gap-2">
+            <Sparkline points={spark} markerDate={shipDay} width={200} height={34} />
+            <span className="text-[10px] text-muted-foreground">
+              {markerVisible
+                ? `daily clicks, ${spark.length} days · dot = when this shipped, tinted = after`
+                : `daily clicks through ${lastDataDay} · this change is newer than the latest Search data (Google reports a few days behind)`}
+            </span>
+          </div>
+        );
+      })() : null}
+
+      {/* Source move (Phase 4 - deterministic ActionPack↔proof linker, no migration).
           Closes the loop visibly: this shipped change traces back to the Move that
           recommended it, or is honestly labelled manual/legacy. */}
       {link && link.actionPack ? (
@@ -528,7 +556,7 @@ function LedgerCard({ rec, link, pres }: { rec: ShippedChangeRecord; link?: Proo
       {rec.trafficOutcome ? (() => {
         const t = rec.trafficOutcome!;
         const searchSettled = mature; // only a 28-day mature result is "settled"
-        // "−93% on 1 baseline visit" must not read like a verdict — caution on thin volume.
+        // "−93% on 1 baseline visit" must not read like a verdict - caution on thin volume.
         const lowVolume = t.ran && t.treated.sessionsPre > 0 && t.treated.sessionsPre < 5;
         return (
           <div className="mt-1 space-y-0.5">

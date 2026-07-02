@@ -1,12 +1,13 @@
 import "server-only";
 
 /**
- * daily-experiments-data (2026-06-30 → 2026-07-01) — server loader for the native Daily Experiments
+ * daily-experiments-data (2026-06-30 → 2026-07-01) - server loader for the native Daily Experiments
  * section. READ-ONLY + fail-soft + NO candidate planning / NO verification on render. Reads the active
- * proof batch (always available), any persisted preview/accepted plan + reservations, and — when a
- * plan is accepted — builds the per-item execution checklist. Shapes everything through pure models.
+ * proof batch (always available), any persisted preview/accepted plan + reservations, and - when a
+ * plan is accepted - builds the per-item execution checklist. Shapes everything through pure models.
  */
 import { currentTenantId } from "@/lib/tenant-context";
+import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { buildDailyExperimentDashboard, protectedControlWarning, type DailyExperimentDashboard } from "@/domains/experiments/daily-experiment-dashboard";
 import { buildExecutionChecklist, type ExecutionChecklist } from "@/domains/experiments/execution-checklist";
@@ -20,8 +21,10 @@ export type DailyExperimentsView = {
   dashboard: DailyExperimentDashboard;
   protectedWarning: string | null;
   checklist: ExecutionChecklist | null;
-  /** Move 4 — the deterministic quality review of the active plan's selected items. */
+  /** Move 4 - the deterministic quality review of the active plan's selected items. */
   qualitySummary: QualitySummary | null;
+  /** Item 4: 70-day daily clicks per plan-item URL (sparkline next to each page name). */
+  sparklineByUrl: Record<string, Array<{ date: string; clicks: number }>>;
 };
 
 /** Re-run the quality gate over the active plan's items so the panel can honestly say
@@ -66,5 +69,14 @@ export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> 
   const activePlan = acceptedPlan ?? previewPlan;
   const qualitySummary = activePlan ? summarizeQuality(activePlan.selected) : null;
 
-  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary };
+  // Item 4: one bounded per-page daily-clicks read (IN <= 16) so every card shows the
+  // page's own trend line next to its name. Fail-soft -> empty (cards render as before).
+  const planUrls = [...new Set((activePlan?.selected ?? []).map((e) => e.url))].slice(0, 16);
+  const sparkMap = planUrls.length
+    ? await loadDailyClicksByPagesForTenant(tenantId, planUrls).catch(() => new Map<string, { date: string; clicks: number }[]>())
+    : new Map<string, { date: string; clicks: number }[]>();
+  const sparklineByUrl: DailyExperimentsView["sparklineByUrl"] = {};
+  for (const [url, series] of sparkMap) sparklineByUrl[url] = series;
+
+  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary, sparklineByUrl };
 }
