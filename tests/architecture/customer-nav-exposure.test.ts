@@ -75,10 +75,15 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   // (their routes still exist as redirects), so they were removed from the
   // sidebar. Adding a route still requires updating this set so the decision is
   // visible in review.
+  // 2026-07-02 (master plan item 59): added /ask, the ask-your-team chat, next
+  // to Today/Changes/Results - it answers questions about the same change
+  // lifecycle in plain language rather than being a separate deep-evidence
+  // destination, so it belongs in the core workflow group, not Research.
   const EXPECTED_HREFS = new Set([
     "/",
     "/worklist",
     "/proof",
+    "/ask",
     "/prompts",
     "/competitors",
         "/settings/connectors",

@@ -40,7 +40,7 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       // `fix_canonical`). All five ship `generatorActive: false`
       // (paired Tier-1/Tier-2 deterministic predicates land in
       // Slice 4.5.C.α₁ / α₂).
-      expect(ACTION_TYPES).toHaveLength(39); // +improve_meta (root-cause-#3 directive, 2026-06-16)
+      expect(ACTION_TYPES).toHaveLength(40); // +full_rewrite (BEACON 500 item 61, 2026-07-02)
     });
 
     it("contains every action type planned in Sprint 6A.1 + Section 7 C7b + Slice 4.5.B.α₀ + Slice 4.5.C.α₀", () => {
@@ -54,6 +54,10 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
         "change_h1",
         "add_h2_section",
         "rewrite_h2",
+        // full_rewrite (BEACON 500 item 61, 2026-07-02) — agentic, section-by-
+        // section rewrite of an existing page, distinct from rewrite_h2 so the
+        // diff-in-diff ledger learns full-rebuild priors separately.
+        "full_rewrite",
         "add_faq",
         "rewrite_faq",
         "add_table",
@@ -193,7 +197,8 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       );
       // Prior post-4.5.C.α₃b inactive count was 25.
       // 4.5.E.α₁a flips `rewrite_h2` → inactive count drops to 24.
-      expect(inactive).toHaveLength(26); // +improve_meta (inactive directive, 2026-06-16)
+      // +improve_meta (inactive directive, 2026-06-16) -> 26.
+      expect(inactive).toHaveLength(27); // +full_rewrite (BEACON 500 item 61, always operator-triggered)
       for (const t of ACTIVE_AFTER_4_5_E_ALPHA1A) {
         expect(inactive).not.toContain(t);
       }

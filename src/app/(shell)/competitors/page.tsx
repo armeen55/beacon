@@ -9,6 +9,11 @@ import { ReadQueueButton } from "./read-queue-button";
 import { KeywordGapButton } from "./keyword-gap-button";
 import { WikiGapButton } from "./wiki-gap-button";
 import { RetrievalTwinButton } from "./retrieval-twin-button";
+import { OutreachSection } from "./outreach-section";
+import { loadOutreachPipelineAction } from "./outreach-actions";
+import { readCloneBriefResults } from "@/domains/serp/clone-brief-store";
+import { currentTenantId } from "@/lib/tenant-context";
+import type { CloneBrief } from "@/domains/serp/clone-brief";
 
 /**
  * /competitors (2026-06-28 — ActionPack execution loop, Phase 6) — the real enemy
@@ -46,6 +51,65 @@ function prettyUrl(u: string): string {
   } catch {
     return u;
   }
+}
+
+const fmtNum = (n: number): string => n.toLocaleString("en-US");
+
+const BRIEF_TEARDOWN_BADGE: Record<CloneBrief["teardownStatus"], { label: string; cls: string }> = {
+  torn_down: { label: "Read", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  blocked: { label: "Blocked", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
+  not_read: { label: "Not read yet", cls: "bg-gray-100 text-gray-500 ring-gray-200" },
+};
+
+/** Item 60: "their best page, our better version" cards, one per clone-and-beat
+ *  brief from the last "Find what competitors rank for" run. Read-only, $0 on
+ *  render (the store already has everything; no live fetch fires here). */
+function CloneBriefCards({ briefs }: { briefs: CloneBrief[] }) {
+  if (briefs.length === 0) return null;
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-gray-900">Their best pages, and how we would beat them</h2>
+        <p className="mt-0.5 text-[12px] text-gray-500">
+          The competitor pages carrying the most search traffic, from your last keyword check, with what
+          they do well and where we have no page yet.
+        </p>
+      </div>
+      <div className="grid gap-3">
+        {briefs.map((b) => {
+          const badge = BRIEF_TEARDOWN_BADGE[b.teardownStatus];
+          return (
+            <div key={b.url} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <a href={b.url} target="_blank" rel="noreferrer" className="text-[13px] font-medium text-gray-900 underline-offset-2 hover:underline">
+                  {prettyUrl(b.url)}
+                </a>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${badge.cls}`}>{badge.label}</span>
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500">
+                {fmtNum(b.trafficWeight)} traffic-weighted points, led by
+                {b.demand[0] ? ` "${b.demand[0].keyword}"` : " no scored keyword"}
+                {b.demand[0]?.volume != null ? ` at about ${fmtNum(b.demand[0].volume)} searches a month` : ""}.
+              </p>
+              {b.whatWins ? (
+                <p className="mt-1 text-[11px] text-emerald-700"><span className="font-medium">What wins:</span> {b.whatWins}</p>
+              ) : null}
+              {b.coverageGaps.length > 0 ? (
+                <p className="mt-1 text-[11px] text-gray-600">
+                  <span className="font-medium text-gray-700">We have no page for:</span> {b.coverageGaps.join(", ")}
+                </p>
+              ) : null}
+              {b.buildPointer ? (
+                <p className="mt-1.5 text-[11px] font-medium text-indigo-600">
+                  Build our better version: {b.buildPointer.label} →
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 async function CompetitorsBody() {
@@ -209,6 +273,19 @@ async function CompetitorsBody() {
   );
 }
 
+async function OutreachBody() {
+  const rows = await loadOutreachPipelineAction().catch(() => []);
+  return <OutreachSection initialRows={rows} />;
+}
+
+/** Item 60: reads the persisted clone-and-beat briefs for the current tenant.
+ *  $0 on render — no live Labs call or competitor fetch ever fires here. */
+async function CloneBriefsBody() {
+  const tenantId = await currentTenantId();
+  const stored = await readCloneBriefResults(tenantId).catch(() => null);
+  return <CloneBriefCards briefs={stored?.briefs ?? []} />;
+}
+
 export default async function CompetitorsPage() {
   const operator = await isOperatorModeServer();
   return (
@@ -231,6 +308,20 @@ export default async function CompetitorsPage() {
       <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
         <CompetitorsBody />
       </Suspense>
+      {/* Item 60: clone-and-beat briefs, their top money pages torn down, with the
+          coverage gap and a "build our better version" pointer. Reads the store the
+          "Find what competitors rank for" button now also fills; empty until the
+          operator has run it at least once. */}
+      <Suspense fallback={null}>
+        <CloneBriefsBody />
+      </Suspense>
+      {/* Item 57: outreach execution pipeline — mine leads, draft pitches, operator
+          clicks Send. Operator-only: it exposes real send/status controls. */}
+      {operator ? (
+        <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
+          <OutreachBody />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -54,6 +54,11 @@ function deps(over: Partial<ProduceKeywordGapsDeps> = {}): Partial<ProduceKeywor
     runRanked: vi.fn(async (d: string) => labsResult("ok", [row(uniqueTopic(d), d)], LABS_COST_USD)),
     runIntersection: vi.fn(async (d: string) => labsResult("ok", [row(gapTopic(d), d, { source: "domain_intersection" })], LABS_COST_USD)),
     writeResults: vi.fn(async () => {}),
+    // Item 60 deps - explicit no-op stubs so unit tests never touch real I/O.
+    readCachedDifficulty: vi.fn(async () => new Map()),
+    readTeardownCache: vi.fn(async () => new Map()),
+    auditPage: vi.fn(async () => ({ fetchStatus: "fetch_failed" as const, facts: null })),
+    writeBriefs: vi.fn(async () => {}),
     ...over,
   };
 }
@@ -172,6 +177,112 @@ describe("produceKeywordGaps - the bounded batch", () => {
       const r = await produceKeywordGaps("tenant-iranopedia", d);
       expect(/[–—]/.test(r.message)).toBe(false);
       for (const g of r.gaps) expect(/[–—]/.test(g.evidence)).toBe(false);
+    }
+  });
+});
+
+describe("produceKeywordGaps - item 60 clone-and-beat briefs", () => {
+  // Rows WITH a ranking URL so money-page aggregation has something to find.
+  const rowWithUrl = (keyword: string, domain: string, url: string, over: Partial<KeywordGapRow> = {}): KeywordGapRow => ({
+    keyword,
+    volume: 1200,
+    competitorDomain: domain,
+    competitorRank: 3,
+    ownRank: null,
+    cpcUsd: null,
+    source: "ranked_keywords",
+    rankingUrl: url,
+    ...over,
+  });
+
+  it("finds money pages from the SAME rows and builds bounded briefs (no extra Labs calls)", async () => {
+    const d = deps({
+      runRanked: vi.fn(async (dom: string) => labsResult("ok", [rowWithUrl(uniqueTopic(dom), dom, `https://${dom}/money-page`)], LABS_COST_USD)),
+      auditPage: vi.fn(async () => ({ fetchStatus: "ok" as const, facts: null })),
+    });
+    const r = await produceKeywordGaps("tenant-iranopedia", d);
+    expect(r.status).toBe("ok");
+    expect(r.moneyPagesFound).toBeGreaterThan(0);
+    expect(r.cloneBriefs.length).toBeGreaterThan(0);
+    expect(r.cloneBriefs.length).toBeLessThanOrEqual(5); // MAX_BRIEF_TEARDOWNS
+    // no NEW Labs calls beyond the same 6 (3 competitors x 2 endpoints) - the
+    // teardown rides the polite fetcher, not another paid Labs call.
+    expect(r.calls).toHaveLength(6);
+    expect(vi.mocked(d.writeBriefs!)).toHaveBeenCalledTimes(1);
+    expect(r.message).toContain("clone-and-beat brief");
+  });
+
+  it("reuses a fresh cached teardown instead of fetching again", async () => {
+    const auditPage = vi.fn(async () => ({ fetchStatus: "ok" as const, facts: null }));
+    const d = deps({
+      runRanked: vi.fn(async (dom: string) => labsResult("ok", [rowWithUrl(uniqueTopic(dom), dom, `https://${dom}/money-page`)], LABS_COST_USD)),
+      readTeardownCache: vi.fn(async () => new Map([
+        ["https://a-comp.com/money-page", { fetchStatus: "ok" as const, facts: null, auditedAt: "2026-07-01T00:00:00Z" }],
+      ])),
+      auditPage,
+    });
+    const r = await produceKeywordGaps("tenant-iranopedia", d);
+    expect(r.status).toBe("ok");
+    // a-comp.com's page came from the fresh cache - never re-fetched.
+    expect(auditPage).not.toHaveBeenCalledWith("https://a-comp.com/money-page");
+  });
+
+  it("labels gaps with a cached winnability verdict when the cache has one", async () => {
+    const d = deps({
+      readCachedDifficulty: vi.fn(async () => new Map([[uniqueTopic("a-comp.com"), 95]])),
+    });
+    const r = await produceKeywordGaps("tenant-iranopedia", d);
+    const labeled = r.gaps.find((g) => g.keyword === uniqueTopic("a-comp.com"));
+    expect(labeled?.winnability?.band).toBe("reject");
+    // an un-cached gap stays honestly unlabeled, never silently rejected.
+    const unlabeled = r.gaps.find((g) => g.keyword === uniqueTopic("b-comp.com"));
+    expect(unlabeled?.winnability).toBeNull();
+  });
+
+  it("never drops a gap because it is unwinnable - labeling only", async () => {
+    const d = deps({
+      readCachedDifficulty: vi.fn(async () => new Map([[uniqueTopic("a-comp.com"), 99]])),
+    });
+    const r = await produceKeywordGaps("tenant-iranopedia", d);
+    expect(r.gaps.some((g) => g.keyword === uniqueTopic("a-comp.com"))).toBe(true);
+  });
+
+  it("a brief-build failure never drops the gaps (fail-soft)", async () => {
+    const d = deps({
+      runRanked: vi.fn(async (dom: string) => labsResult("ok", [rowWithUrl(uniqueTopic(dom), dom, `https://${dom}/money-page`)], LABS_COST_USD)),
+      readTeardownCache: vi.fn(async () => {
+        throw new Error("store down");
+      }),
+      auditPage: vi.fn(async () => {
+        throw new Error("fetch exploded");
+      }),
+    });
+    const r = await produceKeywordGaps("tenant-iranopedia", d);
+    expect(r.status).toBe("ok");
+    expect(r.gapsFound).toBeGreaterThan(0);
+    // teardown fetch failures degrade the brief to "not_read", never throw.
+    expect(r.cloneBriefs.every((b) => b.teardownStatus === "not_read")).toBe(true);
+  });
+
+  it("no money pages (no rankingUrl on any row) -> zero briefs, gaps unaffected", async () => {
+    const d = deps(); // default fixture rows carry no rankingUrl
+    const r = await produceKeywordGaps("tenant-iranopedia", d);
+    expect(r.moneyPagesFound).toBe(0);
+    expect(r.cloneBriefs).toEqual([]);
+    expect(vi.mocked(d.writeBriefs!)).not.toHaveBeenCalled();
+    expect(r.gapsFound).toBeGreaterThan(0);
+  });
+
+  it("brief summaries and receipts NEVER contain an em or en dash", async () => {
+    const d = deps({
+      runRanked: vi.fn(async (dom: string) => labsResult("ok", [rowWithUrl(uniqueTopic(dom), dom, `https://${dom}/money-page`)], LABS_COST_USD)),
+      auditPage: vi.fn(async () => ({ fetchStatus: "ok" as const, facts: null })),
+    });
+    const r = await produceKeywordGaps("tenant-iranopedia", d);
+    expect(/[–—]/.test(r.message)).toBe(false);
+    for (const b of r.cloneBriefs) {
+      expect(/[–—]/.test(b.summary)).toBe(false);
+      if (b.buildPointer) expect(/[–—]/.test(b.buildPointer.reason)).toBe(false);
     }
   });
 });

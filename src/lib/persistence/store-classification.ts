@@ -182,6 +182,13 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // tenant-domain filter defended against — that filter remains as
   // defense-in-depth.
   "sitemap-reconciliation",
+  // Ask-your-team chat (2026-07-02, master plan item 59). Per-tenant, append-only,
+  // capped history of operator questions + the answered teammate response (see
+  // src/domains/ask/history-store.ts). Written from a request context (the /ask page
+  // action already knows the tenant), unlike the cron-written tenant_id-carrying stores
+  // elsewhere in this file, so it belongs in the file-routed TENANT_SCOPED set rather
+  // than GLOBAL.
+  "ask-history",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -360,6 +367,19 @@ export const GLOBAL_STORES = new Set<string>([
   // high-severity page-family collapse, read by the Today investigation
   // card at $0. Idempotent per (tenant_id, family, week) via the row's key.
   "forensic-investigations",
+  // Page factory production line (2026-07-02, master plan item 62). Rows carry
+  // tenant_id; written by the weekly cron (no ambient request context, same
+  // fan-out rationale as the stores above). One row per (tenant, weekOf)
+  // batch of demand-validated, drafted-but-staged candidates awaiting the
+  // operator's per-page approve/skip on the New Pages board. Idempotent per
+  // (tenant_id, weekOf) via the row's key.
+  "page-factory-batches",
+  // Clone-and-beat briefs (2026-07-02, master plan item 60). Rows carry
+  // tenant_id; same keyword-gap-results rationale (the operator-triggered
+  // producer has no ambient request context guarantee, and a future cron fan-out
+  // would misfile per-tenant paths). Latest per-tenant "their best page, our
+  // better version" briefs, read by /competitors at $0 (no live fetch on render).
+  "clone-brief-results",
 ]);
 
 /**

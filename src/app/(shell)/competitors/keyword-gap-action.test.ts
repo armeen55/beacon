@@ -14,6 +14,8 @@ vi.mock("@/domains/serp/keyword-gap-producer", () => ({
     cacheHits: 2,
     gapsFound: 61,
     gaps: [],
+    moneyPagesFound: 8,
+    cloneBriefs: [],
     message: "I checked 3 competitors on Google's index for $0.44 and found 61 keywords they win that you do not.",
   })),
 }));
@@ -60,6 +62,8 @@ describe("findCompetitorKeywordGapsAction - gating + receipt", () => {
       cacheHits: 0,
       gapsFound: 0,
       gaps: [],
+      moneyPagesFound: 0,
+      cloneBriefs: [],
       message: "Dry run only, I spent nothing.",
     });
     const r = await findCompetitorKeywordGapsAction();

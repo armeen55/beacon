@@ -181,6 +181,24 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // next lambda recycle, and the idempotency check (one investigation per
   // family per week) would silently stop working too.
   "forensic-investigations",
+  // 2026-07-02 item 62 - the page factory's weekly batch of demand-validated,
+  // drafted-but-staged candidates (one row per tenant/weekOf). Written by the
+  // weekly cron (Vercel lambda, no disk); read by the New Pages board's
+  // review card. Without the mirror the batch (and its per-page approve/skip
+  // state) would vanish on the next lambda recycle, and the weekly idempotency
+  // check would silently stop working too.
+  "page-factory-batches",
+  // 2026-07-02 item 60 - clone-and-beat briefs (traffic-weighted competitor money
+  // pages run through the existing teardown, "their best page, our better version").
+  // Written by the operator-triggered producer (Vercel lambda, no disk); read by
+  // /competitors at $0. Without the mirror the briefs would vanish on the next
+  // lambda recycle, forcing a re-spend to see them again.
+  "clone-brief-results",
+  // 2026-07-02 item 59 - the ask-your-team chat's per-tenant question/answer history
+  // (capped, append-only). Written from a request-context server action (not a cron),
+  // but Vercel lambda writes still skip disk - without the mirror the operator's recent
+  // Q+A history would vanish on the next lambda recycle.
+  "ask-history",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

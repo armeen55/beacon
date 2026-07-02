@@ -3,7 +3,7 @@ import {
   Settings,
   ListChecks,
   ListTodo,
-  
+  MessageCircle,
   LineChart,
   Plug,
   Users,
@@ -36,6 +36,11 @@ export type NavGroup = {
  * direct URL. They were removed from the sidebar so the app reads as one tool, not
  * five. Their routes still exist (no destructive removal); only the duplicate
  * top-level nav entries are gone.
+ *
+ * "Ask" (/ask, master plan item 59) - the ask-your-team chat. Placed alongside the
+ * core workflow (not under Research) because it answers questions about the SAME
+ * change lifecycle in plain language, pulling from every surface at once rather than
+ * being its own deep-evidence destination.
  */
 export const navigationGroups: NavGroup[] = [
   {
@@ -47,6 +52,9 @@ export const navigationGroups: NavGroup[] = [
       // Results = what changed / is it measuring / did it work (/proof). The /changes
       // index redirects here; /changes/[id] detail still works.
       { label: "Results", href: "/proof", icon: LineChart },
+      // Ask-your-team chat (item 59) - a named specialist answers any question with
+      // real numbers, every claim linked back to its source surface.
+      { label: "Ask", href: "/ask", icon: MessageCircle },
     ],
   },
   {

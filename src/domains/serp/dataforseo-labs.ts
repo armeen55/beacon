@@ -151,6 +151,15 @@ function rankOf(el: unknown): number | null {
   return typeof r === "number" && r > 0 ? r : null;
 }
 
+/** The competitor's actual ranking URL from a Labs serp element (item 60's
+ *  money-page aggregation) - same defensive nested/flattened access as rankOf. */
+function urlOf(el: unknown): string | null {
+  if (!el || typeof el !== "object") return null;
+  const rec = el as Record<string, unknown>;
+  const item = (rec.serp_item && typeof rec.serp_item === "object" ? rec.serp_item : rec) as Record<string, unknown>;
+  return typeof item.url === "string" && item.url.trim() ? item.url.trim() : null;
+}
+
 function keywordDataOf(it: Record<string, unknown>): { keyword: string; volume: number | null; cpc: number | null } {
   const kd = (it.keyword_data ?? {}) as Record<string, unknown>;
   const info = (kd.keyword_info ?? {}) as Record<string, unknown>;
@@ -185,6 +194,7 @@ export function parseRankedKeywords(body: unknown, competitorDomain: string): Ke
         ownRank: null,
         cpcUsd: cpc,
         source: "ranked_keywords",
+        rankingUrl: urlOf(it.ranked_serp_element),
       });
     }
   } catch {
@@ -210,6 +220,7 @@ export function parseDomainIntersection(body: unknown, competitorDomain: string)
         ownRank: rankOf(it.second_domain_serp_element),
         cpcUsd: cpc,
         source: "domain_intersection",
+        rankingUrl: urlOf(it.first_domain_serp_element),
       });
     }
   } catch {

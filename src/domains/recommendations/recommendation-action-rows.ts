@@ -478,6 +478,12 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
       return "edit_h1";
     case "add_h2_section":
     case "rewrite_h2":
+    // full_rewrite (BEACON 500 item 61, 2026-07-02): agentic section rewrites
+    // target an h2-delimited section (elementTypeDomain: ["h2"]), same shape
+    // as rewrite_h2 — maps to the same "edit_h2" row type. Never reaches this
+    // path via the ordinary queue today (operator-triggered, not a generator
+    // output), but keeps the exhaustive switch honest.
+    case "full_rewrite":
       return "edit_h2";
     case "add_faq":
     case "rewrite_faq":
@@ -642,6 +648,13 @@ export function composeEditRowTitle(args: {
       return label
         ? `Rewrite the ${q(label)} H2 on the ${targetLabel}`
         : `Rewrite an H2 on the ${targetLabel}`;
+    // full_rewrite (BEACON 500 item 61, 2026-07-02): agentic section rewrites
+    // are operator-triggered from the page dossier's rewrite review, never
+    // through this ordinary queue-row path — kept for exhaustiveness only.
+    case "full_rewrite":
+      return label
+        ? `Rewrite the ${q(label)} section on the ${targetLabel}`
+        : `Rewrite a section on the ${targetLabel}`;
     case "add_faq":
       // Standalone (un-paired) add_faq edits aren't surfaced as main
       // rows by `buildRecommendationActionRows` — paired Q+A rows are

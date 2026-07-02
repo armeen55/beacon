@@ -285,6 +285,42 @@ export const SectionDraftSchema = z.object({
 });
 export type SectionDraft = z.infer<typeof SectionDraftSchema>;
 
+// ── outreach pitch (BEACON_500 item 57 - get-cited/link-reclaim pitches) ─────
+// A cold-outreach email pitch for ONE lead. NOT part of the shared `base` set:
+// an outreach pitch is a short email, not a Move draft, so it skips proofPlan
+// and operatorSteps but keeps evidenceRefs (the personalization must be real)
+// and confidence. subject/body length caps keep it a real, sendable email.
+
+export const OutreachPitchSchema = z.object({
+  subject: z.string().min(4).max(80),
+  body: z.string().min(40).max(900),
+  evidenceRefs: z.array(EvidenceRefSchema).min(1),
+  confidence: ConfidenceSchema,
+  risks: z.array(z.string().min(1)).max(8).default([]),
+});
+export type OutreachPitch = z.infer<typeof OutreachPitchSchema>;
+
+// ── ask-your-team answer (BEACON_500 item 59 - /ask chat) ────────────────────
+// One teammate's first-person answer to an operator's free-text question, composed
+// ONLY from the bounded fact dossier assembled for that question's class (see
+// src/domains/ask/fact-assembly.ts). `speaker` is one of the real teammate keys (see
+// src/domains/team/identity.ts) so the answer renders under the right identity chip.
+// `citedFacts` must reference facts that were actually provided - the numeric-fidelity
+// firewall (shared with every other structured draft) rejects any number in `answer`
+// that does not appear in the grounded fact list.
+
+export const AskCitedFactSchema = z.object({
+  fact: z.string().min(1).max(400),
+  href: z.string().min(1).max(200),
+});
+
+export const AskAnswerSchema = z.object({
+  speaker: z.enum(["gsc", "ga4", "clarity", "profound", "dataforseo", "wix", "llm", "commerce_asset", "proof"]),
+  answer: z.string().min(20).max(1200),
+  citedFacts: z.array(AskCitedFactSchema).min(1).max(10),
+});
+export type AskAnswerDraft = z.infer<typeof AskAnswerSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -300,7 +336,9 @@ export type StructuredDraftKind =
   | "team_verdict"
   | "batch_adjudication"
   | "strategy_review"
-  | "section_draft";
+  | "section_draft"
+  | "outreach_pitch"
+  | "ask_answer";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -316,6 +354,8 @@ export const SCHEMA_BY_KIND = {
   batch_adjudication: BatchAdjudicationSchema,
   strategy_review: StrategyReviewSchema,
   section_draft: SectionDraftSchema,
+  outreach_pitch: OutreachPitchSchema,
+  ask_answer: AskAnswerSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 /** Every string field in a parsed draft, flattened — fed to the content firewalls

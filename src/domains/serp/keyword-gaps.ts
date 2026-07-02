@@ -18,6 +18,7 @@
  */
 
 import { isNoiseDomain, domainOf } from "@/domains/evidence/relevance-gate";
+import { computeWinnability } from "./winnability";
 
 /** Lean row shape both Labs parsers normalize to (dataforseo-labs.ts). */
 export type KeywordGapRow = {
@@ -31,6 +32,9 @@ export type KeywordGapRow = {
   ownRank: number | null;
   cpcUsd?: number | null;
   source: "ranked_keywords" | "domain_intersection";
+  /** The competitor's actual ranking URL for this keyword, when the endpoint reports
+   *  one (item 60's money-page aggregation groups by this). Null when absent. */
+  rankingUrl?: string | null;
 };
 
 /** A GSC-known query for the tenant (impression-weighted position when known). */
@@ -50,6 +54,11 @@ export type KeywordGap = {
   score: number;
   /** Named-evidence sentence, operator-facing (first person, no dashes). */
   evidence: string;
+  /** Item 60: item 18's computeWinnability verdict for this gap's keyword, from
+   *  CACHED Google keyword-difficulty reads only ($0 - no fresh Labs call fires
+   *  just to label a gap). Null until some past verdict run cached a difficulty
+   *  score for this exact keyword - an unlabeled gap is NOT the same as reject. */
+  winnability?: { score: number; band: "winnable" | "hard" | "reject"; sentence: string } | null;
 };
 
 const normKeyword = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -245,4 +254,25 @@ export function pickGapCompetitorDomains(
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, max)
     .map(([d]) => d);
+}
+
+/**
+ * Item 60: label each gap with item 18's honest winnability verdict, from a
+ * CACHED difficulty-only read (no fresh Labs spend - the caller passes in
+ * whatever readAllCachedKeywordDifficulty already has). PURE. A keyword with no
+ * cached difficulty score keeps `winnability: null` - unlabeled, not rejected;
+ * the gap still appears, just without the extra corroboration. Never drops a
+ * gap here (the plan calls for HONEST LABELING, not silent removal) - the caller
+ * decides whether to sort/badge/hide "reject"-band gaps.
+ */
+export function applyWinnabilityToGaps(
+  gaps: readonly KeywordGap[],
+  cachedDifficulty: ReadonlyMap<string, number | null>,
+): KeywordGap[] {
+  return gaps.map((g) => {
+    const difficulty = cachedDifficulty.get(g.keyword.toLowerCase());
+    if (difficulty === undefined) return { ...g, winnability: null };
+    const w = computeWinnability({ difficulty });
+    return { ...g, winnability: { score: w.score, band: w.band, sentence: w.sentence } };
+  });
 }

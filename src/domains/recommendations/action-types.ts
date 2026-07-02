@@ -56,6 +56,15 @@ export const ACTION_TYPES = [
   "rewrite_h2",
   "add_faq",
   "rewrite_faq",
+  // full_rewrite (BEACON 500 item 61, 2026-07-02): an agentic, section-by-
+  // section rewrite of an EXISTING page's body, approved per-section on the
+  // page dossier's rewrite review and staged through the existing
+  // replace_section body-push route. Distinct from rewrite_h2/rewrite_faq
+  // (single-element rewrites) and from content/add_h2_section so the proof
+  // ledger's diff-in-diff priors learn full-rebuild wins/losses separately
+  // from single-lever edits. generatorActive: false — always operator-
+  // triggered (see rewrite-page.ts), never a nightly auto-generator.
+  "full_rewrite",
   "add_table",
   "edit_table_row",
   "add_answer_block",
@@ -279,6 +288,18 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Rewrite FAQ",
+    generatorActive: false,
+  },
+  full_rewrite: {
+    actionType: "full_rewrite",
+    // Targets an arbitrary h2-delimited section (replace_section, keyed by
+    // the "section:<heading>" element key at push time, same as add_h2_section).
+    elementTypeDomain: ["h2"],
+    signalType: "content",
+    requiresCurrentText: true,
+    requiresProposedText: true,
+    changelogAssetType: "service_page",
+    operatorLabel: "Rewrite page section (agentic)",
     generatorActive: false,
   },
   add_table: {

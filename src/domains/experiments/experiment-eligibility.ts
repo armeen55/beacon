@@ -35,10 +35,16 @@ export type ExperimentFamily =
   | "schema"
   | "content"
   | "new_page"
+  // BEACON 500 item 61: agentic full-page rewrites (rewrite-page.ts) are a
+  // distinct family from single-lever "content" edits so the diff-in-diff
+  // priors learn whether a full section rebuild beats a single-lever edit,
+  // instead of the two blending into one "content" prior.
+  | "full_rewrite"
   | "other";
 
 export function actionFamilyOf(actionType: string): ExperimentFamily {
   const a = (actionType || "").toLowerCase();
+  if (/full_rewrite/.test(a)) return "full_rewrite";
   const hasTitle = /title/.test(a);
   const hasMeta = /meta|description/.test(a);
   if (hasTitle && hasMeta) return "title_meta";

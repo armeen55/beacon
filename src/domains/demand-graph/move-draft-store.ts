@@ -39,7 +39,15 @@ export type MoveDraftKind =
   // BEACON 500 item 55: the section-by-section outline-to-draft pipeline's
   // compact persisted sections (title/meta/faq stay in create_page_brief;
   // this row is only the drafted sections array, kept under the 12k cap).
-  | "full_page_draft";
+  | "full_page_draft"
+  // BEACON 500 item 61: an agentic full-page REWRITE review — the compact
+  // per-section old/new/accepted state for one page's rewrite-page.ts walk,
+  // kept under the 12k cap so the side-by-side review survives reload.
+  | "page_rewrite"
+  // BEACON 500 item 62: the entity-attribute page factory's own drafted brief
+  // for a factory candidate (keyed by the candidate's stable slug, not a real
+  // rec id — factory candidates never touch the recommendations table).
+  | "factory_page_brief";
 
 export type MoveDraftRow = {
   recId: string;

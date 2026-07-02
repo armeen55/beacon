@@ -7,6 +7,228 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 item 59 (ask-your-team chat, worktree, NOT committed)
+
+**Built:** New `src/domains/ask/` domain, deterministic-first per the plan's architecture:
+
+- `router.ts` (pure) - `routeQuestion(question)` classifies free text into one of
+  `page_specific | site_trend | ai_visibility | measurement | competitor | plan`, extracts a
+  named page path (`extractPagePath`: explicit `/slug`, "the X page", "X page's", or "on X"
+  with a stop-word guard), and maps each class to the real teammate who owns it (gsc/profound/
+  dataforseo/proof/llm) via `TeammateKey` from `team/identity.ts`.
+- `fact-assembly.ts` - `assembleAskDossier(routed)` builds a bounded (max 10), fail-soft, $0
+  dossier per class by composing ONLY existing loaders, never new query logic: page questions
+  reuse `loadPageDossier` (item 54's `/page` composition loader) wholesale; site-trend reads
+  `loadDailyTotalsForTenant` + `detectChangepoints` (item 32's CUSUM detector); ai_visibility and
+  competitor read `getAnswerIntelligenceIndex`'s brand-positioning/co-citation sections;
+  measurement reads `loadProofLedgerCached`; plan reads `getAcceptedPlan`/`getLatestPreviewPlan`.
+  Every fact is `{value, source, href}`; every loader call is individually try/caught so one
+  source failing never blanks the others (mirrors `page-dossier-data.ts`'s own discipline).
+- `composer.ts` - `composeAskAnswer(question, dossier)` calls the budget-gated
+  `callStructuredLLM` (a new `ask_answer` Zod schema registered in `llm/schemas.ts`, reusing the
+  SAME numeric-fidelity/placeholder/dash/superlative firewall every other structured draft
+  passes through in `structured-drafter.ts`) and falls back to `fallbackAnswer` (a deterministic
+  template built directly from the top facts) whenever the LLM is off, over budget, or fails
+  validation twice. An extra guard drops any `citedFacts` entry whose href was not actually
+  provided in the dossier (never surface a fabricated link).
+- `history-store.ts` - `appendAskHistory`/`loadAskHistory`, the registered + Supabase-mirrored +
+  capped (`MAX_HISTORY = 50`) append-only Q+A history, following the exact
+  `strategy-mix-store.ts`/`adjudicator-history.ts` sibling pattern (`readStore`/`writeStore` from
+  `json-store.ts`). Registered `ask-history` in `store-classification.ts` (TENANT_SCOPED_STORES)
+  and `json-store.ts` (SUPABASE_MIRRORED_STORES).
+- `suggested-questions.ts` - `loadSuggestedQuestions()` derives up to 3 example questions from
+  the same live loaders (a real changepoint date, a real displacing competitor), padded with
+  generic fallbacks so the row is never empty.
+- `/ask` route (`src/app/(shell)/ask/`): `page.tsx` (server, loads history + suggestions),
+  `ask-actions.ts` (`askQuestionAction` server action: route -> assemble -> compose -> persist,
+  tenant always from `currentTenantId()`, never client input), `ask-chat-client.tsx` (client chat
+  UI: input, teammate-identity chip bubbles matching `team-standup.tsx`'s exact styling
+  convention, cited-fact links underneath each answer). Nav link added to
+  `src/lib/navigation.ts` next to Today/Changes/Results.
+
+**Tests:** 54 new tests, all green - `router.test.ts` (19: extraction matrix + class-priority
+matrix incl. page-wins-over-trend, stop-word guards, empty-input safety), `fact-assembly.test.ts`
+(14: one test per class's happy path + empty path + fail-soft-on-throw, plus a facts-capped-at-10
+bound), `composer.test.ts` (10: fallback shape, LLM-success shape, LLM-off fallback,
+budget-blocked fallback, **numeric-fidelity firewall pin** - an invented 87%/"manual Google
+penalty" claim is rejected and falls back, a fabricated-href citedFacts entry is dropped),
+`history-store.test.ts` (7: round-trip, newest-first ordering, MAX_HISTORY cap, TENANT_SCOPED +
+Supabase-mirror registration pins, fail-soft on read/write rejection), `suggested-questions.test.ts`
+(4: always-3-questions floor, real-changepoint surfacing, real-competitor surfacing, fail-soft on
+both loaders rejecting). Updated `tests/architecture/customer-nav-exposure.test.ts` (Invariant 1)
+to include `/ask` in the expected sidebar set, per that test's own instruction to update it in the
+same commit as an intentional customer-surface widening. Full targeted sweep (`src/domains/ask` +
+`src/app/(shell)/ask` + the nav-exposure test + `llm/schemas.test.ts` + `src/lib/persistence` +
+`tests/lib/persistence`): 200 tests, all green. `npm run typecheck`: 0 errors in every file this
+item touched (one pre-existing, unrelated `TS2556` failure in `src/domains/page-factory/
+production-line.test.ts` remains from another item's concurrent in-flight work in this shared
+worktree - confirmed via `git status` that the file is untracked/not authored by this item and
+predates this session; not this item's ownership). No full suite run per the operator's standing
+CI-minutes directive (targeted only).
+
+**Ground-truthed live on Iranopedia** (`tenant-iranopedia`, real `gpt-5-mini` calls, roughly a
+cent total across a few runs, no store writes from the probe): asked "why did clicks drop in
+early June" through the real pipeline (`routeQuestion` -> `assembleAskDossier` ->
+`composeAskAnswer`, no mocks). Routed to `site_trend`. Assembled 4 real facts: `848` sitewide
+clicks over the last 7 reported days (`+6%` vs. the prior 7 days' `803`), and two real
+CUSUM-detected changepoints - a sustained `56%` drop starting `2026-06-02` and a `52%` drop
+starting `2026-06-05`, both correctly flagged as lining up with a possible Google algorithm
+shift (consistent with the item-32 algorithm-weather finding of a real clicks shock in that
+window). The LLM composed a grounded, fully-cited answer naming both real dates, both real
+magnitudes, and the real recovery figure, honestly stating it could not confirm the exact
+technical cause beyond the correlation. **Found and fixed a real bug during this live run:** the
+first version of the fact-list prompt format wrapped each fact's source in `[brackets]` (e.g.
+`[gsc] Sitewide clicks...`), and the model naturally echoed that bracketed prefix into
+`citedFacts[].fact` when copying "verbatim" - tripping the shared placeholder firewall
+(`/\[[^\]]*\]/` in `structured-drafter.ts`) and causing a spurious fallback on roughly half of
+runs even though the underlying answer was fully grounded and correct. Fixed by reformatting the
+fact list from `N. [source] TEXT (source: href)` to plain `TEXT | HREF` with an explicit
+no-brackets instruction in the system prompt; verified 2-for-2 clean LLM answers (no fallback)
+after the fix. This is now the byte-identical prompt shipped in `composer.ts`.
+
+---
+
+## 2026-07-02 - BEACON 500 item 60 (clone-and-beat briefs, candidate factory, worktree, NOT committed)
+
+**Built:** `src/domains/serp/money-pages.ts` (new, pure) - aggregates the SAME `ranked_keywords` /
+`domain_intersection` rows the item 16 keyword-gap engine already pulls ($0 marginal) into
+traffic-weighted competitor "money pages": groups by ranking URL (a new `rankingUrl` field parsed
+onto `KeywordGapRow` in `dataforseo-labs.ts`, from `serp_item.url`), sums `volume * winnability(rank)`
+per URL (reusing `keyword-gaps.ts`'s existing CTR-decay curve as the traffic proxy, since DataForSEO
+never reports real traffic for a page that is not the tenant's own), bounded to the top 20 per
+competitor domain. `src/domains/serp/clone-brief.ts` (new, pure) - builds the "their best page, our
+better version" brief from one money page + its teardown facts (the EXISTING, untouched
+`competitor-page-audit.ts` engine) + the tenant's owned-topic labels: their structure (`whatWins`,
+called through only when facts are real, never on the dash-producing null-facts branch), the demand
+they capture (top 5 keywords + volumes), the coverage gap vs owned pages (`computeCoverageGaps`,
+reusing `relevance-gate.ts`'s `topicTokens` distinguishing-token filter so generic brand words never
+count as a gap), and a "build our better version" pointer feeding create-page candidates the same way
+keyword-gap cards already do. `src/domains/serp/clone-brief-store.ts` (new) - persistence, same shape
+as `keyword-gap-store.ts` (one row per tenant, 30d staleness, capped at 25). `keyword-gap-producer.ts`
+extended additively: after computing gaps, labels each with item 18's `computeWinnability` from a
+CACHED-ONLY difficulty read (`applyWinnabilityToGaps`, $0, honest labeling - a "reject" gap still
+shows, never silently dropped), then aggregates money pages from the same rows and runs up to
+`MAX_BRIEF_TEARDOWNS` (5) bounded, polite, cache-aware teardowns (reuses the fresh 14d
+`competitor-page-audit` cache when present, else one `auditCompetitorPage` fetch per URL - never a
+paid API). `/competitors` gets a new "Their best pages, and how we would beat them" card section
+(`CloneBriefCards`/`CloneBriefsBody` in `page.tsx`) reading the new store at $0, under the existing
+gap-engine trigger; the existing "Find what competitors rank for" button's run now also builds briefs,
+no new button. Registered `clone-brief-results` in `store-classification.ts` (GLOBAL_STORES) and
+`json-store.ts` (SUPABASE_MIRRORED_STORES) so hosted prod persists it.
+
+**Tests:** 45 new/updated tests, all green - `money-pages.test.ts` (11: URL-less rows skipped, junk
+rows dropped, weighted sum math, duplicate-keyword best-rank-wins, per-domain top-20 cap independent
+across competitors, top-10 keywords-per-page cap, `pickTeardownTargets` bounding). `clone-brief.test.ts`
+(13: coverage-gap token diff, torn-down/blocked/not-read/fetch-failed honesty, build-pointer reasoning,
+dash guard across every teardown-status branch). `clone-brief-store.test.ts` (5: round-trip, one-row-
+per-tenant, 25-cap, 30d staleness, fail-soft). `keyword-gap-producer.test.ts` (+7: money pages found
++ bounded briefs with no extra Labs calls, fresh-cache reuse skips re-fetch, cached-difficulty
+winnability labeling incl. an honestly-unlabeled gap, never-drops-a-gap pin, brief-build failure
+fail-soft, dash guard on brief summaries). `keyword-gaps.test.ts` (+4: `applyWinnabilityToGaps` labels
+from cache / stays null when uncached / never drops / dash guard). `dataforseo-labs.test.ts` (updated:
+`rankingUrl` parsed from both nested and flattened `serp_item.url`). A real dash bug was caught and
+fixed by the new tests: `whatWins(null)` returns a bare em dash by (pre-existing, untouched) design in
+`competitor-page-audit.ts`; the producer now only calls it when `facts` is non-null, never inheriting
+that violation. `npm run typecheck` - 0 errors (confirmed by isolating one pre-existing, unrelated,
+in-progress-elsewhere `page-factory/production-line.test.ts` TS2556 via `git stash` - not in item 60's
+ownership and not touched).
+
+**Ground-truth (real Iranopedia, forced dry-run + cached-only, per the gate):** Queried prod Supabase
+`json_store_blobs` directly - `dataforseo-labs-cache` and `keyword-gap-results` have ZERO rows for
+every tenant (the Labs-based keyword-gap engine, items 16/18, has never actually been clicked live
+against real DataForSEO). A forced-dry-run probe (`DATAFORSEO_DRY_RUN=true` before any import) against
+`tenant-iranopedia` correctly reported `status: dry_run`, `$0.00` spent, competitors
+`persiscollection.com, eavartravel.com, surfiran.com` (from the real demand graph's citation evidence),
+0 money pages, 0 briefs - honest, not an error, since there is no cache to reuse. Proved the
+brief-building half against REAL data instead: 45 real `competitor-page-audit` teardown rows exist in
+prod Supabase for `tenant-iranopedia` (fetched 2026-07-01). Ran the real, unmodified
+`aggregateMoneyPages` + `buildCloneBrief` functions against the real teardown facts for
+`mypersiancorner.com/farsi-persian-iranian-a-brief-guide-to-terminology/` (title "Farsi? Persian?
+Iranian?: A Brief Guide to Terminology", 732 words, has FAQ, `whatWins()` = "FAQ · answer block · 12
+schema type(s) · 732 words · interactive tool · 16 images · strong internal linking · dated/fresh")
+paired with one fabricated `KeywordGapRow` standing in for the not-yet-run Labs pull (clearly labeled
+as fabricated, since Labs has never returned real rows for this or any tenant). Output: a real,
+dash-clean brief - `trafficWeight: 612`, `summary`: "mypersiancorner.com earns an estimated 612
+traffic-weighted points from this one page, led by 'farsi vs persian difference' at about 720 searches
+a month. Their page wins on FAQ · answer block · 12 schema type(s) · 732 words · interactive tool · 16
+images · strong internal linking · dated/fresh. We have no page covering brief, terminology, corner
+yet, that is our opening." **Caveat found (spun off, not fixed here - out of item 60's ownership):**
+the real page's `topTerms` (an existing, untouched field on `competitor-page-audit.ts`) leaked
+boilerplate/site-name tokens ("corner", "brief", "not") into the coverage-gap list; flagged as a
+background task against `extractCompetitorFacts`'s stopword handling, not a bug in the new item 60
+code, which only consumes what that function already provides. The next real click of "Find what
+competitors rank for" (operator-triggered, ~$0.66, cost ceiling unchanged since teardowns ride the
+free polite fetcher) will populate real money pages end to end.
+
+**Not done / deferred:** no live Labs data exists yet for any tenant, so the actual list of real
+traffic-weighted money pages and a Labs-sourced brief remain unseen until the operator clicks the
+button for real (documented in the master plan entry, not hidden).
+
+---
+
+## 2026-07-02 - BEACON 500 item 61 (agentic full-page rewrites, worktree, NOT committed)
+
+**Built:** `src/domains/llm/rewrite-page.ts` (new walker, mirrors item-55's `draft-full-page.ts`):
+rewrites the CURRENT page's h2 sections one at a time, grounded on each section's own old body text
+plus GSC demand + any competitor/fanout facts supplied, through the same `callStructuredLLM("section_draft")`
++ shared numeric-fidelity firewall + `evaluateSectionDraftQuality` (item 55's section gate) pipeline.
+Retries once on a regeneratable quality failure; on a second failure KEEPS THE ORIGINAL TEXT VERBATIM
+(never a fabricated stub - a rewrite is only ever an improvement or a no-op, never new invented text).
+Review surface: `src/app/(shell)/page/[...path]/dossier-rewrite.tsx` (client) + `page-rewrite-actions.ts`
+(server actions: generate, load-saved, stage-accepted) mounted on the page dossier (item 54's `/page/[...path]`
+route, the cheapest existing mount with per-page evidence already loaded). Per-section accept/reject
+checkboxes; "Publish accepted sections" stages ONLY the checked sections through `executePush`'s existing
+`replace_section` body-push route (`target_element_key: "section:<heading>"`), so every push still runs
+the Ritz hard-block, publish-permission check, armed-mode check, wix_cms-target check, daily cap,
+pre-push snapshot (revertible), and never-wipe guard - no new write path, pure composition. Persistence:
+`move_drafts` kind `page_rewrite` (new `MoveDraftKind` member, compact per-section old/new/kept-reason
+JSON under the 12k cap) so the review survives reload, keyed `page-rewrite:<path>`. New `full_rewrite`
+`ActionType` (registry entry, `generatorActive: false` - always operator-triggered) and a distinct
+`full_rewrite` `ExperimentFamily` (was previously folded into the generic `content` regex match) so the
+diff-in-diff ledger's learned priors separate "full section rebuild" outcomes from "single-lever edit"
+outcomes, per the item's requirement. On any successful section publish, calls the existing
+`autoRecordShippedChangeForRec` with `actionType: "full_rewrite"` so measurement/hold/learning start
+automatically, exactly like every other ship path.
+
+**Tests:** `src/domains/llm/rewrite-page.test.ts` (19 tests) - one-rewrite-per-current-section, cap at
+`MAX_REWRITE_SECTIONS`, grounds on the section's own old body text, honest "no body text on file" prompt
+branch, ORIGINAL-KEPT-ON-FAILURE pin (exact old text preserved, never a stub sentence), numeric-fidelity
+firewall reject (invented stat with no basis in old text/grounding -> kept original) and allow (a number
+already in the old text may be restated), budget-fail-closed (LLM never called, every section kept
+original) and provider-off (byte-identical originals), assembleRewrite old!==new/keptReason shape, dash
+guard, persistence round-trip. `page-rewrite-actions.test.ts` (18 tests) - operator gate on generate/load/
+stage, budget/off reason pass-through, ACCEPTED-ONLY STAGING PIN (only the sections passed as `accepted`
+call `executePush`, confirmed via the exact `target_element_key`/`proposed_text`/`action_type` on the call),
+one section's refusal never blocks another's push, RITZ REGRESSION (refuses before any `executePush` call
+when tenant is `RITZ_TENANT_ID`, receipt says "advise mode"), armed-publish rails gating (staged-not-armed,
+no publish permission, non-wix_cms target each independently refuse with zero pushes), ENROLLMENT PIN
+(`autoRecordShippedChangeForRec` called with `actionType: "full_rewrite"` only when >=1 section actually
+published, never called on a total refusal), dash guard on every receipt/refusal reason. Existing shared
+files touched (registry/family/exhaustive-switch additions) verified still green: `action-types.test.ts`,
+`recommendation-action-rows.test.ts`, `experiment-eligibility.test.ts`, `family-win-propagation.test.ts`,
+`run-strategy-review.test.ts`, `refresh-surface-pins.test.ts`, `proof-history-voice.test.ts`,
+`draft-full-page.test.ts`, `draft-quality.test.ts`, `body-merge.test.ts` (206 tests / 10 files, all pass).
+`npm run typecheck`: 0 errors from this item's changes (one pre-existing unrelated error in
+`src/domains/page-factory/production-line.test.ts`, an untracked file from concurrent item-62 work in
+this shared worktree - outside this item's ownership, not touched). No full suite run (targeted sweep
+per the CI-minutes rule); no git add/commit per the gate.
+
+**Ground-truthed live on Iranopedia** (`tenant-iranopedia`, real `gpt-5-mini` call via
+`BEACON_LLM_PROVIDER=openai`, NO publish - read-only probe script, deleted after the run): rewrote 4 h2
+sections of `https://iranopedia.com/persian-male-names` (a name-index page) for a total of $0.0025 (well
+under the $0.03-0.06 budget target). Honest quality read: every section stayed grounded (no invented
+numbers beyond the injected GSC stat), carried real sources, had no em/en dashes, no content-plan
+language, and correctly passed the quality gate as genuinely copyable text - but the rewrites were
+repetitive/generic across sibling name entries and the walker mis-scoped the page-level GSC stat
+("52,735 impressions... in the last 90 days") into one individual name's opening sentence, because this
+page's h2 headings are per-name list entries with almost no distinguishing old body text to rewrite
+against. No hard rule was violated; the finding is that name-index-style pages are a poor fit for
+section-level rewriting, while a page with real narrative h2 sections (e.g. a Nowruz/Sofreh Aghd
+explainer) would exercise the "sharpen the existing prose" grounding as intended. Recommended next
+verification: run against a narrative page before the first operator-facing publish.
+
+---
+
 ## 2026-07-02 - BEACON 500 items 44+45 (body-push idempotency gap-fix + Wix deep links, worktree, NOT committed)
 
 **Item 44 verification (VERIFY-AND-CLOSE):** the master-plan ask predates wave 1 item 2, which already
@@ -30216,3 +30438,13 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **Verified:** `npm run typecheck` 0 errors (repo-wide, no pre-existing errors left over from this work). 144 targeted tests green across 12 files (`chunker.test.ts` 13, `retrieval-budget.test.ts` 15, `embeddings.test.ts` 17, `build-index.test.ts` 10, `retrieve.test.ts` 15, `citation-likelihood.test.ts` 13, `retrieval-twin-action.test.ts` 4, plus the pre-existing `daily-evidence-brief.test.ts` 36 and `llm-safety-invariants.test.ts` suites re-verified green). No full suite run (per the CI-minutes conservation rule) - only targeted files plus the architecture pin. Did not touch `build-today-preview.ts`, `move-router.ts`, `daily-experiment-planner.ts`, or `team-standup.tsx` (all actively owned by a concurrent agent this session per `git status`); my only shared-file edits were purely additive (new type, new function, new import line, new store-classification entry, new allowlist entry).
 
 **Honest caveats:** no fanout/tracked-prompt data is synced for tenant-iranopedia yet (`profound_fanout_rows` reads 0 rows; a differently-named `profound_query_fanout_rows` table has 1309 rows but is not what `load-fanout-seeds.ts` reads - a pre-existing naming mismatch unrelated to this work, left untouched per scope), so every real report above used the GSC-query fallback, never the fanout path - the fanout branch is unit-tested but not yet exercised against live data. The daily-card evidence line (`EvidenceRetrieval`) is wired at the type/pure-function layer only; the actual per-page report has to be precomputed and read cheaply for `build-today-preview.ts` to surface it, which needs a small caching layer this slice didn't build (the operator action currently reports one example page per index run, not a report per every daily-card pick).
+
+## 2026-07-02 - Item 62: the entity-attribute page factory becomes a governed weekly production line
+
+**Built:** `src/domains/page-factory/production-line.ts` (new) - the chain runner: loads factory candidates via the existing `loadPageCandidates`, dedupes against open demand-graph Moves and prior weeks' batches (`dedupe-candidates.ts`, new), validates demand at $0 against cached DataForSEO keyword volumes or graph demand (`validate-demand.ts`, new: pass on a strong/exact cached-keyword match >=100/mo OR a graph Move naming the same entity with fused demand >=50; a candidate with no cached keyword data at all is QUEUED for the next capped keyword batch, never rejected; a real weak/under-floor match is honestly REJECTED with an accurate reason distinguishing "under the volume floor" from "too weak a topic match"), then drafts the top `MAX_DRAFTS_PER_WEEK` (constant, 5) through the existing `draftCreatePageStructured` brief drafter -> `evaluateCreatePageBriefQuality` gate -> the item-55 `draftFullPageStructured` section walker, tracking a running cost against `WEEKLY_LLM_CEILING_USD` (0.30) that fail-closed stops calling the drafter once reached (remaining candidates requeue for next week, never dropped). Every result is fail-soft per candidate (a thrown brief/page draft never blocks the rest of the batch) and the whole run is idempotent per (tenant, weekOf) via a new `src/domains/page-factory/batch-store.ts` (GLOBAL json-store, Supabase-mirrored, registered in `store-classification.ts` + `json-store.ts`, mirrors the `strategy-mix-store.ts`/`refresh-store.ts` sibling pattern but supports in-place per-item status mutation for the operator's approve/skip). Cron at `src/app/api/cron/page-factory/route.ts` mirrors `/api/cron/strategy-review` exactly: `CRON_SECRET` bearer guard (fail-closed), a Monday-only gate (`?force=1` escape hatch), fans out across `listTenants()`, checks `hasFactoryBatchForWeek` per tenant before running (belt-and-suspenders alongside the runner's own idempotency). Does not touch `vercel.json`. Drafted pages persist through the EXISTING `move_drafts` store (`saveMoveDraft`, kinds `create_page_brief` + `full_page_draft`, both already used by item 55) - one new `MoveDraftKind` added (`factory_page_brief`, additive, reserved for a future compact-brief-only persistence path; the runner currently reuses `create_page_brief` since `CreatePageBrief` already fits under the cap). NEVER auto-publishes: every batch item lands `status: "pending"`. New review card mounted on `/worklist` (the New Pages board's home, cheaper mount than Today): `page-factory-batch-data.ts` (loader, re-assembles the persisted brief + full-page draft from `move_drafts`), `page-factory-batch-card.tsx` (client card: per-page Approve/Skip, an expandable full-page viewer reusing the item-55 collapsible pattern, and an "I published this" confirm-URL step), `page-factory-batch-actions.ts` (server actions: approve/skip just flip the batch item's status via `updateFactoryBatchItemStatus`, no write; `confirmFactoryPagePublishedAction` is the only action that starts measurement, calling the EXISTING `autoRecordShippedChangeForRec` ship->proof bridge with its own auto-selected comparison-page set - the identical contract `markMoveAppliedAction` already uses, so Beacon still never publishes anything itself, the operator's explicit "I published this" confirmation is the only trigger).
+
+**Verified:** `npm run typecheck` 0 errors repo-wide. 86 new/targeted tests green across 6 files: `validate-demand.test.ts` (9 - cached-keyword pass, under-floor reject naming the volume, graph-demand fallback pass, graph-demand under-floor stays queued, no-cache-data queued, cache-exists-but-no-match queued, highest-demand-signal-wins on multiple graph matches, and the weak-match-above-floor honest-reason regression this run's own real-data probe caught), `dedupe-candidates.test.ts` (5 - passthrough, prior-batch slug dedupe across any status, open-Move entity dedupe, unrelated-entity keeps, cross-week slug independence), `batch-store.test.ts` (13 - registration pins for GLOBAL classification + Supabase mirror, round-trip, tenant scoping, latest-lookup, weekly idempotency refusal on a second create, history cap with per-tenant isolation, per-item status update without touching sibling items/weeks, targetUrl set alongside status, fail-soft on an unknown tenant/week/slug), `production-line.test.ts` (11 - no-candidates short-circuit, the 5/week hard cap even with 10 demand-passing candidates, under-floor rejection, no-cached-data queuing, open-Move dedupe, the cost-ceiling early stop with requeue, per-(tenant,weekOf) idempotency with the drafter called only once across two invocations, a Ritz-tenant regression documenting that staging is allowed but every item stays "pending" - the live-write Ritz block lives in `executePush`/`autoRecordShippedChangeForRec`, not this module - and fail-soft coverage for a graph-load throw and a single candidate's brief-draft throw not blocking the rest of the batch), `route.test.ts` (12 - auth 503/401 x2, Monday-only day gate with force override, per-tenant fan-out with the same weekOf, per-tenant idempotency skip, per-tenant error isolation, and a Ritz fan-out pin), plus the pre-existing `move-draft-store.test.ts` and the repo's `no-banned-dash-display-surfaces.test.ts` + `json-store-routing-invariants.test.ts` + `canonical-store-tenant-isolation.test.ts` architecture guards re-verified green (144+35 tests). No full suite run (CI-minutes conservation rule) - targeted files plus the architecture pins only. Live dev-server smoke: `/worklist` returns 200 with the expected page content and the new card self-hides cleanly (no batch generated yet for Iranopedia), confirming the full import chain (`worklist/page.tsx` -> `page-factory-batch-data.ts` -> `batch-store.ts` -> `store-classification.ts`/`json-store.ts`) compiles and executes with no runtime error.
+
+**Real batch preview (read-only $0 probe against real Iranopedia data, `scripts/_page-factory-probe.ts`, no LLM calls, nothing written):** 40 raw entity x attribute candidates, 19 survive dedupe against 227 open demand-graph Moves and 0 prior batches (first run). Against 217 fresh cached DataForSEO keyword rows: 13 candidates clear the demand floor. This week's batch (ranked, capped at 5) would be: "Flags Meaning" and "Flags Examples" (cached keyword, 135,000/mo each), "History of Persian" (graph demand 52,735), "History of Iranian" (graph demand 17,640), "History of Empire" (graph demand 13,709) - 8 more real passing candidates wait for next week under the cap. 2 candidates ("Product Examples", "Animals Examples") have no cached keyword data yet and are queued for the next keyword batch, never drafted or rejected. 4 candidates ("Product Meaning", "History of Product", "Animals Meaning", "History of Animals") were correctly rejected: the entity-attribute factory's generic "Product"/"Animals" entities only weak-matched an unrelated cached keyword ("pedar sag meaning", a real Persian phrase with no relation to "product" or "animals"), confirming the confidence-gated matcher rejects spurious matches rather than drafting off noise.
+
+**Honest caveats:** the production line's own tests inject `draftBrief`/`draftFullPage` (never call the real OpenAI API), so the $0.30/week ceiling's exact stop-point under real gpt-5-mini pricing has not been exercised end to end against a live key - the unit tests pin the requeue-on-ceiling BEHAVIOR with synthetic costs, not the real dollar amount a live 5-page week would spend (`draftCreatePageStructured` projects $0.03/brief, `draftFullPageStructured` typically far less than $0.08/page after quality-gate fallback stubs, so 5 pages should land near $0.15-0.20 in practice, under the ceiling, but this is an estimate from the existing item-55 cost model, not a fresh live run this slice paid for). The review card's "I published this" flow assumes the operator pastes the drafted content into their CMS by hand and reports the resulting URL, mirroring the New Pages board's existing paste-ready contract exactly (there is no generic Wix dynamic-page collection mapping this slice can safely auto-resolve for a brand-new page today, so `executePush`'s armed `create:<collectionId>` route is available for a future operator-driven wire-up but is not called automatically here - staying "never auto-publish" holds either way). `factory_page_brief` (the new `MoveDraftKind`) is added but currently unused by the runner (it reuses `create_page_brief`, which already fits); kept for a possible future factory-specific compact persistence path rather than removed, since the task explicitly asked for the store-registration groundwork. Did not touch `outreach`, `/ask`, `money-pages`, or `rewrite-page` (all actively owned by concurrent agents this session per `git status`).

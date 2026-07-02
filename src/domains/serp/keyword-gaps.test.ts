@@ -3,6 +3,7 @@ import {
   computeKeywordGaps,
   gapEvidenceSentence,
   pickGapCompetitorDomains,
+  applyWinnabilityToGaps,
   winnability,
   type KeywordGapRow,
 } from "./keyword-gaps";
@@ -148,5 +149,38 @@ describe("pickGapCompetitorDomains", () => {
     expect(pickGapCompetitorDomains([], "iranopedia.com")).toEqual([]);
     const many = Array.from({ length: 8 }, (_, i) => move([`https://comp${i}.com/page`]));
     expect(pickGapCompetitorDomains(many, "iranopedia.com", 3)).toHaveLength(3);
+  });
+});
+
+describe("applyWinnabilityToGaps - item 60's honest labeling (cached-only, never drops)", () => {
+  it("labels a gap with a real difficulty score from the cache", () => {
+    const gaps = computeKeywordGaps({ rows: [row({ keyword: "persian calligraphy art" })] });
+    const labeled = applyWinnabilityToGaps(gaps, new Map([["persian calligraphy art", 90]]));
+    expect(labeled[0].winnability?.band).toBe("reject");
+    expect(labeled[0].winnability?.sentence).toContain("difficulty");
+  });
+
+  it("leaves winnability null (not rejected) when the keyword was never cached", () => {
+    const gaps = computeKeywordGaps({ rows: [row({ keyword: "qanat system" })] });
+    const labeled = applyWinnabilityToGaps(gaps, new Map());
+    expect(labeled[0].winnability).toBeNull();
+  });
+
+  it("never drops a gap, even a reject-band one - labeling only", () => {
+    const gaps = computeKeywordGaps({
+      rows: [row({ keyword: "topic a" }), row({ keyword: "topic b" })],
+    });
+    const labeled = applyWinnabilityToGaps(gaps, new Map([["topic a", 95], ["topic b", 10]]));
+    expect(labeled).toHaveLength(2);
+    expect(labeled.find((g) => g.keyword === "topic a")?.winnability?.band).toBe("reject");
+    expect(labeled.find((g) => g.keyword === "topic b")?.winnability?.band).toBe("winnable");
+  });
+
+  it("winnability sentences NEVER contain an em or en dash (hard rule)", () => {
+    const gaps = computeKeywordGaps({ rows: [row({ keyword: "topic a" }), row({ keyword: "topic b" })] });
+    const labeled = applyWinnabilityToGaps(gaps, new Map([["topic a", 95], ["topic b", 40]]));
+    for (const g of labeled) {
+      if (g.winnability) expect(/[–—]/.test(g.winnability.sentence)).toBe(false);
+    }
   });
 });

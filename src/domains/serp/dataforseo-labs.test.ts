@@ -35,7 +35,7 @@ const RANKED_BODY = {
           items: [
             {
               keyword_data: { keyword: "persian wedding sofreh", keyword_info: { search_volume: 1900, cpc: 0.42 } },
-              ranked_serp_element: { serp_item: { rank_group: 3, rank_absolute: 4 } },
+              ranked_serp_element: { serp_item: { rank_group: 3, rank_absolute: 4, url: "https://supplehomes.com/sofreh-guide" } },
             },
             {
               keyword_data: { keyword: "no rank keyword", keyword_info: { search_volume: 10 } },
@@ -109,8 +109,10 @@ describe("parsers - lean KeywordGapRow, honest on malformed input", () => {
       ownRank: null,
       cpcUsd: 0.42,
       source: "ranked_keywords",
+      rankingUrl: "https://supplehomes.com/sofreh-guide",
     });
     expect(rows[1].competitorRank).toBe(11); // flattened serp element shape
+    expect(rows[1].rankingUrl).toBeNull(); // no url on the flattened fixture item
   });
 
   it("parseDomainIntersection maps both domains' ranks (tenant absent -> ownRank null)", () => {

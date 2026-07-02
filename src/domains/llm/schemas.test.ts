@@ -141,6 +141,7 @@ describe("SCHEMA_BY_KIND registry", () => {
     const expected: StructuredDraftKind[] = [
       "aeo_prompt_brief",
       "answer_block",
+      "ask_answer", // BEACON 500 item 59: the /ask chat's per-teammate grounded answer
       "atomic_edit",
       "batch_adjudication", // BEACON 500 item 12: the nightly final review's per-pick verdicts
       "commerce_asset",
@@ -148,6 +149,7 @@ describe("SCHEMA_BY_KIND registry", () => {
       "cro_fix",
       "experiment_plan",
       "internal_link",
+      "outreach_pitch", // BEACON 500 item 57: the get-cited/link-reclaim outreach pipeline's pitch draft
       "section_draft", // BEACON 500 item 55: one drafted section of the outline-to-draft pipeline
       "strategy_review", // BEACON 500 item 51: the weekly strategy review's lever mix + memo
       "team_verdict", // FINAL PREMIUM PLAN item 25: the strategist's grounded verdict per nightly pick

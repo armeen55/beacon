@@ -11,6 +11,7 @@ import {
   DossierHistorySection,
   DossierCurrentMoveSection,
 } from "./dossier-sections";
+import { DossierRewrite } from "./dossier-rewrite";
 
 /**
  * Per-page dossier (BEACON_500 item 54, carry-over 87) - /page/[...path]. Everything
@@ -41,6 +42,7 @@ export default async function PageDossierPage({ params }: { params: Promise<{ pa
       <Suspense fallback={<CardSkeleton />}>
         <DossierCurrentMoveSection path={path} />
       </Suspense>
+      <DossierRewrite path={path} />
       <Suspense fallback={<CardSkeleton />}>
         <DossierHistorySection path={path} />
       </Suspense>

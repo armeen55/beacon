@@ -8,6 +8,8 @@ import { loadDailyExperimentsView } from "../daily-experiments-data";
 import { DailyExperimentsSection } from "../daily-experiments-section";
 import { loadChangesView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
+import { loadFactoryBatchCardData } from "../page-factory-batch-data";
+import { PageFactoryBatchCard } from "../page-factory-batch-card";
 
 /**
  * /worklist → the canonical CHANGES list (2026-07-01 consolidation). One object, a CHANGE, across
@@ -59,6 +61,16 @@ async function DailyExperiments() {
   }
 }
 
+async function PageFactoryBatch() {
+  try {
+    const data = await loadFactoryBatchCardData();
+    if (!data) return null;
+    return <PageFactoryBatchCard data={data} />;
+  } catch {
+    return null; // fail-soft: never block the page on the batch review card
+  }
+}
+
 export default function WorklistPage() {
   return (
     <div className="max-w-5xl space-y-6">
@@ -74,6 +86,9 @@ export default function WorklistPage() {
       </Suspense>
       <Suspense fallback={null}>
         <TodayNewPagesSection enableAeoBrief />
+      </Suspense>
+      <Suspense fallback={null}>
+        <PageFactoryBatch />
       </Suspense>
     </div>
   );
