@@ -35,6 +35,14 @@ export type ExpiryForecast = {
   daysUntilExpiry: number;
   /** True at or under WARNING_THRESHOLD_DAYS (including already-expired). */
   shouldWarn: boolean;
+  /** True when a successful sync happened AFTER the computed 7-day death:
+   *  the token demonstrably survived the Testing-mode window, meaning the
+   *  OAuth app is published (or otherwise exempt) and this connection will
+   *  not die on the 7-day clock. Suppresses shouldWarn - evidence of life
+   *  beats grant-age arithmetic. This is exactly the false alarm that fired
+   *  2026-07-02 on a connection whose live card showed a successful read
+   *  3 hours earlier, 10 days after the grant. */
+  provenPublished: boolean;
 };
 
 /** PURE. Days remaining (can be negative) until the Testing-mode 7-day
@@ -54,14 +62,23 @@ export function buildExpiryForecast(
   provider: GoogleProviderKind,
   connectedAt: string,
   now: Date = new Date(),
+  lastSyncedAt?: string | null,
 ): ExpiryForecast {
   const days = daysUntilExpiry(connectedAt, now);
+  const grantMs = Date.parse(connectedAt);
+  const syncMs = lastSyncedAt ? Date.parse(lastSyncedAt) : NaN;
+  const deathMs = Number.isFinite(grantMs)
+    ? grantMs + TESTING_MODE_REFRESH_TOKEN_LIFETIME_DAYS * 24 * 60 * 60 * 1000
+    : NaN;
+  const provenPublished =
+    Number.isFinite(syncMs) && Number.isFinite(deathMs) && syncMs > deathMs;
   return {
     tenantId,
     provider,
     connectedAt,
     daysUntilExpiry: days,
-    shouldWarn: days <= WARNING_THRESHOLD_DAYS,
+    shouldWarn: !provenPublished && days <= WARNING_THRESHOLD_DAYS,
+    provenPublished,
   };
 }
 

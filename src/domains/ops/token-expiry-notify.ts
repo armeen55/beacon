@@ -85,7 +85,7 @@ async function checkOneProvider(
 
   let forecast: ExpiryForecast;
   try {
-    forecast = buildExpiryForecast(tenantId, provider, info.connected_at, now);
+    forecast = buildExpiryForecast(tenantId, provider, info.connected_at, now, info.last_synced_at ?? null);
   } catch (e) {
     log.warn("[token-expiry-notify] forecast failed", {
       tenantId,

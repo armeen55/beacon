@@ -45,6 +45,14 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
     ? [...navigationGroups, operatorNavGroup]
     : navigationGroups;
 
+  // Longest-prefix-wins active state: /settings/connectors must highlight
+  // "Connections" only, not also "Settings" (both matched under a plain
+  // startsWith and the sidebar showed two lit rows for one page).
+  const activeHref = groups
+    .flatMap((g) => g.items)
+    .filter((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)))
+    .reduce<string | null>((best, item) => (best === null || item.href.length > best.length ? item.href : best), null);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center border-b border-sidebar-border px-4">
@@ -83,10 +91,7 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
               )}
               <div className="flex flex-col gap-0.5">
                 {group.items.map((item) => {
-                  const isActive =
-                    item.href === "/"
-                      ? pathname === "/"
-                      : pathname.startsWith(item.href);
+                  const isActive = item.href === activeHref;
                   const shortcut = NAV_SHORTCUTS[item.href];
                   const badge = badges[item.href];
                   const badgeStyle = BADGE_STYLES[item.href];

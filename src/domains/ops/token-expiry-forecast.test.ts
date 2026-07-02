@@ -73,3 +73,35 @@ describe("buildExpiryWarningEmail", () => {
     expect(email.text).not.toMatch(/-\d+ days/);
   });
 });
+
+describe("provenPublished (evidence of life beats grant-age arithmetic)", () => {
+  const now = new Date("2026-07-02T20:00:00Z");
+  const grant = "2026-06-22T18:40:00Z"; // 10 days ago - past the 7-day window
+
+  it("suppresses the warning when a sync succeeded AFTER the computed death", () => {
+    const f = buildExpiryForecast("t", "google_gsc", grant, now, "2026-07-02T17:00:00Z");
+    expect(f.provenPublished).toBe(true);
+    expect(f.shouldWarn).toBe(false);
+    expect(f.daysUntilExpiry).toBeLessThan(0);
+  });
+
+  it("still warns when the last sync predates the death (no proof of life)", () => {
+    const f = buildExpiryForecast("t", "google_gsc", grant, now, "2026-06-25T00:00:00Z");
+    expect(f.provenPublished).toBe(false);
+    expect(f.shouldWarn).toBe(true);
+  });
+
+  it("still warns when lastSyncedAt is absent (unknown is not proof)", () => {
+    const f = buildExpiryForecast("t", "google_gsc", grant, now, null);
+    expect(f.provenPublished).toBe(false);
+    expect(f.shouldWarn).toBe(true);
+    const g = buildExpiryForecast("t", "google_gsc", grant, now);
+    expect(g.provenPublished).toBe(false);
+  });
+
+  it("a healthy young connection stays quiet either way", () => {
+    const f = buildExpiryForecast("t", "google_ga4", "2026-07-01T00:00:00Z", now, null);
+    expect(f.shouldWarn).toBe(false);
+    expect(f.provenPublished).toBe(false);
+  });
+});
