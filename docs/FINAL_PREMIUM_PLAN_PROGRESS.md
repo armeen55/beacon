@@ -9,7 +9,7 @@
 - [x]   6 [W2][P1/S] Countdown chips: "first read in 3 days" on every measuring item, computed from the
 - [x]   7 [W3][P2/M] A weekly recap band on Today (Mondays): "Last week: 6 shipped, 1 win (+31 clicks/mo on
 - [x]   8 [W3][P1/S] Streak + totals in the header area: "22 changes shipped in 14 days" with a small flame
-- [ ]   9 [W3][P2/S] AI-visibility mini-scoreboard: citations-over-time sparkline (profound_citation_rows
+- [x]   9 [W3][P2/S] AI-visibility mini-scoreboard: citations-over-time sparkline (profound_citation_rows
 - [x]  10 [W1][P0/S] Kill every number that appears without a trend or comparison. A bare "26,569
 - [x]  11 [W1][P0/L] One card system. Kill the inline-style objects in `daily-experiments-section.tsx`
 - [x]  12 [W1][P0/M] A real typography scale. Today almost everything is 11 to 13px gray. Define and apply:

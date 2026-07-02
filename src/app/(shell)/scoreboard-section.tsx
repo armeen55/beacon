@@ -8,6 +8,9 @@
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { buildScoreboard, type Scoreboard } from "@/domains/scoreboard/scoreboard";
+import { loadOwnCitationsByDay } from "@/domains/recommendation-intelligence/citations-daily";
+import { currentTenantSlug } from "@/lib/tenant-context";
+import { Sparkline } from "@/components/data/sparkline";
 
 const W = 720;
 const H = 170;
@@ -97,10 +100,14 @@ function Chart({ s }: { s: Scoreboard }) {
 
 export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
   try {
-    const [daily, ledger] = await Promise.all([
+    const [daily, ledger, slug] = await Promise.all([
       loadDailyTotalsForTenant(tenantId, 84),
       loadShippedChanges().catch(() => []),
+      currentTenantSlug().catch(() => ""),
     ]);
+    // Item 9 - the AI-visibility mini-scoreboard: your own domain's citations over time,
+    // next to the Google chart. Fail-soft -> band self-hides.
+    const citations = slug ? await loadOwnCitationsByDay(tenantId, slug).catch(() => ({ daily: [], total: 0 })) : { daily: [] as Array<{ date: string; clicks: number }>, total: 0 };
     const s = buildScoreboard(
       daily,
       ledger.map((r) => ({ path: r.path, shippedAt: r.shippedAt, actionType: r.actionType, verdict: r.verdict })),
@@ -129,6 +136,13 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
           <Chart s={s} />
         </div>
         <p className="mt-1 text-[13px] text-gray-600">{s.verdictLine}</p>
+        {citations.total > 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 tabular-nums">
+            <span className="font-semibold text-pink-700">AI recommended you {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} in the last 30 days.</span>
+            {citations.daily.length >= 5 ? <Sparkline points={citations.daily} width={96} height={18} className="inline-block opacity-80" /> : null}
+            <span className="text-[11px] text-gray-400">citations of your pages in AI answers, per day</span>
+          </div>
+        ) : null}
       </section>
     );
   } catch {
