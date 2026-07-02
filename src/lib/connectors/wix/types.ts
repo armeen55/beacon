@@ -63,6 +63,48 @@ export type WixUrlMapEntry = {
 };
 
 /**
+ * Body-field kinds Beacon can safely merge into (BEACON_500 item 2,
+ * 2026-07-01). The honest subset:
+ *   plain - a TEXT field holding plain prose. Fully supported.
+ *   html  - a RICH_TEXT field holding an HTML string. Fully supported.
+ *   ricos - a RICH_CONTENT field holding structured RICOS JSON. Supported
+ *           conservatively: paragraph-node prepend/append only, never a
+ *           section replace inside the structure.
+ * Anything else fails closed at merge time with a paste-it-yourself receipt.
+ */
+export const WIX_BODY_FIELD_KINDS = ["plain", "html", "ricos"] as const;
+export type WixBodyFieldKind = (typeof WIX_BODY_FIELD_KINDS)[number];
+
+export function isWixBodyFieldKind(k: unknown): k is WixBodyFieldKind {
+  return (
+    typeof k === "string" &&
+    (WIX_BODY_FIELD_KINDS as readonly string[]).includes(k)
+  );
+}
+
+/**
+ * The operator-configured descriptor of a collection's page-body field:
+ * which CMS field holds the page body, and what kind of content it stores.
+ * Optional and per collection; absent = body sections stay paste-only.
+ */
+export type WixBodyField = {
+  /** CMS field key holding the page body, e.g. "content" or "richContent". */
+  key: string;
+  kind: WixBodyFieldKind;
+};
+
+/** Narrow an unknown stored value to a valid WixBodyField, or null.
+ *  Old rows without a body field (or with a malformed one) parse to null,
+ *  which keeps their pages paste-only. Backward compatible by design. */
+export function parseWixBodyField(raw: unknown): WixBodyField | null {
+  if (raw == null || typeof raw !== "object") return null;
+  const r = raw as { key?: unknown; kind?: unknown };
+  const key = typeof r.key === "string" ? r.key.trim() : "";
+  if (key === "" || !isWixBodyFieldKind(r.kind)) return null;
+  return { key, kind: r.kind };
+}
+
+/**
  * Per-collection mapping config the operator fills on /diagnostics/wix:
  * which collections render dynamic pages, the slug field, and the URL
  * prefix the dynamic page mounts at (e.g. "/famous-iranians").
@@ -101,4 +143,15 @@ export type WixCollectionMapping = {
      */
     description?: string;
   };
+  /**
+   * OPTIONAL body-field mapping (BEACON_500 item 2, 2026-07-01): the CMS
+   * field holding the page BODY and its content kind. When set, section
+   * drafts (answer block prepended, FAQ appended, a named section
+   * replaced) become one-click pushable through the same safe rails
+   * (snapshot before write, local merge that never wipes the original,
+   * daily cap, one-click restore). UNSET by default so body pushes stay
+   * paste-only until the operator opts the collection in. Per-tenant,
+   * operator-derived; slug-ish keys are refused at resolution.
+   */
+  bodyField?: WixBodyField;
 };

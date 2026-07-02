@@ -15,14 +15,14 @@ import "server-only";
  */
 
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { wixQueryAllDataItems, type WixDeps } from "./client";
+import { isProtectedUrlField, wixQueryAllDataItems, type WixDeps } from "./client";
 import {
   getWixCollectionConfig,
   saveWixCollectionConfig,
   getWixUrlMap,
   writeWixUrlMap,
 } from "./mappings-store";
-import type { WixUrlMapEntry } from "./types";
+import { isWixBodyFieldKind, type WixBodyField, type WixUrlMapEntry } from "./types";
 
 // Phase 1 (2026-06-16, MAX_SEO_AEO audit P0 #1): the Wix collection config +
 // url map moved out of the ephemeral file store into durable, tenant-scoped
@@ -96,6 +96,46 @@ export async function deriveWixContentFieldKey(
   const field = mapping?.contentFieldRoles?.[role]?.trim();
   if (!field) return null;
   return `field:${field}`;
+}
+
+/** A page URL resolved all the way to a writable body field: the CMS item
+ *  that renders it plus the collection's body-field descriptor. */
+export type ResolvedWixBodyField = {
+  entry: WixUrlMapEntry;
+  bodyField: WixBodyField;
+};
+
+/**
+ * Resolve a page URL to its CMS item AND the collection's configured body
+ * field (BEACON_500 item 2, 2026-07-01). This is what lets an approved
+ * answer-block or FAQ draft ship as an applied body edit instead of a
+ * paste chore.
+ *
+ * Returns null (the card stays paste-only, today's behavior) when:
+ *   - the URL isn't a mapped Wix CMS item (run the url-map sync), OR
+ *   - the matched collection has no bodyField configured, OR
+ *   - the configured key is empty, slug-ish or URL-bearing (never a
+ *     body target; Invariant 3: no URL changes), OR
+ *   - the configured kind isn't one Beacon can merge safely.
+ *
+ * Per-tenant + operator-derived (no hardcoding): the field comes only
+ * from the tenant's own collection config, empty by default.
+ */
+export async function resolveWixBodyFieldForUrl(
+  targetUrl: string,
+): Promise<ResolvedWixBodyField | null> {
+  const entry = await resolveWixItemForUrl(targetUrl);
+  if (entry == null) return null;
+  const config = await getWixCollectionConfig();
+  const mapping = config.find(
+    (m) => m.dataCollectionId === entry.dataCollectionId,
+  );
+  const body = mapping?.bodyField;
+  if (body == null) return null;
+  const key = body.key.trim();
+  if (key === "" || isProtectedUrlField(key)) return null;
+  if (!isWixBodyFieldKind(body.kind)) return null;
+  return { entry, bodyField: { key, kind: body.kind } };
 }
 
 export type SyncWixUrlMapResult = {

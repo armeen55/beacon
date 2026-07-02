@@ -81,6 +81,15 @@ const DISPLAY_SURFACES = [
   "src/components/today/today-visibility-snapshot.tsx",
   "src/components/today/visibility-leaderboard.tsx",
   "src/components/today/visibility-score-chart.tsx",
+  // 2026-07-01 item 3: the honest dollar pipe. Every surface that words a
+  // dollar number (basis labels, money line, settings card) locked here.
+  "src/app/(shell)/scoreboard-section.tsx",
+  "src/app/(shell)/settings/config/revenue-model-card.tsx",
+  "src/domains/scoreboard/scoreboard.ts",
+  "src/domains/revenue/compute-unit-economics.ts",
+  "src/domains/revenue/load-revenue.ts",
+  "src/lib/connectors/adnetwork/types.ts",
+  "src/lib/connectors/adnetwork/registry.ts",
 ];
 
 describe("no banned dash in display surfaces (hard rule)", () => {

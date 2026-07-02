@@ -25,9 +25,10 @@ import {
   isProtectedUrlField,
 } from "@/lib/connectors/wix/client";
 import { suggestCollectionMapping } from "@/lib/connectors/wix/suggest-mapping";
-import type {
-  WixCollectionMapping,
-  WixDiscoveredCollection,
+import {
+  parseWixBodyField,
+  type WixCollectionMapping,
+  type WixDiscoveredCollection,
 } from "@/lib/connectors/wix/types";
 
 const ROUTE = "/diagnostics/wix";
@@ -101,12 +102,17 @@ export async function saveWixMappings(formData: FormData): Promise<SaveWixMappin
           contentFieldRoles = roles;
         }
       }
+      // Body-field publishing (BEACON 500 item 2): pass through the optional
+      // bodyField descriptor ({ key, kind: plain|html|ricos }) so section
+      // drafts (answer blocks, FAQs) become one-click applicable per collection.
+      const bodyField = parseWixBodyField(m.bodyField);
       rows.push({
         dataCollectionId: m.dataCollectionId,
         slugField: m.slugField,
         urlPrefix: m.urlPrefix,
         ...(typeof m.labelField === "string" ? { labelField: m.labelField } : {}),
         ...(contentFieldRoles != null ? { contentFieldRoles } : {}),
+        ...(bodyField != null ? { bodyField } : {}),
       });
     }
   }

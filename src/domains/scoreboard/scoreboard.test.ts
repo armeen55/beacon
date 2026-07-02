@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildScoreboard, type ScoreboardDay, type ScoreboardLedgerRow } from "./scoreboard";
+import {
+  buildMoneyLine,
+  buildScoreboard,
+  type ScoreboardDay,
+  type ScoreboardLedgerRow,
+  type ScoreboardRevenueDay,
+} from "./scoreboard";
 
 const NOW = new Date("2026-07-01T12:00:00.000Z");
 
@@ -69,5 +75,64 @@ describe("buildScoreboard", () => {
     const s = buildScoreboard(days(28, (i) => i), [row({})], NOW)!;
     expect(/[–—]/.test(s.verdictLine)).toBe(false);
     for (const m of s.markers) expect(/[–—]/.test(m.label)).toBe(false);
+  });
+});
+
+describe("buildMoneyLine (item 3, the honest dollar sentence)", () => {
+  const revDay = (over: Partial<ScoreboardRevenueDay>): ScoreboardRevenueDay => ({
+    day: "2026-06-30",
+    revenueUsd: 10,
+    sources: ["unit_economics"],
+    ...over,
+  });
+  const week = (revenue: number, sources: string[]): ScoreboardRevenueDay[] =>
+    Array.from({ length: 7 }, (_, i) =>
+      revDay({ day: `2026-06-2${i + 1}`, revenueUsd: revenue, sources }),
+    );
+
+  it("returns null with no dollars (surface degrades exactly as before)", () => {
+    expect(buildMoneyLine([])).toBeNull();
+    expect(buildMoneyLine([revDay({ revenueUsd: 0 })])).toBeNull();
+  });
+
+  it("labels unit-economics dollars as your rate x real traffic, never as measured", () => {
+    const line = buildMoneyLine(week(20, ["unit_economics"]))!;
+    expect(line).toContain("$140");
+    expect(line).toContain("your rate x real traffic");
+    expect(line).toContain("not a measured payout");
+    expect(line).toContain("about");
+  });
+
+  it("labels ad-network dollars as measured", () => {
+    const line = buildMoneyLine(week(20, ["ad_network"]))!;
+    expect(line).toContain("$140");
+    expect(line).toContain("measured by your ad network");
+    expect(line).not.toContain("about");
+  });
+
+  it("discloses a mixed basis when both kinds exist in the window", () => {
+    const line = buildMoneyLine([
+      ...week(10, ["unit_economics"]).slice(0, 4),
+      ...week(10, ["ad_network"]).slice(4),
+    ])!;
+    expect(line).toContain("Part is measured and part is your rate x real traffic");
+  });
+
+  it("sums only the last 7 days that have dollars and shows cents under $100", () => {
+    const many = [
+      revDay({ day: "2026-06-01", revenueUsd: 999 }), // outside the last-7-with-dollars window
+      ...week(5.5, ["unit_economics"]),
+    ];
+    const line = buildMoneyLine(many)!;
+    expect(line).toContain("$38.50");
+    expect(line).toContain("the last 7 tracked days");
+  });
+
+  it("never emits an em or en dash", () => {
+    for (const sources of [["unit_economics"], ["ad_network"], ["ad_network", "unit_economics"]]) {
+      const line = buildMoneyLine(week(12, sources));
+      expect(line).not.toBeNull();
+      expect(/[‒–—―]/.test(line!)).toBe(false);
+    }
   });
 });

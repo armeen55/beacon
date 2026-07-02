@@ -156,9 +156,36 @@ export type BuildRevertResult =
   | { ok: true; edit: RecommendedEditRow }
   | { ok: false; reason: "empty_previous_value" };
 
+/** The marker suffix buildRevertEdit stamps on a revert's ids. */
+export const REVERT_EDIT_SUFFIX = "__revert";
+
+/** True when an edit is a buildRevertEdit-produced snapshot restore (both
+ *  ids carry the marker suffix; buildRevertEdit is the only producer of
+ *  that shape). The push service uses this to relax ONLY the shrink
+ *  heuristic (a restored body is legitimately shorter than the merged
+ *  live value), never the empty-value refusal. */
+export function isSnapshotRevertEdit(
+  edit: Pick<RecommendedEditRow, "id" | "rec_id">,
+): boolean {
+  return (
+    edit.id.endsWith(REVERT_EDIT_SUFFIX) && edit.rec_id.endsWith(REVERT_EDIT_SUFFIX)
+  );
+}
+
 /**
  * Synthetic edit restoring the snapshot's previous text. Ships through
- * executePush — all caps/guards apply. Pure given its inputs.
+ * executePush, so all caps/guards apply. Pure given its inputs.
+ *
+ * BEACON_500 item 2 (2026-07-01): the revert now targets the SNAPSHOT's
+ * field explicitly (`field:<field>`) instead of inheriting the original
+ * card's target. This is what makes a BODY-section rollback correct: a
+ * body push card has no field target of its own (its action type routed
+ * it through the merge path), so a revert inheriting that shape would
+ * re-run the merge and PREPEND the old body instead of restoring it.
+ * With the explicit field target the revert flows through the plain
+ * field-write route and writes the exact prior value back. Stores
+ * product seoData snapshots keep the original card's routing (they never
+ * ship through the CMS field route).
  */
 export function buildRevertEdit(
   snapshot: PushSnapshotRow,
@@ -169,13 +196,18 @@ export function buildRevertEdit(
     return { ok: false, reason: "empty_previous_value" };
   }
   const nowIso = now.toISOString();
+  const isStoresSeoData =
+    snapshot.dataCollectionId === "Stores/Products" && snapshot.field === "seoData";
   return {
     ok: true,
     edit: {
       ...original,
-      id: `${original.id}__revert`,
-      rec_id: `${original.rec_id}__revert`,
+      id: `${original.id}${REVERT_EDIT_SUFFIX}`,
+      rec_id: `${original.rec_id}${REVERT_EDIT_SUFFIX}`,
       display_label: `Revert: ${original.display_label ?? original.why}`,
+      ...(isStoresSeoData
+        ? {}
+        : { target_element_key: `field:${snapshot.field}` }),
       current_text: original.proposed_text,
       proposed_text: snapshot.previous_text,
       why: `Operator revert of the ${snapshot.field} push on ${snapshot.target_url} (captured ${snapshot.captured_at.slice(0, 16)}Z).`,

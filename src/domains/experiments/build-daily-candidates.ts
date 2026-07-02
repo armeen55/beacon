@@ -24,6 +24,7 @@ import { proposeSafeMeta } from "./safe-meta";
 import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
 import { proposeSafeAnswerBlock, buildWrittenAnswerProposal, type SafeAnswerBlockProposal } from "./safe-answer-block";
 import type { DailyEvidenceBrief } from "./daily-evidence-brief";
+import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
 import { expectedCtrAt } from "./pick-expectations";
 
 export type PageFacts = {
@@ -90,6 +91,10 @@ export type BuiltCandidate = DailyCandidate & {
   /** R1: the specialist team's debate for this pick (named voices, objections, verdict). Attached by
    *  the caller from the page's EvidencePacket; absent when the team abstained (no packet). */
   teamReview?: import("./team-review").TeamReview;
+  /** Item 4 (AI engines nightly): this page already wins on one AI engine for a tracked question but
+   *  not on others - the change also aims at that per-engine gap. Deterministic, from the nightly
+   *  4-engine poll's diff; absent when no fresh gap touches this page. */
+  engineGap?: { promptText: string; citedEngines: string[]; missingEngines: string[] };
 };
 
 // CTR curve lives in pick-expectations (items 34/61 share it); alias keeps call sites unchanged.
@@ -207,6 +212,10 @@ export function buildDailyCandidates(input: {
    *  (build-today-preview) computes these async; a page here emits an add-a-written-answer candidate
    *  when no extractive answer exists. Omit to disable LLM answer-writing (extractive-only). */
   writtenAnswersByUrl?: Map<string, { text: string; question: string }>;
+  /** Item 4: per-page AI-engine gap notes keyed by NORMALIZED PATH (see gapPathKey in
+   *  ai-visibility/candidate-feed.ts). Bounded by the caller (max 3/night). A matching page's
+   *  candidate carries the gap + its "why now" gains the gap sentence. Omit to disable. */
+  engineGapsByUrl?: Map<string, EngineGapNote>;
   now?: Date;
 }): BuiltCandidate[] {
   const now = input.now ?? new Date();
@@ -226,6 +235,7 @@ export function buildDailyCandidates(input: {
     const proposal = chooseProposal(facts, p.topQuery, sourcePath, p.pageLabel, linkDestinations, input.writtenAnswersByUrl?.get(p.url));
     if (!proposal) continue; // nothing materially better → no candidate (honest)
 
+    const engineGap = input.engineGapsByUrl?.get(sourcePath);
     const actionFamily = actionFamilyOf(proposal.actionType);
     // Source-query ownership only gates TEXT edits (meta/title/H1 must own the query they target).
     // An internal link's ownership is the DESTINATION owning the ANCHOR - already proven by the
@@ -234,7 +244,7 @@ export function buildDailyCandidates(input: {
     const baseExternal = { ownershipUncertain: !isLink && p.ownership < 0.12, highRisk: false };
     const baseElig = assessEligibility({ url: p.url, family: actionFamily, states, external: baseExternal });
     if (!baseElig.eligible) {
-      out.push(buildCandidate(p, proposal, actionFamily, baseElig, [], baseExternal));
+      out.push(buildCandidate(p, proposal, actionFamily, baseElig, [], baseExternal, engineGap));
       continue; // kept for the planner to report as excluded
     }
 
@@ -249,7 +259,7 @@ export function buildDailyCandidates(input: {
     // selection (insufficient_controls) rather than silently shipping an unmeasurable change.
     const external = { ...baseExternal, insufficientControls: controls.length < MIN_CONTROLS };
     const elig = assessEligibility({ url: p.url, family: actionFamily, states, external });
-    out.push(buildCandidate(p, proposal, actionFamily, elig, controls, external));
+    out.push(buildCandidate(p, proposal, actionFamily, elig, controls, external, engineGap));
   }
   return out;
 }
@@ -261,17 +271,21 @@ function buildCandidate(
   elig: ExperimentEligibility,
   controls: SuggestedControl[],
   external: { ownershipUncertain?: boolean; highRisk?: boolean; insufficientControls?: boolean },
+  engineGap?: EngineGapNote,
 ): BuiltCandidate {
   const ctrOpportunityClicks = Math.max(0, expectedCtr(p.topQueryPosition) - p.topQueryCtr) * p.topQueryImpressions;
   const link = proposal.link;
   const answer = proposal.answer;
-  const whyNow = link
+  const baseWhyNow = link
     ? `This page mentions "${link.anchorText}" (a page owned by ${link.destinationLabel}) without linking to it, a ${link.relationship.replace(/_/g, " ")} link that helps both pages. This page already ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
     : answer
       ? answer.operation === "add_new_text"
         ? `People search "${p.topQuery}" (${p.topQueryImpressions} searches) but this page has no direct answer at the top. Beacon wrote one for you to review before it goes live. The page ranks #${p.topQueryPosition.toFixed(1)}, so leading with the answer should win more of those clicks.`
         : `People search "${answer.question}" and this page already answers it, but the answer is buried in paragraph ${answer.paragraphIndex + 1}. Moving that exact sentence to the top is what earns the click. It ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
       : `This page ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} searches) but only ${(p.topQueryCtr * 100).toFixed(1)}% click. The ${proposal.leverField === "meta" ? "description" : proposal.leverField} is the weak link, so a sharper one should win more of those clicks.`;
+  // Item 4: when the nightly 4-engine poll found this page cited by one AI engine but
+  // absent on others, the card says so - the change aims at that gap too.
+  const whyNow = engineGap ? `${baseWhyNow} ${engineGap.sentence}` : baseWhyNow;
   return {
     url: p.url,
     pageLabel: p.pageLabel,
@@ -297,5 +311,8 @@ function buildCandidate(
     linkDetail: link,
     answerDetail: answer,
     draftSource: proposal.draftSource,
+    engineGap: engineGap
+      ? { promptText: engineGap.promptText, citedEngines: engineGap.citedEngines, missingEngines: engineGap.missingEngines }
+      : undefined,
   };
 }

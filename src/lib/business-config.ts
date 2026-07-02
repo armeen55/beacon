@@ -56,6 +56,22 @@ export interface BusinessConfig {
     topicId?: string;
     topicLabel?: string;
   };
+  /**
+   * Revenue facts item 3 (2026-07-01) - operator-set unit economics. The
+   * nightly revenue pass multiplies these rates by REAL measured GA4
+   * traffic to write `revenue_facts` rows with source='unit_economics'.
+   * Every dollar produced this way is labeled "your rate x real traffic",
+   * never presented as a measured payout. Unset = the pass stays dormant
+   * and no estimated dollars appear anywhere.
+   *   kind 'rpm'      - content tenants: dollars earned per 1,000 sessions.
+   *   kind 'per_lead' - service tenants: dollars one lead (GA4 key event)
+   *                     is worth to the business.
+   */
+  revenueModel?: {
+    kind: "rpm" | "per_lead";
+    rpmUsd?: number;
+    dollarsPerLead?: number;
+  };
   phone: string;
   address: string;
   /** Yelp Fusion business id or alias (used by Settings → Connectors → Yelp sync). */

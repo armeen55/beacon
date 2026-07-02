@@ -7,7 +7,8 @@
  */
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
-import { buildScoreboard, type Scoreboard } from "@/domains/scoreboard/scoreboard";
+import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/scoreboard/scoreboard";
+import { loadRevenueByDayForTenant } from "@/domains/revenue/load-revenue";
 import { loadOwnCitationsByDay } from "@/domains/recommendation-intelligence/citations-daily";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { Sparkline } from "@/components/data/sparkline";
@@ -100,10 +101,12 @@ function Chart({ s }: { s: Scoreboard }) {
 
 export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
   try {
-    const [daily, ledger, slug] = await Promise.all([
+    const [daily, ledger, slug, revenueDays] = await Promise.all([
       loadDailyTotalsForTenant(tenantId, 84),
       loadShippedChanges().catch(() => []),
       currentTenantSlug().catch(() => ""),
+      // Item 3 - honest dollars from revenue_facts; fail-soft -> the line self-hides.
+      loadRevenueByDayForTenant(tenantId).catch(() => []),
     ]);
     // Item 9 - the AI-visibility mini-scoreboard: your own domain's citations over time,
     // next to the Google chart. Fail-soft -> band self-hides.
@@ -113,6 +116,9 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
       ledger.map((r) => ({ path: r.path, shippedAt: r.shippedAt, actionType: r.actionType, verdict: r.verdict })),
     );
     if (!s) return null;
+    // Item 3 - one honest money sentence. Null when no revenue_facts exist, so
+    // this section renders exactly as before for tenants without dollars.
+    const moneyLine = buildMoneyLine(revenueDays);
     const deltaTone = s.deltaPct == null ? "text-gray-500 dark:text-neutral-400" : s.deltaPct > 2 ? "text-emerald-600 dark:text-emerald-400" : s.deltaPct < -2 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400";
     return (
       <section aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900">
@@ -136,6 +142,9 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
           <Chart s={s} />
         </div>
         <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
+        {moneyLine ? (
+          <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
+        ) : null}
         {citations.total > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 dark:border-neutral-800 dark:text-neutral-300 tabular-nums">
             <span className="font-semibold text-pink-700 dark:text-pink-300">AI recommended you {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} in the last 30 days.</span>

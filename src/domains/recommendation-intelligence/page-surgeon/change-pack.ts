@@ -132,13 +132,23 @@ const CMS_FIELD_ACTIONS = new Set<ChangeArtifact["action"]>(["title", "meta", "h
 const CONTENT_BODY_ACTIONS = new Set<ChangeArtifact["action"]>([
   "intro_answer_block", "faq", "section_add", "section_remove", "section_reorder",
 ]);
+/** Body actions the push layer can now APPLY when the collection's body
+ *  field is mapped (BEACON_500 item 2): additive sections only. Removals
+ *  and reorders stay manual (Beacon never deletes live content). */
+const BODY_PUSHABLE_ACTIONS = new Set<ChangeArtifact["action"]>([
+  "intro_answer_block", "faq", "section_add",
+]);
+
+/** Honest operator copy for a one-click body-section push. */
+export const BODY_PUSH_READY_REASON =
+  "I can apply this section for you in Wix; I save the old version first and can restore it in one click.";
 
 /** Classify a single composed artifact: can the product apply it, and is its
  *  rollback real? Pure — derived from the artifact + the packet's publish channel. */
 export function classifyArtifactPushability(
   a: ChangeArtifact,
   packet: EvidencePacket,
-  opts: { mappingExists?: boolean } = {},
+  opts: { mappingExists?: boolean; bodyFieldMapped?: boolean } = {},
 ): ArtifactPushability {
   const mapped = packet.current.cmsFieldMapped; // true ⇒ wix_cms channel
   const channel = packet.current.publishChannel;
@@ -178,9 +188,28 @@ export function classifyArtifactPushability(
   }
 
   if (CONTENT_BODY_ACTIONS.has(a.action)) {
+    // BEACON_500 item 2 (2026-07-01): an ADDITIVE body section on a Wix page
+    // whose collection has a mapped body field IS one-click applicable now.
+    // The push layer snapshots the full prior body, merges locally (never
+    // wiping the original), and can restore the old version in one click.
+    if (
+      BODY_PUSHABLE_ACTIONS.has(a.action) &&
+      mapped &&
+      opts.mappingExists !== false &&
+      opts.bodyFieldMapped === true
+    ) {
+      return {
+        action: a.action,
+        method: "wix_cms_field",
+        canAutoApply: true,
+        fieldTargetKnown: true,
+        rollbackReady: true,
+        reason: BODY_PUSH_READY_REASON,
+      };
+    }
     // Reversibility: an ADD is undone by removing it; a remove/reorder by restoring.
     const rollbackReady = true;
-    return { action: a.action, method: "no_write_path", canAutoApply: false, fieldTargetKnown: false, rollbackReady, reason: "Body-content change (answer block / FAQ / section): no automated CMS writer exists yet; apply manually in the CMS. Reversible (add can be removed)." };
+    return { action: a.action, method: "no_write_path", canAutoApply: false, fieldTargetKnown: false, rollbackReady, reason: "Body-content change (answer block / FAQ / section): no automated CMS writer for this page yet; apply manually in the CMS. Reversible (add can be removed)." };
   }
 
   // internal_link, citation_source, ux_cta_fix, create_new_page → manual / out-of-band.
@@ -201,6 +230,10 @@ export type BuildChangePackInput = {
   /** Whether THIS page has a Wix url-map entry (resolved by the loader). undefined
    *  ⇒ not checked → fall back to the publish-channel inference. */
   mappingExists?: boolean;
+  /** Whether this page's collection has an operator-mapped BODY field
+   *  (BEACON_500 item 2). true ⇒ additive section drafts are one-click
+   *  applicable; undefined/false ⇒ they stay manual (today's behavior). */
+  bodyFieldMapped?: boolean;
 };
 
 /** Assemble the pack from already-composed pieces. Pure. */
@@ -210,7 +243,12 @@ export function buildAtomicChangePack(input: BuildChangePackInput): AtomicChange
     (c): c is ChangeArtifact => c != null,
   );
   const pushability = artifacts
-    .map((a) => classifyArtifactPushability(a, packet, { mappingExists: input.mappingExists }))
+    .map((a) =>
+      classifyArtifactPushability(a, packet, {
+        mappingExists: input.mappingExists,
+        bodyFieldMapped: input.bodyFieldMapped,
+      }),
+    )
     // Enforce the no-em-dash rule on the displayed pushability reasons (and, via
     // the publishBlockers below, the blocker list) at the read-path chokepoint.
     .map((p) => ({ ...p, reason: stripBannedDashes(p.reason) }));

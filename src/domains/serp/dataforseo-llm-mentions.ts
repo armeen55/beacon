@@ -41,6 +41,49 @@ const MAX_OUTPUT_TOKENS = 600;
 /** Hard ceiling on topics per run - bounds worst-case spend to 5 x $0.03. */
 const MAX_TOPICS_PER_RUN = 5;
 
+// ---------------------------------------------------------------------------
+// Engine support (2026-07-01, master plan item 4). DataForSEO exposes the
+// same llm_responses shape per engine under /v3/ai_optimization/<engine>/...
+// The chat_gpt endpoint is live-probe verified; claude/gemini/perplexity are
+// documented siblings and every one is env-overridable per engine (path AND
+// model), so a moved endpoint or renamed model is a config fix, not a deploy.
+// ---------------------------------------------------------------------------
+
+export type LlmResponsesEngine = "chat_gpt" | "claude" | "gemini" | "perplexity";
+
+const ENGINE_DEFAULT_ENDPOINT: Record<LlmResponsesEngine, string> = {
+  chat_gpt: DEFAULT_ENDPOINT,
+  claude: "https://api.dataforseo.com/v3/ai_optimization/claude/llm_responses/live",
+  gemini: "https://api.dataforseo.com/v3/ai_optimization/gemini/llm_responses/live",
+  perplexity: "https://api.dataforseo.com/v3/ai_optimization/perplexity/llm_responses/live",
+};
+
+/** Cheapest documented web-search-capable model per engine. Override with
+ *  DATAFORSEO_LLM_MODEL_<ENGINE> (e.g. DATAFORSEO_LLM_MODEL_GEMINI). */
+const ENGINE_DEFAULT_MODEL: Record<LlmResponsesEngine, string> = {
+  chat_gpt: DEFAULT_MODEL,
+  claude: "claude-3-5-haiku-20241022",
+  gemini: "gemini-2.5-flash",
+  perplexity: "sonar",
+};
+
+/** Per-engine endpoint resolution. Order: per-engine override env var
+ *  (DATAFORSEO_LLM_MENTIONS_PATH_GEMINI etc.), then - for chat_gpt only, to
+ *  preserve the original contract - the generic DATAFORSEO_LLM_MENTIONS_PATH,
+ *  then the engine default. Accepts a full URL or a /v3/... path. */
+export function resolveEngineEndpoint(engine: LlmResponsesEngine, env: NodeJS.ProcessEnv = process.env): string {
+  const perEngine = (env[`DATAFORSEO_LLM_MENTIONS_PATH_${engine.toUpperCase()}`] ?? "").trim();
+  const raw = perEngine || (engine === "chat_gpt" ? (env.DATAFORSEO_LLM_MENTIONS_PATH ?? "").trim() : "");
+  if (!raw) return ENGINE_DEFAULT_ENDPOINT[engine];
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://api.dataforseo.com/${raw.replace(/^\//, "")}`;
+}
+
+export function resolveEngineModel(engine: LlmResponsesEngine, env: NodeJS.ProcessEnv = process.env): string {
+  const override = (env[`DATAFORSEO_LLM_MODEL_${engine.toUpperCase()}`] ?? "").trim();
+  return override || ENGINE_DEFAULT_MODEL[engine];
+}
+
 export type LlmMention = {
   /** Bare hostname the answer cited, lowercased, "www." stripped. */
   domain: string;
@@ -138,8 +181,12 @@ export function parseLlmMentions(body: unknown): {
   answerText: string;
   usedWebSearch: boolean;
   actualCostUsd: number | null;
+  /** Deduped cited URLs in order of appearance (prose first, then
+   *  annotation-only). Additive (item 4): observation rows need per-citation
+   *  URLs, not just domain counts. */
+  citedUrls: string[];
 } {
-  const empty = { mentions: [], model: null, answerText: "", usedWebSearch: false, actualCostUsd: null };
+  const empty = { mentions: [], model: null, answerText: "", usedWebSearch: false, actualCostUsd: null, citedUrls: [] };
   try {
     const top = body as { cost?: unknown; tasks?: Array<{ result?: Array<Record<string, unknown>> }> };
     const result = top?.tasks?.[0]?.result?.[0];
@@ -185,7 +232,7 @@ export function parseLlmMentions(body: unknown): {
       .map(([domain, count]) => ({ domain, count }))
       .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain));
 
-    return { mentions, model, answerText, usedWebSearch, actualCostUsd };
+    return { mentions, model, answerText, usedWebSearch, actualCostUsd, citedUrls: urls };
   } catch {
     return empty; // malformed body -> empty (honest, never throws)
   }
@@ -405,4 +452,244 @@ export async function runLlmMentions(
     return { status: "capped", plan, records, costUsd, detail: `cap reached (${spent.toFixed(3)}/${cap} USD this month)` };
   }
   return { status: "error", plan, records, costUsd, detail: "all live calls failed" };
+}
+
+// ---------------------------------------------------------------------------
+// runLlmPromptResponses (2026-07-01, master plan item 4) - the engine-swap
+// runner for the nightly AI-engines poll. Same money gauntlet as
+// runLlmMentions (configured -> cache -> DRY-RUN default -> shared fail-closed
+// monthly cap re-checked before EVERY call -> fetch -> honest spend -> cache),
+// but it asks the tenant's REAL tracked prompts verbatim (not the canned
+// best-websites template) against a chosen engine (gemini / claude / ...).
+// ---------------------------------------------------------------------------
+
+export type PromptAnswerItem = {
+  /** Stable key for caching + observation identity (the library prompt id). */
+  key: string;
+  /** The exact prompt text sent to the engine, verbatim. */
+  question: string;
+};
+
+export type EnginePromptAnswer = {
+  key: string;
+  question: string;
+  engine: LlmResponsesEngine;
+  model: string;
+  /** Full answer text (extraction needs the whole thing, not an excerpt). */
+  answerText: string;
+  mentions: LlmMention[];
+  /** Deduped cited URLs in order of appearance. */
+  citedUrls: string[];
+  usedWebSearch: boolean;
+  fetchedAt: string;
+  evidenceRef: string;
+};
+
+export type EnginePromptRunResult = {
+  status: LlmMentionsRunStatus;
+  engine: LlmResponsesEngine;
+  model: string;
+  endpoint: string;
+  answers: EnginePromptAnswer[];
+  costUsd: number;
+  detail: string;
+};
+
+/** Hard per-run ceiling on prompts per engine (25 x ~$0.03 = ~$0.75/engine). */
+export const MAX_PROMPTS_PER_ENGINE_RUN = 25;
+
+/** Nightly answers cache: 20h TTL so tonight's run is a real re-ask but a
+ *  same-night retry (double cron fire, manual re-run) is served free. */
+const ENGINE_ANSWER_TTL_MS = 20 * 60 * 60 * 1000;
+const ENGINE_ANSWER_STORE = "ai-engine-answers";
+
+type EngineAnswerCacheRow = { key: string; record: EnginePromptAnswer; fetchedAt: string };
+
+const enginePollDefaultDeps: LlmMentionsRunDeps = {
+  ...defaultDeps,
+  readCache: () => readStore<CacheRow>(ENGINE_ANSWER_STORE, []),
+  writeCache: (rows) => writeStore(ENGINE_ANSWER_STORE, rows),
+};
+
+export async function runLlmPromptResponses(
+  items: PromptAnswerItem[],
+  opts: { engine: LlmResponsesEngine; model?: string; maxItems?: number },
+  depsOverride: Partial<LlmMentionsRunDeps> = {},
+): Promise<EnginePromptRunResult> {
+  const deps = { ...enginePollDefaultDeps, ...depsOverride };
+  const engine = opts.engine;
+  const endpoint = resolveEngineEndpoint(engine, deps.env);
+  const model = opts.model ?? resolveEngineModel(engine, deps.env);
+  const maxItems = Math.min(opts.maxItems ?? MAX_PROMPTS_PER_ENGINE_RUN, MAX_PROMPTS_PER_ENGINE_RUN);
+
+  // Dedupe by key, keep order, enforce the hard per-run ceiling.
+  const seenKeys = new Set<string>();
+  const cleaned: PromptAnswerItem[] = [];
+  for (const it of items) {
+    const key = it.key.trim();
+    const question = it.question.trim();
+    if (!key || question.length < 4 || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    cleaned.push({ key, question });
+    if (cleaned.length >= maxItems) break;
+  }
+
+  const base = { engine, model, endpoint };
+  if (cleaned.length === 0) {
+    return { ...base, status: "error", answers: [], costUsd: 0, detail: "no usable prompts" };
+  }
+  if (!isDataForSeoConfigured(deps.env)) {
+    return { ...base, status: "disabled", answers: [], costUsd: 0, detail: "DataForSEO not configured" };
+  }
+
+  const now = deps.now();
+  const nowMs = now.getTime();
+  const tenantId = await deps.tenantId();
+  const rowKey = (k: string): string => `${tenantId}|${engine}|${model}|${k}`;
+
+  // (2) cache - a fresh (<20h) answer for the same tenant+engine+prompt is free.
+  const cachedAnswers: EnginePromptAnswer[] = [];
+  let misses: PromptAnswerItem[] = cleaned;
+  try {
+    const rows = (await deps.readCache()) as unknown as EngineAnswerCacheRow[];
+    const fresh = new Map<string, EnginePromptAnswer>();
+    for (const r of rows) {
+      if (nowMs - Date.parse(r.fetchedAt) < ENGINE_ANSWER_TTL_MS) fresh.set(r.key, r.record);
+    }
+    misses = [];
+    for (const it of cleaned) {
+      const hit = fresh.get(rowKey(it.key));
+      if (hit) cachedAnswers.push(hit);
+      else misses.push(it);
+    }
+    if (misses.length === 0) {
+      log.info("[dataforseo-llm-responses] cache hit", { engine, prompts: cleaned.length });
+      return { ...base, status: "cache_hit", answers: cachedAnswers, costUsd: 0, detail: "served from 20h cache" };
+    }
+  } catch {
+    /* non-fatal - treat every prompt as a miss */
+  }
+
+  // (3) DRY-RUN (default ON) - report the planned spend, spend nothing.
+  if (isDryRun(deps.env)) {
+    const wouldSpend = Math.round(misses.length * LLM_MENTIONS_COST_USD * 1000) / 1000;
+    log.info("[dataforseo-llm-responses] DRY-RUN (no spend)", { engine, misses: misses.length, estCostUsd: wouldSpend });
+    return { ...base, status: "dry_run", answers: cachedAnswers, costUsd: 0, detail: `dry-run - would spend ~$${wouldSpend}` };
+  }
+
+  // (4) shared monthly cap - FAIL-CLOSED, unknown spend blocks the run.
+  const cap = monthlyCapUsd(deps.env);
+  const spent = await deps.spentThisMonthUsd(tenantId, now).catch(() => null);
+  if (spent === null) {
+    log.warn("[dataforseo-llm-responses] spend unknown - failing closed", { engine, tenantId });
+    return { ...base, status: "capped", answers: cachedAnswers, costUsd: 0, detail: "monthly spend unknown - failing closed" };
+  }
+
+  // (5) paid calls - one per uncached prompt, cap re-checked before each.
+  const liveAnswers: EnginePromptAnswer[] = [];
+  const newRows: EngineAnswerCacheRow[] = [];
+  let costUsd = 0;
+  let failures = 0;
+  let cappedMidRun = false;
+  const auth = resolveAuthB64(deps.env) ?? "";
+  const evidenceRef = `dataforseo:ai_optimization/${engine}/llm_responses`;
+
+  for (const it of misses) {
+    if (spent + costUsd + LLM_MENTIONS_COST_USD > cap) {
+      cappedMidRun = true;
+      log.warn("[dataforseo-llm-responses] monthly cap reached - stopping", { engine, tenantId, spent, costUsd, cap });
+      break;
+    }
+    try {
+      const task: Record<string, unknown> = {
+        user_prompt: it.question,
+        model_name: model,
+        max_output_tokens: MAX_OUTPUT_TOKENS,
+        web_search: true,
+      };
+      // force_web_search is a chat_gpt-only knob; sending it to sibling
+      // engines risks a 40501 unknown-field task error.
+      if (engine === "chat_gpt") task.force_web_search = true;
+
+      const res = await deps.fetchImpl(endpoint, {
+        method: "POST",
+        headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
+        body: JSON.stringify([task]),
+      });
+      if (!res.ok) {
+        failures += 1;
+        log.warn("[dataforseo-llm-responses] non-2xx", { engine, key: it.key, status: res.status });
+        continue;
+      }
+      const parsed = parseLlmMentions(await res.json());
+
+      const callCost = parsed.actualCostUsd ?? LLM_MENTIONS_COST_USD;
+      if (callCost > 0) {
+        costUsd += callCost;
+        await deps.recordSpend(tenantId, callCost).catch((err) =>
+          log.warn("[dataforseo-llm-responses] durable spend write failed (non-fatal)", { error: String(err) }),
+        );
+      }
+
+      if (!parsed.answerText) {
+        failures += 1;
+        log.warn("[dataforseo-llm-responses] empty answer (task error?)", { engine, key: it.key });
+        continue;
+      }
+      const record: EnginePromptAnswer = {
+        key: it.key,
+        question: it.question,
+        engine,
+        model: parsed.model ?? model,
+        answerText: parsed.answerText,
+        mentions: parsed.mentions,
+        citedUrls: parsed.citedUrls,
+        usedWebSearch: parsed.usedWebSearch,
+        fetchedAt: now.toISOString(),
+        evidenceRef,
+      };
+      liveAnswers.push(record);
+      newRows.push({ key: rowKey(it.key), record, fetchedAt: now.toISOString() });
+    } catch (err) {
+      failures += 1;
+      log.warn("[dataforseo-llm-responses] fetch threw (non-fatal)", {
+        engine,
+        key: it.key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Cache what we got (replace same-key rows), even on a partial run.
+  if (newRows.length > 0) {
+    try {
+      const replaced = new Set(newRows.map((r) => r.key));
+      const rows = ((await deps.readCache()) as unknown as EngineAnswerCacheRow[]).filter((r) => !replaced.has(r.key));
+      await deps.writeCache([...rows, ...newRows] as unknown as CacheRow[]);
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  const answers = [...cachedAnswers, ...liveAnswers];
+  log.info("[dataforseo-llm-responses] LEDGER", {
+    tenantId,
+    engine,
+    endpoint,
+    model,
+    requested: cleaned.length,
+    cached: cachedAnswers.length,
+    live: liveAnswers.length,
+    failures,
+    costUsd: Math.round(costUsd * 10000) / 10000,
+    cappedMidRun,
+  });
+
+  if (liveAnswers.length > 0) {
+    return { ...base, status: "ok", answers, costUsd, detail: `${liveAnswers.length} live + ${cachedAnswers.length} cached` };
+  }
+  if (cappedMidRun || spent + LLM_MENTIONS_COST_USD > cap) {
+    return { ...base, status: "capped", answers, costUsd, detail: `cap reached (${spent.toFixed(3)}/${cap} USD this month)` };
+  }
+  return { ...base, status: "error", answers, costUsd, detail: "all live calls failed" };
 }

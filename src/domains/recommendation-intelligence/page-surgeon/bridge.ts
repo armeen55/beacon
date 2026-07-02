@@ -49,19 +49,38 @@ function controlPaths(ctx: PageSurgeonContext, canon: string): string[] {
   return topPagesByDemand(ctx, 8).filter((u) => u !== canon).map(toPath).slice(0, 3);
 }
 
-/** Does this exact page have a Wix url-map entry? Drives PS8 pushability.
+/** Does this exact page have a Wix url-map entry, and does its collection
+ *  have an operator-mapped BODY field? Drives PS8 pushability + the
+ *  one-click body-section classification (BEACON_500 item 2).
  *  Returns undefined (not false) when the map is empty/unreadable — we can't
  *  tell "unsynced" from "no Wix", so we defer to the publish-channel inference
  *  rather than over-claim "blocked". Best-effort; never throws. */
-async function resolveMappingExists(pageUrl: string, canon: string): Promise<boolean | undefined> {
+async function resolveWixPushTargets(
+  pageUrl: string,
+  canon: string,
+): Promise<{ mappingExists: boolean | undefined; bodyFieldMapped: boolean | undefined }> {
   try {
-    const { getWixUrlMap } = await import("@/lib/connectors/wix/mappings-store");
+    const { getWixUrlMap, getWixCollectionConfig } = await import(
+      "@/lib/connectors/wix/mappings-store"
+    );
     const map = await getWixUrlMap();
-    if (map.length === 0) return undefined;
-    const paths = new Set(map.map((m) => toPath(m.url)));
-    return paths.has(toPath(pageUrl)) || paths.has(toPath(canon));
+    if (map.length === 0) return { mappingExists: undefined, bodyFieldMapped: undefined };
+    const entry = map.find(
+      (m) => toPath(m.url) === toPath(pageUrl) || toPath(m.url) === toPath(canon),
+    );
+    if (entry == null) return { mappingExists: false, bodyFieldMapped: false };
+    let bodyFieldMapped: boolean | undefined;
+    try {
+      const config = await getWixCollectionConfig();
+      const mapping = config.find((c) => c.dataCollectionId === entry.dataCollectionId);
+      bodyFieldMapped =
+        mapping?.bodyField != null && mapping.bodyField.key.trim() !== "";
+    } catch {
+      bodyFieldMapped = undefined;
+    }
+    return { mappingExists: true, bodyFieldMapped };
   } catch {
-    return undefined;
+    return { mappingExists: undefined, bodyFieldMapped: undefined };
   }
 }
 
@@ -96,10 +115,10 @@ export async function loadPageSurgeonForUrl(
   const bundle = composeArtifactBundle(brief.decision, packet, siteUrls, controlPaths(ctx, canon));
   const qa = qaArtifactBundle(bundle, packet, Date.now());
 
-  const [decisions, history, mappingExists] = await Promise.all([
+  const [decisions, history, wixTargets] = await Promise.all([
     getLatestReviewDecisions(tenantId),
     opts.history ? getBriefHistory(tenantId, packet.current.pageUrl) : Promise.resolve([]),
-    resolveMappingExists(packet.current.pageUrl, canon),
+    resolveWixPushTargets(packet.current.pageUrl, canon),
   ]);
 
   const pack = buildAtomicChangePack({
@@ -113,7 +132,8 @@ export async function loadPageSurgeonForUrl(
     generatedAt: brief.created_at,
     reviewDecision: decisions.get(packet.current.pageUrl) ?? null,
     history,
-    mappingExists,
+    mappingExists: wixTargets.mappingExists,
+    bodyFieldMapped: wixTargets.bodyFieldMapped,
   });
 
   return { status: "pack", pack };

@@ -53,6 +53,50 @@ export type Scoreboard = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const iso = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
+/** One day of dollars from revenue_facts, pre-aggregated by the loader. */
+export type ScoreboardRevenueDay = {
+  day: string; // yyyy-mm-dd
+  revenueUsd: number;
+  sources: string[];
+};
+
+/**
+ * Item 3 (2026-07-01) - the honest money line under the hero chart. PURE.
+ * Sums the last 7 days that actually have dollars and names the basis:
+ * measured (ad network report) reads as measured; the operator's rate x
+ * real traffic reads exactly as that and NEVER as a measured payout.
+ * Returns null when there are no dollars, so the scoreboard renders
+ * exactly as it did before the revenue pipe existed.
+ */
+export function buildMoneyLine(revenueDays: ScoreboardRevenueDay[]): string | null {
+  const withDollars = revenueDays
+    .filter((d) => d.day && Number.isFinite(d.revenueUsd) && d.revenueUsd > 0)
+    .sort((a, b) => (a.day < b.day ? -1 : 1));
+  if (withDollars.length === 0) return null;
+
+  const last = withDollars.slice(-7);
+  const total = last.reduce((s, d) => s + d.revenueUsd, 0);
+  if (total <= 0) return null;
+
+  const sources = new Set(last.flatMap((d) => d.sources));
+  const hasMeasured = sources.has("ad_network") || sources.has("affiliate");
+  const hasEstimated = sources.has("unit_economics") || sources.has("operator_manual");
+
+  const dollars = `$${total.toLocaleString("en-US", {
+    minimumFractionDigits: total >= 100 ? 0 : 2,
+    maximumFractionDigits: total >= 100 ? 0 : 2,
+  })}`;
+  const span = last.length === 1 ? "the last tracked day" : `the last ${last.length} tracked days`;
+
+  if (hasMeasured && !hasEstimated) {
+    return `Your pages earned ${dollars} over ${span}, measured by your ad network.`;
+  }
+  if (hasMeasured && hasEstimated) {
+    return `Your pages earned about ${dollars} over ${span}. Part is measured and part is your rate x real traffic.`;
+  }
+  return `Real traffic was worth about ${dollars} over ${span}. That is your rate x real traffic, not a measured payout.`;
+}
+
 export function buildScoreboard(
   daysIn: ScoreboardDay[],
   ledger: ScoreboardLedgerRow[],

@@ -7,6 +7,7 @@ import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
+import { runRevenueFactsPass } from "@/domains/revenue/compute-unit-economics";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -255,6 +256,28 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       log.error("[cron-sync] tenant failed", { tenantId: t.id, error: err.slice(0, 200) });
+    }
+  }
+
+  // PHASE 1b - revenue facts (item 3): the operator's rate x tonight's fresh GA4
+  // traffic -> honest per-page dollar rows in revenue_facts. Deterministic, FREE
+  // (no LLM, no paid API), idempotent upsert, dormant until a revenue model is
+  // set in settings. Isolated try/catch per tenant like every other step.
+  for (const t of tenants) {
+    try {
+      const r = await runRevenueFactsPass(t.id);
+      if (r.ran && r.rowsUpserted > 0) {
+        log.info("[cron-sync] revenue facts", {
+          tenantId: t.id,
+          rowsUpserted: r.rowsUpserted,
+          adNetworkRows: r.adNetworkRows,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] revenue facts failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
     }
   }
 

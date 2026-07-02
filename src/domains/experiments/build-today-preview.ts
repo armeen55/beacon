@@ -32,6 +32,8 @@ import {
 import { normalizePath } from "./daily-plan-types";
 import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
 import { reviewCandidateWithTeam } from "./team-review";
+import { loadEngineGapNotes } from "@/domains/ai-visibility/gap-store";
+import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -49,7 +51,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, serpPatterns, changePacks] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, serpPatterns, changePacks, engineGapsByUrl] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -62,6 +64,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     // Slice E-2: competitor teardown per owned page (top competitor + what to steal), from the cached
     // demand graph + cached page audits (compute, NO paid call, NO live fetch). Fail-soft to none.
     loadChangePacksForTenant(tenantId, { limit: 120 }).then((r) => r.packets).catch(() => []),
+    // Item 4: $0 read of last night's AI-engine gap diff (one engine cites a page, others do not),
+    // bounded to 3 notes/night. Empty until the nightly 4-engine poll has run. Fail-soft to none.
+    loadEngineGapNotes(tenantId, now).catch(() => new Map<string, EngineGapNote>()),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence.
@@ -175,7 +180,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     }),
   );
 
-  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl });
+  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl, engineGapsByUrl });
 
   // Move 4 - RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
   // the deterministic review (page-query intent fit, action↔goal incl. year-intent, copy

@@ -9,6 +9,7 @@ import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intell
 import { routeClarityFriction, type ClarityMoveType } from "@/domains/recommendation-intelligence/clarity-move-router";
 import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
 import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
+import { loadEngineGapTodayLine } from "@/domains/ai-visibility/gap-store";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
 import Link from "next/link";
@@ -105,12 +106,14 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
  *  Self-hides when neither feed has data. */
 export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
   try {
-    const [sig, llmMentions, slug] = await Promise.all([
+    const [sig, llmMentions, slug, engineGapLine] = await Promise.all([
       loadBotReferralSignals(tenantId),
       readAllCachedLlmMentions().catch(() => []),
       currentTenantSlug().catch(() => ""),
+      // Item 4: one honest line from last night's 4-engine question check ($0 store read).
+      loadEngineGapTodayLine(tenantId).catch(() => null),
     ]);
-    if (!sig.hasData && llmMentions.length === 0) return null;
+    if (!sig.hasData && llmMentions.length === 0 && !engineGapLine) return null;
     const topBots = sig.botSummary.topBots.slice(0, 3);
     const topSources = sig.referralSummary.topSources.slice(0, 3);
     const trendWord =
@@ -122,6 +125,11 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
           {sig.latestDate ? <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">through {sig.latestDate}</span> : null}
         </div>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          {engineGapLine ? (
+            <p className="rounded-xl bg-amber-50/70 px-3 py-2 text-[12px] font-medium text-amber-800 sm:col-span-2 dark:bg-amber-950/30 dark:text-amber-200">
+              {engineGapLine}
+            </p>
+          ) : null}
           {sig.hasBotData ? (
             <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
               <div className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">
@@ -249,9 +257,13 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
     loadClarityPageSignalsForTenant(tenantId)
       .then((signals) => signals.size === 0)
       .catch(() => true),
-    // AI band renders when either feed has data.
-    Promise.all([loadBotReferralSignals(tenantId), readAllCachedLlmMentions().catch(() => [])])
-      .then(([sig, mentions]) => !sig.hasData && mentions.length === 0)
+    // AI band renders when any of its three feeds has data.
+    Promise.all([
+      loadBotReferralSignals(tenantId),
+      readAllCachedLlmMentions().catch(() => []),
+      loadEngineGapTodayLine(tenantId).catch(() => null),
+    ])
+      .then(([sig, mentions, gapLine]) => !sig.hasData && mentions.length === 0 && !gapLine)
       .catch(() => true),
     // Demand band renders whenever keyword research has run (gaps or the item-21 empty
     // state), so quiet = research never ran and nothing surfaced.

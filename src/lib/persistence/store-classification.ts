@@ -206,6 +206,9 @@ export const SINGLETON_STORES = new Set<string>([
   "url-watcher-state", // per-tenant watcher throttle/phase state
   // Phase 7.8d-1 (2026-04-26) — single object loaded by `loadLocalOperatorImport`.
   "local-operator-surface", // operator-edited local-listings notes (optional)
+  // 2026-07-01 BEACON 500 item 1 - trust-budget autopilot: per-tenant config +
+  // daily-run marker + receipts (one state object; Supabase-mirrored blob).
+  "autopilot-state",
 ]);
 
 export const GLOBAL_STORES = new Set<string>([
@@ -236,6 +239,12 @@ export const GLOBAL_STORES = new Set<string>([
   // 14-day cache actually persist (the cost-discipline guarantee).
   "dataforseo-serp-cache", // SERP top-10 cache (domains/serp/dataforseo-serp.ts)
   "dataforseo-keywords-cache", // keyword-volume cache (domains/serp/dataforseo-keywords.ts)
+  // Nightly AI-engines poll (2026-07-01, master plan item 4). Single files whose
+  // rows carry tenant_id; the cron fans out across tenants with no ambient
+  // request context, so per-tenant path routing would misfile them.
+  "ai-engine-answers", // 20h DataForSEO llm_responses answer cache (cost discipline)
+  "ai-engine-poll-runs", // per-night already-ran guard (idempotency)
+  "ai-engine-gap-summary", // latest per-tenant engine-gap summary ($0 Today + candidate reads)
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

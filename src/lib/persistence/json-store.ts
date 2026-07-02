@@ -70,6 +70,18 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // only keep them in-process (warm-lambda-only); the blob makes warm true across instances.
   "worklist-surface",
   "today-surface",
+  // 2026-07-01 item 1 - trust-budget autopilot state (armed config + daily-run marker +
+  // receipts). Must be durable on hosted prod: a file-only write would silently lose the
+  // operator's arming and the weekly-budget count on lambda recycle. Fail direction is
+  // safe: a missing blob reads as the default DISABLED config.
+  "autopilot-state",
+  // 2026-07-01 item 4 - nightly AI-engines poll. The answer cache is a COST guarantee
+  // (a same-night retry must not re-spend), the run guard is the idempotency guarantee,
+  // and the gap summary is what Today + the candidate builder read; on Vercel none of
+  // these survive without the mirror.
+  "ai-engine-answers",
+  "ai-engine-poll-runs",
+  "ai-engine-gap-summary",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

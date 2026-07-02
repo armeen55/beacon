@@ -45,7 +45,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
-import type { WixCollectionMapping, WixUrlMapEntry } from "./types";
+import { parseWixBodyField, type WixBodyField, type WixCollectionMapping, type WixUrlMapEntry } from "./types";
 
 const CONFIG_TABLE = "wix_collection_config";
 const MAP_TABLE = "wix_url_map";
@@ -80,6 +80,19 @@ async function mirrorToFile<T>(store: string, rows: T[]): Promise<void> {
 // Row mappers (DB snake_case ⇄ domain camelCase)
 // ─────────────────────────────────────────────────────────────────────
 
+/**
+ * The `content_field_roles` jsonb column stores the page-role map AND,
+ * since 2026-07-01 (BEACON_500 item 2), the optional body-field descriptor
+ * under the reserved `__bodyField` key. Packing it into the EXISTING jsonb
+ * column keeps the change migration-free and fully backward compatible:
+ * old rows simply lack the key and parse to "no body field" (paste-only,
+ * today's behavior). `parseWixBodyField` narrows defensively, so a
+ * malformed stored value degrades to paste-only rather than throwing.
+ */
+type StoredContentRoles = NonNullable<WixCollectionMapping["contentFieldRoles"]> & {
+  __bodyField?: WixBodyField;
+};
+
 type ConfigRow = {
   tenant_id: string;
   data_collection_id: string;
@@ -87,7 +100,7 @@ type ConfigRow = {
   url_prefix: string;
   label_field: string | null;
   /** Page-role → CMS-field map enabling live content push. jsonb column. */
-  content_field_roles: WixCollectionMapping["contentFieldRoles"] | null;
+  content_field_roles: StoredContentRoles | null;
 };
 
 type MapRow = {
@@ -101,14 +114,38 @@ type MapRow = {
 };
 
 function configRowToMapping(row: ConfigRow): WixCollectionMapping {
+  // Unpack the jsonb column: the reserved __bodyField key (if present and
+  // valid) becomes the mapping's bodyField; everything else stays the
+  // role map. Old rows without the key parse exactly as before.
+  const stored = row.content_field_roles;
+  let roles: WixCollectionMapping["contentFieldRoles"] | undefined;
+  let bodyField: WixBodyField | undefined;
+  if (stored != null && typeof stored === "object") {
+    const { __bodyField, ...rest } = stored as StoredContentRoles;
+    const parsed = parseWixBodyField(__bodyField);
+    if (parsed != null) bodyField = parsed;
+    if (Object.keys(rest).length > 0) {
+      roles = rest as WixCollectionMapping["contentFieldRoles"];
+    }
+  }
   return {
     dataCollectionId: row.data_collection_id,
     slugField: row.slug_field,
     urlPrefix: row.url_prefix,
     ...(row.label_field != null ? { labelField: row.label_field } : {}),
-    ...(row.content_field_roles != null
-      ? { contentFieldRoles: row.content_field_roles }
-      : {}),
+    ...(roles != null ? { contentFieldRoles: roles } : {}),
+    ...(bodyField != null ? { bodyField } : {}),
+  };
+}
+
+/** Pack roles + optional bodyField into the single jsonb column value. */
+function packContentRoles(m: WixCollectionMapping): StoredContentRoles | null {
+  const roles = m.contentFieldRoles ?? null;
+  const body = parseWixBodyField(m.bodyField);
+  if (roles == null && body == null) return null;
+  return {
+    ...(roles ?? {}),
+    ...(body != null ? { __bodyField: body } : {}),
   };
 }
 
@@ -168,7 +205,7 @@ export async function saveWixCollectionConfig(
       slug_field: m.slugField,
       url_prefix: m.urlPrefix,
       label_field: m.labelField ?? null,
-      content_field_roles: m.contentFieldRoles ?? null,
+      content_field_roles: packContentRoles(m),
     }));
     const up = await admin
       .from(CONFIG_TABLE)

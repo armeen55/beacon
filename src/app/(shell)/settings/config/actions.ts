@@ -78,3 +78,46 @@ export async function saveSetup(data: {
 export async function loadSetup(): Promise<BusinessConfig> {
   return await getBusinessConfigForCurrentTenant();
 }
+
+/**
+ * Item 3 (2026-07-01) - save the operator's unit economics. The nightly
+ * revenue pass multiplies this rate by real GA4 traffic to produce honest
+ * dollar rows (always labeled "your rate x real traffic"). kind "off"
+ * clears the model and the pass goes dormant again.
+ */
+export async function saveRevenueModel(data: {
+  kind: "rpm" | "per_lead" | "off";
+  rate?: number;
+}): Promise<{ success: boolean; error?: string }> {
+  const action = "saveRevenueModel";
+  const t0 = Date.now();
+  try {
+    const tenantId = await currentTenantId();
+    if (data.kind === "off") {
+      saveBusinessConfig(tenantId, { revenueModel: undefined });
+    } else {
+      const rate = Number(data.rate);
+      if (!Number.isFinite(rate) || rate <= 0) {
+        return { success: false, error: "Enter a dollar amount above zero." };
+      }
+      saveBusinessConfig(tenantId, {
+        revenueModel:
+          data.kind === "rpm"
+            ? { kind: "rpm", rpmUsd: rate }
+            : { kind: "per_lead", dollarsPerLead: rate },
+      });
+    }
+    revalidatePath("/settings/config");
+    revalidatePath("/", "layout");
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+    return { success: true };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: err.slice(0, 500),
+    });
+    return { success: false, error: err };
+  }
+}

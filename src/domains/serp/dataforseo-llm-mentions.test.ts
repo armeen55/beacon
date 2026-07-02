@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   runLlmMentions,
+  runLlmPromptResponses,
   readAllCachedLlmMentions,
   parseLlmMentions,
   planLlmMentionsCall,
   questionForTopic,
+  resolveEngineEndpoint,
+  resolveEngineModel,
+  MAX_PROMPTS_PER_ENGINE_RUN,
   type LlmMentionsRunDeps,
   type LlmMentionRecord,
 } from "./dataforseo-llm-mentions";
@@ -305,5 +309,137 @@ describe("readAllCachedLlmMentions (cache-only, $0)", () => {
       },
     });
     expect(out).toEqual([]);
+  });
+});
+
+describe("engine parameter (item 4) - endpoint + model resolution", () => {
+  it("routes each engine to its own llm_responses endpoint by default", () => {
+    expect(resolveEngineEndpoint("gemini", CONFIGURED_ENV)).toBe(
+      "https://api.dataforseo.com/v3/ai_optimization/gemini/llm_responses/live",
+    );
+    expect(resolveEngineEndpoint("claude", CONFIGURED_ENV)).toBe(
+      "https://api.dataforseo.com/v3/ai_optimization/claude/llm_responses/live",
+    );
+    expect(resolveEngineEndpoint("chat_gpt", CONFIGURED_ENV)).toBe(
+      "https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_responses/live",
+    );
+  });
+
+  it("honors per-engine path overrides, plus the legacy generic override for chat_gpt only", () => {
+    const env = {
+      ...CONFIGURED_ENV,
+      DATAFORSEO_LLM_MENTIONS_PATH: "/v3/legacy/override",
+      DATAFORSEO_LLM_MENTIONS_PATH_GEMINI: "https://example.com/gemini-custom",
+    } as NodeJS.ProcessEnv;
+    expect(resolveEngineEndpoint("gemini", env)).toBe("https://example.com/gemini-custom");
+    expect(resolveEngineEndpoint("chat_gpt", env)).toBe("https://api.dataforseo.com/v3/legacy/override");
+    // The generic override never leaks onto sibling engines.
+    expect(resolveEngineEndpoint("claude", env)).toBe(
+      "https://api.dataforseo.com/v3/ai_optimization/claude/llm_responses/live",
+    );
+  });
+
+  it("honors per-engine model overrides", () => {
+    expect(resolveEngineModel("gemini", CONFIGURED_ENV)).toBe("gemini-2.5-flash");
+    expect(
+      resolveEngineModel("gemini", { ...CONFIGURED_ENV, DATAFORSEO_LLM_MODEL_GEMINI: "gemini-x" } as NodeJS.ProcessEnv),
+    ).toBe("gemini-x");
+  });
+});
+
+describe("runLlmPromptResponses - the engine gauntlet on real prompts", () => {
+  const items = [
+    { key: "prm-1", question: "what are the best persian rug shops" },
+    { key: "prm-2", question: "where can I learn about iranian carpets" },
+  ];
+
+  it("DRY-RUN by default - no call, no spend", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runLlmPromptResponses(items, { engine: "gemini" }, deps({
+      env: { ...CONFIGURED_ENV, DATAFORSEO_DRY_RUN: "true" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    }));
+    expect(r.status).toBe("dry_run");
+    expect(r.costUsd).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("disabled when DataForSEO is not configured", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runLlmPromptResponses(items, { engine: "claude" }, deps({ env: {} as NodeJS.ProcessEnv, fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("disabled");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("fails CLOSED on unknown monthly spend", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runLlmPromptResponses(items, { engine: "gemini" }, deps({
+      spentThisMonthUsd: async () => null,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    }));
+    expect(r.status).toBe("capped");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("OK path: asks the REAL prompt text at the engine endpoint, records spend, returns cited URLs", async () => {
+    const recordSpend = vi.fn(async () => {});
+    const calls: Array<{ url: string; body: string }> = [];
+    const fetchImpl = vi.fn(async (url: string, init?: { body?: string }) => {
+      calls.push({ url, body: init?.body ?? "" });
+      return { ok: true, json: async () => BODY } as unknown as Response;
+    });
+    const r = await runLlmPromptResponses(items, { engine: "gemini" }, deps({
+      recordSpend,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    }));
+    expect(r.status).toBe("ok");
+    expect(r.answers).toHaveLength(2);
+    expect(calls[0]!.url).toContain("/v3/ai_optimization/gemini/llm_responses/live");
+    expect(calls[0]!.body).toContain("what are the best persian rug shops");
+    expect(calls[0]!.body).toContain("gemini-2.5-flash");
+    // force_web_search is a chat_gpt-only knob - never sent to siblings.
+    expect(calls[0]!.body).not.toContain("force_web_search");
+    expect(r.answers[0]!.engine).toBe("gemini");
+    expect(r.answers[0]!.citedUrls).toContain("https://www.iranopedia.com/iran-carpets");
+    expect(recordSpend).toHaveBeenCalledWith("tenant-iranopedia", 0.027133);
+  });
+
+  it("caps the batch at MAX_PROMPTS_PER_ENGINE_RUN and dedupes keys", async () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ key: `k${i % 30}`, question: `question number ${i}` }));
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => BODY }) as unknown as Response);
+    const r = await runLlmPromptResponses(many, { engine: "claude" }, deps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(MAX_PROMPTS_PER_ENGINE_RUN).toBe(25);
+    expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(MAX_PROMPTS_PER_ENGINE_RUN);
+    expect(r.answers.length).toBeLessThanOrEqual(MAX_PROMPTS_PER_ENGINE_RUN);
+  });
+
+  it("serves a fresh (<20h) cached answer without spending", async () => {
+    const fetchImpl = vi.fn();
+    const recordSpend = vi.fn(async () => {});
+    const cachedRecord = {
+      key: "tenant-iranopedia|gemini|gemini-2.5-flash|prm-1",
+      record: {
+        key: "prm-1",
+        question: items[0]!.question,
+        engine: "gemini",
+        model: "gemini-2.5-flash",
+        answerText: "cached answer",
+        mentions: [],
+        citedUrls: [],
+        usedWebSearch: true,
+        fetchedAt: "2026-06-30T20:00:00Z",
+        evidenceRef: "dataforseo:ai_optimization/gemini/llm_responses",
+      },
+      fetchedAt: "2026-06-30T20:00:00Z", // 4h before the injected now
+    };
+    const r = await runLlmPromptResponses([items[0]!], { engine: "gemini" }, deps({
+      readCache: async () => [cachedRecord] as never,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      recordSpend,
+    }));
+    expect(r.status).toBe("cache_hit");
+    expect(r.answers[0]!.answerText).toBe("cached answer");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(recordSpend).not.toHaveBeenCalled();
   });
 });

@@ -375,15 +375,25 @@ export async function finalizePushReservation(args: {
 export function assertNonDestructivePatch(args: {
   currentText: string | null;
   proposedText: string | null;
+  /**
+   * True ONLY for a snapshot revert (buildRevertEdit output). A revert
+   * restores the exact pre-push value, which for a body push is
+   * legitimately much shorter than the merged live value it replaces, so
+   * the shrink heuristic is skipped. The EMPTY check always applies: a
+   * restore can never blank a field (buildRevertEdit refuses empty
+   * previous values before this ever runs).
+   */
+  restoreMode?: boolean;
 }): CapVerdict {
   const current = (args.currentText ?? "").trim();
   const proposed = (args.proposedText ?? "").trim();
   if (proposed.length === 0) {
     return {
       allowed: false,
-      reason: "proposed text is empty — deletions are not pushable (Invariant 3)",
+      reason: "proposed text is empty, and deletions are not pushable (Invariant 3)",
     };
   }
+  if (args.restoreMode === true) return { allowed: true };
   if (current.length > 80 && proposed.length < current.length * 0.2) {
     return {
       allowed: false,

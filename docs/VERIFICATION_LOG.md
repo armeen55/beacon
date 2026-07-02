@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-07-01 - BEACON 500 item 3: the honest dollar pipe (revenue_facts)
+
+**What changed:** New `revenue_facts` Supabase table (PK tenant/page/day/source, deny-anon RLS,
+migration `migrations/2026-07-01_revenue_facts.sql`, applied via MCP as `revenue_facts`). Operator
+unit-economics card on /settings/config (`revenueModel` on BusinessConfig: rpm or dollars per lead).
+Nightly pass `runRevenueFactsPass` in cron-sync (isolated try/catch): operator rate x real GA4
+traffic -> rows with basis "your rate x real traffic"; ad-network slot
+(src/lib/connectors/adnetwork, AdSense/Mediavine/Raptive stubs) fails closed until credentials
+exist. Readers in src/domains/revenue/load-revenue.ts (react cache). Today scoreboard gains ONE
+money sentence that names its basis and self-hides with no data.
+
+**Verified:** migration applied + rolled-back upsert round trip on prod (RLS on, 2 policies);
+`npm run typecheck` clean for these files (the single repo error is another agent's in-flight
+src/domains/autopilot file); targeted vitest 90/90 (producer math, idempotent shape, loader
+mapping, honest labels, dash guard) + 69/69 adjacent (business-config, cron-sync); live
+ground-truth on Iranopedia: pass wrote 3,260 rows from real GA4 traffic, re-run left exactly
+3,260 (idempotent), Today rendered "Real traffic was worth about $28.26 over the last 7 tracked
+days. That is your rate x real traffic, not a measured payout." Test rate + rows then fully
+reverted (config off, rows deleted) so no invented dollars remain live.
+
+---
+
 ## 2026-07-01 - THE BEACON 500 master backlog assembled and shipped
 
 **What changed:** New docs/BEACON_500_MASTER_PLAN.md (610 ranked items) from a 26-agent discovery
