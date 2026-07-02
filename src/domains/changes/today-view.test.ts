@@ -6,7 +6,7 @@ function ch(over: Partial<CanonicalChange> & { id: string; status: CanonicalChan
   return {
     tenantId: "t", pagePath: "/p", pageUrl: "https://s.com/p", pageLabel: "Page", opportunityType: "Capture clicks",
     changeType: "edit_meta", changeFamily: "meta", recommendation: "Update the meta", exactInstructions: null,
-    before: null, after: null, rationale: "why", estimatedEffortMinutes: 1, impactScore: 100, upside: 500,
+    before: null, after: null, rationale: "why", estimatedEffortMinutes: 1, impactScore: 100, upside: 500, expectedOutcome: null,
     riskLevel: "low", evidenceStrength: "strong", measurementMethod: "Diff-in-diff", selectedForToday: false,
     activeExperiment: false, protectedControl: false, blockedReason: null, result: null, measurementHeadline: null,
     measurementDetail: null, nextCheckpoint: null, attributionLimited: false, sourceIds: ["m1"], alternateOpportunities: [],

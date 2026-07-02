@@ -58,10 +58,10 @@
 - [ ]  55 [W2][P0/M] Face-lift the row density: each row = identity chip of the lever, page name with
 - [ ]  56 [W2][P1/S] "Tonight's 30 minutes" mode: a toggle that filters to the accepted plan + top ready
 - [ ]  57 [W2][P1/S] Group by goal, not status, as the default view ("Win more clicks" / "Get cited by
-- [ ]  58 [W2][P0/S] Kill the "Treatment:" label in the /changes detail attribution drilldown (the last
+- [x]  58 [W2][P0/S] Kill the "Treatment:" label in the /changes detail attribution drilldown (the last
 - [ ]  59 [W2][P1/M] Search that actually finds: search across page path, query, teammate claims, and
-- [ ]  60 [W2][P1/S] Bulk "copy all tonight's pastes": one button that copies a numbered, Wix-ordered
-- [ ]  61 [W2][P1/S] Every ready row shows its expected outcome range (same estimate as C34) so the list
+- [x]  60 [W2][P1/S] Bulk "copy all tonight's pastes": one button that copies a numbered, Wix-ordered
+- [x]  61 [W2][P1/S] Every ready row shows its expected outcome range (same estimate as C34) so the list
 - [ ]  62 [W3][P2/S] Sticky batch bar at the bottom while items from tonight's plan are pending: "2 left,
 - [ ]  63 [W3][P1/S] Row-level freshness: "evidence read 2h ago" chip; anything stale (>14d SERP, >7d
 - [ ]  64 [W3][P2/M] Keyboard flow: j/k to move, enter to expand, c to copy paste text. Power feel.

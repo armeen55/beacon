@@ -14,6 +14,7 @@ import { buildCanonicalChanges, type CanonicalMoveInput } from "@/domains/change
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { statusView } from "@/domains/changes/canonical-change";
 import type { TodayMove } from "./today-moves-data";
+import { ctrOpportunity90d } from "@/domains/experiments/pick-expectations";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -48,6 +49,12 @@ export async function loadChangesView(): Promise<ChangesView> {
     rankWhy: m.rankWhy,
     score: m.score,
     demand: m.demand,
+    // Item 61: 90d CTR-curve opportunity from the page's top query (same math as the daily card).
+    ctrOpportunityClicks: (() => {
+      const tq = [...(m.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
+      if (!tq || tq.impressions <= 0) return null;
+      return ctrOpportunity90d({ position: tq.position, ctr: tq.clicks / tq.impressions, impressions90d: tq.impressions });
+    })(),
     proofStatus: m.proofStatus ?? null,
     alreadyMeasuring: m.alreadyMeasuring,
     pageMeasuring: m.pageMeasuring,

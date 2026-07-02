@@ -81,6 +81,7 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
             <span>{c.opportunityType}</span>
             {effort != null ? <span>~{effort} min</span> : null}
             {fmt(c.upside) ? <span className="text-sky-600">{fmt(c.upside)}/mo at stake</span> : null}
+            {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600">{c.expectedOutcome}</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
             {c.blockedReason ? <span className="text-gray-400" title={c.blockedReason}>⏳ wait</span> : null}
             {c.qualityDecision === "flagged" ? <span className="text-amber-600" title={c.qualityNote ?? "Review before shipping"}>⚠ review</span> : c.qualityDecision === "caution" ? <span className="text-amber-500" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}

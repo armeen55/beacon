@@ -55,6 +55,9 @@ export type CanonicalChange = {
   estimatedEffortMinutes: number;
   impactScore: number; // for ranking (demand/score-derived)
   upside: number | null; // monthly demand at stake (display)
+  /** Item 61: honest monthly outcome range ("roughly 20 to 60 extra clicks a month"),
+   *  from the same CTR-curve estimate the daily card shows. Null when too small/unknown. */
+  expectedOutcome: string | null;
   riskLevel: "low" | "medium" | "high";
   evidenceStrength: EvidenceStrength;
   measurementMethod: string;

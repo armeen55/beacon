@@ -24,6 +24,7 @@ import { proposeSafeMeta } from "./safe-meta";
 import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
 import { proposeSafeAnswerBlock, buildWrittenAnswerProposal, type SafeAnswerBlockProposal } from "./safe-answer-block";
 import type { DailyEvidenceBrief } from "./daily-evidence-brief";
+import { expectedCtrAt } from "./pick-expectations";
 
 export type PageFacts = {
   title: string | null;
@@ -91,15 +92,8 @@ export type BuiltCandidate = DailyCandidate & {
   teamReview?: import("./team-review").TeamReview;
 };
 
-const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };
-function expectedCtr(pos: number): number {
-  const p = Math.round(pos);
-  if (p <= 0) return 0.28;
-  if (p <= 10) return CTR_CURVE[p];
-  if (p <= 15) return 0.018;
-  if (p <= 20) return 0.012;
-  return 0.006;
-}
+// CTR curve lives in pick-expectations (items 34/61 share it); alias keeps call sites unchanged.
+const expectedCtr = expectedCtrAt;
 
 // "verb + the" is consumed TOGETHER ("Discover the Most Popular X" → "Most Popular X", never the
 // broken "the Most Popular X"). A BARE leading article ("The Best Restaurants in Florida") is NOT

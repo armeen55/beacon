@@ -406,6 +406,27 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
       <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 tabular-nums">
         <strong>Today’s changes.</strong> {s.active} live and tracking, {s.submitted} sent to Google, {s.left} left to apply.<br />
         Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped.
+        {s.left > 0 ? (
+          <div className="mt-1.5">
+            <button
+              type="button"
+              className={BTN_SMALL}
+              onClick={() => {
+                // Item 60 - one numbered checklist of every pending paste, in list order.
+                const pendingItems = checklist.items.filter((it) => !["active", "gsc_submission_pending", "gsc_submitted", "skipped"].includes(it.status));
+                const text = pendingItems
+                  .map((it, i) => {
+                    const e = it.experiment;
+                    return `${i + 1}. ${e.url}\n   Change (${LEVER_LABEL[e.lever] ?? e.lever}): ${stripBannedDashes(e.proposedText)}`;
+                  })
+                  .join("\n\n");
+                copyText(text, setMsg);
+              }}
+            >
+              Copy all {s.left} pending paste{s.left === 1 ? "" : "s"} as a checklist
+            </button>
+          </div>
+        ) : null}
       </div>
       {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} />)}
       {s.left === 0 && s.accepted > 0 && (

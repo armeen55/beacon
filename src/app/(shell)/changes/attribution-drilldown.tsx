@@ -130,10 +130,10 @@ function Header({ outcome }: { outcome: StoredChangeOutcome }) {
         </div>
       </div>
       <div className="text-right text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
-        <div>Treatment: {treatment_date}</div>
+        <div>Change went live: {treatment_date}</div>
         {outcome.pre_window && outcome.post_window && (
           <div className="mt-0.5 text-[10px]">
-            pre {outcome.pre_window.start} → {outcome.pre_window.end} · post {outcome.post_window.start} → {outcome.post_window.end}
+            before {outcome.pre_window.start} to {outcome.pre_window.end} · after {outcome.post_window.start} to {outcome.post_window.end}
           </div>
         )}
       </div>

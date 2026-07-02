@@ -9,6 +9,7 @@ import { normalizePath, type DailyExperimentPlanRecord, type ControlReservationR
 import { itemStatus, LEVER_TO_ACTION_TYPE } from "@/domains/experiments/execution-state";
 import { wixInstructions } from "@/domains/experiments/execution-checklist";
 import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
+import { forecastRange } from "@/domains/experiments/pick-expectations";
 import {
   changeTypeFamily, effortForFamily, expectedEvidenceStrength, deriveStatus,
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
@@ -26,6 +27,8 @@ export type CanonicalMoveInput = {
   rankWhy?: string;
   score?: number;
   demand?: number | null;
+  /** Item 61: 90d CTR-curve opportunity (clicks left on the table) for the outcome range. */
+  ctrOpportunityClicks?: number | null;
   proofStatus?: ProofSignal;
   alreadyMeasuring?: boolean;
   pageMeasuring?: boolean;
@@ -91,6 +94,7 @@ function fromPlanItem(
     estimatedEffortMinutes: e.effortMinutes,
     impactScore: 500, // today's picks rank prominently within their status view
     upside: null,
+    expectedOutcome: e.expectations?.forecast ?? null,
     riskLevel: "low",
     evidenceStrength: "strong", // reserved diff-in-diff controls
     measurementMethod: `Diff-in-diff vs ${e.controls.length} control pages`,
@@ -155,6 +159,12 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     estimatedEffortMinutes: effortForFamily(family),
     impactScore: m.score ?? m.demand ?? 0,
     upside: m.demand ?? null,
+    // Item 61: the same honest CTR-curve estimate the daily card shows, so the ranked
+    // list reads like an investment menu. Null when the opportunity is too small.
+    expectedOutcome: (() => {
+      const r = forecastRange(m.ctrOpportunityClicks ?? 0);
+      return r ? `roughly ${r.low.toLocaleString()} to ${r.high.toLocaleString()} extra clicks a month if it works (estimate)` : null;
+    })(),
     riskLevel: family === "new_page" ? "medium" : "low",
     // Move 2 — evidence strength follows MATURITY when a proof exists: only a mature,
     // settled result is "strong"; an early/interim/overlapping read is "directional";

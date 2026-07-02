@@ -25,6 +25,23 @@ const NEXT_LEVER_PLAIN: Record<string, string> = {
   answer_block: "a sharper description",
 };
 
+/** The expected organic CTR at a Google position (the industry curve the daily candidates use). */
+const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };
+export function expectedCtrAt(position: number): number {
+  const p = Math.round(position);
+  if (p <= 0) return 0.28;
+  if (p <= 10) return CTR_CURVE[p]!;
+  if (p <= 15) return 0.018;
+  if (p <= 20) return 0.012;
+  return 0.006;
+}
+
+/** 90d CTR-curve opportunity for a query the page already ranks for (clicks left on the table). */
+export function ctrOpportunity90d(input: { position: number; ctr: number; impressions90d: number }): number {
+  if (!Number.isFinite(input.impressions90d) || input.impressions90d <= 0) return 0;
+  return Math.max(0, expectedCtrAt(input.position) - Math.max(0, input.ctr)) * input.impressions90d;
+}
+
 /** Round to a friendly number (5s above 10, 10s above 100) so the range reads like an estimate. */
 function friendly(n: number): number {
   if (n >= 100) return Math.round(n / 10) * 10;
