@@ -13,7 +13,16 @@ import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/
 import { detectChangepoints, type DailyPoint } from "@/domains/proof-gsc/changepoint";
 import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 
-const GENERIC_FALLBACKS = ["did our traffic drop sitewide this week", "who is beating me on Google's answer box", "what did we ship this week"];
+const GENERIC_FALLBACKS = [
+  "did our traffic drop sitewide this week",
+  "who is beating me on Google's answer box",
+  "what did we ship this week",
+  "which pages lost clicks this month",
+  "what did my last batch of changes do",
+  "who does AI recommend instead of me",
+  "which keyword should I chase next",
+  "is anything broken right now",
+];
 
 export async function loadSuggestedQuestions(): Promise<string[]> {
   const suggestions: string[] = [];
@@ -50,8 +59,8 @@ export async function loadSuggestedQuestions(): Promise<string[]> {
 
   const out = [...new Set(suggestions)];
   for (const g of GENERIC_FALLBACKS) {
-    if (out.length >= 3) break;
+    if (out.length >= 8) break;
     if (!out.includes(g)) out.push(g);
   }
-  return out.slice(0, 3);
+  return out.slice(0, 8);
 }

@@ -116,18 +116,43 @@ export function AskChatClient({
         </button>
       </form>
 
+      <p className="text-[12px] text-muted-foreground">
+        I can read your Google numbers, your changes and their results, your competitors, and the AI answers I collect.
+      </p>
+
+      {turns.length === 0 && initialHistory.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-muted-foreground">Recent questions</p>
+          <div className="flex flex-wrap gap-2">
+            {initialHistory.slice(0, 5).map((h) => (
+              <button
+                key={h.id}
+                type="button"
+                onClick={() => ask(h.question)}
+                className="rounded-full border border-border/60 bg-surface-inset/40 px-3 py-1.5 text-[12.5px] text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+              >
+                {h.question}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {turns.length === 0 && suggestedQuestions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {suggestedQuestions.map((q) => (
-            <button
-              key={q}
-              type="button"
-              onClick={() => ask(q)}
-              className="rounded-full border border-border/60 bg-surface-inset/40 px-3 py-1.5 text-[12.5px] text-muted-foreground hover:border-foreground/30 hover:text-foreground"
-            >
-              {q}
-            </button>
-          ))}
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-muted-foreground">Suggested questions</p>
+          <div className="flex flex-wrap gap-2">
+            {suggestedQuestions.map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => ask(q)}
+                className="rounded-full border border-border/60 bg-surface-inset/40 px-3 py-1.5 text-[12.5px] text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

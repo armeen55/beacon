@@ -135,11 +135,6 @@ export default async function ShellLayout({
   //            implying raw scan diffs are tracked changes), so the sidebar
   //            number matches what the operator sees on the page.
   //
-  //   Pages  - URLs with one or more BUG_FINDING_TYPES (schema_invalid,
-  //            faq_without_schema, robots_txt_blocked, deploy_mismatch).
-  //            Bugs to fix, not experiments to run. De-duped by URL so the
-  //            number counts affected pages, not raw findings.
-  //
   //   Changes - URLs whose post-change verdict is `hurting`. One row per URL.
   //             v2 QA polish bundle (2026-05-11) narrowed this from the
   //             full WATCHING_VERDICTS set ({hurting, weak_signal,
@@ -157,19 +152,12 @@ export default async function ShellLayout({
   const todayBadge = pendingFindings.filter((f) =>
     CONTENT_CHANGE_TYPES.has(f.type),
   ).length;
-  const pagesWithBugs = new Set(
-    pendingFindings
-      .filter((f) => BUG_FINDING_TYPES.has(f.type))
-      .map((f) => f.pagePath),
-  );
-  const pagesBadge = pagesWithBugs.size;
   const changesBadge = watchingUrlOutcomes.filter(
     (o) => o.verdict === "hurting",
   ).length;
 
   const badges: NavBadges = {};
   if (todayBadge > 0) badges["/"] = todayBadge;
-  if (pagesBadge > 0) badges["/pages"] = pagesBadge;
   if (changesBadge > 0) badges["/proof"] = changesBadge;
 
   // Sample / walkthrough data when no import runs exist (`import-runs` store
@@ -210,7 +198,6 @@ export default async function ShellLayout({
   trace.data("changelog_count", changelogEntries.length);
   trace.data("palette_items", paletteItems.length);
   trace.data("today_badge", badges["/"] ?? 0);
-  trace.data("pages_badge", badges["/pages"] ?? 0);
   trace.data("changes_badge", badges["/proof"] ?? 0);
   trace.flush();
 

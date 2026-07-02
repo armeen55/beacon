@@ -20,9 +20,9 @@ beforeEach(() => {
 });
 
 describe("ask/suggested-questions", () => {
-  it("always returns exactly 3 questions even with zero live data", async () => {
+  it("always returns exactly 8 questions even with zero live data", async () => {
     const qs = await loadSuggestedQuestions();
-    expect(qs).toHaveLength(3);
+    expect(qs).toHaveLength(8);
     expect(qs.every((q) => typeof q === "string" && q.length > 0)).toBe(true);
   });
 
@@ -54,6 +54,6 @@ describe("ask/suggested-questions", () => {
   it("never throws when both loaders reject", async () => {
     vi.mocked(loadDailyTotalsForTenant).mockRejectedValueOnce(new Error("boom"));
     vi.mocked(getAnswerIntelligenceIndex).mockRejectedValueOnce(new Error("boom"));
-    await expect(loadSuggestedQuestions()).resolves.toHaveLength(3);
+    await expect(loadSuggestedQuestions()).resolves.toHaveLength(8);
   });
 });
