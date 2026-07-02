@@ -5,8 +5,13 @@
  * render-ready brief. No I/O: the caller passes the cached demand map (readAllCachedKeywordDemand, a $0
  * reader), the cached SERP patterns, and the competitor teardown facts.
  *
- * HONESTY: DataForSEO exposes paid COMPETITION (low/medium/high), NOT a true keyword-difficulty score.
- * We surface competitionLevel and label it "competition", never "difficulty".
+ * HONESTY: DataForSEO exposes paid COMPETITION (low/medium/high), NOT a true keyword-difficulty score,
+ * so the default surface is competitionLevel labeled "competition", never "difficulty".
+ *
+ * Item 18 (2026-07-02): when a create-page verdict run has ALREADY fetched bulk_keyword_difficulty for
+ * this exact query (a real 0-100 Google difficulty score, cached, $0 to read again), the row upgrades to
+ * that real number instead of the low/medium/high competition label. Still honest: a query with no cached
+ * difficulty keeps the unchanged competition label, never a guessed score.
  */
 
 /** One researched keyword row: the term, its cached monthly volume, and paid-competition level. */
@@ -16,6 +21,9 @@ export type EvidenceKeyword = {
   volume: number | null;
   /** Paid-competition level (NOT keyword difficulty), or null. */
   competition: "low" | "medium" | "high" | null;
+  /** Item 18: real 0-100 Google keyword-difficulty score when a verdict run already cached one for this
+   *  exact query, else null (falls back to the competition label above). */
+  difficulty: number | null;
 };
 
 /** The live Google top-10 reaction for the page's search: what shape of page wins + who holds it. */
@@ -56,7 +64,12 @@ export type DailyEvidenceBrief = {
   competitor?: EvidenceCompetitor;
 };
 
-export type CachedDemand = { volume: number | null; competition: "low" | "medium" | "high" | null };
+export type CachedDemand = {
+  volume: number | null;
+  competition: "low" | "medium" | "high" | null;
+  /** Item 18: real cached 0-100 Google keyword-difficulty score, or null/absent when no verdict run has fetched one yet. */
+  difficulty?: number | null;
+};
 
 /** The subset of a cached SERP pattern the daily card needs (keeps this module dependency-free). */
 export type SerpPatternLite = { format: string; winningDomains: string[]; elementImplication: string };
@@ -174,7 +187,7 @@ export function buildKeywordBrief(
     if (!term || seen.has(key)) continue;
     seen.add(key);
     const d = demandByTerm.get(key);
-    keywords.push({ term, volume: d?.volume ?? null, competition: d?.competition ?? null });
+    keywords.push({ term, volume: d?.volume ?? null, competition: d?.competition ?? null, difficulty: d?.difficulty ?? null });
     if (keywords.length >= max) break;
   }
   // Only surface a brief when we actually have cached demand for at least one keyword; otherwise it is

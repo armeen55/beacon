@@ -31,7 +31,15 @@ export const SERP_COST_USD = 0.003;
 const SERP_CACHE_STORE = "dataforseo-serp-cache";
 const SERP_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const DEFAULT_MONTHLY_CAP_USD = 50;
-const SERP_ENDPOINT = "https://api.dataforseo.com/v3/serp/google/organic/live/regular";
+// Item 20 (2026-07-02): live/regular -> live/advanced. The regular endpoint returns
+// items ONLY for featured_snippet/organic/paid, so ai_overview never appeared in its
+// items (verified against 83 real cached Iranopedia snapshots: 0 ai_overview). The
+// DataForSEO pricing page lists ONE Live Mode price per SERP ($0.002, no regular vs
+// advanced split), so advanced is the same documented cost and additionally returns
+// the ai_overview element with its cited references. We deliberately do NOT send
+// load_async_ai_overview (that parameter adds one base price per call); we parse
+// only what the standard advanced response already contains.
+const SERP_ENDPOINT = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced";
 
 export type SerpPlan = {
   endpoint: string;
@@ -122,8 +130,9 @@ const cacheKey = (plan: SerpPlan): string => `${plan.locationCode}|${plan.langua
 export type SerpOrganicItem = { rank: number; domain: string; url: string };
 
 /** parseDataForSeoSerp's return: the existing SerpSnapshot PLUS the ranked organic
- *  triples. Additive - every existing consumer keeps treating it as a SerpSnapshot. */
-export type ParsedSerp = SerpSnapshot & { organicItems: SerpOrganicItem[] };
+ *  triples (item 17) PLUS the parsed AI Overview (item 20). Additive - every
+ *  existing consumer keeps treating it as a SerpSnapshot. */
+export type ParsedSerp = SerpSnapshot & { organicItems: SerpOrganicItem[]; aiOverview: ParsedAiOverview };
 
 /** The ranked { rank, domain, url } triples of a snapshot's organic results. Pure. */
 export function organicItemsOf(snapshot: SerpSnapshot): SerpOrganicItem[] {
@@ -152,11 +161,73 @@ export function resolveOwnRank(
   return { ownRank: null, ownUrl: null };
 }
 
+// ─── Google AI Overview parsing (item 20) ───────────────────────────────────
+//
+// The live/advanced endpoint's ai_overview item carries a top-level `references`
+// array: the deduplicated list of domains/urls the overview actually cites
+// (verified against 2 real live probe calls on 2026-07-02 - "what is nowruz" and
+// "persian new year traditions" both returned populated references with
+// { domain, url, title, source }). We read ONLY that top-level references array
+// (never the per-element nested `items[].references`, which repeats the same
+// citations once per overview paragraph) so one reference = one cited domain.
+
+/** One domain the AI Overview cites, in the order DataForSEO returned it. */
+export type AiOverviewCitedDomain = { domain: string; url: string; position: number };
+
+/** parseAiOverview's return: whether an overview rendered at all, which domains
+ *  it cites (empty when present but references were withheld), and a short
+ *  excerpt of its text for operator display. */
+export type ParsedAiOverview = {
+  present: boolean;
+  citedDomains: AiOverviewCitedDomain[];
+  overviewTextExcerpt: string;
+};
+
+const NO_AI_OVERVIEW: ParsedAiOverview = { present: false, citedDomains: [], overviewTextExcerpt: "" };
+const AI_OVERVIEW_EXCERPT_MAX = 300;
+
+/** Parse ONE SERP response's `ai_overview` item (when present) into the cited
+ *  domains + a short text excerpt. Pure, never throws - malformed/absent input
+ *  answers the honest "no overview" shape. */
+export function parseAiOverview(item: unknown): ParsedAiOverview {
+  if (!item || typeof item !== "object") return NO_AI_OVERVIEW;
+  const it = item as Record<string, unknown>;
+  if (String(it.type ?? "") !== "ai_overview") return NO_AI_OVERVIEW;
+
+  const refs = Array.isArray(it.references) ? it.references : [];
+  const citedDomains: AiOverviewCitedDomain[] = [];
+  let position = 0;
+  for (const r of refs) {
+    if (!r || typeof r !== "object") continue;
+    const ref = r as Record<string, unknown>;
+    const url = typeof ref.url === "string" ? ref.url : "";
+    if (!url) continue;
+    // Always normalize through rootDomain (strips "www.", lowercases) so these
+    // domains compare cleanly against SerpOrganicItem.domain and resolveOwnRank's
+    // own-domain matching elsewhere in this file - a raw "www.un.org" reference
+    // field would otherwise silently fail to match a bare "un.org" tenant domain.
+    const domain = rootDomain(typeof ref.domain === "string" && ref.domain ? ref.domain : url);
+    if (!domain) continue;
+    position += 1;
+    citedDomains.push({ domain, url, position });
+  }
+
+  // markdown is closest to what a reader sees; fall back to the plain-text field.
+  const rawText = typeof it.markdown === "string" && it.markdown ? it.markdown : typeof it.text === "string" ? it.text : "";
+  const flat = rawText.replace(/\s+/g, " ").trim();
+  const overviewTextExcerpt =
+    flat.length > AI_OVERVIEW_EXCERPT_MAX ? `${flat.slice(0, AI_OVERVIEW_EXCERPT_MAX - 3)}...` : flat;
+
+  return { present: true, citedDomains, overviewTextExcerpt };
+}
+
 /** Parse a DataForSEO organic-live response body into our SerpSnapshot (+ ranked
- *  organic triples, item 17 - additive; consumers of SerpSnapshot are unchanged). */
+ *  organic triples, item 17; + the parsed AI Overview, item 20 - both additive;
+ *  consumers of SerpSnapshot are unchanged). */
 export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string): ParsedSerp {
   const results: SerpResult[] = [];
   const features = new Set<SerpFeature>();
+  let aiOverview: ParsedAiOverview = NO_AI_OVERVIEW;
   const FEATURE_MAP: Record<string, SerpFeature> = {
     ai_overview: "ai_overview",
     featured_snippet: "featured_snippet",
@@ -181,12 +252,13 @@ export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string
           domain: rootDomain(it.url),
         });
       }
+      if (type === "ai_overview") aiOverview = parseAiOverview(it);
     }
   } catch {
     /* malformed body → empty results (honest, never throws) */
   }
   const snapshot: SerpSnapshot = { query, results, features: [...features], source: "dataforseo", fetchedAt: nowIso };
-  return { ...snapshot, organicItems: organicItemsOf(snapshot) };
+  return { ...snapshot, organicItems: organicItemsOf(snapshot), aiOverview };
 }
 
 // ─── Append-only SERP history (item 17) ─────────────────────────────────────
@@ -196,7 +268,8 @@ export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string
 // read is already paid for). APPEND-ONLY: inserts use ON CONFLICT DO NOTHING;
 // nothing here ever updates or deletes a history row.
 
-/** One append-only history row - mirrors migrations/2026-07-02_dataforseo_serp_history.sql. */
+/** One append-only history row - mirrors migrations/2026-07-02_dataforseo_serp_history.sql
+ *  and its item-20 follow-up (ai_overview_present / ai_overview_domains). */
 export type SerpHistoryRow = {
   tenant_id: string;
   id: string;
@@ -208,10 +281,18 @@ export type SerpHistoryRow = {
   top_domains: SerpOrganicItem[];
   serp_features: string[];
   raw_cost_usd: number;
+  /** Item 20: did Google render an AI Overview for this query at capture time. */
+  ai_overview_present: boolean;
+  /** Item 20: the overview's cited domains in order, [] when absent or references
+   *  were withheld. Never null - absence is expressed as an empty array. */
+  ai_overview_domains: AiOverviewCitedDomain[];
 };
 
 /** Build the history row for one captured snapshot. Pure - shared by the live
- *  writer and the backfill script so both produce byte-identical rows. */
+ *  writer and the backfill script so both produce byte-identical rows.
+ *  `aiOverview` is optional (item 20) so the existing backfill script, which has
+ *  no overview data to replay, keeps building valid rows with the honest
+ *  "no overview" default rather than fabricating one. */
 export function buildSerpHistoryRow(input: {
   tenantId: string;
   query: string;
@@ -220,10 +301,12 @@ export function buildSerpHistoryRow(input: {
   tenantDomain: string | null;
   capturedAt: string;
   costUsd: number;
+  aiOverview?: ParsedAiOverview;
 }): SerpHistoryRow {
   const normQuery = input.query.trim().toLowerCase();
   const items = organicItemsOf(input.snapshot);
   const own = resolveOwnRank(items, input.tenantDomain);
+  const overview = input.aiOverview ?? NO_AI_OVERVIEW;
   return {
     tenant_id: input.tenantId,
     id: `${normQuery}|${input.capturedAt}`,
@@ -235,6 +318,8 @@ export function buildSerpHistoryRow(input: {
     top_domains: items,
     serp_features: [...input.snapshot.features],
     raw_cost_usd: input.costUsd,
+    ai_overview_present: overview.present,
+    ai_overview_domains: overview.citedDomains,
   };
 }
 
@@ -293,7 +378,17 @@ const defaultDeps: SerpRunDeps = {
  */
 export async function runSerpQuery(
   query: string,
-  opts: { locationCode?: number; languageCode?: string; depth?: number } = {},
+  opts: {
+    locationCode?: number;
+    languageCode?: string;
+    depth?: number;
+    /** Item 19 (2026-07-02): bypass the 14d cache for this call only - the full
+     *  gauntlet below (configured / dry-run / cap / ledger) still applies. Used by
+     *  the rank re-check pass so a day-7/14/28 "now" read is never a stale cache
+     *  hit. Additive - every existing caller omits this and behaves exactly as
+     *  before. */
+    forceFresh?: boolean;
+  } = {},
   depsOverride: Partial<SerpRunDeps> = {},
 ): Promise<SerpRunResult> {
   const deps = { ...defaultDeps, ...depsOverride };
@@ -308,16 +403,20 @@ export async function runSerpQuery(
   const now = deps.now();
   const nowMs = now.getTime();
 
-  // (2) cache — serve a fresh result without spending.
-  try {
-    const rows = await deps.readCache();
-    const hit = rows.find((r) => r.key === cacheKey(plan));
-    if (hit && nowMs - Date.parse(hit.fetchedAt) < SERP_CACHE_TTL_MS) {
-      log.info("[dataforseo-serp] cache hit", { query: q, fetchedAt: hit.fetchedAt });
-      return { status: "cache_hit", plan, snapshot: hit.snapshot, costUsd: 0, detail: "served from 14d cache" };
+  // (2) cache — serve a fresh result without spending. Skipped entirely when
+  // forceFresh is set (item 19 rank re-check) so a due 7/14/28-day check can't
+  // silently reuse a snapshot captured before the ship.
+  if (!opts.forceFresh) {
+    try {
+      const rows = await deps.readCache();
+      const hit = rows.find((r) => r.key === cacheKey(plan));
+      if (hit && nowMs - Date.parse(hit.fetchedAt) < SERP_CACHE_TTL_MS) {
+        log.info("[dataforseo-serp] cache hit", { query: q, fetchedAt: hit.fetchedAt });
+        return { status: "cache_hit", plan, snapshot: hit.snapshot, costUsd: 0, detail: "served from 14d cache" };
+      }
+    } catch {
+      /* cache read failure is non-fatal — fall through */
     }
-  } catch {
-    /* cache read failure is non-fatal — fall through */
   }
 
   // (3) DRY-RUN (default) — return the PLAN, spend nothing.
@@ -382,6 +481,7 @@ export async function runSerpQuery(
           tenantDomain,
           capturedAt: now.toISOString(),
           costUsd: plan.estCostUsd,
+          aiOverview: snapshot.aiOverview,
         }),
       );
     } catch (err) {

@@ -4,6 +4,7 @@ import {
   runSerpQuery,
   planSerpCall,
   parseDataForSeoSerp,
+  parseAiOverview,
   isDataForSeoConfigured,
   isDryRun,
   monthlyCapUsd,
@@ -104,6 +105,101 @@ describe("DataForSEO SERP — config + helpers", () => {
   });
 });
 
+describe("parseAiOverview — item 20 (Google AI Overview citations)", () => {
+  it("answers the honest absent shape when no ai_overview item exists", () => {
+    expect(parseAiOverview(undefined)).toEqual({ present: false, citedDomains: [], overviewTextExcerpt: "" });
+    expect(parseAiOverview({ type: "organic", url: "https://a.com" })).toEqual({
+      present: false,
+      citedDomains: [],
+      overviewTextExcerpt: "",
+    });
+  });
+
+  it("parses the real live/advanced shape: top-level references[] with domain/url/position", () => {
+    const item = {
+      type: "ai_overview",
+      markdown: "Nowruz is the Persian New Year.",
+      references: [
+        { type: "ai_overview_reference", domain: "www.un.org", url: "https://www.un.org/en/observances/international-nowruz-day", source: "United Nations" },
+        { type: "ai_overview_reference", domain: "en.wikipedia.org", url: "https://en.wikipedia.org/wiki/Nowruz", source: "Wikipedia" },
+      ],
+    };
+    const parsed = parseAiOverview(item);
+    expect(parsed.present).toBe(true);
+    expect(parsed.citedDomains).toEqual([
+      { domain: "un.org", url: "https://www.un.org/en/observances/international-nowruz-day", position: 1 },
+      { domain: "en.wikipedia.org", url: "https://en.wikipedia.org/wiki/Nowruz", position: 2 },
+    ]);
+    expect(parsed.overviewTextExcerpt).toBe("Nowruz is the Persian New Year.");
+  });
+
+  it("present with zero references when the response withholds them (still honest, never null)", () => {
+    const parsed = parseAiOverview({ type: "ai_overview", markdown: "Some overview text.", references: [] });
+    expect(parsed.present).toBe(true);
+    expect(parsed.citedDomains).toEqual([]);
+  });
+
+  it("skips malformed reference entries instead of throwing", () => {
+    const parsed = parseAiOverview({
+      type: "ai_overview",
+      references: [null, { url: "" }, { domain: "good.com", url: "https://good.com/x" }],
+    });
+    expect(parsed.citedDomains).toEqual([{ domain: "good.com", url: "https://good.com/x", position: 1 }]);
+  });
+
+  it("normalizes a www-prefixed reference domain the same way SerpOrganicItem.domain does", () => {
+    const parsed = parseAiOverview({
+      type: "ai_overview",
+      references: [{ domain: "www.un.org", url: "https://www.un.org/en/observances/international-nowruz-day" }],
+    });
+    expect(parsed.citedDomains).toEqual([
+      { domain: "un.org", url: "https://www.un.org/en/observances/international-nowruz-day", position: 1 },
+    ]);
+  });
+
+  it("truncates the text excerpt to 300 chars with a trailing ellipsis", () => {
+    const longText = "a".repeat(400);
+    const parsed = parseAiOverview({ type: "ai_overview", markdown: longText, references: [] });
+    expect(parsed.overviewTextExcerpt.length).toBe(300);
+    expect(parsed.overviewTextExcerpt.endsWith("...")).toBe(true);
+  });
+
+  it("falls back to the plain text field when markdown is absent", () => {
+    const parsed = parseAiOverview({ type: "ai_overview", text: "Plain overview text.", references: [] });
+    expect(parsed.overviewTextExcerpt).toBe("Plain overview text.");
+  });
+
+  it("parseDataForSeoSerp wires the ai_overview item through as snapshot.aiOverview", () => {
+    const withOverview = parseDataForSeoSerp(
+      "what is nowruz",
+      {
+        tasks: [
+          {
+            result: [
+              {
+                items: [
+                  { type: "ai_overview", markdown: "Nowruz overview.", references: [{ domain: "un.org", url: "https://un.org/x" }] },
+                  { type: "organic", url: "https://a.com/x", title: "X" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      "2026-07-02T00:00:00Z",
+    );
+    expect(withOverview.aiOverview.present).toBe(true);
+    expect(withOverview.aiOverview.citedDomains).toEqual([{ domain: "un.org", url: "https://un.org/x", position: 1 }]);
+
+    const withoutOverview = parseDataForSeoSerp(
+      "q",
+      { tasks: [{ result: [{ items: [{ type: "organic", url: "https://a.com/x", title: "X" }] }] }] },
+      "2026-07-02T00:00:00Z",
+    );
+    expect(withoutOverview.aiOverview).toEqual({ present: false, citedDomains: [], overviewTextExcerpt: "" });
+  });
+});
+
 describe("resolveOwnRank — the tenant's literal Google position", () => {
   const items = [
     { rank: 1, domain: "theknot.com", url: "https://theknot.com/persian-wedding" },
@@ -185,6 +281,41 @@ describe("buildSerpHistoryRow — the append-only history row", () => {
     expect(row.own_rank).toBeNull();
     expect(row.own_url).toBeNull();
   });
+
+  it("item 20: defaults ai_overview_present/domains to the honest absent shape when omitted", () => {
+    const snapshot = parseDataForSeoSerp("q", { tasks: [{ result: [{ items: [
+      { type: "organic", url: "https://a.com/x", title: "X" },
+    ] }] }] }, "2026-06-25T00:00:00Z");
+    const row = buildSerpHistoryRow({
+      tenantId: "t", query: "q", location: "", snapshot, tenantDomain: null,
+      capturedAt: "2026-06-25T00:00:00.000Z", costUsd: 0,
+    });
+    expect(row.ai_overview_present).toBe(false);
+    expect(row.ai_overview_domains).toEqual([]);
+  });
+
+  it("item 20: persists the parsed AI Overview when the caller passes it", () => {
+    const snapshot = parseDataForSeoSerp(
+      "persian carpets",
+      { tasks: [{ result: [{ items: [
+        { type: "ai_overview", markdown: "Persian carpets overview.", references: [{ domain: "carpetencyclopedia.com", url: "https://carpetencyclopedia.com/x" }] },
+        { type: "organic", url: "https://a.com/x", title: "X" },
+      ] }] }] },
+      "2026-06-25T00:00:00Z",
+    );
+    const row = buildSerpHistoryRow({
+      tenantId: "t",
+      query: "persian carpets",
+      location: "2840|en",
+      snapshot,
+      tenantDomain: null,
+      capturedAt: "2026-06-25T00:00:00.000Z",
+      costUsd: 0.003,
+      aiOverview: snapshot.aiOverview,
+    });
+    expect(row.ai_overview_present).toBe(true);
+    expect(row.ai_overview_domains).toEqual([{ domain: "carpetencyclopedia.com", url: "https://carpetencyclopedia.com/x", position: 1 }]);
+  });
 });
 
 describe("runSerpQuery — money guardrails", () => {
@@ -259,6 +390,23 @@ describe("runSerpQuery — append-only SERP history (item 17)", () => {
     expect(row.top_domains).toEqual([{ rank: 1, domain: "theknot.com", url: "https://theknot.com/persian-wedding" }]);
     expect(row.serp_features).toEqual(["people_also_ask"]);
     expect(row.raw_cost_usd).toBe(r.costUsd);
+  });
+
+  it("item 20: OK live read with an ai_overview item persists it onto the history row", async () => {
+    const bd = baseDeps({
+      fetchImpl: (async () => ({
+        ok: true,
+        json: async () => ({ tasks: [{ result: [{ items: [
+          { type: "ai_overview", markdown: "Persian wedding overview.", references: [{ domain: "theknot.com", url: "https://theknot.com/persian-wedding" }] },
+          { type: "organic", url: "https://theknot.com/persian-wedding", title: "Persian Wedding" },
+        ] }] }] }),
+      })) as unknown as typeof fetch,
+    });
+    const r = await runSerpQuery("persian wedding", {}, bd.d);
+    expect(r.status).toBe("ok");
+    const row = bd.historyRows[0];
+    expect(row.ai_overview_present).toBe(true);
+    expect(row.ai_overview_domains).toEqual([{ domain: "theknot.com", url: "https://theknot.com/persian-wedding", position: 1 }]);
   });
 
   it("history append failure is FAIL-SOFT — the read still returns ok", async () => {

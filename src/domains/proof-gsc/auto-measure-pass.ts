@@ -17,6 +17,7 @@ import { measureRecord } from "./run-measurement";
 import { readLastFinalizedDate } from "./gsc-window";
 import { loadShippedChanges, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
 import { isDueForMeasure, outcomeStateOf, type OutcomeState } from "./measure-lifecycle";
+import { MAX_RANK_RECHECKS_PER_PASS } from "./rank-recheck";
 import { log } from "@/lib/logger";
 
 export type AutoMeasureOutcome = {
@@ -72,9 +73,15 @@ export async function autoMeasureDuePass(
   const due = records.filter((r) => isDueForMeasure(r, lastFinal, now)).slice(0, max);
   result.due = due.length;
 
+  // Item 19: bounded live-SERP rank re-checks for this WHOLE pass, mirroring
+  // auto-measure.ts's cron pass - a passive on-page-load pass never spends more
+  // than MAX_RANK_RECHECKS_PER_PASS x ~$0.003 regardless of how many records are due.
+  let rankRechecksUsed = 0;
   for (const record of due) {
     try {
-      const next = await measureRecord(tenantId, record, now, lastFinal);
+      const allowRankRecheck = rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
+      const next = await measureRecord(tenantId, record, now, lastFinal, undefined, allowRankRecheck);
+      if (allowRankRecheck && next.rankOutcome != null) rankRechecksUsed += 1;
       await upsertShippedChange(next);
       result.measured += 1;
       const changed = next.verdict !== record.verdict;

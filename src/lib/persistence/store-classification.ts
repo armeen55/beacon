@@ -264,6 +264,11 @@ export const GLOBAL_STORES = new Set<string>([
   // rows carry tenant_id. Latest per-tenant week-over-week query-spike list
   // ($0 Today Demand band + daily plan hint reads).
   "trend-query-spikes",
+  // Seasonality engine (2026-07-02, master plan item 21). Same cron fan-out
+  // rationale: rows carry tenant_id. Latest per-tenant detected seasonal
+  // windows over the permanent GSC monthly archive ($0 Today Demand band +
+  // daily plan hint reads).
+  "seasonal-windows",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

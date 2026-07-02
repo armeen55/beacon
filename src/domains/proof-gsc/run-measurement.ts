@@ -23,6 +23,8 @@ import { readGa4WindowForPages, readLatestGa4Date } from "./ga4-window";
 import { computeTrafficOutcome, type TrafficOutcome } from "./traffic-outcome";
 import { computeCitationOutcomeForRecord } from "./citation-window";
 import { isCitationRelevantAction, type CitationOutcome } from "./citation-outcome";
+import { rankSeriesFor } from "@/domains/serp/serp-history";
+import { runRankRecheck, nextRecheckableWindow, resolveTargetQuery, type RankRecheckResult } from "./rank-recheck";
 import {
   addDays,
   computeWindowLift,
@@ -209,6 +211,12 @@ export async function measureRecord(
   /** Control paths that are THEMSELVES active treatments (contaminated) — excluded from
    *  the diff-in-diff so it only subtracts natural drift. Empty = current behavior. */
   excludeControlPaths: Set<string> = new Set(),
+  /** Item 19: allow this call to spend on a live-SERP rank re-check. Defaults to
+   *  true (a single operator-triggered "Measure now" always may). Batch callers
+   *  (auto-measure.ts / auto-measure-pass.ts) pass false once they have already
+   *  used up MAX_RANK_RECHECKS_PER_PASS for the run, so the $0.003-per-call spend
+   *  stays bounded across a whole pass, not just per record. */
+  allowRankRecheck: boolean = true,
 ): Promise<ShippedChangeRecord> {
   const shipDate = dateOnly(record.shippedAt);
   const lastFinal =
@@ -318,6 +326,27 @@ export async function measureRecord(
     }).catch(() => null);
   }
 
+  // Live-SERP rank re-check (BEACON_500 item 19): a bounded, idempotent,
+  // cache-busted "was rank X, is now rank Y" read for whichever proof window
+  // just came due. Fully fail-soft and computed-only, mirroring trafficOutcome
+  // and citationOutcome above - a SERP failure NEVER touches the GSC verdict
+  // computed above this block, and nothing here is persisted as a column.
+  let rankOutcome: RankRecheckResult | null = null;
+  if (allowRankRecheck) {
+    try {
+      const targetQuery = resolveTargetQuery(record);
+      if (targetQuery) {
+        const points = await rankSeriesFor(tenantId, targetQuery);
+        const due = nextRecheckableWindow(record, points, now);
+        if (due != null) {
+          rankOutcome = await runRankRecheck(tenantId, record, due);
+        }
+      }
+    } catch {
+      rankOutcome = null;
+    }
+  }
+
   return {
     ...record,
     windows,
@@ -325,6 +354,7 @@ export async function measureRecord(
     confidence,
     trafficOutcome,
     citationOutcome,
+    rankOutcome,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

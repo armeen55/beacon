@@ -7,6 +7,180 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 item 21 (permanent GSC seasonal archive + 6-week prep-now moves, worktree, NOT committed)
+
+**What changed:** new `migrations/2026-07-02_gsc_monthly_archive.sql` (table `gsc_monthly_archive`:
+tenant_id/query/month PK, impressions/clicks/top_page; RLS deny-anon + is_tenant_member like every
+sibling table) - APPLIED to Supabase project `vlxwevsdvwxvopkjsewo` and verified (columns, RLS
+policies, live row counts checked via SQL). New `src/domains/seasonal/`:
+`archive-rollup.ts` (bounded, monthly-chunked, PAGED reads of `gsc_daily_rows` -> idempotent upsert
+into the archive; backfills all history on first run, then only re-rolls the current+prior month),
+`load-monthly-archive.ts` (paged reader for the detector), `seasonality.ts` (pure detector: finds
+queries whose 1-2 adjacent calendar months hold >= 60 percent of annual impressions with a >= 200
+floor, ALL derived from data, never a hardcoded holiday/month; confidence `one_season` vs `repeated`
+requires 2+ distinct years), `seasonal-hints.ts` (prep-now hints when the 6-week-out deadline falls
+within 21 days, capped 2/night) + `seasonal-store.ts` (Supabase-mirrored json-store, registered in
+`store-classification.ts` + `json-store.ts`). Wired: PHASE 1d in `cron-sync.ts` beside (not
+disturbing) PHASE 1c; the hint feed additively beside the item-14 spike hints in
+`build-today-preview.ts` (new "Seasonal window ahead" team-review voice); ONE seasonal row in the
+Demand band (`war-room-sections.tsx`, below the spike rows, silent when nothing is due; the
+WarRoomQuietLine check extended to include it). One item-14 pin test string updated to match the
+now-additively-extended guard clause (behavior unchanged, just no longer the ONLY condition).
+
+**Bug found + fixed during ground-truth (not by code review):** this Supabase project's PostgREST
+caps every response at 1000 rows regardless of the requested `.limit()`/`.range()` width. The first
+rollup pass used a 5000-row page size and a 20,000-row `.limit()` in the loader; both silently
+truncated to 1000 rows per call while the loop's offset still advanced by the full requested size,
+so most of every month's rows were skipped without error. Ground-truthing against real Iranopedia
+caught it immediately (archive totaled 2,733 impressions vs 295,890 in the raw daily rows). Fixed
+both to page in 1000-row chunks (matching the repo's existing `PAGE_SIZE = 1000` convention in
+`gsc-page-signals.ts`/`clarity-page-signals.ts`) and re-verified: archive now holds 295,888 of
+295,890 real impressions (rounding-scale diff only), and a second run stays byte-idempotent (same
+19,061 rows, same total, `isBackfill: false`, only current+prior month re-rolled).
+
+**Verified:** `npm run typecheck` 0 errors. Targeted vitest: 46 tests in `src/domains/seasonal/*`
+(detector matrix: single-peak, bimodal-extend, bimodal-no-extend, flat/non-seasonal, floor-gated,
+single-year vs repeated-year confidence, ranking, dash guard) + rollup idempotency/backfill/paging
+shape (mocked Supabase) + hint bounding (21-day window, cap 2, one-per-page) + row-mapper edge cases
++ surface/wiring pins (Demand band placement, cron PHASE 1d isolation, additive hint wire). Plus the
+pre-existing item-14 trend-radar suite (10 tests) still green after the one pin-string update.
+
+**Live ground truth on Iranopedia (`tenant-iranopedia`):** raw `gsc_daily_rows` spans 2026-05-02
+through 2026-06-28 (about 2 months; GSC's 16-month retention is far from binding yet). First-run
+backfill wrote 19,061 monthly-archive rows across 2 months (295,888 impressions, matching the raw
+total). The detector found 20 "seasonal" queries (top: "iran flag" 9,184 impressions in May+June,
+"persian girl/boy names", several Iran-flag history pages) - but EVERY one is `confidence:
+"one_season"` (0 `repeated`), which is the honest and expected result: with only 2 months of raw
+history, any evergreen query with data trivially satisfies "one window holds most of the year," so
+this is not yet real Nowruz-class seasonality, just the detector correctly refusing to claim
+`repeated` confidence it cannot back up. All 20 findings' `prepByDate` sits about 9 months out
+(next May/June), so the prep-now hint feed correctly emits zero hints right now (nothing is inside
+the 21-day urgency window) - no false urgency was fabricated. Store round-trip verified (write 20
+windows, read back 20). **Honest caveat: this feature cannot yet prove a real seasonal wave for
+Iranopedia; it needs a second year of synced GSC history before `confidence: "repeated"` can ever
+fire.** The archive itself is permanent and will keep compounding toward that regardless.
+
+---
+
+## 2026-07-02 - BEACON 500 item 18 (winnability arithmetic in every build verdict, worktree, NOT committed)
+
+**What changed:** built on item 16's `runLabsQuery` gauntlet (genericized over the row type, default
+unchanged, so every existing caller behaves identically). `dataforseo-labs.ts` additions:
+`runBulkKeywordDifficulty(keywords[])` (ONE batched `bulk_keyword_difficulty/live` call, up to 1000
+keywords, $0.05 conservative estimate), `runBulkDomainRanks(domains[])` (ONE batched Backlinks
+`bulk_ranks/live` call, up to 1000 targets, $0.05), `runBacklinksSummary(urls[])` (ONE batched
+Backlinks `bulk_referring_domains/live` call, bounded to 100 URLs, $0.05), plus a `$0`
+`readAllCachedKeywordDifficulty()` reader (flattens fresh 30d cache rows into a keyword-to-difficulty
+map). New pure `src/domains/serp/winnability.ts`: `computeWinnability({difficulty, domainRanks,
+backlinkGap, serpShape})` returns `{score 0-100, band winnable/hard/reject, reasons[], sentence,
+readsAvailable}` with documented thresholds (median domain rank >= 70 or difficulty >= 70 = hard;
+either >= 85 = flat reject; backlink gap > 50x = reject unless difficulty < 30, in which case it
+stays winnable on merit); absent reads degrade confidence honestly (readsAvailable drops, never a
+fabricated number) - zero reads returns the honest cautious default (band "hard", one reason: no
+data yet). `serp-validation.ts` gained an additive optional `winnability` input: arithmetic can only
+ever DOWNGRADE a shape-optimistic build (to wait on "hard", to reject on "reject") and adds the
+concrete-number sentence to `reasons`; it NEVER upgrades a shape-based reject (already-rank,
+marketplace/UGC stay authoritative - winnability answers "can you win a content SERP", not "is this
+even a content SERP"). `prepare-create-page-verdicts.ts` restructured into two passes: pass 1 fetches
+every candidate's SERP snapshot (unchanged) and collects the winning-domain union; pass 1.5 runs the
+THREE batched reads exactly ONCE for the whole run (difficulty for every candidate label, domain
+ranks for every distinct winning domain, backlinks for the top 3 best-ranked winning URLs across the
+whole run plus the tenant's strongest owned page as the "your page" backlink proxy); pass 2
+re-validates each candidate with the arithmetic layered on top and persists the additive
+`PreparedSerpVerdict.winnability {score, band, sentence}` field (existing consumers unaffected, field
+is optional). `daily-evidence-brief.ts`'s `EvidenceKeyword`/`CachedDemand` gained an additive
+`difficulty` field: the competition line upgrades to the real cached 0-100 score when one exists for
+that exact query ($0 read via `readAllCachedKeywordDifficulty`, wired into `build-today-preview.ts`),
+unchanged (competition label only) otherwise. Also fixed pre-existing em dashes in
+`serp-validation.ts` and `prepare-create-page-verdicts.ts` comments/reasons while touching those
+files (hyphens only, per the hard rule).
+
+**What verified:** `npm run typecheck` 0 errors. Targeted vitest, 5 files / 86 tests green:
+`dataforseo-labs.test.ts` (32 - parsers honest on malformed input, gauntlet respected via mocks for
+all three new endpoints incl. dry-run/cap/error paths, batching asserted via the posted payload,
+`readAllCachedKeywordDifficulty` freshness + fail-soft), `winnability.test.ts` (13 - full threshold
+matrix, missing-data degradation, score bounds, dash guard), `serp-validation.test.ts` (13, 7 new -
+unchanged behavior without `winnability` input, downgrade build-to-wait and build-to-reject, NEVER
+upgrades a shape reject, dash guard), `prepare-create-page-verdicts.test.ts` (7, new file - batching
+asserted (exactly 1 call each for a 2-candidate run), zero calls on an empty run, dry-run leaves the
+verdict unchanged, hard/reject difficulty downgrades the persisted verdict with the number in
+`reason`, domain-rank+backlink reads feed the sentence, dash guard), `daily-evidence-brief.test.ts`
+(19, 2 new - difficulty upgrade + honest fallback). Dry-run probe against real Iranopedia
+(`DATAFORSEO_DRY_RUN=true`, `BEACON_TENANT_ID=tenant-iranopedia`, real demand graph): 30 real
+create_page candidates; ran `prepareCreatePageVerdicts` with `maxValidations=10`; all 10 SERP
+snapshots served from the 14d cache ($0); exactly ONE dry-run plan each for
+`bulk_keyword_difficulty/live`, `backlinks/bulk_ranks/live`, and `backlinks/bulk_referring_domains/live`
+(the whole 10-candidate batch, not 10 separate calls), each priced at $0.05, total priced plan for a
+live run ~$0.15, well under the documented $0.50/run ceiling; `winnabilityCostUsd: 0` confirmed no
+spend in dry-run. Scratch probe script lived only in the session scratchpad, never added to the repo.
+
+**Caveats:** the "your page" side of the backlink gap uses the tenant's highest-GSC-impression owned
+page as a proxy (the create-page candidate does not exist yet, so there is no real per-page backlink
+count to read) - honestly documented in code, not fabricated, but it is a proxy, not the actual
+future page's authority. `runBulkDomainRanks`/`runBacklinksSummary` were built against the documented
+DataForSEO Backlinks API request/response shapes (target/rank, target/referring_domains/backlinks)
+but not verified against a live paid response (dry-run only, per instructions - never spend live
+money this run). Did not touch `dataforseo-serp.ts`, `proof-gsc/**`, `seasonal/**`, or
+`run-measurement.ts` (other agents' concurrent work in the same worktree, per instructions); one
+pre-existing `runLabsQuery` genericization (`<T = KeywordGapRow>`, default unchanged) was needed so
+the three new endpoints could reuse the identical gauntlet without a second money path - purely
+additive, existing callers (`runRankedKeywords`, `runDomainIntersection`) unaffected. Not committed;
+`git add`/`git commit` intentionally left to the operator per the gate instructions for this task.
+
+---
+
+## 2026-07-02 - BEACON 500 item 19 (live-SERP rank re-checks in the measurement loop)
+
+**What changed:** built on item 17 (append-only `dataforseo_serp_history`, `resolveOwnRank`,
+`serp-history.ts` readers, `buildRankMovementSentence`). New `src/domains/proof-gsc/rank-recheck.ts`:
+`resolveTargetQuery` (pure, first non-empty `targetQueries` entry), `pickWasRank` (earliest history
+point within 3 days of ship), `windowAlreadyRechecked`/`nextRecheckableWindow` (idempotency reusing
+the history table itself as the marker, no new column), `runRankRecheck` (cache-busted
+`runSerpQuery({ forceFresh: true })` for "now", computed-only result, fail-soft throughout).
+`dataforseo-serp.ts` gained one additive `opts.forceFresh` flag on `runSerpQuery` that skips ONLY the
+14-day cache read; the configured/dry-run/cap/ledger gauntlet is unchanged (surgical string-anchored
+edit, done alongside the item-20 agent's concurrent work in the same file). Wired into
+`measureRecord` (`run-measurement.ts`): after the GSC verdict/windows are computed, a new
+`rankOutcome` field (computed-only, mirrors `trafficOutcome`/`citationOutcome`, never persisted -
+`shipped-change-store.ts`'s `recordToRow` still omits it) is attached fail-soft. Bounded to
+`MAX_RANK_RECHECKS_PER_PASS = 8` re-checks per pass via a new `allowRankRecheck` param threaded
+through both batch callers (`auto-measure.ts`'s cron pass and `auto-measure-pass.ts`'s passive
+on-page-load pass), each tracking its own shared counter so a big backlog never fires more than 8
+live reads (~$0.024) per run. Presentation: one new "Google rank: Google moved this page 9 to 4 for
+"query" since the change." line on the `/proof` row, silent when there is nothing honest to say
+(no query, no re-check has fired, or the page fell out of the tracked results).
+
+**What verified:** `npm run typecheck` 0 errors. Targeted vitest: `rank-recheck.test.ts` (28 tests -
+target-query resolution, was/now math incl. a real win/hold/drop, missing-was honesty, idempotency,
+bounded-pass constant, dry-run/failure safety, dash guard), `run-measurement.test.ts` (4 tests -
+fail-soft integration: a thrown or null rank re-check never changes verdict/confidence/windows;
+`allowRankRecheck=false` and "no target query" both correctly skip the call), new
+`dataforseo-serp-forcefresh.test.ts` (5 tests - forceFresh bypasses the cache but still honors
+dry-run/cap/disabled), plus the pre-existing `proof-jargon-guard.test.ts` (7 tests, unmodified) which
+automatically covers the new "Google rank:" line and confirms it is dash-clean and jargon-free. 12
+files / 191 tests green in the targeted run (full suite intentionally not run, per the CI-minutes
+rule). Dry-run probe against real Iranopedia (`DATAFORSEO_DRY_RUN=true`,
+`BEACON_TENANT_ID=tenant-iranopedia`, DataForSEO confirmed configured): 25 real shipped changes, all
+25 have a resolvable target query, 5 are due for a 7-day re-check right now
+(`/best-persian-restaurants`, `/famous-iranian-singers`, `/farsi-numbers`,
+`/iran-animals/asiatic-cheetah`, `/cities`), priced plan 5 x ~$0.003 = ~$0.015 (under the 8/pass
+bound). Ran `runRankRecheck` for real on those 5: all 5 correctly return `null` (honest silence,
+never a fabricated number) because item 17's history table has zero points captured near their ship
+dates yet - self-heals as history accumulates from ordinary live SERP reads. No live money spent
+(dry-run held throughout); scratch probe scripts deleted after the run, nothing added to `scripts/`.
+
+**Caveats:** the "was" side depends entirely on item 17 having captured a history row within 3 days
+of a change's ship date; changes shipped before item 17 existed (all 25 current Iranopedia rows)
+will show the rank-re-check line silent until either the operator lets ordinary traffic populate
+history near a future ship, or a future backfill/synthetic seed intentionally back-dates a "was" row
+(deliberately NOT done here - fabricating a was-rank was explicitly out of scope). Did not touch
+`dataforseo-labs.ts`, `winnability.ts`, `prepare-create-page-verdicts.ts`, `seasonal/**`, or
+`trend-radar/**` (other agents' concurrent work in the same worktree; one pre-existing unrelated
+typecheck-clean / one pre-existing unrelated test failure in `parseAiOverview`'s truncation length,
+noted but not fixed, per instructions).
+
+---
+
 ## 2026-07-02 - BEACON 500 items 7, 10-13 (wave boundary at 13 of 610)
 
 **What changed:** item 7 crawl-to-citation-to-revenue funnel (real finding: 43 Iranopedia pages

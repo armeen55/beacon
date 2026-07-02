@@ -674,6 +674,17 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored }: { rec: S
         ) : null;
       })()}
 
+      {/* Live-SERP rank re-check (item 19): the literal Google position at ship
+          vs the freshest read, for whichever window last came due. Silence when
+          there is nothing honest to say (no target query, no re-check has fired
+          yet, or the page fell out of the tracked results). This is the strongest
+          single trust line the product can produce, so it gets its own row. */}
+      {rec.rankOutcome?.sentence ? (
+        <p className="mt-1 text-[12px] text-foreground/80">
+          <span className="font-medium text-foreground/60">Google rank:</span> {rec.rankOutcome.sentence}
+        </p>
+      ) : null}
+
       {/* What actually changed (before → after). */}
       {rec.before || rec.after ? (
         <div className="mt-2.5 space-y-1.5 rounded-md border border-border/40 bg-surface-inset/30 p-2.5">

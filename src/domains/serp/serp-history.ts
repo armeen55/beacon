@@ -16,6 +16,9 @@ import "server-only";
 import { cache } from "react";
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
+import { currentTenant } from "@/lib/tenant-context";
+import type { AiOverviewCitedDomain } from "./dataforseo-serp";
+import { computeAiOverviewGaps, aiOverviewGapHeadline, type AiOverviewHistoryRow } from "./ai-overview-gaps";
 
 /** One observed point: when we looked, and where the tenant's own domain sat. */
 export type SerpRankPoint = {
@@ -111,3 +114,65 @@ export const rankDelta = cache(
     return computeRankDelta(await rankSeriesFor(tenantId, query), sinceDays, now);
   },
 );
+
+// ─── AI Overview history reads (item 20) ────────────────────────────────────
+
+/** Bound how far back the tenant-wide AI-Overview scan looks and how many
+ *  rows it can return - a diagnostic read, not an unbounded table scan. */
+const AI_OVERVIEW_LOOKBACK_DAYS = 90;
+const AI_OVERVIEW_ROW_LIMIT = 500;
+
+/**
+ * Every history row for this tenant across ALL tracked queries, in the fields
+ * ai-overview-gaps.ts needs to compute per-query verdicts and lost/gained
+ * transitions. Empty when history has nothing yet, the table/columns are
+ * missing (pre-migration), or Supabase is unreachable - never throws.
+ */
+export const aiOverviewHistoryRows = cache(async (tenantId: string, now: Date = new Date()): Promise<AiOverviewHistoryRow[]> => {
+  if (!tenantId || !isSupabaseConfigured()) return [];
+  try {
+    const cutoffIso = new Date(now.getTime() - AI_OVERVIEW_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await getSupabaseAdmin()
+      .from("dataforseo_serp_history")
+      .select("query, captured_at, own_rank, ai_overview_present, ai_overview_domains")
+      .eq("tenant_id", tenantId)
+      .gte("captured_at", cutoffIso)
+      .order("captured_at", { ascending: true })
+      .limit(AI_OVERVIEW_ROW_LIMIT);
+    if (error || !Array.isArray(data)) return [];
+    return (
+      data as Array<{
+        query: string;
+        captured_at: string;
+        own_rank: number | null;
+        ai_overview_present: boolean | null;
+        ai_overview_domains: AiOverviewCitedDomain[] | null;
+      }>
+    ).map((r) => ({
+      query: r.query,
+      capturedAt: r.captured_at,
+      ownRank: typeof r.own_rank === "number" ? r.own_rank : null,
+      aiOverviewPresent: r.ai_overview_present === true,
+      aiOverviewDomains: Array.isArray(r.ai_overview_domains) ? r.ai_overview_domains : [],
+    }));
+  } catch {
+    return [];
+  }
+});
+
+/** $0 read for the Today AI band: one honest AI-Overview-citation-gap line,
+ *  or null when there is no history yet, the tenant domain is unknown, or no
+ *  real gap exists. Fails soft on any error - never throws into a render. */
+export const loadAiOverviewGapTodayLine = cache(async (tenantId: string, now: Date = new Date()): Promise<string | null> => {
+  try {
+    const rows = await aiOverviewHistoryRows(tenantId, now);
+    if (rows.length === 0) return null;
+    const domain = await currentTenant()
+      .then((t) => t.domain ?? null)
+      .catch(() => null);
+    if (!domain) return null;
+    return aiOverviewGapHeadline(computeAiOverviewGaps(rows, domain));
+  } catch {
+    return null;
+  }
+});

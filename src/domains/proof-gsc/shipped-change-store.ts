@@ -27,6 +27,7 @@ import type {
 } from "./measure";
 import type { TrafficOutcome } from "./traffic-outcome";
 import type { CitationOutcome } from "./citation-outcome";
+import type { RankRecheckResult } from "./rank-recheck";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -62,6 +63,13 @@ export type ShippedChangeRecord = {
    *  omits it), recomputed on every measure. Populated ONLY for
    *  citation-relevant action types (answer block / FAQ / new page / schema). */
   citationOutcome?: CitationOutcome | null;
+  /** Live-SERP rank re-check (BEACON_500 item 19): the literal Google position at
+   *  ship vs the freshest cache-busted read, for whichever proof window most
+   *  recently fired a re-check. Same computed-only posture as trafficOutcome and
+   *  citationOutcome: NOT persisted (recordToRow omits it) - recomputed each
+   *  measure pass from serp-history + a bounded, idempotent live re-check. Null
+   *  when no target query is known, no window is due, or the live read failed. */
+  rankOutcome?: RankRecheckResult | null;
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */

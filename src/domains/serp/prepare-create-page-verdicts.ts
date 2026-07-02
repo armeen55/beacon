@@ -6,14 +6,17 @@ import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { runSerpQuery } from "./dataforseo-serp";
 import { validateCreatePage } from "./serp-validation";
 import { rootDomain } from "./serp-provider";
+import type { SerpSnapshot } from "./serp-provider";
 import { draftCreatePageStructured } from "@/domains/llm/structured-drafter";
 import { getLatestMoveDrafts } from "@/domains/demand-graph/move-draft-store";
 import { readAllCachedKeywordDemand } from "./dataforseo-keywords";
 import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { evaluateCreatePageBriefQuality } from "@/domains/drafts/draft-quality";
+import { runBulkKeywordDifficulty, runBulkDomainRanks, runBacklinksSummary } from "./dataforseo-labs";
+import type { Winnability } from "./winnability";
 
 /**
- * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) — the "prepared, not a
+ * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) - the "prepared, not a
  * chore" precompute. Instead of the operator clicking "Validate with live SERP"
  * on each New Pages card, this runs the top-N create-page candidates through
  * DataForSEO once and PERSISTS the verdict (via move_drafts, kind=serp_verdict),
@@ -22,6 +25,15 @@ import { evaluateCreatePageBriefQuality } from "@/domains/drafts/draft-quality";
  * Capped (default 25/run), cache-first (the runner serves a 14d SERP cache for
  * free), fail-soft per candidate. Dry-run/capped candidates are skipped (no
  * fake verdict persisted). Tenant-agnostic.
+ *
+ * Item 18 (2026-07-02): after every candidate's SERP snapshot is in, this now
+ * runs THREE batched winnability reads over the whole run (never per candidate):
+ *   (a) bulk_keyword_difficulty for every candidate's label, ONE call
+ *   (b) bulk_ranks for every distinct winning domain across the whole batch, ONE call
+ *   (c) a backlinks summary bounded to the top BACKLINKS_RUN_URL_LIMIT winning
+ *       URLs (best-ranked first) plus the tenant's own top page, ONE call
+ * Each read is cache-first and fail-soft (dry-run/capped/error just means that
+ * candidate's verdict stays SERP-shape-only, exactly like before item 18).
  */
 
 export type PreparedSerpVerdict = {
@@ -36,6 +48,12 @@ export type PreparedSerpVerdict = {
   reason: string;
   generatedAt: string;
   costUsd: number;
+  /** Item 18: the difficulty/domain-rank/backlink arithmetic behind the verdict, when reads landed. */
+  winnability?: {
+    score: number;
+    band: "winnable" | "hard" | "reject";
+    sentence: string;
+  };
 };
 
 export type PrepareSummary = {
@@ -48,7 +66,12 @@ export type PrepareSummary = {
   /** LLM spend for the page briefs (separate from SERP costUsd). */
   briefCostUsd: number;
   capped: boolean;
+  /** Item 18: spend from the three batched winnability reads (difficulty + domain ranks + backlinks), separate from SERP costUsd. */
+  winnabilityCostUsd: number;
 };
+
+/** Item 18: bound the backlinks read to a small, cheap set of URLs per run (not per candidate). */
+const BACKLINKS_RUN_URL_LIMIT = 3;
 
 function deriveOwnDomain(pageNodes: ReadonlyArray<{ url: string }>): string {
   const counts = new Map<string, number>();
@@ -59,6 +82,18 @@ function deriveOwnDomain(pageNodes: ReadonlyArray<{ url: string }>): string {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
 }
 
+/**
+ * Item 18: the create-page candidate does not exist yet, so there is no real
+ * per-page backlink count for it. The honest stand-in is the tenant's own
+ * strongest owned page (highest GSC impressions) - the best available proxy for
+ * "how many linking domains does a typical page on this site have". Absent
+ * data -> "" (the backlinks read is then skipped for the own side, never faked).
+ */
+function deriveOwnReferencePage(pageNodes: ReadonlyArray<{ url: string; isOwned: boolean; gscImpressions: number }>): string {
+  const owned = pageNodes.filter((p) => p.isOwned && p.url);
+  return owned.sort((a, b) => b.gscImpressions - a.gscImpressions)[0]?.url ?? "";
+}
+
 export async function prepareCreatePageVerdicts(
   tenantId: string,
   opts: {
@@ -67,7 +102,7 @@ export async function prepareCreatePageVerdicts(
     /** Only validate create-page candidates with a strong/exact cached keyword-volume
      *  match, ranked by volume (the "spend SERP on volume-backed topics" path). */
     onlyKeywordMatched?: boolean;
-    /** SERP verdict only — skip the (separately-budgeted) LLM brief generation. */
+    /** SERP verdict only - skip the (separately-budgeted) LLM brief generation. */
     skipBriefs?: boolean;
     /** Skip candidates that already carry a fresh (<14d) serp_verdict. */
     skipFreshVerdict?: boolean;
@@ -79,7 +114,7 @@ export async function prepareCreatePageVerdicts(
 ): Promise<PrepareSummary> {
   const max = opts.maxValidations ?? 25;
   const now = opts.now ?? (() => new Date());
-  const summary: PrepareSummary = { validated: 0, cached: 0, skipped: 0, briefs: 0, costUsd: 0, briefCostUsd: 0, capped: false };
+  const summary: PrepareSummary = { validated: 0, cached: 0, skipped: 0, briefs: 0, costUsd: 0, briefCostUsd: 0, capped: false, winnabilityCostUsd: 0 };
 
   let graph;
   try {
@@ -90,6 +125,7 @@ export async function prepareCreatePageVerdicts(
   }
 
   const ownDomain = deriveOwnDomain(graph.pageNodes);
+  const ownReferencePage = deriveOwnReferencePage(graph.pageNodes);
   let createMoves = graph.moves.filter((m) => m.gap === "create_page");
 
   // Optional: skip candidates that already have a fresh serp_verdict (re-validate only
@@ -147,6 +183,13 @@ export async function prepareCreatePageVerdicts(
   };
   let briefedCount = 0;
 
+  // ── PASS 1: fetch every candidate's live SERP snapshot (existing behavior,
+  // unchanged). Collect the winning-domain union along the way so PASS 1.5 can
+  // batch the difficulty + domain-rank reads in exactly two calls total. ──
+  type PendingCandidate = { m: (typeof creates)[number]; profoundDomains: string[]; snapshot: SerpSnapshot | null; costUsd: number };
+  const pending: PendingCandidate[] = [];
+  const allWinningDomains = new Set<string>();
+
   for (const m of creates) {
     const profoundDomains = [...new Set(m.competitorUrls.map((u) => rootDomain(u)).filter(Boolean))];
     let r;
@@ -156,7 +199,7 @@ export async function prepareCreatePageVerdicts(
       summary.skipped += 1;
       continue;
     }
-    // Only persist a verdict from a REAL SERP read (ok or cache hit) — never a
+    // Only persist a verdict from a REAL SERP read (ok or cache hit), never a
     // dry-run/capped/disabled placeholder.
     if (r.status !== "ok" && r.status !== "cache_hit") {
       summary.skipped += 1;
@@ -167,7 +210,84 @@ export async function prepareCreatePageVerdicts(
     else summary.validated += 1;
     summary.costUsd += r.costUsd;
 
-    const v = validateCreatePage({ snapshot: r.snapshot, ownDomain, profoundDomains, searchVolume: null });
+    for (const res of r.snapshot?.results.slice(0, 10) ?? []) {
+      if (res.domain) allWinningDomains.add(res.domain);
+    }
+    pending.push({ m, profoundDomains, snapshot: r.snapshot, costUsd: r.costUsd });
+  }
+
+  // ── PASS 1.5: the three batched winnability reads for the WHOLE run (item 18).
+  // Fail-soft: a dry-run/capped/error read just means the arithmetic layer sits
+  // out for this run and every verdict below falls back to SERP-shape-only,
+  // exactly like before item 18. ──
+  const difficultyByKeyword = new Map<string, number | null>();
+  const rankByDomain = new Map<string, number | null>();
+  const backlinksByUrl = new Map<string, { referringDomains: number | null; backlinks: number | null }>();
+
+  if (pending.length > 0) {
+    const keywords = [...new Set(pending.map((p) => p.m.label))];
+    const diffRes = await runBulkKeywordDifficulty(keywords).catch(() => null);
+    if (diffRes) {
+      summary.winnabilityCostUsd += diffRes.costUsd;
+      for (const row of diffRes.rows) difficultyByKeyword.set(row.keyword.toLowerCase(), row.difficulty);
+    }
+
+    if (allWinningDomains.size > 0) {
+      const ranksRes = await runBulkDomainRanks([...allWinningDomains]).catch(() => null);
+      if (ranksRes) {
+        summary.winnabilityCostUsd += ranksRes.costUsd;
+        for (const row of ranksRes.rows) rankByDomain.set(row.domain, row.rank);
+      }
+    }
+
+    // Bound the backlinks read to the top BACKLINKS_RUN_URL_LIMIT winning URLs
+    // (rank 1 first, deduped) across the WHOLE run, plus the tenant's own
+    // reference page - one small, cheap call, never one per candidate.
+    const winningUrlsByRank = pending
+      .flatMap((p) => p.snapshot?.results ?? [])
+      .sort((a, b) => a.rank - b.rank)
+      .map((r) => r.url)
+      .filter(Boolean);
+    const topWinningUrls = [...new Set(winningUrlsByRank)].slice(0, BACKLINKS_RUN_URL_LIMIT);
+    const backlinkTargets = ownReferencePage ? [...topWinningUrls, ownReferencePage] : topWinningUrls;
+    if (backlinkTargets.length > 0) {
+      const backlinksRes = await runBacklinksSummary(backlinkTargets).catch(() => null);
+      if (backlinksRes) {
+        summary.winnabilityCostUsd += backlinksRes.costUsd;
+        for (const row of backlinksRes.rows) backlinksByUrl.set(row.url, { referringDomains: row.referringDomains, backlinks: row.backlinks });
+      }
+    }
+  }
+
+  const ownBacklinks = ownReferencePage ? backlinksByUrl.get(ownReferencePage) ?? null : null;
+
+  // ── PASS 2: validate + persist, now with the arithmetic layered on top of the
+  // SERP-shape verdict (validateCreatePage only ever downgrades on winnability;
+  // see serp-validation.ts). ──
+  for (const { m, profoundDomains, snapshot, costUsd } of pending) {
+    const difficulty = difficultyByKeyword.get(m.label.toLowerCase()) ?? null;
+    const domainRanks: Array<number | null> = snapshot
+      ? snapshot.results.slice(0, 10).map((res) => rankByDomain.get(res.domain) ?? null)
+      : [];
+    const winningUrls = snapshot ? [...snapshot.results].sort((a, b) => a.rank - b.rank).slice(0, BACKLINKS_RUN_URL_LIMIT).map((r) => r.url) : [];
+    const theirBacklinkCounts = winningUrls.map((u) => backlinksByUrl.get(u)?.referringDomains ?? null).filter((n): n is number => typeof n === "number");
+    const theirAvgReferringDomains = theirBacklinkCounts.length > 0 ? theirBacklinkCounts.reduce((s, n) => s + n, 0) / theirBacklinkCounts.length : null;
+    const hasAnyWinnabilityRead = difficulty != null || domainRanks.some((r) => r != null) || (theirAvgReferringDomains != null && ownBacklinks?.referringDomains != null);
+
+    const v = validateCreatePage({
+      snapshot,
+      ownDomain,
+      profoundDomains,
+      searchVolume: null,
+      winnability: hasAnyWinnabilityRead
+        ? {
+            difficulty,
+            domainRanks,
+            backlinkGap: { theirAvgReferringDomains, ownReferringDomains: ownBacklinks?.referringDomains ?? null },
+          }
+        : undefined,
+    });
+    const winnability: Winnability | undefined = v.winnability;
     const compact: PreparedSerpVerdict = {
       verdict: v.verdict,
       confidence: v.confidence,
@@ -177,9 +297,13 @@ export async function prepareCreatePageVerdicts(
       profoundOverlapCount: v.profoundOverlapCount,
       ownAlreadyRanks: v.ownAlreadyRanks,
       topDomains: v.topDomains.slice(0, 5),
-      reason: v.reasons[0] ?? "",
+      // Unchanged when winnability did not run (reasons[0], exactly as before item
+      // 18). When it did run, its sentence is the LAST reason pushed and carries
+      // the concrete numbers, so it leads the persisted, single-line "reason".
+      reason: (winnability ? v.reasons[v.reasons.length - 1] : v.reasons[0]) ?? "",
       generatedAt: now().toISOString(),
-      costUsd: r.costUsd,
+      costUsd,
+      ...(winnability ? { winnability: { score: winnability.score, band: winnability.band, sentence: winnability.sentence } } : {}),
     };
     await saveMoveDraft(tenantId, m.demandKey, "serp_verdict", JSON.stringify(compact)).catch(() => false);
 

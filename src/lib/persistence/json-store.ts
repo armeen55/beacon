@@ -95,6 +95,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // lambda: no disk), read by the Today Demand band + the daily plan builder;
   // without the mirror this week's spikes would be silent-empty on hosted prod.
   "trend-query-spikes",
+  // 2026-07-02 item 21 - nightly seasonality pass over the permanent GSC
+  // monthly archive. Written by the cron (Vercel lambda: no disk), read by
+  // the Today Demand band + the daily plan builder; without the mirror the
+  // detected seasonal windows would be silent-empty on hosted prod.
+  "seasonal-windows",
   // 2026-07-02 item 16 - competitor keyword gap engine. The Labs cache is a COST
   // guarantee (a re-run within 30 days must not re-spend, which only holds on
   // Vercel with the mirror); the results store is what the New Pages board reads

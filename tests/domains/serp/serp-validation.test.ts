@@ -65,3 +65,84 @@ describe("validateCreatePage (Phase 4 SERP verdict)", () => {
     expect(v.confidence).toBe("medium");
   });
 });
+
+describe("validateCreatePage + winnability arithmetic (item 18)", () => {
+  it("without winnability input, behavior is UNCHANGED (no winnability field set)", () => {
+    const v = validateCreatePage({ snapshot: snap(CONTENT), ownDomain: "iranopedia.com", searchVolume: 2400 });
+    expect(v.verdict).toBe("build");
+    expect(v.winnability).toBeUndefined();
+  });
+
+  it("a shape-optimistic BUILD is downgraded to WAIT when the difficulty/domain-rank numbers are hard", () => {
+    const v = validateCreatePage({
+      snapshot: snap(CONTENT),
+      ownDomain: "iranopedia.com",
+      searchVolume: 2400,
+      winnability: { difficulty: 75 },
+    });
+    expect(v.verdict).toBe("wait");
+    expect(v.winnability?.band).toBe("hard");
+    expect(v.reasons.some((r) => /75 of 100 difficulty/.test(r))).toBe(true);
+  });
+
+  it("a shape-optimistic BUILD is downgraded to REJECT when winnability arithmetic says reject", () => {
+    const v = validateCreatePage({
+      snapshot: snap(CONTENT),
+      ownDomain: "iranopedia.com",
+      searchVolume: 2400,
+      winnability: { difficulty: 92 },
+    });
+    expect(v.verdict).toBe("reject");
+    expect(v.winnability?.band).toBe("reject");
+  });
+
+  it("winnability NEVER upgrades a shape-based reject (already-rank stays reject)", () => {
+    const v = validateCreatePage({
+      snapshot: snap(["iranopedia.com", ...CONTENT]),
+      ownDomain: "iranopedia.com",
+      searchVolume: 2400,
+      winnability: { difficulty: 5, domainRanks: [10, 15] },
+    });
+    expect(v.ownAlreadyRanks).toBe(true);
+    expect(v.verdict).toBe("reject");
+    expect(v.winnability).toBeUndefined(); // arithmetic never even runs for shape rejects
+  });
+
+  it("winnability NEVER upgrades a marketplace/UGC shape reject", () => {
+    const v = validateCreatePage({
+      snapshot: snap(MARKET),
+      ownDomain: "iranopedia.com",
+      searchVolume: 9000,
+      winnability: { difficulty: 5 },
+    });
+    expect(v.verdict).toBe("reject");
+    expect(v.winnability).toBeUndefined();
+  });
+
+  it("low difficulty + low domain ranks keeps a shape BUILD at build, with the numbers cited", () => {
+    const v = validateCreatePage({
+      snapshot: snap(CONTENT),
+      ownDomain: "iranopedia.com",
+      profoundDomains: ["theknot.com"],
+      searchVolume: 2400,
+      winnability: { difficulty: 20, domainRanks: [25, 30, 35] },
+    });
+    expect(v.verdict).toBe("build");
+    expect(v.winnability?.band).toBe("winnable");
+    expect(v.reasons.some((r) => /20 of 100 difficulty/.test(r))).toBe(true);
+  });
+
+  it("never emits an em or en dash across every reason, with or without winnability", () => {
+    const cases = [
+      validateCreatePage({ snapshot: snap(CONTENT), ownDomain: "iranopedia.com" }),
+      validateCreatePage({ snapshot: snap(MARKET), ownDomain: "iranopedia.com" }),
+      validateCreatePage({ snapshot: null, ownDomain: "iranopedia.com" }),
+      validateCreatePage({ snapshot: snap(["iranopedia.com", ...CONTENT]), ownDomain: "iranopedia.com" }),
+      validateCreatePage({ snapshot: snap(CONTENT), ownDomain: "iranopedia.com", winnability: { difficulty: 80 } }),
+      validateCreatePage({ snapshot: snap(CONTENT), ownDomain: "iranopedia.com", winnability: { difficulty: 92 } }),
+    ];
+    for (const v of cases) {
+      for (const r of v.reasons) expect(r).not.toMatch(/[–—]/);
+    }
+  });
+});

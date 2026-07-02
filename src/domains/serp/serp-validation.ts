@@ -1,5 +1,5 @@
 /**
- * serp-validation (2026-06-25, Phase 4) — turn a live SERP snapshot into a
+ * serp-validation (2026-06-25, Phase 4) - turn a live SERP snapshot into a
  * create-page VERDICT. Pure + dependency-free (the SERP fetch happens in
  * dataforseo-serp; this only judges the result), so it's fully testable with no
  * paid call.
@@ -9,9 +9,20 @@
  *  - top results are CONTENT pages (+ a competitor AI already cites) → upgrade, build it
  *  - SERP is marketplace/UGC-dominated, or brand/own-shop → downgrade/reject (you
  *    can't out-rank Amazon/Etsy/Reddit with an article; not a content gap)
+ *
+ * Item 18 (2026-07-02): the SERP-shape verdict above judges vibes (is this a
+ * content SERP?). ValidateInput now optionally accepts `winnability` - the pure
+ * arithmetic from winnability.ts built off three cheap reads (keyword
+ * difficulty, winning-domain ranks, backlink gap). When present, arithmetic can
+ * only ever DOWNGRADE a shape-optimistic "build" (to "wait" on a hard band, or
+ * "reject" on a reject band) and add the concrete numbers to `reasons` - it
+ * never upgrades a shape-based reject (already-rank / marketplace-UGC stay
+ * authoritative; arithmetic answers "can you win a content SERP", not "is this
+ * even a content SERP").
  */
 
 import type { SerpSnapshot } from "./serp-provider";
+import { computeWinnability, type WinnabilityInput, type Winnability } from "./winnability";
 
 // Marketplaces + UGC/social: a content page can't win these SERPs, and a brand's
 // listing there isn't a content gap. Matched by domain label (so subdomains/cctlds
@@ -46,6 +57,8 @@ export type SerpValidation = {
   verdict: CreateVerdict;
   confidence: CreateConfidence;
   reasons: string[];
+  /** Item 18: the difficulty/domain-rank/backlink-gap arithmetic, when reads were supplied. Absent = not read yet. */
+  winnability?: Winnability;
 };
 
 export type ValidateInput = {
@@ -56,11 +69,13 @@ export type ValidateInput = {
   profoundDomains?: readonly string[];
   /** measured monthly search volume when DataForSEO/SEMrush has it (null = unknown) */
   searchVolume?: number | null;
+  /** Item 18: optional winnability reads (difficulty, winning-domain ranks, backlink gap). Absent = shape-only verdict (unchanged behavior). */
+  winnability?: WinnabilityInput;
 };
 
 /**
  * Judge a create-page candidate from its live SERP. Pure. With no snapshot
- * (SERP unknown / not fetched yet) it returns the honest LOW/"wait" default —
+ * (SERP unknown / not fetched yet) it returns the honest LOW/"wait" default,
  * never fabricates a verdict.
  */
 export function validateCreatePage(input: ValidateInput): SerpValidation {
@@ -78,7 +93,7 @@ export function validateCreatePage(input: ValidateInput): SerpValidation {
       intent: "content",
       verdict: "wait",
       confidence: "low",
-      reasons: ["No live SERP yet — confidence stays low until DataForSEO confirms real demand."],
+      reasons: ["No live SERP yet, confidence stays low until DataForSEO confirms real demand."],
     };
   }
 
@@ -100,11 +115,11 @@ export function validateCreatePage(input: ValidateInput): SerpValidation {
   if (ownAlreadyRanks) {
     verdict = "reject";
     confidence = "low";
-    reasons.push("You already rank for this — it's an EDIT, not a new page.");
+    reasons.push("You already rank for this, it's an EDIT, not a new page.");
   } else if (intent === "marketplace_ugc") {
     verdict = "reject";
     confidence = "low";
-    reasons.push(`SERP is marketplace/UGC-dominated (${marketplaceUgcCount}/10) — a content page can't win it.`);
+    reasons.push(`SERP is marketplace/UGC-dominated (${marketplaceUgcCount}/10), a content page can't win it.`);
   } else if (intent === "content" && contentDomainCount >= 5) {
     // Real content SERP → buildable. Strength depends on corroborating signals.
     const corroborated = (volume != null && volume > 0 ? 1 : 0) + (profoundOverlapCount > 0 ? 1 : 0);
@@ -117,7 +132,24 @@ export function validateCreatePage(input: ValidateInput): SerpValidation {
   } else {
     verdict = "wait";
     confidence = "low";
-    reasons.push(`Mixed SERP (${contentDomainCount} content / ${marketplaceUgcCount} marketplace) — verify intent before building.`);
+    reasons.push(`Mixed SERP (${contentDomainCount} content / ${marketplaceUgcCount} marketplace), verify intent before building.`);
+  }
+
+  // ── item 18: arithmetic downgrade only. Shape-based rejects (already-rank,
+  // marketplace/UGC) stay authoritative; winnability never fires for them. A
+  // shape-optimistic build/wait can be downgraded (never upgraded) once the real
+  // difficulty/domain-strength/backlink numbers are in. ──
+  let winnability: Winnability | undefined;
+  if (input.winnability && verdict !== "reject") {
+    winnability = computeWinnability({ ...input.winnability, serpShape: { intent, contentDomainCount } });
+    reasons.push(winnability.sentence);
+    if (winnability.band === "reject") {
+      verdict = "reject";
+      confidence = "low";
+    } else if (winnability.band === "hard" && verdict === "build") {
+      verdict = "wait";
+      confidence = "low";
+    }
   }
 
   return {
@@ -127,6 +159,7 @@ export function validateCreatePage(input: ValidateInput): SerpValidation {
     profoundOverlapCount,
     ownAlreadyRanks,
     intent,
+    winnability,
     verdict,
     confidence,
     reasons,

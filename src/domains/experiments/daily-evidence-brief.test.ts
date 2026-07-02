@@ -24,8 +24,8 @@ describe("buildKeywordBrief", () => {
     );
     expect(brief).not.toBeNull();
     expect(brief!.keywords).toEqual([
-      { term: "persian rugs", volume: 2400, competition: "low" },
-      { term: "iranian food", volume: 880, competition: "medium" },
+      { term: "persian rugs", volume: 2400, competition: "low", difficulty: null },
+      { term: "iranian food", volume: 880, competition: "medium", difficulty: null },
     ]);
     expect(brief!.addressableVolume).toBe(3280);
   });
@@ -37,8 +37,8 @@ describe("buildKeywordBrief", () => {
     );
     expect(brief).not.toBeNull();
     expect(brief!.keywords).toEqual([
-      { term: "persian rugs", volume: 1000, competition: "high" },
-      { term: "no data term", volume: null, competition: null },
+      { term: "persian rugs", volume: 1000, competition: "high", difficulty: null },
+      { term: "no data term", volume: null, competition: null, difficulty: null },
     ]);
     // Only the known volume counts toward addressable volume.
     expect(brief!.addressableVolume).toBe(1000);
@@ -50,7 +50,7 @@ describe("buildKeywordBrief", () => {
       demand([["persian rugs", { volume: 500, competition: "low" }]]),
     );
     expect(brief!.keywords).toHaveLength(1);
-    expect(brief!.keywords[0]).toEqual({ term: "Persian Rugs", volume: 500, competition: "low" });
+    expect(brief!.keywords[0]).toEqual({ term: "Persian Rugs", volume: 500, competition: "low", difficulty: null });
   });
 
   it("caps the number of rows at max (default 6)", () => {
@@ -69,6 +69,24 @@ describe("buildKeywordBrief", () => {
     );
     expect(brief).not.toBeNull();
     expect(brief!.addressableVolume).toBeNull();
+  });
+
+  describe("item 18: difficulty upgrade ($0 cached read)", () => {
+    it("carries a cached real difficulty score alongside the competition label", () => {
+      const brief = buildKeywordBrief(
+        ["persian rugs"],
+        demand([["persian rugs", { volume: 2400, competition: "low", difficulty: 34 }]]),
+      );
+      expect(brief!.keywords[0]).toEqual({ term: "persian rugs", volume: 2400, competition: "low", difficulty: 34 });
+    });
+
+    it("stays unchanged (difficulty null) when no verdict run has cached a difficulty score yet", () => {
+      const brief = buildKeywordBrief(
+        ["persian rugs"],
+        demand([["persian rugs", { volume: 2400, competition: "low" }]]),
+      );
+      expect(brief!.keywords[0].difficulty).toBeNull();
+    });
   });
 });
 

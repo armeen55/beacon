@@ -23,6 +23,7 @@ import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm
 import { draftAtomicEditStructured, draftAnswerBlockStructured, draftTeamVerdictStructured } from "@/domains/llm/structured-drafter";
 import { applyFinalReviewToPicks } from "@/domains/llm/batch-adjudicator";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { readAllCachedKeywordDifficulty } from "@/domains/serp/dataforseo-labs";
 import { readCachedSerpPatterns, enrichPickSerpPatterns } from "@/domains/serp/research-enrichment-producer";
 import type { SerpPattern } from "@/domains/serp/research-enrichment";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
@@ -38,6 +39,8 @@ import { loadEngineGapNotes } from "@/domains/ai-visibility/gap-store";
 import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
 import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
 import { buildSpikeHintNotes } from "@/domains/trend-radar/spike-hints";
+import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
+import { buildSeasonalHintNotes } from "@/domains/seasonal/seasonal-hints";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -55,13 +58,16 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, serpPatterns, changePacks, engineGapsByUrl, querySpikes] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
     // Slice E: $0 cached DataForSEO keyword demand (volume + paid-competition) for the "how we know"
     // brief. Cache-only read (no call, no spend); empty until a live keyword run populates it.
     readAllCachedKeywordDemand().catch(() => []),
+    // Item 18: $0 cached real keyword-difficulty scores (0-100), populated whenever a create-page
+    // verdict run has already fetched bulk_keyword_difficulty for a query. Empty until then.
+    readAllCachedKeywordDifficulty().catch(() => new Map<string, number | null>()),
     // Slice E-2: $0 cached live-SERP reaction (winning shape + domains) per query. Populated by the
     // operator-gated SERP producer; empty (brief section absent) until then.
     readCachedSerpPatterns().catch(() => new Map()),
@@ -74,12 +80,18 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     // Item 14: $0 read of last night's query-spike radar (this week vs the trailing 4-week
     // baseline). Empty until the nightly pass has run. Fail-soft to none.
     loadQuerySpikes(tenantId, now).catch(() => []),
+    // Item 21: $0 read of last night's seasonality pass over the permanent GSC monthly
+    // archive (peak windows + prep deadlines). Empty until the nightly pass has run.
+    // Fail-soft to none.
+    loadSeasonalQueries(tenantId, now).catch(() => []),
   ]);
 
-  // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence.
+  // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence. Item 18:
+  // layer in the cached real difficulty score when one exists for this exact term, $0, additive.
   const demandByTerm = new Map<string, CachedDemand>();
   for (const k of keywordDemand) {
-    demandByTerm.set(k.keyword.toLowerCase(), { volume: k.searchVolume, competition: k.competitionLevel });
+    const term = k.keyword.toLowerCase();
+    demandByTerm.set(term, { volume: k.searchVolume, competition: k.competitionLevel, difficulty: keywordDifficulty.get(term) ?? null });
   }
 
   // SERP patterns indexed by lowercased query (the shape build-today-preview's brief looks up).
@@ -126,6 +138,11 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     if (!f) return false;
     return proposeAnswerGap({ label: labelOf(topPageUrl), h1: f.h1, topQuery: query, bodyParagraphs: f.bodyParagraphs ?? [] }) != null;
   });
+
+  // Item 21 - the seasonality hint feed: a detected peak window only becomes a "prep now"
+  // hint when its prep deadline (peak start minus 6 weeks) falls within the next 21 days.
+  // Bounded to 2/night; composes beside the spike hints without disturbing them.
+  const seasonalHintsByPath = buildSeasonalHintNotes(seasonalQueries, now);
 
   // Active topology (treated/control paths) + protected-destination predicate.
   const states = deriveExperimentStates(ledger, now);
@@ -342,6 +359,18 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         label: "Search demand spike",
         claim: `${spikeHint.sentence} The page has no direct answer for it yet, so this change is worth shipping this week.`,
         confidencePct: 80,
+      });
+    }
+    // Item 21 - the SEASONALITY voice: when this pick's page has an upcoming seasonal window
+    // due to prep soon, the multi-year (or single-year) pattern argues for getting it ready
+    // now, ahead of the wave. Deterministic, from last night's persisted seasonality pass ($0).
+    const seasonalHint = seasonalHintsByPath.get(normalizePath(c.url));
+    if (seasonalHint && c.teamReview && !c.teamReview.voices.some((v) => v.label === "Seasonal window ahead")) {
+      c.teamReview.voices.push({
+        specialist: "gsc",
+        label: "Seasonal window ahead",
+        claim: seasonalHint.sentence,
+        confidencePct: 75,
       });
     }
   }

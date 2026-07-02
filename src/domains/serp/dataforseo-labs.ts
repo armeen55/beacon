@@ -30,12 +30,37 @@ import type { KeywordGapRow } from "./keyword-gaps";
 // early rather than late - same conservative posture as SERP_COST_USD ($0.003 vs
 // ~$0.0006 list) and KEYWORDS_COST_USD ($0.075 vs ~$0.05).
 export const LABS_COST_USD = 0.11;
+
+// ── Winnability-read cost constants (2026-07-02, master plan item 18) ─────────
+// All three are conservative OVER-estimates of list price so the shared cap trips
+// early rather than late (the same posture as LABS_COST_USD above):
+//   - bulk_keyword_difficulty: list ~$0.01/task + ~$0.00003/keyword, so 1000
+//     keywords is ~$0.04. We charge the ledger $0.05 per call.
+//   - backlinks bulk_ranks: list ~$0.02 per 1000 targets. We charge $0.05.
+//   - backlinks bulk_referring_domains: list ~$0.02 per 1000 targets. We charge $0.05.
+// A FULL winnability pass over a verdict batch is therefore 3 batched calls at an
+// estimated $0.15, with a documented HARD ceiling of $0.50 per verdict run
+// (WINNABILITY_RUN_CEILING_USD) - and every call still re-checks the shared
+// $50/month fail-closed cap before spending a cent.
+export const LABS_BULK_DIFFICULTY_COST_USD = 0.05;
+export const BACKLINKS_BULK_RANKS_COST_USD = 0.05;
+export const BACKLINKS_REFERRING_DOMAINS_COST_USD = 0.05;
+/** Documented hard ceiling for one full winnability pass (3 batched calls). */
+export const WINNABILITY_RUN_CEILING_USD = 0.5;
+
 const LABS_CACHE_STORE = "dataforseo-labs-cache";
 /** 30 days - competitor portfolios move slowly; a monthly re-run is free. */
 const LABS_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const LABS_BASE = "https://api.dataforseo.com/v3/dataforseo_labs/google";
+/** The Backlinks API rides a different path prefix but the SAME money gauntlet. */
+const BACKLINKS_BASE = "https://api.dataforseo.com/v3/backlinks";
 /** Hard row ceiling per call - bounded response, bounded per-row pricing. */
 export const LABS_ROW_LIMIT = 300;
+/** Batch-first ceilings: difficulty/ranks ride 1000-target bulk endpoints; the
+ *  backlinks read is bounded to 100 page targets per verdict run. */
+export const BULK_KEYWORDS_LIMIT = 1000;
+export const BULK_TARGETS_LIMIT = 1000;
+export const BACKLINKS_TARGETS_LIMIT = 100;
 
 export type LabsPlan = {
   endpoint: string;
@@ -44,15 +69,40 @@ export type LabsPlan = {
 };
 
 export type LabsRunStatus = "disabled" | "cache_hit" | "dry_run" | "capped" | "ok" | "error";
-export type LabsRunResult = {
+export type LabsRunResult<T = KeywordGapRow> = {
   status: LabsRunStatus;
   plan: LabsPlan;
-  rows: KeywordGapRow[];
+  rows: T[];
   costUsd: number;
   detail: string;
 };
 
-type CacheRow = { key: string; rows: KeywordGapRow[]; fetchedAt: string };
+// ── Winnability read row shapes (2026-07-02, master plan item 18) ──────────────
+
+/** One keyword's Google keyword-difficulty score (0-100, higher = harder). */
+export type KeywordDifficultyRow = {
+  keyword: string;
+  /** 0-100 DataForSEO keyword_difficulty, or null when the API has no score. */
+  difficulty: number | null;
+};
+
+/** One domain's Labs rank score (0-100 domain-strength proxy, higher = stronger). */
+export type DomainRankRow = {
+  domain: string;
+  /** 0-100 rank score (domain_rank_overview's rank field), or null when absent. */
+  rank: number | null;
+};
+
+/** One URL's backlinks summary (page-level, not domain-level). */
+export type BacklinksSummaryRow = {
+  url: string;
+  /** Distinct referring domains, or null when the API has no data for this URL. */
+  referringDomains: number | null;
+  /** Total backlinks, or null when the API has no data for this URL. */
+  backlinks: number | null;
+};
+
+type CacheRow = { key: string; rows: unknown[]; fetchedAt: string };
 
 export type LabsRunDeps = {
   env: NodeJS.ProcessEnv;
@@ -172,16 +222,22 @@ export function parseDomainIntersection(body: unknown, competitorDomain: string)
  * Run ONE DataForSEO Labs query through the full money gauntlet. Never throws.
  * Spends real money ONLY on status "ok" (configured + not dry-run + under the
  * shared cap + cache miss). Generic: endpoints below supply path/payload/parse.
+ *
+ * Item 18: genericized over the row type (default KeywordGapRow, unchanged for
+ * every existing caller) so the winnability reads (difficulty/ranks/backlinks)
+ * can ride the IDENTICAL gauntlet without a second copy of the money logic. An
+ * optional `base` lets a caller point at the Backlinks API path prefix instead
+ * of the Labs one - same host, same auth, same gauntlet, different route tree.
  */
-export async function runLabsQuery(
+export async function runLabsQuery<T = KeywordGapRow>(
   path: string,
   payload: Record<string, unknown>,
-  opts: { cacheKey: string; estCostUsd?: number; parse: (body: unknown) => KeywordGapRow[] },
+  opts: { cacheKey: string; estCostUsd?: number; parse: (body: unknown) => T[]; base?: string },
   depsOverride: Partial<LabsRunDeps> = {},
-): Promise<LabsRunResult> {
+): Promise<LabsRunResult<T>> {
   const deps = { ...defaultDeps, ...depsOverride };
   const plan: LabsPlan = {
-    endpoint: `${LABS_BASE}/${path}`,
+    endpoint: `${opts.base ?? LABS_BASE}/${path}`,
     cacheKey: opts.cacheKey,
     estCostUsd: opts.estCostUsd ?? LABS_COST_USD,
   };
@@ -199,7 +255,7 @@ export async function runLabsQuery(
     const hit = rows.find((r) => r.key === plan.cacheKey);
     if (hit && nowMs - Date.parse(hit.fetchedAt) < LABS_CACHE_TTL_MS) {
       log.info("[dataforseo-labs] cache hit", { key: plan.cacheKey, fetchedAt: hit.fetchedAt });
-      return { status: "cache_hit", plan, rows: hit.rows, costUsd: 0, detail: "served from 30d cache" };
+      return { status: "cache_hit", plan, rows: hit.rows as T[], costUsd: 0, detail: "served from 30d cache" };
     }
   } catch {
     /* cache read failure is non-fatal - fall through */
@@ -349,6 +405,185 @@ export async function runDomainIntersection(
       cacheKey: `domain_intersection|${locationCode}|${languageCode}|${target1}|${target2}`,
       parse: (body) => parseDomainIntersection(body, target1),
     },
+    depsOverride,
+  );
+}
+
+// ── Winnability reads (2026-07-02, master plan item 18) ────────────────────────
+// Three cheap, BATCH-FIRST reads that turn a verdict from SERP-shape vibes into
+// arithmetic: keyword difficulty (Labs), domain-strength ranks (Backlinks), and a
+// page-level backlinks gap for the top winning URLs vs the tenant's own page. Each
+// rides the IDENTICAL money gauntlet (runLabsQuery) - configured check, 30d cache,
+// dry-run default, fail-closed shared cap, ledger - never a second money path.
+
+function bulkItems(body: unknown): Array<Record<string, unknown>> {
+  return (
+    (body as { tasks?: Array<{ result?: Array<{ items?: Array<Record<string, unknown>> }> }> })?.tasks?.[0]
+      ?.result?.[0]?.items ?? []
+  );
+}
+
+/** Parse a bulk_keyword_difficulty body. PURE, honest: malformed/missing -> null score. */
+export function parseBulkKeywordDifficulty(body: unknown): KeywordDifficultyRow[] {
+  const out: KeywordDifficultyRow[] = [];
+  try {
+    for (const it of bulkItems(body)) {
+      const keyword = typeof it.keyword === "string" ? it.keyword : "";
+      if (!keyword) continue;
+      const kd = typeof it.keyword_difficulty === "number" ? it.keyword_difficulty : null;
+      out.push({ keyword, difficulty: kd });
+    }
+  } catch {
+    /* malformed body -> [] */
+  }
+  return out;
+}
+
+/** Parse a backlinks bulk_ranks body. PURE, honest: malformed/missing -> null rank. */
+export function parseBulkDomainRanks(body: unknown): DomainRankRow[] {
+  const out: DomainRankRow[] = [];
+  try {
+    for (const it of bulkItems(body)) {
+      const domain = typeof it.target === "string" ? it.target : "";
+      if (!domain) continue;
+      const rank = typeof it.rank === "number" ? it.rank : null;
+      out.push({ domain: normalizeDomainTarget(domain), rank });
+    }
+  } catch {
+    /* malformed body -> [] */
+  }
+  return out;
+}
+
+/** Parse a backlinks bulk_referring_domains body. PURE, honest: malformed -> null counts. */
+export function parseBacklinksSummary(body: unknown): BacklinksSummaryRow[] {
+  const out: BacklinksSummaryRow[] = [];
+  try {
+    for (const it of bulkItems(body)) {
+      const url = typeof it.target === "string" ? it.target : "";
+      if (!url) continue;
+      const referringDomains = typeof it.referring_domains === "number" ? it.referring_domains : null;
+      const backlinks = typeof it.backlinks === "number" ? it.backlinks : null;
+      out.push({ url, referringDomains, backlinks });
+    }
+  } catch {
+    /* malformed body -> [] */
+  }
+  return out;
+}
+
+/**
+ * Google's keyword-difficulty score (0-100) for EVERY candidate keyword in ONE
+ * batched call (up to BULK_KEYWORDS_LIMIT). This is the arithmetic serp-validation
+ * lacked - a real difficulty number instead of judging SERP shape alone.
+ */
+export async function runBulkKeywordDifficulty(
+  keywords: string[],
+  opts: LabsQueryOpts = {},
+  depsOverride: Partial<LabsRunDeps> = {},
+): Promise<LabsRunResult<KeywordDifficultyRow>> {
+  const clean = [...new Set(keywords.map((k) => k.trim().toLowerCase()).filter(Boolean))].slice(0, BULK_KEYWORDS_LIMIT);
+  if (clean.length === 0) {
+    return {
+      status: "error",
+      plan: { endpoint: `${LABS_BASE}/bulk_keyword_difficulty/live`, cacheKey: "", estCostUsd: LABS_BULK_DIFFICULTY_COST_USD },
+      rows: [],
+      costUsd: 0,
+      detail: "no keywords",
+    };
+  }
+  const locationCode = opts.locationCode ?? 2840; // United States
+  const languageCode = opts.languageCode ?? "en";
+  const cacheKey = `bulk_keyword_difficulty|${locationCode}|${languageCode}|${[...clean].sort().join(",")}`;
+  return runLabsQuery<KeywordDifficultyRow>(
+    "bulk_keyword_difficulty/live",
+    { keywords: clean, location_code: locationCode, language_code: languageCode },
+    { cacheKey, estCostUsd: LABS_BULK_DIFFICULTY_COST_USD, parse: parseBulkKeywordDifficulty },
+    depsOverride,
+  );
+}
+
+/**
+ * Read ALL fresh cached keyword-difficulty rows (no call, NO spend), flattened +
+ * deduped by keyword (newest cache entry wins), stale entries (>30d) dropped.
+ * Item 18's daily-evidence-brief upgrade: the "competition" line can cite a
+ * real difficulty score for a query WITHOUT spending, as long as some past
+ * verdict run already fetched it. Fail-soft -> empty map.
+ */
+export async function readAllCachedKeywordDifficulty(
+  deps: { now?: () => Date; readCache?: () => Promise<CacheRow[]> } = {},
+): Promise<Map<string, number | null>> {
+  const nowMs = (deps.now ?? (() => new Date()))().getTime();
+  const out = new Map<string, number | null>();
+  let rows: CacheRow[];
+  try {
+    rows = await (deps.readCache ?? defaultDeps.readCache)();
+  } catch {
+    return out;
+  }
+  for (const r of rows) {
+    if (!r.key.startsWith("bulk_keyword_difficulty|")) continue;
+    if (nowMs - Date.parse(r.fetchedAt) >= LABS_CACHE_TTL_MS) continue; // stale row
+    for (const row of r.rows as KeywordDifficultyRow[]) {
+      if (row && typeof row.keyword === "string") out.set(row.keyword.toLowerCase(), row.difficulty);
+    }
+  }
+  return out;
+}
+
+/**
+ * Domain-strength rank scores (0-100) for EVERY winning domain in ONE batched
+ * call (up to BULK_TARGETS_LIMIT). A rank-80 SERP is honestly a reject even when
+ * the shape (content vs marketplace) looks friendly.
+ */
+export async function runBulkDomainRanks(
+  domains: string[],
+  depsOverride: Partial<LabsRunDeps> = {},
+): Promise<LabsRunResult<DomainRankRow>> {
+  const clean = [...new Set(domains.map(normalizeDomainTarget).filter(Boolean))].slice(0, BULK_TARGETS_LIMIT);
+  if (clean.length === 0) {
+    return {
+      status: "error",
+      plan: { endpoint: `${BACKLINKS_BASE}/bulk_ranks/live`, cacheKey: "", estCostUsd: BACKLINKS_BULK_RANKS_COST_USD },
+      rows: [],
+      costUsd: 0,
+      detail: "no domains",
+    };
+  }
+  const cacheKey = `bulk_ranks|${[...clean].sort().join(",")}`;
+  return runLabsQuery<DomainRankRow>(
+    "bulk_ranks/live",
+    { targets: clean },
+    { cacheKey, estCostUsd: BACKLINKS_BULK_RANKS_COST_USD, parse: parseBulkDomainRanks, base: BACKLINKS_BASE },
+    depsOverride,
+  );
+}
+
+/**
+ * Page-level backlinks summary (referring domains + total backlinks) for a
+ * bounded set of URLs - the top BACKLINKS_TARGETS_LIMIT winning pages plus the
+ * tenant's own page - in ONE batched call. This is the "their pages average 210
+ * linking domains, yours has 3" read.
+ */
+export async function runBacklinksSummary(
+  urls: string[],
+  depsOverride: Partial<LabsRunDeps> = {},
+): Promise<LabsRunResult<BacklinksSummaryRow>> {
+  const clean = [...new Set(urls.map((u) => u.trim()).filter(Boolean))].slice(0, BACKLINKS_TARGETS_LIMIT);
+  if (clean.length === 0) {
+    return {
+      status: "error",
+      plan: { endpoint: `${BACKLINKS_BASE}/bulk_referring_domains/live`, cacheKey: "", estCostUsd: BACKLINKS_REFERRING_DOMAINS_COST_USD },
+      rows: [],
+      costUsd: 0,
+      detail: "no urls",
+    };
+  }
+  const cacheKey = `bulk_referring_domains|${[...clean].sort().join(",")}`;
+  return runLabsQuery<BacklinksSummaryRow>(
+    "bulk_referring_domains/live",
+    { targets: clean },
+    { cacheKey, estCostUsd: BACKLINKS_REFERRING_DOMAINS_COST_USD, parse: parseBacklinksSummary, base: BACKLINKS_BASE },
     depsOverride,
   );
 }

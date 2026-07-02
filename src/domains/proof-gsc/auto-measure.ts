@@ -13,6 +13,7 @@ import { measureRecord } from "./run-measurement";
 import { readLastFinalizedDate } from "./gsc-window";
 import { activeTreatmentPaths } from "@/domains/experiments/experiment-eligibility";
 import { recordToRow, rowToRecord, type ShippedChangeRecord } from "./shipped-change-store";
+import { MAX_RANK_RECHECKS_PER_PASS } from "./rank-recheck";
 import { log } from "@/lib/logger";
 
 const TABLE = "shipped_change_proof";
@@ -45,9 +46,22 @@ export async function measureDueForTenant(tenantId: string, now: Date = new Date
 
   // Oldest ship first: the rows closest to a window boundary settle soonest.
   const batch = [...due].sort((a, b) => Date.parse(a.shippedAt) - Date.parse(b.shippedAt)).slice(0, MAX_PER_RUN);
+  // Item 19: bounded live-SERP rank re-checks for this WHOLE pass (not per
+  // record) - a tenant with 16 due records still spends at most
+  // MAX_RANK_RECHECKS_PER_PASS x ~$0.003 here, never 16x.
+  let rankRechecksUsed = 0;
   for (const r of batch) {
     try {
-      const measured: ShippedChangeRecord = await measureRecord(tenantId, r, now, lastFinal, activeTreatments);
+      const allowRankRecheck = rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
+      const measured: ShippedChangeRecord = await measureRecord(
+        tenantId,
+        r,
+        now,
+        lastFinal,
+        activeTreatments,
+        allowRankRecheck,
+      );
+      if (allowRankRecheck && measured.rankOutcome != null) rankRechecksUsed += 1;
       const up = await admin.from(TABLE).upsert(recordToRow(tenantId, measured), { onConflict: "tenant_id,id" });
       if (up.error != null) {
         out.errors += 1;

@@ -13,11 +13,14 @@ import { loadEngineGapTodayLine } from "@/domains/ai-visibility/gap-store";
 import { loadAiReferralSummary, aiReferralTodayLine } from "@/domains/ai-visibility/ai-referrals";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { funnelSummaryLine } from "@/domains/ai-visibility/crawl-citation-funnel";
+import { loadAiOverviewGapTodayLine } from "@/domains/serp/serp-history";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
 import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
 import { matchSpikeToMove, type MatchableMove } from "@/domains/trend-radar/spike-move-match";
 import type { QuerySpike } from "@/domains/trend-radar/query-spikes";
+import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
+import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
 import { readWorklistSurface } from "./worklist-surface-store";
 import { deriveStatus, statusView } from "@/domains/changes/canonical-change";
 import Link from "next/link";
@@ -115,7 +118,7 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
 export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
   try {
     const slug = await currentTenantSlug().catch(() => "");
-    const [sig, llmMentions, engineGapLine, referralSummary, funnel] = await Promise.all([
+    const [sig, llmMentions, engineGapLine, referralSummary, funnel, aiOverviewGapLine] = await Promise.all([
       loadBotReferralSignals(tenantId),
       readAllCachedLlmMentions().catch(() => []),
       // Item 4: one honest line from last night's 4-engine question check ($0 store read).
@@ -124,11 +127,22 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
       loadAiReferralSummary(tenantId).catch(() => null),
       // Item 7: the per-page crawl to citation to visitors funnel ($0 joins of synced rows).
       slug ? loadCrawlCitationFunnel(tenantId, slug).catch(() => null) : Promise.resolve(null),
+      // Item 20: Google AI Overview citation gap vs organic rank ($0 history read).
+      loadAiOverviewGapTodayLine(tenantId).catch(() => null),
     ]);
     const referralLine = referralSummary ? aiReferralTodayLine(referralSummary) : null;
     const funnelLine = funnel && funnel.hasData ? funnelSummaryLine(funnel) : null;
     const funnelRows = funnel && funnel.hasData ? funnel.stalled.slice(0, 3) : [];
-    if (!sig.hasData && llmMentions.length === 0 && !engineGapLine && !referralLine && !funnelLine && funnelRows.length === 0) return null;
+    if (
+      !sig.hasData &&
+      llmMentions.length === 0 &&
+      !engineGapLine &&
+      !referralLine &&
+      !funnelLine &&
+      funnelRows.length === 0 &&
+      !aiOverviewGapLine
+    )
+      return null;
     const topBots = sig.botSummary.topBots.slice(0, 3);
     const topSources = sig.referralSummary.topSources.slice(0, 3);
     const trendWord =
@@ -148,6 +162,11 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
           {engineGapLine ? (
             <p className="rounded-xl bg-amber-50/70 px-3 py-2 text-[12px] font-medium text-amber-800 sm:col-span-2 dark:bg-amber-950/30 dark:text-amber-200">
               {engineGapLine}
+            </p>
+          ) : null}
+          {aiOverviewGapLine ? (
+            <p className="rounded-xl bg-amber-50/70 px-3 py-2 text-[12px] font-medium text-amber-800 sm:col-span-2 dark:bg-amber-950/30 dark:text-amber-200">
+              {aiOverviewGapLine}
             </p>
           ) : null}
           {funnelLine || funnelRows.length > 0 ? (
@@ -236,19 +255,29 @@ async function loadSpikeRows(tenantId: string): Promise<Array<{ spike: QuerySpik
   return spikes.map((spike) => ({ spike, searchTerm: matchSpikeToMove(spike, moves)?.searchTerm ?? null }));
 }
 
+/** Master plan item 21 - the single most urgent upcoming seasonal window ($0 store read from
+ *  last night's seasonality pass over the permanent GSC monthly archive). Seasonal windows
+ *  arrive ranked soonest-prep-deadline-first, so the first row is the one this slot shows;
+ *  null when nothing is due (the row stays silent, never a placeholder). */
+async function loadTopSeasonalRow(tenantId: string): Promise<SeasonalQuery | null> {
+  const seasonal = await loadSeasonalQueries(tenantId).catch(() => [] as SeasonalQuery[]);
+  return seasonal[0] ?? null;
+}
+
 /** Market demand (DataForSEO teammate): real search demand you don't own yet, from the cached
  *  keyword universe, PLUS this week's query spikes from your own Google data (item 14).
  *  Self-hides until keyword research has run AND nothing is spiking; once research HAS run and
  *  found no gap, that is a finding worth one quiet card (item 21), never a blank space. */
 export async function DemandOpportunitiesSection({ tenantId }: { tenantId: string }) {
   try {
-    const [res, spikeRows] = await Promise.all([
+    const [res, spikeRows, seasonalRow] = await Promise.all([
       loadDemandOpportunities(tenantId, { limit: 5 }),
       loadSpikeRows(tenantId),
+      loadTopSeasonalRow(tenantId),
     ]);
-    // Research never ran and nothing is spiking: nothing honest to say yet, stay silent.
-    if (res.keywordsConsidered === 0 && spikeRows.length === 0) return null;
-    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0) {
+    // Research never ran and nothing is spiking or seasonal: nothing honest to say yet, stay silent.
+    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow) return null;
+    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow) {
       // Item 21 - designed empty state: keyword research DID run and found no new gap.
       return (
         <section aria-label="Demand opportunities" className={CARD}>
@@ -295,6 +324,16 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
               </p>
             </div>
           ))}
+          {/* Master plan item 21 - the single most urgent upcoming seasonal window, from the
+              permanent GSC monthly archive. Below the spikes; silent when nothing is due. */}
+          {seasonalRow ? (
+            <div key={`season-${seasonalRow.query}`} className="rounded-xl bg-sky-50/70 px-3 py-2 dark:bg-sky-950/30">
+              <p className="text-[13px] font-medium text-sky-900 dark:text-sky-200">{seasonalRow.sentence}</p>
+              {seasonalRow.topPage ? (
+                <p className="mt-0.5 text-[12px] text-sky-800/90 dark:text-sky-300/90">Your best matching page: {prettyPath(seasonalRow.topPage)}.</p>
+              ) : null}
+            </div>
+          ) : null}
           {res.opportunities.slice(0, 5).map((o) => (
             <div key={o.id} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
               <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{o.primaryKeyword}</span>
@@ -341,7 +380,7 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
     loadClarityPageSignalsForTenant(tenantId)
       .then((signals) => signals.size === 0)
       .catch(() => true),
-    // AI band renders when any of its five feeds has data.
+    // AI band renders when any of its six feeds has data.
     Promise.all([
       loadBotReferralSignals(tenantId),
       readAllCachedLlmMentions().catch(() => []),
@@ -351,22 +390,31 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
       currentTenantSlug()
         .then((slug) => (slug ? loadCrawlCitationFunnel(tenantId, slug) : null))
         .catch(() => null),
+      // Item 20: react cache shares this read with the AI band above, so it is free here.
+      loadAiOverviewGapTodayLine(tenantId).catch(() => null),
     ])
       .then(
-        ([sig, mentions, gapLine, referrals, funnel]) =>
-          !sig.hasData && mentions.length === 0 && !gapLine && !(referrals && referrals.hasData) && !(funnel && funnel.hasData),
+        ([sig, mentions, gapLine, referrals, funnel, aiOverviewGapLine]) =>
+          !sig.hasData &&
+          mentions.length === 0 &&
+          !gapLine &&
+          !(referrals && referrals.hasData) &&
+          !(funnel && funnel.hasData) &&
+          !aiOverviewGapLine,
       )
       .catch(() => true),
     // Demand band renders whenever keyword research has run (gaps or the item-21 empty
-    // state) OR a query spike exists (item 14, a $0 store read), so quiet = research
-    // never ran, nothing surfaced, and nothing is spiking.
+    // state) OR a query spike exists (item 14, a $0 store read) OR a seasonal window is
+    // due (master plan item 21, a $0 store read), so quiet = research never ran, nothing
+    // surfaced, nothing is spiking, and nothing seasonal is due.
     Promise.all([
       loadDemandOpportunities(tenantId, { limit: 5 }),
       loadQuerySpikes(tenantId).catch(() => []),
+      loadTopSeasonalRow(tenantId).catch(() => null),
     ])
       .then(
-        ([res, spikes]) =>
-          res.keywordsConsidered === 0 && res.opportunities.length === 0 && res.trends.length === 0 && spikes.length === 0,
+        ([res, spikes, seasonalRow]) =>
+          res.keywordsConsidered === 0 && res.opportunities.length === 0 && res.trends.length === 0 && spikes.length === 0 && !seasonalRow,
       )
       .catch(() => true),
   ]);

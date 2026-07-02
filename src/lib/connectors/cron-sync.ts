@@ -15,6 +15,10 @@ import { buildPipelineHealthRow, writePipelineHealth } from "@/domains/ops/pipel
 import { loadQuerySpikeRows } from "@/domains/trend-radar/load-query-spikes";
 import { computeQuerySpikes, anchorDateOf } from "@/domains/trend-radar/query-spikes";
 import { writeQuerySpikeSummary } from "@/domains/trend-radar/spike-store";
+import { runMonthlyArchiveRollup } from "@/domains/seasonal/archive-rollup";
+import { loadMonthlyArchiveRows } from "@/domains/seasonal/load-monthly-archive";
+import { detectSeasonalQueries } from "@/domains/seasonal/seasonality";
+import { writeSeasonalSummary } from "@/domains/seasonal/seasonal-store";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -338,6 +342,48 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] trend radar failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1d - permanent seasonal archive (master plan item 21): fold tonight's
+  // fresh gsc_daily_rows into the permanent gsc_monthly_archive rollup (bounded,
+  // monthly-chunked reads; idempotent upsert on the month), then run the pure
+  // seasonality detector over the tenant's full archive and persist any detected
+  // peak windows so the Today Demand band + the daily plan builder read them at
+  // $0. Deterministic, FREE (bounded Supabase reads, no LLM, no paid API).
+  // Backfills all history on a tenant's first run; isolated try/catch per tenant,
+  // does not touch PHASE 1c above.
+  for (const t of tenants) {
+    try {
+      const rollup = await runMonthlyArchiveRollup(t.id);
+      if (rollup.ran && rollup.monthsRolled.length > 0) {
+        log.info("[cron-sync] seasonal archive rollup", {
+          tenantId: t.id,
+          isBackfill: rollup.isBackfill,
+          monthsRolled: rollup.monthsRolled.length,
+          rowsWritten: rollup.rowsWritten,
+        });
+      }
+      const archiveRows = await loadMonthlyArchiveRows(t.id);
+      const seasonal = detectSeasonalQueries(archiveRows);
+      await writeSeasonalSummary({
+        tenant_id: t.id,
+        computed_at: new Date().toISOString(),
+        monthsOfHistory: new Set(archiveRows.map((r) => r.month.slice(0, 7))).size,
+        seasonal,
+      });
+      if (seasonal.length > 0) {
+        log.info("[cron-sync] seasonal windows detected", {
+          tenantId: t.id,
+          seasonal: seasonal.length,
+          top: seasonal[0]?.query,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] seasonal archive failed", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

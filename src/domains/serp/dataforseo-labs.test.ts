@@ -7,6 +7,16 @@ import {
   parseDomainIntersection,
   normalizeDomainTarget,
   LABS_COST_USD,
+  runBulkKeywordDifficulty,
+  runBulkDomainRanks,
+  runBacklinksSummary,
+  parseBulkKeywordDifficulty,
+  parseBulkDomainRanks,
+  parseBacklinksSummary,
+  readAllCachedKeywordDifficulty,
+  LABS_BULK_DIFFICULTY_COST_USD,
+  BACKLINKS_BULK_RANKS_COST_USD,
+  BACKLINKS_REFERRING_DOMAINS_COST_USD,
   type LabsRunDeps,
 } from "./dataforseo-labs";
 
@@ -240,5 +250,183 @@ describe("endpoint runners", () => {
     expect((await runRankedKeywords("", {}, deps({ fetchImpl: fetchImpl as unknown as typeof fetch }))).status).toBe("error");
     expect((await runDomainIntersection("a.com", "", {}, deps({ fetchImpl: fetchImpl as unknown as typeof fetch }))).status).toBe("error");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+// ── Item 18: winnability reads (difficulty, domain ranks, backlinks) ──────────
+
+const DIFFICULTY_BODY = {
+  tasks: [{ result: [{ items: [
+    { keyword: "persian wedding sofreh", keyword_difficulty: 34 },
+    { keyword: "no score keyword", keyword_difficulty: null },
+    { keyword: "", keyword_difficulty: 50 }, // no keyword -> dropped
+  ] }] }],
+};
+
+const RANKS_BODY = {
+  tasks: [{ result: [{ items: [
+    { target: "theknot.com", rank: 42 },
+    { target: "www.Brides.com", rank: 38 },
+    { target: "", rank: 10 }, // no target -> dropped
+  ] }] }],
+};
+
+const BACKLINKS_BODY = {
+  tasks: [{ result: [{ items: [
+    { target: "https://theknot.com/x", referring_domains: 210, backlinks: 900 },
+    { target: "https://iranopedia.com/home", referring_domains: 3, backlinks: 10 },
+    { target: "", referring_domains: 5, backlinks: 5 }, // no target -> dropped
+  ] }] }],
+};
+
+describe("parsers - winnability rows (item 18), honest on malformed input", () => {
+  it("parseBulkKeywordDifficulty maps keyword -> difficulty, drops keyword-less rows", () => {
+    const rows = parseBulkKeywordDifficulty(DIFFICULTY_BODY);
+    expect(rows).toEqual([
+      { keyword: "persian wedding sofreh", difficulty: 34 },
+      { keyword: "no score keyword", difficulty: null },
+    ]);
+  });
+
+  it("parseBulkDomainRanks maps target -> rank, normalizes the domain, drops target-less rows", () => {
+    const rows = parseBulkDomainRanks(RANKS_BODY);
+    expect(rows).toEqual([
+      { domain: "theknot.com", rank: 42 },
+      { domain: "brides.com", rank: 38 },
+    ]);
+  });
+
+  it("parseBacklinksSummary maps target url -> referring domains + backlinks, drops target-less rows", () => {
+    const rows = parseBacklinksSummary(BACKLINKS_BODY);
+    expect(rows).toEqual([
+      { url: "https://theknot.com/x", referringDomains: 210, backlinks: 900 },
+      { url: "https://iranopedia.com/home", referringDomains: 3, backlinks: 10 },
+    ]);
+  });
+
+  it("every winnability parser returns [] on malformed bodies (never throws)", () => {
+    expect(parseBulkKeywordDifficulty({ garbage: true })).toEqual([]);
+    expect(parseBulkDomainRanks(null)).toEqual([]);
+    expect(parseBacklinksSummary(undefined)).toEqual([]);
+  });
+});
+
+function labsDeps(over: Partial<LabsRunDeps> = {}, body: unknown = DIFFICULTY_BODY): Partial<LabsRunDeps> {
+  return {
+    ...deps(over),
+    fetchImpl: vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response),
+    ...over,
+  };
+}
+
+describe("runBulkKeywordDifficulty - the SAME money gauntlet, ONE call for every keyword", () => {
+  it("posts every keyword in ONE batched call (deduped, lowercased)", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => DIFFICULTY_BODY }) as unknown as Response);
+    const r = await runBulkKeywordDifficulty(
+      ["Persian Wedding Sofreh", "persian wedding sofreh", "No Score Keyword"],
+      {},
+      labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }),
+    );
+    expect(r.status).toBe("ok");
+    expect(r.costUsd).toBe(LABS_BULK_DIFFICULTY_COST_USD);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/dataforseo_labs/google/bulk_keyword_difficulty/live");
+    const payload = JSON.parse(String(init.body))[0];
+    expect(payload.keywords).toEqual(["persian wedding sofreh", "no score keyword"]);
+  });
+
+  it("DRY-RUN default still applies (no call, priced plan only)", async () => {
+    const fetchImpl = vi.fn();
+    const { DATAFORSEO_DRY_RUN: _drop, ...rest } = CONFIGURED_ENV as Record<string, string>;
+    const r = await runBulkKeywordDifficulty(["x"], {}, labsDeps({ env: rest as unknown as NodeJS.ProcessEnv, fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("dry_run");
+    expect(r.plan.estCostUsd).toBe(LABS_BULK_DIFFICULTY_COST_USD);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("the shared cap fails CLOSED (no call)", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runBulkKeywordDifficulty(["x"], {}, labsDeps({ spentThisMonthUsd: async () => 49.99, fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("capped");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty keyword list without calling anything", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runBulkKeywordDifficulty([], {}, labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("error");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("runBulkDomainRanks - Backlinks API path, SAME gauntlet, ONE call for every domain", () => {
+  it("posts every domain in ONE batched call against the Backlinks base URL", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => RANKS_BODY }) as unknown as Response);
+    const r = await runBulkDomainRanks(["https://www.TheKnot.com/x", "brides.com"], labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("ok");
+    expect(r.costUsd).toBe(BACKLINKS_BULK_RANKS_COST_USD);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/v3/backlinks/bulk_ranks/live");
+    const payload = JSON.parse(String(init.body))[0];
+    expect(payload.targets).toEqual(["theknot.com", "brides.com"]);
+  });
+
+  it("rejects an empty domain list without calling anything", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runBulkDomainRanks([], labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("error");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("runBacklinksSummary - Backlinks API path, bounded to top URLs", () => {
+  it("posts the bounded URL list against the Backlinks base URL", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => BACKLINKS_BODY }) as unknown as Response);
+    const r = await runBacklinksSummary(["https://theknot.com/x", "https://iranopedia.com/home"], labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("ok");
+    expect(r.costUsd).toBe(BACKLINKS_REFERRING_DOMAINS_COST_USD);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/v3/backlinks/bulk_referring_domains/live");
+    const payload = JSON.parse(String(init.body))[0];
+    expect(payload.targets).toEqual(["https://theknot.com/x", "https://iranopedia.com/home"]);
+  });
+
+  it("rejects an empty url list without calling anything", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runBacklinksSummary([], labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("error");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("respects the shared monthly cap fail-closed, same as every other Labs/Backlinks call", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runBacklinksSummary(["https://x.com/a"], labsDeps({ spentThisMonthUsd: async () => null, fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("capped");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("readAllCachedKeywordDifficulty - $0 read for the daily-evidence-brief upgrade", () => {
+  it("flattens fresh bulk_keyword_difficulty cache rows into a keyword -> difficulty map", async () => {
+    const cached = [
+      { key: "bulk_keyword_difficulty|2840|en|persian wedding sofreh", rows: parseBulkKeywordDifficulty(DIFFICULTY_BODY), fetchedAt: "2026-06-20T00:00:00Z" },
+      { key: "ranked_keywords|2840|en|supplehomes.com", rows: [{ keyword: "unrelated", volume: 1 }], fetchedAt: "2026-06-20T00:00:00Z" },
+    ];
+    const map = await readAllCachedKeywordDifficulty({ now: () => new Date("2026-07-02T00:00:00Z"), readCache: async () => cached });
+    expect(map.get("persian wedding sofreh")).toBe(34);
+    expect(map.has("unrelated")).toBe(false); // non-difficulty cache rows are ignored
+  });
+
+  it("drops a stale (>30d) difficulty cache row", async () => {
+    const cached = [
+      { key: "bulk_keyword_difficulty|2840|en|persian wedding sofreh", rows: parseBulkKeywordDifficulty(DIFFICULTY_BODY), fetchedAt: "2026-05-01T00:00:00Z" },
+    ];
+    const map = await readAllCachedKeywordDifficulty({ now: () => new Date("2026-07-02T00:00:00Z"), readCache: async () => cached });
+    expect(map.size).toBe(0);
+  });
+
+  it("is fail-soft on a cache read error (empty map, never throws)", async () => {
+    const map = await readAllCachedKeywordDifficulty({ readCache: async () => { throw new Error("boom"); } });
+    expect(map.size).toBe(0);
   });
 });
