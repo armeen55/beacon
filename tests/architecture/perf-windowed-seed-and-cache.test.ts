@@ -95,7 +95,6 @@ describe("Per-request cache: getOwnedPages", () => {
 
 describe("Per-request cache: scan_findings reader", () => {
   const helper = read("src/domains/scanning/scan-findings-cached.ts");
-  const todayData = read("src/app/(shell)/today-data.ts");
 
   it("getTenantScanFindingsCached is wrapped in React.cache", () => {
     expect(helper).toMatch(/import\s*\{\s*cache\s*\}\s*from\s*["']react["']/);
@@ -122,14 +121,10 @@ describe("Per-request cache: scan_findings reader", () => {
     );
   });
 
-  it("today-data routes its scan_findings read through the cached helper", () => {
-    expect(todayData).toContain("getTenantScanFindingsCached");
-    // Negative pin: the old unwrapped call shape is gone.
-    const stripped = todayData
-      .replace(/^\s*\/\/.*$/gm, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(stripped).not.toMatch(/\brepo\.getScanFindings\(\)/);
-  });
+  // The "today-data routes its scan_findings read through the cached
+  // helper" pin was removed 2026-07-01 (FINAL PREMIUM PLAN item 101):
+  // the legacy today-data.ts loader (the caller) was deleted. The cached
+  // helper contract above still holds for any remaining caller.
 });
 
 describe("/prompts: observation window narrowed + parallel reads (emergency P0 2026-05-12)", () => {

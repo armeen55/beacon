@@ -24,8 +24,10 @@ import { resolve } from "node:path";
 //   (3) /prompts source uses it + doesn't import the module arrays
 //   (4) /prompts/[id] source uses it
 //   (5) /settings/prompts source uses it
-//   (6) today-data.ts source uses it + removed the dynamic imports that
-//       previously shadowed the module arrays
+//   (6) the /today loader source uses it + has no dynamic imports that
+//       would shadow the module arrays. 2026-07-01 (FINAL PREMIUM PLAN
+//       item 101): the legacy today-data.ts was deleted; the /today
+//       render-time canonical read now lives in today-v2-data.ts.
 // ---------------------------------------------------------------------------
 
 const FILES = {
@@ -43,7 +45,7 @@ const FILES = {
     __dirname,
     "../../src/app/(shell)/settings/prompts/page.tsx",
   ),
-  todayData: resolve(__dirname, "../../src/app/(shell)/today-data.ts"),
+  todayData: resolve(__dirname, "../../src/app/(shell)/today-v2-data.ts"),
 };
 
 const SRC = Object.fromEntries(
@@ -293,7 +295,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       expect(SRC.settingsPrompts).toMatch(/\.getTrackedPrompts\(\s*\)/);
     });
 
-    it("today-data.ts imports loadFreshCanonicalData AND does not statically import dailyMetricSnapshots", () => {
+    it("today-v2-data.ts imports loadFreshCanonicalData AND does not statically import dailyMetricSnapshots", () => {
       const canonImports = SRC.todayData.match(
         /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
       );
@@ -303,7 +305,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       expect(joined).not.toMatch(/\bdailyMetricSnapshots\b/);
     });
 
-    it("today-data.ts has NO remaining dynamic imports of canonical-store (all replaced with outer-scope fresh reads)", () => {
+    it("today-v2-data.ts has NO remaining dynamic imports of canonical-store (all replaced with outer-scope fresh reads)", () => {
       // Dynamic imports like `await import("@/storage/canonical-store")`
       // would shadow the outer fresh locals with stale module references.
       // Must be zero.
@@ -325,10 +327,11 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       // See `tests/architecture/perf-prompts-scoped-reads.test.ts` for
       // the new-architecture pin.
       //
-      // Only today-data.ts still calls `loadFreshCanonicalData` at
-      // render time (it consumes all four canonical tables).
+      // Only the /today loader (today-v2-data.ts; legacy today-data.ts
+      // deleted 2026-07-01, item 101) still calls `loadFreshCanonicalData`
+      // at render time.
       const directTargets = [
-        { name: "today-data.ts", src: SRC.todayData },
+        { name: "today-v2-data.ts", src: SRC.todayData },
       ];
       for (const { name, src } of directTargets) {
         expect(src, `${name} must call loadFreshCanonicalData()`).toMatch(

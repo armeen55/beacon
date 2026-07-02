@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hurtingTrendSuffix } from "./today-data";
+import { hurtingTrendSuffix } from "./today-data-lite";
 
 /**
  * T-WorseningSuffix (2026-05-08) — narrow regression test for the

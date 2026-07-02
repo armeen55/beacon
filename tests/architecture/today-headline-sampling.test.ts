@@ -25,10 +25,6 @@ const SCOREBOARD_SRC = readFileSync(
   resolve(__dirname, "../../src/components/today/today-scoreboard.tsx"),
   "utf-8",
 );
-const TODAY_DATA_SRC = readFileSync(
-  resolve(__dirname, "../../src/app/(shell)/today-data.ts"),
-  "utf-8",
-);
 const POLL_HEALTH_SRC = readFileSync(
   resolve(__dirname, "../../src/domains/observations/poll-health.ts"),
   "utf-8",
@@ -91,18 +87,11 @@ describe("Task 1 — week-over-week delta pill suppressed when asOfDate is set",
   });
 });
 
-describe("Task 1 — today-data.ts computes derivedKpiSamplingStatus from pollHealth", () => {
-  it("imports aggregateSamplingStatus from poll-health", () => {
-    expect(TODAY_DATA_SRC).toMatch(/aggregateSamplingStatus/);
-  });
-
-  it("scoreboard payload sets derivedKpiSamplingStatus only when derived KPIs are in use", () => {
-    // useDerivedKpis ? aggregateSamplingStatus(pollHealth) : null
-    expect(TODAY_DATA_SRC).toMatch(
-      /derivedKpiSamplingStatus:[\s\S]*?aggregateSamplingStatus\(pollHealth\)/,
-    );
-  });
-});
+// The legacy "Task 1 today-data.ts computes derivedKpiSamplingStatus" describe
+// was removed 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy
+// today-data.ts loader (the only scoreboard-payload producer that threaded
+// aggregateSamplingStatus) was deleted. The component-side rendering
+// contract and the aggregateSamplingStatus helper contract below remain.
 
 describe("Task 1 — aggregateSamplingStatus contract (worst-case wins)", () => {
   it("exported from poll-health.ts", () => {

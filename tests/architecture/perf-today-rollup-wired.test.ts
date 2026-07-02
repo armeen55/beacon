@@ -5,10 +5,6 @@
  * `rollup` arg from one of the fan-out call sites and silently
  * regress /today back to ~947 ms warm.
  *
- *   • `today-data.ts` imports `buildObservationRollup` and builds it
- *     ONCE before the visibility-score fan-out.
- *   • Each of the 4 public visibility-score call sites in `today-data.ts`
- *     receives the rollup as a keyword argument.
  *   • `visibility-score.ts` exposes the optional `rollup?` arg on each
  *     of the 4 public functions.
  *   • The rollup module exists and exports the named builder + types.
@@ -106,53 +102,14 @@ describe("visibility-score: optional rollup fast path on 4 public functions", ()
   });
 });
 
-describe("today-data: builds the rollup once and threads it through fan-out", () => {
-  const src = read("src/app/(shell)/today-data.ts");
+// The "today-data: builds the rollup once and threads it through fan-out"
+// describe was removed 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy
+// today-data.ts loader (the only consumer that threaded the rollup through
+// the visibility-score fan-out) was deleted. The rollup module surface +
+// visibility-score optional-rollup fast path above remain pinned.
 
-  it("imports buildObservationRollup", () => {
-    expect(src).toMatch(
-      /import\s+\{\s*buildObservationRollup\s*\}\s+from\s+["']@\/domains\/today\/observation-rollup["']/,
-    );
-  });
-
-  it("builds the rollup exactly once per render", () => {
-    // Single call site bound to a const. Negative pin: no duplicate
-    // `buildObservationRollup(` later in the file.
-    const matches = src.match(/buildObservationRollup\s*\(/g) ?? [];
-    expect(matches.length).toBe(1);
-    expect(src).toMatch(
-      /const\s+observationRollup\s*=\s*buildObservationRollup\(/,
-    );
-  });
-
-  it("computeVisibilityTimeSeries call site forwards the rollup", () => {
-    expect(src).toMatch(
-      /computeVisibilityTimeSeries\(\s*\{[\s\S]*?rollup:\s*observationRollup[\s\S]*?\}\s*\)/,
-    );
-  });
-
-  it("computeVisibilityTimeSeriesByPlatform call site forwards the rollup", () => {
-    expect(src).toMatch(
-      /computeVisibilityTimeSeriesByPlatform\(\s*\{[\s\S]*?rollup:\s*observationRollup[\s\S]*?\}\s*\)/,
-    );
-  });
-
-  it("computeLeaderboard call site forwards the rollup", () => {
-    expect(src).toMatch(
-      /computeLeaderboard\(\s*\{[\s\S]*?rollup:\s*observationRollup[\s\S]*?\}\s*\)/,
-    );
-  });
-
-  it("computeCompetitorSeries call site forwards the rollup", () => {
-    expect(src).toMatch(
-      /computeCompetitorSeries\(\s*\{[\s\S]*?rollup:\s*observationRollup[\s\S]*?\}\s*\)/,
-    );
-  });
-});
-
-describe("Perf bundle 4 (2026-05-12) — additive rollup fields + 2 inline-loop migrations", () => {
+describe("Perf bundle 4 (2026-05-12) - additive rollup fields", () => {
   const rollupSrc = read("src/domains/today/observation-rollup.ts");
-  const todayDataSrc = read("src/app/(shell)/today-data.ts");
 
   it("ObservationRollup exposes latestObservedAt: string | null", () => {
     expect(rollupSrc).toMatch(
@@ -163,30 +120,6 @@ describe("Perf bundle 4 (2026-05-12) — additive rollup fields + 2 inline-loop 
   it("ObservationRollup exposes mentionCountsByOriginalName ReadonlyMap", () => {
     expect(rollupSrc).toMatch(
       /mentionCountsByOriginalName:\s*ReadonlyMap<string,\s*number>/,
-    );
-  });
-
-  it("today-data.ts derives lastObservationAt from observationRollup.latestObservedAt", () => {
-    expect(todayDataSrc).toMatch(
-      /const\s+lastObservationAt\s*=\s*observationRollup\.latestObservedAt\s*;/,
-    );
-    // Negative pin: no leftover `.reduce<string | null>` over the
-    // observation array for the freshness check.
-    const stripped = stripComments(todayDataSrc);
-    expect(stripped).not.toMatch(
-      /promptAnswerObservations\.reduce<string\s*\|\s*null>/,
-    );
-  });
-
-  it("today-data.ts derives scannerTopMentioned from observationRollup.mentionCountsByOriginalName", () => {
-    expect(todayDataSrc).toMatch(
-      /const\s+scannerTopMentioned\s*=\s*\[\s*\.\.\.observationRollup\.mentionCountsByOriginalName\.entries\(\)/,
-    );
-    // Negative pin: no leftover `for (const o of promptAnswerObservations)` loop
-    // building a `scannerMentionCounts` Map inline.
-    const stripped = stripComments(todayDataSrc);
-    expect(stripped).not.toMatch(
-      /for\s*\(\s*const\s+o\s+of\s+promptAnswerObservations\s*\)\s*\{[\s\S]*?scannerMentionCounts\.set/,
     );
   });
 

@@ -207,33 +207,34 @@ describe("no-operator-jargon — Step 1.2 invariant", () => {
 // ---------------------------------------------------------------------------
 // M3 (operator audit, 2026-05-05) — positive-presence narrative invariant.
 //
-// The win-card narrative in src/app/(shell)/today-data.ts must lead with
-// correlation-toned copy, not causal-toned copy. Pin the specific phrases
-// the operator audit asked for so a future refactor can't quietly revert
-// to "winning after your change". This is the inverse of the BANNED list:
-// the file MUST contain these strings.
+// The win-card narrative must lead with correlation-toned copy, not
+// causal-toned copy. Pin the specific phrases the operator audit asked for
+// so a future refactor can't quietly revert to "winning after your change".
+// This is the inverse of the BANNED list: the file MUST contain these
+// strings. 2026-07-01 (item 101): the legacy today-data.ts was deleted;
+// the win-card assembly lives in today-v2-data.ts.
 // ---------------------------------------------------------------------------
 
-describe("M3 — today-data narrative includes correlation phrasing", () => {
-  it("today-data.ts contains 'Citation lift detected' and 'URL-level correlation'", () => {
+describe("M3 - today win-card narrative includes correlation phrasing", () => {
+  it("today-v2-data.ts contains 'Citation lift detected' and 'URL-level correlation'", () => {
     const todayDataPath = path.join(
       ROOT,
       "src",
       "app",
       "(shell)",
-      "today-data.ts",
+      "today-v2-data.ts",
     );
     if (!fs.existsSync(todayDataPath)) {
-      throw new Error(`today-data.ts not found at ${todayDataPath}`);
+      throw new Error(`today-v2-data.ts not found at ${todayDataPath}`);
     }
     const src = fs.readFileSync(todayDataPath, "utf8");
     expect(
       src.includes("Citation lift detected"),
-      "today-data.ts must use 'Citation lift detected' headline phrasing (M3 — replaces 'is winning after your change')",
+      "today-v2-data.ts must use 'Citation lift detected' headline phrasing (M3, replaces 'is winning after your change')",
     ).toBe(true);
     expect(
       src.includes("URL-level correlation"),
-      "today-data.ts must use 'URL-level correlation — … not proof of causation' qualifier (M3)",
+      "today-v2-data.ts must use the 'URL-level correlation ... not proof of causation' qualifier (M3)",
     ).toBe(true);
   });
 });

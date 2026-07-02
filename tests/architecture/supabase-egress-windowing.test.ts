@@ -12,7 +12,8 @@
  *     `getDailyMetricSnapshots(options?)` accept `{ since }` window.
  *   • `loadFreshCanonicalData(options?)` accepts `observationsSince`
  *     and `snapshotsSince` and threads them down.
- *   • `/today` (`today-data.ts`) passes a 60-day observation window
+ *   • `/today` (`today-v2-data.ts`; legacy today-data.ts deleted
+ *     2026-07-01, item 101) passes a 60-day observation window
  *     and 120-day snapshot window.
  *   • `/prompts` passes a 60-day observation window.
  *   • Default behavior (no options) loads full history — scripts
@@ -29,7 +30,7 @@ import { readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "../..");
-const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
+const TODAY_V2_DATA = join(REPO_ROOT, "src/app/(shell)/today-v2-data.ts");
 const PROMPTS_PAGE = join(REPO_ROOT, "src/app/(shell)/prompts/page.tsx");
 const DIAGNOSTICS_PAGE = join(
   REPO_ROOT,
@@ -136,16 +137,18 @@ describe("E3 — loadFreshCanonicalData threads observation/snapshot windows", (
 });
 
 describe("E3 — /today calls loadFreshCanonicalData with date windows", () => {
-  it("today-data.ts computes a 60-day observation window", () => {
-    const src = readFileSync(TODAY_DATA, "utf-8");
+  // 2026-07-01 (item 101): legacy today-data.ts deleted; the live /today
+  // canonical read is loadCachedFreshCanonical in today-v2-data.ts.
+  it("today-v2-data.ts computes a 60-day observation window", () => {
+    const src = readFileSync(TODAY_V2_DATA, "utf-8");
     expect(src.includes("60 * 86_400_000")).toBe(true);
     expect(
       src.match(/loadFreshCanonicalData\(\s*\{\s*\n?\s*observationsSince/),
     ).not.toBeNull();
   });
 
-  it("today-data.ts computes a 120-day snapshot window", () => {
-    const src = readFileSync(TODAY_DATA, "utf-8");
+  it("today-v2-data.ts computes a 120-day snapshot window", () => {
+    const src = readFileSync(TODAY_V2_DATA, "utf-8");
     expect(src.includes("120 * 86_400_000")).toBe(true);
     expect(src.includes("snapshotsSince")).toBe(true);
   });
@@ -256,23 +259,9 @@ describe("EGRESS lean projection — /today's snapshot read pulls date-only colu
     ).not.toBeNull();
   });
 
-  it("today-data.ts requests a date-only snapshot projection (not the full row)", () => {
-    const src = readFileSync(TODAY_DATA, "utf-8");
-    // The lean projection must include `date` (the only consumed column)
-    // and MUST NOT pull the heavy JSONB/metric payload (i.e. not `*`).
-    const m = src.match(/snapshotsColumns:\s*"([^"]+)"/);
-    expect(
-      m,
-      "today-data.ts must pass an explicit lean snapshotsColumns projection",
-    ).not.toBeNull();
-    const cols = (m?.[1] ?? "").toLowerCase();
-    expect(cols.includes("date"), "projection must include `date`").toBe(true);
-    expect(cols.includes("*"), "projection must not be the full row").toBe(
-      false,
-    );
-    expect(
-      cols.includes("metadata"),
-      "projection must not pull the heavy JSONB metadata column",
-    ).toBe(false);
-  });
+  // The "today-data.ts requests a date-only snapshot projection" pin was
+  // removed 2026-07-01 (FINAL PREMIUM PLAN item 101): the snapshotsColumns
+  // call site lived in the deleted legacy today-data.ts loader. The
+  // canonical-store threading pins above still guarantee the snapshotsColumns
+  // capability itself cannot regress.
 });

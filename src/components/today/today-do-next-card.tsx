@@ -33,7 +33,7 @@
 
 import Link from "next/link";
 
-import type { TodayLifecycleQueueItem } from "@/app/(shell)/today-data";
+import type { TodayLifecycleQueueItem } from "@/app/(shell)/today-shared-types";
 import type { TopPickSummary } from "./top-pick-card";
 import {
   doNextHeadline,

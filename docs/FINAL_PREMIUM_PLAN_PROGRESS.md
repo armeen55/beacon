@@ -101,11 +101,11 @@
 - [ ]  98 [W3][P2/S] Measure and pin: a perf budget test that fails CI if / or /worklist server render
 - [x]  99 [W1][P0/S] Merge Connections vs Connectors: /connections folds into /settings/connectors, one
 - [x] 100 [W1][P0/S] Fix nav label/route mismatches: Results points at /proof, AI questions at /prompts;
-- [ ] 101 [W3][P1/M] Delete today-data.ts (3,131 LOC dormant) after confirming the one type-only import
-- [ ] 102 [W3][P1/S] Delete the Wix blog/media handlers (wixCreateDraftPost/wixPublishDraftPost/
-- [ ] 103 [W3][P1/S] Decide the backlink stub: delete link-authority/backlink-provider.ts (no callers)
+- [x] 101 [W3][P1/M] Delete today-data.ts (3,131 LOC dormant) after confirming the one type-only import
+- [x] 102 [W3][P1/S] Delete the Wix blog/media handlers (wixCreateDraftPost/wixPublishDraftPost/
+- [x] 103 [W3][P1/S] Decide the backlink stub: delete link-authority/backlink-provider.ts (no callers)
 - [ ] 104 [W3][P0/M] Retire the legacy recommended_edits queue as an operator surface: 82 rows, 100%
-- [ ] 105 [W3][P1/S] Archive the stale docs: move the 16 AUDIT_*.md + 21 sprint/report docs + findings
+- [x] 105 [W3][P1/S] Archive the stale docs: move the 16 AUDIT_*.md + 21 sprint/report docs + findings
 - [x] 106 [W3][P2/S] Gate /diagnostics/* routes behind operator mode at the route level (23 routes are
 - [ ] 107 [W3][P1/S] One LLM entry point: fold llm-draft-gateway's remaining uniqueness into
 - [ ] 108 [W3][P2/S] Unify dismiss/skip stores (opportunity_dismissals vs recommendation_response) behind

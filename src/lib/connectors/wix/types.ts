@@ -26,11 +26,6 @@ export type WixDataItem = {
   data: Record<string, unknown>;
 };
 
-export type WixDraftPostRef = {
-  id: string;
-  title: string;
-};
-
 /**
  * One field of a discovered Wix data collection (Phase 2 mapper, MAX_SEO_AEO
  * audit P0 #2). Read-only discovery shape — `type` is Wix's field type string

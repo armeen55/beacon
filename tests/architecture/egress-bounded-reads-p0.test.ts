@@ -46,7 +46,9 @@ const PROMPTS_DETAIL_PAGE = join(
   REPO_ROOT,
   "src/app/(shell)/prompts/[id]/page.tsx",
 );
-const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
+// 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy today-data.ts was
+// deleted; /today's live canonical reads run in today-v2-data.ts.
+const TODAY_V2_DATA = join(REPO_ROOT, "src/app/(shell)/today-v2-data.ts");
 const SUPABASE_BACKEND = join(
   REPO_ROOT,
   "src/lib/persistence/repositories/supabase-backend.ts",
@@ -62,7 +64,7 @@ const SETTINGS_PROMPTS_SRC = SETTINGS_PROMPTS_SRC_RAW.replace(
   "",
 ).replace(/\/\*[\s\S]*?\*\//g, "");
 const PROMPTS_DETAIL_SRC = readFileSync(PROMPTS_DETAIL_PAGE, "utf8");
-const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
+const TODAY_V2_DATA_SRC = readFileSync(TODAY_V2_DATA, "utf8");
 const SUPABASE_BACKEND_SRC = readFileSync(SUPABASE_BACKEND, "utf8");
 
 describe("EGRESS-P0.1 — /recommendations load-queue passes observations window", () => {
@@ -220,42 +222,11 @@ describe("EGRESS-P0.4 — tenant-scoped getPageSnapshots is capped + projected",
   });
 });
 
-describe("EGRESS-P0.5 — /today memoizes page_snapshots within a single render", () => {
-  it("declares getPageSnapshotsShared helper", () => {
-    expect(TODAY_DATA_SRC).toMatch(/getPageSnapshotsShared\s*=/);
-    expect(TODAY_DATA_SRC).toMatch(/_pageSnapshotsPromise/);
-  });
-
-  it("both call sites use getPageSnapshotsShared (not raw .getPageSnapshots())", () => {
-    // The two render call sites both go through the shared helper.
-    expect(TODAY_DATA_SRC).toMatch(
-      /pageSnapshotsForInventory =\s*await getPageSnapshotsShared\(\)/,
-    );
-    expect(TODAY_DATA_SRC).toMatch(
-      /const pageSnapshots = await getPageSnapshotsShared\(\)/,
-    );
-    // The helper itself contains exactly one .getPageSnapshots() call
-    // — the chained `.forTenant(tenantId).getPageSnapshots()`. Count
-    // direct calls in the file: should be exactly 1 (inside the helper).
-    const directCalls = TODAY_DATA_SRC.match(/\.getPageSnapshots\(\)/g);
-    expect(directCalls).toBeTruthy();
-    if (directCalls) {
-      expect(directCalls.length).toBe(1);
-    }
-  });
-});
-
-describe("EGRESS-P0.6 — Command Center kill switch", () => {
-  it("BEACON_COMMAND_CENTER_ENABLED=false short-circuits the resolver call", () => {
-    expect(TODAY_DATA_SRC).toMatch(
-      /BEACON_COMMAND_CENTER_ENABLED[\s\S]{0,100}===\s*"false"/,
-    );
-    // When disabled, returns the empty CommandCenterData shape directly.
-    expect(TODAY_DATA_SRC).toMatch(
-      /BEACON_COMMAND_CENTER_ENABLED[\s\S]{0,300}hasAnyData:\s*false[\s\S]{0,200}brain:\s*null[\s\S]{0,200}manifest:\s*null/,
-    );
-  });
-});
+// EGRESS-P0.5 (/today page_snapshots memoization) and EGRESS-P0.6 (Command
+// Center kill switch) were removed 2026-07-01 (FINAL PREMIUM PLAN item 101):
+// both pinned internals of the legacy today-data.ts loader, which was
+// deleted. The live V2 loaders never read page_snapshots on the /today
+// render path and do not mount the command-center resolver.
 
 // EGRESS-P0.7 (Recommendations Executive Strip kill switch) removed
 // 2026-06-15 — the legacy ExecutiveStrip + RecommendationsClient were
@@ -264,14 +235,14 @@ describe("EGRESS-P0.6 — Command Center kill switch", () => {
 describe("EGRESS-P0 — broad sweep: no unbounded route-render reads", () => {
   it("no bare loadFreshCanonicalData() in any (shell) route page", () => {
     // Every loadFreshCanonicalData() call in /src/app/(shell)/**/page.tsx
-    // OR in route-render data resolvers (today-data, etc.) must pass a
+    // OR in route-render data resolvers (today-v2-data, etc.) must pass a
     // since window. Scripts and tests that need full history pass it
     // explicitly.
     const allRouteSrc = [
       LOAD_QUEUE_SRC,
       SETTINGS_PROMPTS_SRC,
       PROMPTS_DETAIL_SRC,
-      TODAY_DATA_SRC,
+      TODAY_V2_DATA_SRC,
     ].join("\n");
     expect(allRouteSrc).not.toMatch(/loadFreshCanonicalData\(\s*\)/);
   });

@@ -6,9 +6,6 @@ import "server-only";
  * Official endpoints (https://www.wixapis.com):
  *   • POST /wix-data/v2/items/query                 — query CMS items
  *   • PUT  /wix-data/v2/items/{dataItemId}          — update one item
- *   • POST /blog/v3/draft-posts                     — create draft post
- *   • POST /blog/v3/draft-posts/{id}/publish        — publish draft
- *   • POST /site-media/v1/files/import              — import media by URL
  *
  * Auth: site-level API key — `Authorization: <api_key>` +
  * `wix-site-id: <site_id>` headers. Key never logged. Fail-soft
@@ -26,7 +23,6 @@ import type {
   WixDataItem,
   WixDiscoveredCollection,
   WixDiscoveredField,
-  WixDraftPostRef,
   WixFetchResult,
 } from "./types";
 
@@ -420,72 +416,12 @@ export async function wixInsertDataItem(
   };
 }
 
-/** Create a blog draft post (NOT published). */
-export async function wixCreateDraftPost(
-  args: { title: string; contentHtml: string; memberId?: string },
-  deps: WixDeps = {},
-): Promise<WixFetchResult<WixDraftPostRef>> {
-  const r = await wixFetch<{ draftPost?: { id?: string; title?: string } }>(
-    "/blog/v3/draft-posts",
-    {
-      method: "POST",
-      body: {
-        draftPost: {
-          title: args.title,
-          // richContent is Wix's native format; contentText keeps v1
-          // simple — the draft opens in the Wix editor for final review.
-          contentText: args.contentHtml,
-          ...(args.memberId ? { memberId: args.memberId } : {}),
-        },
-      },
-    },
-    deps,
-  );
-  if (!r.ok) return r;
-  const id = r.value.draftPost?.id;
-  if (typeof id !== "string") {
-    return { ok: false, reason: "api_error", detail: "no_draft_id_in_response" };
-  }
-  return { ok: true, value: { id, title: r.value.draftPost?.title ?? args.title } };
-}
-
-/** Publish an existing draft post. */
-export async function wixPublishDraftPost(
-  args: { draftPostId: string },
-  deps: WixDeps = {},
-): Promise<WixFetchResult<{ postId: string }>> {
-  const r = await wixFetch<{ postId?: string }>(
-    `/blog/v3/draft-posts/${encodeURIComponent(args.draftPostId)}/publish`,
-    { method: "POST" },
-    deps,
-  );
-  if (!r.ok) return r;
-  return {
-    ok: true,
-    value: { postId: r.value.postId ?? args.draftPostId },
-  };
-}
-
-/** Import a media file into the Media Manager from a public URL. */
-export async function wixImportMedia(
-  args: { url: string; displayName?: string },
-  deps: WixDeps = {},
-): Promise<WixFetchResult<{ fileId: string }>> {
-  const r = await wixFetch<{ file?: { id?: string } }>(
-    "/site-media/v1/files/import",
-    {
-      method: "POST",
-      body: { url: args.url, displayName: args.displayName },
-    },
-    deps,
-  );
-  if (!r.ok) return r;
-  const id = r.value.file?.id;
-  if (typeof id !== "string") {
-    return { ok: false, reason: "api_error", detail: "no_file_id_in_response" };
-  }
-  return { ok: true, value: { fileId: id } };
-}
+// Blog draft-post + media-import handlers (wixCreateDraftPost /
+// wixPublishDraftPost / wixImportMedia) were removed 2026-07-01 (FINAL
+// PREMIUM PLAN item 102): built 2026-06-10 but never wired into any push
+// route, zero callers. Rebuild from the Wix REST docs (POST
+// /blog/v3/draft-posts, POST /blog/v3/draft-posts/{id}/publish, POST
+// /site-media/v1/files/import) if the blog/media capability is scheduled.
 
 // ── Wix SEO push slice (2026-06-12) — Stores product seoData ────────────
 //

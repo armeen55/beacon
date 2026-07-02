@@ -2,10 +2,11 @@
  * Today v2 section loaders (2026-05-12) — narrow data loaders that
  * power the per-section streaming layout in `/page.tsx`.
  *
- * The legacy `loadTodayPageData()` is a ~3000-line monolith that
- * computes ~30 fields for v1's 19-section layout. v2 destructures
- * only 9 fields. This file gives v2 its own narrow data path so
- * each layout section can load + stream independently.
+ * The legacy `loadTodayPageData()` was a ~3000-line monolith that
+ * computed ~30 fields for v1's 19-section layout (deleted 2026-07-01,
+ * FINAL PREMIUM PLAN item 101; survivors live in ./today-data-lite).
+ * v2 destructures only 9 fields. This file gives v2 its own narrow
+ * data path so each layout section can load + stream independently.
  *
  * Section split (each owns its own loader + Suspense boundary):
  *
@@ -15,28 +16,19 @@
  *
  *   2. Visibility group  — hero + chart + leaderboard. Shares the
  *      `visibilityWindow` client state, so the THREE pieces stay
- *      together in one client component / one Suspense. Currently
- *      backed by the shared cached `loadTodayPageData()` (the full
- *      legacy compute extracts the visibility intermediates we'd need
- *      to replicate). Streams together with section 3.
+ *      together in one client component / one Suspense. Backed by its
+ *      own narrow loader (snapshot read model, Phase 2B). Streams
+ *      together with section 3.
  *
  *   3. Action cards  — Do today / Working / Recent wins. Needs
  *      `primaryAction`, `lifecycleSummary`, `measuredWins`,
- *      `urlVerdictProof`. The `primaryAction`/`measuredWins`/
- *      `urlVerdictProof` are derived from `assembledAll` in the
- *      legacy loader — a complex assembly across many sources.
- *      Currently backed by the shared cached `loadTodayPageData()`.
- *      Streams together with section 2.
+ *      `urlVerdictProof`. Backed by its own narrow loader over
+ *      url-change-outcomes + the persisted queue. Streams together
+ *      with section 2.
  *
  * Shared upstream (canonical store seed + fresh canonical data) is
  * memoized via React.cache so multiple section loaders hit ONE
  * Supabase round-trip per request.
- *
- * The "share `loadTodayPageData()` for sections 2 + 3" is a
- * deliberate first cut: it sets up the section-streaming UI without
- * rewriting the legacy assembly. Future per-section narrow loaders
- * for visibility + action cards can drop in here without changing
- * `page.tsx`.
  *
  * Demo-mode + first-reading checks happen BEFORE any section loader
  * runs (in `loadTodayV2GateData()`) so the page can short-circuit to
@@ -82,10 +74,9 @@ import { getRepository } from "@/lib/persistence/repositories";
 import {
   buildTodayLifecycleSummary,
   hurtingTrendSuffix,
-  loadTodayPageData,
   type TodayLifecycleSummary,
   type TodayPageData,
-} from "./today-data";
+} from "./today-data-lite";
 import type { ActionCardAction } from "@/components/today/action-card";
 import type { TodayPrimaryAction } from "./today-shared-types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -152,7 +143,7 @@ const V2_OBSERVATION_COLUMNS =
 export const loadCachedFreshCanonical = cache(async () => {
   // Side-effecting seeds — run in parallel with the canonical read.
   // These are idempotent; the parallel pattern matches what the
-  // legacy `loadTodayPageData()` does at its top.
+  // legacy loader (deleted, see today-data-lite.ts) did at its top.
   await Promise.all([
     ensureRecommendationResponsesSeeded(),
     ensureUrlChangeOutcomesSeeded(),
@@ -208,14 +199,11 @@ export const loadCachedFreshCanonical14d = cache(async () => {
   });
 });
 
-/**
- * Shared full-pipeline load for sections that still depend on the
- * legacy assembly. Memoized so the visibility + action-cards
- * sections share a single underlying compute per request.
- */
-export const loadCachedTodayPageData = cache(async () => {
-  return await loadTodayPageData();
-});
+// loadCachedTodayPageData (the cached wrapper around the legacy
+// loadTodayPageData monolith) was removed 2026-07-01 (FINAL PREMIUM
+// PLAN item 101): every section now has its own narrow loader and the
+// wrapper had zero callers. The legacy today-data.ts loader is gone;
+// the surviving helpers live in ./today-data-lite.
 
 // ─────────────────────────────────────────────────────────────────────
 // All-source summary stat row (2026-06-15) — the unified command-center
@@ -1139,7 +1127,7 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
   }
 
   // Lifecycle summary — reuse the existing helper (now exported from
-  // today-data.ts). Identical math to legacy.
+  // today-data-lite.ts). Identical math to legacy.
   let lifecycleSummary: TodayLifecycleSummary | null = null;
   try {
     lifecycleSummary = await buildTodayLifecycleSummary(

@@ -25,12 +25,15 @@ const WAITING_COMPONENT = join(
   REPO_ROOT,
   "src/components/today/first-reading-waiting.tsx",
 );
-const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
+// 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy today-data.ts was
+// deleted; the live first-reading wiring is loadTodayV2GateData in
+// today-v2-data.ts.
+const TODAY_V2_DATA = join(REPO_ROOT, "src/app/(shell)/today-v2-data.ts");
 const PAGE = join(REPO_ROOT, "src/app/(shell)/page.tsx");
 
 const DETECTOR_SRC = readFileSync(DETECTOR, "utf8");
 const WAITING_SRC = readFileSync(WAITING_COMPONENT, "utf8");
-const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
+const TODAY_V2_DATA_SRC = readFileSync(TODAY_V2_DATA, "utf8");
 // 2026-06-16: the legacy today-client.tsx was deleted (dual-surface collapse).
 // The LIVE /today route is page.tsx (it renders FirstReadingWaiting on the
 // first-reading gate), and TodayClient's props type moved to today-shared-types.
@@ -183,54 +186,52 @@ describe("Gap F.1 — waiting-state component is customer-safe", () => {
   });
 });
 
-describe("Gap F.1 — today-data.ts wiring", () => {
-  it("imports the detector + currentTenant", () => {
-    expect(TODAY_DATA_SRC).toMatch(
-      /import \{[\s\S]*?detectFirstReadingState[\s\S]*?\} from "@\/domains\/onboarding\/first-reading-state"/,
+// 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy today-data.ts
+// loader (and its resolveFirstReadingState helper) was deleted. The live
+// first-reading decision runs in `loadTodayV2GateData` (today-v2-data.ts),
+// so the wiring contract is pinned there instead.
+describe("Gap F.1 - V2 gate wiring (today-v2-data.ts)", () => {
+  const gateStart = TODAY_V2_DATA_SRC.indexOf(
+    "export async function loadTodayV2GateData",
+  );
+  const gateTail = gateStart >= 0 ? TODAY_V2_DATA_SRC.slice(gateStart) : "";
+  const gateNext = gateTail.search(
+    /\nexport\s+(async\s+function|function|const|type)\s/,
+  );
+  const gateBody = gateNext > 0 ? gateTail.slice(0, gateNext) : gateTail;
+
+  it("loads the detector + currentTenant on the cold-tenant path", () => {
+    expect(gateBody).toMatch(/detectFirstReadingState/);
+    expect(gateBody).toMatch(
+      /import\(\s*\n?\s*["']@\/domains\/onboarding\/first-reading-state["']/,
     );
-    expect(TODAY_DATA_SRC).toMatch(
-      /import \{[\s\S]*?currentTenant[\s\S]*?\} from "@\/lib\/tenant-context"/,
-    );
+    expect(gateBody).toMatch(/currentTenant\b/);
   });
 
   it("calls detectFirstReadingState with both counts", () => {
-    // 2026-06-11: the call gained a second `derived` arg (the launch-
-    // derived profile facts for the minute-one card), so the object
-    // literal is no longer glued to the call parens — pin the call +
-    // both count fields independently.
-    expect(TODAY_DATA_SRC).toMatch(/detectFirstReadingState\(/);
-    expect(TODAY_DATA_SRC).toMatch(/activePromptCount:/);
-    expect(TODAY_DATA_SRC).toMatch(/observationCount:/);
+    expect(gateBody).toMatch(/detectFirstReadingState\(\{/);
+    expect(gateBody).toMatch(/activePromptCount/);
+    expect(gateBody).toMatch(/observationCount/);
   });
 
-  it("returns firstReading on the resolver payload", () => {
-    expect(TODAY_DATA_SRC).toMatch(/firstReading:\s*await/);
+  it("returns firstReading on the gate payload", () => {
+    expect(gateBody).toMatch(/firstReading:\s*detectFirstReadingState\(/);
   });
 
   it("wraps currentTenant() in a try/catch (fail-soft for /today)", () => {
-    // Match the resolver helper signature; the existence of try/catch
-    // around currentTenant() is the contract.
-    expect(TODAY_DATA_SRC).toMatch(
-      /try\s*\{[\s\S]{0,200}await\s+currentTenant\(\)[\s\S]{0,400}catch/,
+    expect(gateBody).toMatch(
+      /try\s*\{[\s\S]{0,400}await\s+currentTenant\(\)[\s\S]{0,600}catch/,
     );
   });
 
   it("does NOT mutate any persisted store as part of the detection", () => {
-    // The detection-resolver helper must not write anywhere. We pin
-    // the helper's source by name.
-    const helperBody = TODAY_DATA_SRC.match(
-      /async function resolveFirstReadingState[\s\S]*?\n\}/,
-    );
-    expect(helperBody).toBeTruthy();
-    if (!helperBody) return;
-    const body = helperBody[0];
-    expect(body).not.toMatch(/\.upsert\(/);
-    expect(body).not.toMatch(/\.insert\(/);
-    expect(body).not.toMatch(/\.update\(/);
-    expect(body).not.toMatch(/\.delete\(/);
-    expect(body).not.toContain("runNativePoll");
-    expect(body).not.toContain("openai");
-    expect(body).not.toContain("perplexity");
+    expect(gateBody).not.toMatch(/\.upsert\(/);
+    expect(gateBody).not.toMatch(/\.insert\(/);
+    expect(gateBody).not.toMatch(/\.update\(/);
+    expect(gateBody).not.toMatch(/\.delete\(/);
+    expect(gateBody).not.toContain("runNativePoll");
+    expect(gateBody).not.toContain("openai");
+    expect(gateBody).not.toContain("perplexity");
   });
 });
 
@@ -274,12 +275,12 @@ describe("Gap F.1 — Ritz-shaped tenant unchanged", () => {
 });
 
 describe("Gap F.1 — does NOT trigger any immediate poll or paid API", () => {
-  it("today-data wiring does not import paid-API runners", () => {
-    // The detection resolver lives in today-data.ts. Pin that the
+  it("V2 gate wiring does not import paid-API runners", () => {
+    // The first-reading decision lives in today-v2-data.ts. Pin that the
     // file's imports don't gain new paid-API surfaces during F.1.
     // (Existing imports unrelated to F.1 are untouched; we just check
-    // that F.1's helper doesn't add new ones.)
-    expect(TODAY_DATA_SRC).not.toMatch(/from\s+["']@\/adapters\/openai/);
+    // that F.1's wiring doesn't add new ones.)
+    expect(TODAY_V2_DATA_SRC).not.toMatch(/from\s+["']@\/adapters\/openai/);
     // Existing perplexity import for poll-health is allowed; Gap F.1
     // adds no new ones. We check the resolver helper specifically
     // (already covered above by the helperBody not.toContain checks).

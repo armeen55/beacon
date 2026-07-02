@@ -6,7 +6,7 @@ import {
   TodayDoNextCard,
   type TodayDoNextCardProps,
 } from "./today-do-next-card";
-import type { TodayLifecycleQueueItem } from "@/app/(shell)/today-data";
+import type { TodayLifecycleQueueItem } from "@/app/(shell)/today-shared-types";
 import type { TopPickSummary } from "./top-pick-card";
 
 function queueItem(

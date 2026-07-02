@@ -21,13 +21,17 @@ import {
 // helpers in the response store, and today-data fetches responses fresh
 // from the repository per render, builds a Map, and uses the pure helpers.
 //
+// 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy today-data.ts
+// loader was deleted. The live /today loader (today-v2-data.ts) reads
+// responses fresh per render via the tenant-scoped repo, so the
+// structural pins below now target that file.
+//
 // These tests prove:
-//   Structural (today-data.ts source):
+//   Structural (today-v2-data.ts source):
 //     (1) does NOT import the stale readers (`isRecSuppressed`,
 //         `getResponse`, `recommendationResponses`) from the response store
-//     (2) DOES import the fresh-map helpers
-//     (3) DOES call `getRepository().getRecommendationResponses()`
-//     (4) has no residual references to the stale module-level array
+//     (2) DOES read responses fresh via the tenant-scoped repo at render
+//     (3) has no residual references to the stale module-level array
 //         on the render path
 //
 //   Pure helpers (unit):
@@ -47,16 +51,15 @@ import {
 
 const TODAY_DATA_PATH = resolve(
   __dirname,
-  "../../src/app/(shell)/today-data.ts",
+  "../../src/app/(shell)/today-v2-data.ts",
 );
 const TODAY_DATA_SOURCE = readFileSync(TODAY_DATA_PATH, "utf8");
 
 describe("Sprint 4 / Phase 4.3 — Today fresh-read invariants", () => {
-  describe("structural invariants (today-data.ts source)", () => {
+  describe("structural invariants (today-v2-data.ts source)", () => {
     it("does NOT import stale readers from recommendation-response-store", () => {
-      // Allowed imports: ensureRecommendationResponsesSeeded (still needed
-      // for non-render callers), getResponseFromMap, isRecSuppressedFromMap,
-      // type imports.
+      // Allowed imports: ensureRecommendationResponsesSeeded (the seed is
+      // idempotent and still needed for non-render callers), type imports.
       // Forbidden: getResponse (stale reader), isRecSuppressed (stale
       // reader), recommendationResponses (module-level array).
       const importBlocks = TODAY_DATA_SOURCE.match(
@@ -70,19 +73,16 @@ describe("Sprint 4 / Phase 4.3 — Today fresh-read invariants", () => {
       }
     });
 
-    it("DOES import the fresh-map helpers", () => {
-      expect(TODAY_DATA_SOURCE).toMatch(/\bgetResponseFromMap\b/);
-      expect(TODAY_DATA_SOURCE).toMatch(/\bisRecSuppressedFromMap\b/);
-    });
-
-    it("DOES call `getRepository().forTenant(tenantId).getRecommendationResponses()` at render", () => {
-      // Sprint 7 Phase 7.5b Commit 4 (2026-04-25) — tenant-bound read.
+    it("DOES read responses fresh via the tenant-scoped repo at render", () => {
+      // The V2 action-cards loader reads recommendation responses per
+      // render from the tenant-bound repo (no module-level cache).
+      expect(TODAY_DATA_SOURCE).toMatch(/getRepository\(\)\.forTenant\(/);
       expect(TODAY_DATA_SOURCE).toMatch(
-        /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendationResponses\(/,
+        /\brepo\.getRecommendationResponses\(\)/,
       );
     });
 
-    it("does NOT call unscoped `getRepository().getRecommendationResponses()` (or other Tier A reads) on the today-data render path", () => {
+    it("does NOT call unscoped `getRepository().getRecommendationResponses()` (or other Tier A reads) on the /today render path", () => {
       // Sprint 7 Phase 7.5b Commit 4 — every Tier A read on the /today path
       // must go through `.forTenant(tenantId)`. Catches future drift.
       expect(TODAY_DATA_SOURCE).not.toMatch(
@@ -107,22 +107,13 @@ describe("Sprint 4 / Phase 4.3 — Today fresh-read invariants", () => {
       expect(residual).toBeNull();
     });
 
-    it("suppresses new-pipeline topPick using canonical `rec.stableKey` (Phase 4.3 hotfix)", () => {
-      // The new-pipeline queue from prioritizeRecommendations carries
-      // stableKey in the exact shape /recommendations writes to
-      // recommendation_responses.rec_id. Suppression on the topPick path
-      // MUST use `rec.stableKey` (not `rec.id` or any old-engine id) so a
-      // dismissal from /recommendations propagates to Today's Top Pick.
-      //
-      // Proven structurally: the source contains a suppression filter that
-      // keys off `rec.stableKey` against `freshResponsesByRecId`.
+    it("dismissals are honored from the FRESH per-render read (win cards + queue)", () => {
+      // The legacy stableKey/unsuppressedQueue topPick path was deleted
+      // with today-data.ts (2026-07-01, item 101). The V2 loader filters
+      // dismissed items against the fresh `recResponses` repo read.
       expect(TODAY_DATA_SOURCE).toMatch(
-        /isRecSuppressedFromMap\s*\(\s*rec\.stableKey/,
+        /recResponses\.some\(\s*\n?\s*\(r\)\s*=>\s*r\.recId\s*===\s*winCardId\s*&&\s*r\.status\s*===\s*"dismissed"/,
       );
-      // And the filter is applied BEFORE `queue[0]` is taken — we check
-      // that a variable derived from `unsuppressedQueue` (or similar
-      // naming) feeds the topPick selection, not `queue[0]` raw.
-      expect(TODAY_DATA_SOURCE).toMatch(/unsuppressedQueue/);
     });
   });
 

@@ -29,11 +29,8 @@ const RESOLVER = join(
   REPO_ROOT,
   "src/domains/today/command-center-data.ts",
 );
-const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
-
 const COMPONENT_SRC = readFileSync(COMPONENT, "utf8");
 const RESOLVER_SRC = readFileSync(RESOLVER, "utf8");
-const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
 // 2026-06-16: the legacy today-client.tsx was deleted (dual-surface collapse);
 // TodayClient's props type (commandCenter: CommandCenterData) lives in
 // today-shared-types.ts now.
@@ -192,58 +189,11 @@ describe("UX.2 — CommandCenterData prop type (today-shared-types)", () => {
   });
 });
 
-describe("UX.2 — today-data.ts wiring", () => {
-  it("imports the resolver + isOperatorMode + CommandCenterData type", () => {
-    expect(TODAY_DATA_SRC).toMatch(
-      /import\s+\{[\s\S]*?resolveCommandCenterData[\s\S]*?\}\s+from\s+["']@\/domains\/today\/command-center-data["']/,
-    );
-    expect(TODAY_DATA_SRC).toMatch(/commandCenterIsOperatorMode/);
-  });
-
-  it("returns commandCenter + commandCenterIsOperator on the payload", () => {
-    // EGRESS-P0 (2026-05-07) — wrapped in a kill-switch ternary
-    // (BEACON_COMMAND_CENTER_ENABLED=false short-circuits to the empty
-    // shape).
-    //
-    // UX.6.1 (2026-05-07) — the helper now takes already-loaded /today
-    // counts as args so it can derive a Brain readiness summary when
-    // the disk JSON is unreachable on Vercel. Pin the named call still
-    // appears (now with an args object literal).
-    expect(TODAY_DATA_SRC).toMatch(/resolveCommandCenterFailSoft\(\{/);
-    expect(TODAY_DATA_SRC).toMatch(
-      /commandCenterIsOperator:\s*commandCenterIsOperatorMode\(\)/,
-    );
-  });
-
-  it("the fail-soft helper wraps the resolver call in try/catch", () => {
-    expect(TODAY_DATA_SRC).toMatch(
-      /function resolveCommandCenterFailSoft[\s\S]{0,500}try\s*\{[\s\S]{0,200}resolveCommandCenterData[\s\S]{0,200}catch/,
-    );
-  });
-
-  it("does NOT introduce paid-API calls on the today resolver path", () => {
-    // The resolver helper must not import from adapters or call
-    // any paid runners. UX.6.1 (2026-05-07) — the function now takes
-    // an args object; capture from `function resolveCommandCenterFailSoft`
-    // up to the next top-level `\nfunction ` (the sibling helper) so
-    // the body of THIS function is fully covered.
-    const helperBody = TODAY_DATA_SRC.match(
-      /function resolveCommandCenterFailSoft\([\s\S]*?\nfunction\s/,
-    );
-    expect(helperBody).toBeTruthy();
-    if (!helperBody) return;
-    const body = helperBody[0];
-    // Note: "perplexity" / "chatgpt" appear as platform identifiers in
-    // the SIBLING `deriveBrainFromTodayInputs` helper. We do not include
-    // that sibling in the captured body. Forbidden surfaces are paid-API
-    // imports + runners.
-    expect(body).not.toMatch(/from\s+["']openai["']/);
-    expect(body).not.toMatch(/from\s+["']@anthropic/);
-    expect(body).not.toContain("runNativePoll");
-    expect(body).not.toContain("runWebsiteScan");
-    expect(body).not.toMatch(/\bfetch\(/);
-  });
-});
+// The legacy "UX.2 today-data.ts wiring" describe was removed 2026-07-01 (FINAL
+// PREMIUM PLAN item 101): the legacy today-data.ts loader (and its
+// resolveCommandCenterFailSoft / deriveBrainFromTodayInputs helpers) was
+// deleted. The CommandCenter component + resolver + props-type contracts
+// above and below remain pinned.
 
 describe("UX.2 — no scary/internal language in resolver output", () => {
   it("resolver labels are humanized (no Snake_case enum values returned)", () => {

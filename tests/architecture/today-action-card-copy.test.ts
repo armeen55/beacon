@@ -48,7 +48,10 @@ const ACTION_CARD_PATH = join(
   REPO_ROOT,
   "src/components/today/action-card.tsx",
 );
-const TODAY_DATA_PATH = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
+// 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy today-data.ts was
+// deleted; the win-card assembly (T3 pins below) lives in the V2
+// action-cards loader in today-v2-data.ts.
+const TODAY_DATA_PATH = join(REPO_ROOT, "src/app/(shell)/today-v2-data.ts");
 
 const ACTION_CARD_SRC = readFileSync(ACTION_CARD_PATH, "utf-8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA_PATH, "utf-8");
@@ -128,13 +131,13 @@ describe("T3 — default win-card rationale leads with calm copy", () => {
       TODAY_DATA_SRC.includes(
         "This page gained citations after the change. Beacon is tracking the pattern so you can repeat what worked.",
       ),
-      "today-data.ts win-card positive rationale must use 'This page gained citations after the change. Beacon is tracking the pattern so you can repeat what worked.' (T3 / UX.6.1)",
+      "today-v2-data.ts win-card positive rationale must use 'This page gained citations after the change. Beacon is tracking the pattern so you can repeat what worked.' (T3 / UX.6.1)",
     ).toBe(true);
     expect(
       TODAY_DATA_SRC.includes(
         "This page lost citations after the change. Beacon is tracking to see if it recovers.",
       ),
-      "today-data.ts win-card negative rationale must use 'This page lost citations after the change. Beacon is tracking to see if it recovers.' (T3 / UX.6.1)",
+      "today-v2-data.ts win-card negative rationale must use 'This page lost citations after the change. Beacon is tracking to see if it recovers.' (T3 / UX.6.1)",
     ).toBe(true);
   });
 
@@ -161,12 +164,18 @@ describe("T3 — default win-card rationale leads with calm copy", () => {
   });
 
   it("default rationale does NOT inline a relative percent", () => {
+    // Scope the slice to the rationale STATEMENT (decl through its
+    // terminating semicolon), the V2 loader legitimately reads
+    // h.deltaPct a few lines later for the lineage pctBullet, which is
+    // exactly where the stat is allowed to live.
     const idx = TODAY_DATA_SRC.indexOf(
       "This page gained citations after the change",
     );
     expect(idx).toBeGreaterThan(0);
     const declIdx = TODAY_DATA_SRC.lastIndexOf("const rationale =", idx);
-    const slice = TODAY_DATA_SRC.slice(declIdx, idx + 400);
+    const endIdx = TODAY_DATA_SRC.indexOf(";", idx);
+    expect(endIdx).toBeGreaterThan(idx);
+    const slice = TODAY_DATA_SRC.slice(declIdx, endIdx);
     expect(slice.includes("h.deltaPct")).toBe(false);
     expect(slice.includes("toFixed(0)}%")).toBe(false);
   });
@@ -179,7 +188,9 @@ describe("T3 — default win-card rationale leads with calm copy", () => {
     );
     expect(idx).toBeGreaterThan(0);
     const declIdx = TODAY_DATA_SRC.lastIndexOf("const rationale =", idx);
-    const slice = TODAY_DATA_SRC.slice(declIdx, idx + 400);
+    const endIdx = TODAY_DATA_SRC.indexOf(";", idx);
+    expect(endIdx).toBeGreaterThan(idx);
+    const slice = TODAY_DATA_SRC.slice(declIdx, endIdx);
     expect(slice).not.toMatch(/not proof of causation/i);
     expect(slice).not.toMatch(/URL-level signal/i);
   });
@@ -246,7 +257,7 @@ describe("T3 — extreme relative-% omits the pct bullet (operator brief)", () =
   it("isExtremePct gate is set at 300%", () => {
     expect(
       TODAY_DATA_SRC.includes("Math.abs(h.deltaPct) >= 3.0"),
-      "today-data.ts must gate the pct bullet at >= 3.0 (300%) — operator brief T3",
+      "today-v2-data.ts must gate the pct bullet at >= 3.0 (300%), operator brief T3",
     ).toBe(true);
   });
 

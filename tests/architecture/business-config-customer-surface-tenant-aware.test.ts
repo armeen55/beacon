@@ -40,12 +40,12 @@ import { resolve } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
-// Exactly the 8 customer-facing entry files migrated in MT-2.
+// The customer-facing entry files migrated in MT-2 (today-data.ts was one
+// of the original 8; deleted 2026-07-01, FINAL PREMIUM PLAN item 101).
 const MIGRATED_ENTRY_FILES = [
   "src/domains/off-site-authority/load-snapshot.ts",
   "src/domains/today/visibility-read-model.ts",
   "src/app/(shell)/changes/[id]/page.tsx",
-  "src/app/(shell)/today-data.ts",
   "src/app/(shell)/today-v2-data.ts",
   "src/app/(shell)/local/page.tsx",
   "src/lib/local-presence.ts",

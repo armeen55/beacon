@@ -46,11 +46,9 @@ import "server-only";
  *       hence the read-modify-write merge below; a bare PUT without the
  *       merge would null every other field).
  *   • Blog posts + media are NOT wired into any push route today.
- *       wixCreateDraftPost / wixPublishDraftPost / wixImportMedia exist in
- *       the Wix client (src/lib/connectors/wix/client.ts) but have NO caller
- *       in the product (there is no "push-adapters" module). Wiring them is
- *       tracked as the Wix content-capability work; until then blog/media
- *       cards are not produced and this service never touches them.
+ *       The unwired Wix blog/media handlers were deleted 2026-07-01
+ *       (FINAL PREMIUM PLAN item 102); blog/media cards are not produced
+ *       and this service never touches them.
  */
 
 import { getTenant } from "@/domains/tenants/store";

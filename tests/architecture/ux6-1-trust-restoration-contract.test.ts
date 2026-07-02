@@ -9,9 +9,9 @@
  *       `deriveBrainSummaryFromCounts` so /today can render a
  *       grade-based brain summary even when the disk JSON is
  *       unreachable (production: `.data/_reports/` is gitignored).
- *     - today-data.ts wires it into resolveCommandCenterFailSoft
- *       and feeds it already-loaded /today inputs (no Supabase
- *       round-trip).
+ *     - (2026-07-01, item 101: the legacy today-data.ts loader that
+ *       wired it via resolveCommandCenterFailSoft was deleted; only
+ *       the pure helper contract remains pinned.)
  *
  *   FIX 2 — Poll health false alarm before scheduled poll.
  *     - poll-health-calm-banner.tsx exists with `isPreCronPending`
@@ -47,14 +47,16 @@ const COMMAND_CENTER_DATA = join(
   REPO_ROOT,
   "src/domains/today/command-center-data.ts",
 );
-const TODAY_DATA = join(REPO_ROOT, "src/app/(shell)/today-data.ts");
+// 2026-07-01 (item 101): legacy today-data.ts deleted; the win-card copy
+// (Fix 3) lives in the V2 action-cards loader.
+const TODAY_V2_DATA = join(REPO_ROOT, "src/app/(shell)/today-v2-data.ts");
 const POLL_HEALTH_CALM_BANNER = join(
   REPO_ROOT,
   "src/components/today/poll-health-calm-banner.tsx",
 );
 
 const COMMAND_CENTER_DATA_SRC = readFileSync(COMMAND_CENTER_DATA, "utf-8");
-const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf-8");
+const TODAY_V2_DATA_SRC = readFileSync(TODAY_V2_DATA, "utf-8");
 const POLL_HEALTH_CALM_BANNER_SRC = readFileSync(
   POLL_HEALTH_CALM_BANNER,
   "utf-8",
@@ -122,62 +124,11 @@ describe("UX.6.1 Fix 1 — Brain readiness derive helper", () => {
   });
 });
 
-describe("UX.6.1 Fix 1 — today-data.ts wires the derive fallback", () => {
-  it("imports deriveBrainSummaryFromCounts from command-center-data", () => {
-    expect(TODAY_DATA_SRC).toMatch(
-      /import\s+\{[\s\S]*?deriveBrainSummaryFromCounts[\s\S]*?\}\s+from\s+["']@\/domains\/today\/command-center-data["']/,
-    );
-  });
-
-  it("resolveCommandCenterFailSoft accepts already-loaded counts as args", () => {
-    // Pin the new arg-shape so a future refactor doesn't silently
-    // revert to a no-arg call (which would re-introduce the bug).
-    expect(TODAY_DATA_SRC).toMatch(
-      /function resolveCommandCenterFailSoft\(args:\s*\{[\s\S]{0,400}observations:[\s\S]{0,200}snapshots:[\s\S]{0,200}citationEvidenceIndex:[\s\S]{0,200}recommendationQueueSize:/,
-    );
-  });
-
-  it("resolveCommandCenterFailSoft applies derived fallback when brain is null", () => {
-    const fnMatch = TODAY_DATA_SRC.match(
-      /function resolveCommandCenterFailSoft\([\s\S]*?\nfunction\s/,
-    );
-    expect(fnMatch).toBeTruthy();
-    if (!fnMatch) return;
-    const body = fnMatch[0];
-    // The fallback must reference the derive helper.
-    expect(body).toMatch(/deriveBrainFromTodayInputs\(args\)/);
-    // The fallback must only fire when brain is null.
-    expect(body).toMatch(/!resolved\.brain/);
-    // When the derive succeeds, hasAnyData flips to true.
-    expect(body).toMatch(/hasAnyData:\s*true/);
-  });
-
-  it("call site passes observations / snapshots / citationEvidenceIndex / recommendationQueueSize", () => {
-    // Pin the four required args at the call site so an offshore-dev
-    // refactor can't accidentally drop one.
-    expect(TODAY_DATA_SRC).toMatch(
-      /resolveCommandCenterFailSoft\(\{[\s\S]{0,800}observations:[\s\S]{0,400}snapshots:[\s\S]{0,400}citationEvidenceIndex[\s\S]{0,400}recommendationQueueSize:/,
-    );
-  });
-
-  it("derive helper does NOT introduce unbounded Supabase reads or paid APIs", () => {
-    const fnMatch = TODAY_DATA_SRC.match(
-      /function deriveBrainFromTodayInputs[\s\S]*?\n\}/,
-    );
-    expect(fnMatch).toBeTruthy();
-    if (!fnMatch) return;
-    const body = fnMatch[0];
-    expect(body).not.toMatch(/\bfetch\(/);
-    expect(body).not.toMatch(/select\(['"]\*['"]\)/);
-    expect(body).not.toMatch(/from\s+["']@\/adapters\//);
-    expect(body).not.toContain("runNativePoll");
-    expect(body).not.toContain("runWebsiteScan");
-    expect(body).not.toMatch(/\.upsert\(/);
-    expect(body).not.toMatch(/\.insert\(/);
-    expect(body).not.toMatch(/\.update\(/);
-    expect(body).not.toMatch(/\.delete\(/);
-  });
-});
+// The legacy "UX.6.1 Fix 1 today-data.ts wires the derive fallback" describe was
+// removed 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy today-data.ts
+// loader (resolveCommandCenterFailSoft + deriveBrainFromTodayInputs) was
+// deleted. The pure deriveBrainSummaryFromCounts helper contract above
+// remains pinned.
 
 // ---------------------------------------------------------------------------
 // FIX 2 — Poll Health Calm Banner + pre-cron gating
@@ -257,16 +208,16 @@ describe("UX.6.1 Fix 2 — Poll health calm banner exists and is pure", () => {
 
 describe("UX.6.1 Fix 3 — Wins rationale leads with confident copy", () => {
   it("wins rationale uses 'gained / lost citations' default copy", () => {
-    expect(TODAY_DATA_SRC).toContain(
+    expect(TODAY_V2_DATA_SRC).toContain(
       "This page gained citations after the change",
     );
-    expect(TODAY_DATA_SRC).toContain(
+    expect(TODAY_V2_DATA_SRC).toContain(
       "This page lost citations after the change",
     );
   });
 
   it("wins rationale references repeating-the-pattern framing", () => {
-    expect(TODAY_DATA_SRC).toMatch(
+    expect(TODAY_V2_DATA_SRC).toMatch(
       /Beacon is tracking the pattern so you can repeat what worked/,
     );
   });
@@ -276,7 +227,7 @@ describe("UX.6.1 Fix 3 — Wins rationale leads with confident copy", () => {
     // The rationale field must NOT start with this phrase. The caveat
     // is allowed to appear ELSEWHERE in the source (in lineageBullets
     // text below) but not in the default-rendered rationale string.
-    const rationaleMatch = TODAY_DATA_SRC.match(
+    const rationaleMatch = TODAY_V2_DATA_SRC.match(
       /const\s+rationale\s*=[\s\S]{0,400}?;/,
     );
     expect(rationaleMatch).toBeTruthy();
@@ -289,7 +240,7 @@ describe("UX.6.1 Fix 3 — Wins rationale leads with confident copy", () => {
   it("methodology caveat is preserved in lineageBullets (drawer copy)", () => {
     // The honest disclosure still lives in the drill-down — we only
     // moved it out of the default-rendered rationale.
-    expect(TODAY_DATA_SRC).toContain("not proof of causation");
-    expect(TODAY_DATA_SRC).toContain("URL-level correlation");
+    expect(TODAY_V2_DATA_SRC).toContain("not proof of causation");
+    expect(TODAY_V2_DATA_SRC).toContain("URL-level correlation");
   });
 });

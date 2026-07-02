@@ -10,10 +10,15 @@
  *
  * The fix has TWO prerequisites that this ratchet pins so neither can silently
  * regress as the codebase evolves:
- *   1. today-data.ts MUST date-WINDOW the canonical read (observationsSince +
+ *   1. The /today canonical read MUST be date-WINDOWED (observationsSince +
  *      snapshotsSince) — without the window the read is unbounded again.
  *   2. The composite (tenant_id, <date>) indexes MUST exist in the migration
  *      schema-of-record — without them the windowed read still Seq-Scans.
+ *
+ * 2026-07-01 (FINAL PREMIUM PLAN item 101): the legacy today-data.ts loader
+ * was deleted; the live /today canonical read is `loadCachedFreshCanonical`
+ * (+ the 14d sibling) in today-v2-data.ts with the V2_OBSERVATION_COLUMNS
+ * lean projection. The ratchet now pins that surface.
  *
  * Source-text invariants (no DB needed); see VERIFICATION_LOG 2026-06-14 wave-6.
  */
@@ -22,8 +27,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "../..");
-const TODAY_DATA = readFileSync(
-  resolve(REPO_ROOT, "src/app/(shell)/today-data.ts"),
+const TODAY_V2_DATA = readFileSync(
+  resolve(REPO_ROOT, "src/app/(shell)/today-v2-data.ts"),
   "utf8",
 );
 const MIGRATION = resolve(
@@ -35,14 +40,14 @@ describe("today canonical read — date-windowed (CRITICAL silent-empty guard)",
   it("passes observationsSince + snapshotsSince into loadFreshCanonicalData", () => {
     // The window keeps the read bounded; dropping it sends both reads
     // unbounded and re-opens the statement-timeout -> empty-dashboard class.
-    expect(TODAY_DATA).toMatch(
+    expect(TODAY_V2_DATA).toMatch(
       /loadFreshCanonicalData\(\s*\{[\s\S]{0,200}observationsSince[\s\S]{0,200}snapshotsSince/,
     );
   });
 
   it("derives both since-windows from a now-relative day offset (not unbounded)", () => {
-    expect(TODAY_DATA).toMatch(/const\s+observationsSince\s*=/);
-    expect(TODAY_DATA).toMatch(/const\s+snapshotsSince\s*=/);
+    expect(TODAY_V2_DATA).toMatch(/const\s+observationsSince\s*=/);
+    expect(TODAY_V2_DATA).toMatch(/const\s+snapshotsSince\s*=/);
   });
 });
 
@@ -54,13 +59,15 @@ describe("today canonical read — lean observation projection (egress + timeout
   // columns) or it re-opens the statement-timeout -> silent-empty-dashboard
   // class. See commit 71893c9 + project_today_observation_egress memory.
   it("passes observationsColumns into loadFreshCanonicalData", () => {
-    expect(TODAY_DATA).toMatch(/observationsColumns:\s*TODAY_OBSERVATION_COLUMNS/);
+    expect(TODAY_V2_DATA).toMatch(
+      /observationsColumns:\s*V2_OBSERVATION_COLUMNS/,
+    );
   });
 
   it("the projection OMITS the heavy/unused columns (must never be re-added)", () => {
     // Isolate the projection constant's literal so we only assert on it.
-    const m = TODAY_DATA.match(
-      /const\s+TODAY_OBSERVATION_COLUMNS\s*=([\s\S]*?);/,
+    const m = TODAY_V2_DATA.match(
+      /const\s+V2_OBSERVATION_COLUMNS\s*=([\s\S]*?);/,
     );
     expect(m).not.toBeNull();
     const projection = (m?.[1] ?? "").toLowerCase();
@@ -77,8 +84,8 @@ describe("today canonical read — lean observation projection (egress + timeout
   });
 
   it("the projection KEEPS the columns /today's matrix + rollups read", () => {
-    const m = TODAY_DATA.match(
-      /const\s+TODAY_OBSERVATION_COLUMNS\s*=([\s\S]*?);/,
+    const m = TODAY_V2_DATA.match(
+      /const\s+V2_OBSERVATION_COLUMNS\s*=([\s\S]*?);/,
     );
     const projection = (m?.[1] ?? "").toLowerCase();
     for (const kept of [
