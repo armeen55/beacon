@@ -24,7 +24,7 @@
 - [x]  21 [W3][P2/M] Empty states designed: every self-hiding section gets a designed empty state when it
 - [x]  22 [W3][P2/S] Consistent skeletons sized to real content for every Suspense boundary (worklist and
 - [x]  23 [W3][P1/S] Focus + hover states on every interactive element (several buttons have none).
-- [ ]  24 [W3][P2/M] Mobile pass on Today + war room: cards stack cleanly at 375px, chart resizes, no
+- [x]  24 [W3][P2/M] Mobile pass on Today + war room: cards stack cleanly at 375px, chart resizes, no
 - [x]  25 [W1][P0/L] LLM-written verdicts (grounded): replace the templated "Biggest opportunity the team
 - [x]  26 [W1][P0/M] Give every voice a number. Audit all 8 emitters in specialist-opinions.ts: no claim
 - [x]  27 [W2][P0/M] Add the PROOF-HISTORY voice to the debate: a ninth deterministic emitter reading the

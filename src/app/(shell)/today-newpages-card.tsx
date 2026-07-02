@@ -124,7 +124,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
   };
 
   return (
-    <div className="group flex flex-col justify-between rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
+    <div className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
       <div>
         <div className="flex items-center justify-between gap-2">
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
