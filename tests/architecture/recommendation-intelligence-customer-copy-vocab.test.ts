@@ -141,6 +141,13 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // Profound AEO-gap (2026-06-14). Args: (competitor brand name, AI
   // answers observed). Probe a normal competitor + a long count.
   profoundAeoGapCopy: [["Supple Homes", 42], ["X", 250000]],
+  // SoV drop alert (BEACON 500 item 79, 2026-07-02). Args: (engine name,
+  // topic, flipped-prompt count, prompts polled, example prompt texts).
+  // Probe a normal case + a fall-to-zero-style edge case with no examples.
+  sovDropAlertCopy: [
+    ["Perplexity", "date questions", 3, 5, ["When is Nowruz 2026", "What date is Chaharshanbe Suri"]],
+    ["ChatGPT", "x", 1, 1, []],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

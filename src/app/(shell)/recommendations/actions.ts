@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { buildRecQueueCacheTag } from "@/domains/recommendations/load-queue";
 import { log } from "@/lib/logger";
+import { scheduleIndexNowPing } from "@/lib/connectors/indexnow/ping-on-verify";
 import {
   recordResponse,
   persistResponses,
@@ -893,6 +894,12 @@ export async function approveAndPushRecommendedEdit(args: {
     result: "pushed",
     verifiedByProbe: probeFound,
   });
+  if (probeFound) {
+    // BEACON_500 item 75 - the same live-confirmed moment as the worklist
+    // stage path: tell Bing (IndexNow) the page changed. Fire-and-forget +
+    // fail-soft; self-hides with no per-tenant IndexNow key configured.
+    scheduleIndexNowPing({ tenantId, url: edit.target_url });
+  }
 
   updateTag(buildRecQueueCacheTag(tenantId));
   revalidatePath("/recommendations");

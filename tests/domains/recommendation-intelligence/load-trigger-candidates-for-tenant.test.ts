@@ -233,7 +233,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(14);
+    expect(result.meta.predicates_run).toBe(15);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -484,7 +484,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=14 in meta on the ok path (post-SEMrush-removal)", async () => {
+  it("reports predicates_run=15 in meta on the ok path (post-SEMrush-removal, +sov_drop_alert)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -494,7 +494,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(14);
+    expect(result.meta.predicates_run).toBe(15);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -653,9 +653,11 @@ describe("loadTriggerCandidatesForTenant", () => {
     );
     await loadTriggerCandidatesForTenant({ tenantId: "tenant-a" });
     // Night-shift #44 (2026-06-11): a second forTenant call loads the
-    // sitemap reconciliation (stale-content lastmod map). Both calls
-    // must carry the explicit tenantId.
-    expect(_forTenantSpy).toHaveBeenCalledTimes(2);
+    // sitemap reconciliation (stale-content lastmod map). BEACON 500 item 79
+    // (2026-07-02): a third forTenant call loads the sov-weekly native-poll
+    // observations inside loadSovWeeklyForTenant. All calls must carry the
+    // explicit tenantId.
+    expect(_forTenantSpy).toHaveBeenCalledTimes(3);
     expect(_forTenantSpy).toHaveBeenCalledWith("tenant-a");
   });
 

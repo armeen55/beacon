@@ -25,6 +25,7 @@ import {
   startGscDeepBackfillFromForm,
   loadGscDeepBackfillStatus,
 } from "./actions";
+import { IndexNowSection } from "./indexnow-section";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,10 @@ export default async function ConnectorsDiagnosticPage() {
   const anyConnected = rows.some((r) => r.connected);
   const gscConnected = rows.find((r) => r.provider === "google_gsc")?.connected ?? false;
   const backfillStatus = await loadGscDeepBackfillStatus();
+  // Awaited directly (not used as a JSX tag) so this stays a plain server
+  // render — no Suspense boundary needed, matching every other data load
+  // on this page.
+  const indexNowSection = await IndexNowSection();
 
   return (
     <div className="space-y-6 p-6">
@@ -200,6 +205,12 @@ export default async function ConnectorsDiagnosticPage() {
           </button>
         </form>
       </section>
+
+      {/* IndexNow lane (2026-07-02, BEACON_500 item 75) - tells Bing (and so
+          ChatGPT, which browses on Bing's index) about every approved change
+          the moment it goes live. Self-hides its own setup steps when no key
+          is configured yet; never invents an index status it cannot verify. */}
+      {indexNowSection}
 
       <p className="text-xs text-muted-foreground">
         Refreshing pulls fresh data from each connected source into

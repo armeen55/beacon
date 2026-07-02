@@ -24,11 +24,16 @@ import type { AutopilotState, AutopilotReceipt } from "@/domains/autopilot/autop
 const TENANT = "tenant-iranopedia";
 const NOW = new Date("2026-07-01T09:00:00Z");
 
+function defaultCircuitBreakerState(): AutopilotState["circuitBreaker"] {
+  return { tripped: false, reason: "", trippedAt: null, sinceIso: null, resumedAt: null };
+}
+
 function enabledState(partial: Partial<AutopilotState> = {}): AutopilotState {
   return {
     config: { ...DEFAULT_AUTOPILOT_CONFIG, enabled: true },
     lastRunDay: null,
     receipts: [],
+    circuitBreaker: defaultCircuitBreakerState(),
     ...partial,
   };
 }
@@ -83,6 +88,12 @@ function makeDeps(overrides: Partial<AutopilotRunDeps> = {}): {
     shipPick,
     runRevertPass,
     today: () => "2026-07-01",
+    // Item 80: default to a clean breaker (no settled records, no receipts) so
+    // pre-existing ship-loop tests never trip. Tests that exercise the breaker
+    // itself override these explicitly.
+    loadBreakerProofRecords: async () => [],
+    loadBreakerReceipts: async () => [],
+    tripBreaker: vi.fn(async () => enabledState()),
     ...overrides,
   };
   return { deps, receipts, markedDays, spies: { loadCandidates, shipPick, runRevertPass } };
@@ -113,6 +124,7 @@ describe("runAutopilotPass", () => {
         config: { ...DEFAULT_AUTOPILOT_CONFIG },
         lastRunDay: null,
         receipts: [],
+        circuitBreaker: defaultCircuitBreakerState(),
       }),
     });
     const res = await runAutopilotPass(TENANT, NOW, deps);
@@ -407,4 +419,104 @@ describe("runAutopilotPass", () => {
       expect(spies.shipPick).not.toHaveBeenCalled();
     });
   });
+
+  // ── Item 80: portfolio circuit breaker pause enforcement ──
+
+  describe("item 80: circuit breaker pause enforcement", () => {
+    it("an already-tripped breaker pauses the run before the day marker stamps", async () => {
+      const { deps, spies, markedDays } = makeDeps({
+        getState: async () =>
+          enabledState({
+            circuitBreaker: {
+              tripped: true,
+              reason: "I paused myself. The last two batches measured net negative.",
+              trippedAt: isoDaysAgoAP(1),
+              sinceIso: isoDaysAgoAP(3),
+              resumedAt: null,
+            },
+          }),
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.ran).toBe(false);
+      expect(res.breakerTripped).toBe(true);
+      expect(res.reason).toContain("I paused myself");
+      expect(markedDays).toHaveLength(0);
+      expect(spies.loadCandidates).not.toHaveBeenCalled();
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+
+    it("a FRESH trip this run pauses before any ship AND persists the trip", async () => {
+      const tripBreaker = vi.fn(async (_args: { reason: string; trippedAt: string; sinceIso: string | null }) =>
+        enabledState(),
+      );
+      // "update_intro" is judged on clicks (not a CTR/position lever), so
+      // adjustedLift is the field the breaker reads for this fixture.
+      const negativeWindow = { day: 14, ran: true, adjustedLift: -25, adjustedCtrLift: 0, adjustedPosLift: 0 };
+      const { deps, spies, markedDays } = makeDeps({
+        loadBreakerProofRecords: async () => [
+          { id: "a", path: "/a", actionType: "update_intro", shippedAt: isoDaysAgoAP(1), verdict: "lost", windows: [negativeWindow] },
+          { id: "b", path: "/b", actionType: "update_intro", shippedAt: isoDaysAgoAP(3), verdict: "lost", windows: [negativeWindow] },
+        ],
+        tripBreaker,
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.ran).toBe(false);
+      expect(res.breakerTripped).toBe(true);
+      expect(res.reason).toContain("I paused myself");
+      expect(markedDays).toHaveLength(0);
+      expect(spies.loadCandidates).not.toHaveBeenCalled();
+      expect(spies.shipPick).not.toHaveBeenCalled();
+      expect(tripBreaker).toHaveBeenCalledTimes(1);
+      expect(tripBreaker.mock.calls[0]![0].reason).toContain("I paused myself");
+    });
+
+    it("a healthy breaker (no negative batches, no rollbacks) never blocks the ship pass", async () => {
+      const { deps } = makeDeps({
+        loadBreakerProofRecords: async () => [
+          {
+            id: "a",
+            path: "/a",
+            actionType: "update_intro",
+            shippedAt: isoDaysAgoAP(1),
+            verdict: "won",
+            windows: [{ day: 14, ran: true, adjustedLift: 10, adjustedCtrLift: 0, adjustedPosLift: 0 }],
+          },
+        ],
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.ran).toBe(true);
+      expect(res.breakerTripped).toBeUndefined();
+      expect(res.shipped).toBe(1);
+    });
+
+    it("a breaker LOAD error fails safe: the run keeps going, never pauses", async () => {
+      const { deps } = makeDeps({
+        loadBreakerProofRecords: async () => {
+          throw new Error("boom");
+        },
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.ran).toBe(true);
+      expect(res.breakerTripped).toBeUndefined();
+      expect(res.shipped).toBe(1);
+    });
+
+    it("2 rollback receipts within 7 days pause the run even with healthy ship batches", async () => {
+      const { deps, spies } = makeDeps({
+        loadBreakerReceipts: async () => [
+          { kind: "revert", result: "pushed", shippedAt: isoDaysAgoAP(1) },
+          { kind: "revert", result: "pushed", shippedAt: isoDaysAgoAP(4) },
+        ],
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.ran).toBe(false);
+      expect(res.breakerTripped).toBe(true);
+      expect(res.reason).toContain("2");
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+  });
 });
+
+function isoDaysAgoAP(days: number): string {
+  return new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+}

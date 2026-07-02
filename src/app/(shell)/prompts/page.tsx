@@ -18,6 +18,7 @@ import type {
 import { PromptsV2Client } from "./prompts-v2-client";
 import { loadAiQuestions } from "./ai-questions-data";
 import { AiQuestionsView } from "./ai-questions-view";
+import { SovWeeklySection } from "./sov-weekly-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -97,9 +98,17 @@ export default async function PromptsPage({
   // "no questions added" while Profound had hundreds). When the brain has Profound
   // questions, that IS the page; fall through to the legacy view only when it doesn't.
   const aiQuestions = await loadAiQuestions().catch(() => null);
+  // Awaited as a function call (not a JSX tag) so the async section resolves before
+  // render - renderToStaticMarkup in the route tests cannot handle a suspending child.
+  const sovSection = await SovWeeklySection();
   if (aiQuestions && aiQuestions.questions.length > 0) {
     trace.data("ai_questions_count", aiQuestions.questions.length);
-    return <AiQuestionsView data={aiQuestions} />;
+    return (
+      <div className="max-w-4xl">
+        {sovSection}
+        <AiQuestionsView data={aiQuestions} />
+      </div>
+    );
   }
   const tenantRepo = getRepository().forTenant(tenantId);
   const [trackedPrompts, promptAnswerObservations, trackedEntities] =
@@ -158,6 +167,8 @@ export default async function PromptsPage({
         title="AI Answers"
         description="How AI assistants (like ChatGPT) answer your buyers' questions — and whether they mention you. Each question is sorted into a status: Winning (you're the top answer), Close (you're mentioned, not first), Outranked (competitors win, you're absent), Absent (AI never mentions you), or Early (not enough readings yet)."
       />
+
+      {sovSection}
 
       {totalPrompts === 0 ? (
         <EmptyState

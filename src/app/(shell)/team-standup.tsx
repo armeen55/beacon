@@ -20,6 +20,8 @@ import { recordLine } from "@/domains/team-scoreboard/brier";
 import { buildCalibrationLine } from "@/domains/team-scoreboard/calibration";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadTeammateFreshness, type TeammateFreshnessMap } from "@/domains/team/source-freshness";
+import { loadRecentDriftEvents, type DriftEventWithMatch } from "@/domains/ai-visibility/answer-drift-loader";
+import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 type StandupLine = { key: string; line: string; active: boolean; title?: string };
 
@@ -45,6 +47,36 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 function recordSuffixFor(records: Map<string, string>, key: string): string {
   const r = records.get(key);
   return r ? ` (${r})` : "";
+}
+
+/** Item 77 - "the answer changed this week" line for one drift event, treated like a
+ *  lost or won ranking (the same plain, first-person, concrete voice the rest of the
+ *  standup uses). A brand_dropped event reads as a loss; brand_added as a win;
+ *  descriptor_changed as a neutral "here is what changed" note. Every field runs
+ *  through stripBannedDashes since prompt text and answer sentences come from live
+ *  AI output the operator never wrote. Pure string building, no I/O. */
+function driftEventSentence(e: DriftEventWithMatch): string {
+  const prompt = stripBannedDashes(e.promptText).trim();
+  const engine = stripBannedDashes(e.engine).trim();
+  const pageNote = e.relatedMoveLabel ? ` I already have an open move for ${stripBannedDashes(e.relatedMoveLabel).trim()}.` : "";
+  if (e.kind === "brand_dropped") {
+    const replacement = e.afterSentence ? stripBannedDashes(e.afterSentence).trim() : null;
+    return (
+      `${engine} stopped mentioning you on the question "${prompt}" this week.` +
+      (replacement ? ` Here is the sentence that replaced you: "${replacement}"` : "") +
+      pageNote
+    );
+  }
+  if (e.kind === "brand_added") {
+    return `${engine} started recommending you for "${prompt}" this week.` + pageNote;
+  }
+  const before = e.beforeSentence ? stripBannedDashes(e.beforeSentence).trim() : null;
+  const after = e.afterSentence ? stripBannedDashes(e.afterSentence).trim() : null;
+  return (
+    `${engine} changed how it describes you on "${prompt}" this week.` +
+    (before && after ? ` Before: "${before}" Now: "${after}"` : "") +
+    pageNote
+  );
 }
 
 async function buildLines(
@@ -218,7 +250,11 @@ export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string
   try {
     const { footer, calibrationLine, objectionLine, weightLines, records, calibrations } = await loadScoreboardForStandup(tenantId);
     const lines = await buildLines(tenantId, picksTonight, records, calibrations);
-    if (lines.length === 0) return null;
+    // Item 77 - answer-drift alert: what changed in the last 7 days of the native AI
+    // poll stream, treated like a lost/won ranking. Fail-soft to [] (a poll history
+    // too shallow to compare yet, or nothing drifted, both render nothing here).
+    const driftEvents = await safe(() => loadRecentDriftEvents(tenantId, 3), [] as DriftEventWithMatch[]);
+    if (lines.length === 0 && driftEvents.length === 0) return null;
     // Item 46 - honest degradation: the SAME connector reads /settings/connectors and the item-10
     // pipeline-readings collector already use (getConnectorInfo, via source-freshness.ts), so a
     // teammate whose backing source is stale/dead gets an amber/red dot + a plain-English tooltip
@@ -263,6 +299,24 @@ export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string
             {line}
           </p>
         ))}
+        {driftEvents.length > 0 ? (
+          <section aria-label="AI answer changes this week" className="flex flex-col gap-1">
+            {driftEvents.map((e, i) => {
+              const isWin = e.kind === "brand_added";
+              const isLoss = e.kind === "brand_dropped";
+              const tone = isWin
+                ? "border-emerald-200 bg-emerald-50/70 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+                : isLoss
+                  ? "border-amber-200 bg-amber-50/70 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+                  : "border-gray-200 bg-gray-50/70 text-gray-700 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300";
+              return (
+                <p key={i} className={`rounded-xl border px-3 py-2 text-[12.5px] font-medium ${tone}`}>
+                  {driftEventSentence(e)}
+                </p>
+              );
+            })}
+          </section>
+        ) : null}
       </div>
     );
   } catch {

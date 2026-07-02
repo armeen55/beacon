@@ -20,6 +20,7 @@ import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/dom
 import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
 import { strategyMemoLine } from "@/domains/strategy-review/surface";
 import { TeamStandup } from "./team-standup";
+import { CircuitBreakerSection } from "./circuit-breaker-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { CoverageMapSection } from "./coverage-map-section";
 import { OpsPipelineSection } from "./ops-pipeline-section";
@@ -188,6 +189,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           {strategySentence}
         </div>
       ) : null}
+      {/* Item 80 - the portfolio circuit breaker: self-hides unless autopilot paused
+          itself after consecutive losing batches or too many rollbacks. Mounted high
+          (before the team standup) so a paused autopilot is the first thing seen. */}
+      <Suspense fallback={null}><CircuitBreakerSection /></Suspense>
       {/* Item 43: the team, at a glance - each teammate's one-line daily report. */}
       <Suspense fallback={null}><TeamStandup tenantId={tenantId} picksTonight={picks} /></Suspense>
       <TodayCounts counts={today.counts} />

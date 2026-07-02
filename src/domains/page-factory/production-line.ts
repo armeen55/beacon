@@ -5,6 +5,9 @@ import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-grap
 import { loadPageCandidates } from "./load-page-candidates";
 import { dedupeFactoryCandidates, type ExistingMoveLabel } from "./dedupe-candidates";
 import { validateCandidateDemand, type GraphDemandSignal } from "./validate-demand";
+import { loadDatasetCandidatesForTenant } from "@/domains/datasets/dataset-candidates";
+import { datasetCandidateToPageCandidate } from "@/domains/datasets/dataset-page-spec";
+import type { PageCandidate } from "./entity-attribute-factory";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { loadFactoryBatchHistory, createFactoryBatch, type FactoryBatchItem, type FactoryBatchRecord } from "./batch-store";
 import { draftCreatePageStructured } from "@/domains/llm/structured-drafter";
@@ -112,17 +115,32 @@ export async function runProductionLineForTenant(
     }
 
     const rawCandidates = await loadPageCandidates(tenantId, { max: 40 }).catch(() => []);
-    if (rawCandidates.length === 0) return empty("no_candidates");
+
+    // BEACON 500 item 76 - citable dataset pages (additive candidate source).
+    // Each dataset candidate already carries its OWN real, measured demand
+    // number (summed GSC impressions across a page family, or a real query/
+    // fanout count) computed by the datasets domain itself - stronger proof
+    // than the entity-attribute stream's coincidental keyword-token match, so
+    // these are treated as already-validated ("graph_demand") rather than run
+    // back through validateCandidateDemand's generic label matcher.
+    const datasetCandidates = await loadDatasetCandidatesForTenant(tenantId).catch(() => []);
+    const datasetSlugs = new Set(datasetCandidates.map((d) => d.slug));
+
+    if (rawCandidates.length === 0 && datasetCandidates.length === 0) return empty("no_candidates");
 
     const existingMoves: ExistingMoveLabel[] = graph.moves.map((m) => ({ label: m.label, gap: m.gap }));
     const deduped = dedupeFactoryCandidates(rawCandidates, existingMoves, priorBatches);
-    if (deduped.length === 0) return empty("no_candidates");
+    // Dataset slugs are dedup-checked against prior batches the same way (a
+    // dataset candidate already drafted in an earlier week never re-drafts).
+    const priorSlugs = new Set(priorBatches.flatMap((b) => b.items.map((i) => i.slug)));
+    const dedupedDatasetCandidates = datasetCandidates.filter((d) => !priorSlugs.has(d.slug));
+    if (deduped.length === 0 && dedupedDatasetCandidates.length === 0) return empty("no_candidates");
 
     const keywords = await readAllCachedKeywordDemand().catch(() => []);
     const graphSignals: GraphDemandSignal[] = graph.moves.map((m) => ({ label: m.label, demand: m.components.demand }));
 
     const queued: Array<{ slug: string; title: string }> = [];
-    const passed: Array<{ candidate: (typeof deduped)[number]; verdict: Extract<ReturnType<typeof validateCandidateDemand>, { status: "pass" }> }> = [];
+    const passed: Array<{ candidate: PageCandidate; verdict: Extract<ReturnType<typeof validateCandidateDemand>, { status: "pass" }> }> = [];
     let rejectedCount = 0;
 
     for (const c of deduped) {
@@ -130,6 +148,13 @@ export async function runProductionLineForTenant(
       if (verdict.status === "pass") passed.push({ candidate: c, verdict });
       else if (verdict.status === "queued") queued.push({ slug: c.slug, title: c.title });
       else rejectedCount += 1;
+    }
+
+    for (const d of dedupedDatasetCandidates) {
+      passed.push({
+        candidate: datasetCandidateToPageCandidate(d),
+        verdict: { status: "pass", source: "graph_demand", matchedLabel: d.title, demand: d.demandScore },
+      });
     }
 
     // Rank by real backing demand (cached volume, else graph demand), cap to the
@@ -247,6 +272,7 @@ export async function runProductionLineForTenant(
 
       totalCostUsd += costUsd;
 
+      const isDataset = datasetSlugs.has(candidate.slug);
       items.push({
         slug: candidate.slug,
         title: stripBannedDashes(briefValue.proposedTitle),
@@ -255,10 +281,12 @@ export async function runProductionLineForTenant(
         matchedKeyword: verdict.source === "cached_keyword" ? verdict.matchedKeyword : null,
         searchVolume: verdict.source === "cached_keyword" ? verdict.searchVolume : null,
         demandSource: verdict.source,
-        why:
-          verdict.source === "cached_keyword"
+        why: isDataset
+          ? candidate.why
+          : verdict.source === "cached_keyword"
             ? `I found real search demand for this: ${verdict.searchVolume.toLocaleString()} searches a month.`
             : `Your own site data shows real demand for "${verdict.matchedLabel}".`,
+        ...(isDataset ? { datasetTag: "dataset_page" as const } : {}),
         status: "pending",
         targetUrl: null,
         costUsd,

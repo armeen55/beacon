@@ -16,7 +16,18 @@
  *    frame ("A/An/The X is/are…", "X refers to…") AND that first sentence carries
  *    no content-context token. That precisely separates "A gift is a voluntarily
  *    transferred item…" (REJECT) from "An Iranian wedding comprises…" (PASS).
+ *
+ *  - BEACON 500 item 78 (2026-07-02) added a QUOTABILITY check to
+ *    `evaluateDraftQuality`: an answer block that fails its own passage-level
+ *    answerability rules (src/domains/pages/passage-answerability.ts - the
+ *    same self-contained/entity-first/concrete-fact/on-topic rubric used to
+ *    score page passages) is rejected the same way a generic or thin draft
+ *    is, with a plain-English fix instead of a lint label. Additive: it only
+ *    fires on drafts that already pass every earlier check, so no existing
+ *    "ready" verdict flips without a real quotability problem (pinned by test).
  */
+
+import { checkPassageRules } from "@/domains/pages/passage-answerability";
 
 export type DraftQualityStatus =
   | "ready"
@@ -28,7 +39,8 @@ export type DraftQualityStatus =
   | "too_thin"
   | "malformed"
   | "missing_source"
-  | "stale_data_changed";
+  | "stale_data_changed"
+  | "not_quotable";
 
 export type DraftQualityResult = {
   status: DraftQualityStatus;
@@ -177,6 +189,29 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
       copyAllowed: true,
       canRegenerate: false,
       confidence: "medium",
+    };
+  }
+
+  // 7. Quotability (item 78): a draft that reads well by every earlier check but
+  //    opens with a pronoun instead of naming the subject, or runs far outside the
+  //    self-contained 30-70 word answer-block band, cannot be lifted out of context
+  //    and quoted on its own, the whole point of an answer block. Narrow on purpose:
+  //    checked against the REAL Iranopedia draft corpus, every existing "ready" answer
+  //    already names its subject first and sits inside that band, so this never flips
+  //    a passing draft, it only catches the two objective, fixable defects the item
+  //    calls out. "No number/date" and "off-topic vs. the query" are NOT hard-rejected
+  //    here because good encyclopedic openers routinely carry neither and still read
+  //    fine (ab-2/ab-3 in the pinned corpus have no digit at all).
+  const quotability = checkPassageRules(answer, input.query ?? input.topicLabel ?? "");
+  const pronounFail = quotability.find((c) => c.code === "pronoun_opener" && !c.passed);
+  const lengthFail = quotability.find((c) => c.code === "not_self_contained" && !c.passed);
+  if (pronounFail || lengthFail) {
+    return {
+      status: "not_quotable",
+      reasons: [pronounFail, lengthFail].filter((c): c is NonNullable<typeof c> => Boolean(c)).map((c) => c.fix),
+      copyAllowed: false,
+      canRegenerate: true,
+      confidence: "high",
     };
   }
 
@@ -505,5 +540,6 @@ export function qualityLabel(status: DraftQualityStatus): string {
     case "malformed": return "Malformed";
     case "missing_source": return "Needs source";
     case "stale_data_changed": return "Data changed";
+    case "not_quotable": return "Not quotable";
   }
 }

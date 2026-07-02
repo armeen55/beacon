@@ -221,6 +221,14 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // wiki-gap-article-cache: a re-run within 30 days must not re-hit the free Wikidata
   // API, which only holds on Vercel with the mirror (file-only writes skip disk there).
   "wikidata-entity-cache",
+  // 2026-07-02 BEACON_500 item 75 - IndexNow lane. The config (operator-pasted key +
+  // optional host/keyLocation/Bing Webmaster key) is written from a request-context
+  // server action; the receipts are written from the verify-live path. Both are Vercel
+  // lambda writes (no disk) - without the mirror the operator's saved key would vanish
+  // on the next lambda recycle (silently disarming the lane) and the receipt trail
+  // ("I told Bing X minutes after this went live") would always read empty on hosted prod.
+  "indexnow-config",
+  "indexnow-receipts",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

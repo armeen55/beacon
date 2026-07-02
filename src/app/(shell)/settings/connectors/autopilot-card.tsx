@@ -26,6 +26,8 @@ import {
   setLeverPolicyToReview,
   type AutopilotSettingsView,
 } from "./autopilot-actions";
+import { loadCircuitBreakerCardView, type CircuitBreakerCardView } from "../../circuit-breaker-actions";
+import { CircuitBreakerCard } from "../../circuit-breaker-card";
 
 export function AutopilotCard() {
   const router = useRouter();
@@ -34,6 +36,10 @@ export function AutopilotCard() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [capDraft, setCapDraft] = useState<string>("");
   const [pending, startTransition] = useTransition();
+  // Item 80: the portfolio circuit breaker's state, loaded alongside the rest
+  // of this card so "Autopilot paused itself" shows right where the operator
+  // is already looking at autopilot settings. Self-hides when not tripped.
+  const [breakerView, setBreakerView] = useState<CircuitBreakerCardView | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -43,6 +49,11 @@ export function AutopilotCard() {
       setLoadError(null);
     } catch {
       setLoadError("Couldn't load autopilot status. Refresh to try again.");
+    }
+    try {
+      setBreakerView(await loadCircuitBreakerCardView());
+    } catch {
+      setBreakerView(null);
     }
   }, []);
 
@@ -168,6 +179,13 @@ export function AutopilotCard() {
       </div>
 
       {loadError && <p className="mt-4 text-[13px] text-status-danger">{loadError}</p>}
+
+      {/* Item 80: "I paused myself" - self-hides unless the breaker is tripped. */}
+      {breakerView != null && (
+        <div className="mt-4">
+          <CircuitBreakerCard view={breakerView} />
+        </div>
+      )}
 
       {!canPublish && view != null && (
         <p className="mt-4 text-[13px] text-muted-foreground">

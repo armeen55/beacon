@@ -281,3 +281,26 @@ export function keywordGapCopy(keyword: string, volume: number): string {
     " times a month \u2014 and you have no page for it. A dedicated page puts you in that race."
   );
 }
+
+/**
+ * SoV drop alert (BEACON 500 item 79, 2026-07-02): an AI engine that used to
+ * mention the tenant on a topic stopped doing so this week. Names the
+ * engine, the topic, and the exact prompts that flipped so the operator can
+ * see the real question that changed, not just a number. NO em or en dashes
+ * (hard rule) - this template uses commas and periods only, unlike the
+ * older templates above.
+ */
+export function sovDropAlertCopy(
+  engineName: string,
+  topic: string,
+  flippedCount: number,
+  promptsPolled: number,
+  examplePrompts: string[],
+): string {
+  const examples = examplePrompts.slice(0, 2).map((p) => `\u201c${p}\u201d`);
+  const exampleText = examples.length > 0 ? `, including ${examples.join(" and ")}` : "";
+  return (
+    `${engineName} stopped mentioning you on ${flippedCount} of ${promptsPolled} ${topic} questions this week` +
+    `${exampleText}. Add a clear, quotable answer on this topic so ${engineName} has something current to cite.`
+  );
+}

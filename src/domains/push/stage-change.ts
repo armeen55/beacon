@@ -63,6 +63,7 @@ import {
   type RecommendedEditRow,
 } from "@/domains/recommendations/recommended-edits-persistence";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { scheduleIndexNowPing } from "@/lib/connectors/indexnow/ping-on-verify";
 
 export type { StagingAvailability } from "./stage-route";
 
@@ -221,7 +222,14 @@ export async function stageChangeForRecord(
         result: "pushed",
         verifiedByProbe: probeFound,
       });
-      if (probeFound) probeSuffix = " I already see it on the live page.";
+      if (probeFound) {
+        probeSuffix = " I already see it on the live page.";
+        // BEACON_500 item 75 - a live-confirmed change is exactly the moment
+        // to tell Bing (and Yandex/Seznam via the same protocol) it changed.
+        // Fire-and-forget + fail-soft: self-hides with no IndexNow key
+        // configured, and never affects this already-succeeded stage.
+        scheduleIndexNowPing({ tenantId, url: edit.target_url });
+      }
     } catch {
       /* observability only - never fail a landed stage on the probe */
     }

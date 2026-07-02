@@ -46,6 +46,11 @@ export type FactoryBatchItem = {
   demandSource: "cached_keyword" | "graph_demand";
   /** Why this candidate was selected (plain-English, shown on the review card). */
   why: string;
+  /** Set when this candidate came from the citable-dataset play (BEACON 500
+   *  item 76) instead of the entity-attribute factory, so the citation-outcome
+   *  lane can later attribute AI citations to the dataset play specifically.
+   *  Optional/undefined for every pre-existing candidate - additive field. */
+  datasetTag?: "dataset_page";
   status: FactoryBatchItemStatus;
   /** Target URL this page will publish to, once known (operator may set on approve). */
   targetUrl: string | null;

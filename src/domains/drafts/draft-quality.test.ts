@@ -96,6 +96,77 @@ describe("evaluateDraftQuality — answer blocks", () => {
   });
 });
 
+describe("evaluateDraftQuality - quotability (BEACON 500 item 78, additive)", () => {
+  // Pin: every pre-existing "ready" fixture from the real Iranopedia draft audit
+  // must stay ready now that the quotability check runs. None of them fail
+  // pronoun_opener or the self-contained length band, so this is a pure pin.
+  it("PIN: does not flip ab-2 (Nowruz USA) off ready", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year. These activities include Haft-Seen displays, traditional Persian music and dance performances, food festivals, and community gatherings hosted by Iranian-American organizations.",
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("PIN: does not flip ab-3 (Persian wedding) off ready", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "A Persian wedding is the traditional marriage ceremony of Persian-speaking cultures, primarily Iran, combining legal, religious and cultural elements. Key features often include the sofreh-aghd wedding spread, poetry readings, and the exchange of vows witnessed by family and friends.",
+    });
+    expect(r.status).toBe("ready");
+  });
+
+  it("PIN: does not flip the cheetah needs-review fixture", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau. Conservation programs work to protect the small remaining population across protected reserves and national parks in Iran.",
+      evidenceRefs: 0,
+    });
+    expect(r.status).toBe("useful_but_needs_review");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("PIN: does not flip the Lion and Sun needs-review/ready fixture", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "The Lion and Sun was used on official Iranian state flags for much of the modern era, drawing on ancient Persian and Near Eastern symbolism. Its official state symbolism evolved through the Safavid, Qajar, and Pahlavi periods before later changes.",
+      evidenceRefs: 1,
+    });
+    expect(r.copyAllowed).toBe(true);
+    expect(["ready", "useful_but_needs_review"]).toContain(r.status);
+  });
+
+  it("NEW: rejects a well-formed, on-topic, sourced draft that opens with a pronoun", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "It is a traditional Persian celebration held every year in the spring across Iran and neighboring countries, marked by family gatherings, music, and shared meals that continue for nearly two weeks each season.",
+    });
+    expect(r.status).toBe("not_quotable");
+    expect(r.copyAllowed).toBe(false);
+    expect(r.canRegenerate).toBe(true);
+    expect(r.reasons.some((x) => x.toLowerCase().includes("name the subject"))).toBe(true);
+  });
+
+  it("NEW: rejects a draft under the 30-word self-contained floor (above the existing 25-word hard floor)", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Nowruz is the Persian new year celebrated across Iran and Afghanistan every March by many families who gather together for meals and music each spring season.",
+    });
+    // 26 words: clears the existing too_thin floor (<25) but misses the 30-70 self-contained band.
+    expect(r.status).toBe("not_quotable");
+    expect(r.copyAllowed).toBe(false);
+  });
+
+  it("does NOT reject a clean, on-topic draft with no number/date at all (matches the real corpus)", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year. These activities include Haft-Seen displays and traditional Persian music performances hosted by Iranian-American community organizations nationwide.",
+    });
+    expect(r.status).toBe("ready");
+  });
+});
+
 describe("evaluateTitleMetaQuality — atomic edits", () => {
   it("PASSES an entity-forward rewrite (rec-0: Persian Wolf)", () => {
     const r = evaluateTitleMetaQuality({

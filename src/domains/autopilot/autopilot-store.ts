@@ -49,16 +49,59 @@ export type AutopilotReceipt = {
   kind?: "ship" | "revert";
 };
 
+/**
+ * Circuit breaker (BEACON 500 item 80): the tripped state persists here so it
+ * survives lambda recycles and reads the same way on every surface (the
+ * nightly run guard, the Today card, the settings card). Absent = never
+ * tripped (the safe default - losing this store can only ever mean autopilot
+ * runs, never that it stays wrongly paused).
+ */
+export type CircuitBreakerState = {
+  tripped: boolean;
+  /** Plain-English reason with real numbers, set when tripped. */
+  reason: string;
+  /** ISO timestamp the breaker tripped. */
+  trippedAt: string | null;
+  /** ISO timestamp of the earliest evidence cited. */
+  sinceIso: string | null;
+  /** ISO timestamp the operator resumed, if they have. Cleared (null) on a
+   *  fresh trip so a stale resume can never mask a NEW trip. */
+  resumedAt: string | null;
+};
+
+function defaultCircuitBreakerState(): CircuitBreakerState {
+  return { tripped: false, reason: "", trippedAt: null, sinceIso: null, resumedAt: null };
+}
+
+function normalizeCircuitBreakerState(raw: unknown): CircuitBreakerState {
+  if (raw == null || typeof raw !== "object") return defaultCircuitBreakerState();
+  const r = raw as Partial<CircuitBreakerState>;
+  return {
+    tripped: r.tripped === true,
+    reason: typeof r.reason === "string" ? r.reason : "",
+    trippedAt: typeof r.trippedAt === "string" && r.trippedAt !== "" ? r.trippedAt : null,
+    sinceIso: typeof r.sinceIso === "string" && r.sinceIso !== "" ? r.sinceIso : null,
+    resumedAt: typeof r.resumedAt === "string" && r.resumedAt !== "" ? r.resumedAt : null,
+  };
+}
+
 export type AutopilotState = {
   config: AutopilotConfig;
   /** Pacific date (YYYY-MM-DD) the pass last ran for this tenant, or null. */
   lastRunDay: string | null;
   /** Newest first. */
   receipts: AutopilotReceipt[];
+  /** Item 80 (additive): the portfolio circuit breaker's persisted state. */
+  circuitBreaker: CircuitBreakerState;
 };
 
 function defaultState(): AutopilotState {
-  return { config: { ...DEFAULT_AUTOPILOT_CONFIG }, lastRunDay: null, receipts: [] };
+  return {
+    config: { ...DEFAULT_AUTOPILOT_CONFIG },
+    lastRunDay: null,
+    receipts: [],
+    circuitBreaker: defaultCircuitBreakerState(),
+  };
 }
 
 function normalizeState(raw: unknown): AutopilotState {
@@ -70,6 +113,7 @@ function normalizeState(raw: unknown): AutopilotState {
     receipts: Array.isArray(r.receipts)
       ? r.receipts.filter((x): x is AutopilotReceipt => x != null && typeof x === "object")
       : [],
+    circuitBreaker: normalizeCircuitBreakerState(r.circuitBreaker ?? null),
   };
 }
 
@@ -165,4 +209,58 @@ export function countAutoShippedTodayByLever(
     counts[r.actionType] = (counts[r.actionType] ?? 0) + 1;
   }
   return counts;
+}
+
+// ---------------------------------------------------------------------------
+// Item 80: portfolio circuit breaker persisted state
+// ---------------------------------------------------------------------------
+
+/** The tenant's circuit breaker state (default: not tripped). Fail-soft. */
+export async function getCircuitBreakerState(): Promise<CircuitBreakerState> {
+  return (await getAutopilotState()).circuitBreaker;
+}
+
+/**
+ * Persist a fresh trip. Always clears any prior resume - a NEW trip must
+ * never be masked by an old "I resumed" stamp. No-op-safe to call every night;
+ * the caller only calls this when evaluateCircuitBreaker actually says tripped.
+ */
+export async function tripCircuitBreaker(args: {
+  reason: string;
+  trippedAt: string;
+  sinceIso: string | null;
+}): Promise<AutopilotState> {
+  const state = await getAutopilotState();
+  const next: AutopilotState = {
+    ...state,
+    circuitBreaker: {
+      tripped: true,
+      reason: args.reason,
+      trippedAt: args.trippedAt,
+      sinceIso: args.sinceIso,
+      resumedAt: null,
+    },
+  };
+  await saveAutopilotState(next);
+  return next;
+}
+
+/**
+ * The operator's one-click resume: clears `tripped` and stamps `resumedAt`.
+ * This is also the consecutive-loss counter reset - resuming re-arms the
+ * breaker with a clean slate, so the very next settled batch (not the two
+ * that caused the trip) starts the new consecutive-negative count.
+ */
+export async function resumeCircuitBreaker(nowIso: string): Promise<AutopilotState> {
+  const state = await getAutopilotState();
+  const next: AutopilotState = {
+    ...state,
+    circuitBreaker: {
+      ...state.circuitBreaker,
+      tripped: false,
+      resumedAt: nowIso,
+    },
+  };
+  await saveAutopilotState(next);
+  return next;
 }

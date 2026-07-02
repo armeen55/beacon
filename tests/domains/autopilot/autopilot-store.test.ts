@@ -33,7 +33,10 @@ import {
   countAutoShippedTodayByLever,
   getAutopilotConfig,
   getAutopilotState,
+  getCircuitBreakerState,
   markAutopilotRunDay,
+  resumeCircuitBreaker,
+  tripCircuitBreaker,
   updateAutopilotConfig,
   type AutopilotReceipt,
 } from "@/domains/autopilot/autopilot-store";
@@ -67,6 +70,14 @@ describe("autopilot-store", () => {
     expect(state.config.enabled).toBe(false);
     expect(state.lastRunDay).toBeNull();
     expect(state.receipts).toEqual([]);
+    // Item 80: default circuit breaker is never tripped.
+    expect(state.circuitBreaker).toEqual({
+      tripped: false,
+      reason: "",
+      trippedAt: null,
+      sinceIso: null,
+      resumedAt: null,
+    });
   });
 
   it("fails SOFT to disabled on a read error (never arms by accident)", async () => {
@@ -182,6 +193,78 @@ describe("autopilot-store", () => {
 
     it("returns an empty object for no receipts", () => {
       expect(countAutoShippedTodayByLever({ receipts: [] }, "2026-07-01")).toEqual({});
+    });
+  });
+
+  // ── Item 80: portfolio circuit breaker persisted state ──
+
+  describe("circuit breaker state", () => {
+    it("getCircuitBreakerState reads the default (not tripped) when nothing is stored", async () => {
+      const cb = await getCircuitBreakerState();
+      expect(cb.tripped).toBe(false);
+      expect(cb.reason).toBe("");
+    });
+
+    it("tripCircuitBreaker persists a trip and clears any stale resume", async () => {
+      // Simulate a stale prior resume in the store.
+      mem.rows = [
+        {
+          config: DEFAULT_AUTOPILOT_CONFIG,
+          lastRunDay: null,
+          receipts: [],
+          circuitBreaker: { tripped: false, reason: "", trippedAt: null, sinceIso: null, resumedAt: "2026-06-01T00:00:00Z" },
+        },
+      ];
+      await tripCircuitBreaker({
+        reason: "I paused myself. The last two batches measured net negative.",
+        trippedAt: "2026-07-01T09:00:00Z",
+        sinceIso: "2026-06-28T09:00:00Z",
+      });
+      const cb = await getCircuitBreakerState();
+      expect(cb.tripped).toBe(true);
+      expect(cb.reason).toContain("I paused myself");
+      expect(cb.trippedAt).toBe("2026-07-01T09:00:00Z");
+      expect(cb.sinceIso).toBe("2026-06-28T09:00:00Z");
+      // A fresh trip always clears any prior resume stamp.
+      expect(cb.resumedAt).toBeNull();
+    });
+
+    it("resumeCircuitBreaker clears tripped and stamps resumedAt (the counter reset)", async () => {
+      await tripCircuitBreaker({
+        reason: "I paused myself.",
+        trippedAt: "2026-07-01T09:00:00Z",
+        sinceIso: "2026-06-28T09:00:00Z",
+      });
+      await resumeCircuitBreaker("2026-07-01T10:00:00Z");
+      const cb = await getCircuitBreakerState();
+      expect(cb.tripped).toBe(false);
+      expect(cb.resumedAt).toBe("2026-07-01T10:00:00Z");
+      // The reason/trippedAt/sinceIso stay as a historical record - only the
+      // active `tripped` flag flips, which is what the run path checks.
+      expect(cb.reason).toContain("I paused myself");
+    });
+
+    it("resume never touches the rest of the autopilot config or receipts", async () => {
+      await updateAutopilotConfig({ enabled: true, weeklyCap: 5 });
+      await appendAutopilotReceipt(receipt());
+      await tripCircuitBreaker({ reason: "x", trippedAt: "2026-07-01T09:00:00Z", sinceIso: null });
+      await resumeCircuitBreaker("2026-07-01T10:00:00Z");
+      const state = await getAutopilotState();
+      expect(state.config.enabled).toBe(true);
+      expect(state.config.weeklyCap).toBe(5);
+      expect(state.receipts).toHaveLength(1);
+    });
+
+    it("a malformed persisted circuitBreaker normalizes to the safe default (never arms a trip by accident)", async () => {
+      mem.rows = [{ config: DEFAULT_AUTOPILOT_CONFIG, lastRunDay: null, receipts: [], circuitBreaker: "garbage" }];
+      const cb = await getCircuitBreakerState();
+      expect(cb.tripped).toBe(false);
+    });
+
+    it("fails soft to not-tripped on a read error", async () => {
+      mem.failReads = true;
+      const cb = await getCircuitBreakerState();
+      expect(cb.tripped).toBe(false);
     });
   });
 });

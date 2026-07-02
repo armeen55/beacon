@@ -24,6 +24,12 @@ import "server-only";
  *     or write another tenant's data.
  *   - Never mutates measurement history: every write is a new record
  *     (push ledger row, snapshot, proof record, receipt).
+ *   - Item 80: a tripped portfolio circuit breaker PAUSES this pass entirely
+ *     (no ships, no reverts) until the operator resumes it. The breaker is
+ *     re-evaluated every run BEFORE shipping, off the same settled proof
+ *     ledger + receipt history every other surface reads, so a fresh trip
+ *     takes effect the same night it happens - never after another batch of
+ *     bad ships already went out.
  *
  * Pinned by tests/domains/autopilot/run-autopilot.test.ts.
  */
@@ -43,8 +49,10 @@ import {
   countAutoShippedTodayByLever,
   getAutopilotState,
   markAutopilotRunDay,
+  tripCircuitBreaker,
   type AutopilotState,
 } from "./autopilot-store";
+import { evaluateCircuitBreaker, type BreakerProofInput, type BreakerReceiptInput } from "./circuit-breaker";
 import type { AutopilotConfig } from "./autopilot-policy";
 import type { RevertPassSummary } from "./run-revert";
 
@@ -64,6 +72,10 @@ export type AutopilotPassResult = {
   revertsConsidered?: number;
   reverted?: number;
   revertsFailed?: number;
+  /** Item 80 (optional, additive): true when this run stopped because the
+   *  portfolio circuit breaker is tripped (either already tripped, or it
+   *  tripped fresh this run, right before shipping). */
+  breakerTripped?: boolean;
 };
 
 export type AutopilotRunDeps = {
@@ -90,6 +102,16 @@ export type AutopilotRunDeps = {
   ) => Promise<RevertPassSummary>;
   /** Pacific date for the daily marker. */
   today: (now: Date) => string;
+  /** Item 80: the settled proof records the breaker judges (full windows, not
+   *  just verdicts - the breaker needs the same basis-window lift the proof
+   *  lane already computes, not just won/lost/inconclusive). */
+  loadBreakerProofRecords: (tenantId: string) => Promise<BreakerProofInput[]>;
+  /** Item 80: the receipt history the breaker reads for rollback counting
+   *  (the SAME receipts array the store already holds; kept as its own dep
+   *  so a test can shape it independently of getState). */
+  loadBreakerReceipts: (tenantId: string, state: AutopilotState) => Promise<BreakerReceiptInput[]>;
+  /** Item 80: persist a fresh trip (never called when already tripped). */
+  tripBreaker: typeof tripCircuitBreaker;
 };
 
 async function defaultAmbientTenantId(): Promise<string> {
@@ -117,6 +139,37 @@ async function defaultLoadLeverHistory(): Promise<LeverVerdictInput[]> {
   const { loadShippedChanges } = await import("@/domains/proof-gsc/shipped-change-store");
   const records = await loadShippedChanges().catch(() => []);
   return records.map((r) => ({ actionType: r.actionType, verdict: r.verdict }));
+}
+
+/** Item 80: the same computed-only persisted ledger read, reshaped for the
+ *  breaker (it needs the full windows, not just the verdict string). Never
+ *  mutates shipped_change_proof - a plain read, same as defaultLoadLeverHistory. */
+async function defaultLoadBreakerProofRecords(): Promise<BreakerProofInput[]> {
+  const { loadShippedChanges } = await import("@/domains/proof-gsc/shipped-change-store");
+  const records = await loadShippedChanges().catch(() => []);
+  return records.map((r) => ({
+    id: r.id,
+    path: r.path,
+    actionType: r.actionType,
+    shippedAt: r.shippedAt,
+    verdict: r.verdict,
+    windows: (r.windows ?? []).map((w) => ({
+      day: w.day,
+      ran: w.ran,
+      adjustedLift: w.adjustedLift,
+      adjustedCtrLift: w.adjustedCtrLift,
+      adjustedPosLift: w.adjustedPosLift,
+    })),
+  }));
+}
+
+/** Item 80: the receipt history for rollback counting - the store's own
+ *  receipts array, already loaded by getState (no extra I/O). */
+async function defaultLoadBreakerReceipts(
+  _tenantId: string,
+  state: AutopilotState,
+): Promise<BreakerReceiptInput[]> {
+  return state.receipts.map((r) => ({ kind: r.kind, result: r.result, shippedAt: r.shippedAt }));
 }
 
 /**
@@ -310,6 +363,9 @@ const defaultDeps: AutopilotRunDeps = {
   shipPick: defaultShipPick,
   runRevertPass: defaultRunRevertPass,
   today: defaultToday,
+  loadBreakerProofRecords: defaultLoadBreakerProofRecords,
+  loadBreakerReceipts: defaultLoadBreakerReceipts,
+  tripBreaker: tripCircuitBreaker,
 };
 
 export async function runAutopilotPass(
@@ -366,6 +422,49 @@ export async function runAutopilotPass(
   const target = await deps.getPublishTarget(tenantId);
   if (target !== "wix_cms") {
     return { ...base, reason: "this site has no live publishing connection" };
+  }
+
+  // Item 80: the portfolio circuit breaker. Already tripped (and not yet
+  // resumed) -> pause instantly, before the day marker stamps, so a paused
+  // night never even counts as "ran today". Not yet tripped -> re-evaluate
+  // fresh off the current settled ledger + receipts; a NEW trip this run
+  // pauses THIS run too (never ships one more batch after the evidence is
+  // already in). A computation error here fails SAFE (never trips, logs
+  // loudly) - evaluateCircuitBreaker itself never throws, but the loads below
+  // are wrapped defensively anyway so a breaker outage can never block a
+  // healthy tenant's ships.
+  if (state.circuitBreaker.tripped) {
+    return {
+      ...base,
+      reason: `I paused myself and have not resumed yet: ${state.circuitBreaker.reason || "a past run tripped the circuit breaker."}`,
+      breakerTripped: true,
+    };
+  }
+  try {
+    const [proofRecords, receipts] = await Promise.all([
+      deps.loadBreakerProofRecords(tenantId),
+      deps.loadBreakerReceipts(tenantId, state),
+    ]);
+    const breaker = evaluateCircuitBreaker({ proofRecords, receipts, now });
+    if (breaker.tripped) {
+      await deps.tripBreaker({
+        reason: breaker.reason,
+        trippedAt: now.toISOString(),
+        sinceIso: breaker.sinceIso,
+      });
+      log.warn("[autopilot] circuit breaker tripped - pausing this run", {
+        tenantId,
+        reason: breaker.reason,
+      });
+      return { ...base, reason: breaker.reason, breakerTripped: true };
+    }
+  } catch (e) {
+    // Fail-safe direction: a breaker computation error must never itself
+    // pause a healthy tenant. Log loudly, keep running.
+    log.warn("[autopilot] circuit breaker check failed (fail-safe: not tripped)", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 
   // Stamp the day BEFORE shipping: a crash mid-run can only mean FEWER ships

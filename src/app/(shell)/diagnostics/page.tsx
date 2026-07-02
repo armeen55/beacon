@@ -86,6 +86,8 @@ import {
 import { LocalOperatorPanel } from "@/components/local-operator/local-operator-panel";
 import { computeMarketBenchmark, getCurrentTenantBenchmarkOpts } from "@/domains/pages/builder-benchmark";
 import { analyzeAllExtractability, summarizeExtractability } from "@/domains/pages/extractability";
+import { computePageAnswerabilityCoverage } from "@/domains/pages/passage-answerability";
+import { loadFanoutSeedsForTenant, fanoutSeedsForNode, type FanoutSeed } from "@/domains/demand-graph/load-fanout-seeds";
 import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel";
 import type { SnippetSignal } from "@/domains/competitors/snippet-types";
 import { assessAdversarialReadiness } from "@/domains/prompts/adversarial";
@@ -196,6 +198,8 @@ type DiagnosticsContext = {
   citationEvidenceIndex: import("@/domains/pages/types").CitationEvidenceIndex | null;
   promptLibrary: LibraryPrompt[];
   activePrompts: LibraryPrompt[];
+  /** Item 78: the AI sub-questions ("fanouts") used to score quotable coverage. */
+  fanoutSeeds: FanoutSeed[];
 };
 
 /**
@@ -269,12 +273,13 @@ export default async function DiagnosticsPage() {
   // partial fixes); each render now resolves its own tenant header.
   const tenantId = await currentTenantId();
   const repo = getRepository().forTenant(tenantId);
-  const [pages, pageSnapshots] = await Promise.all([
+  const [pages, pageSnapshots, fanoutSeeds] = await Promise.all([
     getOwnedPages(),
     repo.getPageSnapshots(),
+    loadFanoutSeedsForTenant(tenantId).catch(() => []),
   ]);
   await warmPageRegistry();
-  const ctx: DiagnosticsContext = { pages, pageSnapshots, citationEvidenceIndex, promptLibrary, activePrompts };
+  const ctx: DiagnosticsContext = { pages, pageSnapshots, citationEvidenceIndex, promptLibrary, activePrompts, fanoutSeeds };
 
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
@@ -1664,6 +1669,116 @@ function ExtractabilitySection({ ctx }: { ctx: DiagnosticsContext }) {
                           s.priority === "high" ? "bg-status-danger" : s.priority === "medium" ? "bg-status-warning" : "bg-muted-foreground"
                         }`} />
                         {s.summary}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </DisclosureBlock>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "What AI can quote here" (BEACON 500 item 78): passage-level answerability,
+ * one layer more precise than the whole-page ExtractabilitySection above. For
+ * each cited owned page with real content (`body_paragraph_sample`), scores
+ * every paragraph against the page's own AI fan-out questions (the sub-queries
+ * AI engines actually ask when researching this topic, see load-fanout-seeds.ts)
+ * on the same self-contained/entity-first/concrete-fact/on-topic rubric a real
+ * AI answer rewards when it lifts a passage verbatim. Shows quotable coverage
+ * percent, the single best passage found, and up to 3 unanswered questions with
+ * a plain-English reason, never a raw score dump.
+ */
+function QuotableCoverageSection({ ctx }: { ctx: DiagnosticsContext }) {
+  const citIdx = ctx.citationEvidenceIndex;
+  const citMap = new Map<string, number>();
+  if (citIdx) {
+    for (const r of citIdx.by_page_and_topic) {
+      if (!r.is_owned) continue;
+      const key = r.page_url.replace(/\/+$/, "").toLowerCase();
+      citMap.set(key, (citMap.get(key) ?? 0) + r.total_citations);
+    }
+  }
+
+  const rows = ctx.pageSnapshots
+    .filter((s) => (s.body_paragraph_sample?.length ?? 0) > 0)
+    .map((s) => {
+      const key = s.url.replace(/\/+$/, "").toLowerCase();
+      const citations = citMap.get(key) ?? 0;
+      const questions = fanoutSeedsForNode(s.title ?? s.url, [s.title ?? "", ...(s.h2_list ?? [])], ctx.fanoutSeeds, 8);
+      const coverage = computePageAnswerabilityCoverage(s.url, s.body_paragraph_sample!, questions);
+      return { url: s.url, title: s.title, citations, questions, coverage };
+    })
+    .filter((r) => r.citations > 0 && r.questions.length > 0);
+
+  if (rows.length === 0) {
+    return (
+      <div className="space-y-2">
+        <SectionTitle>What AI can quote here</SectionTitle>
+        <p className="text-xs text-muted-foreground">
+          No cited pages have both saved content and AI fan-out questions to check yet.
+        </p>
+      </div>
+    );
+  }
+
+  rows.sort((a, b) => a.coverage.coveragePercent - b.coverage.coveragePercent || b.citations - a.citations);
+  const avgCoverage = Math.round(
+    rows.reduce((sum, r) => sum + r.coverage.coveragePercent, 0) / rows.length,
+  );
+  const worst = rows.filter((r) => r.coverage.coveragePercent < 100);
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>What AI can quote here</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        For each cited page, I check every paragraph against the real questions AI asks about that topic. A passage
+        counts as quotable when it names its subject first, stays self-contained, and states a concrete fact.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatBlock label="Pages checked" value={rows.length} />
+        <StatBlock label="Avg quotable coverage" value={`${avgCoverage}%`} />
+        <StatBlock label="Pages with gaps" value={worst.length} />
+      </div>
+
+      {worst.length > 0 && (
+        <DisclosureBlock
+          title={`${worst.length} page${worst.length === 1 ? "" : "s"} with unanswered AI questions`}
+          subtitle="Cited pages where at least one real AI question has no quotable passage yet"
+        >
+          <div className="space-y-3">
+            {worst.slice(0, 8).map((r) => (
+              <div key={r.url} className="rounded-md border border-border/50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {r.title ?? r.url.replace(/^https?:\/\/[^/]+/, "")}
+                  </p>
+                  <span
+                    className={`text-[10px] font-medium shrink-0 ${
+                      r.coverage.coveragePercent >= 60 ? "text-status-warning" : "text-status-danger"
+                    }`}
+                  >
+                    {r.coverage.coveragePercent}% quotable · {r.citations} cit.
+                  </span>
+                </div>
+                {r.coverage.bestPassage && (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground italic">
+                    Best passage: "{r.coverage.bestPassage.slice(0, 180)}
+                    {r.coverage.bestPassage.length > 180 ? "…" : ""}"
+                  </p>
+                )}
+                {r.coverage.uncoveredQuestions.length > 0 && (
+                  <ul className="mt-1.5 space-y-1">
+                    {r.coverage.uncoveredQuestions.slice(0, 3).map((q, i) => (
+                      <li key={i} className="text-[11px] text-muted-foreground">
+                        <span className="inline-block w-1 h-1 rounded-full mr-1.5 align-middle bg-status-warning" />
+                        <span className="text-foreground/80">"{q.question}"</span>
+                        {q.failures[0] ? <span>, {q.failures[0]}</span> : null}
                       </li>
                     ))}
                   </ul>

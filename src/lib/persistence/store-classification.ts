@@ -195,6 +195,11 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // already knows the tenant), not a cron fan-out with no ambient context — tenant-scoped
   // like ask-history above, not global like the Wikipedia/DataForSEO market-data caches.
   "wikidata-entity-cache",
+  // IndexNow ping receipts (2026-07-02, BEACON_500 item 75). Per-tenant append-only log
+  // of every IndexNow ping attempt fired from the verify-live path (src/lib/connectors/
+  // indexnow/receipts-store.ts). Written from a request context that already knows the
+  // tenant (the push/verify-live call sites), so it belongs here, not in GLOBAL_STORES.
+  "indexnow-receipts",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -222,6 +227,11 @@ export const SINGLETON_STORES = new Set<string>([
   // 2026-07-01 BEACON 500 item 1 - trust-budget autopilot: per-tenant config +
   // daily-run marker + receipts (one state object; Supabase-mirrored blob).
   "autopilot-state",
+  // 2026-07-02 BEACON_500 item 75 - IndexNow per-tenant config (opaque key +
+  // optional host/keyLocation override + optional Bing Webmaster API key). One
+  // object per tenant, same singleton convention as autopilot-state. Absent ->
+  // the whole lane self-hides (no ping fires, no quota check runs).
+  "indexnow-config",
 ]);
 
 export const GLOBAL_STORES = new Set<string>([

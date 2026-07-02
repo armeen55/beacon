@@ -103,11 +103,13 @@ import { clarityFriction } from "./triggers/clarity-friction";
 import { loadClarityPageSignalsForTenant } from "./clarity-page-signals";
 import { gscDecay } from "./triggers/gsc-decay";
 import { profoundAeoGap } from "./triggers/profound-aeo-gap";
+import { sovDropAlert } from "./triggers/sov-drop-alert";
 import {
   buildOwnAliasSet,
   loadProfoundTopicSignalsForTenant,
   type ProfoundTopicSignal,
 } from "./profound-topic-signals";
+import { loadSovWeeklyForTenant, type SovDropAlert } from "@/domains/ai-visibility/sov-weekly";
 import {
   loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant,
@@ -155,7 +157,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 14;
+const PREDICATE_COUNT = 15;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -348,6 +350,27 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
+  // SoV drop alert (BEACON 500 item 79, 2026-07-02): pre-load the cross-
+  // engine weekly share-of-the-answers table (native poll + Profound +
+  // llm-mentions cache, merged honestly in sov-weekly.ts) and pull out any
+  // week-over-week drop alerts. Soft-empty when the native poll has no
+  // history yet — the predicate then never fires (never alert off nothing).
+  let sovDropAlerts: SovDropAlert[] = [];
+  try {
+    const ownAliases = buildOwnAliasSet({
+      brandName: businessConfig.name,
+      domain: businessConfig.domain,
+    });
+    if (ownAliases.size > 0) {
+      const sovResult = await loadSovWeeklyForTenant(tenantId, ownAliases);
+      sovDropAlerts = sovResult.dropAlerts;
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] sov-weekly load failed for ${tenantId} (sov_drop_alert skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Night-shift #44 (2026-06-11): pre-load the per-tenant sitemap
   // lastmod map for the stale-content predicate. Soft-fail to an
   // empty map — unknown age is never evidence of staleness.
@@ -420,6 +443,17 @@ export async function loadTriggerCandidatesForTenant(options: {
       ...profoundAeoGap({
         tenantId,
         signals: profoundTopicSignals,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    // SoV drop alert (BEACON 500 item 79): same site-root anchoring
+    // convention as profound-aeo-gap — the alert is topic-level, not
+    // page-level. Pure predicate over the pre-loaded drop alerts.
+    all.push(
+      ...sovDropAlert({
+        tenantId,
+        alerts: sovDropAlerts,
         siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
         signalAt: new Date().toISOString(),
       }),
