@@ -14,11 +14,11 @@
 - [x]  11 [W1][P0/L] One card system. Kill the inline-style objects in `daily-experiments-section.tsx`
 - [x]  12 [W1][P0/M] A real typography scale. Today almost everything is 11 to 13px gray. Define and apply:
 - [x]  13 [W1][P0/M] Teammate identity system. Each specialist gets a fixed color + small glyph + short
-- [ ]  14 [W3][P1/M] Design the roundtable like a real conversation: avatar chip on the left, claim as a
-- [ ]  15 [W3][P1/M] Motion pass: streamed sections fade+rise in (Suspense boundaries already exist),
-- [ ]  16 [W3][P1/S] Celebrate wins. When a verdict flips to won, the Results row and the Today recap get
+- [x]  14 [W3][P1/M] Design the roundtable like a real conversation: avatar chip on the left, claim as a
+- [x]  15 [W3][P1/M] Motion pass: streamed sections fade+rise in (Suspense boundaries already exist),
+- [x]  16 [W3][P1/S] Celebrate wins. When a verdict flips to won, the Results row and the Today recap get
 - [ ]  17 [W3][P1/M] Dark mode done properly across the new surfaces (the daily card's inline styles
-- [ ]  18 [W3][P0/S] Number formatting discipline: tabular-nums everywhere, thousands separators, "26.5k"
+- [x]  18 [W3][P0/S] Number formatting discipline: tabular-nums everywhere, thousands separators, "26.5k"
 - [ ]  19 [W3][P1/S] Iconography: one icon set (lucide), 16px, consistent stroke. Kill the mixed unicode
 - [ ]  20 [W3][P1/M] The header becomes a cockpit bar: business name, the scoreboard number (7-day clicks
 - [ ]  21 [W3][P2/M] Empty states designed: every self-hiding section gets a designed empty state when it
@@ -39,12 +39,12 @@
 - [ ]  36 [W3][P2/M] A "Challenge this" button per pick: one click asks the LLM to argue AGAINST the
 - [ ]  37 [W3][P1/M] Fix the abstain problem structurally: when fewer than 3 voices speak on a pick, the
 - [ ]  38 [W3][P2/S] Roundtable everywhere the product recommends anything: New Pages board cards and
-- [ ]  39 [W3][P1/S] Kill remaining robotic phrasings in debate strings: "competitor page(s)" (pick the
+- [x]  39 [W3][P1/S] Kill remaining robotic phrasings in debate strings: "competitor page(s)" (pick the
 - [ ]  40 [W3][P2/M] The Strategist voice gets a memory: reference the operator's own history ("You
 - [x]  41 [W1][P0/M] Reorder Today into a story: 1 Scoreboard chart, 2 "Tonight" (the team's batch),
 - [x]  42 [W1][P0/S] Personal greeting + daily brief line: "Tuesday, Jul 1. The team reviewed 42 pages
 - [x]  43 [W1][P0/M] Team standup strip: a horizontal row of the 7 teammate identity chips, each with its
-- [ ]  44 [W3][P1/S] Batch progress bar: "Tonight: 2 of 6 applied" with a segmented bar on the daily
+- [x]  44 [W3][P1/S] Batch progress bar: "Tonight: 2 of 6 applied" with a segmented bar on the daily
 - [x]  45 [W1][P0/S] Rewrite the hero copy jargon: "These 35 pages are controls for active experiments"
 - [x]  46 [W2][P1/S] War-room band headers get counts + freshness: "Visitor behavior found friction (4
 - [x]  47 [W2][P1/M] Friction fixes become actionable cards: each row gets "Add to tonight" (creates a
@@ -52,7 +52,7 @@
 - [ ]  49 [W3][P2/S] War room self-summarizes when quiet: "The team found nothing urgent beyond tonight's
 - [ ]  50 [W3][P1/M] "While you were away" block when the operator has not opened Beacon for 48h+: what
 - [ ]  51 [W3][P2/M] Make DataSourcesStrip the "team health" strip: same teammate identities, green dot
-- [ ]  52 [W3][P1/S] Remove the "Switch to Ritz Builders" pill from the header for daily use (move tenant
+- [x]  52 [W3][P1/S] Remove the "Switch to Ritz Builders" pill from the header for daily use (move tenant
 - [ ]  53 [W3][P2/M] New Pages board on Today shows its 3 best only with "See all 9" into /worklist, so
 - [ ]  54 [W3][P1/S] Chart + hero must be dash-clean and jargon-clean (23 em/en dashes currently visible
 - [x]  55 [W2][P0/M] Face-lift the row density: each row = identity chip of the lever, page name with

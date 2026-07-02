@@ -22,6 +22,7 @@ import {
 import { failureForReason } from "@/domains/diagnostics/operator-failure";
 import { LEVER_LABEL, STATUS_LABEL, moveHeadline, trackingLine } from "./daily-experiments-copy";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { humanizeDebateLine } from "@/domains/demand-graph/debate-summary";
 import { teammateOf } from "@/domains/team/identity";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 
@@ -103,13 +104,17 @@ function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
-/** The roundtable (R1): the named teammates who argued this pick, their one-line takes, any
- *  pushback, and the team's verdict. This is the REAL debate frozen at planning time - the same
- *  specialists (search demand, revenue, visitor behavior, live Google results, AI citations)
- *  whose evidence chose tonight's batch. */
+/** The roundtable (R1, redesigned per item 14): the named teammates who argued this pick render
+ *  as a real team thread - avatar chip on the left, the take as a speech line, pushback offset
+ *  like a reply, the verdict as a distinct closing line. This is the REAL debate frozen at
+ *  planning time - the same specialists (search demand, revenue, visitor behavior, live Google
+ *  results, AI citations) whose evidence chose tonight's batch. Persisted records may carry
+ *  older template strings, so every dynamic line runs through humanizeDebateLine too. */
 function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
   const t = e.teamReview;
   if (!t || t.voices.length === 0) return null;
+  const clean = (s: string) => stripBannedDashes(humanizeDebateLine(s));
+  const strategist = teammateOf("llm");
   return (
     <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5">
       <div className="mb-1.5 flex items-center gap-2">
@@ -125,40 +130,58 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
           </span>
         ) : null}
       </div>
-      <div className="grid gap-1">
+      <div className="grid gap-1.5">
         {t.voices.map((v, i) => {
           const id = teammateOf(v.specialist);
+          const initial = id.short.length <= 2 ? id.short : id.short.slice(0, 1);
           return (
-            <div key={`${v.specialist}-${i}`} className="flex items-baseline gap-1.5 text-[13px] leading-relaxed text-gray-700">
-              <span className="inline-flex shrink-0 items-center gap-1">
-                <span className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: id.color }} />
-                <span className="font-semibold" style={{ color: id.text }}>{v.label}:</span>
+            <div key={`${v.specialist}-${i}`} className="flex items-start gap-2 text-[13px] leading-relaxed text-gray-700">
+              <span
+                aria-hidden="true"
+                className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold"
+                style={{ background: id.bg, color: id.text, boxShadow: `0 0 0 1px ${id.color}` }}
+              >
+                {initial}
               </span>
-              <span>{stripBannedDashes(v.claim)}</span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5">
+                  <span className="font-semibold" style={{ color: id.text }}>{v.label}</span>
+                  {v.confidencePct > 0 ? (
+                    <span
+                      aria-label={`${v.label} conviction ${v.confidencePct} percent`}
+                      className="inline-block h-[2px] w-14 max-w-[56px] overflow-hidden rounded-full bg-gray-200"
+                    >
+                      <span className="block h-full rounded-full" style={{ width: `${v.confidencePct}%`, background: id.color }} />
+                    </span>
+                  ) : null}
+                </span>
+                <span className="block">{clean(v.claim)}</span>
+              </span>
             </div>
           );
         })}
         {t.objections.map((o, i) => (
-          <div key={`ob-${i}`} className="text-[13px] leading-relaxed text-amber-700">
-            <span className="font-semibold">{o.label} pushed back:</span> {stripBannedDashes(o.reason)}
+          <div key={`ob-${i}`} className="ml-7 border-l-2 border-amber-200 pl-2 text-[13px] leading-relaxed text-amber-700">
+            <span className="font-semibold">{o.label} pushed back:</span> {clean(o.reason)}
           </div>
         ))}
-        {/* Item 33 - disagreement is a feature: when voices conflicted, say how it resolved. */}
+        {/* Item 33 - disagreement is a feature: when voices conflicted, say how it resolved.
+            Styled as the quiet footer of the reply thread. */}
         {t.objections.length > 0 && t.voices.length > 0 ? (
-          <div className="text-[12px] leading-relaxed text-gray-500">
-            {stripBannedDashes(t.voices[0]!.label)} says go, {stripBannedDashes(t.objections[0]!.label)} raised a concern.
+          <div className="ml-7 border-l-2 border-gray-100 pl-2 text-[12px] leading-relaxed text-gray-500">
+            {clean(t.voices[0]!.label)} says go, {clean(t.objections[0]!.label)} raised a concern.
             The team went ahead because the concern stayed below the veto line, it lowered this pick&apos;s priority instead of blocking it.
           </div>
         ) : null}
       </div>
       {t.verdict ? (
-        <div className="mt-1.5 text-[13px] leading-relaxed text-gray-700">
-          <span className="font-semibold">Verdict:</span> {stripBannedDashes(t.verdict)}
+        <div className="mt-2 border-t border-gray-200 pt-1.5 text-[13px] leading-relaxed text-gray-700">
+          <span className="font-semibold" style={{ color: strategist.text }}>Verdict:</span> {clean(t.verdict)}
         </div>
       ) : null}
       {t.whyNot ? (
         <div className="mt-1 text-[11px] text-gray-400">
-          Also weighed: {stripBannedDashes(t.whyNot)}
+          Also weighed: {clean(t.whyNot)}
         </div>
       ) : null}
     </div>
@@ -396,6 +419,9 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
+  // Item 44 - tonight's batch progress: one segment per approved change.
+  const total = s.accepted;
+  const applied = total - s.left;
   const finish = () => start(async () => {
     setMsg("Wrapping up today...");
     const r = await completeDailyPlanAction({ planId: checklist.planId });
@@ -403,6 +429,16 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
   });
   return (
     <div>
+      {total > 0 ? (
+        <div className="mb-3 tabular-nums">
+          <div className="mb-1 text-[11px] font-semibold text-gray-500">Tonight: {applied} of {total} applied</div>
+          <div className="flex gap-[2px]" role="img" aria-label={`Tonight: ${applied} of ${total} applied`}>
+            {Array.from({ length: total }, (_, i) => (
+              <span key={i} className={`h-[6px] flex-1 rounded-full ${i < applied ? "bg-emerald-500" : "bg-gray-200"}`} />
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 tabular-nums">
         <strong>Today’s changes.</strong> {s.active} live and tracking, {s.submitted} sent to Google, {s.left} left to apply.<br />
         Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped.

@@ -122,7 +122,7 @@ export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string
     const lines = await buildLines(tenantId, picksTonight);
     if (lines.length === 0) return null;
     return (
-      <section aria-label="Team standup" className="flex flex-wrap gap-2">
+      <section aria-label="Team standup" className="flex flex-wrap gap-2 beacon-rise-in">
         {lines.map((l) => {
           const t = teammateOf(l.key);
           return (

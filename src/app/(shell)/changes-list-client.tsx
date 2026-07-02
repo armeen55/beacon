@@ -17,6 +17,7 @@ import { EVIDENCE_LABEL, statusView } from "@/domains/changes/canonical-change";
 import { rankChanges, goalMatches, inStatusView } from "@/domains/changes/strategy";
 import { MoveCard } from "./today-moves-card";
 import { Sparkline } from "@/components/data/sparkline";
+import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 
 const STRATEGIES: { id: Strategy; label: string; hint: string }[] = [
   { id: "balanced", label: "Balanced", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
@@ -68,9 +69,10 @@ const GOAL_GROUPS: { id: string; title: string; match: (c: CanonicalChange) => b
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
 
+// Item 18 - ONE formatter discipline: compact in chips, full number on hover (title attr).
 function fmt(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n) || n <= 0) return "";
-  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
+  return formatMetricCompact(n);
 }
 
 function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesById"][string] | undefined; rank: number }) {
@@ -108,7 +110,7 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
             <span>{c.opportunityType}</span>
             {effort != null ? <span>~{effort} min</span> : null}
-            {fmt(c.upside) ? <span className="text-sky-600">{fmt(c.upside)}/mo at stake</span> : null}
+            {fmt(c.upside) ? <span className="text-sky-600" title={`${formatMetric(c.upside)} searches a month at stake`}>{fmt(c.upside)}/mo at stake</span> : null}
             {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600">{c.expectedOutcome}</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
             {c.blockedReason ? <span className="text-gray-400" title={c.blockedReason}>⏳ wait</span> : null}

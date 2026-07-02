@@ -111,7 +111,7 @@
     --status-danger-bg: oklch(0.577 0.2 27 / 8%);
     --status-neutral: oklch(0.556 0 0);
     --status-neutral-bg: oklch(0.556 0 0 / 6%);
-    /* #196 — `status-info` (a calm blue "informational" tone for
+    /* #196 - `status-info` (a calm blue "informational" tone for
        Accepted / Measuring / in-progress states) was referenced by 7
        customer surfaces (recommendation cards, working rail, /today,
        /changes truth) but never defined here, so every `bg-status-info`
@@ -169,7 +169,7 @@
     --status-danger-bg: oklch(0.7 0.19 27 / 12%);
     --status-neutral: oklch(0.556 0 0);
     --status-neutral-bg: oklch(0.556 0 0 / 10%);
-    /* #196 — dark-mode `status-info` (matches the brighter accent-primary
+    /* #196 - dark-mode `status-info` (matches the brighter accent-primary
        used in dark mode so Accepted/Measuring states stay legible). */
     --status-info: oklch(0.65 0.17 241.966);
     --status-info-bg: oklch(0.65 0.17 241.966 / 12%);
@@ -193,4 +193,33 @@
   html {
     @apply font-sans;
     }
+}
+
+/* ── FINAL PREMIUM PLAN items 15 + 16 - motion utilities. 150-250ms, ease-out, subtle.
+   Every animation is disabled under prefers-reduced-motion. ── */
+@keyframes beacon-rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes beacon-chart-draw {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes beacon-win-glow {
+  0% { box-shadow: 0 0 0 0 rgb(16 185 129 / 0.45); background-color: rgb(16 185 129 / 0.10); }
+  60% { box-shadow: 0 0 0 10px rgb(16 185 129 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(16 185 129 / 0); background-color: transparent; }
+}
+.beacon-rise-in { animation: beacon-rise-in 220ms ease-out both; }
+.beacon-chart-draw { animation: beacon-chart-draw 250ms ease-out both; }
+/* Item 16 - a one-time celebratory glow that decays; applied to won Results rows. */
+.beacon-win-glow { animation: beacon-win-glow 1600ms ease-out 1; border-radius: 0.5rem; }
+@keyframes beacon-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.beacon-pop { animation: beacon-pop 180ms ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .beacon-rise-in, .beacon-chart-draw, .beacon-win-glow, .beacon-pop { animation: none; }
 }

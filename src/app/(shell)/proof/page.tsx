@@ -570,7 +570,7 @@ function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord
   // count only before any window has run (measuring state).
   const controlsCount = basis?.controlsUsed ?? rec.controlPages.length;
   return (
-    <div className="rounded-lg border border-border/60 bg-background p-4">
+    <div className={`rounded-lg border border-border/60 bg-background p-4${band === "win" ? " beacon-win-glow" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[14px] font-semibold text-foreground">{rec.path}</span>
         <span

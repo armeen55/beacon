@@ -9,7 +9,7 @@ export function WarRoomCopyButton({ text, label = "Copy the fix" }: { text: stri
   return (
     <button
       type="button"
-      className="ml-auto shrink-0 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+      className={`ml-auto shrink-0 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-200${done ? " beacon-pop text-emerald-700 border-emerald-200" : ""}`}
       onClick={() => {
         navigator.clipboard
           ?.writeText(text)

@@ -1,5 +1,6 @@
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { PageHeader } from "@/components/data/page-header";
+import { TenantSwitcher } from "@/components/shell/tenant-switcher";
 import { ConfigForm } from "./config-form";
 
 /** Local JSON can change without rebuild; avoid baking build-time defaults into static HTML. */
@@ -28,6 +29,8 @@ export default async function SettingsConfigPage() {
         title="Your business info"
         description="This is what Beacon knows about your business. We filled it in from your website to start. Anything you type here replaces our guess."
       />
+      {/* Item 52 - tenant switching lives here, not in the daily header. */}
+      <div className="flex flex-wrap items-center gap-2"><span className="text-xs font-medium text-gray-500">Switch business:</span><TenantSwitcher /></div>
       <ConfigForm initial={initial} />
     </div>
   );

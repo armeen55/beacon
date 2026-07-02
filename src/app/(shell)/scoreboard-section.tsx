@@ -56,7 +56,7 @@ function Chart({ s }: { s: Scoreboard }) {
   const idxByDate = new Map(s.days.map((d, i) => [d.date, i]));
   const tickIdx = [0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1];
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Clicks per day with your shipped changes marked" className="w-full">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Clicks per day with your shipped changes marked" className="w-full beacon-chart-draw">
       <defs>
         <linearGradient id="sb-fill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#6366f1" stopOpacity="0.22" />
@@ -115,7 +115,7 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
     if (!s) return null;
     const deltaTone = s.deltaPct == null ? "text-gray-500" : s.deltaPct > 2 ? "text-emerald-600" : s.deltaPct < -2 ? "text-amber-600" : "text-gray-500";
     return (
-      <section aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4">
+      <section aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div className="flex items-baseline gap-3">
             <span className="text-2xl font-semibold tabular-nums tracking-tight">{s.last7Clicks.toLocaleString()}</span>

@@ -7,6 +7,7 @@ import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-ac
 import type { TodayMove } from "./today-moves-data";
 import { teammateOf } from "@/domains/team/identity";
 import { Sparkline } from "@/components/data/sparkline";
+import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 /**
@@ -383,7 +384,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             {typeof rp.addressableVolume === "number" && rp.addressableVolume > 0 ? (
               <p className="mt-1 text-xs text-violet-900">
                 <span className="font-semibold">Addressable demand:</span>{" "}
-                ~{rp.addressableVolume >= 1000 ? `${(rp.addressableVolume / 1000).toFixed(1).replace(/\.0$/, "")}k` : rp.addressableVolume} searches/mo <span className="text-violet-500">(DataForSEO)</span>
+                <span title={`${formatMetric(rp.addressableVolume)} searches a month across this page's queries`}>~{formatMetricCompact(rp.addressableVolume)} searches/mo</span> <span className="text-violet-500">(DataForSEO)</span>
               </p>
             ) : null}
             {rp.serpPattern ? (

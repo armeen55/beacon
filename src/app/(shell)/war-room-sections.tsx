@@ -14,7 +14,7 @@ import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunit
 import Link from "next/link";
 import { WarRoomCopyButton } from "./war-room-copy-button";
 
-const CARD = "rounded-2xl border border-gray-200 bg-white p-4";
+const CARD = "rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in";
 const HEAD = "text-[11px] font-semibold uppercase tracking-wide text-gray-400";
 
 function prettyPath(u: string): string {

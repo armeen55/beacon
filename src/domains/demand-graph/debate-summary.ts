@@ -7,6 +7,13 @@
  * plain-language debate summary any surface can drop in (read-only). No I/O, no
  * score logic - it only *describes* what the specialists said.
  *
+ * 2026-07-01 (FINAL PREMIUM PLAN item 39): this is also the chokepoint where
+ * robotic template phrasing dies. Every claim and objection detail runs through
+ * `humanizeDebateLine` before it reaches a surface: "3 competitor page(s)" becomes
+ * "3 competitor pages" (and "1 ..." becomes "a competitor page"), snake_case
+ * tokens become spaced words, SHOUTING enum words become lowercase, and lab
+ * tokens (SERP, UGC, connector names) become plain words.
+ *
  * Pinned by debate-summary.test.ts.
  */
 
@@ -34,6 +41,62 @@ const OBJECTION_LABELS: Record<ObjectionKind, string> = {
   thin_evidence: "Not enough evidence yet",
 };
 
+/** Initialisms the operator reads as words - these stay uppercase. */
+const KEEP_CAPS = new Set(["AI", "CTR", "SEO", "AEO", "GSC", "URL", "FAQ", "CMS", "UX", "API", "ROI", "OK"]);
+
+/** Lab and connector tokens that read robotic mid-sentence - swapped for plain words.
+ *  The grammar-aware "SERP is" swap must run before the bare "SERP" swap. */
+const PLAIN_SWAPS: Array<[RegExp, string]> = [
+  [/\bSERP is\b/g, "The search results are"],
+  [/\bSERPs?\b/g, "search results"],
+  [/\bUGC\b/g, "forum"],
+  [/\bDataForSEO\b/g, "Live Google results"],
+  [/\bClarity\b/g, "Visitor behavior"],
+];
+
+/**
+ * Item 39 - make one template-emitted line read like a person wrote it. PURE, idempotent
+ * on already-clean strings, so it is safe at the source AND on persisted records at render.
+ *   1. "1 competitor page(s)" -> "a competitor page"; "3 competitor page(s)" -> "3 competitor pages"
+ *   2. any leftover bare "word(s)" -> the plural
+ *   3. snake_case tokens (never URL or path segments) -> spaced words
+ *   4. lab tokens -> plain words, then leftover SHOUTING enum words -> lowercase
+ */
+export function humanizeDebateLine(input: string | null | undefined): string {
+  if (!input) return "";
+  let s = input;
+
+  // 1) counted "(s)" templates, up to three words between the count and the noun.
+  s = s.replace(
+    /(\d[\d,]*)\s+((?:[A-Za-z][A-Za-z-]*\s+){0,3}?)([A-Za-z][A-Za-z-]*)\(s\)/g,
+    (_m, n: string, mid: string, noun: string) => {
+      const count = Number(n.replace(/,/g, ""));
+      if (count === 1) {
+        const first = mid.trim() || noun;
+        const article = /^[aeiou]/i.test(first) ? "an" : "a";
+        return `${article} ${mid}${noun}`;
+      }
+      return `${n} ${mid}${noun}s`;
+    },
+  );
+
+  // 2) bare "word(s)" with no count in front -> plural.
+  s = s.replace(/([A-Za-z][A-Za-z-]*)\(s\)/g, "$1s");
+
+  // 3) snake_case tokens -> spaced words. The token must start a line or follow
+  //    whitespace/quote/paren, so URL and path segments are never touched.
+  s = s.replace(
+    /(^|[\s("'])((?:[A-Za-z0-9]+_)+[A-Za-z0-9]+)(?=[\s)"'.,;:!?]|$)/g,
+    (_m, pre: string, tok: string) => pre + tok.replace(/_/g, " "),
+  );
+
+  // 4) plain words for lab tokens, then de-shout leftover ALL-CAPS enum words.
+  for (const [re, plain] of PLAIN_SWAPS) s = s.replace(re, plain);
+  s = s.replace(/\b[A-Z]{2,}\b/g, (w) => (KEEP_CAPS.has(w) ? w : w.toLowerCase()));
+
+  return s;
+}
+
 export type DebateVoice = { specialist: Specialist; label: string; claim: string; confidencePct: number };
 export type DebateObjection = { specialist: Specialist; label: string; kind: ObjectionKind; reason: string; severity: "veto" | "downgrade"; detail: string };
 
@@ -54,12 +117,13 @@ export function summarizeSpecialistDebate(opinions: SpecialistOpinion[]): Debate
   const valid = (opinions ?? []).filter((o) => o && o.claim);
 
   // Fallbacks are operator-friendly strings, not the raw enum key - a typo'd
-  // specialist/objection key never leaks a machine token into the UI.
+  // specialist/objection key never leaks a machine token into the UI. Claims and
+  // details are humanized here (item 39) so no surface ever renders "page(s)".
   const voices: DebateVoice[] = valid
     .map((o) => ({
       specialist: o.specialist,
       label: SPECIALIST_LABELS[o.specialist] ?? "Another specialist",
-      claim: o.claim,
+      claim: humanizeDebateLine(o.claim),
       confidencePct: Math.round(Math.min(1, Math.max(0, o.confidence ?? 0)) * 100),
     }))
     .sort((a, b) => b.confidencePct - a.confidencePct);
@@ -72,7 +136,7 @@ export function summarizeSpecialistDebate(opinions: SpecialistOpinion[]): Debate
         kind: ob.kind,
         reason: OBJECTION_LABELS[ob.kind] ?? "Flagged a concern",
         severity: ob.severity,
-        detail: ob.detail,
+        detail: humanizeDebateLine(ob.detail),
       })),
     )
     .sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "veto" ? -1 : 1));
