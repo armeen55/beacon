@@ -106,7 +106,7 @@
 - [ ] 103 [W3][P1/S] Decide the backlink stub: delete link-authority/backlink-provider.ts (no callers)
 - [ ] 104 [W3][P0/M] Retire the legacy recommended_edits queue as an operator surface: 82 rows, 100%
 - [ ] 105 [W3][P1/S] Archive the stale docs: move the 16 AUDIT_*.md + 21 sprint/report docs + findings
-- [ ] 106 [W3][P2/S] Gate /diagnostics/* routes behind operator mode at the route level (23 routes are
+- [x] 106 [W3][P2/S] Gate /diagnostics/* routes behind operator mode at the route level (23 routes are
 - [ ] 107 [W3][P1/S] One LLM entry point: fold llm-draft-gateway's remaining uniqueness into
 - [ ] 108 [W3][P2/S] Unify dismiss/skip stores (opportunity_dismissals vs recommendation_response) behind
 - [ ] 109 [W3][P1/S] App-wide banned-dash + jargon guard: extend the existing test to cover EVERY file
