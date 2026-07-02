@@ -31,6 +31,7 @@ export default async function SettingsConfigPage() {
       />
       {/* Item 52 - tenant switching lives here, not in the daily header. */}
       <div className="flex flex-wrap items-center gap-2"><span className="text-xs font-medium text-gray-500">Switch business:</span><TenantSwitcher /></div>
+      <p className="text-xs text-gray-500">Spending on outside data: <a href="/settings/spend" className="text-accent-primary underline underline-offset-2">see this month's receipts</a>.</p>
       <ConfigForm initial={initial} />
     </div>
   );

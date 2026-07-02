@@ -273,6 +273,36 @@ export async function recordSpendSupabase(
  * on any error or when the table is empty/unavailable. NOT flag-gated
  * — safe to call from canary/diagnostic code at any time.
  */
+export type MonthlyPlatformSpend = { platform: string; spentUsd: number; calls: number };
+
+/**
+ * Item 92 - month-to-date spend per platform for the receipts page. One bounded read
+ * (current month's rows for the tenant), aggregated in JS. Fail-soft -> [].
+ */
+export async function readMonthlySpendByPlatform(tenantId: string): Promise<MonthlyPlatformSpend[]> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const monthStart = new Date().toISOString().slice(0, 8) + "01";
+    const { data, error } = await supabase
+      .from("llm_budget_ledger")
+      .select("platform, spent_usd, prompt_count")
+      .eq("tenant_id", tenantId)
+      .gte("date_utc", monthStart);
+    if (error || !Array.isArray(data)) return [];
+    const byPlatform = new Map<string, MonthlyPlatformSpend>();
+    for (const r of data as Array<{ platform: string; spent_usd: number | string; prompt_count: number | string }>) {
+      const key = String(r.platform);
+      const cur = byPlatform.get(key) ?? { platform: key, spentUsd: 0, calls: 0 };
+      cur.spentUsd += Number(r.spent_usd) || 0;
+      cur.calls += Number(r.prompt_count) || 0;
+      byPlatform.set(key, cur);
+    }
+    return [...byPlatform.values()].sort((a, b) => b.spentUsd - a.spentUsd);
+  } catch {
+    return [];
+  }
+}
+
 export async function readSpendSnapshotForDate(
   date: string,
 ): Promise<SpendSnapshotRow[]> {

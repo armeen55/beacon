@@ -92,7 +92,7 @@
 - [ ]  89 [W3][P2/M] Trend radar goes live on real deltas: WoW query-spike detection from gsc_daily_rows
 - [ ]  90 [W3][P2/L] Wix draft-writing where possible: for CMS-pushable fields, "Apply in Wix" becomes
 - [ ]  91 [W3][P2/M] GSC indexing queue polish: after verify-live, one screen lists the URLs to request
-- [ ]  92 [W3][P1/S] Spend receipts page (settings): "$1.42 spent this month of $50" per provider with
+- [x]  92 [W3][P1/S] Spend receipts page (settings): "$1.42 spent this month of $50" per provider with
 - [x]  93 [W2][P0/M] Today warm render under 2s: persist the TodayView + war-room reads with the SWR
 - [ ]  94 [W3][P1/M] Worklist warm under 3s: same treatment for loadChangesView; the demand graph
 - [ ]  95 [W3][P1/S] Optimistic UI on every button (apply/skip/copy/accept): instant visual state, server
