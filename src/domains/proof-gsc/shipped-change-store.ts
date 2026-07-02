@@ -30,6 +30,8 @@ import type { CitationOutcome } from "./citation-outcome";
 import type { RankRecheckResult } from "./rank-recheck";
 import type { ChangeDollarValue } from "./change-dollar-value";
 import type { PermutationRead } from "./permutation-null";
+import type { BayesianRead } from "./bayesian-read";
+import type { TargetQueryRead } from "./target-query-read";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -88,6 +90,23 @@ export type ShippedChangeRecord = {
    *  measure. Null when fewer than MIN_NULL_PAGES untreated pages were
    *  available (honest skip, never a fabricated percentile off a thin pool). */
   permutationRead?: PermutationRead | null;
+  /** Bayesian read (master plan item 67): P(this helped) plus a 90% credible
+   *  interval on monthly clicks, computed from the SAME basis window's
+   *  treated pre/post metrics. Same computed-only posture as
+   *  trafficOutcome/citationOutcome/rankOutcome/dollarValue/permutationRead:
+   *  NOT persisted (recordToRow omits it), recomputed on every measure. Never
+   *  changes `verdict`/`confidence` - a pure additive quantification layer.
+   *  Null for a position-judged change or before any window has closed. */
+  bayesianRead?: BayesianRead | null;
+  /** Per-target-query diff-in-diff (master plan item 68): CTR + position for
+   *  the record's OWN targetQueries (not the page's whole query mix), treated
+   *  vs comparison pages, over the same basis window. Same computed-only
+   *  posture as the other attachments above: NOT persisted (recordToRow
+   *  omits it), recomputed on every measure. Empty array when there are no
+   *  target queries, no window has closed, or a query's data is too thin
+   *  (< 50 impressions either window) - honest silence, never a fabricated
+   *  read off a sliver of data. */
+  targetQueryRead?: TargetQueryRead[];
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */

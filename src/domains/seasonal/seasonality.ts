@@ -51,8 +51,11 @@ export type SeasonalQuery = {
   prepByDate: string;
   /** Ready-to-show operator sentence (plain first person, no dashes). */
   sentence: string;
-  /** 'repeated' when >= 2 distinct years fed the peak month(s); else 'one_season'. */
-  confidence: "one_season" | "repeated";
+  /** 'repeated' when >= 2 distinct years fed the peak month(s); else 'one_season'.
+   *  'proven' (item 63) is a strict upgrade of 'repeated': the archive's own
+   *  2+ years of history AND an independent Labs multi-year market read both
+   *  agree the same calendar window repeats. */
+  confidence: "one_season" | "repeated" | "proven";
 };
 
 /** A peak window must hold at least this share of annual impressions. */
@@ -271,4 +274,158 @@ export function detectSeasonalQueries(rows: MonthlyArchiveRow[], now: Date = new
 /** True when a formatted percent share string is >= the min share (display helper). */
 export function sharePercentLabel(share: number): string {
   return `${formatShare(share)} percent`;
+}
+
+// ── Peak calendar (2026-07-02, master plan item 63) ─────────────────────────
+//
+// HARD RULE (operator directive): every cluster/event here is 100 percent
+// DATA-DERIVED. A "clusterLabel" is never a curated holiday name - it is
+// simply the query text itself (title-cased for display), so a "Nowruz wave"
+// only ever appears because the word "nowruz" showed up in real GSC demand,
+// never because Beacon knows what Nowruz is.
+//
+// Two independent sources can agree a window repeats:
+//   1. Beacon's own permanent archive (2+ distinct years feeding the peak
+//      month(s) -> detectSeasonalQueries already labels this 'repeated').
+//   2. DataForSEO Labs' historical_search_volume - Google Ads' own multi-year
+//      MARKET curve for the same keyword, independent of this one site's
+//      traffic (dataforseo-labs.ts's runHistoricalVolume, called ONLY for the
+//      top detected cluster heads, bounded + cached + gauntlet-gated).
+//
+// Confidence upgrades to 'proven' only when the archive ALREADY says
+// 'repeated' AND the Labs curve independently shows the same peak month(s)
+// clearing the same concentration bar across 2+ of ITS OWN calendar years.
+// Absent Labs data (dry-run, capped, not yet fetched), a query keeps its
+// archive-only confidence - honest, never inflated by a missing check.
+
+/** One entry in the persisted peak calendar - the shape build-daily-candidates
+ *  and any operator-facing calendar surface read. */
+export type PeakCalendarEntry = {
+  /** The query text itself, title-cased for display - never a curated name. */
+  clusterLabel: string;
+  /** 1-2 adjacent calendar months (1-12), peak first. */
+  peakMonths: number[];
+  confidence: "one_season" | "repeated" | "proven";
+  /** ISO date - six weeks before the next peak window starts. */
+  prepByDate: string;
+  /** ISO date - when the next occurrence of the peak window starts. */
+  peakStartDate: string;
+  /** The archive's own annual impressions for the peak window (Beacon's data). */
+  expectedImpressions: number;
+  /** The page most associated with this query's peak window, if known. */
+  topPage: string | null;
+  /** Ready-to-show operator sentence (plain first person, no dashes). */
+  sentence: string;
+};
+
+function titleCase(s: string): string {
+  return s
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/** Extract this keyword's OWN peak window(s) from a Labs historical-volume
+ *  curve, using the identical share+floor method detectSeasonalQueries uses
+ *  over GSC rows, so the two reads are directly comparable. PURE. */
+function peakWindowFromMonthlySearches(
+  monthly: Array<{ year: number; month: number; searchVolume: number }>,
+): { months: number[]; yearsInWindow: number; share: number } | null {
+  if (monthly.length === 0) return null;
+  const byMonth = new Map<number, { total: number; years: Set<number> }>();
+  let annualTotal = 0;
+  for (const m of monthly) {
+    if (m.month < 1 || m.month > 12) continue;
+    const bucket = byMonth.get(m.month) ?? { total: 0, years: new Set<number>() };
+    bucket.total += Math.max(0, m.searchVolume);
+    bucket.years.add(m.year);
+    byMonth.set(m.month, bucket);
+    annualTotal += Math.max(0, m.searchVolume);
+  }
+  if (annualTotal <= 0 || byMonth.size === 0) return null;
+
+  let peakMonth = -1;
+  let peakTotal = -1;
+  for (const [month, bucket] of byMonth) {
+    if (bucket.total > peakTotal) {
+      peakTotal = bucket.total;
+      peakMonth = month;
+    }
+  }
+  if (peakMonth < 0) return null;
+
+  const before = byMonth.get(monthBefore(peakMonth));
+  const after = byMonth.get(monthAfter(peakMonth));
+  const beforeTotal = before?.total ?? 0;
+  const afterTotal = after?.total ?? 0;
+  const extendMonth = beforeTotal >= afterTotal ? monthBefore(peakMonth) : monthAfter(peakMonth);
+  const extendTotal = Math.max(beforeTotal, afterTotal);
+
+  const soloShare = peakTotal / annualTotal;
+  const pairShare = (peakTotal + extendTotal) / annualTotal;
+
+  let months: number[];
+  let yearsInWindow: number;
+  let share: number;
+  if (pairShare >= SEASONAL_MIN_SHARE && extendTotal > 0) {
+    months = [peakMonth, extendMonth];
+    const years = new Set<number>([...(byMonth.get(peakMonth)?.years ?? []), ...(byMonth.get(extendMonth)?.years ?? [])]);
+    yearsInWindow = years.size;
+    share = pairShare;
+  } else if (soloShare >= SEASONAL_MIN_SHARE) {
+    months = [peakMonth];
+    yearsInWindow = byMonth.get(peakMonth)?.years.size ?? 0;
+    share = soloShare;
+  } else {
+    return null; // Labs curve is too flat to call seasonal on its own
+  }
+  return { months, yearsInWindow, share };
+}
+
+/** True when the Labs curve independently confirms the SAME peak window (same
+ *  month, or the same pair ignoring order) across 2+ of its own years. */
+function labsConfirmsRepeat(archiveMonths: number[], labs: { months: number[]; yearsInWindow: number } | null): boolean {
+  if (!labs || labs.yearsInWindow < 2) return false;
+  const a = new Set(archiveMonths);
+  const b = new Set(labs.months);
+  if (a.size !== b.size) return false;
+  for (const m of a) if (!b.has(m)) return false;
+  return true;
+}
+
+/**
+ * Builds the persisted peak calendar from detected seasonal queries, optionally
+ * upgrading 'repeated' entries to 'proven' when a matching Labs historical-
+ * volume row independently confirms the same peak window across 2+ years.
+ * PURE, deterministic, $0 (the Labs call itself already happened upstream;
+ * this only reasons over its already-fetched rows). Bounded to the same
+ * MAX_SEASONAL_QUERIES the detector already caps at.
+ */
+export function computePeakCalendar(
+  seasonal: SeasonalQuery[],
+  historicalVolume: Map<string, Array<{ year: number; month: number; searchVolume: number }>> = new Map(),
+): PeakCalendarEntry[] {
+  return seasonal.map((s) => {
+    let confidence: PeakCalendarEntry["confidence"] = s.confidence;
+    if (s.confidence === "repeated") {
+      const monthly = historicalVolume.get(s.query.trim().toLowerCase());
+      if (monthly && monthly.length > 0) {
+        const labsWindow = peakWindowFromMonthlySearches(monthly);
+        if (labsConfirmsRepeat(s.peakMonths, labsWindow)) {
+          confidence = "proven";
+        }
+      }
+    }
+    return {
+      clusterLabel: titleCase(s.query),
+      peakMonths: s.peakMonths,
+      confidence,
+      prepByDate: s.prepByDate,
+      peakStartDate: s.peakStartDate,
+      expectedImpressions: s.annualImpressions,
+      topPage: s.topPage,
+      sentence: s.sentence,
+    };
+  });
 }

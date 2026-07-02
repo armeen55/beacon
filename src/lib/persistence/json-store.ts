@@ -100,6 +100,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // the Today Demand band + the daily plan builder; without the mirror the
   // detected seasonal windows would be silent-empty on hosted prod.
   "seasonal-windows",
+  // 2026-07-02 item 63 - the proven-vs-one_season peak calendar (seasonal
+  // windows cross-checked against DataForSEO Labs historical volume). Written
+  // by the cron (Vercel lambda: no disk), read by the daily plan candidate
+  // feed; without the mirror the calendar would be silent-empty on hosted prod.
+  "seasonal-peak-calendar",
   // 2026-07-02 item 24 - nightly Farsi/Finglish language-gap matrix pass.
   // Written by the cron (Vercel lambda: no disk), read by the Today Demand
   // band + the daily plan builder; without the mirror the detected gaps
@@ -199,6 +204,12 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // but Vercel lambda writes still skip disk - without the mirror the operator's recent
   // Q+A history would vanish on the next lambda recycle.
   "ask-history",
+  // 2026-07-02 item 65 - the shadow portfolio (top rejected-but-eligible candidates
+  // captured at plan time). Written inside build-today-preview.ts (Vercel lambda, no
+  // disk); read by the /proof "picks vs skipped" line and the drift-vs-forecast
+  // calibration feed. Without the mirror each night's captured batch would vanish on
+  // the next lambda recycle, and the comparison would never accumulate a real sample.
+  "shadow-portfolio-candidates",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

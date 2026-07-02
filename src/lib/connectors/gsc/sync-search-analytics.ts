@@ -282,6 +282,13 @@ export async function syncGscSearchAnalyticsForTenant(args: {
    *  full history GSC holds. When set, start the pull here and bypass both the
    *  watermark and the day cap — bounded by the operator's chosen start. */
   startDate?: string;
+  /** Item 63 (deep backfill chunking): caps the pull's LAST day (YYYY-MM-DD),
+   *  bounded by the normal lastFinalDay when it is earlier. Only meaningful
+   *  alongside `startDate` — lets the deep-history backfill (src/lib/connectors/
+   *  gsc/deep-backfill.ts) pull one bounded month-sized window per invocation
+   *  instead of racing all the way to today and risking a lambda timeout.
+   *  Omitted for every existing caller (back-compat: pulls through lastFinalDay). */
+  endDate?: string;
 }): Promise<GscSyncResult> {
   const { tenantId } = args;
   const now = args.now ?? new Date();
@@ -326,7 +333,12 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   }
 
   const todayPt = pacificDateString(now);
-  const lastFinalDay = addDays(todayPt, -FINAL_LAG_DAYS);
+  const naturalLastFinalDay = addDays(todayPt, -FINAL_LAG_DAYS);
+  // Item 63: an explicit endDate (deep-backfill chunking) bounds the pull's
+  // last day too, never later than the natural lastFinalDay (GSC has nothing
+  // final past that point regardless of what the caller asks for).
+  const lastFinalDay =
+    args.endDate != null && args.endDate < naturalLastFinalDay ? args.endDate : naturalLastFinalDay;
   const watermark = await readWatermark(tenantId, property);
   let startDay =
     args.startDate != null

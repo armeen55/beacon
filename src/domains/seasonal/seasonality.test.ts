@@ -10,10 +10,12 @@ import { describe, expect, it } from "vitest";
 import {
   detectSeasonalQueries,
   seasonalSentence,
+  computePeakCalendar,
   SEASONAL_MIN_ANNUAL_IMPRESSIONS,
   SEASONAL_MIN_SHARE,
   PREP_LEAD_WEEKS,
   type MonthlyArchiveRow,
+  type SeasonalQuery,
 } from "./seasonality";
 
 const NOW = new Date("2026-07-02T00:00:00Z");
@@ -175,10 +177,141 @@ describe("seasonalSentence + dash guard", () => {
   });
 
   it("keeps every new seasonal module free of em and en dashes (hard rule)", () => {
-    const files = ["seasonality.ts", "seasonal-hints.ts", "seasonal-store.ts", "archive-rollup.ts", "load-monthly-archive.ts"];
+    const files = [
+      "seasonality.ts",
+      "seasonal-hints.ts",
+      "seasonal-store.ts",
+      "archive-rollup.ts",
+      "load-monthly-archive.ts",
+      "peak-calendar-store.ts",
+      "seasonal-candidates.ts",
+    ];
     for (const f of files) {
       const src = readFileSync(resolve(__dirname, f), "utf8");
       expect(src, `${f} must not contain em or en dashes`).not.toMatch(/[–—]/);
     }
+  });
+
+  it("keeps the GSC deep backfill module free of em and en dashes (hard rule)", () => {
+    const src = readFileSync(resolve(__dirname, "../../lib/connectors/gsc/deep-backfill.ts"), "utf8");
+    expect(src).not.toMatch(/[–—]/);
+  });
+});
+
+describe("computePeakCalendar - proven-confidence matrix (master plan item 63)", () => {
+  function seasonalQuery(over: Partial<SeasonalQuery> = {}): SeasonalQuery {
+    return {
+      query: "nowruz table setting",
+      peakMonths: [3],
+      share: 0.9,
+      annualImpressions: 4000,
+      topPage: "/nowruz",
+      peakStartDate: "2027-03-01",
+      prepByDate: "2027-01-18",
+      sentence: "Searches climb every March.",
+      confidence: "one_season",
+      ...over,
+    };
+  }
+
+  it("keeps one_season entries as one_season regardless of Labs data (never upgraded past repeated)", () => {
+    const out = computePeakCalendar([seasonalQuery({ confidence: "one_season" })]);
+    expect(out[0].confidence).toBe("one_season");
+  });
+
+  it("keeps repeated as repeated when no Labs history is supplied", () => {
+    const out = computePeakCalendar([seasonalQuery({ confidence: "repeated" })]);
+    expect(out[0].confidence).toBe("repeated");
+  });
+
+  it("upgrades repeated to proven when the Labs curve independently confirms the same peak month across 2+ years", () => {
+    const historicalVolume = new Map([
+      [
+        "nowruz table setting",
+        [
+          { year: 2024, month: 3, searchVolume: 9000 },
+          { year: 2024, month: 6, searchVolume: 200 },
+          { year: 2025, month: 3, searchVolume: 9500 },
+          { year: 2025, month: 6, searchVolume: 180 },
+        ],
+      ],
+    ]);
+    const out = computePeakCalendar([seasonalQuery({ confidence: "repeated", peakMonths: [3] })], historicalVolume);
+    expect(out[0].confidence).toBe("proven");
+  });
+
+  it("does NOT upgrade when the Labs curve only has ONE year in the window (not independently repeated)", () => {
+    const historicalVolume = new Map([
+      [
+        "nowruz table setting",
+        [
+          { year: 2025, month: 3, searchVolume: 9000 },
+          { year: 2025, month: 6, searchVolume: 200 },
+        ],
+      ],
+    ]);
+    const out = computePeakCalendar([seasonalQuery({ confidence: "repeated", peakMonths: [3] })], historicalVolume);
+    expect(out[0].confidence).toBe("repeated");
+  });
+
+  it("does NOT upgrade when the Labs curve peaks in a DIFFERENT month (disagreement stays honest)", () => {
+    const historicalVolume = new Map([
+      [
+        "nowruz table setting",
+        [
+          { year: 2024, month: 7, searchVolume: 9000 },
+          { year: 2024, month: 3, searchVolume: 200 },
+          { year: 2025, month: 7, searchVolume: 9500 },
+          { year: 2025, month: 3, searchVolume: 210 },
+        ],
+      ],
+    ]);
+    const out = computePeakCalendar([seasonalQuery({ confidence: "repeated", peakMonths: [3] })], historicalVolume);
+    expect(out[0].confidence).toBe("repeated");
+  });
+
+  it("does NOT upgrade when the Labs curve is too flat to call seasonal on its own", () => {
+    const historicalVolume = new Map([
+      [
+        "nowruz table setting",
+        Array.from({ length: 12 }, (_, i) => ({ year: 2025, month: i + 1, searchVolume: 100 })),
+      ],
+    ]);
+    const out = computePeakCalendar([seasonalQuery({ confidence: "repeated", peakMonths: [3] })], historicalVolume);
+    expect(out[0].confidence).toBe("repeated");
+  });
+
+  it("matches keywords case-insensitively and is unaffected by unrelated cached keywords", () => {
+    const historicalVolume = new Map([
+      ["NOWRUZ TABLE SETTING".toLowerCase(), [
+        { year: 2024, month: 3, searchVolume: 9000 },
+        { year: 2025, month: 3, searchVolume: 9500 },
+      ]],
+      ["unrelated keyword", [{ year: 2025, month: 1, searchVolume: 500 }]],
+    ]);
+    const out = computePeakCalendar([seasonalQuery({ confidence: "repeated", peakMonths: [3], query: "Nowruz Table Setting" })], historicalVolume);
+    expect(out[0].confidence).toBe("proven");
+  });
+
+  it("derives clusterLabel from the query text alone, title-cased, never a curated name", () => {
+    const out = computePeakCalendar([seasonalQuery({ query: "chaharshanbe suri fire jumping" })]);
+    expect(out[0].clusterLabel).toBe("Chaharshanbe Suri Fire Jumping");
+  });
+
+  it("carries every other field straight through from the seasonal query", () => {
+    const sq = seasonalQuery({ topPage: "/yalda", annualImpressions: 12000 });
+    const out = computePeakCalendar([sq]);
+    expect(out[0]).toMatchObject({
+      peakMonths: sq.peakMonths,
+      prepByDate: sq.prepByDate,
+      peakStartDate: sq.peakStartDate,
+      expectedImpressions: 12000,
+      topPage: "/yalda",
+      sentence: sq.sentence,
+    });
+  });
+
+  it("returns [] for empty input", () => {
+    expect(computePeakCalendar([])).toEqual([]);
   });
 });

@@ -39,6 +39,7 @@ import {
   appendCalibrationRecord,
   buildCalibrationRecord,
 } from "@/domains/experiments/forecast-calibration-store";
+import { expectedCtrAt } from "@/domains/experiments/pick-expectations";
 import {
   getBusinessConfig,
   hydrateBusinessConfigFromSupabase,
@@ -58,6 +59,8 @@ import {
 } from "./measure";
 import { readFloorsFor } from "./aa-calibration-store";
 import { buildPermutationNull, percentileOf, hasEnoughNullPages, type PermutationRead } from "./permutation-null";
+import { buildBayesianRead, type BayesianRead } from "./bayesian-read";
+import { buildTargetQueryReads, type TargetQueryRead } from "./target-query-read";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { GscProofVerdict } from "./measure";
 
@@ -233,26 +236,49 @@ export async function captureChangeMeta(
 }
 
 /**
- * Items 27/28 - find the plan pick that shipped as this proof row (by proofId) and, if it carries
- * a numeric forecast, write ONE calibration record scoring the realized 28-day monthly click lift
- * against that forecast range. Fail-soft everywhere: a missing plan, a pick with no numeric
- * forecast (prose-only or planned before this field existed), or a store error all resolve to a
- * quiet no-op - this must never throw into measureRecord's caller.
+ * Items 27/28/64 - find the plan pick that shipped as this proof row (by proofId) and, if it
+ * carries a numeric forecast, write ONE calibration record scoring the realized 28-day monthly
+ * click lift against that forecast range. Fail-soft everywhere: a missing plan, a pick with no
+ * numeric forecast (prose-only or planned before this field existed), or a store error all resolve
+ * to a quiet no-op - this must never throw into measureRecord's caller.
  *
  * `adjustedLift28` is the day-28 window's clicks-unit adjusted lift over its (pro-rated) 28-day
  * pre window, i.e. already a monthly figure - the same shape as the forecast range
  * ("roughly N to M extra clicks a month"), so no further scaling is needed.
+ *
+ * `treatedPostImpressions28` is the day-28 window's treated-page post-window Search impressions
+ * (empirical-capture.ts's precision-weight input). Optional/undefined is a valid, honest input
+ * (the window field itself is optional for back-compat) - it simply persists as `undefined` and
+ * empirical-capture.ts treats a missing value as zero precision (full shrink toward the family
+ * mean), never a fabricated volume.
+ *
+ * Item 64's `gapClicksPerMonth` is derived HERE from `record.baseline` - the SAME formula
+ * pick-expectations.ts uses at plan time (expectedCtrAt(position) - ctr) * impressions - but off
+ * the ledger's own pre-ship baseline snapshot rather than the plan pick (the plan record does not
+ * carry position/ctr, only the already-computed opportunity), scaled from the baseline window's
+ * own length to a monthly figure so it lines up with `actual`. A non-positive gap (page already at
+ * or above the curve, or a zero/legacy baseline window) is honestly omitted, never coerced to a
+ * fabricated positive number - empirical-capture.ts skips a record with no gap the same way it
+ * skips one predating this field.
  */
 async function writeCalibrationIfDue(
   tenantId: string,
   record: ShippedChangeRecord,
   adjustedLift28: number,
+  treatedPostImpressions28?: number,
 ): Promise<void> {
   try {
     const plans = await listPlans(tenantId, 60);
     const forecasted = findForecastedPickForProofId(plans, record.id);
     if (!forecasted) return; // no pick found, or the pick has no numeric forecast - honest skip
     if (await hasCalibrationRecord(tenantId, forecasted.pickId)) return; // idempotent per pick
+    const baseline = record.baseline;
+    const windowDays = baseline?.windowDays && baseline.windowDays > 0 ? baseline.windowDays : BASELINE_WINDOW_DAYS;
+    const rawGap =
+      baseline && baseline.impressions > 0
+        ? Math.max(0, expectedCtrAt(baseline.position) - Math.max(0, baseline.ctr)) * baseline.impressions
+        : 0;
+    const gapClicksPerMonth = rawGap > 0 ? (rawGap / windowDays) * 30 : undefined;
     const rec = buildCalibrationRecord({
       pickId: forecasted.pickId,
       tenantId,
@@ -263,6 +289,8 @@ async function writeCalibrationIfDue(
       forecastHigh: forecasted.forecastHigh,
       actual: adjustedLift28,
       at: new Date().toISOString(),
+      gapClicksPerMonth,
+      windowImpressions: treatedPostImpressions28,
     });
     await appendCalibrationRecord(rec);
   } catch {
@@ -303,6 +331,12 @@ export async function measureRecord(
 
   const checks = proofCheckDates(record.shippedAt);
   const windows: ProofWindowResult[] = [];
+  // Item 67 (Bayesian read): the loop below only keeps computeWindowLift's
+  // DERIVED numbers (deltas), not the raw treated-post window metrics the
+  // Bayesian model needs (its own clicks/impressions, not a lift). Keyed by
+  // window day so the basis window's raw reading can be looked up after the
+  // loop without re-deriving it from the lift math.
+  const treatedPostByDay = new Map<ProofWindowDay, GscWindowMetrics>();
   for (const day of PROOF_WINDOW_DAYS) {
     const checkOn = checks[day as ProofWindowDay];
     // The window [shipDate, checkOn) is only judgeable once its LAST day
@@ -318,6 +352,7 @@ export async function measureRecord(
 
     const treatedPreM = pre.get(record.page) ?? NULL_METRICS;
     const treatedPostM = post?.get(record.page) ?? NULL_METRICS;
+    if (ran) treatedPostByDay.set(day as ProofWindowDay, treatedPostM);
 
     // A control is usable when it had Search presence in the pre window AND
     // (once the window has run) still has presence in the post window. A control
@@ -361,7 +396,7 @@ export async function measureRecord(
   // existed, or too small to render a range) are honestly skipped - never fabricated a range.
   const day28 = windows.find((w) => w.day === 28);
   if (day28?.ran) {
-    await writeCalibrationIfDue(tenantId, record, day28.adjustedLift).catch(() => {});
+    await writeCalibrationIfDue(tenantId, record, day28.adjustedLift, day28.treatedPostImpressions).catch(() => {});
   }
 
   // Baseline impressions/clicks for the verdict gate come from the pre window
@@ -429,6 +464,34 @@ export async function measureRecord(
   const verdict: GscProofVerdict =
     record.operatorVerdictOverride === "inconclusive" ? "inconclusive" : computedVerdict;
 
+  // Item 67 (Bayesian verdicts with credible intervals): a pure, additive
+  // quantification layer beside the hard-floor verdict above. Reads the SAME
+  // basis window's raw treated pre/post metrics (never the floor verdict's
+  // adjusted-lift numbers, and never control-adjusted - see bayesian-read.ts's
+  // module doc on why this reads the treated page alone) and reports P(this
+  // helped) plus a 90% credible range on monthly clicks. Computed-only +
+  // fail-soft, mirroring every other attachment on this record; NEVER changes
+  // `verdict`/`confidence` above - this cycle it is a quantification layer,
+  // not a second decision path. Null for a position-judged change (no honest
+  // count/rate model for an average rank) or when no window has run yet.
+  let bayesianRead: BayesianRead | null = null;
+  if (basisForPermutation && treatedPre) {
+    const treatedPostM = treatedPostByDay.get(basisForPermutation.day);
+    if (treatedPostM) {
+      try {
+        bayesianRead = buildBayesianRead({
+          metric,
+          treatedPre: { clicks: treatedPre.clicks, impressions: treatedPre.impressions },
+          treatedPost: { clicks: treatedPostM.clicks, impressions: treatedPostM.impressions },
+          preWindowDays: BASELINE_WINDOW_DAYS,
+          postWindowDays: basisForPermutation.day,
+        });
+      } catch {
+        bayesianRead = null;
+      }
+    }
+  }
+
   // Dollar-ROI proof (gap #1): attach the GA4 traffic/conversion outcome. Fully
   // fail-soft + computed-only (never persisted) — recomputed on every load like
   // the verdict, so it tracks live GA4.
@@ -479,6 +542,33 @@ export async function measureRecord(
     }).catch(() => null);
   }
 
+  // Item 68 (measure the target queries directly): the page-level verdict
+  // above dilutes a title/meta test aimed at ONE query across the page's
+  // whole query mix. Read the SAME basis window's per-target-query CTR +
+  // position, treated vs comparison pages, straight from gsc_daily_rows.
+  // Computed-only + fail-soft, same posture as every attachment above; the
+  // reader itself honestly returns [] on missing target queries or thin data
+  // (< 50 impressions either window) - nothing here ever touches the page
+  // verdict computed above.
+  let targetQueryRead: TargetQueryRead[] = [];
+  if (basisForPermutation && record.targetQueries.length > 0) {
+    try {
+      const activeControls = record.controlPages.filter((cp) => !excludeControlPaths.has(stripToPath(cp)));
+      targetQueryRead = await buildTargetQueryReads({
+        tenantId,
+        page: record.page,
+        controlPages: activeControls,
+        targetQueries: record.targetQueries,
+        preStart,
+        preEnd: shipDate,
+        postStart: shipDate,
+        postEnd: addDays(shipDate, basisForPermutation.day),
+      });
+    } catch {
+      targetQueryRead = [];
+    }
+  }
+
   // Live-SERP rank re-check (BEACON_500 item 19): a bounded, idempotent,
   // cache-busted "was rank X, is now rank Y" read for whichever proof window
   // just came due. Fully fail-soft and computed-only, mirroring trafficOutcome
@@ -510,6 +600,8 @@ export async function measureRecord(
     rankOutcome,
     dollarValue,
     permutationRead,
+    bayesianRead,
+    targetQueryRead,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

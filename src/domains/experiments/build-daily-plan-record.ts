@@ -7,6 +7,8 @@
 
 import type { BuiltCandidate } from "./build-daily-candidates";
 import { buildPickExpectations } from "./pick-expectations";
+import { blendCaptureBand, type FamilyCaptureBand } from "./empirical-capture";
+import { canonicalMoveType } from "@/domains/learning/experiment-prior";
 import {
   stableHash, normalizePath, type DailyExperimentPlanRecord, type PlannedExperimentRecord,
   type ProposedControlRecord, type ExperimentLever,
@@ -60,12 +62,23 @@ function leaveUnchangedFor(lever: ExperimentLever): string[] {
   return all.filter((x) => x.toLowerCase() !== touched[lever].toLowerCase());
 }
 
-function toExperimentRecord(planId: string, c: BuiltCandidate, controls: ProposedControlRecord[], correctionFactor: number): PlannedExperimentRecord {
+function toExperimentRecord(
+  planId: string,
+  c: BuiltCandidate,
+  controls: ProposedControlRecord[],
+  correctionFactor: number,
+  captureDistribution: ReadonlyMap<string, FamilyCaptureBand>,
+): PlannedExperimentRecord {
   const path = normalizePath(c.url);
   const lever = c.leverField as ExperimentLever;
   const currentTextHash = stableHash(c.currentText ?? "");
   const evidenceHash = stableHash([c.targetQuery, c.proposedText, c.ownership.toFixed(3), c.position.toFixed(2)].join("|"));
   const eligibilityHash = stableHash([JSON.stringify(c.eligibility), controls.map((s) => s.controlPath).sort().join(",")].join("|"));
+  // Item 64: resolve this pick's actionFamily capture band (empty distribution -> every family
+  // falls through to blendCaptureBand's n < MIN_SAMPLES branch, the untouched static 25/75 band -
+  // byte-identical to pre-item-64 output for a fresh tenant or an empty map passed by an older
+  // caller/test).
+  const band = blendCaptureBand(captureDistribution.get(canonicalMoveType(c.actionFamily)));
   return {
     id: `${planId}::${path}`,
     candidateId: path,
@@ -87,7 +100,13 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
     rollbackText: c.rollbackText,
     effortMinutes: c.effortMinutes,
     risk: "low",
-    expectations: buildPickExpectations({ lever, ctrOpportunityClicks: c.ctrOpportunityClicks, effortMinutes: c.effortMinutes, correctionFactor }),
+    expectations: buildPickExpectations({
+      lever,
+      ctrOpportunityClicks: c.ctrOpportunityClicks,
+      effortMinutes: c.effortMinutes,
+      correctionFactor,
+      captureBand: { low: band.low, high: band.high, n: band.n, isEmpirical: band.isEmpirical },
+    }),
     power: c.power,
     learnedPrior: c.learnedPrior,
     controls,
@@ -107,7 +126,12 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
  * (The reservation id is keyed by experiment, so shared controls are distinct rows; acceptance
  * blocks only a control that is or becomes a TREATMENT, never a shared baseline.)
  */
-function assignCleanControls(planId: string, selected: BuiltCandidate[], correctionFactor: number): PlannedExperimentRecord[] {
+function assignCleanControls(
+  planId: string,
+  selected: BuiltCandidate[],
+  correctionFactor: number,
+  captureDistribution: ReadonlyMap<string, FamilyCaptureBand>,
+): PlannedExperimentRecord[] {
   const treatedPaths = new Set(selected.map((c) => normalizePath(c.url)));
   return selected.map((c) => {
     const clean: ProposedControlRecord[] = [];
@@ -116,7 +140,7 @@ function assignCleanControls(planId: string, selected: BuiltCandidate[], correct
       clean.push(controlRecord(ctrl));
       if (clean.length >= 5) break;
     }
-    return toExperimentRecord(planId, c, clean, correctionFactor);
+    return toExperimentRecord(planId, c, clean, correctionFactor, captureDistribution);
   });
 }
 
@@ -133,10 +157,16 @@ export function buildDailyPlanRecord(input: {
    *  caller (build-today-preview.ts) reads this fail-soft from forecast-calibration.ts; this
    *  function just threads it through to every pick's expectations. */
   correctionFactor?: number;
+  /** Item 64: the per-actionFamily empirical capture distribution (empirical-capture.ts), derived
+   *  by the caller from the SAME calibration ledger read as correctionFactor. Omitted (or an empty
+   *  map, e.g. a fresh tenant or an older test) resolves every family to the untouched static 25/75
+   *  band - byte-identical to pre-item-64 output. */
+  captureDistribution?: ReadonlyMap<string, FamilyCaptureBand>;
 }): DailyExperimentPlanRecord {
   const nowIso = input.now.toISOString();
   const expiresAt = new Date(input.now.getTime() + (input.expiresInMinutes ?? DEFAULT_EXPIRY_MIN) * 60_000).toISOString();
   const correctionFactor = input.correctionFactor ?? 1;
+  const captureDistribution = input.captureDistribution ?? new Map<string, FamilyCaptureBand>();
 
   // inputHash is content-addressed over the selected set + the active topology, so re-planning with
   // identical inputs yields the same plan id (idempotent preview), and any change → a new plan.
@@ -148,8 +178,8 @@ export function buildDailyPlanRecord(input: {
   const inputHash = stableHash(`${input.tenantId}|${input.date}|${selectedKey}|${snapKey}`);
   const id = `${input.tenantId}::${input.date}::${inputHash.slice(0, 12)}`;
 
-  const selected = assignCleanControls(id, input.selected, correctionFactor);
-  const backups = assignCleanControls(id, input.backups, correctionFactor);
+  const selected = assignCleanControls(id, input.selected, correctionFactor, captureDistribution);
+  const backups = assignCleanControls(id, input.backups, correctionFactor, captureDistribution);
 
   const byLever: Record<string, number> = {};
   const byPageFamily: Record<string, number> = {};

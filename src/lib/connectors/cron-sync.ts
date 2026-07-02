@@ -19,6 +19,11 @@ import { runMonthlyArchiveRollup } from "@/domains/seasonal/archive-rollup";
 import { loadMonthlyArchiveRows } from "@/domains/seasonal/load-monthly-archive";
 import { detectSeasonalQueries } from "@/domains/seasonal/seasonality";
 import { writeSeasonalSummary } from "@/domains/seasonal/seasonal-store";
+import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { computePeakCalendar } from "@/domains/seasonal/seasonality";
+import { writePeakCalendar } from "@/domains/seasonal/peak-calendar-store";
+import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
+import { runHistoricalVolume, HISTORICAL_VOLUME_KEYWORDS_LIMIT } from "@/domains/serp/dataforseo-labs";
 import { runLanguageGapPass } from "@/domains/language-gap/run-language-gap-pass";
 import { writeLanguageGapSummary } from "@/domains/language-gap/language-gap-store";
 import { loadQuarterlyDecayForTenant } from "@/domains/refresh/load-quarterly-decay";
@@ -396,6 +401,75 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] seasonal archive failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1d-2 - GSC deep history backfill continuation (master plan item 63): an
+  // operator-triggered deep backfill (/diagnostics/connectors "Load my full Search
+  // Console history") reaches up to 16 months back in resumable chunks; this
+  // continues exactly one more chunk per night for any tenant with a backfill
+  // still in_progress. A no-op for every tenant that never started one (fail-soft,
+  // isolated try/catch per tenant, does not touch PHASE 1d above).
+  for (const t of tenants) {
+    try {
+      const chunk = await continueDeepBackfillIfStarted(t.id);
+      if (chunk.ran) {
+        log.info("[cron-sync] GSC deep backfill chunk", {
+          tenantId: t.id,
+          chunkStart: chunk.chunkStart,
+          chunkEnd: chunk.chunkEnd,
+          daysPulled: chunk.daysPulled,
+          complete: chunk.complete,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] GSC deep backfill continuation failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1d-3 - proven peak calendar (master plan item 63): cross-check the top
+  // detected seasonal cluster heads (at most HISTORICAL_VOLUME_KEYWORDS_LIMIT, 20)
+  // against DataForSEO Labs' independent multi-year market volume, upgrading
+  // 'repeated' entries to 'proven' when both sources agree, then persist the
+  // calendar so the daily plan candidate feed can read it at $0. runHistoricalVolume
+  // rides the SAME money gauntlet as every other Labs read (30-day cache, dry-run
+  // default, fail-closed shared cap) - a dry-run/capped/error result yields no rows,
+  // and computePeakCalendar treats that as "unconfirmed" (archive-only confidence),
+  // never an error. The 30-day cache means the SAME stable cluster-head keyword set
+  // only spends once per month even though this runs nightly. Isolated try/catch
+  // per tenant, does not touch PHASE 1d/1d-2 above.
+  for (const t of tenants) {
+    try {
+      const seasonal = await loadSeasonalQueries(t.id);
+      const clusterHeads = seasonal
+        .filter((s) => s.confidence === "repeated")
+        .slice(0, HISTORICAL_VOLUME_KEYWORDS_LIMIT)
+        .map((s) => s.query);
+      const historicalVolume = new Map<string, Array<{ year: number; month: number; searchVolume: number }>>();
+      if (clusterHeads.length > 0) {
+        const labs = await runHistoricalVolume(clusterHeads);
+        for (const row of labs.rows) {
+          historicalVolume.set(row.keyword.trim().toLowerCase(), row.monthly);
+        }
+      }
+      const calendar = computePeakCalendar(seasonal, historicalVolume);
+      await writePeakCalendar({
+        tenant_id: t.id,
+        computed_at: new Date().toISOString(),
+        calendar,
+      });
+      const proven = calendar.filter((c) => c.confidence === "proven").length;
+      if (proven > 0) {
+        log.info("[cron-sync] peak calendar proven windows", { tenantId: t.id, proven, total: calendar.length });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] peak calendar failed", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

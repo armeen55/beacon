@@ -17,6 +17,10 @@ import {
   LABS_BULK_DIFFICULTY_COST_USD,
   BACKLINKS_BULK_RANKS_COST_USD,
   BACKLINKS_REFERRING_DOMAINS_COST_USD,
+  runHistoricalVolume,
+  parseHistoricalVolume,
+  HISTORICAL_VOLUME_COST_USD,
+  HISTORICAL_VOLUME_KEYWORDS_LIMIT,
   type LabsRunDeps,
 } from "./dataforseo-labs";
 
@@ -430,5 +434,108 @@ describe("readAllCachedKeywordDifficulty - $0 read for the daily-evidence-brief 
   it("is fail-soft on a cache read error (empty map, never throws)", async () => {
     const map = await readAllCachedKeywordDifficulty({ readCache: async () => { throw new Error("boom"); } });
     expect(map.size).toBe(0);
+  });
+});
+
+const HISTORICAL_VOLUME_BODY = {
+  tasks: [
+    {
+      result: [
+        {
+          items: [
+            {
+              keyword: "nowruz table setting",
+              keyword_info: {
+                monthly_searches: [
+                  { year: 2025, month: 3, search_volume: 4000 },
+                  { year: 2025, month: 1, search_volume: 50 },
+                  { year: 2026, month: 3, search_volume: 4300 },
+                  { year: 2026, month: 1, search_volume: 60 },
+                ],
+              },
+            },
+            { keyword: "no history keyword", keyword_info: {} }, // no monthly_searches -> []
+            { keyword_info: { monthly_searches: [] } }, // no keyword -> dropped entirely
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+describe("parseHistoricalVolume - honest on malformed input", () => {
+  it("maps keyword -> ascending (year, month) monthly curve, drops keyword-less rows", () => {
+    const rows = parseHistoricalVolume(HISTORICAL_VOLUME_BODY);
+    expect(rows).toEqual([
+      {
+        keyword: "nowruz table setting",
+        monthly: [
+          { year: 2025, month: 1, searchVolume: 50 },
+          { year: 2025, month: 3, searchVolume: 4000 },
+          { year: 2026, month: 1, searchVolume: 60 },
+          { year: 2026, month: 3, searchVolume: 4300 },
+        ],
+      },
+      { keyword: "no history keyword", monthly: [] },
+    ]);
+  });
+
+  it("returns [] on malformed bodies (never throws)", () => {
+    expect(parseHistoricalVolume(null)).toEqual([]);
+    expect(parseHistoricalVolume({ garbage: true })).toEqual([]);
+    expect(parseHistoricalVolume(undefined)).toEqual([]);
+  });
+});
+
+describe("runHistoricalVolume - the SAME money gauntlet, bounded to the top cluster heads", () => {
+  it("posts every keyword in ONE batched call (deduped, lowercased, capped at the limit)", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => HISTORICAL_VOLUME_BODY }) as unknown as Response);
+    const many = Array.from({ length: HISTORICAL_VOLUME_KEYWORDS_LIMIT + 5 }, (_, i) => `keyword ${i}`);
+    const r = await runHistoricalVolume(many, {}, labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("ok");
+    expect(r.costUsd).toBe(HISTORICAL_VOLUME_COST_USD);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/dataforseo_labs/google/historical_search_volume/live");
+    const payload = JSON.parse(String(init.body))[0];
+    expect(payload.keywords.length).toBe(HISTORICAL_VOLUME_KEYWORDS_LIMIT);
+  });
+
+  it("DRY-RUN default still applies (no call, priced plan only)", async () => {
+    const fetchImpl = vi.fn();
+    const { DATAFORSEO_DRY_RUN: _drop, ...rest } = CONFIGURED_ENV as Record<string, string>;
+    const r = await runHistoricalVolume(["nowruz table setting"], {}, labsDeps({ env: rest as unknown as NodeJS.ProcessEnv, fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("dry_run");
+    expect(r.plan.estCostUsd).toBe(HISTORICAL_VOLUME_COST_USD);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("the shared cap fails CLOSED (no call)", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runHistoricalVolume(["x"], {}, labsDeps({ spentThisMonthUsd: async () => 49.99, fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("capped");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("serves a cache hit within 30 days without spending", async () => {
+    const fetchImpl = vi.fn();
+    const cacheKey = "historical_search_volume|2840|en|nowruz table setting";
+    const r = await runHistoricalVolume(
+      ["nowruz table setting"],
+      {},
+      labsDeps({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        readCache: async () => [{ key: cacheKey, rows: parseHistoricalVolume(HISTORICAL_VOLUME_BODY), fetchedAt: "2026-06-20T00:00:00Z" }],
+      }),
+    );
+    expect(r.status).toBe("cache_hit");
+    expect(r.costUsd).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty keyword list without calling anything", async () => {
+    const fetchImpl = vi.fn();
+    const r = await runHistoricalVolume([], {}, labsDeps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("error");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

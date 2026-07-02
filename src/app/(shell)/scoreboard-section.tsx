@@ -32,6 +32,8 @@ import {
   computePortfolioCounterfactual,
   type CounterfactualRow,
 } from "@/domains/proof-gsc/portfolio-counterfactual";
+import { compareShadowPortfolio } from "@/domains/proof-gsc/shadow-portfolio-drift";
+import { loadShadowPortfolioMeasurement } from "@/domains/experiments/shadow-portfolio-measure";
 
 const W = 720;
 const H = 170;
@@ -276,6 +278,16 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
       buildCounterfactualRows(measuredLedger, now, shockWindows),
     );
 
+    // Item 65 - the shadow portfolio: picks Beacon actually shipped versus the top eligible
+    // candidates it considered but skipped, over matching windows. Distinct from item 41 above
+    // (that line is about a SHIPPED change's own diff-in-diff comparison pages; this one is about
+    // the PICKING process itself). Fail-soft and independently self-hiding - a read error or a
+    // thin sample just means this line stays silent beside the others.
+    const shadowMeasurement = await loadShadowPortfolioMeasurement(tenantId, now).catch(() => null);
+    const shadowPortfolio = shadowMeasurement
+      ? compareShadowPortfolio(shadowMeasurement.selected, shadowMeasurement.shadow)
+      : null;
+
     const deltaTone = s.deltaPct == null ? "text-gray-500 dark:text-neutral-400" : s.deltaPct > 2 ? "text-emerald-600 dark:text-emerald-400" : s.deltaPct < -2 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400";
     return (
       <section aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900">
@@ -302,13 +314,16 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
         {moneyLine ? (
           <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
         ) : null}
-        {lifetimeEarnings || portfolioCounterfactual ? (
+        {lifetimeEarnings || portfolioCounterfactual || shadowPortfolio ? (
           <div className="mt-2 space-y-1 border-t border-gray-100 pt-2 dark:border-neutral-800">
             {lifetimeEarnings ? (
               <p className="text-[13px] font-medium text-indigo-700 dark:text-indigo-300">{lifetimeEarnings.sentence}</p>
             ) : null}
             {portfolioCounterfactual ? (
               <p className="text-[13px] text-gray-600 dark:text-neutral-300">{portfolioCounterfactual.sentence}</p>
+            ) : null}
+            {shadowPortfolio ? (
+              <p className="text-[13px] text-gray-600 dark:text-neutral-300">{shadowPortfolio.sentence}</p>
             ) : null}
           </div>
         ) : null}

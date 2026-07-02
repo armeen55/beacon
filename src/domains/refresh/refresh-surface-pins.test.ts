@@ -90,7 +90,7 @@ describe("daily plan candidate source (build-daily-candidates + build-today-prev
   it("wires the refresh queue additively into buildDailyCandidates", () => {
     expect(PREVIEW).toContain('from "@/domains/refresh/refresh-store"');
     expect(PREVIEW).toContain("loadRefreshQueue(tenantId, now).catch(() => [])");
-    expect(PREVIEW).toContain("refreshQueue });");
+    expect(PREVIEW).toContain("refreshQueue, peakCalendar });");
   });
 
   it("build-daily-candidates consumes the queue through the bounded pure source", () => {

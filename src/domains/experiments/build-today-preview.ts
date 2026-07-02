@@ -44,15 +44,17 @@ import { buildSpikeHintNotes } from "@/domains/trend-radar/spike-hints";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import { buildSeasonalHintNotes } from "@/domains/seasonal/seasonal-hints";
 import { loadRefreshQueue } from "@/domains/refresh/refresh-store";
+import { loadPeakCalendar } from "@/domains/seasonal/peak-calendar-store";
 import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import { buildLanguageGapHintNotes } from "@/domains/language-gap/language-gap-hints";
 import { currentTenantSlug, currentTenant } from "@/lib/tenant-context";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { buildCitabilityHintNotes } from "@/domains/citability/citability-hints";
 import { loadCalibrationRecords } from "./forecast-calibration-store";
-import { summarizeForecastCalibration } from "./forecast-calibration";
+import { summarizeForecastCalibration, captureDistributionFromCalibrationRecords } from "./forecast-calibration";
 import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { forecastRange } from "./pick-expectations";
+import { blendCaptureBand } from "./empirical-capture";
 import { computeMde, estimateNoiseCv, assessPower } from "./power-analysis";
 import { loadTeammateFreshness } from "@/domains/team/source-freshness";
 import { teammateOf } from "@/domains/team/identity";
@@ -61,6 +63,8 @@ import { clampStrategyMix } from "@/domains/strategy-review/apply-mix";
 import { KNOWN_ACTION_FAMILIES } from "@/domains/strategy-review/run-strategy-review";
 import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
 import { computeDimPriors, resolvePrior, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
+import { buildShadowCandidates } from "./shadow-portfolio-capture";
+import { writeShadowPortfolioBatch } from "./shadow-portfolio-store";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -122,7 +126,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, correctionFactor, teammateFreshness, refreshQueue] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, calibrationRecords, teammateFreshness, refreshQueue, peakCalendar] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -164,12 +168,12 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       .catch(() => "")
       .then((slug) => (slug ? loadCrawlCitationFunnel(tenantId, slug) : null))
       .catch(() => null),
-    // Item 27 - the measured forecast bias (default 1.0 = no correction). Loaded here (moved up
-    // from its old post-planning spot) because item 35's power gate needs the SAME numeric forecast
-    // pick-expectations.ts will persist, and that forecast depends on this factor. Fail-soft to 1.
-    loadCalibrationRecords(tenantId)
-      .then((rows) => summarizeForecastCalibration(rows).correctionFactor)
-      .catch(() => 1),
+    // Items 27/64 - the calibration ledger, read ONCE here (moved up from its old post-planning
+    // spot) because item 35's power gate needs the SAME numeric forecast pick-expectations.ts will
+    // persist, and that forecast depends on both the item-27 correction factor AND the item-64
+    // per-family capture band derived below. Fail-soft to [] (both derive their safe defaults from
+    // an empty ledger: correctionFactor 1.0, every family band the static 25/75 fallback).
+    loadCalibrationRecords(tenantId).catch(() => []),
     // Item 46 (CARRY-OVER 115) - honest degradation: the SAME connector reads the standup strip
     // and /settings/connectors already use, so a pick argued in part by a stale/dead-source voice
     // says so in "how we know" instead of presenting every number as equally live. Fail-soft to
@@ -178,7 +182,20 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     // Item 56: $0 read of last night's refresh queue (pages losing clicks quarter over quarter
     // + their evidence briefs). Empty until the nightly pass has run. Fail-soft to none.
     loadRefreshQueue(tenantId, now).catch(() => []),
+    // Item 63: $0 read of last night's peak calendar (seasonal windows, some upgraded to
+    // 'proven' by the Labs historical-volume cross-check). Empty until the nightly pass has
+    // run. Fail-soft to none.
+    loadPeakCalendar(tenantId, now).catch(() => []),
   ]);
+
+  // Item 27 - the measured forecast bias (default 1.0 = no correction), derived from the ledger
+  // read above.
+  const correctionFactor = summarizeForecastCalibration(calibrationRecords).correctionFactor;
+  // Item 64 - the per-actionFamily empirical capture distribution, derived from the SAME ledger
+  // read. A fresh tenant (empty ledger) yields an empty Map, which resolves every family to the
+  // untouched static 25/75 band (blendCaptureBand's n < MIN_SAMPLES branch) - byte-identical to
+  // pre-item-64 behavior.
+  const captureDistribution = captureDistributionFromCalibrationRecords(calibrationRecords);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence. Item 18:
   // layer in the cached real difficulty score when one exists for this exact term, $0, additive.
@@ -344,7 +361,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
 
   // Item 56: the refresh queue rides in as a bounded additive source (max 2/night,
   // decayed-winners-first); an empty queue is byte-identical to the pre-item-56 batch.
-  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl, engineGapsByUrl, refreshQueue });
+  // Item 63: the peak calendar rides in the same way (max 2/night, 6-8 week lead); an
+  // empty calendar is byte-identical to the pre-item-63 batch.
+  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl, engineGapsByUrl, refreshQueue, peakCalendar });
 
   // Move 4 - RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
   // the deterministic review (page-query intent fit, action↔goal incl. year-intent, copy
@@ -443,7 +462,11 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     ? await loadDailyClicksByPagesForTenant(tenantId, topByOpportunity.map((c) => c.url), 90).catch(() => new Map<string, { date: string; clicks: number }[]>())
     : new Map<string, { date: string; clicks: number }[]>();
   for (const c of topByOpportunity) {
-    const range = forecastRange(c.ctrOpportunityClicks, correctionFactor);
+    // Item 64: resolve THIS candidate's family capture band so the power check reasons about the
+    // exact same range the plan record will later persist (see toExperimentRecord in
+    // build-daily-plan-record.ts) - never a mismatched, pre-item-64 static-band range.
+    const band = blendCaptureBand(captureDistribution.get(canonicalMoveType(c.actionFamily)));
+    const range = forecastRange(c.ctrOpportunityClicks, correctionFactor, { low: band.low, high: band.high });
     if (!range) continue; // nothing forecast honestly -> nothing to power-check either
     const sig = signals.get(c.url);
     const baselineDailyClicks = sig ? sig.clicks90d / 90 : 0;
@@ -750,13 +773,28 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     }),
   );
 
-  // Item 27's correctionFactor is loaded up front now (see the initial Promise.all) so item 35's
-  // power gate and this final plan record share the exact same forecast numbers.
+  // Items 27/64's correctionFactor + captureDistribution are derived up front now (see the initial
+  // Promise.all) so item 35's power gate and this final plan record share the exact same forecast
+  // numbers.
   const record = buildDailyPlanRecord({
     tenantId, date: now.toISOString().slice(0, 10), now, selected, backups,
     activeSnapshot: { proofIds: activeProofIds, treatedUrls: [...activeTreated], controlUrls: [...activeControl], influencedUrls: [] },
     correctionFactor,
+    captureDistribution,
   });
+
+  // Item 65 - THE SHADOW PORTFOLIO: capture tonight's top rejected-but-eligible candidates (the
+  // best of `teamReviewed` that did NOT make it into `selected`, ranked the same way the planner
+  // itself ranks a pick) as a free counterfactual cohort. Additive, fail-soft, computed-only here -
+  // the write never blocks or alters the plan record itself, and a store error just means tonight
+  // has no shadow batch (the /proof line and the drift calibration feed both self-hide on absence).
+  await writeShadowPortfolioBatch({
+    tenant_id: tenantId,
+    plan_id: record.id,
+    date: record.date,
+    captured_at: nowIso,
+    candidates: buildShadowCandidates(teamReviewed, new Set(selected.map((c) => c.url)), correctionFactor),
+  }).catch(() => {});
 
   // Item 12 - the FINAL REVIEW: after picks are FINAL, one bounded LLM read checks each pick
   // against its own evidence ("does the proposed text match what the top search asks?") and

@@ -63,8 +63,12 @@ async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[]>
  * neutralized to "measuring" - the diff-in-diff isn't trustworthy enough to
  * permanently bias the prior even though the window closed cleanly and no shock
  * overlapped it.
+ *
+ * Exported (BEACON_500 item 66) so the cross-tenant nightly aggregation
+ * (global-patterns/nightly-aggregate.ts) can apply the IDENTICAL eligibility gate
+ * to every tenant's ledger, rather than re-deriving a second copy of this logic.
  */
-function maturityGatedVerdict(
+export function maturityGatedVerdict(
   r: ShippedChangeRecord,
   overlap: OverlapContext | null,
   now: Date,
@@ -96,14 +100,17 @@ function maturityGatedVerdict(
   return r.verdict;
 }
 
-/** Map the tenant's proof ledger into dimension-keyed outcomes. Fail-soft → []. */
-export async function loadExperimentOutcomes(tenantId: string): Promise<SettledOutcome[]> {
-  let records: ShippedChangeRecord[];
-  try {
-    records = await loadShippedChanges();
-  } catch {
-    return [];
-  }
+/**
+ * Apply the SAME maturity/weather/parallel-trends gate to an explicit set of
+ * records for an explicit tenant, without going through the ambient
+ * `loadShippedChanges()` read. Extracted (item 66) so a cross-tenant job that
+ * already fetched every tenant's rows (one cross-tenant query, not N ambient
+ * ones) can gate them identically to the per-tenant loader below.
+ */
+export async function gateRecordsToOutcomes(
+  tenantId: string,
+  records: ShippedChangeRecord[],
+): Promise<SettledOutcome[]> {
   const now = new Date();
   const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
   const shockWindows = await loadShockWindowsForGate(tenantId);
@@ -116,6 +123,17 @@ export async function loadExperimentOutcomes(tenantId: string): Promise<SettledO
       queryCluster: queryClusterKey(r.targetQueries?.[0]),
     },
   }));
+}
+
+/** Map the tenant's proof ledger into dimension-keyed outcomes. Fail-soft → []. */
+export async function loadExperimentOutcomes(tenantId: string): Promise<SettledOutcome[]> {
+  let records: ShippedChangeRecord[];
+  try {
+    records = await loadShippedChanges();
+  } catch {
+    return [];
+  }
+  return gateRecordsToOutcomes(tenantId, records);
 }
 
 /** Map the tenant's proof ledger into PAGE-keyed rows for the page-specific outcome

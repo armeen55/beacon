@@ -1,9 +1,12 @@
 /**
- * forecast-calibration (2026-07-02, master plan item 27) - PURE aggregation of the calibration
+ * forecast-calibration (2026-07-02, master plan items 27/64) - PURE aggregation of the calibration
  * ledger (forecast-calibration-store.ts) into the portfolio-level "promise ledger" numbers: how
  * many forecasts landed inside their own range, whether Beacon runs hot or cold on average, one
  * plain sentence for the operator, and the bias-correction factor fed back into
  * pick-expectations.ts so future ranges shift toward reality.
+ *
+ * Item 64 additionally turns the same ledger into the PER-FAMILY empirical capture distribution
+ * (empirical-capture.ts) - see `captureDistributionFromCalibrationRecords` below.
  *
  * No I/O. Pinned by forecast-calibration.test.ts.
  */
@@ -13,6 +16,12 @@ import {
   CORRECTION_FACTOR_MIN,
   CORRECTION_FACTOR_MAX,
 } from "./pick-expectations";
+import {
+  computeCaptureDistribution,
+  type CaptureObservation,
+  type FamilyCaptureBand,
+} from "./empirical-capture";
+import { canonicalMoveType } from "@/domains/learning/experiment-prior";
 import type { CalibrationRecord } from "./forecast-calibration-store";
 import type { DailyExperimentPlanRecord, PlannedExperimentRecord } from "./daily-plan-types";
 
@@ -147,6 +156,39 @@ export function summarizeForecastCalibration(records: CalibrationRecord[]): Fore
     sentence,
     correctionFactor,
   };
+}
+
+/**
+ * Item 64: turn the same calibration ledger into per-actionFamily CaptureObservations, ready for
+ * empirical-capture.ts's shrinkage + distribution. `actionFamily` is derived fresh from `lever` via
+ * canonicalMoveType (NOT stored on the record - see forecast-calibration-store.ts's doc comment on
+ * why). A record missing `gapClicksPerMonth` (predates the field, or the baseline had no positive
+ * gap to target) is honestly excluded - there is no gap to divide by, so no capture fraction can be
+ * computed for it; this is the SAME "honest gap in the history" posture the rest of the calibration
+ * ledger already uses for pre-item-28 records. `windowImpressions` missing reads as 0 impressions
+ * (empirical-capture.ts's shrinkage then pulls that observation fully toward its family mean - the
+ * safe default when precision is unknown, never a fabricated high-confidence weight).
+ */
+export function captureObservationsFromCalibrationRecords(
+  records: ReadonlyArray<CalibrationRecord>,
+): CaptureObservation[] {
+  const out: CaptureObservation[] = [];
+  for (const r of records) {
+    if (r.gapClicksPerMonth == null || r.gapClicksPerMonth <= 0) continue;
+    out.push({
+      actionFamily: canonicalMoveType(r.lever),
+      capture: r.actual / r.gapClicksPerMonth,
+      impressions: r.windowImpressions ?? 0,
+    });
+  }
+  return out;
+}
+
+/** Item 64: the full ledger -> per-family empirical capture distribution, in one call. PURE. */
+export function captureDistributionFromCalibrationRecords(
+  records: ReadonlyArray<CalibrationRecord>,
+): Map<string, FamilyCaptureBand> {
+  return computeCaptureDistribution(captureObservationsFromCalibrationRecords(records));
 }
 
 export { CORRECTION_FACTOR_MIN, CORRECTION_FACTOR_MAX };

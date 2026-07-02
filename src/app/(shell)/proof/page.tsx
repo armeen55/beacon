@@ -41,6 +41,7 @@ import {
 import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
 import { shouldShowChangeDollarLine } from "@/domains/proof-gsc/change-dollar-value";
 import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
+import { selectHeadlineSentence } from "@/domains/proof-gsc/bayesian-read";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
   findExistingRevertRecord,
@@ -565,10 +566,17 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
   // Move 2 - the headline Search line: at a MATURE result, the lift-bearing sentence;
   // before that, the honest maturity language (no "Likely hurting (high confidence)"
   // off a 7-day read). Falls back to the legacy sentence when no presentation.
-  const sentence =
+  const floorSentence =
     pres && !mature
       ? `${pres.headline}. ${pres.explanation}`
       : proofOutcomeSentence({ verdict: rec.verdict, confidence: pres?.confidence ?? rec.confidence, basis, metric });
+  // Item 67 - the Bayesian read is an honest quantification layer, NOT a second
+  // decision path: the stored verdict (floors + permutation) still decides
+  // won/lost above. The headline sentence only upgrades to the Bayesian
+  // "X percent sure, likely N to M extra clicks a month" wording when a read
+  // exists AND agrees in direction with that same floor verdict - it can add
+  // confidence to a floor call, never contradict or replace one.
+  const sentence = selectHeadlineSentence(rec.verdict, rec.bayesianRead, floorSentence);
   // Report the controls actually used in the basis window; fall back to assigned
   // count only before any window has run (measuring state).
   const controlsCount = basis?.controlsUsed ?? rec.controlPages.length;
@@ -707,6 +715,21 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
         const line = permutationSentenceFromCounts(rec.permutationRead.nGreater, rec.permutationRead.nTotal);
         return line ? <p className="mt-1 text-[12px] text-foreground/80">{line}</p> : null;
       })() : null}
+
+      {/* Target-query read (master plan item 68): the page-level verdict above can
+          be diluted by a page's whole query mix; this names the EXACT search the
+          change aimed at, straight from gsc_daily_rows, honestly silent when the
+          data is missing or thin (< 50 impressions either window). */}
+      {rec.targetQueryRead && rec.targetQueryRead.length > 0
+        ? rec.targetQueryRead
+            .filter((tq) => tq.sentence)
+            .slice(0, 2)
+            .map((tq) => (
+              <p key={tq.query} className="mt-1 text-[12px] text-foreground/80">
+                {tq.sentence}
+              </p>
+            ))
+        : null}
 
       {/* Algorithm-weather guard (master plan item 32): this row's measurement window
           overlapped a confirmed Google update or a sitewide shift I detected, so I am

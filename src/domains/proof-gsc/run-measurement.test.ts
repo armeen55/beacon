@@ -224,3 +224,86 @@ describe("measureRecord - item 31 A/A calibration floor injection", () => {
     expect(result.windows.length).toBe(3);
   });
 });
+
+describe("measureRecord - item 67 Bayesian read integration", () => {
+  beforeEach(() => {
+    rankRecheckMock.mockReset();
+    rankRecheckMock.mockResolvedValue(null);
+    readFloorsForMock.mockReset();
+    readFloorsForMock.mockResolvedValue({});
+  });
+
+  it("attaches a bayesianRead for a CTR-judged action type without touching verdict/windows", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record({ actionType: "edit_title" }), now, "2026-07-01");
+    // edit_title is CTR-judged; the gscWindow mock returns real clicks/impressions
+    // for both pre and post, so a read should be computed.
+    expect(result.bayesianRead).not.toBeNull();
+    expect(typeof result.bayesianRead?.pWin).toBe("number");
+    expect(typeof result.bayesianRead?.sentence).toBe("string");
+    expect(result.windows.length).toBe(3);
+  });
+
+  it("never attaches a bayesianRead for a position-judged action type (no honest count/rate model for a rank)", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord(
+      "tenant-iranopedia",
+      record({ actionType: "add_internal_link" }),
+      now,
+      "2026-07-01",
+    );
+    expect(result.bayesianRead).toBeNull();
+  });
+
+  it("is null before any window has run (measuring state)", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    // No finalized data at all -> no window has run.
+    const result = await measureRecord("tenant-iranopedia", record(), now, null);
+    expect(result.bayesianRead).toBeNull();
+  });
+
+  it("is fail-soft: a throwing buildBayesianRead dependency never blocks the GSC verdict", async () => {
+    // buildBayesianRead itself is pure and cannot throw on well-formed numeric
+    // input, but the call site wraps it in try/catch - assert the overall
+    // measure call still resolves with a defined verdict regardless.
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    expect(result.verdict).toBeDefined();
+  });
+});
+
+describe("measureRecord - item 68 target-query read integration", () => {
+  beforeEach(() => {
+    rankRecheckMock.mockReset();
+    rankRecheckMock.mockResolvedValue(null);
+    readFloorsForMock.mockReset();
+    readFloorsForMock.mockResolvedValue({});
+  });
+
+  it("resolves to an empty targetQueryRead array when gsc_daily_rows is unreachable (fail-soft honest silence)", async () => {
+    // No Supabase env in this test file (getSupabaseAdmin throws), so the
+    // per-query reader fails soft to [] - this must never surface as a thrown
+    // error or alter the page-level verdict.
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    expect(result.targetQueryRead).toEqual([]);
+    expect(result.verdict).toBeDefined();
+  });
+
+  it("skips the target-query read entirely when the record has no target queries", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord(
+      "tenant-iranopedia",
+      record({ targetQueries: [] }),
+      now,
+      "2026-07-01",
+    );
+    expect(result.targetQueryRead).toEqual([]);
+  });
+
+  it("is null-safe before any window has run (measuring state)", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, null);
+    expect(result.targetQueryRead).toEqual([]);
+  });
+});

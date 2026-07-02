@@ -62,7 +62,9 @@ export type QualityReasonCode =
 // "refresh" (item 56): a fading page's new-section pick. Its proposedText is a short HEADING,
 // not long-form copy, so it deliberately takes only the generic gates (intent fit, proof
 // blocks, origin claims) - neither the section word-floor nor the title/meta length rules.
-export type QualityLever = "meta" | "title" | "h1" | "internal_link" | "answer_block" | "schema" | "section" | "new_page" | "cro" | "refresh";
+// "seasonal_prep" (item 63): a peak-calendar heads-up, same shape as "refresh" - proposedText
+// is a short prep instruction, not page copy, so it rides the identical generic-gates-only path.
+export type QualityLever = "meta" | "title" | "h1" | "internal_link" | "answer_block" | "schema" | "section" | "new_page" | "cro" | "refresh" | "seasonal_prep";
 
 export type RecommendationInput = {
   lever: QualityLever;

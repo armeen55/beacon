@@ -22,6 +22,8 @@ import {
 import {
   refreshAllDataSourcesFromForm,
   recomputeProofFromForm,
+  startGscDeepBackfillFromForm,
+  loadGscDeepBackfillStatus,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +73,8 @@ export default async function ConnectorsDiagnosticPage() {
 
   const rows = await loadRows();
   const anyConnected = rows.some((r) => r.connected);
+  const gscConnected = rows.find((r) => r.provider === "google_gsc")?.connected ?? false;
+  const backfillStatus = await loadGscDeepBackfillStatus();
 
   return (
     <div className="space-y-6 p-6">
@@ -159,6 +163,40 @@ export default async function ConnectorsDiagnosticPage() {
             className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white"
           >
             Recompute proof
+          </button>
+        </form>
+      </section>
+
+      {/* GSC deep history backfill (2026-07-02, master plan item 63) — the
+          seasonality engine needs multiple years of demand to prove a wave
+          repeats every year, but the normal sync only ever holds 90 days.
+          One click reaches back up to 16 months in resumable chunks; the
+          nightly sync continues it automatically until complete. */}
+      <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Load my full Search Console history
+        </h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Google keeps up to 16 months of search history, but I only load 90
+          days by default. Loading the full history lets me prove a search
+          wave repeats every year instead of guessing off one season, and
+          schedule prep work 6 to 8 weeks before it hits. This runs in the
+          background across several nights; one click starts it.
+        </p>
+        {backfillStatus.started ? (
+          <p className="mb-3 text-xs text-muted-foreground" data-testid="gsc-backfill-status">
+            {backfillStatus.status === "complete"
+              ? `Done. History now reaches back to ${backfillStatus.targetDate}.`
+              : `In progress: back to ${backfillStatus.cursorDate ?? backfillStatus.targetDate} so far, heading to ${backfillStatus.targetDate}. Continues automatically each night.`}
+          </p>
+        ) : null}
+        <form action={startGscDeepBackfillFromForm}>
+          <button
+            type="submit"
+            disabled={!gscConnected || (backfillStatus.started && backfillStatus.status === "complete")}
+            className="rounded bg-accent-primary px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {backfillStatus.started ? "Continue loading history" : "Load my full Search Console history"}
           </button>
         </form>
       </section>

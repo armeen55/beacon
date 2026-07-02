@@ -276,6 +276,11 @@ export const GLOBAL_STORES = new Set<string>([
   // windows over the permanent GSC monthly archive ($0 Today Demand band +
   // daily plan hint reads).
   "seasonal-windows",
+  // Peak calendar (2026-07-02, master plan item 63). Same cron fan-out
+  // rationale: rows carry tenant_id. The proven-vs-one_season peak calendar
+  // (seasonal windows cross-checked against DataForSEO Labs historical
+  // volume) the daily plan candidate feed + any operator calendar surface read.
+  "seasonal-peak-calendar",
   // Beat-Wikipedia finder (2026-07-02, master plan item 23). The article-facts
   // cache is public Wikipedia data (keyed by article title, no tenant secrets) -
   // global like the DataForSEO caches so its 30-day TTL prevents re-fetching the
@@ -380,6 +385,12 @@ export const GLOBAL_STORES = new Set<string>([
   // would misfile per-tenant paths). Latest per-tenant "their best page, our
   // better version" briefs, read by /competitors at $0 (no live fetch on render).
   "clone-brief-results",
+  // Shadow portfolio (2026-07-02, master plan item 65). Rows carry tenant_id;
+  // captured at plan time (build-today-preview.ts, no ambient per-tenant
+  // request context). Each night's top rejected-but-eligible candidates, kept
+  // append-only so the drift measurement pass can compare many nights' worth
+  // of "skipped" pages against the pages Beacon actually shipped.
+  "shadow-portfolio-candidates",
 ]);
 
 /**

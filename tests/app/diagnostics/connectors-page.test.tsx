@@ -35,6 +35,8 @@ vi.mock("@/lib/connector-store", () => ({
 vi.mock("@/app/(shell)/diagnostics/connectors/actions", () => ({
   refreshAllDataSourcesFromForm: async () => {},
   recomputeProofFromForm: async () => {},
+  startGscDeepBackfillFromForm: async () => {},
+  loadGscDeepBackfillStatus: async () => ({ started: false, reason: "not_started" }),
 }));
 
 import ConnectorsDiagnosticPage from "@/app/(shell)/diagnostics/connectors/page";
@@ -75,6 +77,8 @@ describe("/diagnostics/connectors — rows", () => {
     // 2026-06-15 — on-demand Proof Engine recompute (crons off)
     expect(html).toContain("Recompute causal proof");
     expect(html).toContain("Recompute proof");
+    // 2026-07-02 item 63 — GSC deep history backfill operator action
+    expect(html).toContain("Load my full Search Console history");
   });
 
   it("disables refresh + shows empty note when none connected", async () => {

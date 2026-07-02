@@ -1,18 +1,30 @@
 import "server-only";
 
 /**
- * forecast-calibration-store (2026-07-02, master plan items 27/28) - durable, additive-only store
- * for calibration records: one row per pick, written ONCE at its 28-day measure, comparing the
- * numeric forecast persisted on the plan pick (pick-expectations.ts) against the realized monthly
- * click lift the measurement already computed. These records are NEW writes only - they NEVER
- * touch measurement history (ShippedChangeRecord / the GSC proof ledger stay untouched); this is a
- * separate, append-only ledger the aggregator (forecast-calibration.ts) reads.
+ * forecast-calibration-store (2026-07-02, master plan items 27/28/64) - durable, additive-only
+ * store for calibration records: one row per pick, written ONCE at its 28-day measure, comparing
+ * the numeric forecast persisted on the plan pick (pick-expectations.ts) against the realized
+ * monthly click lift the measurement already computed. These records are NEW writes only - they
+ * NEVER touch measurement history (ShippedChangeRecord / the GSC proof ledger stay untouched); this
+ * is a separate, append-only ledger the aggregator (forecast-calibration.ts) reads.
  *
  * Follows the pipeline-health-store / ai-engine-gap-summary sibling pattern: a GLOBAL json-store
  * (rows carry tenant_id, because the measure pass can run with no ambient request context) that is
  * Supabase-mirrored so the write survives Vercel's read-only filesystem.
  *
  * Registered in store-classification.ts (GLOBAL_STORES) + json-store.ts (SUPABASE_MIRRORED_STORES).
+ *
+ * Item 64 additive fields - `gapClicksPerMonth` and `windowImpressions` are the two extra inputs
+ * empirical-capture.ts needs to turn this record into one CaptureObservation: the CTR-curve gap
+ * the pick targeted (same derivation as pick-expectations.ts, scaled to the same monthly clicks
+ * unit as `actual`) and the treated page's post-window Search impressions (the precision-weight
+ * input for winner's-curse shrinkage). Both optional so every record written before this field
+ * existed parses unchanged - `realizedCaptureFraction`/`shrinkFamilyObservations` in
+ * empirical-capture.ts simply skip a record missing either one (an honest gap in the history, not
+ * a fabricated one). `actionFamily` is intentionally NOT stored here - it is a pure function of
+ * `lever` (canonicalMoveType, already in @/domains/learning/experiment-prior), so storing it would
+ * risk drifting out of sync with the mapping if the mapping ever changes; callers derive it fresh
+ * at read time instead.
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
@@ -38,6 +50,20 @@ export type CalibrationRecord = {
   outcome: CalibrationOutcome;
   /** ISO timestamp the calibration record was written (the day-28 measure time, not the ship date). */
   at: string;
+  /** Item 64 (additive, optional): the monthly CTR-curve gap this pick targeted, derived the SAME
+   *  way pick-expectations.ts derives it (expectedCtrAt(position) - ctr) * impressions, scaled to
+   *  a monthly figure. Together with `actual` this is what lets empirical-capture.ts compute
+   *  `actual / gapClicksPerMonth` = the realized capture fraction. Missing on records written
+   *  before this field existed, or when the baseline had no positive gap to target - those records
+   *  are honestly excluded from the capture distribution, never backfilled with a guess. */
+  gapClicksPerMonth?: number;
+  /** Item 64 (additive, optional): the treated page's post-28-day-window Search impressions - the
+   *  precision-weight input for winner's-curse shrinkage (more impressions in the window means
+   *  less sampling noise in `actual`, so the observation is trusted more relative to its family's
+   *  mean). Missing on records written before this field existed or when the window had no
+   *  impressions data; empirical-capture.ts treats a missing value as zero precision (full shrink
+   *  toward the family mean), never a fabricated volume. */
+  windowImpressions?: number;
 };
 
 function outcomeFor(actual: number, low: number, high: number): CalibrationOutcome {
@@ -57,6 +83,9 @@ export function buildCalibrationRecord(input: {
   forecastHigh: number;
   actual: number;
   at: string;
+  /** Item 64 (additive, optional) - see the CalibrationRecord doc comment. */
+  gapClicksPerMonth?: number;
+  windowImpressions?: number;
 }): CalibrationRecord {
   return {
     pickId: input.pickId,
@@ -69,6 +98,8 @@ export function buildCalibrationRecord(input: {
     actual: input.actual,
     outcome: outcomeFor(input.actual, input.forecastLow, input.forecastHigh),
     at: input.at,
+    ...(input.gapClicksPerMonth != null ? { gapClicksPerMonth: input.gapClicksPerMonth } : {}),
+    ...(input.windowImpressions != null ? { windowImpressions: input.windowImpressions } : {}),
   };
 }
 

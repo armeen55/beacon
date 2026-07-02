@@ -102,6 +102,24 @@ export type BacklinksSummaryRow = {
   backlinks: number | null;
 };
 
+// ── Historical volume (2026-07-02, master plan item 63) ─────────────────────
+
+/** One keyword's multi-year monthly search-volume curve from Labs'
+ *  historical_search_volume endpoint - the read that confirms a seasonality
+ *  detector's one_season finding as a REPEATED, proven yearly wave. */
+export type HistoricalVolumeRow = {
+  keyword: string;
+  /** Ascending by (year, month); one entry per month DataForSEO has a score for. */
+  monthly: Array<{ year: number; month: number; searchVolume: number }>;
+};
+
+/** List price is per-keyword-batch (~$0.05/task + a few cents per keyword for
+ *  monthly history); charged conservatively so the shared cap trips early. */
+export const HISTORICAL_VOLUME_COST_USD = 0.08;
+/** Bounded per master plan item 63: only the top detected seasonal cluster
+ *  heads are ever checked, never a general keyword-research sweep. */
+export const HISTORICAL_VOLUME_KEYWORDS_LIMIT = 20;
+
 type CacheRow = { key: string; rows: unknown[]; fetchedAt: string };
 
 export type LabsRunDeps = {
@@ -595,6 +613,76 @@ export async function runBacklinksSummary(
     "bulk_referring_domains/live",
     { targets: clean },
     { cacheKey, estCostUsd: BACKLINKS_REFERRING_DOMAINS_COST_USD, parse: parseBacklinksSummary, base: BACKLINKS_BASE },
+    depsOverride,
+  );
+}
+
+/** Parse a keyword_ideas-shaped historical_search_volume body: one item per
+ *  keyword, each carrying a keyword_info.monthly_searches array. PURE, honest:
+ *  malformed/missing -> [] for that keyword (never fabricates history). */
+export function parseHistoricalVolume(body: unknown): HistoricalVolumeRow[] {
+  const out: HistoricalVolumeRow[] = [];
+  try {
+    for (const it of bulkItems(body)) {
+      const keyword = typeof it.keyword === "string" ? it.keyword : "";
+      if (!keyword) continue;
+      const info = (it.keyword_info ?? {}) as Record<string, unknown>;
+      const series = Array.isArray(info.monthly_searches) ? info.monthly_searches : [];
+      const monthly: HistoricalVolumeRow["monthly"] = [];
+      for (const m of series) {
+        if (!m || typeof m !== "object") continue;
+        const rec = m as Record<string, unknown>;
+        const year = typeof rec.year === "number" ? rec.year : null;
+        const month = typeof rec.month === "number" ? rec.month : null;
+        const searchVolume = typeof rec.search_volume === "number" ? rec.search_volume : null;
+        if (year == null || month == null || searchVolume == null) continue;
+        monthly.push({ year, month, searchVolume });
+      }
+      monthly.sort((a, b) => (a.year - b.year) || (a.month - b.month));
+      out.push({ keyword, monthly });
+    }
+  } catch {
+    /* malformed body -> [] */
+  }
+  return out;
+}
+
+/**
+ * Multi-year monthly search-volume curves for a bounded batch of keywords (at
+ * most HISTORICAL_VOLUME_KEYWORDS_LIMIT) - Google Ads' own market history via
+ * DataForSEO Labs, called ONLY for the top detected seasonal cluster heads
+ * (never a general research sweep). Confirms a one-season archive finding as a
+ * genuine multi-year market pattern before the peak calendar calls it "proven".
+ * Same money gauntlet as every other Labs read (30-day cache, dry-run default,
+ * fail-closed shared cap) - a dry-run or capped result returns [] rows, never
+ * spends, and the caller (computePeakCalendar) treats that as "unconfirmed",
+ * not an error.
+ */
+export async function runHistoricalVolume(
+  keywords: string[],
+  opts: LabsQueryOpts = {},
+  depsOverride: Partial<LabsRunDeps> = {},
+): Promise<LabsRunResult<HistoricalVolumeRow>> {
+  const clean = [...new Set(keywords.map((k) => k.trim().toLowerCase()).filter(Boolean))].slice(
+    0,
+    HISTORICAL_VOLUME_KEYWORDS_LIMIT,
+  );
+  if (clean.length === 0) {
+    return {
+      status: "error",
+      plan: { endpoint: `${LABS_BASE}/historical_search_volume/live`, cacheKey: "", estCostUsd: HISTORICAL_VOLUME_COST_USD },
+      rows: [],
+      costUsd: 0,
+      detail: "no keywords",
+    };
+  }
+  const locationCode = opts.locationCode ?? 2840; // United States
+  const languageCode = opts.languageCode ?? "en";
+  const cacheKey = `historical_search_volume|${locationCode}|${languageCode}|${[...clean].sort().join(",")}`;
+  return runLabsQuery<HistoricalVolumeRow>(
+    "historical_search_volume/live",
+    { keywords: clean, location_code: locationCode, language_code: languageCode },
+    { cacheKey, estCostUsd: HISTORICAL_VOLUME_COST_USD, parse: parseHistoricalVolume },
     depsOverride,
   );
 }

@@ -4,11 +4,16 @@ import {
   computeDimPriors,
   resolvePrior,
   applyExperimentPriorToMoves,
+  lookupGlobalCell,
   MIN_DECIDED,
   MAX_MULTIPLIER,
   MIN_MULTIPLIER,
+  GLOBAL_MIN_MULTIPLIER,
+  GLOBAL_MAX_MULTIPLIER,
+  MIN_DISTINCT_TENANTS_FOR_GLOBAL,
   type SettledOutcome,
   type PriorDimension,
+  type GlobalCell,
 } from "./experiment-prior";
 
 function outcome(verdict: string, dims: Partial<Record<PriorDimension, string>>, override?: string | null): SettledOutcome {
@@ -134,5 +139,144 @@ describe("applyExperimentPriorToMoves", () => {
     const out = applyExperimentPriorToMoves([move({ gap: "answer_block", score: 1000 })], outcomes, (m) => ({ actionType: m.gap }));
     expect(out[0]!.score).toBeLessThanOrEqual(Math.round(1000 * MAX_MULTIPLIER));
     expect(out[0]!.score).toBeGreaterThanOrEqual(Math.round(1000 * MIN_MULTIPLIER));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-tenant global backoff (BEACON_500 item 66)
+// ---------------------------------------------------------------------------
+
+function globalCell(over: Partial<GlobalCell> = {}): GlobalCell {
+  return { n: 12, distinctTenants: 5, winRate: 0.75, liftLow: 5, liftHigh: 30, ...over };
+}
+
+describe("lookupGlobalCell — distinct-tenant floor", () => {
+  it("returns null when no cell exists for the dimension/value", () => {
+    expect(lookupGlobalCell("actionType", "answer_block", () => undefined)).toBeNull();
+  });
+  it("returns null (suppressed) when distinctTenants is below the floor", () => {
+    expect(MIN_DISTINCT_TENANTS_FOR_GLOBAL).toBe(3);
+    const cell = globalCell({ distinctTenants: 2 });
+    expect(lookupGlobalCell("actionType", "answer_block", () => cell)).toBeNull();
+  });
+  it("returns null at distinctTenants=1 (the honest single-tenant-today state)", () => {
+    const cell = globalCell({ distinctTenants: 1 });
+    expect(lookupGlobalCell("actionType", "answer_block", () => cell)).toBeNull();
+  });
+  it("returns the cell once distinctTenants meets the floor", () => {
+    const cell = globalCell({ distinctTenants: 3 });
+    expect(lookupGlobalCell("actionType", "answer_block", () => cell)).toEqual(cell);
+  });
+});
+
+describe("resolvePrior — global backoff (opt-in, tenant ladder exhausted only)", () => {
+  it("is BYTE-IDENTICAL to pre-item-66 behavior when no globalLookup is passed", () => {
+    const table = computeDimPriors([won({ actionType: "answer_block" }), won({ actionType: "answer_block" }), won({ actionType: "answer_block" })]);
+    const withoutArg = resolvePrior({ actionType: "unrelated_type" }, table);
+    expect(withoutArg).toEqual({ multiplier: 1, decidedSample: 0, basis: null, tag: null });
+  });
+
+  it("is IDENTITY when the global table is empty (globalLookup always returns undefined)", () => {
+    const p = resolvePrior({ actionType: "answer_block" }, new Map(), () => undefined);
+    expect(p).toEqual({ multiplier: 1, decidedSample: 0, basis: null, tag: null });
+  });
+
+  it("never consults the global table when the TENANT'S OWN cell is already proven", () => {
+    const table = computeDimPriors([won({ actionType: "answer_block" }), won({ actionType: "answer_block" }), won({ actionType: "answer_block" })]);
+    let globalLookupCalled = false;
+    const p = resolvePrior({ actionType: "answer_block" }, table, () => {
+      globalLookupCalled = true;
+      return globalCell();
+    });
+    expect(globalLookupCalled).toBe(false);
+    expect(p.basis).toBe("actionType:answer_block");
+  });
+
+  it("backs off to the global cell when the tenant cell is thin (< MIN_DECIDED)", () => {
+    // Only 2 decided outcomes for this tenant — below MIN_DECIDED (3) — table omits it.
+    const table = computeDimPriors([won({ actionType: "edit_page" }), won({ actionType: "edit_page" })]);
+    const p = resolvePrior({ actionType: "edit_page" }, table, (dim, value) =>
+      dim === "actionType" && value === "edit_page" ? globalCell({ winRate: 0.8, distinctTenants: 4 }) : undefined,
+    );
+    expect(p.basis).toBe("global:actionType:edit_page");
+    expect(p.multiplier).toBeGreaterThan(1);
+  });
+
+  it("suppresses the global backoff below the distinct-tenant floor (honest single-tenant silence)", () => {
+    const p = resolvePrior({ actionType: "edit_page" }, new Map(), () => globalCell({ distinctTenants: 1 }));
+    expect(p).toEqual({ multiplier: 1, decidedSample: 0, basis: null, tag: null });
+  });
+
+  it("clamps the global multiplier to the TIGHTER [0.9, 1.15] band, distinct from the tenant band", () => {
+    expect(GLOBAL_MIN_MULTIPLIER).toBeGreaterThan(MIN_MULTIPLIER);
+    expect(GLOBAL_MAX_MULTIPLIER).toBe(MAX_MULTIPLIER);
+    const p = resolvePrior({ actionType: "answer_block" }, new Map(), () =>
+      globalCell({ winRate: 1, n: 100, distinctTenants: 20 }),
+    );
+    expect(p.multiplier).toBeLessThanOrEqual(GLOBAL_MAX_MULTIPLIER);
+    expect(p.multiplier).toBeGreaterThanOrEqual(GLOBAL_MIN_MULTIPLIER);
+  });
+
+  it("a strongly LOSING global cell still respects the tighter floor (never below 0.9)", () => {
+    const p = resolvePrior({ actionType: "answer_block" }, new Map(), () =>
+      globalCell({ winRate: 0, n: 100, distinctTenants: 20 }),
+    );
+    expect(p.multiplier).toBe(GLOBAL_MIN_MULTIPLIER);
+  });
+
+  it("the tag names a clicks-per-month band when the cell carries a lift range", () => {
+    const p = resolvePrior({ actionType: "edit_page" }, new Map(), () =>
+      globalCell({ liftLow: 5, liftHigh: 30, distinctTenants: 4 }),
+    );
+    expect(p.tag).toContain("5 to 30 clicks a month");
+    expect(p.tag).toContain("Across sites Beacon runs");
+  });
+
+  it("the tag falls back to a win-rate sentence when no lift range is known", () => {
+    const p = resolvePrior({ actionType: "edit_page" }, new Map(), () =>
+      globalCell({ liftLow: null, liftHigh: null, winRate: 0.5, n: 8, distinctTenants: 4 }),
+    );
+    expect(p.tag).not.toBeNull();
+    expect(p.tag).not.toContain("clicks a month");
+  });
+
+  it("respects the backoff ladder ORDER against the global table too (queryCluster before actionType)", () => {
+    const p = resolvePrior({ queryCluster: "iran flag", actionType: "edit_page" }, new Map(), (dim) =>
+      dim === "queryCluster" ? globalCell({ winRate: 0.9, distinctTenants: 5 }) : globalCell({ winRate: 0.1, distinctTenants: 5 }),
+    );
+    expect(p.basis).toBe("global:queryCluster:iran flag");
+    expect(p.multiplier).toBeGreaterThan(1);
+  });
+
+  it("no em or en dashes in any generated global tag (hard rule)", () => {
+    const cells = [
+      globalCell({ liftLow: 5, liftHigh: 30, distinctTenants: 4 }),
+      globalCell({ liftLow: null, liftHigh: null, winRate: 0.62, distinctTenants: 4 }),
+      globalCell({ liftLow: null, liftHigh: null, winRate: 0.2, distinctTenants: 4 }),
+    ];
+    for (const cell of cells) {
+      const p = resolvePrior({ actionType: "edit_page" }, new Map(), () => cell);
+      expect(p.tag ?? "").not.toMatch(/[–—]/);
+    }
+  });
+});
+
+describe("applyExperimentPriorToMoves — global backoff passthrough", () => {
+  it("with no globalLookup arg, behavior is unchanged (existing call sites stay byte-identical)", () => {
+    const moves = [move({ demandKey: "a", score: 1000, gap: "answer_block" })];
+    const out = applyExperimentPriorToMoves(moves, [], (m) => ({ actionType: m.gap }));
+    expect(out[0]!.learnedPrior).toEqual({ multiplier: 1, decidedSample: 0, basis: null, tag: null });
+  });
+
+  it("applies the global backoff when supplied and the tenant table is thin", () => {
+    const moves = [move({ demandKey: "a", score: 1000, gap: "edit_page" })];
+    const out = applyExperimentPriorToMoves(
+      moves,
+      [],
+      (m) => ({ actionType: m.gap }),
+      () => globalCell({ winRate: 0.8, distinctTenants: 5 }),
+    );
+    expect(out[0]!.learnedPrior?.basis).toBe("global:actionType:edit_page");
+    expect(out[0]!.score).toBeGreaterThan(1000);
   });
 });

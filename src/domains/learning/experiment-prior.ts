@@ -173,14 +173,86 @@ function tagFor(p: DimPrior): string {
   return `Mixed results on ${dimLabel} (${p.won}/${p.decided})`;
 }
 
+// ---------------------------------------------------------------------------
+// Global (cross-tenant) backoff, BEACON_500 item 66.
+//
+// When a tenant's OWN cell is thin (< MIN_DECIDED), resolvePrior can back off
+// to the cross-tenant `global_patterns` cell for the SAME dimension bucket,
+// under a TIGHTER clamp than the tenant-level prior (0.9-1.15 vs 0.85-1.15)
+// and ONLY when the cell has contributed by >= MIN_DISTINCT_TENANTS_FOR_GLOBAL
+// (3) distinct tenants, the same anonymous-patterns floor `global-patterns/
+// contracts.ts` and `rr-pattern.ts` enforce. This is opt-in: callers that
+// don't pass a `globalLookup` get EXACTLY the pre-item-66 behavior (neutral
+// on a thin tenant cell), so every existing call site stays byte-identical
+// until it explicitly wires the global table in.
+// ---------------------------------------------------------------------------
+
+/** Tighter band than the tenant-level [MIN_MULTIPLIER, MAX_MULTIPLIER]; a
+ *  cross-tenant signal tilts LESS than the tenant's own proven history. */
+export const GLOBAL_MIN_MULTIPLIER = 0.9;
+export const GLOBAL_MAX_MULTIPLIER = 1.15;
+
+/** Cross-tenant floor: a benchmark line may only surface when at least this
+ *  many DISTINCT tenants contributed to the cell. Mirrors contracts.ts's
+ *  confidence-gate floor (3) and rr-pattern.ts's MIN_DISTINCT_TENANTS_TO_SURFACE. */
+export const MIN_DISTINCT_TENANTS_FOR_GLOBAL = 3;
+
+/** The shape `resolvePrior` needs from a `global_patterns` cell, deliberately
+ *  narrow (no tenant ids, no raw text) so a caller can pass a row straight
+ *  from the aggregate table. */
+export type GlobalCell = {
+  n: number;
+  distinctTenants: number;
+  winRate: number;
+  /** Rounded clicks/month band the surface can quote verbatim (e.g. "5 to 30
+   *  clicks a month"), derived from the cell's liftP25/liftP75. Null when the
+   *  cell has no numeric lift samples (still countable for winRate, just not
+   *  quotable in a clicks range). */
+  liftLow: number | null;
+  liftHigh: number | null;
+};
+
+/** Resolve ONE dimension value against the global table. PURE. Returns null
+ *  when there is no cell, or the cell is below the distinct-tenant floor.
+ *  The floor is re-checked HERE (not trusted from the caller) so a caller
+ *  can never accidentally surface a single-tenant "benchmark". */
+export function lookupGlobalCell(
+  dimension: PriorDimension,
+  value: string,
+  globalLookup: (dimension: PriorDimension, value: string) => GlobalCell | undefined,
+): GlobalCell | null {
+  const cell = globalLookup(dimension, value);
+  if (!cell) return null;
+  if (cell.distinctTenants < MIN_DISTINCT_TENANTS_FOR_GLOBAL) return null;
+  return cell;
+}
+
+function clampGlobalMult(n: number): number {
+  return Math.max(GLOBAL_MIN_MULTIPLIER, Math.min(GLOBAL_MAX_MULTIPLIER, n));
+}
+
+function globalTagFor(cell: GlobalCell): string {
+  if (cell.liftLow != null && cell.liftHigh != null && cell.liftHigh > 0) {
+    return `Across sites Beacon runs, changes like this typically added ${cell.liftLow} to ${cell.liftHigh} clicks a month`;
+  }
+  const pct = Math.round(cell.winRate * 100);
+  return `Across sites Beacon runs, ${pct}% of changes like this won (${cell.n} tracked)`;
+}
+
 /**
  * Resolve the prior for ONE Move's dimensions using the backoff ladder: the most
  * SPECIFIC dimension (queryCluster → pageType → actionType) that has a proven
- * bucket wins; otherwise neutral. PURE.
+ * TENANT bucket wins. When the tenant's ladder is fully exhausted (every
+ * dimension either absent or thin) AND a `globalLookup` was supplied, the SAME
+ * ladder is retried against the cross-tenant table under the tighter global
+ * clamp, gated by the distinct-tenant floor. Otherwise neutral. PURE (the
+ * `globalLookup` callback is a plain synchronous map read, not I/O; the
+ * caller is responsible for loading the global table before calling this).
  */
 export function resolvePrior(
   dims: Partial<Record<PriorDimension, string>>,
   table: Map<string, DimPrior>,
+  globalLookup?: (dimension: PriorDimension, value: string) => GlobalCell | undefined,
 ): LearnedPrior {
   for (const dim of PRIOR_DIMENSIONS) {
     const v = dims[dim];
@@ -190,6 +262,25 @@ export function resolvePrior(
       return { multiplier: hit.multiplier, decidedSample: hit.decided, basis: hit.key, tag: tagFor(hit) };
     }
   }
+
+  // Tenant ladder exhausted (no dimension proven). Byte-identical to
+  // pre-item-66 behavior when no globalLookup is supplied (the default).
+  if (!globalLookup) return NEUTRAL;
+
+  for (const dim of PRIOR_DIMENSIONS) {
+    const v = dims[dim];
+    if (!v) continue;
+    const cell = lookupGlobalCell(dim, v, globalLookup);
+    if (!cell) continue;
+    const multiplier = clampGlobalMult(1 + (cell.winRate - 0.5) * SENSITIVITY);
+    return {
+      multiplier,
+      decidedSample: cell.n,
+      basis: `global:${dim}:${v}`,
+      tag: globalTagFor(cell),
+    };
+  }
+
   return NEUTRAL;
 }
 
@@ -205,10 +296,11 @@ export function applyExperimentPriorToMoves(
   moves: readonly MoveCandidate[],
   outcomes: readonly SettledOutcome[],
   resolveDims: (m: MoveCandidate) => Partial<Record<PriorDimension, string>>,
+  globalLookup?: (dimension: PriorDimension, value: string) => GlobalCell | undefined,
 ): MoveCandidate[] {
   const table = computeDimPriors(outcomes);
   const out = moves.map((m) => {
-    const prior = resolvePrior(resolveDims(m), table);
+    const prior = resolvePrior(resolveDims(m), table, globalLookup);
     if (prior.multiplier === 1) return { ...m, learnedPrior: prior };
     return {
       ...m,

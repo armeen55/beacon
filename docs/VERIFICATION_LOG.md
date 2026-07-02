@@ -7,6 +7,98 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 item 63 (seasonality engine: proven peak calendar + GSC deep backfill, worktree, NOT committed)
+
+**Built:**
+
+- `src/lib/connectors/gsc/deep-backfill.ts` (new): resumable deep-history backfill up to
+  `DEEP_BACKFILL_DAYS` (480) in `CHUNK_DAYS` (30) chunks, checkpointed in a new
+  `gsc_backfill_progress` table (`migrations/2026-07-02_gsc_backfill_progress.sql`, additive,
+  RLS mirrors peers, NOT yet applied to prod). `startDeepBackfill` / `runDeepBackfillChunk` /
+  `continueDeepBackfillIfStarted` / `readBackfillProgress`. The cursor only advances on a
+  successful chunk; a failed chunk (network/quota/auth) leaves it untouched so the identical
+  window retries next time. `src/lib/connectors/gsc/sync-search-analytics.ts` gained an
+  additive optional `endDate` param (back-compat default: pulls through the natural
+  `lastFinalDay` as before) so a chunk can bound both ends of its window.
+- Operator trigger: `/diagnostics/connectors` gained a "Load my full Search Console history"
+  section (`startGscDeepBackfillNow`, `loadGscDeepBackfillStatus`, `startGscDeepBackfillFromForm`
+  in that page's `actions.ts`); the nightly cron's new PHASE 1d-2 (`continueDeepBackfillIfStarted`)
+  continues an in-progress backfill one chunk per night until complete.
+- `src/domains/serp/dataforseo-labs.ts` gained `runHistoricalVolume` (Labs
+  `historical_search_volume/live`), the same money gauntlet as every sibling Labs call (configured
+  check, 30-day cache, dry-run default, fail-closed shared cap, ledger), `HISTORICAL_VOLUME_COST_USD`
+  = $0.08, bounded to `HISTORICAL_VOLUME_KEYWORDS_LIMIT` = 20 keywords/call.
+- `src/domains/seasonal/seasonality.ts` gained `computePeakCalendar` + `PeakCalendarEntry`: upgrades
+  a `repeated` confidence to a new `proven` level only when the archive's own 2+-year finding AND an
+  independently-computed Labs multi-year window (same share/floor method, run over the Labs curve's
+  own years) agree on the SAME peak month(s). `clusterLabel` is always the query text itself,
+  title-cased - zero hardcoded holiday/topic names anywhere, per the operator's hard rule.
+- New `src/domains/seasonal/peak-calendar-store.ts` (persistence, `seasonal-peak-calendar` store,
+  registered in `store-classification.ts` GLOBAL_STORES + `json-store.ts` SUPABASE_MIRRORED_STORES)
+  and a new PHASE 1d-3 in `cron-sync.ts`: cross-checks the top detected `repeated` cluster heads
+  (capped at 20) against Labs nightly, persists the calendar. The 30-day Labs cache means a stable
+  cluster-head set only spends once per month even though the cron runs nightly.
+- New `src/domains/seasonal/seasonal-candidates.ts`: `findSeasonalCandidates`, a bounded source
+  (`MAX_SEASONAL_CANDIDATES_PER_NIGHT` = 2) firing only when a calendar entry's peak opens 6-8 weeks
+  out (`SEASONAL_CANDIDATE_LEAD_MIN_WEEKS` = 6, `_MAX_WEEKS` = 8), following the item-56
+  `refresh-candidates.ts` precedent exactly (same eligibility-map input shape, same
+  one-card-per-page-per-night guard). Wired into `build-daily-candidates.ts` as a new
+  `seasonal_prep` lever/action-family "content", additive after the refresh block so a page the
+  refresh queue already claimed tonight is correctly skipped here. `QualityLever`
+  (`recommendation-quality.ts`) and `BuiltCandidate.leverField` both extended additively.
+  `build-today-preview.ts` wires `loadPeakCalendar` in and passes `peakCalendar` through.
+
+**Tests:** 65 new, all green.
+
+- `src/lib/connectors/gsc/deep-backfill.test.ts` (17): chunking bound, cursor-advance-on-success,
+  cursor-frozen-on-failure (resumability), final-chunk clamps to target exactly, `not_started` /
+  `already_complete` short-circuits, nightly-continuation no-op for a never-started tenant, dash guard.
+- `src/domains/serp/dataforseo-labs.test.ts` (+9 new, 39 total): `parseHistoricalVolume` malformed-input
+  safety, `runHistoricalVolume`'s gauntlet (batched call/dedup/cap, dry-run, fail-closed cap, cache hit,
+  empty-list rejection).
+- `src/domains/seasonal/seasonality.test.ts` (+11 new, 26 total): the proven-confidence matrix (upgrade
+  on agreement, no-upgrade on single-Labs-year / different-month / flat-curve, case-insensitive keyword
+  match, unrelated-cache-noise immunity), `clusterLabel` derivation, field pass-through, empty input,
+  extended dash-guard file list.
+- `src/domains/seasonal/seasonal-candidates.test.ts` (15, new file): lead-window boundaries (exactly 6
+  and 8 weeks), bounding, eligibility + dedup guards, honesty gate (no top page), team-voice content
+  per confidence level, dash guard.
+- `src/domains/seasonal/seasonal-wire.test.ts` (8, new file): real `seasonal_prep` candidate emission
+  through `buildDailyCandidates`, bounding at 2/night, lead-window silence, byte-identical-when-absent,
+  mid-measurement exclusion, honesty gate, the seasonal-vs-refresh double-fire guard (refresh wins the
+  page when both would fire), dash guard.
+- `tests/app/diagnostics/connectors-page.test.tsx` (updated): new action mocks + a render pin for the
+  new backfill section heading.
+
+**Verified:** `npm run typecheck` 0 errors in every file this item owns (two pre-existing unrelated
+errors - `proof/page.tsx` `selectHeadlineSentence` and `global-patterns/nightly-aggregate.test.ts` -
+confirmed via `git diff --stat` to belong to concurrent in-flight work in this shared worktree, not
+this item). Targeted sweep: 248 tests / 19 files green (the 5 new test files above plus every touched
+shared file: `build-daily-candidates.test.ts`, `build-today-preview.test.ts`, existing seasonal suite,
+existing GSC connector suite, `dataforseo-labs.test.ts`, `recommendation-quality.test.ts`, the
+json-store/store-classification/cron-sync architecture suites, both connectors-diagnostics suites). No
+full suite run this slice (targeted-only per the cost-discipline directive). No git add/commit (per
+instruction).
+
+**Ground-truthed live on Iranopedia (read-only probes only, zero writes, zero spend):**
+`gsc_daily_rows` really does span only 2026-05-02 to 2026-06-29 (58 days, confirms item 56's starved-
+archive note); `gsc_monthly_archive` currently holds exactly 1 distinct rolled-up month (2026-05).
+Running the REAL detector + calendar over that live archive found 20 seasonal-shaped queries, and
+**every single one is honestly `one_season` - zero `repeated`, zero `proven`** (the May-June-only
+window makes every query's 2-month share look like 100 percent of its "annual" total, which is
+exactly the starved-data artifact the item's own honesty framing predicted, not a bug).
+`gsc_backfill_progress` does not exist in prod yet - the migration is written but NOT applied (the
+operator did not request a live backfill or migration apply this slice, per the task's explicit
+guardrail: "Do NOT run the live backfill or spend on Labs... the operator triggers the real backfill").
+
+**Caveats / what is deliberately NOT done this slice:** the `gsc_backfill_progress` migration is
+written but not applied to prod Supabase; no real GSC backfill was triggered; no real DataForSEO Labs
+spend occurred (dry-run/mocked only in tests); the peak calendar will read as all-`one_season` on
+every render until the operator runs the real backfill and enough months accrue. Work is
+uncommitted in this worktree per the operator's "no git add/commit" instruction for this task.
+
+---
+
 ## 2026-07-02 - BEACON 500 item 59 (ask-your-team chat, worktree, NOT committed)
 
 **Built:** New `src/domains/ask/` domain, deterministic-first per the plan's architecture:
@@ -30448,3 +30540,13 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **Real batch preview (read-only $0 probe against real Iranopedia data, `scripts/_page-factory-probe.ts`, no LLM calls, nothing written):** 40 raw entity x attribute candidates, 19 survive dedupe against 227 open demand-graph Moves and 0 prior batches (first run). Against 217 fresh cached DataForSEO keyword rows: 13 candidates clear the demand floor. This week's batch (ranked, capped at 5) would be: "Flags Meaning" and "Flags Examples" (cached keyword, 135,000/mo each), "History of Persian" (graph demand 52,735), "History of Iranian" (graph demand 17,640), "History of Empire" (graph demand 13,709) - 8 more real passing candidates wait for next week under the cap. 2 candidates ("Product Examples", "Animals Examples") have no cached keyword data yet and are queued for the next keyword batch, never drafted or rejected. 4 candidates ("Product Meaning", "History of Product", "Animals Meaning", "History of Animals") were correctly rejected: the entity-attribute factory's generic "Product"/"Animals" entities only weak-matched an unrelated cached keyword ("pedar sag meaning", a real Persian phrase with no relation to "product" or "animals"), confirming the confidence-gated matcher rejects spurious matches rather than drafting off noise.
 
 **Honest caveats:** the production line's own tests inject `draftBrief`/`draftFullPage` (never call the real OpenAI API), so the $0.30/week ceiling's exact stop-point under real gpt-5-mini pricing has not been exercised end to end against a live key - the unit tests pin the requeue-on-ceiling BEHAVIOR with synthetic costs, not the real dollar amount a live 5-page week would spend (`draftCreatePageStructured` projects $0.03/brief, `draftFullPageStructured` typically far less than $0.08/page after quality-gate fallback stubs, so 5 pages should land near $0.15-0.20 in practice, under the ceiling, but this is an estimate from the existing item-55 cost model, not a fresh live run this slice paid for). The review card's "I published this" flow assumes the operator pastes the drafted content into their CMS by hand and reports the resulting URL, mirroring the New Pages board's existing paste-ready contract exactly (there is no generic Wix dynamic-page collection mapping this slice can safely auto-resolve for a brand-new page today, so `executePush`'s armed `create:<collectionId>` route is available for a future operator-driven wire-up but is not called automatically here - staying "never auto-publish" holds either way). `factory_page_brief` (the new `MoveDraftKind`) is added but currently unused by the runner (it reuses `create_page_brief`, which already fits); kept for a possible future factory-specific compact persistence path rather than removed, since the task explicitly asked for the store-registration groundwork. Did not touch `outreach`, `/ask`, `money-pages`, or `rewrite-page` (all actively owned by concurrent agents this session per `git status`).
+
+## 2026-07-02 - Items 67 + 68: Bayesian verdicts with credible intervals + measure the target queries directly
+
+**Built:** `src/domains/proof-gsc/bayesian-read.ts` (new, pure, zero dependencies) - CTR modeled beta-binomial (pre window as an informative prior via add-one Bayes-Laplace smoothing, post window updates the posterior), clicks modeled gamma-Poisson (same add-one prior shape, pre window as a daily-rate prior). Both posteriors are moment-matched to a normal distribution (documented approximation in the module header, with its bounds: degrades under ~10 clicks or ~30 impressions in a window, flagged via `smallSample`) so `P(lift > 0)` and a 90% credible interval on monthly clicks are exact closed forms of that normal approximation. `buildBayesianRead` orchestrates by metric (routes CTR-judged changes through the beta-binomial model, everything else through gamma-Poisson, returns null for a position-judged change since an average rank has no honest count/rate model). `bayesianSentence` renders the plain-English line ("We are 87 percent sure this helped, likely 5 to 40 extra clicks a month"), `bayesianAgreesWithVerdict` is the direction-agreement gate (won agrees at pWin>=0.7, lost at pWin<=0.3), `selectHeadlineSentence` composes the two into the Results-row upgrade rule. Explicitly documented as an ADDITIVE quantification layer, not a second decision path this cycle: the stored `verdict`/`confidence` are never touched by this module. `src/domains/proof-gsc/target-query-read.ts` (new) - per-target-query diff-in-diff reading `gsc_daily_rows` (the only table with the page+query grain) for the record's own `targetQueries`, treated page vs its comparison pages, over the same basis window the page-level verdict uses. WWW-variant safe: reuses the exact `withWwwVariant` pattern `auto-record-on-ship.ts` already proved for this same table (raw GSC host form vs canonicalized bare host), paged in 1000-row chunks up to a 20k-row bound. Honest silence (empty array) when there are no target queries, no window has closed, or a query has under 50 impressions in either window (`MIN_QUERY_IMPRESSIONS`) - never fabricates a read off a sliver of data. Both wired ADDITIVELY into `measureRecord` (`run-measurement.ts`): a new `treatedPostByDay` map captures each window's raw treated-post metrics (the loop previously only kept `computeWindowLift`'s derived deltas) so the Bayesian read can use the SAME basis window's real clicks/impressions without re-deriving them from the lift math; `bayesianRead` and `targetQueryRead` are new computed-only fields on `ShippedChangeRecord` (`shipped-change-store.ts`), same NOT-persisted posture as `trafficOutcome`/`citationOutcome`/`rankOutcome`/`permutationRead` (recordToRow omits them, recomputed every measure). Results row (`src/app/(shell)/proof/page.tsx`): the headline sentence upgrades to the Bayesian wording via `selectHeadlineSentence` only when a read exists and agrees in direction with the floor verdict (a disagreeing or absent read leaves the existing floor-derived sentence untouched); up to 2 target-query sentences render below the permutation-null line, filtered to rows that had something honest to say.
+
+**Verified:** `npm run typecheck` 0 errors in every file these two items own (`bayesian-read.ts`, `target-query-read.ts`, `run-measurement.ts`, `shipped-change-store.ts`, `proof/page.tsx`); the remaining repo-wide errors during this session all live in concurrently-edited files this pair of items never touches (`seasonal/seasonality.test.ts`, confirmed another agent's in-flight work). 74 new targeted tests: `bayesian-read.test.ts` (48 - closed-form normal-CDF sanity vs known table values, a full CTR matrix (flat/large-clear-win/large-clear-loss/small-sample-flagged/zero-click-prior-never-NaN/monthly-scaling-by-window-length), a full clicks matrix (same shape, gamma-Poisson), metric routing (CTR/clicks/null-on-position), sentence plain-language + range-wording matrix (positive/negative/coin-flip/small-sample-caveat/straddling-zero/all-negative), the direction-agreement gate at both boundaries (0.7 and 0.3) plus non-final verdicts never agreeing, the `selectHeadlineSentence` presentation pin (upgrades on agreement, keeps the floor sentence on disagreement or absence, never fires for measuring/inconclusive/insufficient_data, and a pin proving the verdict input itself is never mutated), and a dash guard on the source file), `target-query-read.test.ts` (26 - basic control-adjusted CTR/position diff-in-diff against a closed-form hand-check, no-target-queries and blank-query short-circuits with zero reads attempted, the full thin-data silence gate at both window boundaries and exactly at the 50-impression floor, silent-drop for a query missing from GSC entirely, www-variant safety for both the treated page and a control page stored under the opposite host form, fail-soft on a read error and a missing tenant id, the sentence formatter's CTR-only/position-only/neither-present/decline-reads-as-down cases, and a dash guard). `run-measurement.test.ts` grew by 8 integration cases (4 each for items 67/68): a real bayesianRead attaches for a CTR-judged action type without changing verdict/windows, none attaches for a position-judged action type, null before any window has run, and fail-soft framing; target-query resolves to `[]` when Supabase is unreachable (no env in this test file) without altering the verdict, skips entirely with no target queries, and stays null-safe pre-measurement. ALL existing proof-gsc suites re-verified green alongside the new work: 33 test files, 491 tests total across `src/domains/proof-gsc/**` and `src/app/(shell)/proof/**` (includes the pre-existing `measure.test.ts`, `run-measurement.test.ts`, `permutation-null.test.ts`, `proof-jargon-guard.test.ts` all passing byte-identical to before this change on their existing assertions). No full repo suite run (CI-minutes conservation rule) - targeted proof-gsc + proof directories only, which is the full ownership surface for this pair of items.
+
+**Real Iranopedia probe (read-only, `scripts/ground-truth-bayesian-target-query.ts`, no paid calls, nothing written):** the `/famous-iranian-singers` shipped-change record (`section_add`, shipped 2026-06-21, targetQueries: "iranian singers"/"persian singers"/"famous iranian singers"/"famous persian singers"/"persian singer") with its stored verdict UNCHANGED at `won`/`high` confidence (7-day window). Real `bayesianRead`: pWin=0.82, 90% credible interval [-9, 33] extra clicks/month, sentence "We are 82 percent sure this helped, likely 9 fewer to 33 extra clicks a month." - and since 0.82 clears the 0.7 agreement threshold for a `won` verdict, the Results-row headline genuinely upgrades to this Bayesian wording (confirmed via the same `selectHeadlineSentence` the UI calls). Real `targetQueryRead`: 2 of the 5 target queries had enough data to report (the other 3 were too thin, honestly silent) - "iranian singers" (position 11.1 to 8.3, click rate down 0.3 points, likely a rank-not-yet-converted-to-clicks case) and "persian singers" (click rate up 2.7 points, position flat at 14.6). Both queries reported `controlsUsed=0` (the 4 assigned comparison pages, entrepreneur/scientist/athlete/male-names lists, genuinely do not rank for singer-related queries in `gsc_daily_rows`, so the sentence correctly falls back to the treated page's own raw movement rather than fabricating a control adjustment from zero usable comparators).
+
+**Honest caveats:** the Bayesian read is intentionally NOT a diff-in-diff (reads the treated page's own pre vs post, never subtracts control-page drift) because a closed-form Bayesian treatment of a three-way treated-pre/treated-post/control-drift comparison has no simple conjugate form without silently breaking the beta/gamma conjugacy this module leans on; this is documented in the module header as the explicit trade (the Bayesian read answers "how sure am I THIS PAGE moved", the floor verdict still answers "how sure am I this page moved MORE than similar pages"), which is why the headline upgrade requires directional AGREEMENT between the two rather than ever replacing the floor verdict as the decision-maker. The normal-moment-matching approximation is honest but not exact for thin samples (documented + gated via `smallSample`, verified in the real probe's case as `false` since the singers page has real volume). `targetQueryRead`'s control adjustment can silently degrade to zero controls (as seen in the real probe) when no comparison page shares demand for a specific long-tail query - this is the correct, honest behavior (no fabricated adjustment) but means the per-query sentence sometimes reports raw movement rather than a true diff-in-diff; this is called out explicitly in the sentence's own framing ("On the exact search we aimed at") which never claims to be control-adjusted. `writeCalibrationIfDue`'s call site in `run-measurement.ts` and other nearby code were being concurrently edited by other agents in this shared worktree during this session (confirmed via repeated `git status`/re-read checks after two mid-session full-file reverts of `run-measurement.ts`/`shipped-change-store.ts` back to their pre-edit state, both re-applied and re-verified); the final on-disk state was re-confirmed intact and green immediately before this report.

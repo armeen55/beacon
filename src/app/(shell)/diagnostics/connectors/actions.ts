@@ -36,6 +36,7 @@ import { refreshCallRailMetrics } from "@/app/(shell)/diagnostics/callrail/actio
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
+import { startDeepBackfill, runDeepBackfillChunk, readBackfillProgress } from "@/lib/connectors/gsc/deep-backfill";
 
 const ROUTE = "/diagnostics/connectors";
 
@@ -301,4 +302,82 @@ export async function recomputeProofFromForm(
   _formData: FormData,
 ): Promise<void> {
   await recomputeProofNow();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GSC deep history backfill (2026-07-02, master plan item 63) — the seasonality
+// engine's peak calendar needs multiple YEARS of demand to prove a wave repeats,
+// but the normal nightly sync only ever holds a 90-day cold-start window. This
+// one-time operator action reaches back up to DEEP_BACKFILL_DAYS (480, GSC's own
+// ~16-month retention ceiling) in small resumable chunks, so a lambda timeout or
+// a dropped invocation never loses progress. Runs the FIRST chunk synchronously
+// (so the operator sees an immediate result) and marks the rest to continue via
+// the nightly cron (continueDeepBackfillIfStarted) until complete.
+// ─────────────────────────────────────────────────────────────────────
+
+export type GscDeepBackfillStatus =
+  | { started: false; reason: string }
+  | {
+      started: true;
+      property: string;
+      targetDate: string;
+      cursorDate: string | null;
+      status: "in_progress" | "complete";
+      daysPulled: number;
+    };
+
+/** Read-only status for the connectors page (no mutation) - lets the operator
+ *  see backfill progress on every render without re-triggering a chunk. */
+export async function loadGscDeepBackfillStatus(): Promise<GscDeepBackfillStatus> {
+  try {
+    const tenantId = await currentTenantId();
+    const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+    const gscRow = await getSupabaseAdmin()
+      .from("gsc_daily_rows")
+      .select("property")
+      .eq("tenant_id", tenantId)
+      .limit(1);
+    const property = (gscRow.data?.[0] as { property?: string } | undefined)?.property;
+    if (!property) return { started: false, reason: "no_synced_property" };
+    const progress = await readBackfillProgress(tenantId, property);
+    if (progress == null) return { started: false, reason: "not_started" };
+    return {
+      started: true,
+      property,
+      targetDate: progress.target_date,
+      cursorDate: progress.cursor_date,
+      status: progress.status,
+      daysPulled: progress.days_pulled,
+    };
+  } catch (e) {
+    return { started: false, reason: e instanceof Error ? e.message.slice(0, 120) : "error" };
+  }
+}
+
+export type StartGscDeepBackfillResult =
+  | { ok: true; property: string; targetDate: string; firstChunkDaysPulled: number }
+  | { ok: false; reason: string };
+
+/** Operator gesture: "Load my full Search Console history." Initializes the
+ *  progress row (idempotent - safe to click again mid-backfill) and runs the
+ *  first bounded chunk immediately so the click has a visible effect; the
+ *  remaining chunks continue nightly via cron-sync's PHASE wiring. */
+export async function startGscDeepBackfillNow(): Promise<StartGscDeepBackfillResult> {
+  if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
+  const tenantId = await currentTenantId();
+  const started = await startDeepBackfill(tenantId);
+  if (!started.started) return { ok: false, reason: started.reason };
+  const chunk = await runDeepBackfillChunk(tenantId);
+  revalidatePath(ROUTE);
+  return {
+    ok: true,
+    property: started.property,
+    targetDate: started.targetDate,
+    firstChunkDaysPulled: chunk.ran ? chunk.daysPulled : 0,
+  };
+}
+
+// Void-returning <form action> wrapper the page binds.
+export async function startGscDeepBackfillFromForm(_formData: FormData): Promise<void> {
+  await startGscDeepBackfillNow();
 }

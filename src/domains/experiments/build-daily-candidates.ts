@@ -30,6 +30,8 @@ import { expectedCtrAt } from "./pick-expectations";
 import { findFamilyPropagationCandidates, type FamilyPropagationCandidate } from "./family-win-propagation";
 import { findRefreshCandidates } from "@/domains/refresh/refresh-candidates";
 import type { RefreshBrief } from "@/domains/refresh/refresh-brief";
+import { findSeasonalCandidates } from "@/domains/seasonal/seasonal-candidates";
+import type { PeakCalendarEntry } from "@/domains/seasonal/seasonality";
 
 export type PageFacts = {
   title: string | null;
@@ -70,7 +72,7 @@ export type SuggestedControl = {
 
 export type BuiltCandidate = DailyCandidate & {
   pageLabel: string;
-  leverField: "title" | "meta" | "h1" | "internal_link" | "answer_block" | "refresh";
+  leverField: "title" | "meta" | "h1" | "internal_link" | "answer_block" | "refresh" | "seasonal_prep";
   currentText: string;
   proposedText: string;
   whyNow: string;
@@ -113,6 +115,10 @@ export type BuiltCandidate = DailyCandidate & {
    *  is fading, add the missing section" candidate (the new queries no H2 answers, the queries
    *  it is losing, the winner's newer section). Absent on every other lever. */
   refreshDetail?: { briefSentences: string[]; clicksLostPerMonth: number };
+  /** Item 63 (seasonality engine): seasonal_prep-only - the peak calendar entry behind a
+   *  "this window opens in N weeks" candidate (data-derived cluster label, confidence,
+   *  peak months). Absent on every other lever. */
+  seasonalDetail?: { clusterLabel: string; confidence: PeakCalendarEntry["confidence"]; peakMonths: number[]; weeksOut: number };
 };
 
 // CTR curve lives in pick-expectations (items 34/61 share it); alias keeps call sites unchanged.
@@ -276,6 +282,11 @@ export function buildDailyCandidates(input: {
    *  read by the caller). Bounded to MAX_REFRESH_CANDIDATES_PER_NIGHT (2) refresh candidates
    *  per night, decayed-winners-first. Omit to disable (byte-identical batches). */
   refreshQueue?: RefreshBrief[];
+  /** Item 63: the tenant's peak calendar (seasonal windows, some upgraded to 'proven' by the
+   *  Labs historical-volume cross-check), a $0 store read by the caller. Bounded to
+   *  MAX_SEASONAL_CANDIDATES_PER_NIGHT (2) seasonal-window candidates per night, entries whose
+   *  peak opens 6-8 weeks out only. Omit to disable (byte-identical batches). */
+  peakCalendar?: PeakCalendarEntry[];
   now?: Date;
 }): BuiltCandidate[] {
   const now = input.now ?? new Date();
@@ -424,6 +435,86 @@ export function buildDailyCandidates(input: {
         suggestedControls: controls,
         enoughControls: controls.length >= MIN_CONTROLS,
         refreshDetail: { briefSentences: seed.briefSentences, clicksLostPerMonth: seed.clicksLostPerMonth },
+      });
+    }
+  }
+
+  // Item 63 - SEASONALITY ENGINE (additive, bounded): the tenant's peak calendar becomes at
+  // most MAX_SEASONAL_CANDIDATES_PER_NIGHT (2) seasonal-window candidates, soonest-window-first,
+  // for entries whose peak opens 6-8 weeks out (findSeasonalCandidates's own lead-window gate).
+  // Same eligibility gate (assessEligibility over the shared `states`, family "content" via
+  // actionFamilyOf("refresh_content") - a seasonal prep is content work like a refresh), same
+  // control machinery (scoreControl over the same clean pool), same one-card-per-page-per-night
+  // rule as everything above (a page the refresh queue already claimed tonight is skipped here).
+  // A calendar entry with no known top page is honestly skipped (never a vague "prep for this").
+  // No peakCalendar input -> byte-identical batches (pinned by build-daily-candidates tests).
+  const peakCalendar = input.peakCalendar ?? [];
+  if (peakCalendar.length > 0) {
+    const seasonalFamily = actionFamilyOf("refresh_content"); // -> "content"
+    const seasonalEligibility = new Map<string, ExperimentEligibility>();
+    for (const c of peakCalendar) {
+      if (!c.topPage) continue;
+      const path = c.topPage.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/";
+      seasonalEligibility.set(path, assessEligibility({ url: c.topPage, family: seasonalFamily, states }));
+    }
+    const alreadyProposedPaths = new Set(
+      out.map((cand) => cand.url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/"),
+    );
+    const inputByPath = new Map(
+      input.pages.map((p) => [p.url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/", p]),
+    );
+    for (const seed of findSeasonalCandidates({ calendar: peakCalendar, eligibility: seasonalEligibility, alreadyProposedPaths, now })) {
+      const seedPath = seed.page.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/";
+      const known = inputByPath.get(seedPath);
+      const treated: GscPageInput = known ?? {
+        url: seed.page,
+        pageLabel: (seedPath.split("/").filter(Boolean).at(-1) ?? "this page").replace(/[-_]+/g, " "),
+        impressions: seed.expectedImpressions,
+        clicks: 0,
+        ctr: 0,
+        position: 0,
+        topQuery: seed.targetQuery,
+        topQueryImpressions: seed.expectedImpressions,
+        topQueryPosition: 0,
+        topQueryCtr: 0,
+        ownership: 1, // a seasonal prep serves the whole page, not one query's share
+      };
+      const controls = cleanPool
+        .filter((c) => c.url !== treated.url)
+        .map((c) => scoreControl(treated, c))
+        .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
+        .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
+        .slice(0, 5);
+      const external = { highRisk: false, insufficientControls: controls.length < MIN_CONTROLS };
+      const elig = assessEligibility({ url: seed.page, family: seasonalFamily, states, external });
+      out.push({
+        url: seed.page,
+        pageLabel: treated.pageLabel,
+        pageFamily: pageFamilyOf(seed.page),
+        actionFamily: seasonalFamily,
+        targetQuery: seed.targetQuery,
+        impressions: treated.impressions,
+        position: treated.topQueryPosition,
+        ctr: treated.topQueryCtr,
+        ownership: treated.ownership,
+        // The seasonal forecast is the wave itself: what the page earned last time it hit.
+        ctrOpportunityClicks: seed.expectedImpressions,
+        effortMinutes: 15,
+        external,
+        leverField: "seasonal_prep",
+        currentText: "(no change to the page yet, this is a heads-up to prep before the window)",
+        proposedText: `Prep "${seed.clusterLabel}" content before the window opens in about ${seed.weeksOut} weeks.`,
+        whyNow: seed.whyNow,
+        rollbackText: "No page change was made yet; nothing to roll back.",
+        eligibility: elig,
+        suggestedControls: controls,
+        enoughControls: controls.length >= MIN_CONTROLS,
+        seasonalDetail: {
+          clusterLabel: seed.clusterLabel,
+          confidence: seed.confidence,
+          peakMonths: seed.peakMonths,
+          weeksOut: seed.weeksOut,
+        },
       });
     }
   }
