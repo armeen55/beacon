@@ -15,6 +15,8 @@ import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection, War
 import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
+import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
+import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/domains/experiments/forecast-calibration";
 import { TeamStandup } from "./team-standup";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { CoverageMapSection } from "./coverage-map-section";
@@ -143,6 +145,17 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const recapSentence = isMonday
     ? weeklyRecapSentence(buildWeeklyRecap(ledgerRows.map((r) => ({ shippedAt: r.shippedAt, verdict: r.verdict, path: r.path })), Date.now()))
     : null;
+  // Item 27 - the same Monday band gets one honest sentence on forecast accuracy, once at least
+  // MIN_SETTLED_FOR_CALIBRATION picks have settled at their 28-day window. Fail-soft: any error
+  // here just omits the sentence, never breaks the page.
+  const calibrationSentence = isMonday
+    ? await loadCalibrationRecords(tenantId)
+        .then((rows) => {
+          const s = summarizeForecastCalibration(rows);
+          return s.settledCount >= MIN_SETTLED_FOR_CALIBRATION ? s.sentence : null;
+        })
+        .catch(() => null)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -150,6 +163,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {recapSentence ? (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-emerald-900 tabular-nums">
           {recapSentence}
+        </div>
+      ) : null}
+      {/* Item 27 - the promise ledger, one sentence, Mondays only, self-hides under 3 settled. */}
+      {calibrationSentence ? (
+        <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-sky-900 tabular-nums">
+          {calibrationSentence}
         </div>
       ) : null}
       {/* Item 43: the team, at a glance - each teammate's one-line daily report. */}

@@ -4,6 +4,7 @@ import { after } from "next/server";
 
 import { log } from "@/lib/logger";
 import { autoMeasureDuePass } from "./auto-measure-pass";
+import { harvestWinners } from "@/domains/llm/winner-memory";
 
 /**
  * auto-measure-on-use (2026-06-29) — PASSIVE settle of due proof rows when the operator
@@ -21,6 +22,13 @@ import { autoMeasureDuePass } from "./auto-measure-pass";
  * autoMeasureDuePass itself is deterministic (re-measuring the same GSC window yields the
  * same verdict), so an occasional duplicate across lambdas is harmless. Mirrors the proven
  * scheduleBriefBackfill pattern.
+ *
+ * BEACON_500 item 30 (2026-07-02): the tail of this same pass re-harvests winner-memory
+ * (mature-won before/after text + structural features per actionFamily) so a settlement
+ * that just turned "won" is available to the drafter's few-shot injection on the very
+ * next draft. harvestWinners is itself fail-soft/idempotent/$0 (re-reads the ledger,
+ * no LLM call) - an isolated try/catch here means a harvest failure can never affect the
+ * measurement pass it rides along with.
  */
 const lastRunAt = new Map<string, number>();
 const MIN_GAP_MS = 10 * 60_000;
@@ -46,6 +54,16 @@ export function scheduleAutoMeasure(tenantId: string): void {
             settled: res.settled,
             changed: res.changed,
           });
+        }
+        if (res.settled > 0) {
+          try {
+            await harvestWinners(tenantId);
+          } catch (e) {
+            log.warn("[auto-measure-on-use] winner harvest failed (non-blocking)", {
+              tenantId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
         }
       } catch (e) {
         log.warn("[auto-measure-on-use] passive pass failed (non-blocking)", {

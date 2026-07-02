@@ -3,6 +3,7 @@ import { z } from "zod";
 import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { log } from "@/lib/logger";
+import { buildWinnerFewShots } from "./winner-memory";
 import {
   SCHEMA_BY_KIND,
   draftStringValues,
@@ -264,6 +265,10 @@ export type AnswerBlockStructuredInput = {
   evidenceHints?: string[];
   /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — decides answer type. */
   intent?: string;
+  /** BEACON_500 item 30: tenant id, used ONLY to look up this tenant's own measured
+   *  winners for the few-shot injection below. Optional - omitting it just means no
+   *  few-shot examples are added (prompt unchanged), never an error. */
+  tenantId?: string;
 };
 
 const ANSWER_BLOCK_SYSTEM =
@@ -303,9 +308,13 @@ export async function draftAnswerBlockStructured(
     .filter(Boolean)
     .join("\n");
 
+  // BEACON_500 item 30: additive-only. buildWinnerFewShots returns '' when the tenant
+  // has no measured "answer" winners yet, leaving the system prompt byte-identical.
+  const fewShots = input.tenantId ? await buildWinnerFewShots(input.tenantId, "answer").catch(() => "") : "";
+
   return callStructuredLLM({
     kind: "answer_block",
-    system: ANSWER_BLOCK_SYSTEM,
+    system: ANSWER_BLOCK_SYSTEM + fewShots,
     user,
     grounded,
     projectedCostUsd: 0.02,
@@ -325,6 +334,10 @@ export type AtomicEditStructuredInput = {
   evidenceHints?: string[];
   /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — shapes the copy. */
   intent?: string;
+  /** BEACON_500 item 30: tenant id, used ONLY to look up this tenant's own measured
+   *  winners (same field/lever) for the few-shot injection below. Optional - omitting
+   *  it just means no few-shot examples are added (prompt unchanged), never an error. */
+  tenantId?: string;
 };
 
 const ATOMIC_EDIT_SYSTEM =
@@ -361,9 +374,14 @@ export async function draftAtomicEditStructured(
     .filter(Boolean)
     .join("\n");
 
+  // BEACON_500 item 30: additive-only. buildWinnerFewShots returns '' when the tenant
+  // has no measured winners yet for this exact field, leaving the prompt byte-identical.
+  const lever = input.field === "title" ? "title" : "meta";
+  const fewShots = input.tenantId ? await buildWinnerFewShots(input.tenantId, lever).catch(() => "") : "";
+
   return callStructuredLLM({
     kind: "atomic_edit",
-    system: ATOMIC_EDIT_SYSTEM,
+    system: ATOMIC_EDIT_SYSTEM + fewShots,
     user,
     grounded,
     projectedCostUsd: 0.02,

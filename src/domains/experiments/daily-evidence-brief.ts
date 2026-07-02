@@ -71,6 +71,16 @@ export type EvidenceCitability = {
   topFixes: string[];
 };
 
+/** Item 29: this exact lever already proved itself on a sibling page in the same family - the
+ *  provenance line for "reusing a proven win on this family". Absent unless a real mature win
+ *  exists AND this page is one of the bounded, ranked propagation candidates for it. */
+export type EvidenceFamilyWin = {
+  /** The sibling page that already won (plain path, e.g. "/iran-animals/persian-cheetah"). */
+  sourceWinPage: string;
+  /** One first-person, plain-business sentence naming the source page and the move. */
+  sentence: string;
+};
+
 export type DailyEvidenceBrief = {
   /** The page's top searches with whatever cached demand we have (best-first). */
   keywords: EvidenceKeyword[];
@@ -83,6 +93,9 @@ export type DailyEvidenceBrief = {
   /** AI reaches this page but never quotes it, and what to fix (absent unless the item-7 funnel
    *  + citability rubric both flagged this page). */
   citability?: EvidenceCitability;
+  /** Item 29: this exact lever already won on a sibling page this family - absent otherwise
+   *  (honest silence, never a fabricated "proven" claim). */
+  familyWin?: EvidenceFamilyWin;
 };
 
 export type CachedDemand = {

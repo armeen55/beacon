@@ -21,6 +21,10 @@ import { detectSeasonalQueries } from "@/domains/seasonal/seasonality";
 import { writeSeasonalSummary } from "@/domains/seasonal/seasonal-store";
 import { runLanguageGapPass } from "@/domains/language-gap/run-language-gap-pass";
 import { writeLanguageGapSummary } from "@/domains/language-gap/language-gap-store";
+import { runAaCalibrationForTenant } from "@/domains/proof-gsc/aa-calibration";
+import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { detectChangepoints } from "@/domains/proof-gsc/changepoint";
+import { writeAlgorithmWeatherSummary } from "@/domains/proof-gsc/algorithm-weather-store";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -423,6 +427,76 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] language gap pass failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1f - A/A calibration harness (master plan item 31): measure Beacon's
+  // OWN false-positive rate by running the real measurement math on pages
+  // Beacon never touched (deterministically-seeded pseudo ship dates, real
+  // GSC data, in-memory only - see aa-calibration.ts's safety doc). Persists
+  // ONLY the aggregate rate + derived floors; NEVER writes a placebo row to
+  // the real proof ledger. Bounded to 40 placebo pages/tenant/night, $0 (GSC
+  // reads only, already-synced data). Isolated try/catch per tenant, does not
+  // touch PHASE 1c/1d/1e above.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached — skipping remaining A/A calibration");
+      break;
+    }
+    try {
+      const cal = await runAaCalibrationForTenant(t.id);
+      if (cal.ran && cal.sampleSize > 0) {
+        log.info("[cron-sync] A/A calibration", {
+          tenantId: t.id,
+          sampleSize: cal.sampleSize,
+          falsePositiveRate: Number(cal.falsePositiveRate.toFixed(3)),
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] A/A calibration failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1g - algorithm-weather guard (master plan item 32): a CUSUM changepoint
+  // pass over tonight's fresh sitewide daily GSC totals (clicks + impressions),
+  // detecting Google-core-update-shaped sitewide shocks so the Results page can
+  // caveat any verdict whose measurement window overlapped one, and the prior/
+  // lesson readers can exclude it from training. Deterministic, FREE (reads only
+  // the already-synced gsc_daily_totals, no LLM, no paid API), latest-wins upsert;
+  // an empty pair of lists is written too so "checked, nothing shifted" stays
+  // distinguishable from "never checked". Isolated try/catch per tenant, does not
+  // touch PHASE 1c/1d/1e/1f above.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached — skipping remaining algorithm-weather pass");
+      break;
+    }
+    try {
+      const totals = await loadDailyTotalsForTenant(t.id, 90);
+      const clicksChangepoints = detectChangepoints(totals.map((d) => ({ date: d.date, value: d.clicks })));
+      const impressionsChangepoints = detectChangepoints(totals.map((d) => ({ date: d.date, value: d.impressions })));
+      await writeAlgorithmWeatherSummary({
+        tenant_id: t.id,
+        computed_at: new Date().toISOString(),
+        anchor_date: totals.length > 0 ? totals[totals.length - 1]!.date : null,
+        clicksChangepoints,
+        impressionsChangepoints,
+      });
+      if (clicksChangepoints.length > 0 || impressionsChangepoints.length > 0) {
+        log.info("[cron-sync] algorithm-weather shock detected", {
+          tenantId: t.id,
+          clicksChangepoints: clicksChangepoints.length,
+          impressionsChangepoints: impressionsChangepoints.length,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] algorithm-weather pass failed", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

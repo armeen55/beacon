@@ -111,6 +111,32 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // and the citability hint feed; without the mirror the profile would be
   // silent-empty on hosted prod.
   "citability-pattern-profile",
+  // 2026-07-02 items 27/28 - the forecast calibration ledger (per-pick forecast
+  // range vs the realized 28-day monthly click lift, plus outcome inside/above/
+  // below). Written by the day-28 measure pass (Vercel lambda, no disk); read by
+  // the /proof "how honest are my forecasts" card and by pick-expectations.ts's
+  // bias-correction factor. Without the mirror both would be silent-empty on
+  // hosted prod after every lambda recycle.
+  "forecast-calibration",
+  // 2026-07-02 item 30 - winner memory (retained mature-won before/after text +
+  // structural features per actionFamily, harvested from the measure-pass tail).
+  // Written by a Vercel lambda (no disk); read by structured-drafter's few-shot
+  // injection. Without the mirror the drafter would silently never see house
+  // winners on hosted prod even after real ships settle.
+  "winner-memory",
+  // 2026-07-02 item 31 - A/A calibration harness (nightly placebo pass measuring
+  // Beacon's own false-positive rate + deriving per-traffic-tier verdict floors).
+  // Written by a Vercel lambda (no disk); read by measure.ts's readFloorsFor on
+  // every real verdict and by the /proof explainer's honesty sentence. Without
+  // the mirror both would silently fall back to the shipped defaults forever.
+  "aa-calibration",
+  // 2026-07-02 item 32 - algorithm-weather guard (nightly CUSUM changepoint
+  // pass over sitewide daily GSC totals, detecting Google core-update-shaped
+  // sitewide shocks). Written by a Vercel lambda (no disk); read by the
+  // Results page caveat line and the prior/lesson exclusion gate. Without the
+  // mirror the detected shocks would be silent-empty on hosted prod after
+  // every lambda recycle, and quarantined verdicts would silently un-quarantine.
+  "algorithm-weather-shocks",
   // 2026-07-02 item 16 - competitor keyword gap engine. The Labs cache is a COST
   // guarantee (a re-run within 30 days must not re-spend, which only holds on
   // Vercel with the mirror); the results store is what the New Pages board reads

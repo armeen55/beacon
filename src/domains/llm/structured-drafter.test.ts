@@ -11,9 +11,20 @@ vi.mock("@/domains/recommendations/adjudicator-budget", () => ({
   recordSpend: recordSpendMock,
 }));
 
+// BEACON_500 item 30: control the winner-memory lookup deterministically so the
+// prompt-injection pin can assert both the "winners exist" and "no winners"
+// (byte-identical prompt) paths without touching the real json-store.
+const { buildWinnerFewShotsMock } = vi.hoisted(() => ({
+  buildWinnerFewShotsMock: vi.fn(async () => ""),
+}));
+vi.mock("./winner-memory", () => ({
+  buildWinnerFewShots: buildWinnerFewShotsMock,
+}));
+
 import {
   callStructuredLLM,
   draftAnswerBlockStructured,
+  draftAtomicEditStructured,
   draftAeoPromptBrief,
   intentDirective,
   serializeStructuredDraft,
@@ -46,6 +57,8 @@ beforeEach(() => {
   process.env.BEACON_LLM_PROVIDER = "openai"; // opt into the enabled path (vitest pins "deterministic")
   checkBudgetMock.mockResolvedValue({ allowed: true, remaining: 10 });
   recordSpendMock.mockResolvedValue(undefined);
+  buildWinnerFewShotsMock.mockReset();
+  buildWinnerFewShotsMock.mockResolvedValue(""); // default: no winners → prompts unchanged
 });
 afterEach(() => {
   process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER;
@@ -164,6 +177,110 @@ describe("intent-aware drafting (C) — the answer type follows the searcher's i
       { complete: capture },
     );
     expect(capturedUser).not.toContain("What the searcher wants:");
+  });
+});
+
+describe("BEACON_500 item 30 - winner few-shot injection (additive, fail-soft)", () => {
+  it("answer_block: system prompt is BYTE-IDENTICAL to the no-tenantId path when no winners exist", async () => {
+    let systemNoTenant = "";
+    let systemWithTenant = "";
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [] },
+      { complete: async ({ system }) => { systemNoTenant = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a" },
+      { complete: async ({ system }) => { systemWithTenant = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(buildWinnerFewShotsMock).toHaveBeenCalledWith("tenant-a", "answer");
+    expect(systemWithTenant).toBe(systemNoTenant); // buildWinnerFewShots resolved '' → no change
+  });
+
+  it("answer_block: the fragment IS present in the system prompt when winners exist", async () => {
+    buildWinnerFewShotsMock.mockResolvedValue("\nHouse patterns that measurably lifted CTR: example text here.");
+    let capturedSystem = "";
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a" },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedSystem).toContain("House patterns that measurably lifted CTR");
+  });
+
+  it("answer_block: never calls buildWinnerFewShots when no tenantId is given (no lookup, no I/O)", async () => {
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [] },
+      { complete: fakeComplete([{ text: JSON.stringify(validAnswer) }]) },
+    );
+    expect(buildWinnerFewShotsMock).not.toHaveBeenCalled();
+  });
+
+  it("atomic_edit (title field): system prompt is byte-identical with no winners, present when winners exist", async () => {
+    const validEdit = {
+      field: "title",
+      before: "Old Title",
+      after: "New Sharper Title",
+      rationale: "matches intent",
+      evidenceRefs: [{ source: "gsc", detail: "low CTR at position 4" }],
+      confidence: "high",
+      risks: [],
+      operatorSteps: ["Update the title tag"],
+      proofPlan: { metrics: ["CTR"], windowsDays: [7, 14, 28], controls: "comparable pages" },
+    };
+    let systemNoTenant = "";
+    let systemWithTenant = "";
+    await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "title", currentValue: "Old Title", outline: [] },
+      { complete: async ({ system }) => { systemNoTenant = system; return { text: JSON.stringify(validEdit) }; } },
+    );
+    await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "title", currentValue: "Old Title", outline: [], tenantId: "tenant-a" },
+      { complete: async ({ system }) => { systemWithTenant = system; return { text: JSON.stringify(validEdit) }; } },
+    );
+    expect(buildWinnerFewShotsMock).toHaveBeenCalledWith("tenant-a", "title");
+    expect(systemWithTenant).toBe(systemNoTenant);
+
+    buildWinnerFewShotsMock.mockResolvedValue("\nHouse patterns that measurably lifted CTR: title example.");
+    let capturedSystem = "";
+    await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "title", currentValue: "Old Title", outline: [], tenantId: "tenant-a" },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validEdit) }; } },
+    );
+    expect(capturedSystem).toContain("House patterns that measurably lifted CTR");
+  });
+
+  it("atomic_edit (meta field) looks up the 'meta' lever, not 'title'", async () => {
+    const validEdit = {
+      field: "meta",
+      before: "Old meta",
+      after: "New sharper meta description that matches intent and stays within length.",
+      rationale: "matches intent",
+      evidenceRefs: [{ source: "gsc", detail: "low CTR" }],
+      confidence: "high",
+      risks: [],
+      operatorSteps: ["Update the meta tag"],
+      proofPlan: { metrics: ["CTR"], windowsDays: [7, 14, 28], controls: "comparable pages" },
+    };
+    await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "meta", currentValue: "Old meta", outline: [], tenantId: "tenant-a" },
+      { complete: fakeComplete([{ text: JSON.stringify(validEdit) }]) },
+    );
+    expect(buildWinnerFewShotsMock).toHaveBeenCalledWith("tenant-a", "meta");
+  });
+
+  it("the injected fragment itself never contains an em or en dash (hyphens only)", async () => {
+    // The fragment text is winner-memory's own output (guard-tested there). Here we pin that
+    // structured-drafter APPENDS it verbatim without introducing a dash of its own - check the
+    // appended suffix, not the whole system string (a pre-existing hand-written prompt line
+    // unrelated to this item already contains one, and item 30 must not touch that prompt copy).
+    const fragment = "\nHouse patterns: example - with a hyphen, not a dash.";
+    buildWinnerFewShotsMock.mockResolvedValue(fragment);
+    let capturedSystem = "";
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a" },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedSystem.endsWith(fragment)).toBe(true);
+    expect(fragment).not.toMatch(/[–—]/);
   });
 });
 

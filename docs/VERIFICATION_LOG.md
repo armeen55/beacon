@@ -7,6 +7,140 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 item 32 (algorithm-weather guard, worktree, NOT committed)
+
+**What changed:** new `src/domains/proof-gsc/changepoint.ts` - pure CUSUM changepoint detector,
+`detectChangepoints(dailySeries, {threshold, drift, baselineWeeks, minHistoryDays})` -> `[{date, direction,
+magnitude}]`. Weekday-normalizes first (each day divided by the trailing same-weekday mean over
+`baselineWeeks`) so Search Console's real weekend/weekday cyclicity never fakes a shift, then runs a
+two-sided CUSUM over the normalized ratio series. Tuned (threshold 0.5, drift 0.1 of the trailing mean) to
+fire on a sustained shift around 18-20 percent while staying silent below about 15 percent and on pure
+weekday-cyclic noise (probed by hand: 15% silent, 18% fires, 40% fires) - matches the "catch >=20 percent
+sustained shifts" target. New `src/domains/proof-gsc/google-updates.ts` - typed, operator-extendable
+`CONFIRMED_GOOGLE_UPDATES` const, seeded with 6 entries verified directly against Google's own Search
+Status Dashboard (Dec 2025 core, Feb 2026 Discover core, Mar 2026 spam, Mar 2026 core, May 2026 core, Jun
+2026 spam) via a deep-research pass; deliberately excludes an unconfirmed June 19 2026 volatility rumor.
+New `src/domains/proof-gsc/algorithm-weather.ts` - merges confirmed ranges + detected changepoints into
+`ShockWindow[]` (`confirmed`/`suspected`, with plain-English labels), `overlappingShock(start, end, shocks)`
+overlap check (confirmed wins over suspected), and `weatherCaveatSentence` (first person, one sentence, no
+dashes). New `src/domains/proof-gsc/algorithm-weather-store.ts` - GLOBAL Supabase-mirrored json-store
+(`algorithm-weather-shocks`, registered in `store-classification.ts` + `json-store.ts`) holding the nightly
+CUSUM pass per tenant, 30-day staleness. Nightly step wired as PHASE 1g in `cron-sync.ts` (reads
+`loadDailyTotalsForTenant(tenantId, 90)`, runs `detectChangepoints` on clicks and impressions, persists via
+`writeAlgorithmWeatherSummary`; isolated try/catch per tenant, does not touch PHASE 1c-1f).
+`measurement-maturity.ts` additive: new `shockWindows?` input field, new `measurementWindowOf(shippedAt,
+windows)` pure helper (the ship-to-basis-checkpoint window every read site now shares), and two new
+presentation fields `weatherCaveat: string | null` / `weatherQuarantined: boolean` computed purely from an
+overlap check - a caller that never passes `shockWindows` sees byte-identical output to before this field
+existed; `learningEligibility` gains `&& !weatherQuarantined`. Results page (`/proof`) loads last night's
+detected changepoints + builds shock windows, threads them into every row's presentation, and renders
+`pres.weatherCaveat` as an amber caveat line under the Search sentence. `load-experiment-outcomes.ts`
+(the single read site both `load-graph.ts`'s demand-graph priors and `load-demand-opportunities.ts` consume)
+additively extends `maturityGatedVerdict`: a mature, cleanly-attributed verdict whose own measurement window
+overlapped a shock is ALSO neutralized to `"measuring"` before it reaches the prior, the same way an
+early/attribution-limited read already is - never mutates the stored ledger row.
+
+**Verified:** `npm run typecheck` 0 errors. 133 new/updated targeted tests green across 8 files:
+`changepoint.test.ts` (12 - step up/down, sub-threshold no-fire, the documented ~20% target, gradual drift
+not just a single-day jump, weekday-cyclic noise-only silence, flat-series silence, short-series fail-closed,
+malformed-input safety, one-alarm-per-shift, dash guard), `algorithm-weather.test.ts` (16 - confirmed-window
+assembly incl. default rollout length, suspected-window spread, the overlap matrix incl. inclusive
+boundaries and confirmed-over-suspected precedence, the merge/build function, the caveat sentence, dash
+guard), `google-updates.test.ts` (6 - seed-list shape: start<=end, unique ids, dash guard on every label),
+`algorithm-weather-store.test.ts` (8 - round-trip, latest-wins-per-tenant, empty-pass-is-a-real-state,
+30-day staleness, unknown-tenant, clicks+impressions dedup merge, registration pins), `measurement-maturity.
+test.ts` (7 new - `measurementWindowOf`, no-shockWindows-is-byte-identical, a mature win quarantined by an
+overlapping shock keeps its headline/tone but loses learning eligibility and gains the caveat, a non-
+overlapping shock has zero effect, an in-flight record can also carry the caveat, dash guard on the rendered
+sentence), `load-experiment-outcomes.test.ts` (7 new file - end-to-end prior-exclusion pin with the real
+[pure] measurement-maturity/algorithm-weather modules and mocked stores: no-shock behavior unchanged,
+overlapping shock neutralizes both `loadExperimentOutcomes` and `loadProofOutcomeRows`, non-overlapping
+shock has no effect, per-tenant scoping, fail-soft on a store read error), `proof-weather-caveat.test.ts` (4
+new file - static pin that `/proof`'s page.tsx actually wires `loadDetectedChangepoints` ->
+`buildShockWindows` -> `shockWindows` into `buildMeasurementPresentation` and renders `pres.weatherCaveat`),
+plus the pre-existing `proof-jargon-guard.test.ts` (9, re-verified green with the new caveat line present).
+No full suite run (per operator directive - targeted + typecheck only); no git add/commit (per task gate).
+
+**Ground-truth on real Iranopedia data** (`scripts/ground-truth-algorithm-weather.ts`, read-only, no writes):
+90 days of real `gsc_daily_totals` (2026-05-02 to 2026-06-28, 58 rows) produced 2 real CUSUM changepoints on
+clicks (2026-06-02 down 56%, 2026-06-05 down 52% - clicks genuinely drifted from ~150/day in early May to
+~100-115/day by mid-June) and 3 on impressions (2026-06-15 up 66%, 2026-06-16 up 96%, 2026-06-21 up 67% -
+impressions genuinely spiked from ~8k/day to 13-15k on Jun 15-16 and to ~11.9k on Jun 21). Merged with the
+6 seeded confirmed updates this produced 11 shock windows. Checked against the real 25-row proof ledger: all
+25 current in-flight verdicts (all `collecting`/`early_checkpoint`, none mature yet) overlap either the
+detected mid-June suspected window or the confirmed June 2026 Google spam update (Jun 24-26) and would carry
+the weather caveat - honest, because every one of these rows shipped and started measuring in the exact week
+Iranopedia's own sitewide numbers were genuinely moving and a real Google update also landed. No mature
+verdict exists yet in the real ledger, so the prior-exclusion gate has not fired on real data yet, but the
+unit/integration tests pin that it will the moment a mature+shock-overlapping row appears.
+
+**Honest caveats:** (1) the `CONFIRMED_GOOGLE_UPDATES` seed list was verified by a deep-research web pass
+against Google's own status dashboard, not by the operator directly - solid confidence, but the operator can
+review/extend `google-updates.ts` at any time. (2) with only 58 days of real daily-totals history, the
+CUSUM's `minHistoryDays=21` gate is satisfied but the "detected shocks currently cover essentially the whole
+recent ledger" result reflects a site that has been been through both a real Google update and real organic
+volatility in the same month - not a guard that is miscalibrated. (3) `proof-summary-section.tsx`'s
+aggregate counts were left unextended (out of scope, additive-only diff) - only the per-row Results caveat
+and the prior/lesson exclusion were required by this item.
+
+---
+
+## 2026-07-02 - BEACON 500 item 30 (winner memory feeds every drafter prompt, worktree, NOT committed)
+
+**What changed:** new `src/domains/llm/winner-memory.ts` (composes beside `proof-history-voice.ts`'s
+`aggregateSettled`, does not touch it) - `extractStructuralFeatures(text)` (pure: wordCount, leadsWithAnswer
+via a deferral/dictionary-opener check, hasNumber, questionHeading); `harvestWinners(tenantId)` reads
+`loadShippedChanges()`, keeps ONLY records where `verdict === "won"` AND `deriveMeasurementMaturity(...)
+=== "mature_result"` (never an early/interim/inconclusive signal), retains the real `before`/`after` text
+already on `ShippedChangeRecord` (honest `beforeText: null` when the ledger never recorded a prior - never
+fabricated), buckets by `actionFamilyOf(actionType)`, and persists the newest 10 per (tenant, actionFamily)
+to a new `winner-memory` json-store (GLOBAL classification + Supabase-mirrored, registered in
+`store-classification.ts` + `json-store.ts` next to the other measure-pass-tail stores); `buildWinnerFewShots
+(tenantId, lever)` returns a prompt fragment naming the top 2 same-lever winners with their measured CTR
+lift + structural fingerprint, or `''` when none exist. Wired additively into `structured-drafter.ts`:
+`ANSWER_BLOCK_SYSTEM`/`ATOMIC_EDIT_SYSTEM` gain an optional `tenantId` on their input types, and the
+fragment is appended (`SYSTEM + fewShots`) only when non-empty - a missing/empty-winners tenantId leaves
+the prompt byte-identical to before. `tenantId` threaded through the two real call sites
+(`build-today-preview.ts`'s answer-write pass + LLM meta/title enrich drafter, `prepare-today-moves.ts`'s
+`draftForPacket`) since both already have it in scope. Harvest hook wired at the measure-pass tail in two
+places: `auto-measure-on-use.ts`'s passive `scheduleAutoMeasure` (fires after any due-row settles) and
+`today-moves-actions.ts`'s explicit `measureAppliedMovesAction` ("Measure now") - both isolated,
+try/catch-wrapped, fire only when `result.settled > 0`, and can never fail the measurement pass they ride
+along with.
+
+**Verified:** `npm run typecheck` 0 errors (pre-existing unrelated failures from concurrent in-flight item
+31 work in `measure.test.ts` - 4 tests for a `VerdictFloors` calibration harness not owned by this item -
+confirmed untouched by this change). 57 new/updated targeted tests green: `winner-memory.test.ts` (24 - the
+`extractStructuralFeatures` matrix, mature-won-only harvest pin including insufficient-controls and
+early/interim rejection, after-only honesty, idempotency, the 10-per-family cap newest-first, cross-tenant
+isolation, the few-shot fragment shape/empty-case/cap-at-2/em-dash guard, registration pins), plus 9 new
+prompt-injection pins added to `structured-drafter.test.ts` (byte-identical system prompt when no winners
+exist for answer_block AND atomic_edit title/meta, fragment present when winners exist, correct lever
+lookup per field, zero I/O when no tenantId given). Full targeted sweep (`llm/`, `proof-gsc/`,
+`experiments/`, `demand-graph/prepare-today-moves.test.ts`, `lib/persistence/`): 277+ tests green, no
+regressions.
+
+**Ground truth (real Iranopedia, headless probe `scripts/ground-truth-winner-memory.ts` via
+`set -a; . ./.env.local; set +a; BEACON_GROUND_TRUTH_TENANT=tenant-iranopedia npx tsx --require
+./scripts/mock-server-only.cjs scripts/ground-truth-winner-memory.ts`, with `BEACON_TENANT_ID` overridden
+inside the script since `loadShippedChanges()` reads the AMBIENT tenant and `.env.local`'s default is
+`tenant-ritz-founder`):** confirmed via direct Supabase query that exactly ONE row across the whole
+`shipped_change_proof` table has `verdict = 'won'` today - `/famous-iranian-singers` (shipped 2026-06-21).
+Its `windows` array shows only `day: 7` has `ran: true` (the 28-day window doesn't close until
+2026-07-19), so `deriveMeasurementMaturity` correctly classifies it `early_checkpoint`, not
+`mature_result`. Result: **`harvestWinners` correctly harvests ZERO winners today, and every
+`buildWinnerFewShots` fragment (answer/title/meta/title_meta/h1) is honestly `''`** - this is the true
+current state of the product, not a bug. The singers win becomes harvestable once its 28-day window
+closes (assuming the verdict holds), at which point its real before/after section text and structural
+features will start appearing in the answer/title few-shot fragments with no further code changes.
+
+**Honest caveats:** the feature is fully built, tested, and wired into both the passive and explicit
+measure-pass hooks, but has never yet had a real example to inject because no shipped change on this
+tenant has reached 28-day maturity as a clean win. `leadsWithAnswer` is a heuristic (deferral-opener +
+dictionary-opener regex check), not a semantic judgment - it will occasionally misclassify an unusual
+sentence shape. The store caps at 10 examples per (tenant, actionFamily) and injects only the newest 2;
+this is a deliberate cost/simplicity tradeoff, not a completeness claim.
+
 ## 2026-07-02 - BEACON 500 item 23 (beat-Wikipedia finder, worktree, NOT committed)
 
 **What changed:** new `src/domains/wiki-gap/`:

@@ -17,7 +17,7 @@ import { resolve } from "node:path";
  * checks because member accesses and statements are filtered out.
  */
 
-const FILES = ["page.tsx", "proof-ledger-client.tsx", "proof-summary-section.tsx"] as const;
+const FILES = ["page.tsx", "proof-ledger-client.tsx", "proof-summary-section.tsx", "forecast-calibration-section.tsx"] as const;
 
 /** Never allowed in visible text (word boundary, case-insensitive). */
 const BANNED_WORDS = [
@@ -45,6 +45,16 @@ function stripComments(src: string): string {
   return noBlocks
     .split("\n")
     .map((line) => line.replace(/(^|\s)\/\/\s.*$/, "$1"))
+    .join("\n");
+}
+
+/** Module-path string literals (import/export specifiers) are never operator-visible text -
+ *  a folder name like "@/domains/experiments/..." must not trip the lab-word guard. Blank the
+ *  whole line so its module-specifier string is never handed to extractStringLiterals. */
+function stripImportExportLines(src: string): string {
+  return src
+    .split("\n")
+    .map((line) => (/^\s*(import|export)\b.*\bfrom\b/.test(line) ? "" : line))
     .join("\n");
 }
 
@@ -86,7 +96,7 @@ function extractJsxText(src: string): string[] {
 
 function visibleSegmentsOf(file: string): string[] {
   const src = stripComments(readFileSync(resolve(__dirname, file), "utf8"));
-  return [...extractStringLiterals(src), ...extractJsxText(src)];
+  return [...extractStringLiterals(stripImportExportLines(src)), ...extractJsxText(src)];
 }
 
 describe("proof surface - plain business language guard (item 69)", () => {

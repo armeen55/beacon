@@ -32,6 +32,13 @@ import {
   type ChangeRevenueModel,
 } from "./change-dollar-value";
 import { isUsableRevenueModel } from "@/domains/revenue/compute-unit-economics";
+import { listPlans } from "@/domains/experiments/daily-experiment-plan-store";
+import { findForecastedPickForProofId } from "@/domains/experiments/forecast-calibration";
+import {
+  hasCalibrationRecord,
+  appendCalibrationRecord,
+  buildCalibrationRecord,
+} from "@/domains/experiments/forecast-calibration-store";
 import {
   getBusinessConfig,
   hydrateBusinessConfigFromSupabase,
@@ -43,11 +50,13 @@ import {
   isSnippetCapturePlay,
   proofCheckDates,
   summarizeVerdict,
+  trafficTierOf,
   PROOF_WINDOW_DAYS,
   type GscWindowMetrics,
   type ProofWindowResult,
   type ProofWindowDay,
 } from "./measure";
+import { readFloorsFor } from "./aa-calibration-store";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { GscProofVerdict } from "./measure";
 
@@ -223,6 +232,44 @@ export async function captureChangeMeta(
 }
 
 /**
+ * Items 27/28 - find the plan pick that shipped as this proof row (by proofId) and, if it carries
+ * a numeric forecast, write ONE calibration record scoring the realized 28-day monthly click lift
+ * against that forecast range. Fail-soft everywhere: a missing plan, a pick with no numeric
+ * forecast (prose-only or planned before this field existed), or a store error all resolve to a
+ * quiet no-op - this must never throw into measureRecord's caller.
+ *
+ * `adjustedLift28` is the day-28 window's clicks-unit adjusted lift over its (pro-rated) 28-day
+ * pre window, i.e. already a monthly figure - the same shape as the forecast range
+ * ("roughly N to M extra clicks a month"), so no further scaling is needed.
+ */
+async function writeCalibrationIfDue(
+  tenantId: string,
+  record: ShippedChangeRecord,
+  adjustedLift28: number,
+): Promise<void> {
+  try {
+    const plans = await listPlans(tenantId, 60);
+    const forecasted = findForecastedPickForProofId(plans, record.id);
+    if (!forecasted) return; // no pick found, or the pick has no numeric forecast - honest skip
+    if (await hasCalibrationRecord(tenantId, forecasted.pickId)) return; // idempotent per pick
+    const rec = buildCalibrationRecord({
+      pickId: forecasted.pickId,
+      tenantId,
+      proofId: record.id,
+      page: forecasted.page,
+      lever: forecasted.lever,
+      forecastLow: forecasted.forecastLow,
+      forecastHigh: forecasted.forecastHigh,
+      actual: adjustedLift28,
+      at: new Date().toISOString(),
+    });
+    await appendCalibrationRecord(rec);
+  } catch {
+    /* best-effort - a calibration write must never block a measurement */
+  }
+}
+
+/**
  * Recompute the 7/14/28-day outcome for a shipped change from GSC. Reads the
  * pre-window once + each post-window once, for the treated page + all controls.
  * Returns a NEW record with windows/verdict/confidence/measuredAt updated.
@@ -304,12 +351,33 @@ export async function measureRecord(
     );
   }
 
+  // Items 27/28 - the calibration write. Once the 28-day window has actually run, and the pick
+  // that shipped this change carries a NUMERIC forecast (pick-expectations.ts), write ONE
+  // calibration record scoring the realized monthly click lift against that forecast range. Best
+  // effort + fail-soft: a calibration write NEVER blocks or alters the GSC verdict computed below,
+  // and appendCalibrationRecord is itself idempotent per pick (a re-measure after day 28 is a
+  // no-op here). Old picks with no numeric forecast (prose-only, planned before this field
+  // existed, or too small to render a range) are honestly skipped - never fabricated a range.
+  const day28 = windows.find((w) => w.day === 28);
+  if (day28?.ran) {
+    await writeCalibrationIfDue(tenantId, record, day28.adjustedLift).catch(() => {});
+  }
+
   // Baseline impressions/clicks for the verdict gate come from the pre window
   // (refreshed here so it reflects real GSC, not just the recorded snapshot).
   const treatedPre = pre.get(record.page);
+  const baselineImpressions = treatedPre?.impressions ?? record.baseline.impressions;
+
+  // Item 31 (A/A calibration): read this tenant/traffic-tier's calibrated
+  // floors, falling back to the shipped defaults when no calibration exists
+  // yet (readFloorsFor is itself fail-soft -> {} on any error). This is the
+  // ONLY place the nightly placebo-derived floors reach a real verdict -
+  // aa-calibration.ts itself never writes to this ledger.
+  const floors = await readFloorsFor(tenantId, trafficTierOf(baselineImpressions)).catch(() => ({}));
+
   const { verdict: computedVerdict, confidence } = summarizeVerdict({
     windows,
-    baselineImpressions: treatedPre?.impressions ?? record.baseline.impressions,
+    baselineImpressions,
     baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
     // The metric that actually measures this change type (CTR for a meta/title
     // test, position for a rank play, else clicks for coverage/new-content).
@@ -317,6 +385,7 @@ export async function measureRecord(
     // Answer-block plays can win the snippet (CTR down, rank held) — don't read
     // that as a loss.
     snippetCapturePlay: isSnippetCapturePlay(record.actionType),
+    floors,
   });
 
   // Operator override: a mis-attributed "won"/"lost" (control contamination,

@@ -17,10 +17,13 @@ import {
 } from "@/domains/proof-gsc/measurement-maturity";
 import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
+import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
+import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
 import { ProofSummarySection } from "./proof-summary-section";
+import { ForecastCalibrationSection } from "./forecast-calibration-section";
 import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
   pickProofMetric,
@@ -121,6 +124,13 @@ export default async function ProofPage({
     (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
   );
 
+  // Algorithm-weather guard (master plan item 32): confirmed Google update ranges +
+  // last night's detected sitewide changepoints, so a verdict whose window overlapped
+  // one gets a visible caveat below. Fail-soft -> [] (no known shocks = no caveats,
+  // never a crash). No fresh CUSUM run here (that is the nightly cron's job).
+  const detectedChangepoints = await loadDetectedChangepoints(tenantId).catch(() => []);
+  const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
+
   // Move 2 - the shared maturity presentation per row, so every card reads the same
   // honest measurement language (an early read is never a final verdict, never red/green).
   const overlapById = detectMeasurementOverlaps(ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt })));
@@ -139,6 +149,7 @@ export default async function ProofPage({
           baselineImpressions: l.baseline?.impressions ?? 0,
           overlap: overlapById.get(l.id) ?? null,
           live: true,
+          shockWindows,
         }),
       ] as const;
     }),
@@ -301,6 +312,12 @@ export default async function ProofPage({
           shipped; reads the request-cached re-measured ledger. */}
       <Suspense fallback={null}>
         <ProofSummarySection />
+      </Suspense>
+
+      {/* Item 27 - the promise ledger: forecast vs delivered, reconciled monthly. Sibling to the
+          summary above; self-hides until at least 3 picks have settled at their 28-day window. */}
+      <Suspense fallback={null}>
+        <ForecastCalibrationSection />
       </Suspense>
 
       {/* Record a shipped change for ANY page (manual-ship companion). Prefills
@@ -637,6 +654,13 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored }: { rec: S
       <p className="mt-1.5 text-[12px] text-foreground/80">
         <span className="font-medium text-foreground/60">Search:</span> {sentence}
       </p>
+
+      {/* Algorithm-weather guard (master plan item 32): this row's measurement window
+          overlapped a confirmed Google update or a sitewide shift I detected, so I am
+          flagging the read as cautious instead of quietly treating it as clean evidence. */}
+      {pres?.weatherCaveat ? (
+        <p className="mt-1 text-[12px] text-amber-700">{pres.weatherCaveat}</p>
+      ) : null}
 
       {/* Dollar-ROI proof (gap #1): the GA4 traffic + conversion outcome next to
           the Search verdict. Revenue is honestly absent for this property, so the

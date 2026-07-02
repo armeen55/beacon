@@ -20,6 +20,7 @@
  */
 
 import { addDays, proofCheckDates, PROOF_WINDOW_DAYS, type ProofWindowDay } from "./measure";
+import { overlappingShock, weatherCaveatSentence, type ShockWindow } from "./algorithm-weather";
 
 export type MeasurementMaturity =
   | "scheduled" // not yet live / activated — no measurement language at all
@@ -64,6 +65,13 @@ export type MaturityInput = {
   overlap?: OverlapContext | null;
   /** Whether the change is live/activated. Defaults to true (proof rows are live). */
   live?: boolean;
+  /** Algorithm-weather guard (master plan item 32): confirmed Google update
+   *  ranges + detected sitewide shocks, so a measurement window that overlapped
+   *  one gets a visible caveat and is excluded from learning. Additive - a
+   *  caller that never passes this (or passes []) sees byte-identical output
+   *  to before this field existed. Computed at READ time; never mutates the
+   *  stored verdict. */
+  shockWindows?: ReadonlyArray<ShockWindow>;
 };
 
 /** Minimum sufficiency for a MATURE verdict (mirrors measure.ts thresholds). */
@@ -156,7 +164,36 @@ export type MeasurementPresentation = {
   basisDay: ProofWindowDay | null;
   /** Semantic tone for UI color — never red/green before maturity. */
   tone: "positive" | "negative" | "neutral" | "progress" | "waiting";
+  /** Algorithm-weather guard (master plan item 32): non-null when this
+   *  measurement window overlapped a confirmed Google update or a detected
+   *  sitewide shock. Renders as a visible caveat line on the Results row and
+   *  additively demotes learningEligibility to false, the same way an
+   *  accidental overlap already weakens attributionQuality above. */
+  weatherCaveat: string | null;
+  /** True when a shock overlap was found - separate from the sentence so a
+   *  reader that only needs the exclusion decision (the prior/lesson gate)
+   *  doesn't have to string-match weatherCaveat. */
+  weatherQuarantined: boolean;
 };
+
+/**
+ * The measurement window a proof record's BASIS checkpoint actually covers:
+ * ship date -> the basis day's check-on date (falling back to the soonest
+ * future checkpoint when nothing has closed yet, so an in-flight window still
+ * gets checked against ongoing algorithm weather). PURE. Exported so read
+ * sites (Results page, load-experiment-outcomes.ts) compute the SAME window
+ * the presentation itself judges, instead of re-deriving their own dates.
+ */
+export function measurementWindowOf(
+  shippedAt: string | null,
+  windows: ReadonlyArray<{ day: number; ran: boolean }>,
+): { start: string; end: string } | null {
+  if (!shippedAt) return null;
+  const basis = basisDayOf(windows);
+  const checks = proofCheckDates(shippedAt);
+  const day = basis ?? (PROOF_WINDOW_DAYS.find((d) => !windows.some((w) => w.day === d && w.ran)) ?? 28);
+  return { start: shippedAt.slice(0, 10), end: checks[day as ProofWindowDay] };
+}
 
 function maturityConfidence(
   maturity: MeasurementMaturity,
@@ -197,7 +234,21 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
 
   const confidence = maturityConfidence(maturity, input.controlsUsed, input.baselineImpressions);
   const evidenceStrength = evidenceStrengthOf(maturity, attributionQuality);
-  const learningEligibility = maturity === "mature_result" && attributionQuality === "clean";
+
+  // Algorithm-weather guard (item 32): a shock overlapping this window is
+  // additive - it never changes the maturity/verdict/tone computed above, it
+  // only adds a caveat and, like an accidental overlap, revokes learning
+  // eligibility. A record with no shockWindows (the default) behaves exactly
+  // as before this field existed.
+  const measurementWindow = measurementWindowOf(input.shippedAt, input.windows);
+  const shockHit =
+    measurementWindow && input.shockWindows && input.shockWindows.length > 0
+      ? overlappingShock(measurementWindow.start, measurementWindow.end, input.shockWindows)
+      : null;
+  const weatherCaveat = shockHit ? weatherCaveatSentence(shockHit) : null;
+  const weatherQuarantined = shockHit != null;
+
+  const learningEligibility = maturity === "mature_result" && attributionQuality === "clean" && !weatherQuarantined;
 
   const verdict: MeasurementPresentation["verdict"] =
     maturity === "mature_result"
@@ -269,6 +320,8 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
     learningEligibility,
     basisDay,
     tone,
+    weatherCaveat,
+    weatherQuarantined,
   };
 }
 

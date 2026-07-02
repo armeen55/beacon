@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildKeywordBrief, buildSerpEvidence, whatToSteal, buildCompetitorEvidence, buildRankMovementSentence,
-  type CachedDemand, type SerpPatternLite, type EvidenceSerp,
+  type CachedDemand, type SerpPatternLite, type EvidenceSerp, type DailyEvidenceBrief,
 } from "./daily-evidence-brief";
 
 function demand(entries: Array<[string, CachedDemand]>): Map<string, CachedDemand> {
@@ -226,5 +226,25 @@ describe("EvidenceSerp.featureSteal (item 25)", () => {
     };
     expect(withSteal.featureSteal?.ownerDomain).toBe("personal-blog.com");
     expect(withSteal.featureSteal?.sentence).not.toMatch(/[–—]/);
+  });
+});
+
+describe("DailyEvidenceBrief.familyWin (item 29)", () => {
+  it("is absent by default - honest silence when no family win applies", () => {
+    const brief: DailyEvidenceBrief = { keywords: [], addressableVolume: null };
+    expect(brief.familyWin).toBeUndefined();
+  });
+
+  it("carries the source page + a dash-clean provenance sentence when attached", () => {
+    const brief: DailyEvidenceBrief = {
+      keywords: [], addressableVolume: null,
+      familyWin: {
+        sourceWinPage: "/iran-animals/persian-cheetah",
+        sentence: "This exact change (a direct answer) already won on the persian cheetah page in June. Same move, next page: persian leopard.",
+      },
+    };
+    expect(brief.familyWin?.sourceWinPage).toBe("/iran-animals/persian-cheetah");
+    expect(brief.familyWin?.sentence).toContain("Same move, next page");
+    expect(brief.familyWin?.sentence).not.toMatch(/[–—]/);
   });
 });

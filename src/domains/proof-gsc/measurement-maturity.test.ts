@@ -7,6 +7,7 @@ import {
   isMatureOutcome,
   isInFlight,
   detectMeasurementOverlaps,
+  measurementWindowOf,
   type MaturityInput,
 } from "./measurement-maturity";
 
@@ -194,5 +195,89 @@ describe("attribution_limited", () => {
     expect(p.learningEligibility).toBe(false);
     expect(p.attributionQuality).toBe("limited");
     expect(p.explanation).toMatch(/overlap/i);
+  });
+});
+
+describe("measurementWindowOf", () => {
+  it("uses the basis (closed) window's check-on date as the window end", () => {
+    expect(measurementWindowOf("2026-06-20", win(true, false, false))).toEqual({ start: "2026-06-20", end: "2026-06-27" });
+    expect(measurementWindowOf("2026-06-20", win(true, true, true))).toEqual({ start: "2026-06-20", end: "2026-07-18" });
+  });
+  it("falls back to the soonest un-run checkpoint when nothing has closed yet", () => {
+    expect(measurementWindowOf("2026-06-20", win(false, false, false))).toEqual({ start: "2026-06-20", end: "2026-06-27" });
+  });
+  it("returns null with no ship date", () => {
+    expect(measurementWindowOf(null, win(false, false, false))).toBeNull();
+  });
+});
+
+describe("algorithm-weather guard (master plan item 32) — additive, computed at read time", () => {
+  it("a record with no shockWindows behaves exactly as before this field existed", () => {
+    const p = buildMeasurementPresentation(input({ windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000 }));
+    expect(p.weatherCaveat).toBeNull();
+    expect(p.weatherQuarantined).toBe(false);
+    expect(p.learningEligibility).toBe(true);
+  });
+  it("a mature win whose window overlaps a confirmed shock gets a caveat and loses learning eligibility", () => {
+    const p = buildMeasurementPresentation(
+      input({
+        shippedAt: "2026-06-20",
+        windows: win(true, true, true),
+        verdict: "won",
+        controlsUsed: 3,
+        baselineImpressions: 5000,
+        shockWindows: [{ id: "confirmed:x", start: "2026-07-08", end: "2026-07-22", kind: "confirmed", label: "the July update" }],
+      }),
+    );
+    // Maturity/verdict/tone are UNCHANGED (additive, never rewrites the headline call).
+    expect(p.maturity).toBe("mature_result");
+    expect(p.verdict).toBe("helped");
+    expect(p.headline).toBe("Helped");
+    // But the caveat is visible and learning is revoked.
+    expect(p.weatherQuarantined).toBe(true);
+    expect(p.weatherCaveat).toMatch(/Google shifted the whole playing field/);
+    expect(p.weatherCaveat).toMatch(/reading this result cautiously/);
+    expect(p.learningEligibility).toBe(false);
+  });
+  it("a shock window that does NOT overlap the measurement window has no effect", () => {
+    const p = buildMeasurementPresentation(
+      input({
+        shippedAt: "2026-06-20",
+        windows: win(true, true, true),
+        verdict: "won",
+        controlsUsed: 3,
+        baselineImpressions: 5000,
+        shockWindows: [{ id: "confirmed:x", start: "2020-01-01", end: "2020-01-14", kind: "confirmed", label: "an old update" }],
+      }),
+    );
+    expect(p.weatherQuarantined).toBe(false);
+    expect(p.weatherCaveat).toBeNull();
+    expect(p.learningEligibility).toBe(true);
+  });
+  it("an in-flight (early_checkpoint) record can also carry the caveat, still non-learning either way", () => {
+    const p = buildMeasurementPresentation(
+      input({
+        shippedAt: "2026-06-20",
+        windows: win(true, false, false),
+        verdict: "won",
+        shockWindows: [{ id: "confirmed:x", start: "2026-06-25", end: "2026-07-02", kind: "confirmed", label: "the June update" }],
+      }),
+    );
+    expect(p.maturity).toBe("early_checkpoint");
+    expect(p.weatherQuarantined).toBe(true);
+    expect(p.learningEligibility).toBe(false); // already false pre-maturity; guard does not flip it true
+  });
+  it("emits no em or en dashes in the caveat sentence", () => {
+    const p = buildMeasurementPresentation(
+      input({
+        shippedAt: "2026-06-20",
+        windows: win(true, true, true),
+        verdict: "won",
+        controlsUsed: 3,
+        baselineImpressions: 5000,
+        shockWindows: [{ id: "confirmed:x", start: "2026-07-08", end: "2026-07-22", kind: "confirmed", label: "the July update" }],
+      }),
+    );
+    expect(p.weatherCaveat).not.toMatch(/[–—]/);
   });
 });

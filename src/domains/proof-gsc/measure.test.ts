@@ -7,6 +7,9 @@ import {
   proofCheckDates,
   proofOutcomeSentence,
   summarizeVerdict,
+  trafficTierOf,
+  DEFAULT_MIN_LIFT_CLICKS,
+  DEFAULT_MIN_LIFT_CTR,
   type GscWindowMetrics,
   type ProofWindowResult,
 } from "./measure";
@@ -510,5 +513,102 @@ describe("impressions as a result (operator ask): visibility counts even when cl
       basis: win({ adjustedLift: 5, adjustedImpressionsLift: 800 }),
     });
     expect(inconcVis).toContain("showing for more searches");
+  });
+});
+
+describe("summarizeVerdict — item 31 calibrated floors (VerdictFloors injection)", () => {
+  const win28 = (adjustedLift: number, adjustedCtrLift: number = 0): ProofWindowResult =>
+    ({
+      day: 28, checkOn: "x", ran: true,
+      treatedDelta: 0, controlDelta: 0, adjustedLift,
+      treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift,
+      treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0,
+      controlsUsed: 3, treatedPostImpressions: 5000,
+    }) as ProofWindowResult;
+
+  // baselineClicks is kept tiny (10) so clicksFloorBaseline*MIN_LIFT_FRACTION
+  // (10*0.1=1) never dominates Math.max(minLiftClicks, ...) - these tests are
+  // about the minLiftClicks/minLiftCtr floor itself, not the fraction floor
+  // (already covered by the pre-existing "flat page" tests above).
+  it("with no `floors` argument, behavior is BYTE-IDENTICAL to the pre-calibration default (the pin)", () => {
+    const withoutFloorsArg = summarizeVerdict({
+      windows: [win28(DEFAULT_MIN_LIFT_CLICKS + 1)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+    });
+    const withEmptyFloors = summarizeVerdict({
+      windows: [win28(DEFAULT_MIN_LIFT_CLICKS + 1)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+      floors: {},
+    });
+    expect(withoutFloorsArg).toEqual(withEmptyFloors);
+    expect(withoutFloorsArg.verdict).toBe("won");
+  });
+
+  it("an undefined floors object never changes the clicks or CTR verdict vs the DEFAULT_MIN_LIFT_* constants", () => {
+    // Lift sits exactly on the documented default floors - proves the fallback
+    // reads the real exported constants, not a second hardcoded copy.
+    const clicksAtFloor = summarizeVerdict({
+      windows: [win28(DEFAULT_MIN_LIFT_CLICKS)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+    });
+    expect(clicksAtFloor.verdict).toBe("won");
+
+    const ctrAtFloor = summarizeVerdict({
+      windows: [win28(0, DEFAULT_MIN_LIFT_CTR)],
+      baselineImpressions: 5000,
+      baselineClicks: 200,
+      metric: "ctr",
+    });
+    expect(ctrAtFloor.verdict).toBe("won");
+  });
+
+  it("a calibrated (stricter) floor can turn a would-have-been win into inconclusive", () => {
+    const lift = DEFAULT_MIN_LIFT_CLICKS + 1; // clears the default floor
+    const withDefault = summarizeVerdict({
+      windows: [win28(lift)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+    });
+    expect(withDefault.verdict).toBe("won");
+
+    const withCalibratedFloor = summarizeVerdict({
+      windows: [win28(lift)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+      floors: { minLiftClicks: lift + 10 }, // calibration derived a much stricter floor
+    });
+    expect(withCalibratedFloor.verdict).toBe("inconclusive");
+  });
+
+  it("a floors object with only minLiftCtr set leaves the clicks floor at the default", () => {
+    const lift = DEFAULT_MIN_LIFT_CLICKS + 1;
+    const r = summarizeVerdict({
+      windows: [win28(lift)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+      floors: { minLiftCtr: 0.5 }, // unrelated to the clicks metric under test
+    });
+    expect(r.verdict).toBe("won");
+  });
+});
+
+describe("trafficTierOf — item 31 traffic-tier bucketing (pure)", () => {
+  it("buckets by baseline impressions using the documented thresholds", () => {
+    expect(trafficTierOf(199)).toBe("low");
+    expect(trafficTierOf(200)).toBe("low");
+    expect(trafficTierOf(799)).toBe("low");
+    expect(trafficTierOf(800)).toBe("medium");
+    expect(trafficTierOf(2999)).toBe("medium");
+    expect(trafficTierOf(3000)).toBe("high");
+    expect(trafficTierOf(50000)).toBe("high");
   });
 });

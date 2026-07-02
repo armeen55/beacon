@@ -19,6 +19,7 @@ import {
   actionFamilyOf,
   type ExperimentEligibility,
 } from "./experiment-eligibility";
+import { deriveMeasurementMaturity, detectMeasurementOverlaps } from "@/domains/proof-gsc/measurement-maturity";
 import { pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
 import { proposeSafeMeta } from "./safe-meta";
 import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
@@ -26,6 +27,7 @@ import { proposeSafeAnswerBlock, buildWrittenAnswerProposal, type SafeAnswerBloc
 import type { DailyEvidenceBrief } from "./daily-evidence-brief";
 import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
 import { expectedCtrAt } from "./pick-expectations";
+import { findFamilyPropagationCandidates, type FamilyPropagationCandidate } from "./family-win-propagation";
 
 export type PageFacts = {
   title: string | null;
@@ -95,6 +97,11 @@ export type BuiltCandidate = DailyCandidate & {
    *  not on others - the change also aims at that per-engine gap. Deterministic, from the nightly
    *  4-engine poll's diff; absent when no fresh gap touches this page. */
   engineGap?: { promptText: string; citedEngines: string[]; missingEngines: string[] };
+  /** Item 29 (family win propagation): this exact lever already proved itself (a mature, positive
+   *  verdict) on a sibling page in the same family, and this page is one of the bounded, ranked
+   *  siblings still eligible to receive it. Absent unless a real mature win exists for this
+   *  page's family + lever AND this page made the nightly cap. Deterministic, $0. */
+  familyWin?: FamilyPropagationCandidate;
 };
 
 // CTR curve lives in pick-expectations (items 34/61 share it); alias keeps call sites unchanged.
@@ -200,6 +207,44 @@ function scoreControl(treated: GscPageInput, control: GscPageInput): SuggestedCo
 
 export const MIN_CONTROLS = 3;
 
+/**
+ * Item 29: which shipped records count as a real, MATURE, positive win the family-propagation
+ * finder may reuse - the same honest maturity gate load-experiment-outcomes.ts uses for
+ * learning eligibility (a 7/14-day early read never counts, only a settled 28-day result with
+ * clean, non-overlapping attribution). No extra I/O: derived from the ledger already in hand.
+ */
+function matureWonRecords(records: ShippedChangeRecord[], now: Date): ShippedChangeRecord[] {
+  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
+  return records.filter((r) => {
+    const basisWin = (r.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
+    const maturity = deriveMeasurementMaturity({
+      shippedAt: r.shippedAt,
+      now,
+      latestGscDate: null, // not consulted for the mature/non-mature decision
+      windows: (r.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
+      verdict: r.verdict,
+      controlsUsed: basisWin?.controlsUsed ?? 0,
+      baselineImpressions: r.baseline?.impressions ?? 0,
+      overlap: overlaps.get(r.id) ?? null,
+      live: true,
+    });
+    return maturity === "mature_result" && r.verdict === "won";
+  });
+}
+
+/** Item 29: every actionType already shipped per page path - the explicit "already has this
+ *  lever" guard on top of the ledger's own eligibility gate. */
+function shipsByPath(records: ShippedChangeRecord[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const r of records) {
+    const p = (r.path || r.page || "").replace(/^https?:\/\/[^/]+/, "") || "/";
+    const set = out.get(p) ?? new Set<string>();
+    set.add(r.actionType);
+    out.set(p, set);
+  }
+  return out;
+}
+
 export function buildDailyCandidates(input: {
   tenantId: string;
   pages: GscPageInput[];
@@ -228,6 +273,33 @@ export function buildDailyCandidates(input: {
     return !st || (st.activeTreatments.length === 0 && st.activeControlAssignments.length === 0);
   });
 
+  // Item 29 - family win propagation: a mature, positive-verdict lever on one page is a
+  // near-certain follow-up on its untreated siblings. Computed ONCE over the whole batch
+  // (not per-page) since it reasons about the batch's pages as a family, then looked up by
+  // path below. Every input here already respects the SAME eligibility gate as the rest of
+  // the batch (assessEligibility over the shared `states`), so a mid-measurement or
+  // active-control sibling is excluded by construction, never re-implemented.
+  const wonRecords = matureWonRecords(input.proofLedger, now);
+  const recentShips = shipsByPath(input.proofLedger);
+  const familyEligibility = new Map<string, ExperimentEligibility>();
+  for (const p of input.pages) {
+    const path = p.url.replace(/^https?:\/\/[^/]+/, "") || "/";
+    // The lever this sibling would receive is the WIN's family, not whatever chooseProposal
+    // happens to propose for it - a sibling can lack a family win's lever entirely today.
+    const winForFamily = [...wonRecords].find((r) => pageFamilyOf(r.path || r.page) === pageFamilyOf(p.url));
+    const family = winForFamily ? actionFamilyOf(winForFamily.actionType) : "other";
+    familyEligibility.set(path, assessEligibility({ url: p.url, family, states }));
+  }
+  const familyWinsByPath = new Map<string, FamilyPropagationCandidate>();
+  for (const c of findFamilyPropagationCandidates({
+    wonRecords,
+    familyPages: input.pages.map((p) => ({ url: p.url, pageLabel: p.pageLabel, impressions: p.impressions })),
+    eligibility: familyEligibility,
+    recentShips,
+  })) {
+    familyWinsByPath.set(c.page.replace(/^https?:\/\/[^/]+/, "") || "/", c);
+  }
+
   const out: BuiltCandidate[] = [];
   for (const p of input.pages) {
     const facts = input.facts.get(p.url) ?? { title: null, meta: null, h1: null };
@@ -237,6 +309,10 @@ export function buildDailyCandidates(input: {
 
     const engineGap = input.engineGapsByUrl?.get(sourcePath);
     const actionFamily = actionFamilyOf(proposal.actionType);
+    // Item 29: only credit the propagation win when it actually reused the SAME lever family
+    // as tonight's real, deterministic proposal for this page (never attach a mismatched claim).
+    const familyWinCandidate = familyWinsByPath.get(sourcePath);
+    const familyWin = familyWinCandidate && familyWinCandidate.lever === actionFamily ? familyWinCandidate : undefined;
     // Source-query ownership only gates TEXT edits (meta/title/H1 must own the query they target).
     // An internal link's ownership is the DESTINATION owning the ANCHOR - already proven by the
     // proposer - so the source's query share is irrelevant; don't suppress valid links with it.
@@ -244,7 +320,7 @@ export function buildDailyCandidates(input: {
     const baseExternal = { ownershipUncertain: !isLink && p.ownership < 0.12, highRisk: false };
     const baseElig = assessEligibility({ url: p.url, family: actionFamily, states, external: baseExternal });
     if (!baseElig.eligible) {
-      out.push(buildCandidate(p, proposal, actionFamily, baseElig, [], baseExternal, engineGap));
+      out.push(buildCandidate(p, proposal, actionFamily, baseElig, [], baseExternal, engineGap, familyWin));
       continue; // kept for the planner to report as excluded
     }
 
@@ -259,7 +335,7 @@ export function buildDailyCandidates(input: {
     // selection (insufficient_controls) rather than silently shipping an unmeasurable change.
     const external = { ...baseExternal, insufficientControls: controls.length < MIN_CONTROLS };
     const elig = assessEligibility({ url: p.url, family: actionFamily, states, external });
-    out.push(buildCandidate(p, proposal, actionFamily, elig, controls, external, engineGap));
+    out.push(buildCandidate(p, proposal, actionFamily, elig, controls, external, engineGap, familyWin));
   }
   return out;
 }
@@ -272,6 +348,7 @@ function buildCandidate(
   controls: SuggestedControl[],
   external: { ownershipUncertain?: boolean; highRisk?: boolean; insufficientControls?: boolean },
   engineGap?: EngineGapNote,
+  familyWin?: FamilyPropagationCandidate,
 ): BuiltCandidate {
   const ctrOpportunityClicks = Math.max(0, expectedCtr(p.topQueryPosition) - p.topQueryCtr) * p.topQueryImpressions;
   const link = proposal.link;
@@ -285,7 +362,10 @@ function buildCandidate(
       : `This page ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} searches) but only ${(p.topQueryCtr * 100).toFixed(1)}% click. The ${proposal.leverField === "meta" ? "description" : proposal.leverField} is the weak link, so a sharper one should win more of those clicks.`;
   // Item 4: when the nightly 4-engine poll found this page cited by one AI engine but
   // absent on others, the card says so - the change aims at that gap too.
-  const whyNow = engineGap ? `${baseWhyNow} ${engineGap.sentence}` : baseWhyNow;
+  const whyEngine = engineGap ? `${baseWhyNow} ${engineGap.sentence}` : baseWhyNow;
+  // Item 29: reusing a proven win on this family - the propagation sentence rides the same
+  // "why now" the operator reads first, so the provenance is never buried in an expander.
+  const whyNow = familyWin ? `${whyEngine} ${familyWin.sentence}` : whyEngine;
   return {
     url: p.url,
     pageLabel: p.pageLabel,
@@ -314,5 +394,10 @@ function buildCandidate(
     engineGap: engineGap
       ? { promptText: engineGap.promptText, citedEngines: engineGap.citedEngines, missingEngines: engineGap.missingEngines }
       : undefined,
+    familyWin,
+    // Item 29: a proven-family win is a near-certain follow-up, so it starts with a visible,
+    // bounded boost (team-review composes ON TOP of this multiplicatively, never overwrites it
+    // to neutral - see build-today-preview.ts).
+    teamScoreMultiplier: familyWin ? familyWin.boost : undefined,
   };
 }

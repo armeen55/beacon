@@ -50,7 +50,7 @@ function leaveUnchangedFor(lever: ExperimentLever): string[] {
   return all.filter((x) => x.toLowerCase() !== touched[lever].toLowerCase());
 }
 
-function toExperimentRecord(planId: string, c: BuiltCandidate, controls: ProposedControlRecord[]): PlannedExperimentRecord {
+function toExperimentRecord(planId: string, c: BuiltCandidate, controls: ProposedControlRecord[], correctionFactor: number): PlannedExperimentRecord {
   const path = normalizePath(c.url);
   const lever = c.leverField as ExperimentLever;
   const currentTextHash = stableHash(c.currentText ?? "");
@@ -77,7 +77,7 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
     rollbackText: c.rollbackText,
     effortMinutes: c.effortMinutes,
     risk: "low",
-    expectations: buildPickExpectations({ lever, ctrOpportunityClicks: c.ctrOpportunityClicks, effortMinutes: c.effortMinutes }),
+    expectations: buildPickExpectations({ lever, ctrOpportunityClicks: c.ctrOpportunityClicks, effortMinutes: c.effortMinutes, correctionFactor }),
     controls,
     influencedUrls: (c.influencedUrls ?? []).map(normalizePath),
     evidenceHash,
@@ -95,7 +95,7 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
  * (The reservation id is keyed by experiment, so shared controls are distinct rows; acceptance
  * blocks only a control that is or becomes a TREATMENT, never a shared baseline.)
  */
-function assignCleanControls(planId: string, selected: BuiltCandidate[]): PlannedExperimentRecord[] {
+function assignCleanControls(planId: string, selected: BuiltCandidate[], correctionFactor: number): PlannedExperimentRecord[] {
   const treatedPaths = new Set(selected.map((c) => normalizePath(c.url)));
   return selected.map((c) => {
     const clean: ProposedControlRecord[] = [];
@@ -104,7 +104,7 @@ function assignCleanControls(planId: string, selected: BuiltCandidate[]): Planne
       clean.push(controlRecord(ctrl));
       if (clean.length >= 5) break;
     }
-    return toExperimentRecord(planId, c, clean);
+    return toExperimentRecord(planId, c, clean, correctionFactor);
   });
 }
 
@@ -116,9 +116,15 @@ export function buildDailyPlanRecord(input: {
   backups: BuiltCandidate[];
   activeSnapshot: { proofIds: string[]; treatedUrls: string[]; controlUrls: string[]; influencedUrls: string[] };
   expiresInMinutes?: number;
+  /** Item 27: the measured bias-correction factor from past forecasts vs actuals (default 1.0,
+   *  meaning no correction yet - either no calibration history, or it is too thin to trust). The
+   *  caller (build-today-preview.ts) reads this fail-soft from forecast-calibration.ts; this
+   *  function just threads it through to every pick's expectations. */
+  correctionFactor?: number;
 }): DailyExperimentPlanRecord {
   const nowIso = input.now.toISOString();
   const expiresAt = new Date(input.now.getTime() + (input.expiresInMinutes ?? DEFAULT_EXPIRY_MIN) * 60_000).toISOString();
+  const correctionFactor = input.correctionFactor ?? 1;
 
   // inputHash is content-addressed over the selected set + the active topology, so re-planning with
   // identical inputs yields the same plan id (idempotent preview), and any change → a new plan.
@@ -130,8 +136,8 @@ export function buildDailyPlanRecord(input: {
   const inputHash = stableHash(`${input.tenantId}|${input.date}|${selectedKey}|${snapKey}`);
   const id = `${input.tenantId}::${input.date}::${inputHash.slice(0, 12)}`;
 
-  const selected = assignCleanControls(id, input.selected);
-  const backups = assignCleanControls(id, input.backups);
+  const selected = assignCleanControls(id, input.selected, correctionFactor);
+  const backups = assignCleanControls(id, input.backups, correctionFactor);
 
   const byLever: Record<string, number> = {};
   const byPageFamily: Record<string, number> = {};

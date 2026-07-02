@@ -119,7 +119,7 @@ export const PROOF_WINDOW_DAYS: ProofWindowDay[] = [7, 14, 28];
 /** A page needs at least this many baseline impressions for any verdict. */
 const MIN_BASELINE_IMPRESSIONS = 200;
 /** Lift must clear the larger of this many clicks OR this fraction of baseline. */
-const MIN_LIFT_CLICKS = 3;
+export const DEFAULT_MIN_LIFT_CLICKS = 3;
 const MIN_LIFT_FRACTION = 0.1;
 /** The baseline (pre-ship) window length the recorder reads, in days. The clicks
  *  diff-in-diff pro-rates this pre window to each post window (7/14/28) so a
@@ -130,13 +130,43 @@ export const PROOF_BASELINE_WINDOW_DAYS = 28;
 const MIN_CONTROLS_FOR_COMPUTED = 2;
 const MIN_CONTROLS_FOR_HIGH = 3;
 /** CTR lift floor (absolute, 0–1): a 0.3 percentage-point diff-in-diff clears it. */
-const MIN_LIFT_CTR = 0.003;
+export const DEFAULT_MIN_LIFT_CTR = 0.003;
 /** Position lift floor: moving up half a rank more than controls clears it. */
 const MIN_LIFT_POSITION = 0.5;
 /** Impressions lift floors (a COUNT metric): the larger of an absolute floor and a
  *  fraction of the window-scaled baseline, so a visibility gain must be real, not noise. */
 const MIN_LIFT_IMPRESSIONS_ABS = 50;
 const MIN_LIFT_IMPRESSIONS_FRACTION = 0.2;
+
+/**
+ * Traffic tiers for the A/A calibration harness (item 31): the placebo
+ * false-positive rate is measured PER TIER (a 300-impression page and a
+ * 30,000-impression page have very different natural noise), and the derived
+ * floors are looked up by tier. Buckets are on baseline (pre-window)
+ * impressions — the same number that already gates MIN_BASELINE_IMPRESSIONS.
+ */
+export type TrafficTier = "low" | "medium" | "high";
+export function trafficTierOf(baselineImpressions: number): TrafficTier {
+  if (baselineImpressions >= 3000) return "high";
+  if (baselineImpressions >= 800) return "medium";
+  return "low";
+}
+export const TRAFFIC_TIERS: TrafficTier[] = ["low", "medium", "high"];
+
+/**
+ * Verdict floors for the clicks and CTR metrics. Defaults to the hand-picked
+ * constants above; the A/A calibration harness (aa-calibration.ts) can derive
+ * PER-TENANT, PER-TRAFFIC-TIER floors from the placebo pseudo-lift
+ * distribution and pass them in here so measure.ts stays pure (no store
+ * reads) while still being tunable. Absent/undefined fields fall back to the
+ * built-in constant, so a partially-populated calibration never breaks a
+ * verdict. Position/impressions floors are intentionally NOT tuned by item 31
+ * (out of scope; the CTR/clicks floors are the pair item 31 names).
+ */
+export type VerdictFloors = {
+  minLiftClicks?: number;
+  minLiftCtr?: number;
+};
 
 function pad(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
@@ -275,6 +305,11 @@ export function summarizeVerdict(args: {
   /** True for answer-block/snippet plays: a CTR drop while rank held/improved is
    *  most likely a snippet capture (answer satisfied in the SERP), NOT a loss. */
   snippetCapturePlay?: boolean;
+  /** Item 31 (A/A calibration): tenant + traffic-tier-derived floors for the
+   *  clicks/CTR verdict thresholds. Undefined (or a field left undefined)
+   *  falls back to the hand-picked DEFAULT_MIN_LIFT_* constant, so calling
+   *  this with no `floors` is BYTE-IDENTICAL to the pre-calibration behavior. */
+  floors?: VerdictFloors;
 }): {
   verdict: GscProofVerdict;
   confidence: GscProofConfidence;
@@ -330,12 +365,18 @@ export function summarizeVerdict(args: {
   // a 7-day window is judged against a 28-day floor (≈4× too strict).
   const clicksFloorBaseline =
     args.baselineClicks * (basis.day / PROOF_BASELINE_WINDOW_DAYS);
+  // Item 31: use the calibrated floor when the harness supplied one for this
+  // tenant/tier, else the hand-picked default constant. A calibrated floor can
+  // only ever be >= the default (aa-calibration.ts clamps stricter-only), so
+  // this can never make a verdict MORE lenient than the shipped behavior.
+  const minLiftClicks = args.floors?.minLiftClicks ?? DEFAULT_MIN_LIFT_CLICKS;
+  const minLiftCtr = args.floors?.minLiftCtr ?? DEFAULT_MIN_LIFT_CTR;
   const floor =
     metric === "ctr"
-      ? MIN_LIFT_CTR
+      ? minLiftCtr
       : metric === "position"
         ? MIN_LIFT_POSITION
-        : Math.max(MIN_LIFT_CLICKS, clicksFloorBaseline * MIN_LIFT_FRACTION);
+        : Math.max(minLiftClicks, clicksFloorBaseline * MIN_LIFT_FRACTION);
   let verdict: GscProofVerdict;
   if (lift >= floor) verdict = "won";
   else if (lift <= -floor) verdict = "lost";

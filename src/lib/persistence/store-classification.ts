@@ -287,6 +287,30 @@ export const GLOBAL_STORES = new Set<string>([
   // The mined "what AI actually quotes" pattern profile the daily card +
   // citability hint feed read at $0.
   "citability-pattern-profile",
+  // Forecast calibration ledger (2026-07-02, master plan items 27/28). Rows carry
+  // tenant_id; written from the day-28 measure pass (no ambient request context,
+  // same fan-out rationale as the stores above). Append-only per-pick forecast vs
+  // actual records the /proof "how honest are my forecasts" card and the
+  // bias-correction factor in pick-expectations.ts both read at $0.
+  "forecast-calibration",
+  // Winner memory (2026-07-02, master plan item 30). Rows carry tenant_id;
+  // harvested from the measure-pass tail (no ambient request context), same
+  // fan-out rationale as the stores above. Retained mature-won before/after
+  // text + structural features per actionFamily, read by structured-drafter's
+  // few-shot injection at $0 (same LLM calls, richer prompts).
+  "winner-memory",
+  // A/A calibration harness (2026-07-02, master plan item 31). Rows carry
+  // tenant_id; written from the nightly placebo pass (no ambient request
+  // context, same fan-out rationale as the stores above). Latest per-tenant
+  // measured false-positive rate + per-traffic-tier derived floors, read by
+  // measure.ts's readFloorsFor and the /proof explainer's honesty sentence.
+  "aa-calibration",
+  // Algorithm-weather guard (2026-07-02, master plan item 32). Rows carry
+  // tenant_id; written from the nightly CUSUM changepoint pass over sitewide
+  // daily GSC totals (no ambient request context, same fan-out rationale as
+  // the stores above). Latest per-tenant detected shocks, read by the Results
+  // page caveat line and the prior/lesson exclusion gate at $0.
+  "algorithm-weather-shocks",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

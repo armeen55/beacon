@@ -47,6 +47,8 @@ import { buildLanguageGapHintNotes } from "@/domains/language-gap/language-gap-h
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { buildCitabilityHintNotes } from "@/domains/citability/citability-hints";
+import { loadCalibrationRecords } from "./forecast-calibration-store";
+import { summarizeForecastCalibration } from "./forecast-calibration";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -259,6 +261,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
           faqs: [],
           evidenceHints: citability?.topFixes,
           intent: gap!.intent,
+          tenantId,
         });
         if (res.status === "drafted" && res.value.answer?.trim()) {
           writtenAnswersByUrl.set(p.url, { text: res.value.answer.trim(), question: gap!.question });
@@ -313,7 +316,11 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         b.teamReview.voices.push({ specialist: "proof", label: "Results so far", claim: hist, confidencePct: 65 });
       }
     }
-    b.teamScoreMultiplier = result.scoreMultiplier;
+    // Item 29: a family-propagation win already carries a visible, bounded boost
+    // (build-daily-candidates sets teamScoreMultiplier = familyWin.boost); COMPOSE the team's
+    // multiplier on top of it multiplicatively instead of overwriting, so a proven-family win
+    // stays boosted even when the team is silent (result.scoreMultiplier defaults to 1).
+    b.teamScoreMultiplier = (b.familyWin ? b.familyWin.boost : 1) * result.scoreMultiplier;
     if (result.vetoed) { teamVetoed += 1; return false; }
     return true;
   });
@@ -329,7 +336,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // or the cap is hit); on any miss it keeps the deterministic text. Only drop-in field levers here;
   // answer-block writing (a new add-operation) is a later slice.
   const llmDrafter: MetaTitleDrafter = async ({ query, pageLabel, field, currentValue, intent }) => {
-    const r = await draftAtomicEditStructured({ query, pageLabel, field, currentValue, outline: [], intent });
+    const r = await draftAtomicEditStructured({ query, pageLabel, field, currentValue, outline: [], intent, tenantId });
     return r.status === "drafted" ? { text: r.value.after, rationale: r.value.rationale } : null;
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
@@ -477,6 +484,26 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         });
       }
     }
+    // Item 29 - the FAMILY-WIN voice + evidence-brief provenance line: this pick's lever
+    // already proved itself (a mature, positive verdict) on a sibling page in the same
+    // family. The card's "how we know" gains the provenance and the roundtable gains a
+    // dedicated high-confidence voice, since a proven-family repeat is closer to a fact than
+    // an opinion. Deterministic, from the ledger's own settled record ($0). Absent otherwise
+    // - honest silence, never a fabricated "proven" claim.
+    if (c.familyWin) {
+      c.evidenceBrief = {
+        ...(c.evidenceBrief ?? { keywords: [], addressableVolume: null }),
+        familyWin: { sourceWinPage: c.familyWin.sourceWinPage, sentence: c.familyWin.sentence },
+      };
+      if (c.teamReview && !c.teamReview.voices.some((v) => v.label === "Proven on this family")) {
+        c.teamReview.voices.push({
+          specialist: "proof",
+          label: "Proven on this family",
+          claim: c.familyWin.sentence,
+          confidencePct: 85,
+        });
+      }
+    }
   }
 
   // Item 25 - the strategist WRITES the team verdict for each pick: a grounded 1-3 sentence
@@ -509,9 +536,18 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     }),
   );
 
+  // Item 27 - feed the measured forecast bias back into tonight's ranges: read the calibration
+  // ledger (fail-soft, defaults to 1.0 = no correction on any error or a too-thin sample) and pass
+  // the resulting factor through so every pick's forecast shifts toward what past picks actually
+  // delivered. Never blocks planning - a calibration-store outage plans exactly as before.
+  const correctionFactor = await loadCalibrationRecords(tenantId)
+    .then((rows) => summarizeForecastCalibration(rows).correctionFactor)
+    .catch(() => 1);
+
   const record = buildDailyPlanRecord({
     tenantId, date: now.toISOString().slice(0, 10), now, selected, backups,
     activeSnapshot: { proofIds: activeProofIds, treatedUrls: [...activeTreated], controlUrls: [...activeControl], influencedUrls: [] },
+    correctionFactor,
   });
 
   // Item 12 - the FINAL REVIEW: after picks are FINAL, one bounded LLM read checks each pick

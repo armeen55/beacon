@@ -19,6 +19,7 @@ import { prepareTodayMovesForTenant, type PrepareMovesSummary } from "@/domains/
 export type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
 import { autoMeasureDuePass, type AutoMeasurePassResult } from "@/domains/proof-gsc/auto-measure-pass";
+import { harvestWinners } from "@/domains/llm/winner-memory";
 
 export type SharpenMovesResult =
   | { status: "off" }
@@ -208,11 +209,18 @@ export type MeasureNowResult =
 export async function measureAppliedMovesAction(opts: { maxRecords?: number } = {}): Promise<MeasureNowResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
-    const result = await autoMeasureDuePass(await currentTenantId(), { maxRecords: opts.maxRecords ?? 15 });
+    const tenantId = await currentTenantId();
+    const result = await autoMeasureDuePass(tenantId, { maxRecords: opts.maxRecords ?? 15 });
     // Settled proof outcomes change the graph's learning priors + page cautions
     // (applyExperimentPriorToMoves / applyProofOutcomeCautionToMoves) → invalidate the
     // graph (clears the derived worklist surface too).
     await invalidateDemandGraph("proof settled → outcome priors changed").catch(() => {});
+    // BEACON_500 item 30: a fresh "won" verdict from this pass should be available to the
+    // drafter's few-shot injection on the very next draft. Isolated + fail-soft - a harvest
+    // error must never surface as a measure-pass failure.
+    if (result.settled > 0) {
+      await harvestWinners(tenantId).catch(() => {});
+    }
     revalidatePath("/");
     revalidatePath("/worklist");
     revalidatePath("/proof");

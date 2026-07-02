@@ -7,6 +7,8 @@ import {
   isMatureOutcome,
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
+import { readAaCalibration, type AaCalibrationRow } from "@/domains/proof-gsc/aa-calibration-store";
+import { TARGET_FALSE_POSITIVE_RATE } from "@/domains/proof-gsc/aa-calibration";
 
 /**
  * proof-summary-section (2026-06-25; Move 2) — "Proof at a glance" for /proof. Counts
@@ -52,13 +54,37 @@ export function buildProofHonestySentence(args: {
 }
 
 
+/**
+ * Item 31's one honest line: how often Beacon's own measurement calls a win
+ * or a loss on pages it never touched (its empirical false-positive rate),
+ * and that it tunes itself to stay under the 5% target. SILENT until a real
+ * nightly pass has run at least once for this tenant (no data -> no claim).
+ * Plain business words only (no "experiment/control/baseline/treatment" -
+ * this surface is jargon-guarded, see proof-jargon-guard.test.ts).
+ */
+export function buildAaHonestySentence(row: AaCalibrationRow | null): string | null {
+  if (!row || row.sampleSize <= 0) return null;
+  // Same maturity bar as floor tuning (MIN_SAMPLES_TO_DERIVE): a cold-start
+  // run of ~40 pages on a seasonal site reads 100 in 100 and would be
+  // mistaken for "the product does not work" - the number only goes on a
+  // customer surface once it means something and the tuner can act on it.
+  if (row.cumulativeSampleSize < 100) return null;
+  const per100 = Math.round(row.falsePositiveRate * 100);
+  const targetPer100 = Math.round(TARGET_FALSE_POSITIVE_RATE * 100);
+  return `We test our own measurement on pages we did not touch. Right now it cries wolf ${per100} ${
+    per100 === 1 ? "time" : "times"
+  } in 100, and we tune it to stay under ${targetPer100}.`;
+}
+
 export async function ProofSummarySection() {
   let records;
   let latestGsc: string | null = null;
+  let aaCalibration: AaCalibrationRow | null = null;
   try {
     const tenantId = await currentTenantId();
     records = await loadProofLedgerCached(tenantId);
     latestGsc = await readLastFinalizedDate(tenantId).catch(() => null);
+    aaCalibration = await readAaCalibration(tenantId).catch(() => null);
   } catch {
     return null;
   }
@@ -149,6 +175,9 @@ export async function ProofSummarySection() {
     winsWithDollarCount,
     soonestLabel,
   });
+  // Item 31 - Beacon's own measured false-positive rate, silent until a real
+  // nightly A/A pass has run at least once for this tenant.
+  const aaSentence = buildAaHonestySentence(aaCalibration);
 
   return (
     <section className="rounded-3xl border border-gray-200 bg-gradient-to-br from-emerald-50/40 via-white to-sky-50/40 p-6 shadow-sm">
@@ -162,6 +191,11 @@ export async function ProofSummarySection() {
 
       {honestySentence ? (
         <p className="mt-4 text-[15px] font-semibold text-gray-800 tabular-nums dark:text-neutral-200">{honestySentence}</p>
+      ) : null}
+
+      {/* Item 31 - Beacon's own measured false-positive rate (silent without data). */}
+      {aaSentence ? (
+        <p className="mt-2 text-[12px] text-gray-500 tabular-nums dark:text-neutral-400">{aaSentence}</p>
       ) : null}
 
       {/* Item 73 - the verdict calendar: the next 14 days, a dot per scheduled read, so the

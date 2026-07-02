@@ -151,6 +151,7 @@ function evidenceHintsFor(packet: EvidencePacket): string[] {
 
 async function draftForPacket(
   packet: EvidencePacket,
+  tenantId: string,
   opts: { complete?: CompleteFn },
 ): Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>> {
   const evidenceHints = evidenceHintsFor(packet);
@@ -162,7 +163,7 @@ async function draftForPacket(
     { query: packet.move.label, impressions: 2 },
     ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
   ])?.dominant;
-  const common = { query: packet.move.label, pageLabel: packet.yourPage.url ?? packet.move.label, outline: packet.draft.outline, evidenceHints, intent };
+  const common = { query: packet.move.label, pageLabel: packet.yourPage.url ?? packet.move.label, outline: packet.draft.outline, evidenceHints, intent, tenantId };
   if (packet.move.gapType === "answer_block") {
     return draftAnswerBlockStructured(
       { ...common, brief: packet.draft.answerBlockBrief, faqs: packet.draft.faqQuestions.length ? packet.draft.faqQuestions : packet.demand.fanoutSeeds },
@@ -327,7 +328,7 @@ export async function prepareTodayMovesForTenant(
       const previousQuality = packQualityStatus(existing);
       const previousExcerpt = draftExcerpt(existing);
 
-      const draftRes = await draftForPacket(packet, { complete: opts.complete });
+      const draftRes = await draftForPacket(packet, tenantId, { complete: opts.complete });
       let structuredDraft: StructuredDraft = null;
       let experiment: ExperimentPlan | null = null;
       let checklist: ImplementationStep[] = [];
