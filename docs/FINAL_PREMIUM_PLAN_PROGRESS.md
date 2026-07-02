@@ -1,4 +1,7 @@
-# FINAL PREMIUM PLAN - PROGRESS (source of truth for the 120-item mission)
+# FINAL PREMIUM PLAN - PROGRESS (historical ledger; SUPERSEDED for sequencing)
+# 2026-07-01: the 37 unticked items below now live in docs/BEACON_500_MASTER_PLAN.md as
+# [CARRY-OVER n] entries, ranked inside the 610-item master list. Execute from THAT list;
+# when a carry-over ships, tick it both there and here.
 # [ ] todo · [x] done · [BLOCKED: reason]. Wave tags from the plan's sequencing.
 
 - [x]   1 [W1][P0/L] Build the hero progress chart on Today: weekly clicks + impressions for the whole site

@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-07-01 - THE BEACON 500 master backlog assembled and shipped
+
+**What changed:** New docs/BEACON_500_MASTER_PLAN.md (610 ranked items) from a 26-agent discovery
+workflow (20 repo-grounded specialist finders, 5 adversarial synthesizers, 1 completeness critic;
+2.38M subagent tokens, 495 tool uses) merged with the 37 unfinished Final Premium Plan items as
+[CARRY-OVER n] entries. Ranking: impact descending, then medium/small/large effort within each band.
+docs/FINAL_PREMIUM_PLAN_PROGRESS.md header marked superseded-for-sequencing.
+
+**Verified:** extraction filtered to the 6 final-stage agents only (finder duplicates excluded, checked
+by transcript-role grep); assembly dedup + dash-assert passed (zero em/en dashes in the 610-item doc);
+impact histogram sane (4 at 9, 66 at 8, 147 at 7); carry-over count 37 confirmed in the doc. Docs-only
+change: no typecheck/test run needed.
+
+---
+
 ## 2026-07-02 - FINAL PREMIUM PLAN Wave 2 COMPLETE (items 55-57,59,68-72,6,93 + earlier checkpoint)
 
 - Worklist command center: goal-grouped default, 30-minute mode, lever chips + row sparklines, wide search (888b49e6)
