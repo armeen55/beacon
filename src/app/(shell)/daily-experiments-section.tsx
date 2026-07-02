@@ -126,10 +126,10 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
         ) : null}
       </div>
       <div className="grid gap-1">
-        {t.voices.map((v) => {
+        {t.voices.map((v, i) => {
           const id = teammateOf(v.specialist);
           return (
-            <div key={v.specialist} className="flex items-baseline gap-1.5 text-[13px] leading-relaxed text-gray-700">
+            <div key={`${v.specialist}-${i}`} className="flex items-baseline gap-1.5 text-[13px] leading-relaxed text-gray-700">
               <span className="inline-flex shrink-0 items-center gap-1">
                 <span className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: id.color }} />
                 <span className="font-semibold" style={{ color: id.text }}>{v.label}:</span>

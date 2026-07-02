@@ -22,7 +22,8 @@ import { proposeAnswerGap } from "./safe-answer-block";
 import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
 import { draftAtomicEditStructured, draftAnswerBlockStructured, draftTeamVerdictStructured } from "@/domains/llm/structured-drafter";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
-import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
+import { readCachedSerpPatterns, enrichPickSerpPatterns } from "@/domains/serp/research-enrichment-producer";
+import type { SerpPattern } from "@/domains/serp/research-enrichment";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import {
   buildKeywordBrief, buildSerpEvidence, buildCompetitorEvidence,
@@ -239,6 +240,17 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
 
+  // Item 29 - live SERP for tonight's picks (<= 8 target queries, ~$0.02 a night) so the
+  // Google-results teammate almost never abstains on the batch. Same gauntlet as every
+  // DataForSEO call (14d cache, fail-closed cap, ledger); dry-run/unconfigured -> $0 no-op.
+  const serpRun = await enrichPickSerpPatterns(selected.map((c) => c.targetQuery)).catch(() => ({ fetched: 0, spentUsd: 0 }));
+  if (serpRun.fetched > 0) {
+    const refreshed = await readCachedSerpPatterns().catch(() => new Map<string, SerpPattern>());
+    for (const [q, p] of refreshed) {
+      serpByTerm.set(q, { format: p.format, winningDomains: p.winningDomains ?? [], elementImplication: p.elementImplication ?? "" });
+    }
+  }
+
   // Slice E: attach the "how we know" evidence to each selected move: keyword research (volume +
   // competition), the live Google SERP reaction (winning shape + domains + what to do), and the top
   // competitor teardown (what to steal). All $0 cached reads; each section is omitted when absent, so
@@ -256,6 +268,22 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         ...(serp ? { serp } : {}),
         ...(competitor ? { competitor } : {}),
       };
+    }
+    // Item 29 - the LIVE-GOOGLE voice: when a SERP pattern exists for this pick's queries and the
+    // debate's Google teammate abstained, say what wins on Google now as its own line.
+    if (serp && c.teamReview && !c.teamReview.voices.some((v) => v.label === "Live Google results")) {
+      const led = serp.winningDomains.slice(0, 2).join(" and ");
+      const FORMAT_PLAIN: Record<string, string> = {
+        ugc: "community discussion", product: "store and product", list: "list-style",
+        faq: "question-and-answer", guide: "in-depth guide", mixed: "a mix of",
+      };
+      const shape = FORMAT_PLAIN[serp.format] ?? serp.format;
+      c.teamReview.voices.push({
+        specialist: "dataforseo",
+        label: "Live Google results",
+        claim: `On Google right now, ${shape} pages win for this search${led ? `, led by ${led}` : ""}.`,
+        confidencePct: 75,
+      });
     }
     // Item 28 - the KEYWORD-RESEARCH voice: real monthly demand speaks in the roundtable as its
     // own teammate line, not buried in the expander. Deterministic, from the cached universe.

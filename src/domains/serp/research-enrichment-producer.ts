@@ -36,6 +36,38 @@ export async function readCachedSerpPatterns(): Promise<Map<string, SerpPattern>
   return m;
 }
 
+/** Merge freshly-extracted patterns into the tenant-scoped cache (idempotent by query). */
+async function persistPatterns(fresh: SerpPattern[]): Promise<void> {
+  if (fresh.length === 0) return;
+  const existing = await readStore<SerpPattern>(PATTERN_STORE, []).catch(() => [] as SerpPattern[]);
+  const byKey = new Map(existing.filter((p) => p?.query).map((p) => [norm(p.query), p]));
+  for (const p of fresh) byKey.set(norm(p.query), p);
+  await writeStore(PATTERN_STORE, [...byKey.values()]).catch(() => {});
+}
+
+/**
+ * Item 29 - live SERP for tonight's selected picks' target queries (<= 8 a night, ~$0.02), so
+ * the Google-results teammate almost never abstains on the batch. Rides the SAME gauntlet as
+ * every DataForSEO call (14d cache, fail-closed monthly cap, ledger). Dry-run or unconfigured
+ * -> $0 no-op. Fail-soft per query.
+ */
+export async function enrichPickSerpPatterns(queries: string[]): Promise<{ fetched: number; spentUsd: number }> {
+  if (isDryRun() || !isDataForSeoConfigured()) return { fetched: 0, spentUsd: 0 };
+  const cached = await readCachedSerpPatterns();
+  const missing = [...new Set(queries.map(norm).filter(Boolean))].filter((q) => !cached.has(q)).slice(0, 8);
+  if (missing.length === 0) return { fetched: 0, spentUsd: 0 };
+  let spent = 0;
+  const fresh: SerpPattern[] = [];
+  for (const q of missing) {
+    const r = await runSerpQuery(q).catch(() => null);
+    if (!r) continue;
+    spent += r.costUsd;
+    if (r.status === "ok" && r.snapshot && r.snapshot.results.length > 0) fresh.push(extractSerpPattern(r.snapshot));
+  }
+  await persistPatterns(fresh);
+  return { fetched: fresh.length, spentUsd: Number(spent.toFixed(3)) };
+}
+
 export type EnrichmentRunResult = {
   mode: "dry_run" | "live";
   configured: boolean;
@@ -82,11 +114,6 @@ export async function enrichResearchPacks(packs: ResearchPackLite[]): Promise<En
     spent += r.costUsd;
     if (r.status === "ok" && r.snapshot && r.snapshot.results.length > 0) fresh.push(extractSerpPattern(r.snapshot));
   }
-  if (fresh.length > 0) {
-    const existing = await readStore<SerpPattern>(PATTERN_STORE, []).catch(() => [] as SerpPattern[]);
-    const byKey = new Map(existing.filter((p) => p?.query).map((p) => [norm(p.query), p]));
-    for (const p of fresh) byKey.set(norm(p.query), p);
-    await writeStore(PATTERN_STORE, [...byKey.values()]).catch(() => {});
-  }
+  await persistPatterns(fresh);
   return { mode: "live", configured, plan, volumeStatus, patternsWritten: fresh.length, spentUsd: Number(spent.toFixed(3)) };
 }
