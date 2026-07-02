@@ -41,6 +41,7 @@ const OBJECTION_LABELS: Record<ObjectionKind, string> = {
   no_measured_demand: "No proven search demand yet",
   thin_evidence: "Not enough evidence yet",
   seasonal_demand_cliff: "Timing risk - a seasonal wave is about to drop off",
+  wrong_lever_for_intent: "This move would answer the wrong question",
 };
 
 /** Initialisms the operator reads as words - these stay uppercase. */

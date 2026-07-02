@@ -15,7 +15,7 @@ const components = (over: Partial<MoveComponents> = {}): MoveComponents => ({
   ...over,
 });
 
-function packet(gapType: GapKind, over: Partial<EvidencePacket["move"]> = {}): EvidencePacket {
+function packet(gapType: GapKind, over: Partial<EvidencePacket["move"]> = {}, demandOver: Partial<EvidencePacket["demand"]> = {}): EvidencePacket {
   return {
     move: {
       key: "k1",
@@ -27,7 +27,7 @@ function packet(gapType: GapKind, over: Partial<EvidencePacket["move"]> = {}): E
       signals: ["GSC"],
       ...over,
     },
-    demand: { demandWeight: 1000, basis: "gsc", queries: [], fanoutSeeds: [] },
+    demand: { demandWeight: 1000, basis: "gsc", queries: [], fanoutSeeds: [], ...demandOver },
     competitor: { topUrl: null, domain: null, fetchStatus: null, facts: null, whatWins: "—", relevance: 0, looselyMatched: false, otherUrls: [] },
     yourPage: { url: "https://iranopedia.com/wedding", facts: null, gsc: null, dollarValue: 0, friction: 0 },
     gaps: [],
@@ -376,5 +376,93 @@ describe("routeMove - item 70: learned specialist vote weights (byte-identical w
     const lookup: SpecialistWeightLookup = () => ({ weight: 1.1, tag: "tag" });
     const d = routeMove({ packet: packet("create_page", { confidence: "medium" }), opinions, specialistWeight: lookup });
     expect(d.adjustedScore).toBe(1300); // overlap boost multiplier is independent of vote weighting
+  });
+});
+
+describe("routeMove - N6: query-intent veto (byte-identical when the classifier abstains)", () => {
+  it("every pre-N6 fixture in this file (label 'persian wedding traditions', a 'what' default) is untouched", () => {
+    // 'persian wedding traditions' has no when/cost/navigational/transactional cue, so it defaults
+    // to 'what' - which never triggers rule 1 (only when/cost break an answer block) and is not a
+    // change_title_meta-on-navigational or create_page-on-transactional shape either. This pins that
+    // every existing test's fixture keeps routing exactly as before N6.
+    for (const gap of ["create_page", "edit_page", "answer_block", "fix_experience", "healthy"] as GapKind[]) {
+      const d = routeMove({ packet: packet(gap), opinions: [] });
+      expect(d.action).toBe(GAP_TO_ACTION[gap]);
+      expect(d.adjustedScore).toBe(d.baseScore);
+      expect(d.appliedObjections).toEqual([]);
+    }
+  });
+
+  it("intentVeto: { enabled: false } fully disables the check (explicit opt-out stays byte-identical)", () => {
+    const p = packet("answer_block", {}, { fanoutSeeds: ["when is chaharshanbe suri", "chaharshanbe suri date"] });
+    const withCheck = routeMove({ packet: { ...p, move: { ...p.move, label: "chaharshanbe suri 2026" } }, opinions: [] });
+    const disabled = routeMove({
+      packet: { ...p, move: { ...p.move, label: "chaharshanbe suri 2026" } },
+      opinions: [],
+      intentVeto: { enabled: false },
+    });
+    expect(withCheck.action).toBe("wait"); // the veto fires by default
+    expect(disabled.action).toBe("add_answer_block"); // opted out -> falls back to the seed, untouched
+    expect(disabled.appliedObjections).toEqual([]);
+  });
+
+  it("VETOes an answer_block seed to 'wait' when the dominant intent is a date (the chaharshanbe bug, structurally closed)", () => {
+    const p = packet(
+      "answer_block",
+      { label: "chaharshanbe suri 2026" },
+      { fanoutSeeds: ["when is chaharshanbe suri", "chaharshanbe suri date this year"] },
+    );
+    const d = routeMove({ packet: p, opinions: [] });
+    expect(d.action).toBe("wait");
+    expect(d.appliedObjections.some((o) => o.kind === "wrong_lever_for_intent")).toBe(true);
+    expect(d.rationale).toContain("That question wants a date, not a definition");
+    expect(d.rationale).not.toMatch(/[–—]/);
+  });
+
+  it("names its evidence (the real queries that drove the intent call) in the applied objection", () => {
+    const p = packet(
+      "answer_block",
+      { label: "chaharshanbe suri 2026" },
+      { fanoutSeeds: ["when is chaharshanbe suri", "chaharshanbe suri date this year"] },
+    );
+    const d = routeMove({ packet: p, opinions: [] });
+    const applied = d.appliedObjections.find((o) => o.kind === "wrong_lever_for_intent")!;
+    expect(applied.detail).toContain("chaharshanbe suri");
+    expect(applied.evidenceRefs.length).toBeGreaterThan(0);
+  });
+
+  it("still applies a veto from a specialist even when the intent check has nothing to say", () => {
+    // Regression: N6 must not swallow or short-circuit the pre-existing veto machinery.
+    const d = routeMove({
+      packet: packet("create_page"),
+      opinions: [op({ specialist: "dataforseo", objections: [{ kind: "cant_outrank_serp", against: ["create_page"], severity: "veto", detail: "marketplace", evidenceRefs: [] }] })],
+    });
+    expect(d.action).toBe("wait");
+    expect(d.appliedObjections.some((o) => o.kind === "cant_outrank_serp")).toBe(true);
+  });
+
+  it("downgrades (does not veto) add_answer_block when the intent mismatch is only probable", () => {
+    // label defaults to 'what' (weight 2); fanouts add two 'when' signals (weight 1 each) -> when
+    // share = 2/4 = 0.5, inside the probable-not-certain band (0.4 to 0.55) -> downgrade only.
+    const p = packet(
+      "answer_block",
+      { label: "nowruz traditions" },
+      { fanoutSeeds: ["when is nowruz", "nowruz date this year"] },
+    );
+    const d = routeMove({ packet: p, opinions: [] });
+    expect(d.action).toBe("add_answer_block"); // not overridden - downgrade, not veto
+    expect(d.adjustedScore).toBeLessThan(d.baseScore);
+    expect(d.appliedObjections.some((o) => o.kind === "wrong_lever_for_intent" && o.severity === "downgrade")).toBe(true);
+  });
+
+  it("passes tenantHasNoTransactionalSurface through to downgrade a create_page seed on transactional demand", () => {
+    const p = packet("create_page", { label: "buy persian rug online" });
+    const withoutFlag = routeMove({ packet: p, opinions: [] });
+    const withFlag = routeMove({ packet: p, opinions: [], intentVeto: { tenantHasNoTransactionalSurface: true } });
+    expect(withoutFlag.action).toBe("create_page");
+    expect(withoutFlag.appliedObjections).toEqual([]); // unknown surface -> abstain, never guess
+    expect(withFlag.action).toBe("create_page"); // downgrade only, action unchanged
+    expect(withFlag.adjustedScore).toBeLessThan(withFlag.baseScore);
+    expect(withFlag.appliedObjections.some((o) => o.kind === "wrong_lever_for_intent")).toBe(true);
   });
 });

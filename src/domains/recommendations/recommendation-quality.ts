@@ -1,24 +1,33 @@
 /**
- * recommendation-quality (2026-07-01, Move 4) — the deterministic QUALITY GATE that
- * every recommendation passes before it can enter a daily plan or appear as a
- * high-confidence Ready action. PURE, no I/O, no LLM. NOT a recommendation engine — a
+ * recommendation-quality (2026-07-01, Move 4; contradiction pause added
+ * 2026-07-02, BEACON 500 N9) - the deterministic QUALITY GATE that every
+ * recommendation passes before it can enter a daily plan or appear as a
+ * high-confidence Ready action. PURE, no I/O, no LLM. NOT a recommendation engine - a
  * quality-control layer that COMPOSES the existing checks (relevance-gate intent fit,
  * draft-quality copy gate, safe-answer-block factual firewall) and adds the gaps the
  * real failures exposed: action↔goal consistency (year-intent omission), sibling-page
  * ownership, lever eligibility (proof-blocked / protected control / contamination),
- * internal-link alignment, and origin-definitiveness cautions.
+ * internal-link alignment, origin-definitiveness cautions, and now (N9) a PAUSE when
+ * the page's own sources contradict each other (Quality Constitution law 1: "Believe
+ * ... Contradicting sources pause the claim.").
  *
  * Decisions separate HARD vetoes (rejected / needs_evidence) from SOFT cautions
- * (approved_with_caution). Reason codes are stable + internal; the UI translates them.
- * Pinned by recommendation-quality.test.ts + the adversarial regression corpus.
+ * (approved_with_caution) and now a PAUSE (`paused_source_contradiction`) - distinct
+ * from both: a pause is not a verdict on the recommendation's quality, it is Beacon
+ * declining to trust the underlying evidence about this page AT ALL until the sources
+ * agree again. Auto-clears the next time this gate runs and the contradiction is gone
+ * (never persisted as a standing rejection). Reason codes are stable + internal; the UI
+ * translates them. Pinned by recommendation-quality.test.ts + the adversarial
+ * regression corpus.
  */
 import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import { evaluateDraftQuality, evaluateTitleMetaQuality, evaluateInternalLinkQuality, DEFAULT_CONTEXT_TOKENS } from "@/domains/drafts/draft-quality";
 import { checkAnswerFactualSafety } from "@/domains/experiments/safe-answer-block";
+import { detectSourceContradictions, type SourceContradiction, type SourceContradictionInputs } from "@/domains/evidence/source-contradiction";
 
 const STOP = new Set(["the", "a", "an", "of", "and", "for", "to", "in", "on", "with", "flag", "page", "iran", "iranian"]);
 /** Distinctive tokens from a page label, so the copy gate checks a meta/title against the
- *  PAGE's own entity (e.g. "umayyad", "caliphate") — not only a fixed global vocabulary.
+ *  PAGE's own entity (e.g. "umayyad", "caliphate") - not only a fixed global vocabulary.
  *  Tenant-agnostic: derived from the label, never hard-coded. */
 function pageEntityTokens(label: string): string[] {
   return (label || "")
@@ -32,9 +41,10 @@ export type QualityDecision =
   | "approved_with_caution"
   | "needs_revision"
   | "rejected"
-  | "needs_evidence";
+  | "needs_evidence"
+  | "paused_source_contradiction";
 
-/** Stable internal reason codes (never rendered raw — the UI translates). */
+/** Stable internal reason codes (never rendered raw - the UI translates). */
 export type QualityReasonCode =
   | "wrong_page_intent"
   | "query_action_mismatch"
@@ -57,7 +67,8 @@ export type QualityReasonCode =
   | "definitive_origin_claim"
   | "directional_measurement"
   | "thin_or_malformed"
-  | "no_meaningful_change";
+  | "no_meaningful_change"
+  | "source_contradiction";
 
 // "refresh" (item 56): a fading page's new-section pick. Its proposedText is a short HEADING,
 // not long-form copy, so it deliberately takes only the generic gates (intent fit, proof
@@ -92,20 +103,35 @@ export type RecommendationInput = {
   minControls?: number;
   strategy?: "balanced" | "growth" | "clean";
   verifiable?: boolean;
-  /** Measurement is directional only (e.g. new page / CRO) — surfaced as a caution. */
+  /** Measurement is directional only (e.g. new page / CRO) - surfaced as a caution. */
   directionalOnly?: boolean;
+  /**
+   * N9 (2026-07-02) - the page's cross-source evidence, when the caller has it on
+   * hand (GSC traffic/position, GA4 sessions, a stored live-SERP snapshot, a crawl
+   * status). Optional and additive: omitting it (or every field inside it being
+   * absent) behaves exactly as before this change. When present, `reviewRecommendation`
+   * runs `detectSourceContradictions` and - if any rule fires - PAUSES the
+   * recommendation (a distinct decision from rejected/needs_evidence) rather than
+   * grading its copy or intent fit at all, because Beacon does not trust the page's
+   * own numbers enough to judge anything about it right now.
+   */
+  sourceEvidence?: Omit<SourceContradictionInputs, "pageLabel" | "now"> | null;
 };
 
 export type QualityCheck = { code: QualityReasonCode; severity: "hard" | "soft"; detail: string };
 
 export type RecommendationQualityResult = {
   decision: QualityDecision;
-  score: number; // 0..100, for ranking only — never the sole gate
+  score: number; // 0..100, for ranking only - never the sole gate
   hardFailures: QualityCheck[];
   cautions: QualityCheck[];
   checks: QualityCheck[];
   operatorReason: string; // friendly, no raw codes
   version: string;
+  /** N9 - the exact contradictions that caused a pause, or [] when none fired.
+   *  Kept on every result (not just paused ones) so a caller can show "checked,
+   *  sources agree" when useful; always [] unless `sourceEvidence` was supplied. */
+  sourceContradictions: SourceContradiction[];
 };
 
 export const RECOMMENDATION_QUALITY_VERSION = "rq-1";
@@ -129,7 +155,7 @@ function friendly(code: QualityReasonCode, detail: string): string {
     self_link: "This links the page to itself.",
     duplicate_link: "This link already exists nearby.",
     proof_blocked_lever: "Beacon already measured this kind of change here and it didn’t help.",
-    active_measurement_conflict: "This page is already measuring a change — a second one would muddy the proof.",
+    active_measurement_conflict: "This page is already measuring a change - a second one would muddy the proof.",
     protected_control: "This page is a comparison control for a live experiment.",
     measurement_insufficient: "There aren’t enough comparison pages to measure this honestly.",
     verification_unsupported: "Beacon can’t confirm this change on the live page.",
@@ -141,6 +167,7 @@ function friendly(code: QualityReasonCode, detail: string): string {
     directional_measurement: "Measurement will be directional, not a clean comparison.",
     thin_or_malformed: "The proposed text is too thin or malformed.",
     no_meaningful_change: "This isn’t a meaningful change from what’s already there.",
+    source_contradiction: "My data sources disagree about this page, so I'm not trusting them yet.",
   };
   return detail || map[code];
 }
@@ -157,7 +184,32 @@ export function reviewRecommendation(input: RecommendationInput): Recommendation
   const proposed = (input.proposedText ?? "").trim();
   const query = (input.targetQuery ?? "").trim();
 
-  // ── A. PAGE–QUERY INTENT FIT ────────────────────────────────────────────────
+  // ── N9. SOURCE CONTRADICTION - PAUSE, checked FIRST ─────────────────────────
+  // Law 1 ("Contradicting sources pause the claim"): when this page's own evidence
+  // sources disagree with each other, Beacon does not trust the page's numbers
+  // enough to grade anything else about it - the pause supersedes every other gate
+  // below (a contradicted page's copy could look perfect and still be wrong). Never
+  // fires on missing data: `detectSourceContradictions` requires BOTH sides of each
+  // rule to be genuinely present (see source-contradiction.ts absence-vs-conflict
+  // rule), so a tenant with no GA4/SERP history behaves exactly as before N9.
+  const sourceContradictions = input.sourceEvidence
+    ? detectSourceContradictions({ ...input.sourceEvidence, pageLabel: input.pageLabel })
+    : [];
+  if (sourceContradictions.length > 0) {
+    const check = hard("source_contradiction", sourceContradictions[0].detail);
+    return {
+      decision: "paused_source_contradiction",
+      score: 0,
+      hardFailures: [check],
+      cautions: [],
+      checks: [check],
+      operatorReason: `${sourceContradictions[0].detail} I am not recommending changes to it until I trust the data. Checking again nightly.`,
+      version: RECOMMENDATION_QUALITY_VERSION,
+      sourceContradictions,
+    };
+  }
+
+  // ── A. PAGE-QUERY INTENT FIT ────────────────────────────────────────────────
   if (input.pageOwnsQuery === false) {
     hardFailures.push(hard("sibling_ownership_conflict", input.siblingOwnerLabel ? `“${query}” belongs to ${input.siblingOwnerLabel}.` : ""));
   } else if (query) {
@@ -178,7 +230,7 @@ export function reviewRecommendation(input: RecommendationInput): Recommendation
   }
   if (input.directionalOnly) cautions.push(soft("directional_measurement"));
 
-  // ── C. ACTION–GOAL CONSISTENCY ──────────────────────────────────────────────
+  // ── C. ACTION-GOAL CONSISTENCY ──────────────────────────────────────────────
   // Year-intent: the query names a specific year; the answer/meta must include it.
   const yearInQuery = query.match(YEAR);
   if (yearInQuery && !YEAR.test(proposed)) {
@@ -205,11 +257,11 @@ export function reviewRecommendation(input: RecommendationInput): Recommendation
     const dq = evaluateTitleMetaQuality({ after: proposed, before: input.currentText ?? null, field: input.lever === "meta" ? "meta" : "title", query, contextTokens });
     mapDraftStatus(dq.status, dq.reasons, hardFailures, cautions, (n) => { needsRevision = needsRevision || n; });
   } else if (input.lever === "section") {
-    // Sections are long-form — the draft-quality word floor + generic/relevance checks apply.
+    // Sections are long-form - the draft-quality word floor + generic/relevance checks apply.
     const dq = evaluateDraftQuality({ answer: proposed, query, topicLabel: input.pageLabel, contextTokens });
     mapDraftStatus(dq.status, dq.reasons, hardFailures, cautions, (n) => { needsRevision = needsRevision || n; });
   } else if (input.lever === "answer_block") {
-    // Answer blocks are INTENTIONALLY concise (the safe lever caps 6–45 words), so the
+    // Answer blocks are INTENTIONALLY concise (the safe lever caps 6-45 words), so the
     // long-form word floor does NOT apply. Gate on: real text, the factual firewall,
     // and answer placement. Intent/year/origin checks already ran above.
     if (proposed.split(/\s+/).filter(Boolean).length < 4) hardFailures.push(hard("thin_or_malformed", "Answer is too short to be useful."));
@@ -261,7 +313,7 @@ export function reviewRecommendation(input: RecommendationInput): Recommendation
     decision === "approved_with_caution" ? (cautions[0]?.detail ?? "Approved with a caution.") :
     (hardFailures[0]?.detail ?? cautions[0]?.detail ?? "Needs review.");
 
-  return { decision, score, hardFailures, cautions, checks, operatorReason, version: RECOMMENDATION_QUALITY_VERSION };
+  return { decision, score, hardFailures, cautions, checks, operatorReason, version: RECOMMENDATION_QUALITY_VERSION, sourceContradictions: [] };
 }
 
 const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -316,9 +368,18 @@ function scoreOf(decision: QualityDecision, cautionCount: number): number {
   return 95;
 }
 
-/** Does this result allow the recommendation into a daily plan / high-confidence Ready? */
+/** Does this result allow the recommendation into a daily plan / high-confidence Ready?
+ *  N9: a source-contradiction pause is excluded here exactly like rejected/needs_evidence
+ *  - it never enters the nightly plan or Prepare while the sources disagree. */
 export function passesDailyGate(r: RecommendationQualityResult): boolean {
   return r.decision === "approved" || r.decision === "approved_with_caution";
+}
+
+/** N9 - true when this result is a pause (sources disagree), not an ordinary quality
+ *  verdict. Callers that group recs (worklist, Prepare) use this to sink the row into
+ *  a self-hiding "paused until the data agrees" group instead of the reject pile. */
+export function isPausedForSourceContradiction(r: RecommendationQualityResult): boolean {
+  return r.decision === "paused_source_contradiction";
 }
 
 /** Compact UI label for a decision. */
@@ -329,5 +390,6 @@ export function qualityLabel(decision: QualityDecision): string {
     needs_revision: "Needs revision",
     rejected: "Rejected",
     needs_evidence: "Needs factual support",
+    paused_source_contradiction: "Paused - sources disagree",
   }[decision];
 }

@@ -156,11 +156,14 @@ export type PageSnapshot = {
 
   /** All <h3> text in document order. Parallel to `h2_list`. Cap 30. */
   h3_list?: string[];
-  /** First N content paragraphs by word count, pulled from <main>/
-   *  <article> (fallback: <body> minus <nav>/<footer>/<header>/<aside>).
-   *  Cap 10 entries × 300 chars each. Explicitly excludes nav/footer
-   *  boilerplate so cross-page menus don't create false "covered"
-   *  signals. */
+  /** Ordered main-content excerpt, pulled from <main>/<article> (fallback:
+   *  <body> minus <nav>/<footer>/<header>/<aside>). Cap 20 entries x 300
+   *  chars each (~6k chars total, N19 2026-07-02, was 10x300/~3k under
+   *  Plan A/B1). Prefers real <p> tags; when a page has zero usable
+   *  paragraphs (e.g. a builder that renders body copy in leaf
+   *  divs/spans/list items instead of <p>), falls back to leaf block-level
+   *  text nodes above an 8-word floor. Explicitly excludes nav/footer
+   *  boilerplate so cross-page menus don't create false "covered" signals. */
   body_paragraph_sample?: string[];
   /** Text from list/card/tile elements inside the content area. Heuristic:
    *  <li>, <article>, or class-names matching /\b(card|tile|item|neighborhood|

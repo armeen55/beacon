@@ -25,12 +25,26 @@
  * caller is required to pass it; when omitted every weight defaults to 1.0 and
  * behavior is byte-identical to before item 70 (pinned by move-router.test.ts).
  *
+ * N6 (2026-07-02) - the query-intent veto: routeMove now also runs
+ * intent-veto.ts's `checkIntentVeto` against the action as decided so far
+ * (seed or vote-elected), feeding its Objection through the SAME veto/downgrade
+ * paths above (no new machinery). This turns the existing answer-intent
+ * classifier (src/domains/experiments/answer-intent.ts) from a drafting hint
+ * into a hard router veto: a lever whose answer shape cannot serve the
+ * dominant intent behind the Move's queries (e.g. a definition answering a
+ * date question) is blocked or downgraded, never silently shipped. Runs by
+ * default (it is a pure, $0 check); `intentVeto: { enabled: false }` opts a
+ * call site out entirely for byte-identical pre-N6 behavior. Abstains (no
+ * objection) whenever the classifier itself abstains or no rule finds a clear
+ * mismatch - pinned by move-router.test.ts and intent-veto.test.ts.
+ *
  * PURE / deterministic / no I/O. Pinned by move-router.test.ts.
  */
 
 import type { EvidencePacket } from "./evidence-packet";
 import type { GapKind, MoveCandidate, ConfidenceLevel } from "./build-graph";
 import { actionFamilyOf } from "@/domains/experiments/experiment-eligibility";
+import { checkIntentVeto } from "./intent-veto";
 import type {
   MoveRouterAction,
   Objection,
@@ -177,6 +191,12 @@ type RouteInput = {
    *  specialist-weights.ts's SpecialistWeightTable.get, bound). Omitted by default; every existing
    *  call site keeps its current, unweighted behavior until it opts in. */
   specialistWeight?: SpecialistWeightLookup;
+  /** N6 (2026-07-02) - options for the query-intent veto (intent-veto.ts). Omitted entirely ⇒
+   *  the veto still runs (it is a pure, $0, deterministic check with no downside) but with
+   *  `tenantHasNoTransactionalSurface` unset, so the transactional-surface rule abstains.
+   *  `enabled: false` fully disables the check for a byte-identical-to-pre-N6 call site (e.g. a
+   *  pinned regression test that must never see the new objection kind). */
+  intentVeto?: { enabled?: boolean; tenantHasNoTransactionalSurface?: boolean };
 };
 
 /** BEACON_500 item 70 - one specialist's resolved vote weight as applied to a routed decision,
@@ -276,11 +296,26 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
   const appliedObjections: Objection[] = [];
   const whyNot: string[] = [];
 
+  // N6 (2026-07-02) - the query-intent veto (intent-veto.ts). Runs against the
+  // action as decided so far (seed or vote-elected), same timing as the other
+  // vetoes/downgrades below. `checkIntentVeto` is a pure function this module
+  // owns the call site for - it returns null when the classifier abstains (no
+  // query/fanout signal) or no rule finds a mismatch, so a caller that never
+  // exercises the mismatch path gets byte-identical behavior to before N6.
+  const intentObjection = input.intentVeto?.enabled === false
+    ? null
+    : checkIntentVeto({
+        packet,
+        action,
+        tenantHasNoTransactionalSurface: input.intentVeto?.tenantHasNoTransactionalSurface,
+      });
+
   // 3) Apply VETOes - they override the action. Checked against the seed AND the (possibly
   //    vote-elected) current action, so a veto aimed at the graph's original classification
   //    still fires even when the vote already moved the decision away from it (item 49: vetoes
   //    still apply after election).
   const vetoes = opinions.flatMap((o) => o.objections).filter((ob) => ob.severity === "veto");
+  if (intentObjection?.severity === "veto") vetoes.push(intentObjection);
   for (const v of vetoes) {
     const hitsCurrent = v.against.length === 0 || v.against.includes(action) || v.against.includes(seedAction);
     if (!hitsCurrent) continue;
@@ -299,6 +334,15 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
       rationale = `Clarity: ${v.detail}`;
       appliedObjections.push(v);
       whyNot.push("content move deferred: fix the experience first.");
+    } else if (v.kind === "wrong_lever_for_intent") {
+      // N6 - the intent veto has no single "right" fallback lever the way
+      // already_ranks (→ edit) or fix_ux_first (→ fix_ux) do: the honest move
+      // when a lever cannot serve the dominant intent is to hold, not to guess
+      // a replacement action. `wait` is a first-class recommendation here.
+      action = "wait";
+      rationale = v.detail;
+      appliedObjections.push(v);
+      whyNot.push(`${v.against[0]?.replace(/_/g, " ") ?? "the lever"} vetoed: wrong for the dominant search intent.`);
     }
   }
 
@@ -320,6 +364,7 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
 
   // 5) Apply DOWNGRADES - they cut confidence + score but don't change the action.
   const downgrades = opinions.flatMap((o) => o.objections).filter((ob) => ob.severity === "downgrade");
+  if (intentObjection?.severity === "downgrade") downgrades.push(intentObjection);
   for (const d of downgrades) {
     const hitsCurrent = d.against.length === 0 || d.against.includes(action);
     if (!hitsCurrent) continue;

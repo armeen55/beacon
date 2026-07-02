@@ -139,7 +139,7 @@ export function extractPageSnapshot(
       faqSchemaBlockCount += countFaqPageBlocks(data);
       // G8: validate this block's structured data against Google rich-result specs.
       // Warnings are appended as strings; empty / all-valid blocks contribute
-      // nothing. Pure function — no side effects outside this array.
+      // nothing. Pure function - no side effects outside this array.
       schemaValidationWarnings.push(...validateSchemaToStrings(data));
     } catch {
       // malformed
@@ -149,10 +149,10 @@ export function extractPageSnapshot(
     }
   });
   if (faqSchemaBlockCount > 1) {
-    structuralWarnings.push(`duplicate_faq_schema: ${faqSchemaBlockCount} FAQPage JSON-LD blocks found — likely duplicate`);
+    structuralWarnings.push(`duplicate_faq_schema: ${faqSchemaBlockCount} FAQPage JSON-LD blocks found - likely duplicate`);
   }
   if (h1Count > 1) {
-    structuralWarnings.push(`multiple_h1: ${h1Count} <h1> tags found — should have exactly one`);
+    structuralWarnings.push(`multiple_h1: ${h1Count} <h1> tags found - should have exactly one`);
   }
   // FAQ in HTML but no FAQPage JSON-LD
   const hasHtmlFaqs = faqs.some((f) => f.source === "html_section" || f.source === "html_details");
@@ -174,7 +174,7 @@ export function extractPageSnapshot(
       const data = JSON.parse($(el).html() || "");
       collectSchemaEntityNames(data, schemaEntityNames);
     } catch {
-      // malformed — already tracked in schema_validation_warnings
+      // malformed - already tracked in schema_validation_warnings
     }
   });
 
@@ -182,8 +182,32 @@ export function extractPageSnapshot(
   // Restricted to the content area (prefer <main> or <article>; fall back
   // to <body> with nav/footer/header/aside removed). Excludes boilerplate
   // so cross-page menus don't create false "covered" signals in coverage.
+  //
+  // N19 (2026-07-02): bounded main-content excerpt. Two fixes over the
+  // original Plan A/B1 pass:
+  //   1. Caps raised from 10x300 chars (3k) to MAX_PARAGRAPHS x
+  //      MAX_PARAGRAPH_CHARS so the ordered excerpt can reach the item's
+  //      ~6k-char target instead of silently topping out at half that on a
+  //      content-heavy page.
+  //   2. A block-level fallback for pages whose real body copy is NOT in
+  //      <p> tags. Ground-truthed live on tenant-iranopedia: some Wix pages
+  //      (e.g. /iran-animals) render their intro copy inside a leaf <span>
+  //      with zero <p> tags anywhere in <main>; others (e.g. the
+  //      /persian-kabobs/* pages) ship <p> tags that hold nothing but a
+  //      zero-width space (an editor-artifact placeholder), which the
+  //      existing word-count floor already correctly drops as empty. Only
+  //      the FIRST case is a real extraction gap; the fallback below fires
+  //      only when the primary <p> pass came back with zero usable
+  //      paragraphs, so it never doubles up on a page that already has
+  //      real <p> content.
   const bodyParagraphSample: string[] = [];
   const cardTexts: string[] = [];
+  // Cap: 20 entries x 300 chars = 6000 chars, the item's "~6k chars per
+  // page" bound. Paragraphs are truncated fairly (each capped at the same
+  // per-entry length) rather than one long paragraph eating the whole budget.
+  const MAX_PARAGRAPHS = 20;
+  const MAX_PARAGRAPH_CHARS = 300;
+  const MIN_PARAGRAPH_WORDS = 8;
   {
     const $clone = cheerioLoad($.html());
     // Remove non-content regions before content extraction. Removing these
@@ -203,14 +227,41 @@ export function extractPageSnapshot(
           : $clone("body");
 
     // Body paragraph sample: pick <p> nodes inside the content root with
-    // ≥ 8 words (drop captions, tiny footers, empty divs with <p>).
+    // >= MIN_PARAGRAPH_WORDS words (drop captions, tiny footers, empty divs
+    // with <p>, and editor-placeholder <p> tags that hold only a zero-width
+    // space or other invisible whitespace).
     contentRoot.find("p").each((_, el) => {
-      if (bodyParagraphSample.length >= 10) return;
-      const text = $clone(el).text().replace(/\s+/g, " ").trim();
+      if (bodyParagraphSample.length >= MAX_PARAGRAPHS) return;
+      const text = normalizeExtractedText($clone(el).text());
       const words = text.split(/\s+/).filter(Boolean).length;
-      if (words < 8) return;
-      bodyParagraphSample.push(text.slice(0, 300));
+      if (words < MIN_PARAGRAPH_WORDS) return;
+      bodyParagraphSample.push(text.slice(0, MAX_PARAGRAPH_CHARS));
     });
+
+    // Fallback: no usable <p> paragraphs were found, but the content root
+    // may still carry real prose in block-level divs/spans/list items (the
+    // "list-heavy Wix page" shape) rather than <p> tags at all. Walk LEAF
+    // block elements only (no element children) in document order. This
+    // is what keeps the fallback from re-emitting the same sentence once
+    // per wrapper <div> on deeply-nested builder markup, since only the
+    // innermost node carries the text directly. A generic word-count floor
+    // (not a class-name allowlist) keeps this tenant-generic: it works on
+    // any CMS's block markup, not just one vendor's naming convention.
+    if (bodyParagraphSample.length === 0) {
+      const BLOCK_FALLBACK_SELECTOR = "div, span, li, dd, blockquote, figcaption";
+      const seenText = new Set<string>();
+      contentRoot.find(BLOCK_FALLBACK_SELECTOR).each((_, el) => {
+        if (bodyParagraphSample.length >= MAX_PARAGRAPHS) return;
+        const hasElementChildren = $clone(el).children().length > 0;
+        if (hasElementChildren) return; // not a leaf; its text is counted via descendants
+        const text = normalizeExtractedText($clone(el).text());
+        const words = text.split(/\s+/).filter(Boolean).length;
+        if (words < MIN_PARAGRAPH_WORDS) return;
+        if (seenText.has(text)) return; // dedupe identical repeated card/label text
+        seenText.add(text);
+        bodyParagraphSample.push(text.slice(0, MAX_PARAGRAPH_CHARS));
+      });
+    }
 
     // Card / tile / item texts: <li>, <article>, or elements whose class
     // matches a card-pattern regex. Restricted to the content root.
@@ -224,7 +275,7 @@ export function extractPageSnapshot(
         tag === "article" ||
         CARD_CLASS_RE.test(className);
       if (!isCard) return;
-      const text = $clone(el).text().replace(/\s+/g, " ").trim();
+      const text = normalizeExtractedText($clone(el).text());
       // Skip items that are basically empty or just contain a link label.
       if (text.length < 8) return;
       cardTexts.push(text.slice(0, 120));
@@ -235,7 +286,7 @@ export function extractPageSnapshot(
   // Classify by RESOLVED HOST, not a substring match. `href.includes(pageDomain)`
   // misclassified look-alike externals (e.g. "notmysite.com.evil.com" or
   // "?ref=mysite.com") as internal and ignored protocol-relative ("//cdn…")
-  // links — inflating internal_link_count + polluting internal_links[].
+  // links - inflating internal_link_count + polluting internal_links[].
   let internalLinkCount = 0;
   let externalLinks = 0;
   const stripWww = (h: string) => h.replace(/^www\./i, "").toLowerCase();
@@ -297,7 +348,7 @@ export function extractPageSnapshot(
   let locationRegex: RegExp;
   let serviceRegex: RegExp;
   try {
-    // MT-3C.2 (2026-05-23) — resolve THIS tenant's config (the extractor
+    // MT-3C.2 (2026-05-23) - resolve THIS tenant's config (the extractor
     // already requires tenantId) and inject it into the now-required-
     // config pure helpers, instead of the deprecated no-arg path that
     // implicitly read the process-env tenant. Production behavior is
@@ -520,6 +571,23 @@ function extractDomain(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * N19 (2026-07-02): normalize extracted node text before word-counting it.
+ * Some page builders (observed live on Wix) leave editor-placeholder <p>
+ * tags containing nothing but a zero-width space (U+200B) or other
+ * invisible whitespace where a paragraph used to be. `String.trim()` does
+ * NOT strip U+200B, so without this a placeholder reads as "1 word" of
+ * real text under a naive split. This strips the invisible characters
+ * FIRST so those placeholders correctly collapse to an empty string and
+ * fall below the word-count floor like any other empty node.
+ */
+function normalizeExtractedText(raw: string): string {
+  return (raw ?? "")
+    .replace(/[​‌‍﻿ ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractTermsByPattern(text: string, pattern: RegExp): string[] {

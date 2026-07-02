@@ -21,7 +21,7 @@ import { getWixConnectorToken } from "@/lib/connector-store";
 import { buildWixEditorLink } from "@/domains/push/wix-deep-link";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 
-export type QualitySummary = { total: number; passed: number; cautioned: number; flagged: number };
+export type QualitySummary = { total: number; passed: number; cautioned: number; flagged: number; paused: number };
 
 export type DailyExperimentsView = {
   dashboard: DailyExperimentDashboard;
@@ -41,9 +41,14 @@ export type DailyExperimentsView = {
 };
 
 /** Re-run the quality gate over the active plan's items so the panel can honestly say
- *  "all passed quality checks" (and surface any caution). PURE over the plan record. */
+ *  "all passed quality checks" (and surface any caution). PURE over the plan record.
+ *  N9: this gate is re-run WITHOUT fresh `sourceEvidence` (the plan-item record doesn't
+ *  carry cross-source signals), so an item already selected here practically never comes
+ *  back paused - it would have been excluded at selection time in build-today-preview.ts
+ *  when the evidence was available. The `paused` bucket exists so the UI's self-hiding
+ *  group has somewhere honest to render if a future caller does thread evidence through. */
 function summarizeQuality(items: PlannedExperimentRecord[]): QualitySummary {
-  let passed = 0, cautioned = 0, flagged = 0;
+  let passed = 0, cautioned = 0, flagged = 0, paused = 0;
   for (const e of items) {
     const r = reviewRecommendation({
       lever: e.lever, pagePath: normalizePath(e.url), pageLabel: e.pageLabel, targetQuery: e.targetQuery,
@@ -52,9 +57,10 @@ function summarizeQuality(items: PlannedExperimentRecord[]): QualitySummary {
     });
     if (r.decision === "approved") passed += 1;
     else if (r.decision === "approved_with_caution") { passed += 1; cautioned += 1; }
+    else if (r.decision === "paused_source_contradiction") paused += 1;
     else flagged += 1;
   }
-  return { total: items.length, passed, cautioned, flagged };
+  return { total: items.length, passed, cautioned, flagged, paused };
 }
 
 export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> {

@@ -85,7 +85,11 @@ export type ObjectionKind =
   | "off_topic_competitor"
   | "no_measured_demand"
   | "thin_evidence"
-  | "seasonal_demand_cliff";
+  | "seasonal_demand_cliff"
+  /** N6 (2026-07-02) - the query-intent veto (src/domains/demand-graph/intent-veto.ts):
+   *  the proposed lever's answer shape cannot serve the dominant intent behind the
+   *  Move's queries (e.g. a definition answering a date question). */
+  | "wrong_lever_for_intent";
 
 export type Objection = {
   kind: ObjectionKind;

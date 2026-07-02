@@ -394,3 +394,23 @@ export function connectorFailureStreakCopy(
     `Reconnect it on your connections page and I will pick data back up the next time it runs.`
   );
 }
+
+/**
+ * Intent cluster conflict (BEACON_500 item N7, 2026-07-02): Google's own
+ * top-10 results show 2+ of the tenant's own pages splitting one intent.
+ * Grounded in the literal observed overlap (not title/H1 token similarity
+ * like the older mergePagesCopy), so this names the actual number of
+ * questions and pages involved. Worded distinctly from mergePagesCopy so
+ * the two never read as the same evidence. NO em or en dashes (hard rule).
+ */
+export function intentClusterConflictCopy(
+  queryCount: number,
+  ownPageCount: number,
+): string {
+  const questionWord = queryCount === 1 ? "question" : "questions";
+  const pageWord = ownPageCount === 1 ? "page" : "pages";
+  return (
+    `Google shows the same results for ${queryCount} of your ${questionWord} and sends ${ownPageCount} of your ${pageWord} to fight for them. ` +
+    `Combining them into one page usually earns a better spot than splitting the same audience two ways.`
+  );
+}

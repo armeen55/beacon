@@ -373,22 +373,53 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // empty calendar is byte-identical to the pre-item-63 batch.
   const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl, engineGapsByUrl, refreshQueue, peakCalendar });
 
+  // N9 (2026-07-02) - cross-source evidence for the contradiction pause, built from data
+  // ALREADY loaded above (`signals` = GSC per-page, `snaps` = the cached crawl) so this adds
+  // zero new I/O. Keyed by path so it lines up with `pathOf(b.url)` below. `pageStatus` and
+  // `gscRecentClicks` cover rule (c) (page snapshot says gone/error while GSC still shows
+  // current clicks); GA4 sessions and live-SERP snapshots aren't loaded on this $0 pipeline,
+  // so rules (a)/(b) simply see absence here (never a false contradiction - see law 1).
+  const gscByPath = new Map<string, { clicks90d: number }>();
+  for (const s of signals.values()) gscByPath.set(pathOf(s.page), { clicks90d: s.clicks90d });
+  const pageStatusByPath = new Map<string, { httpStatus: number; fetchedAt: string }>();
+  for (const s of snaps as Array<{ url?: string; page?: string; http_status?: number; fetched_at?: string }>) {
+    const u = s.url ?? s.page;
+    if (!u || typeof s.http_status !== "number" || !s.fetched_at) continue;
+    pageStatusByPath.set(pathOf(u), { httpStatus: s.http_status, fetchedAt: s.fetched_at });
+  }
+  // GSC's own rolling window (gsc-page-signals.ts WINDOW_DAYS) - reused verbatim so the
+  // "N days" in the pause line always matches the real query window, never a guess.
+  const GSC_RECENCY_DAYS = 90;
+
   // Move 4 - RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
   // the deterministic review (page-query intent fit, action↔goal incl. year-intent, copy
   // quality, factual firewall, origin-definitiveness). Lever eligibility (proof-block /
   // control / contamination / insufficient-controls) is enforced downstream by the planner;
-  // this gate adds the CONTENT-quality vetoes the planner can't see. Pure, no I/O.
-  const qaByUrl = new Map(built.map((b) => [b.url, reviewRecommendation({
-    lever: b.leverField,
-    pagePath: pathOf(b.url),
-    pageLabel: b.pageLabel ?? labelOf(b.url),
-    targetQuery: b.targetQuery,
-    currentText: b.currentText,
-    proposedText: b.proposedText,
-    controlsAvailable: b.suggestedControls.length,
-  })]));
+  // this gate adds the CONTENT-quality vetoes the planner can't see, and (N9) a PAUSE ahead
+  // of all of them when the page's own sources contradict each other. Pure, no I/O.
+  const qaByUrl = new Map(built.map((b) => {
+    const path = pathOf(b.url);
+    const gsc = gscByPath.get(path) ?? null;
+    const pageStatus = pageStatusByPath.get(path) ?? null;
+    return [b.url, reviewRecommendation({
+      lever: b.leverField,
+      pagePath: path,
+      pageLabel: b.pageLabel ?? labelOf(b.url),
+      targetQuery: b.targetQuery,
+      currentText: b.currentText,
+      proposedText: b.proposedText,
+      controlsAvailable: b.suggestedControls.length,
+      sourceEvidence: {
+        pageStatus,
+        gscRecentClicks: gsc ? { clicks: gsc.clicks90d, recencyDays: GSC_RECENCY_DAYS } : null,
+      },
+    })];
+  }));
   const gatedBuilt = built.filter((b) => { const r = qaByUrl.get(b.url); return r ? passesDailyGate(r) : true; });
   const qaRejected = built.length - gatedBuilt.length;
+  const qaPaused = built.length - gatedBuilt.length > 0
+    ? [...qaByUrl.values()].filter((r) => r.decision === "paused_source_contradiction").length
+    : 0;
 
   // R1 (2026-07-01) - THE TEAM DECIDES: every surviving candidate is debated by the full specialist
   // team (GSC, GA4, Clarity, DataForSEO, Profound, Wix, strategist) over the page's fused evidence
@@ -848,7 +879,11 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const excludedByReason: Record<string, number> = {};
   for (const e of plan.excluded) excludedByReason[e.reason] = (excludedByReason[e.reason] ?? 0) + 1;
 
-  if (qaRejected > 0) excludedByReason.quality_rejected = qaRejected;
+  // N9: report the source-contradiction pauses SEPARATELY from ordinary quality rejects -
+  // it is an honest "I don't trust this page's data yet," not "this draft is bad."
+  const qaRejectedExcludingPaused = qaRejected - qaPaused;
+  if (qaRejectedExcludingPaused > 0) excludedByReason.quality_rejected = qaRejectedExcludingPaused;
+  if (qaPaused > 0) excludedByReason.paused_source_contradiction = qaPaused;
   if (teamVetoed > 0) excludedByReason.team_vetoed = teamVetoed;
 
   // Item 81 - the plan-level retirement narrative: one plain sentence per retired/retest_due

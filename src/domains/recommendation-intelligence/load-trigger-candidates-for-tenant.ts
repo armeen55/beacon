@@ -107,6 +107,9 @@ import { sovDropAlert } from "./triggers/sov-drop-alert";
 import { displacementCheckAlert } from "./triggers/displacement-check-alert";
 import { citationLossAlert } from "./triggers/citation-loss-alert";
 import { connectorFailureStreak } from "./triggers/connector-failure-streak";
+import { intentClusterConflict } from "./triggers/intent-cluster-conflict";
+import { loadIntentClustersForTenant } from "@/domains/serp/intent-clusters-loader";
+import type { IntentCluster } from "@/domains/serp/intent-clusters";
 import {
   buildOwnAliasSet,
   loadProfoundTopicSignalsForTenant,
@@ -443,6 +446,26 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
+  // Intent cluster conflict (BEACON_500 item N7, 2026-07-02): pre-load SERP
+  // overlap clusters from ALREADY-STORED dataforseo_serp_history rows, $0,
+  // no new paid SERP pulls. Reuses the gscSignals map already loaded above
+  // (item N7 draws its tracked-query universe from the same GSC topQueries
+  // the other triggers already consume). Soft-empty when GSC isn't
+  // connected or no SERP history exists yet for those queries.
+  let intentClusters: IntentCluster[] = [];
+  try {
+    const clusterResult = await loadIntentClustersForTenant({
+      tenantId,
+      gscSignals,
+      ownDomain: businessConfig.domain ?? null,
+    });
+    intentClusters = clusterResult.clusters;
+  } catch (err) {
+    console.error(
+      `[trigger-loader] intent-cluster load failed for ${tenantId} (intent_cluster_conflict skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Night-shift #44 (2026-06-11): pre-load the per-tenant sitemap
   // lastmod map for the stale-content predicate. Soft-fail to an
   // empty map — unknown age is never evidence of staleness.
@@ -568,6 +591,11 @@ export async function loadTriggerCandidatesForTenant(options: {
       signalAt: new Date().toISOString(),
     }),
   );
+  // Intent cluster conflict (BEACON_500 item N7): anchored on the cluster's
+  // own best-ranking page (no site-root fallback needed). Pure predicate
+  // over the pre-loaded, already-computed SERP-overlap clusters; no paid
+  // SERP call happens here or in the loader above.
+  all.push(...intentClusterConflict({ tenantId, clusters: intentClusters, signalAt: new Date().toISOString() }));
   for (const snapshot of snapshots) {
     all.push(...missingTitle({ tenantId, snapshot }));
     all.push(...missingMeta({ tenantId, snapshot, chromeDetector }));

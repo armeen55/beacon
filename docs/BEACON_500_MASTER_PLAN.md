@@ -46,10 +46,10 @@ every 10-12 items. Ground-truth every item on real tenant data.
 - [ ] N3. **Claim-level provenance graph**: every factual claim linked to source, date, reliability, affected pages. (NEW; absorbs v1 89/90 clickable sources + source-age, 275 facts_to_verify, 310 multi-source claims)
 - [ ] N4. **GA4 + Clarity behavior-verdict lane**: engagement, scroll, frustration, conversion, traffic measured together on every ship. (NEW; absorbs v1 503 GA4 floors, 385 protect-revenue objection)
 - [ ] N5. **Information-gain gate**: every new page or section must contribute something competitors do not. (NEW; precondition for any factory)
-- [ ] N6. **Intent classifier that vetoes the wrong lever** (v1 130; extend the shipped answer-intent classifier into a router veto)
-- [ ] N7. **SERP-overlap clustering so one page owns one intent** (v1 120; feeds N2)
+- [x] N6. **Intent classifier that vetoes the wrong lever** (v1 130; extend the shipped answer-intent classifier into a router veto) - SHIPPED 2026-07-02 (worktree, not yet merged): `src/domains/demand-graph/intent-veto.ts` wired into `move-router.ts`'s existing veto/downgrade machinery; 2 real vetoes on live Iranopedia data, 32 new tests. See `docs/VERIFICATION_LOG.md`.
+- [x] N7. **SERP-overlap clustering so one page owns one intent** (v1 120; feeds N2) - SHIPPED 2026-07-02: intent-clusters.ts (union-find over stored SERP overlap) + conflict trigger; honest 7/300 SERP coverage today, grows with every paid SERP read.
 - [ ] N8. **Snapshot-grounded factual verification before publishing** (v1 147 entailment check; law 3)
-- [ ] N9. **Pause recommendations when data sources contradict** (v1 162 cross-check; law 1)
+- [x] N9. **Pause recommendations when data sources contradict** (v1 162 cross-check; law 1) - SHIPPED 2026-07-02 (worktree, not yet merged): `src/domains/evidence/source-contradiction.ts` (3 deterministic rules, absence-never-fires) wired into `reviewRecommendation` as a new `paused_source_contradiction` decision, excluded from the nightly plan by the existing `passesDailyGate`; 4 real contradictions found live on Iranopedia, 37 new tests. See `docs/VERIFICATION_LOG.md`.
 - [ ] N10. **One verdict-reliability grade**: recrawl, completeness, contamination, controls, volatility, sample strength in one grade. (NEW; absorbs v1 290 coherence, 337 unreliable days, 379 completeness guard, 504 verdict stability)
 - [ ] N11. **Recrawl-gated measurement clock** (v1 132+153+183 merged: measure only after Google recrawls)
 - [ ] N12. **Block concurrent experiments competing for the same queries** (v1 149; with N2)
@@ -59,7 +59,7 @@ every 10-12 items. Ground-truth every item on real tenant data.
 - [ ] N16. **Sustainable control-pool strategy** for when good comparison pages get treated. (NEW; absorbs v1 199 donor repair, 200 median band, 211 synthetic control, 434 holdouts)
 - [ ] N17. **User-task completion measurement**: did visitors find the answer they searched for? (NEW; rides N4)
 - [ ] N18. **Search-snippet promise audit**: does the page immediately fulfill what the title and description promised? (NEW)
-- [ ] N19. **Store useful page content** so Beacon reasons about the actual body (v1 98 main-content excerpt; unblocks answer-alignment competitor side + passage coverage on synced snapshots)
+- [x] N19. **Store useful page content** so Beacon reasons about the actual body (v1 98 main-content excerpt; unblocks answer-alignment competitor side + passage coverage on synced snapshots) - DONE 2026-07-02, worktree not committed
 - [ ] N20. **Study top 3 SERP winners consensus, not one outlier** (v1 99)
 - [ ] N21. **Real JavaScript-rendered technical crawl** (v1 110 On-Page API; capped, gauntleted)
 - [ ] N22. **Verify important content in source AND rendered HTML** (v1 111 dual-fetch)

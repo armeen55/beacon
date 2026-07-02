@@ -176,6 +176,13 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["Search Console", 3, "the sign-in expired"],
     ["Analytics", 1, "x"],
   ],
+  // Intent cluster conflict (BEACON_500 item N7, 2026-07-02). Args:
+  // (queryCount, ownPageCount). Probe a normal case + singular-count edges.
+  intentClusterConflictCopy: [
+    [3, 2],
+    [1, 1],
+    [7, 3],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

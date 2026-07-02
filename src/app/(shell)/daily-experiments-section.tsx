@@ -670,7 +670,19 @@ function QualityLine({ summary }: { summary: DailyExperimentsView["qualitySummar
   const parts: string[] = [`✓ All ${summary.passed} passed today’s quality checks`];
   if (summary.cautioned > 0) parts.push(`${summary.cautioned} with a note`);
   if (summary.flagged > 0) parts.push(`${summary.flagged} held back`);
-  return <div className="mt-1 text-[11px] font-medium text-emerald-600 tabular-nums dark:text-emerald-400">{parts.join(" · ")}</div>;
+  return (
+    <>
+      <div className="mt-1 text-[11px] font-medium text-emerald-600 tabular-nums dark:text-emerald-400">{parts.join(" · ")}</div>
+      {/* N9 - self-hiding: only renders when a page's own sources disagree (Search Console vs
+          Analytics, a live check vs Search Console's own ranking, or a dead page still getting
+          clicks). Absent on every ordinary night. */}
+      {summary.paused > 0 && (
+        <div className="mt-0.5 text-[11px] font-medium text-amber-600 tabular-nums dark:text-amber-400">
+          ⏸ {summary.paused} paused until the data agrees - checking again nightly
+        </div>
+      )}
+    </>
+  );
 }
 
 export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }) {

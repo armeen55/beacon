@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reviewRecommendation, passesDailyGate, type RecommendationInput } from "./recommendation-quality";
+import { reviewRecommendation, passesDailyGate, isPausedForSourceContradiction, type RecommendationInput } from "./recommendation-quality";
 
 function rec(over: Partial<RecommendationInput> & { lever: RecommendationInput["lever"] }): RecommendationInput {
   return {
@@ -13,7 +13,7 @@ function rec(over: Partial<RecommendationInput> & { lever: RecommendationInput["
 }
 const codes = (r: ReturnType<typeof reviewRecommendation>) => r.checks.map((c) => c.code);
 
-describe("Move 4 — adversarial regression corpus (the real failures)", () => {
+describe("Move 4 - adversarial regression corpus (the real failures)", () => {
   it("Doodool Tala → Persian jewelry internal link is REJECTED (destination irrelevant)", () => {
     const r = reviewRecommendation(rec({
       lever: "internal_link", pagePath: "/doodool-tala", pageLabel: "Doodool Tala", targetQuery: "doodool tala",
@@ -115,7 +115,7 @@ describe("Move 4 — adversarial regression corpus (the real failures)", () => {
   });
 });
 
-describe("approvals — valid recommendations pass", () => {
+describe("approvals - valid recommendations pass", () => {
   it("a valid, factual meta is APPROVED", () => {
     const r = reviewRecommendation(rec({ lever: "meta", proposedText: "Persian boy names: traditional Iranian given names with their meanings and origins." }));
     expect(r.decision === "approved" || r.decision === "approved_with_caution").toBe(true);
@@ -144,5 +144,121 @@ describe("determinism + tenant-agnostic", () => {
   it("operatorReason never contains a raw reason code", () => {
     const r = reviewRecommendation(rec({ lever: "internal_link", pageLabel: "Doodool Tala", targetQuery: "doodool tala", destinationLabel: "Persian Jewelry", anchorText: "Persian jewelry", destinationPath: "/persian-jewelry", pagePath: "/doodool-tala" }));
     expect(r.operatorReason).not.toMatch(/_/);
+  });
+});
+
+describe("N9 - pause when sources contradict (Quality Constitution law 1)", () => {
+  it("a GSC-vs-GA4 traffic contradiction PAUSES the rec, ahead of every other gate", () => {
+    // This candidate would otherwise be a clean APPROVE (valid meta, on-topic) - proving the
+    // pause supersedes ordinary quality judgment rather than merely adding another caution.
+    const r = reviewRecommendation(rec({
+      lever: "meta",
+      proposedText: "Persian boy names: traditional Iranian given names with their meanings and origins.",
+      sourceEvidence: {
+        gscTraffic: { clicks: 1200, impressions: 40000, windowDays: 90 },
+        ga4Traffic: { sessions: 3, windowDays: 90 },
+      },
+    }));
+    expect(r.decision).toBe("paused_source_contradiction");
+    expect(isPausedForSourceContradiction(r)).toBe(true);
+    expect(passesDailyGate(r)).toBe(false);
+    expect(r.sourceContradictions).toHaveLength(1);
+    expect(r.sourceContradictions[0].kind).toBe("traffic_mismatch");
+  });
+
+  it("the pause line is the honest, numbers-first sentence the operator sees", () => {
+    const r = reviewRecommendation(rec({
+      lever: "meta",
+      pageLabel: "Persian Boy Names",
+      sourceEvidence: {
+        gscTraffic: { clicks: 1200, impressions: 40000, windowDays: 90 },
+        ga4Traffic: { sessions: 3, windowDays: 90 },
+      },
+    }));
+    expect(r.operatorReason).toContain("Search Console and Analytics disagree");
+    expect(r.operatorReason).toContain("1,200");
+    expect(r.operatorReason).toContain("3");
+    expect(r.operatorReason).toContain("I am not recommending changes to it until I trust the data");
+    expect(r.operatorReason).toContain("Checking again nightly");
+  });
+
+  it("a rank-visibility contradiction (GSC top-5 vs SERP snapshot absent from top 10) also pauses", () => {
+    const r = reviewRecommendation(rec({
+      lever: "meta",
+      targetQuery: "nowruz 2026",
+      sourceEvidence: {
+        gscQueryPosition: { query: "nowruz 2026", position: 3, impressions: 500 },
+        serpSnapshot: { query: "nowruz 2026", capturedAt: "2026-07-01", ownDomainInTop10: false },
+      },
+    }));
+    expect(r.decision).toBe("paused_source_contradiction");
+  });
+
+  it("a gone-page-but-clicked contradiction also pauses", () => {
+    const r = reviewRecommendation(rec({
+      lever: "meta",
+      sourceEvidence: {
+        pageStatus: { httpStatus: 404, fetchedAt: new Date().toISOString() },
+        gscRecentClicks: { clicks: 50, recencyDays: 90 },
+      },
+    }));
+    expect(r.decision).toBe("paused_source_contradiction");
+  });
+
+  it("NEVER fires on missing/absent data - no sourceEvidence at all behaves exactly as before N9", () => {
+    const r = reviewRecommendation(rec({ lever: "meta" }));
+    expect(r.decision).not.toBe("paused_source_contradiction");
+    expect(r.sourceContradictions).toEqual([]);
+  });
+
+  it("NEVER fires when sourceEvidence is supplied but every field inside it is absent", () => {
+    const r = reviewRecommendation(rec({ lever: "meta", sourceEvidence: {} }));
+    expect(r.decision).not.toBe("paused_source_contradiction");
+    expect(r.sourceContradictions).toEqual([]);
+  });
+
+  it("NEVER fires when only ONE side of a rule is present (e.g. GSC clicks with no GA4 read at all)", () => {
+    const r = reviewRecommendation(rec({
+      lever: "meta",
+      sourceEvidence: { gscTraffic: { clicks: 5000, impressions: 90000, windowDays: 90 } },
+    }));
+    expect(r.decision).not.toBe("paused_source_contradiction");
+  });
+
+  it("stays a normal decision when sources are present but AGREE (no false pause on real evidence)", () => {
+    const r = reviewRecommendation(rec({
+      lever: "meta",
+      proposedText: "Persian boy names: traditional Iranian given names with their meanings and origins.",
+      sourceEvidence: {
+        gscTraffic: { clicks: 500, impressions: 10000, windowDays: 90 },
+        ga4Traffic: { sessions: 420, windowDays: 90 },
+      },
+    }));
+    expect(r.decision === "approved" || r.decision === "approved_with_caution").toBe(true);
+    expect(r.sourceContradictions).toEqual([]);
+  });
+
+  it("UNPAUSES automatically once the contradiction clears - it is computed, never persisted", () => {
+    const paused = reviewRecommendation(rec({
+      lever: "meta",
+      sourceEvidence: {
+        gscTraffic: { clicks: 1200, impressions: 40000, windowDays: 90 },
+        ga4Traffic: { sessions: 3, windowDays: 90 },
+      },
+    }));
+    expect(paused.decision).toBe("paused_source_contradiction");
+
+    // Same page, next nightly read: GA4 now agrees with GSC. Nothing was written anywhere -
+    // this is just calling the pure function again with fresh evidence.
+    const resolved = reviewRecommendation(rec({
+      lever: "meta",
+      proposedText: "Persian boy names: traditional Iranian given names with their meanings and origins.",
+      sourceEvidence: {
+        gscTraffic: { clicks: 1200, impressions: 40000, windowDays: 90 },
+        ga4Traffic: { sessions: 1100, windowDays: 90 },
+      },
+    }));
+    expect(resolved.decision).not.toBe("paused_source_contradiction");
+    expect(passesDailyGate(resolved)).toBe(true);
   });
 });
