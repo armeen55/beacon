@@ -35,7 +35,11 @@ export type MoveDraftKind =
   // Sprint 6: persisted product/collection on-page SEO gaps from the same scan.
   | "product_seo_findings"
   // Sprint 6: persisted own-page E-E-A-T / trust signals from the same scan.
-  | "page_eeat_findings";
+  | "page_eeat_findings"
+  // BEACON 500 item 55: the section-by-section outline-to-draft pipeline's
+  // compact persisted sections (title/meta/faq stay in create_page_brief;
+  // this row is only the drafted sections array, kept under the 12k cap).
+  | "full_page_draft";
 
 export type MoveDraftRow = {
   recId: string;

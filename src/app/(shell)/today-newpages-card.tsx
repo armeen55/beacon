@@ -4,8 +4,10 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { draftMoveAnswerBlockAction } from "./today-moves-actions";
 import { validateCreatePageWithSerpAction, type SerpValidationResponse } from "./serp-actions";
+import { draftFullPageAction } from "./today-newpages-draft-actions";
 import type { NewPageOpportunity } from "./today-newpages-data";
 import { BriefButton } from "./diagnostics/profound-intelligence/brief-button";
+import type { AssembledDraftPage } from "@/domains/llm/draft-full-page";
 
 /**
  * today-newpages-card (2026-06-24) — interactive "New page to build" card. Adds an
@@ -120,6 +122,62 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
     navigator.clipboard?.writeText(text).then(() => {
       setBriefCopied(true);
       setTimeout(() => setBriefCopied(false), 1800);
+    }).catch(() => {});
+  };
+
+  // BEACON 500 item 55 - "Draft the full page": one operator click walks the
+  // brief's outline section by section and assembles a paste-ready page. Bounded
+  // to one page per click, budget-gated + fail-closed inside the action.
+  const [fullPage, setFullPage] = useState<AssembledDraftPage | null>(o.fullPageDraft);
+  const [fullPageStatus, setFullPageStatus] = useState<"idle" | "pending" | "ok" | "off" | "budget" | "error">(
+    o.fullPageDraft ? "ok" : "idle",
+  );
+  const [fullPageReceipt, setFullPageReceipt] = useState<{ costUsd: number; persisted: boolean } | null>(null);
+  const [fullPagePending, startFullPage] = useTransition();
+  const [fullPageOpen, setFullPageOpen] = useState(false);
+  const [fullPageCopied, setFullPageCopied] = useState(false);
+
+  const draftFullPage = () => {
+    const brief = o.preparedBrief;
+    if (!brief) return;
+    setFullPageStatus("pending");
+    startFullPage(async () => {
+      try {
+        const r = await draftFullPageAction({
+          recId: o.id,
+          topic: o.topic,
+          brief: {
+            proposedTitle: brief.title,
+            metaDescription: brief.meta,
+            openingAnswer: brief.opening,
+            outline: brief.outline,
+            faqQuestions: brief.faqQuestions,
+          },
+          grounding: {
+            topic: o.topic,
+            competitorWhatWins: o.whatWins ?? null,
+            fanoutQuestions: o.aeoReceipt?.fanoutQueries ?? [],
+            evidenceFacts: [o.gapEvidence, o.wikiGapEvidence].filter((s): s is string => !!s),
+          },
+        });
+        if (r.ok) {
+          setFullPage(r.page);
+          setFullPageReceipt({ costUsd: r.costUsd, persisted: r.persisted });
+          setFullPageStatus("ok");
+          setFullPageOpen(true);
+        } else {
+          setFullPageStatus(r.reason.toLowerCase().includes("budget") ? "budget" : r.reason.toLowerCase().includes("off") ? "off" : "error");
+        }
+      } catch {
+        setFullPageStatus("error");
+      }
+    });
+  };
+  const copyFullPage = () => {
+    if (!fullPage) return;
+    navigator.clipboard?.writeText(fullPage.markdown).then(() => {
+      setFullPageCopied(true);
+      setTimeout(() => setFullPageCopied(false), 1800);
     }).catch(() => {});
   };
 
@@ -264,6 +322,58 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             );
           })()
         ) : null}
+        {fullPage ? (
+          <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-2.5 py-2">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setFullPageOpen((v) => !v)}
+                className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700"
+              >
+                {fullPageOpen ? "▾" : "▸"} Full page drafted ({fullPage.stats.sectionsDrafted}/{fullPage.stats.sectionsDrafted + fullPage.stats.sectionsFallback} sections)
+              </button>
+              <button onClick={copyFullPage} className="rounded-md bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-indigo-500">
+                {fullPageCopied ? "Copied ✓" : "Copy full page"}
+              </button>
+            </div>
+            {fullPageReceipt ? (
+              <p className="mt-1 text-[10px] text-gray-500">
+                Spent ${fullPageReceipt.costUsd.toFixed(3)}
+                {fullPageReceipt.persisted ? " · saved" : " · not saved (too large)"}
+                {fullPage.stats.sectionsFallback > 0 ? ` · ${fullPage.stats.sectionsFallback} section${fullPage.stats.sectionsFallback === 1 ? "" : "s"} needs a rewrite` : ""}
+              </p>
+            ) : fullPage.stats.sectionsFallback > 0 ? (
+              <p className="mt-1 text-[10px] text-amber-700">
+                {fullPage.stats.sectionsFallback} section{fullPage.stats.sectionsFallback === 1 ? "" : "s"} could not be drafted confidently. See the stub below.
+              </p>
+            ) : null}
+            {fullPageOpen ? (
+              <div className="mt-2 max-h-72 space-y-2 overflow-y-auto rounded bg-white p-2 ring-1 ring-indigo-100">
+                {fullPage.sections.map((s, i) => (
+                  <div key={i}>
+                    <p className="text-[11px] font-semibold text-gray-900">{s.heading}</p>
+                    <p className="mt-0.5 text-[10px] leading-relaxed text-gray-700">{s.body}</p>
+                    <p className="mt-0.5 text-[9px] text-gray-400">
+                      Sources: {s.sources.map((src) => src.detail).join("; ")}
+                    </p>
+                  </div>
+                ))}
+                {fullPage.sourcesAppendix.length > 0 ? (
+                  <div className="border-t border-gray-100 pt-1.5">
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">Sources appendix</div>
+                    <ul className="mt-0.5 space-y-0.5">
+                      {fullPage.sourcesAppendix.map((s) => (
+                        <li key={s.n} className="text-[9px] text-gray-500">
+                          {s.n}. ({s.kind}) {s.detail}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {o.whatWins ? (
           <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">What the cited page has</div>
@@ -360,6 +470,23 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         ) : aiStatus === "blocked" ? (
           <span className="text-[10px] text-amber-600">budget reached</span>
         ) : aiStatus === "rejected" || aiStatus === "error" ? (
+          <span className="text-[10px] text-gray-400">try again later</span>
+        ) : null}
+        {o.preparedBrief && (o.briefQuality?.status === "ready" || o.briefQuality?.status === "useful_but_needs_review" || !o.briefQuality) ? (
+          <button
+            onClick={draftFullPage}
+            disabled={fullPagePending || fullPageStatus === "pending"}
+            title="Walk the brief section by section into a paste-ready page with sources (up to 8 sections, about $0.02 to $0.05, one page per click)"
+            className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-60"
+          >
+            {fullPageStatus === "pending" ? "Drafting page…" : fullPage ? "↻ Redraft full page" : "Draft the full page (~$0.02-0.05)"}
+          </button>
+        ) : null}
+        {fullPageStatus === "off" ? (
+          <span className="text-[10px] text-gray-400">AI drafting is off</span>
+        ) : fullPageStatus === "budget" ? (
+          <span className="text-[10px] text-amber-600">budget reached</span>
+        ) : fullPageStatus === "error" ? (
           <span className="text-[10px] text-gray-400">try again later</span>
         ) : null}
       </div>

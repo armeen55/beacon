@@ -35,6 +35,7 @@ const NEXT_LEVER_PLAIN: Record<string, string> = {
   h1: "a sharper title",
   internal_link: "a different supporting link",
   answer_block: "a sharper description",
+  refresh: "a sharper title and description on the same page",
 };
 
 /** The expected organic CTR at a Google position (the industry curve the daily candidates use). */

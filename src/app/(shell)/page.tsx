@@ -23,6 +23,7 @@ import { TeamStandup } from "./team-standup";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { CoverageMapSection } from "./coverage-map-section";
 import { OpsPipelineSection } from "./ops-pipeline-section";
+import { InvestigationSection } from "./investigation-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 
@@ -199,6 +200,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {/* Item 10 - the Ops pipeline watchdog: red items naming the exact broken data-pipe
           stage from last night's invariant check. $0 persisted read, self-hides when clean. */}
       <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
+
+      {/* Item 53 - overnight forensic investigation: when a page family's clicks
+          collapsed hard, or a sitewide shift hit, last night's pass diagnosed the
+          most likely cause. $0 persisted read, self-hides when nothing fired. */}
+      <Suspense fallback={null}><InvestigationSection tenantId={tenantId} /></Suspense>
 
       {today.attention.length > 0 ? <AttentionSection items={today.attention} /> : null}
 

@@ -281,6 +281,11 @@ export const GLOBAL_STORES = new Set<string>([
   // vs page-content-language gap findings ($0 Today Demand band + daily plan
   // hint reads).
   "language-gap-matrix",
+  // Refresh production line (2026-07-02, master plan item 56). Same cron
+  // fan-out rationale: rows carry tenant_id. Latest per-tenant ranked refresh
+  // queue (pages losing clicks quarter over quarter + evidence briefs; $0
+  // Today Demand band + daily plan candidate reads).
+  "refresh-queue",
   // Citability rewriter (2026-07-02, master plan item 26). Rows carry
   // tenant_id; a future nightly mining pass would fan out across tenants
   // with no ambient request context, same rationale as the stores above.
@@ -348,6 +353,13 @@ export const GLOBAL_STORES = new Set<string>([
   // (last 12 weeks) of the proposed lever mix + focus families + signed memo,
   // read by build-today-preview.ts's multiplier and the Monday recap band.
   "strategy-mix-history",
+  // Forensic investigation (2026-07-02, master plan item 53). Rows carry
+  // tenant_id; written from the nightly cron's isolated investigation phase
+  // (no ambient request context, same fan-out rationale as the stores
+  // above). One row per (family, week) diagnosis card: ranked causes for a
+  // high-severity page-family collapse, read by the Today investigation
+  // card at $0. Idempotent per (tenant_id, family, week) via the row's key.
+  "forensic-investigations",
 ]);
 
 /**

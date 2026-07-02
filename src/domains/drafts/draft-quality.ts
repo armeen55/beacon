@@ -298,6 +298,74 @@ export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): Draft
   return { status: "ready", reasons: ["Page-specific brief: contextual opening, real outline, FAQs, fitting schema."], copyAllowed: true, canRegenerate: false, confidence: "high" };
 }
 
+// ── section draft quality (BEACON 500 item 55 - outline-to-draft pipeline) ────
+
+export type EvaluateSectionInput = {
+  heading?: string | null;
+  body?: string | null;
+  /** Number of sources attached to this section (SectionDraftSchema requires >=1
+   *  at the schema level; this is a defense-in-depth check for hand-built input). */
+  sourceCount?: number;
+  contextTokens?: string[];
+};
+
+/** Plan-not-prose language: the section describes what it WILL cover instead of
+ *  covering it ("This section will present…", "planned subsections"). Found in
+ *  the first real Iranopedia full-page run (thin grounding pushes the LLM toward
+ *  meta-planning to avoid inventing facts). Narrow + future-tense on purpose so
+ *  legitimate present-tense synthesis ("this section synthesizes…") passes. */
+const SECTION_PLAN_LANGUAGE =
+  /\bthis (?:section|article|page) will\b|\bplanned sub(?:section|topic)s?\b|\bis a planned sub(?:section|topic)\b|\bintended (?:readers|chronological|subsections?)\b/i;
+
+/** Evaluate one drafted page section (heading + body) from the item-55 walker.
+ *  Shares the same trust rails as evaluateDraftQuality (generic opening / punt /
+ *  relevance / superlative / thin), sized for a section body rather than a
+ *  40-60 word answer block. */
+export function evaluateSectionDraftQuality(input: EvaluateSectionInput): DraftQualityResult {
+  const heading = (input.heading ?? "").trim();
+  const body = (input.body ?? "").trim();
+  const tokens = input.contextTokens ?? DEFAULT_CONTEXT_TOKENS;
+
+  if (!heading || !body) {
+    return { status: "malformed", reasons: ["Section is missing a heading or body."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  if ((input.sourceCount ?? 1) < 1) {
+    return { status: "missing_source", reasons: ["Section carries no source — every section must ground at least one claim."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+
+  const words = wordCount(body);
+  const s1 = firstSentence(body);
+
+  if (META_NONANSWER.test(body)) {
+    return { status: "too_thin", reasons: ["Describes the page/source instead of covering the section topic."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  if (SECTION_PLAN_LANGUAGE.test(body)) {
+    return { status: "too_thin", reasons: ["Reads like a content plan (“this section will cover…”) instead of finished prose."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  if (PUNT_NONANSWER.test(body) && words < 60) {
+    return { status: "too_thin", reasons: ["Defers instead of covering the topic (“varies / check elsewhere”)."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  if (words < 20) {
+    return { status: "too_thin", reasons: [`Only ${words} words — too short for a page section.`], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+  if (DICTIONARY_FRAME.test(s1) && !hasContext(s1, tokens)) {
+    return {
+      status: "generic_rejected",
+      reasons: ["Opens with a context-free dictionary definition — reads generic, not page-specific."],
+      copyAllowed: false,
+      canRegenerate: true,
+      confidence: "high",
+    };
+  }
+  if (!hasContext(`${heading} ${body}`, tokens)) {
+    return { status: "relevance_rejected", reasons: ["No page-topic context anywhere in this section — likely off-topic."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
+  }
+  if (STRONG_SUPERLATIVE.test(body)) {
+    return { status: "unsupported_claim", reasons: ["Contains an unsupported superlative claim (“best/only/#1”)."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
+  }
+  return { status: "ready", reasons: ["Covers the section topic with page-specific context; sourced; no risky claims detected."], copyAllowed: true, canRegenerate: false, confidence: "high" };
+}
+
 // ── internal-link quality ─────────────────────────────────────────────────────
 
 export type EvaluateInternalLinkInput = {

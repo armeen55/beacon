@@ -90,7 +90,7 @@
 - [x]  84 [W3][P1/M] Nightly precompute at ~5am local: the daily plan preview, LLM drafts, debates, and
 - [x]  85 [W3][P1/M] LLM adjudicator on the nightly batch (the reasoning-gap fix, standing): after the
 - [ ]  86 [W3][P1/M] Standing adversarial regression: encode the operator's cases as tests that run on
-- [ ]  87 [W3][P1/S] Per-page dossier route (/page/[path]): everything the team knows about one page in
+- [x]  87 [W3][P1/S] Per-page dossier route (/page/[path]): everything the team knows about one page in
 - [ ]  88 [W3][P2/M] Cannibalization + internal-link intelligence into the debate: the GSC cannibalization
 - [x]  89 [W3][P2/M] Trend radar goes live on real deltas: WoW query-spike detection from gsc_daily_rows
 - [x]  90 [W3][P2/L] Wix draft-writing where possible: for CMS-pushable fields, "Apply in Wix" becomes

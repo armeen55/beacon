@@ -14,6 +14,7 @@ import { readKeywordGapResults, type StoredKeywordGaps } from "@/domains/serp/ke
 import { readWikiGapResults, type StoredWikiGaps } from "@/domains/wiki-gap/wiki-gap-store";
 import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
+import { deserializeFullPageDraft, reassembleFromPersisted, type AssembledDraftPage } from "@/domains/llm/draft-full-page";
 
 /**
  * today-newpages-data (2026-06-24) — the loader behind the "New Pages to Build"
@@ -96,6 +97,12 @@ export type NewPageOpportunity = {
    *  from the persisted wiki-gap engine ("Wikipedia's article on this is 180 words
    *  and was last touched in 2019..."). Undefined on other cards. */
   wikiGapEvidence?: string | null;
+  /** BEACON 500 item 55 - a previously-drafted + persisted full page (paste-ready
+   *  sections + sources appendix + markdown), re-assembled from move_drafts
+   *  (kind=full_page_draft) against the current preparedBrief. null until the
+   *  operator clicks "Draft the full page". Only ever set when preparedBrief
+   *  exists (the full-page walk drafts THIS brief's outline). */
+  fullPageDraft: import("@/domains/llm/draft-full-page").AssembledDraftPage | null;
 };
 
 export type NewPagesData = {
@@ -294,6 +301,25 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
           hasSerpVerdict: !!savedDrafts.get(`${briefSourceKey}::serp_verdict`),
         })
       : null;
+    // BEACON 500 item 55 - a previously-drafted full page, re-assembled from its
+    // compact persisted sections against the CURRENT preparedBrief (title/meta/faq
+    // are not re-persisted). Only meaningful once a brief exists.
+    let fullPageDraft: AssembledDraftPage | null = null;
+    if (preparedBrief) {
+      const persisted = deserializeFullPageDraft(savedDrafts.get(`${m.demandKey}::full_page_draft`)?.content);
+      if (persisted) {
+        fullPageDraft = reassembleFromPersisted(
+          {
+            proposedTitle: preparedBrief.title,
+            metaDescription: preparedBrief.meta,
+            openingAnswer: preparedBrief.opening,
+            outline: preparedBrief.outline,
+            faqQuestions: preparedBrief.faqQuestions,
+          },
+          persisted,
+        );
+      }
+    }
     // Quality of the saved "Draft the opening" answer block (raw text or {answer}).
     const savedOpening = savedDrafts.get(`${m.demandKey}::answer_block`)?.content ?? null;
     let openingQuality: DraftQualityResult | null = null;
@@ -325,6 +351,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
       preparedVerdict: verdict,
       preparedBrief,
+      fullPageDraft,
       briefQuality,
       openingQuality,
       aeoReceipt,
@@ -390,6 +417,7 @@ function buildGapOpportunities(
       competitorDomains: [g.competitorDomain, ...g.alsoWonBy].slice(0, 6),
       preparedVerdict: null,
       preparedBrief: null,
+      fullPageDraft: null,
       briefQuality: null,
       openingQuality: null,
       aeoReceipt: null,
@@ -432,6 +460,7 @@ export function buildWikiGapOpportunities(stored: StoredWikiGaps | null, existin
       competitorDomains: ["wikipedia.org"],
       preparedVerdict: null,
       preparedBrief: null,
+      fullPageDraft: null,
       briefQuality: null,
       openingQuality: null,
       aeoReceipt: null,

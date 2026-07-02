@@ -16,14 +16,20 @@ import { describe, it, expect } from "vitest";
 import {
   AUTOPILOT_RITZ_TENANT_ID,
   DEFAULT_AUTOPILOT_CONFIG,
+  LEVER_DAILY_CAP_MAX,
+  LEVER_DAILY_CAP_MIN,
   computeLeverRecords,
   decideAutopilotShips,
+  getLeverPolicy,
+  leverIsAutoPolicy,
   leverIsProven,
   leverLabel,
   normalizeAutopilotConfig,
+  normalizePerLeverPolicy,
   type AutopilotCandidate,
   type AutopilotConfig,
   type LeverRecord,
+  type PerLeverPolicy,
 } from "@/domains/autopilot/autopilot-policy";
 import { RITZ_TENANT_ID } from "@/domains/push/push-service";
 
@@ -286,5 +292,255 @@ describe("leverLabel", () => {
     expect(leverLabel("edit_title")).toBe("Page title updates");
     expect(leverLabel("add_answer_block")).toBe("Direct answer sections");
     expect(leverLabel("some_new_lever")).toBe("Some new lever");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Item 52: per-lever policies (additive - old configs must still parse)
+// ---------------------------------------------------------------------------
+
+describe("normalizePerLeverPolicy", () => {
+  it("clamps dailyCap into bounds and defaults mode to review", () => {
+    expect(normalizePerLeverPolicy({ actionType: "edit_meta", dailyCap: 999 })).toEqual({
+      actionType: "edit_meta",
+      mode: "review",
+      dailyCap: LEVER_DAILY_CAP_MAX,
+    });
+    expect(normalizePerLeverPolicy({ actionType: "edit_meta", dailyCap: -3 })).toEqual({
+      actionType: "edit_meta",
+      mode: "review",
+      dailyCap: LEVER_DAILY_CAP_MIN,
+    });
+    expect(normalizePerLeverPolicy({ actionType: "edit_meta", mode: "auto", dailyCap: 2 })).toEqual({
+      actionType: "edit_meta",
+      mode: "auto",
+      dailyCap: 2,
+    });
+  });
+
+  it("rejects an empty or missing action type", () => {
+    expect(normalizePerLeverPolicy({ actionType: "", mode: "auto" })).toBeNull();
+    expect(normalizePerLeverPolicy(null)).toBeNull();
+    expect(normalizePerLeverPolicy(undefined)).toBeNull();
+  });
+});
+
+describe("normalizeAutopilotConfig - perLeverPolicies (item 52)", () => {
+  it("an old persisted config with no perLeverPolicies field still parses (additive)", () => {
+    const legacy = { enabled: true, weeklyCap: 3, minVerdicts: 10, minNonRegressionRate: 0.8 };
+    const normalized = normalizeAutopilotConfig(legacy);
+    expect(normalized.perLeverPolicies).toBeNull();
+    expect(normalized.enabled).toBe(true);
+  });
+
+  it("normalizes each entry and drops invalid ones", () => {
+    const normalized = normalizeAutopilotConfig({
+      perLeverPolicies: [
+        { actionType: "edit_meta", mode: "auto", dailyCap: 2 },
+        { actionType: "", mode: "auto" },
+        { actionType: "add_faq", mode: "bogus", dailyCap: 500 },
+      ] as unknown as PerLeverPolicy[],
+    });
+    expect(normalized.perLeverPolicies).toEqual([
+      { actionType: "edit_meta", mode: "auto", dailyCap: 2 },
+      { actionType: "add_faq", mode: "review", dailyCap: LEVER_DAILY_CAP_MAX },
+    ]);
+  });
+
+  it("dedupes by actionType - last entry wins", () => {
+    const normalized = normalizeAutopilotConfig({
+      perLeverPolicies: [
+        { actionType: "edit_meta", mode: "review", dailyCap: 1 },
+        { actionType: "edit_meta", mode: "auto", dailyCap: 3 },
+      ],
+    });
+    expect(normalized.perLeverPolicies).toEqual([{ actionType: "edit_meta", mode: "auto", dailyCap: 3 }]);
+  });
+
+  it("an empty array normalizes to null, same as absent", () => {
+    expect(normalizeAutopilotConfig({ perLeverPolicies: [] }).perLeverPolicies).toBeNull();
+  });
+});
+
+describe("getLeverPolicy / leverIsAutoPolicy", () => {
+  it("finds the policy for a lever and reports auto only when explicitly set", () => {
+    const config = normalizeAutopilotConfig({
+      perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 2 }],
+    });
+    expect(getLeverPolicy(config, "edit_meta")?.dailyCap).toBe(2);
+    expect(getLeverPolicy(config, "edit_title")).toBeNull();
+    expect(leverIsAutoPolicy(config, "edit_meta")).toBe(true);
+    expect(leverIsAutoPolicy(config, "edit_title")).toBe(false);
+  });
+
+  it("a policy in review mode is never reported as auto", () => {
+    const config = normalizeAutopilotConfig({
+      perLeverPolicies: [{ actionType: "edit_meta", mode: "review", dailyCap: 2 }],
+    });
+    expect(leverIsAutoPolicy(config, "edit_meta")).toBe(false);
+  });
+});
+
+describe("decideAutopilotShips - per-lever auto policy (item 52)", () => {
+  it("policy-only path: an unproven lever ships when its auto policy has room", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 2 }],
+      }),
+      leverRecords: [], // no proof-ledger history at all
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: {},
+      candidates: [candidate({ actionType: "edit_meta" })],
+    });
+    expect(decision.picks).toHaveLength(1);
+    expect(decision.picks[0]!.reason).toContain("auto-ship list");
+    expect(decision.picks[0]!.receiptLine).toContain("you turned on auto-ship");
+  });
+
+  it("proven-only path still ships when no per-lever policy exists at all", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg(),
+      leverRecords: [PROVEN_TITLE],
+      autoShippedThisWeek: 0,
+      candidates: [candidate()],
+    });
+    expect(decision.picks).toHaveLength(1);
+    expect(decision.picks[0]!.reason).toContain("proven change type");
+  });
+
+  it("both paths qualify: proven AND auto-policy - ships once, proven reason wins", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        perLeverPolicies: [{ actionType: "edit_title", mode: "auto", dailyCap: 5 }],
+      }),
+      leverRecords: [PROVEN_TITLE],
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: {},
+      candidates: [candidate()],
+    });
+    expect(decision.picks).toHaveLength(1);
+    expect(decision.picks[0]!.reason).toContain("proven change type");
+  });
+
+  it("daily cap reached: the auto policy stops shipping more of that lever today", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        weeklyCap: 10,
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 1 }],
+      }),
+      leverRecords: [],
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: { edit_meta: 1 },
+      candidates: [candidate({ actionType: "edit_meta" })],
+    });
+    expect(decision.picks).toHaveLength(0);
+    expect(decision.skips[0]!.reason).toContain("today's limit of 1 is used up");
+  });
+
+  it("daily cap is tracked WITHIN one pass across multiple candidates", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        weeklyCap: 10,
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 1 }],
+      }),
+      leverRecords: [],
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: {},
+      candidates: [
+        candidate({ editId: "e1", actionType: "edit_meta", url: "https://example.com/a" }),
+        candidate({ editId: "e2", actionType: "edit_meta", url: "https://example.com/b" }),
+      ],
+    });
+    expect(decision.picks).toHaveLength(1);
+    expect(decision.skips).toHaveLength(1);
+    expect(decision.skips[0]!.reason).toContain("today's limit of 1 is used up");
+  });
+
+  it("review mode never ships, even with plenty of daily-cap room", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "review", dailyCap: 5 }],
+      }),
+      leverRecords: [],
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: {},
+      candidates: [candidate({ actionType: "edit_meta" })],
+    });
+    expect(decision.picks).toHaveLength(0);
+    expect(decision.skips[0]!.reason).toContain("not proven here yet");
+  });
+
+  it("an auto-policy pick still respects the weekly budget", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        weeklyCap: 1,
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 5 }],
+      }),
+      leverRecords: [],
+      autoShippedThisWeek: 1,
+      autoShippedTodayByLever: {},
+      candidates: [candidate({ actionType: "edit_meta" })],
+    });
+    expect(decision.picks).toHaveLength(0);
+    expect(decision.skips[0]!.reason).toContain("weekly budget of 1");
+  });
+
+  it("an auto-policy pick still respects the allowlist when one is set", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        leverAllowlist: ["add_answer_block"],
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 5 }],
+      }),
+      leverRecords: [],
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: {},
+      candidates: [candidate({ actionType: "edit_meta" })],
+    });
+    expect(decision.picks).toHaveLength(0);
+    expect(decision.skips[0]!.reason).toContain("allowed list");
+  });
+
+  it("Ritz never ships through an auto policy either (regression guard)", () => {
+    const decision = decideAutopilotShips({
+      tenantId: AUTOPILOT_RITZ_TENANT_ID,
+      config: cfg({
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 5 }],
+      }),
+      leverRecords: [],
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: {},
+      candidates: [candidate({ actionType: "edit_meta" })],
+    });
+    expect(decision.mode).toBe("blocked");
+    expect(decision.picks).toHaveLength(0);
+  });
+
+  it("emits no em or en dashes in the new policy-path copy", () => {
+    const decision = decideAutopilotShips({
+      tenantId: TENANT,
+      config: cfg({
+        weeklyCap: 1,
+        perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 1 }],
+      }),
+      leverRecords: [],
+      autoShippedThisWeek: 0,
+      autoShippedTodayByLever: { edit_meta: 1 },
+      candidates: [
+        candidate({ editId: "e1", actionType: "edit_meta", url: "https://example.com/a" }),
+      ],
+    });
+    const all = [
+      ...decision.picks.map((p) => `${p.reason} ${p.receiptLine}`),
+      ...decision.skips.map((s) => s.reason),
+    ].join(" ");
+    expect(all).not.toMatch(/[\u2013\u2014]/);
   });
 });

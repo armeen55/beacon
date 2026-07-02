@@ -263,6 +263,28 @@ export const StrategyReviewSchema = z.object({
 });
 export type StrategyReview = z.infer<typeof StrategyReviewSchema>;
 
+// ── section draft (BEACON 500 item 55 - outline-to-draft pipeline) ───────────
+// One drafted section of a full-page walk. NOT part of the shared `base` set:
+// a section carries its OWN lightweight sources list (not the heavier
+// evidenceRefs/confidence/risks/operatorSteps shape) because it is one small
+// unit in a sequential walk, not a standalone Move draft. `containsNumber` lets
+// the assembler know at a glance which sections carry a verified figure.
+
+export const SectionSourceSchema = z.object({
+  kind: z.enum(["own_data", "competitor_observation", "fanout_question", "keyword"]),
+  detail: z.string().min(1).max(300),
+});
+export type SectionSource = z.infer<typeof SectionSourceSchema>;
+
+export const SectionDraftSchema = z.object({
+  heading: z.string().min(2).max(160),
+  body: z.string().min(40).max(1200),
+  /** At least one source — a section with zero grounding is rejected by validation. */
+  sources: z.array(SectionSourceSchema).min(1).max(6),
+  containsNumber: z.boolean(),
+});
+export type SectionDraft = z.infer<typeof SectionDraftSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -277,7 +299,8 @@ export type StructuredDraftKind =
   | "aeo_prompt_brief"
   | "team_verdict"
   | "batch_adjudication"
-  | "strategy_review";
+  | "strategy_review"
+  | "section_draft";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -292,6 +315,7 @@ export const SCHEMA_BY_KIND = {
   team_verdict: TeamVerdictSchema,
   batch_adjudication: BatchAdjudicationSchema,
   strategy_review: StrategyReviewSchema,
+  section_draft: SectionDraftSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 /** Every string field in a parsed draft, flattened — fed to the content firewalls

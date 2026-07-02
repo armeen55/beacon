@@ -28,6 +28,8 @@ import type { DailyEvidenceBrief } from "./daily-evidence-brief";
 import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
 import { expectedCtrAt } from "./pick-expectations";
 import { findFamilyPropagationCandidates, type FamilyPropagationCandidate } from "./family-win-propagation";
+import { findRefreshCandidates } from "@/domains/refresh/refresh-candidates";
+import type { RefreshBrief } from "@/domains/refresh/refresh-brief";
 
 export type PageFacts = {
   title: string | null;
@@ -68,7 +70,7 @@ export type SuggestedControl = {
 
 export type BuiltCandidate = DailyCandidate & {
   pageLabel: string;
-  leverField: "title" | "meta" | "h1" | "internal_link" | "answer_block";
+  leverField: "title" | "meta" | "h1" | "internal_link" | "answer_block" | "refresh";
   currentText: string;
   proposedText: string;
   whyNow: string;
@@ -107,6 +109,10 @@ export type BuiltCandidate = DailyCandidate & {
    *  (build-today-preview.ts) so the card can say "this week's plan leans into answer blocks -
    *  they have been winning here." Absent when no fresh mix exists or the weight is neutral (1). */
   strategyMixTag?: { family: string; weight: number; reason: string };
+  /** Item 56 (refresh production line): refresh-only - the evidence brief behind a "this page
+   *  is fading, add the missing section" candidate (the new queries no H2 answers, the queries
+   *  it is losing, the winner's newer section). Absent on every other lever. */
+  refreshDetail?: { briefSentences: string[]; clicksLostPerMonth: number };
 };
 
 // CTR curve lives in pick-expectations (items 34/61 share it); alias keeps call sites unchanged.
@@ -266,6 +272,10 @@ export function buildDailyCandidates(input: {
    *  ai-visibility/candidate-feed.ts). Bounded by the caller (max 3/night). A matching page's
    *  candidate carries the gap + its "why now" gains the gap sentence. Omit to disable. */
   engineGapsByUrl?: Map<string, EngineGapNote>;
+  /** Item 56: last night's ranked refresh queue (fading pages + evidence briefs, a $0 store
+   *  read by the caller). Bounded to MAX_REFRESH_CANDIDATES_PER_NIGHT (2) refresh candidates
+   *  per night, decayed-winners-first. Omit to disable (byte-identical batches). */
+  refreshQueue?: RefreshBrief[];
   now?: Date;
 }): BuiltCandidate[] {
   const now = input.now ?? new Date();
@@ -341,6 +351,81 @@ export function buildDailyCandidates(input: {
     const external = { ...baseExternal, insufficientControls: controls.length < MIN_CONTROLS };
     const elig = assessEligibility({ url: p.url, family: actionFamily, states, external });
     out.push(buildCandidate(p, proposal, actionFamily, elig, controls, external, engineGap, familyWin));
+  }
+
+  // Item 56 - REFRESH PRODUCTION LINE (additive, bounded): last night's ranked refresh queue
+  // (pages losing clicks quarter over quarter + their evidence briefs) becomes at most
+  // MAX_REFRESH_CANDIDATES_PER_NIGHT (2) refresh candidates, decayed-winners-first. Same
+  // eligibility gate (assessEligibility over the shared `states`, family "content" via
+  // actionFamilyOf("refresh_content")), same control machinery (scoreControl over the same
+  // clean pool), same one-card-per-page-per-night rule as everything above. A page whose
+  // brief has no concrete section target is honestly skipped (never a vague "improve this").
+  // No refreshQueue input -> byte-identical batches (pinned by build-daily-candidates tests).
+  const refreshQueue = input.refreshQueue ?? [];
+  if (refreshQueue.length > 0) {
+    const refreshFamily = actionFamilyOf("refresh_content"); // -> "content"
+    const refreshEligibility = new Map<string, ExperimentEligibility>();
+    for (const b of refreshQueue) {
+      const path = b.page.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/";
+      refreshEligibility.set(path, assessEligibility({ url: b.page, family: refreshFamily, states }));
+    }
+    const alreadyProposedPaths = new Set(
+      out.map((c) => c.url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/"),
+    );
+    const inputByPath = new Map(
+      input.pages.map((p) => [p.url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/", p]),
+    );
+    for (const seed of findRefreshCandidates({ queue: refreshQueue, eligibility: refreshEligibility, alreadyProposedPaths })) {
+      const seedPath = seed.page.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/";
+      // Prefer the batch's own fresh 90d GSC numbers for this page; a decayed page that fell
+      // out of the normal candidate band still gets honest quarter-window numbers from the rank.
+      const known = inputByPath.get(seedPath);
+      const treated: GscPageInput = known ?? {
+        url: seed.page,
+        pageLabel: (seedPath.split("/").filter(Boolean).at(-1) ?? "this page").replace(/[-_]+/g, " "),
+        impressions: seed.currentImpressions,
+        clicks: seed.currentClicks,
+        ctr: seed.currentImpressions > 0 ? seed.currentClicks / seed.currentImpressions : 0,
+        position: seed.currentPosition,
+        topQuery: seed.targetQuery,
+        topQueryImpressions: seed.currentImpressions,
+        topQueryPosition: seed.currentPosition,
+        topQueryCtr: seed.currentImpressions > 0 ? seed.currentClicks / seed.currentImpressions : 0,
+        ownership: 1, // a refresh serves the whole page, not one query's share
+      };
+      const controls = cleanPool
+        .filter((c) => c.url !== treated.url)
+        .map((c) => scoreControl(treated, c))
+        .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
+        .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
+        .slice(0, 5);
+      const external = { highRisk: false, insufficientControls: controls.length < MIN_CONTROLS };
+      const elig = assessEligibility({ url: seed.page, family: refreshFamily, states, external });
+      out.push({
+        url: seed.page,
+        pageLabel: treated.pageLabel,
+        pageFamily: pageFamilyOf(seed.page),
+        actionFamily: refreshFamily,
+        targetQuery: seed.targetQuery,
+        impressions: treated.impressions,
+        position: treated.topQueryPosition,
+        ctr: treated.topQueryCtr,
+        ownership: treated.ownership,
+        // The refresh forecast IS the fade: winning back what the page already earned.
+        ctrOpportunityClicks: seed.clicksLostPerMonth,
+        effortMinutes: 15,
+        external,
+        leverField: "refresh",
+        currentText: "(the page has no section answering this yet)",
+        proposedText: seed.proposedHeading,
+        whyNow: seed.whyNow,
+        rollbackText: "Remove the new section; the page returns to its previous state.",
+        eligibility: elig,
+        suggestedControls: controls,
+        enoughControls: controls.length >= MIN_CONTROLS,
+        refreshDetail: { briefSentences: seed.briefSentences, clicksLostPerMonth: seed.clicksLostPerMonth },
+      });
+    }
   }
   return out;
 }

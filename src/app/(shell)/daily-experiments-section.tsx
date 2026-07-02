@@ -28,6 +28,7 @@ import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import { humanizeDebateLine } from "@/domains/demand-graph/debate-summary";
 import { teammateOf } from "@/domains/team/identity";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
+import { dossierHref } from "@/lib/page-dossier-link";
 
 /** every action reason renders through the shared translator so a raw code can never reach the operator. */
 const reasonCopy = (reason: string | null | undefined): string => failureForReason(reason).message;
@@ -341,7 +342,14 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
       </div>
       <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900 dark:text-neutral-100">{moveHeadline(e)}</strong>
       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400 dark:text-neutral-500">
-        <span>{e.url}</span>
+        {(() => {
+          const href = dossierHref(e.canonicalUrl || e.url);
+          return href ? (
+            <Link href={href} className="underline underline-offset-2 hover:text-gray-600 dark:hover:text-neutral-300">{e.url}</Link>
+          ) : (
+            <span>{e.url}</span>
+          );
+        })()}
         {spark && spark.length >= 5 ? <Sparkline points={spark} width={64} height={16} className="inline-block opacity-75" /> : null}
       </div>
 
@@ -441,7 +449,14 @@ function ExecutionCard({ planId, item, spark, staging, wixEditorUrl }: { planId:
       </div>
       <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900 dark:text-neutral-100">{moveHeadline(e)}</strong>
       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400 dark:text-neutral-500">
-        <span>{e.url}</span>
+        {(() => {
+          const href = dossierHref(e.canonicalUrl || e.url);
+          return href ? (
+            <Link href={href} className="underline underline-offset-2 hover:text-gray-600 dark:hover:text-neutral-300">{e.url}</Link>
+          ) : (
+            <span>{e.url}</span>
+          );
+        })()}
         {spark && spark.length >= 5 ? <Sparkline points={spark} width={64} height={16} className="inline-block opacity-75" /> : null}
       </div>
 
@@ -669,7 +684,8 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
 
   const b = dashboard.activeProofBatch;
   return (
-    <section className="my-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+    // id: the item-56 "Pages fading" row in the Demand band deep-links here ("See tonight's picks").
+    <section id="daily-experiments" className="my-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
       <h2 className="mb-2 text-[15px] font-semibold text-gray-900 dark:text-neutral-100">Today’s changes</h2>
 
       {b && (

@@ -274,4 +274,137 @@ describe("runAutopilotPass", () => {
     await runAutopilotPass("tenant-ritz-founder", NOW, deps);
     expect(spies.runRevertPass).not.toHaveBeenCalled();
   });
+
+  // ── Item 52: per-lever auto policies alongside the proven-lever gate ──
+
+  describe("item 52: per-lever policies", () => {
+    function metaCandidate() {
+      return [
+        {
+          editId: "edit-meta-1",
+          recId: "rec-meta-1",
+          url: "https://example.com/meta-page",
+          actionType: "edit_meta",
+          title: "Update the search description",
+        },
+      ];
+    }
+
+    it("proven-only: an unproven, unpolicied lever never ships (regression guard)", async () => {
+      const { deps, spies } = makeDeps({
+        loadCandidates: vi.fn(async () => metaCandidate()),
+        loadLeverHistory: async () => [], // no proof history for edit_meta at all
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.picked).toBe(0);
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+
+    it("policy-only: an unproven lever ships when the operator turned on auto-ship for it", async () => {
+      const { deps, spies } = makeDeps({
+        getState: async () =>
+          enabledState({
+            config: {
+              ...DEFAULT_AUTOPILOT_CONFIG,
+              enabled: true,
+              perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 2 }],
+            },
+          }),
+        loadCandidates: vi.fn(async () => metaCandidate()),
+        loadLeverHistory: async () => [], // still no proof history - policy carries it alone
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.picked).toBe(1);
+      expect(res.shipped).toBe(1);
+      expect(spies.shipPick).toHaveBeenCalledTimes(1);
+      expect(res.receiptLines[0]).toContain("you turned on auto-ship");
+    });
+
+    it("both: a lever that is both proven AND policy-enabled still ships exactly once", async () => {
+      const { deps, spies } = makeDeps({
+        getState: async () =>
+          enabledState({
+            config: {
+              ...DEFAULT_AUTOPILOT_CONFIG,
+              enabled: true,
+              perLeverPolicies: [{ actionType: "edit_title", mode: "auto", dailyCap: 2 }],
+            },
+          }),
+        // default loadCandidates ships an edit_title candidate; default
+        // loadLeverHistory proves edit_title (12 verdicts, 11 non-regression).
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.picked).toBe(1);
+      expect(res.shipped).toBe(1);
+      expect(spies.shipPick).toHaveBeenCalledTimes(1);
+    });
+
+    it("daily cap: the per-lever cap blocks further auto-ships of that lever today", async () => {
+      const { deps, spies } = makeDeps({
+        getState: async () =>
+          enabledState({
+            config: {
+              ...DEFAULT_AUTOPILOT_CONFIG,
+              enabled: true,
+              weeklyCap: 10,
+              perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 1 }],
+            },
+            // Already shipped edit_meta once today (Pacific date matches NOW/today()).
+            receipts: [
+              {
+                id: "apr-earlier",
+                editId: "edit-earlier",
+                url: "https://example.com/other-page",
+                actionType: "edit_meta",
+                shippedAt: "2026-07-01T10:00:00Z",
+                result: "pushed",
+                receiptLine: "shipped earlier today",
+                detail: "ok",
+              },
+            ],
+          }),
+        loadCandidates: vi.fn(async () => metaCandidate()),
+        loadLeverHistory: async () => [],
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.picked).toBe(0);
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+
+    it("Ritz never ships through a per-lever auto policy (hard-block regression)", async () => {
+      const { deps, spies } = makeDeps({
+        getState: async () =>
+          enabledState({
+            config: {
+              ...DEFAULT_AUTOPILOT_CONFIG,
+              enabled: true,
+              perLeverPolicies: [{ actionType: "edit_meta", mode: "auto", dailyCap: 5 }],
+            },
+          }),
+        loadCandidates: vi.fn(async () => metaCandidate()),
+      });
+      const res = await runAutopilotPass("tenant-ritz-founder", NOW, deps);
+      expect(res.ran).toBe(false);
+      expect(res.reason).toContain("advise-only");
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+
+    it("a lever left in review mode never ships even with candidates ready", async () => {
+      const { deps, spies } = makeDeps({
+        getState: async () =>
+          enabledState({
+            config: {
+              ...DEFAULT_AUTOPILOT_CONFIG,
+              enabled: true,
+              perLeverPolicies: [{ actionType: "edit_meta", mode: "review", dailyCap: 5 }],
+            },
+          }),
+        loadCandidates: vi.fn(async () => metaCandidate()),
+        loadLeverHistory: async () => [],
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.picked).toBe(0);
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+  });
 });

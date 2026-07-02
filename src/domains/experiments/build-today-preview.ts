@@ -43,6 +43,7 @@ import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
 import { buildSpikeHintNotes } from "@/domains/trend-radar/spike-hints";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import { buildSeasonalHintNotes } from "@/domains/seasonal/seasonal-hints";
+import { loadRefreshQueue } from "@/domains/refresh/refresh-store";
 import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import { buildLanguageGapHintNotes } from "@/domains/language-gap/language-gap-hints";
 import { currentTenantSlug, currentTenant } from "@/lib/tenant-context";
@@ -121,7 +122,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, correctionFactor, teammateFreshness] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, correctionFactor, teammateFreshness, refreshQueue] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -174,6 +175,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     // says so in "how we know" instead of presenting every number as equally live. Fail-soft to
     // an empty map (every card renders exactly as before).
     loadTeammateFreshness(tenantId, now).catch(() => new Map<string, { status: "fresh" | "stale" | "dead"; ageDays: number | null; sentence: string }>()),
+    // Item 56: $0 read of last night's refresh queue (pages losing clicks quarter over quarter
+    // + their evidence briefs). Empty until the nightly pass has run. Fail-soft to none.
+    loadRefreshQueue(tenantId, now).catch(() => []),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence. Item 18:
@@ -338,7 +342,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     }),
   );
 
-  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl, engineGapsByUrl });
+  // Item 56: the refresh queue rides in as a bounded additive source (max 2/night,
+  // decayed-winners-first); an empty queue is byte-identical to the pre-item-56 batch.
+  const built = buildDailyCandidates({ tenantId, pages: inputs, facts, proofLedger: ledger, linkDestinations, writtenAnswersByUrl, engineGapsByUrl, refreshQueue });
 
   // Move 4 - RECOMMENDATION-QUALITY GATE: no candidate enters the plan unless it passes
   // the deterministic review (page-query intent fit, action↔goal incl. year-intent, copy
@@ -719,6 +725,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const LEVER_PLAIN: Record<string, string> = {
     meta: "a sharper description", title: "a sharper title", h1: "a clearer headline",
     internal_link: "an internal link", answer_block: "a direct answer at the top",
+    refresh: "a refresh with the missing section",
   };
   await Promise.all(
     selected.map(async (c) => {

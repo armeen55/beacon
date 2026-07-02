@@ -105,6 +105,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // band + the daily plan builder; without the mirror the detected gaps
   // would be silent-empty on hosted prod.
   "language-gap-matrix",
+  // 2026-07-02 item 56 - nightly refresh queue (pages losing clicks quarter
+  // over quarter + their evidence briefs). Written by the cron (Vercel
+  // lambda: no disk), read by the Today Demand band + the daily plan
+  // builder; without the mirror the queue would be silent-empty on hosted prod.
+  "refresh-queue",
   // 2026-07-02 item 26 - the mined citability pattern profile (what AI
   // actually quotes in this tenant's space). Written by the mining pass
   // (no disk on Vercel lambdas), read by the daily card's evidence brief
@@ -169,6 +174,13 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // build-today-preview.ts's multiplier and the Monday recap band. Without the
   // mirror the mix would silently reset to neutral on hosted prod every recycle.
   "strategy-mix-history",
+  // 2026-07-02 item 53 - overnight forensic investigation diagnosis cards (one
+  // row per tenant/family/week). Written by the nightly cron's isolated
+  // investigation phase (Vercel lambda, no disk); read by the Today
+  // investigation card. Without the mirror a diagnosis would vanish on the
+  // next lambda recycle, and the idempotency check (one investigation per
+  // family per week) would silently stop working too.
+  "forensic-investigations",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

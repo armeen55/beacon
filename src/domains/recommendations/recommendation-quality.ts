@@ -59,7 +59,10 @@ export type QualityReasonCode =
   | "thin_or_malformed"
   | "no_meaningful_change";
 
-export type QualityLever = "meta" | "title" | "h1" | "internal_link" | "answer_block" | "schema" | "section" | "new_page" | "cro";
+// "refresh" (item 56): a fading page's new-section pick. Its proposedText is a short HEADING,
+// not long-form copy, so it deliberately takes only the generic gates (intent fit, proof
+// blocks, origin claims) - neither the section word-floor nor the title/meta length rules.
+export type QualityLever = "meta" | "title" | "h1" | "internal_link" | "answer_block" | "schema" | "section" | "new_page" | "cro" | "refresh";
 
 export type RecommendationInput = {
   lever: QualityLever;

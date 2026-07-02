@@ -23,7 +23,10 @@ import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
 import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import type { LanguageGap } from "@/domains/language-gap/language-gaps";
+import { loadRefreshQueue } from "@/domains/refresh/refresh-store";
+import { briefSentences, type RefreshBrief } from "@/domains/refresh/refresh-brief";
 import { readWorklistSurface } from "./worklist-surface-store";
+import { dossierHref } from "@/lib/page-dossier-link";
 import { deriveStatus, statusView } from "@/domains/changes/canonical-change";
 import Link from "next/link";
 import { WarRoomCopyButton } from "./war-room-copy-button";
@@ -177,11 +180,19 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
               {funnelLine ? <p className="mt-0.5 text-[12px] text-gray-500 dark:text-neutral-400">{funnelLine}</p> : null}
               {funnelRows.length > 0 ? (
                 <div className="mt-1 space-y-0.5">
-                  {funnelRows.map((f) => (
-                    <p key={f.pagePath} className="text-[12px] text-gray-600 dark:text-neutral-300">
-                      <span className="font-semibold text-gray-800 dark:text-neutral-200">{prettyPath(f.pagePath)}:</span> {f.bottleneckSentence}
-                    </p>
-                  ))}
+                  {funnelRows.map((f) => {
+                    const href = dossierHref(f.pagePath);
+                    return (
+                      <p key={f.pagePath} className="text-[12px] text-gray-600 dark:text-neutral-300">
+                        {href ? (
+                          <Link href={href} className="font-semibold text-gray-800 underline underline-offset-2 dark:text-neutral-200">{prettyPath(f.pagePath)}</Link>
+                        ) : (
+                          <span className="font-semibold text-gray-800 dark:text-neutral-200">{prettyPath(f.pagePath)}</span>
+                        )}
+                        : {f.bottleneckSentence}
+                      </p>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
@@ -275,22 +286,33 @@ async function loadTopLanguageGapRow(tenantId: string): Promise<LanguageGap | nu
   return gaps[0] ?? null;
 }
 
+/** Master plan item 56 - the single worst FADING page ($0 store read from last night's
+ *  refresh-queue pass over quarter-over-quarter GSC clicks). The queue arrives ranked
+ *  worst-lost-clicks-first, so the first row is the one this slot shows; null when nothing
+ *  is fading (the row stays silent, never a placeholder). The nightly plan builder reads the
+ *  same queue, so the worst fades also arrive as ready-to-ship refresh picks (max 2/night). */
+async function loadTopFadingRow(tenantId: string): Promise<RefreshBrief | null> {
+  const queue = await loadRefreshQueue(tenantId).catch(() => [] as RefreshBrief[]);
+  return queue[0] ?? null;
+}
+
 /** Market demand (DataForSEO teammate): real search demand you don't own yet, from the cached
  *  keyword universe, PLUS this week's query spikes from your own Google data (item 14).
  *  Self-hides until keyword research has run AND nothing is spiking; once research HAS run and
  *  found no gap, that is a finding worth one quiet card (item 21), never a blank space. */
 export async function DemandOpportunitiesSection({ tenantId }: { tenantId: string }) {
   try {
-    const [res, spikeRows, seasonalRow, languageGapRow] = await Promise.all([
+    const [res, spikeRows, seasonalRow, languageGapRow, fadingRow] = await Promise.all([
       loadDemandOpportunities(tenantId, { limit: 5 }),
       loadSpikeRows(tenantId),
       loadTopSeasonalRow(tenantId),
       loadTopLanguageGapRow(tenantId),
+      loadTopFadingRow(tenantId),
     ]);
-    // Research never ran and nothing is spiking, seasonal, or a language gap: nothing
-    // honest to say yet, stay silent.
-    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow) return null;
-    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow) {
+    // Research never ran and nothing is spiking, seasonal, a language gap, or fading:
+    // nothing honest to say yet, stay silent.
+    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow) return null;
+    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow) {
       // Item 21 - designed empty state: keyword research DID run and found no new gap.
       return (
         <section aria-label="Demand opportunities" className={CARD}>
@@ -353,6 +375,27 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
             <div key={`lang-${languageGapRow.page}`} className="rounded-xl bg-violet-50/70 px-3 py-2 dark:bg-violet-950/30">
               <p className="text-[13px] font-medium text-violet-900 dark:text-violet-200">{languageGapRow.sentence}</p>
               <p className="mt-0.5 text-[12px] text-violet-800/90 dark:text-violet-300/90">Page: {prettyPath(languageGapRow.page)}.</p>
+            </div>
+          ) : null}
+          {/* Master plan item 56 - the single worst FADING page, from last night's refresh-queue
+              pass (quarter-over-quarter GSC clicks). Below the language-gap row; silent when
+              nothing is fading. The same queue feeds the nightly plan, so the fix is a plan
+              pick away, not a separate workflow. */}
+          {fadingRow ? (
+            <div key={`fade-${fadingRow.page}`} className="rounded-xl bg-rose-50/70 px-3 py-2 dark:bg-rose-950/30">
+              <p className="text-[13px] font-medium text-rose-900 dark:text-rose-200">
+                {prettyPath(fadingRow.page)}: {fadingRow.rank.sentence}
+              </p>
+              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-rose-800/90 dark:text-rose-300/90">
+                {briefSentences(fadingRow)[0] ? <span>{briefSentences(fadingRow)[0]}</span> : null}
+                <span>I put a refresh in tonight&apos;s plan when there is a concrete section to add.</span>
+                <Link
+                  href="#daily-experiments"
+                  className={`rounded-sm font-medium text-rose-700 underline underline-offset-2 hover:text-rose-900 dark:text-rose-300 dark:hover:text-rose-100 ${FOCUS}`}
+                >
+                  See tonight&apos;s picks
+                </Link>
+              </p>
             </div>
           ) : null}
           {res.opportunities.slice(0, 5).map((o) => (
@@ -427,22 +470,25 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
     // Demand band renders whenever keyword research has run (gaps or the item-21 empty
     // state) OR a query spike exists (item 14, a $0 store read) OR a seasonal window is
     // due (master plan item 21, a $0 store read) OR a language gap is found (master plan
-    // item 24, a $0 store read), so quiet = research never ran, nothing surfaced, nothing
-    // is spiking, nothing seasonal is due, and no language gap was found.
+    // item 24, a $0 store read) OR a page is fading (master plan item 56, a $0 store
+    // read), so quiet = research never ran, nothing surfaced, nothing is spiking,
+    // nothing seasonal is due, no language gap was found, and nothing is fading.
     Promise.all([
       loadDemandOpportunities(tenantId, { limit: 5 }),
       loadQuerySpikes(tenantId).catch(() => []),
       loadTopSeasonalRow(tenantId).catch(() => null),
       loadTopLanguageGapRow(tenantId).catch(() => null),
+      loadTopFadingRow(tenantId).catch(() => null),
     ])
       .then(
-        ([res, spikes, seasonalRow, languageGapRow]) =>
+        ([res, spikes, seasonalRow, languageGapRow, fadingRow]) =>
           res.keywordsConsidered === 0 &&
           res.opportunities.length === 0 &&
           res.trends.length === 0 &&
           spikes.length === 0 &&
           !seasonalRow &&
-          !languageGapRow,
+          !languageGapRow &&
+          !fadingRow,
       )
       .catch(() => true),
   ]);

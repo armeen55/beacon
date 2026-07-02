@@ -30,6 +30,7 @@ vi.mock("@/lib/persistence/json-store", () => ({
 import {
   appendAutopilotReceipt,
   countAutoShippedInLastDays,
+  countAutoShippedTodayByLever,
   getAutopilotConfig,
   getAutopilotState,
   markAutopilotRunDay,
@@ -140,5 +141,47 @@ describe("autopilot-store", () => {
     };
     // Legacy receipts (no kind) still count as ships; reverts never do.
     expect(countAutoShippedInLastDays(state, NOW)).toBe(2);
+  });
+
+  // ── Item 52: per-lever daily counter ──
+
+  describe("countAutoShippedTodayByLever", () => {
+    it("counts pushed receipts by lever for the given Pacific day only", () => {
+      const state = {
+        receipts: [
+          receipt({ id: "a", actionType: "edit_meta", shippedAt: "2026-07-01T12:00:00Z" }),
+          receipt({ id: "b", actionType: "edit_meta", shippedAt: "2026-07-01T18:00:00Z" }),
+          receipt({ id: "c", actionType: "edit_title", shippedAt: "2026-07-01T12:00:00Z" }),
+          receipt({ id: "d", actionType: "edit_meta", shippedAt: "2026-06-30T12:00:00Z" }),
+        ],
+      };
+      expect(countAutoShippedTodayByLever(state, "2026-07-01")).toEqual({
+        edit_meta: 2,
+        edit_title: 1,
+      });
+    });
+
+    it("excludes failed receipts and revert receipts", () => {
+      const state = {
+        receipts: [
+          receipt({ id: "a", actionType: "edit_meta", result: "failed" as const }),
+          receipt({ id: "b", actionType: "edit_meta", kind: "revert" as const }),
+        ],
+      };
+      expect(countAutoShippedTodayByLever(state, "2026-07-01")).toEqual({});
+    });
+
+    it("a Pacific-boundary timestamp is bucketed by Pacific date, not UTC date", () => {
+      // 2026-07-02T06:30:00Z is still 2026-07-01 in Los Angeles (UTC-7 in July).
+      const state = {
+        receipts: [receipt({ id: "a", actionType: "edit_meta", shippedAt: "2026-07-02T06:30:00Z" })],
+      };
+      expect(countAutoShippedTodayByLever(state, "2026-07-01")).toEqual({ edit_meta: 1 });
+      expect(countAutoShippedTodayByLever(state, "2026-07-02")).toEqual({});
+    });
+
+    it("returns an empty object for no receipts", () => {
+      expect(countAutoShippedTodayByLever({ receipts: [] }, "2026-07-01")).toEqual({});
+    });
   });
 });

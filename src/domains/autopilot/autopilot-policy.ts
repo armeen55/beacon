@@ -38,6 +38,26 @@ export type AutopilotConfig = {
   minNonRegressionRate: number;
   /** Optional allowlist of lever action types. Null/empty = every proven lever. */
   leverAllowlist?: string[] | null;
+  /**
+   * Item 52 (additive): per-lever operator policies, keyed by action type.
+   * A lever with no entry here defaults to "review" (unchanged behavior) -
+   * old persisted configs parse fine with an empty list. This is a SEPARATE
+   * qualifying path from the proven-lever gate above: a pick ships when
+   * EITHER path says yes.
+   */
+  perLeverPolicies?: PerLeverPolicy[] | null;
+};
+
+/** "review" (default) holds every pick of this lever for the operator's click.
+ *  "auto" lets the nightly pass ship it on its own, up to dailyCap per night. */
+export type LeverPolicyMode = "auto" | "review";
+
+export type PerLeverPolicy = {
+  /** The lever (edit action_type, e.g. edit_meta). */
+  actionType: string;
+  mode: LeverPolicyMode;
+  /** Max auto-shipped changes of THIS lever per Pacific day. Operator-settable. */
+  dailyCap: number;
 };
 
 export const DEFAULT_AUTOPILOT_CONFIG: AutopilotConfig = {
@@ -46,11 +66,29 @@ export const DEFAULT_AUTOPILOT_CONFIG: AutopilotConfig = {
   minVerdicts: 10,
   minNonRegressionRate: 0.8,
   leverAllowlist: null,
+  perLeverPolicies: null,
 };
 
 /** Hard bounds so a bad write can never arm an unbounded budget. */
 export const WEEKLY_CAP_MIN = 1;
 export const WEEKLY_CAP_MAX = 10;
+
+/** Hard bounds on a per-lever daily cap, mirroring the weekly-cap bounds. */
+export const LEVER_DAILY_CAP_MIN = 1;
+export const LEVER_DAILY_CAP_MAX = 10;
+
+/** Clamp one persisted/user-input per-lever policy into a safe, well-formed row. */
+export function normalizePerLeverPolicy(
+  raw: Partial<PerLeverPolicy> | null | undefined,
+): PerLeverPolicy | null {
+  const actionType = typeof raw?.actionType === "string" ? raw.actionType.trim() : "";
+  if (actionType === "") return null;
+  const mode: LeverPolicyMode = raw?.mode === "auto" ? "auto" : "review";
+  const dailyCapRaw =
+    typeof raw?.dailyCap === "number" && Number.isFinite(raw.dailyCap) ? raw.dailyCap : 1;
+  const dailyCap = Math.min(LEVER_DAILY_CAP_MAX, Math.max(LEVER_DAILY_CAP_MIN, Math.round(dailyCapRaw)));
+  return { actionType, mode, dailyCap };
+}
 
 /** Clamp arbitrary persisted/user input into a safe, well-formed config. */
 export function normalizeAutopilotConfig(
@@ -71,13 +109,41 @@ export function normalizeAutopilotConfig(
   const allow = Array.isArray(raw?.leverAllowlist)
     ? raw!.leverAllowlist!.filter((s): s is string => typeof s === "string" && s.trim() !== "")
     : null;
+  // Dedupe by actionType (last write wins) so a bad merge can never produce
+  // two conflicting policy rows for the same lever.
+  const perLeverPolicies: PerLeverPolicy[] = [];
+  if (Array.isArray(raw?.perLeverPolicies)) {
+    const byType = new Map<string, PerLeverPolicy>();
+    for (const entry of raw!.perLeverPolicies!) {
+      const normalized = normalizePerLeverPolicy(entry as Partial<PerLeverPolicy> | null);
+      if (normalized != null) byType.set(normalized.actionType, normalized);
+    }
+    perLeverPolicies.push(...byType.values());
+  }
   return {
     enabled: raw?.enabled === true,
     weeklyCap,
     minVerdicts,
     minNonRegressionRate,
     leverAllowlist: allow && allow.length > 0 ? allow : null,
+    perLeverPolicies: perLeverPolicies.length > 0 ? perLeverPolicies : null,
   };
+}
+
+/** The operator policy for one lever, or null when none is set (defaults to review). Pure. */
+export function getLeverPolicy(
+  config: Pick<AutopilotConfig, "perLeverPolicies">,
+  actionType: string,
+): PerLeverPolicy | null {
+  return config.perLeverPolicies?.find((p) => p.actionType === actionType) ?? null;
+}
+
+/** True when the operator has switched this lever to "auto" (never true by default). Pure. */
+export function leverIsAutoPolicy(
+  config: Pick<AutopilotConfig, "perLeverPolicies">,
+  actionType: string,
+): boolean {
+  return getLeverPolicy(config, actionType)?.mode === "auto";
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +280,12 @@ export type AutopilotDecisionInput = {
   leverRecords: LeverRecord[];
   /** How many changes autopilot already shipped in the last 7 days. */
   autoShippedThisWeek: number;
+  /**
+   * Item 52 (additive): how many changes of EACH lever autopilot already
+   * shipped TODAY (Pacific day), keyed by action type. Absent/0 = none yet.
+   * Only read for levers with an operator "auto" policy.
+   */
+  autoShippedTodayByLever?: Record<string, number>;
   /** Ready-to-ship changes, best first (the runner preserves queue rank). */
   candidates: AutopilotCandidate[];
 };
@@ -225,8 +297,16 @@ function pct(nonRegression: number, decided: number): number {
 
 /**
  * The pure nightly decision. Most-conservative-gate-wins, in order:
- * disarmed, Ritz, allowlist, proven-lever thresholds, one change per page
- * per night, then the weekly budget. Deterministic given its inputs.
+ * disarmed, Ritz, allowlist, (proven-lever thresholds OR an operator "auto"
+ * policy with room under its daily cap), one change per page per night, then
+ * the weekly budget. Deterministic given its inputs.
+ *
+ * Item 52: a candidate qualifies through EITHER path -
+ *   1) the proven-lever gate from item 1 (>= minVerdicts, >= minNonRegressionRate), or
+ *   2) an operator-enabled perLeverPolicies entry with mode "auto" and
+ *      today's ships of that lever still under its dailyCap.
+ * Both paths still spend the same weekly budget and respect the allowlist,
+ * the one-pick-per-page-per-night rule, and the Ritz block.
  */
 export function decideAutopilotShips(input: AutopilotDecisionInput): AutopilotDecision {
   const config = input.config == null ? null : normalizeAutopilotConfig(input.config);
@@ -246,6 +326,7 @@ export function decideAutopilotShips(input: AutopilotDecisionInput): AutopilotDe
   const recordByLever = new Map(input.leverRecords.map((r) => [r.actionType, r]));
   const allow = config.leverAllowlist;
   const seenUrls = new Set<string>();
+  const shippedTodayByLever = { ...(input.autoShippedTodayByLever ?? {}) };
 
   const picks: AutopilotPick[] = [];
   const skips: AutopilotSkip[] = [];
@@ -262,16 +343,35 @@ export function decideAutopilotShips(input: AutopilotDecisionInput): AutopilotDe
       continue;
     }
 
-    if (record == null || record.decided < config.minVerdicts) {
+    const proven = record != null && leverIsProven(record, config);
+    const policy = getLeverPolicy(config, candidate.actionType);
+    const policyEnabled = policy != null && policy.mode === "auto";
+    const shippedToday = shippedTodayByLever[candidate.actionType] ?? 0;
+    const policyHasRoom = policyEnabled && policy != null && shippedToday < policy.dailyCap;
+
+    let qualifyReason: string | null = null;
+    let receiptQualifyPhrase: string | null = null;
+
+    if (proven) {
+      qualifyReason = `${label} is a proven change type here: ${record!.decided} measured results, ${record!.nonRegression} of ${record!.decided} did not hurt (${pct(record!.nonRegression, record!.decided)} percent).`;
+      receiptQualifyPhrase = `I shipped this automatically under your proven-change budget. ${label} earned it: ${record!.nonRegression} of ${record!.decided} measured results here did not hurt.`;
+    } else if (policyEnabled && policyHasRoom) {
+      qualifyReason = `${label} is on your auto-ship list (${shippedToday} of ${policy!.dailyCap} shipped today).`;
+      receiptQualifyPhrase = `I shipped this automatically because you turned on auto-ship for ${label.toLowerCase()}.`;
+    } else if (policyEnabled && !policyHasRoom) {
+      skips.push({
+        candidate,
+        reason: `${label} is on your auto-ship list, but today's limit of ${policy!.dailyCap} is used up, so I left this for you.`,
+      });
+      continue;
+    } else if (record == null || record.decided < config.minVerdicts) {
       const decided = record?.decided ?? 0;
       skips.push({
         candidate,
         reason: `${label} is not proven here yet: ${decided} measured result${decided === 1 ? "" : "s"} so far, and I need ${config.minVerdicts} before I ship one on my own.`,
       });
       continue;
-    }
-
-    if (!leverIsProven(record, config)) {
+    } else {
       skips.push({
         candidate,
         reason: `${label} has ${record.decided} measured results but only ${record.nonRegression} did not hurt (${pct(record.nonRegression, record.decided)} percent). I need ${Math.round(config.minNonRegressionRate * 100)} percent before I ship one on my own.`,
@@ -298,11 +398,12 @@ export function decideAutopilotShips(input: AutopilotDecisionInput): AutopilotDe
 
     budget -= 1;
     seenUrls.add(urlKey);
+    shippedTodayByLever[candidate.actionType] = shippedToday + 1;
     const shipNumber = already + picks.length + 1;
     picks.push({
       candidate,
-      reason: `${label} is a proven change type here: ${record.decided} measured results, ${record.nonRegression} of ${record.decided} did not hurt (${pct(record.nonRegression, record.decided)} percent). This is auto-shipped change ${shipNumber} of ${config.weeklyCap} this week.`,
-      receiptLine: `I shipped this automatically under your proven-change budget. ${label} earned it: ${record.nonRegression} of ${record.decided} measured results here did not hurt. This change is reversible and I am measuring it now.`,
+      reason: `${qualifyReason} This is auto-shipped change ${shipNumber} of ${config.weeklyCap} this week.`,
+      receiptLine: `${receiptQualifyPhrase} This change is reversible and I am measuring it now.`,
     });
   }
 

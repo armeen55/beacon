@@ -139,3 +139,30 @@ export function countAutoShippedInLastDays(
     return Number.isFinite(t) && t >= cutoff;
   }).length;
 }
+
+/**
+ * Item 52: how many changes of EACH lever autopilot already shipped TODAY
+ * (the given Pacific day string, e.g. "2026-07-02"), keyed by action type.
+ * Feeds the per-lever daily cap in decideAutopilotShips. Reverts never count
+ * (same reasoning as the weekly counter: they are corrective, not new ships).
+ * Receipts carry a UTC ISO timestamp; compared here in Pacific time so it
+ * lines up with the Pacific day marker the nightly pass stamps.
+ */
+export function countAutoShippedTodayByLever(
+  state: Pick<AutopilotState, "receipts">,
+  day: string,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const r of state.receipts) {
+    if (r.result !== "pushed") continue;
+    if (r.kind === "revert") continue;
+    const t = Date.parse(r.shippedAt);
+    if (!Number.isFinite(t)) continue;
+    const shippedDay = new Date(t).toLocaleDateString("en-CA", {
+      timeZone: "America/Los_Angeles",
+    });
+    if (shippedDay !== day) continue;
+    counts[r.actionType] = (counts[r.actionType] ?? 0) + 1;
+  }
+  return counts;
+}

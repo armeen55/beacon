@@ -15,6 +15,7 @@ export const LEVER_LABEL: Record<string, string> = {
   answer_block: "Answer",
   title: "Title",
   h1: "Headline",
+  refresh: "Refresh",
 };
 
 /** Friendly, assistant-voice status labels. Internal state keys are unchanged. */
@@ -39,6 +40,7 @@ export function moveHeadline(e: Pick<PlannedExperimentRecord, "lever" | "pageLab
     case "internal_link": return `Add a helpful link on ${e.pageLabel}`;
     case "title": return `Tighten the title on ${e.pageLabel}`;
     case "h1": return `Tighten the headline on ${e.pageLabel}`;
+    case "refresh": return `Refresh ${e.pageLabel} with the missing section`;
     default: return `Improve ${e.pageLabel}`;
   }
 }

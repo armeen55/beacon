@@ -40,6 +40,7 @@ import {
 import {
   appendAutopilotReceipt,
   countAutoShippedInLastDays,
+  countAutoShippedTodayByLever,
   getAutopilotState,
   markAutopilotRunDay,
   type AutopilotState,
@@ -381,6 +382,7 @@ export async function runAutopilotPass(
     config: state.config,
     leverRecords: computeLeverRecords(history),
     autoShippedThisWeek: countAutoShippedInLastDays(state, now),
+    autoShippedTodayByLever: countAutoShippedTodayByLever(state, day),
     candidates,
   });
 

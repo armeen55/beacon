@@ -18,9 +18,12 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  enableTriageSuggestion,
   loadAutopilotSettings,
   setAutopilotEnabled,
   setAutopilotWeeklyCap,
+  setLeverPolicyDailyCap,
+  setLeverPolicyToReview,
   type AutopilotSettingsView,
 } from "./autopilot-actions";
 
@@ -81,9 +84,59 @@ export function AutopilotCard() {
     });
   }, [capDraft, refresh, router]);
 
+  const onEnableSuggestion = useCallback(
+    (actionType: string, dailyCap: number) => {
+      setActionError(null);
+      startTransition(async () => {
+        const res = await enableTriageSuggestion({ actionType, dailyCap });
+        if (res.ok) {
+          await refresh();
+          router.refresh();
+        } else {
+          setActionError(res.reason);
+        }
+      });
+    },
+    [refresh, router],
+  );
+
+  const onSetLeverToReview = useCallback(
+    (actionType: string) => {
+      setActionError(null);
+      startTransition(async () => {
+        const res = await setLeverPolicyToReview({ actionType });
+        if (res.ok) {
+          await refresh();
+          router.refresh();
+        } else {
+          setActionError(res.reason);
+        }
+      });
+    },
+    [refresh, router],
+  );
+
+  const onSaveLeverCap = useCallback(
+    (actionType: string, dailyCap: number) => {
+      setActionError(null);
+      startTransition(async () => {
+        const res = await setLeverPolicyDailyCap({ actionType, dailyCap });
+        if (res.ok) {
+          await refresh();
+          router.refresh();
+        } else {
+          setActionError(res.reason);
+        }
+      });
+    },
+    [refresh, router],
+  );
+
   const on = view?.config.enabled === true;
   const canPublish = view?.canPublish ?? false;
   const provenLevers = (view?.levers ?? []).filter((l) => l.proven);
+  const perLeverPolicies = view?.perLeverPolicies ?? [];
+  const triageSuggestions = view?.triageSuggestions ?? [];
 
   return (
     <section
@@ -192,6 +245,88 @@ export function AutopilotCard() {
               Save
             </button>
           </div>
+
+          {/* Item 52: per-lever policies - the operator pre-approves a class of change */}
+          <div data-autopilot-lever-policies="true">
+            <p className="text-[12px] font-semibold text-foreground">
+              Change types I auto-ship on my own
+            </p>
+            {perLeverPolicies.filter((p) => p.mode === "auto").length === 0 ? (
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                None yet. Enable a suggestion below, or a change type earns this the same way
+                the weekly budget does: prove itself first.
+              </p>
+            ) : (
+              <ul className="mt-1.5 space-y-2">
+                {perLeverPolicies
+                  .filter((p) => p.mode === "auto")
+                  .map((p) => (
+                    <li
+                      key={p.actionType}
+                      className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground"
+                      data-autopilot-lever-policy={p.actionType}
+                      data-autopilot-lever-policy-mode={p.mode}
+                    >
+                      <span className="text-foreground">{p.label}</span>
+                      <span>
+                        (shipped {p.shippedToday} of {p.dailyCap} today)
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        defaultValue={p.dailyCap}
+                        onBlur={(e) => {
+                          const parsed = Number(e.target.value);
+                          if (Number.isFinite(parsed) && parsed !== p.dailyCap) {
+                            onSaveLeverCap(p.actionType, parsed);
+                          }
+                        }}
+                        className="w-16 rounded-md border border-border/60 bg-surface px-2 py-1 text-[12px] text-foreground"
+                        data-autopilot-lever-cap-input={p.actionType}
+                        aria-label={`Daily limit for ${p.label}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onSetLeverToReview(p.actionType)}
+                        disabled={pending}
+                        className="rounded-md border border-border/60 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-surface-inset/40 disabled:opacity-50"
+                        data-autopilot-lever-action={`review-${p.actionType}`}
+                      >
+                        Hold for my review instead
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Item 52: triage-fed suggestions - never auto-enabled, one click to turn on */}
+          {triageSuggestions.length > 0 && (
+            <div data-autopilot-triage-suggestions="true">
+              <p className="text-[12px] font-semibold text-foreground">Suggestions for you</p>
+              <ul className="mt-1.5 space-y-2">
+                {triageSuggestions.map((s) => (
+                  <li
+                    key={s.actionType}
+                    className="rounded-md border border-border/50 bg-surface-inset/30 px-3 py-2 text-[12px] text-muted-foreground"
+                    data-autopilot-suggestion={s.actionType}
+                  >
+                    <p>{s.evidenceLine}</p>
+                    <button
+                      type="button"
+                      onClick={() => onEnableSuggestion(s.actionType, s.suggestedDailyCap)}
+                      disabled={pending}
+                      className="mt-1.5 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-primary/90 disabled:opacity-50"
+                      data-autopilot-suggestion-action={`enable-${s.actionType}`}
+                    >
+                      {pending ? "Turning on…" : `Yes, auto-ship ${s.label.toLowerCase()}`}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {!on ? (
             <div className="space-y-2">

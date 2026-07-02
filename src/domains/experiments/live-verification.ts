@@ -74,6 +74,9 @@ type ParsedPage = {
   contentParagraphs: string[]; // visible <p> with >= 8 words, document order
   paraBlocks: ParaBlock[]; // each visible <p> with its DESCENDANT anchors (for paragraph-scoped link checks)
   linkCount: number;
+  /** Visible content-region section headings (h2 + h3), document order - the item-56 refresh
+   *  lever verifies its new section against these. */
+  headings: string[];
 };
 
 type CheerioRoot = ReturnType<typeof cheerio.load>;
@@ -117,7 +120,14 @@ function parseLive(html: string): ParsedPage {
   let linkCount = 0;
   scope.find("a[href]").each(() => { linkCount += 1; });
 
-  return { title, metaDescription, metaCount: metaEls.length, h1, paragraphs, contentParagraphs, paraBlocks, linkCount };
+  const headings: string[] = [];
+  scope.find("h2, h3").each((_, el) => {
+    if (isHidden($, el)) return;
+    const t = $(el).text().replace(/\s+/g, " ").trim();
+    if (t) headings.push(t);
+  });
+
+  return { title, metaDescription, metaCount: metaEls.length, h1, paragraphs, contentParagraphs, paraBlocks, linkCount, headings };
 }
 
 /** Wix pre-hydration shell: HTTP 200 but title + h1 + meta all blank → unreliable read, retry. */
@@ -167,7 +177,30 @@ export async function verifyExperimentLive(exp: PlannedExperimentRecord, deps: V
   if (exp.lever === "answer_block") return verifyAnswerBlock(exp, page, now, baseChecks);
   if (exp.lever === "title") return verifyField(exp, page.title, "title", now, baseChecks);
   if (exp.lever === "h1") return verifyField(exp, page.h1, "h1", now, baseChecks);
+  if (exp.lever === "refresh") return verifyRefreshSection(exp, page, now, baseChecks);
   return { verified: false, reason: "verification_source_unavailable", expected: exp.proposedText, retryable: false };
+}
+
+/** Item 56 - refresh lever: the proposed SECTION HEADING must appear as a visible h2/h3 in the
+ *  content region. Exact normalized match preferred; a heading that merely CONTAINS the proposed
+ *  text also passes (an operator pasting "2026 Pricing" under "2026 Pricing in Iran" still
+ *  shipped the section). */
+function verifyRefreshSection(exp: PlannedExperimentRecord, page: ParsedPage, now: Date, base: UnchangedCheck[]): LiveVerificationResult {
+  const expected = exp.proposedText;
+  const target = normText(expected);
+  if (!target) return { verified: false, reason: "verification_source_unavailable", expected, retryable: false };
+  if (hasNoRenderedContent(page) && page.headings.length === 0) {
+    return { verified: false, reason: "snapshot_stale", expected, observed: "no rendered content", retryable: true };
+  }
+  const exact = page.headings.find((h) => normText(h) === target);
+  const containing = exact ?? page.headings.find((h) => normText(h).includes(target));
+  if (containing) {
+    return ok(containing, exact ? "section-heading-exact-match" : "section-heading-contains", "body:h2,h3", now, [
+      ...base,
+      { field: "headings_present", ok: true, detail: `${page.headings.length} section heading(s) on the page` },
+    ]);
+  }
+  return { verified: false, reason: "expected_text_missing", expected, observed: page.headings.slice(0, 8).join(" | ") || "no section headings found", retryable: true };
 }
 
 function verifyMeta(exp: PlannedExperimentRecord, page: ParsedPage, now: Date, base: UnchangedCheck[]): LiveVerificationResult {

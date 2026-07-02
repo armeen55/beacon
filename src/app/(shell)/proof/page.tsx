@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Check, CornerUpLeft } from "lucide-react";
+import { dossierHref } from "@/lib/page-dossier-link";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ResultsTimeline } from "../changes/results-timeline";
@@ -573,7 +575,14 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
   return (
     <div className={`rounded-lg border border-border/60 bg-background p-4${band === "win" ? " beacon-win-glow" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[14px] font-semibold text-foreground">{rec.path}</span>
+        {(() => {
+          const href = dossierHref(rec.path);
+          return href ? (
+            <Link href={href} className="text-[14px] font-semibold text-foreground underline underline-offset-2 hover:text-foreground/80">{rec.path}</Link>
+          ) : (
+            <span className="text-[14px] font-semibold text-foreground">{rec.path}</span>
+          );
+        })()}
         <span
           className={
             "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase " +

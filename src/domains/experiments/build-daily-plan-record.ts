@@ -35,18 +35,28 @@ function detailOf(c: BuiltCandidate): PlannedExperimentRecord["detail"] {
     return { kind: "answer_block", question: c.answerDetail.question, operation: c.answerDetail.operation, exactInstruction: c.answerDetail.exactInstruction, paragraphIndex: c.answerDetail.paragraphIndex };
   }
   if (c.leverField === "meta") return { kind: "meta", source: "page_opening_paragraph" };
+  // Item 56: a refresh pick freezes its evidence brief on the record so the card can argue
+  // the fade (new uncovered queries, losing queries, the winner's newer section).
+  if (c.leverField === "refresh") {
+    return {
+      kind: "refresh_section",
+      briefSentences: c.refreshDetail?.briefSentences ?? [],
+      clicksLostPerMonth: c.refreshDetail?.clicksLostPerMonth ?? 0,
+    };
+  }
   return { kind: "edit_field", field: c.leverField === "h1" ? "h1" : "title" };
 }
 
 function placementOf(c: BuiltCandidate): string {
   if (c.leverField === "answer_block" && c.answerDetail) return c.answerDetail.proposedLocation;
   if (c.leverField === "internal_link" && c.linkDetail) return `paragraph ${c.linkDetail.paragraphIndex + 1}`;
+  if (c.leverField === "refresh") return "a new section (H2) in the page body";
   return c.leverField;
 }
 
 function leaveUnchangedFor(lever: ExperimentLever): string[] {
   const all = ["title", "meta", "H1", "other body text", "internal links", "schema"];
-  const touched: Record<ExperimentLever, string> = { meta: "meta", title: "title", h1: "H1", internal_link: "internal links", answer_block: "other body text" };
+  const touched: Record<ExperimentLever, string> = { meta: "meta", title: "title", h1: "H1", internal_link: "internal links", answer_block: "other body text", refresh: "other body text" };
   return all.filter((x) => x.toLowerCase() !== touched[lever].toLowerCase());
 }
 

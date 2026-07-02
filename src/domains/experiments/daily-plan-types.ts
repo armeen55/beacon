@@ -13,8 +13,9 @@
 
 export type DailyPlanStatus = "preview" | "accepted" | "expired" | "abandoned" | "completed";
 export type ReservationStatus = "reserved" | "active" | "released" | "expired" | "invalidated";
-// The 3 safe daily levers + the last-resort filler-drop edits (so a plan faithfully records any batch).
-export type ExperimentLever = "meta" | "internal_link" | "answer_block" | "title" | "h1";
+// The 3 safe daily levers + the last-resort filler-drop edits (so a plan faithfully records any
+// batch) + the item-56 refresh lever (add the exact missing section to a fading page).
+export type ExperimentLever = "meta" | "internal_link" | "answer_block" | "title" | "h1" | "refresh";
 
 export type ProposedControlRecord = {
   controlUrl: string;
@@ -95,7 +96,10 @@ export type PlannedExperimentRecord = {
     | { kind: "meta"; source: string }
     | { kind: "internal_link"; destinationUrl: string; anchorText: string; wixInstructions: string; relationship: string }
     | { kind: "answer_block"; question: string; operation: string; exactInstruction: string; paragraphIndex: number }
-    | { kind: "edit_field"; field: "title" | "h1" };
+    | { kind: "edit_field"; field: "title" | "h1" }
+    // Item 56: a refresh pick carries its full evidence brief (the new queries no H2 answers,
+    // the queries it is losing, the winner's newer section) so the card argues the fade.
+    | { kind: "refresh_section"; briefSentences: string[]; clicksLostPerMonth: number };
 };
 
 export type DailyExperimentPlanRecord = {

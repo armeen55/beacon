@@ -10,6 +10,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/app/(shell)/today-moves-actions", () => ({ draftMoveAnswerBlockAction: async () => ({ status: "off" }) }));
 vi.mock("@/app/(shell)/serp-actions", () => ({ validateCreatePageWithSerpAction: async () => ({ ok: false, reason: "" }) }));
 vi.mock("@/app/(shell)/diagnostics/profound-intelligence/actions", () => ({ draftAeoBriefAction: async () => ({ ok: false, reason: "test" }) }));
+vi.mock("@/app/(shell)/today-newpages-draft-actions", () => ({ draftFullPageAction: async () => ({ ok: false, reason: "test" }) }));
 
 import { NewPageCard } from "@/app/(shell)/today-newpages-card";
 import type { NewPageOpportunity } from "@/app/(shell)/today-newpages-data";
@@ -28,6 +29,7 @@ function opp(over: Partial<NewPageOpportunity>): NewPageOpportunity {
     competitorDomains: ["garsononline.com"],
     preparedVerdict: null,
     preparedBrief: null,
+    fullPageDraft: null,
     briefQuality: null,
     openingQuality: null,
     aeoReceipt: null,

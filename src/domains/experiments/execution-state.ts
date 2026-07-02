@@ -126,6 +126,9 @@ export const LEVER_TO_ACTION_TYPE: Record<ExperimentLever, string> = {
   answer_block: "add_answer_block",
   title: "edit_title",
   h1: "change_h1",
+  // Item 56: a refresh ships as the registry's add_h2_section (the concrete change IS a new
+  // section) - actionFamilyOf maps it to the "content" family for eligibility + diff-in-diff.
+  refresh: "add_h2_section",
 };
 
 /** Read an item's status from the (optional) execution block; default ready_to_apply once accepted. */

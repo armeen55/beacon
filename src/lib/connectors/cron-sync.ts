@@ -21,11 +21,16 @@ import { detectSeasonalQueries } from "@/domains/seasonal/seasonality";
 import { writeSeasonalSummary } from "@/domains/seasonal/seasonal-store";
 import { runLanguageGapPass } from "@/domains/language-gap/run-language-gap-pass";
 import { writeLanguageGapSummary } from "@/domains/language-gap/language-gap-store";
+import { loadQuarterlyDecayForTenant } from "@/domains/refresh/load-quarterly-decay";
+import { rankRefreshCandidates } from "@/domains/refresh/decay-queue";
+import { loadRefreshBriefsForTenant } from "@/domains/refresh/refresh-brief-loader";
+import { writeRefreshQueueSummary } from "@/domains/refresh/refresh-store";
 import { runAaCalibrationForTenant } from "@/domains/proof-gsc/aa-calibration";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { detectChangepoints } from "@/domains/proof-gsc/changepoint";
 import { writeAlgorithmWeatherSummary } from "@/domains/proof-gsc/algorithm-weather-store";
 import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
+import { runInvestigationForTenant } from "@/domains/investigation/run-investigation";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -534,6 +539,47 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     }
   }
 
+  // PHASE 1i - refresh production line (master plan item 56): rank pages losing clicks
+  // QUARTER over quarter (the gsc_decay_v1 RPC with 91-day windows - the gradual fades the
+  // 28d trigger never crosses), floor out tiny pages (>= 100 clicks/quarter baseline), build
+  // each queued page's evidence brief (searched queries no H2 answers + the queries it is
+  // losing + the winner's newer section from the cached competitor teardown), and persist so
+  // the Today Demand band + the daily plan builder read the queue at $0. Deterministic, FREE
+  // (bounded Supabase reads + cached crawl + cached teardowns, no LLM, no paid API),
+  // latest-wins upsert; an empty queue is written too so "checked, nothing fading" stays
+  // distinguishable from "never checked". Isolated try/catch per tenant, does not touch
+  // PHASE 1c/1d/1e/1f/1g/1h above.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached, skipping remaining refresh-queue pass");
+      break;
+    }
+    try {
+      const deltas = await loadQuarterlyDecayForTenant(t.id);
+      const ranked = rankRefreshCandidates(deltas, { limit: 8 });
+      const queue = await loadRefreshBriefsForTenant(t.id, ranked);
+      await writeRefreshQueueSummary({
+        tenant_id: t.id,
+        computed_at: new Date().toISOString(),
+        pagesConsidered: deltas.length,
+        queue,
+      });
+      if (queue.length > 0) {
+        log.info("[cron-sync] refresh queue built", {
+          tenantId: t.id,
+          queued: queue.length,
+          top: queue[0]?.page,
+          topClicksLostPerMonth: queue[0]?.rank.clicksLostPerMonth,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] refresh queue pass failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
   // PHASE 2a — Step 3 competitor teardown (deterministic, FREE: polite HTTP only,
   // no LLM/paid API). Populates `competitor_page_audit` so the cockpit + New Pages
   // board show "what wins" everywhere, not just where the operator visited the
@@ -608,6 +654,38 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] pipeline invariant check failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 4 - overnight forensic investigation (master plan item 53). AFTER the
+  // pipeline watchdog, so tonight's data is confirmed fresh, and AFTER PHASE 1g's
+  // algorithm-weather pass (item 32), whose stored changepoints this phase reads
+  // rather than re-detecting. When a page family's weekly clicks collapsed >= 60
+  // percent, or the sitewide changepoint detector found a high-magnitude drop,
+  // auto-run an investigation: a bounded, polite live fetch of the affected pages
+  // (max 3/investigation) for noindex/status/canonical regressions, a $0 cached-
+  // SERP rank check, a $0 push-ledger scan for recent shipped changes, and a $0
+  // read of the algorithm-weather store, then file a ranked-cause diagnosis card.
+  // Capped at 2 investigations/tenant/night and idempotent per (family, week) -
+  // see investigation-store.ts. Isolated try/catch per tenant, never affects the
+  // sync result; runs even past the enrichment deadline like PHASE 3, since it is
+  // itself bounded and cheap.
+  for (const t of tenants) {
+    try {
+      const run = await runInvestigationForTenant(t.id);
+      if (run.investigated > 0) {
+        log.info("[cron-sync] forensic investigation filed", {
+          tenantId: t.id,
+          triggered: run.triggered,
+          investigated: run.investigated,
+          skippedIdempotent: run.skippedIdempotent,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] forensic investigation failed", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

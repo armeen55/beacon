@@ -27,6 +27,7 @@ import { teammateOf } from "@/domains/team/identity";
 import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { dossierHref } from "@/lib/page-dossier-link";
 
 /**
  * today-moves-card (2026-06-24) - the interactive §7 Move card. One-tap "Ship it"
@@ -373,7 +374,14 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
 
       <h3 className="mt-3 text-lg font-semibold leading-snug tracking-tight text-gray-900 dark:text-neutral-100">{titleCase(m.query)}</h3>
       <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-400 dark:text-neutral-500">
-        <span>on {m.pageLabel}</span>
+        {(() => {
+          const href = dossierHref(m.targetUrl);
+          return href ? (
+            <Link href={href} className={`underline underline-offset-2 hover:text-gray-600 dark:hover:text-neutral-300 ${FOCUS}`}>on {m.pageLabel}</Link>
+          ) : (
+            <span>on {m.pageLabel}</span>
+          );
+        })()}
         {m.sparkline && m.sparkline.length >= 5 ? (
           <Sparkline points={m.sparkline} width={72} height={18} className="inline-block align-middle opacity-80" />
         ) : null}

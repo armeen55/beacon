@@ -5,6 +5,7 @@ import {
   ProofPlanSchema,
   ExperimentPlanSchema,
   StrategyReviewSchema,
+  SectionDraftSchema,
   SCHEMA_BY_KIND,
   draftStringValues,
   type StructuredDraftKind,
@@ -77,6 +78,47 @@ describe("CreatePageBriefSchema", () => {
   });
 });
 
+describe("SectionDraftSchema", () => {
+  const validSection = {
+    heading: "The sofreh aghd ceremony",
+    body: "The sofreh aghd is a ceremonial spread laid out before the couple, carrying symbolic items such as bread, herbs, and a mirror. Family members hold a canopy over the couple during the vows while honored guests witness the exchange.",
+    sources: [{ kind: "competitor_observation", detail: "the cited page leads with a sofreh aghd explainer" }],
+    containsNumber: false,
+  };
+
+  it("accepts a valid grounded section", () => {
+    expect(SectionDraftSchema.safeParse(validSection).success).toBe(true);
+  });
+
+  it("REJECTS a section with zero sources (every section must carry >= 1 source)", () => {
+    const r = SectionDraftSchema.safeParse({ ...validSection, sources: [] });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues.some((i) => i.path.join(".") === "sources")).toBe(true);
+  });
+
+  it("rejects a body over 1200 chars", () => {
+    const r = SectionDraftSchema.safeParse({ ...validSection, body: "x".repeat(1201) });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects an unknown source kind", () => {
+    expect(
+      SectionDraftSchema.safeParse({ ...validSection, sources: [{ kind: "made_up", detail: "x" }] }).success,
+    ).toBe(false);
+  });
+
+  it("requires containsNumber to be a boolean (not omittable)", () => {
+    const { containsNumber: _c, ...rest } = validSection;
+    expect(SectionDraftSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("accepts every declared source kind", () => {
+    for (const kind of ["own_data", "competitor_observation", "fanout_question", "keyword"]) {
+      expect(SectionDraftSchema.safeParse({ ...validSection, sources: [{ kind, detail: "x" }] }).success).toBe(true);
+    }
+  });
+});
+
 describe("ExperimentPlanSchema", () => {
   it("rejects an invalid expectedDirection", () => {
     expect(
@@ -106,6 +148,7 @@ describe("SCHEMA_BY_KIND registry", () => {
       "cro_fix",
       "experiment_plan",
       "internal_link",
+      "section_draft", // BEACON 500 item 55: one drafted section of the outline-to-draft pipeline
       "strategy_review", // BEACON 500 item 51: the weekly strategy review's lever mix + memo
       "team_verdict", // FINAL PREMIUM PLAN item 25: the strategist's grounded verdict per nightly pick
       "tool_asset",

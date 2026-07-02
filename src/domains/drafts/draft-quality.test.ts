@@ -6,6 +6,7 @@ import {
   evaluatePreparedPackQuality,
   evaluateInternalLinkQuality,
   evaluateCROFixQuality,
+  evaluateSectionDraftQuality,
 } from "./draft-quality";
 
 // Cases are pinned to the REAL Iranopedia draft audit (scripts/wf-draft-quality.js)
@@ -160,6 +161,93 @@ describe("evaluateCreatePageBriefQuality", () => {
 
   it("malformed when a required field is missing", () => {
     expect(evaluateCreatePageBriefQuality({ ...goodBrief, opening: "" }).status).toBe("malformed");
+  });
+});
+
+describe("evaluateSectionDraftQuality (BEACON 500 item 55 - outline-to-draft pipeline)", () => {
+  it("PASSES a contextual, sourced section", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "The sofreh aghd ceremony",
+      body: "The sofreh aghd is a ceremonial spread laid before an Iranian couple during the wedding, carrying symbolic items such as bread, herbs, gold coins, and a mirror. Family members hold a canopy above the couple while an officiant reads the vows.",
+      sourceCount: 1,
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("REJECTS a section with zero sources as missing_source", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "The sofreh aghd ceremony",
+      body: "The sofreh aghd is a ceremonial spread laid before an Iranian couple during the wedding, carrying symbolic items such as bread, herbs, gold coins, and a mirror.",
+      sourceCount: 0,
+    });
+    expect(r.status).toBe("missing_source");
+    expect(r.copyAllowed).toBe(false);
+    expect(r.canRegenerate).toBe(true);
+  });
+
+  it("rejects an empty heading/body as malformed", () => {
+    expect(evaluateSectionDraftQuality({ heading: "", body: "", sourceCount: 1 }).status).toBe("malformed");
+  });
+
+  it("REJECTS a generic dictionary opening with no page context", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "What is a gift",
+      body: "A gift is a voluntarily transferred item, service, or gesture given without payment or legally required compensation. Gifts can be tangible or intangible and are exchanged in many contexts across cultures worldwide.",
+      sourceCount: 1,
+    });
+    expect(r.status).toBe("generic_rejected");
+    expect(r.copyAllowed).toBe(false);
+  });
+
+  it("REJECTS a too-thin section under 20 words", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "The reception",
+      body: "Iranian wedding receptions are joyful, with music and dancing.",
+      sourceCount: 1,
+    });
+    expect(r.status).toBe("too_thin");
+    expect(r.copyAllowed).toBe(false);
+  });
+
+  it("REJECTS plan-not-prose language ('this section will present…') caught in the first real Iranopedia run", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "Historical and cultural origins",
+      body: "This section will present the historical and cultural origins of Persian mythology as a focused topic. Intended chronological context: outline the timeframes and cultural phases that influenced myth formation across the Iranian cultural sphere and its neighbors over the centuries.",
+      sourceCount: 1,
+    });
+    expect(r.status).toBe("too_thin");
+    expect(r.reasons[0]).toContain("content plan");
+    expect(r.canRegenerate).toBe(true);
+  });
+
+  it("does NOT reject present-tense synthesis ('this section synthesizes…') as plan language", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "Creation and end time themes in Persian cosmology",
+      body: "Creation narratives in Persian mythology describe the origins of the world and humanity's place within a structured cosmic order. Eschatological cycles of decline and renewal conclude moral history and restore order. This section synthesizes how those themes interact in mythic storytelling and ritual practice.",
+      sourceCount: 1,
+    });
+    expect(r.status).toBe("ready");
+  });
+
+  it("REJECTS a section with no page-topic context anywhere (off-topic)", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "Choosing a venue",
+      body: "Picking the right venue takes planning. Consider the guest count, the season, and the budget before booking anything for the big day ahead.",
+      sourceCount: 1,
+    });
+    expect(r.status).toBe("relevance_rejected");
+    expect(r.copyAllowed).toBe(false);
+  });
+
+  it("REJECTS an unsupported superlative claim", () => {
+    const r = evaluateSectionDraftQuality({
+      heading: "Why the sofreh aghd matters",
+      body: "The Persian sofreh aghd is the best wedding ceremony tradition in the world, unmatched by any other culture's rituals or customs across history.",
+      sourceCount: 1,
+    });
+    expect(r.status).toBe("unsupported_claim");
+    expect(r.copyAllowed).toBe(false);
   });
 });
 
