@@ -43,6 +43,8 @@ function deps(over: Partial<RunEnginePollDeps> = {}): Partial<RunEnginePollDeps>
     env: {} as NodeJS.ProcessEnv,
     now: () => new Date("2026-07-01T09:00:00Z"),
     loadPrompts: async () => Array.from({ length: 30 }, (_, i) => prompt(i)),
+    loadProfoundQuestions: async () => [],
+    loadFanoutSeeds: async () => [],
     loadTenant: async () => TENANT,
     hasRunForNight: async () => false,
     recordRun: vi.fn(async () => {}),
@@ -93,6 +95,123 @@ describe("runEnginePollForTenant - idempotency + caps", () => {
     );
     expect(r.status).toBe("no_prompts");
     expect(runDataForSeoEngine).not.toHaveBeenCalled();
+  });
+});
+
+describe("runEnginePollForTenant - question universe (item 8)", () => {
+  const ANSWER = { answerText: "no links here", citedUrls: [], model: "gpt-test" };
+
+  it("polls real Profound prompts and fanout sub-queries alongside the library, tagging each observation with its source", async () => {
+    const written: PromptAnswerObservation[][] = [];
+    const writeObservations = vi.fn(async (rows: PromptAnswerObservation[]) => {
+      written.push(rows);
+    });
+    const asked: string[] = [];
+    const openAiClient = vi.fn(async (q: string) => {
+      asked.push(q);
+      return ANSWER;
+    });
+    const runDataForSeoEngine = vi.fn(async (items: Array<{ key: string; question: string }>, engine: "gemini" | "claude") => {
+      expect(items.map((i) => i.key)).toEqual(["prm-0", "pfp-1", expect.stringMatching(/^fan-/)]);
+      return dfsResult(engine);
+    });
+
+    const r = await runEnginePollForTenant(
+      TENANT_ID,
+      deps({
+        loadPrompts: async () => [prompt(0)],
+        loadProfoundQuestions: async () => [
+          { id: "pfp-1", text: "best persian street food in tehran", topic: "Iranopedia", volume: 3 },
+        ],
+        loadFanoutSeeds: async () => [{ subQuery: "iranian saffron price guide", weight: 4 }],
+        openAiClient,
+        writeObservations,
+        runDataForSeoEngine,
+      }),
+    );
+
+    expect(r.status).toBe("ok");
+    expect(r.promptsRequested).toBe(3);
+    expect(r.questionSources).toEqual({ library: 1, profound: 1, fanout: 1 });
+    // Every engine asks the REAL questions, verbatim.
+    expect(asked).toEqual([
+      "tracked question number 0",
+      "best persian street food in tehran",
+      "iranian saffron price guide",
+    ]);
+    // Observation rows carry the question source in metadata.
+    const rows = written.flat();
+    const bySource = new Map(rows.map((o) => [o.prompt_id, o.metadata.question_source]));
+    expect(bySource.get("prm-0")).toBe("library");
+    expect(bySource.get("pfp-1")).toBe("profound");
+    expect([...bySource.values()].filter((s) => s === "fanout")).toHaveLength(1);
+  });
+
+  it("the nightly cap holds across merged sources - never more than 25 questions per engine", async () => {
+    const openAiClient = vi.fn(async () => ANSWER);
+    const runDataForSeoEngine = vi.fn(async (items: Array<{ key: string }>, engine: "gemini" | "claude") => {
+      expect(items).toHaveLength(NIGHTLY_PROMPT_CAP);
+      return dfsResult(engine);
+    });
+    const r = await runEnginePollForTenant(
+      TENANT_ID,
+      deps({
+        loadPrompts: async () => Array.from({ length: 20 }, (_, i) => prompt(i)),
+        loadProfoundQuestions: async () =>
+          Array.from({ length: 10 }, (_, i) => ({
+            id: `pfp-${i}`,
+            text: `what is the history of persian city ${i}`,
+          })),
+        loadFanoutSeeds: async () => [{ subQuery: "iranian tea brewing samovar guide", weight: 2 }],
+        openAiClient,
+        runDataForSeoEngine,
+      }),
+    );
+    expect(r.promptsRequested).toBe(NIGHTLY_PROMPT_CAP);
+    expect(openAiClient).toHaveBeenCalledTimes(NIGHTLY_PROMPT_CAP);
+    expect(r.questionSources).toEqual({ library: 20, profound: 5, fanout: 0 });
+  });
+
+  it("fails soft to library-only when the Profound and fanout loaders blow up", async () => {
+    const openAiClient = vi.fn(async () => ANSWER);
+    const r = await runEnginePollForTenant(
+      TENANT_ID,
+      deps({
+        loadPrompts: async () => [prompt(0), prompt(1)],
+        loadProfoundQuestions: async () => {
+          throw new Error("profound key expired");
+        },
+        loadFanoutSeeds: async () => {
+          throw new Error("supabase down");
+        },
+        openAiClient,
+      }),
+    );
+    expect(r.status).toBe("ok");
+    expect(r.promptsRequested).toBe(2);
+    expect(r.questionSources).toEqual({ library: 2, profound: 0, fanout: 0 });
+  });
+
+  it("junk Profound prompts (borrowed-account sentiment seeds) are never polled", async () => {
+    const asked: string[] = [];
+    const openAiClient = vi.fn(async (q: string) => {
+      asked.push(q);
+      return ANSWER;
+    });
+    const r = await runEnginePollForTenant(
+      TENANT_ID,
+      deps({
+        loadPrompts: async () => [prompt(0)],
+        loadProfoundQuestions: async () => [
+          { id: "pfp-noise", text: "Evaluate the Frontier Models company ChatGPT on Iranopedia" },
+          { id: "pfp-real", text: "which iranian dishes use saffron most" },
+        ],
+        openAiClient,
+      }),
+    );
+    expect(r.questionSources).toEqual({ library: 1, profound: 1, fanout: 0 });
+    expect(asked).not.toContain("Evaluate the Frontier Models company ChatGPT on Iranopedia");
+    expect(asked).toContain("which iranian dishes use saffron most");
   });
 });
 

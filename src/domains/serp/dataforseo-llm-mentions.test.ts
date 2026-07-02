@@ -264,6 +264,47 @@ describe("runLlmMentions - the money gauntlet", () => {
   });
 });
 
+describe("questionForTopic - real questions first, canned template last resort (item 8)", () => {
+  it("returns a provided real question verbatim", () => {
+    expect(questionForTopic("persian carpets", "Where can I buy authentic persian carpets online?")).toBe(
+      "Where can I buy authentic persian carpets online?",
+    );
+  });
+
+  it("falls back to the canned template when the override is missing, blank, or too short", () => {
+    const canned = questionForTopic("persian carpets");
+    expect(canned).toContain("persian carpets");
+    expect(canned).toContain("cite sources");
+    expect(questionForTopic("persian carpets", "")).toBe(canned);
+    expect(questionForTopic("persian carpets", "   ")).toBe(canned);
+    expect(questionForTopic("persian carpets", "rug?")).toBe(canned);
+    expect(questionForTopic("persian carpets", null)).toBe(canned);
+  });
+
+  it("runLlmMentions sends the real question for a topic (normalized key match) and the template otherwise", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => BODY }) as unknown as Response);
+    const r = await runLlmMentions(
+      ["Persian  Carpets", "iran flag history"],
+      {
+        questionsByTopic: {
+          // Raw key with case + whitespace noise - must still match after normalization.
+          "Persian  Carpets": "What are the best persian carpet shops in tehran?",
+        },
+      },
+      deps({ fetchImpl: fetchImpl as unknown as typeof fetch }),
+    );
+    expect(r.status).toBe("ok");
+    const sentPrompts = fetchImpl.mock.calls.map((c) => {
+      const body = JSON.parse((c as unknown[])[1] ? ((c as unknown[])[1] as { body: string }).body : "[]") as Array<{ user_prompt: string }>;
+      return body[0]!.user_prompt;
+    });
+    expect(sentPrompts[0]).toBe("What are the best persian carpet shops in tehran?");
+    expect(sentPrompts[1]).toContain("best websites and resources to learn about iran flag history");
+    // The stored record keeps the question actually asked.
+    expect(r.records[0]!.question).toBe("What are the best persian carpet shops in tehran?");
+  });
+});
+
 describe("readAllCachedLlmMentions (cache-only, $0)", () => {
   const NOW = () => new Date("2026-07-01T00:00:00Z");
 

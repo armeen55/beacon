@@ -3,6 +3,7 @@ import { listTenants } from "@/domains/tenants/store";
 import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
+import { pullGa4AiReferralsForTenant } from "@/lib/connectors/ga4/sync-ai-referrals";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
@@ -256,6 +257,31 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       log.error("[cron-sync] tenant failed", { tenantId: t.id, error: err.slice(0, 200) });
+    }
+  }
+
+  // PHASE 1a-ai - AI-referral attribution (item 6): a SEPARATE GA4 report split
+  // by sessionSource so ChatGPT / Perplexity / Gemini / Copilot / Claude visits
+  // land in ga4_ai_referral_daily per page per day. Isolated step by contract:
+  // its own try/catch, its own report request, dormant until a GA4 key exists
+  // (the pull returns no_token/no_property cheaply), so it can never slow or
+  // break the traffic sync above. FREE (Google API), idempotent upsert.
+  for (const t of tenants) {
+    try {
+      const r = await pullGa4AiReferralsForTenant({ tenantId: t.id });
+      if (r.synced && r.rows_upserted > 0) {
+        log.info("[cron-sync] ai referrals", {
+          tenantId: t.id,
+          rowsUpserted: r.rows_upserted,
+          sessions: r.sessions,
+          sources: r.sources,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] ai referrals failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
     }
   }
 

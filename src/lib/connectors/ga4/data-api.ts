@@ -59,7 +59,10 @@ import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { evaluateExpiry } from "@/lib/connectors/gsc/expiry-handler";
 import { log } from "@/lib/logger";
 
+import { AI_SOURCE_FILTER_TERMS } from "./ai-sources";
 import type {
+  Ga4AiReferralReportResult,
+  Ga4AiReferralRow,
   Ga4RevenueReportResult,
   Ga4RevenueRow,
   Ga4RunReportArgs,
@@ -691,6 +694,231 @@ export async function runGa4RevenueReport(
   }
 
   const result: Ga4RevenueReportResult = { ok: true, rows, currency };
+  if (reportedRowCount != null) result.rowCount = reportedRowCount;
+  if (truncated) result.truncated = true;
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GA4 AI-referral report (2026-07-01, BEACON_500 item 6) - SEPARATE from the
+// traffic + revenue reports so an AI-referral failure NEVER breaks the proven
+// traffic sync. Grain: (date, pagePath, sessionSource), request-side filtered
+// to AI assistant sources. Same pagination/auth posture as the siblings.
+// ─────────────────────────────────────────────────────────────────────
+
+/** AI-referral metric names requested from GA4. `keyEvents` replaced the
+ *  deprecated `conversions` metric in 2024; narrowing maps by header NAME so
+ *  either spelling lands in the same field. */
+export const GA4_AI_REFERRAL_METRICS = ["sessions", "engagedSessions", "keyEvents"] as const;
+
+/**
+ * Build the AI-referral `runReport` body: [date, pagePath, sessionSource]
+ * dimensions + session metrics + an orGroup of case-insensitive CONTAINS
+ * filters over sessionSource built from AI_SOURCE_FILTER_TERMS. The filter
+ * deliberately over-fetches (broad terms); classifyAiSource is the precise
+ * gate at persist time. Pure; exported for tests.
+ */
+export function buildAiReferralReportBody(args: {
+  startDate: string;
+  endDate: string;
+  offset?: number;
+  limit?: number;
+}): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
+    dimensions: [{ name: "date" }, { name: "pagePath" }, { name: "sessionSource" }],
+    metrics: GA4_AI_REFERRAL_METRICS.map((name) => ({ name })),
+    dimensionFilter: {
+      orGroup: {
+        expressions: AI_SOURCE_FILTER_TERMS.map((term) => ({
+          filter: {
+            fieldName: "sessionSource",
+            stringFilter: { matchType: "CONTAINS", value: term, caseSensitive: false },
+          },
+        })),
+      },
+    },
+    // Total deterministic order for exact offset pagination (mirrors traffic).
+    orderBys: [
+      { dimension: { dimensionName: "date" } },
+      { dimension: { dimensionName: "pagePath" } },
+      { dimension: { dimensionName: "sessionSource" } },
+    ],
+    limit: args.limit ?? GA4_PAGE_SIZE,
+    offset: args.offset ?? 0,
+  };
+}
+
+/**
+ * Narrow a GA4 AI-referral `runReport` body into `Ga4AiReferralRow[]`.
+ * Metric values map BY HEADER NAME (never index) so a reordered/partial
+ * metric set can't misassign; `conversions` is accepted as a `keyEvents`
+ * alias for older properties. Drops malformed rows. Pure; exported for tests.
+ */
+export function narrowAiReferralRows(
+  body: Ga4RunReportResponseBody | null | undefined,
+): Ga4AiReferralRow[] {
+  if (body == null || typeof body !== "object") return [];
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  const headers = Array.isArray(body.metricHeaders) ? body.metricHeaders : [];
+  const idxOf = (name: string): number => headers.findIndex((h) => h?.name === name);
+  const iSessions = idxOf("sessions");
+  const iEngaged = idxOf("engagedSessions");
+  const iKeyEventsNamed = idxOf("keyEvents");
+  const iKeyEvents = iKeyEventsNamed >= 0 ? iKeyEventsNamed : idxOf("conversions");
+  const out: Ga4AiReferralRow[] = [];
+  for (const row of rows) {
+    if (row == null || typeof row !== "object") continue;
+    const dims = Array.isArray(row.dimensionValues) ? row.dimensionValues : [];
+    const mets = Array.isArray(row.metricValues) ? row.metricValues : [];
+    const dateRaw = typeof dims[0]?.value === "string" ? dims[0]!.value : null;
+    const pagePath = typeof dims[1]?.value === "string" ? dims[1]!.value : null;
+    const sessionSource = typeof dims[2]?.value === "string" ? dims[2]!.value : null;
+    if (dateRaw == null || pagePath == null || sessionSource == null) continue;
+    if (!/^\d{8}$/.test(dateRaw)) continue;
+    const date = `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}`;
+    out.push({
+      date,
+      pagePath,
+      sessionSource,
+      sessions: iSessions >= 0 ? parseMetricInt(mets[iSessions]?.value) : 0,
+      engaged_sessions: iEngaged >= 0 ? parseMetricInt(mets[iEngaged]?.value) : 0,
+      key_events: iKeyEvents >= 0 ? (parseMetricFloat(mets[iKeyEvents]?.value) ?? 0) : 0,
+    });
+  }
+  return out;
+}
+
+/**
+ * Run the GA4 AI-referral `runReport`. Fail-soft discriminated union; NEVER
+ * throws. Mirrors `runGa4UrlTrafficReport`'s auth ladder exactly: scope check,
+ * soft-disconnect, expiry evaluation, 401 refresh-once, non-2xx bounded-body
+ * log.warn, and bounded offset pagination with a `truncated` flag.
+ */
+export async function runGa4AiReferralReport(
+  args: Ga4RunReportArgs,
+): Promise<Ga4AiReferralReportResult> {
+  const { tenantId, propertyId, startDate, endDate } = args;
+  if (!tenantId) return { ok: false, reason: "no_token", message: "missing tenantId" };
+  if (!propertyId) return { ok: false, reason: "api_error", message: "missing propertyId" };
+  if (!startDate || !endDate) return { ok: false, reason: "api_error", message: "missing date range" };
+
+  const token = await getGoogleConnectorToken("ga4", tenantId);
+  if (token == null) return { ok: false, reason: "no_token" };
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return { ok: false, reason: "no_token", message: "missing scope" };
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return { ok: false, reason: "disconnected" };
+  }
+
+  const expiryStatus = evaluateExpiry({ token, now: new Date() });
+  if (expiryStatus === "stale_over_7d") {
+    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
+  }
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  }
+
+  const url = buildRunReportUrl(propertyId);
+
+  async function fetchReferralPage(
+    pageToken: string,
+    offset: number,
+  ): Promise<
+    | { ok: true; body: Ga4RunReportResponseBody }
+    | { ok: false; status?: number; kind: "fetch_threw" | "non_2xx" | "json_parse" | "empty"; errorBody?: string }
+  > {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${pageToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(buildAiReferralReportBody({ startDate, endDate, offset })),
+      });
+    } catch {
+      return { ok: false, kind: "fetch_threw" };
+    }
+    if (!response.ok) {
+      let errorBody = "";
+      try {
+        errorBody = (await response.text()).slice(0, 500);
+      } catch {
+        errorBody = "(body unavailable)";
+      }
+      return { ok: false, kind: "non_2xx", status: response.status, errorBody };
+    }
+    try {
+      const data = (await response.json()) as Ga4RunReportResponseBody | null;
+      return data == null ? { ok: false, kind: "empty" } : { ok: true, body: data };
+    } catch {
+      return { ok: false, kind: "json_parse" };
+    }
+  }
+
+  let page0 = await fetchReferralPage(accessToken, 0);
+  if (!page0.ok && page0.kind === "fetch_threw") {
+    log.warn("[ga4-ai-referrals] fetch threw; api_error", { tenantId });
+    return { ok: false, reason: "api_error", message: "fetch threw" };
+  }
+  if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
+    try {
+      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+      const retry = await fetchReferralPage(accessToken, 0);
+      if (retry.ok) page0 = retry;
+      else if (retry.kind === "non_2xx" && retry.status === 401)
+        return { ok: false, reason: "token_expired", status: retry.status, message: "401 after refresh" };
+      else if (retry.kind === "non_2xx")
+        return { ok: false, reason: "api_error", status: retry.status, message: "non-2xx after refresh" };
+      else return { ok: false, reason: "api_error", message: retry.kind };
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  } else if (!page0.ok && page0.kind === "non_2xx") {
+    log.warn("[ga4-ai-referrals] non-2xx from GA4 Data API", {
+      tenantId,
+      status: page0.status,
+      body: page0.errorBody ?? "",
+    });
+    return { ok: false, reason: "api_error", status: page0.status, message: "non-2xx response" };
+  } else if (!page0.ok) {
+    return { ok: false, reason: "api_error", message: page0.kind };
+  }
+
+  const rows: Ga4AiReferralRow[] = narrowAiReferralRows(page0.body);
+  const reportedRowCount = parseRowCount(page0.body.rowCount);
+  const haveTotal = reportedRowCount != null;
+  const totalRowCount = reportedRowCount ?? rows.length;
+  const rawPageRowCount = (b: Ga4RunReportResponseBody | null | undefined): number =>
+    Array.isArray(b?.rows) ? b!.rows.length : 0;
+  let lastRawPageFull = rawPageRowCount(page0.body) >= GA4_PAGE_SIZE;
+
+  let truncated = false;
+  let pagesFetched = 1;
+  for (let offset = GA4_PAGE_SIZE; ; offset += GA4_PAGE_SIZE) {
+    const moreExpected = haveTotal ? offset < totalRowCount : lastRawPageFull;
+    if (!moreExpected) break;
+    if (pagesFetched >= GA4_MAX_PAGES) {
+      truncated = true;
+      break;
+    }
+    const page = await fetchReferralPage(accessToken, offset);
+    pagesFetched += 1;
+    if (!page.ok) {
+      truncated = true;
+      log.warn("[ga4-ai-referrals] subsequent page failed; returning partial", { tenantId, offset });
+      break;
+    }
+    for (const r of narrowAiReferralRows(page.body)) rows.push(r);
+    lastRawPageFull = rawPageRowCount(page.body) >= GA4_PAGE_SIZE;
+  }
+
+  const result: Ga4AiReferralReportResult = { ok: true, rows };
   if (reportedRowCount != null) result.rowCount = reportedRowCount;
   if (truncated) result.truncated = true;
   return result;

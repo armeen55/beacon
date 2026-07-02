@@ -1,11 +1,20 @@
 /**
- * run-engine-poll (2026-07-01, master plan item 4) - the nightly runner that
- * asks the tenant's tracked questions (prompt library order, top 25) across
- * up to 4 AI engines and writes what came back into the SAME observation
- * tables the native poll uses (observation_runs + prompt_answer_observations,
- * via the existing writers), then diffs the engines per question so
- * "Perplexity points people at you, ChatGPT does not" becomes a stored,
- * surfaced, fixable gap.
+ * run-engine-poll (2026-07-01, master plan items 4 + 8) - the nightly runner
+ * that asks the tenant's tracked questions across up to 4 AI engines and
+ * writes what came back into the SAME observation tables the native poll uses
+ * (observation_runs + prompt_answer_observations, via the existing writers),
+ * then diffs the engines per question so "Perplexity points people at you,
+ * ChatGPT does not" becomes a stored, surfaced, fixable gap.
+ *
+ * QUESTION UNIVERSE (item 8): the polled set is no longer just the prompt
+ * library. buildQuestionUniverse merges (1) library prompts, (2) the tenant's
+ * real Profound tracked prompts (topic-scoped, junk-filtered) and (3) ranked
+ * fanout sub-queries from profound_fanout_rows, dedupes near-identical
+ * questions, and CAPS the combined set at NIGHTLY_PROMPT_CAP (25) - so real
+ * questions ride the same pipeline at the same cost ceiling. Profound and
+ * fanout loading is fail-soft: any miss means library-only, never a dead poll.
+ * Each observation row carries metadata.question_source (library | profound |
+ * fanout) so gaps can say "this came from a real question people ask AI."
  *
  * Engine paths (each degrades honestly - no key means SKIPPED and every
  * downstream line says which engines were actually checked):
@@ -53,6 +62,17 @@ import {
   writeEngineGapSummary,
   type StoredEngineGapSummary,
 } from "./gap-store";
+import {
+  buildQuestionUniverse,
+  type FanoutQuestionInput,
+  type ProfoundQuestionInput,
+  type QuestionSource,
+  type UniverseQuestion,
+} from "./question-universe";
+import { pullProfoundPrompts } from "@/lib/connectors/profound/client";
+import { getProfoundTenantScope, isProfoundNoisePrompt } from "@/lib/connectors/profound/tenant-scope";
+import { loadFanoutSeedsForTenant } from "@/domains/demand-graph/load-fanout-seeds";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
 // ---------------------------------------------------------------------------
 // Native engine clients (injectable; null = no usable key = engine skipped)
@@ -178,6 +198,103 @@ export function buildPerplexityEngineClient(
 }
 
 // ---------------------------------------------------------------------------
+// Question-universe loaders (item 8). Both are fail-soft to [] so a Profound
+// miss (no key, expired key, API down) degrades the poll to library-only
+// instead of killing the night. Profound cost: ONE flat-rate GET per tenant
+// per night, trivially inside the 600 req/hr budget. Fanouts are a $0 read of
+// the already-synced profound_fanout_rows table.
+// ---------------------------------------------------------------------------
+
+/** Cap on fanout seeds considered per night; the universe cap (25) is the
+ *  real bound, this just keeps the dedupe loop small. */
+const FANOUT_SEED_CANDIDATES = 50;
+
+/** Dead prompt statuses excluded from polling (live catalog and snapshot). */
+const INACTIVE_PROMPT_STATUS_RE = /^(paused|archived|deleted|disabled)$/i;
+
+/** The tenant's real Profound tracked prompts, scoped to the tenant's topic
+ *  (borrowed-account safety: other topics in the shared category never leak)
+ *  and pre-filtered for the known hackathon noise seeds. When the LIVE catalog
+ *  has no prompts for the topic (verified real on 2026-07-02: the borrowed
+ *  workspace can drop the tenant topic's prompts), the synced snapshot in
+ *  profound_prompt_rows serves the same questions at $0. Fail-soft to []. */
+export async function loadProfoundQuestionSeeds(tenantId: string): Promise<ProfoundQuestionInput[]> {
+  try {
+    const scope = getProfoundTenantScope(tenantId);
+    if (!scope) return [];
+    const rows = await pullProfoundPrompts({ tenantId, categoryId: scope.categoryId }).catch(() => null);
+    const live = (rows ?? [])
+      .filter((r) => !scope.topicId || r.topicId === scope.topicId)
+      .filter((r) => !isProfoundNoisePrompt(r.prompt))
+      .filter((r) => !r.status || !INACTIVE_PROMPT_STATUS_RE.test(r.status))
+      .map((r) => ({ id: `pfp-${r.promptId}`, text: r.prompt, topic: r.topic ?? scope.topicLabel ?? null }));
+    if (live.length > 0) return live;
+    return await loadSyncedProfoundPromptSeeds(tenantId, scope.topicId, scope.topicLabel);
+  } catch (e) {
+    log.warn("[engine-poll] profound prompt load failed (fail-soft to library-only)", {
+      tenantId,
+      error: e instanceof Error ? e.message.slice(0, 120) : "?",
+    });
+    return [];
+  }
+}
+
+/** $0 snapshot read of the nightly-synced profound_prompt_rows. Same ids as
+ *  the live catalog (pfp-<promptId>) so the 20h answer cache stays continuous.
+ *  Fail-soft to [] (missing table, missing creds, anything). */
+async function loadSyncedProfoundPromptSeeds(
+  tenantId: string,
+  topicId: string | null,
+  topicLabel: string | null,
+): Promise<ProfoundQuestionInput[]> {
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("profound_prompt_rows")
+      .select("prompt_id, prompt, topic_id, topic, status, pulled_at")
+      .eq("tenant_id", tenantId)
+      .limit(1000);
+    if (error || !data) return [];
+    const rows = data as Array<{
+      prompt_id: string | null;
+      prompt: string | null;
+      topic_id: string | null;
+      topic: string | null;
+      status: string | null;
+      pulled_at: string | null;
+    }>;
+    return rows
+      .filter((r) => Boolean(r.prompt_id) && Boolean(r.prompt))
+      .filter((r) => !topicId || r.topic_id === topicId)
+      .filter((r) => !isProfoundNoisePrompt(r.prompt ?? ""))
+      .filter((r) => !r.status || !INACTIVE_PROMPT_STATUS_RE.test(r.status))
+      .map((r) => ({
+        id: `pfp-${r.prompt_id}`,
+        text: r.prompt ?? "",
+        topic: r.topic ?? topicLabel ?? null,
+        lastSeenAt: r.pulled_at,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** Ranked fanout sub-queries from the synced profound_fanout_rows. $0 read;
+ *  fail-soft to []. */
+export async function loadFanoutQuestionSeeds(tenantId: string): Promise<FanoutQuestionInput[]> {
+  try {
+    const seeds = await loadFanoutSeedsForTenant(tenantId, FANOUT_SEED_CANDIDATES);
+    return seeds.map((s) => ({ subQuery: s.subQuery, weight: s.weight }));
+  } catch (e) {
+    log.warn("[engine-poll] fanout seed load failed (fail-soft)", {
+      tenantId,
+      error: e instanceof Error ? e.message.slice(0, 120) : "?",
+    });
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
 
@@ -209,12 +326,19 @@ export type EnginePollResult = {
   enginesChecked: EngineId[];
   gaps: number;
   detail: string;
+  /** How many polled questions came from each source (item 8). Optional so
+   *  error shapes built elsewhere stay valid. */
+  questionSources?: Record<QuestionSource, number>;
 };
 
 export type RunEnginePollDeps = {
   env: NodeJS.ProcessEnv;
   now: () => Date;
   loadPrompts: () => Promise<LibraryPrompt[]>;
+  /** The tenant's real Profound tracked prompts (topic-scoped). Fail-soft []. */
+  loadProfoundQuestions: (tenantId: string) => Promise<ProfoundQuestionInput[]>;
+  /** Ranked fanout sub-queries from profound_fanout_rows. Fail-soft []. */
+  loadFanoutSeeds: (tenantId: string) => Promise<FanoutQuestionInput[]>;
   loadTenant: (tenantId: string) => Promise<BeaconTenant | null>;
   hasRunForNight: (tenantId: string, date: string) => Promise<boolean>;
   recordRun: (row: { tenant_id: string; date: string; ran_at: string; engines: EngineId[]; prompts: number }) => Promise<void>;
@@ -238,6 +362,8 @@ function defaultDeps(): RunEnginePollDeps {
     env,
     now: () => new Date(),
     loadPrompts: getActivePrompts,
+    loadProfoundQuestions: loadProfoundQuestionSeeds,
+    loadFanoutSeeds: loadFanoutQuestionSeeds,
     loadTenant: (id) => getTenant(id),
     hasRunForNight: hasEnginePollRunForNight,
     recordRun: recordEnginePollRun,
@@ -263,7 +389,7 @@ function toObservation(args: {
   tenantId: string;
   runId: string;
   engine: EngineId;
-  prompt: LibraryPrompt;
+  prompt: UniverseQuestion;
   answer: EngineAnswerLite;
   observedAtIso: string;
   ownedRoot: string;
@@ -313,7 +439,10 @@ function toObservation(args: {
     metadata: {
       source: ENGINE_OBSERVATION_SOURCE[engine],
       engine,
-      prompt_text: prompt.prompt_text,
+      prompt_text: prompt.text,
+      // Where this question came from (item 8): library | profound | fanout.
+      // "profound" and "fanout" mean a REAL question people ask AI engines.
+      question_source: prompt.source,
       model: answer.model,
       answer_excerpt: answer.answerText.slice(0, 400),
       pipeline: "ai-engines-nightly",
@@ -341,25 +470,40 @@ export async function runEnginePollForTenant(
       return { ...base, status: "already_ran", detail: "tonight's poll already ran for this tenant" };
     }
 
-    // (2) top-N tracked prompts, prompt-library order.
-    const prompts = (await deps.loadPrompts()).slice(0, NIGHTLY_PROMPT_CAP);
-    if (prompts.length === 0) {
-      return { ...base, status: "no_prompts", detail: "the prompt library has no active questions" };
-    }
-
     const tenant = await deps.loadTenant(tenantId);
     if (!tenant || !tenant.domain) {
-      return { ...base, status: "error", promptsRequested: prompts.length, detail: "tenant has no domain configured" };
+      return { ...base, status: "error", detail: "tenant has no domain configured" };
     }
     const ownedRoot = rootDomain(tenant.domain);
     const brandVariants = [tenant.business_name, ownedRoot.replace(/\..*$/, "")].filter((v) => v.length >= 3);
+
+    // (2) the question universe (item 8): library prompts + the tenant's real
+    // Profound prompts + ranked fanout sub-queries, junk-filtered, deduped,
+    // CAPPED at NIGHTLY_PROMPT_CAP. Profound/fanout loads are fail-soft so a
+    // miss degrades to library-only, never a dead poll.
+    const libraryPrompts = await deps.loadPrompts();
+    const [profoundQuestions, fanoutSeeds] = await Promise.all([
+      deps.loadProfoundQuestions(tenantId).catch(() => [] as ProfoundQuestionInput[]),
+      deps.loadFanoutSeeds(tenantId).catch(() => [] as FanoutQuestionInput[]),
+    ]);
+    const universe = buildQuestionUniverse({
+      libraryPrompts,
+      profoundPrompts: profoundQuestions,
+      fanoutSeeds,
+      cap: NIGHTLY_PROMPT_CAP,
+      relevanceTokens: [tenant.business_name, ownedRoot, tenant.domain],
+    });
+    const questions = universe.questions;
+    if (questions.length === 0) {
+      return { ...base, status: "no_prompts", detail: "no usable questions from the library, Profound, or fanouts" };
+    }
 
     const observedAtIso = now.toISOString();
     const engineResults: EnginePollEngineResult[] = [];
     const checkRows: EngineCheckRow[] = [];
     const observations: PromptAnswerObservation[] = [];
 
-    const collect = (engine: EngineId, answers: Array<{ prompt: LibraryPrompt; answer: EngineAnswerLite }>): number => {
+    const collect = (engine: EngineId, answers: Array<{ prompt: UniverseQuestion; answer: EngineAnswerLite }>): number => {
       const runId = `aiengines-${engine}-${date}-${tenantId}`;
       let citedYou = 0;
       for (const { prompt, answer } of answers) {
@@ -369,7 +513,7 @@ export async function runEnginePollForTenant(
         if (obs.tracked_brand_cited) citedYou += 1;
         checkRows.push({
           promptId: prompt.id,
-          promptText: prompt.prompt_text,
+          promptText: prompt.text,
           engine,
           citedYou: obs.tracked_brand_cited === true,
           ownedUrls,
@@ -388,10 +532,10 @@ export async function runEnginePollForTenant(
         engineResults.push({ engine, status: "skipped_no_key", answers: 0, citedYou: 0, costUsd: 0, detail: "no API key on this environment" });
         continue;
       }
-      const answered: Array<{ prompt: LibraryPrompt; answer: EngineAnswerLite }> = [];
-      for (const prompt of prompts) {
-        const ans = await client(prompt.prompt_text);
-        if (ans) answered.push({ prompt, answer: { promptId: prompt.id, ...ans } });
+      const answered: Array<{ prompt: UniverseQuestion; answer: EngineAnswerLite }> = [];
+      for (const question of questions) {
+        const ans = await client(question.text);
+        if (ans) answered.push({ prompt: question, answer: { promptId: question.id, ...ans } });
       }
       const citedYou = collect(engine, answered);
       engineResults.push({
@@ -400,14 +544,14 @@ export async function runEnginePollForTenant(
         answers: answered.length,
         citedYou,
         costUsd: 0,
-        detail: answered.length > 0 ? `${answered.length}/${prompts.length} answers` : "all calls failed",
+        detail: answered.length > 0 ? `${answered.length}/${questions.length} answers` : "all calls failed",
       });
     }
 
     // (3b) DataForSEO engines - the full money gauntlet lives inside the
     // runner (cache -> dry-run -> shared fail-closed cap -> ledger).
-    const items: PromptAnswerItem[] = prompts.map((p) => ({ key: p.id, question: p.prompt_text }));
-    const promptById = new Map(prompts.map((p) => [p.id, p]));
+    const items: PromptAnswerItem[] = questions.map((q) => ({ key: q.id, question: q.text }));
+    const promptById = new Map(questions.map((q) => [q.id, q]));
     for (const engine of DATAFORSEO_ENGINES) {
       const dfsEngine = engine as "gemini" | "claude";
       const r = await deps.runDataForSeoEngine(items, dfsEngine, tenantId);
@@ -418,7 +562,7 @@ export async function runEnginePollForTenant(
             ? { prompt, answer: { promptId: a.key, answerText: a.answerText, citedUrls: a.citedUrls, model: a.model } }
             : null;
         })
-        .filter((x): x is { prompt: LibraryPrompt; answer: EngineAnswerLite } => x !== null);
+        .filter((x): x is { prompt: UniverseQuestion; answer: EngineAnswerLite } => x !== null);
       const citedYou = collect(engine, answered);
       engineResults.push({
         engine,
@@ -444,7 +588,7 @@ export async function runEnginePollForTenant(
         status: er.status === "error" ? "failed" : "completed",
         started_at: observedAtIso,
         completed_at: deps.now().toISOString(),
-        scope_label: `ai engines nightly ${er.engine} - ${er.answers}/${prompts.length} prompts`,
+        scope_label: `ai engines nightly ${er.engine} - ${er.answers}/${questions.length} questions`,
         pages_scanned: 0,
         pages_changed: 0,
         pages_with_errors: 0,
@@ -485,14 +629,16 @@ export async function runEnginePollForTenant(
     }
 
     // (6) stamp the per-night guard only after a real attempt completed.
-    await deps.recordRun({ tenant_id: tenantId, date, ran_at: deps.now().toISOString(), engines: report.enginesChecked, prompts: prompts.length }).catch((e) =>
+    await deps.recordRun({ tenant_id: tenantId, date, ran_at: deps.now().toISOString(), engines: report.enginesChecked, prompts: questions.length }).catch((e) =>
       log.warn("[engine-poll] run-guard write failed (non-fatal)", { error: e instanceof Error ? e.message : "?" }),
     );
 
     log.info("[engine-poll] LEDGER", {
       tenantId,
       date,
-      prompts: prompts.length,
+      questions: questions.length,
+      questionSources: universe.counts,
+      questionsDropped: universe.dropped,
       engines: engineResults.map((e) => `${e.engine}:${e.status}:${e.answers}`).join(" "),
       observations: observations.length,
       enginesChecked: report.enginesChecked,
@@ -504,12 +650,13 @@ export async function runEnginePollForTenant(
       tenantId,
       date,
       status: "ok",
-      promptsRequested: prompts.length,
+      promptsRequested: questions.length,
       engines: engineResults,
       observationsWritten: observations.length,
       enginesChecked: report.enginesChecked,
       gaps: report.gaps.length,
-      detail: `checked ${report.enginesChecked.length} engine(s) across ${prompts.length} questions`,
+      detail: `checked ${report.enginesChecked.length} engine(s) across ${questions.length} questions`,
+      questionSources: universe.counts,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

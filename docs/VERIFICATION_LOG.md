@@ -7,7 +7,28 @@
 
 ---
 
-## 2026-07-01 - BEACON 500 item 3: the honest dollar pipe (revenue_facts)
+## 2026-07-02 - BEACON 500 item 6: AI-referral sessions attributed to pages (ga4_ai_referral_daily)
+
+**What changed:** New `ga4_ai_referral_daily` Supabase table (PK tenant/page/day/source_domain,
+deny-anon RLS, migration `migrations/2026-07-01_ga4_ai_referral_daily.sql`, applied via MCP and
+verified with a select). New GA4 Data API report `runGa4AiReferralReport` in
+src/lib/connectors/ga4/data-api.ts: [date, pagePath, sessionSource] dimensions, request-side
+CONTAINS filter over AI assistant sources, same 401-refresh-once + bounded-pagination posture as
+the traffic report, fully SEPARATE so a failure never touches ga4_url_traffic. Canonical source
+classification in src/lib/connectors/ga4/ai-sources.ts (chatgpt.com absorbs chat.openai.com and
+openai.com; bard absorbs into gemini; you.com and meta.ai exact-only so thankyou.com stays out).
+Nightly isolated cron step `pullGa4AiReferralsForTenant` (dormant until GA4 key, idempotent
+4-column upsert). Loader src/domains/ai-visibility/ai-referrals.ts (react cache, fail-soft on
+missing table) with totals, per-assistant split, top pages, day series. ONE line in the Today AI
+band: "AI assistants sent you N visitors these 30 days, most from X, most to /page." Silent at zero.
+
+**Verified:** typecheck 0 errors; 46 new targeted tests green (ai-sources 12, sync-ai-referrals 9,
+ai-referral-report 10, loader 15) plus all 169 GA4 connector tests and cron-sync tests still pass.
+Live probe `scripts/_ai-referrals-live.ts` ran against real Iranopedia GA4: local
+GOOGLE_CLIENT_SECRET is stale (Google returns invalid_client on refresh; prod refreshed GSC the
+same morning, so hosted credentials work), so the sync returned token_expired and the table sits
+at an honest 0 rows; the Today line correctly stays silent. First real rows land on the first
+hosted nightly cron after this deploys.
 
 **What changed:** New `revenue_facts` Supabase table (PK tenant/page/day/source, deny-anon RLS,
 migration `migrations/2026-07-01_revenue_facts.sql`, applied via MCP as `revenue_facts`). Operator
@@ -29548,3 +29569,11 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 - Shipped across 12 main deploys: scoreboard (items 1-3), Today story+greeting (41-42), teammate identity + standup (13,43), LLM verdicts + voices + whyNot + conviction (25,26,30,32), auto-measure cron + proof-history voice (79,80), daily card design-system rebuild (11,12), IA consolidation (99,100), voice guide + ritual (111,120,45), war-room counts/freshness/buttons (46,47,48), OWNED AI-visibility producer + fusion (82). Item 81 parked with named bug (scan CLI config threading).
 - Live proof: iranopedia.com cited by the live LLM answer for "persian carpets" (DataForSEO ai_optimization, $0.0271, ledger-verified); scoreboard renders real 840-click week with win markers; standup shows six teammates with real numbers.
 - Wave gate: full suite 15,721 passed / 0 failed (one pin legitimately updated to the item-45 plain-language copy); build compiled; budget-ledger race fixed (parallel spend no longer dropped on 23505).
+
+## 2026-07-02 - Topical coverage map (master plan item 9, worktree, NOT committed)
+
+**What changed:** new src/domains/coverage/ - build-hubs.ts (pure Persian-safe token clustering: Unicode tokenizer + EN/FA stopwords + glue-token pruning + union-find on 2-shared-token joins + recursive anchor split of chained mega components, singletons to an "other" bucket), coverage-map.ts (pure per-hub coverage rows: answered count, coverage percent, AI checked/cited join, top-3 missing questions with create_page pointers, first-person summary line, opportunity-weight ranking = unanswered demand + AI-checked-but-uncited demand; plus coverageCandidateSeeds() feed for the daily builder), load-coverage-map.ts (react.cache loader over $0 stored reads: demand-graph SWR snapshot, GSC question queries, keyword-universe cache, fanout seeds, cached prompt opportunities, cached LLM mentions; top 12 hubs; fail-soft null). New CoverageMapSection on Today (/) after the war room: coverage bar per hub, "answers X of Y", "AI picks you on A of B checked", best next page pointer; self-hides under 3 hubs.
+
+**Verified:** npm run typecheck 0 errors; 41 targeted vitest green (build-hubs 17, coverage-map 15, section contract 9). Headless Iranopedia ground truth (~2.7s warm graph): 12 gap-ranked hubs from 1540 search + 250 AI + 217 keyword terms; top rows: Iranian Wedding 0/3 answered (AI 0/1), Nowruz 7/12 (58 percent, AI 1/4, missing "nowruz gifts" matched to the create_page move), culture prompts 1/3. Mega-hub bug found by ground truth (one hub swallowed 95 percent of terms) and fixed with the anchor split; em dashes leaking from raw prompt texts folded to hyphens at ingestion.
+
+**Follow-up:** wire coverageCandidateSeeds() into the daily candidate builder (one line in its caller) once a create-page lever exists there; fanout seeds are honestly 0 until a Profound fanout sync lands rows.

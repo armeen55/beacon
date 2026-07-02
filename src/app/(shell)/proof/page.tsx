@@ -30,6 +30,7 @@ import {
   type GscProofVerdict,
   type ProofMetric,
 } from "@/domains/proof-gsc/measure";
+import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
   RecomputeLedgerButton,
@@ -609,6 +610,17 @@ function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord
           </div>
         );
       })() : null}
+
+      {/* AI-citation lane (item 5): one line when AI answers moved on a change
+          built to win them, silence when there is nothing solid to say. */}
+      {(() => {
+        const aiLine = citationLineFor(rec.citationOutcome);
+        return aiLine ? (
+          <p className="mt-1 text-[12px] text-foreground/80">
+            <span className="font-medium text-foreground/60">AI answers:</span> {aiLine}
+          </p>
+        ) : null;
+      })()}
 
       {/* What actually changed (before → after). */}
       {rec.before || rec.after ? (

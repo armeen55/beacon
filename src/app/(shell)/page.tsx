@@ -17,6 +17,7 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
 import { TeamStandup } from "./team-standup";
 import { TodayNewPagesSection } from "./today-newpages-section";
+import { CoverageMapSection } from "./coverage-map-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 
@@ -184,6 +185,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
             cache-only reads), so this re-check costs nothing extra in the same request. */}
         <Suspense fallback={null}><WarRoomQuietLine tenantId={tenantId} /></Suspense>
       </section>
+
+      {/* Item 9 - the topical coverage map: per-topic question coverage joined to AI
+          citations. $0 cached reads, self-hides under 3 topics, fails soft to null. */}
+      <Suspense fallback={null}><CoverageMapSection tenantId={tenantId} /></Suspense>
 
       {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
 

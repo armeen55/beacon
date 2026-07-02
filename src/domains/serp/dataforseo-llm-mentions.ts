@@ -128,9 +128,18 @@ function normTopic(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-/** The natural question we ask per topic. Asking for sources plus forcing web
- *  search is what makes the answer cite real domains instead of book titles. */
-export function questionForTopic(topic: string): string {
+/** How short is too short for a real-question override. Anything under this is
+ *  noise (an id, a stray token), not a question worth spending a call on. */
+const MIN_REAL_QUESTION_LEN = 8;
+
+/** The question we ask per topic (item 8). A REAL tracked question - from the
+ *  tenant's prompt library, Profound tracked prompts, or fanout sub-queries -
+ *  wins whenever the caller provides one; the canned best-websites template is
+ *  the LAST-RESORT fallback only, kept because asking for sources plus forcing
+ *  web search is what makes the answer cite real domains. */
+export function questionForTopic(topic: string, realQuestion?: string | null): string {
+  const real = (realQuestion ?? "").trim();
+  if (real.length >= MIN_REAL_QUESTION_LEN) return real;
   return `What are the best websites and resources to learn about ${topic}? Please cite sources.`;
 }
 
@@ -294,7 +303,13 @@ const defaultDeps: LlmMentionsRunDeps = {
  */
 export async function runLlmMentions(
   topics: string[],
-  opts: { model?: string } = {},
+  opts: {
+    model?: string;
+    /** Real tracked questions per topic (item 8). Keys are matched after the
+     *  same normalization the topics get; the canned template is used only for
+     *  topics with no usable real question. */
+    questionsByTopic?: Record<string, string>;
+  } = {},
   depsOverride: Partial<LlmMentionsRunDeps> = {},
 ): Promise<LlmMentionsRunResult> {
   const deps = { ...defaultDeps, ...depsOverride };
@@ -356,13 +371,21 @@ export async function runLlmMentions(
   let cappedMidRun = false;
   const auth = resolveAuthB64(deps.env) ?? "";
 
+  // Real-question overrides, keyed by the normalized topic so the caller's raw
+  // topic strings match the plan's normalized ones.
+  const realQuestionByTopic = new Map<string, string>();
+  for (const [rawTopic, realQ] of Object.entries(opts.questionsByTopic ?? {})) {
+    const key = normTopic(rawTopic);
+    if (key && typeof realQ === "string") realQuestionByTopic.set(key, realQ);
+  }
+
   for (const topic of missTopics) {
     if (spent + costUsd + plan.estCostPerTopicUsd > cap) {
       cappedMidRun = true;
       log.warn("[dataforseo-llm-mentions] monthly cap reached - stopping", { tenantId, spent, costUsd, cap });
       break;
     }
-    const question = questionForTopic(topic);
+    const question = questionForTopic(topic, realQuestionByTopic.get(topic));
     try {
       const res = await deps.fetchImpl(plan.endpoint, {
         method: "POST",

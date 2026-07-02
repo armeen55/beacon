@@ -26,6 +26,7 @@ import type {
   ProofWindowResult,
 } from "./measure";
 import type { TrafficOutcome } from "./traffic-outcome";
+import type { CitationOutcome } from "./citation-outcome";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -55,6 +56,12 @@ export type ShippedChangeRecord = {
    *  time and recomputed on every load — NOT persisted (no column; recordToRow
    *  omits it), so it stays in lockstep with live GA4 like the GSC verdict. */
   trafficOutcome?: TrafficOutcome | null;
+  /** AI-citation outcome (master plan item 5): did AI answers start or stop
+   *  citing this page after the ship, adjusted by the comparison pages? Same
+   *  computed-only posture as trafficOutcome: NOT persisted (recordToRow
+   *  omits it), recomputed on every measure. Populated ONLY for
+   *  citation-relevant action types (answer block / FAQ / new page / schema). */
+  citationOutcome?: CitationOutcome | null;
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */

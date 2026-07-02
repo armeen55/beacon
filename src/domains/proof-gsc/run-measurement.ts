@@ -21,6 +21,8 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
 import { readGa4WindowForPages, readLatestGa4Date } from "./ga4-window";
 import { computeTrafficOutcome, type TrafficOutcome } from "./traffic-outcome";
+import { computeCitationOutcomeForRecord } from "./citation-window";
+import { isCitationRelevantAction, type CitationOutcome } from "./citation-outcome";
 import {
   addDays,
   computeWindowLift,
@@ -302,12 +304,27 @@ export async function measureRecord(
     trafficOutcome = null;
   }
 
+  // AI-citation lane (master plan item 5): did AI answers start citing this
+  // page after the ship? Same computed-only, fail-soft posture as
+  // trafficOutcome (never persisted; recordToRow omits it). Only for action
+  // types whose success includes winning AI mentions; a title/meta CTR play
+  // stays a pure Search verdict.
+  let citationOutcome: CitationOutcome | null = null;
+  if (isCitationRelevantAction(record.actionType)) {
+    citationOutcome = await computeCitationOutcomeForRecord({
+      tenantId,
+      record,
+      excludeControlPaths,
+    }).catch(() => null);
+  }
+
   return {
     ...record,
     windows,
     verdict,
     confidence,
     trafficOutcome,
+    citationOutcome,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

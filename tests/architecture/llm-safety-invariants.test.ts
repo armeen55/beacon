@@ -174,6 +174,14 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // placeholder, superlative) on every output, gpt-5-mini reasoning_effort:"low",
   // bounded timeout. Never returns loose/unvalidated text as a product artifact.
   "src/domains/llm/structured-drafter.ts",
+  // engine poll (2026-07-02, BEACON 500 item 4): the nightly 4-engine AI-answer
+  // poll's NATIVE ChatGPT lane (web-search chat completions with url_citation
+  // annotations). Read-only observation writes, never published content; capped
+  // at NIGHTLY_PROMPT_CAP questions per night with a per-night already-ran
+  // guard; skips silently when OPENAI_API_KEY is absent; per-engine 4xx
+  // degrades to an honest error status. Gemini/Claude lanes go through the
+  // budget-capped DataForSEO gauntlet instead, never this egress.
+  "src/domains/ai-visibility/run-engine-poll.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
