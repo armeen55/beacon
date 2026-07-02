@@ -5,8 +5,6 @@ import { Check, CornerUpLeft } from "lucide-react";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ResultsTimeline } from "../changes/results-timeline";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
-import type { ReviewVerdict } from "@/domains/recommendation-intelligence/page-surgeon/review-store";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
@@ -34,7 +32,6 @@ import {
 } from "@/domains/proof-gsc/measure";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
-  RecordShippedButton,
   RecomputeLedgerButton,
   RecordAnyPageForm,
   RollbackCopyButton,
@@ -50,11 +47,6 @@ import {
  */
 export const dynamic = "force-dynamic";
 
-const VERDICT_STYLE: Record<ReviewVerdict, string> = {
-  approve: "border-emerald-300 bg-emerald-50 text-emerald-700",
-  needs_edit: "border-amber-300 bg-amber-50 text-amber-700",
-  reject: "border-border bg-muted/40 text-muted-foreground",
-};
 
 const OUTCOME_STYLE: Record<GscProofVerdict, string> = {
   won: "border-emerald-300 bg-emerald-50 text-emerald-700",
@@ -92,8 +84,7 @@ export default async function ProofPage({
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
-  const [rows, ledger, connHealth, worklist, latestGscDate] = await Promise.all([
-    loadProofPlan(tenantId).catch(() => []),
+  const [ledger, connHealth, worklist, latestGscDate] = await Promise.all([
     loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
     loadConnectionHealth(tenantId).catch(() => []),
     loadActionPackWorklistForTenant(tenantId).catch(() => null),
@@ -390,89 +381,6 @@ export default async function ProofPage({
         </Suspense>
       </div>
 
-      <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Approved &amp; ready to ship
-      </h2>
-
-      {rows.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">
-          No reviewed changes to measure yet. Make a change in the
-          Workbench and ship it. Its 7/14/28-day proof windows appear here.
-        </p>
-      ) : (
-        <div className="space-y-2.5">
-          {rows.map((r) => (
-            <div
-              key={r.pageUrl}
-              className="rounded-lg border border-border/60 bg-background p-4"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-[14px] font-semibold text-foreground">
-                  {toPath(r.pageUrl)}
-                </span>
-                <span
-                  className={
-                    "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase " +
-                    VERDICT_STYLE[r.verdict]
-                  }
-                >
-                  {r.verdict.replace("_", " ")}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {r.headlineAction.replace(/_/g, " ")}
-                </span>
-              </div>
-
-              {/* Measurement windows */}
-              <div className="mt-2 flex flex-wrap gap-4 text-[12px]">
-                {(
-                  [
-                    ["7-day", r.windows.checkIn7],
-                    ["14-day", r.windows.checkIn14],
-                    ["28-day", r.windows.checkIn28],
-                  ] as const
-                ).map(([label, date]) => (
-                  <span key={label} className="text-muted-foreground">
-                    <span className="font-medium text-foreground/80">{label}:</span>{" "}
-                    {date}
-                  </span>
-                ))}
-              </div>
-
-              {/* Baseline metrics to re-check */}
-              {r.metricsToCheck.length > 0 ? (
-                <ul className="mt-2 space-y-0.5">
-                  {r.metricsToCheck.map((m) => (
-                    <li key={m.label} className="text-[12px] text-muted-foreground">
-                      <span className="text-foreground/80">{m.label}</span> before the change:{" "}
-                      <span className="tabular-nums">{m.baseline}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              {r.controlPaths.length > 0 ? (
-                <p className="mt-2 text-[11px] text-muted-foreground/80">
-                  Compared against {r.controlPaths.length} similar page
-                  {r.controlPaths.length === 1 ? "" : "s"} you did not change.
-                </p>
-              ) : null}
-
-              {r.note ? (
-                <p className="mt-2 text-[12px] text-foreground/80">{r.note}</p>
-              ) : null}
-
-              {/* Manual ship → start measuring. Works even with manual Wix. */}
-              <div className="mt-3 border-t border-border/40 pt-2.5">
-                <RecordShippedButton
-                  pageUrl={r.pageUrl}
-                  alreadyRecorded={recordedPaths.has(toPath(r.pageUrl))}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

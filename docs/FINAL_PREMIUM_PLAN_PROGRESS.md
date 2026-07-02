@@ -73,12 +73,12 @@
 - [x]  70 [W2][P0/M] Every row gets the before/after mini-chart (A5) as the row's centerpiece; the
 - [x]  71 [W2][P1/S] Win rows state the money: "+31 clicks/mo on /finglish since Jun 12" as the headline,
 - [x]  72 [W2][P1/S] Learning rows state the lesson: "Title changes did not move flags pages. The team
-- [ ]  73 [W3][P1/S] A verdict calendar strip: the next 14 days with dots for upcoming 7/14/28 reads, so
+- [x]  73 [W3][P1/S] A verdict calendar strip: the next 14 days with dots for upcoming 7/14/28 reads, so
 - [ ]  74 [W3][P2/S] Filter by teammate: "show changes the Behavior teammate drove" etc.
-- [ ]  75 [W3][P1/S] Aggregate honesty header: "16 measuring, 1 win, 3 no-lift, next verdicts Friday" as
+- [x]  75 [W3][P1/S] Aggregate honesty header: "16 measuring, 1 win, 3 no-lift, next verdicts Friday" as
 - [ ]  76 [W3][P2/M] Manual mark-done flow polish: the record-any-page form gets the same premium card
 - [ ]  77 [W3][P2/S] Export/share a win: one click renders a clean image/PDF card of a win (chart +
-- [ ]  78 [W3][P1/S] Kill the "Approved & ready to ship" stray band on /proof (it duplicates /worklist
+- [x]  78 [W3][P1/S] Kill the "Approved & ready to ship" stray band on /proof (it duplicates /worklist
 - [x]  79 [W1][P0/M] Auto-measure: a due-window measure pass (light cron + on-render fallback) so
 - [x]  80 [W1][P0/M] Feed verdicts back as the proof-history voice (C27) AND into the R&R ranking via the
 - [ ]  81 [NOTE: rescan attempted twice; spawned scan CLI ignores hydrated Supabase config and crawls a placeholder URL (sync getBusinessConfig gap). Fix the config threading in orchestrate-scan/scan-owned-pages, then rescan.] [W1][P0/M] Weekly snapshot rescan (crawl own site, $0): page_snapshots are 20 days stale, so

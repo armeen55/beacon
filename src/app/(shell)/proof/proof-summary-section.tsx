@@ -21,14 +21,6 @@ function prettyPath(path: string): string {
   return slug.replace(/[-_]+/g, " ").trim() || path;
 }
 
-function StatTile({ value, label, accent }: { value: string; label: string; accent: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
-      <span className={`text-2xl font-semibold tracking-tight ${accent}`}>{value}</span>
-      <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">{label}</span>
-    </div>
-  );
-}
 
 export async function ProofSummarySection() {
   let records;
@@ -76,6 +68,50 @@ export async function ProofSummarySection() {
   }
   const matureTotal = counts.helped + counts.noLift + counts.didNotHelp;
 
+  // Items 73 + 75 - the upcoming read dates: every un-ran 7/14/28 window projects a calendar
+  // date (shippedAt + day). The strip shows the next 14 days; the sentence names the soonest.
+  const DAY_MS = 86_400_000;
+  const todayMs = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").getTime();
+  const readsByDay = new Map<string, number>();
+  let soonestMs: number | null = null;
+  for (const r of records) {
+    const shipMs = Date.parse(r.shippedAt.slice(0, 10) + "T00:00:00Z");
+    if (!Number.isFinite(shipMs)) continue;
+    for (const w of r.windows ?? []) {
+      if (w.ran) continue;
+      const dueMs = shipMs + w.day * DAY_MS;
+      const clampedMs = Math.max(dueMs, todayMs); // overdue reads land "today" (GSC lag)
+      const key = new Date(clampedMs).toISOString().slice(0, 10);
+      if (clampedMs < todayMs + 14 * DAY_MS) readsByDay.set(key, (readsByDay.get(key) ?? 0) + 1);
+      if (soonestMs == null || clampedMs < soonestMs) soonestMs = clampedMs;
+    }
+  }
+  const soonestLabel =
+    soonestMs == null
+      ? null
+      : soonestMs <= todayMs
+        ? "any day now"
+        : new Date(soonestMs).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+  const calendarDays = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(todayMs + i * DAY_MS);
+    return {
+      key: d.toISOString().slice(0, 10),
+      weekday: d.toLocaleDateString("en-US", { weekday: "narrow", timeZone: "UTC" }),
+      dayNum: d.getUTCDate(),
+      reads: readsByDay.get(d.toISOString().slice(0, 10)) ?? 0,
+    };
+  });
+  // Item 75 - one honest sentence instead of four stat tiles.
+  const sentenceParts: string[] = [];
+  if (counts.measuring > 0) sentenceParts.push(`${counts.measuring} measuring`);
+  if (counts.helped > 0) sentenceParts.push(`${counts.helped} win${counts.helped === 1 ? "" : "s"}`);
+  if (counts.noLift > 0) sentenceParts.push(`${counts.noLift} with no clear lift`);
+  if (counts.didNotHelp > 0) sentenceParts.push(`${counts.didNotHelp} that did not help`);
+  const honestySentence =
+    sentenceParts.length > 0
+      ? `${sentenceParts.join(", ")}${soonestLabel ? `, next verdicts ${soonestLabel}` : ""}.`
+      : null;
+
   return (
     <section className="rounded-3xl border border-gray-200 bg-gradient-to-br from-emerald-50/40 via-white to-sky-50/40 p-6 shadow-sm">
       <div>
@@ -86,12 +122,27 @@ export async function ProofSummarySection() {
         </p>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile value={String(counts.measuring)} label="Measuring" accent="text-amber-600" />
-        <StatTile value={String(counts.helped)} label="Helped" accent="text-emerald-600" />
-        <StatTile value={String(counts.noLift)} label="No clear lift" accent="text-gray-500" />
-        <StatTile value={String(counts.didNotHelp)} label="Did not help" accent="text-rose-500" />
-      </div>
+      {honestySentence ? (
+        <p className="mt-4 text-[15px] font-semibold text-gray-800 tabular-nums dark:text-neutral-200">{honestySentence}</p>
+      ) : null}
+
+      {/* Item 73 - the verdict calendar: the next 14 days, a dot per scheduled read, so the
+          operator knows exactly when to come back. */}
+      {readsByDay.size > 0 ? (
+        <div className="mt-3 flex items-end gap-1" role="img" aria-label="Upcoming result reads over the next 14 days">
+          {calendarDays.map((d, i) => (
+            <div key={d.key} className="flex w-7 flex-col items-center gap-0.5" title={d.reads > 0 ? `${d.reads} read${d.reads === 1 ? "" : "s"} due ${d.key}` : d.key}>
+              <div className="flex h-4 items-end gap-0.5">
+                {Array.from({ length: Math.min(d.reads, 3) }, (_, j) => (
+                  <span key={j} className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                ))}
+                {d.reads > 3 ? <span className="text-[9px] font-semibold text-indigo-600 tabular-nums">+{d.reads - 3}</span> : null}
+              </div>
+              <span className={`text-[9px] tabular-nums ${i === 0 ? "font-bold text-gray-700 dark:text-neutral-200" : "text-gray-400 dark:text-neutral-500"}`}>{d.weekday}{d.dayNum}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {counts.attributionLimited > 0 ? (
         <p className="mt-3 text-xs text-amber-700">
           {counts.attributionLimited} measurement{counts.attributionLimited === 1 ? "" : "s"} are directional only,
