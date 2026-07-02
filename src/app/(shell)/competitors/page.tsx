@@ -31,11 +31,25 @@ const SOURCE_LABEL: Record<string, string> = {
   competitor_teardown: "Competitor teardown", rank_revenue: "Demand graph",
 };
 
-function StatTile({ value, label, accent }: { value: string; label: string; accent: string }) {
+function StatTile({
+  value,
+  label,
+  accent,
+  subtitle,
+}: {
+  value: string;
+  label: string;
+  accent: string;
+  /** D9 (2026-07-02): distinguishes this tile's metric from a similarly-named
+   *  one elsewhere (e.g. "Competitor domains" here vs "Rival domains cited"
+   *  on /prompts) so the two numbers never read as interchangeable. */
+  subtitle?: string;
+}) {
   return (
     <div className="flex flex-col gap-0.5 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
       <span className={`text-2xl font-semibold tracking-tight ${accent}`}>{value}</span>
       <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">{label}</span>
+      {subtitle ? <span className="text-[10px] text-gray-400">{subtitle}</span> : null}
     </div>
   );
 }
@@ -129,7 +143,12 @@ async function CompetitorsBody() {
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <StatTile value={String(s.competitorDomains)} label="Competitor domains" accent="text-gray-900" />
+        <StatTile
+          value={String(s.competitorDomains)}
+          label="Competitor domains"
+          accent="text-gray-900"
+          subtitle="across all your topics"
+        />
         <StatTile value={String(s.competitorPages)} label="Pages they win" accent="text-violet-600" />
         <StatTile value={String(s.aiCitedDomains)} label="AI-cited domains" accent="text-sky-600" />
         <StatTile value={String(s.pagesTornDown)} label="Pages read" accent="text-emerald-600" />
@@ -206,34 +225,45 @@ async function CompetitorsBody() {
         </div>
       </section>
 
-      {/* Pages to beat */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-900">Pages to beat</h2>
-        <div className="grid gap-2">
-          {intel.pages.slice(0, 20).map((pg) => {
-            const badge = TEARDOWN_BADGE[pg.teardownStatus];
-            return (
-              <div key={pg.url} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <a href={pg.url} target="_blank" rel="noreferrer" className="text-[13px] font-medium text-gray-900 underline-offset-2 hover:underline">
-                    {prettyUrl(pg.url)}
-                  </a>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${badge.cls}`}>{badge.label}</span>
-                </div>
-                {pg.prompts[0] ? <p className="mt-1 text-[11px] text-gray-500">Cited for “{pg.prompts[0]}”</p> : null}
-                {pg.whatWins ? (
-                  <p className="mt-1 text-[11px] text-gray-600"><span className="font-medium text-gray-700">What wins:</span> {pg.whatWins}</p>
-                ) : (
-                  <p className="mt-1 text-[11px] text-gray-400">Teardown {pg.teardownStatus === "blocked" ? "blocked" : "not read yet"}.</p>
-                )}
-                {pg.actionPackLabel ? (
-                  <p className="mt-1.5 text-[11px] font-medium text-indigo-600">Beat it: {pg.actionPackLabel} →</p>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      {/* Pages to beat, D4 (2026-07-02): only show rows that actually carry
+          teardown content; the unread remainder collapses into one line
+          instead of repeating "Not read yet" 19 times. */}
+      {(() => {
+        const shown = intel.pages.slice(0, 20);
+        const withContent = shown.filter((pg) => pg.whatWins);
+        const unreadCount = shown.length - withContent.length;
+        if (shown.length === 0) return null;
+        return (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-gray-900">Pages to beat</h2>
+            <div className="grid gap-2">
+              {withContent.map((pg) => {
+                const badge = TEARDOWN_BADGE[pg.teardownStatus];
+                return (
+                  <div key={pg.url} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <a href={pg.url} target="_blank" rel="noreferrer" className="text-[13px] font-medium text-gray-900 underline-offset-2 hover:underline">
+                        {prettyUrl(pg.url)}
+                      </a>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${badge.cls}`}>{badge.label}</span>
+                    </div>
+                    {pg.prompts[0] ? <p className="mt-1 text-[11px] text-gray-500">Cited for “{pg.prompts[0]}”</p> : null}
+                    <p className="mt-1 text-[11px] text-gray-600"><span className="font-medium text-gray-700">What wins:</span> {pg.whatWins}</p>
+                    {pg.actionPackLabel ? (
+                      <p className="mt-1.5 text-[11px] font-medium text-indigo-600">Beat it: {pg.actionPackLabel} →</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+              {unreadCount > 0 ? (
+                <p className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-[11px] text-gray-500">
+                  {unreadCount} more competitor page{unreadCount === 1 ? "" : "s"} {unreadCount === 1 ? "is" : "are"} queued; I read a few each night.
+                </p>
+              ) : null}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Moves caused by competitors */}
       <section className="space-y-3">

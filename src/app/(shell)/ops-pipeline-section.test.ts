@@ -53,10 +53,15 @@ describe("OpsPipelineSection contract", () => {
     expect(SRC).not.toMatch(/[–—]/);
   });
 
-  it("is mounted on the Today page above the attention band", () => {
+  it("is mounted on the Today page above the hero (A1: never buried below a lying stat)", () => {
     const page = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
     expect(page).toContain('import { OpsPipelineSection } from "./ops-pipeline-section"');
     expect(page).toContain("<OpsPipelineSection tenantId={tenantId} />");
+    const opsIdx = page.indexOf("<OpsPipelineSection tenantId={tenantId} />");
+    const heroIdx = page.indexOf("<PageHeader title={greeting} description={brief} />");
+    expect(opsIdx).toBeGreaterThan(-1);
+    expect(heroIdx).toBeGreaterThan(-1);
+    expect(opsIdx).toBeLessThan(heroIdx);
   });
 
   it("the cron wires the invariant check as an isolated final step", () => {

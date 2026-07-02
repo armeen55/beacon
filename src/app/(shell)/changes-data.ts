@@ -15,6 +15,7 @@ import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { statusView } from "@/domains/changes/canonical-change";
 import type { TodayMove } from "./today-moves-data";
 import { ctrOpportunity90d } from "@/domains/experiments/pick-expectations";
+import { readPublishHealth } from "@/domains/push/publish-canary-store";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -22,6 +23,9 @@ export type ChangesView = {
   summary: { todo: number; ready: number; measuring: number; results: number; selectedForToday: number; protectedPages: number };
   hasPlan: boolean;
   planAccepted: boolean;
+  /** B7 (worklist fix batch) - only set when Ready is 0, so the tab isn't a bare "0" with no
+   *  reason. Distinguishes "your Wix pages aren't mapped yet" from "nothing to prepare right now". */
+  readyZeroHint: string | null;
 };
 
 export async function loadChangesView(): Promise<ChangesView> {
@@ -80,5 +84,16 @@ export async function loadChangesView(): Promise<ChangesView> {
     if (c.protectedControl) summary.protectedPages += 1;
   }
 
-  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted };
+  // B7 - "Ready 0" with no reason reads as broken. Only compute this when it's actually 0
+  // (no cost otherwise); fail-soft so a canary-store outage never blocks the list.
+  let readyZeroHint: string | null = null;
+  if (summary.ready === 0) {
+    const health = await readPublishHealth(tenantId).catch(() => null);
+    readyZeroHint =
+      health && health.urlMapOk === false
+        ? "0 ready to publish until your Wix pages are mapped."
+        : "0 ready right now.";
+  }
+
+  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint };
 }

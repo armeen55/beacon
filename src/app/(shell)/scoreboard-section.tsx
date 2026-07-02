@@ -240,7 +240,29 @@ export function buildCounterfactualRows(ledger: ShippedChangeRecord[], now: Date
   return rows;
 }
 
-export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
+/** Plain "Jul 2" style date label for the A1 honest-staleness suffix, Pacific time
+ *  to match the rest of Today's date formatting. Null input (bad/missing timestamp)
+ *  renders nothing, never a garbled date. */
+function staleDateLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
+}
+
+export async function ScoreboardSection({
+  tenantId,
+  stale = false,
+  staleCheckedAt = null,
+}: {
+  tenantId: string;
+  /** A1 (operator-experience fix batch) - true when last night's sync hit a pipeline
+   *  invariant violation (e.g. wrote 0 rows). The citations stat then carries an honest
+   *  "numbers last updated" suffix instead of implying the count is current. */
+  stale?: boolean;
+  /** ISO timestamp of the last pipeline health check, for the suffix date. */
+  staleCheckedAt?: string | null;
+}) {
   try {
     const [daily, ledger, measuredLedger, slug, revenueDays] = await Promise.all([
       loadDailyTotalsForTenant(tenantId, 84),
@@ -332,6 +354,13 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
             <span className="font-semibold text-pink-700 dark:text-pink-300">AI recommended you {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} in the last 30 days.</span>
             {citations.daily.length >= 5 ? <Sparkline points={citations.daily} width={96} height={18} className="inline-block opacity-80" /> : null}
             <span className="text-[11px] text-gray-400 dark:text-neutral-500">citations of your pages in AI answers, per day</span>
+            {/* A1 - honest badge when last night's sync hit a data-pipe problem: this count
+                may not include last night, so say so instead of reading as fully current. */}
+            {stale ? (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                numbers last updated {staleDateLabel(staleCheckedAt) ?? "recently"}
+              </span>
+            ) : null}
           </div>
         ) : null}
       </section>

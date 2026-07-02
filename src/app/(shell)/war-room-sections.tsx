@@ -5,8 +5,8 @@
  * coherent version, not the old museum). Every section self-hides when it has no real data,
  * fails soft to null, and speaks operator language. No em dashes, no lab jargon.
  */
-import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import { routeClarityFriction, type ClarityMoveType } from "@/domains/recommendation-intelligence/clarity-move-router";
+import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
+import { routeClarityFriction, type ClarityMoveType, type ClarityMoveDecision } from "@/domains/recommendation-intelligence/clarity-move-router";
 import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
 import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
 import { loadEngineGapTodayLine } from "@/domains/ai-visibility/gap-store";
@@ -41,6 +41,38 @@ function prettyPath(u: string): string {
   return p.length > 48 ? p.slice(0, 45) + "..." : p;
 }
 
+/** A8 (operator-experience fix batch, 2026-07-02) - below this many sessions, a
+ *  percentage reads as more precise than it is (49.6% off 6 sessions). Below the
+ *  floor, pair the rate with the raw count behind it so the reader can judge the
+ *  sample size themselves. Pure, display-only; does not change which pages route
+ *  to a fix (routeClarityFriction's own thresholds are untouched). */
+const SMALL_SAMPLE_SESSION_FLOOR = 30;
+
+function smallSampleCount(d: ClarityMoveDecision, sessions: number): string | null {
+  if (sessions >= SMALL_SAMPLE_SESSION_FLOOR || sessions <= 0) return null;
+  const numeratorFor: Record<ClarityMoveType, keyof ClarityPageSignal | null> = {
+    fix_dead_click: "deadClicks",
+    fix_rage_interaction: "rageClicks",
+    fix_js_errors: "scriptErrors",
+    fix_intent_mismatch: "quickbacks",
+    raise_answer: null, // scroll depth has no clean "N of M" numerator
+  };
+  const key = numeratorFor[d.moveType];
+  if (!key) return null;
+  const n = Math.round(sessions * parseRateFromEvidence(d.evidence));
+  return `${n} of ${sessions} visitor${sessions === 1 ? "" : "s"}`;
+}
+
+/** Pulls the leading "NN.N%" (or "NN%") out of an evidence sentence like
+ *  "49.6% dead-click rate" back into a 0-1 fraction. Falls back to 0 (renders
+ *  "0 of N") rather than throwing if the evidence format ever changes shape. */
+function parseRateFromEvidence(evidence: string): number {
+  const m = evidence.match(/^([\d.]+)%/);
+  if (!m) return 0;
+  const pct = Number(m[1]);
+  return Number.isFinite(pct) ? pct / 100 : 0;
+}
+
 /** Item 21 - tiny decorative all-clear mark for the designed empty states. Pure decoration,
  *  hidden from screen readers (the sentence next to it carries the meaning). */
 function QuietCheckIllustration() {
@@ -68,11 +100,16 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
   try {
     const signals = await loadClarityPageSignalsForTenant(tenantId);
     if (signals.size === 0) return null;
-    const rows = [...signals.values()]
+    const allRouted = [...signals.values()]
       .map((s) => ({ s, d: routeClarityFriction(s) }))
       .filter((x): x is { s: (typeof x)["s"]; d: NonNullable<(typeof x)["d"]> } => x.d != null)
-      .sort((a, b) => (a.d.severity === b.d.severity ? b.s.sessions - a.s.sessions : a.d.severity === "high" ? -1 : 1))
-      .slice(0, 4);
+      .sort((a, b) => (a.d.severity === b.d.severity ? b.s.sessions - a.s.sessions : a.d.severity === "high" ? -1 : 1));
+    // A3 (operator-experience fix batch, 2026-07-02) - the total here (allRouted.length) is the
+    // SAME number the team standup's "Behavior" chip reports (both call routeClarityFriction over
+    // every signal), so this card's "showing N of M" always agrees with that chip instead of the
+    // two silently disagreeing (this card only ever showed its top 4 with no total).
+    const totalFriction = allRouted.length;
+    const rows = allRouted.slice(0, 4);
     if (rows.length === 0) {
       // Item 21 - designed empty state: Clarity watched real visitor sessions this week
       // and no page cleared the friction thresholds. Say so instead of leaving a gap.
@@ -93,23 +130,34 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
       <section aria-label="Visitor friction fixes" className={CARD}>
         <div className="flex items-baseline justify-between gap-2">
           <div className={HEAD}>Visitor behavior found friction</div>
-          <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">{rows.length} page{rows.length === 1 ? "" : "s"} · sessions from the last 28 days</span>
+          <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">
+            {totalFriction > rows.length ? `showing ${rows.length} of ${totalFriction} pages` : `${rows.length} page${rows.length === 1 ? "" : "s"}`} · sessions from the last 28 days
+          </span>
         </div>
         <p className="mt-1 text-xs text-gray-500 dark:text-neutral-400">Real visitor sessions on these pages hit problems. Fixing them protects every click the other changes win.</p>
         <div className="mt-2 space-y-2">
-          {rows.map(({ s, d }) => (
-            <div key={s.url} className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${d.severity === "high" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>
-                  {CLARITY_MOVE_LABEL[d.moveType]}
-                </span>
-                <span className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">{prettyPath(s.url)}</span>
-                <span className="text-[11px] text-gray-400 dark:text-neutral-500">{d.evidence}</span>
-                <WarRoomCopyButton text={`${CLARITY_MOVE_LABEL[d.moveType]} on ${s.url}\nEvidence: ${d.evidence}\nWhy: ${d.reason}`} />
+          {rows.map(({ s, d }) => {
+            // A8 - a rate off a small sample reads as more precise than it is (e.g. "49.6%"
+            // from 6 sessions). Below 30 sessions, add the raw count alongside the percent so
+            // the reader can judge the sample size for themselves.
+            const rawCount = smallSampleCount(d, s.sessions);
+            return (
+              <div key={s.url} className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${d.severity === "high" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>
+                    {CLARITY_MOVE_LABEL[d.moveType]}
+                  </span>
+                  <span className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">{prettyPath(s.url)}</span>
+                  <span className="text-[11px] text-gray-400 dark:text-neutral-500">
+                    {d.evidence}
+                    {rawCount ? ` (${rawCount})` : ""}
+                  </span>
+                  <WarRoomCopyButton text={`${CLARITY_MOVE_LABEL[d.moveType]} on ${s.url}\nEvidence: ${d.evidence}${rawCount ? ` (${rawCount})` : ""}\nWhy: ${d.reason}`} />
+                </div>
+                <p className="mt-0.5 text-[12px] text-gray-600 dark:text-neutral-300">{d.reason}</p>
               </div>
-              <p className="mt-0.5 text-[12px] text-gray-600 dark:text-neutral-300">{d.reason}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     );
@@ -409,15 +457,36 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
               </Link>
             </div>
           ))}
-          {res.trends.slice(0, 2).map((t) => (
-            <div key={`t-${t.id}`} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/30">
-              <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{t.query}</span>
-              <span className="text-[11px] text-emerald-700 dark:text-emerald-300">{t.seasonal ? "seasonal, peak coming" : `trend ${String(t.trend)}`}</span>
-              {typeof t.estDemand === "number" && t.estDemand > 0 ? (
-                <span className="text-[11px] text-gray-500 dark:text-neutral-400">{t.estDemand.toLocaleString()} searches/mo</span>
-              ) : null}
-            </div>
-          ))}
+          {/* Operator-experience checkpoint (2026-07-02, roasts #4/#16): the trends
+              block sat under the opportunities list with no heading and could repeat
+              the SAME keyword with a different demand number from a different source,
+              reading as the app contradicting itself. Dedupe against the keywords
+              already shown above and label the block so it reads as its own idea. */}
+          {(() => {
+            const shownKeywords = new Set(
+              res.opportunities.slice(0, 5).map((o) => o.primaryKeyword.trim().toLowerCase()),
+            );
+            const freshTrends = res.trends
+              .filter((t) => !shownKeywords.has(t.query.trim().toLowerCase()))
+              .slice(0, 2);
+            if (freshTrends.length === 0) return null;
+            return (
+              <>
+                <p className="mt-1 px-3 text-[11px] font-medium text-gray-500 dark:text-neutral-400">
+                  Heating up right now
+                </p>
+                {freshTrends.map((t) => (
+                  <div key={`t-${t.id}`} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/30">
+                    <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{t.query}</span>
+                    <span className="text-[11px] text-emerald-700 dark:text-emerald-300">{t.seasonal ? "seasonal, peak coming" : "searches climbing"}</span>
+                    {typeof t.estDemand === "number" && t.estDemand > 0 ? (
+                      <span className="text-[11px] text-gray-500 dark:text-neutral-400">{t.estDemand.toLocaleString()} searches/mo</span>
+                    ) : null}
+                  </div>
+                ))}
+              </>
+            );
+          })()}
         </div>
       </section>
     );

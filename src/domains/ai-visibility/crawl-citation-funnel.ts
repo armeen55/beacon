@@ -304,7 +304,11 @@ function byBottleneckPriority(a: PageFunnel, b: PageFunnel): number {
 }
 
 /** One tenant-wide shape line for the band, or null when there is nothing
- *  honest to say. First person, concrete numbers, no dashes. PURE. */
+ *  honest to say. First person, concrete numbers, no dashes. PURE.
+ *
+ * A5 (operator-experience fix batch, 2026-07-02) - each clause after the first names its
+ * own count against the SAME tracked-page total ("cite 43 of them"), so a single-clause
+ * sentence never reads as a fragment ("AI answers cite 43." used to stop mid-thought). */
 export function funnelSummaryLine(report: FunnelReport): string | null {
   if (!report.hasData) return null;
   const measured = report.pages.filter((p) => p.stage !== "no_signal");
@@ -313,8 +317,8 @@ export function funnelSummaryLine(report: FunnelReport): string | null {
   const cited = measured.filter((p) => p.cited.count > 0).length;
   const clicked = measured.filter((p) => p.aiClicks.sessions > 0).length;
   const parts: string[] = [];
-  if (report.feeds.crawl) parts.push(`AI crawlers fetched ${n(crawled)}`);
-  if (report.feeds.cited) parts.push(`AI answers cite ${n(cited)}`);
+  if (report.feeds.crawl) parts.push(`AI crawlers fetched ${n(crawled)} of them`);
+  if (report.feeds.cited) parts.push(`AI answers cite ${n(cited)} of them`);
   if (report.feeds.clicks || clicked > 0) parts.push(`${n(clicked)} already bring AI visitors`);
   if (parts.length === 0) return null;
   return `I tracked ${n(measured.length)} page${measured.length === 1 ? "" : "s"} through the AI funnel: ${parts.join(", ")}.`;

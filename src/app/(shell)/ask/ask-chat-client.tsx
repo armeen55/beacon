@@ -141,7 +141,7 @@ export function AskChatClient({
 
       {turns.length === 0 && !isPending && (
         <p className="rounded-2xl border border-dashed border-border/60 bg-surface-inset/40 p-8 text-center text-[13px] text-muted-foreground">
-          Ask about a page, a trend, an AI answer, a shipped change, a competitor, or the plan. I will answer with real numbers and link every claim back to its source.
+          Ask about a page, a trend, an AI answer, a shipped change, a competitor, or tonight's plan on Today. I will answer with real numbers and link every claim back to its source.
         </p>
       )}
     </div>

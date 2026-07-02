@@ -208,12 +208,12 @@ export function AutopilotCard() {
           {/* Proven change types with real numbers */}
           <div data-autopilot-levers="true">
             <p className="text-[12px] font-semibold text-foreground">
-              Proven change types on this site right now: {provenLevers.length}
+              A change type earns autopilot after {view.config.minVerdicts} measured
+              results here. So far: {provenLevers.length} {provenLevers.length === 1 ? "has" : "have"} qualified.
             </p>
             {provenLevers.length === 0 ? (
               <p className="mt-1 text-[12px] text-muted-foreground">
-                None yet. Keep shipping and measuring; a change type earns autopilot after{" "}
-                {view.config.minVerdicts} measured results here.
+                None yet. Keep shipping and measuring to get there.
               </p>
             ) : (
               <ul className="mt-1.5 space-y-1">

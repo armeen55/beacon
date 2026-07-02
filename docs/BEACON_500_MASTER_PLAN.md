@@ -19,6 +19,11 @@ content quality outrank AEO accessories.
 everything else. Tick items here, commit naming them, push branch + main, smoke prod. Full suite
 every 10-12 items. Ground-truth every item on real tenant data.
 
+**Operator-journey rule (CLAUDE.md, mandatory):** no item is complete until its rendered surface
+was walked as a real operator journey and the completion report quotes the actual rendered copy.
+Integrated over bolted-on: reuse existing status words, counts, and sections; never ship raw
+slugs, internal keys, jargon, or unexplained zeros. Judge performance on prod, never dev.
+
 ---
 
 ## THE QUALITY CONSTITUTION (governs everything; each law is an enforceable gate)

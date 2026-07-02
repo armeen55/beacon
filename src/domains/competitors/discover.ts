@@ -186,9 +186,9 @@ export function discoverCompetitorUniverse(opts: {
     if (topicsTheyLead.length === 0) return null;
     const weakest = topicsTheyLead[0];
     if (weakest.yourCitations === 0) {
-      return `Create content targeting "${weakest.topic}" — you have no citations there`;
+      return `Create content targeting "${weakest.topic}", you have no citations there`;
     }
-    return `Strengthen "${weakest.topic}" content — they lead with ${weakest.theirCitations} vs your ${weakest.yourCitations} citations`;
+    return `Strengthen "${weakest.topic}" content, they lead with ${weakest.theirCitations} vs your ${weakest.yourCitations} citations`;
   }
 
   const all: DiscoveredDomain[] = [...domainMap.entries()]

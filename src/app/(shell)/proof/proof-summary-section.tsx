@@ -57,6 +57,35 @@ export function buildProofHonestySentence(args: {
 
 
 /**
+ * Item C1 - when NOTHING has a final verdict yet, the page must not read like
+ * a quiet scoreboard. Say the honest count plainly, at the top: how many
+ * changes are tracked, that none has a final verdict, and (when known) the
+ * soonest date one lands. Real numbers only, never hardcoded. Returns null
+ * once at least one change has a mature result (buildProofHonestySentence
+ * takes over from there).
+ */
+export function buildZeroMatureLeadSentence(args: {
+  totalTracked: number;
+  matureTotal: number;
+  soonestLabel: string | null;
+}): string | null {
+  const { totalTracked, matureTotal, soonestLabel } = args;
+  if (totalTracked <= 0 || matureTotal > 0) return null;
+  const single = totalTracked === 1;
+  const countClause = single
+    ? "None of your 1 change has a final verdict yet."
+    : `None of your ${totalTracked} changes has a final verdict yet.`;
+  const dueClause = soonestLabel
+    ? soonestLabel === "any day now"
+      ? " The first one is due any day now."
+      : single
+        ? ` The first one is due ${soonestLabel}.`
+        : ` The first ones are due ${soonestLabel}.`
+    : "";
+  return `${countClause}${dueClause} Early signals below can still flip.`;
+}
+
+/**
  * Item 31's one honest line: how often Beacon's own measurement calls a win
  * or a loss on pages it never touched (its empirical false-positive rate),
  * and that it tunes itself to stay under the 5% target. SILENT until a real
@@ -189,6 +218,14 @@ export async function ProofSummarySection() {
     winsWithDollarCount,
     soonestLabel,
   });
+  // Item C1 - when nothing has a final verdict yet, lead with that plainly
+  // instead of letting the page read like a quiet scoreboard. Real counts,
+  // real soonest date; null once at least one change has settled.
+  const zeroMatureLeadSentence = buildZeroMatureLeadSentence({
+    totalTracked: records.length,
+    matureTotal,
+    soonestLabel,
+  });
   // Item 31 - Beacon's own measured false-positive rate, silent until a real
   // nightly A/A pass has run at least once for this tenant.
   const aaSentence = buildAaHonestySentence(aaCalibration);
@@ -203,7 +240,12 @@ export async function ProofSummarySection() {
         </p>
       </div>
 
-      {honestySentence ? (
+      {/* Item C1 - the buried honest lead: when nothing has a final verdict yet,
+          say so at the top, plainly, with real numbers, instead of letting the
+          page read like a scoreboard with nothing on it. */}
+      {zeroMatureLeadSentence ? (
+        <p className="mt-4 text-[15px] font-semibold text-gray-800 tabular-nums dark:text-neutral-200">{zeroMatureLeadSentence}</p>
+      ) : honestySentence ? (
         <p className="mt-4 text-[15px] font-semibold text-gray-800 tabular-nums dark:text-neutral-200">{honestySentence}</p>
       ) : null}
 
@@ -245,12 +287,7 @@ export async function ProofSummarySection() {
         </p>
       ) : null}
 
-      {matureTotal === 0 ? (
-        <p className="mt-4 text-sm text-gray-500">
-          No mature results yet. Your active changes are still collecting data. Search Console needs the full
-          28-day window before a final verdict lands.
-        </p>
-      ) : wins.length > 0 ? (
+      {matureTotal === 0 ? null : wins.length > 0 ? (
         <div className="mt-5">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/70">Confirmed wins (28-day)</div>
           <ul className="mt-2 space-y-1.5">

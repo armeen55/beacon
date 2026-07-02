@@ -66,6 +66,17 @@ function prettyPath(url: string): string {
   }
 }
 
+/** B9 (worklist fix batch) - a raw slug ("/persian-male-names") is not a page title; prefer
+ *  the pack's human topic label when it reads like real words, not a slug/URL fragment. */
+function looksLikeSlug(s: string): boolean {
+  return /^\/?[a-z0-9]+(?:[-_][a-z0-9]+)*\/?$/.test(s.trim()) && !s.includes(" ");
+}
+function humanPageLabel(p: ActionPack): string {
+  const path = p.targetUrl ? prettyPath(p.targetUrl) : p.label;
+  if (p.label && p.label.trim() && !looksLikeSlug(p.label)) return p.label.trim();
+  return path;
+}
+
 /** Lightweight TodayMove from an ActionPack — used for coverage-only AEO packs that
  *  have no rich demand-graph move to join to. Honest: rich-only fields stay empty. */
 function actionPackToTodayMove(p: ActionPack): TodayMove {
@@ -77,7 +88,7 @@ function actionPackToTodayMove(p: ActionPack): TodayMove {
     actionTone: toneOf(p),
     query: p.label,
     targetUrl: p.targetUrl ?? "needs_new_page",
-    pageLabel: p.targetUrl ? prettyPath(p.targetUrl) : p.label,
+    pageLabel: humanPageLabel(p),
     why: p.whyNotNoise,
     proof: p.profoundReceipt
       ? `AI is asked “${p.profoundReceipt.topPrompt}” — ${p.profoundReceipt.citedDomains.slice(0, 2).join(", ")} cited${p.profoundReceipt.ownAbsent ? ", you're not" : ""}.`

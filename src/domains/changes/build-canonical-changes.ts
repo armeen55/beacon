@@ -11,7 +11,7 @@ import { wixInstructions } from "@/domains/experiments/execution-checklist";
 import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import { forecastRange } from "@/domains/experiments/pick-expectations";
 import {
-  changeTypeFamily, effortForFamily, expectedEvidenceStrength, deriveStatus,
+  changeTypeFamily, effortForFamily, expectedEvidenceStrength, defaultEvidenceStrength, deriveStatus,
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
 } from "./canonical-change";
 
@@ -166,16 +166,18 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
       return r ? `roughly ${r.low.toLocaleString()} to ${r.high.toLocaleString()} extra clicks a month if it works (estimate)` : null;
     })(),
     riskLevel: family === "new_page" ? "medium" : "low",
-    // Move 2 — evidence strength follows MATURITY when a proof exists: only a mature,
-    // settled result is "strong"; an early/interim/overlapping read is "directional";
-    // a collecting/blocked/pre-live record is "tracking". Falls back to the change's
-    // expected strength when no proof is attached yet.
+    // Move 2 / B1 fix - evidence strength follows real comparison data, never the lever
+    // TYPE alone. Only a mature, settled result is "strong"; an early/interim/overlapping
+    // read is "directional"; a collecting/blocked/pre-live record is "tracking". A bare
+    // suggestion with NO proof and NO reserved controls gets the honest pre-comparison
+    // default (never "strong" decoration - "Strong comparison" must mean Beacon actually
+    // has comparison data, not that the lever type is theoretically diffable).
     evidenceStrength:
       m.proofMaturity === "mature_result" ? "strong"
       : m.proofMaturity === "collecting" || m.proofMaturity === "blocked_data" || m.proofMaturity === "scheduled" ? "tracking"
       : status === "measuring" || status === "result" ? "directional"
-      : expectedEvidenceStrength(family),
-    measurementMethod: expectedEvidenceStrength(family) === "strong" ? "Diff-in-diff vs comparison pages" : expectedEvidenceStrength(family) === "directional" ? "Tracked vs baseline + context" : "Tracked descriptively",
+      : defaultEvidenceStrength(family),
+    measurementMethod: expectedEvidenceStrength(family) === "strong" ? "Diff-in-diff vs comparison pages once selected" : expectedEvidenceStrength(family) === "directional" ? "Tracked vs baseline + context" : "Tracked descriptively",
     selectedForToday: false,
     activeExperiment: status === "measuring",
     protectedControl: isControl,

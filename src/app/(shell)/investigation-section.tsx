@@ -17,10 +17,15 @@ import type { InvestigationDiagnosis, RankedCause } from "@/domains/investigatio
 const MAX_CARDS = 2;
 const MAX_CAUSES_SHOWN = 2;
 
+/** A9 (operator-experience fix batch, 2026-07-02) - "algorithm_weather" is the one cause
+ *  whose own sentence already hedges ("this may not be specific to this page") because it
+ *  is a site-wide shift, not a page-level finding. A "Medium confidence." badge next to
+ *  that hedge reads as the app contradicting itself, so this kind never gets the badge. */
 function CauseRow({ cause }: { cause: RankedCause }) {
+  const showConfidence = cause.kind !== "algorithm_weather";
   return (
     <li className="text-[12px] leading-relaxed text-red-900/90 dark:text-red-200/90">
-      <span className="font-medium capitalize">{cause.confidence} confidence.</span> {cause.sentence}
+      {showConfidence ? <span className="font-medium capitalize">{cause.confidence} confidence.</span> : null} {cause.sentence}
     </li>
   );
 }

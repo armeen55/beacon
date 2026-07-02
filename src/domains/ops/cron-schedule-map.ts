@@ -31,7 +31,7 @@ export const CRON_SCHEDULE_MAP: readonly CronScheduleEntry[] = [
     job: "publish-canary",
     path: "/api/cron/publish-canary",
     schedule: "51 8 * * *",
-    label: "Wix publish canary",
+    label: "Wix connection check",
   },
   {
     job: "sync-connectors",
@@ -43,7 +43,7 @@ export const CRON_SCHEDULE_MAP: readonly CronScheduleEntry[] = [
     job: "measure-due",
     path: "/api/cron/measure-due",
     schedule: "30 9 * * *",
-    label: "Nightly measurement pass",
+    label: "Nightly results check",
   },
   {
     job: "autopilot",
@@ -55,13 +55,13 @@ export const CRON_SCHEDULE_MAP: readonly CronScheduleEntry[] = [
     job: "ai-engines",
     path: "/api/cron/ai-engines",
     schedule: "17 10 * * 1,3,5",
-    label: "AI engine poll (Mon/Wed/Fri)",
+    label: "AI answer check (Mon/Wed/Fri)",
   },
   {
     job: "precompute",
     path: "/api/cron/precompute",
     schedule: "3 12 * * *",
-    label: "Draft precompute warm pass",
+    label: "Getting drafts ready",
   },
   {
     job: "strategy-review",

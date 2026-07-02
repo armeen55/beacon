@@ -10,7 +10,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
-import { gscLagStatus, isDueForMeasure, proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
+import { gscLagStatus, isDueForMeasure } from "@/domains/proof-gsc/measure-lifecycle";
 import {
   buildMeasurementPresentation,
   detectMeasurementOverlaps,
@@ -45,6 +45,9 @@ import { getOwnedAnswerAlignment } from "@/domains/ai-visibility/answer-alignmen
 import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
 import { selectHeadlineSentence } from "@/domains/proof-gsc/bayesian-read";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
+import { proofBadgeLabel, proofBadgeLabelFromVerdict, proofBadgeMaturesOn } from "./proof-badge";
+import { plainSearchHeadline } from "./proof-plain-search-line";
+import { searchAndTrafficDisagree, reconciliationSentence } from "./proof-reconciliation";
 import {
   findExistingRevertRecord,
   hasRevertNote,
@@ -204,6 +207,12 @@ export default async function ProofPage({
     const p = presById.get(l.id);
     return !p || !isMatureOutcome(p.maturity);
   });
+
+  // Item C7 - the seasonal-overlap caveat used to render its full paragraph on
+  // every affected card (15 identical copies on a page with 15 seasonal
+  // pages). Count them once and say it once at the section level; each card
+  // below only gets a small "seasonal swing overlaps" chip.
+  const seasonalCount = ledger.filter((l) => presById.get(l.id)?.seasonalInflectionFlagged).length;
 
   // Passive auto-measure (2026-06-29): when the operator opens Results, fire-and-forget a
   // due-row measurement pass AFTER the response (next/after → zero render latency) so
@@ -383,6 +392,14 @@ export default async function ProofPage({
               proof shows traffic and conversions, not dollars.
             </p>
           ) : null}
+          {/* Item C7 - the seasonal-overlap caveat used to repeat its full paragraph
+              verbatim on every affected card. Say it once, here, for the whole page;
+              each card below only shows a small chip. */}
+          {seasonalCount > 0 ? (
+            <p className="mb-2 text-[11px] text-amber-700">
+              {seasonalCount} of these overlap the May-June demand swing for their topics, so I read {seasonalCount === 1 ? "it" : "them"} cautiously.
+            </p>
+          ) : null}
           <WhatHappensNext />
 
           {/* Item 68 band 1: mature wins, celebrated in one sentence, still factual. */}
@@ -394,11 +411,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes beat their comparison pages over the full window. Real lifts, measured.
               </p>
-              <div className="mt-2 space-y-2.5">
-                {winRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="win" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} calibration={calibrationByProofId.get(rec.id) ?? null} />
-                ))}
-              </div>
+              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -411,11 +424,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes did not move the number, and that teaches us which lever to try next on pages like these.
               </p>
-              <div className="mt-2 space-y-2.5">
-                {learningRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="learning" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} calibration={calibrationByProofId.get(rec.id) ?? null} />
-                ))}
-              </div>
+              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -428,11 +437,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 Still collecting data. Each one gets its verdict when its full window closes.
               </p>
-              <div className="mt-2 space-y-2.5">
-                {inFlightRows.map((rec) => (
-                  <LedgerCard key={rec.id} rec={rec} band="inflight" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} revert={revertById.get(rec.id) ?? null} restored={restoredIds.has(rec.id)} />
-                ))}
-              </div>
+              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} />
             </div>
           ) : null}
         </div>
@@ -573,6 +578,77 @@ const PLAIN_METRIC: Record<ProofMetric, string> = {
 
 type LedgerBand = "win" | "learning" | "inflight";
 
+/**
+ * Item C8 - a ledger band (Wins / What we learned / In flight) used to render
+ * every row in one flat list, so a "Manual or legacy change, not traced to a
+ * ranked move" disclaimer sat directly under a Beacon-recommended card with
+ * evidence chips, reading as if both were the same kind of thing. Split the
+ * list visually instead: Beacon's own recommended changes first, then the
+ * operator's own manual changes under their own header (Beacon is still
+ * watching and measuring those, so it says so instead of just disclaiming).
+ */
+function LedgerRowGroup({
+  rows,
+  band,
+  linkByRowId,
+  presById,
+  sparkByPath,
+  revertById,
+  restoredIds,
+  calibrationByProofId,
+}: {
+  rows: ShippedChangeRecord[];
+  band: LedgerBand;
+  linkByRowId: Map<string, ProofLink>;
+  presById: Map<string, MeasurementPresentation>;
+  sparkByPath: Map<string, SparkPoint[]>;
+  revertById: Map<string, RevertDecision>;
+  restoredIds: Set<string>;
+  calibrationByProofId?: Map<string, CalibrationRecord>;
+}) {
+  const recommended = rows.filter((rec) => linkByRowId.get(rec.id)?.actionPack);
+  const manual = rows.filter((rec) => !linkByRowId.get(rec.id)?.actionPack);
+
+  const card = (rec: ShippedChangeRecord) => (
+    <LedgerCard
+      key={rec.id}
+      rec={rec}
+      band={band}
+      link={linkByRowId.get(rec.id) ?? null}
+      pres={presById.get(rec.id) ?? null}
+      spark={sparkByPath.get(rec.path)}
+      revert={revertById.get(rec.id) ?? null}
+      restored={restoredIds.has(rec.id)}
+      calibration={calibrationByProofId?.get(rec.id) ?? null}
+    />
+  );
+
+  return (
+    <>
+      {recommended.length > 0 ? (
+        <div className="mt-2">
+          {manual.length > 0 ? (
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700/70">
+              Changes Beacon recommended
+            </div>
+          ) : null}
+          <div className="space-y-2.5">{recommended.map(card)}</div>
+        </div>
+      ) : null}
+      {manual.length > 0 ? (
+        <div className="mt-3">
+          {recommended.length > 0 ? (
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Changes you made yourself (I am watching them too)
+            </div>
+          ) : null}
+          <div className="space-y-2.5">{manual.map(card)}</div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[]; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
@@ -593,9 +669,24 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
   // exists AND agrees in direction with that same floor verdict - it can add
   // confidence to a floor call, never contradict or replace one.
   const sentence = selectHeadlineSentence(rec.verdict, rec.bayesianRead, floorSentence);
+  // Item C2 - secondary "matures on X" text under the collapsed badge, for any
+  // pre-verdict state. Null once a final verdict exists.
+  const badgeMaturesOn = pres ? proofBadgeMaturesOn(pres) : null;
+  // Item C4 - the PRIMARY Search line is a short plain call; the percent-sure
+  // figure and click range (still real, still computed the same way) move one
+  // click deeper into "See the math" below instead of leading the card.
+  const plainHeadline = plainSearchHeadline(pres?.direction ?? "unknown", mature);
   // Report the controls actually used in the basis window; fall back to assigned
   // count only before any window has run (measuring state).
   const controlsCount = basis?.controlsUsed ?? rec.controlPages.length;
+  // Item C3 - when the Search read and the site-visits read point opposite
+  // ways, say so in one sentence instead of leaving the contradiction sitting
+  // there. Both signs are already computed above/on the record; this never
+  // recomputes either one, only compares the two signs.
+  const trafficDisagrees =
+    !!pres &&
+    rec.trafficOutcome?.ran === true &&
+    searchAndTrafficDisagree(pres.direction, rec.trafficOutcome?.adjustedSessionsPct);
   return (
     <div className={`rounded-lg border border-border/60 bg-background p-4${band === "win" ? " beacon-win-glow" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -613,11 +704,16 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
             (pres ? TONE_STYLE[pres.tone] : OUTCOME_STYLE[rec.verdict])
           }
         >
-          {/* Move 2 - one shared maturity headline + maturity-toned color: a 7d read is an
-              EARLY signal (blue), 14d is "strengthening", only the 28d window earns the
-              plain Helped / Did not help (green/red). */}
-          {pres ? pres.headline : proofMaturityLabel(rec.verdict, basis?.day ?? null)}
+          {/* Item C2 - the visible badge is one of exactly six words (Waiting /
+              Leaning good / Leaning bad / Helped / Did not help / No clear
+              change); the maturity-toned color still comes from pres.tone
+              underneath, and the precise internal wording (pres.headline)
+              still renders inside "See the math" below. */}
+          {pres ? proofBadgeLabel(pres) : proofBadgeLabelFromVerdict(rec.verdict, basis?.day ?? null)}
         </span>
+        {pres && badgeMaturesOn ? (
+          <span className="text-[10px] text-muted-foreground">{badgeMaturesOn}</span>
+        ) : null}
         {/* Item 6 - in-flight countdown: when the next reading lands, from this row's
             own windows (smallest unread window vs today). "any day now" covers the
             Google data lag once the calendar date has passed. */}
@@ -670,7 +766,9 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
 
       {/* Source move (Phase 4 - deterministic ActionPack↔proof linker, no migration).
           Closes the loop visibly: this shipped change traces back to the Move that
-          recommended it, or is honestly labelled manual/legacy. */}
+          recommended it. Item C8 - a card with no link sits in the "Changes you
+          made yourself" group above (the group header already says this is a
+          manual change), so it no longer repeats a disclaimer on every card. */}
       {link && link.actionPack ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 ring-1 ring-indigo-100">
@@ -683,12 +781,7 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
             </span>
           ))}
         </div>
-      ) : (
-        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-gray-400">
-          <CornerUpLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          Manual or legacy change, not traced to a ranked move.
-        </p>
-      )}
+      ) : null}
 
       {/* Item 71 - a win leads with the number: the lift, the page, the date. */}
       {band === "win" && basis ? (
@@ -705,9 +798,20 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
         </p>
       ) : null}
 
+      {/* Item C4 - the PRIMARY line is a short plain call ("This probably hurt." /
+          "This helped."), never the percent-sure statistics headline. The full
+          sentence (with the percent and the click range) is one click away in
+          "See the math" below - the honest numbers are not gone, just not shouting. */}
       <p className="mt-1.5 text-[12px] text-foreground/80">
-        <span className="font-medium text-foreground/60">Search:</span> {sentence}
+        <span className="font-medium text-foreground/60">Search:</span> {plainHeadline}
       </p>
+
+      {/* Item C3 - when the Search read and the site-visits read below disagree in
+          direction, say so plainly instead of leaving two contradicting lines on
+          the card with no reconciliation between them. */}
+      {trafficDisagrees ? (
+        <p className="mt-1 text-[12px] text-amber-700">{reconciliationSentence()}</p>
+      ) : null}
 
       {/* Forecast receipt (master plan item 42): grade the numeric forecast this pick carried
           against what actually happened, straight from the persisted calibration record (item
@@ -720,17 +824,36 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
         </p>
       ) : null}
 
-      {/* Permutation-null read (master plan item 37): the plain-English "how many
-          untouched pages moved this much" line. Additive - only renders when
-          measureRecord found enough untreated pages (>= 20) to build an honest
-          comparison; otherwise the confidence line above stands on its own,
-          exactly as before this landed. Uses the SAME nGreater/nTotal counts
-          computed at measure time, so this line can never disagree with the
-          confidence gate that read them. */}
-      {rec.permutationRead ? (() => {
-        const line = permutationSentenceFromCounts(rec.permutationRead.nGreater, rec.permutationRead.nTotal);
-        return line ? <p className="mt-1 text-[12px] text-foreground/80">{line}</p> : null;
-      })() : null}
+      {/* Item C5 - the untouched-pages comparison used to lead with the raw "Out of
+          60, 60 moved as much" trap sentence, which reads like proof when it is
+          actually the honest opposite (normal noise, not evidence). The plain line
+          says that outright; the raw counts move into "See the math" below. */}
+      {rec.permutationRead && rec.permutationRead.nTotal > 0 ? (
+        <p className="mt-1 text-[12px] text-foreground/80">
+          {rec.permutationRead.nGreater / rec.permutationRead.nTotal <= 0.05
+            ? `Pages I did not touch rarely moved this much on their own, so this is a real signal.`
+            : `Pages I did not touch moved this much on their own, so this is normal noise, not proof yet.`}
+        </p>
+      ) : null}
+
+      {/* Item C4/C5 - "See the math": the exact percent-sure figure, click range,
+          and untouched-page counts, one click away from the plain primary lines
+          above. Nothing here is new data - it is the same sentence/counts the
+          product already computed, just moved out of the headline position. */}
+      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat ? (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1">
+            See the math
+          </summary>
+          <div className="mt-1 space-y-1 rounded-md border border-border/40 bg-surface-inset/30 p-2 text-[11px] text-foreground/70">
+            <p>{sentence}</p>
+            {rec.permutationRead && rec.permutationRead.nTotal > 0 ? (
+              <p>{permutationSentenceFromCounts(rec.permutationRead.nGreater, rec.permutationRead.nTotal)}</p>
+            ) : null}
+            {pres?.seasonalInflectionCaveat ? <p>{pres.seasonalInflectionCaveat}</p> : null}
+          </div>
+        </details>
+      ) : null}
 
       {/* Target-query read (master plan item 68): the page-level verdict above can
           be diluted by a page's whole query mix; this names the EXACT search the
@@ -761,11 +884,17 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
         <p className="mt-1 text-[12px] text-amber-700">{pres.weakComparisonCaveat}</p>
       ) : null}
 
-      {/* Seasonality guard (master plan item 69): this row's measurement window spans a
-          detected demand swing for its page family, so I am flagging the read as cautious
-          the same way an algorithm-weather overlap is flagged above. */}
+      {/* Item C7 - the seasonal-overlap caveat used to repeat its full paragraph on
+          every affected card (the section-level line above already says it once
+          for the whole page). Each card just gets a small chip; the full sentence
+          still lives in "See the math" so it is one click away, not gone. */}
       {pres?.seasonalInflectionCaveat ? (
-        <p className="mt-1 text-[12px] text-amber-700">{pres.seasonalInflectionCaveat}</p>
+        <span
+          className="mt-1 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+          title={pres.seasonalInflectionCaveat}
+        >
+          seasonal swing overlaps
+        </span>
       ) : null}
 
       {/* Dollar-ROI proof (gap #1): the GA4 traffic + conversion outcome next to

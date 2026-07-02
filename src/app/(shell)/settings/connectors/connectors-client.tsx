@@ -654,16 +654,21 @@ export function ConnectorsClient({
   return (
     <div className="space-y-6">
       {/* 2026-06-22, connectors now auto-refresh on use (next/after), throttled
-          per-source by last_synced_at. Honest copy: it stays fresh on its own;
-          the buttons are still there to force it. */}
+          per-source by last_synced_at. D1 (2026-07-02): the old copy claimed
+          Beacon "never runs in the background" directly above a panel listing
+          7 nightly jobs. Honest version: background jobs DO run nightly to
+          keep data fresh and check health; the one thing that never happens
+          without a click is a change to the live site. */}
       <div className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3">
         <p className="text-[12px] text-foreground leading-relaxed">
-          Connecting a tool just gives Beacon access. After that, Beacon keeps
-          your data fresh on its own: whenever you use the app it quietly refreshes
-          anything that has gone out of date (at most every few hours each, so it
-          never runs up any usage limits). You can always refresh right now with
-          the &ldquo;Update now&rdquo; button. Beacon never runs in the background,
-          only while you are actually using it.
+          Connecting a tool just gives Beacon access. From there, a nightly job
+          keeps your data fresh and checks that each connection is healthy, and
+          whenever you use the app it also quietly refreshes anything that has
+          gone stale (at most every few hours each, so it never runs up any
+          usage limits). You can always refresh right now with the
+          &ldquo;Update now&rdquo; button. The one thing that never happens on
+          its own is a change to your live site, that only happens after your
+          click, unless you arm autopilot yourself.
         </p>
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
@@ -681,12 +686,12 @@ export function ConnectorsClient({
           What you&rsquo;ll get once everything&rsquo;s connected
         </h2>
         <p className="text-[12px] text-foreground leading-relaxed">
-          Once everything is connected, one click of &ldquo;Update my
-          data&rdquo; pulls in your latest numbers. Beacon finds problems,
-          drafts fixes, and checks they worked. The one thing Beacon never
-          does on its own is change your live site: every change to your website
-          needs your one-click approval first. Nothing runs on a hidden schedule,
-          you are always in control of when it refreshes.
+          Once everything is connected, a nightly job pulls in your latest
+          numbers, finds problems, and drafts fixes, and you can also click
+          &ldquo;Update my data&rdquo; any time to refresh sooner. The one
+          thing Beacon never does on its own is change your live site: every
+          change to your website needs your one-click approval first, unless
+          you turn on autopilot for a specific proven change type yourself.
         </p>
         <ul className="space-y-1.5 text-[12px] text-muted-foreground leading-relaxed">
           <li className="flex gap-2">

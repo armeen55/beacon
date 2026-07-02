@@ -19,6 +19,23 @@ This file is the **portable** project contract (use here, in Claude Code, or any
 - Prefer production-shaped architecture without premature SaaS complexity.
 - **Pages stay thin**; domain logic belongs in `src/domains`.
 
+## Operator-journey rule (mandatory before marking ANY feature complete)
+
+Code green is not done. Every feature must be walked as a REAL operator journey on the rendered
+app (dev server with real tenant data, or prod) before its checkbox is ticked:
+1. Open the surface the feature lives on and read it top to bottom as a smart non-technical
+   customer. The seven questions must have obvious answers: What is this telling me? Is something
+   broken? What do I do next? Why is Beacon recommending this? Did my action work? Is this live,
+   waiting, measuring, or merely planned? Why would the same thing appear in two places?
+2. The feature must be INTEGRATED, not bolted on: no new status word when an existing one fits,
+   no second widget for a number another widget already shows, no section that renders raw slugs,
+   internal keys, jargon, or a bare zero without saying what makes it non-zero and when.
+3. Quote the actual rendered copy in the completion report. A feature whose rendered surface
+   would embarrass us in front of a paying customer is NOT complete regardless of test counts.
+4. Dev-server load times are compile artifacts; judge performance on prod only.
+(Established 2026-07-02 after the operator-experience checkpoint found contradicting counts,
+status-word sprawl, and jargon leaks that every individual feature's tests had passed over.)
+
 ---
 
 ## Execution contract (Beacon override of base CLAUDE Code rules)

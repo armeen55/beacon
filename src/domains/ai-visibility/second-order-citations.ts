@@ -79,8 +79,10 @@ export type SecondOrderDomainPlaybook = {
    *  competitor being cited there, proof this domain is a real trust signal. */
   exampleCitedUrl: string;
   /** A real prompt this domain wins, when we have one on file; otherwise a
-   *  plain-English description of the kind of question it answers. */
-  examplePrompt: string;
+   *  plain phrase built from the cleaned topic label. Null when neither a
+   *  real prompt nor a clean topic phrase is available (never renders a raw
+   *  slug or a "question about" framing over noise). */
+  examplePrompt: string | null;
   /** Plain-English pitch or listing step - operator reads this and decides;
    *  nothing here ever sends anything automatically. */
   suggestedAction: string;
@@ -167,7 +169,17 @@ export function isRealisticOutreachTarget(cls: SecondOrderDomainClass): boolean 
   return cls === "directory" || cls === "listicle" || cls === "media_press";
 }
 
-const CLASS_ACTION: Record<SecondOrderDomainClass, (domain: string, topic: string) => string> = {
+/** D5 (2026-07-02): the "other" class has no deterministic page-pitch rule
+ *  (unlike directory/listicle/media, which map to a known outreach shape).
+ *  Rather than repeat a flat non-answer for every "other" domain, name the
+ *  real threshold: once a domain has been cited this many times on the
+ *  tenant's own topics, there is enough repeat pattern to point at a
+ *  specific page instead of just "worth a look." This is a documented
+ *  floor, not derived from a model - the module has no other signal to
+ *  set it from. */
+export const OTHER_CLASS_CITATION_FLOOR = 10;
+
+const CLASS_ACTION: Record<SecondOrderDomainClass, (domain: string, topic: string, citationCount: number) => string> = {
   directory: (domain, topic) =>
     `I'd add our listing to ${domain}. Directories like this get cited a lot when AI answers questions about ${topic}, and a listing is usually a short form, not a pitch.`,
   listicle: (domain, topic) =>
@@ -178,13 +190,53 @@ const CLASS_ACTION: Record<SecondOrderDomainClass, (domain: string, topic: strin
     `${domain} is a community, not an outreach target. Different playbook: post something genuinely useful about ${topic} there yourself, rather than pitching an editor.`,
   reference: (domain, topic) =>
     `${domain} is a reference site with its own edit rules. Different playbook: check whether their page on ${topic} is missing us before trying anything else here.`,
-  other: (domain, topic) =>
-    `Worth a look: ${domain} keeps getting cited on ${topic}. I don't have enough signal yet to say exactly how to get listed there.`,
+  other: (domain, topic, citationCount) =>
+    `${domain} on ${topic}: cited ${citationCount} time${citationCount === 1 ? "" : "s"} so far; after about ${OTHER_CLASS_CITATION_FLOOR} citations I can name the exact page to pitch.`,
 };
 
-export function suggestedActionFor(cls: SecondOrderDomainClass, domain: string, topic: string): string {
+export function suggestedActionFor(cls: SecondOrderDomainClass, domain: string, topic: string, citationCount = 0): string {
   const topicLabel = topic.trim() || "your topics";
-  return CLASS_ACTION[cls](domain, topicLabel);
+  return CLASS_ACTION[cls](domain, topicLabel, citationCount);
+}
+
+// ---------------------------------------------------------------------------
+// Topic phrase hygiene (D3, 2026-07-02) - a slug-derived topic label like
+// "wiki chaharshanbe suri 2026" is not a question, and rendering it inside
+// "A question about X" reads as broken copy. Strip junk tokens (site-section
+// words, a leading/trailing product-category filler, bare numbers) so what's
+// left is a plain phrase, or nothing at all if the whole label was junk.
+// ---------------------------------------------------------------------------
+
+/** Site-section / boilerplate words that show up in slugs but say nothing
+ *  about the topic itself (wiki, mag/magazine, blog, category index pages). */
+const JUNK_SLUG_TOKENS = new Set([
+  "wiki", "wikipedia", "mag", "magazine", "blog", "blogs", "post", "posts",
+  "article", "articles", "news", "category", "categories", "tag", "tags",
+  "page", "pages", "index", "home", "archive", "archives", "topic", "topics",
+  // product-category filler: URL paths like "/product-category/gifts/..."
+  // slug into "product category gifts ..." - neither word says anything
+  // about the actual topic once the real subject (the rest of the phrase)
+  // is present.
+  "product", "products",
+]);
+
+/** Strip junk tokens + bare numbers from a slug-derived topic label, leaving
+ *  only the meaningful words. Returns null when nothing meaningful remains
+ *  (e.g. the whole label was "wiki 2026"). PURE. */
+export function cleanTopicPhrase(raw: string | null | undefined): string | null {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return null;
+  const kept = trimmed
+    .split(/\s+/)
+    .filter((w) => {
+      const lower = w.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (!lower) return false;
+      if (/^\d+$/.test(lower)) return false; // bare year/number, e.g. "2026"
+      if (JUNK_SLUG_TOKENS.has(lower)) return false;
+      return true;
+    });
+  if (kept.length === 0) return null;
+  return kept.join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -248,11 +300,16 @@ export function rankSecondOrderDomains(
     const cls = classifyDomain(agg.domain, exampleCitedUrl);
     const primaryTopic = topTopics[0] ?? "";
     const realPrompt = promptByDomain.get(agg.domain);
+    // D3 (2026-07-02): only ever render a REAL tracked prompt or a cleaned
+    // plain phrase - never a raw slug and never "A question about <slug>"
+    // framing, which read as broken copy over topic labels derived from
+    // URL paths (e.g. "wiki chaharshanbe suri").
+    const cleanedTopic = cleanTopicPhrase(primaryTopic);
     const examplePrompt = realPrompt
       ? realPrompt
-      : primaryTopic
-        ? `A question about ${primaryTopic}`
-        : "A question on your topics";
+      : cleanedTopic
+        ? `It wins answers about ${cleanedTopic}.`
+        : null;
 
     const outreach = opts.outreachDomains?.get(agg.domain) ?? { inOutreachPipeline: false };
 
@@ -264,7 +321,7 @@ export function rankSecondOrderDomains(
       topTopics,
       exampleCitedUrl,
       examplePrompt,
-      suggestedAction: suggestedActionFor(cls, agg.domain, primaryTopic),
+      suggestedAction: suggestedActionFor(cls, agg.domain, primaryTopic, agg.citationCount),
       outreach,
     });
   }

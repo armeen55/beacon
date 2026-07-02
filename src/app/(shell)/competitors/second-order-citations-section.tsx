@@ -96,9 +96,17 @@ export function SecondOrderCitationsSection({ result }: { result: SecondOrderPla
               </p>
             ) : null}
 
-            <p className="mt-1 text-[11px] text-gray-500">
-              <span className="font-medium text-gray-700">A prompt it wins:</span> {d.examplePrompt}
-            </p>
+            {d.examplePrompt ? (
+              <p className="mt-1 text-[11px] text-gray-500">
+                {d.examplePrompt.startsWith("It wins") ? (
+                  d.examplePrompt
+                ) : (
+                  <>
+                    <span className="font-medium text-gray-700">A prompt it wins:</span> {d.examplePrompt}
+                  </>
+                )}
+              </p>
+            ) : null}
 
             <p className="mt-1.5 text-[11px] font-medium text-emerald-700">{d.suggestedAction}</p>
           </div>

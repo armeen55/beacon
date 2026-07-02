@@ -123,9 +123,13 @@ export function seasonalSentence(row: {
 }): string {
   const windowLabel = monthWindowLabel(row.peakMonths);
   const impr = row.annualImpressions.toLocaleString();
+  // Always include the year: a bare "March 19" shown in July reads as a
+  // four-month-old deadline when it is actually NEXT year's prep date
+  // (operator-experience checkpoint 2026-07-02, Today-page roast #6).
   const prep = new Date(`${row.prepByDate}T00:00:00Z`).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
+    year: "numeric",
   });
   return `Searches for "${row.query}" climb every ${windowLabel} (last year: ${impr} impressions in that window). I would prep this page by ${prep}, six weeks ahead, so Google has it indexed before the wave.`;
 }

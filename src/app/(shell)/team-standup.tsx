@@ -32,6 +32,12 @@ type StandupLine = { key: string; line: string; active: boolean; title?: string 
  *  did the honest read. */
 const FRESHNESS_DOT_COLOR: Record<"stale" | "dead", string> = { stale: "#d97706", dead: "#dc2626" };
 
+/** A4 (operator-experience fix batch, 2026-07-02) - below this many topics checked, a
+ *  "cite you on N of M" ratio reads as more confident than one sample deserves (1 of 1
+ *  looks like a 100 percent finding). Report the raw count instead until there is a real
+ *  sample to rate. */
+const MIN_TOPICS_FOR_RATIO = 3;
+
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await fn();
@@ -84,6 +90,7 @@ async function buildLines(
   picksTonight: number,
   records: Map<string, string>,
   calibrations: Map<string, string>,
+  measuringCount: number,
 ): Promise<StandupLine[]> {
   const [daily, clarity, ga4, serp, keywords, aeo, ledger, llmMentions, slug] = await Promise.all([
     safe(() => loadDailyTotalsForTenant(tenantId, 21), []),
@@ -140,11 +147,14 @@ async function buildLines(
     const citedUs = slug
       ? llmMentions.filter((r) => r.mentions.some((m) => m.domain.includes(slug))).length
       : 0;
-    lines.push({
-      key: "profound",
-      line: `AI answers cite you on ${citedUs} of ${llmMentions.length} topic${llmMentions.length === 1 ? "" : "s"} checked${recordSuffixFor(records, "profound")}`,
-      active: citedUs > 0,
-    });
+    // A4 (operator-experience fix batch, 2026-07-02) - "1 of 1" reads as a 100 percent
+    // finding off one sample. Below MIN_TOPICS_FOR_RATIO, report the raw count checked and
+    // drop the ratio so a single-topic check never implies more confidence than it earned.
+    const line =
+      llmMentions.length < MIN_TOPICS_FOR_RATIO
+        ? `${llmMentions.length} topic${llmMentions.length === 1 ? "" : "s"} checked so far${recordSuffixFor(records, "profound")}`
+        : `AI answers cite you on ${citedUs} of ${llmMentions.length} topics checked${recordSuffixFor(records, "profound")}`;
+    lines.push({ key: "profound", line, active: citedUs > 0 });
   } else {
     lines.push({ key: "profound", line: "watching who AI cites for your topics", active: false });
   }
@@ -157,18 +167,20 @@ async function buildLines(
     active: ga4.size > 0,
   });
 
-  // Strategist: tonight + the measurement book.
-  const measuring = ledger.filter((r) => r.verdict === "measuring").length;
+  // Strategist: tonight + the measurement book. A2 (operator-experience fix batch,
+  // 2026-07-02) - "measuring" here is the SAME canonical proof-ledger count the counts
+  // tile and the measuring list use (passed in), not a locally-recomputed number, so this
+  // chip never disagrees with the rest of the page on how many changes are measuring.
   const won = ledger.filter((r) => r.verdict === "won").length;
   lines.push({
     key: "llm",
     line:
       (picksTonight > 0
-        ? `picked ${picksTonight} change${picksTonight === 1 ? "" : "s"} tonight, ${measuring} measuring${won > 0 ? `, ${won} won` : ""}`
-        : measuring > 0
-          ? `${measuring} change${measuring === 1 ? "" : "s"} measuring${won > 0 ? `, ${won} won` : ""}`
+        ? `picked ${picksTonight} change${picksTonight === 1 ? "" : "s"} tonight, ${measuringCount} measuring${won > 0 ? `, ${won} won` : ""}`
+        : measuringCount > 0
+          ? `${measuringCount} change${measuringCount === 1 ? "" : "s"} measuring${won > 0 ? `, ${won} won` : ""}`
           : "reviewing the next batch") + recordSuffixFor(records, "llm"),
-    active: picksTonight > 0 || measuring > 0,
+    active: picksTonight > 0 || measuringCount > 0,
   });
 
   // Item 43 - each chip gains its own calibration line as a hover title when that specialist has
@@ -246,10 +258,20 @@ function chipTitle(calibration: string | undefined, freshness: string | undefine
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
-export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string; picksTonight: number }) {
+export async function TeamStandup({
+  tenantId,
+  picksTonight,
+  measuringCount,
+}: {
+  tenantId: string;
+  picksTonight: number;
+  /** A2 - the canonical (proof ledger) measuring count, shared with the counts tile and the
+   *  measuring list so every widget on Today agrees on this number. */
+  measuringCount: number;
+}) {
   try {
     const { footer, calibrationLine, objectionLine, weightLines, records, calibrations } = await loadScoreboardForStandup(tenantId);
-    const lines = await buildLines(tenantId, picksTonight, records, calibrations);
+    const lines = await buildLines(tenantId, picksTonight, records, calibrations, measuringCount);
     // Item 77 - answer-drift alert: what changed in the last 7 days of the native AI
     // poll stream, treated like a lost/won ranking. Fail-soft to [] (a poll history
     // too shallow to compare yet, or nothing drifted, both render nothing here).

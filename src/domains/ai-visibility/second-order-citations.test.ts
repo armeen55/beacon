@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyDomain,
+  cleanTopicPhrase,
   isRealisticOutreachTarget,
   rankSecondOrderDomains,
   suggestedActionFor,
@@ -72,6 +73,16 @@ describe("suggestedActionFor, plain English, class-appropriate, never auto-send"
     const action = suggestedActionFor("ugc_community", "reddit.com", "widgets");
     expect(action.toLowerCase()).toContain("different playbook");
   });
+
+  it("D5: 'other' class names the real citation count and threshold instead of a flat non-answer", () => {
+    const action = suggestedActionFor("other", "randomsite.example", "widgets", 3);
+    expect(action).toContain("cited 3 times so far");
+    expect(action).toMatch(/after about \d+ citations I can name the exact page to pitch/);
+    expect(action).not.toBe(
+      "Worth a look: randomsite.example keeps getting cited on widgets. I don't have enough signal yet to say exactly how to get listed there.",
+    );
+    expect(action).not.toMatch(/[–—]/);
+  });
 });
 
 describe("rankSecondOrderDomains, ranking by citation frequency", () => {
@@ -113,7 +124,7 @@ describe("rankSecondOrderDomains, ranking by citation frequency", () => {
     expect(directory.isOutreachTarget).toBe(true);
   });
 
-  it("uses a real prompt hint when available, falls back to a topic-derived line otherwise", () => {
+  it("uses a real prompt hint when available, falls back to a cleaned topic phrase otherwise", () => {
     const withHint = rankSecondOrderDomains(rows, {
       promptHints: [{ domain: "example-directory.com", question: "What are the best widget makers?" }],
     });
@@ -122,7 +133,30 @@ describe("rankSecondOrderDomains, ranking by citation frequency", () => {
 
     const withoutHint = rankSecondOrderDomains(rows);
     const blog = withoutHint.find((r) => r.domain === "example-blog.com")!;
-    expect(blog.examplePrompt.length).toBeGreaterThan(0);
+    expect(blog.examplePrompt).toBe("It wins answers about widgets.");
+  });
+
+  it("D3: never renders 'A question about <raw slug>' framing, and hides the line when the topic is all junk", () => {
+    const junkRows: SecondOrderCitationInput[] = [
+      { domain: "example-directory.com", url: "https://example-directory.com/directory/listing/x", topic: "wiki chaharshanbe suri 2026", count: 1 },
+      { domain: "example-blog.com", url: "https://example-blog.com/best-x", topic: "wiki 2026", count: 1 },
+    ];
+    const ranked = rankSecondOrderDomains(junkRows);
+    const directory = ranked.find((r) => r.domain === "example-directory.com")!;
+    expect(directory.examplePrompt).toBe("It wins answers about chaharshanbe suri.");
+    expect(directory.examplePrompt).not.toMatch(/^A question about/);
+
+    // "wiki 2026" strips to nothing meaningful - hide the line entirely.
+    const blog = ranked.find((r) => r.domain === "example-blog.com")!;
+    expect(blog.examplePrompt).toBeNull();
+  });
+
+  it("cleanTopicPhrase strips junk slug tokens and bare numbers, nulls out an all-junk label", () => {
+    expect(cleanTopicPhrase("wiki chaharshanbe suri 2026")).toBe("chaharshanbe suri");
+    expect(cleanTopicPhrase("wiki 2026")).toBeNull();
+    expect(cleanTopicPhrase("")).toBeNull();
+    expect(cleanTopicPhrase(null)).toBeNull();
+    expect(cleanTopicPhrase("widgets")).toBe("widgets");
   });
 
   it("links outreach pipeline status by domain key without auto-sending anything", () => {
@@ -145,7 +179,7 @@ describe("rankSecondOrderDomains, ranking by citation frequency", () => {
     const ranked = rankSecondOrderDomains(rows);
     for (const r of ranked) {
       expect(r.suggestedAction).not.toMatch(/[–—]/);
-      expect(r.examplePrompt).not.toMatch(/[–—]/);
+      if (r.examplePrompt) expect(r.examplePrompt).not.toMatch(/[–—]/);
     }
   });
 });

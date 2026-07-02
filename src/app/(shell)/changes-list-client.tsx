@@ -33,16 +33,28 @@ const GOALS: { id: Goal; label: string }[] = [
   { id: "recover_traffic", label: "Recover traffic" }, { id: "ai_visibility", label: "AI visibility" }, { id: "new_pages", label: "New pages" },
 ];
 
-// State is communicated by TEXT (the chip label) + BORDER, never color alone (WCAG).
+// B2 (worklist fix batch) - the status CHIP shows one of only 4 display words, never the 8-word
+// internal-status vocabulary. "To do" = not yet prepared; "In progress" = Beacon or the operator
+// is actively moving it (ready to ship, awaiting the Wix edit, or verifying); "Measuring";
+// "Done" = a settled result. The precise underlying state is still available (used for the CTA
+// label and secondary text below), just never shown as its own status-pill word. State is
+// communicated by TEXT (the chip label) + BORDER, never color alone (WCAG).
 const STATUS_CHIP: Record<CanonicalChange["status"], { label: string; cls: string }> = {
   suggested: { label: "To do", cls: "border border-gray-200 bg-gray-100 text-gray-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300" },
-  ready: { label: "Ready", cls: "border border-sky-200 bg-sky-100 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300" },
-  apply: { label: "Apply in Wix", cls: "border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" },
-  verify: { label: "Verifying", cls: "border border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300" },
+  ready: { label: "In progress", cls: "border border-sky-200 bg-sky-100 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300" },
+  apply: { label: "In progress", cls: "border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" },
+  verify: { label: "In progress", cls: "border border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300" },
   measuring: { label: "Measuring", cls: "border border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" },
-  result: { label: "Result", cls: "border border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300" },
-  blocked: { label: "Wait", cls: "border border-gray-200 bg-gray-100 text-gray-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400" },
-  skipped: { label: "Skipped", cls: "border border-gray-200 bg-gray-100 text-gray-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500" },
+  result: { label: "Done", cls: "border border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300" },
+  blocked: { label: "To do", cls: "border border-gray-200 bg-gray-100 text-gray-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400" },
+  skipped: { label: "To do", cls: "border border-gray-200 bg-gray-100 text-gray-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500" },
+};
+// The precise sub-state, shown as small secondary text next to the chip ONLY for apply/verify
+// (that distinction adds real action info: "awaiting your Wix edit" vs "Beacon is confirming it
+// went live" - a bare "ready" or "suggested" needs no extra word beyond the chip itself).
+const STATUS_DETAIL: Partial<Record<CanonicalChange["status"], string>> = {
+  apply: "awaiting your Wix edit",
+  verify: "confirming it's live",
 };
 const EVIDENCE_CLS: Record<string, string> = { strong: "text-emerald-600 dark:text-emerald-400", directional: "text-amber-600 dark:text-amber-400", tracking: "text-gray-500 dark:text-neutral-400" };
 
@@ -76,13 +88,34 @@ function fmt(n: number | null | undefined): string {
   return formatMetricCompact(n);
 }
 
+// B9 (worklist fix batch) - a raw slug ("/persian-male-names") is not a page title. Whatever
+// upstream source produced it, the row must show a real title when one is available (the
+// move's target query/topic reads like actual words), and otherwise humanize the slug itself
+// rather than showing the bare path. The raw path stays as secondary text underneath.
+function looksLikeSlug(s: string): boolean {
+  const t = s.trim();
+  return (t.startsWith("/") || /^[a-z0-9]+(-[a-z0-9]+)+$/.test(t)) && !t.includes(" ");
+}
+function humanizeSlug(s: string): string {
+  return s.replace(/^\/+/, "").replace(/[-_]+/g, " ").trim();
+}
+function displayPageLabel(c: CanonicalChange, move: ChangesView["movesById"][string] | undefined): { title: string; secondary: string | null } {
+  if (!looksLikeSlug(c.pageLabel)) return { title: c.pageLabel, secondary: null };
+  const humanQuery = move?.query && !looksLikeSlug(move.query) ? move.query : null;
+  const title = humanQuery ?? humanizeSlug(c.pageLabel);
+  return { title, secondary: c.pageLabel !== title ? c.pageLabel : null };
+}
+
 function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesById"][string] | undefined; rank: number }) {
   const [open, setOpen] = useState(false);
   const chip = STATUS_CHIP[c.status] ?? STATUS_CHIP.suggested;
+  const statusDetail = STATUS_DETAIL[c.status];
   const isMeasure = c.status === "measuring" || c.status === "result";
-  const cta = isMeasure ? (c.status === "result" ? "View result" : "View measurement") : c.status === "apply" || c.status === "verify" ? "Apply" : "Review";
+  // B2 - "Apply in Wix" is the precise action, spoken as the BUTTON label (not a status pill).
+  const cta = isMeasure ? (c.status === "result" ? "View result" : "View measurement") : c.status === "apply" ? "Apply in Wix" : c.status === "verify" ? "Apply" : "Review";
   const panelId = `change-detail-${c.id}`;
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
+  const label = displayPageLabel(c, move);
   return (
     <div className={`rounded-lg border border-gray-100 bg-white dark:border-neutral-800 dark:bg-neutral-900 ${c.status === "blocked" ? "opacity-70" : ""}`}>
       <div className="flex items-center gap-3 px-3 py-2.5">
@@ -92,9 +125,11 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
               const fam = FAMILY_CHIP[c.changeFamily] ?? FAMILY_CHIP.other!;
               return <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${fam.cls}`}>{fam.label}</span>;
             })()}
-            <span className="min-w-0 break-words text-sm font-semibold text-gray-900 dark:text-neutral-100">{c.pageLabel}</span>
+            <span className="min-w-0 break-words text-sm font-semibold capitalize text-gray-900 dark:text-neutral-100" title={label.secondary ?? undefined}>{label.title}</span>
+            {label.secondary ? <span className="shrink-0 text-[10px] text-gray-400 dark:text-neutral-500">{label.secondary}</span> : null}
             {move?.sparkline && move.sparkline.length >= 5 ? <Sparkline points={move.sparkline} width={56} height={14} className="inline-block opacity-70" /> : null}
             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${chip.cls}`}>{chip.label}</span>
+            {statusDetail ? <span className="shrink-0 text-[10px] text-gray-400 dark:text-neutral-500">{statusDetail}</span> : null}
             {c.selectedForToday && <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300">Today</span>}
           </div>
           <div className="mt-0.5 break-words text-xs text-gray-500 dark:text-neutral-400">
@@ -111,11 +146,11 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400 dark:text-neutral-500">
             <span>{c.opportunityType}</span>
             {effort != null ? <span>~{effort} min</span> : null}
-            {fmt(c.upside) ? <span className="text-sky-600 dark:text-sky-400" title={`${formatMetric(c.upside)} searches a month at stake`}>{fmt(c.upside)}/mo at stake</span> : null}
+            {fmt(c.upside) ? <span className="text-sky-600 dark:text-sky-400" title={`${formatMetric(c.upside)} searches a month at stake`}>{fmt(c.upside)} searches/mo at stake</span> : null}
             {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600 dark:text-emerald-400">{c.expectedOutcome}</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500 dark:text-neutral-400"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
             {c.blockedReason ? <span className="inline-flex items-center gap-1 text-gray-400 dark:text-neutral-500" title={c.blockedReason}><Hourglass className="h-3.5 w-3.5 shrink-0" aria-hidden />wait</span> : null}
-            {c.qualityDecision === "flagged" ? <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={c.qualityNote ?? "Review before shipping"}><TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />review</span> : c.qualityDecision === "caution" ? <span className="text-amber-500 dark:text-amber-400" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
+            {c.qualityDecision === "flagged" ? <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={c.qualityNote ?? "Review before shipping"}><TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />Flagged</span> : c.qualityDecision === "caution" ? <span className="text-amber-500 dark:text-amber-400" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -263,6 +298,20 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       {s.protectedPages > 0 ? (
         <p className="text-[11px] text-gray-400 tabular-nums dark:text-neutral-500">
           {s.protectedPages} page{s.protectedPages === 1 ? " is" : "s are"} protected right now (mid-measurement or serving as comparisons). I will not suggest changes there until their results settle.
+        </p>
+      ) : null}
+      {/* B7 (worklist fix batch) - "Ready 0" with no reason reads as broken; say why. */}
+      {view.readyZeroHint ? (
+        <p className="text-[11px] text-gray-400 dark:text-neutral-500">
+          {view.readyZeroHint}
+          {view.readyZeroHint.includes("Wix pages are mapped") ? (
+            <>
+              {" "}
+              <Link href="/settings/connectors" className={`rounded-sm font-medium text-sky-600 underline underline-offset-2 hover:text-sky-800 dark:text-sky-400 ${FOCUS}`}>
+                Check your Wix connection →
+              </Link>
+            </>
+          ) : null}
         </p>
       ) : null}
       {/* List */}

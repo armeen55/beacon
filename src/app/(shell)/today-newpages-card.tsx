@@ -8,6 +8,7 @@ import { draftFullPageAction } from "./today-newpages-draft-actions";
 import type { NewPageOpportunity } from "./today-newpages-data";
 import { BriefButton } from "./diagnostics/profound-intelligence/brief-button";
 import type { AssembledDraftPage } from "@/domains/llm/draft-full-page";
+import { plainSchemaTypes, plainSerpReason } from "@/lib/plain-language";
 
 /**
  * today-newpages-card (2026-06-24) — interactive "New page to build" card. Adds an
@@ -52,7 +53,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           }),
         );
       } catch {
-        setSerp({ ok: false, reason: "Validation failed — try again." });
+        setSerp({ ok: false, reason: "Validation failed, try again." });
       }
     });
   };
@@ -115,7 +116,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
       `Opening:\n${b.opening}`,
       b.outline.length ? `\nOutline:\n${b.outline.map((s) => `- ${s}`).join("\n")}` : "",
       b.faqQuestions.length ? `\nFAQ:\n${b.faqQuestions.map((q) => `- ${q}`).join("\n")}` : "",
-      b.schemaTypes.length ? `\nSchema: ${b.schemaTypes.join(", ")}` : "",
+      b.schemaTypes.length ? `\nBehind-the-scenes labels AI reads: ${plainSchemaTypes(b.schemaTypes)}` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -198,10 +199,13 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           </p>
         ) : null}
         <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
+          {/* A7 (operator-experience fix batch, 2026-07-02) - the "get cited for this, you have
+              no page yet" sentence now lives once in the section subhead above; each card only
+              names its own count so the boilerplate stops repeating verbatim across cards. */}
           {o.competitorCount > 0 ? (
             <>
               <span className="font-medium text-gray-700">{o.competitorCount}</span> competitor page
-              {o.competitorCount === 1 ? "" : "s"} get cited for this — you have no page yet.
+              {o.competitorCount === 1 ? "" : "s"} cite this topic.
             </>
           ) : (
             <>There&apos;s demand for this and none of your pages covers it yet.</>
@@ -278,7 +282,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
                 : tone === "amber"
                   ? "border-amber-200 bg-amber-50/60"
                   : "border-gray-200 bg-gray-50";
-            const heading = ready ? "✦ Page brief ready" : needsReview ? "Brief drafted — needs review" : "Brief needs work";
+            const heading = ready ? "✦ Page brief ready" : needsReview ? "Brief drafted, needs review" : "Brief needs work";
             const headCls = tone === "emerald" ? "text-emerald-700" : tone === "amber" ? "text-amber-700" : "text-gray-500";
             return (
           <div className={`mt-2 rounded-lg border px-2.5 py-2 ${cls}`}>
@@ -294,7 +298,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
               <p className={`mt-0.5 text-[10px] ${tone === "amber" ? "text-amber-700" : "text-gray-500"}`}>{q.reasons[0]}</p>
             ) : null}
             {o.briefFromRelated ? (
-              <p className="mt-0.5 text-[10px] text-gray-400">Brief from a related topic in this group — adapt the title/slug.</p>
+              <p className="mt-0.5 text-[10px] text-gray-400">Brief from a related topic in this group, adapt the title/slug.</p>
             ) : null}
             <p className="mt-1 text-[11px] font-semibold leading-snug text-gray-900">{o.preparedBrief.title}</p>
             <p className="mt-0.5 text-[10px] leading-snug text-gray-500">{o.preparedBrief.meta}</p>
@@ -316,7 +320,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
               <p className="mt-1 text-[10px] text-gray-500">{o.preparedBrief.faqQuestions.length} FAQ question{o.preparedBrief.faqQuestions.length === 1 ? "" : "s"} drafted</p>
             ) : null}
             {o.preparedBrief.schemaTypes.length > 0 ? (
-              <p className="mt-0.5 text-[10px] text-gray-500">Schema: {o.preparedBrief.schemaTypes.join(", ")}</p>
+              <p className="mt-0.5 text-[10px] text-gray-500">Behind-the-scenes labels AI reads: {plainSchemaTypes(o.preparedBrief.schemaTypes)}</p>
             ) : null}
           </div>
             );
@@ -392,11 +396,12 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
                     ✓ Google checked{shown.prepared ? "" : " · just now"}
                   </span>
                 </div>
-                <p className="mt-1 text-[11px] leading-snug text-gray-700">{shown.reason}</p>
+                <p className="mt-1 text-[11px] leading-snug text-gray-700">{plainSerpReason(shown.reason)}</p>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-500">
                   <span>{shown.contentDomainCount}/10 content</span>
-                  {shown.marketplaceUgcCount > 0 ? <span>{shown.marketplaceUgcCount} marketplace</span> : null}
-                  {shown.profoundOverlapCount > 0 ? <span className="font-semibold text-emerald-700">{shown.profoundOverlapCount} AI-cited overlap</span> : null}
+                  {/* B10 (worklist fix batch) - plain labels, not unlabeled counts. */}
+                  {shown.marketplaceUgcCount > 0 ? <span>{shown.marketplaceUgcCount} shopping site{shown.marketplaceUgcCount === 1 ? "" : "s"} rank{shown.marketplaceUgcCount === 1 ? "s" : ""} here</span> : null}
+                  {shown.profoundOverlapCount > 0 ? <span className="font-semibold text-emerald-700">cited by AI alongside {shown.profoundOverlapCount} rival{shown.profoundOverlapCount === 1 ? "" : "s"}</span> : null}
                   {shown.ownAlreadyRanks ? <span className="font-semibold text-amber-700">you already rank</span> : null}
                 </div>
                 {shown.topDomains.length > 0 ? (
@@ -409,7 +414,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           <p className="mt-2 text-[10px] text-gray-400">{serp.reason}</p>
         ) : serp && serp.ok ? (
           <p className="mt-2 text-[10px] text-gray-400">
-            {serp.status === "dry_run" ? "Dry-run — set DATAFORSEO_DRY_RUN=false to validate live." : serp.status === "capped" ? "SERP budget cap reached." : serp.status === "disabled" ? "DataForSEO not connected." : "No SERP result."}
+            {serp.status === "dry_run" ? "Dry run, set DATAFORSEO_DRY_RUN=false to validate live." : serp.status === "capped" ? "SERP budget cap reached." : serp.status === "disabled" ? "DataForSEO not connected." : "No SERP result."}
           </p>
         ) : null}
         {/* Prefer the full create_page_brief over a standalone saved opening: when a
@@ -425,7 +430,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
               <div className="mt-2">
                 <div className="mb-1 flex items-center justify-between">
                   <span className={`text-[9px] font-semibold uppercase tracking-wide ${flagged ? "text-amber-600" : "text-violet-500"}`}>
-                    {flagged ? "Draft opening — needs review" : "Draft opening"}
+                    {flagged ? "Draft opening, needs review" : "Draft opening"}
                   </span>
                   {copyOk ? (
                     <button onClick={copy} className="rounded-md bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-violet-500">

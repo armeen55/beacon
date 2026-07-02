@@ -81,6 +81,9 @@ describe("buildCanonicalChanges — one identity per page+lever, no duplicates",
     const finglish = out.filter((c) => c.pagePath === "/finglish" && c.changeFamily === "answer");
     expect(finglish.length).toBe(1);
     expect(finglish[0].selectedForToday).toBe(true); // the plan item wins
+    // B1 - a plan item earns "strong" honestly: it has REAL reserved control pages
+    // (planItem() above reserves 3), unlike a bare suggestion with no comparison data.
+    expect(finglish[0].evidenceStrength).toBe("strong");
   });
   it("keeps genuinely different levers on the same page as separate changes", () => {
     const moves = [
@@ -165,16 +168,24 @@ describe("strategy ranking + goal filters", () => {
   const changes = buildCanonicalChanges({
     tenantId: "t", plan: null, reservations: [],
     moves: [
+      // B1 fix: a bare suggestion has no comparison data yet, so it is directional, not strong.
+      // "mature" is the one move here with a REAL settled proof (real comparison data) behind it.
       mv({ id: "big", targetUrl: "https://s.com/big", actionType: "edit_meta", score: 1000, demand: 50000 }),
+      mv({ id: "mature", targetUrl: "https://s.com/mature", actionType: "edit_meta", score: 700, proofStatus: "won", proofMaturity: "mature_result", proofLabel: "Helped" }),
       mv({ id: "new", targetUrl: "https://s.com/new", actionType: "create_new_page", actionTone: "page", score: 800, demand: 40000 }),
       mv({ id: "blocked", targetUrl: "https://s.com/blk", actionType: "edit_meta", score: 900, pageMeasuring: true }),
     ],
   });
-  it("clean tests excludes new pages + blocked, keeps only strong-comparison", () => {
+  it("a bare suggestion (no proof, no reserved controls) is directional, never decorated as strong", () => {
+    const big = changes.find((c) => c.id.includes("/big"))!;
+    expect(big.evidenceStrength).toBe("directional");
+  });
+  it("clean tests excludes new pages + blocked, keeps only real strong-comparison (a settled proof)", () => {
     const ranked = rankChanges(changes, "clean");
     expect(ranked.some((c) => c.changeFamily === "new_page")).toBe(false);
     expect(ranked.some((c) => c.status === "blocked")).toBe(false);
     expect(ranked.every((c) => c.evidenceStrength === "strong")).toBe(true);
+    expect(ranked.some((c) => c.id.includes("/mature"))).toBe(true);
   });
   it("growth keeps new pages (tracking evidence) but still sorts blocked last", () => {
     const ranked = rankChanges(changes, "growth");

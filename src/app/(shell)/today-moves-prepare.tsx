@@ -42,7 +42,7 @@ export function PrepareTopMovesButton({ readyCount, total }: { readyCount: numbe
         type="button"
         onClick={run}
         disabled={pending}
-        title="Prepare your top Moves end-to-end (specialist debate, structured draft, experiment, proof plan) so each arrives ready to review — capped + cached, re-runs are cheap"
+        title="Prepare your top Moves end-to-end (specialist debate, structured draft, experiment, proof plan) so each arrives ready to review. Capped and cached, so re-runs are cheap. Takes about a minute since it drafts with AI."
         className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-400 hover:bg-indigo-50 disabled:opacity-60"
       >
         {pending ? (
@@ -51,7 +51,7 @@ export function PrepareTopMovesButton({ readyCount, total }: { readyCount: numbe
             Preparing…
           </>
         ) : (
-          <>✦ Prepare my top 10{readyCount > 0 ? ` (${readyCount}/${total} ready)` : ""}</>
+          <>✦ Prepare my top 10 (takes a minute){readyCount > 0 ? ` (${readyCount}/${total} ready)` : ""}</>
         )}
       </button>
       {msg ? <span className="text-[11px] text-gray-500">{msg}</span> : null}

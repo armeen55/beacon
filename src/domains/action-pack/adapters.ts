@@ -211,7 +211,9 @@ function whyNotNoiseForMove(
   if (receipt) bits.push(`AI asks "${receipt.topPrompt}"${receipt.ownAbsent ? " (you absent)" : ""}`);
   if (competitors.length > 0) bits.push(`${competitors.length} competitor page${competitors.length === 1 ? "" : "s"} cited`);
   if (m.components.dollarValue > 0) bits.push(`$-signal ${Math.round(m.components.dollarValue)}`);
-  if (m.components.friction > 0) bits.push(`friction ${Math.round(m.components.friction)}`);
+  // B4 (worklist fix batch) - a naked friction number reads as jargon; only surface it as a
+  // plain label, and only above the same "meaningful friction" floor used elsewhere (15).
+  if (m.components.friction >= 15) bits.push("visitors get stuck here");
   return bits.length > 0 ? bits.join(" · ") : `${m.signals.join(" + ")} signal`;
 }
 

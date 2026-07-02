@@ -29,6 +29,7 @@ import { humanizeDebateLine } from "@/domains/demand-graph/debate-summary";
 import { teammateOf } from "@/domains/team/identity";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 import { dossierHref } from "@/lib/page-dossier-link";
+import { plainPageParts } from "@/lib/plain-language";
 
 /** every action reason renders through the shared translator so a raw code can never reach the operator. */
 const reasonCopy = (reason: string | null | undefined): string => failureForReason(reason).message;
@@ -346,7 +347,7 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
         {e.controls.length > 0 && (
           <div><span className="text-gray-400 dark:text-neutral-500">Compared against {e.controls.length} similar page{e.controls.length === 1 ? "" : "s"}: </span>{e.controls.map((c) => c.controlPath).join(", ")}</div>
         )}
-        <div><span className="text-gray-400 dark:text-neutral-500">Left untouched: </span>{e.leaveUnchanged.join(", ")}</div>
+        <div><span className="text-gray-400 dark:text-neutral-500">Left untouched: </span>{plainPageParts(e.leaveUnchanged)}</div>
         <div><span className="text-gray-400 dark:text-neutral-500">How I measure: </span>a first read about a week after it is live, confirmed again at two and four weeks.</div>
         {steps && <div><span className="text-gray-400 dark:text-neutral-500">Exact steps: </span>{steps}</div>}
       </div>
@@ -606,7 +607,12 @@ function ExecutionChecklistView({ checklist, sparklineByUrl, staging, wixEditorU
       ) : null}
       <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 tabular-nums dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
         <strong>Today’s changes.</strong> {s.active} live and tracking, {s.submitted} sent to Google, {s.left} left to apply.<br />
-        Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped.
+        {/* A10 (operator-experience fix batch, 2026-07-02) - once nothing is left to apply, the
+            "Apply each one in Wix..." instructions are nagging, not helpful. Say the done state
+            plainly instead. */}
+        {s.left > 0
+          ? "Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped."
+          : "All applied. I am watching the results."}
         {/* Item 15 - the quiet nudge: publishing is possible here but not armed yet. */}
         {staging && staging.wixTarget && !staging.armed && s.left > 0 ? (
           <div className="mt-1.5 text-[12px] font-normal text-emerald-800/80 dark:text-emerald-300/80">

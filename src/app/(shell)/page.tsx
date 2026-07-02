@@ -24,6 +24,7 @@ import { CircuitBreakerSection } from "./circuit-breaker-section";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { CoverageMapSection } from "./coverage-map-section";
 import { OpsPipelineSection } from "./ops-pipeline-section";
+import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { InvestigationSection } from "./investigation-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
@@ -126,10 +127,24 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const { today, daily } = composite;
   const tenantId = await currentTenantId();
 
+  // A1 (operator-experience fix batch, 2026-07-02) - read the pipeline health check once here
+  // so both the top-of-page alert AND the hero stat can react to a broken/stale data pipe. $0
+  // persisted read, fails soft to null (treated as healthy - never blocks the page).
+  const pipelineHealth = await readPipelineHealth(tenantId).catch(() => null);
+  const pipelineDegraded = Boolean(pipelineHealth && pipelineHealth.violations.length > 0);
+  const pipelineCheckedAt = pipelineHealth?.checked_at ?? null;
+
   // Items 7 + 8 - the ledger speaks in the header: the 14-day shipping streak, and on Mondays
   // a one-line recap of last week's outcomes. One cached ledger read; fail-soft to silence.
   const ledgerRows = await loadProofLedgerCached(tenantId).catch(() => []);
   const streak = shippedInLastDays(ledgerRows, Date.now());
+  // A2 (operator-experience fix batch, 2026-07-02) - THE canonical "measuring" count: the proof
+  // ledger's own verdict field. The team standup chip, the counts tile, and the measuring list
+  // heading all read this SAME number now instead of each computing their own (the standup used
+  // the ledger, the counts tile used a separately-derived CanonicalChange status - the two could
+  // disagree). The measuring list itself still shows its own capped rows, but says "showing N of
+  // M" against this canonical M.
+  const measuringCount = ledgerRows.filter((r) => r.verdict === "measuring").length;
 
   // Item 42: the assistant sets the scene like a person would.
   const nowPacific = new Date();
@@ -170,6 +185,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
   return (
     <div className="space-y-6">
+      {/* A1 (operator-experience fix batch, 2026-07-02) - the data-pipe alert moves to the very
+          TOP of the page when the pipeline is degraded or stale, above the hero and Tonight's
+          card, so a broken sync is never buried below numbers that look confident but aren't.
+          Self-hides when the pipe is healthy (readPipelineHealth returns null/no violations). */}
+      <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
       <PageHeader title={greeting} description={brief} />
       {recapSentence ? (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-emerald-900 tabular-nums">
@@ -193,18 +213,18 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           itself after consecutive losing batches or too many rollbacks. Mounted high
           (before the team standup) so a paused autopilot is the first thing seen. */}
       <Suspense fallback={null}><CircuitBreakerSection /></Suspense>
-      {/* Item 43: the team, at a glance - each teammate's one-line daily report. */}
-      <Suspense fallback={null}><TeamStandup tenantId={tenantId} picksTonight={picks} /></Suspense>
-      <TodayCounts counts={today.counts} />
+      {/* Item 43: the team, at a glance - each teammate's one-line daily report.
+          A2 - measuringCount is passed in so the Strategist chip agrees with the counts
+          tile and the measuring list below, all reading the ledger's own verdict count. */}
+      <Suspense fallback={null}><TeamStandup tenantId={tenantId} picksTonight={picks} measuringCount={measuringCount} /></Suspense>
+      <TodayCounts counts={today.counts} measuringCount={measuringCount} />
 
-      {/* Item 1-3: THE SCOREBOARD - the line you are trying to move, with your changes on it. */}
+      {/* Item 1-3: THE SCOREBOARD - the line you are trying to move, with your changes on it.
+          A1 - when the pipe is degraded, the citations stat below carries an honest
+          "numbers last updated <date>" suffix instead of reading as fresh. */}
       <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
-        <ScoreboardSection tenantId={tenantId} />
+        <ScoreboardSection tenantId={tenantId} stale={pipelineDegraded} staleCheckedAt={pipelineCheckedAt} />
       </Suspense>
-
-      {/* Item 10 - the Ops pipeline watchdog: red items naming the exact broken data-pipe
-          stage from last night's invariant check. $0 persisted read, self-hides when clean. */}
-      <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
 
       {/* Item 53 - overnight forensic investigation: when a page family's clicks
           collapsed hard, or a sitewide shift hit, last night's pass diagnosed the
@@ -216,7 +236,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {/* Tonight: the team's picks (the daily plan panel). */}
       {daily ? <DailyExperimentsSection view={daily} /> : null}
 
-      {today.measuring.length > 0 ? <MeasuringSection today={today} /> : null}
+      {today.measuring.length > 0 ? <MeasuringSection today={today} measuringCount={measuringCount} /> : null}
 
       {/* THE WAR ROOM (R3, 2026-07-01) - what the team found today, beyond tonight's picks.
           Each band is a live teammate's intelligence: visitor behavior (Clarity), AI crawlers +
@@ -254,11 +274,14 @@ function WarRoomCardSkeleton() {
   return <div aria-hidden className="block h-24 animate-pulse rounded-2xl border border-gray-100 bg-gray-50 dark:border-neutral-800 dark:bg-neutral-900" />;
 }
 
-function TodayCounts({ counts }: { counts: TodayView["counts"] }) {
+function TodayCounts({ counts, measuringCount }: { counts: TodayView["counts"]; measuringCount: number }) {
+  // A2 - the Measuring tile reads the SAME canonical (proof ledger) count as the team
+  // standup chip and the measuring list heading, instead of its own CanonicalChange-derived
+  // number, so the three widgets never disagree on how many changes are measuring.
   const tiles: { label: string; value: number; cls: string; show: boolean }[] = [
     { label: "Ready today", value: counts.readyToday, cls: "text-sky-700", show: counts.readyToday > 0 },
     { label: "Needs attention", value: counts.needsAttention, cls: "text-amber-700", show: counts.needsAttention > 0 },
-    { label: "Measuring", value: counts.measuring, cls: "text-emerald-700", show: counts.measuring > 0 },
+    { label: "Measuring", value: measuringCount, cls: "text-emerald-700", show: measuringCount > 0 },
     { label: "Results", value: counts.resultsAvailable, cls: "text-violet-700", show: counts.resultsAvailable > 0 },
   ].filter((t) => t.show);
   if (tiles.length === 0) return null;
@@ -288,7 +311,10 @@ function AttentionSection({ items }: { items: TodayView["attention"] }) {
   );
 }
 
-function MeasuringSection({ today }: { today: TodayView }) {
+function MeasuringSection({ today, measuringCount }: { today: TodayView; measuringCount: number }) {
+  // A2 - "Showing N of M" always uses the SAME canonical (proof ledger) M the standup chip
+  // and the counts tile use, so this section never quotes a different total than the rest
+  // of the page. The row list itself is unchanged (today.measuring, capped upstream).
   return (
     <section className="space-y-1.5" aria-label="Measuring">
       <div className="flex items-center justify-between gap-2">
@@ -310,8 +336,8 @@ function MeasuringSection({ today }: { today: TodayView }) {
           </div>
         ))}
       </div>
-      {today.counts.measuring > today.measuring.length ? (
-        <p className="text-[11px] text-gray-400">Showing {today.measuring.length} of {today.counts.measuring} measuring.</p>
+      {measuringCount > today.measuring.length ? (
+        <p className="text-[11px] text-gray-400">Showing {today.measuring.length} of {measuringCount} measuring.</p>
       ) : null}
     </section>
   );

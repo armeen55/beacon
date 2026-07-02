@@ -108,11 +108,28 @@ export function effortForFamily(family: string): number {
   return 5;
 }
 
-/** Expected measurement strength BEFORE application (a property of the change, not a workflow). */
+/**
+ * Measurement strength a lever FAMILY is capable of, once it is actually running with real
+ * comparison data (reserved control pages, or a live/mature proof record) attached. This is a
+ * ceiling, not a default. B1 fix: a bare suggestion must never borrow this label before any
+ * comparison data exists (see `defaultEvidenceStrength` below, used pre-selection).
+ */
 export function expectedEvidenceStrength(family: string): EvidenceStrength {
   if (NEW_PAGE_FAMILIES.has(family)) return "tracking"; // no clean before/after baseline
   if (family === "cro") return "directional"; // friction fixes rarely have clean controls
-  return "strong"; // single-page text levers get diff-in-diff controls
+  return "strong"; // single-page text levers CAN get diff-in-diff controls once selected
+}
+
+/**
+ * Evidence strength for a change that has NOT yet been selected into today's plan and has no
+ * proof record attached, i.e. a bare recommendation. No comparison/control data exists yet for
+ * these, so they must never show "Strong comparison" (that badge is decoration, not evidence,
+ * until Beacon actually reserves controls or starts measuring). Tracking-only families stay
+ * tracking; everything else reads as directional until it earns real comparison data.
+ */
+export function defaultEvidenceStrength(family: string): EvidenceStrength {
+  if (NEW_PAGE_FAMILIES.has(family)) return "tracking";
+  return "directional";
 }
 
 export type ProofSignal = "measuring" | "won" | "no_lift" | "no_clear_lift" | null | undefined;

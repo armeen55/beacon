@@ -6,7 +6,7 @@ export default function MethodologyPage() {
     <div className="max-w-3xl">
       <PageHeader
         title="How Beacon works"
-        description="Reference guide to Beacon's methodology, metrics, and evidence boundaries. Use this page to understand — or defend — any number Beacon shows you."
+        description="Reference guide to Beacon's methodology, metrics, and evidence boundaries. Use this page to understand or defend any number Beacon shows you."
       />
 
       {/* ── Section 1: How Beacon works ── */}
@@ -18,26 +18,26 @@ export default function MethodologyPage() {
         </p>
         <ol className="mt-3 space-y-2 text-sm text-muted-foreground leading-relaxed list-decimal pl-5">
           <li>
-            <span className="font-medium text-foreground">Findings</span> — what changed on your
+            <span className="font-medium text-foreground">Findings</span>: what changed on your
             site between consecutive crawls (title, meta, schema, FAQs, content, links).
           </li>
           <li>
-            <span className="font-medium text-foreground">Attribution</span> — which site changes
+            <span className="font-medium text-foreground">Attribution</span>: which site changes
             correlate with visibility shifts, based on timing, topic overlap, URL alignment, and
-            platform. This is correlation, not causation — no A/B test or holdout exists.
+            platform. This is correlation, not causation. No A/B test or holdout exists.
           </li>
           <li>
-            <span className="font-medium text-foreground">Market position</span> — your citation
+            <span className="font-medium text-foreground">Market position</span>: your citation
             share within the imported observation sample, compared to configured competitors. This is
             share-of-sample, not share-of-market.
           </li>
           <li>
-            <span className="font-medium text-foreground">Recommendations</span> — the
+            <span className="font-medium text-foreground">Recommendations</span>: the
             highest-leverage next step based on available evidence. A prioritized suggestion, not a
             guarantee of outcomes.
           </li>
           <li>
-            <span className="font-medium text-foreground">Local reviews</span> (optional) — enter
+            <span className="font-medium text-foreground">Local reviews</span> (optional): enter
             rows via Settings → Import (CSV/JSON) and/or optional{" "}
             <a href="#review-connectors" className="text-accent-primary font-medium hover:underline">
               Google and Yelp connectors
@@ -46,7 +46,7 @@ export default function MethodologyPage() {
             <Link href="/local" className="text-accent-primary font-medium hover:underline">
               Local presence
             </Link>{" "}
-            reflects what is in Beacon after those actions — not a continuous mirror of the
+            reflects what is in Beacon after those actions, not a continuous mirror of the
             platforms. See{" "}
             <a href="#review-source-timestamps" className="text-accent-primary font-medium hover:underline">
               Review source timestamps
@@ -56,7 +56,7 @@ export default function MethodologyPage() {
         </ol>
         <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
           Every metric in Beacon is bounded by the imported sample. When sample size is small,
-          coverage is partial, or data is stale, Beacon tells you — through freshness strips,
+          coverage is partial, or data is stale, Beacon tells you through freshness strips,
           coverage tone indicators, and sample quality labels. See{" "}
           <a href="#coverage-states" className="text-accent-primary font-medium hover:underline">
             Coverage states
@@ -65,7 +65,7 @@ export default function MethodologyPage() {
         </p>
         <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
           Surfaces are based on <span className="font-medium text-foreground">imported or synced</span>{" "}
-          inputs Beacon has stored — not continuous platform truth. See{" "}
+          inputs Beacon has stored, not continuous platform truth. See{" "}
           <a href="#boundaries" className="text-accent-primary font-medium hover:underline">
             What Beacon knows vs. doesn&rsquo;t know
           </a>
@@ -81,14 +81,14 @@ export default function MethodologyPage() {
           stores a lightweight <span className="font-medium text-foreground">readiness review</span>{" "}
           for Daily Ritual, Replication, and the <span className="font-medium text-foreground">Local layer</span>{" "}
           (the Local route, connectors, NAP, listing health, listing completeness, Today/Market local
-          strips). These fields record internal operator sign-off state — not performance. They{" "}
+          strips). These fields record internal operator sign-off state, not performance. They{" "}
           <span className="font-medium text-foreground">do not</span> change scores, findings, attribution,
           recommendations, proof logic, freshness labels, or underlying metrics. They only record a
           readiness judgment you choose to save.
         </p>
         <p className="mt-3 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
         <ul className="mt-1.5 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
-          <li>Whether your team actually shipped marketing or ops work — only what you record in Beacon.</li>
+          <li>Whether your team actually shipped marketing or ops work, only what you record in Beacon.</li>
           <li>Any automatic effect on scores, findings, freshness, or recommendations from these fields (there is none).</li>
         </ul>
       </section>
@@ -101,12 +101,12 @@ export default function MethodologyPage() {
           <p>
             &ldquo;Your Citation Share&rdquo; is the percentage of citations that mention your domain
             out of all citations in the imported observation set. The denominator is always shown
-            (&ldquo;of N observations&rdquo;). It is <em>directional</em> — a useful indicator of
+            (&ldquo;of N observations&rdquo;). It is <em>directional</em>, a useful indicator of
             relative position within your tracked sample, not a census of all AI-generated answers.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">How to read it</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Use Citation Share to compare yourself to competitors <em>inside the same imported window</em> — not as an absolute market position.
+            Use Citation Share to compare yourself to competitors <em>inside the same imported window</em>, not as an absolute market position.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
@@ -122,15 +122,15 @@ export default function MethodologyPage() {
           </p>
           <ul className="mt-1.5 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Limited</span> (&lt;200 observations) —
+              <span className="font-medium text-foreground">Limited</span> (&lt;200 observations):
               percentages are volatile; treat as an early signal.
             </li>
             <li>
-              <span className="font-medium text-foreground">Moderate</span> (200–1,000) — trend data
+              <span className="font-medium text-foreground">Moderate</span> (200 to 1,000): trend data
               is directional.
             </li>
             <li>
-              <span className="font-medium text-foreground">Strong</span> (&gt;1,000) — directional
+              <span className="font-medium text-foreground">Strong</span> (&gt;1,000): directional
               comparisons are meaningful.
             </li>
           </ul>
@@ -141,7 +141,7 @@ export default function MethodologyPage() {
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
             <li>Whether your prompt bank matches real-world demand.</li>
-            <li>Statistical confidence intervals — tiers are labels, not proofs.</li>
+            <li>Confidence tiers are labels, not proofs.</li>
           </ul>
         </MetricBlock>
 
@@ -149,7 +149,7 @@ export default function MethodologyPage() {
           <p>
             On Today and Market, Beacon shows a <span className="font-medium text-foreground">coverage</span>{" "}
             label derived only from crawl age (days since last completed website crawl), visibility
-            freshness vs crawl when available, and observation sample tier. States are discrete — no
+            freshness vs crawl when available, and observation sample tier. States are discrete, no
             blended scores and no predictive logic.
           </p>
           <p className="mt-2 font-medium text-foreground/90">
@@ -157,23 +157,23 @@ export default function MethodologyPage() {
           </p>
           <ul className="mt-2 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Fresh</span> — crawl age is at or below
+              <span className="font-medium text-foreground">Fresh</span>: crawl age is at or below
               70% of the stale threshold (strictly below the aging window lower bound).
             </li>
             <li>
-              <span className="font-medium text-foreground">Aging</span> — crawl age is between 70% and
+              <span className="font-medium text-foreground">Aging</span>: crawl age is between 70% and
               100% of the stale threshold (inclusive of the threshold day, exclusive of the lower bound).
             </li>
             <li>
-              <span className="font-medium text-foreground">Stale</span> — crawl age is past the stale
+              <span className="font-medium text-foreground">Stale</span>: crawl age is past the stale
               threshold, or visibility data is older than the crawl suggests.
             </li>
             <li>
-              <span className="font-medium text-foreground">Critical</span> — no crawl timestamp when
+              <span className="font-medium text-foreground">Critical</span>: no crawl timestamp when
               one is expected, or crawl age is more than twice the stale threshold.
             </li>
             <li>
-              <span className="font-medium text-foreground">Partial</span> — observation sample is in
+              <span className="font-medium text-foreground">Partial</span>: observation sample is in
               the &ldquo;limited&rdquo; tier; this takes precedence over crawl-age states.
             </li>
           </ul>
@@ -186,12 +186,12 @@ export default function MethodologyPage() {
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">How to read it</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Coverage states describe <span className="font-medium text-foreground">data freshness and sample size</span>{" "}
-            for Beacon&rsquo;s inputs — not how well the business is performing.
+            for Beacon&rsquo;s inputs, not how well the business is performing.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
             <li>Search-engine crawl or index timing outside what your Beacon crawl timestamps show.</li>
-            <li>Continuous platform state — labels update when imports and crawls complete, not as a continuous feed from Google, Yelp, or AI platforms.</li>
+            <li>Continuous platform state: labels update when imports and crawls complete, not as a continuous feed from Google, Yelp, or AI platforms.</li>
           </ul>
         </MetricBlock>
 
@@ -199,8 +199,8 @@ export default function MethodologyPage() {
           <p>
             When Beacon labels a change as the &ldquo;Closest match&rdquo; for a visibility
             shift, it means the change scored ≥70/100 on a composite of timing, topic, URL, platform,
-            and geo alignment. It does <em>not</em> mean the change caused the shift. Other factors —
-            algorithm updates, competitor actions, seasonal demand — could be responsible.
+            and geo alignment. It does <em>not</em> mean the change caused the shift. Other factors,
+            such as algorithm updates, competitor actions, or seasonal demand, could be responsible.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
@@ -215,32 +215,32 @@ export default function MethodologyPage() {
           </p>
           <ul className="mt-1.5 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Strong signal</span> — input signals
+              <span className="font-medium text-foreground">Strong signal</span>: input signals
               are solid (multiple matches, high confidence).
             </li>
             <li>
-              <span className="font-medium text-foreground">Signal detected</span> — supporting
+              <span className="font-medium text-foreground">Signal detected</span>: supporting
               signal exists but is not conclusive.
             </li>
             <li>
-              <span className="font-medium text-foreground">Early data</span> — limited data;
+              <span className="font-medium text-foreground">Early data</span>: limited data;
               treat as directional.
             </li>
           </ul>
           <p className="mt-1.5">
-            &ldquo;Strong signal&rdquo; means the inputs are strong — not that the recommended
+            &ldquo;Strong signal&rdquo; means the inputs are strong, not that the recommended
             action will definitely work.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
             <li>Whether a recommendation will produce the business outcome you want.</li>
-            <li>Outcome certainty — evidence quality is about inputs, not guarantees.</li>
+            <li>Outcome certainty: evidence quality is about inputs, not guarantees.</li>
           </ul>
         </MetricBlock>
 
         <MetricBlock id="listing-health" title="Listing health score">
           <p>
-            The listing health score (0–100) is a <em>completeness heuristic</em> based on
+            The listing health score (0 to 100) is a <em>completeness heuristic</em> based on
             configured business identity fields and stored review rows (manual import or connector
             sync). It is not a competitive audit, not a ranking claim, and not a verified consistency
             check against directory UIs.
@@ -248,50 +248,50 @@ export default function MethodologyPage() {
           <p className="mt-2">The score is a weighted sum of seven components:</p>
           <ul className="mt-1.5 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Domain configured</span> (25 pts) —
+              <span className="font-medium text-foreground">Domain configured</span> (25 pts):
               is a website domain set in Settings → Config?
             </li>
             <li>
-              <span className="font-medium text-foreground">Business name set</span> (15 pts) —
+              <span className="font-medium text-foreground">Business name set</span> (15 pts):
               is a name present?
             </li>
             <li>
-              <span className="font-medium text-foreground">Phone present</span> (10 pts) —
+              <span className="font-medium text-foreground">Phone present</span> (10 pts):
               is a phone number configured?
             </li>
             <li>
-              <span className="font-medium text-foreground">Address present</span> (10 pts) —
+              <span className="font-medium text-foreground">Address present</span> (10 pts):
               is a business address configured?
             </li>
             <li>
-              <span className="font-medium text-foreground">Review rows stored</span> (15 pts) —
+              <span className="font-medium text-foreground">Review rows stored</span> (15 pts):
               has at least one review row in Beacon (manual import or connector sync)?
             </li>
             <li>
-              <span className="font-medium text-foreground">Average rating</span> (15 pts) —
-              scaled: (rating / 5) × 15 — higher ratings earn more points.
+              <span className="font-medium text-foreground">Average rating</span> (15 pts):
+              scaled: (rating / 5) × 15, higher ratings earn more points.
             </li>
             <li>
-              <span className="font-medium text-foreground">Review freshness</span> (10 pts) —
+              <span className="font-medium text-foreground">Review freshness</span> (10 pts):
               10 if the latest manual import or connector observation is ≤ 30 days old, 5 if ≤ 90 days,
               0 if older or never observed (same clock used for Today/Market local surfacing).
             </li>
           </ul>
           <p className="mt-2">
-            The tier label (<em>Weak</em> &lt; 35, <em>OK</em> 35–64,{" "}
+            The tier label (<em>Weak</em> &lt; 35, <em>OK</em> 35 to 64,{" "}
             <em>Strong</em> ≥ 65) is derived from the composite score for at-a-glance use.
             These thresholds are heuristic, not empirically validated.
           </p>
           <p className="mt-2">
             NAP (Name, Address, Phone) completeness reflects what you have{" "}
-            <em>configured</em> in Beacon — not whether it matches what you see on Google Business Profile,
+            <em>configured</em> in Beacon, not whether it matches what you see on Google Business Profile,
             Yelp, or other directory listings. Beacon does not scrape or verify directory
             consistency in this phase.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">How to read it</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Treat the score as a checklist-style signal for configured identity plus whether review
-            rows exist in Beacon — not as proof of local pack rank or directory perfection.
+            rows exist in Beacon, not as proof of local pack rank or directory perfection.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
@@ -309,31 +309,31 @@ export default function MethodologyPage() {
             </Link>
             , <span className="font-medium text-foreground">Listing completeness</span> is a
             read-only checklist of whether Beacon has values for a small set of listing-related
-            fields — not a score, not an SEO grade, and not a comparison to competitors.
+            fields, not a score, not an SEO grade, and not a comparison to competitors.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Fields checked (v1)</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
             <li>
-              <span className="font-medium text-foreground">Business name</span> — Settings → Config
+              <span className="font-medium text-foreground">Business name</span>: Settings → Config
               name and/or the Google connector&apos;s selected location display name when present.
             </li>
             <li>
               <span className="font-medium text-foreground">Address</span> and{" "}
-              <span className="font-medium text-foreground">Phone</span> — from Settings → Config.
+              <span className="font-medium text-foreground">Phone</span>: from Settings → Config.
             </li>
             <li>
-              <span className="font-medium text-foreground">Website (domain)</span> — configured
+              <span className="font-medium text-foreground">Website (domain)</span>: configured
               website domain in Settings → Config.
             </li>
             <li>
-              <span className="font-medium text-foreground">Category (industry)</span> — the
+              <span className="font-medium text-foreground">Category (industry)</span>: the
               industry value stored in Settings → Config (used as the only category-like field
               Beacon holds without new imports).
             </li>
           </ul>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Not checked in v1</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Opening hours are not persisted from connectors in this version — Beacon does not show
+            Opening hours are not persisted from connectors in this version. Beacon does not show
             an hours row in this audit.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">How to read it</p>
@@ -341,7 +341,7 @@ export default function MethodologyPage() {
             Labels are <span className="font-medium text-foreground">strong</span> (most key fields
             present), <span className="font-medium text-foreground">partial</span> (some missing), or{" "}
             <span className="font-medium text-foreground">limited</span> (many missing). Use it to see
-            what is still empty in Beacon — then fill Config or run connector flows as you already
+            what is still empty in Beacon, then fill Config or run connector flows as you already
             do today.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
@@ -358,25 +358,25 @@ export default function MethodologyPage() {
             <Link href="/local" className="text-accent-primary font-medium hover:underline">
               Local presence
             </Link>{" "}
-            reflects data Beacon has — not a verified check against every external directory.
+            reflects data Beacon has, not a verified check against every external directory.
           </p>
           <ul className="mt-1.5 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Complete</span> — all required identity
+              <span className="font-medium text-foreground">Complete</span>: all required identity
               fields (name, domain, phone, address) are present and no conflicts detected between
               configured business name and imported listing records.
             </li>
             <li>
-              <span className="font-medium text-foreground">Incomplete</span> — one or more required
+              <span className="font-medium text-foreground">Incomplete</span>: one or more required
               NAP fields are missing from Settings → Config.
             </li>
             <li>
-              <span className="font-medium text-foreground">Inconsistent</span> — imported review
+              <span className="font-medium text-foreground">Inconsistent</span>: imported review
               listing names do not match the configured business name. This means stored data
-              disagrees on identity — not necessarily that external directories are wrong.
+              disagrees on identity, not necessarily that external directories are wrong.
             </li>
             <li>
-              <span className="font-medium text-foreground">Unknown</span> — not enough data to
+              <span className="font-medium text-foreground">Unknown</span>: not enough data to
               judge; typically because no website domain is configured.
             </li>
           </ul>
@@ -387,7 +387,7 @@ export default function MethodologyPage() {
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">How to read it</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Use the label to spot internal inconsistency between configured name and listing names on
-            review rows — then verify on the platforms yourself if needed.
+            review rows, then verify on the platforms yourself if needed.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
@@ -404,15 +404,15 @@ export default function MethodologyPage() {
             <a href="#review-connectors" className="text-accent-primary font-medium hover:underline">
               Google Business Profile and Yelp connectors
             </a>{" "}
-            (Settings → Connectors → Sync now). There is <span className="font-medium text-foreground">no automatic syncing</span>{" "}
-            — each source updates only when you trigger import or sync.
+            (Settings → Connectors → Sync now). There is <span className="font-medium text-foreground">no automatic syncing</span>.
+            Each source updates only when you trigger import or sync.
           </p>
           <p className="mt-2">
             Counts and averages on{" "}
             <Link href="/local" className="text-accent-primary font-medium hover:underline">
               Local presence
             </Link>{" "}
-            reflect rows stored in Beacon — not a claim about your full profile on Google or Yelp.
+            reflect rows stored in Beacon, not a claim about your full profile on Google or Yelp.
             Data may be incomplete or outdated relative to the platforms. Beacon does not estimate
             ratings or counts from other signals.
           </p>
@@ -422,7 +422,7 @@ export default function MethodologyPage() {
           </p>
           <p className="mt-2">
             The sentiment line (positive / mixed / concerning) is based <em>solely</em> on average
-            star rating across those stored rows — not review text analysis, NLP, or emotion
+            star rating across those stored rows, not review text analysis, NLP, or emotion
             detection.
           </p>
           <ul className="mt-2 list-disc pl-5 space-y-1">
@@ -434,7 +434,7 @@ export default function MethodologyPage() {
             </li>
             <li>
               Import-based surfacing (e.g. Today / Market) uses a single age signal derived from the
-              latest successful observation across manual import and connector syncs — while{" "}
+              latest successful observation across manual import and connector syncs, while{" "}
               <Link href="/local" className="text-accent-primary font-medium hover:underline">
                 Local presence
               </Link>{" "}
@@ -457,7 +457,7 @@ export default function MethodologyPage() {
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
-            <li>Full review coverage on Google or Yelp — only rows that reached Beacon.</li>
+            <li>Full review coverage on Google or Yelp, only rows that reached Beacon.</li>
             <li>Whether sentiment from text would differ from the average-rating line.</li>
           </ul>
         </MetricBlock>
@@ -473,7 +473,7 @@ export default function MethodologyPage() {
             <Link href="/local" className="text-accent-primary font-medium hover:underline">
               Local presence
             </Link>
-            : three independent lines — Google (connector token{" "}
+            : three independent lines: Google (connector token{" "}
             <span className="font-mono text-[11px]">last_synced_at</span> when present), Yelp (same),
             and manual Local reviews import (latest{" "}
             <span className="font-mono text-[11px]">ImportRun</span> with{" "}
@@ -513,26 +513,26 @@ export default function MethodologyPage() {
             &ldquo;Review monitoring&rdquo; in Beacon means: review rows you placed in Beacon (manual
             import and/or connector pulls) drive counts, averages, import-based surfacing, and simple
             average-rating sentiment. There is <span className="font-medium text-foreground">no automatic syncing</span>{" "}
-            and <span className="font-medium text-foreground">no continuous platform mirroring</span>{" "}
-            — updates happen when you import a file or run Sync now on a connector.
+            and <span className="font-medium text-foreground">no continuous platform mirroring</span>.
+            Updates happen when you import a file or run Sync now on a connector.
           </p>
 
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Supported sources (v1)</p>
           <ul className="mt-1 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Google Business Profile</span> — optional
+              <span className="font-medium text-foreground">Google Business Profile</span>: optional
               connector; read-only review pull when you run Sync now in Settings → Connectors.
             </li>
             <li>
-              <span className="font-medium text-foreground">Yelp</span> — optional connector; same on-demand
+              <span className="font-medium text-foreground">Yelp</span>: optional connector; same on-demand
               model.
             </li>
             <li>
-              <span className="font-medium text-foreground">Manual import</span> — CSV/JSON under Settings →
+              <span className="font-medium text-foreground">Manual import</span>: CSV/JSON under Settings →
               Import (Local reviews); baseline path; always available.
             </li>
             <li>
-              <span className="font-medium text-foreground">Other</span> — manual import only (no dedicated
+              <span className="font-medium text-foreground">Other</span>: manual import only (no dedicated
               connector for other sources in v1).
             </li>
           </ul>
@@ -546,7 +546,7 @@ export default function MethodologyPage() {
           </p>
           <p className="mt-1">
             <span className="font-medium text-foreground">Not in scope for v1:</span> scheduled or
-            background connector runs, polling, alerts, or SLAs — no dates or cadence promises until a
+            background connector runs, polling, alerts, or SLAs. No dates or cadence promises until a
             future spec explicitly adds them.
           </p>
 
@@ -554,7 +554,7 @@ export default function MethodologyPage() {
           <ul className="mt-1 list-disc pl-5 space-y-1">
             <li>Beacon only knows rows that reached it through import or sync.</li>
             <li>Empty data in Beacon does not mean you have no reviews on Google or Yelp.</li>
-            <li>Partial imports and partial API responses are partial truth — treat as a snapshot, not a census.</li>
+            <li>Partial imports and partial API responses are partial truth, treat as a snapshot, not a census.</li>
             <li>
               Even with connectors, Beacon may not reflect the full set of reviews on a platform (API
               coverage, moderation, and timing differ from the consumer site).
@@ -565,7 +565,7 @@ export default function MethodologyPage() {
           <p className="mt-1">
             Today and Market use one import-age signal: the latest successful observation across manual
             review imports and connector syncs (same 30-day threshold as elsewhere). That is a single
-            derived age for surfacing — not per-source on those routes. For how Beacon tracks freshness{" "}
+            derived age for surfacing, not per-source on those routes. For how Beacon tracks freshness{" "}
             <em>per source</em> on Local presence, see{" "}
             <a href="#review-source-timestamps" className="text-accent-primary font-medium hover:underline">
               Review source timestamps
@@ -630,36 +630,36 @@ export default function MethodologyPage() {
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Supported connectors</p>
           <ul className="mt-1 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Google Business Profile</span>{" "}
-              — OAuth 2.0, read-only review pull, Sync now only.
+              <span className="font-medium text-foreground">Google Business Profile</span>:{" "}
+              OAuth 2.0, read-only review pull, Sync now only.
             </li>
             <li>
-              <span className="font-medium text-foreground">Yelp</span>{" "}
-              — API key, read-only review pull, Sync now only.
+              <span className="font-medium text-foreground">Yelp</span>:{" "}
+              API key, read-only review pull, Sync now only.
             </li>
           </ul>
 
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Key principles</p>
           <ul className="mt-1 list-disc pl-5 space-y-1">
             <li>
-              Connectors are <span className="font-medium text-foreground">additive</span>{" "}
-              — manual import remains the baseline and fallback.
+              Connectors are <span className="font-medium text-foreground">additive</span>:{" "}
+              manual import remains the baseline and fallback.
             </li>
             <li>
-              <span className="font-medium text-foreground">Pull-only</span>{" "}
-              — Beacon reads reviews; it never writes, replies, or modifies anything on the platform.
+              <span className="font-medium text-foreground">Pull-only</span>:{" "}
+              Beacon reads reviews; it never writes, replies, or modifies anything on the platform.
             </li>
             <li>
-              <span className="font-medium text-foreground">Snapshot-based</span>{" "}
-              — each sync is a point-in-time fetch, not a standing connection to the platform.
+              <span className="font-medium text-foreground">Snapshot-based</span>:{" "}
+              each sync is a point-in-time fetch, not a standing connection to the platform.
             </li>
             <li>
-              <span className="font-medium text-foreground">No SLA</span>{" "}
-              — no promised sync frequency, no implied cadence, no uptime guarantees.
+              <span className="font-medium text-foreground">No SLA</span>:{" "}
+              no promised sync frequency, no implied cadence, no uptime guarantees.
             </li>
             <li>
-              <span className="font-medium text-foreground">Graceful failure</span>{" "}
-              — auth expiry, API downtime, or partial fetches preserve the last good snapshot.
+              <span className="font-medium text-foreground">Graceful failure</span>:{" "}
+              auth expiry, API downtime, or partial fetches preserve the last good snapshot.
             </li>
           </ul>
 
@@ -675,7 +675,7 @@ export default function MethodologyPage() {
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Operator-facing disclosures</p>
           <ul className="mt-1 list-disc pl-5 space-y-1">
             <li>Based on imported or synced data.</li>
-            <li>No automatic syncing — only when you run Sync now.</li>
+            <li>No automatic syncing, only when you run Sync now.</li>
             <li>May not reflect full platform data; counts can diverge from the consumer site.</li>
             <li>Each source updates independently (see Review source timestamps).</li>
             <li>Last synced reflects the most recent successful pull for that connector after authorization.</li>
@@ -693,33 +693,33 @@ export default function MethodologyPage() {
           </p>
           <ul className="mt-1.5 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Validated</span> — operator-confirmed or
+              <span className="font-medium text-foreground">Validated</span>: operator-confirmed or
               strong multi-event evidence. Does not mean proven ROI.
             </li>
             <li>
-              <span className="font-medium text-foreground">Partial</span> — some positive signal,
+              <span className="font-medium text-foreground">Partial</span>: some positive signal,
               not conclusive.
             </li>
             <li>
-              <span className="font-medium text-foreground">Inconclusive</span> — not enough evidence
+              <span className="font-medium text-foreground">Inconclusive</span>: not enough evidence
               to determine impact.
             </li>
             <li>
-              <span className="font-medium text-foreground">Too early</span> — change is recent; still
+              <span className="font-medium text-foreground">Too early</span>: change is recent; still
               building signal.
             </li>
             <li>
-              <span className="font-medium text-foreground">No impact</span> — no positive outcome
+              <span className="font-medium text-foreground">No impact</span>: no positive outcome
               events detected within the attribution window.
             </li>
             <li>
-              <span className="font-medium text-foreground">Negative</span> — visibility declined in
+              <span className="font-medium text-foreground">Negative</span>: visibility declined in
               the same observation window.
             </li>
           </ul>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">How to read it</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Verdicts summarize imported visibility outcomes and timing overlap in Beacon — useful for
+            Verdicts summarize imported visibility outcomes and timing overlap in Beacon, useful for
             prioritization, not proof of revenue, rank position, or causal impact.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
@@ -743,8 +743,8 @@ export default function MethodologyPage() {
               "Timing and topic overlap between changes and visibility shifts",
               "Competitor citation frequency within the same sample",
               "Data freshness and sample size",
-              "Review rows in Beacon (manual CSV/JSON import and/or on-demand Google or Yelp connector pulls) — as of last import or sync, not a continuous mirror of the platforms",
-              "NAP fields (name, domain, phone, address) configured in Settings → Config — not verified against external directory UIs",
+              "Review rows in Beacon (manual CSV/JSON import and/or on-demand Google or Yelp connector pulls), as of last import or sync, not a continuous mirror of the platforms",
+              "NAP fields (name, domain, phone, address) configured in Settings → Config, not verified against external directory UIs",
             ]}
           />
           <BoundaryCard
@@ -769,8 +769,8 @@ export default function MethodologyPage() {
               "Whether a recommendation will produce the expected outcome",
               "Whether stored reviews are complete vs your profile on Google, Yelp, or elsewhere",
               "Platform review counts or ratings as they appear on Google/Yelp without a fresh import or sync into Beacon",
-              "Automatic review ingestion, polling, or alert SLAs — v1 is manual import or on-demand Sync now only",
-              "Full platform review coverage, even with connectors — APIs may exclude pending or filtered reviews",
+              "Automatic review ingestion, polling, or alert SLAs. v1 is manual import or on-demand Sync now only",
+              "Full platform review coverage, even with connectors. APIs may exclude pending or filtered reviews",
             ]}
           />
         </div>
@@ -784,7 +784,7 @@ export default function MethodologyPage() {
           <p>
             Beacon surfaces the highest-leverage next step based on available evidence. The priority
             score blends impact confidence, evidence strength, pattern strength, replication
-            potential, urgency, and recency into a composite. This score reflects input quality — not
+            potential, urgency, and recency into a composite. This score reflects input quality, not
             outcome certainty.
           </p>
           <div className="rounded-lg border border-border/50 bg-surface-inset/15 px-4 py-3 space-y-2">
@@ -821,15 +821,15 @@ export default function MethodologyPage() {
         <div className="space-y-1">
           <FaqEntry
             question="How do you know this change caused anything?"
-            answer="Beacon does not know that. It identifies the closest match — the best-fit match between a site change and a visibility shift based on timing, topic overlap, URL alignment, and platform. This is correlation, not causation. No A/B test or holdout exists. The operator can manually confirm a link in Review, which is the strongest trust signal — but is still a correlational judgment."
+            answer="Beacon does not know that. It identifies the closest match, the best-fit match between a site change and a visibility shift based on timing, topic overlap, URL alignment, and platform. This is correlation, not causation. No A/B test or holdout exists. The operator can manually confirm a link in Review, which is the strongest trust signal, but is still a correlational judgment."
           />
           <FaqEntry
             question="Is &ldquo;Citation Share&rdquo; my actual market share?"
-            answer="No. Citation Share is your share within Beacon's imported observation sample. No AI visibility tool can measure total market share because no one has access to all AI queries. The denominator (observation count) is always shown. The scope line reads: &ldquo;Directional — based on your tracked prompt sample, not a market census.&rdquo;"
+            answer="No. Citation Share is your share within Beacon's imported observation sample. No AI visibility tool can measure total market share because no one has access to all AI queries. The denominator (observation count) is always shown. The scope line reads: &ldquo;Directional: based on your tracked prompt sample, not a market census.&rdquo;"
           />
           <FaqEntry
             question="Why is Beacon recommending this if it cannot guarantee outcomes?"
-            answer="Beacon recommends the highest-leverage next step based on available signals — not a guaranteed outcome. &ldquo;Strong signal&rdquo; means the input data is solid, not that the result is certain. The priority score blends impact confidence, signal strength, and pattern fit. It is a prioritized suggestion, not a guarantee."
+            answer="Beacon recommends the highest-leverage next step based on available signals, not a guaranteed outcome. &ldquo;Strong signal&rdquo; means the input data is solid, not that the result is certain. The priority score blends impact confidence, signal strength, and pattern fit. It is a prioritized suggestion, not a guarantee."
           />
           <FaqEntry
             question="What does &ldquo;sample quality: limited&rdquo; mean?"
@@ -837,11 +837,11 @@ export default function MethodologyPage() {
           />
           <FaqEntry
             question="What do Fresh, Aging, Stale, Critical, and Partial mean?"
-            answer="They are coverage labels for Beacon&rsquo;s own inputs (crawl age, visibility freshness vs crawl when available, and observation count tier) — not grades for business performance. Partial means the observation sample is in the limited tier and overrides crawl-age labels. Critical means crawl data is missing when expected or much older than the stale threshold. See methodology → Coverage states (data freshness)."
+            answer="They are coverage labels for Beacon&rsquo;s own inputs (crawl age, visibility freshness vs crawl when available, and observation count tier), not grades for business performance. Partial means the observation sample is in the limited tier and overrides crawl-age labels. Critical means crawl data is missing when expected or much older than the stale threshold. See methodology → Coverage states (data freshness)."
           />
           <FaqEntry
             question="Does Beacon update continuously from Google, Yelp, or AI platforms?"
-            answer="No. Visibility numbers come from imported observation rows and your last indexed crawl. Reviews enter Beacon only via manual import or on-demand connector Sync now. Labels refresh when those jobs complete — Beacon does not stream platform state."
+            answer="No. Visibility numbers come from imported observation rows and your last indexed crawl. Reviews enter Beacon only via manual import or on-demand connector Sync now. Labels refresh when those jobs complete. Beacon does not stream platform state."
           />
           <FaqEntry
             question="Does Beacon include every review from my Google or Yelp profile?"
@@ -849,19 +849,19 @@ export default function MethodologyPage() {
           />
           <FaqEntry
             question="What does &ldquo;Closest match&rdquo; actually mean?"
-            answer="It means this change is the best-fit match for this visibility shift based on timing, topic overlap, URL alignment, and platform — scoring ≥70 out of 100. It does not mean Beacon proved causation. Other unmeasured factors could be the actual cause."
+            answer="It means this change is the best-fit match for this visibility shift based on timing, topic overlap, URL alignment, and platform, scoring ≥70 out of 100. It does not mean Beacon proved causation. Other unmeasured factors could be the actual cause."
           />
           <FaqEntry
             question="How does Local presence get review counts and sentiment?"
-            answer="From review rows stored in Beacon: manual CSV/JSON under Settings → Import (Local reviews), and/or optional on-demand pulls via the Google Business Profile and Yelp connectors (Settings → Connectors → Sync now). There is no automatic syncing. The &ldquo;mostly positive / mixed / concerning&rdquo; line uses average star rating across those stored rows only — not NLP on review text. Counts describe what is in Beacon, not a completeness claim against the platforms."
+            answer="From review rows stored in Beacon: manual CSV/JSON under Settings → Import (Local reviews), and/or optional on-demand pulls via the Google Business Profile and Yelp connectors (Settings → Connectors → Sync now). There is no automatic syncing. The &ldquo;mostly positive / mixed / concerning&rdquo; line uses average star rating across those stored rows only, not NLP on review text. Counts describe what is in Beacon, not a completeness claim against the platforms."
           />
           <FaqEntry
             question="What does the listing health score measure?"
-            answer="It is a weighted completeness heuristic (0–100) based on how many identity fields you have configured (name, domain, phone, address) plus whether you have stored review rows, the average rating, and how fresh those observations are (manual import or connector sync). It does not compare you to competitors, does not verify your info against external directory UIs, and does not claim that a higher score improves ranking. The tier label (Weak / OK / Strong) is derived from the composite score."
+            answer="It is a weighted completeness heuristic (0 to 100) based on how many identity fields you have configured (name, domain, phone, address) plus whether you have stored review rows, the average rating, and how fresh those observations are (manual import or connector sync). It does not compare you to competitors, does not verify your info against external directory UIs, and does not claim that a higher score improves ranking. The tier label (Weak / OK / Strong) is derived from the composite score."
           />
           <FaqEntry
             question="Why don&rsquo;t review counts match Google or Yelp?"
-            answer="Beacon shows the rows stored after your last manual import or connector sync. Platforms change outside Beacon; APIs may omit some reviews; timing differs from what you see when browsing. A mismatch is expected and is not, by itself, a product defect — it reflects partial coverage, export or API limits, and when you last updated Beacon."
+            answer="Beacon shows the rows stored after your last manual import or connector sync. Platforms change outside Beacon; APIs may omit some reviews; timing differs from what you see when browsing. A mismatch is expected and is not, by itself, a product defect. It reflects partial coverage, export or API limits, and when you last updated Beacon."
           />
           <FaqEntry
             question="Does Beacon sync reviews automatically?"
@@ -873,7 +873,7 @@ export default function MethodologyPage() {
           />
           <FaqEntry
             question="Do reviews affect my rankings in Beacon?"
-            answer="Beacon does not model or score &ldquo;review impact on ranking.&rdquo; It does not claim that reviews cause citation or AI visibility changes. Review metrics here are descriptive for stored rows only — not causal attribution."
+            answer="Beacon does not model or score &ldquo;review impact on ranking.&rdquo; It does not claim that reviews cause citation or AI visibility changes. Review metrics here are descriptive for stored rows only, not causal attribution."
           />
           <FaqEntry
             question="How often does Beacon sync reviews from Google or Yelp?"
@@ -889,7 +889,7 @@ export default function MethodologyPage() {
           />
           <FaqEntry
             question="What happens if my Google or Yelp connection breaks?"
-            answer="Beacon preserves the last successfully synced review rows. Local presence (/local) shows per-source Last synced or Never synced for each connector, and Settings → Connectors shows connection status. The Today local attention strip does not surface connector auth status directly — it uses combined review-age, NAP, and health signals with the standard based-on-imported-or-synced footnote. Reconnect in Settings → Connectors or keep using manual import. No data is lost."
+            answer="Beacon preserves the last successfully synced review rows. Local presence (/local) shows per-source Last synced or Never synced for each connector, and Settings → Connectors shows connection status. The Today local attention strip does not surface connector auth status directly. It uses combined review-age, NAP, and health signals with the standard based-on-imported-or-synced footnote. Reconnect in Settings → Connectors or keep using manual import. No data is lost."
           />
         </div>
       </section>
@@ -918,7 +918,7 @@ export default function MethodologyPage() {
           </a>.
         </p>
         <p>
-          Beacon identifies the strongest correlates, not proven causes — no A/B test or holdout
+          Beacon identifies the strongest correlates, not proven causes. No A/B test or holdout
           exists. All percentages are share-of-sample, not share-of-market. Recommendations are
           prioritized suggestions; outcomes are not guaranteed.
         </p>

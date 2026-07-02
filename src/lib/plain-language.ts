@@ -177,6 +177,67 @@ export function plainTerm(key: string): string {
   return TERM_GLOSSARY[key]?.plain ?? key;
 }
 
+/** A6 (operator-experience fix batch, 2026-07-02) - schema.org type names shown raw on
+ *  Today's cards ("Schema: Article, FAQPage") read as code to a non-technical reader.
+ *  Plain label per type; unknown types pass through unchanged rather than disappearing. */
+export const SCHEMA_TYPE_PLAIN: Record<string, string> = {
+  Article: "Article",
+  NewsArticle: "News article",
+  BlogPosting: "Blog post",
+  FAQPage: "FAQ",
+  Product: "Product",
+  Offer: "Offer",
+  AggregateOffer: "Pricing",
+  Review: "Review",
+  AggregateRating: "Rating",
+  BreadcrumbList: "Breadcrumbs",
+  Organization: "Business info",
+  LocalBusiness: "Business info",
+  Person: "Person",
+  HowTo: "How-to steps",
+  Event: "Event",
+  VideoObject: "Video",
+  WebPage: "Page info",
+};
+
+/** "AI reads: Article, FAQPage" -> "AI reads: Article, FAQ". Renders the same plain
+ *  label list Today's cards use for the "Behind-the-scenes labels AI reads" line. */
+export function plainSchemaTypes(types: readonly string[]): string {
+  return types.map((t) => SCHEMA_TYPE_PLAIN[t] ?? t).join(", ");
+}
+
+/** A6 (operator-experience fix batch, 2026-07-02) - display-only rewrite of the SERP
+ *  validator's "Content-page SERP (5/10 editorial), out-buildable." reason sentence for
+ *  Today's New Pages cards. Domain logic (serp-validation.ts) is untouched; this only
+ *  reshapes its output string for a non-technical reader. Any sentence that doesn't
+ *  match the known shape passes through unchanged rather than being mangled. */
+export function plainSerpReason(reason: string): string {
+  const m = reason.match(/^Content-page SERP \((\d+)\/(\d+) editorial\), out-buildable\.$/);
+  if (!m) return reason;
+  const [, editorial, total] = m;
+  return `Google's results here: ${editorial} of the top ${total} are articles, which you can compete with.`;
+}
+
+/** A6 (operator-experience fix batch, 2026-07-02) - the "Left untouched" list on Today's
+ *  change cards named raw page-part identifiers ("title, H1, other body text, internal
+ *  links, schema"). Plain label per part; "schema" is dropped since it is not a part of
+ *  the page a non-technical reader edits directly. Unknown parts pass through unchanged. */
+const PAGE_PART_PLAIN: Record<string, string | null> = {
+  title: "title",
+  meta: "meta description",
+  H1: "main heading",
+  "other body text": "body text",
+  "internal links": "links between your pages",
+  schema: null,
+};
+
+export function plainPageParts(parts: readonly string[]): string {
+  return parts
+    .map((p) => (p in PAGE_PART_PLAIN ? PAGE_PART_PLAIN[p] : p))
+    .filter((p): p is string => Boolean(p))
+    .join(", ");
+}
+
 // ---------------------------------------------------------------------------
 // 3. Brand + headline copy used across the shell (audit: wordmark, nav).
 // ---------------------------------------------------------------------------

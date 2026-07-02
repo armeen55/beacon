@@ -31,9 +31,12 @@ export async function TodayNewPagesSection({ enableAeoBrief = false, limit }: { 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-gray-900">New pages to build</h2>
+          {/* A7 (operator-experience fix batch, 2026-07-02) - "competitor pages get cited for
+              this, you have no page yet" used to repeat verbatim on every card below. Said once
+              here for the whole board; each card now only names its own competitor count. */}
           <p className="mt-1 max-w-xl text-sm text-gray-500">
-            Topics competitors own that you have no page for — the fastest way to capture demand AI and
-            Google are already sending elsewhere.
+            Competitor pages get cited for these topics, and you have no page yet. The fastest way to
+            capture demand AI and Google are already sending elsewhere.
           </p>
         </div>
         <div className="flex items-start gap-2">

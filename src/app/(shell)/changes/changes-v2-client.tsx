@@ -383,7 +383,7 @@ function ChangesV2EmptyState({ proofLedgerCount }: { proofLedgerCount: number })
       </p>
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
         {hasTracked
-          ? `Those are the experiments you shipped, each measuring against comparable pages. This timeline adds a row automatically when Beacon's next scan confirms an accepted recommendation went live on your site.`
+          ? `Those are the changes you shipped, each measuring against comparable pages. This timeline adds a row automatically when Beacon's next scan confirms an accepted recommendation went live on your site.`
           : "Once you approve a change and it goes live on your site, it will show up here so you can see if it worked."}
       </p>
     </div>

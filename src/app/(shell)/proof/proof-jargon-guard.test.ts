@@ -23,6 +23,11 @@ const FILES = [
   "proof-summary-section.tsx",
   "forecast-calibration-section.tsx",
   "../../../domains/experiments/forecast-receipts.ts",
+  // Item C6 - the Results page embeds ResultsTimeline -> ChangesV2Client, so its
+  // empty-state copy ("Those are the changes you shipped...") is operator-visible
+  // on /proof too. Guarded here so a future "experiment" word regression on this
+  // file fails loudly instead of quietly reappearing on a page it wasn't written for.
+  "../changes/changes-v2-client.tsx",
 ] as const;
 
 /** Never allowed in visible text (word boundary, case-insensitive). */

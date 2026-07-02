@@ -39,8 +39,9 @@ async function ChangesSection() {
   }
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-gray-500">Everything to do, ranked. Pick a strategy and work top-down, and Beacon measures each change after you ship it.</p>
+      {/* B6 (worklist fix batch) - the page header already says what this list is; a second,
+          near-identical subtitle here was redundant. Keep just the action row. */}
+      <div className="flex items-center justify-end gap-3">
         <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-start">
           <RegenerateFromTeardownButton />
           <EnrichResearchButton />

@@ -330,10 +330,11 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
   // off-topic must NOT show "Prepared". Only a quality-ready draft earns the green pill.
   const q = m.preparedQuality;
   const qualityHidesReady = q && q.status !== "ready";
+  // B2 (worklist fix batch) - at most ONE quality pill word ("Needs review"). The precise
+  // reason (generic / off-topic / too thin) stays in the expanded detail text below
+  // (q.reasons[0]), not as its own list-level pill vocabulary word.
   const preparedPill: { label: string; cls: string } | null = qualityHidesReady
-    ? q!.status === "useful_but_needs_review"
-      ? { label: "Needs review", cls: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900" }
-      : { label: q!.status === "generic_rejected" ? "Generic draft" : q!.status === "relevance_rejected" ? "Topic mismatch" : q!.status === "too_thin" ? "Too thin" : "Needs work", cls: "bg-gray-100 text-gray-500 ring-gray-200 dark:bg-neutral-800 dark:text-neutral-400 dark:ring-neutral-700" }
+    ? { label: "Needs review", cls: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900" }
     : m.preparedStatus === "ready_to_review" || m.preparedStatus === "draft_ready" || m.preparedStatus === "proof_ready"
       ? { label: "Prepared", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900" }
       : m.preparedStatus === "failed"
