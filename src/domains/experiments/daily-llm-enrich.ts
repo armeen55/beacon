@@ -20,6 +20,10 @@ export type MetaTitleDrafter = (input: {
   field: "meta" | "title";
   currentValue: string | null;
   intent?: string;
+  /** BEACON_500 item 48: the candidate's page url, so the drafter can look up the page's
+   *  own cached crawl facts (title/h1/meta/body) and ground the rewrite in them. Optional -
+   *  a caller that omits it just gets an ungrounded outline, never an error. */
+  url?: string;
 }) => Promise<{ text: string; rationale: string } | null>;
 
 /**
@@ -38,7 +42,7 @@ export async function enrichDailyCandidatesWithLlm(
       const currentValue = c.currentText && c.currentText !== "(none)" ? c.currentText : null;
       let res: Awaited<ReturnType<MetaTitleDrafter>> = null;
       try {
-        res = await draft({ query: c.targetQuery, pageLabel: c.pageLabel, field: c.leverField, currentValue, intent: intentByUrl.get(c.url) });
+        res = await draft({ query: c.targetQuery, pageLabel: c.pageLabel, field: c.leverField, currentValue, intent: intentByUrl.get(c.url), url: c.url });
       } catch {
         res = null; // fail soft -> keep the deterministic proposal
       }

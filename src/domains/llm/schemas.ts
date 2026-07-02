@@ -234,6 +234,35 @@ export const BatchAdjudicationSchema = z.object({
 });
 export type BatchAdjudication = z.infer<typeof BatchAdjudicationSchema>;
 
+// ── strategy review (BEACON 500 item 51 - the weekly reallocation memo) ───────
+// One Sunday-night LLM pass over the week's settled dossier proposes a lever mix
+// (relative weight per actionFamily) and up to 3 page-family focus targets for the
+// COMING week, plus a short signed memo explaining the change. The LLM PROPOSES;
+// the caller (apply-mix.ts / run-strategy-review.ts) deterministically CLAMPS every
+// weight to [0.5, 2.0], drops any family it does not recognize, and strips dashes.
+// A failure here means no change this week (fail-open to the previous mix) - this
+// schema only bounds the SHAPE, never the trust decision.
+
+export const StrategyLeverWeightSchema = z.object({
+  family: z.string().min(1).max(40),
+  weight: z.number().min(0).max(10),
+  reason: z.string().min(1).max(140),
+});
+
+export const StrategyFocusFamilySchema = z.object({
+  family: z.string().min(1).max(60),
+  reason: z.string().min(1).max(160),
+});
+
+export const StrategyReviewSchema = z.object({
+  leverMix: z.array(StrategyLeverWeightSchema).min(1).max(12),
+  focusFamilies: z.array(StrategyFocusFamilySchema).max(3).default([]),
+  /** The signed memo, plain business English, <= 900 chars. */
+  memo: z.string().min(20).max(900),
+  confidence: ConfidenceSchema,
+});
+export type StrategyReview = z.infer<typeof StrategyReviewSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -247,7 +276,8 @@ export type StructuredDraftKind =
   | "experiment_plan"
   | "aeo_prompt_brief"
   | "team_verdict"
-  | "batch_adjudication";
+  | "batch_adjudication"
+  | "strategy_review";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -261,6 +291,7 @@ export const SCHEMA_BY_KIND = {
   aeo_prompt_brief: AeoPromptBriefSchema,
   team_verdict: TeamVerdictSchema,
   batch_adjudication: BatchAdjudicationSchema,
+  strategy_review: StrategyReviewSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 /** Every string field in a parsed draft, flattened — fed to the content firewalls

@@ -4,6 +4,7 @@ import {
   CreatePageBriefSchema,
   ProofPlanSchema,
   ExperimentPlanSchema,
+  StrategyReviewSchema,
   SCHEMA_BY_KIND,
   draftStringValues,
   type StructuredDraftKind,
@@ -105,10 +106,58 @@ describe("SCHEMA_BY_KIND registry", () => {
       "cro_fix",
       "experiment_plan",
       "internal_link",
+      "strategy_review", // BEACON 500 item 51: the weekly strategy review's lever mix + memo
       "team_verdict", // FINAL PREMIUM PLAN item 25: the strategist's grounded verdict per nightly pick
       "tool_asset",
     ];
     expect(kinds).toEqual(expected.sort());
+  });
+});
+
+describe("StrategyReviewSchema (BEACON 500 item 51)", () => {
+  const valid = {
+    leverMix: [{ family: "answer", weight: 1.4, reason: "won 3 of 4 this week" }],
+    focusFamilies: [{ family: "iran-flags", reason: "9x its detection floor" }],
+    memo: "I am leaning into answer blocks this week because they won 3 of 4. I am easing off pure title changes, which went 0 of 3.",
+    confidence: "medium",
+  };
+
+  it("accepts a valid proposal", () => {
+    expect(StrategyReviewSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("requires at least one leverMix entry", () => {
+    expect(StrategyReviewSchema.safeParse({ ...valid, leverMix: [] }).success).toBe(false);
+  });
+
+  it("defaults focusFamilies to [] when omitted", () => {
+    const { focusFamilies: _omit, ...rest } = valid;
+    const r = StrategyReviewSchema.safeParse(rest);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.focusFamilies).toEqual([]);
+  });
+
+  it("caps focusFamilies at 3", () => {
+    const tooMany = { ...valid, focusFamilies: [0, 1, 2, 3].map((i) => ({ family: `f${i}`, reason: "x" })) };
+    expect(StrategyReviewSchema.safeParse(tooMany).success).toBe(false);
+  });
+
+  it("rejects a memo longer than 900 chars", () => {
+    expect(StrategyReviewSchema.safeParse({ ...valid, memo: "x".repeat(901) }).success).toBe(false);
+  });
+
+  it("rejects a lever reason longer than 140 chars", () => {
+    const bad = { ...valid, leverMix: [{ family: "answer", weight: 1.2, reason: "x".repeat(141) }] };
+    expect(StrategyReviewSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("rejects an invalid confidence value", () => {
+    expect(StrategyReviewSchema.safeParse({ ...valid, confidence: "certain" }).success).toBe(false);
+  });
+
+  it("rejects a weight above the schema's own sanity ceiling (10)", () => {
+    const bad = { ...valid, leverMix: [{ family: "answer", weight: 11, reason: "x" }] };
+    expect(StrategyReviewSchema.safeParse(bad).success).toBe(false);
   });
 });
 

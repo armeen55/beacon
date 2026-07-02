@@ -69,4 +69,11 @@ describe("enrichDailyCandidatesWithLlm — LLM 'write it' pass (D-1, drop-in fie
     await enrichDailyCandidatesWithLlm([c], im, async ({ intent }) => { seen = intent; return { text: "Chaharshanbe Suri 2026 date", rationale: "date intent" }; });
     expect(seen).toBe("when");
   });
+
+  it("passes the page's url to the drafter (item 48 - so the caller can ground the outline)", async () => {
+    const c = mk({ url: "https://s.com/wedding", leverField: "meta" });
+    let seenUrl: string | undefined;
+    await enrichDailyCandidatesWithLlm([c], intents, async ({ url }) => { seenUrl = url; return { text: "New meta description text.", rationale: "r" }; });
+    expect(seenUrl).toBe("https://s.com/wedding");
+  });
 });

@@ -118,7 +118,7 @@
 - [ ] 112 [W3][P1/S] Every evidence line carries its source + age: "GSC, read 2h ago" / "live Google
 - [ ] 113 [W3][P1/S] Every claim clickable: query names link to the GSC UI filtered view (or dossier),
 - [ ] 114 [W3][P2/S] A "why should I trust this" page (one static, beautiful explainer of the method:
-- [ ] 115 [W3][P1/S] Honest degradation everywhere: when a teammate's auth is dead (GSC token refresh is
+- [x] 115 [W3][P1/S] Honest degradation everywhere: when a teammate's auth is dead (GSC token refresh is
 - [ ] 116 [W3][P2/S] Kill silent successes: every server action returns a one-line receipt the UI shows
 - [ ] 117 [W3][P1/S] Name the product's own limits: pages with thin evidence say "The team does not have
 - [ ] 118 [W3][P2/S] Session memory of the operator's taste: when the operator edits a paste text before

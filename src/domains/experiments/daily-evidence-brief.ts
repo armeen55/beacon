@@ -81,6 +81,36 @@ export type EvidenceFamilyWin = {
   sentence: string;
 };
 
+/** Item 46 (CARRY-OVER 115): honest degradation - one of the voices that argued for this pick was
+ *  reading from a stale or dead data source, so the "how we know" brief says so plainly instead of
+ *  presenting every number as equally live. Absent when every voice's source was fresh (or had no
+ *  known freshness claim) - honest silence, never a manufactured caveat. */
+export type EvidenceStaleSource = {
+  /** The teammate short name whose source was degraded (e.g. "Demand"). */
+  teammate: string;
+  /** "stale" or "dead" - never "fresh" (a fresh source never produces this note). */
+  status: "stale" | "dead";
+  /** The plain first-person sentence, reused verbatim from source-freshness.ts. */
+  sentence: string;
+};
+
+/** Item 50: the retrieval twin's "who wins the answer race" verdict for one of this page's
+ *  target questions - absent unless an operator has run "Check who wins the answer race" for
+ *  this tenant (honest silence otherwise, never a guessed rank). */
+export type EvidenceRetrieval = {
+  /** The question this ranking is for. */
+  question: string;
+  /** 1-based rank of the page's own best-matching indexed passage, or null when the page has
+   *  nothing indexed for this question yet. */
+  ownBestRank: number | null;
+  totalCandidates: number;
+  /** The domain currently beating this page for the question, or null when the page already
+   *  holds rank 1 (nothing to beat) or there are no candidates at all. */
+  beatDomain: string | null;
+  /** One first-person, plain-business sentence, reused verbatim from citation-likelihood.ts. */
+  sentence: string;
+};
+
 export type DailyEvidenceBrief = {
   /** The page's top searches with whatever cached demand we have (best-first). */
   keywords: EvidenceKeyword[];
@@ -96,7 +126,58 @@ export type DailyEvidenceBrief = {
   /** Item 29: this exact lever already won on a sibling page this family - absent otherwise
    *  (honest silence, never a fabricated "proven" claim). */
   familyWin?: EvidenceFamilyWin;
+  /** Item 46: at least one voice behind this pick was reading from a stale or dead source -
+   *  absent when every voice's source was fresh. Bounded to ONE note (the worst-affected voice),
+   *  same "don't flood the card" posture as every other evidence section here. */
+  staleSource?: EvidenceStaleSource;
+  /** Item 50: the retrieval-twin's answer-race verdict for this page's best-matching question -
+   *  absent until an operator runs the bounded index + report (honest silence otherwise). */
+  retrieval?: EvidenceRetrieval;
 };
+
+/**
+ * Item 50: turn a citation-likelihood report's first question (best-evidence-first: fanout
+ * beats GSC fallback, so the report's own ordering already reflects that) into the daily
+ * card's evidence line. Pure - no I/O, the caller already ran the retrieval report. Returns
+ * null when the report has no questions (nothing indexed / no target question yet) - honest
+ * silence, never a fabricated ranking.
+ */
+export function buildRetrievalEvidence(
+  report: { questions: ReadonlyArray<{ question: string; ownBestRank: number | null; totalCandidates: number; passageToBeat: { domain: string } | null; sentence: string }> } | null | undefined,
+): EvidenceRetrieval | null {
+  const first = report?.questions?.[0];
+  if (!first) return null;
+  return {
+    question: first.question,
+    ownBestRank: first.ownBestRank,
+    totalCandidates: first.totalCandidates,
+    beatDomain: first.passageToBeat?.domain ?? null,
+    sentence: first.sentence,
+  };
+}
+
+/**
+ * Item 46 (CARRY-OVER 115): pick the worst-affected teammate's freshness note for this evidence
+ * brief, from the caller's per-teammate freshness map + the list of teammate keys that actually
+ * argued this pick (team-review's voices, mapped to specialist ids). Pure. Dead outranks stale
+ * (a broken connection is worse than an old one); ties break on the order teammates appear in
+ * `specialistKeys` (stable, so the same pick always names the same voice). Returns null when no
+ * voice's source is degraded - honest silence, never a manufactured caveat.
+ */
+export function buildStaleSourceNote(
+  specialistKeys: readonly string[],
+  freshnessByTeammate: ReadonlyMap<string, { status: "fresh" | "stale" | "dead"; sentence: string }>,
+  teammateLabel: (key: string) => string,
+): EvidenceStaleSource | null {
+  const degraded = specialistKeys
+    .map((key) => ({ key, fresh: freshnessByTeammate.get(key) }))
+    .filter((x): x is { key: string; fresh: { status: "stale" | "dead"; sentence: string } } =>
+      x.fresh != null && x.fresh.status !== "fresh",
+    );
+  if (degraded.length === 0) return null;
+  const worst = degraded.find((d) => d.fresh.status === "dead") ?? degraded[0]!;
+  return { teammate: teammateLabel(worst.key), status: worst.fresh.status, sentence: worst.fresh.sentence };
+}
 
 export type CachedDemand = {
   volume: number | null;

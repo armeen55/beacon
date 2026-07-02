@@ -28,7 +28,7 @@ import { readCachedSerpPatterns, enrichPickSerpPatterns } from "@/domains/serp/r
 import type { SerpPattern } from "@/domains/serp/research-enrichment";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import {
-  buildKeywordBrief, buildSerpEvidence, buildCompetitorEvidence, buildRankMovementSentence,
+  buildKeywordBrief, buildSerpEvidence, buildCompetitorEvidence, buildRankMovementSentence, buildStaleSourceNote,
   type CachedDemand, type SerpPatternLite, type EvidenceCompetitor, type DailyEvidenceBrief,
 } from "./daily-evidence-brief";
 import { rankDelta, loadFeatureStealCandidates } from "@/domains/serp/serp-history";
@@ -53,10 +53,61 @@ import { summarizeForecastCalibration } from "./forecast-calibration";
 import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { forecastRange } from "./pick-expectations";
 import { computeMde, estimateNoiseCv, assessPower } from "./power-analysis";
+import { loadTeammateFreshness } from "@/domains/team/source-freshness";
+import { teammateOf } from "@/domains/team/identity";
+import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
+import { clampStrategyMix } from "@/domains/strategy-review/apply-mix";
+import { KNOWN_ACTION_FAMILIES } from "@/domains/strategy-review/run-strategy-review";
+import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
+import { computeDimPriors, resolvePrior, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
 const labelOf = (u: string) => (pathOf(u).split("/").filter(Boolean).at(-1) ?? "").replace(/[-_]+/g, " ");
+
+/** Item 51 (weekly strategy review) - read the latest signed mix (if any, if fresh) and
+ *  compose its per-family weight multiplicatively onto teamScoreMultiplier, the SAME
+ *  composable slot item 29's family-win boost and R1's team debate already share. Attaches
+ *  `strategyMixTag` for the card's "this week's plan leans into..." line. Absent mix, stale
+ *  mix (not this-or-next week), or a neutral 1.0 weight for this family are all identical to
+ *  doing nothing - additive-only, $0, fail-soft (a read error just skips the mix). */
+async function applyWeeklyStrategyMixToCandidates(candidates: BuiltCandidate[], tenantId: string): Promise<void> {
+  const latest = await loadLatestStrategyMix(tenantId);
+  if (!latest) return;
+  const clamped = clampStrategyMix(latest.leverMix, new Set<string>(KNOWN_ACTION_FAMILIES));
+  if (clamped.size === 0) return;
+  for (const c of candidates) {
+    const hit = clamped.get((c.actionFamily ?? "").toLowerCase());
+    if (!hit || hit.weight === 1) continue;
+    c.teamScoreMultiplier = (c.teamScoreMultiplier ?? 1) * hit.weight;
+    c.strategyMixTag = { family: c.actionFamily, weight: hit.weight, reason: hit.reason };
+  }
+}
+
+/** BEACON_500 item 48 - ground the title/meta rewrite LLM in the page it is actually editing.
+ *  Turns the page's own cached crawl facts (title/h1/meta + the first few body paragraphs)
+ *  into the drafter's `outline` array, bounded to ~1500 chars total so a long page never blows
+ *  the prompt budget. Empty-safe: no snapshot (or no facts at all) returns []. Pure, no I/O. */
+const OUTLINE_CHAR_BUDGET = 1500;
+export function buildOutlineFromFacts(facts: PageFacts | undefined | null): string[] {
+  if (!facts) return [];
+  const lines: string[] = [];
+  if (facts.title) lines.push(`Title: ${facts.title}`);
+  if (facts.h1) lines.push(`H1: ${facts.h1}`);
+  if (facts.meta) lines.push(`Meta: ${facts.meta}`);
+  for (const p of facts.bodyParagraphs ?? []) {
+    if (p && p.trim()) lines.push(p.trim());
+  }
+  const outline: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used >= OUTLINE_CHAR_BUDGET) break;
+    const take = line.slice(0, OUTLINE_CHAR_BUDGET - used);
+    outline.push(take);
+    used += take.length;
+  }
+  return outline;
+}
 
 const PLANNER_CONFIG = {
   maxExperiments: 8, maxPerPageFamily: 4, maxPerActionFamily: 4, maxHighTraffic: 2,
@@ -70,7 +121,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, correctionFactor] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, correctionFactor, teammateFreshness] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -118,6 +169,11 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     loadCalibrationRecords(tenantId)
       .then((rows) => summarizeForecastCalibration(rows).correctionFactor)
       .catch(() => 1),
+    // Item 46 (CARRY-OVER 115) - honest degradation: the SAME connector reads the standup strip
+    // and /settings/connectors already use, so a pick argued in part by a stale/dead-source voice
+    // says so in "how we know" instead of presenting every number as equally live. Fail-soft to
+    // an empty map (every card renders exactly as before).
+    loadTeammateFreshness(tenantId, now).catch(() => new Map<string, { status: "fresh" | "stale" | "dead"; ageDays: number | null; sentence: string }>()),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence. Item 18:
@@ -335,6 +391,41 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     return true;
   });
 
+  // Item 51 - THE WEEKLY STRATEGY REVIEW: compose this week's signed lever-mix weight
+  // (Sunday-night review, deterministically clamped to [0.5, 2.0]) on top of the team's
+  // multiplier, same multiplicative-compose pattern as the item 29 family-win boost above.
+  // A tenant with no fresh mix yet (or a neutral 1.0 weight for this family) is byte-
+  // identical to pre-item-51 behavior - additive-only, never a regression risk.
+  await applyWeeklyStrategyMixToCandidates(teamReviewed, tenantId).catch(() => 0);
+
+  // Item 47 - WIRE THE LEARNED PRIORS INTO THE NIGHTLY PLANNER SCORE. The worklist's demand-graph
+  // ranking already tilts by settled proof-ledger outcomes (load-graph.ts); the nightly batch that
+  // actually SHIPS changes never consumed that same learning. Mirrors load-graph.ts's discipline
+  // exactly: loadExperimentOutcomes (decided-only, maturity + weather + parallel-trends gated),
+  // resolvePrior's bounded [0.85, 1.15] multiplier with dimension backoff (queryCluster -> pageType
+  // -> actionType). Attaches learnedPrior (multiplier + tag) to each candidate; scoreCandidate folds
+  // it in as its own factor (see learnedPriorScoreFactor). Fail-soft -> every candidate stays neutral
+  // (multiplier 1, tag null), and a fresh tenant with zero settled outcomes produces a BYTE-IDENTICAL
+  // plan (pinned by daily-experiment-planner.test.ts).
+  try {
+    const outcomes = await loadExperimentOutcomes(tenantId);
+    if (outcomes.length > 0) {
+      const table = computeDimPriors(outcomes);
+      for (const c of teamReviewed) {
+        c.learnedPrior = resolvePrior(
+          {
+            actionType: canonicalMoveType(c.actionFamily),
+            pageType: pageTypeFromUrl(c.url),
+            queryCluster: queryClusterKey(c.targetQuery),
+          },
+          table,
+        );
+      }
+    }
+  } catch {
+    /* additive - never let the learning layer block or alter a nightly plan */
+  }
+
   // Item 35 - THE POWER GATE: before the planner scores/selects, ask whether each candidate's own
   // page has enough traffic to actually SEE its forecast effect within the 28-day read. Bounded to
   // the top POWER_CHECK_CAP candidates by raw opportunity (ctrOpportunityClicks) so a busy night
@@ -372,8 +463,19 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // full. Budgeted + fail-closed inside the structured drafter (off when BEACON_LLM_PROVIDER != openai
   // or the cap is hit); on any miss it keeps the deterministic text. Only drop-in field levers here;
   // answer-block writing (a new add-operation) is a later slice.
-  const llmDrafter: MetaTitleDrafter = async ({ query, pageLabel, field, currentValue, intent }) => {
-    const r = await draftAtomicEditStructured({ query, pageLabel, field, currentValue, outline: [], intent, tenantId });
+  // Item 48: GROUND the rewrite in the page it is actually editing. factsByPath already holds this
+  // page's title/h1/meta/body from page_snapshots (see the `facts` map above); pass it as `outline`
+  // so the prompt's "Page covers: ..." line is real and the numeric-fidelity firewall has grounded
+  // numbers to check against, instead of rejecting every good draft for having none. Composes the
+  // citability topFixes (when this page is also an item-26 citability target) BESIDE the outline as
+  // evidenceHints - never clobbers, since the two carry different information (what the page says vs
+  // what AI citability wants fixed).
+  const llmDrafter: MetaTitleDrafter = async ({ query, pageLabel, field, currentValue, intent, url }) => {
+    const pageFacts = url ? facts.get(url) : undefined;
+    const outline = buildOutlineFromFacts(pageFacts);
+    const citability = url ? citabilityHintsByPath.get(normalizePath(url)) : undefined;
+    const evidenceHints = citability?.topFixes;
+    const r = await draftAtomicEditStructured({ query, pageLabel, field, currentValue, outline, evidenceHints, intent, tenantId });
     return r.status === "drafted" ? { text: r.value.after, rationale: r.value.rationale } : null;
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
@@ -539,6 +641,20 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
           claim: c.familyWin.sentence,
           confidencePct: 85,
         });
+      }
+    }
+    // Item 46 (CARRY-OVER 115) - honest degradation: when a voice that argued this pick was
+    // reading from a stale or dead source (the same connector state the standup strip reads),
+    // "how we know" says so plainly instead of presenting every number as equally live. Absent
+    // when every voice's source was fresh - honest silence, never a manufactured caveat.
+    if (c.teamReview && c.teamReview.voices.length > 0) {
+      const staleNote = buildStaleSourceNote(
+        c.teamReview.voices.map((v) => v.specialist),
+        teammateFreshness,
+        (key) => teammateOf(key).short,
+      );
+      if (staleNote) {
+        c.evidenceBrief = { ...(c.evidenceBrief ?? { keywords: [], addressableVolume: null }), staleSource: staleNote };
       }
     }
   }

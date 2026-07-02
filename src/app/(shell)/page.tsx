@@ -17,6 +17,8 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
 import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
 import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/domains/experiments/forecast-calibration";
+import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
+import { strategyMemoLine } from "@/domains/strategy-review/surface";
 import { TeamStandup } from "./team-standup";
 import { TodayNewPagesSection } from "./today-newpages-section";
 import { CoverageMapSection } from "./coverage-map-section";
@@ -156,6 +158,13 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         })
         .catch(() => null)
     : null;
+  // Item 51 - the weekly strategy review's signed memo, Mondays only, self-hides when no
+  // fresh (this-or-next-week) mix exists. Fail-soft: any error just omits the line.
+  const strategySentence = isMonday
+    ? await loadLatestStrategyMix(tenantId)
+        .then((record) => strategyMemoLine(record, new Date()))
+        .catch(() => null)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -169,6 +178,13 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {calibrationSentence ? (
         <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-sky-900 tabular-nums">
           {calibrationSentence}
+        </div>
+      ) : null}
+      {/* Item 51 - the weekly strategy review's signed memo: what changed in the coming
+          week's plan posture and why, Mondays only, self-hides with no fresh mix. */}
+      {strategySentence ? (
+        <div className="rounded-xl border border-violet-100 bg-violet-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-violet-900 tabular-nums">
+          {strategySentence}
         </div>
       ) : null}
       {/* Item 43: the team, at a glance - each teammate's one-line daily report. */}

@@ -61,6 +61,11 @@ export type PlannedExperimentRecord = {
    *  per-batch read didn't reach this pick or it had no numeric forecast to assess - never a
    *  penalty, just nothing to show. Type lives in ./power-analysis (type-only import). */
   power?: import("./power-analysis").PowerAssessment;
+  /** Item 47: the learned win-rate prior for this pick's (actionType, pageType, queryCluster),
+   *  frozen at planning time. Absent/neutral (multiplier 1, tag null) when no settled outcome
+   *  bucket cleared the >=3-sample bar - a fresh tenant with no history never shows a tag. Type
+   *  lives in @/domains/learning/experiment-prior (type-only import - no runtime cycle). */
+  learnedPrior?: import("@/domains/learning/experiment-prior").LearnedPrior;
 
   currentText: string;
   proposedText: string;

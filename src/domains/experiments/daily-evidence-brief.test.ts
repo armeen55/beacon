@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildKeywordBrief, buildSerpEvidence, whatToSteal, buildCompetitorEvidence, buildRankMovementSentence,
+  buildKeywordBrief, buildSerpEvidence, whatToSteal, buildCompetitorEvidence, buildRankMovementSentence, buildStaleSourceNote,
+  buildRetrievalEvidence,
   type CachedDemand, type SerpPatternLite, type EvidenceSerp, type DailyEvidenceBrief,
 } from "./daily-evidence-brief";
 
@@ -246,5 +247,114 @@ describe("DailyEvidenceBrief.familyWin (item 29)", () => {
     expect(brief.familyWin?.sourceWinPage).toBe("/iran-animals/persian-cheetah");
     expect(brief.familyWin?.sentence).toContain("Same move, next page");
     expect(brief.familyWin?.sentence).not.toMatch(/[–—]/);
+  });
+});
+
+// ── Item 46 (CARRY-OVER 115): honest degradation - stale/dead source note ──
+
+const label = (key: string) => key.toUpperCase();
+const freshMap = new Map<string, { status: "fresh" | "stale" | "dead"; sentence: string }>([
+  ["gsc", { status: "fresh", sentence: "" }],
+  ["ga4", { status: "fresh", sentence: "" }],
+]);
+const mixedMap = new Map<string, { status: "fresh" | "stale" | "dead"; sentence: string }>([
+  ["gsc", { status: "fresh", sentence: "" }],
+  ["profound", { status: "stale", sentence: "the AI answer feed data is 3 days old. Reconnect in Settings." }],
+  ["ga4", { status: "dead", sentence: "Google Analytics lost its connection 5 days ago. Reconnect in Settings." }],
+]);
+
+describe("buildStaleSourceNote (item 46)", () => {
+  it("returns null when every voice's source is fresh - honest silence, never a manufactured caveat", () => {
+    expect(buildStaleSourceNote(["gsc", "ga4"], freshMap, label)).toBeNull();
+  });
+
+  it("returns null when a voice has no known freshness claim at all (e.g. the strategist)", () => {
+    expect(buildStaleSourceNote(["llm"], freshMap, label)).toBeNull();
+  });
+
+  it("surfaces the ONE degraded voice when a single source is stale", () => {
+    const note = buildStaleSourceNote(["gsc", "profound"], mixedMap, label);
+    expect(note).not.toBeNull();
+    expect(note?.status).toBe("stale");
+    expect(note?.teammate).toBe("PROFOUND");
+    expect(note?.sentence).toContain("3 days old");
+  });
+
+  it("dead outranks stale when both a stale and a dead voice argued this pick", () => {
+    const note = buildStaleSourceNote(["profound", "ga4"], mixedMap, label);
+    expect(note).not.toBeNull();
+    expect(note?.status).toBe("dead");
+    expect(note?.teammate).toBe("GA4");
+  });
+
+  it("is bounded to exactly one note even with multiple degraded voices", () => {
+    const note = buildStaleSourceNote(["gsc", "profound", "ga4"], mixedMap, label);
+    expect(note).not.toBeNull();
+    // Only one of the two degraded voices is named (dead wins the tie).
+    expect(note?.status).toBe("dead");
+  });
+
+  it("empty specialist list -> null, never throws", () => {
+    expect(buildStaleSourceNote([], mixedMap, label)).toBeNull();
+  });
+
+  it("every produced sentence is dash-clean (reused verbatim from source-freshness.ts)", () => {
+    for (const v of mixedMap.values()) {
+      expect(v.sentence).not.toMatch(/[–—]/);
+    }
+  });
+});
+
+describe("buildRetrievalEvidence (item 50)", () => {
+  it("returns null when the report has no questions (nothing indexed yet)", () => {
+    expect(buildRetrievalEvidence({ questions: [] })).toBeNull();
+    expect(buildRetrievalEvidence(null)).toBeNull();
+    expect(buildRetrievalEvidence(undefined)).toBeNull();
+  });
+
+  it("maps the report's FIRST question (best-evidence-first ordering) into the evidence line", () => {
+    const report = {
+      questions: [
+        {
+          question: "how do persians celebrate nowruz",
+          ownBestRank: 5,
+          totalCandidates: 12,
+          passageToBeat: { domain: "wikipedia.org" },
+          sentence:
+            "For \"how do persians celebrate nowruz\", your page's best passage ranks 5th of 12. The passage to beat is wikipedia.org's passage.",
+        },
+        {
+          question: "second question - never surfaced",
+          ownBestRank: 1,
+          totalCandidates: 3,
+          passageToBeat: null,
+          sentence: "second question sentence",
+        },
+      ],
+    };
+    const evidence = buildRetrievalEvidence(report);
+    expect(evidence).toEqual({
+      question: "how do persians celebrate nowruz",
+      ownBestRank: 5,
+      totalCandidates: 12,
+      beatDomain: "wikipedia.org",
+      sentence: report.questions[0].sentence,
+    });
+  });
+
+  it("beatDomain is null when the page already holds rank 1 (nothing to beat)", () => {
+    const report = {
+      questions: [
+        { question: "q", ownBestRank: 1, totalCandidates: 3, passageToBeat: null, sentence: "You are ahead right now." },
+      ],
+    };
+    expect(buildRetrievalEvidence(report)?.beatDomain).toBeNull();
+  });
+
+  it("produces a dash-clean sentence (pass-through, but pinned here too)", () => {
+    const report = {
+      questions: [{ question: "q", ownBestRank: null, totalCandidates: 0, passageToBeat: null, sentence: "I do not have any indexed passages yet." }],
+    };
+    expect(buildRetrievalEvidence(report)?.sentence).not.toMatch(/[–—]/);
   });
 });

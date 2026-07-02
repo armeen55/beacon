@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/precompute",
       "schedule": "3 12 * * *"
+    },
+    {
+      "path": "/api/cron/strategy-review",
+      "schedule": "33 13 * * 0"
     }
   ]
 }

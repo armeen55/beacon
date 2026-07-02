@@ -79,6 +79,7 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
     risk: "low",
     expectations: buildPickExpectations({ lever, ctrOpportunityClicks: c.ctrOpportunityClicks, effortMinutes: c.effortMinutes, correctionFactor }),
     power: c.power,
+    learnedPrior: c.learnedPrior,
     controls,
     influencedUrls: (c.influencedUrls ?? []).map(normalizePath),
     evidenceHash,

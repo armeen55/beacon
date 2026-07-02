@@ -8,6 +8,7 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ReadQueueButton } from "./read-queue-button";
 import { KeywordGapButton } from "./keyword-gap-button";
 import { WikiGapButton } from "./wiki-gap-button";
+import { RetrievalTwinButton } from "./retrieval-twin-button";
 
 /**
  * /competitors (2026-06-28 — ActionPack execution loop, Phase 6) — the real enemy
@@ -222,6 +223,8 @@ export default async function CompetitorsPage() {
             <KeywordGapButton />
             {/* Item 23: beat-Wikipedia finder trigger — bounded, free API, cached. */}
             <WikiGapButton />
+            {/* Item 50: retrieval-twin answer-race check — bounded, budgeted embeddings, cached. */}
+            <RetrievalTwinButton />
           </div>
         ) : null}
       </PageHeader>

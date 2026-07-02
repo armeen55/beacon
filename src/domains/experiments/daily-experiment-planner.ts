@@ -19,6 +19,7 @@ import {
   type ExternalFlags,
 } from "./experiment-eligibility";
 import { EXTREME_SHORTFALL_RATIO, type PowerAssessment } from "./power-analysis";
+import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
 
 /** First path segment groups a family (iran-animals/*, iran-flags/*); top-level slugs are
  *  their own family. Generic — no hardcoded vocabulary. */
@@ -57,6 +58,13 @@ export type DailyCandidate = {
    *  when no forecast exists yet (nothing to assess) or the read was skipped (budget/cache miss) -
    *  absence is treated as neutral, never as a penalty or an exclusion. */
   power?: PowerAssessment;
+  /** Item 47 (2026-07-02): the learned win-rate prior for this exact (actionType, pageType,
+   *  queryCluster) from src/domains/learning/experiment-prior.ts, resolved by the caller
+   *  (build-daily-candidates.ts) from loadExperimentOutcomes. Bounded [0.85, 1.15], decided-only,
+   *  >=3-sample with dimension backoff - the SAME discipline the worklist's demand-graph ranking
+   *  already applies (load-graph.ts). Absent/neutral (multiplier 1, tag null) on a fresh tenant
+   *  with no settled outcomes -> byte-identical plans. */
+  learnedPrior?: LearnedPrior;
 };
 
 export type PlannerConfig = {
@@ -138,6 +146,17 @@ function powerScoreFactor(power: PowerAssessment | undefined): number {
   return 0.25;
 }
 
+/** Item 47 (2026-07-02) - the learned-prior score factor: the SAME bounded multiplier the
+ *  demand-graph worklist ranking already applies (see load-graph.ts / experiment-prior.ts),
+ *  clamped again here defensively so a caller mistake can never push the nightly planner's score
+ *  outside [MIN_MULTIPLIER, MAX_MULTIPLIER] even if it somehow attached an out-of-range value.
+ *  Absent/neutral (multiplier 1) is the exact pre-item-47 score - a fresh tenant with no settled
+ *  outcomes yields byte-identical plans. */
+function learnedPriorScoreFactor(prior: LearnedPrior | undefined): number {
+  if (!prior) return 1;
+  return Math.max(MIN_MULTIPLIER, Math.min(MAX_MULTIPLIER, prior.multiplier));
+}
+
 /** Deterministic "tonight value" — rewards page-1 rank, weak CTR, clear ownership, medium
  *  traffic; the CTR opportunity (extra clicks) is the spine. PURE. */
 export function scoreCandidate(c: DailyCandidate): number {
@@ -151,7 +170,11 @@ export function scoreCandidate(c: DailyCandidate): number {
   // Item 35 - a candidate this page's own traffic can't resolve within the window is worth less
   // tonight than one we can actually verify, even if the raw opportunity looks identical.
   const powerFactor = powerScoreFactor(c.power);
-  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * powerFactor;
+  // Item 47 - what the ledger has already learned about this exact (actionType, pageType,
+  // queryCluster) tilts ties, never dominates (bounded to +/-15%, same discipline as the
+  // worklist's demand-graph ranking).
+  const priorFactor = learnedPriorScoreFactor(c.learnedPrior);
+  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * powerFactor * priorFactor;
 }
 
 /** Plan today's safe, diversified, effort-bounded batch. PURE. */

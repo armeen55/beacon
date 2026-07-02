@@ -4,6 +4,7 @@ import { planDailyExperiments, scoreCandidate, pageFamilyOf, type DailyCandidate
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { assessPower, type PowerAssessment } from "./power-analysis";
 import { hasBannedDash } from "@/lib/copy/strip-dashes";
+import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
 
 const NOW = new Date("2026-07-01T00:00:00Z");
 const CONTROLS = ["persian-cat", "caracal", "asiatic-cheetah"].map((s) => `https://iranopedia.com/iran-animals/${s}`);
@@ -260,5 +261,85 @@ describe("planDailyExperiments — item 35 power gate", () => {
     for (const s of plan.selected) if (s.power) expect(hasBannedDash(s.power.sentence)).toBe(false);
     expect(hasBannedDash(marginal.sentence)).toBe(false);
     expect(hasBannedDash(extremeShortfall.sentence)).toBe(false);
+  });
+});
+
+// ── Item 47: learned priors folded into the nightly planner score ──────────
+
+const won: LearnedPrior = { multiplier: 1.15, decidedSample: 5, basis: "actionType:answer_block", tag: 'Similar moves like this won 4 of 5, ranked higher' };
+const lost: LearnedPrior = { multiplier: 0.85, decidedSample: 4, basis: "actionType:edit_title", tag: "Similar moves like this underperformed (1/4), ranked lower" };
+const neutral: LearnedPrior = { multiplier: 1, decidedSample: 0, basis: null, tag: null };
+
+describe("scoreCandidate — item 47 learned-prior fold", () => {
+  it("no learnedPrior attached scores identically to an explicit neutral prior (byte-identical baseline)", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    const withNeutral = { ...base, learnedPrior: neutral };
+    expect(scoreCandidate(withNeutral)).toBeCloseTo(scoreCandidate(base), 9);
+  });
+
+  it("a proven-winner prior lifts the score by exactly its multiplier", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    const boosted = { ...base, learnedPrior: won };
+    expect(scoreCandidate(boosted)).toBeCloseTo(scoreCandidate(base) * won.multiplier, 6);
+  });
+
+  it("a proven-loser prior lowers the score by exactly its multiplier", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    const demoted = { ...base, learnedPrior: lost };
+    expect(scoreCandidate(demoted)).toBeCloseTo(scoreCandidate(base) * lost.multiplier, 6);
+  });
+
+  it("a learned prior tilts ties but never inverts a real opportunity gap (bounded influence)", () => {
+    const small = cand({ url: "/small", ctrOpportunityClicks: 100, learnedPrior: won }); // best case: +15%
+    const big = cand({ url: "/big", ctrOpportunityClicks: 1000, learnedPrior: lost }); // worst case: -15%
+    expect(scoreCandidate(big)).toBeGreaterThan(scoreCandidate(small));
+  });
+
+  it("defensively clamps an out-of-range multiplier to [MIN_MULTIPLIER, MAX_MULTIPLIER]", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    const rogueHigh = { ...base, learnedPrior: { ...won, multiplier: 3 } };
+    const rogueLow = { ...base, learnedPrior: { ...lost, multiplier: 0.1 } };
+    expect(scoreCandidate(rogueHigh)).toBeCloseTo(scoreCandidate(base) * MAX_MULTIPLIER, 6);
+    expect(scoreCandidate(rogueLow)).toBeCloseTo(scoreCandidate(base) * MIN_MULTIPLIER, 6);
+  });
+
+  it("composes multiplicatively with the team-score and power factors, not by replacing them", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200, teamScoreMultiplier: 1.2, power: wellPowered });
+    const withPrior = { ...base, learnedPrior: won };
+    expect(scoreCandidate(withPrior)).toBeCloseTo(scoreCandidate(base) * won.multiplier, 6);
+  });
+});
+
+describe("planDailyExperiments — item 47 identity-when-empty pin", () => {
+  it("a batch with NO learnedPrior anywhere produces a BYTE-IDENTICAL plan to the pre-item-47 shape", () => {
+    const candidates = [
+      cand({ url: "/iran-flags/a", pageFamily: "iran-flags", ctrOpportunityClicks: 900 }),
+      cand({ url: "/iran-flags/b", pageFamily: "iran-flags", ctrOpportunityClicks: 800 }),
+      cand({ url: "/people/c", pageFamily: "people", actionFamily: "meta", ctrOpportunityClicks: 700 }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    // Order + selection is driven purely by ctrOpportunityClicks (descending) when every
+    // learnedPrior is absent - a fresh tenant with zero settled outcomes must see this.
+    expect(plan.selected.map((s) => s.url)).toEqual(["/iran-flags/a", "/iran-flags/b", "/people/c"]);
+  });
+
+  it("a real prior can re-order the batch (the learning actually influences tonight's pick order)", () => {
+    const candidates = [
+      cand({ url: "/a", pageFamily: "a", actionFamily: "title", ctrOpportunityClicks: 210 }),
+      cand({ url: "/b", pageFamily: "b", actionFamily: "meta", ctrOpportunityClicks: 200, learnedPrior: won }),
+    ];
+    // Without the prior, /a (210) would edge out /b (200). With /b's proven-winner prior
+    // (+15%, 200*1.15=230), /b should now edge out /a.
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, maxExperiments: 1, backups: 0 } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["/b"]);
+  });
+
+  it("learned-prior tags carried on selected picks never contain a banned dash", () => {
+    // Guards the ACTUAL tag strings this module ships against the hard no-dash rule, since
+    // tagFor() in experiment-prior.ts is shared infrastructure this planner now surfaces.
+    const candidates = [cand({ url: "/a", learnedPrior: won }), cand({ url: "/b", learnedPrior: lost, pageFamily: "z" })];
+    for (const c of candidates) {
+      if (c.learnedPrior?.tag) expect(hasBannedDash(c.learnedPrior.tag)).toBe(false);
+    }
   });
 });

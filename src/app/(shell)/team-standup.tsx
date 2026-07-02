@@ -19,8 +19,16 @@ import { loadTeamScoreboardView } from "@/domains/team-scoreboard/load-team-scor
 import { recordLine } from "@/domains/team-scoreboard/brier";
 import { buildCalibrationLine } from "@/domains/team-scoreboard/calibration";
 import { currentTenantSlug } from "@/lib/tenant-context";
+import { loadTeammateFreshness, type TeammateFreshnessMap } from "@/domains/team/source-freshness";
 
 type StandupLine = { key: string; line: string; active: boolean; title?: string };
+
+/** Item 46 (2026-07-02, CARRY-OVER 115) - "honest degradation everywhere": the amber/red dot
+ *  color for a teammate whose backing data source is stale or dead. Fresh (or no freshness claim
+ *  for this teammate, e.g. the strategist has no connector) keeps the existing identity-color dot
+ *  untouched. Pure presentational mapping, no new detection logic - source-freshness.ts already
+ *  did the honest read. */
+const FRESHNESS_DOT_COLOR: Record<"stale" | "dead", string> = { stale: "#d97706", dead: "#dc2626" };
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
@@ -177,11 +185,25 @@ async function loadScoreboardForStandup(tenantId: string): Promise<{
   }
 }
 
+/** Item 46 - the chip's title attribute stacks the item-43 calibration line (if any) with the
+ *  freshness sentence (if the source is stale/dead), so a hover never loses either fact. Fresh
+ *  sources with no calibration line keep title undefined exactly as before. */
+function chipTitle(calibration: string | undefined, freshness: string | undefined): string | undefined {
+  const parts = [calibration, freshness].filter((s): s is string => Boolean(s && s.trim()));
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
 export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string; picksTonight: number }) {
   try {
     const { footer, calibrationLine, objectionLine, records, calibrations } = await loadScoreboardForStandup(tenantId);
     const lines = await buildLines(tenantId, picksTonight, records, calibrations);
     if (lines.length === 0) return null;
+    // Item 46 - honest degradation: the SAME connector reads /settings/connectors and the item-10
+    // pipeline-readings collector already use (getConnectorInfo, via source-freshness.ts), so a
+    // teammate whose backing source is stale/dead gets an amber/red dot + a plain-English tooltip
+    // instead of looking identical to a healthy one. Fail-soft to an empty map (every chip renders
+    // exactly as before) - never blocks or slows the standup render.
+    const freshness: TeammateFreshnessMap = await safe(() => loadTeammateFreshness(tenantId), new Map());
     // Item 43 - stack the calibration and objection lines under the item-38 footer whenever each
     // clears its own 5-observation minimum (both loaders already return null below that bar, so this
     // is a plain filter, never an extra gate). Either, both, or neither can render independently.
@@ -191,14 +213,21 @@ export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string
         <section aria-label="Team standup" className="flex flex-wrap gap-2">
           {lines.map((l) => {
             const t = teammateOf(l.key);
+            const fresh = freshness.get(l.key);
+            const degraded = fresh && fresh.status !== "fresh";
+            const dotColor = degraded ? FRESHNESS_DOT_COLOR[fresh.status as "stale" | "dead"] : t.color;
             return (
               <span
                 key={l.key}
-                title={l.title}
+                title={chipTitle(l.title, degraded ? fresh.sentence : undefined)}
                 className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px]"
                 style={{ background: t.bg, borderColor: `${t.color}33`, color: t.text }}
               >
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t.color, opacity: l.active ? 1 : 0.35 }} />
+                <span
+                  aria-label={degraded ? `${t.name}: ${fresh.sentence}` : undefined}
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: dotColor, opacity: l.active ? 1 : 0.35 }}
+                />
                 <span className="font-semibold">{t.short}</span>
                 <span style={{ opacity: 0.85 }}>{l.line}</span>
               </span>

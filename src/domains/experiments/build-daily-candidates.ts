@@ -102,6 +102,11 @@ export type BuiltCandidate = DailyCandidate & {
    *  siblings still eligible to receive it. Absent unless a real mature win exists for this
    *  page's family + lever AND this page made the nightly cap. Deterministic, $0. */
   familyWin?: FamilyPropagationCandidate;
+  /** Item 51 (weekly strategy review): this week's signed lever-mix weight for this pick's
+   *  action family, when the Sunday review produced a non-neutral one. Attached by the caller
+   *  (build-today-preview.ts) so the card can say "this week's plan leans into answer blocks -
+   *  they have been winning here." Absent when no fresh mix exists or the weight is neutral (1). */
+  strategyMixTag?: { family: string; weight: number; reason: string };
 };
 
 // CTR curve lives in pick-expectations (items 34/61 share it); alias keeps call sites unchanged.

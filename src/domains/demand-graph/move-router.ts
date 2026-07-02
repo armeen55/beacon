@@ -59,6 +59,14 @@ export type MoveRouterDecision = {
   whyNotAlternatives: string[];
   /** Earliest staleAt across the supporting opinions (when to recompute). */
   staleAt: string | null;
+  /** BEACON_500 item 49 - who actually decided the action: the demand graph's own gap
+   *  classification ("seed", the default), or the team's normalized vote tally beating the
+   *  seed by more than the margin threshold ("vote"). Vetoes can still override either. */
+  electedBy: "seed" | "vote";
+  /** BEACON_500 item 49 - the winning vote's share of total vote weight minus the seed
+   *  action's share, i.e. how decisively the team outvoted the default (0 when electedBy
+   *  is "seed" or there were no votes to compare). */
+  margin: number;
 };
 
 export const GAP_TO_ACTION: Record<GapKind, MoveRouterAction> = {
@@ -100,6 +108,29 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
+/** BEACON_500 item 49 - a vote winner must beat the seeded action by more than this share of
+ *  the total vote weight before it takes the decision. Below this margin the seed wins (the
+ *  existing "seed wins when close" behavior is preserved on purpose - a narrow vote plurality
+ *  is not a mandate). Documented constant so the threshold is visible and tunable in one place. */
+export const VOTE_ELECTION_MARGIN = 0.25;
+
+/** BEACON_500 item 49 - election also requires a genuine TEAM consensus, not one loud voice: at
+ *  least this many distinct specialists must back the winning action. A single specialist's
+ *  opinion (e.g. Clarity's friction reading, which is a deliberate downgrade-not-veto in Sprint
+ *  1) can clear the margin threshold alone but must never unilaterally out-vote the graph's own
+ *  seed - the debate is supposed to decide together, not let one teammate override by default. */
+export const VOTE_ELECTION_MIN_VOICES = 2;
+
+const ACTION_PLAIN_FOR_DEBATE: Record<MoveRouterAction, string> = {
+  create_page: "a new page", edit_existing_page: "an edit to the existing page",
+  add_answer_block: "an answer block", add_schema: "structured data",
+  change_title_meta: "a title change", add_internal_links: "an internal link",
+  build_tool: "a tool", build_calculator: "a calculator", create_asset: "a new asset",
+  fix_ux: "fixing the experience first", get_backlinks: "backlink outreach",
+  local_seo_update: "a local SEO update", improve_image_seo: "image SEO",
+  optimize_product_page: "a product page update", wait: "waiting",
+};
+
 type RouteInput = {
   packet: EvidencePacket;
   opinions: SpecialistOpinion[];
@@ -120,26 +151,64 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
     CONF_LEVEL_TO_NUM[input.move?.confidence ?? packet.move.confidence] ?? 0.5;
 
   // 1) Seed from the graph's honest first-pass classification.
-  let action: MoveRouterAction = GAP_TO_ACTION[gap] ?? "wait";
+  const seedAction: MoveRouterAction = GAP_TO_ACTION[gap] ?? "wait";
+  let action: MoveRouterAction = seedAction;
   let rationale = packet.move.label
     ? `Demand graph routed "${packet.move.label}" to ${action.replace(/_/g, " ")}.`
     : `Routed to ${action.replace(/_/g, " ")}.`;
 
-  // 2) Tally weighted votes (confidence-weighted) for each suggested action.
+  // 2) Tally weighted votes - ONE vote per specialist, split evenly across its suggestedMoveTypes
+  //    (item 49). A voice listing two actions (e.g. ["add_answer_block", "add_schema"]) casts
+  //    0.5 confidence-weight to each instead of its full confidence to both, so a single opinion
+  //    can never out-vote two opinions that each committed to one action.
   const votes = new Map<MoveRouterAction, number>();
+  let totalVoteWeight = 0;
   for (const o of opinions) {
+    const n = o.suggestedMoveTypes.length;
+    if (n === 0) continue;
+    const share = o.confidence / n;
     for (const a of o.suggestedMoveTypes) {
-      votes.set(a, (votes.get(a) ?? 0) + o.confidence);
+      votes.set(a, (votes.get(a) ?? 0) + share);
+    }
+    totalVoteWeight += o.confidence;
+  }
+
+  // 2b) ELECT the winner from the tally when it clearly beats the seed (item 49). The sorted
+  //     tally used to feed whyNot lines only; now a decisive plurality can take the decision.
+  //     Margin = (topVoteWeight - seedVoteWeight) / totalVoteWeight, so it reads as "how much of
+  //     the team's total voice backs the alternative over the default". Ties and narrow leads
+  //     keep the seed (the pre-existing "seed wins when close" behavior), so this can only ADD
+  //     confidence to a genuinely lopsided debate, never destabilize an ordinary one.
+  let electedBy: "seed" | "vote" = "seed";
+  let margin = 0;
+  if (totalVoteWeight > 0) {
+    const sortedVotes = [...votes.entries()].sort((a, b) => b[1] - a[1]);
+    const [topAction, topWeight] = sortedVotes[0] ?? [seedAction, 0];
+    const seedWeight = votes.get(seedAction) ?? 0;
+    const computedMargin = (topWeight - seedWeight) / totalVoteWeight;
+    const voiceCount = opinions.filter((o) => o.suggestedMoveTypes.includes(topAction)).length;
+    if (topAction !== seedAction && computedMargin > VOTE_ELECTION_MARGIN && voiceCount >= VOTE_ELECTION_MIN_VOICES) {
+      action = topAction;
+      electedBy = "vote";
+      margin = computedMargin;
+      rationale =
+        `The team outvoted the default here: ${voiceCount} voices back ` +
+        `${ACTION_PLAIN_FOR_DEBATE[topAction] ?? topAction.replace(/_/g, " ")} over ` +
+        `${ACTION_PLAIN_FOR_DEBATE[seedAction] ?? seedAction.replace(/_/g, " ")} ` +
+        `(${Math.round(computedMargin * 100)}% margin).`;
     }
   }
 
   const appliedObjections: Objection[] = [];
   const whyNot: string[] = [];
 
-  // 3) Apply VETOes - they override the action.
+  // 3) Apply VETOes - they override the action. Checked against the seed AND the (possibly
+  //    vote-elected) current action, so a veto aimed at the graph's original classification
+  //    still fires even when the vote already moved the decision away from it (item 49: vetoes
+  //    still apply after election).
   const vetoes = opinions.flatMap((o) => o.objections).filter((ob) => ob.severity === "veto");
   for (const v of vetoes) {
-    const hitsCurrent = v.against.length === 0 || v.against.includes(action);
+    const hitsCurrent = v.against.length === 0 || v.against.includes(action) || v.against.includes(seedAction);
     if (!hitsCurrent) continue;
     if (v.kind === "already_ranks") {
       action = "edit_existing_page";
@@ -233,5 +302,7 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
     dissenting,
     whyNotAlternatives: whyNot,
     staleAt,
+    electedBy,
+    margin,
   };
 }

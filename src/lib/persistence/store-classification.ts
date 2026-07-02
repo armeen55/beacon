@@ -328,6 +328,11 @@ export const GLOBAL_STORES = new Set<string>([
   "team-scoreboard",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
+  // retrieval-twin-budget (2026-07-02, master plan item 50) - the retrieval twin's OWN
+  // monthly embeddings spend cap. Same shape/rationale as llm-budget (one shared operator
+  // pot, single JSON blob, no per-tenant fan-out) but a SEPARATE ledger surface so embedding
+  // spend can never drain (or be drained by) the adjudicator/drafting caps.
+  "retrieval-twin-budget",
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific
   // Edit LLM call audit log; operator-shared budget pot, same shape as
   // adjudicator-history but for the SpecificEditProvider pipeline
@@ -337,6 +342,12 @@ export const GLOBAL_STORES = new Set<string>([
   // Phase 7.8d-1 (2026-04-26) — explicit cross-tenant pattern store.
   // Self-documented as global in src/domains/global-patterns/store.ts.
   "global-patterns",
+  // Weekly strategy review (2026-07-02, master plan item 51). Rows carry
+  // tenant_id; written by the Sunday-night cron (no ambient request context,
+  // same fan-out rationale as the stores above). Append-only per-week history
+  // (last 12 weeks) of the proposed lever mix + focus families + signed memo,
+  // read by build-today-preview.ts's multiplier and the Monday recap band.
+  "strategy-mix-history",
 ]);
 
 /**

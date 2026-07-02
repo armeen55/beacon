@@ -163,6 +163,12 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Today standup strip's honest best-forecaster footer. Without the mirror the
   // scoreboard would be silent-empty on hosted prod after every lambda recycle.
   "team-scoreboard",
+  // 2026-07-02 item 51 - the weekly strategy review's append-only lever-mix
+  // history (proposed lever weights + focus families + signed memo per week).
+  // Written by the Sunday-night cron (Vercel lambda, no disk); read by
+  // build-today-preview.ts's multiplier and the Monday recap band. Without the
+  // mirror the mix would silently reset to neutral on hosted prod every recycle.
+  "strategy-mix-history",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

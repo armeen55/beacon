@@ -182,6 +182,17 @@ describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   // degrades to an honest error status. Gemini/Claude lanes go through the
   // budget-capped DataForSEO gauntlet instead, never this egress.
   "src/domains/ai-visibility/run-engine-poll.ts",
+  // retrieval twin embeddings (2026-07-02, BEACON 500 item 50): the ONLY caller of OpenAI's
+  // embeddings endpoint (text-embedding-3-small, ~$0.02/1M tokens). Read-only feature
+  // extraction, never published content. Gated by OPENAI_API_KEY presence; every batch
+  // re-checks src/domains/retrieval-twin/retrieval-budget.ts's checkBudget (fail-closed,
+  // separate ledger surface from the adjudicator/drafting caps) before the call and
+  // recordSpend immediately after. Cache-first: hash-keyed against the Supabase
+  // retrieval_chunks table, so a re-run only pays for chunks whose text actually changed.
+  // Operator-triggered only (no nightly auto-indexing this cycle); bounded batches of
+  // <=100 inputs. Any failure (missing key, budget block, API error) fails soft to a
+  // per-chunk "skipped" result, never a thrown exception.
+  "src/domains/retrieval-twin/embeddings.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {

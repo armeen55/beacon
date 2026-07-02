@@ -229,6 +229,21 @@ function ExpectationLines({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
+/** Item 47 (2026-07-02): what the ledger has already learned about moves like this one, shown
+ *  right on the pick card (not buried in the expander) since it is part of why tonight picked
+ *  this over another candidate. Absent when the tag is neutral (no settled bucket cleared the
+ *  sample bar yet) - a fresh tenant with no history shows nothing here, exactly as before. */
+function LearnedPriorTag({ e }: { e: PlannedExperimentRecord }) {
+  const p = e.learnedPrior;
+  if (!p || !p.tag) return null;
+  const positive = p.multiplier > 1;
+  return (
+    <div className={`mt-2 text-[12px] font-medium ${positive ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+      {stripBannedDashes(p.tag)}
+    </div>
+  );
+}
+
 /** The live Google reaction: what shape of page wins for this search + who holds the top spots. */
 function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
   const serp = e.evidenceBrief?.serp;
@@ -270,6 +285,20 @@ function CitabilityEvidence({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
+/** Item 46 (CARRY-OVER 115): honest degradation - one of the voices behind this pick was reading
+ *  from a stale or dead data source, so "how we know" says so plainly instead of presenting every
+ *  number as equally live. Absent when every voice's source was fresh. */
+function StaleSourceNote({ e }: { e: PlannedExperimentRecord }) {
+  const s = e.evidenceBrief?.staleSource;
+  if (!s) return null;
+  return (
+    <div className="text-amber-700 dark:text-amber-400">
+      <span className="font-semibold">Heads up: </span>
+      {stripBannedDashes(s.sentence)}
+    </div>
+  );
+}
+
 /** The optional depth: the search, the current state, the comparison pages, the measurement plan. */
 function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string }) {
   const detailLine =
@@ -281,6 +310,7 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
       <summary className="cursor-pointer text-[11px] font-medium text-gray-400 transition-colors hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300">How we know</summary>
       <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-700 tabular-nums dark:text-neutral-300">
         <div><span className="text-gray-400 dark:text-neutral-500">The search people use: </span>“{e.targetQuery}”</div>
+        <StaleSourceNote e={e} />
         <KeywordResearch e={e} />
         <SerpReaction e={e} />
         <CompetitorSteal e={e} />
@@ -321,6 +351,7 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
           <div className="text-[13px] leading-relaxed text-gray-700 dark:text-neutral-300">{why}</div>
         </>
       ) : null}
+      <LearnedPriorTag e={e} />
       <TeamRoundtable e={e} />
       <ExpectationLines e={e} />
       <FinalReviewCaution e={e} />
@@ -420,6 +451,7 @@ function ExecutionCard({ planId, item, spark, staging, wixEditorUrl }: { planId:
           <div className="text-[13px] leading-relaxed text-gray-700 dark:text-neutral-300">{why}</div>
         </>
       ) : null}
+      <LearnedPriorTag e={e} />
       <TeamRoundtable e={e} />
       <ExpectationLines e={e} />
       <FinalReviewCaution e={e} />
